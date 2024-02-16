@@ -1,7 +1,7 @@
 # src/classes/video_handler.py
 
 import cv2
-from parameters import Parameters
+from .parameters import Parameters
 from collections import deque
 
 class VideoHandler:
@@ -21,13 +21,11 @@ class VideoHandler:
         """
         self.cap = None  # VideoCapture object
         self.frame_history = deque(maxlen=Parameters.STORE_LAST_FRAMES)
+        self.delay_frame = self.init_video_source()
+        
         self.init_video_source()
 
     def init_video_source(self):
-        """
-        Initialize the video source based on the configuration in Parameters.
-        Raises an exception if the video source cannot be opened.
-        """
         if Parameters.VIDEO_SOURCE_TYPE == "VIDEO_FILE":
             self.cap = cv2.VideoCapture(Parameters.VIDEO_SOURCE_IDENTIFIER)
         elif Parameters.VIDEO_SOURCE_TYPE == "USB_CAMERA":
@@ -37,6 +35,18 @@ class VideoHandler:
 
         if not self.cap or not self.cap.isOpened():
             raise ValueError(f"Could not open video source: {Parameters.VIDEO_SOURCE_IDENTIFIER}")
+        
+        if Parameters.VIDEO_SOURCE_TYPE == "VIDEO_FILE":
+            # Attempt to retrieve the FPS of the video source 
+            fps = self.cap.get(cv2.CAP_PROP_FPS)
+            if fps <=0:
+                fps = Parameters.DEFAULT_FPS # Fallback to default if detection fails
+            delay_frame =  max(int(1000 / fps), 1)  # Ensure delay is at least 1ms
+        else:
+            delay_frame = 1
+            
+        return delay_frame 
+
 
     def get_frame(self):
         """
@@ -80,3 +90,22 @@ class VideoHandler:
         if self.cap:
             self.cap.release()
 
+    def test_video_feed(self):
+            """
+            Displays the video feed to verify that the video source is correctly initialized
+            and frames can be read. Press 'q' to quit the test.
+            """
+            print("Testing video feed. Press 'q' to exit.")
+            while True:
+                frame = self.get_frame()
+                if frame is None:
+                    print("No more frames to display, or an error occurred.")
+                    break
+
+                cv2.imshow("Test Video Feed", frame)
+
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+
+            self.release()
+            cv2.destroyAllWindows()
