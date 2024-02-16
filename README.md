@@ -8,19 +8,19 @@ PixEagle aims to integrate advanced tracking and drone control capabilities with
 ## Project Directory Structure
 
 PixEagle/
-│
 ├── src/
-│ ├── classes/
-│ │ ├── video_handler.py # Handles video input from various sources
-│ │ ├── drone_controller.py # Manages drone commands and state
-│ │ ├── tracker.py # Implements object tracking functionalities
-│ │ ├── communicator.py # Handles communication and data reporting
-│ │ └── parameters.py # Centralizes configuration settings
-│ │
-│ └── main.py # Main application logic
+│   ├── classes/
+│   │   ├── video_handler.py # Handles video input from various sources
+│   │   ├── drone_controller.py # Manages drone commands and state
+│   │   ├── tracker.py # Implements object tracking functionalities
+│   │   ├── communicator.py # Handles communication and data reporting
+│   │   └── parameters.py # Centralizes configuration settings
+│   │
+│   └── main.py # Main application logic
 │
 ├── requirements.txt # Project dependencies
 └── README.md # Project overview and documentation
+
 
 
 ## Classes and Responsibilities
