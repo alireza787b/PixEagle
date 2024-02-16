@@ -3,7 +3,60 @@
 
 ## Overview
 
-The PixEagle Project is a pioneering initiative focused on developing state-of-the-art autonomous systems by integrating PX4 autopilot software, artificial intelligence, and advanced tracking technologies. Our goal is to advance the capabilities of drones and robotic systems for autonomous following, tracking, and intelligent interaction within various sectors, including surveillance, logistics, and agriculture.
+PixEagle aims to integrate advanced tracking and drone control capabilities with a focus on modularity, efficiency, and expandability. Below is the initial approach to the project structure and class design.
+
+## Project Directory Structure
+
+PixEagle/
+│
+├── src/
+│ ├── classes/
+│ │ ├── video_handler.py # Handles video input from various sources
+│ │ ├── drone_controller.py # Manages drone commands and state
+│ │ ├── tracker.py # Implements object tracking functionalities
+│ │ ├── communicator.py # Handles communication and data reporting
+│ │ └── parameters.py # Centralizes configuration settings
+│ │
+│ └── main.py # Main application logic
+│
+├── requirements.txt # Project dependencies
+└── README.md # Project overview and documentation
+
+
+## Classes and Responsibilities
+
+### VideoHandler
+
+- **Purpose**: Manages video inputs from different sources (e.g., USB camera, video files, streaming URLs).
+- **Functionality**: Dynamically selects video source based on runtime parameters or user input and provides video frames to the application.
+
+### DroneController
+
+- **Purpose**: Controls and monitors the state of the drone, integrating with drone flight software and hardware.
+- **Functionality**: Handles takeoff, landing, and in-flight commands, adjusting for tracking and navigation.
+
+### Tracker
+
+- **Purpose**: Facilitates object tracking within the video feed.
+- **Functionality**: Allows user interaction for ROI selection and uses OpenCV to track the selected object, reporting its position and deviations.
+
+### Communicator
+
+- **Purpose**: Manages external communication for data reporting and control signals.
+- **Functionality**: Could be used for logging, displaying tracking information, or communicating with external systems.
+
+### Parameters
+
+- **Purpose**: Stores and manages all configuration settings for the project.
+- **Functionality**: Includes settings for video source selection, tracking parameters, and any other configurable aspects of the project.
+
+## Initial Flow in `main.py`
+
+1. **Initialization**: Start by setting up the `Parameters` to define the project's operational settings.
+2. **Video Source Setup**: Initialize `VideoHandler` based on the selected video source from `Parameters`.
+3. **User Interaction**: Enable user interaction for selecting an ROI within the video feed, initiating tracking.
+4. **Tracking and Reporting**: Utilize `Tracker` to monitor and report the object's position, with `Communicator` managing any necessary output or data communication.
+
 
 ## Project Status: Under Active Development
 
