@@ -12,26 +12,18 @@ def main():
     while True:
         frame = video_handler.get_frame()
         if frame is None:
-            break  # End of video or camera feed error
-
+            break  # End of video or camera feed erro
         if tracking_started:
-            success, bbox = tracker.update(frame)
+            success, _ = tracker.update(frame)
             if success:
-                # Draw bounding box and center dot on the frame
-                p1 = (int(bbox[0]), int(bbox[1]))
-                p2 = (int(bbox[0] + bbox[2]), int(bbox[1] + bbox[3]))
-                center = (int(bbox[0] + bbox[2] / 2), int(bbox[1] + bbox[3] / 2))
-                
-                cv2.rectangle(frame, p1, p2, (255,0,0), 2, 1)
-                cv2.circle(frame, center, 5, (0,0,255), -1)  # Red dot at the center
-
-                if deviation_display:
-                    frame_center = (frame.shape[1] // 2, frame.shape[0] // 2)
-                    deviation = (center[0] - frame_center[0], center[1] - frame_center[1])
-                    print(f"Deviation from center: {deviation}")
+                frame = tracker.draw_tracking(frame)  # Draw tracking info and report deviation
+                if Parameters.USE_ESTIMATOR == True:   
+                    frame = tracker.draw_estimate(frame)  # Draw tracking info and report deviation
 
         # Display the frame after modifications
         cv2.imshow("Tracking", frame)
+
+
 
         key = cv2.waitKey(video_handler.delay_frame) & 0xFF  # Use dynamic delay based on video FPS
         if key == ord('q'):  # Quit program

@@ -20,6 +20,9 @@ class Parameters:
 
     # Specify how many recent frames the VideoHandler should store.
     STORE_LAST_FRAMES = 5 
+    
+    USE_ESTIMATOR = True  # Toggle to enable/disable the position estimator
+    ESTIMATOR_HISTORY_LENGTH = 5  # Number of past estimations to store
 
 
     # ----- Tracking Configuration -----
@@ -39,8 +42,9 @@ class Parameters:
     "MEDIANFLOW": {"points_in_grid": 10, "max_level": 5},
     "MOSSE": {"sigma": 100, "learning_rate": 0.125},
     "GOTURN": {"model_bin": "goturn.bin", "model_proto": "goturn.prototxt"}
-    # Note: GOTURN requires additional model files to be specified.
-}
+    # Note: GOTURN requires additional model files to be specified.     
+    }
+    CENTER_HISTORY_LENGTH = 10  # Number of past center points to store
 
 
     # ----- Application Behavior -----
