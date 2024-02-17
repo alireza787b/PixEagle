@@ -1,78 +1,74 @@
+
 # PixEagle
-# PixEagle Project
 
 ## Overview
 
-PixEagle aims to integrate advanced tracking and drone control capabilities with a focus on modularity, efficiency, and expandability. Below is the initial approach to the project structure and class design.
+PixEagle is an innovative project designed to enhance drone control and tracking capabilities. It emphasizes modularity, efficiency, and expandability, integrating advanced tracking technologies with drone control systems. The project leverages cutting-edge AI and computer vision techniques to achieve precise object tracking and drone navigation.
 
 ## Project Directory Structure
 
-- PixEagle/
-  - src/
-    - classes/
-      - video_handler.py: Handles video input from various sources
-      - drone_controller.py: Manages drone commands and state
-      - tracker.py: Implements object tracking functionalities
-      - communicator.py: Handles communication and data reporting
-      - parameters.py: Centralizes configuration settings
-    - main.py: Main application logic
-  - requirements.txt: Project dependencies
-  - README.md: Project overview and documentation
+- `README.md`: Project overview and documentation.
+- `requirements.txt`: Lists the project dependencies.
+- `resources/`: Contains test video files for development and testing.
+- `setup_pytorch.sh`: Script to set up PyTorch environment.
+- `src/`: Source code directory.
+  - `main.py`: Entry point of the application.
+  - `test_Ver.py`: Test script for verification.
+  - `classes/`: Contains core classes.
+    - `app_controller.py`: Orchestrates the application flow.
+    - `parameters.py`: Manages configuration settings.
+    - `position_estimator.py`: Implements position estimation.
+    - `segmentor.py`: Handles object segmentation.
+    - `tracker.py`: Facilitates object tracking.
+    - `video_handler.py`: Manages video input sources.
 
+## Key Components
 
-
-
-## Classes and Responsibilities
-
-### VideoHandler
-
-- **Purpose**: Manages video inputs from different sources (e.g., USB camera, video files, streaming URLs).
-- **Functionality**: Dynamically selects video source based on runtime parameters or user input and provides video frames to the application.
-
-### DroneController
-
-- **Purpose**: Controls and monitors the state of the drone, integrating with drone flight software and hardware.
-- **Functionality**: Handles takeoff, landing, and in-flight commands, adjusting for tracking and navigation.
-
-### Tracker
-
-- **Purpose**: Facilitates object tracking within the video feed.
-- **Functionality**: Allows user interaction for ROI selection and uses OpenCV to track the selected object, reporting its position and deviations.
-
-### Communicator
-
-- **Purpose**: Manages external communication for data reporting and control signals.
-- **Functionality**: Could be used for logging, displaying tracking information, or communicating with external systems.
+### AppController
+Central controller that manages the application's main functionalities, including tracking and segmentation.
 
 ### Parameters
+Stores and manages all configuration settings, including video source and tracking parameters.
 
-- **Purpose**: Stores and manages all configuration settings for the project.
-- **Functionality**: Includes settings for video source selection, tracking parameters, and any other configurable aspects of the project.
+### PositionEstimator
+Utilizes Kalman filters for accurate position estimation of tracked objects.
 
-## Initial Flow in `main.py`
+### Segmentor
+Implements segmentation algorithms to refine object tracking, supporting algorithms like GrabCut.
 
-1. **Initialization**: Start by setting up the `Parameters` to define the project's operational settings.
-2. **Video Source Setup**: Initialize `VideoHandler` based on the selected video source from `Parameters`.
-3. **User Interaction**: Enable user interaction for selecting an ROI within the video feed, initiating tracking.
-4. **Tracking and Reporting**: Utilize `Tracker` to monitor and report the object's position, with `Communicator` managing any necessary output or data communication.
+### Tracker
+Employs OpenCV for object tracking, allowing for dynamic ROI selection based on user input.
 
+### VideoHandler
+Handles video inputs from various sources, such as video files, USB cameras, and streaming URLs.
 
-## Project Status: Under Active Development
+## Getting Started
 
-The PixEagle project is in the early stages of development. Our team is dedicated to building a robust platform that leverages PX4 for flight control, incorporates AI for smart decision-making, and utilizes advanced tracking for precise object following and interaction.
+To set up the PixEagle project, follow these steps:
 
-## How to Contribute
-
-We welcome contributions from developers, researchers, and enthusiasts in the fields of drone technology, AI, and robotics. Here's how you can contribute:
-
-- **Check Out Current Issues:** Browse through the issues to find something you're interested in.
-- **Discuss Your Ideas:** Have a suggestion? Open an issue to share your ideas with the team.
-- **Contribute Code:** Submit a pull request with your changes or new features.
-
-## Setup Instructions
-
-To get started with the PixEagle project, follow these steps:
-
-1. **Clone the repository:**
+1. Clone the repository:
    ```bash
    git clone https://github.com/alireza787b/PixEagle.git
+   ```
+2. Install the required dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Run the setup script for PyTorch (if necessary):
+   ```bash
+   ./setup_pytorch.sh
+   ```
+4. Execute the main application:
+   ```bash
+   python src/main.py
+   ```
+
+## Contribution Guidelines
+
+We welcome contributions from developers, researchers, and enthusiasts in drone technology, AI, and robotics. You can contribute by checking out current issues, discussing your ideas, or submitting pull requests with new features or improvements.
+
+## Project Status
+
+PixEagle is under active development, focusing on leveraging PX4 for flight control, incorporating AI for smart decision-making, and utilizing advanced tracking for precise object interaction.
+
+
