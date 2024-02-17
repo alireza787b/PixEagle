@@ -21,6 +21,8 @@ class VideoHandler:
         """
         self.cap = None  # VideoCapture object
         self.frame_history = deque(maxlen=Parameters.STORE_LAST_FRAMES)
+        self.width = None  # Width of the video source
+        self.height = None  # Height of the video source
         self.delay_frame = self.init_video_source()
         
         self.init_video_source()
@@ -49,6 +51,10 @@ class VideoHandler:
         """
         if Parameters.VIDEO_SOURCE_TYPE == "VIDEO_FILE":
             self.cap = cv2.VideoCapture(Parameters.VIDEO_SOURCE_IDENTIFIER)
+            # Retrieve width and height from the video source
+            self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    
             # Attempt to retrieve the FPS of the video source
             fps = self.cap.get(cv2.CAP_PROP_FPS)
             if fps <= 0:

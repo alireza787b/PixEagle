@@ -3,7 +3,7 @@ mavsdk
 
 # OpenCV for computer vision and tracking
 opencv-python
-opencv-contrib-python # For extra features including tracking algorithms
+opencv-contrib-pyth on # For extra features including tracking algorithms
 
 # Flask for web API and interaction
 Flask
@@ -14,6 +14,7 @@ Flask-Cors
 numpy
 pandas
 scipy # Includes modules for optimization, linear algebra, integration, and more
+scikit-learn
 
 # For implementing PID controllers
 simple-pid

@@ -17,7 +17,7 @@ class PositionEstimator:
         self.filter.R = np.eye(2) * 5  # Adjust based on measurement noise characteristics
         
         # Initial dt setup
-        self.dt = 1.0  # Default dt, should be updated dynamically based on actual frame intervals
+        self.dt = 0.1  # Default dt, should be updated dynamically based on actual frame intervals
         self.update_F_and_Q(self.dt)
 
         # Last update timestamp for internal use, not necessary if dt is externally managed

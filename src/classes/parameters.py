@@ -10,11 +10,11 @@ class Parameters:
     # ----- Video Source Configuration -----
     # Defines the type of video source to be used. Options include "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM".
     # Future expansions might include "HTTP_STREAM", "UDP_STREAM", etc.
-    VIDEO_SOURCE_TYPE = "USB_CAMERA"
+    VIDEO_SOURCE_TYPE = "VIDEO_FILE"
     # Identifier for the video source. This could be a path to a video file,
     # an integer for a USB camera index, or a URL for a video stream.
-    #VIDEO_SOURCE_IDENTIFIER = "resources/test1.mp4"
-    VIDEO_SOURCE_IDENTIFIER = 0
+    VIDEO_SOURCE_IDENTIFIER = "resources/test1.mp4"
+    #VIDEO_SOURCE_IDENTIFIER = 0
 
     # Default frame rate (FPS) used when automatic detection fails or isn't applicable
     DEFAULT_FPS = 30  # Adjust this based on your typical video source or application requirements  
@@ -26,25 +26,19 @@ class Parameters:
     ESTIMATOR_HISTORY_LENGTH = 5  # Number of past estimations to store
 
 
+    # Segmentation parameters
+    SEGMENTATION_ALGORITHMS = ["GrabCut", "Watershed"]  # Example: Extend with more algorithms as needed
+    DEFAULT_SEGMENTATION_ALGORITHM = "GrabCut"
+
+
     # ----- Tracking Configuration -----
     # Specifies the default algorithm to use for tracking. This can be easily changed to support
     # different tracking needs or to experiment with algorithm performance.
     # Future expansions might include custom algorithms or integrating machine learning models.
     DEFAULT_TRACKING_ALGORITHM = "CSRT"
-    # Additional parameters specific to tracking algorithms can be added here. For example,
-    # algorithm-specific thresholds, feature selectors, etc. This provides a centralized
-    # location to tune tracking behavior.
-    TRACKING_PARAMETERS = {
-    "CSRT": {"padding": 0.5, "multichannel": True, "lambda_value": 0.01, "sigma": 0.125},
-    "KCF": {"fixed_window": True, "multiscale": True, "sigma": 0.5, "lambda_value": 0.01, "interp_factor": 0.075},
-    "BOOSTING": {"num_classifiers": 100, "learning_rate": 0.85},
-    "MIL": {"sampler_overlap": 0.5, "sampler_search_factor": 2.0},
-    "TLD": {"min_scale": 0.2, "max_scale": 5.0, "learning_rate": 0.85},
-    "MEDIANFLOW": {"points_in_grid": 10, "max_level": 5},
-    "MOSSE": {"sigma": 100, "learning_rate": 0.125},
-    "GOTURN": {"model_bin": "goturn.bin", "model_proto": "goturn.prototxt"}
-    # Note: GOTURN requires additional model files to be specified.     
-    }
+    USE_SEGMENTATION_FOR_TRACKING = True  # True to use segmentation on manual selection, False to use manual selection directly
+
+    
     CENTER_HISTORY_LENGTH = 10  # Number of past center points to store
 
 

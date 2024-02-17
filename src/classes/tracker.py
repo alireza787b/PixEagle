@@ -8,8 +8,9 @@ from .position_estimator import PositionEstimator
 
 
 class Tracker:
-    def __init__(self):
+    def __init__(self,video_handler=None):
         self.tracker = None
+        self.video_handler = video_handler
         self.bbox = None  # Current bounding box
         self.center = None  # Current center of the bounding box
         self.center_history = deque(maxlen=Parameters.CENTER_HISTORY_LENGTH)  # History of center points
@@ -79,11 +80,7 @@ class Tracker:
         return success, self.bbox
     
     def draw_tracking(self, frame):
-        """
-        Draws the bounding box and center dot on the frame if tracking is successful.
-        Also displays deviation from the center if enabled.
-        """
-        if self.bbox and self.center:
+        if self.bbox and self.center and self.video_handler:
             # Draw bounding box
             p1 = (int(self.bbox[0]), int(self.bbox[1]))
             p2 = (int(self.bbox[0] + self.bbox[2]), int(self.bbox[1] + self.bbox[3]))
@@ -91,23 +88,21 @@ class Tracker:
             # Draw center dot
             cv2.circle(frame, self.center, 5, (0,255,0), -1)
             
+            # Calculate relative deviation from frame center
+            frame_center = (self.video_handler.width / 2, self.video_handler.height / 2)
+            relative_deviation_x = (self.center[0] - frame_center[0]) / frame_center[0]
+            relative_deviation_y = (self.center[1] - frame_center[1]) / frame_center[1]
+
             if Parameters.DISPLAY_DEVIATIONS:
-                # Calculate and display deviation from frame center
-                frame_center = (frame.shape[1] // 2, frame.shape[0] // 2)
-                deviation = (self.center[0] - frame_center[0], self.center[1] - frame_center[1])
-                print(f"Deviation from center: {deviation}")
+                print(f"Relative deviation from center: (X: {relative_deviation_x:.2f}, Y: {relative_deviation_y:.2f})")
+
         return frame
-    
+
     def draw_estimate(self, frame):
-        """
-        Draws the estimated position on the frame with a red dot.
-        Retrieves the latest estimate before drawing.
-        Also displays deviation from the center if enabled.
-        """
-        if self.estimator_enabled and self.position_estimator:
+        if self.estimator_enabled and self.position_estimator and self.video_handler:
             # Get the latest estimate
             estimated_position = self.position_estimator.get_estimate()
-            
+
             if estimated_position:
                 # Extract only the x and y position from the estimated state for drawing
                 estimated_x, estimated_y = estimated_position[:2]
@@ -115,13 +110,17 @@ class Tracker:
                 # Draw estimated center dot in red
                 cv2.circle(frame, (int(estimated_x), int(estimated_y)), 5, (0,0,255), -1)  # Red dot for estimated position
 
+                # Calculate relative deviation for estimated position
+                frame_center = (self.video_handler.width / 2, self.video_handler.height / 2)
+                relative_deviation_x = (estimated_x - frame_center[0]) / frame_center[0]
+                relative_deviation_y = (estimated_y - frame_center[1]) / frame_center[1]
+
                 if Parameters.DISPLAY_DEVIATIONS:
-                    # Calculate and display deviation from frame center for the estimated position
-                    frame_center = (frame.shape[1] // 2, frame.shape[0] // 2)
-                    deviation = (estimated_x - frame_center[0], estimated_y - frame_center[1])
-                    print(f"Estimated deviation from center: {deviation}")
+                    print(f"Estimated relative deviation from center: (X: {relative_deviation_x:.2f}, Y: {relative_deviation_y:.2f})")
 
         return frame
+
+
 
 
 
