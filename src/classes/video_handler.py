@@ -26,26 +26,51 @@ class VideoHandler:
         self.init_video_source()
 
     def init_video_source(self):
+        """
+        Initializes the video source based on the configuration specified in Parameters.
+
+        This method sets up the `cv2.VideoCapture` object (`self.cap`) to capture video
+        from the specified source, which can be a video file or a USB camera. The method
+        determines the appropriate delay between frames (`delay_frame`) to regulate the
+        playback speed or processing rate, based on the source's frames per second (FPS).
+
+        Future enhancements can include support for additional video source types, such as
+        RTSP (Real Time Streaming Protocol) streams, UDP (User Datagram Protocol) streams,
+        or other network video services by extending the conditional checks to handle new
+        `VIDEO_SOURCE_TYPE` values and initializing `cv2.VideoCapture` with the appropriate
+        network URLs or identifiers.
+
+        Raises:
+            ValueError: If the video source cannot be opened or if an unsupported video
+            source type is specified in the Parameters.
+
+        Returns:
+            int: The calculated delay in milliseconds between frames, based on the source FPS.
+        """
         if Parameters.VIDEO_SOURCE_TYPE == "VIDEO_FILE":
             self.cap = cv2.VideoCapture(Parameters.VIDEO_SOURCE_IDENTIFIER)
+            # Attempt to retrieve the FPS of the video source
+            fps = self.cap.get(cv2.CAP_PROP_FPS)
+            if fps <= 0:
+                fps = Parameters.DEFAULT_FPS  # Fallback to default if detection fails
+            delay_frame = max(int(1000 / fps), 1)  # Ensure delay is at least 1ms
         elif Parameters.VIDEO_SOURCE_TYPE == "USB_CAMERA":
-            # Future implementation for USB camera initialization
-            pass
-        # Add additional conditions for other source types here
+            # Initialize USB camera. VIDEO_SOURCE_IDENTIFIER is expected to be the camera index as a string
+            camera_index = int(Parameters.VIDEO_SOURCE_IDENTIFIER)  # Convert identifier to integer
+            self.cap = cv2.VideoCapture(camera_index)
+            fps = self.cap.get(cv2.CAP_PROP_FPS)  # Attempt to retrieve the FPS of the USB camera
+            if fps <= 0:
+                fps = Parameters.DEFAULT_FPS  # Use default FPS if unable to retrieve
+            delay_frame = max(int(1000 / fps), 1)  # Calculate delay based on FPS
+        else:
+            # Handle other source types if necessary
+            raise ValueError(f"Unsupported video source type: {Parameters.VIDEO_SOURCE_TYPE}")
 
         if not self.cap or not self.cap.isOpened():
             raise ValueError(f"Could not open video source: {Parameters.VIDEO_SOURCE_IDENTIFIER}")
         
-        if Parameters.VIDEO_SOURCE_TYPE == "VIDEO_FILE":
-            # Attempt to retrieve the FPS of the video source 
-            fps = self.cap.get(cv2.CAP_PROP_FPS)
-            if fps <=0:
-                fps = Parameters.DEFAULT_FPS # Fallback to default if detection fails
-            delay_frame =  max(int(1000 / fps), 1)  # Ensure delay is at least 1ms
-        else:
-            delay_frame = 1
-            
-        return delay_frame 
+        return delay_frame
+
 
 
     def get_frame(self):
