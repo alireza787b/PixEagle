@@ -2,53 +2,104 @@
 
 import cv2
 import numpy as np
-from .parameters import Parameters  # Import Parameters class
+from .parameters import Parameters  
+from ultralytics import YOLO
 
 class Segmentor:
     def __init__(self, algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM):
-        """
-        Initializes the segmentor with the specified algorithm.
-        """
         self.algorithm = algorithm
-        self.user_click = None
+        if self.algorithm.startswith('yolov8'):
+            self.model = YOLO(f"{self.algorithm}.pt")
+        self.previous_detections = []
+
+    def segment_frame(self, frame):
+        if self.algorithm.startswith('yolov8'):
+            return self.yolov8_segmentation(frame)
+        else:
+            return self.generic_segmentation(frame)
+
+    def yolov8_segmentation(self, frame):
+        results = self.model(frame)
+        annotated_frame = results[0].plot()  
+        current_detections = self.extract_detections(results)
+        self.manage_detections(current_detections)
+        return annotated_frame
+
+    def generic_segmentation(self, frame):
+        # Placeholder for other segmentation methods, e.g., GrabCut
+        pass
+
+    def extract_detections(self, results):
+        detections = []
+        for det in results[0].boxes.xyxy.tolist():  # Assuming results.xyxy[0] is a tensor of bounding boxes
+            # Ensure det is a list or tuple of 4 elements (bounding box coordinates)
+            assert isinstance(det, (list, tuple)) and len(det) >= 4, "Detection format error"
+            detections.append(det[:4])  # Append only the first 4 values assuming they are the bounding box coordinates
+        return detections
+
+    def manage_detections(self, current_detections):
+        # Filter out duplicates based on IoU and temporal stability
+        if not self.previous_detections:
+            self.previous_detections = current_detections
+            return current_detections
+        
+        filtered_detections = []
+        for current in current_detections:
+            match_found = False
+            for prev in self.previous_detections:
+                if self.iou(current, prev) > 0.5:
+                    match_found = True
+                    break
+            if not match_found:
+                filtered_detections.append(current)
+        
+        self.previous_detections = current_detections
+        return filtered_detections
+
+    def iou(self, boxA, boxB):
+        # Validate input formats for boxA and boxB
+        assert all(isinstance(b, (list, tuple)) and len(b) == 4 for b in [boxA, boxB]), "Box format error"
+    
+        xA = max(boxA[0], boxB[0])
+        yA = max(boxA[1], boxB[1])
+        xB = min(boxA[2], boxB[2])
+        yB = min(boxA[3], boxB[3])
+
+        # Compute the area of intersection
+        interArea = max(0, xB - xA) * max(0, yB - yA)
+
+        # Compute the area of both the prediction and ground-truth rectangles
+        boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+        boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+
+        # Compute the intersection over union by taking the intersection
+        # area and dividing it by the sum of prediction + ground-truth
+        # areas - the intersection area
+        iou = interArea / float(boxAArea + boxBArea - interArea)
+
+        return iou
 
     def set_click_coordinates(self, event, x, y, flags, param):
-        """
-        Callback function to capture mouse click coordinates in the OpenCV window.
-        """
         if event == cv2.EVENT_LBUTTONDOWN:
             self.user_click = (x, y)
+            
+            
+            
+    def get_last_detections(self):
+        # Return the last detections in a format that includes
+        # bounding boxes and class names for user selection
+        return self.previous_detections
 
     def user_click_coordinates(self, frame):
-        """
-        Displays the frame and captures the user's click, returning the coordinates.
-        """
         self.user_click = None
         cv2.namedWindow("Select Object")
         cv2.setMouseCallback("Select Object", self.set_click_coordinates)
-
         while True:
             cv2.imshow("Select Object", frame)
             if cv2.waitKey(1) & 0xFF == ord('q') or self.user_click is not None:
-                break  # Break the loop if 'q' is pressed or a click is detected
-
+                break
         cv2.destroyWindow("Select Object")
         return self.user_click
-
-    def segment(self, frame):
-        """
-        Segments the object in the frame based on a user click location.
-        """
-        x, y = self.user_click_coordinates(frame)
-        if x is None or y is None:
-            print("No click detected. Segmentation canceled.")
-            return None
-        if self.algorithm == "GrabCut":
-            return self._segment_using_grabcut(frame, x, y)
-        
-        # Extend with more elif statements for other algorithms using Parameters.SEGMENTATION_ALGORITHMS
-        else:
-            raise ValueError(f"Unsupported segmentation algorithm: {self.algorithm}")
 
 
 

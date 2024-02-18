@@ -122,8 +122,6 @@ class Tracker:
 
 
 
-
-
     def select_roi(self, frame):
         """
         Allows the user to manually select the ROI for tracking on the given frame.
@@ -132,3 +130,19 @@ class Tracker:
         bbox = cv2.selectROI("Frame", frame, False, False)
         cv2.destroyWindow("Frame")
         return bbox
+
+
+    def reinitialize_tracker(self, frame, bbox):
+            """
+            Reinitializes the tracking with a new bounding box.
+            Converts bbox from [x1, y1, x2, y2] to (x, y, width, height) format.
+            """
+            self.init_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM)
+            
+            # Convert bbox format from [x1, y1, x2, y2] to (x, y, width, height)
+            x, y, x2, y2 = bbox
+            width = x2 - x
+            height = y2 - y
+            converted_bbox = (int(x), int(y), int(width), int(height))
+            
+            self.start_tracking(frame, converted_bbox)

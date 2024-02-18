@@ -16,7 +16,7 @@ def main():
             break  # End of video or camera feed error
         
         frame = controller.update_frame(frame)
-        cv2.imshow("Tracking", frame)
+        cv2.imshow("Video", frame)
 
         key = cv2.waitKey(controller.video_handler.delay_frame) & 0xFF
         if key == ord('q'):  # Quit program

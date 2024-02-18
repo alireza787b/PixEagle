@@ -27,8 +27,8 @@ class Parameters:
 
 
     # Segmentation parameters
-    SEGMENTATION_ALGORITHMS = ["GrabCut", "Watershed"]  # Example: Extend with more algorithms as needed
-    DEFAULT_SEGMENTATION_ALGORITHM = "GrabCut"
+    SEGMENTATION_ALGORITHMS = ["GrabCut", "Watershed",'yolov8s-seg','yolov8n-oiv7','yolov8s-obb']  # Example: Extend with more algorithms as needed
+    DEFAULT_SEGMENTATION_ALGORITHM = "yolov8n-oiv7"
 
 
     # ----- Tracking Configuration -----
@@ -36,6 +36,10 @@ class Parameters:
     # different tracking needs or to experiment with algorithm performance.
     # Future expansions might include custom algorithms or integrating machine learning models.
     DEFAULT_TRACKING_ALGORITHM = "CSRT"
+    # PARTICLE_FILTER , CSRT
+    
+
+    
     USE_SEGMENTATION_FOR_TRACKING = True  # True to use segmentation on manual selection, False to use manual selection directly
 
     
