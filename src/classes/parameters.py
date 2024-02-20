@@ -22,7 +22,7 @@ class Parameters:
     # Specify how many recent frames the VideoHandler should store.
     STORE_LAST_FRAMES = 5 
     
-    USE_ESTIMATOR = True  # Toggle to enable/disable the position estimator
+    USE_ESTIMATOR = False  # Toggle to enable/disable the position estimator
     ESTIMATOR_HISTORY_LENGTH = 5  # Number of past estimations to store
 
 
@@ -30,6 +30,28 @@ class Parameters:
     SEGMENTATION_ALGORITHMS = ["GrabCut", "Watershed",'yolov8s-seg','yolov8n-oiv7','yolov8s-obb']  # Example: Extend with more algorithms as needed
     DEFAULT_SEGMENTATION_ALGORITHM = "yolov8n-oiv7"
 
+
+    # ----- Detector Configuration -----
+    # Toggle to enable/disable the feature detection and smart re-detection
+    USE_DETECTOR = True
+    # Specifies the default algorithm to use for feature detection.
+    DEFAULT_FEATURE_EXTRACTION_ALGORITHM = "ORB"
+    # Minimum number of good matches required for smart re-detection to be considered successful
+    MIN_MATCH_COUNT = 10
+    
+    ORB_FLENN_TRESH = 0.8
+    
+    # Feature extraction parameters for ORB or any other algorithms you plan to use
+    ORB_FEATURES = 2000  # Example: Number of features to extract with ORB
+    # FLANN matcher parameters for feature matching in smart re-detection
+    FLANN_INDEX_LSH = 6
+    FLANN_TABLE_NUMBER = 6  # Example: LSH table number
+    FLANN_KEY_SIZE = 12  # Example: Size of the key in LSH
+    FLANN_MULTI_PROBE_LEVEL = 1  # Example: Multi-probe level in LSH (0 is exact search)
+    FLANN_SEARCH_PARAMS = {"checks": 50}  # Search parameters for FLANN
+
+    # Template Matching Method Name
+    TEMPLATE_MATCHING_METHOD = "TM_CCOEFF_NORMED"
 
     # ----- Tracking Configuration -----
     # Specifies the default algorithm to use for tracking. This can be easily changed to support

@@ -2,13 +2,15 @@
 
 import time
 import cv2
+
+from classes.detector import Detector
 from .parameters import Parameters
 from collections import deque
 from .position_estimator import PositionEstimator
 
 
 class Tracker:
-    def __init__(self,video_handler=None):
+    def __init__(self,video_handler=None,detector= None):
         self.tracker = None
         self.video_handler = video_handler
         self.bbox = None  # Current bounding box
@@ -20,6 +22,7 @@ class Tracker:
         self.last_update_time = None
 
         self.init_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM)
+        self.detector = detector
 
     def init_tracker(self, algorithm):
         """
@@ -53,6 +56,9 @@ class Tracker:
         if not self.tracker:
             raise Exception("Tracker not initialized")
         self.tracker.init(frame, bbox)
+        if Parameters.USE_DETECTOR:
+            self.detector.extract_features(frame, bbox)
+
         self.last_update_time = time.time()
 
 
@@ -137,12 +143,12 @@ class Tracker:
             Reinitializes the tracking with a new bounding box.
             Converts bbox from [x1, y1, x2, y2] to (x, y, width, height) format.
             """
-            self.init_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM)
-            
-            # Convert bbox format from [x1, y1, x2, y2] to (x, y, width, height)
-            x, y, x2, y2 = bbox
-            width = x2 - x
-            height = y2 - y
+            h, w = frame.shape[:2]  # Get frame dimensions
+            # Ensure bounding box is within frame dimensions
+            x, y, width, height = bbox
+            x = max(0, min(x, w - 1))
+            y = max(0, min(y, h - 1))
+            width = max(1, min(width, w - x))
+            height = max(1, min(height, h - y))
             converted_bbox = (int(x), int(y), int(width), int(height))
-            
             self.start_tracking(frame, converted_bbox)

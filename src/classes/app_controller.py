@@ -1,6 +1,7 @@
 from classes.video_handler import VideoHandler
 from classes.tracker import Tracker
 from classes.segmentor import Segmentor
+from classes.detector import Detector
 from classes.parameters import Parameters
 import cv2
 
@@ -8,7 +9,9 @@ class AppController:
     def __init__(self):
         # Initialize video processing components
         self.video_handler = VideoHandler()
-        self.tracker = Tracker(video_handler=self.video_handler)
+        self.detector = Detector()  # Initialize the Detector instance
+
+        self.tracker = Tracker(video_handler=self.video_handler,detector=self.detector)
         self.segmentor = Segmentor(algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM)
         # Flags to track the state of tracking and segmentation
         self.tracking_started = False
@@ -36,7 +39,10 @@ class AppController:
             if bbox and bbox[2] > 0 and bbox[3] > 0:
                 self.tracker.start_tracking(frame, bbox)
                 self.tracking_started = True
+                self.detector.extract_features(frame, bbox)
+                self.detector.latest_bbox = bbox
                 print("Tracking activated.")
+                
             else:
                 print("Tracking canceled or invalid ROI.")
         else:
@@ -76,20 +82,27 @@ class AppController:
                 frame = self.tracker.draw_tracking(frame)
                 if Parameters.USE_ESTIMATOR:
                     frame = self.tracker.draw_estimate(frame)
-                    
+        
+        if Parameters.USE_DETECTOR and self.detector.latest_bbox is not None:
+            frame = self.detector.draw_detection(frame, self.detector.latest_bbox, color=(0, 255, 255))  # Yellow color for detected bounding box
+
         self.current_frame = frame
+                    
         return frame
 
     def handle_key_input(self, key, frame):
         """
-        Handles key inputs for toggling segmentation, toggling tracking, and cancelling activities.
+        Handles key inputs for toggling segmentation, toggling tracking, starting feature extraction, and cancelling activities.
         """
-        if key in [ord('s'), ord('y')]:
+        if key ==ord('y'):
             self.toggle_segmentation()
         elif key == ord('t'):
             self.toggle_tracking(frame)
+        elif key == ord('d'):
+            self.initiate_redetection(frame)
         elif key == ord('c'):
             self.cancel_activities()
+
 
     def handle_user_click(self, x, y):
         """
@@ -114,3 +127,14 @@ class AppController:
             if x1 <= x <= x2 and y1 <= y <= y2:
                 return det
         return None
+
+    def initiate_redetection(self, frame):
+       if Parameters.USE_DETECTOR:
+            # Call the smart re-detection method
+            redetect_result = self.detector.smart_redetection(frame)
+            # If a new bounding box is found, update the tracker with this new box
+            if self.detector.latest_bbox is not None and redetect_result == True :
+                self.tracker.reinitialize_tracker(frame, self.detector.latest_bbox)
+                print("Re-detection activated and tracking updated.")
+            else:
+                print("Re-detection failed or no new object found.")
