@@ -139,16 +139,6 @@ class Tracker:
 
 
     def reinitialize_tracker(self, frame, bbox):
-            """
-            Reinitializes the tracking with a new bounding box.
-            Converts bbox from [x1, y1, x2, y2] to (x, y, width, height) format.
-            """
-            h, w = frame.shape[:2]  # Get frame dimensions
-            # Ensure bounding box is within frame dimensions
-            x, y, width, height = bbox
-            x = max(0, min(x, w - 1))
-            y = max(0, min(y, h - 1))
-            width = max(1, min(width, w - x))
-            height = max(1, min(height, h - y))
-            converted_bbox = (int(x), int(y), int(width), int(height))
-            self.start_tracking(frame, converted_bbox)
+           
+            
+        self.start_tracking(frame, bbox)

@@ -83,7 +83,8 @@ class AppController:
                     frame = self.tracker.draw_estimate(frame)
         
         if Parameters.USE_DETECTOR:
-            frame = self.detector.draw_detection(frame, color=(0, 255, 255))  # Yellow color for detected bounding box
+            #frame = self.detector.draw_detection(frame, color=(0, 255, 255))  # Yellow color for detected bounding box
+            pass
 
 
         self.current_frame = frame
@@ -134,7 +135,7 @@ class AppController:
             redetect_result = self.detector.smart_redetection(frame)
             # If a new bounding box is found, update the tracker with this new box
             if self.detector.get_latest_bbox() is not None and redetect_result == True :
-                #self.tracker.reinitialize_tracker(frame, self.detector.get_latest_bbox())
+                self.tracker.reinitialize_tracker(frame, self.detector.get_latest_bbox())
                 print("Re-detection activated and tracking updated.")
             else:
                 print("Re-detection failed or no new object found.")

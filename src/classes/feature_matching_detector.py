@@ -10,8 +10,9 @@ class FeatureMatchingDetector(DetectorInterface):
         self.key_features = None
         self.latest_bbox = None
         self.key_features_img = None
-
+        self.frame = None
     def extract_features(self, frame, bbox):
+        self.frame = frame
         x, y, w, h = bbox
         self.latest_bbox = bbox
         roi = frame[y:y+h, x:x+w]
@@ -31,7 +32,7 @@ class FeatureMatchingDetector(DetectorInterface):
 
         # Visualize keypoints on the current frame for debugging
         img_keypoints_current = cv2.drawKeypoints(frame, keypoints_current, None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-        cv2.imshow("Current Frame Keypoints", img_keypoints_current)
+        #cv2.imshow("Current Frame Keypoints", img_keypoints_current)
 
         index_params = dict(algorithm=Parameters.FLANN_INDEX_LSH, 
                             table_number=Parameters.FLANN_TABLE_NUMBER, 
@@ -60,11 +61,14 @@ class FeatureMatchingDetector(DetectorInterface):
                 print("Error: Homography could not be computed.")
                 return False
 
-            h, w = frame.shape[:2]
             pts = np.float32([[0, 0], [0, h-1], [w-1, h-1], [w-1, 0]]).reshape(-1, 1, 2)
             dst = cv2.perspectiveTransform(pts, M)
+            last_x, last_y, last_w, last_h = self.latest_bbox 
             self.latest_bbox =  cv2.boundingRect(dst)           
-            x, y, w, h = self.latest_bbox 
+            x, y, w, h = self.latest_bbox
+            CONSTANT_BBOX_SIZE = True
+            if CONSTANT_BBOX_SIZE:
+                self.set_latest_bbox(x,y,last_w , last_h)
 
             # Corrected visualization of good matches
             img_matches = cv2.drawMatches(self.key_features_img, self.key_features[0], frame, keypoints_current, good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
@@ -79,7 +83,7 @@ class FeatureMatchingDetector(DetectorInterface):
         bbox = self.get_latest_bbox()
         if bbox is None or len(bbox) != 4:
             # If bbox is None or not in the expected format, return the frame as is.
-            print("Warning: No bounding box available for drawing.")
+            #print("Warning: No bounding box available for drawing.")
             return frame
 
         # Proceed with drawing only if bbox is valid.
@@ -94,9 +98,28 @@ class FeatureMatchingDetector(DetectorInterface):
         Returns the latest bounding box.
         """
         return self.latest_bbox
-
+    
     def set_latest_bbox(self, bbox):
         """
-        Sets the latest bounding box.
+        Sets the latest bounding box, ensuring it does not go out of the frame.
         """
-        self.latest_bbox = bbox
+        if bbox is None:
+            print("Warning: Attempted to set a None bounding box.")
+            self.latest_bbox = None
+            return
+
+        # Ensure bbox coordinates are within the frame dimensions
+        frame_height, frame_width = self.frame.shape[:2]
+        x, y, w, h = bbox
+
+        # Correct the bounding box if it goes out of the frame
+        x = max(0, min(x, frame_width - 1))
+        y = max(0, min(y, frame_height - 1))
+        w = max(1, min(w, frame_width - x))
+        h = max(1, min(h, frame_height - y))
+
+        corrected_bbox = (x, y, w, h)
+        if corrected_bbox != bbox:
+            print(f"Bounding box corrected from {bbox} to {corrected_bbox} to fit within the frame.")
+
+        self.latest_bbox = corrected_bbox
