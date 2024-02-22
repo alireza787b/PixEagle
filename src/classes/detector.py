@@ -19,7 +19,7 @@ class Detector:
     def extract_features(self, frame, bbox):
         self.detector.extract_features(frame, bbox)
 
-    def smart_redetection(self, frame):
+    def smart_redetection(self, frame, tracker=None):
         return self.detector.smart_redetection(frame)
 
     def draw_detection(self, frame, color=(0, 255, 255)):

@@ -13,7 +13,7 @@ class Parameters:
     VIDEO_SOURCE_TYPE = "VIDEO_FILE"
     # Identifier for the video source. This could be a path to a video file,
     # an integer for a USB camera index, or a URL for a video stream.
-    VIDEO_SOURCE_IDENTIFIER = "resources/test1.mp4"
+    VIDEO_SOURCE_IDENTIFIER = "resources/test4.mp4"
     #VIDEO_SOURCE_IDENTIFIER = 0
 
     # Default frame rate (FPS) used when automatic detection fails or isn't applicable
@@ -34,6 +34,8 @@ class Parameters:
     # ----- Detector Configuration -----
     # Toggle to enable/disable the feature detection and smart re-detection
     USE_DETECTOR = True
+    
+    AUTO_REDETECT = True
     
     
     #Add a new parameter for the detection algorithm

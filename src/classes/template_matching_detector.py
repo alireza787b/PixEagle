@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 from .detector_interface import DetectorInterface
 from .parameters import Parameters
 
@@ -35,26 +36,39 @@ class TemplateMatchingDetector(DetectorInterface):
         self.template = frame[y:y+h, x:x+w]
         self.latest_bbox = bbox
 
-    def smart_redetection(self, frame):
+    def smart_redetection(self, frame, tracker=None):
         """
         Perform template matching to find the template in the current frame.
-        Update `self.latest_bbox` with the new location of the template.
+        If more than one detection is found, choose the one closest to the last known tracker position.
         """
         if self.template is None:
             print("Template has not been set.")
             return False
 
         res = cv2.matchTemplate(frame, self.template, self.method)
-        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+        threshold = 0.8  # Example threshold, adjust based on your needs
 
+        # For methods where the minimum value is the best match
         if self.method in [cv2.TM_SQDIFF, cv2.TM_SQDIFF_NORMED]:
-            top_left = min_loc
+            loc = np.where(res <= (1-threshold))
+        else:  # For methods where the maximum value is the best match
+            loc = np.where(res >= threshold)
+
+        points = list(zip(*loc[::-1]))  # Get list of (x, y) match positions
+        if not points:
+            print("No matches found.")
+            return False
+
+        if tracker and hasattr(tracker, 'center'):
+            # Calculate distances from each match center to the tracker's last known center
+            distances = [np.linalg.norm(np.array((x+w/2, y+h/2)) - np.array(tracker.center)) for x, y in points]
+            closest_match_idx = np.argmin(distances)  # Index of the closest match
+            top_left = points[closest_match_idx]
         else:
-            top_left = max_loc
+            # If no tracker info is available, default to the first match found
+            top_left = points[0]
 
-        h, w = self.template.shape[:2]  # Corrected to handle color images
-        bottom_right = (top_left[0] + w, top_left[1] + h)
-
+        h, w = self.template.shape[:2]
         self.latest_bbox = (top_left[0], top_left[1], w, h)
         return True
 
