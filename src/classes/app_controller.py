@@ -9,7 +9,7 @@ class AppController:
     def __init__(self):
         # Initialize video processing components
         self.video_handler = VideoHandler()
-        self.detector = Detector(algorithm_type="FeatureMatching")
+        self.detector = Detector(algorithm_type=Parameters.DETECTION_ALGORITHM)
         self.tracker = Tracker(video_handler=self.video_handler,detector=self.detector)
         self.segmentor = Segmentor(algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM)
         # Flags to track the state of tracking and segmentation

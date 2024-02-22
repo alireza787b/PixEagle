@@ -1,3 +1,5 @@
+#src/classes/feature_matching_detector.py
+
 import cv2
 import numpy as np
 from .detector_interface import DetectorInterface
@@ -60,8 +62,9 @@ class FeatureMatchingDetector(DetectorInterface):
             if M is None:
                 print("Error: Homography could not be computed.")
                 return False
+            frame_height, frame_width = self.frame.shape[:2]
 
-            pts = np.float32([[0, 0], [0, h-1], [w-1, h-1], [w-1, 0]]).reshape(-1, 1, 2)
+            pts = np.float32([[0, 0], [0, frame_height-1], [frame_width-1, frame_height-1], [frame_width-1, 0]]).reshape(-1, 1, 2)
             dst = cv2.perspectiveTransform(pts, M)
             last_x, last_y, last_w, last_h = self.latest_bbox 
             self.latest_bbox =  cv2.boundingRect(dst)           

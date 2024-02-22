@@ -34,6 +34,15 @@ class Parameters:
     # ----- Detector Configuration -----
     # Toggle to enable/disable the feature detection and smart re-detection
     USE_DETECTOR = True
+    
+    
+    #Add a new parameter for the detection algorithm
+    DETECTION_ALGORITHM = "TemplateMatching"  # Default to FeatureMatching. Change to "TemplateMatching" as needed.
+    
+    # Parameters specific to Template Matching (if any)
+    # For example, the template matching method
+    TEMPLATE_MATCHING_METHOD = "TM_CCOEFF_NORMED"
+    
     # Specifies the default algorithm to use for feature detection.
     DEFAULT_FEATURE_EXTRACTION_ALGORITHM = "ORB"
     # Minimum number of good matches required for smart re-detection to be considered successful

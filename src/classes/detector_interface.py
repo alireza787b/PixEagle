@@ -1,3 +1,5 @@
+#src/classes/detector_interface.py
+
 class DetectorInterface:
     def __init__(self):
         raise NotImplementedError("This method should be overridden by subclasses")

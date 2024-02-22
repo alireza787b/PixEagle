@@ -1,17 +1,20 @@
+#detector.py
+
 from .parameters import Parameters
 from .feature_matching_detector import FeatureMatchingDetector
+from .template_matching_detector import TemplateMatchingDetector  # Updated import statement
+
 # Import other detectors as you implement them
 
 class Detector:
-    def __init__(self, algorithm_type="FeatureMatching"):
+    def __init__(self, algorithm_type):
         self.detector = self.init_detector(algorithm_type)
 
     def init_detector(self, algorithm_type):
         if algorithm_type == "FeatureMatching":
             return FeatureMatchingDetector()
-        # Add other algorithms here as you implement them
-        else:
-            raise ValueError(f"Unsupported detection algorithm type: {algorithm_type}")
+        elif algorithm_type == "TemplateMatching":
+            return TemplateMatchingDetector()  # Updated class name
 
     def extract_features(self, frame, bbox):
         self.detector.extract_features(frame, bbox)
