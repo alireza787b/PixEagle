@@ -1,9 +1,6 @@
-# src/classes/detector.py
-
-import cv2
-import numpy as np
 from .parameters import Parameters
 from .feature_matching_detector import FeatureMatchingDetector
+# Import other detectors as you implement them
 
 class Detector:
     def __init__(self, algorithm_type="FeatureMatching"):
@@ -22,8 +19,17 @@ class Detector:
     def smart_redetection(self, frame):
         return self.detector.smart_redetection(frame)
 
-    def draw_detection(self, frame, bbox, color=(0, 255, 255)):
-        self.detector.draw_detection(frame, bbox, color)
+    def draw_detection(self, frame, color=(0, 255, 255)):
+        return self.detector.draw_detection(frame, color)
 
+    def get_latest_bbox(self):
+        """
+        Proxy method to get the latest bounding box from the current detector.
+        """
+        return self.detector.get_latest_bbox()
 
-
+    def set_latest_bbox(self, bbox):
+        """
+        Proxy method to set the latest bounding box in the current detector.
+        """
+        self.detector.set_latest_bbox(bbox)

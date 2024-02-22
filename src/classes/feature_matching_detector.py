@@ -13,6 +13,7 @@ class FeatureMatchingDetector(DetectorInterface):
 
     def extract_features(self, frame, bbox):
         x, y, w, h = bbox
+        self.latest_bbox = bbox
         roi = frame[y:y+h, x:x+w]
         keypoints, descriptors = self.feature_extractor.detectAndCompute(roi, None)
         self.key_features = (keypoints, descriptors)
@@ -62,21 +63,40 @@ class FeatureMatchingDetector(DetectorInterface):
             h, w = frame.shape[:2]
             pts = np.float32([[0, 0], [0, h-1], [w-1, h-1], [w-1, 0]]).reshape(-1, 1, 2)
             dst = cv2.perspectiveTransform(pts, M)
-
-            x, y, w, h = cv2.boundingRect(dst)
-            self.latest_bbox = (x, y, w, h)
+            self.latest_bbox =  cv2.boundingRect(dst)           
+            x, y, w, h = self.latest_bbox 
 
             # Corrected visualization of good matches
             img_matches = cv2.drawMatches(self.key_features_img, self.key_features[0], frame, keypoints_current, good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-            cv2.imshow("Good Matches & Homography", img_matches)
+            #cv2.imshow("Good Matches & Homography", img_matches)
             print(f"Debug: New bounding box - X: {x}, Y: {y}, W: {w}, H: {h}")
             return True
         else:
             print(f"Error: Not enough good matches found - {len(good_matches)}/{Parameters.MIN_MATCH_COUNT}")
             return False
 
-    def draw_detection(self, frame, bbox, color=(0, 255, 255)):
+    def draw_detection(self, frame, color=(0, 255, 255)):
+        bbox = self.get_latest_bbox()
+        if bbox is None or len(bbox) != 4:
+            # If bbox is None or not in the expected format, return the frame as is.
+            print("Warning: No bounding box available for drawing.")
+            return frame
+
+        # Proceed with drawing only if bbox is valid.
         p1 = (int(bbox[0]), int(bbox[1]))
         p2 = (int(bbox[0] + bbox[2]), int(bbox[1] + bbox[3]))
         cv2.rectangle(frame, p1, p2, color, 2, 1)
         return frame
+
+    
+    def get_latest_bbox(self):
+        """
+        Returns the latest bounding box.
+        """
+        return self.latest_bbox
+
+    def set_latest_bbox(self, bbox):
+        """
+        Sets the latest bounding box.
+        """
+        self.latest_bbox = bbox

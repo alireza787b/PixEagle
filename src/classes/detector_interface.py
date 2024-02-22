@@ -8,5 +8,17 @@ class DetectorInterface:
     def smart_redetection(self, frame):
         raise NotImplementedError("This method should be overridden by subclasses")
 
-    def draw_detection(self, frame, bbox, color=(0, 255, 255)):
+    def draw_detection(self, frame, color=(0, 255, 255)):
+        raise NotImplementedError("This method should be overridden by subclasses")
+
+    def get_latest_bbox(self):
+        """
+        Returns the latest bounding box.
+        """
+        raise NotImplementedError("This method should be overridden by subclasses")
+
+    def set_latest_bbox(self, bbox):
+        """
+        Sets the latest bounding box.
+        """
         raise NotImplementedError("This method should be overridden by subclasses")
