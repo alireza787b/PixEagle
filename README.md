@@ -63,6 +63,18 @@ To set up the PixEagle project, follow these steps:
    python src/main.py
    ```
 
+## Troubleshooting
+Fixing libGL.so.1 Missing Error
+If you encounter an ImportError related to libGL.so.1, install the OpenGL libraries with:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y libgl1-mesa-glx
+ ```
+ 
+This is often required for OpenCV's image and video display functionalities.
+
+
 ## Contribution Guidelines
 
 We welcome contributions from developers, researchers, and enthusiasts in drone technology, AI, and robotics. You can contribute by checking out current issues, discussing your ideas, or submitting pull requests with new features or improvements.
