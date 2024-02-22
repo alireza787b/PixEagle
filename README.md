@@ -28,7 +28,7 @@ PixEagle is an innovative project designed to enhance drone control and tracking
 
 
 ## Key Components
-###AppController
+### AppController
 Central controller that manages the application's main functionalities, orchestrating the flow between detection, tracking, and video handling.
 
 ### Detector and DetectorInterface
