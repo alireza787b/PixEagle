@@ -55,6 +55,7 @@ class Tracker:
         """
         if not self.tracker:
             raise Exception("Tracker not initialized")
+        print("Initializing tracker with bbox:", bbox, "of type:", type(bbox))
         self.tracker.init(frame, bbox)
         if Parameters.USE_DETECTOR:
             self.detector.extract_features(frame, bbox)

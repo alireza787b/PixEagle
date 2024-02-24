@@ -71,7 +71,10 @@ class FeatureMatchingDetector(DetectorInterface):
             x, y, w, h = self.latest_bbox
             CONSTANT_BBOX_SIZE = True
             if CONSTANT_BBOX_SIZE:
-                self.set_latest_bbox(x,y,last_w , last_h)
+                self.set_latest_bbox((x, y, last_w, last_h))
+            else:
+                self.set_latest_bbox((x, y, w, h))
+
 
             # Corrected visualization of good matches
             img_matches = cv2.drawMatches(self.key_features_img, self.key_features[0], frame, keypoints_current, good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)

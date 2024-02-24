@@ -8,12 +8,12 @@ from ultralytics import YOLO
 class Segmentor:
     def __init__(self, algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM):
         self.algorithm = algorithm
-        if self.algorithm.startswith('yolov8'):
+        if 'yolov8' in self.algorithm:
             self.model = YOLO(f"{self.algorithm}.pt")
         self.previous_detections = []
 
     def segment_frame(self, frame):
-        if self.algorithm.startswith('yolov8'):
+        if 'yolov8' in self.algorithm:
             return self.yolov8_segmentation(frame)
         else:
             return self.generic_segmentation(frame)

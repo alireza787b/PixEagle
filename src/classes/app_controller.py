@@ -1,3 +1,4 @@
+import numpy as np
 from classes.video_handler import VideoHandler
 from classes.tracker import Tracker
 from classes.segmentor import Segmentor
@@ -33,7 +34,7 @@ class AppController:
         """
         if not self.tracking_started:
             # Start tracking with a user-selected ROI
-            bbox = cv2.selectROI("Video", frame, False, False)
+            bbox = cv2.selectROI(Parameters.FRAME_TITLE, frame, False, False)
             cv2.destroyWindow("ROI selector")
             if bbox and bbox[2] > 0 and bbox[3] > 0:
                 self.tracker.start_tracking(frame, bbox)
@@ -120,9 +121,14 @@ class AppController:
         detections = self.segmentor.get_last_detections()
         selected_bbox = self.identify_clicked_object(detections, x, y)
         if selected_bbox:
+            # Convert selected_bbox to integer coordinates
+            selected_bbox = tuple(map(lambda x: int(round(x)), selected_bbox))
+
             self.tracker.reinitialize_tracker(self.current_frame, selected_bbox)
             self.tracking_started = True
             print(f"Object selected for tracking: {selected_bbox}")
+
+
 
     def identify_clicked_object(self, detections, x, y):
         """
@@ -144,3 +150,7 @@ class AppController:
                 print("Re-detection activated and tracking updated.")
             else:
                 print("Re-detection failed or no new object found.")
+                
+    def show_current_frame(self,frame_title = Parameters.FRAME_TITLE):
+        cv2.imshow(frame_title, self.current_frame)
+        return self.current_frame

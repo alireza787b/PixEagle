@@ -10,11 +10,14 @@ class Parameters:
     # ----- Video Source Configuration -----
     # Defines the type of video source to be used. Options include "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM".
     # Future expansions might include "HTTP_STREAM", "UDP_STREAM", etc.
-    VIDEO_SOURCE_TYPE = "VIDEO_FILE"
+    VIDEO_SOURCE_TYPE = "USB_CAMERA"
     # Identifier for the video source. This could be a path to a video file,
     # an integer for a USB camera index, or a URL for a video stream.
-    VIDEO_SOURCE_IDENTIFIER = "resources/test4.mp4"
-    #VIDEO_SOURCE_IDENTIFIER = 0
+    #VIDEO_SOURCE_IDENTIFIER = "resources/test1.mp4"
+    VIDEO_SOURCE_IDENTIFIER = 0
+
+
+    FRAME_TITLE = "Video"
 
     # Default frame rate (FPS) used when automatic detection fails or isn't applicable
     DEFAULT_FPS = 30  # Adjust this based on your typical video source or application requirements  
@@ -28,7 +31,7 @@ class Parameters:
 
     # Segmentation parameters
     SEGMENTATION_ALGORITHMS = ["GrabCut", "Watershed",'yolov8s-seg','yolov8n-oiv7','yolov8s-obb']  # Example: Extend with more algorithms as needed
-    DEFAULT_SEGMENTATION_ALGORITHM = "yolov8n-oiv7"
+    DEFAULT_SEGMENTATION_ALGORITHM = "yolo/yolov8n-oiv7"
 
 
     # ----- Detector Configuration -----

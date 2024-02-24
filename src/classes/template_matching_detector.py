@@ -46,7 +46,7 @@ class TemplateMatchingDetector(DetectorInterface):
             return False
 
         res = cv2.matchTemplate(frame, self.template, self.method)
-        threshold = 0.8  # Example threshold, adjust based on your needs
+        threshold = 0.7  # Example threshold, adjust based on your needs
 
         # For methods where the minimum value is the best match
         if self.method in [cv2.TM_SQDIFF, cv2.TM_SQDIFF_NORMED]:
