@@ -28,53 +28,54 @@ class VideoHandler:
 
     def init_video_source(self):
         """
-        Initializes the video source based on the configuration specified in Parameters.
+        Initializes the video source based on the updated configuration specified in Parameters.
 
-        This method sets up the `cv2.VideoCapture` object (`self.cap`) to capture video
-        from the specified source, which can be a video file or a USB camera. The method
-        determines the appropriate delay between frames (`delay_frame`) to regulate the
-        playback speed or processing rate, based on the source's frames per second (FPS).
+        This method sets up the `cv2.VideoCapture` object (`self.cap`) to capture video from various sources,
+        including video files, USB cameras, and RTSP streams. The selection is based on the `VIDEO_SOURCE_TYPE`
+        parameter in the `Parameters` class. Specific parameters for each source type (e.g., file path, camera index, RTSP URL)
+        are utilized to initialize the video capture.
 
-        Future enhancements can include support for additional video source types, such as
-        RTSP (Real Time Streaming Protocol) streams, UDP (User Datagram Protocol) streams,
-        or other network video services by extending the conditional checks to handle new
-        `VIDEO_SOURCE_TYPE` values and initializing `cv2.VideoCapture` with the appropriate
-        network URLs or identifiers.
+        The method also calculates the appropriate delay between frames (`delay_frame`) based on the video source's FPS.
+        This is crucial for regulating the playback speed or processing rate, especially when automatic FPS detection fails.
+
+        Enhancements can include support for additional video source types by adding new parameters in the `Parameters`
+        class and extending the conditional logic within this method.
 
         Raises:
-            ValueError: If the video source cannot be opened or if an unsupported video
-            source type is specified in the Parameters.
+            ValueError: If the video source cannot be opened or if an unsupported video source type is specified.
 
         Returns:
-            int: The calculated delay in milliseconds between frames, based on the source FPS.
+            int: The calculated delay in milliseconds between frames, based on the detected or default FPS.
         """
+        # Initialize the video capture object based on the source type
         if Parameters.VIDEO_SOURCE_TYPE == "VIDEO_FILE":
-            self.cap = cv2.VideoCapture(Parameters.VIDEO_SOURCE_IDENTIFIER)
-            # Retrieve width and height from the video source
-            self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    
-            # Attempt to retrieve the FPS of the video source
-            fps = self.cap.get(cv2.CAP_PROP_FPS)
-            if fps <= 0:
-                fps = Parameters.DEFAULT_FPS  # Fallback to default if detection fails
-            delay_frame = max(int(1000 / fps), 1)  # Ensure delay is at least 1ms
+            self.cap = cv2.VideoCapture(Parameters.VIDEO_FILE_PATH)
         elif Parameters.VIDEO_SOURCE_TYPE == "USB_CAMERA":
-            # Initialize USB camera. VIDEO_SOURCE_IDENTIFIER is expected to be the camera index as a string
-            camera_index = int(Parameters.VIDEO_SOURCE_IDENTIFIER)  # Convert identifier to integer
-            self.cap = cv2.VideoCapture(camera_index)
-            fps = self.cap.get(cv2.CAP_PROP_FPS)  # Attempt to retrieve the FPS of the USB camera
-            if fps <= 0:
-                fps = Parameters.DEFAULT_FPS  # Use default FPS if unable to retrieve
-            delay_frame = max(int(1000 / fps), 1)  # Calculate delay based on FPS
+            self.cap = cv2.VideoCapture(Parameters.CAMERA_INDEX)
+        elif Parameters.VIDEO_SOURCE_TYPE == "RTSP_STREAM":
+            self.cap = cv2.VideoCapture(Parameters.RTSP_URL)
+        elif Parameters.VIDEO_SOURCE_TYPE == "UDP_STREAM":
+            # Initialize UDP stream using the provided UDP URL
+            self.cap = cv2.VideoCapture(Parameters.UDP_URL)
         else:
-            # Handle other source types if necessary
             raise ValueError(f"Unsupported video source type: {Parameters.VIDEO_SOURCE_TYPE}")
 
+        # Check if the video source was successfully opened
         if not self.cap or not self.cap.isOpened():
-            raise ValueError(f"Could not open video source: {Parameters.VIDEO_SOURCE_IDENTIFIER}")
-        
+            raise ValueError("Could not open video source with the provided settings.")
+    
+        # Retrieve and set video properties such as width, height, and FPS
+        self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = self.cap.get(cv2.CAP_PROP_FPS)
+        if fps <= 0:
+            fps = Parameters.DEFAULT_FPS  # Use a default FPS if detection fails or isn't applicable
+
+        # Calculate the frame delay to maintain playback speed or processing rate
+        delay_frame = max(int(1000 / fps), 1)  # Ensure delay is at least 1ms to avoid division by zero
+
         return delay_frame
+
 
 
 

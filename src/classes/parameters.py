@@ -8,13 +8,27 @@ class Parameters:
     """
 
     # ----- Video Source Configuration -----
-    # Defines the type of video source to be used. Options include "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM".
-    # Future expansions might include "HTTP_STREAM", "UDP_STREAM", etc.
-    VIDEO_SOURCE_TYPE = "USB_CAMERA"
-    # Identifier for the video source. This could be a path to a video file,
-    # an integer for a USB camera index, or a URL for a video stream.
-    #VIDEO_SOURCE_IDENTIFIER = "resources/test1.mp4"
-    VIDEO_SOURCE_IDENTIFIER = 0
+    VIDEO_SOURCE_TYPE = "VIDEO_FILE"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM"
+
+    # For VIDEO_FILE, specify the path to the video file
+    # Example: VIDEO_FILE_PATH = "resources/test1.mp4"
+    VIDEO_FILE_PATH = "resources/test1.mp4"
+
+    # For USB_CAMERA, specify the camera index as an integer
+    # Example: CAMERA_INDEX = 0 for the default webcam
+    CAMERA_INDEX = 0
+
+    # For RTSP_STREAM, specify the RTSP URL as a string
+    # Example: RTSP_URL = "rtsp://username:password@ip_address:port/stream"
+    RTSP_URL = ""
+    
+    # For UDP_STREAM, specify the UDP URL or endpoint as a string
+    # Example: UDP_URL = "udp://@IP_ADDRESS:PORT"
+    UDP_URL = ""
+
+
+    # Add similar parameters for other video source types like HTTP_STREAM or UDP_STREAM if needed
+
 
 
     FRAME_TITLE = "Video"
