@@ -8,7 +8,7 @@ class Parameters:
     """
 
     # ----- Video Source Configuration -----
-    VIDEO_SOURCE_TYPE = "VIDEO_FILE"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM"
+    VIDEO_SOURCE_TYPE = "HTTP_STREAM"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM"
 
     # For VIDEO_FILE, specify the path to the video file
     # Example: VIDEO_FILE_PATH = "resources/test1.mp4"
@@ -24,10 +24,14 @@ class Parameters:
     
     # For UDP_STREAM, specify the UDP URL or endpoint as a string
     # Example: UDP_URL = "udp://@IP_ADDRESS:PORT"
-    UDP_URL = ""
+    UDP_URL = "udp://127.0.0.1:8000"
 
 
-    # Add similar parameters for other video source types like HTTP_STREAM or UDP_STREAM if needed
+    # For HTTP_STREAM, specify the HTTP URL for the MJPEG stream as a string
+    # Example: HTTP_URL = "http://IP_ADDRESS:PORT/stream"
+    # I used MJPEG Streamer downloaded from microsoft app store
+    # HTTP localhost loopback doesnt work!
+    HTTP_URL = "http://172.21.144.1:8000"
 
 
 

@@ -56,14 +56,17 @@ class VideoHandler:
             self.cap = cv2.VideoCapture(Parameters.RTSP_URL)
         elif Parameters.VIDEO_SOURCE_TYPE == "UDP_STREAM":
             # Initialize UDP stream using the provided UDP URL
-            self.cap = cv2.VideoCapture(Parameters.UDP_URL)
+            self.cap = cv2.VideoCapture(Parameters.UDP_URL,cv2.CAP_FFMPEG)
+        elif Parameters.VIDEO_SOURCE_TYPE == "HTTP_STREAM":
+            # Initialize HTTP stream (MJPEG) using the provided HTTP URL
+            self.cap = cv2.VideoCapture(Parameters.HTTP_URL)
         else:
             raise ValueError(f"Unsupported video source type: {Parameters.VIDEO_SOURCE_TYPE}")
 
         # Check if the video source was successfully opened
         if not self.cap or not self.cap.isOpened():
             raise ValueError("Could not open video source with the provided settings.")
-    
+
         # Retrieve and set video properties such as width, height, and FPS
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
