@@ -2,6 +2,7 @@
 import cv2
 from .parameters import Parameters
 from collections import deque
+import time
 
 class VideoHandler:
     """
@@ -26,46 +27,49 @@ class VideoHandler:
         
         self.init_video_source()
 
-    def init_video_source(self):
+
+    def init_video_source(self, max_retries=5, retry_delay=1):
         """
         Initializes the video source based on the updated configuration specified in Parameters.
-
         This method sets up the `cv2.VideoCapture` object (`self.cap`) to capture video from various sources,
         including video files, USB cameras, and RTSP streams. The selection is based on the `VIDEO_SOURCE_TYPE`
         parameter in the `Parameters` class. Specific parameters for each source type (e.g., file path, camera index, RTSP URL)
         are utilized to initialize the video capture.
-
         The method also calculates the appropriate delay between frames (`delay_frame`) based on the video source's FPS.
         This is crucial for regulating the playback speed or processing rate, especially when automatic FPS detection fails.
-
         Enhancements can include support for additional video source types by adding new parameters in the `Parameters`
         class and extending the conditional logic within this method.
-
         Raises:
-            ValueError: If the video source cannot be opened or if an unsupported video source type is specified.
-
+            ValueError: If the video source cannot be opened after max_retries or if an unsupported video source type is specified.
         Returns:
             int: The calculated delay in milliseconds between frames, based on the detected or default FPS.
         """
         # Initialize the video capture object based on the source type
-        if Parameters.VIDEO_SOURCE_TYPE == "VIDEO_FILE":
-            self.cap = cv2.VideoCapture(Parameters.VIDEO_FILE_PATH)
-        elif Parameters.VIDEO_SOURCE_TYPE == "USB_CAMERA":
-            self.cap = cv2.VideoCapture(Parameters.CAMERA_INDEX)
-        elif Parameters.VIDEO_SOURCE_TYPE == "RTSP_STREAM":
-            self.cap = cv2.VideoCapture(Parameters.RTSP_URL)
-        elif Parameters.VIDEO_SOURCE_TYPE == "UDP_STREAM":
-            # Initialize UDP stream using the provided UDP URL
-            self.cap = cv2.VideoCapture(Parameters.UDP_URL,cv2.CAP_FFMPEG)
-        elif Parameters.VIDEO_SOURCE_TYPE == "HTTP_STREAM":
-            # Initialize HTTP stream (MJPEG) using the provided HTTP URL
-            self.cap = cv2.VideoCapture(Parameters.HTTP_URL)
-        else:
-            raise ValueError(f"Unsupported video source type: {Parameters.VIDEO_SOURCE_TYPE}")
+        for _ in range(max_retries):
+            if Parameters.VIDEO_SOURCE_TYPE == "VIDEO_FILE":
+                self.cap = cv2.VideoCapture(Parameters.VIDEO_FILE_PATH)
+            elif Parameters.VIDEO_SOURCE_TYPE == "USB_CAMERA":
+                self.cap = cv2.VideoCapture(Parameters.CAMERA_INDEX)
+            elif Parameters.VIDEO_SOURCE_TYPE == "RTSP_STREAM":
+                self.cap = cv2.VideoCapture(Parameters.RTSP_URL)
+            elif Parameters.VIDEO_SOURCE_TYPE == "UDP_STREAM":
+                # Initialize UDP stream using the provided UDP URL
+                self.cap = cv2.VideoCapture(Parameters.UDP_URL,cv2.CAP_FFMPEG)
+            elif Parameters.VIDEO_SOURCE_TYPE == "HTTP_STREAM":
+                # Initialize HTTP stream (MJPEG) using the provided HTTP URL
+                self.cap = cv2.VideoCapture(Parameters.HTTP_URL,cv2.CAP_ANY)
+            else:
+                raise ValueError(f"Unsupported video source type: {Parameters.VIDEO_SOURCE_TYPE}")
 
-        # Check if the video source was successfully opened
-        if not self.cap or not self.cap.isOpened():
-            raise ValueError("Could not open video source with the provided settings.")
+            # Check if the video source was successfully opened
+            if self.cap and self.cap.isOpened():
+                break
+
+            # If the video source was not successfully opened, wait before retrying
+            time.sleep(retry_delay)
+        else:
+            # If the video source could not be opened after max_retries, raise an error
+            raise ValueError("Could not open video source with the provided settings after maximum retries.")
 
         # Retrieve and set video properties such as width, height, and FPS
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -78,6 +82,7 @@ class VideoHandler:
         delay_frame = max(int(1000 / fps), 1)  # Ensure delay is at least 1ms to avoid division by zero
 
         return delay_frame
+
 
 
 
