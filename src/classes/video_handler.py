@@ -57,7 +57,7 @@ class VideoHandler:
                 self.cap = cv2.VideoCapture(Parameters.UDP_URL,cv2.CAP_FFMPEG)
             elif Parameters.VIDEO_SOURCE_TYPE == "HTTP_STREAM":
                 # Initialize HTTP stream (MJPEG) using the provided HTTP URL
-                self.cap = cv2.VideoCapture(Parameters.HTTP_URL,cv2.CAP_ANY)
+                self.cap = cv2.VideoCapture(Parameters.HTTP_URL)
             else:
                 raise ValueError(f"Unsupported video source type: {Parameters.VIDEO_SOURCE_TYPE}")
 

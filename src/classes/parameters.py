@@ -8,7 +8,7 @@ class Parameters:
     """
 
     # ----- Video Source Configuration -----
-    VIDEO_SOURCE_TYPE = "UDP_STREAM"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM"
+    VIDEO_SOURCE_TYPE = "VIDEO_FILE"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM"
 
     # For VIDEO_FILE, specify the path to the video file
     # Example: VIDEO_FILE_PATH = "resources/test1.mp4"
@@ -91,7 +91,11 @@ class Parameters:
     # Future expansions might include custom algorithms or integrating machine learning models.
     DEFAULT_TRACKING_ALGORITHM = "CSRT"
     # PARTICLE_FILTER , CSRT
+    # Color of the tracking rectangle (B, G, R format)
+    TRACKING_RECTANGLE_COLOR = (255, 0, 0)  # Blue color for the bounding box
     
+    # Color of the center circle (B, G, R format)
+    CENTER_CIRCLE_COLOR = (0, 255, 0)  # Green color for the center point
 
     
     USE_SEGMENTATION_FOR_TRACKING = True  # True to use segmentation on manual selection, False to use manual selection directly

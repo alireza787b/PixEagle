@@ -1,7 +1,9 @@
 import numpy as np
 from classes.video_handler import VideoHandler
-from classes.tracker import Tracker
+from classes.trackers.base_tracker import BaseTracker
+from classes.trackers.csrt_tracker import CSRTTracker  # Import other trackers as necessary
 from classes.segmentor import Segmentor
+from classes.trackers.tracker_factory import create_tracker
 from classes.detector import Detector
 from classes.parameters import Parameters
 import cv2
@@ -11,7 +13,7 @@ class AppController:
         # Initialize video processing components
         self.video_handler = VideoHandler()
         self.detector = Detector(algorithm_type=Parameters.DETECTION_ALGORITHM)
-        self.tracker = Tracker(video_handler=self.video_handler,detector=self.detector)
+        self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM,self.video_handler, self.detector)
         self.segmentor = Segmentor(algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM)
         # Flags to track the state of tracking and segmentation
         self.tracking_started = False
@@ -29,24 +31,18 @@ class AppController:
             self.handle_user_click(x, y)
 
     def toggle_tracking(self, frame):
-        """
-        Toggles the tracking state. Starts tracking if not started, stops if already started.
-        """
         if not self.tracking_started:
-            # Start tracking with a user-selected ROI
             bbox = cv2.selectROI(Parameters.FRAME_TITLE, frame, False, False)
             cv2.destroyWindow("ROI selector")
             if bbox and bbox[2] > 0 and bbox[3] > 0:
                 self.tracker.start_tracking(frame, bbox)
                 self.tracking_started = True
-                self.detector.detector.extract_features(frame, bbox)
-                self.detector.set_latest_bbox(bbox)
+                if hasattr(self.tracker, 'detector') and self.tracker.detector:
+                    self.tracker.detector.extract_features(frame, bbox)
                 print("Tracking activated.")
-                
             else:
                 print("Tracking canceled or invalid ROI.")
         else:
-            # Cancel tracking if it was already started
             self.cancel_activities()
             print("Tracking deactivated.")
 
@@ -66,7 +62,6 @@ class AppController:
         """
         self.tracking_started = False
         self.segmentation_active = False
-        self.tracker.init_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM)
         print("All activities cancelled.")
 
     def update_frame(self, frame):
@@ -74,25 +69,29 @@ class AppController:
         Updates the frame with the results of tracking and/or segmentation.
         """
         if self.segmentation_active:
+            # Assuming `segment_frame` is a method that modifies the frame and returns it.
             frame = self.segmentor.segment_frame(frame)
         
         if self.tracking_started:
+            # Update the tracker and check if tracking was successful
             success, _ = self.tracker.update(frame)
             if success:
-                frame = self.tracker.draw_tracking(frame)
+                # Draw tracking and estimation results on the frame
+                frame = self.tracker.draw_tracking(frame)  # Assumes draw_tracking modifies the frame
                 if Parameters.USE_ESTIMATOR:
-                    frame = self.tracker.draw_estimate(frame)
+                    frame = self.tracker.draw_estimate(frame)  # Assumes draw_estimate modifies the frame
             else:
+                # Optionally reinitialize tracking based on certain conditions
                 if Parameters.USE_DETECTOR and Parameters.AUTO_REDETECT:
-                    self.initiate_redetection(frame,self.tracker)
+                    # Assuming `initiate_redetection` is a method that handles re-detection logic
+                    self.initiate_redetection(frame, self.tracker)
                     
-                
-        
         if Parameters.USE_DETECTOR:
-            #frame = self.detector.draw_detection(frame, color=(0, 255, 255))  # Yellow color for detected bounding box
+            # Assuming you have a method to draw detections, uncomment or adjust as needed
+            # frame = self.detector.draw_detection(frame, color=(0, 255, 255))
             pass
 
-
+        # Update the current frame attribute with the modified frame
         self.current_frame = frame
                     
         return frame
