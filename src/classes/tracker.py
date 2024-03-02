@@ -30,7 +30,8 @@ class Tracker:
         """
         # Reset the tracker instance
         if algorithm == "CSRT":
-            self.tracker = cv2.TrackerCSRT_create()
+            #self.tracker = cv2.TrackerCSRT_create()
+            self.tracker = cv2.legacy.TrackerCSRT_create()
         elif algorithm == "KCF":
             self.tracker = cv2.TrackerKCF_create()
         elif algorithm == "BOOSTING":

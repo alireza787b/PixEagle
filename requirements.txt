@@ -2,8 +2,8 @@
 mavsdk
 
 # OpenCV for computer vision and tracking
-opencv-python
-opencv-contrib-python # For extra features including tracking algorithms
+opencv-python == 4.9.0.80
+opencv-contrib-python==4.9.0.80 # For extra features including tracking algorithms
 
 # Flask for web API and interaction
 Flask
