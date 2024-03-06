@@ -48,8 +48,7 @@ class CSRTTracker(BaseTracker):
         
         if success:
             self.bbox = detected_bbox
-            self.center = (int(self.bbox[0] + self.bbox[2] / 2), int(self.bbox[1] + self.bbox[3] / 2))
-            self.center_history.append(self.center)
+            self.set_center((int(self.bbox[0] + self.bbox[2] / 2), int(self.bbox[1] + self.bbox[3] / 2)))
             
             if self.estimator_enabled:
                 self.position_estimator.set_dt(dt)
@@ -58,3 +57,4 @@ class CSRTTracker(BaseTracker):
                 self.estimated_position_history.append(estimated_position)
         
         return success, self.bbox
+

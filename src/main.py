@@ -13,7 +13,7 @@ def main():
         if frame is None:
             break  # End of video or camera feed error
         
-        frame = controller.update_frame(frame)
+        frame = controller.update_loop(frame)
         controller.show_current_frame()
 
         key = cv2.waitKey(controller.video_handler.delay_frame) & 0xFF
@@ -22,7 +22,9 @@ def main():
         else:
             controller.handle_key_input(key, frame)
 
+    
     controller.video_handler.release()
+    controller.shutdown()  # Ensure a clean shutdown
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":

@@ -90,7 +90,7 @@ class Parameters:
     # different tracking needs or to experiment with algorithm performance.
     # Future expansions might include custom algorithms or integrating machine learning models.
     DEFAULT_TRACKING_ALGORITHM = "CSRT"
-    # PARTICLE_FILTER , CSRT
+    # PFT , CSRT
     # Color of the tracking rectangle (B, G, R format)
     TRACKING_RECTANGLE_COLOR = (255, 0, 0)  # Blue color for the bounding box
     
@@ -103,6 +103,12 @@ class Parameters:
     
     CENTER_HISTORY_LENGTH = 10  # Number of past center points to store
 
+    PARTICLE_FILTER_NUM_PARTICLES = 200  # Number of particles used in the filter
+    PARTICLE_FILTER_SIMILARITY_MEASURE = "MSE_color"  # The similarity measure used for comparing particles to the target
+    PARTICLE_FILTER_SIGMA = 5  # Sigma value used in the similarity calculation to control sensitivity
+    PARTICLE_FILTER_SIGMA_MOVE_NEAR = 15  # Standard deviation of movement for particles close to the target
+    PARTICLE_FILTER_SIGMA_MOVE_FAR = 30  # Standard deviation of movement for particles far from the target
+    PARTICLE_FILTER_SIGMA_RATIO = 0.5  # Ratio of particles considered 'near' to the target
 
     # ----- Application Behavior -----
     # Determines how the Region of Interest (ROI) is selected. Options are "MANUAL" for user selection,
@@ -123,6 +129,26 @@ class Parameters:
     # it easier to review system behavior or diagnose issues.
     LOG_FILE_PATH = "logs/tracking_log.txt"
 
+
+    # System connection configuration
+    SYSTEM_ADDRESS = "udp://:14540"
+
+    # PID gains for X, Y, and Z axes
+    PID_GAINS = {
+        "x": {"p": 1, "i": 0.1, "d": 0.05},
+        "y": {"p": 1, "i": 0.1, "d": 0.05},
+        "z": {"p": 1, "i": 0.1, "d": 0.05}
+    }
+
+    # Rate of descent and minimum descent height
+    RATE_OF_DESCENT = -0.5  # Negative for descending
+    MIN_DESCENT_HEIGHT = 10.0  # Meters
+
+
+    CAMERA_YAW_OFFSET = 0
+    
+    SETPOINT_PUBLISH_RATE_S = 0.1
+    ENABLE_SETPOINT_DEBUGGING = True
     # ----- Future Expansion -----
     # Placeholder for future parameters. This section can be used to outline planned expansions,
     # such as new video stream types, integration with additional hardware, or advanced tracking features.

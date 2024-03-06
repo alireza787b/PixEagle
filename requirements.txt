@@ -29,3 +29,6 @@ gunicorn # For deploying Flask apps in production
 # Development and testing tools
 ipython
 pytest # For testing
+
+
+scikit-image

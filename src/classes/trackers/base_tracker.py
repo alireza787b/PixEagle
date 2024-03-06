@@ -24,12 +24,13 @@ class BaseTracker(ABC):
         self.video_handler = video_handler
         self.detector = detector
         self.bbox: Optional[Tuple[int, int, int, int]] = None  # Current bounding box
-        self.center: Optional[Tuple[int, int]] = None  # Current center of the bounding box
-        self.center_history = deque(maxlen=Parameters.CENTER_HISTORY_LENGTH)
+        self._center: Optional[Tuple[int, int]] = None  # Use underscore to denote the private attribute
+        self.normalized_center: Optional[Tuple[float, float]] = None  # Store normalized center        self.center_history = deque(maxlen=Parameters.CENTER_HISTORY_LENGTH)
         self.estimator_enabled = Parameters.USE_ESTIMATOR
         self.position_estimator = PositionEstimator() if self.estimator_enabled else None
         self.estimated_position_history = deque(maxlen=Parameters.ESTIMATOR_HISTORY_LENGTH)
         self.last_update_time: float = 0.0
+        self.frame = None
 
     @abstractmethod
     def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
@@ -128,3 +129,32 @@ class BaseTracker(ABC):
         dt = current_time - self.last_update_time if self.last_update_time else 0
         self.last_update_time = current_time
         return dt
+
+    def normalize_center_coordinates(self):
+        """
+        Normalizes and stores the center coordinates of the tracked target.
+        Normalization is done such that the center of the frame is (0,0),
+        top-right is (1,1), and bottom-left is (-1,-1).
+        """
+        if self.center :
+            frame_height, frame_width = (self.video_handler.height , self.video_handler.width)
+            # Normalize center coordinates
+            normalized_x = (self.center[0] - frame_width / 2) / (frame_width / 2)
+            normalized_y = (self.center[1] - frame_height / 2) / (frame_height / 2)
+            # Store normalized values
+            self.normalized_center = (normalized_x, normalized_y)
+            
+    def print_normalized_center(self):
+        """
+        Prints the normalized center coordinates of the tracked target.
+        Assumes `normalize_center_coordinates` has been called after the latest tracking update.
+        """
+        if hasattr(self, 'normalized_center'):
+            print(f"Normalized Center Coordinates: {self.normalized_center}")
+        else:
+            print("Normalized center coordinates not calculated or available.")
+            
+
+    def set_center(self, value: Tuple[int, int]):
+        self.center = value
+        self.normalize_center_coordinates()  # Automatically normalize when center is updated

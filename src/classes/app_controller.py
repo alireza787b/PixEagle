@@ -1,4 +1,7 @@
+import asyncio
 import numpy as np
+from classes.follower import Follower
+from classes.setpoint_sender import SetpointSender
 from classes.video_handler import VideoHandler
 from classes.trackers.base_tracker import BaseTracker
 from classes.trackers.csrt_tracker import CSRTTracker  # Import other trackers as necessary
@@ -7,6 +10,8 @@ from classes.trackers.tracker_factory import create_tracker
 from classes.detector import Detector
 from classes.parameters import Parameters
 import cv2
+from classes.px4_controller import PX4Controller  # Ensure this import path is correct
+
 
 class AppController:
     def __init__(self):
@@ -22,6 +27,11 @@ class AppController:
         cv2.namedWindow("Video")
         cv2.setMouseCallback("Video", self.on_mouse_click)
         self.current_frame = None
+        self.px4_controller = PX4Controller()
+        self.following_active = False  # Flag to indicate if following mode is active
+        self.follower = None
+        self.setpoint_sender = None
+
 
     def on_mouse_click(self, event, x, y, flags, param):
         """
@@ -62,9 +72,11 @@ class AppController:
         """
         self.tracking_started = False
         self.segmentation_active = False
+        self.setpoint_sender.stop()
+        self.setpoint_sender.join()
         print("All activities cancelled.")
 
-    def update_frame(self, frame):
+    def update_loop(self, frame):
         """
         Updates the frame with the results of tracking and/or segmentation.
         """
@@ -78,8 +90,15 @@ class AppController:
             if success:
                 # Draw tracking and estimation results on the frame
                 frame = self.tracker.draw_tracking(frame)  # Assumes draw_tracking modifies the frame
+                if(Parameters.ENABLE_DEBUGGING):
+                    self.tracker.print_normalized_center()
                 if Parameters.USE_ESTIMATOR:
                     frame = self.tracker.draw_estimate(frame)  # Assumes draw_estimate modifies the frame
+                
+                 # If following mode is active, calculate and update velocity commands
+                if self.following_active:
+                    # This method should now just update the command in SetpointSender
+                    self.follow_target()  # Updated to pass target_coords directly
             else:
                 # Optionally reinitialize tracking based on certain conditions
                 if Parameters.USE_DETECTOR and Parameters.AUTO_REDETECT:
@@ -106,6 +125,12 @@ class AppController:
             self.toggle_tracking(frame)
         elif key == ord('d'):
             self.initiate_redetection(frame)
+        elif key == ord('f'):
+            # Start following mode
+            asyncio.run(self.connect_px4())
+        elif key == ord('x'):
+            # Stop following mode and disconnect from PX4
+            asyncio.run(self.disconnect_px4())
         elif key == ord('c'):
             self.cancel_activities()
 
@@ -153,3 +178,49 @@ class AppController:
     def show_current_frame(self,frame_title = Parameters.FRAME_TITLE):
         cv2.imshow(frame_title, self.current_frame)
         return self.current_frame
+    
+    async def connect_px4(self):
+        """Connects to PX4 when following mode is activated."""
+        if not self.following_active:
+            if Parameters.ENABLE_DEBUGGING:
+                print("Activating Follow Mode!")
+            await self.px4_controller.connect()
+            if Parameters.ENABLE_DEBUGGING:
+                print("Connected to Drone!")
+            self.follower = Follower(self.px4_controller)
+            self.setpoint_sender = SetpointSender(self.px4_controller)
+            self.setpoint_sender.start()
+            #await self.px4_controller.start_offboard_mode()
+            self.following_active = True
+
+    async def disconnect_px4(self):
+        if self.following_active:
+            await self.px4_controller.stop_offboard_mode()
+            if self.setpoint_sender:
+                self.setpoint_sender.stop()
+                self.setpoint_sender.join()
+            self.following_active = False
+            
+    def follow_target(self):
+        """Prepares to follow the target based on tracking information."""
+        if self.tracking_started and self.following_active:
+            # Example: Convert tracking info to target coordinates
+            target_coords = self.tracker.normalized_center
+            # Prepare velocity commands based on target coordinates
+            # Note: This part needs adjustment to calculate vel_x, vel_y, vel_z based on target_coords
+            # For demonstration, let's assume vel_x, vel_y, vel_z are calculated
+            vel_x, vel_y, vel_z = self.follower.calculate_velocity_commands(target_coords)
+            self.setpoint_sender.update_command(vel_x,vel_y,vel_z)
+            # Update the command in SetpointSender
+            # if self.setpoint_sender:
+            #     self.setpoint_sender.update_command(vel_x, vel_y, vel_z)
+
+
+    def shutdown(self):
+        """Shuts down the application and drone control thread cleanly."""
+        if self.setpoint_sender:
+            self.setpoint_sender.stop()
+            self.setpoint_sender.join()
+        asyncio.run(self.px4_controller.stop())
+
+        
