@@ -72,11 +72,14 @@ class AppController:
         """
         self.tracking_started = False
         self.segmentation_active = False
-        self.setpoint_sender.stop()
-        self.setpoint_sender.join()
+        if self.setpoint_sender is not None:  # Check if setpoint_sender has been initialized
+            self.setpoint_sender.stop()
+            self.setpoint_sender.join()
+            self.setpoint_sender = None  # Optionally reset setpoint_sender to None after stopping
         print("All activities cancelled.")
 
-    def update_loop(self, frame):
+
+    async def update_loop(self, frame):
         """
         Updates the frame with the results of tracking and/or segmentation.
         """
@@ -98,7 +101,7 @@ class AppController:
                  # If following mode is active, calculate and update velocity commands
                 if self.following_active:
                     # This method should now just update the command in SetpointSender
-                    self.follow_target()  # Updated to pass target_coords directly
+                    await self.follow_target()  # Updated to pass target_coords directly
             else:
                 # Optionally reinitialize tracking based on certain conditions
                 if Parameters.USE_DETECTOR and Parameters.AUTO_REDETECT:
@@ -115,7 +118,7 @@ class AppController:
                     
         return frame
 
-    def handle_key_input(self, key, frame):
+    async def handle_key_input_async(self, key, frame):
         """
         Handles key inputs for toggling segmentation, toggling tracking, starting feature extraction, and cancelling activities.
         """
@@ -127,13 +130,15 @@ class AppController:
             self.initiate_redetection(frame)
         elif key == ord('f'):
             # Start following mode
-            asyncio.run(self.connect_px4())
+            await self.connect_px4()
         elif key == ord('x'):
             # Stop following mode and disconnect from PX4
-            asyncio.run(self.disconnect_px4())
+            await self.disconnect_px4()
         elif key == ord('c'):
             self.cancel_activities()
 
+    def handle_key_input(self, key, frame):
+        asyncio.create_task(self.handle_key_input_async(key, frame))
 
     def handle_user_click(self, x, y):
         """
@@ -188,10 +193,15 @@ class AppController:
             if Parameters.ENABLE_DEBUGGING:
                 print("Connected to Drone!")
             self.follower = Follower(self.px4_controller)
-            self.setpoint_sender = SetpointSender(self.px4_controller)
-            self.setpoint_sender.start()
-            #await self.px4_controller.start_offboard_mode()
+
+            # Send an initial setpoint before starting offboard mode
+            await self.px4_controller.send_initial_setpoint()
+
+
+            await self.px4_controller.start_offboard_mode()
             self.following_active = True
+
+
 
     async def disconnect_px4(self):
         if self.following_active:
@@ -201,7 +211,7 @@ class AppController:
                 self.setpoint_sender.join()
             self.following_active = False
             
-    def follow_target(self):
+    async def follow_target(self):
         """Prepares to follow the target based on tracking information."""
         if self.tracking_started and self.following_active:
             # Example: Convert tracking info to target coordinates
@@ -210,17 +220,18 @@ class AppController:
             # Note: This part needs adjustment to calculate vel_x, vel_y, vel_z based on target_coords
             # For demonstration, let's assume vel_x, vel_y, vel_z are calculated
             vel_x, vel_y, vel_z = self.follower.calculate_velocity_commands(target_coords)
-            self.setpoint_sender.update_command(vel_x,vel_y,vel_z)
-            # Update the command in SetpointSender
-            # if self.setpoint_sender:
-            #     self.setpoint_sender.update_command(vel_x, vel_y, vel_z)
+            # Update the command 
+            self.px4_controller.update_setpoint((vel_x, vel_y, vel_z))
+            await self.px4_controller.send_velocity_commands(self.px4_controller.last_command)
 
 
-    def shutdown(self):
+    async def shutdown(self):
         """Shuts down the application and drone control thread cleanly."""
-        if self.setpoint_sender:
-            self.setpoint_sender.stop()
-            self.setpoint_sender.join()
-        asyncio.run(self.px4_controller.stop())
+        # Cancel the periodic setpoint sending task if it's running
+        if hasattr(self.px4_controller, 'start_periodic_setpoint_sending_task'):
+            self.px4_controller.start_periodic_setpoint_sending_task.cancel()
+            await self.px4_controller.start_periodic_setpoint_sending_task
+
+        await self.px4_controller.stop()
 
         

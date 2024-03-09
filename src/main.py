@@ -1,31 +1,28 @@
-# src/main.py
-from classes.app_controller import AppController
+import asyncio
 from classes.app_controller import AppController
 from classes.parameters import Parameters
 import cv2
 
-
-def main():
+async def main():
     controller = AppController()
 
     while True:
         frame = controller.video_handler.get_frame()
         if frame is None:
-            break  # End of video or camera feed error
+            break  # End of video or camera feedqq error
         
-        frame = controller.update_loop(frame)
+        frame = await controller.update_loop(frame)
         controller.show_current_frame()
 
         key = cv2.waitKey(controller.video_handler.delay_frame) & 0xFF
         if key == ord('q'):  # Quit program
             break
         else:
-            controller.handle_key_input(key, frame)
+            await controller.handle_key_input_async(key, frame)  # Use await here
 
-    
+    await controller.shutdown()  # Ensure a clean shutdown
     controller.video_handler.release()
-    controller.shutdown()  # Ensure a clean shutdown
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())  # Start the asyncio event loop with main()

@@ -141,8 +141,8 @@ class Parameters:
     }
 
     # Rate of descent and minimum descent height
-    RATE_OF_DESCENT = -0.5  # Negative for descending
-    MIN_DESCENT_HEIGHT = 10.0  # Meters
+    RATE_OF_DESCENT = 0.5  # Negative for descending
+    MIN_DESCENT_HEIGHT = 4  # Meters
 
 
     CAMERA_YAW_OFFSET = 0

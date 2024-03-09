@@ -39,7 +39,7 @@ class Follower:
         :return: The calculated vertical speed (vel_z).
         """
         if self.px4_controller.current_altitude > Parameters.MIN_DESCENT_HEIGHT:
-            vel_z = self.pid_z(PX4Controller.current_altitude)
+            vel_z = self.pid_z(self.px4_controller.current_altitude)
             vel_z = max(vel_z, Parameters.RATE_OF_DESCENT)
         else:
             vel_z = 0
