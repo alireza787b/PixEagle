@@ -2,7 +2,7 @@ import asyncio
 import math
 from mavsdk import System
 from classes.parameters import Parameters
-from mavsdk.offboard import OffboardError, VelocityNedYaw
+from mavsdk.offboard import *
 
 class PX4Controller:
     def __init__(self):
@@ -12,16 +12,18 @@ class PX4Controller:
         self.camera_yaw_offset = Parameters.CAMERA_YAW_OFFSET
         self.update_task = None  # Task for telemetry updates
         self.last_command = (0, 0, 0)  # Default to hover (0 velocity)
-
+        self.active_mode = False
+        
     async def connect(self):
         """Connects to the drone using the system address from Parameters."""
         await self.drone.connect(system_address=Parameters.SYSTEM_ADDRESS)
+        self.active_mode = True
         print("Connected to the drone.")
         self.update_task = asyncio.create_task(self.update_drone_data())
 
     async def update_drone_data(self):
         """Continuously updates current yaw and altitude."""
-        while True:
+        while self.active_mode:
             try:
                 async for position in self.drone.telemetry.position():
                     self.current_altitude = position.relative_altitude_m
@@ -34,7 +36,7 @@ class PX4Controller:
                 print(f"Error updating telemetry: {e}")
                 await asyncio.sleep(1)  # Wait before retrying
 
-    async def send_velocity_commands(self, setpoint):
+    async def send_ned_velocity_commands(self, setpoint):
         """Sends velocity commands to the drone in offboard mode."""
         vel_x, vel_y, vel_z = setpoint
         ned_vel_x, ned_vel_y = self.convert_to_ned(vel_x, vel_y, self.current_yaw)
@@ -47,6 +49,22 @@ class PX4Controller:
             await self.drone.offboard.set_velocity_ned(next_setpoint)
         except OffboardError as e:
             print(f"Failed to send offboard command: {e}")
+       
+            
+    async def send_body_velocity_commands(self, setpoint):
+        """Sends velocity commands to the drone in offboard mode."""
+        vx, vy, vz = setpoint
+        yaw_rate = 0 # for now no yaw change
+        try:
+            print(f"Setting VELOCITY_BODY setpoint: Vx={vx}, Vy={vy}, Vz={vz}, Yaw rate={yaw_rate}")
+            next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_rate)
+            await self.drone.offboard.set_velocity_body(next_setpoint)
+        except OffboardError as e:
+            print(f"Failed to send offboard velocity command: {e}")
+            
+        
+            
+            
 
     def convert_to_ned(self, vel_x, vel_y, yaw):
         """Converts local frame velocities to NED frame using the current yaw."""
@@ -74,11 +92,13 @@ class PX4Controller:
             self.update_task.cancel()
             await self.update_task
         await self.stop_offboard_mode()
+        self.active_mode = False
         print("Disconnected from the drone.")
 
     async def send_initial_setpoint(self):
         """Sends an initial setpoint to enable offboard mode start."""
-        await self.send_velocity_commands((0, 0, 0))
+        #await self.send_ned_velocity_commands((0, 0, 0))
+        await self.send_body_velocity_commands((0, 0, 0))
 
     def update_setpoint(self, setpoint):
         """Updates the current setpoint."""

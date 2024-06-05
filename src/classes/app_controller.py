@@ -130,10 +130,12 @@ class AppController:
             self.initiate_redetection(frame)
         elif key == ord('f'):
             # Start following mode
-            await self.connect_px4()
+            if Parameters.DIRECT_PX4_MAVSDK:        
+                await self.connect_px4()
         elif key == ord('x'):
-            # Stop following mode and disconnect from PX4
-            await self.disconnect_px4()
+            # Stop following mode and disconnect from Drone
+            if Parameters.DIRECT_PX4_MAVSDK:        
+                await self.disconnect_px4()
         elif key == ord('c'):
             self.cancel_activities()
 
@@ -188,10 +190,10 @@ class AppController:
         """Connects to PX4 when following mode is activated."""
         if not self.following_active:
             if Parameters.ENABLE_DEBUGGING:
-                print("Activating Follow Mode!")
+                print("Activating Follow Mode to PX4!")
             await self.px4_controller.connect()
             if Parameters.ENABLE_DEBUGGING:
-                print("Connected to Drone!")
+                print("Connected to PX4 Drone!")
             self.follower = Follower(self.px4_controller)
 
             # Send an initial setpoint before starting offboard mode
@@ -222,16 +224,16 @@ class AppController:
             vel_x, vel_y, vel_z = self.follower.calculate_velocity_commands(target_coords)
             # Update the command 
             self.px4_controller.update_setpoint((vel_x, vel_y, vel_z))
-            await self.px4_controller.send_velocity_commands(self.px4_controller.last_command)
+            await self.px4_controller.send_body_velocity_commands(self.px4_controller.last_command)
 
 
     async def shutdown(self):
         """Shuts down the application and drone control thread cleanly."""
         # Cancel the periodic setpoint sending task if it's running
-        if hasattr(self.px4_controller, 'start_periodic_setpoint_sending_task'):
-            self.px4_controller.start_periodic_setpoint_sending_task.cancel()
-            await self.px4_controller.start_periodic_setpoint_sending_task
-
+        # if hasattr(self.px4_controller, 'start_periodic_setpoint_sending_task'):
+        #     self.px4_controller.start_periodic_setpoint_sending_task.cancel()
+        #     await self.px4_controller.start_periodic_setpoint_sending_task
         await self.px4_controller.stop()
+        await self.disconnect_px4()
 
         

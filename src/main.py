@@ -9,7 +9,7 @@ async def main():
     while True:
         frame = controller.video_handler.get_frame()
         if frame is None:
-            break  # End of video or camera feedqq error
+            break  # End of video or camera feed error
         
         frame = await controller.update_loop(frame)
         controller.show_current_frame()
