@@ -6,7 +6,10 @@ from mavsdk.offboard import *
 
 class PX4Controller:
     def __init__(self):
-        self.drone = System()
+        if Parameters.EXTERNAL_MAVSDK_SERVER:
+            self.drone = System(mavsdk_server_address='localhost', port=50051)
+        else:
+            self.drone = System()
         self.current_yaw = 0.0  # Current yaw in radians
         self.current_altitude = 0.0  # Current altitude in meters
         self.camera_yaw_offset = Parameters.CAMERA_YAW_OFFSET

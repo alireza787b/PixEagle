@@ -43,7 +43,8 @@ class AppController:
     def toggle_tracking(self, frame):
         if not self.tracking_started:
             bbox = cv2.selectROI(Parameters.FRAME_TITLE, frame, False, False)
-            cv2.destroyWindow("ROI selector")
+            #cv2.destroyWindow("ROI selector")
+            # No need to destroy the window here, as selectROI should handle it.
             if bbox and bbox[2] > 0 and bbox[3] > 0:
                 self.tracker.start_tracking(frame, bbox)
                 self.tracking_started = True
