@@ -8,7 +8,7 @@ class Parameters:
     """
 
     # ----- Video Source Configuration -----
-    VIDEO_SOURCE_TYPE = "VIDEO_FILE"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM"
+    VIDEO_SOURCE_TYPE = "USB_CAMERA"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM"
 
     # For VIDEO_FILE, specify the path to the video file
     # Example: VIDEO_FILE_PATH = "resources/test1.mp4"
@@ -16,7 +16,7 @@ class Parameters:
 
     # For USB_CAMERA, specify the camera index as an integer
     # Example: CAMERA_INDEX = 0 for the default webcam
-    CAMERA_INDEX = 0
+    CAMERA_INDEX = 1
 
     # For RTSP_STREAM, specify the RTSP URL as a string
     # Example: RTSP_URL = "rtsp://username:password@ip_address:port/stream"
