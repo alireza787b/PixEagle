@@ -8,7 +8,7 @@ class Parameters:
     """
 
     # ----- Video Source Configuration -----
-    VIDEO_SOURCE_TYPE = "VIDEO_FILE"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM"
+    VIDEO_SOURCE_TYPE = "USB_CAMERA"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM"
 
     # For VIDEO_FILE, specify the path to the video file
     # Example: VIDEO_FILE_PATH = "resources/test1.mp4"
