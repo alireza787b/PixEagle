@@ -8,6 +8,8 @@ class PX4Controller:
     def __init__(self):
         if Parameters.EXTERNAL_MAVSDK_SERVER:
             self.drone = System(mavsdk_server_address='localhost', port=50051)
+            
+            
         else:
             self.drone = System()
         self.current_yaw = 0.0  # Current yaw in radians

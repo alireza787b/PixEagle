@@ -137,13 +137,15 @@ class Parameters:
 
 
     # System connection configuration
-    SYSTEM_ADDRESS = "udp://:14540"
+    SYSTEM_ADDRESS = "udp://172.21.148.30:14540"
+    #SYSTEM_ADDRESS = "udp://:18570"
+    #SYSTEM_ADDRESS = "udp://:14540@172.21.148.30:14550"
 
     # Default PID gains
     PID_GAINS = {
-        "x": {"p": 1, "i": 0.05, "d": 0.01},
-        "y": {"p": 1, "i": 0.05, "d": 0.01},
-        "z": {"p": 1, "i": 0.05, "d": 0.01}
+        "x": {"p": 3, "i": 0.5, "d": 0.1},
+        "y": {"p": 3, "i": 0.5, "d": 0.1},
+        "z": {"p": 1, "i": 0.01, "d": 0.01}
     }
 
     # Gain scheduling for different altitude ranges
@@ -154,7 +156,7 @@ class Parameters:
     }
 
     # Enable or disable gain scheduling
-    ENABLE_GAIN_SCHEDULING = True
+    ENABLE_GAIN_SCHEDULING = False
     GAIN_SCHEDULING_PARAMETER = 'current_altitude'
     
     # Bounds for velocity outputs
@@ -162,7 +164,7 @@ class Parameters:
 
     # Safety and operational parameters
     MIN_DESCENT_HEIGHT = 10  # meters
-    MAX_RATE_OF_DESCENT = 1.0  # meters per second
+    MAX_RATE_OF_DESCENT = 0.0  # meters per second
 
     #Desired normalized position of aiming for put the target in screen
     DESIRE_AIM = (0,0)

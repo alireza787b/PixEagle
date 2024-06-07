@@ -63,12 +63,14 @@ class Follower:
         
         # Ensure error calculation is performed element-wise
         error_x = Parameters.DESIRE_AIM[0] - target_coords[0]
-        error_y = Parameters.DESIRE_AIM[1] - target_coords[1]
+        error_y = Parameters.DESIRE_AIM[1] - (-1)*target_coords[1]
+        #remember!!!!! X: Possitive to Right  Y: Possitive to down (in 2D ) for coordinates of tracker
+        # PX4 Body: +X goes back, +Y goes right
         logging.debug(f"Calculating PID for errors - X: {error_x}, Y: {error_y}")
 
         # PID controllers now automatically apply the velocity limits
-        vel_x = self.pid_x(error_x)
-        vel_y = self.pid_y(error_y)
+        vel_x = self.pid_x(error_y)
+        vel_y = self.pid_y(error_x)
         vel_z = self.control_descent()
 
         return (vel_x, vel_y, vel_z)
