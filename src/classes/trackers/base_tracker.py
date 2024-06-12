@@ -24,7 +24,7 @@ class BaseTracker(ABC):
         self.video_handler = video_handler
         self.detector = detector
         self.bbox: Optional[Tuple[int, int, int, int]] = None  # Current bounding box
-        self._center: Optional[Tuple[int, int]] = None  # Use underscore to denote the private attribute
+        self.center: Optional[Tuple[int, int]] = None  # Use underscore to denote the private attribute
         self.normalized_center: Optional[Tuple[float, float]] = None  # Store normalized center        self.center_history = deque(maxlen=Parameters.CENTER_HISTORY_LENGTH)
         self.estimator_enabled = Parameters.USE_ESTIMATOR
         self.position_estimator = PositionEstimator() if self.estimator_enabled else None

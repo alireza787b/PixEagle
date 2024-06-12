@@ -36,6 +36,8 @@ class Parameters:
     #If we are working on Windows (or need to load mavsdk_server manually), we should handle the MAVSDK Server Differently in PX4 Controller Class
     EXTERNAL_MAVSDK_SERVER = True
 
+    FLASK_HOST = '127.0.0.1'  # Ensure this is correct
+    FLASK_PORT = 5555  # Ensure this is correct
 
     FRAME_TITLE = "Video"
     
