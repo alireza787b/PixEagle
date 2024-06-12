@@ -8,7 +8,7 @@ class Parameters:
     """
 
     # ----- Video Source Configuration -----
-    VIDEO_SOURCE_TYPE = "USB_CAMERA"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM"
+    VIDEO_SOURCE_TYPE = "VIDEO_FILE"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM"
 
     # For VIDEO_FILE, specify the path to the video file
     # Example: VIDEO_FILE_PATH = "resources/test1.mp4"
@@ -150,9 +150,11 @@ class Parameters:
 
     # Gain scheduling for different altitude ranges
     ALTITUDE_GAIN_SCHEDULE = {
-        (0, 5): {"x": {"p": 0.9, "i": 0.04, "d": 0.01}, "y": {"p": 0.9, "i": 0.04, "d": 0.01}, "z": {"p": 0.8, "i": 0.03, "d": 0.1}},
-        (5, 15): {"x": {"p": 1.2, "i": 0.06, "d": 0.02}, "y": {"p": 1.2, "i": 0.06, "d": 0.02}, "z": {"p": 1.1, "i": 0.05, "d": 0.15}},
-        (15, float('inf')): {"x": {"p": 1.5, "i": 0.07, "d": 0.03}, "y": {"p": 1.5, "i": 0.07, "d": 0.03}, "z": {"p": 1.4, "i": 0.1, "d": 0.2}}
+        (0, 5): {"x": {"p": 1.2, "i": 0.02, "d": 0.02}, "y": {"p": 1.2, "i": 0.02, "d": 0.02}, "z": {"p": 1.1, "i": 0.02, "d": 0.02}},
+        (5, 15): {"x": {"p": 1.0, "i": 0.015, "d": 0.015}, "y": {"p": 1.0, "i": 0.015, "d": 0.015}, "z": {"p": 0.9, "i": 0.015, "d": 0.015}},
+        (15, 30): {"x": {"p": 0.9, "i": 0.01, "d": 0.01}, "y": {"p": 0.9, "i": 0.01, "d": 0.01}, "z": {"p": 0.8, "i": 0.01, "d": 0.01}},
+        (30, 50): {"x": {"p": 0.8, "i": 0.005, "d": 0.005}, "y": {"p": 0.8, "i": 0.005, "d": 0.005}, "z": {"p": 0.7, "i": 0.005, "d": 0.005}},
+        (50, 100): {"x": {"p": 0.7, "i": 0.003, "d": 0.003}, "y": {"p": 0.7, "i": 0.003, "d": 0.003}, "z": {"p": 0.6, "i": 0.003, "d": 0.003}}
     }
 
     # Enable or disable gain scheduling
