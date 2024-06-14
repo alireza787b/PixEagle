@@ -26,6 +26,18 @@ const TrackerPage = () => {
     );
   }
 
+  const lastData = trackerData[trackerData.length - 1];
+
+  if (!lastData.tracker_started) {
+    return (
+      <Container>
+        <Typography variant="h4" gutterBottom>Tracker Visualization</Typography>
+        <Typography variant="h6" gutterBottom>No data loaded yet</Typography>
+        <CircularProgress />
+      </Container>
+    );
+  }
+
   return (
     <Container>
       <Typography variant="h4" gutterBottom>Tracker Visualization</Typography>

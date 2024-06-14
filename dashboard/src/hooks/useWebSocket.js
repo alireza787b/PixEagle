@@ -5,8 +5,10 @@ const useWebSocket = (url, maxEntries = 300) => {
   const [rawData, setRawData] = useState([]);
 
   const addData = useCallback((data) => {
-    setTrackerData((prevData) => [...prevData, data].slice(-maxEntries));
-    setRawData((prevData) => [...prevData, JSON.stringify(data, null, 2)].slice(-maxEntries));
+    if (data.tracker_started) {
+      setTrackerData((prevData) => [...prevData, data].slice(-maxEntries));
+      setRawData((prevData) => [...prevData, JSON.stringify(data, null, 2)].slice(-maxEntries));
+    }
   }, [maxEntries]);
 
   useEffect(() => {
@@ -17,8 +19,12 @@ const useWebSocket = (url, maxEntries = 300) => {
     };
 
     socket.onmessage = (event) => {
-      const receivedData = JSON.parse(event.data);
-      addData(receivedData);
+      try {
+        const receivedData = JSON.parse(event.data);
+        addData(receivedData);
+      } catch (error) {
+        console.error('Error parsing WebSocket message:', error);
+      }
     };
 
     socket.onerror = (error) => {

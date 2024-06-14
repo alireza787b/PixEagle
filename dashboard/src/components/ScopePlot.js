@@ -5,6 +5,15 @@ import { Chart, registerables } from 'chart.js';
 Chart.register(...registerables);
 
 const ScopePlot = ({ title, trackerData }) => {
+  if (trackerData.length === 0 || !trackerData[trackerData.length - 1].center || !trackerData[trackerData.length - 1].bounding_box) {
+    return (
+      <div>
+        <h3>{title}</h3>
+        <p>No data available</p>
+      </div>
+    );
+  }
+
   const latestData = trackerData[trackerData.length - 1];
 
   const data = {
@@ -18,13 +27,13 @@ const ScopePlot = ({ title, trackerData }) => {
       {
         label: 'Bounding Box',
         data: (() => {
-          const [x1, y1, x2, y2] = latestData.bounding_box;
+          const [x, y, width, height] = latestData.bounding_box;
           return [
-            { x: x1, y: y1 },
-            { x: x2, y: y1 },
-            { x: x2, y: y2 },
-            { x: x1, y: y2 },
-            { x: x1, y: y1 }, // Close the rectangle
+            { x: x, y: y },
+            { x: x + width, y: y },
+            { x: x + width, y: y + height },
+            { x: x, y: y + height },
+            { x: x, y: y }, // Close the rectangle
           ];
         })(),
         backgroundColor: 'rgba(255, 99, 132, 0.2)',

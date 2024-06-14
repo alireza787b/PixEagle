@@ -23,7 +23,7 @@ async def main():
         tracker_started = controller.tracking_started is not None
         data = {
             'bounding_box': controller.tracker.bbox,
-            'center': controller.tracker.center,
+            'center': controller.tracker.normalized_center,
             'timestamp': timestamp,
             'tracker_started': tracker_started
         }

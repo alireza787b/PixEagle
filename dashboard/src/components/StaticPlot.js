@@ -3,9 +3,17 @@ import PropTypes from 'prop-types';
 import { Line } from 'react-chartjs-2';
 
 const StaticPlot = ({ title, trackerData, dataKey }) => {
-  const maxWindowSize = 30; // in seconds
+  if (trackerData.length === 0 || !trackerData[0].center) {
+    return (
+      <div>
+        <h3>{title}</h3>
+        <p>No data available</p>
+      </div>
+    );
+  }
 
-  const startTime = new Date(trackerData[0]?.timestamp).getTime();
+  const maxWindowSize = 30; // in seconds
+  const startTime = new Date(trackerData[0].timestamp).getTime();
   const elapsedTimes = trackerData.map((d) => (new Date(d.timestamp).getTime() - startTime) / 1000);
   const labels = elapsedTimes.map((time) => time.toFixed(1));
   const data = trackerData.map((d) => d.center[dataKey === 'center[0]' ? 0 : 1]);

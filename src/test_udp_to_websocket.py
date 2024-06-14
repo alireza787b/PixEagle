@@ -3,11 +3,11 @@ import json
 import threading
 import time
 from datetime import datetime
-from classes.parameters import Parameters  # Adjust the import based on your file structure
 import signal
 import sys
+from classes.parameters import Parameters
 
-# Read the UDP host and port from the Parameters class
+# UDP server configuration
 UDP_HOST = Parameters.UDP_HOST
 UDP_PORT = Parameters.UDP_PORT
 
@@ -34,6 +34,9 @@ def input_listener():
             udp_socket.close()
             sys.exit(0)
 
+def normalize(value, min_value, max_value):
+    return (value - min_value) / (max_value - min_value) * 2 - 1
+
 if __name__ == '__main__':
     signal.signal(signal.SIGINT, signal_handler)  # Handle Ctrl+C
     listener_thread = threading.Thread(target=input_listener)
@@ -41,9 +44,31 @@ if __name__ == '__main__':
     listener_thread.start()
 
     while run:
+        # Simulate bounding box and center
+        x = time.time() % 10
+        y = (time.time() % 10) + 1
+        width = (time.time() % 10) + 2
+        height = (time.time() % 10) + 3
+
+        # Calculate center
+        center_x = x + width / 2
+        center_y = y + height / 2
+
+        # Normalize bounding box and center
+        normalized_bounding_box = [
+            normalize(x, 0, 30),
+            normalize(y, 0, 30),
+            normalize(width, 0, 30),
+            normalize(height, 0, 30)
+        ]
+        normalized_center = [
+            normalize(center_x, 0, 30),
+            normalize(center_y, 0, 30)
+        ]
+
         data = {
-            'bounding_box': [time.time() % 10, (time.time() % 10) + 1, (time.time() % 10) + 2, (time.time() % 10) + 3],
-            'center': [time.time() % 10, (time.time() % 10) + 1],
+            'bounding_box': normalized_bounding_box,
+            'center': normalized_center,
             'timestamp': datetime.utcnow().isoformat(),
             'tracker_started': True
         }
