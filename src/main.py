@@ -9,7 +9,7 @@ from datetime import datetime
 async def main():
     controller = AppController()
     udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    server_address = (Parameters.FLASK_HOST, Parameters.FLASK_PORT)
+    server_address = (Parameters.UDP_HOST, Parameters.UDP_PORT)
 
     while True:
         frame = controller.video_handler.get_frame()

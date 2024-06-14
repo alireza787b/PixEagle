@@ -1,20 +1,41 @@
-// src/App.js
-import React from 'react';
-import { BrowserRouter as Router, Route, Switch } from 'react-router-dom';
-import Dashboard from '/components/Dashboard';
-import TrackerVisualization from '/components/TrackerVisualization';
+import React, { useContext } from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { CssBaseline, ThemeProvider as MuiThemeProvider, createTheme } from '@mui/material';
+import Layout from './components/Layout';
+import TrackerPage from './pages/TrackerPage';
+import FollowerPage from './pages/FollowerPage';
+import DashboardPage from './pages/DashboardPage';
+import { ThemeProvider, ThemeContext } from './context/ThemeContext';
 
-const App = () => {
+const AppContent = () => {
+  const { theme } = useContext(ThemeContext);
+
+  const muiTheme = createTheme({
+    palette: {
+      mode: theme,
+    },
+  });
+
   return (
-    <Router>
-      <div>
-        <Switch>
-          <Route path="/dashboard" component={Dashboard} />
-          <Route path="/visualization" component={TrackerVisualization} />
-        </Switch>
-      </div>
-    </Router>
+    <MuiThemeProvider theme={muiTheme}>
+      <CssBaseline />
+      <Router>
+        <Routes>
+          <Route path="/" element={<Layout />}>
+            <Route path="dashboard" element={<DashboardPage />} />
+            <Route path="tracker" element={<TrackerPage />} />
+            <Route path="follower" element={<FollowerPage />} />
+          </Route>
+        </Routes>
+      </Router>
+    </MuiThemeProvider>
   );
 };
+
+const App = () => (
+  <ThemeProvider>
+    <AppContent />
+  </ThemeProvider>
+);
 
 export default App;

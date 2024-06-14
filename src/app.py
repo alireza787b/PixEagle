@@ -11,11 +11,11 @@ from classes.parameters import Parameters
 
 # Initialize Flask and SocketIO
 app = Flask(__name__)
-socketio = SocketIO(app)
+socketio = SocketIO(app, cors_allowed_origins="*")  # Allow CORS
 
 # Initialize UDP socket
 udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-udp_socket.bind((Parameters.FLASK_HOST, Parameters.FLASK_PORT))
+udp_socket.bind((Parameters.UDP_HOST, Parameters.UDP_PORT))
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -37,18 +37,17 @@ def print_welcome_message():
 
 def udp_listener():
     global run_listener
-    logger.info("UDP Listener started on %s:%d", Parameters.FLASK_HOST, Parameters.FLASK_PORT)
+    logger.info("UDP Listener started on %s:%d", Parameters.UDP_HOST, Parameters.UDP_PORT)
     while run_listener:
         try:
             udp_socket.settimeout(1)  # Set timeout to avoid blocking indefinitely
             try:
                 message, _ = udp_socket.recvfrom(4096)
                 data = json.loads(message.decode('utf-8'))
-                if app.debug:
-                    logger.debug(f"Received message: {message}")
-                    logger.debug(f"Decoded data: {data}")
+                logger.info(f"Received message: {message}")
+                logger.info(f"Decoded data: {data}")
                 socketio.emit('tracker_data', data)
-                logger.info("Data received and emitted")
+                logger.info(f"Data emitted via WebSocket: {data}")
             except socket.timeout:
                 continue  # Continue if timeout occurs
         except socket.error as e:
@@ -98,7 +97,7 @@ if __name__ == '__main__':
     input_thread.start()
 
     try:
-        socketio.run(app, host=Parameters.FLASK_HOST, port=Parameters.FLASK_PORT)
+        socketio.run(app, host=Parameters.WEBSOCK_HOST, port=Parameters.WEBSOCK_PORT)
     except KeyboardInterrupt:
         logger.info("Interrupted by user, shutting down...")
         run_listener = False
