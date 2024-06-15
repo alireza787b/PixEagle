@@ -1,8 +1,11 @@
+// src/components/NavigationDrawer.js
+
 import React from 'react';
 import { Drawer, List, ListItem, ListItemIcon, ListItemText } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
 import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import DashboardIcon from '@mui/icons-material/Dashboard';
+import LiveTvIcon from '@mui/icons-material/LiveTv';
 import { Link } from 'react-router-dom';
 
 const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
@@ -25,7 +28,10 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
           <ListItemIcon><TrackChangesIcon /></ListItemIcon>
           <ListItemText primary="Follower" />
         </ListItem>
-        {/* Add more navigation items here */}
+        <ListItem button component={Link} to="/live-feed">
+          <ListItemIcon><LiveTvIcon /></ListItemIcon>
+          <ListItemText primary="Live Feed" />
+        </ListItem>
       </List>
     </div>
   );
