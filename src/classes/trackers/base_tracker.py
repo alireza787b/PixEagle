@@ -7,6 +7,7 @@ from typing import Optional, Tuple
 import cv2
 from classes.parameters import Parameters
 from classes.position_estimator import PositionEstimator
+import logging
 
 class BaseTracker(ABC):
     """
@@ -24,6 +25,7 @@ class BaseTracker(ABC):
         self.video_handler = video_handler
         self.detector = detector
         self.bbox: Optional[Tuple[int, int, int, int]] = None  # Current bounding box
+        self.normalized_bbox: Optional[Tuple[float, float, float, float]] = None  # Normalized bounding box
         self.center: Optional[Tuple[int, int]] = None  # Use underscore to denote the private attribute
         self.normalized_center: Optional[Tuple[float, float]] = None  # Store normalized center        self.center_history = deque(maxlen=Parameters.CENTER_HISTORY_LENGTH)
         self.estimator_enabled = Parameters.USE_ESTIMATOR
@@ -150,11 +152,27 @@ class BaseTracker(ABC):
         Assumes `normalize_center_coordinates` has been called after the latest tracking update.
         """
         if hasattr(self, 'normalized_center'):
-            print(f"Normalized Center Coordinates: {self.normalized_center}")
+            logging.debug(f"Normalized Center Coordinates: {self.normalized_center}")
         else:
-            print("Normalized center coordinates not calculated or available.")
+            logging.warn("Normalized center coordinates not calculated or available.")
             
 
     def set_center(self, value: Tuple[int, int]):
         self.center = value
         self.normalize_center_coordinates()  # Automatically normalize when center is updated
+        
+    def normalize_bbox(self):
+        """
+        Normalizes the bounding box coordinates relative to the frame size.
+        """
+        if self.bbox and self.video_handler:
+            frame_width, frame_height = self.video_handler.width, self.video_handler.height
+            x, y, w, h = self.bbox
+            norm_x = (x - frame_width / 2) / (frame_width / 2)
+            norm_y = (y - frame_height / 2) / (frame_height / 2)
+            norm_w = w / frame_width
+            norm_h = h / frame_height
+            self.normalized_bbox = (norm_x, norm_y, norm_w, norm_h)
+            logging.debug(f"Normalized bbox: {self.normalized_bbox}")
+
+            return self.normalized_bbox

@@ -14,6 +14,7 @@ class Tracker:
         self.tracker = None
         self.video_handler = video_handler
         self.bbox = None  # Current bounding box
+        self.normalized_bbox = None  # Current bounding box
         self.center = None  # Current center of the bounding box
         self.center_history = deque(maxlen=Parameters.CENTER_HISTORY_LENGTH)  # History of center points
         self.estimator_enabled = Parameters.USE_ESTIMATOR

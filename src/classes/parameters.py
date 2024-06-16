@@ -8,7 +8,7 @@ class Parameters:
     """
 
     # ----- Video Source Configuration -----
-    VIDEO_SOURCE_TYPE = "VIDEO_FILE"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM"
+    VIDEO_SOURCE_TYPE = "USB_CAMERA"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM"
 
     # For VIDEO_FILE, specify the path to the video file
     # Example: VIDEO_FILE_PATH = "resources/test1.mp4"
@@ -36,11 +36,23 @@ class Parameters:
     #If we are working on Windows (or need to load mavsdk_server manually), we should handle the MAVSDK Server Differently in PX4 Controller Class
     EXTERNAL_MAVSDK_SERVER = True
 
+
+    ENABLE_TELEMETRY = True
+    TELEMETRY_SEND_RATE = 2
+
     UDP_HOST = '127.0.0.1' 
     UDP_PORT = 5550
     
     WEBSOCK_HOST = '127.0.0.1' 
     WEBSOCK_PORT = 5551  
+    
+    
+    ENABLE_STREAMING = True
+    STREAM_COMPRESSION_QUALITY = 30
+    STREAM_RESIZE_DIM = (640, 480)
+    STREAM_FPS = 10  # Target FPS for streaming
+    WEBSOCK_PORT = 7000
+    VIDEO_STREAM_URI = '/video-stream'  # New URI for video stream
 
     FRAME_TITLE = "Video"
     

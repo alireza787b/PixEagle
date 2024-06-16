@@ -1,15 +1,13 @@
 import asyncio
+import logging
 from classes.app_controller import AppController
 from classes.parameters import Parameters
 import cv2
-import socket
-import json
-from datetime import datetime
 
 async def main():
+    logging.basicConfig(level=logging.DEBUG)
     controller = AppController()
-    udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    server_address = (Parameters.UDP_HOST, Parameters.UDP_PORT)
+    await controller.start()
 
     while True:
         frame = controller.video_handler.get_frame()
@@ -18,17 +16,6 @@ async def main():
 
         frame = await controller.update_loop(frame)
         controller.show_current_frame()
-
-        timestamp = datetime.utcnow().isoformat()
-        tracker_started = controller.tracking_started is not None
-        data = {
-            'bounding_box': controller.tracker.bbox,
-            'center': controller.tracker.normalized_center,
-            'timestamp': timestamp,
-            'tracker_started': tracker_started
-        }
-        message = json.dumps(data)
-        udp_socket.sendto(message.encode('utf-8'), server_address)
 
         key = cv2.waitKey(controller.video_handler.delay_frame) & 0xFF
         if key == ord('q'):  # Quit program

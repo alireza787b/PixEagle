@@ -49,7 +49,7 @@ class CSRTTracker(BaseTracker):
         if success:
             self.bbox = detected_bbox
             self.set_center((int(self.bbox[0] + self.bbox[2] / 2), int(self.bbox[1] + self.bbox[3] / 2)))
-            
+            self.normalize_bbox()
             if self.estimator_enabled:
                 self.position_estimator.set_dt(dt)
                 self.position_estimator.predict_and_update(self.center)
