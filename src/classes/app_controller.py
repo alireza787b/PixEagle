@@ -135,7 +135,7 @@ class AppController:
 
         # Update the current frame attribute with the modified frame
         self.current_frame = frame
-        
+        self.video_handler.current_osd_frame = frame
       
             
         return frame
@@ -251,12 +251,13 @@ class AppController:
 
 
     async def shutdown(self):
-        """Shuts down the application and drone control thread cleanly."""
-        # Cancel the periodic setpoint sending task if it's running
-        # if hasattr(self.px4_controller, 'start_periodic_setpoint_sending_task'):
-        #     self.px4_controller.start_periodic_setpoint_sending_task.cancel()
-        #     await self.px4_controller.start_periodic_setpoint_sending_task
+        """
+        Shutdown the application cleanly.
+        """
+        if self.video_streamer:
+            self.video_streamer.stop()
         await self.px4_controller.stop()
         await self.disconnect_px4()
         await self.telemetry_handler.stop()
+        self.video_handler.release()
 

@@ -24,6 +24,8 @@ class VideoHandler:
         self.width = None  # Width of the video source
         self.height = None  # Height of the video source
         self.delay_frame = self.init_video_source()
+        self.current_raw_frame = None
+        self.current_osd_frame = None
         
         self.init_video_source()
 
@@ -97,6 +99,7 @@ class VideoHandler:
         """
         if self.cap:
             ret, frame = self.cap.read()
+            self.current_raw_frame = frame
             if ret:
                 self.frame_history.append(frame)
                 return frame

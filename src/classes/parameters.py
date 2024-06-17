@@ -47,19 +47,22 @@ class Parameters:
     WEBSOCK_PORT = 5551  
     
 
+
+    
+    FRAME_TITLE = "Video"
+    
+    
+    # Streaming parameters
+    ENABLE_STREAMING = True
     HTTP_STREAM_HOST = '0.0.0.0'
 
     HTTP_STREAM_PORT = 5077    
     
-    ENABLE_STREAMING = True
-    
-    STREAM_COMPRESSION_QUALITY = 30
-    STREAM_RESIZE_DIM = (640, 480)
-    STREAM_FPS = 10  # Target FPS for streaming
-    WEBSOCK_PORT = 7000
-    VIDEO_STREAM_URI = '/video-stream'  # New URI for video stream
-
-    FRAME_TITLE = "Video"
+    STREAM_WIDTH = 640
+    STREAM_HEIGHT = 480
+    STREAM_QUALITY = 80  # JPEG quality 0-100
+    STREAM_FPS = 30 # target FPS
+    STREAM_PROCESSED_OSD = True
     
     
     #Later on also develope a new mode where instead of connectin to drone, it just sends setpoints over UDP
