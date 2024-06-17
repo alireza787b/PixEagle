@@ -1,0 +1,25 @@
+name: Release
+on:
+  push:
+    branches:
+      - rc
+      - stable
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v1
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Build
+        run: bun run build
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.SEMANTIC_RELEASE_GH_TOKEN }}
+          NPM_TOKEN: ${{ secrets.SEMANTIC_RELEASE_NPM_TOKEN }}
+        run: bun run semantic-release

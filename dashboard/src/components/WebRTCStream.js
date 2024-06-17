@@ -1,49 +1,14 @@
 // dashboard/src/components/WebRTCStream.js
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 
-const WebRTCStream = () => {
-  const videoRef = useRef(null);
+const WebRTCStream = ({ protocol = 'http', src }) => {
+  if (protocol === 'http') {
+    return <img src={src} alt="Live Stream" style={{ width: '100%' }} />;
+  }
 
-  useEffect(() => {
-    const pc = new RTCPeerConnection();
+  // Add more protocols here as needed
 
-    pc.ontrack = (event) => {
-      if (videoRef.current) {
-        videoRef.current.srcObject = event.streams[0];
-      }
-    };
-
-    const start = async () => {
-      try {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-
-        const response = await fetch('http://127.0.0.1:8080/offer', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            sdp: pc.localDescription.sdp,
-            type: pc.localDescription.type,
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`Error: ${response.statusText}`);
-        }
-
-        const answer = await response.json();
-        await pc.setRemoteDescription(new RTCSessionDescription(answer));
-      } catch (error) {
-        console.error('Error during WebRTC connection setup:', error);
-      }
-    };
-
-    start();
-  }, []);
-
-  return <video ref={videoRef} autoPlay style={{ width: '100%' }} />;
+  return null; // Return null if protocol is not supported
 };
 
 export default WebRTCStream;

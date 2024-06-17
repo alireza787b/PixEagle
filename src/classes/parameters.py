@@ -46,8 +46,13 @@ class Parameters:
     WEBSOCK_HOST = '127.0.0.1' 
     WEBSOCK_PORT = 5551  
     
+
+    HTTP_STREAM_HOST = '0.0.0.0'
+
+    HTTP_STREAM_PORT = 5077    
     
     ENABLE_STREAMING = True
+    
     STREAM_COMPRESSION_QUALITY = 30
     STREAM_RESIZE_DIM = (640, 480)
     STREAM_FPS = 10  # Target FPS for streaming

@@ -1,7 +1,7 @@
+# src/main.py
 import asyncio
 import logging
 from classes.app_controller import AppController
-from classes.parameters import Parameters
 import cv2
 
 async def main():
@@ -23,7 +23,7 @@ async def main():
             await controller.handle_key_input_async(key, frame)  # Use await here
 
     await controller.shutdown()  # Ensure a clean shutdown
-    controller.video_handler.release()
+    controller.release()
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ from classes.parameters import Parameters
 import cv2
 from classes.px4_controller import PX4Controller  # Ensure this import path is correct
 from classes.telemetry_handler import TelemetryHandler
+from classes.video_streamer import VideoStreamer
 
 
 class AppController:
@@ -39,6 +40,11 @@ class AppController:
         self.setpoint_sender = None
         # Initialize telemetry handler
         self.telemetry_handler = TelemetryHandler(self)
+        self.video_streamer = None
+
+        if Parameters.ENABLE_STREAMING:
+            self.video_streamer = VideoStreamer(self.video_handler)
+            self.video_streamer.start(host=Parameters.HTTP_STREAM_HOST, port=Parameters.HTTP_STREAM_PORT)
 
         logging.info("AppController initialized.")
 
