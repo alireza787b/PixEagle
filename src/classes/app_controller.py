@@ -2,7 +2,6 @@
 import asyncio
 import logging
 import numpy as np
-from classes.video_streamer import VideoStreamer
 from flask_socketio import SocketIO
 from classes.parameters import Parameters
 from classes.follower import Follower
@@ -18,14 +17,12 @@ import cv2
 from classes.px4_controller import PX4Controller  # Ensure this import path is correct
 from classes.telemetry_handler import TelemetryHandler
 
+
 class AppController:
     def __init__(self):
          # Initialize video processing components
         self.video_handler = VideoHandler()
         self.video_streamer = None
-        if Parameters.ENABLE_STREAMING:
-            self.socketio = SocketIO(message_queue=None)  # No Redis to begin with 
-            self.video_streamer = VideoStreamer()
         self.detector = Detector(algorithm_type=Parameters.DETECTION_ALGORITHM)
         self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM,self.video_handler, self.detector)
         self.segmentor = Segmentor(algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM)
@@ -133,11 +130,7 @@ class AppController:
         # Update the current frame attribute with the modified frame
         self.current_frame = frame
         
-        # After processing the frame, stream it if enabled
-        if Parameters.ENABLE_STREAMING and self.video_streamer:
-            logging.debug("Streaming frame to VideoStreamer")
-            await self.video_streamer.send_frame(frame)
-            logging.debug("Frame streamed to VideoStreamer")
+      
             
         return frame
 
@@ -261,7 +254,3 @@ class AppController:
         await self.disconnect_px4()
         await self.telemetry_handler.stop()
 
-
-    async def start(self):
-        # Start other services if needed
-        pass

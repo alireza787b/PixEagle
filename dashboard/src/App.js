@@ -1,5 +1,4 @@
-// src/App.js
-
+// dashboard/src/App.js
 import React, { useContext } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { CssBaseline, ThemeProvider as MuiThemeProvider, createTheme } from '@mui/material';

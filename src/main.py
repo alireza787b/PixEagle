@@ -7,7 +7,6 @@ import cv2
 async def main():
     logging.basicConfig(level=logging.DEBUG)
     controller = AppController()
-    await controller.start()
 
     while True:
         frame = controller.video_handler.get_frame()
