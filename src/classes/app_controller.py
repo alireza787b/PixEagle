@@ -16,8 +16,8 @@ from classes.parameters import Parameters
 import cv2
 from classes.px4_controller import PX4Controller  # Ensure this import path is correct
 from classes.telemetry_handler import TelemetryHandler
-from classes.video_streamer import VideoStreamer
-
+from classes.telemetry_handler import TelemetryHandler
+from classes.flask_handler import FlaskHandler
 
 class AppController:
     def __init__(self):
@@ -40,11 +40,9 @@ class AppController:
         self.setpoint_sender = None
         # Initialize telemetry handler
         self.telemetry_handler = TelemetryHandler(self)
-        self.video_streamer = None
-
-        if Parameters.ENABLE_STREAMING:
-            self.video_streamer = VideoStreamer(self.video_handler)
-            self.video_streamer.start(host=Parameters.HTTP_STREAM_HOST, port=Parameters.HTTP_STREAM_PORT)
+        self.flask_handler = None
+        self.flask_handler = FlaskHandler(self.video_handler, self.telemetry_handler)
+        self.flask_handler.start(host=Parameters.HTTP_STREAM_HOST, port=Parameters.HTTP_STREAM_PORT)
 
         logging.info("AppController initialized.")
 
@@ -97,47 +95,32 @@ class AppController:
 
 
     async def update_loop(self, frame):
-        """
-        Updates the frame with the results of tracking and/or segmentation.
-        """
         if self.segmentation_active:
-            # Assuming `segment_frame` is a method that modifies the frame and returns it.
             frame = self.segmentor.segment_frame(frame)
         
         if self.tracking_started:
-            # Update the tracker and check if tracking was successful
             success, _ = self.tracker.update(frame)
             if success:
-                # Draw tracking and estimation results on the frame
-                frame = self.tracker.draw_tracking(frame)  # Assumes draw_tracking modifies the frame
-                if(Parameters.ENABLE_DEBUGGING):
+                frame = self.tracker.draw_tracking(frame)
+                if Parameters.ENABLE_DEBUGGING:
                     self.tracker.print_normalized_center()
                 if Parameters.USE_ESTIMATOR:
-                    frame = self.tracker.draw_estimate(frame)  # Assumes draw_estimate modifies the frame
-                
-                 # If following mode is active, calculate and update velocity commands
+                    frame = self.tracker.draw_estimate(frame)
                 if self.following_active:
-                    # This method should now just update the command in SetpointSender
-                    await self.follow_target()  # Updated to pass target_coords directly
+                    await self.follow_target()
             else:
-                # Optionally reinitialize tracking based on certain conditions
                 if Parameters.USE_DETECTOR and Parameters.AUTO_REDETECT:
-                    # Assuming `initiate_redetection` is a method that handles re-detection logic
                     self.initiate_redetection(frame, self.tracker)
                     
         if self.telemetry_handler.should_send_telemetry():
-                    self.telemetry_handler.send_telemetry()
+            self.telemetry_handler.send_telemetry()
                     
         if Parameters.USE_DETECTOR:
-            # Assuming you have a method to draw detections, uncomment or adjust as needed
-            # frame = self.detector.draw_detection(frame, color=(0, 255, 255))
             pass
 
-        # Update the current frame attribute with the modified frame
         self.current_frame = frame
         self.video_handler.current_osd_frame = frame
-      
-            
+
         return frame
 
 
@@ -254,8 +237,8 @@ class AppController:
         """
         Shutdown the application cleanly.
         """
-        if self.video_streamer:
-            self.video_streamer.stop()
+        if self.flask_handler:
+            self.flask_handler.stop()
         await self.px4_controller.stop()
         await self.disconnect_px4()
         await self.telemetry_handler.stop()

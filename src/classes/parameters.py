@@ -38,30 +38,27 @@ class Parameters:
 
 
     ENABLE_TELEMETRY = True
-    TELEMETRY_SEND_RATE = 2
+    TELEMETRY_SEND_RATE = 2  # Hz
+    TELEMETRY_FLASK_ENDPOINT = '/telemetry'
 
-    UDP_HOST = '127.0.0.1' 
+    ENABLE_UDP_STREAM = False
+    UDP_HOST = '127.0.0.1'
     UDP_PORT = 5550
-    
-    WEBSOCK_HOST = '127.0.0.1' 
-    WEBSOCK_PORT = 5551  
-    
 
+    WEBSOCK_HOST = '127.0.0.1'
+    WEBSOCK_PORT = 5551
 
-    
     FRAME_TITLE = "Video"
-    
-    
+
     # Streaming parameters
     ENABLE_STREAMING = True
     HTTP_STREAM_HOST = '0.0.0.0'
+    HTTP_STREAM_PORT = 5077
 
-    HTTP_STREAM_PORT = 5077    
-    
     STREAM_WIDTH = 640
     STREAM_HEIGHT = 480
     STREAM_QUALITY = 80  # JPEG quality 0-100
-    STREAM_FPS = 30 # target FPS
+    STREAM_FPS = 30  # target FPS
     STREAM_PROCESSED_OSD = True
     
     

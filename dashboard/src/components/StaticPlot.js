@@ -16,7 +16,7 @@ const StaticPlot = ({ title, trackerData, dataKey }) => {
   const startTime = new Date(trackerData[0].timestamp).getTime();
   const elapsedTimes = trackerData.map((d) => (new Date(d.timestamp).getTime() - startTime) / 1000);
   const labels = elapsedTimes.map((time) => time.toFixed(1));
-  const data = trackerData.map((d) => d.center[dataKey === 'center[0]' ? 0 : 1]);
+  const data = trackerData.map((d) => (dataKey === 'center[0]' ? d.center[0] : d.center[1]));
 
   const chartData = {
     labels,

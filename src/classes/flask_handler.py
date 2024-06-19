@@ -1,24 +1,31 @@
-# src/classes/video_streamer.py
+# src/classes/flask_handler.py
 
-from flask import Flask, Response
+from flask import Flask, Response, request, jsonify
 import threading
 import cv2
 import logging
 import time
 from werkzeug.serving import make_server
+from flask_cors import CORS
 from classes.parameters import Parameters
 
-class VideoStreamer:
-    def __init__(self, video_handler):
+class FlaskHandler:
+    def __init__(self, video_handler, telemetry_handler):
         """
-        Initialize the VideoStreamer with a video handler.
+        Initialize the FlaskHandler with a video handler and telemetry handler.
 
         Args:
             video_handler (VideoHandler): An instance of the VideoHandler class.
+            telemetry_handler (TelemetryHandler): An instance of the TelemetryHandler class.
         """
         self.video_handler = video_handler
+        self.telemetry_handler = telemetry_handler
         self.app = Flask(__name__)
+        CORS(self.app)  # Enable CORS for all routes
         self.app.add_url_rule('/video_feed', 'video_feed', self.video_feed)
+        self.app.add_url_rule('/telemetry/tracker_data', 'tracker_data', self.tracker_data, methods=['GET'])
+        self.app.add_url_rule('/telemetry/follower_data', 'follower_data', self.follower_data, methods=['GET'])
+        self.app.add_url_rule('/commands/example_command_test', 'commands', self.commands, methods=['POST'])
         self.server = None
         self.server_thread = None
         self.frame_rate = Parameters.STREAM_FPS
@@ -28,6 +35,7 @@ class VideoStreamer:
         self.processed_osd = Parameters.STREAM_PROCESSED_OSD
         self.last_frame_time = 0
         self.frame_interval = 1.0 / self.frame_rate
+        self.is_shutting_down = False
 
     def video_feed(self):
         """
@@ -37,7 +45,7 @@ class VideoStreamer:
             bytes: The next frame in JPEG format.
         """
         def generate():
-            while True:
+            while not self.is_shutting_down:
                 current_time = time.time()
                 if current_time - self.last_frame_time >= self.frame_interval:
                     if self.processed_osd:
@@ -58,7 +66,29 @@ class VideoStreamer:
                     time.sleep(self.frame_interval - (current_time - self.last_frame_time))
         return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-    def start(self, host='0.0.0.0', port=5000):
+    def tracker_data(self):
+        """
+        Flask route to provide tracker telemetry data.
+        """
+        logging.debug("Received request at /telemetry/tracker_data")
+        return jsonify(self.telemetry_handler.latest_tracker_data or {})
+
+    def follower_data(self):
+        """
+        Flask route to provide follower telemetry data.
+        """
+        logging.debug("Received request at /telemetry/follower_data")
+        return jsonify(self.telemetry_handler.latest_follower_data or {})
+
+    def commands(self):
+        """
+        Flask route to handle incoming commands.
+        """
+        command = request.json
+        logging.info(f"Received command: {command}")
+        return jsonify({'status': 'success', 'command': command})
+
+    def start(self, host='0.0.0.0', port=Parameters.HTTP_STREAM_PORT):
         """
         Start the Flask server in a new thread.
 
@@ -67,7 +97,7 @@ class VideoStreamer:
             port (int): The port to listen on.
         """
         if self.server is None:
-            self.server = make_server(host, port, self.app)
+            self.server = make_server(host, port, self.app, threaded=True)
             self.server_thread = threading.Thread(target=self.server.serve_forever)
             self.server_thread.start()
             logging.info(f"Started Flask server on {host}:{port}")
@@ -77,6 +107,8 @@ class VideoStreamer:
         Stop the Flask server.
         """
         if self.server:
+            self.is_shutting_down = True
+            logging.info("Stopping Flask server...")
             self.server.shutdown()
             self.server_thread.join()
             self.server = None
