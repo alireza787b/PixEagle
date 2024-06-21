@@ -88,24 +88,6 @@ class Tracker:
             
         return success, self.bbox
     
-    def draw_tracking(self, frame):
-        if self.bbox and self.center and self.video_handler:
-            # Draw bounding box
-            p1 = (int(self.bbox[0]), int(self.bbox[1]))
-            p2 = (int(self.bbox[0] + self.bbox[2]), int(self.bbox[1] + self.bbox[3]))
-            cv2.rectangle(frame, p1, p2, (255,0,0), 2, 1)
-            # Draw center dot
-            cv2.circle(frame, self.center, 5, (0,255,0), -1)
-            
-            # Calculate relative deviation from frame center
-            frame_center = (self.video_handler.width / 2, self.video_handler.height / 2)
-            relative_deviation_x = (self.center[0] - frame_center[0]) / frame_center[0]
-            relative_deviation_y = (self.center[1] - frame_center[1]) / frame_center[1]
-
-            if Parameters.DISPLAY_DEVIATIONS:
-                print(f"Relative deviation from center: (X: {relative_deviation_x:.2f}, Y: {relative_deviation_y:.2f})")
-
-        return frame
 
     def draw_estimate(self, frame):
         if self.estimator_enabled and self.position_estimator and self.video_handler:

@@ -70,21 +70,67 @@ class BaseTracker(ABC):
                 self.draw_estimate(frame)
         return frame
 
-    def draw_tracking(self, frame: np.ndarray) -> np.ndarray:
-        """
-        Draws the current tracking state (bounding box and center) on the frame using predefined colors from the Parameters class.
+    def draw_tracking(self, frame):
+        if self.bbox and self.center and self.video_handler:
+            if Parameters.TRACKED_BBOX_STYLE == 'fancy':
+                self.draw_fancy_bbox(frame)
+            else:
+                self.draw_normal_bbox(frame)
 
-        :param frame: The video frame to draw on.
-        :return: The video frame with tracking visuals.
-        """
-        if self.bbox and self.center:
-            p1 = (int(self.bbox[0]), int(self.bbox[1]))
-            p2 = (int(self.bbox[0] + self.bbox[2]), int(self.bbox[1] + self.bbox[3]))
-            
-            # Use colors from Parameters class
-            cv2.rectangle(frame, p1, p2, Parameters.TRACKING_RECTANGLE_COLOR, 2, 1)
-            cv2.circle(frame, self.center, 5, Parameters.CENTER_CIRCLE_COLOR, -1)
+            # Draw center dot
+            cv2.circle(frame, self.center, 5, (0, 255, 0), -1)
+
+            # Calculate relative deviation from frame center
+            frame_center = (self.video_handler.width / 2, self.video_handler.height / 2)
+            relative_deviation_x = (self.center[0] - frame_center[0]) / frame_center[0]
+            relative_deviation_y = (self.center[1] - frame_center[1]) / frame_center[1]
+
+            if Parameters.DISPLAY_DEVIATIONS:
+                print(f"Relative deviation from center: (X: {relative_deviation_x:.2f}, Y: {relative_deviation_y:.2f})")
+
         return frame
+
+    def draw_normal_bbox(self, frame):
+        # Draw bounding box
+        p1 = (int(self.bbox[0]), int(self.bbox[1]))
+        p2 = (int(self.bbox[0] + self.bbox[2]), int(self.bbox[1] + self.bbox[3]))
+        cv2.rectangle(frame, p1, p2, (255, 0, 0), 2, 1)
+
+    def draw_fancy_bbox(self, frame):
+        # Draw fancy bounding box similar to the provided screenshot
+        p1 = (int(self.bbox[0]), int(self.bbox[1]))
+        p2 = (int(self.bbox[0] + self.bbox[2]), int(self.bbox[1] + self.bbox[3]))
+        center_x, center_y = self.center
+        
+        # Draw crosshair
+        cv2.line(frame, (center_x - 20, center_y), (center_x + 20, center_y), (0, 255, 255), 2)
+        cv2.line(frame, (center_x, center_y - 20), (center_x, center_y + 20), (0, 255, 255), 2)
+        
+        # Draw bounding box with corners
+        cv2.line(frame, p1, (p1[0] + 20, p1[1]), (0, 255, 255), 2)
+        cv2.line(frame, p1, (p1[0], p1[1] + 20), (0, 255, 255), 2)
+        cv2.line(frame, p2, (p2[0] - 20, p2[1]), (0, 255, 255), 2)
+        cv2.line(frame, p2, (p2[0], p2[1] - 20), (0, 255, 255), 2)
+        cv2.line(frame, (p1[0], p2[1]), (p1[0] + 20, p2[1]), (0, 255, 255), 2)
+        cv2.line(frame, (p1[0], p2[1]), (p1[0], p2[1] - 20), (0, 255, 255), 2)
+        cv2.line(frame, (p2[0], p1[1]), (p2[0] - 20, p1[1]), (0, 255, 255), 2)
+        cv2.line(frame, (p2[0], p1[1]), (p2[0], p1[1] + 20), (0, 255, 255), 2)
+
+        # Draw extended lines from the center of each edge of the bounding box
+        height, width, _ = frame.shape
+        line_thickness = 2  # Adjust this for thicker lines
+        cv2.line(frame, (p1[0], center_y), (0, center_y), (0, 255, 255), line_thickness)  # Left edge to left
+        cv2.line(frame, (p2[0], center_y), (width, center_y), (0, 255, 255), line_thickness)  # Right edge to right
+        cv2.line(frame, (center_x, p1[1]), (center_x, 0), (0, 255, 255), line_thickness)  # Top edge to top
+        cv2.line(frame, (center_x, p2[1]), (center_x, height), (0, 255, 255), line_thickness)  # Bottom edge to bottom
+
+        # Draw smaller dots at the corners of the bounding box
+        dot_radius = 4  # Adjust this for larger dots
+        cv2.circle(frame, p1, dot_radius, (0, 255, 255), -1)
+        cv2.circle(frame, p2, dot_radius, (0, 255, 255), -1)
+        cv2.circle(frame, (p1[0], p2[1]), dot_radius, (0, 255, 255), -1)
+        cv2.circle(frame, (p2[0], p1[1]), dot_radius, (0, 255, 255), -1)
+
 
 
     def draw_estimate(self, frame: np.ndarray) -> np.ndarray:

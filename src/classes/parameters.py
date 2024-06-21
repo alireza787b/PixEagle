@@ -12,7 +12,7 @@ class Parameters:
 
     # For VIDEO_FILE, specify the path to the video file
     # Example: VIDEO_FILE_PATH = "resources/test1.mp4"
-    VIDEO_FILE_PATH = "resources/test6.mp4"
+    VIDEO_FILE_PATH = "resources/test5.mp4"
 
     # For USB_CAMERA, specify the camera index as an integer
     # Example: CAMERA_INDEX = 0 for the default webcam
@@ -147,6 +147,10 @@ class Parameters:
     SHOW_TRACKING_WINDOW = True
     # Determines whether deviations from the center or other metrics should be displayed.
     # This can be expanded to include more complex metrics as the project evolves.
+    
+    
+    TRACKED_BBOX_STYLE = 'fancy'  # Options: 'normal', 'fancy'
+    
     DISPLAY_DEVIATIONS = True
 
     # ----- Debugging and Logging -----
