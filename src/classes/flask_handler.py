@@ -1,18 +1,16 @@
-# src/classes/flask_handler.py
-
 from flask import Flask, Response, request, jsonify
 import threading
 import cv2
 import logging
 import time
-from werkzeug.serving import make_server
 from flask_cors import CORS
+from werkzeug.serving import make_server
 from classes.parameters import Parameters
 
 class FlaskHandler:
     def __init__(self, video_handler, telemetry_handler):
         """
-        Initialize the FlaskHandler with a video handler and telemetry handler.
+        Initialize the FlaskHandler with video and telemetry handlers.
 
         Args:
             video_handler (VideoHandler): An instance of the VideoHandler class.
@@ -21,7 +19,7 @@ class FlaskHandler:
         self.video_handler = video_handler
         self.telemetry_handler = telemetry_handler
         self.app = Flask(__name__)
-        CORS(self.app)  # Enable CORS for all routes
+        CORS(self.app)  # Enable CORS for the Flask app
         self.app.add_url_rule('/video_feed', 'video_feed', self.video_feed)
         self.app.add_url_rule('/telemetry/tracker_data', 'tracker_data', self.tracker_data, methods=['GET'])
         self.app.add_url_rule('/telemetry/follower_data', 'follower_data', self.follower_data, methods=['GET'])
@@ -97,7 +95,7 @@ class FlaskHandler:
             port (int): The port to listen on.
         """
         if self.server is None:
-            self.server = make_server(host, port, self.app, threaded=True)
+            self.server = make_server(host, port, self.app)
             self.server_thread = threading.Thread(target=self.server.serve_forever)
             self.server_thread.start()
             logging.info(f"Started Flask server on {host}:{port}")

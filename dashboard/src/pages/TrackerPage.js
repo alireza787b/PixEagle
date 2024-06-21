@@ -23,7 +23,7 @@ const TrackerPage = () => {
       if (response.status === 200) {
         console.log('Fetched Tracker Data:', response.data);
         setTrackerData((prevData) => [...prevData, response.data]);
-        setRawData((prevData) => [...prevData, response.data]);
+        setRawData((prevData) => [...prevData, { type: 'tracker', data: response.data }]);
         setPollingStatus('success');
       }
     } catch (error) {
@@ -69,10 +69,10 @@ const TrackerPage = () => {
           <ScopePlot title="XY Plot" trackerData={trackerData} />
         </Grid>
         <Grid item xs={12} md={6}>
-          <StaticPlot title="Center X vs Time" trackerData={trackerData} dataKey="center[0]" />
+          <StaticPlot title="Center X vs Time" data={trackerData} dataKey="center.0" />
         </Grid>
         <Grid item xs={12} md={6}>
-          <StaticPlot title="Center Y vs Time" trackerData={trackerData} dataKey="center[1]" />
+          <StaticPlot title="Center Y vs Time" data={trackerData} dataKey="center.1" />
         </Grid>
         <Grid item xs={12}>
           <Button variant="contained" color="primary" onClick={handleToggleRawData}>

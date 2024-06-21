@@ -1,9 +1,13 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { Line } from 'react-chartjs-2';
 
-const StaticPlot = ({ title, trackerData, dataKey }) => {
-  if (trackerData.length === 0 || !trackerData[0].center) {
+const StaticPlot = ({ title, data, dataKey }) => {
+  useEffect(() => {
+    console.log(`${title} - Data updated:`, data);
+  }, [data]);
+
+  if (!data || data.length === 0) {
     return (
       <div>
         <h3>{title}</h3>
@@ -13,18 +17,25 @@ const StaticPlot = ({ title, trackerData, dataKey }) => {
   }
 
   const maxWindowSize = 30; // in seconds
-  const startTime = new Date(trackerData[0].timestamp).getTime();
-  const elapsedTimes = trackerData.map((d) => (new Date(d.timestamp).getTime() - startTime) / 1000);
+  const startTime = new Date(data[0].timestamp).getTime();
+  const elapsedTimes = data.map((d) => (new Date(d.timestamp).getTime() - startTime) / 1000);
   const labels = elapsedTimes.map((time) => time.toFixed(1));
-  const data = trackerData.map((d) => (dataKey === 'center[0]' ? d.center[0] : d.center[1]));
+  const plotData = data.map((d) => {
+    const keys = dataKey.split('.');
+    let value = d;
+    keys.forEach((key) => {
+      value = value[key] !== undefined ? value[key] : 0;
+    });
+    return value;
+  });
 
   const chartData = {
     labels,
     datasets: [
       {
-        label: dataKey === 'center[0]' ? 'Center X' : 'Center Y',
-        data,
-        borderColor: dataKey === 'center[0]' ? 'rgba(75, 192, 192, 1)' : 'rgba(255, 99, 132, 1)',
+        label: dataKey,
+        data: plotData,
+        borderColor: 'rgba(75, 192, 192, 1)',
         borderWidth: 1,
         fill: false,
       },
@@ -58,8 +69,6 @@ const StaticPlot = ({ title, trackerData, dataKey }) => {
       },
       y: {
         type: 'linear',
-        min: -1,
-        max: 1,
         title: {
           display: true,
           text: 'Value',
@@ -68,14 +77,14 @@ const StaticPlot = ({ title, trackerData, dataKey }) => {
     },
   };
 
-  const currentValue = trackerData.length > 0 ? data[data.length - 1] : null;
+  const currentValue = plotData.length > 0 ? plotData[plotData.length - 1] : null;
 
   return (
     <div>
       <Line data={chartData} options={options} />
       {currentValue !== null && (
         <div style={{ textAlign: 'center', marginTop: '10px', fontSize: '0.8em' }}>
-          <strong>Current {dataKey === 'center[0]' ? 'Center X' : 'Center Y'}: {currentValue.toFixed(2)}</strong>
+          <strong>Current {dataKey}: {currentValue.toFixed(2)}</strong>
         </div>
       )}
     </div>
@@ -84,8 +93,8 @@ const StaticPlot = ({ title, trackerData, dataKey }) => {
 
 StaticPlot.propTypes = {
   title: PropTypes.string.isRequired,
-  trackerData: PropTypes.arrayOf(PropTypes.object).isRequired,
-  dataKey: PropTypes.oneOf(['center[0]', 'center[1]']).isRequired,
+  data: PropTypes.arrayOf(PropTypes.object).isRequired,
+  dataKey: PropTypes.string.isRequired,
 };
 
 export default StaticPlot;

@@ -1,23 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
+import PropTypes from 'prop-types';
+import { Typography } from '@mui/material';
 
 const PollingStatusIndicator = ({ status }) => {
-  const [displayStatus, setDisplayStatus] = useState(status);
-
-  useEffect(() => {
-    if (status === 'success') {
-      setDisplayStatus('success');
-    } else if (status === 'error') {
-      setDisplayStatus('error');
-    } else {
-      const timeout = setTimeout(() => {
-        setDisplayStatus('idle');
-      }, 1000);
-      return () => clearTimeout(timeout);
-    }
-  }, [status]);
-
   const getColor = () => {
-    switch (displayStatus) {
+    switch (status) {
       case 'success':
         return 'green';
       case 'error':
@@ -29,10 +16,23 @@ const PollingStatusIndicator = ({ status }) => {
 
   return (
     <div style={{ display: 'flex', alignItems: 'center' }}>
-      <div style={{ width: '20px', height: '20px', backgroundColor: getColor(), marginRight: '10px' }} />
-      <span>{displayStatus === 'idle' ? 'Waiting' : displayStatus.charAt(0).toUpperCase() + displayStatus.slice(1)}</span>
+      <Typography variant="body1" style={{ marginRight: '10px' }}>
+        {status === 'idle' ? 'Waiting' : status === 'success' ? 'Success' : 'Error'}
+      </Typography>
+      <div
+        style={{
+          width: '20px',
+          height: '20px',
+          backgroundColor: getColor(),
+          borderRadius: '50%',
+        }}
+      />
     </div>
   );
+};
+
+PollingStatusIndicator.propTypes = {
+  status: PropTypes.oneOf(['idle', 'success', 'error']).isRequired,
 };
 
 export default PollingStatusIndicator;

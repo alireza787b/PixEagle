@@ -44,7 +44,7 @@ import { Chart, registerables } from 'chart.js';
 
 Chart.register(...registerables);
 
-const ScopePlot = ({ title, trackerData }) => {
+const ScopePlot = ({ title, trackerData, followerData }) => {
   if (!trackerData || trackerData.length === 0) {
     return (
       <div>
@@ -54,46 +54,108 @@ const ScopePlot = ({ title, trackerData }) => {
     );
   }
 
-  const latestData = trackerData[trackerData.length - 1];
+  const latestTrackerData = trackerData[trackerData.length - 1];
+  const maxSpeed = parseFloat(process.env.REACT_APP_MAX_SPEED);
 
-  if (!latestData.center || !latestData.bounding_box) {
-    return (
-      <div>
-        <h3>{title}</h3>
-        <p>No data available</p>
-      </div>
+  const datasets = [
+    {
+      label: 'Center Point',
+      data: [{ x: latestTrackerData.center[0], y: latestTrackerData.center[1] * -1 }],
+      backgroundColor: 'rgba(75, 192, 192, 1)',
+      pointRadius: 5,
+    },
+    {
+      label: 'Bounding Box',
+      data: (() => {
+        const [x, y, width, height] = latestTrackerData.bounding_box;
+        return [
+          { x: x, y: -y }, // Top-left corner
+          { x: x + 2 * width, y: -y }, // Top-right corner
+          { x: x + 2 * width, y: -y - 2 * height }, // Bottom-right corner
+          { x: x, y: -y - 2 * height }, // Bottom-left corner
+          { x: x, y: -y }, // Close the rectangle
+        ];
+      })(),
+      backgroundColor: 'rgba(255, 99, 132, 0.2)',
+      borderColor: 'rgba(255, 99, 132, 1)',
+      borderWidth: 1,
+      showLine: true,
+      fill: false,
+      pointRadius: 0,
+    },
+  ];
+
+  if (followerData && followerData.length > 0) {
+    const latestFollowerData = followerData[followerData.length - 1];
+    const velocityMagnitude = Math.sqrt(
+      latestFollowerData.vel_x ** 2 + latestFollowerData.vel_y ** 2
     );
+
+    const normalizedVelocity = {
+      x: (latestFollowerData.vel_x / velocityMagnitude) * maxSpeed,
+      y: (latestFollowerData.vel_y / velocityMagnitude) * maxSpeed,
+    };
+
+    const arrowEnd = {
+      x: normalizedVelocity.x,
+      y: normalizedVelocity.y,
+    };
+
+    datasets.push({
+      label: 'Velocity Vector',
+      data: [
+        { x: 0, y: 0 }, // Center of the plot (representing the drone center)
+        arrowEnd,
+      ],
+      borderColor: 'rgba(0, 255, 0, 1)',
+      borderWidth: 2,
+      showLine: true,
+      pointRadius: 0,
+    });
   }
 
-  const data = {
-    datasets: [
-      {
-        label: 'Center Point',
-        data: [{ x: latestData.center[0], y: latestData.center[1] * -1 }],
-        backgroundColor: 'rgba(75, 192, 192, 1)',
-        pointRadius: 5,
-      },
-      {
-        label: 'Bounding Box',
-        data: (() => {
-          const [x, y, width, height] = latestData.bounding_box;
-          return [
-            { x: x, y: -y }, // Top-left corner
-            { x: x + 2*width, y: -y }, // Top-right corner
-            { x: x + 2*width, y: -y - 2*height }, // Bottom-right corner
-            { x: x, y: -y - 2*height }, // Bottom-left corner
-            { x: x, y: -y }, // Close the rectangle
-          ];
-        })(),
-        backgroundColor: 'rgba(255, 99, 132, 0.2)',
-        borderColor: 'rgba(255, 99, 132, 1)',
-        borderWidth: 1,
-        showLine: true,
-        fill: false,
-        pointRadius: 0,
-      },
-    ],
+  const arrowPlugin = {
+    id: 'arrowPlugin',
+    afterDatasetsDraw: (chart) => {
+      const { ctx, scales: { x, y } } = chart;
+      const datasetIndex = chart.data.datasets.findIndex(dataset => dataset.label === 'Velocity Vector');
+      if (datasetIndex < 0 || !chart.isDatasetVisible(datasetIndex)) return;
+
+      const velocityData = chart.data.datasets[datasetIndex].data;
+      if (velocityData.length < 2) return;
+
+      const start = velocityData[0];
+      const end = velocityData[1];
+
+      const startX = x.getPixelForValue(start.x);
+      const startY = y.getPixelForValue(start.y);
+      const endX = x.getPixelForValue(end.x);
+      const endY = y.getPixelForValue(end.y);
+
+      const headLength = 10;
+      const angle = Math.atan2(endY - startY, endX - startX);
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(endX, endY);
+      ctx.lineTo(
+        endX - headLength * Math.cos(angle - Math.PI / 6),
+        endY - headLength * Math.sin(angle - Math.PI / 6)
+      );
+      ctx.lineTo(
+        endX - headLength * Math.cos(angle + Math.PI / 6),
+        endY - headLength * Math.sin(angle + Math.PI / 6)
+      );
+      ctx.lineTo(endX, endY);
+      ctx.fillStyle = 'rgba(0, 255, 0, 1)';
+      ctx.fill();
+      ctx.restore();
+    },
   };
+
+  Chart.register(arrowPlugin);
+
+  const data = { datasets };
 
   const options = {
     responsive: true,

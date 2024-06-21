@@ -1,58 +1,94 @@
-# src/classes/telemetry_handler.py
-
 import socket
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from classes.parameters import Parameters
 
 class TelemetryHandler:
     def __init__(self, controller):
-        self.controller = controller
+        """
+        Initialize the TelemetryHandler with the controller and necessary parameters.
+        
+        Args:
+            controller (AppController): An instance of the AppController class.
+        """
+        self.host = Parameters.UDP_HOST
+        self.port = Parameters.UDP_PORT
         self.send_rate = Parameters.TELEMETRY_SEND_RATE
-        self.send_interval = 1.0 / self.send_rate  # Convert rate to interval in seconds
-        self.last_sent_time = datetime.utcnow()
-        self.latest_tracker_data = None
-        self.latest_follower_data = None
+        self.enable_udp = Parameters.ENABLE_UDP_STREAM
 
-        if Parameters.ENABLE_UDP_STREAM:
-            self.host = Parameters.UDP_HOST
-            self.port = Parameters.UDP_PORT
-            self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.server_address = (self.host, self.port)
+        self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.server_address = (self.host, self.port)
+        self.send_interval = 1.0 / self.send_rate  # Convert rate to interval in seconds
+
+        self.last_sent_time = datetime.utcnow()
+        self.controller = controller
+        self.latest_tracker_data = {}
+        self.latest_follower_data = {}
+        self.data_sources = {
+            'tracker_data': self.get_tracker_data,
+            'follower_data': self.get_follower_data
+        }
 
     def should_send_telemetry(self):
+        """
+        Check if the telemetry data should be sent based on the send interval.
+        
+        Returns:
+            bool: True if the telemetry data should be sent, False otherwise.
+        """
         current_time = datetime.utcnow()
         return (current_time - self.last_sent_time).total_seconds() >= self.send_interval
 
-    def gather_tracker_data(self):
+    def get_tracker_data(self):
+        """
+        Get the latest tracker telemetry data.
+        
+        Returns:
+            dict: The tracker telemetry data.
+        """
         timestamp = datetime.utcnow().isoformat()
         tracker_started = self.controller.tracking_started is not None
-        data = {
+        return {
             'bounding_box': self.controller.tracker.normalized_bbox,
             'center': self.controller.tracker.normalized_center,
             'timestamp': timestamp,
             'tracker_started': tracker_started
         }
-        self.latest_tracker_data = data
-        return data
 
-    def gather_follower_data(self):
-        timestamp = datetime.utcnow().isoformat()
-        # Placeholder example; adjust according to actual follower data structure
-        data = {
-            'follower_status': self.controller.following_active,
-            'timestamp': timestamp
-        }
-        self.latest_follower_data = data
+    def get_follower_data(self):
+        """
+        Get the latest follower telemetry data.
+        
+        Returns:
+            dict: The follower telemetry data.
+        """
+        if self.controller.follower is not None:
+            return self.controller.follower.get_follower_telemetry() if Parameters.ENABLE_FOLLOWER_TELEMETRY else {}
+        return {}
+
+    def gather_telemetry_data(self):
+        """
+        Gather telemetry data from all enabled sources.
+        
+        Returns:
+            dict: A dictionary containing telemetry data from all sources.
+        """
+        data = {}
+        for key, func in self.data_sources.items():
+            data[key] = func()
         return data
 
     def send_telemetry(self):
-        if self.should_send_telemetry():
-            tracker_data = self.gather_tracker_data()
-            follower_data = self.gather_follower_data()
-            
-            if Parameters.ENABLE_UDP_STREAM:
-                message = json.dumps({'tracker': tracker_data, 'follower': follower_data})
-                self.udp_socket.sendto(message.encode('utf-8'), self.server_address)
-                
+        """
+        Send the telemetry data via UDP if conditions are met and update the latest telemetry data.
+        """
+        if self.should_send_telemetry() and self.enable_udp:
+            data = self.gather_telemetry_data()
+            message = json.dumps(data)
+            self.udp_socket.sendto(message.encode('utf-8'), self.server_address)
             self.last_sent_time = datetime.utcnow()
+        
+        # Update the latest telemetry data regardless of UDP sending
+        self.latest_tracker_data = self.get_tracker_data()
+        if Parameters.ENABLE_FOLLOWER_TELEMETRY:
+            self.latest_follower_data = self.get_follower_data()

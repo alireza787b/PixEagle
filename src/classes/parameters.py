@@ -8,7 +8,7 @@ class Parameters:
     """
 
     # ----- Video Source Configuration -----
-    VIDEO_SOURCE_TYPE = "VIDEO_FILE"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM"
+    VIDEO_SOURCE_TYPE = "USB_CAMERA"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM"
 
     # For VIDEO_FILE, specify the path to the video file
     # Example: VIDEO_FILE_PATH = "resources/test1.mp4"
@@ -47,6 +47,9 @@ class Parameters:
 
     WEBSOCK_HOST = '127.0.0.1'
     WEBSOCK_PORT = 5551
+    
+    
+    ENABLE_FOLLOWER_TELEMETRY = True
 
     FRAME_TITLE = "Video"
 
@@ -147,6 +150,8 @@ class Parameters:
     SHOW_TRACKING_WINDOW = True
     # Determines whether deviations from the center or other metrics should be displayed.
     # This can be expanded to include more complex metrics as the project evolves.
+    
+    
     
     
     TRACKED_BBOX_STYLE = 'fancy'  # Options: 'normal', 'fancy'
