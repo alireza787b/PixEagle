@@ -1,50 +1,22 @@
-/**
- * ScopePlot Component
- * 
- * Challenge:
- * The goal is to accurately render a bounding box and a center point on a Chart.js scatter plot
- * using data obtained from an OpenCV-based tracking system. The primary challenge is to handle
- * the differences in coordinate systems between OpenCV and Chart.js, and apply the necessary 
- * transformations to ensure the bounding box is displayed correctly.
- * 
- * Coordinate Systems:
- * - OpenCV:
- *   - Default: Top-left (0, 0)
- *   - Normalized: Center (0, 0), Top-left (-1, 1), Bottom-right (1, -1)
- * 
- * - Chart.js:
- *   - Normalized: Center (0, 0), Top-left (-1, 1), Bottom-right (1, -1)
- * 
- * Axis Definitions:
- * - Both systems use normalized coordinates, but the y-axis needs to be inverted for Chart.js.
- * - OpenCV coordinates are typically in a range relative to the frame, but we normalize to a range of [-1, 1].
- * 
- * Transformation and Conversion:
- * - Center Point:
- *   - Inverted y-coordinate to match Chart.js: { x: center[0], y: center[1] * -1 }
- * 
- * - Bounding Box:
- *   - Provided as [x, y, width, height] in OpenCV
- *   - To correctly scale the bounding box for Chart.js, we need to:
- *     - Double the width and height for the normalized range.
- *     - Invert the y-coordinates.
- *   - Transformed Coordinates:
- *     - Top-left: { x: x, y: -y }
- *     - Top-right: { x: x + 2*width, y: -y }
- *     - Bottom-right: { x: x + 2*width, y: -y - 2*height }
- *     - Bottom-left: { x: x, y: -y - 2*height }
- * 
- * This ensures the bounding box dimensions match the intended scale in the Chart.js plot,
- * taking into account the normalized coordinate system and inversion required.
- */
-
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Scatter } from 'react-chartjs-2';
 import { Chart, registerables } from 'chart.js';
+import ArrowPlugin from '../plugins/ArrowPlugin';
+import WebRTCStream from './WebRTCStream';
+import { Button, Typography } from '@mui/material';
 
 Chart.register(...registerables);
 
 const ScopePlot = ({ title, trackerData, followerData }) => {
+  const [showVideo, setShowVideo] = useState(false);
+  const [videoError, setVideoError] = useState(false);
+
+  const toggleVideoOverlay = () => setShowVideo(!showVideo);
+
+  useEffect(() => {
+    Chart.register(ArrowPlugin);
+  }, []);
+
   if (!trackerData || trackerData.length === 0) {
     return (
       <div>
@@ -55,7 +27,7 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
   }
 
   const latestTrackerData = trackerData[trackerData.length - 1];
-  const maxSpeed = parseFloat(process.env.REACT_APP_MAX_SPEED);
+  const maxSpeed = parseFloat(process.env.REACT_APP_MAX_SPEED) || 10;
 
   const datasets = [
     {
@@ -69,11 +41,11 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
       data: (() => {
         const [x, y, width, height] = latestTrackerData.bounding_box;
         return [
-          { x: x, y: -y }, // Top-left corner
-          { x: x + 2 * width, y: -y }, // Top-right corner
-          { x: x + 2 * width, y: -y - 2 * height }, // Bottom-right corner
-          { x: x, y: -y - 2 * height }, // Bottom-left corner
-          { x: x, y: -y }, // Close the rectangle
+          { x: x, y: -y },
+          { x: x + 2 * width, y: -y },
+          { x: x + 2 * width, y: -y - 2 * height },
+          { x: x, y: -y - 2 * height },
+          { x: x, y: -y },
         ];
       })(),
       backgroundColor: 'rgba(255, 99, 132, 0.2)',
@@ -92,8 +64,8 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
     );
 
     const normalizedVelocity = {
-      x: (latestFollowerData.vel_x / velocityMagnitude) * maxSpeed,
-      y: (latestFollowerData.vel_y / velocityMagnitude) * maxSpeed,
+      x: (latestFollowerData.vel_x / maxSpeed),
+      y: (latestFollowerData.vel_y / maxSpeed),
     };
 
     const arrowEnd = {
@@ -104,7 +76,7 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
     datasets.push({
       label: 'Velocity Vector',
       data: [
-        { x: 0, y: 0 }, // Center of the plot (representing the drone center)
+        { x: 0, y: 0 },
         arrowEnd,
       ],
       borderColor: 'rgba(0, 255, 0, 1)',
@@ -114,51 +86,11 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
     });
   }
 
-  const arrowPlugin = {
-    id: 'arrowPlugin',
-    afterDatasetsDraw: (chart) => {
-      const { ctx, scales: { x, y } } = chart;
-      const datasetIndex = chart.data.datasets.findIndex(dataset => dataset.label === 'Velocity Vector');
-      if (datasetIndex < 0 || !chart.isDatasetVisible(datasetIndex)) return;
-
-      const velocityData = chart.data.datasets[datasetIndex].data;
-      if (velocityData.length < 2) return;
-
-      const start = velocityData[0];
-      const end = velocityData[1];
-
-      const startX = x.getPixelForValue(start.x);
-      const startY = y.getPixelForValue(start.y);
-      const endX = x.getPixelForValue(end.x);
-      const endY = y.getPixelForValue(end.y);
-
-      const headLength = 10;
-      const angle = Math.atan2(endY - startY, endX - startX);
-
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(endX, endY);
-      ctx.lineTo(
-        endX - headLength * Math.cos(angle - Math.PI / 6),
-        endY - headLength * Math.sin(angle - Math.PI / 6)
-      );
-      ctx.lineTo(
-        endX - headLength * Math.cos(angle + Math.PI / 6),
-        endY - headLength * Math.sin(angle + Math.PI / 6)
-      );
-      ctx.lineTo(endX, endY);
-      ctx.fillStyle = 'rgba(0, 255, 0, 1)';
-      ctx.fill();
-      ctx.restore();
-    },
-  };
-
-  Chart.register(arrowPlugin);
-
   const data = { datasets };
 
   const options = {
     responsive: true,
+    maintainAspectRatio: false,
     animation: {
       duration: 500,
       easing: 'easeInOutQuart',
@@ -166,10 +98,19 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
     plugins: {
       legend: {
         position: 'top',
+        onClick: (e, legendItem, legend) => {
+          const index = legendItem.datasetIndex;
+          const meta = legend.chart.getDatasetMeta(index);
+          meta.hidden = meta.hidden === null ? !legend.chart.data.datasets[index].hidden : null;
+          legend.chart.update();
+        },
       },
       title: {
         display: true,
         text: title,
+      },
+      tooltip: {
+        enabled: false,
       },
     },
     scales: {
@@ -178,16 +119,43 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
         position: 'bottom',
         min: -1,
         max: 1,
+        ticks: {
+          stepSize: 0.1,
+        },
       },
       y: {
         type: 'linear',
         min: -1,
         max: 1,
+        ticks: {
+          stepSize: 0.1,
+        },
       },
     },
   };
 
-  return <Scatter data={data} options={options} />;
+  const flaskHost = process.env.REACT_APP_WEBSOCKET_VIDEO_HOST;
+  const flaskPort = process.env.REACT_APP_WEBSOCKET_VIDEO_PORT;
+  const videoSrc = `http://${flaskHost}:${flaskPort}/video_feed`;
+
+  return (
+    <div style={{ position: 'relative', height: '750px', width: '100%' }}>
+      <Button variant="contained" color="primary" onClick={toggleVideoOverlay} style={{ marginBottom: '10px', zIndex: '10' }}>
+        {showVideo ? 'Hide Video Overlay' : 'Show Video Overlay'}
+      </Button>
+      {showVideo && (
+        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1, pointerEvents: 'none' }}>
+          <WebRTCStream protocol="http" src={videoSrc} style={{ width: '100%', height: '100%', opacity: 0.5, objectFit: 'cover' }} onError={() => setVideoError(true)} />
+        </div>
+      )}
+      {videoError && (
+        <Typography variant="h6" style={{ color: 'red', textAlign: 'center', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 2 }}>
+          Live feed not available
+        </Typography>
+      )}
+      <Scatter data={data} options={options} style={{ position: 'relative', zIndex: 2 }} />
+    </div>
+  );
 };
 
 export default ScopePlot;

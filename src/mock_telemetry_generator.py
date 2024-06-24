@@ -32,128 +32,101 @@ Transformation and Conversion:
     - Bottom-right: { x: x + 2*width, y: -y - 2*height }
     - Bottom-left: { x: x, y: -y - 2*height }
 """
-
-import asyncio
-import json
-import random
-import signal
-import sys
-from datetime import datetime
-from aiohttp import web
-from flask import Flask, jsonify, Response, request
+import logging
+from flask import Flask, jsonify, Response
 from flask_cors import CORS
 import threading
 import time
+import random
+from datetime import datetime
+import signal
+import sys
 from simple_pid import PID
 from classes.parameters import Parameters
+
+# Configuring logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 app = Flask(__name__)
 CORS(app)
 
-# Initialize global variables
-current_center = [0, 0]  # Initial center of the bounding box
-bounding_box_size = [0.2, 0.2]  # Width and height of the bounding box
-velocities = {'vel_x': 0, 'vel_y': 0, 'vel_z': 0}  # Initial velocities
+# Initialize global variables for telemetry simulation
+current_center = [0, 0]
+bounding_box_size = [0.2, 0.2]
+velocities = {'vel_x': 0, 'vel_y': 0, 'vel_z': 0}
 
-# Initialize PID controllers
-pid_x = PID(1.0, 0.1, 0.05, setpoint=0)
-pid_y = PID(1.0, 0.1, 0.05, setpoint=0)
-pid_z = PID(1.0, 0.1, 0.05, setpoint=0)
+# Setup PID controllers
+pid_controllers = {
+    'x': PID(1.0, 0.1, 0.05, setpoint=0, output_limits=(-5, 5)),
+    'y': PID(1.0, 0.1, 0.05, setpoint=0, output_limits=(-5, 5)),
+    'z': PID(1.0, 0.1, 0.05, setpoint=0, output_limits=(-5, 5))
+}
 
-pid_x.output_limits = (-5, 5)  # Velocity limits in m/s
-pid_y.output_limits = (-5, 5)
-pid_z.output_limits = (-5, 5)
-
-def normalize(value, min_value, max_value):
+def normalize(value, min_value=-1, max_value=1):
+    """ Normalize a value to the range [-1, 1] """
     return (value - min_value) / (max_value - min_value) * 2 - 1
 
 def move_center():
-    """
-    Simulate movement of the bounding box center.
-    """
+    """ Simulate movement of the center of the bounding box """
     global current_center
     max_move = 0.05
-    current_center[0] += random.uniform(-max_move, max_move)
-    current_center[1] += random.uniform(-max_move, max_move)
-    # Keep center within normalized bounds
-    current_center[0] = max(-1, min(1, current_center[0]))
-    current_center[1] = max(-1, min(1, current_center[1]))
+    current_center = [max(-1, min(1, current_center[i] + random.uniform(-max_move, max_move))) for i in range(2)]
 
-def generate_tracker_data():
+def generate_telemetry_data():
+    """ Generate the bounding box and center telemetry data """
     move_center()
-    bounding_box = [
-        current_center[0] - bounding_box_size[0] / 2,  # x_min
-        -current_center[1] - bounding_box_size[1] / 2, # y_min (inverted)
-        bounding_box_size[0],                          # width
-        bounding_box_size[1]                           # height
-    ]
-    center = [current_center[0], -current_center[1]]  # Inverted y-coordinate
+    x, y = current_center
     return {
-        'bounding_box': bounding_box,
-        'center': center,
+        'bounding_box': [x - bounding_box_size[0] / 2, -y - bounding_box_size[1] / 2, bounding_box_size[0], bounding_box_size[1]],
+        'center': [x, -y],
         'timestamp': datetime.utcnow().isoformat(),
         'tracker_started': True
     }
 
 def update_velocities():
-    """
-    Update follower velocities to follow the center movement.
-    """
+    """ Update velocities based on PID controllers """
     global velocities
-
     target_x, target_y = current_center
-    error_x = target_x
-    error_y = -target_y  # Invert y for consistency
+    velocities['vel_x'] = pid_controllers['x'](target_x)
+    velocities['vel_y'] = pid_controllers['y'](-target_y)
+    velocities['vel_z'] = pid_controllers['z'](-target_y)
 
-    velocities['vel_x'] = pid_x(error_y)
-    velocities['vel_y'] = pid_y(error_x)
-    velocities['vel_z'] = pid_z(-target_y)  # Simple control for descent
+@app.route('/telemetry/tracker_data', methods=['GET'])
+def tracker_data():
+    data = generate_telemetry_data()
+    logging.info(f"Generated Tracker Data: {data}")
+    return jsonify(data)
 
-def generate_follower_data():
+@app.route('/telemetry/follower_data', methods=['GET'])
+def follower_data():
     update_velocities()
-    return {
+    data = {
         'vel_x': velocities['vel_x'],
         'vel_y': velocities['vel_y'],
         'vel_z': velocities['vel_z'],
         'timestamp': datetime.utcnow().isoformat(),
         'status': 'active'
     }
-
-@app.route('/telemetry/tracker_data', methods=['GET'])
-def tracker_data():
-    data = generate_tracker_data()
-    print(f"Generated Tracker Data: {data}")
+    logging.info(f"Generated Follower Data: {data}")
     return jsonify(data)
 
-@app.route('/telemetry/follower_data', methods=['GET'])
-def follower_data():
-    data = generate_follower_data()
-    print(f"Generated Follower Data: {data}")
-    return jsonify(data)
-
-@app.route('/video_feed', methods=['GET'])
-def video_feed():
-    def generate():
-        while True:
-            time.sleep(1)
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + b'\xFF\xD8\xFF' + b'\r\n')
-    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
-def start_mock_server():
+def run_server():
     app.run(host=Parameters.HTTP_STREAM_HOST, port=Parameters.HTTP_STREAM_PORT)
 
-def signal_handler(signal, frame):
-    print('Shutting down gracefully...')
+def graceful_shutdown(signal, frame):
+    logging.info('Shutting down gracefully...')
     sys.exit(0)
 
 if __name__ == "__main__":
-    print("Starting Mock Telemetry Generator...")
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    threading.Thread(target=start_mock_server).start()
-    while True:
-        time.sleep(1)
-        move_center()
-        update_velocities()
-        print(f"Current Center: {current_center}, Velocities: {velocities}")
+    logging.info("Starting Mock Telemetry Generator...")
+    signal.signal(signal.SIGINT, graceful_shutdown)
+    signal.signal(signal.SIGTERM, graceful_shutdown)
+    server_thread = threading.Thread(target=run_server)
+    server_thread.daemon = True
+    server_thread.start()
+
+    try:
+        while True:
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        graceful_shutdown(None, None)

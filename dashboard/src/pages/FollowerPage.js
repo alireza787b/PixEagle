@@ -23,8 +23,6 @@ const FollowerPage = () => {
       const trackerResponse = await axios.get(`${FLASK_URL}/telemetry/tracker_data`);
       const followerResponse = await axios.get(`${FLASK_URL}/telemetry/follower_data`);
       if (trackerResponse.status === 200 && followerResponse.status === 200) {
-        console.log('Fetched Tracker Data:', trackerResponse.data);
-        console.log('Fetched Follower Data:', followerResponse.data);
         setTrackerData((prevData) => [...prevData, trackerResponse.data]);
         setFollowerData((prevData) => [...prevData, followerResponse.data]);
         setRawData((prevData) => [
