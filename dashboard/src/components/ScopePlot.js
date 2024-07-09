@@ -27,6 +27,15 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
   }
 
   const latestTrackerData = trackerData[trackerData.length - 1];
+  if (!latestTrackerData || !latestTrackerData.center || !latestTrackerData.bounding_box) {
+    return (
+      <div>
+        <h3>{title}</h3>
+        <p>Incomplete tracker data</p>
+      </div>
+    );
+  }
+
   const maxSpeed = parseFloat(process.env.REACT_APP_MAX_SPEED) || 10;
 
   const datasets = [
