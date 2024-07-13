@@ -3,57 +3,65 @@
 
 ## Overview
 
-PixEagle is an innovative project designed to enhance drone control and tracking capabilities. It emphasizes modularity, efficiency, and expandability, integrating advanced tracking technologies with drone control systems. The project leverages cutting-edge AI and computer vision techniques to achieve precise object tracking and drone navigation.
-
-## Project Directory Structure
-
-- `README.md`: Project overview and documentation.
-- `requirements.txt`: Lists the project dependencies.
-- `resources/`: Contains test video files for development and testing.
-- `setup_pytorch.sh`: Script to set up PyTorch environment.
-- `src/`: Source code directory.
-  - `main.py`: Entry point of the application.
-  - `test_Ver.py`: Test script for verification.
-  - `classes/`: Contains core classes.
-    - `app_controller.py`: Orchestrates the application flow.
-    - `detector.py`: Base class for object detection.
-    - `detector_interface.py`: Interface for detectors.
-    - `feature_matching_detector.py`: Implements feature matching for object detection.
-    - `parameters.py`: Manages configuration settings.
-    - `position_estimator.py`: Implements position estimation.
-    - `segmentor.py`: Handles object segmentation.
-    - `template_matcher.py`: Implements template matching for object detection.
-    - `tracker.py`: Facilitates object tracking.
-    - `video_handler.py`: Manages video input sources.
-
+PixEagle is an all-in-one image processing, following, and tracking solution designed for the PX4 ecosystem (with potential expansion to ArduPilot). It leverages MAVSDK Python, OpenCV, and optional YOLO for precise object tracking and drone navigation. The project emphasizes modularity and extensibility, allowing users to implement their own tracking, detection, and segmentation algorithms. The system is modular, well-commented, and designed for easy integration of new algorithms. Additionally, PixEagle includes a beta web app GUI using React for real-time monitoring and control.
 
 ## Key Components
+
 ### AppController
-Central controller that manages the application's main functionalities, orchestrating the flow between detection, tracking, and video handling.
+
+The AppController is essentially the manager and coordinator of the entire application flow. It oversees and orchestrates the main loops, streaming, following, tracking, and detection processes, ensuring smooth and efficient operation of the PixEagle system.
+
+### Tracker
+
+The `Tracker` class has been improved to allow for building custom tracker instances. It initializes and manages the tracking algorithm, processes video frames, and updates tracking data. It supports various tracking algorithms such as CSRT, KCF, and others. The tracker can also use a position estimator for enhanced accuracy.
+
+### BaseTracker and Templates
+
+The `BaseTracker` class provides a foundation for custom tracker implementations. Templates are provided for creating new tracking algorithms, allowing for easy extension and customization.
+
+### Follower
+
+The `Follower` class is designed for scenarios where a downward-looking camera follows a moving or stationary target. It uses PID control with gain scheduling to maintain accurate tracking even on a moving platform. The `Follower` class parameters are managed in the `Parameters` class.
+
+### PX4Controller
+
+The `PX4Controller` handles communication with MAVSDK and PX4 using MAVLink. It manages offboard control, allowing for precise drone navigation and control.
+
+### FlaskHandler
+
+The `FlaskHandler` sends telemetry and tracker data via HTTP to any Ground Control Station (GCS) and the PixEagle dashboard. Details on the URIs, ports, and syntax can be found in the `Parameters` class.
+
+### TelemetryData
+
+The `TelemetryData` class is responsible for packing data for the `FlaskHandler`, ensuring efficient and organized data transmission.
 
 ### Detector and DetectorInterface
+
 Defines the base structure and interface for object detection modules, allowing for extensibility and integration of different detection algorithms.
 
 ### FeatureMatchingDetector
+
 Specializes in detecting objects based on feature matching, enhancing the application's ability to recognize objects in various conditions.
 
 ### Parameters
-Stores and manages all configuration settings, including detection parameters and video source configurations.
 
-### PositionEstimator
-Provides algorithms for estimating the position of detected objects, crucial for tracking accuracy.
+Stores and manages all configuration settings, including detection parameters, video source configurations, and PID gains for the `Follower`.
 
 ### Segmentor
+
 Implements advanced segmentation algorithms to improve object detection and tracking in complex scenes.
 
 ### TemplateMatcher
+
 Utilizes template matching techniques for object detection, offering a straightforward method for recognizing objects based on stored templates.
 
-### Tracker
-Employs advanced tracking algorithms to maintain object identity across frames, essential for continuous monitoring and analysis.
-
 ### VideoHandler
+
 Handles video inputs from various sources, including files and cameras, ensuring flexible input options for processing and analysis.
+
+### Dashboard (React App)
+
+A full web-based React application serves as the Ground Control Station (GCS). It provides a basic yet functional interface where you can view live camera feeds, tracker and follower data, and plots. Future updates will include additional features such as the ability to send commands and more interactive capabilities.
 
 ## Getting Started
 
@@ -63,30 +71,80 @@ To set up the PixEagle project, follow these steps:
    ```bash
    git clone https://github.com/alireza787b/PixEagle.git
    ```
-2. Install the required dependencies:
+2. Navigate to the project directory:
+   ```bash
+   cd PixEagle
+   ```
+3. Set up a virtual environment (optional but recommended):
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+   ```
+4. Install the required dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-3. Run the setup script for PyTorch (if necessary):
+5. (Optional) If you need PyTorch for YOLO detection, run the setup script:
    ```bash
    ./setup_pytorch.sh
    ```
-4. Execute the main application:
+6. Execute the main application:
    ```bash
    python src/main.py
    ```
+7. Install Node.js and npm for the dashboard application (if not already installed):
+   ```bash
+   # Follow instructions at https://nodejs.org/en/download/
+   ```
+8. Navigate to the dashboard directory and install dependencies:
+   ```bash
+   cd dashboard
+   npm install
+   ```
+9. Start the dashboard application:
+   ```bash
+   npm start
+   ```
+
+Access the dashboard in your browser at `http://127.0.0.1:3000`
+
+
+If you prefer, you can still use the global Python environment instead of a virtual environment.
+
+### Video Source Configuration
+
+In the `parameters.py` file, select your video source (either from a video file, USB Camera, etc.). Note that not all methods are fully tested yet, but file and USB camera methods have been tested.
+
+For PX4 real SITL implementation, you might need X-Plane or another simulation tool that can use the output video. There is a guide to using the PX4XPlane plugin and PixEagle SITL available [here](https://github.com/alireza787b/PixEagle/blob/main/Follow_Mode_Xplane_Guide.md).
+
+### Key Bindings
+
+While in the video pop-up screen, you can use the following keys:
+- `t`: Select target
+- `c`: Cancel selection
+- `y`: YOLO detection
+- `f`: Start following offboard
+- `d`: Try to re-detect target
+
+## Current Situation
+
+Currently, the tracker with CSRT, detection with template matching, and connection to PX4 offboard using a simulated USB camera are working and tested.
+
+### Known Issues
+
+- In the React UI, video overlay on the scope plot makes the telemetry update stop.
+- Unable to draw the bounding box around the target from the React app yet.
+- The follower with a forward-looking camera and chase mode will be implemented soon.
 
 ## Troubleshooting
-Fixing libGL.so.1 Missing Error
-If you encounter an ImportError related to libGL.so.1, install the OpenGL libraries with:
 
+If you encounter an ImportError related to libGL.so.1, install the OpenGL libraries with:
 ```bash
 sudo apt-get update
 sudo apt-get install -y libgl1-mesa-glx
- ```
- 
-This is often required for OpenCV's image and video display functionalities.
+```
 
+This is often required for OpenCV's image and video display functionalities.
 
 ## Contribution Guidelines
 
@@ -96,4 +154,12 @@ We welcome contributions from developers, researchers, and enthusiasts in drone 
 
 PixEagle is under active development, focusing on leveraging PX4 for flight control, incorporating AI for smart decision-making, and utilizing advanced tracking for precise object interaction.
 
+## Disclaimer
 
+PixEagle has not yet been tested in real-world conditions. It has only been tested in SITL (Software In The Loop) simulations. Real-world testing can significantly differ and might lead to crashes or damage. Use it at your own risk, and the developers are not responsible for any damages or losses incurred during real-world testing.
+
+---
+
+To enhance your experience and increase your request quota, consider checking available plans at [Pricing](https://c7d59216ee8ec59bda5e51ffc17a994d.auth.portal-pluginlab.ai/pricing).
+
+Useful URLs: [Documentation](https://docs.askthecode.ai), [GitHub](https://github.com/askthecode/documentation), [Twitter](https://twitter.com/askthecode_ai)
