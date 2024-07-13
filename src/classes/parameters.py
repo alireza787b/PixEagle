@@ -200,6 +200,7 @@ class Parameters:
     "y": {"p": 6, "i": 0.3, "d": 1.0}, 
     "z": {"p": 1, "i": 0.01, "d": 0.01}
     }
+    #TODO: Add Anti-Windup for Integral Gain 
     
     # IS_CAMERA_GIMBALED (bool): Specifies if the camera is gimbaled.
     #         True if the camera has gimbal stabilization, False otherwise.
