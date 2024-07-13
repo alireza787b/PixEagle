@@ -6,12 +6,14 @@ This guide details the steps to integrate MAVLink, SITL (Software in the Loop), 
 
 ## Prerequisites
 - Windows 10 or later with WSL installed.
-- X-Plane installed on Windows.
-- MAVLink Router installed on WSL.
-- MAVSDK Server manually installed and run on Windows. Download the MAVSDK Server binary appropriate for Windows from the MAVSDK official repository. Later, the process of starting the server will be automated.
-- SparkoCam installed on Windows to stream X-Plane output to a virtual webcam.
-- OpenCV setup in Windows to process the virtual webcam video.
+- [X-Plane](https://www.x-plane.com/desktop/try-it/) installed on Windows.
+- [MAVLink Router](https://github.com/mavlink-router/mavlink-router) installed on WSL.
+- PixEagle Repository is Cloned and all steps in the [README](https://github.com/alireza787b/PixEagle/blob/main/README.md) are done.
+- MAVSDK Server manually installed and run on Windows. Download the MAVSDK Server binary appropriate for Windows from the [MAVSDK official repository](https://github.com/mavlink/MAVSDK/releases). Later, the process of starting the server will be automated.
+- SparkoCam (or simillar software) installed on Windows to stream X-Plane output to a virtual webcam.
 - PX4 simulation integration with X-Plane using [PX4XPlane](https://github.com/alireza787b/px4xplane).
+- PX4 SITL environment. Setting it up in Linux is much easier. For Windows, it is recommended to use WSL. This setup is covered in the [PX4XPlane](https://github.com/alireza787b/px4xplane) instruction and in this [YouTube video](https://www.youtube.com/watch?v=iVU8ZNoMn_U). Always check the latest documentation on PX4 official documentation [here](https://docs.px4.io/main/en/dev_setup/dev_env_windows_wsl.html).
+
 
 ## Configuration Steps
 
@@ -45,8 +47,6 @@ EXTERNAL_MAVSDK_SERVER = True  # Enable this option to use an external MAVSDK se
 - Launch **SparkoCam** and configure it to capture the entire screen output from X-Plane. This setup is essential as it creates a virtual webcam, enabling the video stream to be processed as if it were coming directly from a camera.
 - Adjust SparkoCam settings to ensure it streams the entire screen effectively, simulating a top-down camera view that will be used for image processing.
 
-#### **OpenCV Setup**
-- Configure **OpenCV** to receive the video input from SparkoCam’s virtual webcam. This will allow OpenCV to process and analyze the video stream for the follow mode tracking and other computer vision tasks.
 
 ### Step 5: System Integration and Execution
 
@@ -83,11 +83,10 @@ EXTERNAL_MAVSDK_SERVER = True  # Enable this option to use an external MAVSDK se
 
 ## Additional Tips
 - **Performance Monitoring**: Keep an eye on the system for the resource-intensive nature of video processing and network communication.
-- **Security Measures**: Secure your network configurations to prevent unauthorized access.
 
 ## Conclusion
 This setup enables realistic flight dynamics simulation in X-Plane, which can be manipulated and monitored via SITL and MAVLink, along with video stream processing using OpenCV for computer vision tasks.
 
 ---
 
-*Document last updated: 7 June 2024*
+*Document last updated: 13 July 2024*
