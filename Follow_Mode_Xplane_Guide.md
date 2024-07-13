@@ -39,7 +39,7 @@ EXTERNAL_MAVSDK_SERVER = True  # Enable this option to use an external MAVSDK se
 
 #### **X-Plane Setup**
 - Start by opening **X-Plane** on your Windows system and loading a supported aircraft, such as the ehang184.
-- Ensure that the **PX4XPlane** plugin is installed. Navigate to the plugin menu within X-Plane to select the correct airframe configuration.
+- Ensure that the **[PX4XPlane](https://github.com/alireza787b/px4xplane)** plugin is installed. Navigate to the plugin menu within X-Plane to select the correct airframe configuration.
 
 #### **SparkoCam Configuration**
 - Launch **SparkoCam** and configure it to capture the entire screen output from X-Plane. This setup is essential as it creates a virtual webcam, enabling the video stream to be processed as if it were coming directly from a camera.
@@ -69,6 +69,11 @@ EXTERNAL_MAVSDK_SERVER = True  # Enable this option to use an external MAVSDK se
 #### **Running the Follow Mode Tracker**
 - Execute `main.py` from the PixEagle folder on your Windows environment. Follow the interactive prompts to select an object ('t' key) and start the follower mode ('f' key).
 - During the test, you may need to adjust the PID gains and settings through the PixEagle interface to optimize the control and tracking behavior.
+- If needed, also run the web GUI for the dashboard:
+  ```bash
+  cd dashboard
+  npm start
+
 
 ### Step 6: Performance Monitoring and Adjustment
 

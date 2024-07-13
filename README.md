@@ -92,6 +92,9 @@ To set up the PixEagle project, follow these steps:
    ```bash
    python src/main.py
    ```
+If you prefer, you can still use the global Python environment instead of a virtual environment.
+
+
 7. Install Node.js and npm for the dashboard application (if not already installed):
    ```bash
    # Follow instructions at https://nodejs.org/en/download/
@@ -109,13 +112,32 @@ To set up the PixEagle project, follow these steps:
 Access the dashboard in your browser at `http://127.0.0.1:3000`
 
 
-If you prefer, you can still use the global Python environment instead of a virtual environment.
 
-### Video Source Configuration
+### Parameter Customization
 
-In the `parameters.py` file, select your video source (either from a video file, USB Camera, etc.). Note that not all methods are fully tested yet, but file and USB camera methods have been tested.
+In the `parameters.py` file, you can customize various settings to suit your specific use case. This includes selecting your video source, setting descent parameters, and adjusting other important configurations such as PID gains and camera angles. The file is well-documented and easy to navigate.
+
+#### Video Source Configuration
+
+Select your video source (either from a video file, USB Camera, etc.). Note that not all methods are fully tested yet, but file and USB camera methods have been tested.
 
 For PX4 real SITL implementation, you might need X-Plane or another simulation tool that can use the output video. There is a guide to using the PX4XPlane plugin and PixEagle SITL available [here](https://github.com/alireza787b/PixEagle/blob/main/Follow_Mode_Xplane_Guide.md).
+
+#### Descent Parameters
+
+You can define the altitude descent parameters in the `parameters.py` file. By default, these parameters might be set to prevent descending or to stop descending at 20 meters. Make sure to set these accordingly:
+
+```python
+# Minimum descent height in meters.
+# The drone will not descend below this altitude during operations.
+MIN_DESCENT_HEIGHT = 20  # meters
+
+# Maximum rate of descent in meters per second.
+# Limits the vertical speed to prevent rapid altitude loss.
+MAX_RATE_OF_DESCENT = 0.5  # meters per second
+```
+#### Other Parameters
+Ensure to check and adjust other parameters in the parameters.py file, such as PID gains, camera angles, and more, to optimize the system for your specific needs. The file is well-documented to assist you in making these customizations.
 
 ### Key Bindings
 
@@ -125,6 +147,7 @@ While in the video pop-up screen, you can use the following keys:
 - `y`: YOLO detection
 - `f`: Start following offboard
 - `d`: Try to re-detect target
+- `q`: Quite
 
 ## Current Situation
 
@@ -158,8 +181,3 @@ PixEagle is under active development, focusing on leveraging PX4 for flight cont
 
 PixEagle has not yet been tested in real-world conditions. It has only been tested in SITL (Software In The Loop) simulations. Real-world testing can significantly differ and might lead to crashes or damage. Use it at your own risk, and the developers are not responsible for any damages or losses incurred during real-world testing.
 
----
-
-To enhance your experience and increase your request quota, consider checking available plans at [Pricing](https://c7d59216ee8ec59bda5e51ffc17a994d.auth.portal-pluginlab.ai/pricing).
-
-Useful URLs: [Documentation](https://docs.askthecode.ai), [GitHub](https://github.com/askthecode/documentation), [Twitter](https://twitter.com/askthecode_ai)
