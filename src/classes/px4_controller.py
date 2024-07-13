@@ -8,11 +8,11 @@ class PX4Controller:
     def __init__(self):
         if Parameters.EXTERNAL_MAVSDK_SERVER:
             self.drone = System(mavsdk_server_address='localhost', port=50051)
-            
-            
         else:
             self.drone = System()
         self.current_yaw = 0.0  # Current yaw in radians
+        self.current_pitch = 0.0  # Current pitch in radians
+        self.current_roll = 0.0  # Current roll in radians
         self.current_altitude = 0.0  # Current altitude in meters
         self.camera_yaw_offset = Parameters.CAMERA_YAW_OFFSET
         self.update_task = None  # Task for telemetry updates
@@ -27,19 +27,24 @@ class PX4Controller:
         self.update_task = asyncio.create_task(self.update_drone_data())
 
     async def update_drone_data(self):
-        """Continuously updates current yaw and altitude."""
+        """Continuously updates current yaw, pitch, roll, and altitude."""
         while self.active_mode:
             try:
                 async for position in self.drone.telemetry.position():
                     self.current_altitude = position.relative_altitude_m
                 async for attitude in self.drone.telemetry.attitude_euler():
                     self.current_yaw = attitude.yaw + self.camera_yaw_offset
+                    self.current_pitch = attitude.pitch  # Updating the pitch
+                    self.current_roll = attitude.roll  # Updating the roll
             except asyncio.CancelledError:
                 print("Telemetry update task was cancelled.")
                 break
             except Exception as e:
                 print(f"Error updating telemetry: {e}")
                 await asyncio.sleep(1)  # Wait before retrying
+    def get_orientation(self):
+        """Returns the current orientation (yaw, pitch, roll) of the drone."""
+        return self.current_yaw, self.current_pitch, self.current_roll
 
     async def send_ned_velocity_commands(self, setpoint):
         """Sends velocity commands to the drone in offboard mode."""

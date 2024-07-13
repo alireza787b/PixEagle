@@ -12,7 +12,7 @@ class Parameters:
 
     # For VIDEO_FILE, specify the path to the video file
     # Example: VIDEO_FILE_PATH = "resources/test1.mp4"
-    VIDEO_FILE_PATH = "resources/test5.mp4"
+    VIDEO_FILE_PATH = "resources/test7.mp4"
 
     # For USB_CAMERA, specify the camera index as an integer
     # Example: CAMERA_INDEX = 0 for the default webcam
@@ -172,35 +172,108 @@ class Parameters:
     #SYSTEM_ADDRESS = "udp://:18570"
     #SYSTEM_ADDRESS = "udp://:14540@172.21.148.30:14550"
 
+
+    """
+    PID_GAINS (dict): Contains the PID gains for each control axis. The PID controller helps
+            to minimize the error between the current state and the desired setpoint. Adjustments to these
+            gains can be made based on the drone's response during flight tests.
+
+            - Proportional (P) Gain: Determines how aggressively the PID reacts to the current error. Increasing
+              this value will make the drone respond more quickly to errors, but too high a value can lead to
+              oscillations and instability.
+            
+            - Integral (I) Gain: Addresses the cumulative error in the system, helping to eliminate steady-state
+              errors. Adjusting this gain helps when the drone fails to reach the setpoint, but too much can
+              lead to overshooting and oscillations.
+            
+            - Derivative (D) Gain: Reacts to the rate of change of the error, providing a damping effect.
+              Increasing this gain helps to reduce overshooting and settling time, improving the stability.
+
+        Example usage:
+            To increase responsiveness, consider increasing the 'P' gain, but monitor for instability.
+            If the drone consistently overshoots the target, increase the 'D' gain for better damping.
+            If there is a persistent offset that never corrects itself, increase the 'I' gain slightly.
+    """
     # Default PID gains
     PID_GAINS = {
-        "x": {"p": 5, "i": 0.3, "d": 0.5},
-        "y": {"p": 5, "i": 0.3, "d": 0.5},
-        "z": {"p": 1, "i": 0.01, "d": 0.01}
+    "x": {"p": 6, "i": 0.3, "d": 1.0},  
+    "y": {"p": 6, "i": 0.3, "d": 1.0}, 
+    "z": {"p": 1, "i": 0.01, "d": 0.01}
     }
+    
+    # IS_CAMERA_GIMBALED (bool): Specifies if the camera is gimbaled.
+    #         True if the camera has gimbal stabilization, False otherwise.
+    #         If False, orientation-based adjustments are applied to compensate for pitch and roll effects.
+    IS_CAMERA_GIMBALED = False  # Example: False for non-gimbaled camera setups
 
-    # Gain scheduling for different altitude ranges
+
+    #     BASE_ADJUSTMENT_FACTOR_X (float): Base adjustment factor for the X-axis,
+    #         used to compensate for roll effects on the camera view at a reference altitude (typically ground level).
+    #         This factor is inversely scaled based on altitude to adjust the perceived target position in the camera frame.
+    BASE_ADJUSTMENT_FACTOR_X = 0.1  # Adjust based on experimental data
+
+
+    #     BASE_ADJUSTMENT_FACTOR_Y (float): Base adjustment factor for the Y-axis,
+    #         used to compensate for pitch effects on the camera view at a reference altitude.
+    #         Like the X-axis factor, this is inversely scaled with altitude.
+    BASE_ADJUSTMENT_FACTOR_Y = 0.1  # Adjust based on experimental data
+
+
+    #     ALTITUDE_FACTOR (float): A coefficient used to scale the BASE_ADJUSTMENT_FACTORS
+    #         with altitude, providing a method to diminish the adjustment impact as altitude increases.
+    #         Higher values mean quicker reduction of the adjustment effect with altitude.
+    ALTITUDE_FACTOR = 0.005  # This needs to be fine-tuned through testing
+
+
+    #     VELOCITY_LIMITS (dict): Maximum velocity limits for the drone in meters per second.
+    #         Specified for x, y, and z axes.
+    VELOCITY_LIMITS = {'x': 10.0, 'y': 10.0, 'z': 5.0}  # m/s, adjust as needed for safety and performance
+
+
+    #     MIN_DESCENT_HEIGHT (float): Minimum descent height in meters.
+    #         The drone will not descend below this altitude during operations.
+    MIN_DESCENT_HEIGHT = 20  # meters
+
+
+    #     MAX_RATE_OF_DESCENT (float): Maximum rate of descent in meters per second.
+    #         Limits the vertical speed to prevent rapid altitude loss.
+    MAX_RATE_OF_DESCENT = 0.5  # meters per second
+
+
+    #     DESIRE_AIM (tuple): The desired normalized position in the camera frame to keep the target.
+    #         Typically (0,0) to center the target in the frame.
+    DESIRE_AIM = (0, 0)  # Normalized coordinates to aim for the center of the screen
+
+
+
+    """
+    Gain scheduling allows the drone control system to adapt PID gains based on the current altitude,
+    ensuring optimal responsiveness and stability across different flying conditions. This approach
+    compensates for variations in drone dynamics such as air density and wind effects and target tracking dynamics at different altitudes.
+
+    The gains are scheduled in brackets that cover typical operational altitudes, with the assumption that
+    control needs vary with altitude. 
+
+    Attributes:
+        ALTITUDE_GAIN_SCHEDULE (dict): A dictionary where the keys are tuples representing altitude ranges
+            in meters AGL (Above Ground Level), and the values are dictionaries setting the PID gains for
+            x, y, and z axes.
+        ENABLE_GAIN_SCHEDULING (bool): Flag to enable or disable gain scheduling.
+        GAIN_SCHEDULING_PARAMETER (str): The parameter used by the scheduling function to determine
+            which gain set to apply, typically 'current_altitude'.
+
+    
+    """
     ALTITUDE_GAIN_SCHEDULE = {
-        (0, 5): {"x": {"p": 1.2, "i": 0.02, "d": 0.02}, "y": {"p": 1.2, "i": 0.02, "d": 0.02}, "z": {"p": 1.1, "i": 0.02, "d": 0.02}},
-        (5, 15): {"x": {"p": 1.0, "i": 0.015, "d": 0.015}, "y": {"p": 1.0, "i": 0.015, "d": 0.015}, "z": {"p": 0.9, "i": 0.015, "d": 0.015}},
-        (15, 30): {"x": {"p": 0.9, "i": 0.01, "d": 0.01}, "y": {"p": 0.9, "i": 0.01, "d": 0.01}, "z": {"p": 0.8, "i": 0.01, "d": 0.01}},
-        (30, 50): {"x": {"p": 0.8, "i": 0.005, "d": 0.005}, "y": {"p": 0.8, "i": 0.005, "d": 0.005}, "z": {"p": 0.7, "i": 0.005, "d": 0.005}},
-        (50, 100): {"x": {"p": 0.7, "i": 0.003, "d": 0.003}, "y": {"p": 0.7, "i": 0.003, "d": 0.003}, "z": {"p": 0.6, "i": 0.003, "d": 0.003}}
+        (0, 20): {"x": {"p": 5.5, "i": 0.2, "d": 0.4}, "y": {"p": 5.5, "i": 0.2, "d": 0.4}, "z": {"p": 1, "i": 0.01, "d": 0.1}},
+        (20, 50): {"x": {"p": 6, "i": 0.25, "d": 0.5}, "y": {"p": 6, "i": 0.25, "d": 0.5}, "z": {"p": 1, "i": 0.015, "d": 0.15}},
+        (50, 100): {"x": {"p": 6.5, "i": 0.3, "d": 0.6}, "y": {"p": 6.5, "i": 0.3, "d": 0.6}, "z": {"p": 1, "i": 0.02, "d": 0.2}},
+        (100, 150): {"x": {"p": 6, "i": 0.3, "d": 1.0}, "y": {"p": 6, "i": 0.3, "d": 1.0}, "z": {"p": 1, "i": 0.01, "d": 0.01}},
+        (150, 200): {"x": {"p": 5.5, "i": 0.25, "d": 0.8}, "y": {"p": 5.5, "i": 0.25, "d": 0.8}, "z": {"p": 1, "i": 0.01, "d": 0.05}}
     }
-
-    # Enable or disable gain scheduling
-    ENABLE_GAIN_SCHEDULING = False
+    ENABLE_GAIN_SCHEDULING = True
     GAIN_SCHEDULING_PARAMETER = 'current_altitude'
     
-    # Bounds for velocity outputs
-    VELOCITY_LIMITS = {"x": 10.0, "y": 10.0, "z": 5.0}  # Maximum velocity in m/s
-
-    # Safety and operational parameters
-    MIN_DESCENT_HEIGHT = 10  # meters
-    MAX_RATE_OF_DESCENT = 0.0  # meters per second
-
-    #Desired normalized position of aiming for put the target in screen
-    DESIRE_AIM = (0,0)
 
     CAMERA_YAW_OFFSET = 0
     

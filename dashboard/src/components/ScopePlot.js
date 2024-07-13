@@ -72,10 +72,22 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
       latestFollowerData.vel_x ** 2 + latestFollowerData.vel_y ** 2
     );
 
-    const normalizedVelocity = {
-      x: (latestFollowerData.vel_x / maxSpeed),
-      y: (latestFollowerData.vel_y / maxSpeed),
+    // Normalize the velocity and limit the arrow length to 0.5
+    const normalizationFactor = maxSpeed * 2; // since we want 0.5 max length
+    let normalizedVelocity = {
+      x: (latestFollowerData.vel_x / normalizationFactor),
+      y: (latestFollowerData.vel_y / normalizationFactor),
     };
+
+    // Limit the length to a maximum of 0.5
+    const maxLength = 0.5;
+    const length = Math.sqrt(normalizedVelocity.x ** 2 + normalizedVelocity.y ** 2);
+    if (length > maxLength) {
+      normalizedVelocity = {
+        x: (normalizedVelocity.x / length) * maxLength,
+        y: (normalizedVelocity.y / length) * maxLength,
+      };
+    }
 
     const arrowEnd = {
       x: normalizedVelocity.x,
