@@ -211,6 +211,8 @@ class Parameters:
     ENABLE_ANTI_WINDUP = True  # Set to True to enable anti-windup, False to disable
     ANTI_WINDUP_BACK_CALC_COEFF = 0.1  # Coefficient for back-calculation method
     
+    #TODO: estimate target velocity using Kalman Filter and feed-forward velocity to the controller
+    
     # IS_CAMERA_GIMBALED (bool): Specifies if the camera is gimbaled.
     #         True if the camera has gimbal stabilization, False otherwise.
     #         If False, orientation-based adjustments are applied to compensate for pitch and roll effects.
@@ -289,75 +291,8 @@ class Parameters:
     
     SETPOINT_PUBLISH_RATE_S = 0.1
     ENABLE_SETPOINT_DEBUGGING = True
-    # ----- Future Expansion -----
-    # Placeholder for future parameters. This section can be used to outline planned expansions,
-    # such as new video stream types, integration with additional hardware, or advanced tracking features.
-    # FUTURE_PARAMETER = "value"
 
 
 
 
-# Reminder and Note for Drone Camera Streaming Setup:
-
-# To simulate camera tracking for drone operations in X-Plane, we use a setup where the camera feed from the drone is streamed and then simulated as a physical camera using SparkoCam. This feed is then streamed to the WSL environment for processing with PX4 SITL and the PixEagle tracker.
-
-# Initial Setup Steps:
-# --------------------
-# 1. Ensure GStreamer is installed on both Windows and WSL. The installation should include the base, good, bad, and ugly plugin sets to support a wide range of formats and protocols.
-
-# 2. After installing GStreamer, remember to add its bin directory to your system's PATH environment variable. This enables you to run GStreamer commands from any command prompt or terminal window without specifying the full path to the executables.
-
-#    Example for adding to PATH on Windows:
-#    - Right-click on 'This PC' or 'My Computer' and select 'Properties'.
-#    - Navigate to 'Advanced system settings' -> 'Environment Variables'.
-#    - Under 'System Variables', find and select 'Path', then click 'Edit'.
-#    - Add the path to your GStreamer bin directory, typically 'C:\gstreamer\1.0\x86_64\bin'.
-#    - Click 'OK' to close all dialogues.
-
-# 3. To list available video capture devices (cameras) that can be used with GStreamer, use the following command. This helps in identifying the correct device path or name for streaming:
-
-#    On Windows:
-# gst-device-monitor-1.0 Video/Source
-
-# This command lists all video sources along with their capabilities and device paths. Look for the device name or path related to SparkoCam or any other camera you intend to use.
-
-# Streaming Command on Windows (Sender):
-# --------------------------------------
-# Use the following GStreamer command to stream the SparkoCam Video feed to the WSL environment. This command captures the video from SparkoCam, encodes it, and sends it over UDP to the specified WSL IP and port.
-
-# gst-launch-1.0 -v mfvideosrc device-path="\\?\root#image#0000#{e5323777-f976-4f5b-9b55-b94699c46e44}\global" ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=superfast ! rtph264pay ! udpsink host=172.21.148.30 port=5000
-
-# Ensure to replace the device-path with the correct path for your setup and adjust the host IP and port as necessary for your WSL environment.
-
-# Receiving Command in WSL (Receiver):
-# -----------------------------------
-# In the WSL environment, use the following GStreamer command to receive the streamed video. This command listens on the specified port for the incoming UDP stream, decodes the H.264 video, and displays it.
-
-
-
-# Ensure to replace the device-path with the correct path for your setup and adjust the host IP and port as necessary for your WSL environment.
-
-# Receiving Command in WSL (Receiver):
-# -----------------------------------
-# In the WSL environment, use the following GStreamer command to receive the streamed video. This command listens on the specified port for the incoming UDP stream, decodes the H.264 video, and displays it.
-
-
-
-# Ensure to replace the device-path with the correct path for your setup and adjust the host IP and port as necessary for your WSL environment.
-
-# Receiving Command in WSL (Receiver):
-# -----------------------------------
-# In the WSL environment, use the following GStreamer command to receive the streamed video. This command listens on the specified port for the incoming UDP stream, decodes the H.264 video, and displays it.
-
-# gst-launch-1.0 -v udpsrc port=5000 caps="application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264" ! rtph264depay ! avdec_h264 ! videoconvert ! autovideosink
-
-
-# This setup enables real-time video feed processing in WSL, facilitating simulations for camera tracking on drones within the X-Plane ecosystem and interaction with PX4 SITL and PixEagle tracker.
-
-# Additional Notes:
-# -----------------
-# - Verify the UDP port (e.g., 5000) is not blocked by firewall settings on both Windows and WSL to ensure smooth communication.
-# - Adjust bitrate and encoder settings based on network capacity and desired video quality for optimal performance.
-
-# This approach provides a flexible method for simulating and processing drone camera feeds, essential for development and testing scenarios involving drone tracking and control systems.
 
