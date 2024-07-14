@@ -4,6 +4,11 @@
 ## Overview
 This guide details the steps to integrate MAVLink, SITL (Software in the Loop), X-Plane, and OpenCV for the follow mode tracker tests. This setup involves running SITL on Linux (WSF) and X-Plane on Windows, with video streaming through SparkoCam into OpenCV.
 
+## Latest Release
+Watch the latest video showcasing PixEagle v1.0, demonstrating advanced features including precision landing and intelligent target tracking in a Software in the Loop Simulation with X-Plane 12 and [PX4XPlane](https://github.com/alireza787b/px4xplane):
+[![PixEagle v1.0](https://github.com/user-attachments/assets/4acd965b-34c1-456e-be70-d4cc7f26eddb)](https://youtu.be/hw5MU0mPx2I)
+
+
 ## Prerequisites
 - Windows 10 or later with WSL installed.
 - [X-Plane](https://www.x-plane.com/desktop/try-it/) installed on Windows.
