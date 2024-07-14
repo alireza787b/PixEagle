@@ -200,6 +200,14 @@ class Parameters:
     "y": {"p": 6, "i": 0.3, "d": 1.0}, 
     "z": {"p": 1, "i": 0.01, "d": 0.01}
     }
+    
+    PROPORTIONAL_ON_MEASUREMENT = True 
+    """
+    Proportional on Measurement (PoM) helps to reduce overshoot and improve stability in control systems by applying the proportional term based on the current measurement rather than the setpoint error.
+    This method is beneficial for processes with significant delay between control action and measured effect.
+    For more information, visit: http://brettbeauregard.com/blog/2017/06/introducing-proportional-on-measurement/
+    """
+    
     #TODO: Add Anti-Windup for Integral Gain 
     
     # IS_CAMERA_GIMBALED (bool): Specifies if the camera is gimbaled.

@@ -11,9 +11,11 @@ logging.basicConfig(level=logging.INFO)
 class Follower:
     def __init__(self, px4_controller):
         self.px4_controller = px4_controller
-        self.pid_x = PID(*self.get_pid_gains('x'), setpoint=0, output_limits=(-Parameters.VELOCITY_LIMITS['x'], Parameters.VELOCITY_LIMITS['x']))
-        self.pid_y = PID(*self.get_pid_gains('y'), setpoint=0, output_limits=(-Parameters.VELOCITY_LIMITS['y'], Parameters.VELOCITY_LIMITS['y']))
-        self.pid_z = PID(*self.get_pid_gains('z'), setpoint=Parameters.MIN_DESCENT_HEIGHT, output_limits=(-Parameters.MAX_RATE_OF_DESCENT, Parameters.MAX_RATE_OF_DESCENT))
+        
+        self.pid_x = PID(*self.get_pid_gains('x'), setpoint=0, output_limits=(-Parameters.VELOCITY_LIMITS['x'], Parameters.VELOCITY_LIMITS['x']), proportional_on_measurement=Parameters.PROPORTIONAL_ON_MEASUREMENT)
+        self.pid_y = PID(*self.get_pid_gains('y'), setpoint=0, output_limits=(-Parameters.VELOCITY_LIMITS['y'], Parameters.VELOCITY_LIMITS['y']), proportional_on_measurement=Parameters.PROPORTIONAL_ON_MEASUREMENT)
+        self.pid_z = PID(*self.get_pid_gains('z'), setpoint=Parameters.MIN_DESCENT_HEIGHT, output_limits=(-Parameters.MAX_RATE_OF_DESCENT, Parameters.MAX_RATE_OF_DESCENT), proportional_on_measurement=Parameters.PROPORTIONAL_ON_MEASUREMENT)
+
         
         self.latest_velocities = {'vel_x': 0, 'vel_y': 0, 'vel_z': 0, 'timestamp': None, 'status': 'idle'}
 
