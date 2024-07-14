@@ -196,19 +196,20 @@ class Parameters:
     """
     # Default PID gains
     PID_GAINS = {
-    "x": {"p": 6, "i": 0.3, "d": 1.0},  
-    "y": {"p": 6, "i": 0.3, "d": 1.0}, 
+    "x": {"p": 6, "i": 0.3, "d": 1.5},  
+    "y": {"p": 6, "i": 0.3, "d": 1.5}, 
     "z": {"p": 1, "i": 0.01, "d": 0.01}
     }
     
-    PROPORTIONAL_ON_MEASUREMENT = True 
+    PROPORTIONAL_ON_MEASUREMENT = False  # Default: False, change to True to enable PoM
     """
     Proportional on Measurement (PoM) helps to reduce overshoot and improve stability in control systems by applying the proportional term based on the current measurement rather than the setpoint error.
     This method is beneficial for processes with significant delay between control action and measured effect.
     For more information, visit: http://brettbeauregard.com/blog/2017/06/introducing-proportional-on-measurement/
     """
     
-    #TODO: Add Anti-Windup for Integral Gain 
+    ENABLE_ANTI_WINDUP = True  # Set to True to enable anti-windup, False to disable
+    ANTI_WINDUP_BACK_CALC_COEFF = 0.1  # Coefficient for back-calculation method
     
     # IS_CAMERA_GIMBALED (bool): Specifies if the camera is gimbaled.
     #         True if the camera has gimbal stabilization, False otherwise.
@@ -246,7 +247,7 @@ class Parameters:
 
     #     MAX_RATE_OF_DESCENT (float): Maximum rate of descent in meters per second.
     #         Limits the vertical speed to prevent rapid altitude loss.
-    MAX_RATE_OF_DESCENT = 0.5  # meters per second
+    MAX_RATE_OF_DESCENT = 0  # meters per second, 0 to disable descend
 
 
     #     DESIRE_AIM (tuple): The desired normalized position in the camera frame to keep the target.
