@@ -5,6 +5,12 @@
 
 PixEagle is an all-in-one image processing, following, and tracking solution designed for the PX4 ecosystem (with potential expansion to ArduPilot). It leverages MAVSDK Python, OpenCV, and optional YOLO for precise object tracking and drone navigation. The project emphasizes modularity and extensibility, allowing users to implement their own tracking, detection, and segmentation algorithms. The system is modular, well-commented, and designed for easy integration of new algorithms. Additionally, PixEagle includes a beta web app GUI using React for real-time monitoring and control.
 
+## Latest Release
+
+Watch the latest video showcasing PixEagle v1.0, demonstrating advanced features including precision landing and intelligent target tracking in a Software in the Loop Simulation with X-Plane 12 and [PX4XPlane](https://github.com/alireza787b/px4xplane):
+[![PixEagle v1.0](https://github.com/user-attachments/assets/4acd965b-34c1-456e-be70-d4cc7f26eddb)](https://youtu.be/hw5MU0mPx2I)
+
+
 ## Key Components
 
 ### AppController
