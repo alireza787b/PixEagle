@@ -1,8 +1,6 @@
-# src\classes\app_controller.py
 import asyncio
 import logging
 import numpy as np
-from flask_socketio import SocketIO
 from classes.parameters import Parameters
 from classes.follower import Follower
 from classes.setpoint_sender import SetpointSender
@@ -12,20 +10,18 @@ from classes.trackers.csrt_tracker import CSRTTracker  # Import other trackers a
 from classes.segmentor import Segmentor
 from classes.trackers.tracker_factory import create_tracker
 from classes.detector import Detector
-from classes.parameters import Parameters
 import cv2
 from classes.px4_controller import PX4Controller  # Ensure this import path is correct
 from classes.telemetry_handler import TelemetryHandler
-from classes.telemetry_handler import TelemetryHandler
-from classes.flask_handler import FlaskHandler
+from classes.fastapi_handler import FastAPIHandler  # Correct import
 
 class AppController:
     def __init__(self):
-         # Initialize video processing components
+        # Initialize video processing components
         self.video_handler = VideoHandler()
         self.video_streamer = None
         self.detector = Detector(algorithm_type=Parameters.DETECTION_ALGORITHM)
-        self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM,self.video_handler, self.detector)
+        self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM, self.video_handler, self.detector)
         self.segmentor = Segmentor(algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM)
         # Flags to track the state of tracking and segmentation
         self.tracking_started = False
@@ -40,12 +36,11 @@ class AppController:
         self.setpoint_sender = None
         # Initialize telemetry handler
         self.telemetry_handler = TelemetryHandler(self)
-        self.flask_handler = None
-        self.flask_handler = FlaskHandler(self.video_handler, self.telemetry_handler)
-        self.flask_handler.start(host=Parameters.HTTP_STREAM_HOST, port=Parameters.HTTP_STREAM_PORT)
+        # Initialize the FastAPIHandler instead of FlaskHandler
+        self.api_handler = FastAPIHandler(self.video_handler, self.telemetry_handler)
+        self.api_handler.start(host=Parameters.HTTP_STREAM_HOST, port=Parameters.HTTP_STREAM_PORT)
 
         logging.info("AppController initialized.")
-
 
     def on_mouse_click(self, event, x, y, flags, param):
         """
@@ -57,8 +52,6 @@ class AppController:
     def toggle_tracking(self, frame):
         if not self.tracking_started:
             bbox = cv2.selectROI(Parameters.FRAME_TITLE, frame, False, False)
-            #cv2.destroyWindow("ROI selector")
-            # No need to destroy the window here, as selectROI should handle it.
             if bbox and bbox[2] > 0 and bbox[3] > 0:
                 self.tracker.start_tracking(frame, bbox)
                 self.tracking_started = True
@@ -93,7 +86,6 @@ class AppController:
             self.setpoint_sender = None  # Optionally reset setpoint_sender to None after stopping
         print("All activities cancelled.")
 
-
     async def update_loop(self, frame):
         if self.segmentation_active:
             frame = self.segmentor.segment_frame(frame)
@@ -123,12 +115,11 @@ class AppController:
 
         return frame
 
-
     async def handle_key_input_async(self, key, frame):
         """
         Handles key inputs for toggling segmentation, toggling tracking, starting feature extraction, and cancelling activities.
         """
-        if key ==ord('y'):
+        if key == ord('y'):
             self.toggle_segmentation()
         elif key == ord('t'):
             self.toggle_tracking(frame)
@@ -165,8 +156,6 @@ class AppController:
             self.tracking_started = True
             print(f"Object selected for tracking: {selected_bbox}")
 
-
-
     def identify_clicked_object(self, detections, x, y):
         """
         Identifies the clicked object based on segmentation detections and mouse click coordinates.
@@ -177,18 +166,18 @@ class AppController:
                 return det
         return None
 
-    def initiate_redetection(self, frame,tracker=None):
-       if Parameters.USE_DETECTOR:
+    def initiate_redetection(self, frame, tracker=None):
+        if Parameters.USE_DETECTOR:
             # Call the smart re-detection method
-            redetect_result = self.detector.smart_redetection(frame,self.tracker)
+            redetect_result = self.detector.smart_redetection(frame, self.tracker)
             # If a new bounding box is found, update the tracker with this new box
-            if self.detector.get_latest_bbox() is not None and redetect_result == True :
+            if self.detector.get_latest_bbox() is not None and redetect_result == True:
                 self.tracker.reinitialize_tracker(frame, self.detector.get_latest_bbox())
                 print("Re-detection activated and tracking updated.")
             else:
                 print("Re-detection failed or no new object found.")
                 
-    def show_current_frame(self,frame_title = Parameters.FRAME_TITLE):
+    def show_current_frame(self, frame_title=Parameters.FRAME_TITLE):
         cv2.imshow(frame_title, self.current_frame)
         return self.current_frame
     
@@ -204,12 +193,8 @@ class AppController:
 
             # Send an initial setpoint before starting offboard mode
             await self.px4_controller.send_initial_setpoint()
-
-
             await self.px4_controller.start_offboard_mode()
             self.following_active = True
-
-
 
     async def disconnect_px4(self):
         if self.following_active:
@@ -232,15 +217,15 @@ class AppController:
             self.px4_controller.update_setpoint((vel_x, vel_y, vel_z))
             await self.px4_controller.send_body_velocity_commands(self.px4_controller.last_command)
 
-
     async def shutdown(self):
         """
         Shutdown the application cleanly.
         """
-        if self.flask_handler:
-            self.flask_handler.stop()
-        await self.px4_controller.stop()
-        await self.disconnect_px4()
-        await self.telemetry_handler.stop()
+        if self.api_handler:
+            self.api_handler.stop()
+        if self.px4_controller.active_mode:
+            await self.px4_controller.stop()
+            await self.disconnect_px4()
+        # if self.telemetry_handler:
+        #     await self.telemetry_handler.stop()
         self.video_handler.release()
-
