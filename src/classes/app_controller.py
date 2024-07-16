@@ -37,7 +37,7 @@ class AppController:
         # Initialize telemetry handler
         self.telemetry_handler = TelemetryHandler(self)
         # Initialize the FastAPIHandler instead of FlaskHandler
-        self.api_handler = FastAPIHandler(self.video_handler, self.telemetry_handler)
+        self.api_handler = FastAPIHandler(self.video_handler, self.telemetry_handler, self)
         self.api_handler.start(host=Parameters.HTTP_STREAM_HOST, port=Parameters.HTTP_STREAM_PORT)
 
         logging.info("AppController initialized.")
@@ -64,15 +64,50 @@ class AppController:
             self.cancel_activities()
             print("Tracking deactivated.")
 
+
     def toggle_segmentation(self):
         """
         Toggles the segmentation state. Activates or deactivates segmentation.
+
+        Returns:
+            bool: The current state of segmentation after toggling.
         """
         self.segmentation_active = not self.segmentation_active
         if self.segmentation_active:
             print("Segmentation activated.")
         else:
             print("Segmentation deactivated.")
+        return self.segmentation_active
+
+            
+            
+    async def start_tracking(self, bbox):
+        """
+        Starts tracking with the provided bounding box.
+
+        Args:
+            bbox (dict): The bounding box for tracking.
+        """
+        if not self.tracking_started:
+            # Convert the dictionary to a tuple
+            bbox_tuple = (bbox['x'], bbox['y'], bbox['width'], bbox['height'])
+            self.tracker.start_tracking(self.current_frame, bbox_tuple)
+            self.tracking_started = True
+            if hasattr(self.tracker, 'detector') and self.tracker.detector:
+                self.tracker.detector.extract_features(self.current_frame, bbox_tuple)
+            print("Tracking activated.")
+        else:
+            print("Tracking is already active.")
+
+    async def stop_tracking(self):
+        """
+        Stops the tracking process if it is currently active.
+        """
+        if self.tracking_started:
+            self.cancel_activities()
+            print("Tracking deactivated.")
+        else:
+            print("Tracking is not active.")
 
     def cancel_activities(self):
         """
@@ -80,10 +115,10 @@ class AppController:
         """
         self.tracking_started = False
         self.segmentation_active = False
-        if self.setpoint_sender is not None:  # Check if setpoint_sender has been initialized
+        if self.setpoint_sender:
             self.setpoint_sender.stop()
             self.setpoint_sender.join()
-            self.setpoint_sender = None  # Optionally reset setpoint_sender to None after stopping
+            self.setpoint_sender = None
         print("All activities cancelled.")
 
     async def update_loop(self, frame):
@@ -166,43 +201,89 @@ class AppController:
                 return det
         return None
 
-    def initiate_redetection(self, frame, tracker=None):
+    def initiate_redetection(self):
+        """
+        Attempts to redetect the object being tracked.
+
+        Returns:
+            dict: Details of the redetection attempt.
+        """
         if Parameters.USE_DETECTOR:
-            # Call the smart re-detection method
-            redetect_result = self.detector.smart_redetection(frame, self.tracker)
-            # If a new bounding box is found, update the tracker with this new box
-            if self.detector.get_latest_bbox() is not None and redetect_result == True:
-                self.tracker.reinitialize_tracker(frame, self.detector.get_latest_bbox())
-                print("Re-detection activated and tracking updated.")
+            redetect_result = self.detector.smart_redetection(self.current_frame, self.tracker)
+            if self.detector.get_latest_bbox() is not None and redetect_result:
+                self.tracker.reinitialize_tracker(self.current_frame, self.detector.get_latest_bbox())
+                return {
+                    "success": True,
+                    "message": "Re-detection activated and tracking updated.",
+                    "bounding_box": self.detector.get_latest_bbox()
+                }
             else:
-                print("Re-detection failed or no new object found.")
+                return {
+                    "success": False,
+                    "message": "Re-detection failed or no new object found."
+                }
+        else:
+            return {
+                "success": False,
+                "message": "Detector is not enabled."
+            }
                 
     def show_current_frame(self, frame_title=Parameters.FRAME_TITLE):
         cv2.imshow(frame_title, self.current_frame)
         return self.current_frame
     
     async def connect_px4(self):
-        """Connects to PX4 when following mode is activated."""
-        if not self.following_active:
-            if Parameters.ENABLE_DEBUGGING:
-                print("Activating Follow Mode to PX4!")
-            await self.px4_controller.connect()
-            if Parameters.ENABLE_DEBUGGING:
-                print("Connected to PX4 Drone!")
-            self.follower = Follower(self.px4_controller)
+        """
+        Connects to PX4 when following mode is activated.
 
-            # Send an initial setpoint before starting offboard mode
-            await self.px4_controller.send_initial_setpoint()
-            await self.px4_controller.start_offboard_mode()
-            self.following_active = True
+        Returns:
+            dict: Details of the connection and offboard mode process.
+        """
+        result = {"steps": [], "errors": []}
+        if not self.following_active:
+            try:
+                if Parameters.ENABLE_DEBUGGING:
+                    result["steps"].append("Activating Follow Mode to PX4!")
+                await self.px4_controller.connect()
+                if Parameters.ENABLE_DEBUGGING:
+                    result["steps"].append("Connected to PX4 Drone!")
+                self.follower = Follower(self.px4_controller)
+
+                # Send an initial setpoint before starting offboard mode
+                await self.px4_controller.send_initial_setpoint()
+                await self.px4_controller.start_offboard_mode()
+                self.following_active = True
+                result["steps"].append("Offboard mode started.")
+            except Exception as e:
+                result["errors"].append(f"Failed to connect/start offboard mode: {e}")
+        else:
+            result["steps"].append("Follow mode already active.")
+        
+        return result
 
     async def disconnect_px4(self):
+        """
+        Disconnects PX4 and stops offboard mode.
+
+        Returns:
+            dict: Details of the disconnect process.
+        """
+        result = {"steps": [], "errors": []}
         if self.following_active:
-            await self.px4_controller.stop_offboard_mode()
-            if self.setpoint_sender:
-                self.setpoint_sender.stop()
-                self.setpoint_sender.join()
-            self.following_active = False
+            try:
+                await self.px4_controller.stop_offboard_mode()
+                result["steps"].append("Offboard mode stopped.")
+                if self.setpoint_sender:
+                    self.setpoint_sender.stop()
+                    self.setpoint_sender.join()
+                    self.setpoint_sender = None
+                self.following_active = False
+            except Exception as e:
+                result["errors"].append(f"Failed to stop offboard mode: {e}")
+        else:
+            result["steps"].append("Follow mode is not active.")
+        
+        return result
             
     async def follow_target(self):
         """Prepares to follow the target based on tracking information."""
@@ -219,13 +300,22 @@ class AppController:
 
     async def shutdown(self):
         """
-        Shutdown the application cleanly.
+        Shuts down the application gracefully.
+
+        Returns:
+            dict: Details of the shutdown process.
         """
-        if self.api_handler:
-            self.api_handler.stop()
-        if self.px4_controller.active_mode:
-            await self.px4_controller.stop()
-            await self.disconnect_px4()
-        # if self.telemetry_handler:
-        #     await self.telemetry_handler.stop()
-        self.video_handler.release()
+        result = {"steps": [], "errors": []}
+        try:
+            if self.following_active:
+                result["steps"].append("Stopping offboard mode and disconnecting PX4.")
+                await self.px4_controller.stop_offboard_mode()
+                if self.setpoint_sender:
+                    self.setpoint_sender.stop()
+                    self.setpoint_sender.join()
+                self.following_active = False
+            self.video_handler.release()
+            result["steps"].append("Video handler released.")
+        except Exception as e:
+            result["errors"].append(f"Error during shutdown: {e}")
+        return result

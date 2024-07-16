@@ -83,13 +83,19 @@ class PX4Controller:
         return ned_vel_x, ned_vel_y
 
     async def start_offboard_mode(self):
-        """Attempts to start offboard mode."""
-        print("Starting offboard mode...")
+        """
+        Attempts to start offboard mode.
+
+        Returns:
+            dict: Details of the offboard mode attempt.
+        """
+        result = {"steps": [], "errors": []}
         try:
             await self.drone.offboard.start()
-            print("Offboard mode started.")
+            result["steps"].append("Offboard mode started.")
         except Exception as e:
-            print(f"Failed to start offboard mode: {e}")
+            result["errors"].append(f"Failed to start offboard mode: {e}")
+        return result
 
     async def stop_offboard_mode(self):
         """Stops offboard mode."""

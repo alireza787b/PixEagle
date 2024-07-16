@@ -1,4 +1,6 @@
+import asyncio
 from fastapi import FastAPI, BackgroundTasks, WebSocket, HTTPException
+from fastapi import Request
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse, JSONResponse
 import threading
@@ -15,7 +17,7 @@ class BoundingBox(BaseModel):
     height: int
 
 class FastAPIHandler:
-    def __init__(self, video_handler, telemetry_handler):
+    def __init__(self, video_handler, telemetry_handler,app_controller):
         """
         Initialize the FastAPIHandler with video and telemetry handlers.
 
@@ -25,6 +27,7 @@ class FastAPIHandler:
         """
         self.video_handler = video_handler
         self.telemetry_handler = telemetry_handler
+        self.app_controller = app_controller
         self.app = FastAPI()
         self.app.add_middleware(
             CORSMiddleware,
@@ -37,6 +40,17 @@ class FastAPIHandler:
         self.app.get("/telemetry/tracker_data")(self.tracker_data)
         self.app.get("/telemetry/follower_data")(self.follower_data)
         self.app.post("/commands/example_command_test")(self.commands)
+        self.app.post("/commands/tracking")(self.toggle_tracking)
+        self.app.post("/commands/toggle_segmentation")(self.toggle_segmentation)
+        self.app.post("/commands/redetect")(self.redetect)
+        self.app.post("/commands/cancel_activities")(self.cancel_activities)
+        self.app.post("/commands/start_offboard_mode")(self.start_offboard_mode)
+        self.app.post("/commands/stop_offboard_mode")(self.stop_offboard_mode)
+        self.app.post("/commands/quit")(self.quit)
+
+
+
+
         self.server_thread = None
         self.frame_rate = Parameters.STREAM_FPS
         self.width = Parameters.STREAM_WIDTH
@@ -47,6 +61,27 @@ class FastAPIHandler:
         self.frame_interval = 1.0 / self.frame_rate
         self.is_shutting_down = False
         self.server = None
+        
+    async def toggle_tracking(self, request: Request, bbox: BoundingBox = None):
+        """
+        Endpoint to start or stop tracking.
+        If a bounding box is provided, tracking will start. If not, tracking will stop.
+
+        Args:
+            request (Request): The incoming HTTP request.
+            bbox (BoundingBox, optional): The bounding box for tracking.
+
+        Returns:
+            dict: Status of the operation.
+        """
+        try:
+            if bbox:
+                await self.app_controller.start_tracking(bbox.dict())
+            else:
+                await self.app_controller.stop_tracking()
+            return {"status": "success"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
     async def video_feed(self):
         """
@@ -135,3 +170,100 @@ class FastAPIHandler:
             self.server.force_exit = True
             self.server_thread.join()
             logging.info("Stopped FastAPI server")
+
+
+    async def toggle_segmentation(self):
+        """
+        Endpoint to toggle segmentation state (enable/disable YOLO).
+
+        Returns:
+            dict: Status of the operation and the current state of segmentation.
+        """
+        try:
+            current_state = self.app_controller.toggle_segmentation()
+            return {"status": "success", "segmentation_active": current_state}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        
+    async def redetect(self):
+        """
+        Endpoint to attempt redetection of the object being tracked.
+
+        Returns:
+            dict: Status of the operation and details of the redetection attempt.
+        """
+        try:
+            result = self.app_controller.initiate_redetection()
+            return {"status": "success", "detection_result": result}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        
+    async def cancel_activities(self):
+        """
+        Endpoint to cancel all active tracking and segmentation activities.
+
+        Returns:
+            dict: Status of the operation.
+        """
+        try:
+            self.app_controller.cancel_activities()
+            return {"status": "success"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+        
+        
+    async def start_offboard_mode(self):
+        """
+        Endpoint to start the offboard mode for PX4.
+
+        Returns:
+            dict: Status of the operation and details of the process.
+        """
+        try:
+            result = await self.app_controller.connect_px4()
+            return {"status": "success", "details": result}
+        except Exception as e:
+            return {"status": "failure", "error": str(e)}
+        
+        
+    async def stop_offboard_mode(self):
+        """
+        Endpoint to stop the offboard mode for PX4.
+
+        Returns:
+            dict: Status of the operation and details of the process.
+        """
+        try:
+            result = await self.app_controller.disconnect_px4()
+            return {"status": "success", "details": result}
+        except Exception as e:
+            return {"status": "failure", "error": str(e)}
+        
+    async def quit(self):
+        """
+        Endpoint to quit the application.
+
+        Returns:
+            dict: Status of the operation and details of the process.
+        """
+        try:
+            result = await self.app_controller.shutdown()
+            return {"status": "success", "details": result}
+        except Exception as e:
+            return {"status": "failure", "error": str(e)}
+        
+        
+    async def quit(self):
+        """
+        Endpoint to quit the application.
+
+        Returns:
+            dict: Status of the operation and details of the process.
+        """
+        try:
+            # Trigger the shutdown process
+            asyncio.create_task(self.app_controller.shutdown())
+            self.server.should_exit = True  # Gracefully stop the FastAPI server
+            return {"status": "success", "details": "Application is shutting down."}
+        except Exception as e:
+            return {"status": "failure", "error": str(e)}
