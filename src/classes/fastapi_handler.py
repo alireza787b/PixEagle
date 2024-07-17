@@ -1,8 +1,7 @@
 import asyncio
 from typing import Optional
-from fastapi import FastAPI, BackgroundTasks, WebSocket, HTTPException
-from fastapi import Request
-from pydantic import BaseModel, Field
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from fastapi.responses import StreamingResponse, JSONResponse
 import threading
 import cv2
@@ -18,13 +17,14 @@ class BoundingBox(BaseModel):
     height: float
 
 class FastAPIHandler:
-    def __init__(self, video_handler, telemetry_handler,app_controller):
+    def __init__(self, video_handler, telemetry_handler, app_controller):
         """
         Initialize the FastAPIHandler with video and telemetry handlers.
 
         Args:
             video_handler (VideoHandler): An instance of the VideoHandler class.
             telemetry_handler (TelemetryHandler): An instance of the TelemetryHandler class.
+            app_controller (AppController): An instance of the AppController class.
         """
         self.video_handler = video_handler
         self.telemetry_handler = telemetry_handler
@@ -40,7 +40,6 @@ class FastAPIHandler:
         self.app.get("/video_feed")(self.video_feed)
         self.app.get("/telemetry/tracker_data")(self.tracker_data)
         self.app.get("/telemetry/follower_data")(self.follower_data)
-        self.app.post("/commands/example_command_test")(self.commands)
         self.app.post("/commands/start_tracking")(self.start_tracking)
         self.app.post("/commands/stop_tracking")(self.stop_tracking)
         self.app.post("/commands/toggle_segmentation")(self.toggle_segmentation)
@@ -49,9 +48,6 @@ class FastAPIHandler:
         self.app.post("/commands/start_offboard_mode")(self.start_offboard_mode)
         self.app.post("/commands/stop_offboard_mode")(self.stop_offboard_mode)
         self.app.post("/commands/quit")(self.quit)
-
-
-
 
         self.server_thread = None
         self.frame_rate = Parameters.STREAM_FPS
@@ -63,7 +59,7 @@ class FastAPIHandler:
         self.frame_interval = 1.0 / self.frame_rate
         self.is_shutting_down = False
         self.server = None
-        
+
     async def start_tracking(self, bbox: BoundingBox):
         """
         Endpoint to start tracking with the provided bounding box.
@@ -197,7 +193,6 @@ class FastAPIHandler:
             self.server_thread.join()
             logging.info("Stopped FastAPI server")
 
-
     async def toggle_segmentation(self):
         """
         Endpoint to toggle segmentation state (enable/disable YOLO).
@@ -219,7 +214,7 @@ class FastAPIHandler:
             dict: Status of the operation and details of the redetection attempt.
         """
         try:
-            result = self.app_controller.initiate_redetection()
+            result = await self.app_controller.initiate_redetection()
             return {"status": "success", "detection_result": result}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
@@ -237,7 +232,6 @@ class FastAPIHandler:
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
         
-        
     async def start_offboard_mode(self):
         """
         Endpoint to start the offboard mode for PX4.
@@ -251,7 +245,6 @@ class FastAPIHandler:
         except Exception as e:
             return {"status": "failure", "error": str(e)}
         
-        
     async def stop_offboard_mode(self):
         """
         Endpoint to stop the offboard mode for PX4.
@@ -264,20 +257,6 @@ class FastAPIHandler:
             return {"status": "success", "details": result}
         except Exception as e:
             return {"status": "failure", "error": str(e)}
-        
-    async def quit(self):
-        """
-        Endpoint to quit the application.
-
-        Returns:
-            dict: Status of the operation and details of the process.
-        """
-        try:
-            result = await self.app_controller.shutdown()
-            return {"status": "success", "details": result}
-        except Exception as e:
-            return {"status": "failure", "error": str(e)}
-        
         
     async def quit(self):
         """

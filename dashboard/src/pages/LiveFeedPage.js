@@ -1,14 +1,22 @@
 import React, { useState, useRef } from 'react';
-import { Container, Typography, Button } from '@mui/material';
+import { Container, Typography, Grid } from '@mui/material';
 import WebRTCStream from '../components/WebRTCStream';
+import ActionButtons from '../components/ActionButtons';
+import BoundingBoxDrawer from '../components/BoundingBoxDrawer';
 
-const flaskHost = process.env.REACT_APP_WEBSOCKET_VIDEO_HOST;
-const flaskPort = process.env.REACT_APP_WEBSOCKET_VIDEO_PORT;
-const startTrackingEndpoint = `http://${flaskHost}:${flaskPort}/commands/start_tracking`;
-const stopTrackingEndpoint = `http://${flaskHost}:${flaskPort}/commands/stop_tracking`;
+const apiHost = process.env.REACT_APP_WEBSOCKET_VIDEO_HOST;
+const apiPort = process.env.REACT_APP_WEBSOCKET_VIDEO_PORT;
+const startTrackingEndpoint = `http://${apiHost}:${apiPort}/commands/start_tracking`;
+const stopTrackingEndpoint = `http://${apiHost}:${apiPort}/commands/stop_tracking`;
+const redetectEndpoint = `http://${apiHost}:${apiPort}/commands/redetect`;
+const cancelActivitiesEndpoint = `http://${apiHost}:${apiPort}/commands/cancel_activities`;
+const toggleSegmentationEndpoint = `http://${apiHost}:${apiPort}/commands/toggle_segmentation`;
+const startOffboardModeEndpoint = `http://${apiHost}:${apiPort}/commands/start_offboard_mode`;
+const stopOffboardModeEndpoint = `http://${apiHost}:${apiPort}/commands/stop_offboard_mode`;
+const quitEndpoint = `http://${apiHost}:${apiPort}/commands/quit`;
 
 const LiveFeedPage = () => {
-  const videoSrc = `http://${flaskHost}:${flaskPort}/video_feed`;
+  const videoSrc = `http://${apiHost}:${apiPort}/video_feed`;
   const [isTracking, setIsTracking] = useState(false);
   const [startPos, setStartPos] = useState(null);
   const [currentPos, setCurrentPos] = useState(null);
@@ -41,7 +49,6 @@ const LiveFeedPage = () => {
       const x2 = currentPos.x / rect.width;
       const y2 = currentPos.y / rect.height;
 
-      // Normalize and get bbox in OpenCV format (x, y, width, height)
       const bbox = {
         x: Math.min(x1, x2),
         y: Math.min(y1, y2),
@@ -49,11 +56,9 @@ const LiveFeedPage = () => {
         height: Math.abs(y2 - y1)
       };
 
-      // Log raw and normalized bounding box coordinates
       console.log('Raw Bounding Box:', { startX: startPos.x, startY: startPos.y, endX: currentPos.x, endY: currentPos.y });
       console.log('Normalized Bounding Box:', bbox);
 
-      // Send the normalized bounding box to the start tracking endpoint
       fetch(startTrackingEndpoint, {
         method: 'POST',
         headers: {
@@ -72,7 +77,6 @@ const LiveFeedPage = () => {
 
   const handleTrackingToggle = () => {
     if (isTracking) {
-      // Stop tracking by sending a request to the stop tracking endpoint
       fetch(stopTrackingEndpoint, {
         method: 'POST',
         headers: {
@@ -86,38 +90,48 @@ const LiveFeedPage = () => {
     setIsTracking(!isTracking);
   };
 
+  const handleButtonClick = async (endpoint, updateTrackingState = false) => {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+      });
+      const data = await response.json();
+      console.log(`Response from ${endpoint}:`, data);
+
+      if (endpoint === quitEndpoint) {
+        window.location.reload();  // Reload the page to ensure proper shutdown
+      }
+
+      if (updateTrackingState) {
+        setIsTracking(false);
+      }
+    } catch (error) {
+      console.error(`Error from ${endpoint}:`, error);
+      alert(`Operation failed for endpoint ${endpoint}. Check console for details.`);
+    }
+  };
+
   return (
     <Container>
       <Typography variant="h4" gutterBottom>Live Video Feed</Typography>
-      <Button 
-        variant="contained" 
-        color={isTracking ? "secondary" : "primary"}
-        onClick={handleTrackingToggle}
-        sx={{ mb: 2 }}
-      >
-        {isTracking ? "Stop Tracking" : "Start Tracking"}
-      </Button>
-      <div 
-        ref={imageRef}
-        style={{ position: 'relative', display: 'inline-block' }}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-      >
-        <WebRTCStream protocol="http" src={videoSrc} />
-        {startPos && currentPos && (
-          <div
-            style={{
-              position: 'absolute',
-              border: '2px dashed red',
-              left: Math.min(startPos.x, currentPos.x),
-              top: Math.min(startPos.y, currentPos.y),
-              width: Math.abs(currentPos.x - startPos.x),
-              height: Math.abs(currentPos.y - startPos.y)
-            }}
-          />
-        )}
-      </div>
+      <ActionButtons 
+        isTracking={isTracking} 
+        handleTrackingToggle={handleTrackingToggle} 
+        handleButtonClick={handleButtonClick} 
+      />
+      <BoundingBoxDrawer 
+        isTracking={isTracking}
+        imageRef={imageRef}
+        startPos={startPos}
+        currentPos={currentPos}
+        handleMouseDown={handleMouseDown}
+        handleMouseMove={handleMouseMove}
+        handleMouseUp={handleMouseUp}
+        videoSrc={videoSrc}
+      />
     </Container>
   );
 };
