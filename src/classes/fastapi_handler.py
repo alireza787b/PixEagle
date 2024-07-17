@@ -1,7 +1,8 @@
 import asyncio
+from typing import Optional
 from fastapi import FastAPI, BackgroundTasks, WebSocket, HTTPException
 from fastapi import Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi.responses import StreamingResponse, JSONResponse
 import threading
 import cv2
@@ -11,10 +12,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from classes.parameters import Parameters
 
 class BoundingBox(BaseModel):
-    x: int
-    y: int
-    width: int
-    height: int
+    x: float
+    y: float
+    width: float
+    height: float
 
 class FastAPIHandler:
     def __init__(self, video_handler, telemetry_handler,app_controller):
@@ -40,7 +41,8 @@ class FastAPIHandler:
         self.app.get("/telemetry/tracker_data")(self.tracker_data)
         self.app.get("/telemetry/follower_data")(self.follower_data)
         self.app.post("/commands/example_command_test")(self.commands)
-        self.app.post("/commands/tracking")(self.toggle_tracking)
+        self.app.post("/commands/start_tracking")(self.start_tracking)
+        self.app.post("/commands/stop_tracking")(self.stop_tracking)
         self.app.post("/commands/toggle_segmentation")(self.toggle_segmentation)
         self.app.post("/commands/redetect")(self.redetect)
         self.app.post("/commands/cancel_activities")(self.cancel_activities)
@@ -62,24 +64,48 @@ class FastAPIHandler:
         self.is_shutting_down = False
         self.server = None
         
-    async def toggle_tracking(self, request: Request, bbox: BoundingBox = None):
+    async def start_tracking(self, bbox: BoundingBox):
         """
-        Endpoint to start or stop tracking.
-        If a bounding box is provided, tracking will start. If not, tracking will stop.
+        Endpoint to start tracking with the provided bounding box.
 
         Args:
-            request (Request): The incoming HTTP request.
-            bbox (BoundingBox, optional): The bounding box for tracking.
+            bbox (BoundingBox): The bounding box for tracking.
 
         Returns:
             dict: Status of the operation.
         """
         try:
-            if bbox:
-                await self.app_controller.start_tracking(bbox.dict())
+            width = self.video_handler.width
+            height = self.video_handler.height
+
+            # Check if the bbox values are normalized (0 to 1)
+            if all(0 <= value <= 1 for value in [bbox.x, bbox.y, bbox.width, bbox.height]):
+                bbox_pixels = {
+                    'x': int(bbox.x * width),
+                    'y': int(bbox.y * height),
+                    'width': int(bbox.width * width),
+                    'height': int(bbox.height * height)
+                }
+                print(f"Received normalized bbox, converting to pixels: {bbox_pixels}")
             else:
-                await self.app_controller.stop_tracking()
-            return {"status": "success"}
+                bbox_pixels = bbox.dict()
+                print(f"Received raw pixel bbox: {bbox_pixels}")
+
+            await self.app_controller.start_tracking(bbox_pixels)
+            return {"status": "Tracking started", "bbox": bbox_pixels}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def stop_tracking(self):
+        """
+        Endpoint to stop tracking.
+
+        Returns:
+            dict: Status of the operation.
+        """
+        try:
+            await self.app_controller.stop_tracking()
+            return {"status": "Tracking stopped"}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 

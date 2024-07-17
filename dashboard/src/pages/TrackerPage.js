@@ -8,7 +8,7 @@ import PollingStatusIndicator from '../components/PollingStatusIndicator';
 import axios from 'axios';
 
 const POLLING_RATE = parseInt(process.env.REACT_APP_POLLING_RATE, 10);
-const FLASK_URL = `http://${process.env.REACT_APP_FLASK_HOST}:${process.env.REACT_APP_FLASK_PORT}`;
+const API_URL = `http://${process.env.REACT_APP_API_HOST}:${process.env.REACT_APP_API_PORT}`;
 
 const TrackerPage = () => {
   const [trackerData, setTrackerData] = useState([]);
@@ -19,7 +19,7 @@ const TrackerPage = () => {
   const fetchTrackerData = async () => {
     try {
       setPollingStatus('idle');
-      const response = await axios.get(`${FLASK_URL}/telemetry/tracker_data`);
+      const response = await axios.get(`${API_URL}/telemetry/tracker_data`);
       if (response.status === 200) {
         console.log('Fetched Tracker Data:', response.data);
         setTrackerData((prevData) => [...prevData, response.data]);
