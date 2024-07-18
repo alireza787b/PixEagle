@@ -1,35 +1,56 @@
-import asyncio
-from typing import Optional
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from fastapi.responses import StreamingResponse, JSONResponse
-import threading
-import cv2
-import logging
-import time
+# app/api/endpoints.py
+from fastapi import FastAPI, APIRouter, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from classes.parameters import Parameters
+from typing import List, Dict, Any
+from config.config import setup_xpc_path, load_config
+import sys
+import logging
 
-class BoundingBox(BaseModel):
-    x: float
-    y: float
-    width: float
-    height: float
+# Setup the X-Plane Connect path
+setup_xpc_path()
+import xpc
+
+class DatarefResponse(Dict[str, Any]):
+    """
+    Pydantic model for Dataref response.
+    
+    Attributes:
+        dataref (str): The name of the dataref.
+        value (Any): The value of the dataref.
+        status (str): The status of the retrieval ('success' or 'error').
+        message (str): Additional message for errors.
+    """
+    dataref: str
+    value: Any
+    status: str
+    message: str = None
+
+class CommandResponse(Dict[str, Any]):
+    """
+    Pydantic model for Command response.
+    
+    Attributes:
+        command (str): The command sent to X-Plane.
+        status (str): The status of the command execution ('success' or 'error').
+        message (str): Additional message for errors.
+    """
+    command: str
+    status: str
+    message: str = None
 
 class FastAPIHandler:
-    def __init__(self, video_handler, telemetry_handler, app_controller):
+    def __init__(self):
         """
-        Initialize the FastAPIHandler with video and telemetry handlers.
+        Initialize the FastAPIHandler.
 
-        Args:
-            video_handler (VideoHandler): An instance of the VideoHandler class.
-            telemetry_handler (TelemetryHandler): An instance of the TelemetryHandler class.
-            app_controller (AppController): An instance of the AppController class.
+        Sets up the FastAPI application, configures middleware, and initializes
+        the X-Plane Connect instance.
         """
-        self.video_handler = video_handler
-        self.telemetry_handler = telemetry_handler
-        self.app_controller = app_controller
         self.app = FastAPI()
+        self.router = APIRouter()
+        self.config = load_config()
+
+        # Setup CORS middleware
         self.app.add_middleware(
             CORSMiddleware,
             allow_origins=["*"],
@@ -37,238 +58,133 @@ class FastAPIHandler:
             allow_methods=["*"],
             allow_headers=["*"],
         )
-        self.app.get("/video_feed")(self.video_feed)
-        self.app.get("/telemetry/tracker_data")(self.tracker_data)
-        self.app.get("/telemetry/follower_data")(self.follower_data)
-        self.app.post("/commands/start_tracking")(self.start_tracking)
-        self.app.post("/commands/stop_tracking")(self.stop_tracking)
-        self.app.post("/commands/toggle_segmentation")(self.toggle_segmentation)
-        self.app.post("/commands/redetect")(self.redetect)
-        self.app.post("/commands/cancel_activities")(self.cancel_activities)
-        self.app.post("/commands/start_offboard_mode")(self.start_offboard_mode)
-        self.app.post("/commands/stop_offboard_mode")(self.stop_offboard_mode)
-        self.app.post("/commands/quit")(self.quit)
 
-        self.server_thread = None
-        self.frame_rate = Parameters.STREAM_FPS
-        self.width = Parameters.STREAM_WIDTH
-        self.height = Parameters.STREAM_HEIGHT
-        self.quality = Parameters.STREAM_QUALITY
-        self.processed_osd = Parameters.STREAM_PROCESSED_OSD
-        self.last_frame_time = 0
-        self.frame_interval = 1.0 / self.frame_rate
-        self.is_shutting_down = False
-        self.server = None
+        # Setup endpoints
+        self.router.get("/datarefs", response_model=List[DatarefResponse])(self.get_datarefs)
+        self.router.post("/command", response_model=CommandResponse)(self.send_command)
+        self.app.include_router(self.router)
 
-    async def start_tracking(self, bbox: BoundingBox):
+        # Initialize X-Plane Connect instance
+        self.xpc_instance = None
+        self.connect_to_xplane()
+
+    def connect_to_xplane(self):
         """
-        Endpoint to start tracking with the provided bounding box.
+        Attempt to connect to X-Plane using X-Plane Connect.
 
-        Args:
-            bbox (BoundingBox): The bounding box for tracking.
-
-        Returns:
-            dict: Status of the operation.
+        Sets self.xpc_instance to the XPlaneConnect instance if successful.
+        Logs an error if the connection fails.
         """
         try:
-            width = self.video_handler.width
-            height = self.video_handler.height
+            self.xpc_instance = xpc.XPlaneConnect()
+            logging.info("Connected to X-Plane successfully.")
+        except Exception as e:
+            logging.error(f"Failed to connect to X-Plane: {e}")
+            self.xpc_instance = None
 
-            # Check if the bbox values are normalized (0 to 1)
-            if all(0 <= value <= 1 for value in [bbox.x, bbox.y, bbox.width, bbox.height]):
-                bbox_pixels = {
-                    'x': int(bbox.x * width),
-                    'y': int(bbox.y * height),
-                    'width': int(bbox.width * width),
-                    'height': int(bbox.height * height)
+    async def get_datarefs(self, datarefs: str):
+        """
+        Fetch values of specified datarefs.
+
+        Args:
+            datarefs (str): Comma-separated list of datarefs.
+
+        Returns:
+            List[DatarefResponse]: A list of DatarefResponse objects with the dataref values and statuses.
+
+        Example:
+            Request: GET /datarefs?datarefs=sim/cockpit2/gauges/indicators/altitude_ft_pilot,sim/flightmodel/position/latitude
+            Response: [
+                {
+                    "dataref": "sim/cockpit2/gauges/indicators/altitude_ft_pilot",
+                    "value": 5000.0,
+                    "status": "success"
+                },
+                {
+                    "dataref": "sim/flightmodel/position/latitude",
+                    "value": 37.615223,
+                    "status": "success"
                 }
-                print(f"Received normalized bbox, converting to pixels: {bbox_pixels}")
-            else:
-                bbox_pixels = bbox.dict()
-                print(f"Received raw pixel bbox: {bbox_pixels}")
-
-            await self.app_controller.start_tracking(bbox_pixels)
-            return {"status": "Tracking started", "bbox": bbox_pixels}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-    async def stop_tracking(self):
+            ]
         """
-        Endpoint to stop tracking.
+        if not self.xpc_instance:
+            self.connect_to_xplane()
+            if not self.xpc_instance:
+                raise HTTPException(status_code=500, detail="Could not connect to X-Plane.")
 
-        Returns:
-            dict: Status of the operation.
-        """
         try:
-            await self.app_controller.stop_tracking()
-            return {"status": "Tracking stopped"}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-    async def video_feed(self):
-        """
-        FastAPI route to serve the video feed.
-
-        Yields:
-            bytes: The next frame in JPEG format.
-        """
-        def generate():
-            while not self.is_shutting_down:
-                current_time = time.time()
-                if current_time - self.last_frame_time >= self.frame_interval:
-                    if self.processed_osd:
-                        frame = self.video_handler.current_osd_frame
-                    else:
-                        frame = self.video_handler.current_raw_frame
-
-                    if frame is None:
-                        break
-
-                    frame = cv2.resize(frame, (self.width, self.height))
-                    ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.quality])
-                    frame = buffer.tobytes()
-                    self.last_frame_time = current_time
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            datarefs_list = datarefs.split(',')
+            values = self.xpc_instance.getDREFs(datarefs_list)
+            response = []
+            for dataref, value in zip(datarefs_list, values):
+                if value is None:
+                    response.append({
+                        "dataref": dataref,
+                        "value": None,
+                        "status": "error",
+                        "message": "Dataref not found"
+                    })
                 else:
-                    time.sleep(self.frame_interval - (current_time - self.last_frame_time))
-        return StreamingResponse(generate(), media_type='multipart/x-mixed-replace; boundary=frame')
-
-    async def tracker_data(self):
-        """
-        FastAPI route to provide tracker telemetry data.
-        """
-        try:
-            logging.debug("Received request at /telemetry/tracker_data")
-            tracker_data = self.telemetry_handler.latest_tracker_data
-            logging.debug(f"Tracker data: {tracker_data}")
-            return JSONResponse(content=tracker_data or {})
+                    response.append({
+                        "dataref": dataref,
+                        "value": value,
+                        "status": "success"
+                    })
+            return response
         except Exception as e:
-            logging.error(f"Error in /telemetry/tracker_data: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(status_code=500, detail=f"Error fetching datarefs: {str(e)}")
 
-    async def follower_data(self):
+    async def send_command(self, command: str):
         """
-        FastAPI route to provide follower telemetry data.
-        """
-        try:
-            logging.debug("Received request at /telemetry/follower_data")
-            follower_data = self.telemetry_handler.latest_follower_data
-            logging.debug(f"Follower data: {follower_data}")
-            return JSONResponse(content=follower_data or {})
-        except Exception as e:
-            logging.error(f"Error in /telemetry/follower_data: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    async def commands(self, command: dict):
-        """
-        FastAPI route to handle incoming commands.
-        """
-        logging.info(f"Received command: {command}")
-        return JSONResponse(content={'status': 'success', 'command': command})
-
-    def start(self, host='0.0.0.0', port=Parameters.HTTP_STREAM_PORT):
-        """
-        Start the FastAPI server in a new thread.
+        Send a command to X-Plane.
 
         Args:
-            host (str): The hostname to listen on.
-            port (int): The port to listen on.
-        """
-        if self.server_thread is None:
-            import uvicorn
-            self.server = uvicorn.Server(uvicorn.Config(self.app, host=host, port=port, log_level="info"))
-            self.server_thread = threading.Thread(target=self.server.run)
-            self.server_thread.start()
-            logging.info(f"Started FastAPI server on {host}:{port}")
-
-    def stop(self):
-        """
-        Stop the FastAPI server.
-        """
-        if self.server:
-            logging.info("Stopping FastAPI server...")
-            self.server.should_exit = True
-            self.server.force_exit = True
-            self.server_thread.join()
-            logging.info("Stopped FastAPI server")
-
-    async def toggle_segmentation(self):
-        """
-        Endpoint to toggle segmentation state (enable/disable YOLO).
+            command (str): The command to send to X-Plane.
 
         Returns:
-            dict: Status of the operation and the current state of segmentation.
-        """
-        try:
-            current_state = self.app_controller.toggle_segmentation()
-            return {"status": "success", "segmentation_active": current_state}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-        
-    async def redetect(self):
-        """
-        Endpoint to attempt redetection of the object being tracked.
+            CommandResponse: The status of the command execution.
 
-        Returns:
-            dict: Status of the operation and details of the redetection attempt.
+        Example:
+            Request: POST /command
+            {
+                "command": "sim/autopilot/altitude_hold"
+            }
+            Response:
+            {
+                "command": "sim/autopilot/altitude_hold",
+                "status": "success"
+            }
         """
-        try:
-            result = await self.app_controller.initiate_redetection()
-            return {"status": "success", "detection_result": result}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-        
-    async def cancel_activities(self):
-        """
-        Endpoint to cancel all active tracking and segmentation activities.
+        if not self.xpc_instance:
+            self.connect_to_xplane()
+            if not self.xpc_instance:
+                raise HTTPException(status_code=500, detail="Could not connect to X-Plane.")
 
-        Returns:
-            dict: Status of the operation.
-        """
         try:
-            self.app_controller.cancel_activities()
-            return {"status": "success"}
+            self.xpc_instance.sendCOMM(command)
+            return {"command": command, "status": "success"}
         except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-        
-    async def start_offboard_mode(self):
-        """
-        Endpoint to start the offboard mode for PX4.
+            raise HTTPException(status_code=500, detail=f"Error sending command: {str(e)}")
 
-        Returns:
-            dict: Status of the operation and details of the process.
+    def start(self):
         """
-        try:
-            result = await self.app_controller.connect_px4()
-            return {"status": "success", "details": result}
-        except Exception as e:
-            return {"status": "failure", "error": str(e)}
-        
-    async def stop_offboard_mode(self):
-        """
-        Endpoint to stop the offboard mode for PX4.
+        Start the FastAPI server using the configuration file settings.
 
-        Returns:
-            dict: Status of the operation and details of the process.
-        """
-        try:
-            result = await self.app_controller.disconnect_px4()
-            return {"status": "success", "details": result}
-        except Exception as e:
-            return {"status": "failure", "error": str(e)}
-        
-    async def quit(self):
-        """
-        Endpoint to quit the application.
+        Loads host and port settings from the configuration file and starts the server.
 
-        Returns:
-            dict: Status of the operation and details of the process.
+        Example:
+            Configuration file (config.json):
+            {
+                "server": {
+                    "host": "0.0.0.0",
+                    "port": 8000
+                }
+            }
+
+            Starting the server:
+            python app/main.py
         """
-        try:
-            # Trigger the shutdown process
-            asyncio.create_task(self.app_controller.shutdown())
-            self.server.should_exit = True  # Gracefully stop the FastAPI server
-            return {"status": "success", "details": "Application is shutting down."}
-        except Exception as e:
-            return {"status": "failure", "error": str(e)}
+        import uvicorn
+        host = self.config['server']['host']
+        port = self.config['server']['port']
+        uvicorn.run(self.app, host=host, port=port)
