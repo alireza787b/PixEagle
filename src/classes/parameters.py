@@ -69,6 +69,7 @@ class Parameters:
     STORE_LAST_FRAMES = 5  # Number of recent frames to store
     USE_ESTIMATOR = False  # Enable/disable the position estimator
     ESTIMATOR_HISTORY_LENGTH = 5  # Number of past estimations to store
+    SHOW_VIDEO_WINDOW = True # If using headless or with React web-app you wont need this window anymore
 
     # ----- Segmentation Configuration -----
     SEGMENTATION_ALGORITHMS = ["GrabCut", "Watershed", 'yolov8s-seg', 'yolov8n-oiv7', 'yolov8s-obb']
@@ -108,6 +109,13 @@ class Parameters:
     SHOW_TRACKING_WINDOW = True  # Show tracking window
     DISPLAY_DEVIATIONS = True  # Display deviations
     TRACKED_BBOX_STYLE = 'fancy'  # Options: 'normal', 'fancy'
+    FOLLOWER_MODE = 'front_view'  # 'ground_view' or 'front_view'
+    CONTROL_STRATEGY = 'constant_altitude'  # 'constant_altitude' or 'constant_distance'
+    # If the target moves vertically in the frame, adjust using altitude or distance
+    # 'constant_altitude': Adjust altitude to keep target at desired vertical position in frame.
+    # 'constant_distance': Adjust forward/backward distance to keep target at desired vertical position in frame.
+    TARGET_POSITION_MODE = 'center'  # 'center' or 'initial'
+
 
     # Control and PID parameters
     """

@@ -1,3 +1,5 @@
+# src/app_controller.py
+
 import asyncio
 import logging
 import numpy as np
@@ -17,26 +19,35 @@ from classes.fastapi_handler import FastAPIHandler  # Correct import
 
 class AppController:
     def __init__(self):
+        """
+        Initializes the AppController with necessary components and starts the FastAPI handler.
+        """
         # Initialize video processing components
         self.video_handler = VideoHandler()
         self.video_streamer = None
         self.detector = Detector(algorithm_type=Parameters.DETECTION_ALGORITHM)
         self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM, self.video_handler, self.detector)
         self.segmentor = Segmentor(algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM)
+
         # Flags to track the state of tracking and segmentation
         self.tracking_started = False
         self.segmentation_active = False
+
         # Setup a named window and a mouse callback for interactions
         cv2.namedWindow("Video")
         cv2.setMouseCallback("Video", self.on_mouse_click)
         self.current_frame = None
+
+        # Initialize PX4 controller and following mode flag
         self.px4_controller = PX4Controller()
-        self.following_active = False  # Flag to indicate if following mode is active
+        self.following_active = False
         self.follower = None
         self.setpoint_sender = None
+
         # Initialize telemetry handler
         self.telemetry_handler = TelemetryHandler(self)
-        # Initialize the FastAPIHandler instead of FlaskHandler
+
+        # Initialize the FastAPI handler
         self.api_handler = FastAPIHandler(self.video_handler, self.telemetry_handler, self)
         self.api_handler.start(host=Parameters.HTTP_STREAM_HOST, port=Parameters.HTTP_STREAM_PORT)
 
@@ -50,6 +61,12 @@ class AppController:
             self.handle_user_click(x, y)
 
     def toggle_tracking(self, frame):
+        """
+        Toggles the tracking state, starts or stops tracking based on the current state.
+
+        Args:
+            frame (np.ndarray): The current video frame.
+        """
         if not self.tracking_started:
             bbox = cv2.selectROI(Parameters.FRAME_TITLE, frame, False, False)
             if bbox and bbox[2] > 0 and bbox[3] > 0:
@@ -63,7 +80,6 @@ class AppController:
         else:
             self.cancel_activities()
             print("Tracking deactivated.")
-
 
     def toggle_segmentation(self):
         """
@@ -79,8 +95,6 @@ class AppController:
             print("Segmentation deactivated.")
         return self.segmentation_active
 
-            
-            
     async def start_tracking(self, bbox):
         """
         Starts tracking with the provided bounding box.
@@ -89,7 +103,6 @@ class AppController:
             bbox (dict): The bounding box for tracking.
         """
         if not self.tracking_started:
-            # Convert the dictionary to a tuple
             bbox_tuple = (bbox['x'], bbox['y'], bbox['width'], bbox['height'])
             self.tracker.start_tracking(self.current_frame, bbox_tuple)
             self.tracking_started = True
@@ -122,6 +135,15 @@ class AppController:
         print("All activities cancelled.")
 
     async def update_loop(self, frame):
+        """
+        The main update loop for processing each video frame.
+
+        Args:
+            frame (np.ndarray): The current video frame.
+
+        Returns:
+            np.ndarray: The processed video frame.
+        """
         if self.segmentation_active:
             frame = self.segmentor.segment_frame(frame)
         
@@ -153,6 +175,10 @@ class AppController:
     async def handle_key_input_async(self, key, frame):
         """
         Handles key inputs for toggling segmentation, toggling tracking, starting feature extraction, and cancelling activities.
+
+        Args:
+            key (int): The key pressed.
+            frame (np.ndarray): The current video frame.
         """
         if key == ord('y'):
             self.toggle_segmentation()
@@ -161,22 +187,31 @@ class AppController:
         elif key == ord('d'):
             self.initiate_redetection(frame)
         elif key == ord('f'):
-            # Start following mode
             if Parameters.DIRECT_PX4_MAVSDK:        
                 await self.connect_px4()
         elif key == ord('x'):
-            # Stop following mode and disconnect from Drone
             if Parameters.DIRECT_PX4_MAVSDK:        
                 await self.disconnect_px4()
         elif key == ord('c'):
             self.cancel_activities()
 
     def handle_key_input(self, key, frame):
+        """
+        Handles key inputs synchronously by creating an async task.
+
+        Args:
+            key (int): The key pressed.
+            frame (np.ndarray): The current video frame.
+        """
         asyncio.create_task(self.handle_key_input_async(key, frame))
 
     def handle_user_click(self, x, y):
         """
         Identifies the object clicked by the user for tracking within the segmented area.
+
+        Args:
+            x (int): X coordinate of the click.
+            y (int): Y coordinate of the click.
         """
         if not self.segmentation_active:
             return
@@ -184,9 +219,7 @@ class AppController:
         detections = self.segmentor.get_last_detections()
         selected_bbox = self.identify_clicked_object(detections, x, y)
         if selected_bbox:
-            # Convert selected_bbox to integer coordinates
             selected_bbox = tuple(map(lambda x: int(round(x)), selected_bbox))
-
             self.tracker.reinitialize_tracker(self.current_frame, selected_bbox)
             self.tracking_started = True
             print(f"Object selected for tracking: {selected_bbox}")
@@ -194,6 +227,14 @@ class AppController:
     def identify_clicked_object(self, detections, x, y):
         """
         Identifies the clicked object based on segmentation detections and mouse click coordinates.
+
+        Args:
+            detections (list): List of detected objects.
+            x (int): X coordinate of the click.
+            y (int): Y coordinate of the click.
+
+        Returns:
+            tuple: The bounding box of the clicked object.
         """
         for det in detections:
             x1, y1, x2, y2 = det
@@ -227,11 +268,18 @@ class AppController:
                 "success": False,
                 "message": "Detector is not enabled."
             }
-                
+
     def show_current_frame(self, frame_title=Parameters.FRAME_TITLE):
-        cv2.imshow(frame_title, self.current_frame)
+        """
+        Displays the current frame in a window if SHOW_VIDEO_WINDOW is True.
+
+        Args:
+            frame_title (str): The title of the frame window.
+        """
+        if Parameters.SHOW_VIDEO_WINDOW:
+            cv2.imshow(frame_title, self.current_frame)
         return self.current_frame
-    
+
     async def connect_px4(self):
         """
         Connects to PX4 when following mode is activated.
@@ -247,9 +295,10 @@ class AppController:
                 await self.px4_controller.connect()
                 if Parameters.ENABLE_DEBUGGING:
                     result["steps"].append("Connected to PX4 Drone!")
-                self.follower = Follower(self.px4_controller)
+                
+                initial_target_coords = self.tracker.normalized_center if Parameters.TARGET_POSITION_MODE == 'initial' else Parameters.DESIRE_AIM
+                self.follower = Follower(self.px4_controller, initial_target_coords)
 
-                # Send an initial setpoint before starting offboard mode
                 await self.px4_controller.send_initial_setpoint()
                 await self.px4_controller.start_offboard_mode()
                 self.following_active = True
@@ -284,17 +333,14 @@ class AppController:
             result["steps"].append("Follow mode is not active.")
         
         return result
-            
+
     async def follow_target(self):
-        """Prepares to follow the target based on tracking information."""
+        """
+        Prepares to follow the target based on tracking information.
+        """
         if self.tracking_started and self.following_active:
-            # Example: Convert tracking info to target coordinates
             target_coords = self.tracker.normalized_center
-            # Prepare velocity commands based on target coordinates
-            # Note: This part needs adjustment to calculate vel_x, vel_y, vel_z based on target_coords
-            # For demonstration, let's assume vel_x, vel_y, vel_z are calculated
-            vel_x, vel_y, vel_z = self.follower.calculate_velocity_commands(target_coords)
-            # Update the command 
+            vel_x, vel_y, vel_z = await self.follower.follow_target(target_coords)
             self.px4_controller.update_setpoint((vel_x, vel_y, vel_z))
             await self.px4_controller.send_body_velocity_commands(self.px4_controller.last_command)
 
