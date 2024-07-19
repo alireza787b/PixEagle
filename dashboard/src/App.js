@@ -1,6 +1,5 @@
-// dashboard/src/App.js
 import React, { useContext } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { CssBaseline, ThemeProvider as MuiThemeProvider, createTheme } from '@mui/material';
 import Layout from './components/Layout';
 import TrackerPage from './pages/TrackerPage';
@@ -24,6 +23,7 @@ const AppContent = () => {
       <Router>
         <Routes>
           <Route path="/" element={<Layout />}>
+            <Route index element={<Navigate to="/dashboard" />} />
             <Route path="dashboard" element={<DashboardPage />} />
             <Route path="tracker" element={<TrackerPage />} />
             <Route path="follower" element={<FollowerPage />} />

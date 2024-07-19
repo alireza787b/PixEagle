@@ -1,7 +1,16 @@
 import React from 'react';
-import WebRTCStream from '../components/WebRTCStream';
+import WebRTCStream from './WebRTCStream';
 
-const BoundingBoxDrawer = ({ isTracking, imageRef, startPos, currentPos, handleMouseDown, handleMouseMove, handleMouseUp, videoSrc }) => {
+const BoundingBoxDrawer = ({
+  isTracking,
+  imageRef,
+  startPos,
+  currentPos,
+  handleMouseDown,
+  handleMouseMove,
+  handleMouseUp,
+  videoSrc
+}) => {
   return (
     <div 
       ref={imageRef}

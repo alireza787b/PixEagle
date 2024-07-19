@@ -1,89 +1,90 @@
 import React from 'react';
-import { Grid, Button, Typography, Tooltip } from '@mui/material';
+import { Grid, Button, Typography, Tooltip, Container } from '@mui/material';
+import { endpoints } from '../services/apiEndpoints';
+import QuitButton from './QuitButton';
 
 const ActionButtons = ({ isTracking, handleTrackingToggle, handleButtonClick }) => {
-  const apiHost = process.env.REACT_APP_WEBSOCKET_VIDEO_HOST;
-  const apiPort = process.env.REACT_APP_WEBSOCKET_VIDEO_PORT;
-  const redetectEndpoint = `http://${apiHost}:${apiPort}/commands/redetect`;
-  const cancelActivitiesEndpoint = `http://${apiHost}:${apiPort}/commands/cancel_activities`;
-  const toggleSegmentationEndpoint = `http://${apiHost}:${apiPort}/commands/toggle_segmentation`;
-  const startOffboardModeEndpoint = `http://${apiHost}:${apiPort}/commands/start_offboard_mode`;
-  const stopOffboardModeEndpoint = `http://${apiHost}:${apiPort}/commands/stop_offboard_mode`;
-  const quitEndpoint = `http://${apiHost}:${apiPort}/commands/quit`;
-
   return (
-    <Grid container spacing={2} sx={{ mb: 2 }}>
-      <Grid item xs={12}>
-        <Typography variant="h6" gutterBottom>Tracking Controls</Typography>
-        <Button
-          variant="contained"
-          color={isTracking ? "secondary" : "primary"}
-          onClick={handleTrackingToggle}
-          fullWidth
-        >
-          {isTracking ? "Stop Tracking" : "Start Tracking"}
-        </Button>
-        <Button 
-          variant="contained" 
-          color="primary" 
-          onClick={() => handleButtonClick(redetectEndpoint)}
-          fullWidth
-          sx={{ mt: 1 }}
-        >
-          Re-Detect
-        </Button>
-        <Button 
-          variant="contained" 
-          color="primary" 
-          onClick={() => handleButtonClick(cancelActivitiesEndpoint, true)}
-          fullWidth
-          sx={{ mt: 1 }}
-        >
-          Cancel Tracker
-        </Button>
+    <Container>
+      <Typography variant="h5" gutterBottom>Controls</Typography>
+      <Grid container spacing={2} sx={{ mb: 2 }}>
+        <Grid item xs={12}>
+          <Typography variant="h6" gutterBottom>Tracking Controls</Typography>
+          <Tooltip title="Start or stop tracking">
+            <Button
+              variant="contained"
+              color={isTracking ? "secondary" : "primary"}
+              onClick={handleTrackingToggle}
+              fullWidth
+            >
+              {isTracking ? "Stop Tracking" : "Start Tracking"}
+            </Button>
+          </Tooltip>
+          <Tooltip title="Redetect object">
+            <Button 
+              variant="contained" 
+              color="primary" 
+              onClick={() => handleButtonClick(endpoints.redetect)}
+              fullWidth
+              sx={{ mt: 1 }}
+            >
+              Re-Detect
+            </Button>
+          </Tooltip>
+          <Tooltip title="Cancel current tracker">
+            <Button 
+              variant="contained" 
+              color="primary" 
+              onClick={() => handleButtonClick(endpoints.cancelActivities, true)}
+              fullWidth
+              sx={{ mt: 1 }}
+            >
+              Cancel Tracker
+            </Button>
+          </Tooltip>
+        </Grid>
+        <Grid item xs={12}>
+          <Typography variant="h6" gutterBottom>Segmentation Controls</Typography>
+          <Tooltip title="Toggle segmentation">
+            <Button 
+              variant="contained" 
+              color="secondary" 
+              onClick={() => handleButtonClick(endpoints.toggleSegmentation)}
+              fullWidth
+            >
+              Toggle Segmentation
+            </Button>
+          </Tooltip>
+        </Grid>
+        <Grid item xs={12}>
+          <Typography variant="h6" gutterBottom>Offboard Controls</Typography>
+          <Tooltip title="Start following in offboard mode">
+            <Button 
+              variant="contained" 
+              color="success" 
+              onClick={() => handleButtonClick(endpoints.startOffboardMode)}
+              fullWidth
+            >
+              Start Following Offboard
+            </Button>
+          </Tooltip>
+          <Tooltip title="Stop following in offboard mode">
+            <Button 
+              variant="contained" 
+              color="success" 
+              onClick={() => handleButtonClick(endpoints.stopOffboardMode)}
+              fullWidth
+              sx={{ mt: 1 }}
+            >
+              Stop Following Offboard
+            </Button>
+          </Tooltip>
+        </Grid>
+        <Grid item xs={12}>
+          <QuitButton fullWidth />
+        </Grid>
       </Grid>
-      <Grid item xs={12}>
-        <Typography variant="h6" gutterBottom>Segmentation Controls</Typography>
-        <Button 
-          variant="contained" 
-          color="secondary" 
-          onClick={() => handleButtonClick(toggleSegmentationEndpoint)}
-          fullWidth
-        >
-          Toggle Segmentation
-        </Button>
-      </Grid>
-      <Grid item xs={12}>
-        <Typography variant="h6" gutterBottom>Offboard Controls</Typography>
-        <Button 
-          variant="contained" 
-          color="success" 
-          onClick={() => handleButtonClick(startOffboardModeEndpoint)}
-          fullWidth
-        >
-          Start Following Offboard
-        </Button>
-        <Button 
-          variant="contained" 
-          color="success" 
-          onClick={() => handleButtonClick(stopOffboardModeEndpoint)}
-          fullWidth
-          sx={{ mt: 1 }}
-        >
-          Stop Following Offboard
-        </Button>
-      </Grid>
-      <Grid item xs={12}>
-        <Button 
-          variant="contained" 
-          color="error" 
-          onClick={() => handleButtonClick(quitEndpoint)}
-          fullWidth
-        >
-          Quit
-        </Button>
-      </Grid>
-    </Grid>
+    </Container>
   );
 };
 
