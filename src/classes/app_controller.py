@@ -34,8 +34,9 @@ class AppController:
         self.segmentation_active = False
 
         # Setup a named window and a mouse callback for interactions
-        cv2.namedWindow("Video")
-        cv2.setMouseCallback("Video", self.on_mouse_click)
+        if Parameters.SHOW_VIDEO_WINDOW:
+            cv2.namedWindow("Video")
+            cv2.setMouseCallback("Video", self.on_mouse_click)
         self.current_frame = None
 
         # Initialize PX4 controller and following mode flag

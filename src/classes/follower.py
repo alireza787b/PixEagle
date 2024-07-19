@@ -1,8 +1,8 @@
 # src/classes/follower.py
 
 from .parameters import Parameters
-from .ground_target_follower import GroundTargetFollower
-from .front_view_target_follower import FrontViewTargetFollower
+from classes.followers.ground_target_follower import GroundTargetFollower
+from classes.followers.front_view_target_follower import FrontViewTargetFollower
 
 class Follower:
     """
