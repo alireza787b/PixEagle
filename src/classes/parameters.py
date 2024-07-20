@@ -110,6 +110,7 @@ class Parameters:
     DISPLAY_DEVIATIONS = True  # Display deviations
     TRACKED_BBOX_STYLE = 'fancy'  # Options: 'normal', 'fancy'
     FOLLOWER_MODE = 'front_view'  # 'ground_view' or 'front_view'
+    DEFAULT_DISTANCE = 200  # Default distance for calculations
     CONTROL_STRATEGY = 'constant_altitude'  # 'constant_altitude' or 'constant_distance'
     # If the target moves vertically in the frame, adjust using altitude or distance
     # 'constant_altitude': Adjust altitude to keep target at desired vertical position in frame.
@@ -157,8 +158,9 @@ class Parameters:
 
     # Velocity and descent limits
     VELOCITY_LIMITS = {'x': 10.0, 'y': 10.0, 'z': 5.0}  # Maximum velocity limits
+    ENABLE_DESCEND_TO_TARGET = True # If True, It will Descend (or Climb) based on below parameters
     MIN_DESCENT_HEIGHT = 20  # Minimum descent height
-    MAX_RATE_OF_DESCENT = 0  # Maximum rate of descent
+    MAX_RATE_OF_DESCENT = 1  # Maximum rate of descent
 
     # Target aim configuration
     DESIRE_AIM = (0, 0)  # Desired normalized position in the camera frame
@@ -187,8 +189,8 @@ class Parameters:
         (100, 150): {"x": {"p": 6, "i": 0.3, "d": 1.0}, "y": {"p": 6, "i": 0.3, "d": 1.0}, "z": {"p": 1, "i": 0.01, "d": 0.01}},
         (150, 200): {"x": {"p": 5.5, "i": 0.25, "d": 0.8}, "y": {"p": 5.5, "i": 0.25, "d": 0.8}, "z": {"p": 1, "i": 0.01, "d": 0.05}}
     }
-    ENABLE_GAIN_SCHEDULING = True
-    GAIN_SCHEDULING_PARAMETER = 'current_altitude'
+    ENABLE_GAIN_SCHEDULING = False
+    GAIN_SCHEDULING_PARAMETER = 'current_altitude' # better to change it to distance and implement it for front view tracking
 
     # Camera and setpoint configurations
     CAMERA_YAW_OFFSET = 0

@@ -1,7 +1,7 @@
 # src/classes/ground_target_follower.py
 
-from .base_follower import BaseFollower
-from .custom_pid import CustomPID
+from classes.followers.base_follower import BaseFollower
+from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
 import logging
 from datetime import datetime
@@ -56,22 +56,11 @@ class GroundTargetFollower(BaseFollower):
     def calculate_velocity_commands(self, target_coords):
         """Calculates and returns the velocity commands based on the target coordinates and current drone status."""
         self.update_pid_gains()
-        current_altitude = self.px4_controller.current_altitude
-        
-        # Calculate dynamic adjustment factors based on altitude
-        adj_factor_x = Parameters.BASE_ADJUSTMENT_FACTOR_X / (1 + Parameters.ALTITUDE_FACTOR * current_altitude)
-        adj_factor_y = Parameters.BASE_ADJUSTMENT_FACTOR_Y / (1 + Parameters.ALTITUDE_FACTOR * current_altitude)
 
-        # Apply orientation-based adjustments if the camera is not gimbaled
-        if not Parameters.IS_CAMERA_GIMBALED:
-            orientation = self.px4_controller.get_orientation()  # (yaw, pitch, roll)
-            adjusted_target_x = target_coords[0] + adj_factor_x * orientation[2]  # roll affects x
-            adjusted_target_y = target_coords[1] - adj_factor_y * orientation[1]  # pitch affects y
-        else:
-            adjusted_target_x = target_coords[0]
-            adjusted_target_y = target_coords[1]
+        adjusted_target_x, adjusted_target_y = self.apply_gimbal_corrections(target_coords)
+        adjusted_target_x, adjusted_target_y = self.apply_adjustment_factors(adjusted_target_x, adjusted_target_y)
 
-        # Mapping the error from image axes to control axes
+        # Calculate errors
         error_x = self.pid_x.setpoint - adjusted_target_x
         error_y = self.pid_y.setpoint - (-1) * adjusted_target_y
         
@@ -79,7 +68,7 @@ class GroundTargetFollower(BaseFollower):
         vel_x = self.pid_y(error_y)  # error_y controls vel_x due to coordinate system differences
         vel_y = self.pid_x(error_x)  # error_x controls vel_y due to coordinate system differences
         vel_z = self.control_descent()
-
+        
         self.latest_velocities = {
             'vel_x': vel_x,
             'vel_y': vel_y,
@@ -87,11 +76,59 @@ class GroundTargetFollower(BaseFollower):
             'timestamp': datetime.utcnow().isoformat(),
             'status': 'active'
         }
+        
+        return vel_x, vel_y, vel_z
 
-        return (vel_x, vel_y, vel_z)
+    def apply_gimbal_corrections(self, target_coords):
+        """
+        Applies orientation-based adjustments if the camera is not gimbaled.
+
+        Args:
+            target_coords (tuple): The target coordinates from image processing.
+
+        Returns:
+            tuple: Adjusted target coordinates considering gimbal corrections.
+        """
+        if Parameters.IS_CAMERA_GIMBALED:
+            return target_coords
+
+        orientation = self.px4_controller.get_orientation()  # (yaw, pitch, roll)
+        roll = orientation[2]
+        pitch = orientation[1]
+
+        adjusted_target_x = target_coords[0] + self.default_distance * roll
+        adjusted_target_y = target_coords[1] - self.default_distance * pitch
+
+        return adjusted_target_x, adjusted_target_y
+
+    def apply_adjustment_factors(self, adjusted_target_x, adjusted_target_y):
+        """
+        Applies dynamic adjustment factors based on the altitude.
+
+        Args:
+            adjusted_target_x (float): The adjusted target x-coordinate.
+            adjusted_target_y (float): The adjusted target y-coordinate.
+
+        Returns:
+            tuple: Further adjusted target coordinates.
+        """
+        current_altitude = self.px4_controller.current_altitude
+        adj_factor_x = Parameters.BASE_ADJUSTMENT_FACTOR_X / (1 + Parameters.ALTITUDE_FACTOR * current_altitude)
+        adj_factor_y = Parameters.BASE_ADJUSTMENT_FACTOR_Y / (1 + Parameters.ALTITUDE_FACTOR * current_altitude)
+
+        adjusted_target_x += adj_factor_x
+        adjusted_target_y += adj_factor_y
+
+        return adjusted_target_x, adjusted_target_y
 
     def control_descent(self):
-        """Controls the descent of the drone based on current altitude, ensuring it doesn't go below the minimum descent height."""
+        """
+        Controls the descent of the drone based on current altitude, ensuring it doesn't go below the minimum descent height.
+        """
+        if not Parameters.ENABLE_DESCEND_TO_TARGET:
+            logging.info("Descending to target is disabled.")
+            return 0
+
         current_altitude = self.px4_controller.current_altitude
         logging.debug(f"Current Altitude: {current_altitude}m, Minimum Descent Height: {Parameters.MIN_DESCENT_HEIGHT}m")
 
