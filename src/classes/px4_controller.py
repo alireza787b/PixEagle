@@ -64,7 +64,7 @@ class PX4Controller:
     async def send_body_velocity_commands(self, setpoint):
         """Sends velocity commands to the drone in offboard mode."""
         vx, vy, vz = setpoint
-        yaw_rate = 0 # for now no yaw change
+        yaw_rate = 0  # for now no yaw change
         try:
             print(f"Setting VELOCITY_BODY setpoint: Vx={vx}, Vy={vy}, Vz={vz}, Yaw rate={yaw_rate}")
             next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_rate)

@@ -23,6 +23,8 @@ class Follower:
         self.mode = Parameters.FOLLOWER_MODE
         self.initial_target_coords = initial_target_coords
         self.follower = self.get_follower_mode()
+        self.latest_velocities = {'vel_x': 0, 'vel_y': 0, 'vel_z': 0, 'timestamp': None, 'status': 'idle'}
+
 
     def get_follower_mode(self):
         """
@@ -48,4 +50,9 @@ class Follower:
         Args:
             target_coords (tuple): The current target coordinates to follow.
         """
-        await self.follower.follow_target(target_coords)
+        setpoints = await self.follower.follow_target(target_coords)
+        return setpoints
+
+    def get_follower_telemetry(self):
+        """Returns the latest velocity telemetry data."""
+        return self.latest_velocities

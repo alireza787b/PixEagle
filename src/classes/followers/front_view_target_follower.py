@@ -190,5 +190,9 @@ class FrontViewTargetFollower(BaseFollower):
 
     async def follow_target(self, target_coords):
         """Asynchronously sends velocity commands to follow a target based on its coordinates."""
-        vel_x, vel_y, vel_z = self.calculate_velocity_commands(target_coords)
-        await self.px4_controller.send_body_velocity_commands(vel_x, vel_y, vel_z)
+        setpoint = self.calculate_velocity_commands(target_coords)
+        await self.px4_controller.send_body_velocity_commands(setpoint)
+        
+    def get_follower_telemetry(self):
+        """Returns the latest velocity telemetry data."""
+        return self.latest_velocities

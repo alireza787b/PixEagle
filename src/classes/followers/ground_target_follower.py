@@ -53,6 +53,48 @@ class GroundTargetFollower(BaseFollower):
         self.pid_y.tunings = self.get_pid_gains('y')
         self.pid_z.tunings = self.get_pid_gains('z')
 
+    def apply_gimbal_corrections(self, target_coords):
+        """
+        Applies orientation-based adjustments if the camera is not gimbaled.
+
+        Args:
+            target_coords (tuple): The target coordinates from image processing.
+
+        Returns:
+            tuple: Adjusted target coordinates considering gimbal corrections.
+        """
+        if Parameters.IS_CAMERA_GIMBALED:
+            return target_coords
+
+        orientation = self.px4_controller.get_orientation()  # (yaw, pitch, roll)
+        roll = orientation[2]
+        pitch = orientation[1]
+
+        adjusted_target_x = target_coords[0] + Parameters.BASE_ADJUSTMENT_FACTOR_X * roll
+        adjusted_target_y = target_coords[1] - Parameters.BASE_ADJUSTMENT_FACTOR_Y * pitch
+
+        return adjusted_target_x, adjusted_target_y
+
+    def apply_adjustment_factors(self, adjusted_target_x, adjusted_target_y):
+        """
+        Applies dynamic adjustment factors based on the altitude.
+
+        Args:
+            adjusted_target_x (float): The adjusted target x-coordinate.
+            adjusted_target_y (float): The adjusted target y-coordinate.
+
+        Returns:
+            tuple: Further adjusted target coordinates.
+        """
+        current_altitude = self.px4_controller.current_altitude
+        adj_factor_x = Parameters.BASE_ADJUSTMENT_FACTOR_X / (1 + Parameters.ALTITUDE_FACTOR * current_altitude)
+        adj_factor_y = Parameters.BASE_ADJUSTMENT_FACTOR_Y / (1 + Parameters.ALTITUDE_FACTOR * current_altitude)
+
+        adjusted_target_x += adj_factor_x
+        adjusted_target_y += adj_factor_y
+
+        return adjusted_target_x, adjusted_target_y
+
     def calculate_velocity_commands(self, target_coords):
         """Calculates and returns the velocity commands based on the target coordinates and current drone status."""
         self.update_pid_gains()
@@ -79,48 +121,6 @@ class GroundTargetFollower(BaseFollower):
         
         return vel_x, vel_y, vel_z
 
-    def apply_gimbal_corrections(self, target_coords):
-        """
-        Applies orientation-based adjustments if the camera is not gimbaled.
-
-        Args:
-            target_coords (tuple): The target coordinates from image processing.
-
-        Returns:
-            tuple: Adjusted target coordinates considering gimbal corrections.
-        """
-        if Parameters.IS_CAMERA_GIMBALED:
-            return target_coords
-
-        orientation = self.px4_controller.get_orientation()  # (yaw, pitch, roll)
-        roll = orientation[2]
-        pitch = orientation[1]
-
-        adjusted_target_x = target_coords[0] + self.default_distance * roll
-        adjusted_target_y = target_coords[1] - self.default_distance * pitch
-
-        return adjusted_target_x, adjusted_target_y
-
-    def apply_adjustment_factors(self, adjusted_target_x, adjusted_target_y):
-        """
-        Applies dynamic adjustment factors based on the altitude.
-
-        Args:
-            adjusted_target_x (float): The adjusted target x-coordinate.
-            adjusted_target_y (float): The adjusted target y-coordinate.
-
-        Returns:
-            tuple: Further adjusted target coordinates.
-        """
-        current_altitude = self.px4_controller.current_altitude
-        adj_factor_x = Parameters.BASE_ADJUSTMENT_FACTOR_X / (1 + Parameters.ALTITUDE_FACTOR * current_altitude)
-        adj_factor_y = Parameters.BASE_ADJUSTMENT_FACTOR_Y / (1 + Parameters.ALTITUDE_FACTOR * current_altitude)
-
-        adjusted_target_x += adj_factor_x
-        adjusted_target_y += adj_factor_y
-
-        return adjusted_target_x, adjusted_target_y
-
     def control_descent(self):
         """
         Controls the descent of the drone based on current altitude, ensuring it doesn't go below the minimum descent height.
@@ -139,6 +139,9 @@ class GroundTargetFollower(BaseFollower):
             return 0
 
     async def follow_target(self, target_coords):
-        """Asynchronously sends velocity commands to follow a target based on its coordinates."""
-        vel_x, vel_y, vel_z = self.calculate_velocity_commands(target_coords)
-        await self.px4_controller.send_body_velocity_commands(vel_x, vel_y, vel_z)
+        """Calculates and returns the velocity commands to follow a target based on its coordinates."""
+        return self.calculate_velocity_commands(target_coords)
+        
+    def get_follower_telemetry(self):
+        """Returns the latest velocity telemetry data."""
+        return self.latest_velocities

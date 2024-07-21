@@ -160,7 +160,7 @@ class AppController:
                     await self.follow_target()
             else:
                 if Parameters.USE_DETECTOR and Parameters.AUTO_REDETECT:
-                    self.initiate_redetection(frame, self.tracker)
+                    self.initiate_redetection()
                     
         if self.telemetry_handler.should_send_telemetry():
             self.telemetry_handler.send_telemetry()
@@ -186,7 +186,7 @@ class AppController:
         elif key == ord('t'):
             self.toggle_tracking(frame)
         elif key == ord('d'):
-            self.initiate_redetection(frame)
+            self.initiate_redetection()
         elif key == ord('f'):
             if Parameters.DIRECT_PX4_MAVSDK:        
                 await self.connect_px4()
@@ -299,12 +299,12 @@ class AppController:
                 
                 initial_target_coords = self.tracker.normalized_center if Parameters.TARGET_POSITION_MODE == 'initial' else Parameters.DESIRE_AIM
                 self.follower = Follower(self.px4_controller, initial_target_coords)
-
                 await self.px4_controller.send_initial_setpoint()
                 await self.px4_controller.start_offboard_mode()
                 self.following_active = True
                 result["steps"].append("Offboard mode started.")
             except Exception as e:
+                print(e)
                 result["errors"].append(f"Failed to connect/start offboard mode: {e}")
         else:
             result["steps"].append("Follow mode already active.")
@@ -341,8 +341,8 @@ class AppController:
         """
         if self.tracking_started and self.following_active:
             target_coords = self.tracker.normalized_center
-            vel_x, vel_y, vel_z = await self.follower.follow_target(target_coords)
-            self.px4_controller.update_setpoint((vel_x, vel_y, vel_z))
+            setpoint = await self.follower.follow_target(target_coords)
+            self.px4_controller.update_setpoint(setpoint)
             await self.px4_controller.send_body_velocity_commands(self.px4_controller.last_command)
 
     async def shutdown(self):

@@ -69,7 +69,7 @@ class Parameters:
     STORE_LAST_FRAMES = 5  # Number of recent frames to store
     USE_ESTIMATOR = False  # Enable/disable the position estimator
     ESTIMATOR_HISTORY_LENGTH = 5  # Number of past estimations to store
-    SHOW_VIDEO_WINDOW = False # If using headless or with React web-app you wont need this window anymore
+    SHOW_VIDEO_WINDOW = True # If using headless or with React web-app you wont need this window anymore
 
     # ----- Segmentation Configuration -----
     SEGMENTATION_ALGORITHMS = ["GrabCut", "Watershed", 'yolov8s-seg', 'yolov8n-oiv7', 'yolov8s-obb']
@@ -107,9 +107,9 @@ class Parameters:
     # General settings
     ROI_SELECTION_MODE = "MANUAL"  # ROI selection mode
     SHOW_TRACKING_WINDOW = True  # Show tracking window
-    DISPLAY_DEVIATIONS = True  # Display deviations
+    DISPLAY_DEVIATIONS = False  # Display deviations
     TRACKED_BBOX_STYLE = 'fancy'  # Options: 'normal', 'fancy'
-    FOLLOWER_MODE = 'front_view'  # 'ground_view' or 'front_view'
+    FOLLOWER_MODE = 'ground_view'  # 'ground_view' or 'front_view'
     DEFAULT_DISTANCE = 200  # Default distance for calculations
     CONTROL_STRATEGY = 'constant_altitude'  # 'constant_altitude' or 'constant_distance'
     # If the target moves vertically in the frame, adjust using altitude or distance
@@ -164,6 +164,34 @@ class Parameters:
 
     # Target aim configuration
     DESIRE_AIM = (0, 0)  # Desired normalized position in the camera frame
+    
+    # IS_CAMERA_GIMBALED (bool): Specifies if the camera is gimbaled.
+    #         True if the camera has gimbal stabilization, False otherwise.
+    #         If False, orientation-based adjustments are applied to compensate for pitch and roll effects.
+    IS_CAMERA_GIMBALED = False  # Example: False for non-gimbaled camera setups
+    
+    # IS_CAMERA_GIMBALED (bool): Specifies if the camera is gimbaled.
+    #         True if the camera has gimbal stabilization, False otherwise.
+    #         If False, orientation-based adjustments are applied to compensate for pitch and roll effects.
+    IS_CAMERA_GIMBALED = False  # Example: False for non-gimbaled camera setups
+
+
+    #     BASE_ADJUSTMENT_FACTOR_X (float): Base adjustment factor for the X-axis,
+    #         used to compensate for roll effects on the camera view at a reference altitude (typically ground level).
+    #         This factor is inversely scaled based on altitude to adjust the perceived target position in the camera frame.
+    BASE_ADJUSTMENT_FACTOR_X = 0.1  # Adjust based on experimental data
+
+
+    #     BASE_ADJUSTMENT_FACTOR_Y (float): Base adjustment factor for the Y-axis,
+    #         used to compensate for pitch effects on the camera view at a reference altitude.
+    #         Like the X-axis factor, this is inversely scaled with altitude.
+    BASE_ADJUSTMENT_FACTOR_Y = 0.1  # Adjust based on experimental data
+
+
+    #     ALTITUDE_FACTOR (float): A coefficient used to scale the BASE_ADJUSTMENT_FACTORS
+    #         with altitude, providing a method to diminish the adjustment impact as altitude increases.
+    #         Higher values mean quicker reduction of the adjustment effect with altitude.
+    ALTITUDE_FACTOR = 0.005  # This needs to be fine-tuned through testing
 
     # Gain scheduling configuration
     """

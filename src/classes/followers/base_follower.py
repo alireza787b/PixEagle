@@ -15,11 +15,9 @@ class BaseFollower(ABC):
             px4_controller (PX4Controller): Instance of PX4Controller to control the drone.
         """
         self.px4_controller = px4_controller
+        self.latest_velocities = {'vel_x': 0, 'vel_y': 0, 'vel_z': 0, 'timestamp': None, 'status': 'idle'}
 
-    @abstractmethod
-    def initialize(self):
-        """Initialize the follower mode"""
-        pass
+
 
     @abstractmethod
     def calculate_velocity_commands(self, target_coords):
@@ -41,5 +39,15 @@ class BaseFollower(ABC):
 
         Args:
             target_coords (tuple): The coordinates of the target to follow.
+        """
+        pass
+    
+    @abstractmethod
+    def get_follower_telemetry(self):
+        """
+        Returns the latest velocity telemetry data.
+
+        Returns:
+            dict: The latest velocity telemetry data.
         """
         pass
