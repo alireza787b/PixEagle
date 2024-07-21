@@ -1,5 +1,3 @@
-# src/app_controller.py
-
 import asyncio
 import logging
 import numpy as np
@@ -16,6 +14,7 @@ import cv2
 from classes.px4_controller import PX4Controller  # Ensure this import path is correct
 from classes.telemetry_handler import TelemetryHandler
 from classes.fastapi_handler import FastAPIHandler  # Correct import
+from typing import Dict, Tuple
 
 class AppController:
     def __init__(self):
@@ -54,14 +53,14 @@ class AppController:
 
         logging.info("AppController initialized.")
 
-    def on_mouse_click(self, event, x, y, flags, param):
+    def on_mouse_click(self, event: int, x: int, y: int, flags: int, param: any):
         """
         Handles mouse click events in the video window, specifically for initiating segmentation.
         """
         if event == cv2.EVENT_LBUTTONDOWN and self.segmentation_active:
             self.handle_user_click(x, y)
 
-    def toggle_tracking(self, frame):
+    def toggle_tracking(self, frame: np.ndarray):
         """
         Toggles the tracking state, starts or stops tracking based on the current state.
 
@@ -82,7 +81,7 @@ class AppController:
             self.cancel_activities()
             print("Tracking deactivated.")
 
-    def toggle_segmentation(self):
+    def toggle_segmentation(self) -> bool:
         """
         Toggles the segmentation state. Activates or deactivates segmentation.
 
@@ -96,7 +95,7 @@ class AppController:
             print("Segmentation deactivated.")
         return self.segmentation_active
 
-    async def start_tracking(self, bbox):
+    async def start_tracking(self, bbox: Dict[str, int]):
         """
         Starts tracking with the provided bounding box.
 
@@ -135,7 +134,7 @@ class AppController:
             self.setpoint_sender = None
         print("All activities cancelled.")
 
-    async def update_loop(self, frame):
+    async def update_loop(self, frame: np.ndarray) -> np.ndarray:
         """
         The main update loop for processing each video frame.
 
@@ -173,7 +172,7 @@ class AppController:
 
         return frame
 
-    async def handle_key_input_async(self, key, frame):
+    async def handle_key_input_async(self, key: int, frame: np.ndarray):
         """
         Handles key inputs for toggling segmentation, toggling tracking, starting feature extraction, and cancelling activities.
 
@@ -188,15 +187,14 @@ class AppController:
         elif key == ord('d'):
             self.initiate_redetection()
         elif key == ord('f'):
-            if Parameters.DIRECT_PX4_MAVSDK:        
-                await self.connect_px4()
+            await self.connect_px4()
         elif key == ord('x'):
             if Parameters.DIRECT_PX4_MAVSDK:        
                 await self.disconnect_px4()
         elif key == ord('c'):
             self.cancel_activities()
 
-    def handle_key_input(self, key, frame):
+    def handle_key_input(self, key: int, frame: np.ndarray):
         """
         Handles key inputs synchronously by creating an async task.
 
@@ -206,7 +204,7 @@ class AppController:
         """
         asyncio.create_task(self.handle_key_input_async(key, frame))
 
-    def handle_user_click(self, x, y):
+    def handle_user_click(self, x: int, y: int):
         """
         Identifies the object clicked by the user for tracking within the segmented area.
 
@@ -225,7 +223,7 @@ class AppController:
             self.tracking_started = True
             print(f"Object selected for tracking: {selected_bbox}")
 
-    def identify_clicked_object(self, detections, x, y):
+    def identify_clicked_object(self, detections: list, x: int, y: int) -> Tuple[int, int, int, int]:
         """
         Identifies the clicked object based on segmentation detections and mouse click coordinates.
 
@@ -243,7 +241,7 @@ class AppController:
                 return det
         return None
 
-    def initiate_redetection(self):
+    def initiate_redetection(self) -> Dict[str, any]:
         """
         Attempts to redetect the object being tracked.
 
@@ -270,7 +268,7 @@ class AppController:
                 "message": "Detector is not enabled."
             }
 
-    def show_current_frame(self, frame_title=Parameters.FRAME_TITLE):
+    def show_current_frame(self, frame_title: str = Parameters.FRAME_TITLE) -> np.ndarray:
         """
         Displays the current frame in a window if SHOW_VIDEO_WINDOW is True.
 
@@ -281,7 +279,7 @@ class AppController:
             cv2.imshow(frame_title, self.current_frame)
         return self.current_frame
 
-    async def connect_px4(self):
+    async def connect_px4(self) -> Dict[str, any]:
         """
         Connects to PX4 when following mode is activated.
 
@@ -311,7 +309,7 @@ class AppController:
         
         return result
 
-    async def disconnect_px4(self):
+    async def disconnect_px4(self) -> Dict[str, any]:
         """
         Disconnects PX4 and stops offboard mode.
 
@@ -345,7 +343,7 @@ class AppController:
             self.px4_controller.update_setpoint(setpoint)
             await self.px4_controller.send_body_velocity_commands(self.px4_controller.last_command)
 
-    async def shutdown(self):
+    async def shutdown(self) -> Dict[str, any]:
         """
         Shuts down the application gracefully.
 

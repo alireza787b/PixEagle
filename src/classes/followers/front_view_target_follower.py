@@ -1,18 +1,17 @@
-# src/classes/front_view_target_follower.py
-
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
 import logging
 from datetime import datetime
 import math
+from typing import Tuple
 
 class FrontViewTargetFollower(BaseFollower):
     """
     FrontViewTargetFollower class manages PID control to keep a target in the front view of the drone.
     It utilizes advanced PID features and allows different control strategies.
     """
-    def __init__(self, px4_controller, initial_target_coords):
+    def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
         Initializes the FrontViewTargetFollower with the given PX4 controller and initial target coordinates.
 
@@ -30,20 +29,37 @@ class FrontViewTargetFollower(BaseFollower):
     def initialize_pids(self):
         """Initializes the PID controllers based on the control strategy and initial target coordinates."""
         setpoint_x, setpoint_y = self.initial_target_coords
-        self.pid_y = CustomPID(*self.get_pid_gains('y'), setpoint=setpoint_x, output_limits=(-Parameters.VELOCITY_LIMITS['y'], Parameters.VELOCITY_LIMITS['y']))
+        self.pid_y = CustomPID(
+            *self.get_pid_gains('y'), 
+            setpoint=setpoint_x, 
+            output_limits=(-Parameters.VELOCITY_LIMITS['y'], Parameters.VELOCITY_LIMITS['y'])
+        )
         
         if self.control_strategy == 'constant_altitude':
-            self.pid_x = CustomPID(*self.get_pid_gains('x'), setpoint=setpoint_y, output_limits=(-Parameters.VELOCITY_LIMITS['x'], Parameters.VELOCITY_LIMITS['x']))
-            self.pid_z = CustomPID(*self.get_pid_gains('z'), setpoint=Parameters.MIN_DESCENT_HEIGHT, output_limits=(-Parameters.MAX_RATE_OF_DESCENT, Parameters.MAX_RATE_OF_DESCENT))
+            self.pid_x = CustomPID(
+                *self.get_pid_gains('x'), 
+                setpoint=setpoint_y, 
+                output_limits=(-Parameters.VELOCITY_LIMITS['x'], Parameters.VELOCITY_LIMITS['x'])
+            )
+            self.pid_z = CustomPID(
+                *self.get_pid_gains('z'), 
+                setpoint=Parameters.MIN_DESCENT_HEIGHT, 
+                output_limits=(-Parameters.MAX_RATE_OF_DESCENT, Parameters.MAX_RATE_OF_DESCENT)
+            )
         else:  # constant_distance
-            self.pid_z = CustomPID(*self.get_pid_gains('z'), setpoint=setpoint_y, output_limits=(-Parameters.VELOCITY_LIMITS['z'], Parameters.VELOCITY_LIMITS['z']))
-            self.pid_x = CustomPID(*self.get_pid_gains('x'), setpoint=0, output_limits=(0, 0))  # vx will be controlled separately, for now set to zero
-        
-        self.latest_velocities = {'vel_x': 0, 'vel_y': 0, 'vel_z': 0, 'timestamp': None, 'status': 'idle'}
+            self.pid_z = CustomPID(
+                *self.get_pid_gains('z'), 
+                setpoint=setpoint_y, 
+                output_limits=(-Parameters.VELOCITY_LIMITS['z'], Parameters.VELOCITY_LIMITS['z'])
+            )
+            self.pid_x = CustomPID(
+                *self.get_pid_gains('x'), 
+                setpoint=0, 
+                output_limits=(0, 0)  # vx will be controlled separately, for now set to zero
+            )
 
-    def get_pid_gains(self, axis):
+    def get_pid_gains(self, axis: str) -> Tuple[float, float, float]:
         """Retrieves the PID gains based on the current altitude from the PX4Controller, applying gain scheduling if enabled."""
-        # Remember for front view, we better use gain scheduling with Distance ...
         if Parameters.ENABLE_GAIN_SCHEDULING:
             current_value = getattr(self.px4_controller, Parameters.GAIN_SCHEDULING_PARAMETER, None)
             if current_value is None:
@@ -62,24 +78,7 @@ class FrontViewTargetFollower(BaseFollower):
         self.pid_y.tunings = self.get_pid_gains('y')
         self.pid_z.tunings = self.get_pid_gains('z')
 
-    def calculate_velocity_commands(self, target_coords):
-        """Calculates and returns the velocity commands based on the target coordinates and current drone status."""
-        self.update_pid_gains()
-
-        adjusted_target_x, adjusted_target_y = self.apply_gimbal_corrections(target_coords)
-        adjusted_target_x, adjusted_target_y = self.apply_adjustment_factors(adjusted_target_x, adjusted_target_y)
-
-        # Calculate errors
-        error_x = self.pid_x.setpoint - adjusted_target_x
-        error_y = self.pid_y.setpoint - adjusted_target_y
-        
-        # Apply control strategies based on the selected control strategy
-        if self.control_strategy == 'constant_altitude':
-            return self.calculate_velocity_constant_altitude(error_x, error_y)
-        else:  # constant_distance
-            return self.calculate_velocity_constant_distance(error_x, error_y)
-
-    def apply_gimbal_corrections(self, target_coords):
+    def apply_gimbal_corrections(self, target_coords: Tuple[float, float]) -> Tuple[float, float]:
         """
         Applies orientation-based adjustments if the camera is not gimbaled.
 
@@ -89,7 +88,6 @@ class FrontViewTargetFollower(BaseFollower):
         Returns:
             tuple: Adjusted target coordinates considering gimbal corrections.
         """
-        #TODO: Check for corrected correction factors
         if Parameters.IS_CAMERA_GIMBALED:
             return target_coords
 
@@ -107,7 +105,7 @@ class FrontViewTargetFollower(BaseFollower):
 
         return adjusted_target_x, adjusted_target_y
 
-    def apply_adjustment_factors(self, adjusted_target_x, adjusted_target_y):
+    def apply_adjustment_factors(self, adjusted_target_x: float, adjusted_target_y: float) -> Tuple[float, float]:
         """
         Applies dynamic adjustment factors based on a default distance.
 
@@ -126,39 +124,56 @@ class FrontViewTargetFollower(BaseFollower):
 
         return adjusted_target_x, adjusted_target_y
 
-    def calculate_velocity_constant_altitude(self, error_x, error_y):
+    def calculate_velocity_commands(self, target_coords: Tuple[float, float]) -> Tuple[float, float, float]:
+        """Calculates and returns the velocity commands based on the target coordinates and current drone status."""
+        self.update_pid_gains()
+
+        adjusted_target_x, adjusted_target_y = self.apply_gimbal_corrections(target_coords)
+        adjusted_target_x, adjusted_target_y = self.apply_adjustment_factors(adjusted_target_x, adjusted_target_y)
+
+        # Calculate errors
+        error_x = self.pid_x.setpoint - adjusted_target_x
+        error_y = self.pid_y.setpoint - adjusted_target_y
+        
+        # Apply control strategies based on the selected control strategy
+        if self.control_strategy == 'constant_altitude':
+            return self.calculate_velocity_constant_altitude(error_x, error_y)
+        else:  # constant_distance
+            return self.calculate_velocity_constant_distance(error_x, error_y)
+
+    def calculate_velocity_constant_altitude(self, error_x: float, error_y: float) -> Tuple[float, float, float]:
         """Calculate velocity commands for constant altitude strategy."""
         vel_x = self.pid_x(error_y)  # error_y controls vel_x due to coordinate system differences
         vel_y = self.pid_y(error_x)  # error_x controls vel_y due to coordinate system differences
         vel_z = self.control_descent_constant_altitude()
         
-        self.latest_velocities = {
+        self.latest_velocities.update({
             'vel_x': vel_x,
             'vel_y': vel_y,
             'vel_z': vel_z,
             'timestamp': datetime.utcnow().isoformat(),
             'status': 'active'
-        }
+        })
         
         return vel_x, vel_y, vel_z
 
-    def calculate_velocity_constant_distance(self, error_x, error_y):
+    def calculate_velocity_constant_distance(self, error_x: float, error_y: float) -> Tuple[float, float, float]:
         """Calculate velocity commands for constant distance strategy."""
         vel_x = 0  # Set to zero for now, later can be controlled separately
         vel_y = self.pid_y(error_x)  # error_x controls vel_y due to coordinate system differences
         vel_z = self.control_descent_constant_distance(error_y)  # error_y controls vel_z due to coordinate system differences
         
-        self.latest_velocities = {
+        self.latest_velocities.update({
             'vel_x': vel_x,
             'vel_y': vel_y,
             'vel_z': vel_z,
             'timestamp': datetime.utcnow().isoformat(),
             'status': 'active'
-        }
+        })
         
         return vel_x, vel_y, vel_z
 
-    def control_descent_constant_altitude(self):
+    def control_descent_constant_altitude(self) -> float:
         """
         Controls the descent of the drone based on current altitude and ensures it doesn't go below the minimum descent height.
         """
@@ -175,7 +190,7 @@ class FrontViewTargetFollower(BaseFollower):
             logging.info("Altitude is at or below the minimum descent height. Descent halted.")
             return 0
 
-    def control_descent_constant_distance(self, error_y):
+    def control_descent_constant_distance(self, error_y: float) -> float:
         """
         Controls the descent of the drone based on the error in the y-axis, ensuring it doesn't go below the minimum descent height.
         """
@@ -188,11 +203,7 @@ class FrontViewTargetFollower(BaseFollower):
             logging.info("Altitude is at or below the minimum descent height. Descent halted.")
             return 0
 
-    async def follow_target(self, target_coords):
+    async def follow_target(self, target_coords: Tuple[float, float]):
         """Asynchronously sends velocity commands to follow a target based on its coordinates."""
         setpoint = self.calculate_velocity_commands(target_coords)
         await self.px4_controller.send_body_velocity_commands(setpoint)
-        
-    def get_follower_telemetry(self):
-        """Returns the latest velocity telemetry data."""
-        return self.latest_velocities

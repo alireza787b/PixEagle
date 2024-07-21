@@ -59,7 +59,6 @@ class Parameters:
     STREAM_PROCESSED_OSD = True
 
     # ----- PX4 MAVSDK Configuration -----
-    DIRECT_PX4_MAVSDK = True  # New mode for sending setpoints over UDP
     EXTERNAL_MAVSDK_SERVER = True       # If we are working on Windows (or need to load mavsdk_server manually), we should handle the MAVSDK Server Differently in PX4 Controller Class
     SYSTEM_ADDRESS = "udp://172.21.148.30:14540"
 
@@ -223,7 +222,7 @@ class Parameters:
     # Camera and setpoint configurations
     CAMERA_YAW_OFFSET = 0
     SETPOINT_PUBLISH_RATE_S = 0.1
-    ENABLE_SETPOINT_DEBUGGING = True
+    ENABLE_SETPOINT_DEBUGGING = False
 
     # ----- Debugging and Logging -----
     ENABLE_DEBUGGING = True  # Enable verbose logging

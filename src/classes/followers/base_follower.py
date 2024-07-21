@@ -1,6 +1,5 @@
-# src/classes/base_follower.py
-
 from abc import ABC, abstractmethod
+from typing import Tuple, Dict
 
 class BaseFollower(ABC):
     """
@@ -17,10 +16,8 @@ class BaseFollower(ABC):
         self.px4_controller = px4_controller
         self.latest_velocities = {'vel_x': 0, 'vel_y': 0, 'vel_z': 0, 'timestamp': None, 'status': 'idle'}
 
-
-
     @abstractmethod
-    def calculate_velocity_commands(self, target_coords):
+    def calculate_velocity_commands(self, target_coords: Tuple[float, float]) -> Tuple[float, float, float]:
         """
         Calculate velocity commands based on target coordinates.
 
@@ -33,7 +30,7 @@ class BaseFollower(ABC):
         pass
 
     @abstractmethod
-    async def follow_target(self, target_coords):
+    async def follow_target(self, target_coords: Tuple[float, float]):
         """
         Asynchronously sends velocity commands to follow the target.
 
@@ -42,12 +39,11 @@ class BaseFollower(ABC):
         """
         pass
     
-    @abstractmethod
-    def get_follower_telemetry(self):
+    def get_follower_telemetry(self) -> Dict[str, any]:
         """
         Returns the latest velocity telemetry data.
 
         Returns:
             dict: The latest velocity telemetry data.
         """
-        pass
+        return self.latest_velocities

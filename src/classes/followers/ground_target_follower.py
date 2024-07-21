@@ -1,17 +1,16 @@
-# src/classes/ground_target_follower.py
-
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
 import logging
 from datetime import datetime
+from typing import Tuple, Dict
 
 class GroundTargetFollower(BaseFollower):
     """
     GroundTargetFollower class manages PID control to track a target on the ground using a drone.
     It utilizes advanced PID features such as Proportional on Measurement and Anti-Windup.
     """
-    def __init__(self, px4_controller, initial_target_coords):
+    def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
         Initializes the GroundTargetFollower with the given PX4 controller and initial target coordinates.
 
@@ -27,13 +26,23 @@ class GroundTargetFollower(BaseFollower):
     def initialize_pids(self):
         """Initializes the PID controllers based on the initial target coordinates."""
         setpoint_x, setpoint_y = self.initial_target_coords
-        self.pid_x = CustomPID(*self.get_pid_gains('x'), setpoint=setpoint_x, output_limits=(-Parameters.VELOCITY_LIMITS['x'], Parameters.VELOCITY_LIMITS['x']))
-        self.pid_y = CustomPID(*self.get_pid_gains('y'), setpoint=setpoint_y, output_limits=(-Parameters.VELOCITY_LIMITS['y'], Parameters.VELOCITY_LIMITS['y']))
-        self.pid_z = CustomPID(*self.get_pid_gains('z'), setpoint=Parameters.MIN_DESCENT_HEIGHT, output_limits=(-Parameters.MAX_RATE_OF_DESCENT, Parameters.MAX_RATE_OF_DESCENT))
-        
-        self.latest_velocities = {'vel_x': 0, 'vel_y': 0, 'vel_z': 0, 'timestamp': None, 'status': 'idle'}
+        self.pid_x = CustomPID(
+            *self.get_pid_gains('x'), 
+            setpoint=setpoint_x, 
+            output_limits=(-Parameters.VELOCITY_LIMITS['x'], Parameters.VELOCITY_LIMITS['x'])
+        )
+        self.pid_y = CustomPID(
+            *self.get_pid_gains('y'), 
+            setpoint=setpoint_y, 
+            output_limits=(-Parameters.VELOCITY_LIMITS['y'], Parameters.VELOCITY_LIMITS['y'])
+        )
+        self.pid_z = CustomPID(
+            *self.get_pid_gains('z'), 
+            setpoint=Parameters.MIN_DESCENT_HEIGHT, 
+            output_limits=(-Parameters.MAX_RATE_OF_DESCENT, Parameters.MAX_RATE_OF_DESCENT)
+        )
 
-    def get_pid_gains(self, axis):
+    def get_pid_gains(self, axis: str) -> Tuple[float, float, float]:
         """Retrieves the PID gains based on the current altitude from the PX4Controller, applying gain scheduling if enabled."""
         if Parameters.ENABLE_GAIN_SCHEDULING:
             current_value = getattr(self.px4_controller, Parameters.GAIN_SCHEDULING_PARAMETER, None)
@@ -53,7 +62,7 @@ class GroundTargetFollower(BaseFollower):
         self.pid_y.tunings = self.get_pid_gains('y')
         self.pid_z.tunings = self.get_pid_gains('z')
 
-    def apply_gimbal_corrections(self, target_coords):
+    def apply_gimbal_corrections(self, target_coords: Tuple[float, float]) -> Tuple[float, float]:
         """
         Applies orientation-based adjustments if the camera is not gimbaled.
 
@@ -75,7 +84,7 @@ class GroundTargetFollower(BaseFollower):
 
         return adjusted_target_x, adjusted_target_y
 
-    def apply_adjustment_factors(self, adjusted_target_x, adjusted_target_y):
+    def apply_adjustment_factors(self, adjusted_target_x: float, adjusted_target_y: float) -> Tuple[float, float]:
         """
         Applies dynamic adjustment factors based on the altitude.
 
@@ -95,7 +104,7 @@ class GroundTargetFollower(BaseFollower):
 
         return adjusted_target_x, adjusted_target_y
 
-    def calculate_velocity_commands(self, target_coords):
+    def calculate_velocity_commands(self, target_coords: Tuple[float, float]) -> Tuple[float, float, float]:
         """Calculates and returns the velocity commands based on the target coordinates and current drone status."""
         self.update_pid_gains()
 
@@ -111,17 +120,17 @@ class GroundTargetFollower(BaseFollower):
         vel_y = self.pid_x(error_x)  # error_x controls vel_y due to coordinate system differences
         vel_z = self.control_descent()
         
-        self.latest_velocities = {
+        self.latest_velocities.update({
             'vel_x': vel_x,
             'vel_y': vel_y,
             'vel_z': vel_z,
             'timestamp': datetime.utcnow().isoformat(),
             'status': 'active'
-        }
+        })
         
         return vel_x, vel_y, vel_z
 
-    def control_descent(self):
+    def control_descent(self) -> float:
         """
         Controls the descent of the drone based on current altitude, ensuring it doesn't go below the minimum descent height.
         """
@@ -138,10 +147,6 @@ class GroundTargetFollower(BaseFollower):
             logging.info("Altitude is at or below the minimum descent height. Descent halted.")
             return 0
 
-    async def follow_target(self, target_coords):
+    async def follow_target(self, target_coords: Tuple[float, float]):
         """Calculates and returns the velocity commands to follow a target based on its coordinates."""
         return self.calculate_velocity_commands(target_coords)
-        
-    def get_follower_telemetry(self):
-        """Returns the latest velocity telemetry data."""
-        return self.latest_velocities
