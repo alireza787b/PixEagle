@@ -3,7 +3,7 @@ import math
 import logging
 from mavsdk import System
 from classes.parameters import Parameters
-from mavsdk.offboard import *
+from mavsdk.offboard import OffboardError, VelocityNedYaw, VelocityBodyYawspeed
 
 # Configure logging
 logger = logging.getLogger(__name__)

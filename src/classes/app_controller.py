@@ -5,7 +5,6 @@ from classes.parameters import Parameters
 from classes.follower import Follower
 from classes.setpoint_sender import SetpointSender
 from classes.video_handler import VideoHandler
-from classes.trackers.base_tracker import BaseTracker
 from classes.trackers.csrt_tracker import CSRTTracker  # Import other trackers as necessary
 from classes.segmentor import Segmentor
 from classes.trackers.tracker_factory import create_tracker
@@ -21,6 +20,8 @@ class AppController:
         """
         Initializes the AppController with necessary components and starts the FastAPI handler.
         """
+        logging.debug("Initializing AppController...")
+        
         # Initialize video processing components
         self.video_handler = VideoHandler()
         self.video_streamer = None
@@ -74,12 +75,12 @@ class AppController:
                 self.tracking_started = True
                 if hasattr(self.tracker, 'detector') and self.tracker.detector:
                     self.tracker.detector.extract_features(frame, bbox)
-                print("Tracking activated.")
+                logging.info("Tracking activated.")
             else:
-                print("Tracking canceled or invalid ROI.")
+                logging.info("Tracking canceled or invalid ROI.")
         else:
             self.cancel_activities()
-            print("Tracking deactivated.")
+            logging.info("Tracking deactivated.")
 
     def toggle_segmentation(self) -> bool:
         """
@@ -89,10 +90,7 @@ class AppController:
             bool: The current state of segmentation after toggling.
         """
         self.segmentation_active = not self.segmentation_active
-        if self.segmentation_active:
-            print("Segmentation activated.")
-        else:
-            print("Segmentation deactivated.")
+        logging.info(f"Segmentation {'activated' if self.segmentation_active else 'deactivated'}.")
         return self.segmentation_active
 
     async def start_tracking(self, bbox: Dict[str, int]):
@@ -108,9 +106,9 @@ class AppController:
             self.tracking_started = True
             if hasattr(self.tracker, 'detector') and self.tracker.detector:
                 self.tracker.detector.extract_features(self.current_frame, bbox_tuple)
-            print("Tracking activated.")
+            logging.info("Tracking activated.")
         else:
-            print("Tracking is already active.")
+            logging.info("Tracking is already active.")
 
     async def stop_tracking(self):
         """
@@ -118,9 +116,9 @@ class AppController:
         """
         if self.tracking_started:
             self.cancel_activities()
-            print("Tracking deactivated.")
+            logging.info("Tracking deactivated.")
         else:
-            print("Tracking is not active.")
+            logging.info("Tracking is not active.")
 
     def cancel_activities(self):
         """
@@ -132,7 +130,7 @@ class AppController:
             self.setpoint_sender.stop()
             self.setpoint_sender.join()
             self.setpoint_sender = None
-        print("All activities cancelled.")
+        logging.info("All activities cancelled.")
 
     async def update_loop(self, frame: np.ndarray) -> np.ndarray:
         """
@@ -221,7 +219,7 @@ class AppController:
             selected_bbox = tuple(map(lambda x: int(round(x)), selected_bbox))
             self.tracker.reinitialize_tracker(self.current_frame, selected_bbox)
             self.tracking_started = True
-            print(f"Object selected for tracking: {selected_bbox}")
+            logging.info(f"Object selected for tracking: {selected_bbox}")
 
     def identify_clicked_object(self, detections: list, x: int, y: int) -> Tuple[int, int, int, int]:
         """
@@ -289,11 +287,9 @@ class AppController:
         result = {"steps": [], "errors": []}
         if not self.following_active:
             try:
-                if Parameters.ENABLE_DEBUGGING:
-                    result["steps"].append("Activating Follow Mode to PX4!")
+                logging.debug("Activating Follow Mode to PX4!")
                 await self.px4_controller.connect()
-                if Parameters.ENABLE_DEBUGGING:
-                    result["steps"].append("Connected to PX4 Drone!")
+                logging.debug("Connected to PX4 Drone!")
                 
                 initial_target_coords = self.tracker.normalized_center if Parameters.TARGET_POSITION_MODE == 'initial' else Parameters.DESIRE_AIM
                 self.follower = Follower(self.px4_controller, initial_target_coords)
@@ -302,7 +298,7 @@ class AppController:
                 self.following_active = True
                 result["steps"].append("Offboard mode started.")
             except Exception as e:
-                print(e)
+                logging.error(f"Failed to connect/start offboard mode: {e}")
                 result["errors"].append(f"Failed to connect/start offboard mode: {e}")
         else:
             result["steps"].append("Follow mode already active.")
@@ -327,6 +323,7 @@ class AppController:
                     self.setpoint_sender = None
                 self.following_active = False
             except Exception as e:
+                logging.error(f"Failed to stop offboard mode: {e}")
                 result["errors"].append(f"Failed to stop offboard mode: {e}")
         else:
             result["steps"].append("Follow mode is not active.")
@@ -353,14 +350,16 @@ class AppController:
         result = {"steps": [], "errors": []}
         try:
             if self.following_active:
-                result["steps"].append("Stopping offboard mode and disconnecting PX4.")
+                logging.debug("Stopping offboard mode and disconnecting PX4.")
                 await self.px4_controller.stop_offboard_mode()
                 if self.setpoint_sender:
                     self.setpoint_sender.stop()
                     self.setpoint_sender.join()
                 self.following_active = False
             self.video_handler.release()
-            result["steps"].append("Video handler released.")
+            logging.debug("Video handler released.")
+            result["steps"].append("Shutdown complete.")
         except Exception as e:
+            logging.error(f"Error during shutdown: {e}")
             result["errors"].append(f"Error during shutdown: {e}")
         return result

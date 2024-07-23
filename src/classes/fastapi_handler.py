@@ -74,7 +74,6 @@ class FastAPIHandler:
             width = self.video_handler.width
             height = self.video_handler.height
 
-            # Check if the bbox values are normalized (0 to 1)
             if all(0 <= value <= 1 for value in [bbox.x, bbox.y, bbox.width, bbox.height]):
                 bbox_pixels = {
                     'x': int(bbox.x * width),
@@ -82,14 +81,15 @@ class FastAPIHandler:
                     'width': int(bbox.width * width),
                     'height': int(bbox.height * height)
                 }
-                print(f"Received normalized bbox, converting to pixels: {bbox_pixels}")
+                logging.debug(f"Received normalized bbox, converting to pixels: {bbox_pixels}")
             else:
                 bbox_pixels = bbox.dict()
-                print(f"Received raw pixel bbox: {bbox_pixels}")
+                logging.debug(f"Received raw pixel bbox: {bbox_pixels}")
 
             await self.app_controller.start_tracking(bbox_pixels)
             return {"status": "Tracking started", "bbox": bbox_pixels}
         except Exception as e:
+            logging.error(f"Error in start_tracking: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     async def stop_tracking(self):
@@ -103,6 +103,7 @@ class FastAPIHandler:
             await self.app_controller.stop_tracking()
             return {"status": "Tracking stopped"}
         except Exception as e:
+            logging.error(f"Error in stop_tracking: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     async def video_feed(self):
@@ -116,10 +117,7 @@ class FastAPIHandler:
             while not self.is_shutting_down:
                 current_time = time.time()
                 if current_time - self.last_frame_time >= self.frame_interval:
-                    if self.processed_osd:
-                        frame = self.video_handler.current_osd_frame
-                    else:
-                        frame = self.video_handler.current_raw_frame
+                    frame = self.video_handler.current_osd_frame if self.processed_osd else self.video_handler.current_raw_frame
 
                     if frame is None:
                         break
@@ -132,6 +130,7 @@ class FastAPIHandler:
                            b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
                 else:
                     time.sleep(self.frame_interval - (current_time - self.last_frame_time))
+        
         return StreamingResponse(generate(), media_type='multipart/x-mixed-replace; boundary=frame')
 
     async def tracker_data(self):
@@ -160,12 +159,91 @@ class FastAPIHandler:
             logging.error(f"Error in /telemetry/follower_data: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def commands(self, command: dict):
+    async def toggle_segmentation(self):
         """
-        FastAPI route to handle incoming commands.
+        Endpoint to toggle segmentation state (enable/disable YOLO).
+
+        Returns:
+            dict: Status of the operation and the current state of segmentation.
         """
-        logging.info(f"Received command: {command}")
-        return JSONResponse(content={'status': 'success', 'command': command})
+        try:
+            current_state = self.app_controller.toggle_segmentation()
+            return {"status": "success", "segmentation_active": current_state}
+        except Exception as e:
+            logging.error(f"Error in toggle_segmentation: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def redetect(self):
+        """
+        Endpoint to attempt redetection of the object being tracked.
+
+        Returns:
+            dict: Status of the operation and details of the redetection attempt.
+        """
+        try:
+            result = await self.app_controller.initiate_redetection()
+            return {"status": "success", "detection_result": result}
+        except Exception as e:
+            logging.error(f"Error in redetect: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def cancel_activities(self):
+        """
+        Endpoint to cancel all active tracking and segmentation activities.
+
+        Returns:
+            dict: Status of the operation.
+        """
+        try:
+            self.app_controller.cancel_activities()
+            return {"status": "success"}
+        except Exception as e:
+            logging.error(f"Error in cancel_activities: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def start_offboard_mode(self):
+        """
+        Endpoint to start the offboard mode for PX4.
+
+        Returns:
+            dict: Status of the operation and details of the process.
+        """
+        try:
+            result = await self.app_controller.connect_px4()
+            return {"status": "success", "details": result}
+        except Exception as e:
+            logging.error(f"Error in start_offboard_mode: {e}")
+            return {"status": "failure", "error": str(e)}
+
+    async def stop_offboard_mode(self):
+        """
+        Endpoint to stop the offboard mode for PX4.
+
+        Returns:
+            dict: Status of the operation and details of the process.
+        """
+        try:
+            result = await self.app_controller.disconnect_px4()
+            return {"status": "success", "details": result}
+        except Exception as e:
+            logging.error(f"Error in stop_offboard_mode: {e}")
+            return {"status": "failure", "error": str(e)}
+
+    async def quit(self):
+        """
+        Endpoint to quit the application.
+
+        Returns:
+            dict: Status of the operation and details of the process.
+        """
+        try:
+            logging.info("Received request to quit the application.")
+            asyncio.create_task(self.app_controller.shutdown())
+            self.server.should_exit = True
+            return {"status": "success", "details": "Application is shutting down."}
+        except Exception as e:
+            logging.error(f"Error in quit: {e}")
+            return {"status": "failure", "error": str(e)}
 
     def start(self, host='0.0.0.0', port=Parameters.HTTP_STREAM_PORT):
         """
@@ -192,83 +270,3 @@ class FastAPIHandler:
             self.server.force_exit = True
             self.server_thread.join()
             logging.info("Stopped FastAPI server")
-
-    async def toggle_segmentation(self):
-        """
-        Endpoint to toggle segmentation state (enable/disable YOLO).
-
-        Returns:
-            dict: Status of the operation and the current state of segmentation.
-        """
-        try:
-            current_state = self.app_controller.toggle_segmentation()
-            return {"status": "success", "segmentation_active": current_state}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-        
-    async def redetect(self):
-        """
-        Endpoint to attempt redetection of the object being tracked.
-
-        Returns:
-            dict: Status of the operation and details of the redetection attempt.
-        """
-        try:
-            result = await self.app_controller.initiate_redetection()
-            return {"status": "success", "detection_result": result}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-        
-    async def cancel_activities(self):
-        """
-        Endpoint to cancel all active tracking and segmentation activities.
-
-        Returns:
-            dict: Status of the operation.
-        """
-        try:
-            self.app_controller.cancel_activities()
-            return {"status": "success"}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-        
-    async def start_offboard_mode(self):
-        """
-        Endpoint to start the offboard mode for PX4.
-
-        Returns:
-            dict: Status of the operation and details of the process.
-        """
-        try:
-            result = await self.app_controller.connect_px4()
-            return {"status": "success", "details": result}
-        except Exception as e:
-            return {"status": "failure", "error": str(e)}
-        
-    async def stop_offboard_mode(self):
-        """
-        Endpoint to stop the offboard mode for PX4.
-
-        Returns:
-            dict: Status of the operation and details of the process.
-        """
-        try:
-            result = await self.app_controller.disconnect_px4()
-            return {"status": "success", "details": result}
-        except Exception as e:
-            return {"status": "failure", "error": str(e)}
-        
-    async def quit(self):
-        """
-        Endpoint to quit the application.
-
-        Returns:
-            dict: Status of the operation and details of the process.
-        """
-        try:
-            # Trigger the shutdown process
-            asyncio.create_task(self.app_controller.shutdown())
-            self.server.should_exit = True  # Gracefully stop the FastAPI server
-            return {"status": "success", "details": "Application is shutting down."}
-        except Exception as e:
-            return {"status": "failure", "error": str(e)}
