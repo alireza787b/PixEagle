@@ -38,7 +38,7 @@ async def main():
     """
     Main function to initialize the application and run the main loop.
     """
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
     controller = AppController()
 
     # Start the FastAPI server

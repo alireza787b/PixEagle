@@ -19,7 +19,7 @@ const LiveFeedPage = () => {
       img.onerror = () => {
         console.error('Error loading video feed');
       };
-    }, 5000); // Check every 5 seconds
+    }, 2000); // Check every 2 seconds
 
     return () => clearInterval(checkStream);
   }, []);

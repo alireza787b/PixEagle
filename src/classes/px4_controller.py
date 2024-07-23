@@ -1,8 +1,12 @@
 import asyncio
 import math
+import logging
 from mavsdk import System
 from classes.parameters import Parameters
 from mavsdk.offboard import *
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 class PX4Controller:
     def __init__(self):
@@ -23,7 +27,7 @@ class PX4Controller:
         """Connects to the drone using the system address from Parameters."""
         await self.drone.connect(system_address=Parameters.SYSTEM_ADDRESS)
         self.active_mode = True
-        print("Connected to the drone.")
+        logger.info("Connected to the drone.")
         self.update_task = asyncio.create_task(self.update_drone_data())
 
     async def update_drone_data(self):
@@ -37,11 +41,12 @@ class PX4Controller:
                     self.current_pitch = attitude.pitch  # Updating the pitch
                     self.current_roll = attitude.roll  # Updating the roll
             except asyncio.CancelledError:
-                print("Telemetry update task was cancelled.")
+                logger.warning("Telemetry update task was cancelled.")
                 break
             except Exception as e:
-                print(f"Error updating telemetry: {e}")
+                logger.error(f"Error updating telemetry: {e}")
                 await asyncio.sleep(1)  # Wait before retrying
+
     def get_orientation(self):
         """Returns the current orientation (yaw, pitch, roll) of the drone."""
         return self.current_yaw, self.current_pitch, self.current_roll
@@ -52,29 +57,24 @@ class PX4Controller:
         ned_vel_x, ned_vel_y = self.convert_to_ned(vel_x, vel_y, self.current_yaw)
         
         if Parameters.ENABLE_SETPOINT_DEBUGGING:
-            print(f"sending NED velocity commands: Vx={ned_vel_x}, Vy={ned_vel_y}, Vz={vel_z}, Yaw={self.current_yaw}")
+            logger.debug(f"sending NED velocity commands: Vx={ned_vel_x}, Vy={ned_vel_y}, Vz={vel_z}, Yaw={self.current_yaw}")
         
         try:
             next_setpoint = VelocityNedYaw(ned_vel_x, ned_vel_y, vel_z, self.current_yaw)
             await self.drone.offboard.set_velocity_ned(next_setpoint)
         except OffboardError as e:
-            print(f"Failed to send offboard command: {e}")
-       
-            
+            logger.error(f"Failed to send offboard command: {e}")
+
     async def send_body_velocity_commands(self, setpoint):
         """Sends velocity commands to the drone in offboard mode."""
         vx, vy, vz = setpoint
         yaw_rate = 0  # for now no yaw change
         try:
-            print(f"Setting VELOCITY_BODY setpoint: Vx={vx}, Vy={vy}, Vz={vz}, Yaw rate={yaw_rate}")
+            logger.debug(f"Setting VELOCITY_BODY setpoint: Vx={vx}, Vy={vy}, Vz={vz}, Yaw rate={yaw_rate}")
             next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_rate)
             await self.drone.offboard.set_velocity_body(next_setpoint)
         except OffboardError as e:
-            print(f"Failed to send offboard velocity command: {e}")
-            
-        
-            
-            
+            logger.error(f"Failed to send offboard velocity command: {e}")
 
     def convert_to_ned(self, vel_x, vel_y, yaw):
         """Converts local frame velocities to NED frame using the current yaw."""
@@ -93,13 +93,15 @@ class PX4Controller:
         try:
             await self.drone.offboard.start()
             result["steps"].append("Offboard mode started.")
+            logger.info("Offboard mode started.")
         except Exception as e:
             result["errors"].append(f"Failed to start offboard mode: {e}")
+            logger.error(f"Failed to start offboard mode: {e}")
         return result
 
     async def stop_offboard_mode(self):
         """Stops offboard mode."""
-        print("Stopping offboard mode...")
+        logger.info("Stopping offboard mode...")
         await self.drone.offboard.stop()
 
     async def stop(self):
@@ -109,12 +111,12 @@ class PX4Controller:
             await self.update_task
         await self.stop_offboard_mode()
         self.active_mode = False
-        print("Disconnected from the drone.")
+        logger.info("Disconnected from the drone.")
 
     async def send_initial_setpoint(self):
         """Sends an initial setpoint to enable offboard mode start."""
-        #await self.send_ned_velocity_commands((0, 0, 0))
         await self.send_body_velocity_commands((0, 0, 0))
+        # TODO: instead of setting speed to 0, better to apply the current speed.
 
     def update_setpoint(self, setpoint):
         """Updates the current setpoint."""
