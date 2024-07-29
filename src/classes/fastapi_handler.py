@@ -3,12 +3,12 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse, JSONResponse
-import threading
 import cv2
 import logging
 import time
 from fastapi.middleware.cors import CORSMiddleware
 from classes.parameters import Parameters
+import uvicorn
 
 class BoundingBox(BaseModel):
     x: float
@@ -49,7 +49,6 @@ class FastAPIHandler:
         self.app.post("/commands/stop_offboard_mode")(self.stop_offboard_mode)
         self.app.post("/commands/quit")(self.quit)
 
-        self.server_thread = None
         self.frame_rate = Parameters.STREAM_FPS
         self.width = Parameters.STREAM_WIDTH
         self.height = Parameters.STREAM_HEIGHT
@@ -130,7 +129,7 @@ class FastAPIHandler:
                            b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
                 else:
                     time.sleep(self.frame_interval - (current_time - self.last_frame_time))
-        
+
         return StreamingResponse(generate(), media_type='multipart/x-mixed-replace; boundary=frame')
 
     async def tracker_data(self):
@@ -245,28 +244,24 @@ class FastAPIHandler:
             logging.error(f"Error in quit: {e}")
             return {"status": "failure", "error": str(e)}
 
-    def start(self, host='0.0.0.0', port=Parameters.HTTP_STREAM_PORT):
+    async def start(self, host='0.0.0.0', port=Parameters.HTTP_STREAM_PORT):
         """
-        Start the FastAPI server in a new thread.
-
+        Start the FastAPI server using uvicorn.
+        
         Args:
             host (str): The hostname to listen on.
             port (int): The port to listen on.
         """
-        if self.server_thread is None:
-            import uvicorn
-            self.server = uvicorn.Server(uvicorn.Config(self.app, host=host, port=port, log_level="info"))
-            self.server_thread = threading.Thread(target=self.server.run)
-            self.server_thread.start()
-            logging.info(f"Started FastAPI server on {host}:{port}")
+        config = uvicorn.Config(self.app, host=host, port=port, log_level="info")
+        self.server = uvicorn.Server(config)
+        await self.server.serve()
 
-    def stop(self):
+    async def stop(self):
         """
         Stop the FastAPI server.
         """
         if self.server:
             logging.info("Stopping FastAPI server...")
             self.server.should_exit = True
-            self.server.force_exit = True
-            self.server_thread.join()
+            await self.server.shutdown()
             logging.info("Stopped FastAPI server")

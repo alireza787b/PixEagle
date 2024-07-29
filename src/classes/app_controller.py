@@ -50,9 +50,13 @@ class AppController:
 
         # Initialize the FastAPI handler
         self.api_handler = FastAPIHandler(self.video_handler, self.telemetry_handler, self)
-        self.api_handler.start(host=Parameters.HTTP_STREAM_HOST, port=Parameters.HTTP_STREAM_PORT)
-
         logging.info("AppController initialized.")
+
+    async def start_api_handler(self):
+        """
+        Starts the FastAPI handler.
+        """
+        await self.api_handler.start(host=Parameters.HTTP_STREAM_HOST, port=Parameters.HTTP_STREAM_PORT)
 
     def on_mouse_click(self, event: int, x: int, y: int, flags: int, param: any):
         """
