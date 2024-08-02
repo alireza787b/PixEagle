@@ -3,7 +3,6 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse, JSONResponse
-import threading
 import cv2
 import logging
 import time
@@ -17,17 +16,16 @@ class BoundingBox(BaseModel):
     height: float
 
 class FastAPIHandler:
-    def __init__(self, video_handler, telemetry_handler, app_controller):
+    def __init__(self, app_controller):
         """
         Initialize the FastAPIHandler with video and telemetry handlers.
 
         Args:
-            video_handler (VideoHandler): An instance of the VideoHandler class.
-            telemetry_handler (TelemetryHandler): An instance of the TelemetryHandler class.
             app_controller (AppController): An instance of the AppController class.
         """
-        self.video_handler = video_handler
-        self.telemetry_handler = telemetry_handler
+        logging.debug("Initializing FastAPIHandler...")
+        self.video_handler = app_controller.video_handler
+        self.telemetry_handler = app_controller.telemetry_handler
         self.app_controller = app_controller
         self.app = FastAPI()
         self.app.add_middleware(
@@ -49,7 +47,6 @@ class FastAPIHandler:
         self.app.post("/commands/stop_offboard_mode")(self.stop_offboard_mode)
         self.app.post("/commands/quit")(self.quit)
 
-        self.server_thread = None
         self.frame_rate = Parameters.STREAM_FPS
         self.width = Parameters.STREAM_WIDTH
         self.height = Parameters.STREAM_HEIGHT
@@ -58,18 +55,10 @@ class FastAPIHandler:
         self.last_frame_time = 0
         self.frame_interval = 1.0 / self.frame_rate
         self.is_shutting_down = False
-        self.server = None
+        logging.debug("FastAPIHandler initialized.")
 
     async def start_tracking(self, bbox: BoundingBox):
-        """
-        Endpoint to start tracking with the provided bounding box.
-
-        Args:
-            bbox (BoundingBox): The bounding box for tracking.
-
-        Returns:
-            dict: Status of the operation.
-        """
+        logging.debug(f"start_tracking called with bbox: {bbox}")
         try:
             width = self.video_handler.width
             height = self.video_handler.height
@@ -93,12 +82,7 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def stop_tracking(self):
-        """
-        Endpoint to stop tracking.
-
-        Returns:
-            dict: Status of the operation.
-        """
+        logging.debug("stop_tracking called")
         try:
             await self.app_controller.stop_tracking()
             return {"status": "Tracking stopped"}
@@ -107,13 +91,9 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def video_feed(self):
-        """
-        FastAPI route to serve the video feed.
-
-        Yields:
-            bytes: The next frame in JPEG format.
-        """
+        logging.debug("video_feed called")
         def generate():
+            logging.debug("video_feed generate called")
             while not self.is_shutting_down:
                 current_time = time.time()
                 if current_time - self.last_frame_time >= self.frame_interval:
@@ -134,11 +114,8 @@ class FastAPIHandler:
         return StreamingResponse(generate(), media_type='multipart/x-mixed-replace; boundary=frame')
 
     async def tracker_data(self):
-        """
-        FastAPI route to provide tracker telemetry data.
-        """
+        logging.debug("tracker_data called")
         try:
-            logging.debug("Received request at /telemetry/tracker_data")
             tracker_data = self.telemetry_handler.latest_tracker_data
             logging.debug(f"Tracker data: {tracker_data}")
             return JSONResponse(content=tracker_data or {})
@@ -147,11 +124,8 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def follower_data(self):
-        """
-        FastAPI route to provide follower telemetry data.
-        """
+        logging.debug("follower_data called")
         try:
-            logging.debug("Received request at /telemetry/follower_data")
             follower_data = self.telemetry_handler.latest_follower_data
             logging.debug(f"Follower data: {follower_data}")
             return JSONResponse(content=follower_data or {})
@@ -160,12 +134,7 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def toggle_segmentation(self):
-        """
-        Endpoint to toggle segmentation state (enable/disable YOLO).
-
-        Returns:
-            dict: Status of the operation and the current state of segmentation.
-        """
+        logging.debug("toggle_segmentation called")
         try:
             current_state = self.app_controller.toggle_segmentation()
             return {"status": "success", "segmentation_active": current_state}
@@ -174,12 +143,7 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def redetect(self):
-        """
-        Endpoint to attempt redetection of the object being tracked.
-
-        Returns:
-            dict: Status of the operation and details of the redetection attempt.
-        """
+        logging.debug("redetect called")
         try:
             result = await self.app_controller.initiate_redetection()
             return {"status": "success", "detection_result": result}
@@ -188,12 +152,7 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def cancel_activities(self):
-        """
-        Endpoint to cancel all active tracking and segmentation activities.
-
-        Returns:
-            dict: Status of the operation.
-        """
+        logging.debug("cancel_activities called")
         try:
             self.app_controller.cancel_activities()
             return {"status": "success"}
@@ -202,12 +161,7 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def start_offboard_mode(self):
-        """
-        Endpoint to start the offboard mode for PX4.
-
-        Returns:
-            dict: Status of the operation and details of the process.
-        """
+        logging.debug("start_offboard_mode called")
         try:
             result = await self.app_controller.connect_px4()
             return {"status": "success", "details": result}
@@ -216,12 +170,7 @@ class FastAPIHandler:
             return {"status": "failure", "error": str(e)}
 
     async def stop_offboard_mode(self):
-        """
-        Endpoint to stop the offboard mode for PX4.
-
-        Returns:
-            dict: Status of the operation and details of the process.
-        """
+        logging.debug("stop_offboard_mode called")
         try:
             result = await self.app_controller.disconnect_px4()
             return {"status": "success", "details": result}
@@ -230,43 +179,11 @@ class FastAPIHandler:
             return {"status": "failure", "error": str(e)}
 
     async def quit(self):
-        """
-        Endpoint to quit the application.
-
-        Returns:
-            dict: Status of the operation and details of the process.
-        """
+        logging.debug("quit called")
         try:
             logging.info("Received request to quit the application.")
-            asyncio.create_task(self.app_controller.shutdown())
-            self.server.should_exit = True
+            await self.app_controller.shutdown()
             return {"status": "success", "details": "Application is shutting down."}
         except Exception as e:
             logging.error(f"Error in quit: {e}")
             return {"status": "failure", "error": str(e)}
-
-    def start(self, host='0.0.0.0', port=Parameters.HTTP_STREAM_PORT):
-        """
-        Start the FastAPI server in a new thread.
-
-        Args:
-            host (str): The hostname to listen on.
-            port (int): The port to listen on.
-        """
-        if self.server_thread is None:
-            import uvicorn
-            self.server = uvicorn.Server(uvicorn.Config(self.app, host=host, port=port, log_level="info"))
-            self.server_thread = threading.Thread(target=self.server.run)
-            self.server_thread.start()
-            logging.info(f"Started FastAPI server on {host}:{port}")
-
-    def stop(self):
-        """
-        Stop the FastAPI server.
-        """
-        if self.server:
-            logging.info("Stopping FastAPI server...")
-            self.server.should_exit = True
-            self.server.force_exit = True
-            self.server_thread.join()
-            logging.info("Stopped FastAPI server")

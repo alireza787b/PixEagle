@@ -49,8 +49,9 @@ class AppController:
         self.telemetry_handler = TelemetryHandler(self)
 
         # Initialize the FastAPI handler
-        self.api_handler = FastAPIHandler(self.video_handler, self.telemetry_handler, self)
-        self.api_handler.start(host=Parameters.HTTP_STREAM_HOST, port=Parameters.HTTP_STREAM_PORT)
+        logging.debug("Initializing FastAPIHandler...")
+        self.api_handler = FastAPIHandler(self)
+        logging.debug("FastAPIHandler initialized.")
 
         logging.info("AppController initialized.")
 
@@ -142,6 +143,7 @@ class AppController:
         Returns:
             np.ndarray: The processed video frame.
         """
+        logging.debug("Starting update loop.")
         if self.segmentation_active:
             frame = self.segmentor.segment_frame(frame)
         
@@ -158,16 +160,13 @@ class AppController:
             else:
                 if Parameters.USE_DETECTOR and Parameters.AUTO_REDETECT:
                     self.initiate_redetection()
-                    
+
         if self.telemetry_handler.should_send_telemetry():
             self.telemetry_handler.send_telemetry()
-                    
-        if Parameters.USE_DETECTOR:
-            pass
 
         self.current_frame = frame
         self.video_handler.current_osd_frame = frame
-
+        logging.debug("Update loop complete.")
         return frame
 
     async def handle_key_input_async(self, key: int, frame: np.ndarray):
@@ -178,6 +177,7 @@ class AppController:
             key (int): The key pressed.
             frame (np.ndarray): The current video frame.
         """
+        logging.debug(f"Handling key input: {key}")
         if key == ord('y'):
             self.toggle_segmentation()
         elif key == ord('t'):
@@ -187,7 +187,7 @@ class AppController:
         elif key == ord('f'):
             await self.connect_px4()
         elif key == ord('x'):
-            if Parameters.DIRECT_PX4_MAVSDK:        
+            if Parameters.DIRECT_PX4_MAVSDK:
                 await self.disconnect_px4()
         elif key == ord('c'):
             self.cancel_activities()
@@ -273,6 +273,7 @@ class AppController:
         Args:
             frame_title (str): The title of the frame window.
         """
+        logging.debug(f"Showing current frame: {frame_title}")
         if Parameters.SHOW_VIDEO_WINDOW:
             cv2.imshow(frame_title, self.current_frame)
         return self.current_frame
