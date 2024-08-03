@@ -8,7 +8,7 @@ class Parameters:
     """
 
     # ----- Video Source Configuration -----
-    VIDEO_SOURCE_TYPE = "USB_CAMERA"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM"
+    VIDEO_SOURCE_TYPE = "USB_CAMERA"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM", "CSI_CAMERA"
 
     # For VIDEO_FILE, specify the path to the video file
     # Example: VIDEO_FILE_PATH = "resources/test1.mp4"
@@ -31,6 +31,13 @@ class Parameters:
     # I used MJPEG Streamer downloaded from microsoft app store
     # HTTP localhost loopback doesnt work!
     HTTP_URL = "http://172.21.144.1:8100"
+
+    # For CSI_CAMERA, specify the sensor ID (usually 0 or 1)
+    CSI_SENSOR_ID = 0
+
+    # Additional Parameters
+    STORE_LAST_FRAMES = 100
+    DEFAULT_FPS = 30
 
   
 
