@@ -1,8 +1,8 @@
 # Core MAVSDK for drone control
-aiogrpc==1.8
-grpcio==1.64.0
-mavsdk==2.6.2
-protobuf==3.20.1
+aiogrpc
+grpcio
+mavsdk
+protobuf
 
 # OpenCV for computer vision and tracking
 opencv-python == 4.9.0.80
