@@ -5,12 +5,14 @@ class Parameters:
     Central configuration class for the PixEagle project.
     Contains settings for video sources, tracking algorithms, application behavior,
     and debugging options. Designed for easy expansion to accommodate new features.
+
+    
     """
 
     # ----- Video Source Configuration -----
     VIDEO_SOURCE_TYPE = "CSI_CAMERA"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM", "CSI_CAMERA"
     # Not all methods tested yet.
-    # For CSI Camera, you might need GStreamer enabled for opencv. You might need to build opencv yourself and enable gstremer support. check test_Ver.py to see if your have Gstreamer enabled or not.
+
     # For VIDEO_FILE, specify the path to the video file
     # Example: VIDEO_FILE_PATH = "resources/test1.mp4"
     VIDEO_FILE_PATH = "resources/test7.mp4"
@@ -34,6 +36,8 @@ class Parameters:
     HTTP_URL = "http://172.21.144.1:8100"
 
     # For CSI_CAMERA, specify the sensor ID (usually 0 or 1)
+    # For CSI Camera, ensure OpenCV is built with GStreamer support.
+    # If issues arise, check `test_Ver.py` to verify GStreamer is enabled in OpenCV.
     CSI_SENSOR_ID = 0
 
     # For CSI_CAMERA, specify the sensor ID (usually 0 or 1)
