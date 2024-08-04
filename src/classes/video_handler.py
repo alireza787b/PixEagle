@@ -2,6 +2,10 @@ import cv2
 from .parameters import Parameters
 from collections import deque
 import time
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
 
 class VideoHandler:
     """
@@ -51,26 +55,40 @@ class VideoHandler:
             int: The calculated delay in milliseconds between frames, based on the detected or default FPS.
         """
         # Initialize the video capture object based on the source type
-        for _ in range(max_retries):
-            if Parameters.VIDEO_SOURCE_TYPE == "VIDEO_FILE":
-                self.cap = cv2.VideoCapture(Parameters.VIDEO_FILE_PATH)
-            elif Parameters.VIDEO_SOURCE_TYPE == "USB_CAMERA":
-                self.cap = cv2.VideoCapture(Parameters.CAMERA_INDEX)
-            elif Parameters.VIDEO_SOURCE_TYPE == "RTSP_STREAM":
-                self.cap = cv2.VideoCapture(Parameters.RTSP_URL)
-            elif Parameters.VIDEO_SOURCE_TYPE == "UDP_STREAM":
-                self.cap = cv2.VideoCapture(Parameters.UDP_URL, cv2.CAP_FFMPEG)
-            elif Parameters.VIDEO_SOURCE_TYPE == "HTTP_STREAM":
-                self.cap = cv2.VideoCapture(Parameters.HTTP_URL)
-            elif Parameters.VIDEO_SOURCE_TYPE == "CSI_CAMERA":
-                pipeline = self.gstreamer_pipeline(sensor_id=Parameters.CSI_SENSOR_ID)
-                self.cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
-            else:
-                raise ValueError(f"Unsupported video source type: {Parameters.VIDEO_SOURCE_TYPE}")
+        for attempt in range(max_retries):
+            logging.debug(f"Attempt {attempt + 1} to open video source.")
+            try:
+                if Parameters.VIDEO_SOURCE_TYPE == "VIDEO_FILE":
+                    self.cap = cv2.VideoCapture(Parameters.VIDEO_FILE_PATH)
+                elif Parameters.VIDEO_SOURCE_TYPE == "USB_CAMERA":
+                    self.cap = cv2.VideoCapture(Parameters.CAMERA_INDEX)
+                elif Parameters.VIDEO_SOURCE_TYPE == "RTSP_STREAM":
+                    self.cap = cv2.VideoCapture(Parameters.RTSP_URL)
+                elif Parameters.VIDEO_SOURCE_TYPE == "UDP_STREAM":
+                    self.cap = cv2.VideoCapture(Parameters.UDP_URL, cv2.CAP_FFMPEG)
+                elif Parameters.VIDEO_SOURCE_TYPE == "HTTP_STREAM":
+                    self.cap = cv2.VideoCapture(Parameters.HTTP_URL)
+                elif Parameters.VIDEO_SOURCE_TYPE == "CSI_CAMERA":
+                    pipeline = self.gstreamer_pipeline(
+                        sensor_id=Parameters.CSI_SENSOR_ID,
+                        capture_width=Parameters.CSI_WIDTH,
+                        capture_height=Parameters.CSI_HEIGHT,
+                        framerate=Parameters.CSI_FRAMERATE,
+                        flip_method=Parameters.CSI_FLIP_METHOD
+                    )
+                    self.cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+                else:
+                    raise ValueError(f"Unsupported video source type: {Parameters.VIDEO_SOURCE_TYPE}")
 
-            # Check if the video source was successfully opened
-            if self.cap and self.cap.isOpened():
-                break
+                # Check if the video source was successfully opened
+                if self.cap and self.cap.isOpened():
+                    logging.debug("Successfully opened video source.")
+                    break
+                else:
+                    logging.warning(f"Failed to open video source on attempt {attempt + 1}.")
+                
+            except Exception as e:
+                logging.error(f"Exception occurred while opening video source: {e}")
 
             # If the video source was not successfully opened, wait before retrying
             time.sleep(retry_delay)
@@ -138,11 +156,11 @@ class VideoHandler:
         Displays the video feed to verify that the video source is correctly initialized
         and frames can be read. Press 'q' to quit the test.
         """
-        print("Testing video feed. Press 'q' to exit.")
+        logging.info("Testing video feed. Press 'q' to exit.")
         while True:
             frame = self.get_frame()
             if frame is None:
-                print("No more frames to display, or an error occurred.")
+                logging.info("No more frames to display, or an error occurred.")
                 break
 
             cv2.imshow("Test Video Feed", frame)
