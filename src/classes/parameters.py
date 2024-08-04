@@ -8,8 +8,9 @@ class Parameters:
     """
 
     # ----- Video Source Configuration -----
-    VIDEO_SOURCE_TYPE = "USB_CAMERA"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM", "CSI_CAMERA"
-
+    VIDEO_SOURCE_TYPE = "CSI_CAMERA"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM", "CSI_CAMERA"
+    # Not all methods tested yet.
+    # For CSI Camera, you might need GStreamer enabled for opencv. You might need to build opencv yourself and enable gstremer support. check test_Ver.py to see if your have Gstreamer enabled or not.
     # For VIDEO_FILE, specify the path to the video file
     # Example: VIDEO_FILE_PATH = "resources/test1.mp4"
     VIDEO_FILE_PATH = "resources/test7.mp4"
@@ -82,7 +83,7 @@ class Parameters:
     STORE_LAST_FRAMES = 5  # Number of recent frames to store
     USE_ESTIMATOR = False  # Enable/disable the position estimator
     ESTIMATOR_HISTORY_LENGTH = 5  # Number of past estimations to store
-    SHOW_VIDEO_WINDOW = False # If using headless or with React web-app you wont need this window anymore
+    SHOW_VIDEO_WINDOW = True # If using headless or with React web-app you wont need this window anymore
 
     # ----- Segmentation Configuration -----
     SEGMENTATION_ALGORITHMS = ["GrabCut", "Watershed", 'yolov8s-seg', 'yolov8n-oiv7', 'yolov8s-obb']
