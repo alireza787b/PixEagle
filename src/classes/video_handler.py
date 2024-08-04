@@ -34,15 +34,19 @@ class VideoHandler:
         """
         Generates a GStreamer pipeline string for accessing a CSI camera.
         """
-        return (
+        pipeline = (
             "nvarguscamerasrc sensor-id=%d ! "
             "video/x-raw(memory:NVMM), width=(int)%d, height=(int)%d, format=(string)NV12, framerate=(fraction)%d/1 ! "
             "nvvidconv flip-method=%d ! "
-            "video/x-raw, width=(int)%d, height=(int)%d, format=(string)BGRx ! "
+            "video/x-raw, format=(string)I420, width=(int)%d, height=(int)%d ! "
             "videoconvert ! "
-            "video/x-raw, format=(string)BGR ! appsink"
+            "video/x-raw, format=(string)BGR ! "
+            "videoscale ! "
+            "appsink"
             % (sensor_id, capture_width, capture_height, framerate, flip_method, capture_width, capture_height)
         )
+        logging.debug(f"Constructed GStreamer pipeline: {pipeline}")
+        return pipeline
 
     def init_video_source(self, max_retries=5, retry_delay=1):
         """
@@ -54,7 +58,6 @@ class VideoHandler:
         Returns:
             int: The calculated delay in milliseconds between frames, based on the detected or default FPS.
         """
-        # Initialize the video capture object based on the source type
         for attempt in range(max_retries):
             logging.debug(f"Attempt {attempt + 1} to open video source.")
             try:
@@ -76,11 +79,11 @@ class VideoHandler:
                         framerate=Parameters.CSI_FRAMERATE,
                         flip_method=Parameters.CSI_FLIP_METHOD
                     )
+                    logging.debug(f"Using GStreamer pipeline: {pipeline}")
                     self.cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
                 else:
                     raise ValueError(f"Unsupported video source type: {Parameters.VIDEO_SOURCE_TYPE}")
 
-                # Check if the video source was successfully opened
                 if self.cap and self.cap.isOpened():
                     logging.debug("Successfully opened video source.")
                     break
@@ -90,20 +93,16 @@ class VideoHandler:
             except Exception as e:
                 logging.error(f"Exception occurred while opening video source: {e}")
 
-            # If the video source was not successfully opened, wait before retrying
             time.sleep(retry_delay)
         else:
-            # If the video source could not be opened after max_retries, raise an error
             raise ValueError("Could not open video source with the provided settings after maximum retries.")
 
-        # Retrieve and set video properties such as width, height, and FPS
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = self.cap.get(cv2.CAP_PROP_FPS)
         if fps <= 0:
             fps = Parameters.DEFAULT_FPS  # Use a default FPS if detection fails or isn't applicable
 
-        # Calculate the frame delay to maintain playback speed or processing rate
         delay_frame = max(int(1000 / fps), 1)  # Ensure delay is at least 1ms to avoid division by zero
 
         return delay_frame
@@ -123,7 +122,6 @@ class VideoHandler:
                 self.frame_history.append(frame)
                 return frame
             else:
-                # End of video file or error reading frame
                 return None
         else:
             return None
