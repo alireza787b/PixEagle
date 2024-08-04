@@ -35,9 +35,16 @@ class Parameters:
     # For CSI_CAMERA, specify the sensor ID (usually 0 or 1)
     CSI_SENSOR_ID = 0
 
+    # For CSI_CAMERA, specify the sensor ID (usually 0 or 1)
+    CSI_SENSOR_ID = 0
+
     # Additional Parameters
     STORE_LAST_FRAMES = 100
     DEFAULT_FPS = 30
+    CSI_WIDTH = 1280
+    CSI_HEIGHT = 720
+    CSI_FRAMERATE = 30
+    CSI_FLIP_METHOD = 0
 
   
 
