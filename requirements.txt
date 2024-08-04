@@ -36,3 +36,7 @@ pytest # For testing
 
 
 scikit-image
+
+
+fastapi
+uvicorn
