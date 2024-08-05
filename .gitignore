@@ -181,3 +181,7 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+
+
+opencv/
+opencv_contrib/
