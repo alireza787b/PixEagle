@@ -1,3 +1,4 @@
+#src/classes/telemetry_handler.py
 import socket
 import json
 from datetime import datetime, timedelta
@@ -47,7 +48,7 @@ class TelemetryHandler:
             dict: The tracker telemetry data.
         """
         timestamp = datetime.utcnow().isoformat()
-        tracker_started = self.controller.tracking_started is not None
+        tracker_started = self.controller.tracking_started 
         return {
             'bounding_box': self.controller.tracker.normalized_bbox,
             'center': self.controller.tracker.normalized_center,
@@ -63,8 +64,11 @@ class TelemetryHandler:
             dict: The follower telemetry data.
         """
         if self.controller.follower is not None:
-            return self.controller.follower.get_follower_telemetry() if Parameters.ENABLE_FOLLOWER_TELEMETRY else {}
+            telemetry = self.controller.follower.get_follower_telemetry() if Parameters.ENABLE_FOLLOWER_TELEMETRY else {}
+            telemetry['following_active'] = self.controller.follower.following_active  # Add this line
+            return telemetry
         return {}
+
 
     def gather_telemetry_data(self):
         """
