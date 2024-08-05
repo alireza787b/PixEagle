@@ -1,27 +1,48 @@
 import asyncio
 import logging
+import threading
 import signal
 import cv2
+from uvicorn import Config, Server
 from classes.app_controller import AppController
-from classes.fastapi_handler import FastAPIHandler
 from classes.parameters import Parameters
 
-async def start_fastapi_server(controller):
+def start_fastapi_server(controller):
+    """
+    Initializes and starts the FastAPI server in a separate thread.
+    """
     logging.debug("Initializing FastAPI server...")
-    await controller.start_api_handler()
+    fastapi_handler = controller.api_handler
+    app = fastapi_handler.app
 
-async def main():
-    logging.basicConfig(level=logging.DEBUG)
+    config = Config(app=app, host=Parameters.HTTP_STREAM_HOST, port=Parameters.HTTP_STREAM_PORT, log_level="info")
+    server = Server(config)
+    
+    server_thread = threading.Thread(target=server.run)
+    server_thread.start()
+    logging.debug("FastAPI server started on a separate thread.")
+    return server, server_thread
+
+def main():
+    """
+    Main function to initialize the application and run the main loop.
+    """
+    logging.basicConfig(level=logging.INFO)
     logging.debug("Starting main application...")
 
     controller = AppController()
-
-    # Start the FastAPI server within the main event loop
-    server_task = asyncio.create_task(start_fastapi_server(controller))
+    server, server_thread = start_fastapi_server(controller)
 
     def shutdown_handler(signum, frame):
+        """
+        Signal handler to gracefully shutdown the application.
+
+        Args:
+            signum (int): The signal number.
+            frame (FrameType): The current stack frame.
+        """
         logging.info("Shutting down...")
-        asyncio.create_task(controller.shutdown())
+        asyncio.run(controller.shutdown())
         controller.shutdown_flag = True
 
     signal.signal(signal.SIGINT, shutdown_handler)
@@ -29,25 +50,30 @@ async def main():
 
     controller.shutdown_flag = False
 
-    while not controller.shutdown_flag:
-        frame = controller.video_handler.get_frame()
-        if frame is None:
-            break
+    try:
+        while not controller.shutdown_flag:
+            frame = controller.video_handler.get_frame()
+            if frame is None:
+                break
 
-        frame = await controller.update_loop(frame)
-        controller.show_current_frame()
+            frame = asyncio.run(controller.update_loop(frame))
+            controller.show_current_frame()
 
-        key = cv2.waitKey(controller.video_handler.delay_frame) & 0xFF
-        if key == ord('q'):
-            logging.info("Quitting...")
-            controller.shutdown_flag = True
-        else:
-            await controller.handle_key_input_async(key, frame)
+            key = cv2.waitKey(controller.video_handler.delay_frame) & 0xFF
+            if key == ord('q'):
+                logging.info("Quitting...")
+                controller.shutdown_flag = True
+            else:
+                asyncio.run(controller.handle_key_input_async(key, frame))
 
-    await controller.shutdown()
-    await server_task
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+
+    asyncio.run(controller.shutdown())
+    server.should_exit = True
+    server_thread.join()  # Wait for the FastAPI server thread to finish
     cv2.destroyAllWindows()
     logging.debug("Application shutdown complete.")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
