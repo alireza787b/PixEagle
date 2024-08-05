@@ -1,3 +1,4 @@
+//dashboard/src/services/apiEndpoints.js
 const apiHost = process.env.REACT_APP_WEBSOCKET_VIDEO_HOST;
 const apiPort = process.env.REACT_APP_WEBSOCKET_VIDEO_PORT;
 
