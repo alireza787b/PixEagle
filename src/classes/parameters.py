@@ -10,7 +10,7 @@ class Parameters:
     """
 
     # ----- Video Source Configuration -----
-    VIDEO_SOURCE_TYPE = "VIDEO_FILE"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM", "CSI_CAMERA"
+    VIDEO_SOURCE_TYPE = "CSI_CAMERA"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM", "CSI_CAMERA"
     # Not all methods tested yet.
 
     # For VIDEO_FILE, specify the path to the video file
