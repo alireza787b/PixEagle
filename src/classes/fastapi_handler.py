@@ -17,7 +17,7 @@ class BoundingBox(BaseModel):
     height: float
 
 class FastAPIHandler:
-    def __init__(self, video_handler, telemetry_handler, app_controller):
+    def __init__(self, app_controller):
         """
         Initialize the FastAPIHandler with video and telemetry handlers.
 
@@ -26,8 +26,8 @@ class FastAPIHandler:
             telemetry_handler (TelemetryHandler): An instance of the TelemetryHandler class.
             app_controller (AppController): An instance of the AppController class.
         """
-        self.video_handler = video_handler
-        self.telemetry_handler = telemetry_handler
+        self.video_handler = app_controller.video_handler
+        self.telemetry_handler = app_controller.telemetry_handler
         self.app_controller = app_controller
         self.app = FastAPI()
         self.app.add_middleware(
