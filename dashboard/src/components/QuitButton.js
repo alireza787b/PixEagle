@@ -1,3 +1,4 @@
+//dashboard/src/components/QuitButton.js
 import React from 'react';
 import { Button, Tooltip } from '@mui/material';
 import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
