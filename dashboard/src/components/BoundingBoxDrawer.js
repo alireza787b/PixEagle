@@ -1,3 +1,4 @@
+//dashboard/src/components/BoundingBoxDrawer.js
 import React from 'react';
 import WebRTCStream from './WebRTCStream';
 
@@ -9,15 +10,21 @@ const BoundingBoxDrawer = ({
   handleMouseDown,
   handleMouseMove,
   handleMouseUp,
+  handleTouchStart,
+  handleTouchMove,
+  handleTouchEnd,
   videoSrc
 }) => {
   return (
-    <div 
+    <div
       ref={imageRef}
-      style={{ position: 'relative', display: 'inline-block', width: '100%' }}
+      style={{ position: 'relative', display: 'inline-block', width: '100%', touchAction: 'none' }}  // Prevent touch scrolling
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
       <WebRTCStream protocol="http" src={videoSrc} />
       {startPos && currentPos && (
