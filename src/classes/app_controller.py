@@ -1,3 +1,4 @@
+# src/classes/app_controller.py
 import asyncio
 import logging
 import numpy as np
@@ -14,6 +15,7 @@ from classes.px4_controller import PX4Controller  # Ensure this import path is c
 from classes.telemetry_handler import TelemetryHandler
 from classes.fastapi_handler import FastAPIHandler  # Correct import
 from typing import Dict, Tuple
+from classes.osd_handler import OSDHandler
 
 class AppController:
     def __init__(self):
@@ -52,6 +54,9 @@ class AppController:
         logging.debug("Initializing FastAPIHandler...")
         self.api_handler = FastAPIHandler(self)
         logging.debug("FastAPIHandler initialized.")
+
+        # Initialize the OSD handler
+        self.osd_handler = OSDHandler()
 
         logging.info("AppController initialized.")
 
@@ -167,6 +172,10 @@ class AppController:
         self.current_frame = frame
         self.video_handler.current_osd_frame = frame
         logging.debug("Update loop complete.")
+        
+        # Draw OSD elements on the frame
+        frame = self.osd_handler.draw_osd(frame)
+        
         return frame
 
     async def handle_key_input_async(self, key: int, frame: np.ndarray):

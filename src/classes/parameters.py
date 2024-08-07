@@ -10,7 +10,7 @@ class Parameters:
     """
 
     # ----- Video Source Configuration -----
-    VIDEO_SOURCE_TYPE = "CSI_CAMERA"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM", "CSI_CAMERA"
+    VIDEO_SOURCE_TYPE = "USB_CAMERA"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM", "CSI_CAMERA"
     # Not all methods tested yet.
 
     # For VIDEO_FILE, specify the path to the video file
@@ -19,7 +19,7 @@ class Parameters:
 
     # For USB_CAMERA, specify the camera index as an integer
     # Example: CAMERA_INDEX = 0 for the default webcam
-    CAMERA_INDEX = 1
+    CAMERA_INDEX = 0
 
     # For RTSP_STREAM, specify the RTSP URL as a string
     # Example: RTSP_URL = "rtsp://username:password@ip_address:port/stream"
@@ -87,7 +87,7 @@ class Parameters:
     STORE_LAST_FRAMES = 5  # Number of recent frames to store
     USE_ESTIMATOR = False  # Enable/disable the position estimator
     ESTIMATOR_HISTORY_LENGTH = 5  # Number of past estimations to store
-    SHOW_VIDEO_WINDOW = False # If using headless or with React web-app you wont need this window anymore
+    SHOW_VIDEO_WINDOW = True # If using headless or with React web-app you wont need this window anymore
 
     # ----- Segmentation Configuration -----
     SEGMENTATION_ALGORITHMS = ["GrabCut", "Watershed", 'yolov8s-seg', 'yolov8n-oiv7', 'yolov8s-obb']
@@ -246,4 +246,24 @@ class Parameters:
     # ----- Debugging and Logging -----
     ENABLE_DEBUGGING = True  # Enable verbose logging
     LOG_FILE_PATH = "logs/tracking_log.txt"  # Path to save log files
+
+
+
+    # OSD Parameters
+    # Positions are specified as (x, y) in percentages
+    OSD_SHOW_NAME = True
+    OSD_NAME = "PixEagle"
+    OSD_NAME_POSITION = (2, 5)  # 2% from the left, 5% from the top
+    OSD_NAME_COLOR = (255, 255, 255)  # White for visibility
+    OSD_NAME_FONT_SIZE = 0.7
+
+    OSD_SHOW_DATETIME = True
+    OSD_DATETIME_POSITION = (98, 5)  # 98% from the left, 5% from the top (adjusted to fit within the screen)
+    OSD_DATETIME_COLOR = (255, 255, 255)  # White for visibility
+    OSD_DATETIME_FONT_SIZE = 0.7
+
+    OSD_SHOW_CROSSHAIR = True
+    OSD_CROSSHAIR_COLOR = (0, 255, 0)  # Green
+    OSD_CROSSHAIR_THICKNESS = 3  # Thicker crosshair
+    OSD_CROSSHAIR_LENGTH = 10
 
