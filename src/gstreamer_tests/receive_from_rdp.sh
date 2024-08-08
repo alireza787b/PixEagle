@@ -7,7 +7,7 @@ if ! command -v gst-launch-1.0 &> /dev/null; then
 fi
 
 # Set the port to listen on
-PORT=5000
+PORT=2000
 
 # Run the GStreamer pipeline to receive and display the video stream
 gst-launch-1.0 -v udpsrc port=$PORT caps="application/x-rtp, media=video, encoding-name=H264, payload=96" ! \
