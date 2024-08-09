@@ -18,16 +18,23 @@ SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 SDP_FILE="$SCRIPT_DIR/stream.sdp"
 
 # OSD (On-Screen Display) settings
-ENABLE_OSD=true            # Global toggle for enabling/disabling OSD
-CROSSHAIR_TEXT="+"         # Crosshair symbol
-CROSSHAIR_FONT="Sans, 50"  # Crosshair font and size
-CROSSHAIR_COLOR="red"      # Crosshair color
-TITLE_TEXT="PixEagle"      # Title text
-TITLE_FONT="Sans, 30"      # Title font and size
-TITLE_COLOR="white"        # Title color
-TITLE_POSITION="top"       # Title position (top or bottom)
-TIMESTAMP_FONT="Sans, 20"  # Timestamp font and size
-TIMESTAMP_COLOR="yellow"   # Timestamp color
+ENABLE_OSD=true             # Global toggle for enabling/disabling OSD
+ENABLE_CROSSHAIR=true       # Toggle for enabling/disabling the crosshair
+ENABLE_TITLE=true           # Toggle for enabling/disabling the title
+ENABLE_TIMESTAMP=true       # Toggle for enabling/disabling the timestamp
+ENABLE_GRID=false           # Toggle for enabling/disabling the grid overlay
+
+CROSSHAIR_TEXT="+"          # Crosshair symbol
+CROSSHAIR_FONT="Sans, 50"   # Crosshair font and size
+CROSSHAIR_COLOR="0xFFFF0000" # Crosshair color (in ARGB format, red: 0xFFFF0000)
+
+TITLE_TEXT="PixEagle"       # Title text
+TITLE_FONT="Sans, 30"       # Title font and size
+TITLE_COLOR="0xFFFFFFFF"    # Title color (in ARGB format, white: 0xFFFFFFFF)
+TITLE_POSITION="top"        # Title position (top or bottom)
+
+TIMESTAMP_FONT="Sans, 20"   # Timestamp font and size
+TIMESTAMP_COLOR="0xFFFFFF00" # Timestamp color (in ARGB format, yellow: 0xFFFFFF00)
 TIMESTAMP_FORMAT="%Y-%m-%d %H:%M:%S" # Timestamp format
 
 # Function to clean up on exit
@@ -61,13 +68,20 @@ if [ ! -f $SDP_FILE ]; then
 fi
 
 # Prepare OSD elements if enabled
+OSD_ELEMENTS=""
 if [ "$ENABLE_OSD" = true ]; then
-    OSD_ELEMENTS="
-        textoverlay text=\"$CROSSHAIR_TEXT\" font-desc=\"$CROSSHAIR_FONT\" color=\"$CROSSHAIR_COLOR\" valignment=center halignment=center !
-        clockoverlay text=\"$TITLE_TEXT\" font-desc=\"$TITLE_FONT\" color=\"$TITLE_COLOR\" halignment=left valignment=$TITLE_POSITION shaded-background=true !
-        clockoverlay font-desc=\"$TIMESTAMP_FONT\" color=\"$TIMESTAMP_COLOR\" halignment=right valignment=bottom time-format=\"$TIMESTAMP_FORMAT\" shaded-background=true !"
-else
-    OSD_ELEMENTS=""
+    if [ "$ENABLE_CROSSHAIR" = true ]; then
+        OSD_ELEMENTS+="textoverlay text=\"$CROSSHAIR_TEXT\" font-desc=\"$CROSSHAIR_FONT\" valignment=center halignment=center ! "
+    fi
+    if [ "$ENABLE_TITLE" = true ]; then
+        OSD_ELEMENTS+="textoverlay text=\"$TITLE_TEXT\" font-desc=\"$TITLE_FONT\" valignment=$TITLE_POSITION halignment=left ! "
+    fi
+    if [ "$ENABLE_TIMESTAMP" = true ]; then
+        OSD_ELEMENTS+="clockoverlay font-desc=\"$TIMESTAMP_FONT\" valignment=bottom halignment=right time-format=\"$TIMESTAMP_FORMAT\" shaded-background=true ! "
+    fi
+    if [ "$ENABLE_GRID" = true ]; then
+        OSD_ELEMENTS+="cairooverlay draw-on-top=true ! "
+    fi
 fi
 
 # Start the GStreamer pipeline with OSD elements if enabled
