@@ -40,7 +40,7 @@ class GStreamerHandler:
             f"nvvidconv flip-method=0 ! "
             f"x264enc tune=zerolatency bitrate={Parameters.GSTREAMER_BITRATE} speed-preset=superfast ! "
             f"rtph264pay config-interval=1 pt=96 ! "
-            f"udpsink host={Parameters.GSTREAMER_HOST} port={Parameters.GSTREAMER_PORT} buffer-size=50000000"
+            f"udpsink host={Parameters.GSTREAMER_HOST} port={Parameters.GSTREAMER_PORT}"
         )
         logging.debug(f"GStreamer pipeline: {pipeline}")
         return pipeline

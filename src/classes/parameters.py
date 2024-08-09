@@ -10,7 +10,7 @@ class Parameters:
     """
 
     # ----- Video Source Configuration -----
-    VIDEO_SOURCE_TYPE = "USB_CAMERA"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM", "CSI_CAMERA"
+    VIDEO_SOURCE_TYPE = "CSI_CAMERA"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM", "CSI_CAMERA"
     # Not all methods tested yet.
 
     # For VIDEO_FILE, specify the path to the video file
@@ -269,7 +269,7 @@ class Parameters:
     
     # ----- GStreamer Configuration -----
     ENABLE_GSTREAMER_STREAM = True  # Toggle to enable or disable GStreamer streaming
-    GSTREAMER_HOST = "10.223.0.5"  # IP address of the target machine (e.g., QGroundControl)
+    GSTREAMER_HOST = "192.168.1.163"  # IP address of the target machine (e.g., QGroundControl)
     GSTREAMER_PORT = 2000  # Port to stream the video over UDP
     GSTREAMER_BITRATE = 5000000  # Bitrate for the video stream in bits per second
     GSTREAMER_FRAMERATE = 30  # Frame rate for the video stream
