@@ -16,6 +16,8 @@ from classes.telemetry_handler import TelemetryHandler
 from classes.fastapi_handler import FastAPIHandler  # Correct import
 from typing import Dict, Tuple
 from classes.osd_handler import OSDHandler
+from classes.gstreamer_handler import GStreamerHandler
+
 
 class AppController:
     def __init__(self):
@@ -57,6 +59,15 @@ class AppController:
 
         # Initialize the OSD handler
         self.osd_handler = OSDHandler()
+        
+        # Initialize GStreamerHandler if streaming is enabled
+        if Parameters.ENABLE_GSTREAMER_STREAM:
+            self.gstreamer_handler = GStreamerHandler(
+                width=self.video_handler.width,
+                height=self.video_handler.height,
+                framerate=Parameters.GSTREAMER_FRAMERATE
+            )
+            self.gstreamer_handler.initialize_stream()
 
         logging.info("AppController initialized.")
 
@@ -148,7 +159,7 @@ class AppController:
         Returns:
             np.ndarray: The processed video frame.
         """
-        logging.debug("Starting update loop.")
+        #logging.debug("Starting update loop.")
         if self.segmentation_active:
             frame = self.segmentor.segment_frame(frame)
         
@@ -171,6 +182,11 @@ class AppController:
 
         self.current_frame = frame
         self.video_handler.current_osd_frame = frame
+
+        # Stream the processed frame if GStreamer is enabled
+        if Parameters.ENABLE_GSTREAMER_STREAM and self.gstreamer_handler:
+            self.gstreamer_handler.stream_frame(frame)
+        
         logging.debug("Update loop complete.")
         
         # Draw OSD elements on the frame
