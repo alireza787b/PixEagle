@@ -183,14 +183,16 @@ class AppController:
         self.current_frame = frame
         self.video_handler.current_osd_frame = frame
 
+        
+        
+        # Draw OSD elements on the frame
+        frame = self.osd_handler.draw_osd(frame)
+
         # Stream the processed frame if GStreamer is enabled
         if Parameters.ENABLE_GSTREAMER_STREAM and self.gstreamer_handler:
             self.gstreamer_handler.stream_frame(frame)
         
         logging.debug("Update loop complete.")
-        
-        # Draw OSD elements on the frame
-        frame = self.osd_handler.draw_osd(frame)
         
         return frame
 

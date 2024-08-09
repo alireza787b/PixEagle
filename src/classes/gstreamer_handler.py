@@ -5,18 +5,18 @@ from classes.parameters import Parameters
 
 class GStreamerHandler:
     """
-    Handles streaming video frames to a GStreamer pipeline.
-    The GStreamer pipeline is configured to send video over UDP in H.264 format.
+    A class to handle streaming video frames to a GStreamer pipeline.
+    This class initializes a GStreamer pipeline that streams video frames over UDP in H.264 format.
     """
 
     def __init__(self, width: int, height: int, framerate: int):
         """
-        Initializes the GStreamerHandler with the specified width, height, and framerate.
+        Initializes the GStreamerHandler with the specified frame width, height, and framerate.
 
         Args:
-            width (int): Width of the video frames.
-            height (int): Height of the video frames.
-            framerate (int): Frame rate of the video stream.
+            width (int): The width of the video frames.
+            height (int): The height of the video frames.
+            framerate (int): The frame rate of the video stream.
         """
         self.width = width
         self.height = height
@@ -26,24 +26,32 @@ class GStreamerHandler:
 
     def _create_pipeline(self) -> str:
         """
-        Constructs the GStreamer pipeline string using the parameters.
+        Constructs the GStreamer pipeline string using parameters from the configuration.
+        This pipeline mimics the one used in your shell script with OpenCV as the source.
 
         Returns:
-            str: The GStreamer pipeline string.
+            str: The constructed GStreamer pipeline string.
         """
-        return (
-            f"appsrc ! videoconvert ! "
+        # Constructing the pipeline
+        pipeline = (
+            f"appsrc ! video/x-raw,format=BGR,width={self.width},height={self.height},framerate={self.framerate}/1 ! "
+            f"videoconvert ! "
+            f"video/x-raw,format=NV12 ! "  # Matching the NV12 format expected by the rest of the pipeline
+            f"nvvidconv flip-method=0 ! "
             f"x264enc tune=zerolatency bitrate={Parameters.GSTREAMER_BITRATE} speed-preset=superfast ! "
             f"rtph264pay config-interval=1 pt=96 ! "
-            f"udpsink host={Parameters.GSTREAMER_HOST} port={Parameters.GSTREAMER_PORT}"
+            f"udpsink host={Parameters.GSTREAMER_HOST} port={Parameters.GSTREAMER_PORT} buffer-size=50000000"
         )
+        logging.debug(f"GStreamer pipeline: {pipeline}")
+        return pipeline
 
     def initialize_stream(self):
         """
         Initializes the GStreamer pipeline using OpenCV's VideoWriter.
+        This method sets up the pipeline and prepares it for streaming frames.
         """
         try:
-            logging.debug(f"Initializing GStreamer pipeline: {self.pipeline}")
+            logging.info("Initializing GStreamer pipeline...")
             self.out = cv2.VideoWriter(self.pipeline, cv2.CAP_GSTREAMER, 0, self.framerate, (self.width, self.height), True)
             if not self.out.isOpened():
                 logging.error("Failed to open GStreamer pipeline.")
@@ -61,6 +69,21 @@ class GStreamerHandler:
         """
         if self.out:
             try:
+                # Ensure the frame is 8-bit, 3-channel BGR format
+                if frame.dtype != np.uint8:
+                    logging.debug("Converting frame to 8-bit unsigned integer type.")
+                    frame = frame.astype(np.uint8)
+                
+                if len(frame.shape) == 2:  # Grayscale image with 1 channel
+                    logging.debug("Converting grayscale frame to BGR format.")
+                    frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                elif frame.shape[2] == 1:  # Single channel image
+                    logging.debug("Converting single channel frame to BGR format.")
+                    frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                elif frame.shape[2] != 3:
+                    logging.error("Unexpected number of channels in frame.")
+                    return
+                
                 self.out.write(frame)
             except Exception as e:
                 logging.error(f"Error streaming frame to GStreamer pipeline: {e}")
@@ -68,6 +91,7 @@ class GStreamerHandler:
     def release(self):
         """
         Releases the GStreamer pipeline and associated resources.
+        This should be called to clean up resources when streaming is no longer needed.
         """
         if self.out:
             self.out.release()

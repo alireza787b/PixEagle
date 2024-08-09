@@ -268,7 +268,7 @@ class Parameters:
     OSD_CROSSHAIR_LENGTH = 10
     
     # ----- GStreamer Configuration -----
-    ENABLE_GSTREAMER_STREAM = False  # Toggle to enable or disable GStreamer streaming
+    ENABLE_GSTREAMER_STREAM = True  # Toggle to enable or disable GStreamer streaming
     GSTREAMER_HOST = "10.223.0.5"  # IP address of the target machine (e.g., QGroundControl)
     GSTREAMER_PORT = 2000  # Port to stream the video over UDP
     GSTREAMER_BITRATE = 5000000  # Bitrate for the video stream in bits per second
