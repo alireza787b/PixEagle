@@ -100,17 +100,19 @@ To set up the PixEagle project, follow these steps:
    ```
 If you prefer, you can still use the global Python environment instead of a virtual environment.
 
+7. Before starting the dashboard, make sure to update the `dashboard/.env` file with the correct IP addresses of the backend server for all three configurations: WebSocket, video feed, and API server. This ensures proper communication between the dashboard and the backend services.
 
-7. Install Node.js and npm for the dashboard application (if not already installed):
+
+8. Install Node.js and npm for the dashboard application (if not already installed):
    ```bash
    # Follow instructions at https://nodejs.org/en/download/
    ```
-8. Navigate to the dashboard directory and install dependencies:
+9. Navigate to the dashboard directory and install dependencies:
    ```bash
    cd dashboard
    npm install
    ```
-9. Start the dashboard application:
+10. Start the dashboard application:
    ```bash
    npm start
    ```
