@@ -1,4 +1,5 @@
 #!/bin/bash
+# Stream to RTP/UDP 264 . Optimized for QGC.
 
 # Ensure GStreamer is installed
 if ! command -v gst-launch-1.0 &> /dev/null; then
