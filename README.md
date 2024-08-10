@@ -1,9 +1,10 @@
-
 # PixEagle
 
 ## Overview
 
 PixEagle is an all-in-one image processing, following, and tracking solution designed for the PX4 ecosystem (with potential expansion to ArduPilot). It leverages MAVSDK Python, OpenCV, and optional YOLO for precise object tracking and drone navigation. The project emphasizes modularity and extensibility, allowing users to implement their own tracking, detection, and segmentation algorithms. The system is modular, well-commented, and designed for easy integration of new algorithms. Additionally, PixEagle includes a beta web app GUI using React for real-time monitoring and control.
+PixEagle comes with a full web-based React application serves as the Ground Control Station (GCS). It provides a basic yet functional interface where you can view live camera feeds, tracker and follower data, and plots. The enhanced UI now supports drag-and-select target tracking and controlling the tracker.
+
 
 ## Latest Release
 
@@ -11,63 +12,6 @@ Watch the latest video showcasing PixEagle v1.0, demonstrating advanced features
 [![PixEagle v1.0](https://github.com/user-attachments/assets/4acd965b-34c1-456e-be70-d4cc7f26eddb)](https://youtu.be/hw5MU0mPx2I)
 
 
-## Key Components
-
-### AppController
-
-The AppController is essentially the manager and coordinator of the entire application flow. It oversees and orchestrates the main loops, streaming, following, tracking, and detection processes, ensuring smooth and efficient operation of the PixEagle system.
-
-### Tracker
-
-The `Tracker` class has been improved to allow for building custom tracker instances. It initializes and manages the tracking algorithm, processes video frames, and updates tracking data. It supports various tracking algorithms such as CSRT, KCF, and others. The tracker can also use a position estimator for enhanced accuracy.
-
-### BaseTracker and Templates
-
-The `BaseTracker` class provides a foundation for custom tracker implementations. Templates are provided for creating new tracking algorithms, allowing for easy extension and customization.
-
-### Follower
-
-The `Follower` class is designed for scenarios where a downward-looking camera follows a moving or stationary target. It uses PID control with gain scheduling to maintain accurate tracking even on a moving platform. The `Follower` class parameters are managed in the `Parameters` class.
-
-### PX4Controller
-
-The `PX4Controller` handles communication with MAVSDK and PX4 using MAVLink. It manages offboard control, allowing for precise drone navigation and control.
-
-### FlaskHandler
-
-The `FlaskHandler` sends telemetry and tracker data via HTTP to any Ground Control Station (GCS) and the PixEagle dashboard. Details on the URIs, ports, and syntax can be found in the `Parameters` class.
-
-### TelemetryData
-
-The `TelemetryData` class is responsible for packing data for the `FlaskHandler`, ensuring efficient and organized data transmission.
-
-### Detector and DetectorInterface
-
-Defines the base structure and interface for object detection modules, allowing for extensibility and integration of different detection algorithms.
-
-### FeatureMatchingDetector
-
-Specializes in detecting objects based on feature matching, enhancing the application's ability to recognize objects in various conditions.
-
-### Parameters
-
-Stores and manages all configuration settings, including detection parameters, video source configurations, and PID gains for the `Follower`.
-
-### Segmentor
-
-Implements advanced segmentation algorithms to improve object detection and tracking in complex scenes.
-
-### TemplateMatcher
-
-Utilizes template matching techniques for object detection, offering a straightforward method for recognizing objects based on stored templates.
-
-### VideoHandler
-
-Handles video inputs from various sources, including files and cameras, ensuring flexible input options for processing and analysis.
-
-### Dashboard (React App)
-
-A full web-based React application serves as the Ground Control Station (GCS). It provides a basic yet functional interface where you can view live camera feeds, tracker and follower data, and plots. Future updates will include additional features such as the ability to send commands and more interactive capabilities.
 
 ## Getting Started
 
@@ -94,32 +38,44 @@ To set up the PixEagle project, follow these steps:
    ```bash
    ./setup_pytorch.sh
    ```
-6. Execute the main application:
+
+### Running the Application
+
+You can now easily run the PixEagle dashboard and main application using the provided bash scripts. These scripts simplify the process by handling the setup and execution steps automatically.
+
+1. **Running the Main Python Application**:
+   To run the main PixEagle Python application:
    ```bash
-   python src/main.py
+   ./run_main.sh
    ```
-If you prefer, you can still use the global Python environment instead of a virtual environment.
+   This script will:
+   - Activate the Python virtual environment located at `~/PixEagle/venv`.
+   - Run the main Python script `src/main.py`.
+   - You can customize the Python interpreter by editing the script or passing it as an argument:
+     ```bash
+     ./run_main.sh /path/to/python
+     ```
 
-7. Before starting the dashboard, make sure to update the `dashboard/.env` file with the correct IP addresses of the backend server for all three configurations: WebSocket, video feed, and API server. This ensures proper communication between the dashboard and the backend services.
-
-
-8. Install Node.js and npm for the dashboard application (if not already installed):
+2. **Running the Dashboard**:
+   To run the PixEagle React dashboard:
    ```bash
-   # Follow instructions at https://nodejs.org/en/download/
+   ./run_dashboard.sh
    ```
-9. Navigate to the dashboard directory and install dependencies:
+   This script will:
+   - Navigate to the `~/PixEagle/dashboard` directory.
+   - Install necessary npm packages.
+   - Start the React server on the specified port (default: 3001).
+   - You can change the port by passing it as an argument:
+     ```bash
+     ./run_dashboard.sh <Custom Port Number>
+     ```
+
+3. **Accessing the Dashboard**:
+   After starting the dashboard, you can access it in your browser at:
    ```bash
-   cd dashboard
-   npm install
+   http://127.0.0.1:3001
    ```
-10. Start the dashboard application:
-   ```bash
-   npm start
-   ```
-
-Access the dashboard in your browser at `http://127.0.0.1:3000`
-
-
+   If you're accessing it from another device, replace `127.0.0.1` with your device's IP address.
 
 ### Parameter Customization
 
@@ -144,8 +100,16 @@ MIN_DESCENT_HEIGHT = 20  # meters
 # Limits the vertical speed to prevent rapid altitude loss.
 MAX_RATE_OF_DESCENT = 0.5  # meters per second
 ```
+
 #### Other Parameters
-Ensure to check and adjust other parameters in the parameters.py file, such as PID gains, camera angles, and more, to optimize the system for your specific needs. The file is well-documented to assist you in making these customizations.
+
+Ensure to check and adjust other parameters in the `parameters.py` file, such as PID gains, camera angles, and more, to optimize the system for your specific needs. The file is well-documented to assist you in making these customizations.
+
+### GStreamer Integration
+
+PixEagle now supports GStreamer for video input and output. Several GStreamer test pipelines have been added, making it easy to directly send video feeds to QGroundControl (QGC) and other
+
+ applications. The video source, including CSI camera input, can be configured in the `parameters.py` file.
 
 ### Key Bindings
 
@@ -155,7 +119,7 @@ While in the video pop-up screen, you can use the following keys:
 - `y`: YOLO detection
 - `f`: Start following offboard
 - `d`: Try to re-detect target
-- `q`: Quite
+- `q`: Quit
 
 ## Current Situation
 
@@ -163,13 +127,13 @@ Currently, the tracker with CSRT, detection with template matching, and connecti
 
 ### Known Issues
 
-- In the React UI, video overlay on the scope plot makes the telemetry update stop.
-- Unable to draw the bounding box around the target from the React app yet.
 - The follower with a forward-looking camera and chase mode will be implemented soon.
+- The main code will wait for any client receiving HTTP video feed to close before fully closing.
+- Cannot start Offboard mode currently from the dashboard.
 
 ## Troubleshooting
 
-If you encounter an ImportError related to libGL.so.1, install the OpenGL libraries with:
+If you encounter an ImportError related to `libGL.so.1`, install the OpenGL libraries with:
 ```bash
 sudo apt-get update
 sudo apt-get install -y libgl1-mesa-glx
