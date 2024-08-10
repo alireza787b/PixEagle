@@ -1,4 +1,3 @@
-# src/classes/app_controller.py
 import asyncio
 import logging
 import numpy as np
@@ -11,7 +10,7 @@ from classes.segmentor import Segmentor
 from classes.trackers.tracker_factory import create_tracker
 from classes.detector import Detector
 import cv2
-from classes.px4_controller import PX4Controller  # Ensure this import path is correct
+from classes.px4_interface_manager import PX4InterfaceManager  # Updated import path
 from classes.telemetry_handler import TelemetryHandler
 from classes.fastapi_handler import FastAPIHandler  # Correct import
 from typing import Dict, Tuple
@@ -43,14 +42,14 @@ class AppController:
             cv2.setMouseCallback("Video", self.on_mouse_click)
         self.current_frame = None
 
-        # Initialize PX4 controller and following mode flag
-        self.px4_controller = PX4Controller()
+        # Initialize PX4 interface manager and following mode flag
+        self.px4_interface = PX4InterfaceManager()
         self.following_active = False
         self.follower = None
         self.setpoint_sender = None
 
-        # Initialize telemetry handler
-        self.telemetry_handler = TelemetryHandler(self)
+        # Initialize telemetry handler with tracker and follower
+        self.telemetry_handler = TelemetryHandler(self.tracker, self.follower, lambda: self.tracking_started)
 
         # Initialize the FastAPI handler
         logging.debug("Initializing FastAPIHandler...")
@@ -183,8 +182,6 @@ class AppController:
         self.current_frame = frame
         self.video_handler.current_osd_frame = frame
 
-        
-        
         # Draw OSD elements on the frame
         frame = self.osd_handler.draw_osd(frame)
 
@@ -316,13 +313,13 @@ class AppController:
         if not self.following_active:
             try:
                 logging.debug("Activating Follow Mode to PX4!")
-                await self.px4_controller.connect()
+                await self.px4_interface.connect()
                 logging.debug("Connected to PX4 Drone!")
                 
                 initial_target_coords = self.tracker.normalized_center if Parameters.TARGET_POSITION_MODE == 'initial' else Parameters.DESIRE_AIM
-                self.follower = Follower(self.px4_controller, initial_target_coords)
-                await self.px4_controller.send_initial_setpoint()
-                await self.px4_controller.start_offboard_mode()
+                self.follower = Follower(self.px4_interface, initial_target_coords)
+                await self.px4_interface.send_initial_setpoint()
+                await self.px4_interface.start_offboard_mode()
                 self.following_active = True
                 result["steps"].append("Offboard mode started.")
             except Exception as e:
@@ -343,7 +340,7 @@ class AppController:
         result = {"steps": [], "errors": []}
         if self.following_active:
             try:
-                await self.px4_controller.stop_offboard_mode()
+                await self.px4_interface.stop_offboard_mode()
                 result["steps"].append("Offboard mode stopped.")
                 if self.setpoint_sender:
                     self.setpoint_sender.stop()
@@ -365,8 +362,8 @@ class AppController:
         if self.tracking_started and self.following_active:
             target_coords = self.tracker.normalized_center
             setpoint = await self.follower.follow_target(target_coords)
-            self.px4_controller.update_setpoint(setpoint)
-            await self.px4_controller.send_body_velocity_commands(self.px4_controller.last_command)
+            self.px4_interface.update_setpoint(setpoint)
+            await self.px4_interface.send_body_velocity_commands(self.px4_interface.last_command)
 
     async def shutdown(self) -> Dict[str, any]:
         """
@@ -379,7 +376,7 @@ class AppController:
         try:
             if self.following_active:
                 logging.debug("Stopping offboard mode and disconnecting PX4.")
-                await self.px4_controller.stop_offboard_mode()
+                await self.px4_interface.stop_offboard_mode()
                 if self.setpoint_sender:
                     self.setpoint_sender.stop()
                     self.setpoint_sender.join()

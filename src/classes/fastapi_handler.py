@@ -1,12 +1,12 @@
-import asyncio
-from typing import Optional
+# src/classes/fastapi_handler.py
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+import asyncio
 import cv2
 import logging
 import time
-from fastapi.middleware.cors import CORSMiddleware
 from classes.parameters import Parameters
 import uvicorn
 
@@ -19,16 +19,14 @@ class BoundingBox(BaseModel):
 class FastAPIHandler:
     def __init__(self, app_controller):
         """
-        Initialize the FastAPIHandler with video and telemetry handlers.
-
+        Initialize the FastAPIHandler with necessary dependencies and settings.
+        
         Args:
-            video_handler (VideoHandler): An instance of the VideoHandler class.
-            telemetry_handler (TelemetryHandler): An instance of the TelemetryHandler class.
             app_controller (AppController): An instance of the AppController class.
         """
+        self.app_controller = app_controller
         self.video_handler = app_controller.video_handler
         self.telemetry_handler = app_controller.telemetry_handler
-        self.app_controller = app_controller
         self.app = FastAPI()
         self.app.add_middleware(
             CORSMiddleware,
@@ -37,6 +35,21 @@ class FastAPIHandler:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+        self.define_routes()
+        self.frame_rate = Parameters.STREAM_FPS
+        self.width = Parameters.STREAM_WIDTH
+        self.height = Parameters.STREAM_HEIGHT
+        self.quality = Parameters.STREAM_QUALITY
+        self.processed_osd = Parameters.STREAM_PROCESSED_OSD
+        self.last_frame_time = 0
+        self.frame_interval = 1.0 / self.frame_rate
+        self.is_shutting_down = False
+        self.server = None
+
+    def define_routes(self):
+        """
+        Define all the API routes for the FastAPIHandler.
+        """
         self.app.get("/video_feed")(self.video_feed)
         self.app.get("/telemetry/tracker_data")(self.tracker_data)
         self.app.get("/telemetry/follower_data")(self.follower_data)
@@ -48,16 +61,6 @@ class FastAPIHandler:
         self.app.post("/commands/start_offboard_mode")(self.start_offboard_mode)
         self.app.post("/commands/stop_offboard_mode")(self.stop_offboard_mode)
         self.app.post("/commands/quit")(self.quit)
-
-        self.frame_rate = Parameters.STREAM_FPS
-        self.width = Parameters.STREAM_WIDTH
-        self.height = Parameters.STREAM_HEIGHT
-        self.quality = Parameters.STREAM_QUALITY
-        self.processed_osd = Parameters.STREAM_PROCESSED_OSD
-        self.last_frame_time = 0
-        self.frame_interval = 1.0 / self.frame_rate
-        self.is_shutting_down = False
-        self.server = None
 
     async def start_tracking(self, bbox: BoundingBox):
         """
@@ -139,7 +142,7 @@ class FastAPIHandler:
         try:
             logging.debug("Received request at /telemetry/tracker_data")
             tracker_data = self.telemetry_handler.latest_tracker_data
-            logging.debug(f"Tracker data: {tracker_data}")
+            logging.debug(f"Returning tracker data: {tracker_data}")
             return JSONResponse(content=tracker_data or {})
         except Exception as e:
             logging.error(f"Error in /telemetry/tracker_data: {e}")
@@ -152,11 +155,12 @@ class FastAPIHandler:
         try:
             logging.debug("Received request at /telemetry/follower_data")
             follower_data = self.telemetry_handler.latest_follower_data
-            logging.debug(f"Follower data: {follower_data}")
+            logging.debug(f"Returning follower data: {follower_data}")
             return JSONResponse(content=follower_data or {})
         except Exception as e:
             logging.error(f"Error in /telemetry/follower_data: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
 
     async def toggle_segmentation(self):
         """

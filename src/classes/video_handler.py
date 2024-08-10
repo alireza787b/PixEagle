@@ -6,15 +6,12 @@ import logging
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 class VideoHandler:
     """
     Handles video input from various sources, such as video files or USB cameras.
     Capable of storing a recent history of video frames for later retrieval.
-
-    Attributes:
-        cap (cv2.VideoCapture): OpenCV video capture object.
-        frame_history (deque): Stores the most recent frames.
     """
 
     def __init__(self):
@@ -45,67 +42,68 @@ class VideoHandler:
             "appsink"
             % (sensor_id, capture_width, capture_height, framerate, flip_method, capture_width, capture_height)
         )
-        logging.debug(f"Constructed GStreamer pipeline: {pipeline}")
+        logger.debug(f"Constructed GStreamer pipeline: {pipeline}")
         return pipeline
 
     def init_video_source(self, max_retries=5, retry_delay=1):
         """
-        Initializes the video source based on the updated configuration specified in Parameters.
-        This method sets up the `cv2.VideoCapture` object (`self.cap`) to capture video from various sources,
-        including video files, USB cameras, RTSP streams, UDP streams, HTTP streams, and CSI cameras.
-        Raises:
-            ValueError: If the video source cannot be opened after max_retries or if an unsupported video source type is specified.
+        Initializes the video source based on the configuration specified in Parameters.
+        Sets up the `cv2.VideoCapture` object (`self.cap`) to capture video from various sources.
+
         Returns:
             int: The calculated delay in milliseconds between frames, based on the detected or default FPS.
         """
         for attempt in range(max_retries):
-            logging.debug(f"Attempt {attempt + 1} to open video source.")
+            logger.debug(f"Attempt {attempt + 1} to open video source.")
             try:
-                if Parameters.VIDEO_SOURCE_TYPE == "VIDEO_FILE":
-                    self.cap = cv2.VideoCapture(Parameters.VIDEO_FILE_PATH)
-                elif Parameters.VIDEO_SOURCE_TYPE == "USB_CAMERA":
-                    self.cap = cv2.VideoCapture(Parameters.CAMERA_INDEX)
-                elif Parameters.VIDEO_SOURCE_TYPE == "RTSP_STREAM":
-                    self.cap = cv2.VideoCapture(Parameters.RTSP_URL)
-                elif Parameters.VIDEO_SOURCE_TYPE == "UDP_STREAM":
-                    self.cap = cv2.VideoCapture(Parameters.UDP_URL, cv2.CAP_FFMPEG)
-                elif Parameters.VIDEO_SOURCE_TYPE == "HTTP_STREAM":
-                    self.cap = cv2.VideoCapture(Parameters.HTTP_URL)
-                elif Parameters.VIDEO_SOURCE_TYPE == "CSI_CAMERA":
-                    pipeline = self.gstreamer_pipeline(
-                        sensor_id=Parameters.CSI_SENSOR_ID,
-                        capture_width=Parameters.CSI_WIDTH,
-                        capture_height=Parameters.CSI_HEIGHT,
-                        framerate=Parameters.CSI_FRAMERATE,
-                        flip_method=Parameters.CSI_FLIP_METHOD
-                    )
-                    logging.debug(f"Using GStreamer pipeline: {pipeline}")
-                    self.cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
-                else:
-                    raise ValueError(f"Unsupported video source type: {Parameters.VIDEO_SOURCE_TYPE}")
-
+                self.cap = self._create_capture_object()
                 if self.cap and self.cap.isOpened():
-                    logging.debug("Successfully opened video source.")
+                    logger.debug("Successfully opened video source.")
                     break
                 else:
-                    logging.warning(f"Failed to open video source on attempt {attempt + 1}.")
-                
+                    logger.warning(f"Failed to open video source on attempt {attempt + 1}.")
             except Exception as e:
-                logging.error(f"Exception occurred while opening video source: {e}")
-
+                logger.error(f"Exception occurred while opening video source: {e}")
             time.sleep(retry_delay)
         else:
             raise ValueError("Could not open video source with the provided settings after maximum retries.")
 
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps = self.cap.get(cv2.CAP_PROP_FPS)
-        if fps <= 0:
-            fps = Parameters.DEFAULT_FPS  # Use a default FPS if detection fails or isn't applicable
-
+        fps = self.cap.get(cv2.CAP_PROP_FPS) or Parameters.DEFAULT_FPS
         delay_frame = max(int(1000 / fps), 1)  # Ensure delay is at least 1ms to avoid division by zero
 
         return delay_frame
+
+    def _create_capture_object(self):
+        """
+        Creates and returns a cv2.VideoCapture object based on the video source type.
+
+        Returns:
+            cv2.VideoCapture: The video capture object.
+        """
+        source_initializers = {
+            "VIDEO_FILE": lambda: cv2.VideoCapture(Parameters.VIDEO_FILE_PATH),
+            "USB_CAMERA": lambda: cv2.VideoCapture(Parameters.CAMERA_INDEX),
+            "RTSP_STREAM": lambda: cv2.VideoCapture(Parameters.RTSP_URL),
+            "UDP_STREAM": lambda: cv2.VideoCapture(Parameters.UDP_URL, cv2.CAP_FFMPEG),
+            "HTTP_STREAM": lambda: cv2.VideoCapture(Parameters.HTTP_URL),
+            "CSI_CAMERA": lambda: cv2.VideoCapture(
+                self.gstreamer_pipeline(
+                    sensor_id=Parameters.CSI_SENSOR_ID,
+                    capture_width=Parameters.CSI_WIDTH,
+                    capture_height=Parameters.CSI_HEIGHT,
+                    framerate=Parameters.CSI_FRAMERATE,
+                    flip_method=Parameters.CSI_FLIP_METHOD,
+                ),
+                cv2.CAP_GSTREAMER,
+            ),
+        }
+
+        if Parameters.VIDEO_SOURCE_TYPE not in source_initializers:
+            raise ValueError(f"Unsupported video source type: {Parameters.VIDEO_SOURCE_TYPE}")
+
+        return source_initializers[Parameters.VIDEO_SOURCE_TYPE]()
 
     def get_frame(self):
         """
@@ -117,13 +115,15 @@ class VideoHandler:
         """
         if self.cap:
             ret, frame = self.cap.read()
-            self.current_raw_frame = frame
             if ret:
+                self.current_raw_frame = frame
                 self.frame_history.append(frame)
                 return frame
             else:
+                logger.warning("Failed to read frame from video source.")
                 return None
         else:
+            logger.error("Video capture object is not initialized.")
             return None
 
     def get_last_frames(self):
@@ -131,8 +131,7 @@ class VideoHandler:
         Returns the most recent frames stored in the history.
 
         Returns:
-            A list of the most recent frames, up to the number specified in Parameters.STORE_LAST_FRAMES.
-            Returns an empty list if no frames are available.
+            list: The most recent frames, up to the number specified in Parameters.STORE_LAST_FRAMES.
         """
         return list(self.frame_history)
 
@@ -148,17 +147,18 @@ class VideoHandler:
         """
         if self.cap:
             self.cap.release()
+            logger.debug("Video source released.")
 
     def test_video_feed(self):
         """
         Displays the video feed to verify that the video source is correctly initialized
         and frames can be read. Press 'q' to quit the test.
         """
-        logging.info("Testing video feed. Press 'q' to exit.")
+        logger.info("Testing video feed. Press 'q' to exit.")
         while True:
             frame = self.get_frame()
             if frame is None:
-                logging.info("No more frames to display, or an error occurred.")
+                logger.info("No more frames to display, or an error occurred.")
                 break
 
             cv2.imshow("Test Video Feed", frame)

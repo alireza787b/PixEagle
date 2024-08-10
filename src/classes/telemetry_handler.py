@@ -1,16 +1,19 @@
-#src/classes/telemetry_handler.py
+# src/classes/telemetry_handler.py
+import logging
 import socket
 import json
 from datetime import datetime, timedelta
 from classes.parameters import Parameters
 
 class TelemetryHandler:
-    def __init__(self, controller):
+    def __init__(self, tracker, follower, tracking_started_flag):
         """
-        Initialize the TelemetryHandler with the controller and necessary parameters.
+        Initialize the TelemetryHandler with necessary parameters and dependencies.
         
         Args:
-            controller (AppController): An instance of the AppController class.
+            tracker (Tracker): An instance of the tracker to gather data from.
+            follower (Follower): An instance of the follower to gather data from.
+            tracking_started_flag (callable): A callable that returns the current tracking state.
         """
         self.host = Parameters.UDP_HOST
         self.port = Parameters.UDP_PORT
@@ -22,13 +25,11 @@ class TelemetryHandler:
         self.send_interval = 1.0 / self.send_rate  # Convert rate to interval in seconds
 
         self.last_sent_time = datetime.utcnow()
-        self.controller = controller
+        self.tracker = tracker
+        self.follower = follower
+        self.tracking_started_flag = tracking_started_flag  # Store the callable
         self.latest_tracker_data = {}
         self.latest_follower_data = {}
-        self.data_sources = {
-            'tracker_data': self.get_tracker_data,
-            'follower_data': self.get_follower_data
-        }
 
     def should_send_telemetry(self):
         """
@@ -48,10 +49,10 @@ class TelemetryHandler:
             dict: The tracker telemetry data.
         """
         timestamp = datetime.utcnow().isoformat()
-        tracker_started = self.controller.tracking_started 
+        tracker_started = self.tracking_started_flag()  # Use the callable to check if tracking is started
         return {
-            'bounding_box': self.controller.tracker.normalized_bbox,
-            'center': self.controller.tracker.normalized_center,
+            'bounding_box': self.tracker.normalized_bbox,
+            'center': self.tracker.normalized_center,
             'timestamp': timestamp,
             'tracker_started': tracker_started
         }
@@ -63,12 +64,11 @@ class TelemetryHandler:
         Returns:
             dict: The follower telemetry data.
         """
-        if self.controller.follower is not None:
-            telemetry = self.controller.follower.get_follower_telemetry() if Parameters.ENABLE_FOLLOWER_TELEMETRY else {}
-            telemetry['following_active'] = self.controller.follower.following_active  # Add this line
+        if self.follower is not None:
+            telemetry = self.follower.get_follower_telemetry() if Parameters.ENABLE_FOLLOWER_TELEMETRY else {}
+            telemetry['following_active'] = self.follower.following_active
             return telemetry
         return {}
-
 
     def gather_telemetry_data(self):
         """
@@ -77,9 +77,10 @@ class TelemetryHandler:
         Returns:
             dict: A dictionary containing telemetry data from all sources.
         """
-        data = {}
-        for key, func in self.data_sources.items():
-            data[key] = func()
+        data = {
+            'tracker_data': self.get_tracker_data(),
+            'follower_data': self.get_follower_data(),
+        }
         return data
 
     def send_telemetry(self):
@@ -91,8 +92,12 @@ class TelemetryHandler:
             message = json.dumps(data)
             self.udp_socket.sendto(message.encode('utf-8'), self.server_address)
             self.last_sent_time = datetime.utcnow()
+            logging.debug(f"Telemetry sent: {data}")
         
         # Update the latest telemetry data regardless of UDP sending
         self.latest_tracker_data = self.get_tracker_data()
         if Parameters.ENABLE_FOLLOWER_TELEMETRY:
             self.latest_follower_data = self.get_follower_data()
+        logging.debug(f"Latest tracker data: {self.latest_tracker_data}")
+        logging.debug(f"Latest follower data: {self.latest_follower_data}")
+
