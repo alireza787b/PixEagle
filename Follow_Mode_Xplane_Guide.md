@@ -72,13 +72,28 @@ EXTERNAL_MAVSDK_SERVER = True  # Enable this option to use an external MAVSDK se
     ```
 
 #### **Running the Follow Mode Tracker**
-- Execute `main.py` from the PixEagle folder on your Windows environment. Follow the interactive prompts to select an object ('t' key) and start the follower mode ('f' key).
-- During the test, you may need to adjust the PID gains and settings through the PixEagle interface to optimize the control and tracking behavior.
-- If needed, also run the web GUI for the dashboard:
+- To run the PixEagle main application, execute the following script from the PixEagle folder:
   ```bash
-  cd dashboard
-  npm start
+  ./run_main.sh
+  ```
+  This will:
+  - Activate the Python virtual environment located at `~/PixEagle/venv`.
+  - Execute the main `src/main.py` script.
+  - You can customize the Python interpreter by passing it as an argument to the script.
 
+- Follow the interactive prompts in the terminal to select an object ('t' key) and start the follower mode ('f' key).
+
+- During the test, you may need to adjust the PID gains and settings through the PixEagle interface to optimize control and tracking behavior.
+
+- To run the web GUI for the dashboard, execute the following script:
+  ```bash
+  ./run_dashboard.sh
+  ```
+  This will:
+  - Navigate to the `~/PixEagle/dashboard` directory.
+  - Install necessary npm packages (if not already installed).
+  - Start the React server on the specified port (default: 3001).
+  - You can specify a custom port by passing it as an argument to the script.
 
 ### Step 6: Performance Monitoring and Adjustment
 

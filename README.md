@@ -3,15 +3,12 @@
 ## Overview
 
 PixEagle is an all-in-one image processing, following, and tracking solution designed for the PX4 ecosystem (with potential expansion to ArduPilot). It leverages MAVSDK Python, OpenCV, and optional YOLO for precise object tracking and drone navigation. The project emphasizes modularity and extensibility, allowing users to implement their own tracking, detection, and segmentation algorithms. The system is modular, well-commented, and designed for easy integration of new algorithms. Additionally, PixEagle includes a beta web app GUI using React for real-time monitoring and control.
-PixEagle comes with a full web-based React application serves as the Ground Control Station (GCS). It provides a basic yet functional interface where you can view live camera feeds, tracker and follower data, and plots. The enhanced UI now supports drag-and-select target tracking and controlling the tracker.
-
+PixEagle comes with a full web-based React application that serves as the Ground Control Station (GCS). It provides a basic yet functional interface where you can view live camera feeds, tracker and follower data, and plots. The enhanced UI now supports drag-and-select target tracking and controlling the tracker.
 
 ## Latest Release
 
 Watch the latest video showcasing PixEagle v1.0, demonstrating advanced features including precision landing and intelligent target tracking in a Software in the Loop Simulation with X-Plane 12 and [PX4XPlane](https://github.com/alireza787b/px4xplane):
 [![PixEagle v1.0](https://github.com/user-attachments/assets/4acd965b-34c1-456e-be70-d4cc7f26eddb)](https://youtu.be/hw5MU0mPx2I)
-
-
 
 ## Getting Started
 
@@ -77,6 +74,18 @@ You can now easily run the PixEagle dashboard and main application using the pro
    ```
    If you're accessing it from another device, replace `127.0.0.1` with your device's IP address.
 
+### GStreamer and CSI Camera Support
+
+PixEagle now supports GStreamer for video input and output. Several GStreamer test pipelines have been added, making it easy to directly send video feeds to QGroundControl (QGC) and other applications. The video source, including CSI camera input, can be configured in the `parameters.py` file.
+
+**Important**: If you plan to use GStreamer or a CSI camera, you must ensure that OpenCV is built with GStreamer support. We recommend building OpenCV from source with the necessary configurations. A detailed guide is available [here](https://github.com/alireza787b/PixEagle/blob/main/opencv_with_gstreamer.md).
+
+To verify your installation, you can run the following test script:
+```bash
+python src/test_Ver.py
+```
+This script will help you ensure that your environment is correctly set up with GStreamer and OpenCV.
+
 ### Parameter Customization
 
 In the `parameters.py` file, you can customize various settings to suit your specific use case. This includes selecting your video source, setting descent parameters, and adjusting other important configurations such as PID gains and camera angles. The file is well-documented and easy to navigate.
@@ -87,29 +96,9 @@ Select your video source (either from a video file, USB Camera, etc.). Note that
 
 For PX4 real SITL implementation, you might need X-Plane or another simulation tool that can use the output video. There is a guide to using the PX4XPlane plugin and PixEagle SITL available [here](https://github.com/alireza787b/PixEagle/blob/main/Follow_Mode_Xplane_Guide.md).
 
-#### Descent Parameters
-
-You can define the altitude descent parameters in the `parameters.py` file. By default, these parameters might be set to prevent descending or to stop descending at 20 meters. Make sure to set these accordingly:
-
-```python
-# Minimum descent height in meters.
-# The drone will not descend below this altitude during operations.
-MIN_DESCENT_HEIGHT = 20  # meters
-
-# Maximum rate of descent in meters per second.
-# Limits the vertical speed to prevent rapid altitude loss.
-MAX_RATE_OF_DESCENT = 0.5  # meters per second
-```
-
 #### Other Parameters
 
 Ensure to check and adjust other parameters in the `parameters.py` file, such as PID gains, camera angles, and more, to optimize the system for your specific needs. The file is well-documented to assist you in making these customizations.
-
-### GStreamer Integration
-
-PixEagle now supports GStreamer for video input and output. Several GStreamer test pipelines have been added, making it easy to directly send video feeds to QGroundControl (QGC) and other
-
- applications. The video source, including CSI camera input, can be configured in the `parameters.py` file.
 
 ### Key Bindings
 
@@ -152,4 +141,3 @@ PixEagle is under active development, focusing on leveraging PX4 for flight cont
 ## Disclaimer
 
 PixEagle has not yet been tested in real-world conditions. It has only been tested in SITL (Software In The Loop) simulations. Real-world testing can significantly differ and might lead to crashes or damage. Use it at your own risk, and the developers are not responsible for any damages or losses incurred during real-world testing.
-
