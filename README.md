@@ -54,6 +54,10 @@ You can now easily run the PixEagle dashboard and main application using the pro
      ```
 
 2. **Running the Dashboard**:
+   Install Node.js and npm for the dashboard application (if not already installed):
+   ```bash
+   # Follow instructions at https://nodejs.org/en/download/
+   ```
    To run the PixEagle React dashboard:
    ```bash
    ./run_dashboard.sh
