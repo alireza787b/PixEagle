@@ -269,7 +269,7 @@ class Parameters:
     
     # ----- GStreamer Configuration -----
     ENABLE_GSTREAMER_STREAM = True  # Toggle to enable or disable GStreamer streaming
-    GSTREAMER_HOST = "192.168.1.163"  # IP address of the target machine (e.g., QGroundControl)
+    GSTREAMER_HOST = "10.223.0.5"  # IP address of the target machine (e.g., QGroundControl)
     GSTREAMER_PORT = 2000  # Port to stream the video over UDP
 
     # Bitrate for the video stream in bits per second
