@@ -27,20 +27,26 @@ class GStreamerHandler:
     def _create_pipeline(self) -> str:
         """
         Constructs the GStreamer pipeline string using parameters from the configuration.
-        This pipeline mimics the one used in your shell script with OpenCV as the source.
 
         Returns:
             str: The constructed GStreamer pipeline string.
         """
-        # Constructing the pipeline
+        # Constructing the pipeline with various parameters adjustable for different streaming needs
         pipeline = (
-            f"appsrc ! video/x-raw,format=BGR,width={self.width},height={self.height},framerate={self.framerate}/1 ! "
+            f"appsrc ! "
+            f"video/x-raw,format=BGR,width={self.width},height={self.height},framerate={self.framerate}/1 ! "
             f"videoconvert ! "
-            f"video/x-raw,format=NV12 ! "  # Matching the NV12 format expected by the rest of the pipeline
+            f"video/x-raw,format=NV12 ! "  # Converting the format to NV12, as expected by subsequent elements
             f"nvvidconv flip-method=0 ! "
-            f"x264enc tune=zerolatency bitrate={Parameters.GSTREAMER_BITRATE} speed-preset=superfast ! "
-            f"rtph264pay config-interval=1 pt=96 ! "
-            f"udpsink host={Parameters.GSTREAMER_HOST} port={Parameters.GSTREAMER_PORT}"
+            f"videobalance contrast={Parameters.GSTREAMER_CONTRAST} "
+            f"brightness={Parameters.GSTREAMER_BRIGHTNESS} "
+            f"saturation={Parameters.GSTREAMER_SATURATION} ! "  # Adjusting video properties for better visibility
+            f"x264enc tune={Parameters.GSTREAMER_TUNE} "
+            f"key-int-max={Parameters.GSTREAMER_KEY_INT_MAX} "
+            f"bitrate={Parameters.GSTREAMER_BITRATE} "
+            f"speed-preset={Parameters.GSTREAMER_SPEED_PRESET} ! "  # Encoder settings for balancing quality, latency, and CPU usage
+            f"rtph264pay config-interval=1 pt=96 ! "  # Packaging H.264 stream into RTP packets
+            f"udpsink host={Parameters.GSTREAMER_HOST} port={Parameters.GSTREAMER_PORT} buffer-size={Parameters.GSTREAMER_BUFFER_SIZE}"  # Sending the RTP packets over UDP
         )
         logging.debug(f"GStreamer pipeline: {pipeline}")
         return pipeline

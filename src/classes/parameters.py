@@ -271,6 +271,48 @@ class Parameters:
     ENABLE_GSTREAMER_STREAM = True  # Toggle to enable or disable GStreamer streaming
     GSTREAMER_HOST = "192.168.1.163"  # IP address of the target machine (e.g., QGroundControl)
     GSTREAMER_PORT = 2000  # Port to stream the video over UDP
-    GSTREAMER_BITRATE = 5000000  # Bitrate for the video stream in bits per second
-    GSTREAMER_FRAMERATE = 30  # Frame rate for the video stream
+
+    # Bitrate for the video stream in bits per second
+    # Higher bitrate = better video quality but more bandwidth usage
+    # Lower bitrate = worse video quality but less bandwidth usage
+    GSTREAMER_BITRATE = 5000000
+
+    # Frame rate for the video stream
+    # Higher frame rate = smoother video but more CPU/GPU usage and bandwidth
+    # Lower frame rate = less smooth video but reduced CPU/GPU usage and bandwidth
+    GSTREAMER_FRAMERATE = 15
+
+    # Size of the buffer in bytes for UDP sink
+    # Larger buffer = smoother streaming with more resistance to network jitter but higher latency
+    # Smaller buffer = lower latency but more sensitive to network instability
+    GSTREAMER_BUFFER_SIZE = 50000000
+
+    # GStreamer encoder speed preset
+    # Faster preset = lower CPU usage but potentially lower video quality
+    # Slower preset = higher video quality but increased CPU usage
+    GSTREAMER_SPEED_PRESET = "ultrafast"  # Options: "ultrafast", "superfast", "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow"
+
+    # Keyframe interval for H.264 encoding
+    # Lower value = more frequent keyframes, better recovery from packet loss but higher bandwidth usage
+    # Higher value = fewer keyframes, lower bandwidth usage but harder recovery from packet loss
+    GSTREAMER_KEY_INT_MAX = 30  # I-frame every second at 30 fps
+
+    # Tuning for the encoder
+    # "zerolatency" = minimizes latency, "film" = better quality for stored video, higher latency
+    GSTREAMER_TUNE = "zerolatency"  # Options: "zerolatency", "film", "grain", "stillimage", "fastdecode", "psnr", "ssim"
+
+    # Contrast adjustment for the video stream
+    # Higher contrast = more pronounced differences between light and dark areas
+    # Lower contrast = more muted visual differences
+    GSTREAMER_CONTRAST = 1.0  # 1.0 is default, higher values increase contrast
+
+    # Brightness adjustment for the video stream
+    # Higher brightness = lighter overall image
+    # Lower brightness = darker overall image
+    GSTREAMER_BRIGHTNESS = 0.0  # 0.0 is default, positive values increase brightness
+
+    # Saturation adjustment for the video stream
+    # Higher saturation = more vivid colors
+    # Lower saturation = more muted colors
+    GSTREAMER_SATURATION = 1.5  # 1.0 is default, higher values increase saturation
 
