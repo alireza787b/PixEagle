@@ -76,7 +76,7 @@ You can now easily run the PixEagle dashboard and main application using the pro
    ```bash
    http://127.0.0.1:3001
    ```
-   If you're accessing it from another device, replace `127.0.0.1` with your device's IP address.
+   If you're accessing it from another device, replace `127.0.0.1` with your device's IP address and make sure the firewall would allow accessing on this port.
 
 ### GStreamer and CSI Camera Support
 
