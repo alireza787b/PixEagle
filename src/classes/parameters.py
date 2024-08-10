@@ -78,7 +78,7 @@ class Parameters:
     STREAM_PROCESSED_OSD = True
 
     # ----- PX4 MAVSDK Configuration -----
-    EXTERNAL_MAVSDK_SERVER = True       # If we are working on Windows (or need to load mavsdk_server manually), we should handle the MAVSDK Server Differently in PX4 Controller Class
+    EXTERNAL_MAVSDK_SERVER = False       # If we are working on Windows (or need to load mavsdk_server manually), we should handle the MAVSDK Server Differently in PX4 Controller Class
     SYSTEM_ADDRESS = "udp://172.21.148.30:14540"
 
     # ----- Frame and Estimation Configuration -----
