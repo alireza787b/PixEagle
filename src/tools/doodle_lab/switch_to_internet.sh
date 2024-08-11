@@ -3,11 +3,12 @@
 # Author: Alireza Ghaderi
 # Date: August 2024
 # Description: This script configures the Ethernet interface to use DHCP for internet access.
-#              It also performs a connectivity test to ensure the setup is correct.
+#              It also makes the DHCP configuration persistent across reboots and performs a connectivity test.
 
 # User-configurable parameters
 INTERFACE="eth0" # Network interface to be configured
 PING_TARGET="8.8.8.8" # IP address to ping (Google DNS server for testing internet connection)
+CONNECTION_NAME="Wired DHCP Connection" # Name of the NetworkManager connection (adjust if needed)
 
 # Function to display information to the user
 function info {
@@ -48,6 +49,30 @@ if sudo dhclient $INTERFACE; then
 else
     error "Failed to obtain DHCP lease. Please check your connection."
     exit 1
+fi
+
+# Making the DHCP configuration persistent
+info "Attempting to make the DHCP configuration persistent across reboots..."
+if systemctl is-active --quiet NetworkManager; then
+    # Using NetworkManager to persist the DHCP setting
+    if sudo nmcli connection modify "$CONNECTION_NAME" ipv4.method auto && \
+       sudo nmcli connection modify "$CONNECTION_NAME" connection.autoconnect yes; then
+        success "DHCP configuration made persistent via NetworkManager."
+    else
+        error "Failed to make DHCP configuration persistent via NetworkManager."
+        prompt_user "Please consider manually configuring the DHCP settings or using the ifupdown method."
+    fi
+elif [ -f /etc/network/interfaces ]; then
+    # Using the traditional ifupdown method
+    echo -e "auto $INTERFACE\niface $INTERFACE inet dhcp" | sudo tee /etc/network/interfaces.d/$INTERFACE.cfg > /dev/null
+    if [ $? -eq 0 ]; then
+        success "DHCP configuration made persistent via /etc/network/interfaces."
+    else
+        error "Failed to make DHCP configuration persistent via /etc/network/interfaces."
+        prompt_user "Please consider manually configuring the DHCP settings."
+    fi
+else
+    prompt_user "Could not find a known network management system. Ensure your network is configured correctly."
 fi
 
 # Restarting networking services (handling different cases)
