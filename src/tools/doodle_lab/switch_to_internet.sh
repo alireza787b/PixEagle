@@ -8,7 +8,7 @@
 # User-configurable parameters
 INTERFACE="eth0" # Network interface to be configured
 PING_TARGET="8.8.8.8" # IP address to ping (Google DNS server for testing internet connection)
-CONNECTION_NAME="Wired DHCP Connection" # Name of the NetworkManager connection (adjust if needed)
+CONNECTION_NAME="Wired connection 1" # Name of the NetworkManager connection (adjust if needed)
 
 # Function to display information to the user
 function info {
