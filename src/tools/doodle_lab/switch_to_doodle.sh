@@ -10,7 +10,7 @@ INTERFACE="eth0" # Network interface to be configured
 STATIC_IP="10.223.80.36/16" # Static IP address (Subnet /16: 255.255.0.0)
 GATEWAY="10.223.80.34" # Gateway for Doodle Labs network
 PING_TARGET="$GATEWAY" # IP address to ping (Doodle Labs gateway for testing connection)
-CONNECTION_NAME="Wired doodle connection" # Name of the NetworkManager connection (adjust if needed)
+CONNECTION_NAME="Wired connection 1" # Name of the NetworkManager connection (adjust if needed)
 
 # Function to display information to the user
 function info {
