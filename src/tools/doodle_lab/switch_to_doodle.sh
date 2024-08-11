@@ -3,13 +3,14 @@
 # Author: Alireza Ghaderi
 # Date: August 2024
 # Description: This script configures the Ethernet interface to use a static IP for Doodle Labs communication.
-#              It also performs a connectivity test to ensure the setup is correct.
+#              It also makes the static IP configuration persistent across reboots and performs a connectivity test.
 
 # User-configurable parameters
 INTERFACE="eth0" # Network interface to be configured
 STATIC_IP="10.223.80.36/16" # Static IP address (Subnet /16: 255.255.0.0)
 GATEWAY="10.223.80.34" # Gateway for Doodle Labs network
 PING_TARGET="$GATEWAY" # IP address to ping (Doodle Labs gateway for testing connection)
+CONNECTION_NAME="Wired doodle connection" # Name of the NetworkManager connection (adjust if needed)
 
 # Function to display information to the user
 function info {
@@ -59,6 +60,30 @@ if sudo ip route add default via $GATEWAY; then
 else
     error "Failed to add default route. Please check your gateway settings."
     exit 1
+fi
+
+# Making the static IP configuration persistent
+info "Attempting to make the static IP configuration persistent across reboots..."
+if systemctl is-active --quiet NetworkManager; then
+    # Using NetworkManager to persist the settings
+    if sudo nmcli connection modify "$CONNECTION_NAME" ipv4.addresses "$STATIC_IP" ipv4.gateway "$GATEWAY" ipv4.method manual && \
+       sudo nmcli connection modify "$CONNECTION_NAME" connection.autoconnect yes; then
+        success "Static IP configuration made persistent via NetworkManager."
+    else
+        error "Failed to make static IP configuration persistent via NetworkManager."
+        prompt_user "Please consider manually configuring the static IP settings or using the ifupdown method."
+    fi
+elif [ -f /etc/network/interfaces ]; then
+    # Using the traditional ifupdown method
+    echo -e "auto $INTERFACE\niface $INTERFACE inet static\n\taddress ${STATIC_IP%/*}\n\tnetmask 255.255.0.0\n\tgateway $GATEWAY" | sudo tee /etc/network/interfaces.d/$INTERFACE.cfg > /dev/null
+    if [ $? -eq 0 ]; then
+        success "Static IP configuration made persistent via /etc/network/interfaces."
+    else
+        error "Failed to make static IP configuration persistent via /etc/network/interfaces."
+        prompt_user "Please consider manually configuring the static IP settings."
+    fi
+else
+    prompt_user "Could not find a known network management system. Ensure your network is configured correctly."
 fi
 
 # Restarting networking services (handling different cases)
