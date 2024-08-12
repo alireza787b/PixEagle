@@ -325,20 +325,19 @@ class Parameters:
     }
 
 
-
     # OSD Configuration
     OSD_ENABLED = True
     OSD_CONFIG = {
         "name": {
             "enabled": True,
             "text": "PixEagle",
-            "position": (3, 5),  # Top left corner, 2% from left, 2% from top
+            "position": (3, 5),  # Top left corner, 3% from left, 5% from top
             "color": (255, 255, 255),  # White
             "font_size": 0.8
         },
         "datetime": {
             "enabled": True,
-            "position": (95, 5),  # Slightly inward to avoid clipping, 95% from left, 2% from top
+            "position": (98, 5),  # Top right corner, slightly inward to avoid clipping
             "color": (255, 255, 255),  # White
             "font_size": 0.8,
             "alignment": "right"
@@ -361,80 +360,88 @@ class Parameters:
             "enabled": True,
             "fields": {
                 "heading": {
-                    "position": (45, 30),  # Above the attitude indicator
+                    "position": (45, 30),  # Centered above the attitude indicator and crosshair
                     "font_size": 0.8,
                     "color": (255, 255, 255)  # White
                 },
                 "airspeed": {
-                    "position": (5, 50),  # Left of the attitude indicator
+                    "position": (10, 45),  # Left of the attitude indicator, aligned with its center
                     "font_size": 0.8,
                     "color": (255, 255, 255)  # White
                 },
                 "groundspeed": {
-                    "position": (5, 60),  # Below airspeed
+                    "position": (10, 55),  # Below airspeed
                     "font_size": 0.8,
                     "color": (255, 255, 255)  # White
                 },
                 "altitude_msl": {
-                    "position": (80, 50),  # Right of the attitude indicator
-                    "font_size": 0.7,
+                    "position": (75, 45),  # Right of the attitude indicator, aligned with its center
+                    "font_size": 0.8,
                     "color": (255, 255, 255)  # White
                 },
                 "altitude_agl": {
-                    "position": (80, 60),  # Below altitude_msl
-                    "font_size": 0.7,
+                    "position": (75, 55),  # Below altitude_msl
+                    "font_size": 0.8,
                     "color": (255, 255, 255)  # White
                 },
                 "roll": {
-                    "position": (45, 70),  # Below the attitude indicator
+                    "position": (45, 75),  # Centered below the attitude indicator
                     "font_size": 0.8,
                     "color": (255, 255, 255)  # White
                 },
                 "pitch": {
-                    "position": (45, 75),  # Below roll
+                    "position": (45, 80),  # Below roll, centered
                     "font_size": 0.8,
                     "color": (255, 255, 255)  # White
                 },
                 "latitude": {
-                    "position": (2, 92),  # Lower left corner, 2% from left, 92% from top
+                    "position": (2, 92),  # Lower left corner
                     "font_size": 0.7,
                     "color": (255, 255, 255)  # White
                 },
                 "longitude": {
-                    "position": (2, 96),  # Lower left corner, 2% from left, 96% from top
+                    "position": (2, 96),  # Lower left corner
                     "font_size": 0.7,
                     "color": (255, 255, 255)  # White
                 },
                 "satellites_visible": {
-                    "position": (2, 88),  # Lower left corner, 2% from left, 88% from top
+                    "position": (2, 88),  # Lower left corner
                     "font_size": 0.7,
                     "color": (255, 255, 255)  # White
                 },
                 "hdop": {
-                    "position": (2, 84),  # Lower left corner, 2% from left, 84% from top
+                    "position": (2, 84),  # Lower left corner
                     "font_size": 0.7,
                     "color": (255, 255, 255)  # White
                 },
                 "voltage": {
-                    "position": (2, 12),  # Upper left corner, 2% from left, 12% from top
+                    "position": (2, 12),  # Upper left corner
                     "font_size": 0.7,
                     "color": (255, 255, 255)  # White
                 },
                 "arm_status": {
-                    "position": (2, 16),  # Upper left corner, 2% from left, 16% from top
+                    "position": (2, 16),  # Upper left corner
                     "font_size": 0.7,
                     "color": (255, 255, 255)  # White
                 },
                 "flight_mode": {
-                    "position": (45, 5),  # Center top, 50% from left, 5% from top
+                    "position": (45, 10),  # Center top
                     "font_size": 0.8,
                     "color": (255, 0, 0),  # Red for critical information
                     "alignment": "center"
                 }
             }
+        },
+        "tracker_status": {
+            "enabled": True,
+            "position": (80, 92),  # Lower right corner, near other status fields
+            "font_size": 0.7,
+            "color": (255, 255, 0)  # Yellow for status information
+        },
+        "follower_status": {
+            "enabled": True,
+            "position": (80, 96),  # Lower right corner, below tracker_status
+            "font_size": 0.7,
+            "color": (255, 255, 0)  # Yellow for status information
         }
     }
-
-
-
-    

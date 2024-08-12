@@ -5,78 +5,14 @@ import numpy as np
 from .parameters import Parameters
 
 class OSDHandler:
-    FLIGHT_MODES = {
-        458752: 'Stabilized',
-        196608: 'Position',
-        100925440: 'Land',
-        393216: 'Offboard',
-        50593792: 'Hold',
-        84148224: 'Return',
-        131072: 'Altitude',
-        65536: 'Manual',
-        327680: 'Acro',
-    }
-
-    def __init__(self, mavlink_data_manager=None):
+    def __init__(self, app_controller=None):
         """
-        Initialize the OSDHandler with a reference to MavlinkDataManager.
+        Initialize the OSDHandler with a reference to AppController.
         """
-        self.mavlink_data_manager = mavlink_data_manager
+        self.app_controller = app_controller
+        self.mavlink_data_manager = self.app_controller.mavlink_data_manager
         self.osd_config = Parameters.OSD_CONFIG
         self.logger = logging.getLogger(__name__)
-
-    def _draw_attitude_indicator(self, frame, config):
-        """
-        Draw the attitude indicator on the frame.
-        """
-        try:
-            roll = float(self.mavlink_data_manager.get_data("roll") or 0)
-            pitch = float(self.mavlink_data_manager.get_data("pitch") or 0)
-
-            # Convert from radians to degrees
-            roll = np.rad2deg(roll)
-            pitch = np.rad2deg(pitch)
-                
-        except ValueError as e:
-            self.logger.error(f"Error converting roll or pitch to float: {e}")
-            roll = 0
-            pitch = 0
-
-        # Define the center position for the horizon line
-        center_x, center_y = self._convert_position(frame, config["position"])
-        size_x, size_y = config["size"]
-
-        # Calculate horizon line position based on pitch
-        horizon_y = center_y + int(pitch * size_y / 90)  # Simple linear mapping
-
-        # Calculate the rotation matrix for roll
-        rotation_matrix = cv2.getRotationMatrix2D((center_x, center_y), -roll, 1)
-
-        # Draw the horizon line (rotated)
-        horizon_line = np.array([[center_x - size_x, horizon_y], [center_x + size_x, horizon_y]], dtype=np.float32)
-        horizon_line = cv2.transform(np.array([horizon_line]), rotation_matrix)[0]
-
-        # Ensure the coordinates are integers
-        pt1 = tuple(map(int, horizon_line[0]))
-        pt2 = tuple(map(int, horizon_line[1]))
-
-        # Draw the horizon line
-        cv2.line(frame, pt1, pt2, config["horizon_color"], config["thickness"])
-
-        # Draw pitch lines (example: every 10 degrees up and down)
-        for i in range(-90, 100, 10):
-            tick_y = center_y + int(i * size_y / 90)
-            tick_line = np.array([[center_x - size_x / 4, tick_y], [center_x + size_x / 4, tick_y]], dtype=np.float32)
-            tick_line = cv2.transform(np.array([tick_line]), rotation_matrix)[0]
-
-            # Ensure the coordinates are integers
-            tick_pt1 = tuple(map(int, tick_line[0]))
-            tick_pt2 = tuple(map(int, tick_line[1]))
-
-            cv2.line(frame, tick_pt1, tick_pt2, config["grid_color"], config["thickness"])
-
-        # Draw roll indicator (semi-circle at the top of the screen)
-        cv2.ellipse(frame, (center_x, center_y), (int(size_x / 2), int(size_y / 2)), 0, 0, 180, config["grid_color"], config["thickness"])
 
     def draw_osd(self, frame):
         """
@@ -94,7 +30,34 @@ class OSDHandler:
                     self._draw_mavlink_data(frame, config)
                 elif element_name == "attitude_indicator":
                     self._draw_attitude_indicator(frame, config)
+                elif element_name == "tracker_status":
+                    self._draw_tracker_status(frame, config)
+                elif element_name == "follower_status":
+                    self._draw_follower_status(frame, config)
         return frame
+
+    def _draw_tracker_status(self, frame, config):
+        """
+        Draw the tracker status on the frame.
+        """
+        status = "Active" if self.app_controller.tracking_started else "Not Active"
+        # Change color based on the status
+        color = (0, 255, 0) if self.app_controller.tracking_started else config["color"]
+        position = self._convert_position(frame, config["position"])
+        text = f"Tracker: {status}"
+        cv2.putText(frame, text, position, cv2.FONT_HERSHEY_SIMPLEX, config["font_size"], color, 2)
+
+    def _draw_follower_status(self, frame, config):
+        """
+        Draw the follower status on the frame.
+        """
+        status = "Active" if self.app_controller.following_active else "Not Active"
+        # Change color based on the status
+        color = (0, 255, 0) if self.app_controller.following_active else config["color"]
+        position = self._convert_position(frame, config["position"])
+        text = f"Follower: {status}"
+        cv2.putText(frame, text, position, cv2.FONT_HERSHEY_SIMPLEX, config["font_size"], color, 2)
+
 
     def _convert_position(self, frame, position):
         """
@@ -158,9 +121,9 @@ class OSDHandler:
                 return f"{float(value):.1f}"
             elif field == "Satellites Visible":  # Satellite count
                 return f"{int(float(value))}"
-            elif field == "Flight Mode":  # Convert flight mode code to text
+            elif field == "Flight Mode":  # Convert flight mode code to text using PX4InterfaceManager
                 mode = int(float(value))
-                return self.FLIGHT_MODES.get(mode, f"Unknown ({mode})")
+                return self.app_controller.px4_interface.get_flight_mode_text(mode)
             else:
                 return value
         except ValueError:
@@ -174,12 +137,12 @@ class OSDHandler:
             self.logger.info("MAVLink integration is disabled. Skipping MAVLink data display.")
             return
 
-        if not self.mavlink_data_manager:
+        if not self.app_controller.mavlink_data_manager:
             self.logger.warning("Mavlink data manager is not initialized. Skipping MAVLink data display.")
             return
 
         for field, field_config in config["fields"].items():
-            raw_value = self.mavlink_data_manager.get_data(field.lower())
+            raw_value = self.app_controller.mavlink_data_manager.get_data(field.lower())
             formatted_value = self._format_value(field.replace("_", " ").title(), raw_value)
             if formatted_value is None:
                 self.logger.warning(f"Failed to retrieve data for {field}. Displaying 'N/A'.")
@@ -188,3 +151,55 @@ class OSDHandler:
             position = self._convert_position(frame, field_config["position"])
             text = f"{field.replace('_', ' ').title()}: {formatted_value}"
             cv2.putText(frame, text, position, cv2.FONT_HERSHEY_SIMPLEX, field_config["font_size"], field_config["color"], 2)
+    def _draw_attitude_indicator(self, frame, config):
+        """
+        Draw the attitude indicator on the frame.
+        """
+        try:
+            roll = float(self.mavlink_data_manager.get_data("roll") or 0)
+            pitch = float(self.mavlink_data_manager.get_data("pitch") or 0)
+
+            # Convert from radians to degrees
+            roll = np.rad2deg(roll)
+            pitch = np.rad2deg(pitch)
+                
+        except ValueError as e:
+            self.logger.error(f"Error converting roll or pitch to float: {e}")
+            roll = 0
+            pitch = 0
+
+        # Define the center position for the horizon line
+        center_x, center_y = self._convert_position(frame, config["position"])
+        size_x, size_y = config["size"]
+
+        # Calculate horizon line position based on pitch
+        horizon_y = center_y + int(pitch * size_y / 90)  # Simple linear mapping
+
+        # Calculate the rotation matrix for roll
+        rotation_matrix = cv2.getRotationMatrix2D((center_x, center_y), -roll, 1)
+
+        # Draw the horizon line (rotated)
+        horizon_line = np.array([[center_x - size_x, horizon_y], [center_x + size_x, horizon_y]], dtype=np.float32)
+        horizon_line = cv2.transform(np.array([horizon_line]), rotation_matrix)[0]
+
+        # Ensure the coordinates are integers
+        pt1 = tuple(map(int, horizon_line[0]))
+        pt2 = tuple(map(int, horizon_line[1]))
+
+        # Draw the horizon line
+        cv2.line(frame, pt1, pt2, config["horizon_color"], config["thickness"])
+
+        # Draw pitch lines (example: every 10 degrees up and down)
+        for i in range(-90, 100, 10):
+            tick_y = center_y + int(i * size_y / 90)
+            tick_line = np.array([[center_x - size_x / 4, tick_y], [center_x + size_x / 4, tick_y]], dtype=np.float32)
+            tick_line = cv2.transform(np.array([tick_line]), rotation_matrix)[0]
+
+            # Ensure the coordinates are integers
+            tick_pt1 = tuple(map(int, tick_line[0]))
+            tick_pt2 = tuple(map(int, tick_line[1]))
+
+            cv2.line(frame, tick_pt1, tick_pt2, config["grid_color"], config["thickness"])
+
+        # Draw roll indicator (semi-circle at the top of the screen)
+        cv2.ellipse(frame, (center_x, center_y), (int(size_x / 2), int(size_y / 2)), 0, 0, 180, config["grid_color"], config["thickness"])

@@ -59,7 +59,7 @@ class MavlinkDataManager:
             response = requests.get(url)
             response.raise_for_status()
             json_data = response.json()
-            self.logger.debug(f"Raw data received: {json_data}")
+            #self.logger.debug(f"Raw data received: {json_data}")
 
             with self._lock:
                 # Iterate through the data points defined in Parameters

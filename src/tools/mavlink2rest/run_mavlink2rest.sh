@@ -24,7 +24,7 @@
 # =============================================================================
 
 # Default Configuration: Define your MAVLink source and server settings here.
-DEFAULT_MAVLINK_SRC="udpin:127.0.0.1:24550"  # Default: UDP input from all IPs on port 14550
+DEFAULT_MAVLINK_SRC="udpin:127.0.0.1:14569"  # Default: UDP input from all IPs on port 14550
 # in Arkv6x you need to access on udpin:127.0.0.14569
 DEFAULT_SERVER_IP_PORT="0.0.0.0:8088"      # Default: Server listens on all IPs at port 8088
 

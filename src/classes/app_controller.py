@@ -71,8 +71,8 @@ class AppController:
         self.api_handler = FastAPIHandler(self)
         logging.debug("FastAPIHandler initialized.")
 
-        # Initialize the OSD handler with access to the MAVLink data manager
-        self.osd_handler = OSDHandler(self.mavlink_data_manager)
+        # Initialize the OSD handler with access to the AppController
+        self.osd_handler = OSDHandler(self)
         
         # Initialize GStreamerHandler if streaming is enabled
         if Parameters.ENABLE_GSTREAMER_STREAM:

@@ -10,6 +10,19 @@ from mavsdk.offboard import OffboardError, VelocityNedYaw, VelocityBodyYawspeed
 logger = logging.getLogger(__name__)
 
 class PX4InterfaceManager:
+
+    FLIGHT_MODES = {
+        458752: 'Stabilized',
+        196608: 'Position',
+        100925440: 'Land',
+        393216: 'Offboard',
+        50593792: 'Hold',
+        84148224: 'Return',
+        131072: 'Altitude',
+        65536: 'Manual',
+        327680: 'Acro',
+    }
+
     def __init__(self):
         """
         Initializes the PX4InterfaceManager and sets up the connection to the PX4 drone.
@@ -143,3 +156,10 @@ class PX4InterfaceManager:
         Updates the current setpoint for the drone.
         """
         self.last_command = setpoint
+
+    def get_flight_mode_text(self, mode_code):
+        """
+        Convert the flight mode code to a text label.
+        """
+        return self.FLIGHT_MODES.get(mode_code, f"Unknown ({mode_code})")
+
