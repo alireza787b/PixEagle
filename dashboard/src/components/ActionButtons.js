@@ -7,7 +7,6 @@ import QuitButton from './QuitButton';
 const ActionButtons = ({ isTracking, handleTrackingToggle, handleButtonClick }) => {
   return (
     <Container>
-      <Typography variant="h5" gutterBottom>Controls</Typography>
       <Grid container spacing={2} sx={{ mb: 2 }}>
         <Grid item xs={12}>
           <Typography variant="h6" gutterBottom>Tracking Controls</Typography>
@@ -53,7 +52,7 @@ const ActionButtons = ({ isTracking, handleTrackingToggle, handleButtonClick }) 
               onClick={() => handleButtonClick(endpoints.toggleSegmentation)}
               fullWidth
             >
-              Toggle Segmentation
+              Toggle YOLO
             </Button>
           </Tooltip>
         </Grid>
@@ -66,7 +65,7 @@ const ActionButtons = ({ isTracking, handleTrackingToggle, handleButtonClick }) 
               onClick={() => handleButtonClick(endpoints.startOffboardMode)}
               fullWidth
             >
-              Start Following Offboard
+              Start Following
             </Button>
           </Tooltip>
           <Tooltip title="Stop following in offboard mode">
@@ -77,7 +76,7 @@ const ActionButtons = ({ isTracking, handleTrackingToggle, handleButtonClick }) 
               fullWidth
               sx={{ mt: 1 }}
             >
-              Stop Following Offboard
+              Stop Following
             </Button>
           </Tooltip>
         </Grid>

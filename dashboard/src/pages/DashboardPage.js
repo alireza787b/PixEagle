@@ -1,14 +1,11 @@
-//dashboard/src/pages/DashboardPage.js
 import React, { useState, useEffect } from 'react';
-import { Container, Typography, CircularProgress, Box } from '@mui/material';
+import { Container, Typography, CircularProgress, Box, Grid } from '@mui/material';
 import ActionButtons from '../components/ActionButtons';
 import BoundingBoxDrawer from '../components/BoundingBoxDrawer';
 import StatusIndicator from '../components/StatusIndicator';
 import { videoFeed, endpoints } from '../services/apiEndpoints';
 import { useTrackerStatus, useFollowerStatus } from '../hooks/useStatuses';
 import useBoundingBoxHandlers from '../hooks/useBoundingBoxHandlers';
-
-const API_URL = `http://${process.env.REACT_APP_API_HOST}:${process.env.REACT_APP_API_PORT}`;
 
 const DashboardPage = () => {
   const [isTracking, setIsTracking] = useState(false);
@@ -98,28 +95,45 @@ const DashboardPage = () => {
           </Typography>
         </Box>
       ) : (
-        <Box>
-          <ActionButtons 
-            isTracking={isTracking} 
-            handleTrackingToggle={handleTrackingToggle} 
-            handleButtonClick={handleButtonClick} 
-          />
-          <StatusIndicator label="Tracking Status" status={trackerStatus} />
-          <StatusIndicator label="Follower Status" status={isFollowing} />
-          <BoundingBoxDrawer 
-            isTracking={isTracking}
-            imageRef={imageRef}
-            startPos={startPos}
-            currentPos={currentPos}
-            handleMouseDown={handleMouseDown}
-            handleMouseMove={handleMouseMove}
-            handleMouseUp={handleMouseUp}
-            handleTouchStart={handleTouchStart}
-            handleTouchMove={handleTouchMove}
-            handleTouchEnd={handleTouchEnd}
-            videoSrc={videoFeed}
-          />
-        </Box>
+        <Grid container spacing={2}>
+          {/* Sidebar for Action Buttons */}
+          <Grid item xs={12} sm={3} md={2} container direction="column" spacing={2}>
+            <Grid item>
+              <ActionButtons 
+                isTracking={isTracking} 
+                handleTrackingToggle={handleTrackingToggle} 
+                handleButtonClick={handleButtonClick} 
+              />
+            </Grid>
+          </Grid>
+
+          {/* Main Video Feed and Bounding Box Controls */}
+          <Grid item xs={12} sm={9} md={10}>
+            <BoundingBoxDrawer 
+              isTracking={isTracking}
+              imageRef={imageRef}
+              startPos={startPos}
+              currentPos={currentPos}
+              handleMouseDown={handleMouseDown}
+              handleMouseMove={handleMouseMove}
+              handleMouseUp={handleMouseUp}
+              handleTouchStart={handleTouchStart}
+              handleTouchMove={handleTouchMove}
+              handleTouchEnd={handleTouchEnd}
+              videoSrc={videoFeed}
+            />
+          </Grid>
+
+          {/* Status Indicators below Video Feed */}
+          <Grid item xs={12} container justifyContent="center" spacing={2} sx={{ mt: 2 }}>
+            <Grid item>
+              <StatusIndicator label="Tracking Status" status={trackerStatus} />
+            </Grid>
+            <Grid item>
+              <StatusIndicator label="Follower Status" status={isFollowing} />
+            </Grid>
+          </Grid>
+        </Grid>
       )}
     </Container>
   );
