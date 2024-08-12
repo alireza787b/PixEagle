@@ -1,3 +1,4 @@
+#src/classes/app_controller.py
 import asyncio
 import logging
 import numpy as np
@@ -16,6 +17,7 @@ from classes.fastapi_handler import FastAPIHandler  # Correct import
 from typing import Dict, Tuple
 from classes.osd_handler import OSDHandler
 from classes.gstreamer_handler import GStreamerHandler
+from classes.mavlink_data_manager import MavlinkDataManager
 
 
 class AppController:
@@ -24,7 +26,20 @@ class AppController:
         Initializes the AppController with necessary components and starts the FastAPI handler.
         """
         logging.debug("Initializing AppController...")
+
+        # Initialize MAVLink Data Manager
+        self.mavlink_data_manager = MavlinkDataManager(
+            mavlink_host=Parameters.mavlink_host,
+            mavlink_port=Parameters.mavlink_port,
+            polling_interval=Parameters.mavlink_polling_interval,
+            data_points=Parameters.mavlink_data_points,
+            enabled=Parameters.mavlink_enabled
+        )
         
+        # Start polling MAVLink data if enabled
+        if Parameters.mavlink_enabled:
+            self.mavlink_data_manager.start_polling()
+
         # Initialize video processing components
         self.video_handler = VideoHandler()
         self.video_streamer = None
@@ -56,8 +71,8 @@ class AppController:
         self.api_handler = FastAPIHandler(self)
         logging.debug("FastAPIHandler initialized.")
 
-        # Initialize the OSD handler
-        self.osd_handler = OSDHandler()
+        # Initialize the OSD handler with access to the MAVLink data manager
+        self.osd_handler = OSDHandler(self.mavlink_data_manager)
         
         # Initialize GStreamerHandler if streaming is enabled
         if Parameters.ENABLE_GSTREAMER_STREAM:
@@ -374,6 +389,10 @@ class AppController:
         """
         result = {"steps": [], "errors": []}
         try:
+            # Stop MAVLink polling
+            if Parameters.mavlink_enabled:
+                self.mavlink_data_manager.stop_polling()
+                
             if self.following_active:
                 logging.debug("Stopping offboard mode and disconnecting PX4.")
                 await self.px4_interface.stop_offboard_mode()

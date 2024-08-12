@@ -76,7 +76,23 @@ You can now easily run the PixEagle dashboard and main application using the pro
    ```bash
    http://127.0.0.1:3001
    ```
-   If you're accessing it from another device, replace `127.0.0.1` with your device's IP address and make sure the firewall would allow accessing on this port.
+   If you're accessing it from another device, replace `127.0.0.1` with your device's IP address and make sure the firewall allows accessing on this port.
+
+4. **Enabling MAVLink Data**:
+   If you want to enable MAVLink data display in the PixEagle OSD, set the parameter `mavlink_enabled` to `True` in your configuration. 
+
+   **Optional:** You can run `mavlink-router` to manage the MAVLink communication streams. This ensures continuous access to MAVLink data. To run `mavlink-router`, use the following command:
+   ```bash
+   ./run_mavlink2rest.sh [MAVLINK_SRC] [SERVER_IP_PORT]
+   ```
+   Example:
+   ```bash
+   ./run_mavlink2rest.sh "udpin:0.0.0.0:14550" "0.0.0.0:8088"
+   ```
+   If you don't provide parameters, default values will be used.
+
+   This script, located at `~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh`, will automatically install and configure [mavlink2rest](https://github.com/peterbarker/mavlink2rest). The `mavlink2rest` service converts MAVLink messages into RESTful HTTP endpoints. On the first run, you'll need to specify your MAVLink source. The default source is `udp:localhost:24550`. You can connect `mavlink2rest` directly to a serial MAVLink source or a routed MAVLink stream from `mavlink-router`.
+   
 
 ### GStreamer and CSI Camera Support
 

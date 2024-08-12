@@ -87,7 +87,7 @@ class Parameters:
     STORE_LAST_FRAMES = 5  # Number of recent frames to store
     USE_ESTIMATOR = False  # Enable/disable the position estimator
     ESTIMATOR_HISTORY_LENGTH = 5  # Number of past estimations to store
-    SHOW_VIDEO_WINDOW = False # If using headless or with React web-app you wont need this window anymore
+    SHOW_VIDEO_WINDOW = True # If using headless or with React web-app you wont need this window anymore
 
     # ----- Segmentation Configuration -----
     SEGMENTATION_ALGORITHMS = ["GrabCut", "Watershed", 'yolov8s-seg', 'yolov8n-oiv7', 'yolov8s-obb']
@@ -246,29 +246,9 @@ class Parameters:
     # ----- Debugging and Logging -----
     ENABLE_DEBUGGING = True  # Enable verbose logging
     LOG_FILE_PATH = "logs/tracking_log.txt"  # Path to save log files
-
-
-
-    # OSD Parameters
-    # Positions are specified as (x, y) in percentages
-    OSD_SHOW_NAME = True
-    OSD_NAME = "PixEagle"
-    OSD_NAME_POSITION = (2, 5)  # 2% from the left, 5% from the top
-    OSD_NAME_COLOR = (255, 255, 255)  # White for visibility
-    OSD_NAME_FONT_SIZE = 0.7
-
-    OSD_SHOW_DATETIME = True
-    OSD_DATETIME_POSITION = (98, 5)  # 98% from the left, 5% from the top (adjusted to fit within the screen)
-    OSD_DATETIME_COLOR = (255, 255, 255)  # White for visibility
-    OSD_DATETIME_FONT_SIZE = 0.7
-
-    OSD_SHOW_CROSSHAIR = True
-    OSD_CROSSHAIR_COLOR = (0, 255, 0)  # Green
-    OSD_CROSSHAIR_THICKNESS = 3  # Thicker crosshair
-    OSD_CROSSHAIR_LENGTH = 10
     
     # ----- GStreamer Configuration -----
-    ENABLE_GSTREAMER_STREAM = True  # Toggle to enable or disable GStreamer streaming
+    ENABLE_GSTREAMER_STREAM = False  # Toggle to enable or disable GStreamer streaming
     GSTREAMER_HOST = "10.223.0.5"  # IP address of the target machine (e.g., QGroundControl)
     GSTREAMER_PORT = 2000  # Port to stream the video over UDP
 
@@ -316,3 +296,145 @@ class Parameters:
     # Lower saturation = more muted colors
     GSTREAMER_SATURATION = 1.5  # 1.0 is default, higher values increase saturation
 
+
+    # MAVLink Configuration
+    mavlink_enabled = True  # Enable or disable MAVLink integration
+    mavlink_host = "localhost"  # Configurable MAVLink host
+    mavlink_port = 8088  # Configurable MAVLink port
+    mavlink_polling_interval = 0.5  # Polling interval in seconds
+
+    # Data points to extract from the MAVLink JSON response
+    # Each key corresponds to a data field that will be displayed on the OSD
+    mavlink_data_points = {
+    "latitude": "/vehicles/1/components/1/messages/GLOBAL_POSITION_INT/message/lat",
+    "longitude": "/vehicles/1/components/1/messages/GLOBAL_POSITION_INT/message/lon",
+    "altitude_msl": "/vehicles/1/components/1/messages/ALTITUDE/message/altitude_amsl",  # MSL Altitude
+    "altitude_agl": "/vehicles/1/components/1/messages/ALTITUDE/message/altitude_relative",  # AGL Altitude
+    "voltage": "/vehicles/1/components/1/messages/SYS_STATUS/message/voltage_battery",
+    "airspeed": "/vehicles/1/components/1/messages/VFR_HUD/message/airspeed",
+    "groundspeed": "/vehicles/1/components/1/messages/VFR_HUD/message/groundspeed",
+    "climb": "/vehicles/1/components/1/messages/VFR_HUD/message/climb",
+    "roll": "/vehicles/1/components/1/messages/ATTITUDE/message/roll",
+    "pitch": "/vehicles/1/components/1/messages/ATTITUDE/message/pitch",
+    "heading": "/vehicles/1/components/1/messages/ATTITUDE/message/yaw",
+    "vdop": "/vehicles/1/components/1/messages/GPS_RAW_INT/message/vdop",
+    "hdop": "/vehicles/1/components/1/messages/GPS_RAW_INT/message/hdop",
+    "satellites_visible": "/vehicles/1/components/1/messages/GPS_RAW_INT/message/satellites_visible",
+    "flight_mode": "/vehicles/1/components/1/messages/HEARTBEAT/message/custom_mode",
+    "arm_status": "/vehicles/1/components/1/messages/HEARTBEAT/message/base_mode"
+    }
+
+
+
+    # OSD Configuration
+    OSD_ENABLED = True
+    OSD_CONFIG = {
+        "name": {
+            "enabled": True,
+            "text": "PixEagle",
+            "position": (3, 5),  # Top left corner, 2% from left, 2% from top
+            "color": (255, 255, 255),  # White
+            "font_size": 0.8
+        },
+        "datetime": {
+            "enabled": True,
+            "position": (95, 5),  # Slightly inward to avoid clipping, 95% from left, 2% from top
+            "color": (255, 255, 255),  # White
+            "font_size": 0.8,
+            "alignment": "right"
+        },
+        "crosshair": {
+            "enabled": True,
+            "color": (0, 255, 0),  # Green
+            "thickness": 2,
+            "length": 15  # Larger crosshair for better targeting visibility
+        },
+        "attitude_indicator": {
+            "enabled": True,
+            "position": (50, 50),  # Center of the screen
+            "size": (70, 70),  # Larger size for better visibility
+            "horizon_color": (255, 255, 255),  # White
+            "grid_color": (200, 200, 200),  # Light gray for the grid
+            "thickness": 2  # Thickness of the lines
+        },
+        "mavlink_data": {
+            "enabled": True,
+            "fields": {
+                "heading": {
+                    "position": (45, 30),  # Above the attitude indicator
+                    "font_size": 0.8,
+                    "color": (255, 255, 255)  # White
+                },
+                "airspeed": {
+                    "position": (5, 50),  # Left of the attitude indicator
+                    "font_size": 0.8,
+                    "color": (255, 255, 255)  # White
+                },
+                "groundspeed": {
+                    "position": (5, 60),  # Below airspeed
+                    "font_size": 0.8,
+                    "color": (255, 255, 255)  # White
+                },
+                "altitude_msl": {
+                    "position": (80, 50),  # Right of the attitude indicator
+                    "font_size": 0.7,
+                    "color": (255, 255, 255)  # White
+                },
+                "altitude_agl": {
+                    "position": (80, 60),  # Below altitude_msl
+                    "font_size": 0.7,
+                    "color": (255, 255, 255)  # White
+                },
+                "roll": {
+                    "position": (45, 70),  # Below the attitude indicator
+                    "font_size": 0.8,
+                    "color": (255, 255, 255)  # White
+                },
+                "pitch": {
+                    "position": (45, 75),  # Below roll
+                    "font_size": 0.8,
+                    "color": (255, 255, 255)  # White
+                },
+                "latitude": {
+                    "position": (2, 92),  # Lower left corner, 2% from left, 92% from top
+                    "font_size": 0.7,
+                    "color": (255, 255, 255)  # White
+                },
+                "longitude": {
+                    "position": (2, 96),  # Lower left corner, 2% from left, 96% from top
+                    "font_size": 0.7,
+                    "color": (255, 255, 255)  # White
+                },
+                "satellites_visible": {
+                    "position": (2, 88),  # Lower left corner, 2% from left, 88% from top
+                    "font_size": 0.7,
+                    "color": (255, 255, 255)  # White
+                },
+                "hdop": {
+                    "position": (2, 84),  # Lower left corner, 2% from left, 84% from top
+                    "font_size": 0.7,
+                    "color": (255, 255, 255)  # White
+                },
+                "voltage": {
+                    "position": (2, 12),  # Upper left corner, 2% from left, 12% from top
+                    "font_size": 0.7,
+                    "color": (255, 255, 255)  # White
+                },
+                "arm_status": {
+                    "position": (2, 16),  # Upper left corner, 2% from left, 16% from top
+                    "font_size": 0.7,
+                    "color": (255, 255, 255)  # White
+                },
+                "flight_mode": {
+                    "position": (45, 5),  # Center top, 50% from left, 5% from top
+                    "font_size": 0.8,
+                    "color": (255, 0, 0),  # Red for critical information
+                    "alignment": "center"
+                }
+            }
+        }
+    }
+
+
+
+    
