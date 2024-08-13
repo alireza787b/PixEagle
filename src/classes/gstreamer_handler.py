@@ -26,30 +26,31 @@ class GStreamerHandler:
 
     def _create_pipeline(self) -> str:
         """
-        Constructs the GStreamer pipeline string using parameters from the configuration.
+        Constructs the GStreamer pipeline string using parameters from the configuration for the Arducam IMX708 camera.
 
         Returns:
             str: The constructed GStreamer pipeline string.
         """
-        # Constructing the pipeline with various parameters adjustable for different streaming needs
         pipeline = (
-            f"appsrc ! "
-            f"video/x-raw,format=BGR,width={self.width},height={self.height},framerate={self.framerate}/1 ! "
-            f"videoconvert ! "
-            f"video/x-raw,format=NV12 ! "  # Converting the format to NV12, as expected by subsequent elements
-            f"nvvidconv flip-method=0 ! "
+            f"nvarguscamerasrc sensor-id=0 ! "  # sensor-id=0 for the first camera
+            f"video/x-raw(memory:NVMM), width={self.CSI_WIDTH}, height={self.CSI_HEIGHT}, framerate={self.CSI_FRAMERATE}/1, format=NV12 ! "
+            f"nvvidconv flip-method={self.CSI_FLIP_METHOD} ! "
+            f"video/x-raw, format=BGRx ! "
+            f"videoconvert ! "  # Converts BGRx to BGR, compatible with OpenCV
+            f"video/x-raw, format=BGR ! "
             f"videobalance contrast={Parameters.GSTREAMER_CONTRAST} "
             f"brightness={Parameters.GSTREAMER_BRIGHTNESS} "
-            f"saturation={Parameters.GSTREAMER_SATURATION} ! "  # Adjusting video properties for better visibility
+            f"saturation={Parameters.GSTREAMER_SATURATION} ! "
             f"x264enc tune={Parameters.GSTREAMER_TUNE} "
             f"key-int-max={Parameters.GSTREAMER_KEY_INT_MAX} "
             f"bitrate={Parameters.GSTREAMER_BITRATE} "
-            f"speed-preset={Parameters.GSTREAMER_SPEED_PRESET} ! "  # Encoder settings for balancing quality, latency, and CPU usage
-            f"rtph264pay config-interval=1 pt=96 ! "  # Packaging H.264 stream into RTP packets
-            f"udpsink host={Parameters.GSTREAMER_HOST} port={Parameters.GSTREAMER_PORT} buffer-size={Parameters.GSTREAMER_BUFFER_SIZE}"  # Sending the RTP packets over UDP
+            f"speed-preset={Parameters.GSTREAMER_SPEED_PRESET} ! "
+            f"rtph264pay config-interval=1 pt=96 ! "
+            f"udpsink host={Parameters.GSTREAMER_HOST} port={Parameters.GSTREAMER_PORT} buffer-size={Parameters.GSTREAMER_BUFFER_SIZE}"
         )
         logging.debug(f"GStreamer pipeline: {pipeline}")
         return pipeline
+
 
     def initialize_stream(self):
         """

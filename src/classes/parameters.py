@@ -1,4 +1,5 @@
 # src/classes/parameters.py
+#TODO:  make a param config.ini or sth. and make this class read and intiilzied by that ini file so easily can import/expert configs
 
 class Parameters:
     """
@@ -35,21 +36,37 @@ class Parameters:
     # HTTP localhost loopback doesnt work!
     HTTP_URL = "http://172.21.144.1:8100"
 
-    # For CSI_CAMERA, specify the sensor ID (usually 0 or 1)
-    # For CSI Camera, ensure OpenCV is built with GStreamer support.
-    # If issues arise, check `test_Ver.py` to verify GStreamer is enabled in OpenCV.
+    # Ensure OpenCV is built with GStreamer support for efficient video processing.
+    # To verify, run: python3 -c "import cv2; print(cv2.getBuildInformation())" and check for 'GStreamer' in the output.
+
+    # CSI Camera Sensor ID
+    # Typically `0` for the first camera, `1` for the second.
     CSI_SENSOR_ID = 0
 
-    # For CSI_CAMERA, specify the sensor ID (usually 0 or 1)
-    CSI_SENSOR_ID = 0
+    # General Parameters
+    STORE_LAST_FRAMES = 100  # Number of frames to store in memory
+    DEFAULT_FPS = 30  # Default frames per second for streaming and recording
 
-    # Additional Parameters
-    STORE_LAST_FRAMES = 100
-    DEFAULT_FPS = 30
+    # Camera Resolution & Frame Rate
+    # - Low Quality: 640x480 @ 30fps (Lower bandwidth, less CPU usage)
+    # - Medium Quality: 1280x720 @ 30fps (Balanced performance)
+    # - High Quality: 1920x1080 @ 30fps (Good detail, more processing required)
+    # - Max Quality: 4608x2592 @ 14fps (Highest resolution, limited by hardware)
     CSI_WIDTH = 1280
     CSI_HEIGHT = 720
     CSI_FRAMERATE = 30
+
+    # Image Orientation (Flip Method)
+    # 0 - None (default), 1 - Rotate 90° CW, 2 - Upside Down, 3 - Rotate 90° CCW, etc.
     CSI_FLIP_METHOD = 0
+
+    # Quick Setup Examples:
+    # - Low Quality: 
+    #   CSI_WIDTH = 640, CSI_HEIGHT = 480, CSI_FRAMERATE = 30, CSI_FLIP_METHOD = 0
+    # - High Quality: 
+    #   CSI_WIDTH = 1920, CSI_HEIGHT = 1080, CSI_FRAMERATE = 30, CSI_FLIP_METHOD = 0
+    # - Max Quality: 
+    #   CSI_WIDTH = 4608, CSI_HEIGHT = 2592, CSI_FRAMERATE = 14, CSI_FLIP_METHOD = 0
 
   
 
@@ -87,7 +104,7 @@ class Parameters:
     STORE_LAST_FRAMES = 5  # Number of recent frames to store
     USE_ESTIMATOR = False  # Enable/disable the position estimator
     ESTIMATOR_HISTORY_LENGTH = 5  # Number of past estimations to store
-    SHOW_VIDEO_WINDOW = True # If using headless or with React web-app you wont need this window anymore
+    SHOW_VIDEO_WINDOW = False # If using headless or with React web-app you wont need this window anymore
 
     # ----- Segmentation Configuration -----
     SEGMENTATION_ALGORITHMS = ["GrabCut", "Watershed", 'yolov8s-seg', 'yolov8n-oiv7', 'yolov8s-obb']
@@ -248,19 +265,19 @@ class Parameters:
     LOG_FILE_PATH = "logs/tracking_log.txt"  # Path to save log files
     
     # ----- GStreamer Configuration -----
-    ENABLE_GSTREAMER_STREAM = False  # Toggle to enable or disable GStreamer streaming
+    ENABLE_GSTREAMER_STREAM = True  # Toggle to enable or disable GStreamer streaming
     GSTREAMER_HOST = "10.223.0.5"  # IP address of the target machine (e.g., QGroundControl)
     GSTREAMER_PORT = 2000  # Port to stream the video over UDP
 
     # Bitrate for the video stream in bits per second
     # Higher bitrate = better video quality but more bandwidth usage
     # Lower bitrate = worse video quality but less bandwidth usage
-    GSTREAMER_BITRATE = 5000000
+    GSTREAMER_BITRATE = 500000
 
     # Frame rate for the video stream
     # Higher frame rate = smoother video but more CPU/GPU usage and bandwidth
     # Lower frame rate = less smooth video but reduced CPU/GPU usage and bandwidth
-    GSTREAMER_FRAMERATE = 15
+    GSTREAMER_FRAMERATE = 30
 
     # Size of the buffer in bytes for UDP sink
     # Larger buffer = smoother streaming with more resistance to network jitter but higher latency
