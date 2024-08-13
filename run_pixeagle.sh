@@ -83,13 +83,15 @@ show_tmux_instructions() {
     echo ""
 }
 
-# Function to create a new tmux session with a split layout
+# Function to create a new tmux session with the main app as the larger pane
 create_tmux_session() {
     echo "Creating tmux session '$SESSION_NAME' with split panes..."
-    tmux new-session -d -s $SESSION_NAME -n "MAVLink2REST" "clear; $MAVLINK2REST_COMMAND; bash"
-    tmux split-window -h "clear; $DASHBOARD_COMMAND; bash"  # Split horizontally for the dashboard
-    tmux split-window -v "clear; $MAIN_APP_COMMAND; bash"   # Split the new pane vertically for the main app
-    tmux select-pane -t 0                                   # Start with pane 0 selected
+
+    # Create the session with the main app taking up the left side (larger pane)
+    tmux new-session -d -s $SESSION_NAME -n "MainApp" "clear; $MAIN_APP_COMMAND; bash"
+    tmux split-window -h -p 30 "clear; $MAVLINK2REST_COMMAND; bash"  # Split horizontally, 30% of screen width for MAVLink2REST
+    tmux split-window -v "clear; $DASHBOARD_COMMAND; bash"           # Split the right pane vertically for the dashboard
+    tmux select-pane -t 0                                             # Start with the main app pane selected
 }
 
 # Function to run the PixEagle system components

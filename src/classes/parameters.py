@@ -102,7 +102,7 @@ class Parameters:
     STORE_LAST_FRAMES = 5  # Number of recent frames to store
     USE_ESTIMATOR = False  # Enable/disable the position estimator
     ESTIMATOR_HISTORY_LENGTH = 5  # Number of past estimations to store
-    SHOW_VIDEO_WINDOW = True # If using headless or with React web-app you wont need this window anymore
+    SHOW_VIDEO_WINDOW = False # If using headless or with React web-app you wont need this window anymore
 
     # ----- Segmentation Configuration -----
     SEGMENTATION_ALGORITHMS = ["GrabCut", "Watershed", 'yolov8s-seg', 'yolov8n-oiv7', 'yolov8s-obb']
@@ -270,7 +270,7 @@ class Parameters:
     # Bitrate for the video stream in bits per second
     # Higher bitrate = better video quality but more bandwidth usage
     # Lower bitrate = worse video quality but less bandwidth usage
-    GSTREAMER_BITRATE = 5000
+    GSTREAMER_BITRATE = 2000
 
     GSTREAMER_WIDTH = 1280
     GSTREAMER_HEIGHT = 720
@@ -279,7 +279,7 @@ class Parameters:
     # Frame rate for the video stream
     # Higher frame rate = smoother video but more CPU/GPU usage and bandwidth
     # Lower frame rate = less smooth video but reduced CPU/GPU usage and bandwidth
-    GSTREAMER_FRAMERATE = 30
+    GSTREAMER_FRAMERATE = 15
 
     # Size of the buffer in bytes for UDP sink
     # Larger buffer = smoother streaming with more resistance to network jitter but higher latency
@@ -303,17 +303,17 @@ class Parameters:
     # Contrast adjustment for the video stream
     # Higher contrast = more pronounced differences between light and dark areas
     # Lower contrast = more muted visual differences
-    GSTREAMER_CONTRAST = 1.0  # 1.0 is default, higher values increase contrast
+    GSTREAMER_CONTRAST = 5.0  # 1.0 is default, higher values increase contrast
 
     # Brightness adjustment for the video stream
     # Higher brightness = lighter overall image
     # Lower brightness = darker overall image
-    GSTREAMER_BRIGHTNESS = 0.0  # 0.0 is default, positive values increase brightness
+    GSTREAMER_BRIGHTNESS = 10  # 0.0 is default, positive values increase brightness
 
     # Saturation adjustment for the video stream
     # Higher saturation = more vivid colors
     # Lower saturation = more muted colors
-    GSTREAMER_SATURATION = 1.5  # 1.0 is default, higher values increase saturation
+    GSTREAMER_SATURATION = 5  # 1.0 is default, higher values increase saturation
 
 
     # MAVLink Configuration
