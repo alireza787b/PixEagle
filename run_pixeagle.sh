@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #########################################
-# PixEagle Complete System Launcher
+# PixEagle Complete System Launcher with Tmux 
 #
 # Project: PixEagle
 # Author: Alireza Ghaderi
@@ -9,20 +9,16 @@
 #
 # This script manages the execution of the entire PixEagle system,
 # including MAVLink2REST, the React Dashboard, and the main Python
-# application. Each component runs in its own tmux session for easy
-# management, even when using SSH.
+# application. Each component runs in its own tmux pane for easy
+# management during SSH sessions.
 #
 # Usage:
-#   ./run_pixeagle.sh [-m|-d|-p|-h]
+#   ./run_pixeagle_split.sh [-m|-d|-p|-h]
 #   Flags:
 #     -m : Run MAVLink2REST (default: enabled)
 #     -d : Run Dashboard (default: enabled)
 #     -p : Run Main Python Application (default: enabled)
 #     -h : Display help
-#
-# Example:
-#   ./run_pixeagle.sh -m -d
-#   Runs MAVLink2REST and Dashboard, skipping the main Python application.
 #
 #########################################
 
@@ -31,10 +27,8 @@ RUN_MAVLINK2REST=true
 RUN_DASHBOARD=true
 RUN_MAIN_APP=true
 
-# Tmux session names
-MAVLINK2REST_SESSION="mavlink2rest"
-DASHBOARD_SESSION="pixeagle_dashboard"
-MAIN_APP_SESSION="pixeagle_main"
+# Tmux session name
+SESSION_NAME="PixEagle"
 
 # Function to display usage instructions
 display_usage() {
@@ -79,44 +73,36 @@ check_install_tmux() {
     fi
 }
 
-# Function to run MAVLink2REST in a tmux session
+# Function to create a new tmux session with a split layout
+create_tmux_session() {
+    echo "Creating tmux session '$SESSION_NAME' with split panes..."
+    tmux new-session -d -s $SESSION_NAME
+    tmux split-window -v  # Split horizontally
+    tmux split-window -h  # Split the new pane vertically, so you have 3 panes
+    tmux select-pane -t 0
+}
+
+# Function to run MAVLink2REST in a tmux pane
 run_mavlink2rest() {
-    echo "Starting MAVLink2REST in a new tmux session..."
-    tmux new-session -d -s $MAVLINK2REST_SESSION "bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh"
-    if [ $? -eq 0 ]; then
-        echo "MAVLink2REST is running in tmux session '$MAVLINK2REST_SESSION'."
-    else
-        echo "Failed to start MAVLink2REST."
-        exit 1
-    fi
+    echo "Running MAVLink2REST in tmux pane 0..."
+    tmux send-keys -t $SESSION_NAME:0.0 "bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh" C-m
 }
 
-# Function to run the PixEagle Dashboard in a tmux session
+# Function to run the PixEagle Dashboard in a tmux pane
 run_dashboard() {
-    echo "Starting PixEagle Dashboard in a new tmux session..."
-    tmux new-session -d -s $DASHBOARD_SESSION "bash ~/PixEagle/run_dashboard.sh"
-    if [ $? -eq 0 ]; then
-        echo "PixEagle Dashboard is running in tmux session '$DASHBOARD_SESSION'."
-    else
-        echo "Failed to start PixEagle Dashboard."
-        exit 1
-    fi
+    echo "Running PixEagle Dashboard in tmux pane 1..."
+    tmux send-keys -t $SESSION_NAME:0.1 "bash ~/PixEagle/run_dashboard.sh" C-m
 }
 
-# Function to run the PixEagle Main Application in a tmux session
+# Function to run the PixEagle Main Application in a tmux pane
 run_main_app() {
-    echo "Starting PixEagle Main Application in a new tmux session..."
-    tmux new-session -d -s $MAIN_APP_SESSION "bash ~/PixEagle/run_main.sh"
-    if [ $? -eq 0 ]; then
-        echo "PixEagle Main Application is running in tmux session '$MAIN_APP_SESSION'."
-    else
-        echo "Failed to start PixEagle Main Application."
-        exit 1
-    fi
+    echo "Running PixEagle Main Application in tmux pane 2..."
+    tmux send-keys -t $SESSION_NAME:0.2 "bash ~/PixEagle/run_main.sh" C-m
 }
 
 # Main execution sequence
 check_install_tmux
+create_tmux_session
 
 if [ "$RUN_MAVLINK2REST" = true ]; then
     run_mavlink2rest
@@ -136,11 +122,5 @@ else
     echo "Skipping Main Application as per user request."
 fi
 
-echo "------------------------------------------------------------------------------"
-echo "All selected components are now running in their respective tmux sessions."
-echo "Use the following commands to interact with them:"
-echo "  tmux attach-session -t $MAVLINK2REST_SESSION     # For MAVLink2REST"
-echo "  tmux attach-session -t $DASHBOARD_SESSION       # For Dashboard"
-echo "  tmux attach-session -t $MAIN_APP_SESSION        # For Main Application"
-echo "To exit tmux, press 'Ctrl+b', then 'd' to detach from the session."
-echo "------------------------------------------------------------------------------"
+# Attach to the tmux session so the user can see the split panes
+tmux attach-session -t $SESSION_NAME
