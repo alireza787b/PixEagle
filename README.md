@@ -48,7 +48,7 @@ You can now easily run the PixEagle dashboard and main application using the pro
    bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
    ```
    This script will:
-   - Automatically install and configure [mavlink2rest](https://github.com/peterbarker/mavlink2rest).
+   - Automatically install and configure [mavlink2rest](https://github.com/mavlink/mavlink2rest).
    - Set up the service with default settings, which connect to `udp:localhost:24550` and start the REST server on `0.0.0.0:8088`.
 
    **Advanced Configuration:**  
