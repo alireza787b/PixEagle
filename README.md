@@ -36,72 +36,67 @@ To set up the PixEagle project, follow these steps:
    ./setup_pytorch.sh
    ```
 
-### Running the Application
+### Running the PixEagle Application
 
-You can now easily run the PixEagle dashboard and main application using the provided bash scripts. These scripts simplify the process by handling the setup and execution steps automatically. Advanced users can also modify parameters or run processes manually if needed.
+To simplify the execution of the PixEagle system, including the MAVLink2REST service, the dashboard, and the main application, we’ve provided a single bash script that handles everything efficiently using `tmux`.
 
-1. **Running MAVLink2REST Service (Required for MAVLink Integration and OSD):**
-   MAVLink2REST is a service that converts MAVLink messages into RESTful HTTP endpoints, enabling the integration of MAVLink data with PixEagle's OSD (On-Screen Display) and following features.
+#### **Quick Start with Tmux:**
 
-   To run the MAVLink2REST service, use the following command:
+You can run the entire PixEagle application suite with a single command:
+
+```bash
+bash ~/PixEagle/run_pixeagle.sh
+```
+
+This script will:
+- Automatically launch all necessary components (MAVLink2REST, Dashboard, Main Application) in separate `tmux` panes.
+- Provide a split-screen view, allowing you to monitor all processes simultaneously.
+
+**Navigating Tmux:**
+- **Switch between panes:** `Ctrl+B`, then use the arrow keys (`←`, `→`, `↑`, `↓`).
+- **Detach from session:** `Ctrl+B`, then `D`.
+- **Reattach to session:** Run `tmux attach -t PixEagle` in your terminal.
+- **Close a pane:** Type `exit` or press `Ctrl+D`.
+
+**Customizing Execution:**
+You can selectively run or skip components using flags, or by adjusting variables directly inside the script:
+- `-m` to enable MAVLink2REST (enabled by default)
+- `-d` to enable the Dashboard (enabled by default)
+- `-p` to enable the Main Application (enabled by default)
+
+For example, to run only the Dashboard and Main Application:
+```bash
+bash ~/PixEagle/run_pixeagle.sh -d -p
+```
+
+#### **Advanced Usage:**
+
+For those who need more control or wish to run components separately, you can still execute each service individually using the following scripts:
+
+1. **MAVLink2REST Service:**
    ```bash
    bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
    ```
-   This script will:
-   - Automatically install and configure [mavlink2rest](https://github.com/mavlink/mavlink2rest).
-   - Set up the service with default settings, which connect to `udp:localhost:24550` and start the REST server on `0.0.0.0:8088`.
+   This script sets up and runs the MAVLink2REST service. You can customize its behavior by passing arguments for the MAVLink source and server IP/port.
 
-   **Advanced Configuration:**  
-   You can change the MAVLink source and destination by editing the script's configuration or passing them as arguments:
-   ```bash
-   bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh [MAVLINK_SRC] [SERVER_IP_PORT]
-   ```
-   Example:
-   ```bash
-   bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh "udpin:0.0.0.0:14550" "0.0.0.0:8088"
-   ```
-
-   **Important:** If you have enabled the OSD and MAVLink integration (`mavlink_enabled=True` in your configuration), ensure you run the `mavlink2rest` script before running the main PixEagle application. This ensures that the OSD displays real-time data from your MAVLink-enabled device.
-
-   **Hint:** On certain carrier boards, such as the ARK Jetson PAB Carrier, you may encounter an issue where `mavlink2rest` does not start correctly until a client connects to the board on port 14550. After a connection is established, `mavlink2rest` typically begins working as expected. This may be related to the `mavlink-router` setup on these specific boards, so be aware of this behavior.
-
-2. **Running the Main Python Application:**
-   To run the main PixEagle Python application, use the following command:
+2. **Main Python Application:**
    ```bash
    bash ~/PixEagle/run_main.sh
    ```
-   This script will:
-   - Activate the Python virtual environment located at `~/PixEagle/venv`.
-   - Run the main Python script `src/main.py`.
+   This script activates the Python virtual environment and runs the main PixEagle application.
 
-   **Advanced Configuration:**  
-   You can customize the Python interpreter by editing the script or passing it as an argument:
-   ```bash
-   bash ~/PixEagle/run_main.sh /path/to/python
-   ```
-
-3. **Running the Dashboard:**
-   To run the PixEagle React dashboard, use the following command:
+3. **Dashboard:**
    ```bash
    bash ~/PixEagle/run_dashboard.sh
    ```
-   This script will:
-   - Navigate to the `~/PixEagle/dashboard` directory.
-   - Install necessary npm packages.
-   - Start the React server on the specified port (default: 3001).
+   This script starts the React dashboard server, which you can access in your browser at `http://127.0.0.1:3001`.
 
-   **Advanced Configuration:**  
-   You can change the port by passing it as an argument:
-   ```bash
-   bash ~/PixEagle/run_dashboard.sh <Custom Port Number>
-   ```
-
-4. **Accessing the Dashboard:**
-   After starting the dashboard, you can access it in your browser at:
-   ```bash
-   http://127.0.0.1:3001
-   ```
-   If you're accessing it from another device, replace `127.0.0.1` with your device's IP address and make sure the firewall allows access on this port.
+#### **Accessing the Dashboard:**
+Once the dashboard is running, access it in your browser at:
+```bash
+http://127.0.0.1:3001
+```
+If accessing from another device, replace `127.0.0.1` with the appropriate IP address, ensuring your firewall allows access to this port.
 
 ### Additional Notes:
 - **Manual Setup:** If you prefer to set up the application manually, you can install npm packages with `npm install` and run the Python scripts directly with the `python` command. This approach is also recommended for Windows users, as bash scripts may not work out of the box on Windows systems.
