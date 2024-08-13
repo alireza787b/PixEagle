@@ -309,7 +309,7 @@ class AppController:
         Args:
             frame_title (str): The title of the frame window.
         """
-        logging.debug(f"Showing current frame: {frame_title}")
+        #logging.debug(f"Showing current frame: {frame_title}")
         if Parameters.SHOW_VIDEO_WINDOW:
             cv2.imshow(frame_title, self.current_frame)
         return self.current_frame

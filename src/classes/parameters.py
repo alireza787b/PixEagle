@@ -102,7 +102,7 @@ class Parameters:
     STORE_LAST_FRAMES = 5  # Number of recent frames to store
     USE_ESTIMATOR = False  # Enable/disable the position estimator
     ESTIMATOR_HISTORY_LENGTH = 5  # Number of past estimations to store
-    SHOW_VIDEO_WINDOW = False # If using headless or with React web-app you wont need this window anymore
+    SHOW_VIDEO_WINDOW = True # If using headless or with React web-app you wont need this window anymore
 
     # ----- Segmentation Configuration -----
     SEGMENTATION_ALGORITHMS = ["GrabCut", "Watershed", 'yolov8s-seg', 'yolov8n-oiv7', 'yolov8s-obb']
@@ -270,7 +270,11 @@ class Parameters:
     # Bitrate for the video stream in bits per second
     # Higher bitrate = better video quality but more bandwidth usage
     # Lower bitrate = worse video quality but less bandwidth usage
-    GSTREAMER_BITRATE = 5000000
+    GSTREAMER_BITRATE = 5000
+
+    GSTREAMER_WIDTH = 1280
+    GSTREAMER_HEIGHT = 720
+
 
     # Frame rate for the video stream
     # Higher frame rate = smoother video but more CPU/GPU usage and bandwidth

@@ -1,5 +1,46 @@
 #!/bin/bash
 # Stream to RTP/UDP 264 . Optimized for QGC.
+#!/bin/bash
+# GStreamer RTP/UDP Streaming Script - Optimized for QGroundControl
+#
+# This script streams video from a camera source to a specified host and port using RTP/UDP. 
+# It is optimized for use with QGroundControl (QGC) and supports On-Screen Display (OSD) elements 
+# like crosshairs, title, timestamp, and grid overlay.
+#
+# Requirements:
+# - GStreamer must be installed on the system (`gst-launch-1.0`).
+#
+# Parameters:
+# - SENSOR_ID: ID of the camera sensor (default: 0).
+# - WIDTH: Width of the video stream (default: 1920).
+# - HEIGHT: Height of the video stream (default: 1080).
+# - FRAMERATE: Frame rate of the video stream (default: 30).
+# - FLIP_METHOD: Method to flip the video (default: 0).
+# - HOST: IP address of the receiving machine (e.g., QGroundControl).
+# - PORT: UDP port for streaming.
+#
+# OSD Settings:
+# - ENABLE_OSD: Toggle to enable/disable OSD elements.
+# - ENABLE_CROSSHAIR: Toggle to enable/disable the crosshair overlay.
+# - ENABLE_TITLE: Toggle to enable/disable the title overlay.
+# - ENABLE_TIMESTAMP: Toggle to enable/disable the timestamp overlay.
+# - ENABLE_GRID: Toggle to enable/disable the grid overlay.
+#
+# Cleanup:
+# - The script sets a trap to ensure that the GStreamer pipeline is terminated and temporary 
+#   files (e.g., the SDP file) are removed when the script exits.
+#
+# SDP File:
+# - An SDP file is created to describe the multimedia session, which can be used by clients 
+#   like QGroundControl to configure and connect to the stream.
+#
+# GStreamer Pipeline:
+# - Captures video, applies OSD elements (if enabled), encodes in H.264, and streams over 
+#   RTP/UDP to the specified host and port.
+#
+# Usage:
+# - Run the script and provide the necessary parameters. The stream will start automatically 
+#   and can be viewed on the specified receiving machine using the SDP file.
 
 # Ensure GStreamer is installed
 if ! command -v gst-launch-1.0 &> /dev/null; then
