@@ -9,19 +9,17 @@ class GStreamerHandler:
     This class initializes a GStreamer pipeline that streams video frames over UDP in H.264 format.
     """
 
-    def __init__(self, width: int, height: int, framerate: int):
+    def __init__(self):
         """
-        Initializes the GStreamerHandler with the specified frame width, height, and framerate.
-
-        Args:
-            width (int): The width of the video frames.
-            height (int): The height of the video frames.
-            framerate (int): The frame rate of the video stream.
+        Initializes the GStreamerHandler with the specified frame width, height, framerate, and flip method.
         """
-        self.width = width
-        self.height = height
-        self.framerate = framerate
         self.out = None
+        self.CSI_FLIP_METHOD = Parameters.CSI_FLIP_METHOD
+        self.CSI_WIDTH = Parameters.CSI_WIDTH
+        self.CSI_HEIGHT = Parameters.CSI_HEIGHT
+        self.CSI_FRAMERATE = Parameters.CSI_FRAMERATE
+
+
         self.pipeline = self._create_pipeline()
 
     def _create_pipeline(self) -> str:

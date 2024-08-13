@@ -76,12 +76,9 @@ class AppController:
         
         # Initialize GStreamerHandler if streaming is enabled
         if Parameters.ENABLE_GSTREAMER_STREAM:
-            self.gstreamer_handler = GStreamerHandler(
-                width=self.video_handler.width,
-                height=self.video_handler.height,
-                framerate=Parameters.GSTREAMER_FRAMERATE
-            )
+            self.gstreamer_handler = GStreamerHandler()
             self.gstreamer_handler.initialize_stream()
+
 
         logging.info("AppController initialized.")
 

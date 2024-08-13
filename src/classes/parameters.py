@@ -68,8 +68,6 @@ class Parameters:
     # - Max Quality: 
     #   CSI_WIDTH = 4608, CSI_HEIGHT = 2592, CSI_FRAMERATE = 14, CSI_FLIP_METHOD = 0
 
-  
-
 
     # ----- Telemetry and Streaming Configuration -----
     ENABLE_TELEMETRY = True
@@ -272,7 +270,7 @@ class Parameters:
     # Bitrate for the video stream in bits per second
     # Higher bitrate = better video quality but more bandwidth usage
     # Lower bitrate = worse video quality but less bandwidth usage
-    GSTREAMER_BITRATE = 500000
+    GSTREAMER_BITRATE = 5000000
 
     # Frame rate for the video stream
     # Higher frame rate = smoother video but more CPU/GPU usage and bandwidth
