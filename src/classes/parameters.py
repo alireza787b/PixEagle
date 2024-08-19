@@ -144,11 +144,62 @@ class Parameters:
     TRACKED_BBOX_STYLE = 'fancy'  # Options: 'normal', 'fancy'
     FOLLOWER_MODE = 'ground_view'  # 'ground_view' or 'front_view'
     DEFAULT_DISTANCE = 200  # Default distance for calculations
-    CONTROL_STRATEGY = 'constant_altitude'  # 'constant_altitude' or 'constant_distance'
     # If the target moves vertically in the frame, adjust using altitude or distance
     # 'constant_altitude': Adjust altitude to keep target at desired vertical position in frame.
     # 'constant_distance': Adjust forward/backward distance to keep target at desired vertical position in frame.
     TARGET_POSITION_MODE = 'center'  # 'center' or 'initial'
+
+
+    # ---- Yaw Control Parameters only for front view target follower ----
+    
+    ENABLE_YAW_CONTROL = True
+    # Enable or disable yaw control. Set to False if yaw control is not needed.
+    
+    YAW_CONTROL_THRESHOLD = 0.8
+    # The threshold at which yaw control starts to take effect.
+    # This is a percentage of the camera's field of view. For example, if set to 0.8, 
+    # yaw control will activate when the target moves more than 80% away from the center of the frame.
+    
+    MAX_YAW_RATE = 30  # degrees per second
+    # Maximum yaw rate in degrees per second. This limits the speed at which the drone can rotate.
+    # It ensures that yaw movements are smooth and not too abrupt, maintaining camera stability.
+    
+    YAW_LATERAL_BLEND_FACTOR = 0.5
+    # Blending factor for yaw and lateral control. This determines how much yaw control is blended
+    # with lateral movement when the target reaches the edges of the camera view. 
+    # A value of 0.5 means 50% yaw control and 50% lateral control at full blending.
+
+    YAW_DEAD_ZONE = 0.2
+    # Dead zone percentage for yaw corrections. 
+    # This defines a small zone around the center of the camera view where no yaw corrections are applied.
+    # This helps prevent constant small adjustments when the target is only slightly off-center.
+    
+    # ---- Vertical Error Recalculation Parameters ----
+    
+    VERTICAL_RECALC_DELAY = 0.1  # seconds
+    # Delay after yaw before recalculating vertical corrections. 
+    # This allows the drone to stabilize after yawing before applying pitch or altitude corrections.
+    
+    YAW_PITCH_SYNC_FACTOR = 0.5
+    # Factor that controls how aggressively pitch is adjusted after a yaw movement. 
+    # A higher value means more aggressive pitch corrections. This helps keep the target centered vertically after yaw adjustments.
+    
+    # ---- Control Strategy Parameters ----
+    
+    CONTROL_STRATEGY = 'constant_altitude'  # Options: 'constant_altitude', 'constant_distance'
+    # The control strategy to be used. 
+    # 'constant_altitude' means the drone maintains a fixed altitude, and vertical corrections are made through pitch (forward/backward movement).
+    # 'constant_distance' means the drone adjusts altitude to maintain a fixed distance from the target.
+
+    ENABLE_GIMBAL_PRIORITY = True
+    # Prioritize gimbal adjustments over drone yaw. If set to True and the camera is gimbaled, 
+    # small orientation corrections will be handled by the gimbal instead of yawing the drone. This helps reduce unnecessary drone rotations.
+    
+    # ---- Adaptive Control Parameters ----
+    
+    ADAPTIVE_YAW_CONTROL = True
+    # If enabled, thresholds and blending factors will be dynamically adjusted based on the target's speed and other environmental factors. 
+    # This allows the drone to adapt to different conditions, making the tracking more robust in dynamic environments.
 
 
     # Control and PID parameters

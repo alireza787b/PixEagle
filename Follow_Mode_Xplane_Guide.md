@@ -23,10 +23,10 @@ Watch the latest video showcasing PixEagle v1.0, demonstrating advanced features
 ## Configuration Steps
 
 ### Step 1: MAVLink Router Configuration on WSL
-Route MAVLink messages between your SITL environment on Linux and your development environment on Windows:
+Route MAVLink messages between your SITL environment on Linux and your development environment on Windows: (for MAVSDK, QGC and MAVLink2Rest)
 
 ```bash
-mavlink-routerd -e 172.21.144.1:14540 -e 172.21.144.1:14550 0.0.0.0:14550
+mavlink-routerd -e 172.21.144.1:14540 -e 172.21.144.1:14550 -e 172.21.144.1:14569 0.0.0.0:14550
 ```
 
 ### Step 2: MAVSDK Server Setup on Windows
@@ -71,29 +71,41 @@ EXTERNAL_MAVSDK_SERVER = True  # Enable this option to use an external MAVSDK se
     CAMERA_INDEX = 1  # Index for USB Camera, adjust based on your system setup.
     ```
 
-#### **Running the Follow Mode Tracker**
-- To run the PixEagle main application, execute the following script from the PixEagle folder:
-  ```bash
-  ./run_main.sh
-  ```
-  This will:
-  - Activate the Python virtual environment located at `~/PixEagle/venv`.
-  - Execute the main `src/main.py` script.
-  - You can customize the Python interpreter by passing it as an argument to the script.
+### Running the PixEagle System
 
-- Follow the interactive prompts in the terminal to select an object ('t' key) and start the follower mode ('f' key).
+To run the entire PixEagle system, including the main application, dashboard, and MAVLink2REST service, use the following command:
 
-- During the test, you may need to adjust the PID gains and settings through the PixEagle interface to optimize control and tracking behavior.
+```bash
+bash ~/PixEagle/run_pixeagle.sh
+```
 
-- To run the web GUI for the dashboard, execute the following script:
-  ```bash
-  ./run_dashboard.sh
-  ```
-  This will:
-  - Navigate to the `~/PixEagle/dashboard` directory.
-  - Install necessary npm packages (if not already installed).
-  - Start the React server on the specified port (default: 3001).
-  - You can specify a custom port by passing it as an argument to the script.
+This script will:
+- Start all components in separate `tmux` panes, allowing you to monitor and control them simultaneously.
+- Automatically handle setup and execution.
+
+**Note:** You can customize which components are run by using flags (`-m` for MAVLink2REST, `-d` for Dashboard, and `-p` for the Main Application) or by modifying the variables inside the script.
+
+---
+
+#### Running the Follow Mode Tracker
+
+To start the PixEagle main application and dashboard manually:
+
+1. **Activate the Python virtual environment:**
+   ```bash
+   source ~/PixEagle/venv/bin/activate
+   ```
+2. **Run the main application:**
+   ```bash
+   python ~/PixEagle/src/main.py
+   ```
+3. **Start the React dashboard server:**
+   ```bash
+   cd ~/PixEagle/dashboard
+   npm start
+   ```
+
+**Note:** Currently, starting/stopping offboard following via the dashboard isn't fully reliable. As a workaround, set the parameter `SHOW_VIDEO_WINDOW=True` to display a debug video window, and use the 'f' key to start following and 'x' to stop. This issue will be fixed soon.
 
 ### Step 6: Performance Monitoring and Adjustment
 
