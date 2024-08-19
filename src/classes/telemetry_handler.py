@@ -98,6 +98,6 @@ class TelemetryHandler:
         self.latest_tracker_data = self.get_tracker_data()
         if Parameters.ENABLE_FOLLOWER_TELEMETRY:
             self.latest_follower_data = self.get_follower_data()
-        logging.debug(f"Latest tracker data: {self.latest_tracker_data}")
-        logging.debug(f"Latest follower data: {self.latest_follower_data}")
+        # logging.debug(f"Latest tracker data: {self.latest_tracker_data}")
+        # logging.debug(f"Latest follower data: {self.latest_follower_data}")
 

@@ -25,7 +25,6 @@
 
 # Default Configuration: Define your MAVLink source and server settings here.
 DEFAULT_MAVLINK_SRC="udpin:127.0.0.1:14569"  # Default: UDP input from all IPs on port 14550
-# in Arkv6x you need to access on udpin:127.0.0.14569
 DEFAULT_SERVER_IP_PORT="0.0.0.0:8088"      # Default: Server listens on all IPs at port 8088
 
 # Directory where mavlink2rest will be installed.
@@ -75,6 +74,20 @@ check_mavlink2rest_installed() {
     fi
 }
 
+# Function to check and update PATH if necessary
+check_and_update_path() {
+    if [[ ":$PATH:" != *":$HOME/.cargo/bin:"* ]]; then
+        echo "Adding ~/.cargo/bin to PATH..."
+        export PATH="$HOME/.cargo/bin:$PATH"
+        if ! grep -q 'export PATH="$HOME/.cargo/bin:$PATH"' ~/.bashrc; then
+            echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc
+            echo "Added ~/.cargo/bin to PATH in ~/.bashrc."
+        fi
+    else
+        echo "~/.cargo/bin is already in PATH."
+    fi
+}
+
 # Function to run mavlink2rest with specified settings
 run_mavlink2rest() {
     echo "Running mavlink2rest with MAVLink source: $MAVLINK_SRC and Server IP:Port: $SERVER_IP_PORT..."
@@ -113,6 +126,9 @@ if ! command -v cargo >/dev/null 2>&1; then
 else
     echo "Rust and Cargo are already installed."
 fi
+
+# Ensure ~/.cargo/bin is in the PATH
+check_and_update_path
 
 # Check if mavlink2rest is installed
 if ! check_mavlink2rest_installed; then

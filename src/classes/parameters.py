@@ -11,7 +11,7 @@ class Parameters:
     """
 
     # ----- Video Source Configuration -----
-    VIDEO_SOURCE_TYPE = "CSI_CAMERA"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM", "CSI_CAMERA"
+    VIDEO_SOURCE_TYPE = "USB_CAMERA"  # Options: "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM", "CSI_CAMERA"
     # Not all methods tested yet.
 
     # For VIDEO_FILE, specify the path to the video file
@@ -20,7 +20,7 @@ class Parameters:
 
     # For USB_CAMERA, specify the camera index as an integer
     # Example: CAMERA_INDEX = 0 for the default webcam
-    CAMERA_INDEX = 0
+    CAMERA_INDEX = 1
 
     # For RTSP_STREAM, specify the RTSP URL as a string
     # Example: RTSP_URL = "rtsp://username:password@ip_address:port/stream"
@@ -93,7 +93,7 @@ class Parameters:
     STREAM_PROCESSED_OSD = True
 
     # ----- PX4 MAVSDK Configuration -----
-    EXTERNAL_MAVSDK_SERVER = False       # If we are working on Windows (or need to load mavsdk_server manually), we should handle the MAVSDK Server Differently in PX4 Controller Class
+    EXTERNAL_MAVSDK_SERVER = True       # If we are working on Windows (or need to load mavsdk_server manually), we should handle the MAVSDK Server Differently in PX4 Controller Class
     SYSTEM_ADDRESS = "udp://172.21.148.30:14540"
 
     # ----- Frame and Estimation Configuration -----
@@ -102,7 +102,7 @@ class Parameters:
     STORE_LAST_FRAMES = 5  # Number of recent frames to store
     USE_ESTIMATOR = False  # Enable/disable the position estimator
     ESTIMATOR_HISTORY_LENGTH = 5  # Number of past estimations to store
-    SHOW_VIDEO_WINDOW = False # If using headless or with React web-app you wont need this window anymore
+    SHOW_VIDEO_WINDOW = True # If using headless or with React web-app you wont need this window anymore
 
     # ----- Segmentation Configuration -----
     SEGMENTATION_ALGORITHMS = ["GrabCut", "Watershed", 'yolov8s-seg', 'yolov8n-oiv7', 'yolov8s-obb']
@@ -315,7 +315,7 @@ class Parameters:
     
     # ----- GStreamer Configuration -----
     ENABLE_GSTREAMER_STREAM = True  # Toggle to enable or disable GStreamer streaming
-    GSTREAMER_HOST = "10.223.0.5"  # IP address of the target machine (e.g., QGroundControl)
+    GSTREAMER_HOST = "127.0.0.1"  # IP address of the target machine (e.g., QGroundControl)
     GSTREAMER_PORT = 2000  # Port to stream the video over UDP
 
     # Bitrate for the video stream in bits per second
@@ -369,7 +369,7 @@ class Parameters:
 
     # MAVLink Configuration
     mavlink_enabled = True  # Enable or disable MAVLink integration
-    mavlink_host = "localhost"  # Configurable MAVLink host
+    mavlink_host = "172.21.148.30"  # Configurable MAVLink host
     mavlink_port = 8088  # Configurable MAVLink port
     mavlink_polling_interval = 0.5  # Polling interval in seconds
 
@@ -403,13 +403,13 @@ class Parameters:
             "text": "PixEagle",
             "position": (3, 5),  # Top left corner, 3% from left, 5% from top
             "color": (255, 255, 255),  # White
-            "font_size": 0.8
+            "font_size": 0.7
         },
         "datetime": {
             "enabled": True,
             "position": (98, 5),  # Top right corner, slightly inward to avoid clipping
             "color": (255, 255, 255),  # White
-            "font_size": 0.8,
+            "font_size": 0.6,
             "alignment": "right"
         },
         "crosshair": {
@@ -431,72 +431,72 @@ class Parameters:
             "fields": {
                 "heading": {
                     "position": (45, 30),  # Centered above the attitude indicator and crosshair
-                    "font_size": 0.8,
+                    "font_size": 0.5,
                     "color": (255, 255, 255)  # White
                 },
                 "airspeed": {
                     "position": (10, 45),  # Left of the attitude indicator, aligned with its center
-                    "font_size": 0.8,
+                    "font_size": 0.5,
                     "color": (255, 255, 255)  # White
                 },
                 "groundspeed": {
                     "position": (10, 55),  # Below airspeed
-                    "font_size": 0.8,
+                    "font_size": 0.5,
                     "color": (255, 255, 255)  # White
                 },
                 "altitude_msl": {
                     "position": (75, 45),  # Right of the attitude indicator, aligned with its center
-                    "font_size": 0.8,
+                    "font_size": 0.5,
                     "color": (255, 255, 255)  # White
                 },
                 "altitude_agl": {
                     "position": (75, 55),  # Below altitude_msl
-                    "font_size": 0.8,
+                    "font_size": 0.5,
                     "color": (255, 255, 255)  # White
                 },
                 "roll": {
                     "position": (45, 75),  # Centered below the attitude indicator
-                    "font_size": 0.8,
+                    "font_size": 0.5,
                     "color": (255, 255, 255)  # White
                 },
                 "pitch": {
                     "position": (45, 80),  # Below roll, centered
-                    "font_size": 0.8,
+                    "font_size": 0.5,
                     "color": (255, 255, 255)  # White
                 },
                 "latitude": {
                     "position": (2, 92),  # Lower left corner
-                    "font_size": 0.7,
+                    "font_size": 0.3,
                     "color": (255, 255, 255)  # White
                 },
                 "longitude": {
                     "position": (2, 96),  # Lower left corner
-                    "font_size": 0.7,
+                    "font_size": 0.3,
                     "color": (255, 255, 255)  # White
                 },
                 "satellites_visible": {
                     "position": (2, 88),  # Lower left corner
-                    "font_size": 0.7,
+                    "font_size": 0.4,
                     "color": (255, 255, 255)  # White
                 },
                 "hdop": {
                     "position": (2, 84),  # Lower left corner
-                    "font_size": 0.7,
+                    "font_size": 0.4,
                     "color": (255, 255, 255)  # White
                 },
                 "voltage": {
                     "position": (2, 12),  # Upper left corner
-                    "font_size": 0.7,
+                    "font_size": 0.4,
                     "color": (255, 255, 255)  # White
                 },
                 "arm_status": {
                     "position": (2, 16),  # Upper left corner
-                    "font_size": 0.7,
+                    "font_size": 0.5,
                     "color": (255, 255, 255)  # White
                 },
                 "flight_mode": {
                     "position": (45, 10),  # Center top
-                    "font_size": 0.8,
+                    "font_size": 0.5,
                     "color": (255, 0, 0),  # Red for critical information
                     "alignment": "center"
                 }

@@ -65,18 +65,34 @@ class MavlinkDataManager:
                 # Iterate through the data points defined in Parameters
                 for point_name, json_path in self.data_points.items():
                     self.logger.debug(f"Extracting {point_name} using path {json_path}")
+                    
                     if point_name == "arm_status":
                         # Special handling for arm status
                         base_mode = self._extract_data_from_json(json_data, "/vehicles/1/components/191/messages/HEARTBEAT/message/base_mode/bits")
                         self.data[point_name] = self._determine_arm_status(base_mode)
+                    
                     else:
+                        # Extract value from JSON using the defined path
                         value = self._extract_data_from_json(json_data, json_path)
+                        
                         if value is None:
+                            # If extraction fails, log a warning and assign "N/A"
                             self.logger.warning(f"Failed to retrieve data for {point_name} using path {json_path}. Assigning 'N/A'.")
                             value = "N/A"
+                        else:
+                            # Check if the point is latitude or longitude and apply division by 1e7
+                            if point_name in ["latitude", "longitude"]:
+                                try:
+                                    value = float(value) / 1e7
+                                except (ValueError, TypeError) as e:
+                                    self.logger.error(f"Failed to convert {point_name} value to float for division: {e}")
+                                    value = "N/A"
+
+                        # Store the processed value in the data dictionary
                         self.data[point_name] = value
 
-                self.logger.debug(f"Updated MAVLink data: {self.data}")
+
+                # self.logger.debug(f"Updated MAVLink data: {self.data}")
 
         except requests.RequestException as e:
             self.logger.error(f"Error fetching data from {url}: {e}")
@@ -90,6 +106,8 @@ class MavlinkDataManager:
         Typically, the armed status is indicated by a specific bit in base_mode.
         """
         ARM_BIT_MASK = 128  # Example mask, update with the correct one
+        if base_mode_bits == None:
+            return "Unknown"
         return "Armed" if base_mode_bits & ARM_BIT_MASK else "Disarmed"
 
     def _extract_data_from_json(self, data, json_path):

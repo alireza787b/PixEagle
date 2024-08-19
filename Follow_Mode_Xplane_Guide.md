@@ -26,7 +26,7 @@ Watch the latest video showcasing PixEagle v1.0, demonstrating advanced features
 Route MAVLink messages between your SITL environment on Linux and your development environment on Windows: (for MAVSDK, QGC and MAVLink2Rest)
 
 ```bash
-mavlink-routerd -e 172.21.144.1:14540 -e 172.21.144.1:14550 -e 172.21.144.1:14569 0.0.0.0:14550
+mavlink-routerd -e 172.21.144.1:14540 -e 172.21.144.1:14550 -e 127.0.0.1:14569 0.0.0.0:14550
 ```
 
 ### Step 2: MAVSDK Server Setup on Windows
