@@ -138,6 +138,8 @@ class Parameters:
 
     # ----- Follower Configuration -----
     # General settings
+    USE_MAVLINK2REST = True     # Enable or disable MAVLink2Rest usage, If set to False will keep using mavsdk for telemtery receiving
+    FOLLOWER_DATA_REFRESH_RATE = 2
     ROI_SELECTION_MODE = "MANUAL"  # ROI selection mode
     SHOW_TRACKING_WINDOW = True  # Show tracking window
     DISPLAY_DEVIATIONS = False  # Display deviations
@@ -445,13 +447,13 @@ class Parameters:
                     "color": (255, 255, 255)  # White
                 },
                 "altitude_msl": {
-                    "position": (75, 45),  # Right of the attitude indicator, aligned with its center
-                    "font_size": 0.5,
+                    "position": (65, 45),  # Right of the attitude indicator, aligned with its center
+                    "font_size": 0.45,
                     "color": (255, 255, 255)  # White
                 },
                 "altitude_agl": {
-                    "position": (75, 55),  # Below altitude_msl
-                    "font_size": 0.5,
+                    "position": (65, 55),  # Below altitude_msl
+                    "font_size": 0.45,
                     "color": (255, 255, 255)  # White
                 },
                 "roll": {
@@ -505,13 +507,13 @@ class Parameters:
         "tracker_status": {
             "enabled": True,
             "position": (80, 92),  # Lower right corner, near other status fields
-            "font_size": 0.7,
+            "font_size": 0.4,
             "color": (255, 255, 0)  # Yellow for status information
         },
         "follower_status": {
             "enabled": True,
             "position": (80, 96),  # Lower right corner, below tracker_status
-            "font_size": 0.7,
+            "font_size": 0.4,
             "color": (255, 255, 0)  # Yellow for status information
         }
     }

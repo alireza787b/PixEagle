@@ -35,6 +35,8 @@ class FastAPIHandler:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+        # Setup logging
+        logging.basicConfig(level=logging.INFO)  # Set to INFO to ignore DEBUG logs
         self.define_routes()
         self.frame_rate = Parameters.STREAM_FPS
         self.width = Parameters.STREAM_WIDTH

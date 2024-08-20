@@ -58,7 +58,7 @@ class AppController:
         self.current_frame = None
 
         # Initialize PX4 interface manager and following mode flag
-        self.px4_interface = PX4InterfaceManager()
+        self.px4_interface = PX4InterfaceManager(app_controller=self)
         self.following_active = False
         self.follower = None
         self.setpoint_sender = None
@@ -213,7 +213,7 @@ class AppController:
             key (int): The key pressed.
             frame (np.ndarray): The current video frame.
         """
-        logging.debug(f"Handling key input: {key}")
+        # logging.debug(f"Handling key input: {key}")
         if key == ord('y'):
             self.toggle_segmentation()
         elif key == ord('t'):
@@ -223,8 +223,7 @@ class AppController:
         elif key == ord('f'):
             await self.connect_px4()
         elif key == ord('x'):
-            if Parameters.DIRECT_PX4_MAVSDK:        
-                await self.disconnect_px4()
+            await self.disconnect_px4()
         elif key == ord('c'):
             self.cancel_activities()
 
@@ -376,6 +375,9 @@ class AppController:
             setpoint = await self.follower.follow_target(target_coords)
             self.px4_interface.update_setpoint(setpoint)
             await self.px4_interface.send_body_velocity_commands(self.px4_interface.last_command)
+            return True
+        else:
+            return False
 
     async def shutdown(self) -> Dict[str, any]:
         """

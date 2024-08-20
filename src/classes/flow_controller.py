@@ -48,12 +48,16 @@ class FlowController:
         Main loop to handle video processing, user inputs, and the main application flow.
         """
         try:
+            # Create a persistent event loop
+            loop = asyncio.get_event_loop()
+
             while not self.controller.shutdown_flag:
                 frame = self.controller.video_handler.get_frame()
                 if frame is None:
                     break
 
-                frame = asyncio.run(self.controller.update_loop(frame))
+                # Run the update loop within the persistent event loop
+                frame = loop.run_until_complete(self.controller.update_loop(frame))
                 self.controller.show_current_frame()
 
                 key = cv2.waitKey(self.controller.video_handler.delay_frame) & 0xFF
@@ -61,16 +65,19 @@ class FlowController:
                     logging.info("Quitting...")
                     self.controller.shutdown_flag = True
                 else:
-                    asyncio.run(self.controller.handle_key_input_async(key, frame))
+                    # Handle key input within the persistent event loop
+                    loop.run_until_complete(self.controller.handle_key_input_async(key, frame))
 
         except Exception as e:
             logging.error(f"An error occurred: {e}")
 
-        asyncio.run(self.controller.shutdown())
+        # Ensure proper shutdown
+        loop.run_until_complete(self.controller.shutdown())
         self.server.should_exit = True
         self.server_thread.join()  # Wait for the FastAPI server thread to finish
         cv2.destroyAllWindows()
         logging.debug("Application shutdown complete.")
+
 
     def shutdown_handler(self, signum, frame):
         """

@@ -2,6 +2,7 @@ import threading
 import time
 import requests
 import logging
+import asyncio
 
 class MavlinkDataManager:
     def __init__(self, mavlink_host, mavlink_port, polling_interval, data_points, enabled=True):
@@ -55,58 +56,38 @@ class MavlinkDataManager:
         """
         try:
             url = f"http://{self.mavlink_host}:{self.mavlink_port}/v1/mavlink"
-            self.logger.debug(f"Fetching data from {url}")
             response = requests.get(url)
             response.raise_for_status()
             json_data = response.json()
-            #self.logger.debug(f"Raw data received: {json_data}")
 
             with self._lock:
                 # Iterate through the data points defined in Parameters
                 for point_name, json_path in self.data_points.items():
-                    self.logger.debug(f"Extracting {point_name} using path {json_path}")
-                    
                     if point_name == "arm_status":
-                        # Special handling for arm status
                         base_mode = self._extract_data_from_json(json_data, "/vehicles/1/components/191/messages/HEARTBEAT/message/base_mode/bits")
                         self.data[point_name] = self._determine_arm_status(base_mode)
-                    
                     else:
-                        # Extract value from JSON using the defined path
                         value = self._extract_data_from_json(json_data, json_path)
-                        
                         if value is None:
-                            # If extraction fails, log a warning and assign "N/A"
                             self.logger.warning(f"Failed to retrieve data for {point_name} using path {json_path}. Assigning 'N/A'.")
                             value = "N/A"
                         else:
-                            # Check if the point is latitude or longitude and apply division by 1e7
                             if point_name in ["latitude", "longitude"]:
                                 try:
                                     value = float(value) / 1e7
                                 except (ValueError, TypeError) as e:
                                     self.logger.error(f"Failed to convert {point_name} value to float for division: {e}")
                                     value = "N/A"
-
-                        # Store the processed value in the data dictionary
                         self.data[point_name] = value
-
-
-                # self.logger.debug(f"Updated MAVLink data: {self.data}")
-
         except requests.RequestException as e:
             self.logger.error(f"Error fetching data from {url}: {e}")
-
-
-
 
     def _determine_arm_status(self, base_mode_bits):
         """
         Determine if the system is armed based on the base_mode bits.
-        Typically, the armed status is indicated by a specific bit in base_mode.
         """
         ARM_BIT_MASK = 128  # Example mask, update with the correct one
-        if base_mode_bits == None:
+        if base_mode_bits is None:
             return "Unknown"
         return "Armed" if base_mode_bits & ARM_BIT_MASK else "Disarmed"
 
@@ -123,7 +104,6 @@ class MavlinkDataManager:
                 return None
         return data
 
-
     def get_data(self, point):
         """
         Retrieve the most recent data for a specified point.
@@ -132,3 +112,58 @@ class MavlinkDataManager:
             if not self.enabled:
                 return None  # Avoid unnecessary logging and simply return None
             return self.data.get(point, "N/A")
+
+    async def fetch_data_from_uri(self, uri):
+        """
+        Fetch data from a specific URI and return the parsed JSON response.
+        This method allows for more modular and targeted data retrieval.
+        """
+        url = f"http://{self.mavlink_host}:{self.mavlink_port}{uri}"
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as e:
+            self.logger.error(f"Error fetching data from {url}: {e}")
+            return None
+
+    async def fetch_data_from_uri(self, uri):
+        """
+        Fetch data from a specific URI and return the parsed JSON response.
+        This method allows for more modular and targeted data retrieval.
+        """
+        url = f"http://{self.mavlink_host}:{self.mavlink_port}{uri}"
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as e:
+            self.logger.error(f"Error fetching data from {url}: {e}")
+            return None
+
+    async def fetch_attitude_data(self):
+        """
+        Fetch attitude data (roll, pitch, yaw) from MAVLink2Rest.
+        """
+        attitude_data = await self.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/ATTITUDE")
+        if attitude_data:
+            message = attitude_data.get("message", {})
+            return {
+                "roll": message.get("roll", "N/A"),
+                "pitch": message.get("pitch", "N/A"),
+                "yaw": message.get("yaw", "N/A")
+            }
+        return {"roll": "N/A", "pitch": "N/A", "yaw": "N/A"}
+
+    async def fetch_altitude_data(self):
+        """
+        Fetch altitude data from MAVLink2Rest.
+        """
+        altitude_data = await self.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/ALTITUDE")
+        if altitude_data:
+            message = altitude_data.get("message", {})
+            return {
+                "altitude_relative": message.get("altitude_relative", "N/A"),
+                "altitude_amsl": message.get("altitude_amsl", "N/A")
+            }
+        return {"altitude_relative": "N/A", "altitude_amsl": "N/A"}
