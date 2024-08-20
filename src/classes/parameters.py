@@ -506,13 +506,13 @@ class Parameters:
         },
         "tracker_status": {
             "enabled": True,
-            "position": (80, 92),  # Lower right corner, near other status fields
+            "position": (75, 92),  # Lower right corner, near other status fields
             "font_size": 0.4,
             "color": (255, 255, 0)  # Yellow for status information
         },
         "follower_status": {
             "enabled": True,
-            "position": (80, 96),  # Lower right corner, below tracker_status
+            "position": (75, 96),  # Lower right corner, below tracker_status
             "font_size": 0.4,
             "color": (255, 255, 0)  # Yellow for status information
         }
