@@ -144,7 +144,7 @@ class Parameters:
     SHOW_TRACKING_WINDOW = True  # Show tracking window
     DISPLAY_DEVIATIONS = False  # Display deviations
     TRACKED_BBOX_STYLE = 'fancy'  # Options: 'normal', 'fancy'
-    FOLLOWER_MODE = 'front_view'  # 'ground_view' or 'front_view'
+    FOLLOWER_MODE = 'ground_view'  # 'ground_view' or 'front_view'
     CONTROL_STRATEGY = 'constant_altitude'  # Options: 'constant_altitude', 'constant_distance'
     # The control strategy to be used. 
     # 'constant_altitude' means the drone maintains a fixed altitude, and vertical corrections are made through pitch (forward/backward movement).
@@ -159,7 +159,7 @@ class Parameters:
 
     # ---- Yaw Control Parameters only for front view target follower ----
     
-    ENABLE_YAW_CONTROL = True
+    ENABLE_YAW_CONTROL = False
     # Enable or disable yaw control. Set to False if yaw control is not needed.
     
     YAW_CONTROL_THRESHOLD = 0.8
