@@ -144,7 +144,12 @@ class Parameters:
     SHOW_TRACKING_WINDOW = True  # Show tracking window
     DISPLAY_DEVIATIONS = False  # Display deviations
     TRACKED_BBOX_STYLE = 'fancy'  # Options: 'normal', 'fancy'
-    FOLLOWER_MODE = 'ground_view'  # 'ground_view' or 'front_view'
+    FOLLOWER_MODE = 'front_view'  # 'ground_view' or 'front_view'
+    CONTROL_STRATEGY = 'constant_altitude'  # Options: 'constant_altitude', 'constant_distance'
+    # The control strategy to be used. 
+    # 'constant_altitude' means the drone maintains a fixed altitude, and vertical corrections are made through pitch (forward/backward movement).
+    # 'constant_distance' means the drone adjusts altitude to maintain a fixed distance from the target.
+    
     DEFAULT_DISTANCE = 200  # Default distance for calculations
     # If the target moves vertically in the frame, adjust using altitude or distance
     # 'constant_altitude': Adjust altitude to keep target at desired vertical position in frame.
@@ -185,13 +190,8 @@ class Parameters:
     YAW_PITCH_SYNC_FACTOR = 0.5
     # Factor that controls how aggressively pitch is adjusted after a yaw movement. 
     # A higher value means more aggressive pitch corrections. This helps keep the target centered vertically after yaw adjustments.
+        
     
-    # ---- Control Strategy Parameters ----
-    
-    CONTROL_STRATEGY = 'constant_altitude'  # Options: 'constant_altitude', 'constant_distance'
-    # The control strategy to be used. 
-    # 'constant_altitude' means the drone maintains a fixed altitude, and vertical corrections are made through pitch (forward/backward movement).
-    # 'constant_distance' means the drone adjusts altitude to maintain a fixed distance from the target.
 
     ENABLE_GIMBAL_PRIORITY = True
     # Prioritize gimbal adjustments over drone yaw. If set to True and the camera is gimbaled, 

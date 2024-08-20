@@ -22,6 +22,7 @@ class Follower:
         """
         self.px4_controller = px4_controller
         self.mode = Parameters.FOLLOWER_MODE
+        self.yaw_enabled = Parameters.ENABLE_YAW_CONTROL
         self.initial_target_coords = initial_target_coords
         self.follower = self.get_follower_mode()
         logger.info(f"Initialized Follower with mode: {self.mode}")

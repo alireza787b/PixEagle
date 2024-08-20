@@ -25,9 +25,17 @@ class FrontViewTargetFollower(BaseFollower):
         self.target_position_mode = Parameters.TARGET_POSITION_MODE
         self.initial_target_coords = initial_target_coords if self.target_position_mode == 'initial' else Parameters.DESIRE_AIM
         self.default_distance = Parameters.DEFAULT_DISTANCE  # Default distance for calculations
-        self.initialize_pids()
+
+        # Debug log to verify initialization
+        logging.debug("Initializing FrontViewTargetFollower...")
+
+        # Initialize yaw control flag
         self.yaw_enabled = Parameters.ENABLE_YAW_CONTROL  # Flag to enable or disable yaw control
+        logging.debug(f"Yaw control enabled: {self.yaw_enabled}")
+
+        # Initialize last yaw correction time
         self.last_yaw_correction_time = None  # To track the last yaw correction time
+        self.initialize_pids()
 
     def initialize_pids(self):
         """Initializes the PID controllers based on the control strategy and initial target coordinates."""
