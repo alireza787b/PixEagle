@@ -9,8 +9,6 @@ logger = logging.getLogger(__name__)
 SETPOINT_PROFILES = {
     "Ground View": ["vel_x", "vel_y", "vel_z"],
     "Front View": ["vel_x", "vel_y", "vel_z", "yaw_rate"],
-    "Aerial Photography": ["pos_x", "pos_y", "pos_z", "yaw_rate"],
-    "Attitude Control": ["roll_rate", "pitch_rate", "yaw_rate", "thrust"],
     # More profiles can be added here as needed
 }
 
