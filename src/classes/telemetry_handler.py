@@ -59,7 +59,7 @@ class TelemetryHandler:
 
     def get_follower_data(self):
         """
-        Get the latest follower telemetry data.
+        Get the latest follower telemetry data using the SetpointHandler.
         
         Returns:
             dict: The follower telemetry data.
@@ -100,4 +100,5 @@ class TelemetryHandler:
             self.latest_follower_data = self.get_follower_data()
         # logging.debug(f"Latest tracker data: {self.latest_tracker_data}")
         # logging.debug(f"Latest follower data: {self.latest_follower_data}")
+
 

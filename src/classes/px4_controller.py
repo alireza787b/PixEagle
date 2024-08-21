@@ -1,9 +1,11 @@
+#src/classes/px4_controller.py
 import asyncio
 import math
 import logging
 from mavsdk import System
 from classes.parameters import Parameters
 from mavsdk.offboard import OffboardError, VelocityNedYaw, VelocityBodyYawspeed
+from classes.setpoint_handler import SetpointHandler
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -20,7 +22,7 @@ class PX4Controller:
         self.current_altitude = 0.0  # Current altitude in meters
         self.camera_yaw_offset = Parameters.CAMERA_YAW_OFFSET
         self.update_task = None  # Task for telemetry updates
-        self.last_command = (0, 0, 0)  # Default to hover (0 velocity)
+        self.setpoint_handler = SetpointHandler(Parameters.FOLLOWER_MODE.capitalize().replace("_", " "))  # Use the mode from Parameters
         self.active_mode = False
         
     async def connect(self):
@@ -51,9 +53,12 @@ class PX4Controller:
         """Returns the current orientation (yaw, pitch, roll) of the drone."""
         return self.current_yaw, self.current_pitch, self.current_roll
 
-    async def send_ned_velocity_commands(self, setpoint):
-        """Sends velocity commands to the drone in offboard mode."""
-        vel_x, vel_y, vel_z = setpoint
+    async def send_ned_velocity_commands(self):
+        """Sends velocity commands to the drone in offboard mode using the setpoints from the handler."""
+        setpoints = self.setpoint_handler.get_fields()
+        vel_x = setpoints.get('vel_x', 0)
+        vel_y = setpoints.get('vel_y', 0)
+        vel_z = setpoints.get('vel_z', 0)
         ned_vel_x, ned_vel_y = self.convert_to_ned(vel_x, vel_y, self.current_yaw)
         
         if Parameters.ENABLE_SETPOINT_DEBUGGING:
@@ -65,10 +70,14 @@ class PX4Controller:
         except OffboardError as e:
             logger.error(f"Failed to send offboard command: {e}")
 
-    async def send_body_velocity_commands(self, setpoint):
-        """Sends velocity commands to the drone in offboard mode."""
-        vx, vy, vz = setpoint
-        yaw_rate = 0  # for now no yaw change
+    async def send_body_velocity_commands(self):
+        """Sends body frame velocity commands to the drone in offboard mode using the setpoints from the handler."""
+        setpoints = self.setpoint_handler.get_fields()
+        vx = setpoints.get('vel_x', 0)
+        vy = setpoints.get('vel_y', 0)
+        vz = setpoints.get('vel_z', 0)
+        yaw_rate = setpoints.get('yaw_rate', 0)  # Use yaw_rate if available
+        
         try:
             logger.debug(f"Setting VELOCITY_BODY setpoint: Vx={vx}, Vy={vy}, Vz={vz}, Yaw rate={yaw_rate}")
             next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_rate)
@@ -115,9 +124,9 @@ class PX4Controller:
 
     async def send_initial_setpoint(self):
         """Sends an initial setpoint to enable offboard mode start."""
-        await self.send_body_velocity_commands((0, 0, 0))
-        # TODO: instead of setting speed to 0, better to apply the current speed.
+        await self.send_body_velocity_commands()
 
-    def update_setpoint(self, setpoint):
-        """Updates the current setpoint."""
-        self.last_command = setpoint
+    def update_setpoint_handler_profile(self, profile_name: str):
+        """Updates the setpoint handler profile based on the mission type."""
+        self.setpoint_handler = SetpointHandler(profile_name)
+        logger.info(f"SetpointHandler profile updated to: {profile_name}")

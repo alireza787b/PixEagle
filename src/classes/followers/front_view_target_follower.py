@@ -1,3 +1,4 @@
+#src/classes/followers/front_view_target_follower.py
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
@@ -20,21 +21,10 @@ class FrontViewTargetFollower(BaseFollower):
             px4_controller (PX4Controller): Instance of PX4Controller to control the drone.
             initial_target_coords (tuple): Initial target coordinates to set for the follower.
         """
-        super().__init__(px4_controller)
+        super().__init__(px4_controller, "Front View")  # Initialize with "Front View" profile
         self.control_strategy = Parameters.CONTROL_STRATEGY
         self.target_position_mode = Parameters.TARGET_POSITION_MODE
         self.initial_target_coords = initial_target_coords if self.target_position_mode == 'initial' else Parameters.DESIRE_AIM
-        self.default_distance = Parameters.DEFAULT_DISTANCE  # Default distance for calculations
-
-        # Debug log to verify initialization
-        logging.debug("Initializing FrontViewTargetFollower...")
-
-        # Initialize yaw control flag
-        self.yaw_enabled = Parameters.ENABLE_YAW_CONTROL  # Flag to enable or disable yaw control
-        logging.debug(f"Yaw control enabled: {self.yaw_enabled}")
-
-        # Initialize last yaw correction time
-        self.last_yaw_correction_time = None  # To track the last yaw correction time
         self.initialize_pids()
 
     def initialize_pids(self):
@@ -45,7 +35,7 @@ class FrontViewTargetFollower(BaseFollower):
             setpoint=setpoint_x, 
             output_limits=(-Parameters.VELOCITY_LIMITS['y'], Parameters.VELOCITY_LIMITS['y'])
         )
-        
+
         if self.control_strategy == 'constant_altitude':
             self.pid_x = CustomPID(
                 *self.get_pid_gains('x'), 
@@ -62,11 +52,6 @@ class FrontViewTargetFollower(BaseFollower):
                 *self.get_pid_gains('z'), 
                 setpoint=setpoint_y, 
                 output_limits=(-Parameters.VELOCITY_LIMITS['z'], Parameters.VELOCITY_LIMITS['z'])
-            )
-            self.pid_x = CustomPID(
-                *self.get_pid_gains('x'), 
-                setpoint=0, 
-                output_limits=(0, 0)  # vx will be controlled separately, for now set to zero
             )
 
         if self.yaw_enabled:
@@ -144,8 +129,8 @@ class FrontViewTargetFollower(BaseFollower):
 
         return adjusted_target_x, adjusted_target_y
 
-    def calculate_velocity_commands(self, target_coords: Tuple[float, float]) -> Tuple[float, float, float, float]:
-        """Calculates and returns the velocity commands based on the target coordinates and current drone status."""
+    def calculate_velocity_commands(self, target_coords: Tuple[float, float]) -> None:
+        """Calculates and updates velocity commands based on the target coordinates."""
         self.update_pid_gains()
 
         adjusted_target_x, adjusted_target_y = self.apply_gimbal_corrections(target_coords)
@@ -154,21 +139,33 @@ class FrontViewTargetFollower(BaseFollower):
         # Calculate errors
         error_x = self.pid_x.setpoint - adjusted_target_x
         error_y = self.pid_y.setpoint - adjusted_target_y
-        
+
         # Handle Yaw Control if enabled
         yaw_velocity = 0
         if self.yaw_enabled and abs(error_x) > Parameters.YAW_CONTROL_THRESHOLD:
             yaw_velocity = self.pid_yaw(error_x)
-            self.last_yaw_correction_time = datetime.utcnow().timestamp()
 
         # Apply control strategies based on the selected control strategy
         if self.control_strategy == 'constant_altitude':
-            vel_x, vel_y, vel_z = self.calculate_velocity_constant_altitude(error_x, error_y)
+            vel_x = self.pid_x(error_y)
+            vel_y = self.pid_y(error_x)
+            vel_z = self.control_descent_constant_altitude()
         else:  # constant_distance
-            vel_x, vel_y, vel_z = self.calculate_velocity_constant_distance(error_x, error_y)
+            vel_x = 0  # Controlled separately
+            vel_y = self.pid_y(error_x)
+            vel_z = self.control_descent_constant_distance(error_y)
 
-        # Return the full velocity commands including yaw
-        return vel_x, vel_y, vel_z, yaw_velocity
+        # Update setpoint handler with calculated velocities and yaw
+        self.setpoint_handler.set_field('vel_x', vel_x)
+        self.setpoint_handler.set_field('vel_y', vel_y)
+        self.setpoint_handler.set_field('vel_z', vel_z)
+        self.setpoint_handler.set_field('yaw_rate', yaw_velocity)
+
+    async def follow_target(self, target_coords: Tuple[float, float]):
+        """Calculates and sends velocity and yaw rate commands to follow a target based on its coordinates."""
+        self.calculate_velocity_commands(target_coords)
+        await self.px4_controller.send_body_velocity_commands(self.setpoint_handler.get_fields())
+
 
     def calculate_velocity_constant_altitude(self, error_x: float, error_y: float) -> Tuple[float, float, float]:
         """Calculate velocity commands for constant altitude strategy."""
@@ -243,7 +240,3 @@ class FrontViewTargetFollower(BaseFollower):
             logging.info("Altitude is at or below the minimum descent height. Descent halted.")
             return 0
 
-    async def follow_target(self, target_coords: Tuple[float, float]):
-        """Asynchronously sends velocity commands to follow a target based on its coordinates."""
-        setpoint = self.calculate_velocity_commands(target_coords)
-        await self.px4_controller.send_body_velocity_commands(setpoint)

@@ -1,9 +1,11 @@
+#src/classes/px4_interface_manager.py
 import asyncio
 import math
 import logging
 from mavsdk import System
 from classes.parameters import Parameters
 from mavsdk.offboard import OffboardError, VelocityNedYaw, VelocityBodyYawspeed
+from classes.setpoint_handler import SetpointHandler
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -34,7 +36,7 @@ class PX4InterfaceManager:
         self.current_altitude = 0.0  # Current altitude in meters
         self.camera_yaw_offset = Parameters.CAMERA_YAW_OFFSET
         self.update_task = None  # Task for telemetry updates
-        self.last_command = (0, 0, 0)  # Default to hover (0 velocity)
+        self.setpoint_handler = SetpointHandler(Parameters.FOLLOWER_MODE.capitalize().replace("_", " "))  # Use the mode from Parameters
         self.active_mode = False
 
         # Determine if we are using MAVLink2Rest for telemetry data

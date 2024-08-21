@@ -19,7 +19,7 @@ class GroundTargetFollower(BaseFollower):
             px4_controller (PX4Controller): Instance of PX4Controller to control the drone.
             initial_target_coords (tuple): Initial target coordinates to set for the follower.
         """
-        super().__init__(px4_controller)
+        super().__init__(px4_controller, "Ground View")  # Initialize with "Ground View" profile
         self.target_position_mode = Parameters.TARGET_POSITION_MODE
         self.initial_target_coords = initial_target_coords if self.target_position_mode == 'initial' else (0, 0)
         self.initialize_pids()
@@ -42,6 +42,7 @@ class GroundTargetFollower(BaseFollower):
             setpoint=Parameters.MIN_DESCENT_HEIGHT, 
             output_limits=(-Parameters.MAX_RATE_OF_DESCENT, Parameters.MAX_RATE_OF_DESCENT)
         )
+
 
     def get_pid_gains(self, axis: str) -> Tuple[float, float, float]:
         """Retrieves the PID gains based on the current altitude from the PX4Controller, applying gain scheduling if enabled."""
@@ -105,8 +106,8 @@ class GroundTargetFollower(BaseFollower):
 
         return adjusted_target_x, adjusted_target_y
 
-    def calculate_velocity_commands(self, target_coords: Tuple[float, float]) -> Tuple[float, float, float]:
-        """Calculates and returns the velocity commands based on the target coordinates and current drone status."""
+    def calculate_velocity_commands(self, target_coords: Tuple[float, float]) -> None:
+        """Calculates and updates velocity commands based on the target coordinates."""
         self.update_pid_gains()
 
         adjusted_target_x, adjusted_target_y = self.apply_gimbal_corrections(target_coords)
@@ -121,15 +122,16 @@ class GroundTargetFollower(BaseFollower):
         vel_y = self.pid_x(error_x)  # error_x controls vel_y due to coordinate system differences
         vel_z = self.control_descent()
         
-        self.latest_velocities.update({
-            'vel_x': vel_x,
-            'vel_y': vel_y,
-            'vel_z': vel_z,
-            'timestamp': datetime.utcnow().isoformat(),
-            'status': 'active'
-        })
-        
-        return vel_x, vel_y, vel_z
+        # Update setpoint handler with calculated velocities
+        self.setpoint_handler.set_field('vel_x', vel_x)
+        self.setpoint_handler.set_field('vel_y', vel_y)
+        self.setpoint_handler.set_field('vel_z', vel_z)
+
+    async def follow_target(self, target_coords: Tuple[float, float]):
+        """Calculates and sends velocity commands to follow a target based on its coordinates."""
+        self.calculate_velocity_commands(target_coords)
+        await self.px4_controller.send_body_velocity_commands(self.setpoint_handler.get_fields())
+
 
     def control_descent(self) -> float:
         """
@@ -147,7 +149,3 @@ class GroundTargetFollower(BaseFollower):
         else:
             logging.info("Altitude is at or below the minimum descent height. Descent halted.")
             return 0
-
-    async def follow_target(self, target_coords: Tuple[float, float]):
-        """Calculates and returns the velocity commands to follow a target based on its coordinates."""
-        return self.calculate_velocity_commands(target_coords)
