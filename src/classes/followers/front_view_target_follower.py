@@ -1,4 +1,4 @@
-#src/classes/followers/front_view_target_follower.py
+#src\classes\followers\front_view_target_follower.py
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
@@ -24,7 +24,9 @@ class FrontViewTargetFollower(BaseFollower):
         super().__init__(px4_controller, "Front View")  # Initialize with "Front View" profile
         self.control_strategy = Parameters.CONTROL_STRATEGY
         self.target_position_mode = Parameters.TARGET_POSITION_MODE
+        self.yaw_enabled = Parameters.ENABLE_YAW_CONTROL  # Initialize yaw_enabled from parameters
         self.initial_target_coords = initial_target_coords if self.target_position_mode == 'initial' else Parameters.DESIRE_AIM
+        self.default_distance = Parameters.DEFAULT_DISTANCE
         self.initialize_pids()
 
     def initialize_pids(self):
@@ -165,7 +167,7 @@ class FrontViewTargetFollower(BaseFollower):
         """Calculates and sends velocity and yaw rate commands to follow a target based on its coordinates."""
         self.calculate_velocity_commands(target_coords)
         await self.px4_controller.send_body_velocity_commands(self.setpoint_handler.get_fields())
-
+        return self.setpoint_handler.get_fields()
 
     def calculate_velocity_constant_altitude(self, error_x: float, error_y: float) -> Tuple[float, float, float]:
         """Calculate velocity commands for constant altitude strategy."""
@@ -239,4 +241,3 @@ class FrontViewTargetFollower(BaseFollower):
         else:
             logging.info("Altitude is at or below the minimum descent height. Descent halted.")
             return 0
-

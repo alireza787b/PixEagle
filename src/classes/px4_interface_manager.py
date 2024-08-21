@@ -124,22 +124,6 @@ class PX4InterfaceManager:
         """
         return self.current_yaw, self.current_pitch, self.current_roll
 
-    async def send_ned_velocity_commands(self, setpoint):
-        """
-        Sends NED (North-East-Down) velocity commands to the drone in offboard mode.
-        This operation uses MAVSDK.
-        """
-        vel_x, vel_y, vel_z = setpoint
-        ned_vel_x, ned_vel_y = self.convert_to_ned(vel_x, vel_y, self.current_yaw)
-        
-        if Parameters.ENABLE_SETPOINT_DEBUGGING:
-            logger.debug(f"sending NED velocity commands: Vx={ned_vel_x}, Vy={ned_vel_y}, Vz={vel_z}, Yaw={self.current_yaw}")
-        
-        try:
-            next_setpoint = VelocityNedYaw(ned_vel_x, ned_vel_y, vel_z, self.current_yaw)
-            await self.drone.offboard.set_velocity_ned(next_setpoint)
-        except OffboardError as e:
-            logger.error(f"Failed to send offboard command: {e}")
 
     async def send_body_velocity_commands(self, setpoint):
         """
