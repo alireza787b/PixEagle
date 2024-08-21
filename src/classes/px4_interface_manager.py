@@ -1,4 +1,3 @@
-#src/classes/px4_interface_manager.py
 import asyncio
 import math
 import logging
@@ -36,7 +35,8 @@ class PX4InterfaceManager:
         self.current_altitude = 0.0  # Current altitude in meters
         self.camera_yaw_offset = Parameters.CAMERA_YAW_OFFSET
         self.update_task = None  # Task for telemetry updates
-        self.setpoint_handler = SetpointHandler(Parameters.FOLLOWER_MODE.capitalize().replace("_", " "))  # Use the mode from Parameters
+        normalized_profile_name = SetpointHandler.normalize_profile_name(Parameters.FOLLOWER_MODE)
+        self.setpoint_handler = SetpointHandler(normalized_profile_name)    
         self.active_mode = False
 
         # Determine if we are using MAVLink2Rest for telemetry data
@@ -45,6 +45,7 @@ class PX4InterfaceManager:
             logger.info("Using MAVLink2Rest for telemetry data.")
         else:
             logger.info("Using MAVSDK for telemetry and offboard control.")
+        
         # Setup MAVSDK connection for both telemetry and offboard control
         if Parameters.EXTERNAL_MAVSDK_SERVER:
             self.drone = System(mavsdk_server_address='localhost', port=50051)
@@ -102,7 +103,6 @@ class PX4InterfaceManager:
         except Exception as e:
             logger.error(f"Error updating telemetry via MAVLink2Rest: {e}")
 
-
     async def _update_telemetry_via_mavsdk(self):
         """
         Updates telemetry data using MAVSDK.
@@ -146,15 +146,25 @@ class PX4InterfaceManager:
         Sends body frame velocity commands to the drone in offboard mode.
         This operation uses MAVSDK.
         """
-        vx, vy, vz = setpoint
-        yaw_rate = 0  # No yaw change for now
-        
         try:
+            # Ensure that setpoint values are converted to float if necessary
+            vx = float(setpoint.get('vel_x', 0))
+            vy = float(setpoint.get('vel_y', 0))
+            vz = float(setpoint.get('vel_z', 0))
+            yaw_rate = float(setpoint.get('yaw_rate', 0)) if 'yaw_rate' in setpoint else 0  # Default to 0 if not provided
+
             logger.debug(f"Setting VELOCITY_BODY setpoint: Vx={vx}, Vy={vy}, Vz={vz}, Yaw rate={yaw_rate}")
+            
+            # Send the velocity commands
             next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_rate)
             await self.drone.offboard.set_velocity_body(next_setpoint)
+
         except OffboardError as e:
             logger.error(f"Failed to send offboard velocity command: {e}")
+        except ValueError as ve:
+            logger.error(f"ValueError: An error occurred while processing setpoint: {ve}")
+        except Exception as ex:
+            logger.error(f"An unexpected error occurred: {ex}")
 
     def convert_to_ned(self, vel_x, vel_y, yaw):
         """
@@ -198,9 +208,15 @@ class PX4InterfaceManager:
 
     async def send_initial_setpoint(self):
         """
-        Sends an initial setpoint to the drone to enable offboard mode start.
+        Sends an initial setpoint to the drone based on the current profile's default values to enable offboard mode.
         """
-        await self.send_body_velocity_commands((0, 0, 0))
+        try:
+            # Retrieve initial default values from the setpoint handler based on the profile
+            initial_setpoints = self.setpoint_handler.get_fields()
+            logger.debug(f"Sending initial setpoint: {initial_setpoints}")
+            await self.send_body_velocity_commands(initial_setpoints)
+        except Exception as e:
+            logger.error(f"Error sending initial setpoint: {e}")
 
     def update_setpoint(self, setpoint):
         """

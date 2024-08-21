@@ -145,7 +145,7 @@ class Parameters:
     DISPLAY_DEVIATIONS = False  # Display deviations
     TRACKED_BBOX_STYLE = 'fancy'  # Options: 'normal', 'fancy'
     FOLLOWER_MODE = 'ground_view'  # 'ground_view' or 'front_view'
-    CONTROL_STRATEGY = 'constant_altitude'  # Options: 'constant_altitude', 'constant_distance'
+    CONTROL_STRATEGY = 'constant_altitude'  # Options: 'constant_altitude', 'constant_distance' (Only for Front_view)
     # The control strategy to be used. 
     # 'constant_altitude' means the drone maintains a fixed altitude, and vertical corrections are made through pitch (forward/backward movement).
     # 'constant_distance' means the drone adjusts altitude to maintain a fixed distance from the target.
