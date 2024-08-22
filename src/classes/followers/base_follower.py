@@ -1,7 +1,9 @@
-#src/classes/followers/base_follower.py
 from abc import ABC, abstractmethod
 from typing import Tuple, Dict
 from classes.setpoint_handler import SetpointHandler
+import logging
+
+logger = logging.getLogger(__name__)
 
 class BaseFollower(ABC):
     """
@@ -14,11 +16,12 @@ class BaseFollower(ABC):
 
         Args:
             px4_controller (PX4Controller): Instance of PX4Controller to control the drone.
-            profile_name (str): The name of the setpoint profile to use (e.g., "Ground View", "Front View").
+            profile_name (str): The name of the setpoint profile to use (e.g., "Ground View", "Constant Position").
         """
         self.px4_controller = px4_controller
         self.setpoint_handler = SetpointHandler(profile_name)  # Initialize SetpointHandler with the profile name
         self.latest_velocities = {'timestamp': None, 'status': 'idle'}
+        logger.info(f"BaseFollower initialized with profile: {profile_name}")
 
     @abstractmethod
     def calculate_velocity_commands(self, target_coords: Tuple[float, float]) -> None:
@@ -47,4 +50,6 @@ class BaseFollower(ABC):
         Returns:
             dict: The latest velocity telemetry data from the setpoint handler.
         """
-        return self.setpoint_handler.get_fields()
+        telemetry = self.setpoint_handler.get_fields()
+        logger.debug(f"Telemetry data retrieved: {telemetry}")
+        return telemetry

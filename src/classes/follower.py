@@ -1,7 +1,5 @@
-#src/classes/follower.py
 from .parameters import Parameters
 from classes.followers.ground_target_follower import GroundTargetFollower
-from classes.followers.front_view_target_follower import FrontViewTargetFollower
 from classes.followers.constant_distance_follower import ConstantDistanceFollower
 from classes.followers.constant_position_follower import ConstantPositionFollower
 import logging
@@ -22,7 +20,14 @@ class Follower:
         Args:
             px4_controller (PX4Controller): The PX4 controller instance for controlling the drone.
             initial_target_coords (tuple): Initial target coordinates for the follower.
+
+        Raises:
+            ValueError: If the initial_target_coords are not valid.
         """
+        # Validate initial target coordinates
+        if not isinstance(initial_target_coords, tuple) or len(initial_target_coords) != 2:
+            raise ValueError(f"Invalid initial_target_coords: {initial_target_coords}. Must be a tuple of (x, y) coordinates.")
+
         self.px4_controller = px4_controller
         self.mode = Parameters.FOLLOWER_MODE
         self.initial_target_coords = initial_target_coords
@@ -63,7 +68,11 @@ class Follower:
             The result of the follower's `follow_target` method.
         """
         logger.debug(f"Following target at coordinates: {target_coords}")
-        return await self.follower.follow_target(target_coords)
+        try:
+            return await self.follower.follow_target(target_coords)
+        except Exception as e:
+            logger.error(f"Failed to follow target at coordinates {target_coords}: {e}")
+            raise
 
     def get_follower_telemetry(self):
         """
@@ -72,6 +81,10 @@ class Follower:
         Returns:
             dict: The latest telemetry data from the follower.
         """
-        telemetry = self.follower.get_follower_telemetry()
-        logger.debug(f"Follower telemetry: {telemetry}")
-        return telemetry
+        try:
+            telemetry = self.follower.get_follower_telemetry()
+            logger.debug(f"Follower telemetry: {telemetry}")
+            return telemetry
+        except Exception as e:
+            logger.error(f"Failed to retrieve telemetry data: {e}")
+            return {}

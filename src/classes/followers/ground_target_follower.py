@@ -1,10 +1,11 @@
-#src/classes/followers/ground_target_follower.py
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
 import logging
 from datetime import datetime
 from typing import Tuple, Dict
+
+logger = logging.getLogger(__name__)
 
 class GroundTargetFollower(BaseFollower):
     """
@@ -42,14 +43,14 @@ class GroundTargetFollower(BaseFollower):
             setpoint=Parameters.MIN_DESCENT_HEIGHT, 
             output_limits=(-Parameters.MAX_RATE_OF_DESCENT, Parameters.MAX_RATE_OF_DESCENT)
         )
-
+        logger.info("PID controllers initialized for GroundTargetFollower.")
 
     def get_pid_gains(self, axis: str) -> Tuple[float, float, float]:
         """Retrieves the PID gains based on the current altitude from the PX4Controller, applying gain scheduling if enabled."""
         if Parameters.ENABLE_GAIN_SCHEDULING:
             current_value = getattr(self.px4_controller, Parameters.GAIN_SCHEDULING_PARAMETER, None)
             if current_value is None:
-                logging.error(f"Parameter {Parameters.GAIN_SCHEDULING_PARAMETER} not available in PX4Controller.")
+                logger.error(f"Parameter {Parameters.GAIN_SCHEDULING_PARAMETER} not available in PX4Controller.")
                 return Parameters.PID_GAINS[axis]['p'], Parameters.PID_GAINS[axis]['i'], Parameters.PID_GAINS[axis]['d']
             
             for (lower_bound, upper_bound), gains in Parameters.ALTITUDE_GAIN_SCHEDULE.items():
@@ -63,6 +64,7 @@ class GroundTargetFollower(BaseFollower):
         self.pid_x.tunings = self.get_pid_gains('x')
         self.pid_y.tunings = self.get_pid_gains('y')
         self.pid_z.tunings = self.get_pid_gains('z')
+        logger.debug("PID gains updated for GroundTargetFollower.")
 
     def apply_gimbal_corrections(self, target_coords: Tuple[float, float]) -> Tuple[float, float]:
         """
@@ -126,12 +128,13 @@ class GroundTargetFollower(BaseFollower):
         self.setpoint_handler.set_field('vel_x', vel_x)
         self.setpoint_handler.set_field('vel_y', vel_y)
         self.setpoint_handler.set_field('vel_z', vel_z)
+        logger.debug(f"Velocity commands calculated: vel_x={vel_x}, vel_y={vel_y}, vel_z={vel_z}")
 
     async def follow_target(self, target_coords: Tuple[float, float]):
         """Calculates and sends velocity commands to follow a target based on its coordinates."""
         self.calculate_velocity_commands(target_coords)
         await self.px4_controller.send_body_velocity_commands(self.setpoint_handler.get_fields())
-
+        logger.info(f"Following target at coordinates: {target_coords}")
 
     def control_descent(self) -> float:
         """
