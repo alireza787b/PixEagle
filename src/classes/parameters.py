@@ -145,16 +145,12 @@ class Parameters:
     DISPLAY_DEVIATIONS = False  # Display deviations
     TRACKED_BBOX_STYLE = 'fancy'  # Options: 'normal', 'fancy'
     FOLLOWER_MODE = 'front_view'  # 'ground_view' or 'front_view'
-    CONTROL_STRATEGY = 'constant_altitude'  # Options: 'constant_altitude', 'constant_distance' (Only for Front_view)
-    # The control strategy to be used. 
+    CONTROL_STRATEGY = 'constant_distance'  # Options: 'constant_distance' (Only for Front_view)
+    # The control strategy to be used.
     # 'constant_altitude' means the drone maintains a fixed altitude, and vertical corrections are made through pitch (forward/backward movement).
     # 'constant_distance' means the drone adjusts altitude to maintain a fixed distance from the target.
-    
-    DEFAULT_DISTANCE = 200  # Default distance for calculations
-    # If the target moves vertically in the frame, adjust using altitude or distance
-    # 'constant_altitude': Adjust altitude to keep target at desired vertical position in frame.
-    # 'constant_distance': Adjust forward/backward distance to keep target at desired vertical position in frame.
-    TARGET_POSITION_MODE = 'initial'  # 'center' or 'initial'
+
+    TARGET_POSITION_MODE = 'center'  # 'center' or 'initial'
 
 
     # ---- Yaw Control Parameters only for front view target follower ----
@@ -167,9 +163,7 @@ class Parameters:
     # This is a percentage of the camera's field of view. For example, if set to 0.8, 
     # yaw control will activate when the target moves more than 80% away from the center of the frame.
     
-    MAX_YAW_RATE = 30  # degrees per second
-    # Maximum yaw rate in degrees per second. This limits the speed at which the drone can rotate.
-    # It ensures that yaw movements are smooth and not too abrupt, maintaining camera stability.
+   
     
     YAW_LATERAL_BLEND_FACTOR = 0.5
     # Blending factor for yaw and lateral control. This determines how much yaw control is blended
@@ -199,7 +193,7 @@ class Parameters:
     
     # ---- Adaptive Control Parameters ----
     
-    ADAPTIVE_YAW_CONTROL = True
+    ADAPTIVE_YAW_CONTROL = False
     # If enabled, thresholds and blending factors will be dynamically adjusted based on the target's speed and other environmental factors. 
     # This allows the drone to adapt to different conditions, making the tracking more robust in dynamic environments.
 
@@ -229,7 +223,7 @@ class Parameters:
     PID_GAINS = {
         "x": {"p": 6, "i": 0.3, "d": 1.5},  
         "y": {"p": 6, "i": 0.3, "d": 1.5}, 
-        "z": {"p": 1, "i": 0.01, "d": 0.01}
+        "z": {"p": 2, "i": 0.03, "d": 0.05}
     }
 
     PROPORTIONAL_ON_MEASUREMENT = False  # Default: False, change to True to enable PoM
@@ -244,9 +238,12 @@ class Parameters:
 
     # Velocity and descent limits
     VELOCITY_LIMITS = {'x': 10.0, 'y': 10.0, 'z': 5.0}  # Maximum velocity limits
-    ENABLE_DESCEND_TO_TARGET = True # If True, It will Descend (or Climb) based on below parameters
+    ENABLE_DESCEND_TO_TARGET = False # If True, It will Descend (or Climb) based on below parameters
     MIN_DESCENT_HEIGHT = 20  # Minimum descent height
-    MAX_RATE_OF_DESCENT = 1  # Maximum rate of descent
+    MAX_CLIMB_HEIGHT = 100 # Maximum climb hieght
+    MAX_RATE_OF_DESCENT = 2  # Maximum rate of descent
+    MAX_YAW_RATE = 30  # degrees per second
+
 
     # Target aim configuration
     DESIRE_AIM = (0, 0)  # Desired normalized position in the camera frame

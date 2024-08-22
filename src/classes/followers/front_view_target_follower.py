@@ -7,7 +7,6 @@ from datetime import datetime
 import math
 from typing import Tuple
 import asyncio
-
 class FrontViewTargetFollower(BaseFollower):
     """
     FrontViewTargetFollower class manages PID control to keep a target in the front view of the drone.
@@ -26,37 +25,25 @@ class FrontViewTargetFollower(BaseFollower):
         self.target_position_mode = Parameters.TARGET_POSITION_MODE
         self.yaw_enabled = Parameters.ENABLE_YAW_CONTROL  # Initialize yaw_enabled from parameters
         self.initial_target_coords = initial_target_coords if self.target_position_mode == 'initial' else Parameters.DESIRE_AIM
-        self.default_distance = Parameters.DEFAULT_DISTANCE
         self.initialize_pids()
 
     def initialize_pids(self):
         """Initializes the PID controllers based on the control strategy and initial target coordinates."""
-        setpoint_x, setpoint_y = self.initial_target_coords
-        self.pid_y = CustomPID(
-            *self.get_pid_gains('y'), 
-            setpoint=setpoint_x, 
-            output_limits=(-Parameters.VELOCITY_LIMITS['y'], Parameters.VELOCITY_LIMITS['y'])
-        )
-
-        if self.control_strategy == 'constant_altitude':
-            self.pid_x = CustomPID(
-                *self.get_pid_gains('x'), 
-                setpoint=setpoint_y, 
-                output_limits=(-Parameters.VELOCITY_LIMITS['x'], Parameters.VELOCITY_LIMITS['x'])
-            )
-            self.pid_z = CustomPID(
-                *self.get_pid_gains('z'), 
-                setpoint=Parameters.MIN_DESCENT_HEIGHT, 
-                output_limits=(-Parameters.MAX_RATE_OF_DESCENT, Parameters.MAX_RATE_OF_DESCENT)
-            )
-        else:  # constant_distance
+        
+        if self.control_strategy == 'constant_distance':
+            setpoint_x, setpoint_y = self.initial_target_coords
             self.pid_z = CustomPID(
                 *self.get_pid_gains('z'), 
                 setpoint=setpoint_y, 
                 output_limits=(-Parameters.VELOCITY_LIMITS['z'], Parameters.VELOCITY_LIMITS['z'])
             )
+            self.pid_y = CustomPID(
+                *self.get_pid_gains('y'), 
+                setpoint=setpoint_x, 
+                output_limits=(-Parameters.VELOCITY_LIMITS['y'], Parameters.VELOCITY_LIMITS['y'])
+            )   
 
-        if self.yaw_enabled:
+        if self.yaw_enabled: #TODO
             self.pid_yaw = CustomPID(
                 *self.get_pid_gains('yaw'),
                 setpoint=setpoint_x,  # Yaw setpoint is related to horizontal positioning
@@ -79,83 +66,28 @@ class FrontViewTargetFollower(BaseFollower):
 
     def update_pid_gains(self):
         """Updates the PID gains based on current settings and altitude."""
-        self.pid_x.tunings = self.get_pid_gains('x')
-        self.pid_y.tunings = self.get_pid_gains('y')
-        self.pid_z.tunings = self.get_pid_gains('z')
-        if self.yaw_enabled:
-            self.pid_yaw.tunings = self.get_pid_gains('yaw')
+        if self.control_strategy == 'constant_distance':
+            self.pid_y.tunings = self.get_pid_gains('y')
+            self.pid_z.tunings = self.get_pid_gains('z')
+            if self.yaw_enabled:
+                self.pid_yaw.tunings = self.get_pid_gains('yaw')
 
-    def apply_gimbal_corrections(self, target_coords: Tuple[float, float]) -> Tuple[float, float]:
-        """
-        Applies orientation-based adjustments if the camera is not gimbaled.
-
-        Args:
-            target_coords (tuple): The target coordinates from image processing.
-
-        Returns:
-            tuple: Adjusted target coordinates considering gimbal corrections.
-        """
-        if Parameters.IS_CAMERA_GIMBALED:
-            return target_coords
-
-        orientation = self.px4_controller.get_orientation()  # (yaw, pitch, roll)
-        roll = orientation[2]
-        pitch = orientation[1]
-
-        adjusted_target_x = target_coords[0] + self.default_distance * roll
-        adjusted_target_y = target_coords[1] - self.default_distance * pitch
-
-        # Additional adjustments for non-gimbaled camera roll
-        r = math.sqrt(target_coords[0]**2 + target_coords[1]**2)
-        adjusted_target_x += r * math.cos(roll)
-        adjusted_target_y += r * math.sin(roll)
-
-        return adjusted_target_x, adjusted_target_y
-
-    def apply_adjustment_factors(self, adjusted_target_x: float, adjusted_target_y: float) -> Tuple[float, float]:
-        """
-        Applies dynamic adjustment factors based on a default distance.
-
-        Args:
-            adjusted_target_x (float): The adjusted target x-coordinate.
-            adjusted_target_y (float): The adjusted target y-coordinate.
-
-        Returns:
-            tuple: Further adjusted target coordinates.
-        """
-        adj_factor_x = Parameters.BASE_ADJUSTMENT_FACTOR_X / (1 + Parameters.ALTITUDE_FACTOR * self.default_distance)
-        adj_factor_y = Parameters.BASE_ADJUSTMENT_FACTOR_Y / (1 + Parameters.ALTITUDE_FACTOR * self.default_distance)
-
-        adjusted_target_x += adj_factor_x
-        adjusted_target_y += adj_factor_y
-
-        return adjusted_target_x, adjusted_target_y
 
     def calculate_velocity_commands(self, target_coords: Tuple[float, float]) -> None:
         """Calculates and updates velocity commands based on the target coordinates."""
         self.update_pid_gains()
 
-        adjusted_target_x, adjusted_target_y = self.apply_gimbal_corrections(target_coords)
-        adjusted_target_x, adjusted_target_y = self.apply_adjustment_factors(adjusted_target_x, adjusted_target_y)
-
         # Calculate errors
-        error_x = self.pid_x.setpoint - adjusted_target_x
-        error_y = self.pid_y.setpoint - adjusted_target_y
+        
+        if self.control_strategy == 'constant_distance':
+            error_x = self.pid_y.setpoint - target_coords[0]
+            error_y = self.pid_z.setpoint - target_coords[1] #frame up is negative
+            vel_x , vel_y , vel_z = self.calculate_velocity_constant_distance(error_x= error_x, error_y=error_y)
 
         # Handle Yaw Control if enabled
         yaw_velocity = 0
         if self.yaw_enabled and abs(error_x) > Parameters.YAW_CONTROL_THRESHOLD:
             yaw_velocity = self.pid_yaw(error_x)
-
-        # Apply control strategies based on the selected control strategy
-        if self.control_strategy == 'constant_altitude':
-            vel_x = self.pid_x(error_y)
-            vel_y = self.pid_y(error_x)
-            vel_z = self.control_descent_constant_altitude()
-        else:  # constant_distance
-            vel_x = 0  # Controlled separately
-            vel_y = self.pid_y(error_x)
-            vel_z = self.control_descent_constant_distance(error_y)
 
         # Update setpoint handler with calculated velocities and yaw
         self.setpoint_handler.set_field('vel_x', vel_x)
@@ -169,29 +101,7 @@ class FrontViewTargetFollower(BaseFollower):
         await self.px4_controller.send_body_velocity_commands(self.setpoint_handler.get_fields())
         return self.setpoint_handler.get_fields()
 
-    def calculate_velocity_constant_altitude(self, error_x: float, error_y: float) -> Tuple[float, float, float]:
-        """Calculate velocity commands for constant altitude strategy."""
-        vel_x = self.pid_x(error_y)  # error_y controls vel_x due to coordinate system differences
-        vel_y = self.pid_y(error_x)  # error_x controls vel_y due to coordinate system differences
-        vel_z = self.control_descent_constant_altitude()
-
-        # Smooth transition between yaw and pitch after yaw corrections
-        if self.yaw_enabled and self.last_yaw_correction_time is not None:
-            current_time = datetime.utcnow().timestamp()
-            time_since_yaw = current_time - self.last_yaw_correction_time
-            if time_since_yaw > Parameters.VERTICAL_RECALC_DELAY:
-                vel_x = self.smooth_pitch_correction(error_y)
-
-        self.latest_velocities.update({
-            'vel_x': vel_x,
-            'vel_y': vel_y,
-            'vel_z': vel_z,
-            'timestamp': datetime.utcnow().isoformat(),
-            'status': 'active'
-        })
         
-        return vel_x, vel_y, vel_z
-
     def smooth_pitch_correction(self, error_y: float) -> float:
         """Smoothly adjusts pitch after yaw to correct vertical positioning."""
         return self.pid_x(error_y) * Parameters.YAW_PITCH_SYNC_FACTOR
@@ -202,42 +112,46 @@ class FrontViewTargetFollower(BaseFollower):
         vel_y = self.pid_y(error_x)  # error_x controls vel_y due to coordinate system differences
         vel_z = self.control_descent_constant_distance(error_y)  # error_y controls vel_z due to coordinate system differences
         
-        self.latest_velocities.update({
-            'vel_x': vel_x,
-            'vel_y': vel_y,
-            'vel_z': vel_z,
-            'timestamp': datetime.utcnow().isoformat(),
-            'status': 'active'
-        })
-        
         return vel_x, vel_y, vel_z
 
-    def control_descent_constant_altitude(self) -> float:
-        """
-        Controls the descent of the drone based on current altitude and ensures it doesn't go below the minimum descent height.
-        """
-        if not Parameters.ENABLE_DESCEND_TO_TARGET:
-            logging.info("Descending to target is disabled.")
-            return 0
-
-        current_altitude = self.px4_controller.current_altitude
-        logging.debug(f"Current Altitude: {current_altitude}m, Minimum Descent Height: {Parameters.MIN_DESCENT_HEIGHT}m")
-
-        if current_altitude > Parameters.MIN_DESCENT_HEIGHT:
-            return self.pid_z(-current_altitude)
-        else:
-            logging.info("Altitude is at or below the minimum descent height. Descent halted.")
-            return 0
 
     def control_descent_constant_distance(self, error_y: float) -> float:
         """
-        Controls the descent of the drone based on the error in the y-axis, ensuring it doesn't go below the minimum descent height.
+        Controls the descent of the drone based on the error in the y-axis, considering altitude limits.
+
+        Args:
+            error_y (float): Error in the y-axis (e.g., lateral position error).
+
+        Returns:
+            float: Desired z velocity setpoint.
+
+        Notes:  
+            - Calculate the PID-controlled command using self.pid_z(error_y).
+            - If the command is positive (descend), check if the drone is below the minimum descent height.
+                - If above, allow descent.
+                - If at or below the minimum descent height, log a message and return zero.
+            - If the command is negative (climb), check if the drone is already at the maximum altitude.
+                - If not, allow climbing.
+                - If at maximum altitude, log a message and return zero.
         """
         current_altitude = self.px4_controller.current_altitude
-        logging.debug(f"Current Altitude: {current_altitude}m, Minimum Descent Height: {Parameters.MIN_DESCENT_HEIGHT}m")
+        logging.debug(f"Current Altitude: {current_altitude}m, Minimum Descent Height: {Parameters.MIN_DESCENT_HEIGHT}m, Maximum Climb Height: {Parameters.MAX_CLIMB_HEIGHT}")
 
-        if current_altitude > Parameters.MIN_DESCENT_HEIGHT:
-            return self.pid_z(error_y)
-        else:
-            logging.info("Altitude is at or below the minimum descent height. Descent halted.")
-            return 0
+        # Calculate the PID-controlled command
+        command = self.pid_z(error_y)
+
+        if command > 0:  # Descend command
+            if current_altitude >= Parameters.MIN_DESCENT_HEIGHT:
+                return command
+            else:
+                logging.info("Altitude is at or above the minimum descent height. Descent halted.")
+                return 0
+        else:  # Climb command
+            if current_altitude < Parameters.MAX_CLIMB_HEIGHT:
+                return command
+            else:
+                logging.info("Already at maximum altitude. No further climb allowed.")
+                return 0
+
+
+
