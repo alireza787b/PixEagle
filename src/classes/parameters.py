@@ -144,7 +144,7 @@ class Parameters:
     SHOW_TRACKING_WINDOW = True  # Show tracking window
     DISPLAY_DEVIATIONS = False  # Display deviations
     TRACKED_BBOX_STYLE = 'fancy'  # Options: 'normal', 'fancy'
-    FOLLOWER_MODE = 'constant_distance'  # Options: 'ground_view', 'constant_distance', 'constant_position'
+    FOLLOWER_MODE = 'constant_distance'  # Options: Down Looking Camera: ['ground_view'], Front View Camera: ['constant_distance', 'constant_position']
     ENABLE_ALTITUDE_CONTROL = True  # Set to True if altitude control is needed in 'constant_position' mode
 
 
@@ -154,7 +154,7 @@ class Parameters:
     # ---- Yaw Control Parameters only for front view target follower ----
     
     ENABLE_YAW_CONTROL = False
-    # Enable or disable yaw control. Set to False if yaw control is not needed.
+    # Enable or disable yaw control. Set to False if yaw control is not needed. (Only for Constant Distance Mode)
     
     # Yaw control parameters
     MAX_YAW_RATE = 10  # Maximum yaw rate in degrees per second
