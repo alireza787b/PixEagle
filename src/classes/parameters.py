@@ -144,11 +144,9 @@ class Parameters:
     SHOW_TRACKING_WINDOW = True  # Show tracking window
     DISPLAY_DEVIATIONS = False  # Display deviations
     TRACKED_BBOX_STYLE = 'fancy'  # Options: 'normal', 'fancy'
-    FOLLOWER_MODE = 'front_view'  # 'ground_view' or 'front_view'
-    CONTROL_STRATEGY = 'constant_distance'  # Options: 'constant_distance' (Only for Front_view)
-    # The control strategy to be used.
-    # 'constant_altitude' means the drone maintains a fixed altitude, and vertical corrections are made through pitch (forward/backward movement).
-    # 'constant_distance' means the drone adjusts altitude to maintain a fixed distance from the target.
+    FOLLOWER_MODE = 'constant_distance'  # Options: 'ground_view', 'constant_distance', 'constant_position'
+    ENABLE_ALTITUDE_CONTROL = True  # Set to True if altitude control is needed in 'constant_position' mode
+
 
     TARGET_POSITION_MODE = 'center'  # 'center' or 'initial'
 
@@ -158,10 +156,9 @@ class Parameters:
     ENABLE_YAW_CONTROL = False
     # Enable or disable yaw control. Set to False if yaw control is not needed.
     
-    YAW_CONTROL_THRESHOLD = 0.8
-    # The threshold at which yaw control starts to take effect.
-    # This is a percentage of the camera's field of view. For example, if set to 0.8, 
-    # yaw control will activate when the target moves more than 80% away from the center of the frame.
+    # Yaw control parameters
+    MAX_YAW_RATE = 10  # Maximum yaw rate in degrees per second
+    YAW_CONTROL_THRESHOLD = 0.3  # Threshold to start applying yaw control based on error
     
    
     

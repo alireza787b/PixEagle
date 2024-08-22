@@ -8,8 +8,8 @@ logger = logging.getLogger(__name__)
 # Define profiles for different application modes
 SETPOINT_PROFILES = {
     "Ground View": ["vel_x", "vel_y", "vel_z"],
-    "Front View": ["vel_x", "vel_y", "vel_z", "yaw_rate"],
-    # More profiles can be added here as needed
+    "Constant Distance": ["vel_x", "vel_y", "vel_z", "yaw_rate"],  # Full control of velocity and yaw
+    "Constant Position": ["vel_z", "yaw_rate"]  # Controls only yaw and vertical velocity
 }
 
 class SetpointHandler:
@@ -18,7 +18,7 @@ class SetpointHandler:
         Initializes the SetpointHandler with the specified application-based profile.
         
         Args:
-            profile_name (str): The name of the application profile (e.g., "Ground View", "Front View").
+            profile_name (str): The name of the application profile (e.g., "Ground View", "Constant Distance", "Constant Position").
         
         Raises:
             ValueError: If the profile is not defined.
@@ -31,7 +31,7 @@ class SetpointHandler:
             self.initialize_fields(SETPOINT_PROFILES[self.profile_name])
             logger.info(f"SetpointHandler initialized with profile: {self.profile_name}")
         else:
-            raise ValueError(f"Profile '{profile_name}' is not defined. Available profiles: {list(SETPOINT_PROFILES.keys())}")
+            raise ValueError(f"Profile '{self.profile_name}' is not defined. Available profiles: {list(SETPOINT_PROFILES.keys())}")
         
     @staticmethod
     def normalize_profile_name(profile_name: str) -> str:

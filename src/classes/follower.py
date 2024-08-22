@@ -1,8 +1,10 @@
 #src/classes/follower.py
-import logging
 from .parameters import Parameters
 from classes.followers.ground_target_follower import GroundTargetFollower
 from classes.followers.front_view_target_follower import FrontViewTargetFollower
+from classes.followers.constant_distance_follower import ConstantDistanceFollower
+from classes.followers.constant_position_follower import ConstantPositionFollower
+import logging
 from typing import Tuple
 
 logger = logging.getLogger(__name__)
@@ -23,7 +25,6 @@ class Follower:
         """
         self.px4_controller = px4_controller
         self.mode = Parameters.FOLLOWER_MODE
-        self.yaw_enabled = Parameters.ENABLE_YAW_CONTROL
         self.initial_target_coords = initial_target_coords
         self.follower = self.get_follower_mode()
         logger.info(f"Initialized Follower with mode: {self.mode}")
@@ -40,7 +41,8 @@ class Follower:
         """
         mode_map = {
             'ground_view': GroundTargetFollower,
-            'front_view': FrontViewTargetFollower
+            'constant_distance': ConstantDistanceFollower,
+            'constant_position': ConstantPositionFollower
         }
 
         if self.mode in mode_map:
