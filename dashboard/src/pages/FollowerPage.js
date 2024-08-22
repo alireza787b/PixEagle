@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Container, Grid, Typography, CircularProgress, Button, Card, CardContent, Divider } from '@mui/material';
+import { Container, Grid, Typography, CircularProgress, Button } from '@mui/material';
 import { CSSTransition } from 'react-transition-group';
 import ScopePlot from '../components/ScopePlot';
 import StaticPlot from '../components/StaticPlot';
@@ -64,8 +64,6 @@ const FollowerPage = () => {
     );
   }
 
-  const latestFollowerData = followerData[followerData.length - 1] || {};
-
   return (
     <Container>
       <Typography variant="h4" gutterBottom>Follower Visualization</Typography>
@@ -88,28 +86,6 @@ const FollowerPage = () => {
         <Grid item xs={12} md={4}>
           <StaticPlot title="Velocity Z vs Time" data={followerData} dataKey="vel_z" />
         </Grid>
-        {latestFollowerData.yaw_rate !== undefined && (
-          <Grid item xs={12} md={4}>
-            <StaticPlot title="Yaw Rate vs Time" data={followerData} dataKey="yaw_rate" />
-          </Grid>
-        )}
-
-        {/* Profile Information Section */}
-        <Grid item xs={12}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>Profile: {latestFollowerData.profile || 'Unknown'}</Typography>
-              <Divider style={{ marginBottom: '10px' }} />
-              <Typography variant="body1">Vel X: {latestFollowerData.vel_x || 'N/A'}</Typography>
-              <Typography variant="body1">Vel Y: {latestFollowerData.vel_y || 'N/A'}</Typography>
-              <Typography variant="body1">Vel Z: {latestFollowerData.vel_z || 'N/A'}</Typography>
-              {latestFollowerData.yaw_rate !== undefined && (
-                <Typography variant="body1">Yaw Rate: {latestFollowerData.yaw_rate}</Typography>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-
         <Grid item xs={12}>
           <Button variant="contained" color="primary" onClick={handleToggleRawData}>
             {showRawData ? 'Hide Raw Data Log' : 'Show Raw Data Log'}

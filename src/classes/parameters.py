@@ -154,7 +154,7 @@ class Parameters:
     # If the target moves vertically in the frame, adjust using altitude or distance
     # 'constant_altitude': Adjust altitude to keep target at desired vertical position in frame.
     # 'constant_distance': Adjust forward/backward distance to keep target at desired vertical position in frame.
-    TARGET_POSITION_MODE = 'center'  # 'center' or 'initial'
+    TARGET_POSITION_MODE = 'initial'  # 'center' or 'initial'
 
 
     # ---- Yaw Control Parameters only for front view target follower ----
