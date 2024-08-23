@@ -21,6 +21,7 @@ class SetpointSender(threading.Thread):
             setpoints = self.setpoint_handler.get_fields()
 
             # Send the velocity commands to the PX4 controller using the setpoints
+            #TODO: Depends on the profile of follower setpoint we might need to use other mavsdk offabord (pitch rate, yaw rate, rollrate , thrust , ...)
             loop.run_until_complete(self.px4_controller.send_body_velocity_commands())
 
             if Parameters.ENABLE_SETPOINT_DEBUGGING:
