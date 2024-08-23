@@ -44,11 +44,37 @@ class ConstantDistanceFollower(BaseFollower):
 
         # Initialize yaw PID controller if enabled
         if self.yaw_enabled:
-            self.pid_yaw = CustomPID(
-                *self.get_pid_gains('yaw'),
+            self.pid_yaw_rate = CustomPID(
+                *self.get_pid_gains('yaw_rate'),
                 setpoint=setpoint_x, 
                 output_limits=(-Parameters.MAX_YAW_RATE, Parameters.MAX_YAW_RATE)
             )
+
+        logging.info("PID controllers initialized for ConstantDistanceFollower.")
+
+    def get_pid_gains(self, axis: str) -> Tuple[float, float, float]:
+        """
+        Retrieves the PID gains for the specified axis.
+
+        Args:
+            axis (str): The axis for which to retrieve the PID gains ('x', 'y', 'z', 'yaw_rate').
+
+        Returns:
+            Tuple[float, float, float]: The proportional, integral, and derivative gains for the axis.
+        """
+        # Return the PID gains from the parameters
+        return Parameters.PID_GAINS[axis]['p'], Parameters.PID_GAINS[axis]['i'], Parameters.PID_GAINS[axis]['d']
+
+    def update_pid_gains(self):
+        """
+        Updates the PID gains for Y, Z, and optionally Yaw_rate controllers based on the current settings.
+        """
+        self.pid_y.tunings = self.get_pid_gains('y')
+        self.pid_z.tunings = self.get_pid_gains('z')
+        if self.yaw_enabled:
+            self.pid_yaw_rate.tunings = self.get_pid_gains('yaw_rate')
+
+        logging.debug("PID gains updated for ConstantDistanceFollower.")
 
     def calculate_velocity_commands(self, target_coords: Tuple[float, float]) -> None:
         """
@@ -72,7 +98,7 @@ class ConstantDistanceFollower(BaseFollower):
         # Handle yaw control if enabled
         yaw_velocity = 0
         if self.yaw_enabled and abs(error_x) > Parameters.YAW_CONTROL_THRESHOLD:
-            yaw_velocity = self.pid_yaw(error_x)
+            yaw_velocity = self.pid_yaw_rate(error_x)
 
         # Update the setpoint handler
         self.setpoint_handler.set_field('vel_x', vel_x)

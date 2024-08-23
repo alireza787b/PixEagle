@@ -157,7 +157,6 @@ class Parameters:
     # Enable or disable yaw control. Set to False if yaw control is not needed. (Only for Constant Distance Mode)
     
     # Yaw control parameters
-    MAX_YAW_RATE = 10  # Maximum yaw rate in degrees per second
     YAW_CONTROL_THRESHOLD = 0.3  # Threshold to start applying yaw control based on error
     
    
@@ -201,27 +200,23 @@ class Parameters:
             to minimize the error between the current state and the desired setpoint. Adjustments to these
             gains can be made based on the drone's response during flight tests.
 
-            - Proportional (P) Gain: Determines how aggressively the PID reacts to the current error. Increasing
-              this value will make the drone respond more quickly to errors, but too high a value can lead to
-              oscillations and instability.
-            
-            - Integral (I) Gain: Addresses the cumulative error in the system, helping to eliminate steady-state
-              errors. Adjusting this gain helps when the drone fails to reach the setpoint, but too much can
-              lead to overshooting and oscillations.
-            
-            - Derivative (D) Gain: Reacts to the rate of change of the error, providing a damping effect.
-              Increasing this gain helps to reduce overshooting and settling time, improving the stability.
+            - Proportional (P) Gain: Determines how aggressively the PID reacts to the current error.
+            - Integral (I) Gain: Addresses the cumulative error in the system.
+            - Derivative (D) Gain: Reacts to the rate of change of the error.
 
         Example usage:
-            To increase responsiveness, consider increasing the 'P' gain, but monitor for instability.
-            If the drone consistently overshoots the target, increase the 'D' gain for better damping.
-            If there is a persistent offset that never corrects itself, increase the 'I' gain slightly.
+            Adjust 'P' gain for responsiveness, 'I' gain for steady-state error correction, 
+            and 'D' gain for damping oscillations.
     """
     PID_GAINS = {
-        "x": {"p": 6, "i": 0.3, "d": 1.5},  
-        "y": {"p": 6, "i": 0.3, "d": 1.5}, 
-        "z": {"p": 2, "i": 0.03, "d": 0.05}
+        "x": {"p": 6, "i": 0.3, "d": 1.5},  # For lateral movement
+        "y": {"p": 6, "i": 0.3, "d": 1.5},  # For lateral movement
+        "z": {"p": 2, "i": 0.03, "d": 0.05},  # For vertical movement (altitude)
+        "yaw_rate": {"p": 4, "i": 0.1, "d": 0.2},  # For controlling yaw rate
+        "pitch_rate": {"p": 4, "i": 0.1, "d": 0.2},  # For controlling pitch rate
+        "roll_rate": {"p": 4, "i": 0.1, "d": 0.2},  # For controlling roll rate
     }
+
 
     PROPORTIONAL_ON_MEASUREMENT = False  # Default: False, change to True to enable PoM
     """
@@ -239,7 +234,7 @@ class Parameters:
     MIN_DESCENT_HEIGHT = 20  # Minimum descent height
     MAX_CLIMB_HEIGHT = 100 # Maximum climb hieght
     MAX_RATE_OF_DESCENT = 2  # Maximum rate of descent
-    MAX_YAW_RATE = 30  # degrees per second
+    MAX_YAW_RATE = 10  # Maximum yaw rate in degrees per second
 
 
     # Target aim configuration

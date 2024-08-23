@@ -32,8 +32,8 @@ class ConstantPositionFollower(BaseFollower):
         setpoint_x, setpoint_y = self.initial_target_coords
 
         # Initialize yaw PID controller
-        self.pid_yaw = CustomPID(
-            *self.get_pid_gains('yaw'),
+        self.pid_yaw_rate = CustomPID(
+            *self.get_pid_gains('yaw_rate'),
             setpoint=setpoint_x, 
             output_limits=(-Parameters.MAX_YAW_RATE, Parameters.MAX_YAW_RATE)
         )
@@ -46,6 +46,31 @@ class ConstantPositionFollower(BaseFollower):
                 output_limits=(-Parameters.VELOCITY_LIMITS['z'], Parameters.VELOCITY_LIMITS['z'])
             )
 
+        logging.info("PID controllers initialized for ConstantPositionFollower.")
+
+    def get_pid_gains(self, axis: str) -> Tuple[float, float, float]:
+        """
+        Retrieves the PID gains for the specified axis.
+
+        Args:
+            axis (str): The axis for which to retrieve the PID gains ('x', 'y', 'z', 'yaw_rate').
+
+        Returns:
+            Tuple[float, float, float]: The proportional, integral, and derivative gains for the axis.
+        """
+        # Return the PID gains from the parameters
+        return Parameters.PID_GAINS[axis]['p'], Parameters.PID_GAINS[axis]['i'], Parameters.PID_GAINS[axis]['d']
+
+    def update_pid_gains(self):
+        """
+        Updates the PID gains for Z and Yaw Rate controllers based on the current settings.
+        """
+        self.pid_yaw_rate.tunings = self.get_pid_gains('yaw_rate')
+        if self.altitude_control_enabled:
+            self.pid_z.tunings = self.get_pid_gains('z')
+
+        logging.debug("PID gains updated for ConstantPositionFollower.")
+
     def calculate_velocity_commands(self, target_coords: Tuple[float, float]) -> None:
         """
         Calculates and updates velocity commands based on the target coordinates.
@@ -57,8 +82,8 @@ class ConstantPositionFollower(BaseFollower):
         self.update_pid_gains()
 
         # Calculate yaw control
-        error_x = self.pid_yaw.setpoint - target_coords[0]
-        yaw_velocity = self.pid_yaw(error_x) if abs(error_x) > Parameters.YAW_CONTROL_THRESHOLD else 0
+        error_x = self.pid_yaw_rate.setpoint - target_coords[0]
+        yaw_velocity = self.pid_yaw_rate(error_x) if abs(error_x) > Parameters.YAW_CONTROL_THRESHOLD else 0
 
         # Calculate altitude control if enabled
         vel_z = 0
@@ -74,6 +99,9 @@ class ConstantPositionFollower(BaseFollower):
         self.setpoint_handler.set_field('vel_y', vel_y)
         self.setpoint_handler.set_field('vel_z', vel_z)
         self.setpoint_handler.set_field('yaw_rate', yaw_velocity)
+
+        # Log the calculated velocity commands
+        logging.debug(f"Calculated velocities - Vz: {vel_z}, Yaw rate: {yaw_velocity}")
 
     async def follow_target(self, target_coords: Tuple[float, float]):
         """
