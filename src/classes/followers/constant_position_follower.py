@@ -91,12 +91,7 @@ class ConstantPositionFollower(BaseFollower):
             error_y = self.pid_z.setpoint - target_coords[1]
             vel_z = self.control_descent_constant_distance(error_y)
 
-        # X and Y velocities are zero in this mode
-        vel_x, vel_y = 0, 0
-
         # Update the setpoint handler
-        self.setpoint_handler.set_field('vel_x', vel_x)
-        self.setpoint_handler.set_field('vel_y', vel_y)
         self.setpoint_handler.set_field('vel_z', vel_z)
         self.setpoint_handler.set_field('yaw_rate', yaw_velocity)
 

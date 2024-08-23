@@ -144,7 +144,7 @@ class Parameters:
     SHOW_TRACKING_WINDOW = True  # Show tracking window
     DISPLAY_DEVIATIONS = False  # Display deviations
     TRACKED_BBOX_STYLE = 'fancy'  # Options: 'normal', 'fancy'
-    FOLLOWER_MODE = 'constant_distance'  # Options: Down Looking Camera: ['ground_view'], Front View Camera: ['constant_distance', 'constant_position']
+    FOLLOWER_MODE = 'ground_view'  # Options: Down Looking Camera: ['ground_view'], Front View Camera: ['constant_distance', 'constant_position']
     ENABLE_ALTITUDE_CONTROL = True  # Set to True if altitude control is needed in 'constant_position' mode
 
 

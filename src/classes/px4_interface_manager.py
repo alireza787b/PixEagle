@@ -127,19 +127,30 @@ class PX4InterfaceManager:
 
     async def send_body_velocity_commands(self, setpoint):
         """
-        Sends body frame velocity commands to the drone in offboard mode.
+        Sends body frame velocity commands to the drone in offboard mode, based on the active profile.
         This operation uses MAVSDK.
         """
         try:
-            # Ensure that setpoint values are converted to float if necessary
-            vx = float(setpoint.get('vel_x', 0))
-            vy = float(setpoint.get('vel_y', 0))
-            vz = float(setpoint.get('vel_z', 0))
-            yaw_rate = float(setpoint.get('yaw_rate', 0)) if 'yaw_rate' in setpoint else 0  # Default to 0 if not provided
+            if setpoint is None:
+                logger.error("Setpoint is None, cannot send commands.")
+                return
+
+            # Initialize variables to zero for the fields that might not be present
+            vx, vy, vz, yaw_rate = 0.0, 0.0, 0.0, 0.0
+            
+            # Update values only if they are present in the current profile's setpoints
+            if 'vel_x' in setpoint:
+                vx = float(setpoint['vel_x'])
+            if 'vel_y' in setpoint:
+                vy = float(setpoint['vel_y'])
+            if 'vel_z' in setpoint:
+                vz = float(setpoint['vel_z'])
+            if 'yaw_rate' in setpoint:
+                yaw_rate = float(setpoint['yaw_rate'])
 
             logger.debug(f"Setting VELOCITY_BODY setpoint: Vx={vx}, Vy={vy}, Vz={vz}, Yaw rate={yaw_rate}")
             
-            # Send the velocity commands
+            # Send the velocity commands to the drone
             next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_rate)
             await self.drone.offboard.set_velocity_body(next_setpoint)
 
@@ -149,6 +160,8 @@ class PX4InterfaceManager:
             logger.error(f"ValueError: An error occurred while processing setpoint: {ve}")
         except Exception as ex:
             logger.error(f"An unexpected error occurred: {ex}")
+
+
 
     def convert_to_ned(self, vel_x, vel_y, yaw):
         """
