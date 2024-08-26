@@ -64,7 +64,7 @@ class AppController:
         self.setpoint_sender = None
 
         # Initialize telemetry handler with tracker and follower
-        self.telemetry_handler = TelemetryHandler(self.tracker, self.follower, lambda: self.tracking_started)
+        self.telemetry_handler = TelemetryHandler(self, lambda: self.tracking_started)
 
         # Initialize the FastAPI handler
         logging.debug("Initializing FastAPIHandler...")
@@ -329,6 +329,7 @@ class AppController:
                 
                 initial_target_coords = self.tracker.normalized_center if Parameters.TARGET_POSITION_MODE == 'initial' else Parameters.DESIRE_AIM
                 self.follower = Follower(self.px4_interface, initial_target_coords)
+                self.telemetry_handler.follower = self.follower # Maybe do a better approach later.
                 await self.px4_interface.send_initial_setpoint()
                 await self.px4_interface.start_offboard_mode()
                 self.following_active = True

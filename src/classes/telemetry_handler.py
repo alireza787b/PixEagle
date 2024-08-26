@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from classes.parameters import Parameters
 
 class TelemetryHandler:
-    def __init__(self, tracker, follower, tracking_started_flag):
+    def __init__(self, app_controller, tracking_started_flag):
         """
         Initialize the TelemetryHandler with necessary parameters and dependencies.
         
@@ -25,8 +25,9 @@ class TelemetryHandler:
         self.send_interval = 1.0 / self.send_rate  # Convert rate to interval in seconds
 
         self.last_sent_time = datetime.utcnow()
-        self.tracker = tracker
-        self.follower = follower
+        self.app_controller = app_controller
+        self.tracker = self.app_controller.tracker
+        self.follower = self.app_controller.follower
         self.tracking_started_flag = tracking_started_flag  # Store the callable
         self.latest_tracker_data = {}
         self.latest_follower_data = {}

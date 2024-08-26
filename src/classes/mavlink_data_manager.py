@@ -3,6 +3,8 @@ import time
 import requests
 import logging
 import asyncio
+from .parameters import Parameters
+
 
 class MavlinkDataManager:
     def __init__(self, mavlink_host, mavlink_port, polling_interval, data_points, enabled=True):
@@ -141,29 +143,57 @@ class MavlinkDataManager:
             self.logger.error(f"Error fetching data from {url}: {e}")
             return None
 
+
     async def fetch_attitude_data(self):
         """
         Fetch attitude data (roll, pitch, yaw) from MAVLink2Rest.
+        
+        These values are specifically for follower usage and are independent of OSD data.
+        If USE_MAVLINK2REST = True is enabled in parameters, these values are required.
+        In case REST requests send invalid data, the roll, pitch, and yaw will fall back to 0.
         """
         attitude_data = await self.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/ATTITUDE")
         if attitude_data:
             message = attitude_data.get("message", {})
+            try:
+                # Attempt to convert to float and fall back to 0 if invalid
+                roll = float(message.get("roll", 0))
+                pitch = float(message.get("pitch", 0))
+                yaw = float(message.get("yaw", 0))
+            except (ValueError, TypeError):
+                # Log the error and use fallback values
+                print("Warning: Invalid attitude data received, falling back to default values (0).")
+                roll, pitch, yaw = 0, 0, 0
             return {
-                "roll": message.get("roll", "N/A"),
-                "pitch": message.get("pitch", "N/A"),
-                "yaw": message.get("yaw", "N/A")
+                "roll": roll,
+                "pitch": pitch,
+                "yaw": yaw
             }
-        return {"roll": "N/A", "pitch": "N/A", "yaw": "N/A"}
+        # Fallback if no data is retrieved
+        return {"roll": 0, "pitch": 0, "yaw": 0}
 
     async def fetch_altitude_data(self):
         """
         Fetch altitude data from MAVLink2Rest.
+        
+        These values are specifically for follower usage and are independent of OSD data.
+        If USE_MAVLINK2REST = True is enabled in parameters, these values are required.
+        In case REST requests send invalid data, the altitude_relative will fall back to Parameters.MIN_DESCENT_HEIGHT.
         """
         altitude_data = await self.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/ALTITUDE")
         if altitude_data:
             message = altitude_data.get("message", {})
+            try:
+                # Attempt to convert to float and fall back to default altitude if invalid
+                altitude_relative = float(message.get("altitude_relative", Parameters.MIN_DESCENT_HEIGHT))
+                altitude_amsl = float(message.get("altitude_amsl", Parameters.MIN_DESCENT_HEIGHT))
+            except (ValueError, TypeError):
+                # Log the error and use fallback values
+                print("Warning: Invalid altitude data received, falling back to default values (Parameters.MIN_DESCENT_HEIGHT).")
+                altitude_relative, altitude_amsl = Parameters.MIN_DESCENT_HEIGHT, Parameters.MIN_DESCENT_HEIGHT
             return {
-                "altitude_relative": message.get("altitude_relative", "N/A"),
-                "altitude_amsl": message.get("altitude_amsl", "N/A")
+                "altitude_relative": altitude_relative,
+                "altitude_amsl": altitude_amsl
             }
-        return {"altitude_relative": "N/A", "altitude_amsl": "N/A"}
+        # Fallback if no data is retrieved
+        return {"altitude_relative": Parameters.MIN_DESCENT_HEIGHT, "altitude_amsl": Parameters.MIN_DESCENT_HEIGHT}
