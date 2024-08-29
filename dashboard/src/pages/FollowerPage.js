@@ -98,7 +98,7 @@ const FollowerPage = () => {
         <Grid item xs={12}>
           <Card>
             <CardContent>
-              <Typography variant="h6" gutterBottom>Profile: {latestFollowerData.profile || 'Unknown'}</Typography>
+              <Typography variant="h6" gutterBottom>Profile: {latestFollowerData.profile_name || 'Unknown'}</Typography>
               <Divider style={{ marginBottom: '10px' }} />
               <Typography variant="body1">Vel X: {latestFollowerData.vel_x || 'N/A'}</Typography>
               <Typography variant="body1">Vel Y: {latestFollowerData.vel_y || 'N/A'}</Typography>

@@ -144,7 +144,7 @@ class Parameters:
     SHOW_TRACKING_WINDOW = True  # Show tracking window
     DISPLAY_DEVIATIONS = False  # Display deviations
     TRACKED_BBOX_STYLE = 'fancy'  # Options: 'normal', 'fancy'
-    FOLLOWER_MODE = 'constant_position'  # Options: Down Looking Camera: ['ground_view'], Front View Camera: ['constant_distance', 'constant_position']
+    FOLLOWER_MODE = 'constant_distance'  # Options: Down Looking Camera: ['ground_view'], Front View Camera: ['constant_distance', 'constant_position']
     ENABLE_ALTITUDE_CONTROL = True  # Set to True if altitude control is needed in 'constant_position' mode
 
 
@@ -212,7 +212,7 @@ class Parameters:
         "x": {"p": 6, "i": 0.3, "d": 1.5},  # For lateral movement
         "y": {"p": 6, "i": 0.3, "d": 1.5},  # For lateral movement
         "z": {"p": 2, "i": 0.03, "d": 0.05},  # For vertical movement (altitude)
-        "yaw_rate": {"p": 4, "i": 0.1, "d": 0.2},  # For controlling yaw rate
+        "yaw_rate": {"p": 4, "i": 0.8, "d": 0.2},  # For controlling yaw rate
         "pitch_rate": {"p": 4, "i": 0.1, "d": 0.2},  # For controlling pitch rate
         "roll_rate": {"p": 4, "i": 0.1, "d": 0.2},  # For controlling roll rate
     }
@@ -488,7 +488,7 @@ class Parameters:
                 "flight_mode": {
                     "position": (45, 10),  # Center top
                     "font_size": 0.5,
-                    "color": (255, 0, 0),  # Red for critical information
+                    "color": (0, 0, 255),  # Red for critical information
                     "alignment": "center"
                 }
             }

@@ -21,6 +21,10 @@ class PX4InterfaceManager:
         131072: 'Altitude',
         65536: 'Manual',
         327680: 'Acro',
+        33816576: 'Takeoff',
+        67371008: 'Mission',
+        151257088: 'Precission Land'
+        
     }
 
     def __init__(self, app_controller=None):

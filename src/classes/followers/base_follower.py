@@ -20,6 +20,7 @@ class BaseFollower(ABC):
         """
         self.px4_controller = px4_controller
         self.setpoint_handler = SetpointHandler(profile_name)  # Initialize SetpointHandler with the profile name
+        self.profile_name = profile_name
         self.latest_velocities = {'timestamp': None, 'status': 'idle'}
         logger.info(f"BaseFollower initialized with profile: {profile_name}")
 
