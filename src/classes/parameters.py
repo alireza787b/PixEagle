@@ -146,7 +146,6 @@ class Parameters:
     TRACKED_BBOX_STYLE = 'fancy'  # Options: 'normal', 'fancy'
     FOLLOWER_MODE = 'chase_follower'  # Options: Down Looking Camera: ['ground_view'], Front View Camera: ['constant_distance', 'constant_position', 'chase_follower']
     ENABLE_ALTITUDE_CONTROL = True  # Set to True if altitude control is needed in 'constant_position' mode
-    TARGET_SPEED = 30
 
 
     TARGET_POSITION_MODE = 'center'  # 'center' or 'initial'
@@ -201,8 +200,9 @@ class Parameters:
     MAX_PITCH_RATE = 10.0  # Maximum pitch rate in degrees per second
     MAX_YAW_RATE = 10.0  # Maximum yaw rate in degrees per second
     MAX_THRUST = 1.0  # Maximum thrust (normalized between 0 and 1)
-    MIN_GROUND_SPEED = 5 # For Chase mode throttle control
-    MAX_GROUND_SPEED = 30 # For Chase mode throttle control
+    MIN_GROUND_SPEED = 0 # For Chase mode throttle control
+    MAX_GROUND_SPEED = 20 # For Chase mode throttle control
+    TARGET_SPEED = 5
 
     # Control and PID parameters
     """
