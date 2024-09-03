@@ -1,7 +1,9 @@
+#src\classes\follower.py
 from .parameters import Parameters
 from classes.followers.ground_target_follower import GroundTargetFollower
 from classes.followers.constant_distance_follower import ConstantDistanceFollower
 from classes.followers.constant_position_follower import ConstantPositionFollower
+from classes.followers.chase_follower import ChaseFollower
 import logging
 from typing import Tuple
 
@@ -47,7 +49,8 @@ class Follower:
         mode_map = {
             'ground_view': GroundTargetFollower,
             'constant_distance': ConstantDistanceFollower,
-            'constant_position': ConstantPositionFollower
+            'constant_position': ConstantPositionFollower,
+            'chase_follower': ChaseFollower
         }
 
         if self.mode in mode_map:
@@ -57,7 +60,7 @@ class Follower:
             logger.error(f"Invalid follower mode specified: {self.mode}")
             raise ValueError(f"Invalid follower mode: {self.mode}")
 
-    async def follow_target(self, target_coords: Tuple[float, float]):
+    def follow_target(self, target_coords: Tuple[float, float]):
         """
         Asynchronously sends velocity commands to follow a target based on its coordinates.
 
@@ -69,7 +72,7 @@ class Follower:
         """
         logger.debug(f"Following target at coordinates: {target_coords}")
         try:
-            return await self.follower.follow_target(target_coords)
+            self.follower.follow_target(target_coords)
         except Exception as e:
             logger.error(f"Failed to follow target at coordinates {target_coords}: {e}")
             raise
@@ -88,3 +91,17 @@ class Follower:
         except Exception as e:
             logger.error(f"Failed to retrieve telemetry data: {e}")
             return {}
+
+
+    def get_control_type(self) -> str:
+        """
+        Determines the type of control command to send based on the current follower mode.
+        
+        Returns:
+            str: 'attitude_rate' if the follower mode uses attitude rate control, 
+                'velocity_body' if it uses velocity body control.
+        """
+        if isinstance(self.follower, ChaseFollower):  # Assuming ChaseFollower uses attitude rate control
+            return 'attitude_rate'
+        else:
+            return 'velocity_body'

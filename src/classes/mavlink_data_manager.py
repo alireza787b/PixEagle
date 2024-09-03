@@ -5,11 +5,17 @@ import logging
 import asyncio
 from .parameters import Parameters
 
-
 class MavlinkDataManager:
     def __init__(self, mavlink_host, mavlink_port, polling_interval, data_points, enabled=True):
         """
         Initialize the MavlinkDataManager with necessary parameters.
+
+        Args:
+            mavlink_host (str): The host address of the MAVLink server.
+            mavlink_port (int): The port number of the MAVLink server.
+            polling_interval (int): The interval at which data should be polled in seconds.
+            data_points (dict): A dictionary of data points to extract from MAVLink.
+            enabled (bool): Whether the polling should be enabled or not.
         """
         self.mavlink_host = mavlink_host
         self.mavlink_port = mavlink_port
@@ -87,6 +93,12 @@ class MavlinkDataManager:
     def _determine_arm_status(self, base_mode_bits):
         """
         Determine if the system is armed based on the base_mode bits.
+
+        Args:
+            base_mode_bits (int): The base mode bits from the MAVLink HEARTBEAT message.
+
+        Returns:
+            str: "Armed" if the system is armed, otherwise "Disarmed".
         """
         ARM_BIT_MASK = 128  # Example mask, update with the correct one
         if base_mode_bits is None:
@@ -96,6 +108,13 @@ class MavlinkDataManager:
     def _extract_data_from_json(self, data, json_path):
         """
         Helper function to extract a value from a nested JSON structure using a json_path.
+
+        Args:
+            data (dict): The JSON data dictionary.
+            json_path (str): The path to the desired data within the JSON.
+
+        Returns:
+            any: The value found at the JSON path, or None if not found.
         """
         keys = json_path.strip("/").split('/')
         for key in keys:
@@ -109,6 +128,12 @@ class MavlinkDataManager:
     def get_data(self, point):
         """
         Retrieve the most recent data for a specified point.
+
+        Args:
+            point (str): The name of the data point to retrieve.
+
+        Returns:
+            any: The latest value of the specified data point, or "N/A" if not available.
         """
         with self._lock:
             if not self.enabled:
@@ -118,7 +143,12 @@ class MavlinkDataManager:
     async def fetch_data_from_uri(self, uri):
         """
         Fetch data from a specific URI and return the parsed JSON response.
-        This method allows for more modular and targeted data retrieval.
+
+        Args:
+            uri (str): The URI to fetch the data from.
+
+        Returns:
+            dict: The parsed JSON data from the response.
         """
         url = f"http://{self.mavlink_host}:{self.mavlink_port}{uri}"
         try:
@@ -128,72 +158,70 @@ class MavlinkDataManager:
         except requests.RequestException as e:
             self.logger.error(f"Error fetching data from {url}: {e}")
             return None
-
-    async def fetch_data_from_uri(self, uri):
-        """
-        Fetch data from a specific URI and return the parsed JSON response.
-        This method allows for more modular and targeted data retrieval.
-        """
-        url = f"http://{self.mavlink_host}:{self.mavlink_port}{uri}"
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            return response.json()
-        except requests.RequestException as e:
-            self.logger.error(f"Error fetching data from {url}: {e}")
-            return None
-
 
     async def fetch_attitude_data(self):
         """
         Fetch attitude data (roll, pitch, yaw) from MAVLink2Rest.
-        
+
         These values are specifically for follower usage and are independent of OSD data.
         If USE_MAVLINK2REST = True is enabled in parameters, these values are required.
         In case REST requests send invalid data, the roll, pitch, and yaw will fall back to 0.
+
+        Returns:
+            dict: A dictionary with roll, pitch, and yaw values.
         """
         attitude_data = await self.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/ATTITUDE")
         if attitude_data:
             message = attitude_data.get("message", {})
             try:
-                # Attempt to convert to float and fall back to 0 if invalid
                 roll = float(message.get("roll", 0))
                 pitch = float(message.get("pitch", 0))
                 yaw = float(message.get("yaw", 0))
             except (ValueError, TypeError):
-                # Log the error and use fallback values
-                print("Warning: Invalid attitude data received, falling back to default values (0).")
+                self.logger.warning("Invalid attitude data received, falling back to default values (0).")
                 roll, pitch, yaw = 0, 0, 0
-            return {
-                "roll": roll,
-                "pitch": pitch,
-                "yaw": yaw
-            }
-        # Fallback if no data is retrieved
+            return {"roll": roll, "pitch": pitch, "yaw": yaw}
         return {"roll": 0, "pitch": 0, "yaw": 0}
 
     async def fetch_altitude_data(self):
         """
         Fetch altitude data from MAVLink2Rest.
-        
+
         These values are specifically for follower usage and are independent of OSD data.
         If USE_MAVLINK2REST = True is enabled in parameters, these values are required.
         In case REST requests send invalid data, the altitude_relative will fall back to Parameters.MIN_DESCENT_HEIGHT.
+
+        Returns:
+            dict: A dictionary with relative and AMSL altitudes.
         """
         altitude_data = await self.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/ALTITUDE")
         if altitude_data:
             message = altitude_data.get("message", {})
             try:
-                # Attempt to convert to float and fall back to default altitude if invalid
                 altitude_relative = float(message.get("altitude_relative", Parameters.MIN_DESCENT_HEIGHT))
                 altitude_amsl = float(message.get("altitude_amsl", Parameters.MIN_DESCENT_HEIGHT))
             except (ValueError, TypeError):
-                # Log the error and use fallback values
-                print("Warning: Invalid altitude data received, falling back to default values (Parameters.MIN_DESCENT_HEIGHT).")
+                self.logger.warning("Invalid altitude data received, falling back to default values (Parameters.MIN_DESCENT_HEIGHT).")
                 altitude_relative, altitude_amsl = Parameters.MIN_DESCENT_HEIGHT, Parameters.MIN_DESCENT_HEIGHT
-            return {
-                "altitude_relative": altitude_relative,
-                "altitude_amsl": altitude_amsl
-            }
-        # Fallback if no data is retrieved
+            return {"altitude_relative": altitude_relative, "altitude_amsl": altitude_amsl}
         return {"altitude_relative": Parameters.MIN_DESCENT_HEIGHT, "altitude_amsl": Parameters.MIN_DESCENT_HEIGHT}
+
+    async def fetch_ground_speed(self):
+        """
+        Fetch ground speed data from MAVLink2Rest.
+
+        This value is critical for calculating the drone's speed over the ground, which is important for various control algorithms.
+
+        Returns:
+            float: The ground speed in m/s.
+        """
+        velocity_data = await self.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/VFR_HUD")
+        if velocity_data:
+            message = velocity_data.get("message", {})
+            try:
+                ground_speed = float(message.get("groundspeed", 0))
+            except (ValueError, TypeError):
+                self.logger.warning("Invalid ground speed data received, falling back to 0.")
+                ground_speed = 0.0
+            return ground_speed
+        return 0.0

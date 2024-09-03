@@ -1,3 +1,4 @@
+# src\classes\setpoint_handler.py
 import logging
 from datetime import datetime
 from typing import Dict
@@ -9,7 +10,8 @@ logger = logging.getLogger(__name__)
 SETPOINT_PROFILES = {
     "Ground View": ["vel_x", "vel_y", "vel_z"],
     "Constant Distance": ["vel_x", "vel_y", "vel_z", "yaw_rate"],  # Full control of velocity and yaw
-    "Constant Position": ["vel_z", "yaw_rate"]  # Controls only yaw and vertical velocity
+    "Constant Position": ["vel_z", "yaw_rate"],  # Controls only yaw and vertical velocity
+    "Chase Follower": ["roll_rate", "pitch_rate", "yaw_rate", "thrust"],  # Control for roll, pitch, yaw, and thrust
 }
 
 class SetpointHandler:
@@ -18,7 +20,7 @@ class SetpointHandler:
         Initializes the SetpointHandler with the specified application-based profile.
         
         Args:
-            profile_name (str): The name of the application profile (e.g., "Ground View", "Constant Distance", "Constant Position").
+            profile_name (str): The name of the application profile (e.g., "Ground View", "Constant Distance", "Constant Position", "Chase Follower").
         
         Raises:
             ValueError: If the profile is not defined.
@@ -77,7 +79,6 @@ class SetpointHandler:
         else:
             raise ValueError(f"Field '{field_name}' is not valid for profile '{self.profile_name}'. Valid fields: {list(self.fields.keys())}")
 
-    
     def get_fields(self) -> Dict[str, float]:
         """
         Returns the current fields of the setpoint.

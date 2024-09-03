@@ -86,8 +86,8 @@ class Parameters:
     ENABLE_STREAMING = True
     HTTP_STREAM_HOST = '0.0.0.0'
     HTTP_STREAM_PORT = 5077
-    STREAM_WIDTH = 640
-    STREAM_HEIGHT = 480
+    STREAM_WIDTH = 1920
+    STREAM_HEIGHT = 1080
     STREAM_QUALITY = 80  # JPEG quality 0-100
     STREAM_FPS = 30  # target FPS
     STREAM_PROCESSED_OSD = True
@@ -144,8 +144,9 @@ class Parameters:
     SHOW_TRACKING_WINDOW = True  # Show tracking window
     DISPLAY_DEVIATIONS = False  # Display deviations
     TRACKED_BBOX_STYLE = 'fancy'  # Options: 'normal', 'fancy'
-    FOLLOWER_MODE = 'constant_distance'  # Options: Down Looking Camera: ['ground_view'], Front View Camera: ['constant_distance', 'constant_position']
+    FOLLOWER_MODE = 'chase_follower'  # Options: Down Looking Camera: ['ground_view'], Front View Camera: ['constant_distance', 'constant_position', 'chase_follower']
     ENABLE_ALTITUDE_CONTROL = True  # Set to True if altitude control is needed in 'constant_position' mode
+    TARGET_SPEED = 30
 
 
     TARGET_POSITION_MODE = 'center'  # 'center' or 'initial'
@@ -194,6 +195,15 @@ class Parameters:
     # This allows the drone to adapt to different conditions, making the tracking more robust in dynamic environments.
 
 
+        # ----- Chase Follower Rate Limits Configuration -----
+    # Define maximum limits for roll, pitch, yaw, and thrust in the ChaseFollower mode
+    MAX_ROLL_RATE = 10.0  # Maximum roll rate in degrees per second
+    MAX_PITCH_RATE = 10.0  # Maximum pitch rate in degrees per second
+    MAX_YAW_RATE = 10.0  # Maximum yaw rate in degrees per second
+    MAX_THRUST = 1.0  # Maximum thrust (normalized between 0 and 1)
+    MIN_GROUND_SPEED = 5 # For Chase mode throttle control
+    MAX_GROUND_SPEED = 30 # For Chase mode throttle control
+
     # Control and PID parameters
     """
     PID_GAINS (dict): Contains the PID gains for each control axis. The PID controller helps
@@ -212,9 +222,10 @@ class Parameters:
         "x": {"p": 6, "i": 0.3, "d": 1.5},  # For lateral movement
         "y": {"p": 6, "i": 0.3, "d": 1.5},  # For lateral movement
         "z": {"p": 2, "i": 0.03, "d": 0.05},  # For vertical movement (altitude)
-        "yaw_rate": {"p": 4, "i": 0.8, "d": 0.2},  # For controlling yaw rate
-        "pitch_rate": {"p": 4, "i": 0.1, "d": 0.2},  # For controlling pitch rate
         "roll_rate": {"p": 4, "i": 0.1, "d": 0.2},  # For controlling roll rate
+        "pitch_rate": {"p": 100, "i": 2, "d": 20},  # For controlling pitch rate
+        "yaw_rate": {"p": 40, "i": 8, "d": 2},  # For controlling yaw rate
+        "thrust": {"p": 2, "i": 0.2, "d": 0.1},  # For controlling forward velocity via thrust
     }
 
 
@@ -305,7 +316,7 @@ class Parameters:
     LOG_FILE_PATH = "logs/tracking_log.txt"  # Path to save log files
     
     # ----- GStreamer Configuration -----
-    ENABLE_GSTREAMER_STREAM = True  # Toggle to enable or disable GStreamer streaming
+    ENABLE_GSTREAMER_STREAM = False  # Toggle to enable or disable GStreamer streaming
     GSTREAMER_HOST = "127.0.0.1"  # IP address of the target machine (e.g., QGroundControl)
     GSTREAMER_PORT = 2000  # Port to stream the video over UDP
 
@@ -377,7 +388,7 @@ class Parameters:
     "climb": "/vehicles/1/components/1/messages/VFR_HUD/message/climb",
     "roll": "/vehicles/1/components/1/messages/ATTITUDE/message/roll",
     "pitch": "/vehicles/1/components/1/messages/ATTITUDE/message/pitch",
-    "heading": "/vehicles/1/components/1/messages/ATTITUDE/message/yaw",
+    "heading": "/vehicles/1/components/1/messages/VFR_HUD/message/heading",
     "vdop": "/vehicles/1/components/1/messages/GPS_RAW_INT/message/vdop",
     "hdop": "/vehicles/1/components/1/messages/GPS_RAW_INT/message/hdop",
     "satellites_visible": "/vehicles/1/components/1/messages/GPS_RAW_INT/message/satellites_visible",

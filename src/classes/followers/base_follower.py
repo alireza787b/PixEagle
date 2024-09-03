@@ -1,3 +1,4 @@
+#src\classes\followers\base_follower.py
 from abc import ABC, abstractmethod
 from typing import Tuple, Dict
 from classes.setpoint_handler import SetpointHandler
@@ -19,15 +20,14 @@ class BaseFollower(ABC):
             profile_name (str): The name of the setpoint profile to use (e.g., "Ground View", "Constant Position").
         """
         self.px4_controller = px4_controller
-        self.setpoint_handler = SetpointHandler(profile_name)  # Initialize SetpointHandler with the profile name
         self.profile_name = profile_name
         self.latest_velocities = {'timestamp': None, 'status': 'idle'}
         logger.info(f"BaseFollower initialized with profile: {profile_name}")
 
     @abstractmethod
-    def calculate_velocity_commands(self, target_coords: Tuple[float, float]) -> None:
+    def calculate_control_commands(self, target_coords: Tuple[float, float]) -> None:
         """
-        Calculate velocity commands based on target coordinates and update the setpoint handler.
+        Calculate control commands based on target coordinates and update the setpoint handler.
 
         Args:
             target_coords (tuple): The coordinates of the target to follow.

@@ -3,7 +3,7 @@ import math
 import logging
 from mavsdk import System
 from classes.parameters import Parameters
-from mavsdk.offboard import OffboardError, VelocityNedYaw, VelocityBodyYawspeed
+from mavsdk.offboard import OffboardError, VelocityNedYaw, VelocityBodyYawspeed, AttitudeRate
 from classes.setpoint_handler import SetpointHandler
 
 # Configure logging
@@ -37,6 +37,7 @@ class PX4InterfaceManager:
         self.current_pitch = 0.0  # Current pitch in radians
         self.current_roll = 0.0  # Current roll in radians
         self.current_altitude = 0.0  # Current altitude in meters
+        self.current_ground_speed = 0.0  # Ground speed in m/s
         self.camera_yaw_offset = Parameters.CAMERA_YAW_OFFSET
         self.update_task = None  # Task for telemetry updates
         normalized_profile_name = SetpointHandler.normalize_profile_name(Parameters.FOLLOWER_MODE)
@@ -103,15 +104,12 @@ class PX4InterfaceManager:
             # Fetch altitude data
             altitude_data = await self.mavlink_data_manager.fetch_altitude_data()
             self.current_altitude = altitude_data.get("altitude_relative", 0.0)  # Or use "altitude_amsl" if required
+            self.current_ground_speed = await self.mavlink_data_manager.fetch_ground_speed()
 
         except Exception as e:
             logger.error(f"Error updating telemetry via MAVLink2Rest: {e}")
 
     async def _update_telemetry_via_mavsdk(self):
-        """
-        Updates telemetry data using MAVSDK.
-        Continuously retrieves position and attitude data from the MAVSDK API.
-        """
         try:
             async for position in self.drone.telemetry.position():
                 self.current_altitude = position.relative_altitude_m
@@ -119,6 +117,10 @@ class PX4InterfaceManager:
                 self.current_yaw = attitude.yaw + self.camera_yaw_offset
                 self.current_pitch = attitude.pitch
                 self.current_roll = attitude.roll
+
+            async for velocity in self.drone.telemetry.velocity_body():
+                self.current_ground_speed = velocity.x_m_s  # Forward speed in m/s
+
         except Exception as e:
             logger.error(f"Error updating telemetry via MAVSDK: {e}")
 
@@ -127,13 +129,17 @@ class PX4InterfaceManager:
         Returns the current orientation (yaw, pitch, roll) of the drone.
         """
         return self.current_yaw, self.current_pitch, self.current_roll
+    
+    def get_ground_speed(self):
+        return self.current_ground_speed
 
 
-    async def send_body_velocity_commands(self, setpoint):
+    async def send_body_velocity_commands(self):
         """
         Sends body frame velocity commands to the drone in offboard mode, based on the active profile.
         This operation uses MAVSDK.
         """
+        setpoint = self.setpoint_handler.get_fields()
         try:
             if setpoint is None:
                 logger.error("Setpoint is None, cannot send commands.")
@@ -164,6 +170,42 @@ class PX4InterfaceManager:
             logger.error(f"ValueError: An error occurred while processing setpoint: {ve}")
         except Exception as ex:
             logger.error(f"An unexpected error occurred: {ex}")
+            
+    async def send_attitude_rate_commands(self):
+        """
+        Sends attitude rate commands to the drone in offboard mode.
+        This operation uses MAVSDK.
+        """
+        setpoint = self.setpoint_handler.get_fields()
+
+        try:
+            if not isinstance(setpoint, dict):
+                logger.error("Setpoint is not a dictionary. Cannot send commands.")
+                return
+
+            # Initialize variables to zero for the fields that might not be present
+            roll_rate, pitch_rate, yaw_rate, thrust = 0.0, 0.0, 0.0, 0.0
+
+            # Update values only if they are present in the current profile's setpoints
+            roll_rate = float(setpoint.get('roll_rate', 0.0))
+            pitch_rate = float(setpoint.get('pitch_rate', 0.0))
+            yaw_rate = float(setpoint.get('yaw_rate', 0.0))
+            thrust = float(setpoint.get('thrust', 0.0))
+
+            logger.debug(f"Setting ATTITUDE_RATE setpoint: Roll Rate={roll_rate}, Pitch Rate={pitch_rate}, Yaw Rate={yaw_rate}, Thrust={thrust}")
+            
+            # Send the attitude rate commands to the drone
+            next_setpoint = AttitudeRate(roll_rate, pitch_rate, yaw_rate, thrust)
+            await self.drone.offboard.set_attitude_rate(next_setpoint)
+
+        except OffboardError as e:
+            logger.error(f"Failed to send offboard attitude rate command: {e}")
+        except ValueError as ve:
+            logger.error(f"ValueError: An error occurred while processing setpoint: {ve}")
+        except Exception as ex:
+            logger.error(f"An unexpected error occurred: {ex}")
+
+
 
 
 
@@ -209,21 +251,36 @@ class PX4InterfaceManager:
 
     async def send_initial_setpoint(self):
         """
-        Sends an initial setpoint to the drone based on the current profile's default values to enable offboard mode.
+        Sends an initial setpoint to the drone based on the current profile's control type.
+        If the control type is 'velocity_body', send zero velocities.
+        If the control type is 'attitude_rate', send zero rates and thrust.
         """
         try:
-            # Retrieve initial default values from the setpoint handler based on the profile
-            initial_setpoints = self.setpoint_handler.get_fields()
-            logger.debug(f"Sending initial setpoint: {initial_setpoints}")
-            await self.send_body_velocity_commands(initial_setpoints)
+            control_type = self.app_controller.follower.get_control_type()
+
+            if control_type == 'velocity_body':
+                
+                logger.debug("Sending initial velocity_body setpoint (all zeros).")
+                await self.send_body_velocity_commands()
+
+            elif control_type == 'attitude_rate':
+                
+                logger.debug("Sending initial attitude_rate setpoint (all zeros).")
+                await self.send_attitude_rate_commands()
+
+            else:
+                logger.error(f"Unknown control type: {control_type}")
+                return
+
         except Exception as e:
             logger.error(f"Error sending initial setpoint: {e}")
 
-    def update_setpoint(self, setpoint):
+
+    def update_setpoint(self):
         """
         Updates the current setpoint for the drone.
         """
-        self.last_command = setpoint
+        self.last_command = self.setpoint_handler
 
     def get_flight_mode_text(self, mode_code):
         """

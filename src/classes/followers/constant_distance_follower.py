@@ -76,7 +76,7 @@ class ConstantDistanceFollower(BaseFollower):
 
         logging.debug("PID gains updated for ConstantDistanceFollower.")
 
-    def calculate_velocity_commands(self, target_coords: Tuple[float, float]) -> None:
+    def calculate_control_commands(self, target_coords: Tuple[float, float]) -> None:
         """
         Calculates and updates velocity commands based on the target coordinates.
 
@@ -101,23 +101,23 @@ class ConstantDistanceFollower(BaseFollower):
             yaw_velocity = self.pid_yaw_rate(error_x)
 
         # Update the setpoint handler
-        self.setpoint_handler.set_field('vel_x', vel_x)
-        self.setpoint_handler.set_field('vel_y', vel_y)
-        self.setpoint_handler.set_field('vel_z', vel_z)
-        self.setpoint_handler.set_field('yaw_rate', yaw_velocity)
+        self.px4_controller.setpoint_handler.set_field('vel_x', vel_x)
+        self.px4_controller.setpoint_handler.set_field('vel_y', vel_y)
+        self.px4_controller.setpoint_handler.set_field('vel_z', vel_z)
+        self.px4_controller.setpoint_handler.set_field('yaw_rate', yaw_velocity)
 
         # Log the calculated velocity commands
         logging.debug(f"Calculated velocities - Vx: {vel_x}, Vy: {vel_y}, Vz: {vel_z}, Yaw rate: {yaw_velocity}")
 
-    async def follow_target(self, target_coords: Tuple[float, float]):
+    def follow_target(self, target_coords: Tuple[float, float]):
         """
         Sends velocity commands to follow the target based on the coordinates.
 
         Args:
             target_coords (Tuple[float, float]): The target coordinates to follow.
         """
-        self.calculate_velocity_commands(target_coords)
-        await self.px4_controller.send_body_velocity_commands(self.setpoint_handler.get_fields())
+        self.calculate_control_commands(target_coords)
+        #await self.px4_controller.send_body_velocity_commands(self.setpoint_handler.get_fields())
 
     def control_descent_constant_distance(self, error_y: float) -> float:
         """

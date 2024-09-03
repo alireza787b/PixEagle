@@ -188,8 +188,8 @@ class AppController:
                 if Parameters.USE_DETECTOR and Parameters.AUTO_REDETECT:
                     self.initiate_redetection()
 
-        if self.telemetry_handler.should_send_telemetry():
-            self.telemetry_handler.send_telemetry()
+        # if self.telemetry_handler.should_send_telemetry():
+        #     self.telemetry_handler.send_telemetry()
 
         self.current_frame = frame
         self.video_handler.current_osd_frame = frame
@@ -342,6 +342,7 @@ class AppController:
         
         return result
 
+
     async def disconnect_px4(self) -> Dict[str, any]:
         """
         Disconnects PX4 and stops offboard mode.
@@ -373,12 +374,20 @@ class AppController:
         """
         if self.tracking_started and self.following_active:
             target_coords = self.tracker.normalized_center
-            setpoint = await self.follower.follow_target(target_coords)
-            self.px4_interface.update_setpoint(setpoint)
-            await self.px4_interface.send_body_velocity_commands(self.px4_interface.last_command)
+            self.follower.follow_target(target_coords)
+            self.px4_interface.update_setpoint()
+
+            # Determine the control type and send the appropriate commands
+            control_type = self.follower.get_control_type()
+            if control_type == 'attitude_rate':
+                await self.px4_interface.send_attitude_rate_commands()
+            elif control_type == 'velocity_body':
+                await self.px4_interface.send_body_velocity_commands()
+            
             return True
         else:
             return False
+
 
     async def shutdown(self) -> Dict[str, any]:
         """

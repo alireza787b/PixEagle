@@ -108,7 +108,7 @@ class GroundTargetFollower(BaseFollower):
 
         return adjusted_target_x, adjusted_target_y
 
-    def calculate_velocity_commands(self, target_coords: Tuple[float, float]) -> None:
+    def calculate_control_commands(self, target_coords: Tuple[float, float]) -> None:
         """Calculates and updates velocity commands based on the target coordinates."""
         self.update_pid_gains()
 
@@ -125,15 +125,15 @@ class GroundTargetFollower(BaseFollower):
         vel_z = self.control_descent()
         
         # Update setpoint handler with calculated velocities
-        self.setpoint_handler.set_field('vel_x', vel_x)
-        self.setpoint_handler.set_field('vel_y', vel_y)
-        self.setpoint_handler.set_field('vel_z', vel_z)
+        self.px4_controller.setpoint_handler.set_field('vel_x', vel_x)
+        self.px4_controller.setpoint_handler.set_field('vel_y', vel_y)
+        self.px4_controller.setpoint_handler.set_field('vel_z', vel_z)
         logger.debug(f"Velocity commands calculated: vel_x={vel_x}, vel_y={vel_y}, vel_z={vel_z}")
 
-    async def follow_target(self, target_coords: Tuple[float, float]):
+    def follow_target(self, target_coords: Tuple[float, float]):
         """Calculates and sends velocity commands to follow a target based on its coordinates."""
-        self.calculate_velocity_commands(target_coords)
-        await self.px4_controller.send_body_velocity_commands(self.setpoint_handler.get_fields())
+        self.calculate_control_commands(target_coords)
+        #await self.px4_controller.send_body_velocity_commands(self.setpoint_handler.get_fields())
         logger.info(f"Following target at coordinates: {target_coords}")
 
     def control_descent(self) -> float:
