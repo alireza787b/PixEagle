@@ -138,7 +138,7 @@ class Parameters:
 
     # ----- Follower Configuration -----
     # General settings
-    USE_MAVLINK2REST = False     # Enable or disable MAVLink2Rest usage, If set to False will keep using mavsdk for telemtery receiving
+    USE_MAVLINK2REST = True     # Enable or disable MAVLink2Rest usage, If set to False will keep using mavsdk for telemtery receiving
     FOLLOWER_DATA_REFRESH_RATE = 2
     ROI_SELECTION_MODE = "MANUAL"  # ROI selection mode
     SHOW_TRACKING_WINDOW = True  # Show tracking window
@@ -223,11 +223,10 @@ class Parameters:
         "x": {"p": 6, "i": 0.3, "d": 1.5},  # For lateral movement
         "y": {"p": 6, "i": 0.3, "d": 1.5},  # For lateral movement
         "z": {"p": 2, "i": 0.03, "d": 0.05},  # For vertical movement (altitude)
-        "roll_rate": {"p": 4, "i": 0.1, "d": 0.2},  # For controlling roll rate
-        "pitch_rate": {"p": 100, "i": 2, "d": 20},  # For controlling pitch rate
-        "yaw_rate": {"p": 40, "i": 8, "d": 2},  # For controlling yaw rate
-        "thrust": {"p": 2, "i": 0.2, "d": 0.1},  # For controlling forward velocity via thrust
-        "bank_angle": {"p": 2, "i": 0, "d": 0},  # For coordinated turn management
+        "roll_rate": {"p": 0.1, "i": 0.001, "d": 0.001},  # For controlling roll rate
+        "pitch_rate": {"p": 5, "i": 0.05, "d": 0.01},  # For controlling pitch rate
+        "yaw_rate": {"p": 10, "i": 1, "d": 0.1},  # For controlling yaw rate
+        "thrust": {"p": 1, "i": 0.2, "d": 0.1},  # For controlling forward velocity via thrust
     }
 
 

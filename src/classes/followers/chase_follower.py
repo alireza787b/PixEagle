@@ -46,14 +46,9 @@ class ChaseFollower(BaseFollower):
             setpoint=0,  # This will be updated based on the bank angle
             output_limits=(-Parameters.MAX_ROLL_RATE, Parameters.MAX_ROLL_RATE)
         )
-        self.pid_bank_angle = CustomPID(
-            *self.get_pid_gains('bank_angle'),
-            setpoint=0,  # Target bank angle
-            output_limits=(-Parameters.MAX_BANK_ANGLE, Parameters.MAX_BANK_ANGLE)
-        )
         self.pid_thrust = CustomPID(
             *self.get_pid_gains('thrust'),
-            setpoint=Parameters.TARGET_SPEED,  # Target airspeed control
+            setpoint=self.normalize_speed(Parameters.TARGET_SPEED),  # Target airspeed control
             output_limits=(0, Parameters.MAX_THRUST)
         )
 
@@ -79,7 +74,6 @@ class ChaseFollower(BaseFollower):
         self.pid_pitch_rate.tunings = self.get_pid_gains('pitch_rate')
         self.pid_yaw_rate.tunings = self.get_pid_gains('yaw_rate')
         self.pid_roll_rate.tunings = self.get_pid_gains('roll_rate')
-        self.pid_bank_angle.tunings = self.get_pid_gains('bank_angle')
         self.pid_thrust.tunings = self.get_pid_gains('thrust')
 
         logging.debug("PID gains updated for ChaseFollower.")
@@ -95,12 +89,12 @@ class ChaseFollower(BaseFollower):
         self.update_pid_gains()
 
         # Calculate errors for pitch (vertical) and yaw (horizontal)
-        error_x = self.pid_pitch_rate.setpoint - target_coords[0] * (-1)
-        error_y = (self.pid_yaw_rate.setpoint - target_coords[1]) * (-1)
+        error_y = (self.pid_pitch_rate.setpoint - target_coords[1]) * (-1)
+        error_x = (self.pid_yaw_rate.setpoint - target_coords[0]) * (+1)
 
         # Calculate control rates using the PID controllers
-        pitch_rate = self.pid_pitch_rate(error_x)
-        yaw_rate = self.pid_yaw_rate(error_y)
+        pitch_rate = self.pid_pitch_rate(error_y)
+        yaw_rate = self.pid_yaw_rate(error_x)
 
         # Convert yaw rate from degrees/sec to radians/sec
         yaw_rate_rad = yaw_rate * (np.pi / 180)
@@ -108,15 +102,24 @@ class ChaseFollower(BaseFollower):
         # Get current speed in meters per second
         current_speed = self.px4_controller.current_ground_speed
         current_roll = self.px4_controller.current_roll
+        logging.debug(f"Current Roll: {current_roll:.2f}, Current Speed: {current_speed:.2f} ")
         # Calculate the desired bank angle from yaw rate and speed
         g = 9.81  # Acceleration due to gravity in m/s^2
-        target_bank_angle = np.arctan((yaw_rate_rad * current_speed) / g)  # Desired bank angle in radians
+        #current_speed = 5 ################################ TEST
+        # Calculate the desired bank angle from yaw rate and speed
+        target_bank_angle_rad = np.arctan((yaw_rate_rad * current_speed) / g)
 
-        # Update the bank angle PID controller to get the roll rate
-        self.pid_bank_angle.setpoint = target_bank_angle
-        bank_angle = self.pid_bank_angle(current_roll) 
-        roll_rate = self.pid_roll_rate(bank_angle)
+        # Convert the bank angle from radians to degrees
+        target_bank_angle = np.degrees(target_bank_angle_rad)
 
+
+        # Calculate the error between desired and current bank angle
+        bank_angle_error = (target_bank_angle - current_roll)* (-1)
+
+        # Use the bank angle error to calculate the required roll rate
+        roll_rate = self.pid_roll_rate(bank_angle_error)
+
+        
         # Thrust control: Adjust thrust based on tracking quality and airspeed control
         thrust = self.control_thrust(current_speed)
 
@@ -127,7 +130,7 @@ class ChaseFollower(BaseFollower):
         self.px4_controller.setpoint_handler.set_field('thrust', thrust)
 
         # Log the calculated control commands for debugging
-        logging.debug(f"Calculated commands - Roll rate: {roll_rate:.2f} degrees/sec to Bank angle: {bank_angle:.2f} degrees, "
+        logging.debug(f"Calculated commands - Roll rate: {roll_rate:.2f} degrees/sec to Bank angle: {target_bank_angle:.2f} degrees, "
                     f"Pitch rate: {pitch_rate:.2f} degrees/sec, "
                     f"Yaw rate: {yaw_rate:.2f} degrees/sec, "
                     f"Thrust: {thrust:.2f}")
@@ -152,12 +155,25 @@ class ChaseFollower(BaseFollower):
             float: The calculated thrust command.
         """
         # Normalize ground speed
-        min_speed = Parameters.MIN_GROUND_SPEED
-        max_speed = Parameters.MAX_GROUND_SPEED
-        normalized_speed = (ground_speed - min_speed) / (max_speed - min_speed)
-        normalized_speed = max(0.0, min(1.0, normalized_speed))  # Ensure it's between 0 and 1
+        normalized_speed = self.normalize_speed(ground_speed)
 
         # Use normalized speed as setpoint for thrust PID
         current_thrust = self.pid_thrust(normalized_speed)
 
         return current_thrust
+    
+    
+    def normalize_speed(self, speed, min_speed=Parameters.MIN_GROUND_SPEED, max_speed=Parameters.MAX_GROUND_SPEED):
+        """
+        Normalizes the given speed value between 0 and 1.
+
+        Args:
+            speed (float): The speed value to be normalized.
+            min_speed (float): The minimum speed value.
+            max_speed (float): The maximum speed value.
+
+        Returns:
+            float: The normalized speed value between 0 and 1.
+        """
+        normalized_speed = (speed - min_speed) / (max_speed - min_speed)
+        return max(0.0, min(1.0, normalized_speed))

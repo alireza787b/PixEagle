@@ -4,6 +4,7 @@ import requests
 import logging
 import asyncio
 from .parameters import Parameters
+import math
 
 class MavlinkDataManager:
     def __init__(self, mavlink_host, mavlink_port, polling_interval, data_points, enabled=True):
@@ -168,7 +169,7 @@ class MavlinkDataManager:
         In case REST requests send invalid data, the roll, pitch, and yaw will fall back to 0.
 
         Returns:
-            dict: A dictionary with roll, pitch, and yaw values.
+            dict: A dictionary with roll, pitch, and yaw values in degrees.
         """
         attitude_data = await self.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/ATTITUDE")
         if attitude_data:
@@ -177,10 +178,18 @@ class MavlinkDataManager:
                 roll = float(message.get("roll", 0))
                 pitch = float(message.get("pitch", 0))
                 yaw = float(message.get("yaw", 0))
+
+                # Convert radians to degrees
+                roll_deg = math.degrees(roll)
+                pitch_deg = math.degrees(pitch)
+                yaw_deg = math.degrees(yaw)
+                
             except (ValueError, TypeError):
                 self.logger.warning("Invalid attitude data received, falling back to default values (0).")
-                roll, pitch, yaw = 0, 0, 0
-            return {"roll": roll, "pitch": pitch, "yaw": yaw}
+                roll_deg, pitch_deg, yaw_deg = 0, 0, 0
+
+            return {"roll": roll_deg, "pitch": pitch_deg, "yaw": yaw_deg}
+        
         return {"roll": 0, "pitch": 0, "yaw": 0}
 
     async def fetch_altitude_data(self):
