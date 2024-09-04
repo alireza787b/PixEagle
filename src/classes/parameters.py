@@ -203,6 +203,7 @@ class Parameters:
     MIN_GROUND_SPEED = 0 # For Chase mode throttle control
     MAX_GROUND_SPEED = 20 # For Chase mode throttle control
     TARGET_SPEED = 5
+    MAX_BANK_ANGLE = 20
 
     # Control and PID parameters
     """
@@ -226,6 +227,7 @@ class Parameters:
         "pitch_rate": {"p": 100, "i": 2, "d": 20},  # For controlling pitch rate
         "yaw_rate": {"p": 40, "i": 8, "d": 2},  # For controlling yaw rate
         "thrust": {"p": 2, "i": 0.2, "d": 0.1},  # For controlling forward velocity via thrust
+        "bank_angle": {"p": 2, "i": 0, "d": 0},  # For coordinated turn management
     }
 
 

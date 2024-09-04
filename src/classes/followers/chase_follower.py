@@ -4,6 +4,7 @@ from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
 import logging
 from typing import Tuple
+import numpy as np
 
 class ChaseFollower(BaseFollower):
     """
@@ -29,7 +30,7 @@ class ChaseFollower(BaseFollower):
         """
         setpoint_x, setpoint_y = self.initial_target_coords
 
-        # Initialize pitch, roll, yaw rate, and thrust PID controllers
+        # Initialize pitch, yaw, roll rate, bank angle, and thrust PID controllers
         self.pid_pitch_rate = CustomPID(
             *self.get_pid_gains('pitch_rate'),
             setpoint=setpoint_y,  # Vertical control
@@ -42,8 +43,13 @@ class ChaseFollower(BaseFollower):
         )
         self.pid_roll_rate = CustomPID(
             *self.get_pid_gains('roll_rate'),
-            setpoint=0,  # Roll for coordination based on yaw
+            setpoint=0,  # This will be updated based on the bank angle
             output_limits=(-Parameters.MAX_ROLL_RATE, Parameters.MAX_ROLL_RATE)
+        )
+        self.pid_bank_angle = CustomPID(
+            *self.get_pid_gains('bank_angle'),
+            setpoint=0,  # Target bank angle
+            output_limits=(-Parameters.MAX_BANK_ANGLE, Parameters.MAX_BANK_ANGLE)
         )
         self.pid_thrust = CustomPID(
             *self.get_pid_gains('thrust'),
@@ -58,7 +64,7 @@ class ChaseFollower(BaseFollower):
         Retrieves the PID gains for the specified axis.
 
         Args:
-            axis (str): The axis for which to retrieve the PID gains ('roll_rate', 'pitch_rate', 'yaw_rate', 'thrust').
+            axis (str): The axis for which to retrieve the PID gains ('roll_rate', 'pitch_rate', 'yaw_rate', 'bank_angle', 'thrust').
 
         Returns:
             Tuple[float, float, float]: The proportional, integral, and derivative gains for the axis.
@@ -68,11 +74,12 @@ class ChaseFollower(BaseFollower):
 
     def update_pid_gains(self):
         """
-        Updates the PID gains for pitch, roll, yaw rates, and thrust controllers based on the current settings.
+        Updates the PID gains for pitch, roll, yaw rates, bank angle, and thrust controllers based on the current settings.
         """
         self.pid_pitch_rate.tunings = self.get_pid_gains('pitch_rate')
         self.pid_yaw_rate.tunings = self.get_pid_gains('yaw_rate')
         self.pid_roll_rate.tunings = self.get_pid_gains('roll_rate')
+        self.pid_bank_angle.tunings = self.get_pid_gains('bank_angle')
         self.pid_thrust.tunings = self.get_pid_gains('thrust')
 
         logging.debug("PID gains updated for ChaseFollower.")
@@ -95,11 +102,23 @@ class ChaseFollower(BaseFollower):
         pitch_rate = self.pid_pitch_rate(error_x)
         yaw_rate = self.pid_yaw_rate(error_y)
 
-        # Roll rate for coordinated flight, proportional to yaw rate
-        roll_rate = self.pid_roll_rate(-1 * yaw_rate)
+        # Convert yaw rate from degrees/sec to radians/sec
+        yaw_rate_rad = yaw_rate * (np.pi / 180)
+
+        # Get current speed in meters per second
+        current_speed = self.px4_controller.current_ground_speed
+
+        # Calculate the desired bank angle from yaw rate and speed
+        g = 9.81  # Acceleration due to gravity in m/s^2
+        target_bank_angle = np.arctan((yaw_rate_rad * current_speed) / g)  # Desired bank angle in radians
+
+        # Update the bank angle PID controller to get the roll rate
+        self.pid_bank_angle.setpoint = target_bank_angle
+        bank_angle = self.pid_bank_angle(0)  # Assuming current bank angle is 0 for simplicity
+        roll_rate = self.pid_roll_rate(bank_angle)
 
         # Thrust control: Adjust thrust based on tracking quality and airspeed control
-        thrust = self.control_thrust(self.px4_controller.current_ground_speed)
+        thrust = self.control_thrust(current_speed)
 
         # Update the setpoint handler
         self.px4_controller.setpoint_handler.set_field('roll_rate', roll_rate)
@@ -107,9 +126,11 @@ class ChaseFollower(BaseFollower):
         self.px4_controller.setpoint_handler.set_field('yaw_rate', yaw_rate)
         self.px4_controller.setpoint_handler.set_field('thrust', thrust)
 
-        # Log the calculated control commands
-        logging.debug(f"Calculated commands - Roll rate: {roll_rate}, Pitch rate: {pitch_rate}, "
-                      f"Yaw rate: {yaw_rate}, Thrust: {thrust}")
+        # Log the calculated control commands for debugging
+        logging.debug(f"Calculated commands - Roll rate: {roll_rate:.2f} degrees/sec to Bank angle: {bank_angle:.2f} degrees, "
+                    f"Pitch rate: {pitch_rate:.2f} degrees/sec, "
+                    f"Yaw rate: {yaw_rate:.2f} degrees/sec, "
+                    f"Thrust: {thrust:.2f}")
 
     def follow_target(self, target_coords: Tuple[float, float]):
         """
