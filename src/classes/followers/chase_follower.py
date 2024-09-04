@@ -107,14 +107,14 @@ class ChaseFollower(BaseFollower):
 
         # Get current speed in meters per second
         current_speed = self.px4_controller.current_ground_speed
-
+        current_roll = self.px4_controller.current_roll
         # Calculate the desired bank angle from yaw rate and speed
         g = 9.81  # Acceleration due to gravity in m/s^2
         target_bank_angle = np.arctan((yaw_rate_rad * current_speed) / g)  # Desired bank angle in radians
 
         # Update the bank angle PID controller to get the roll rate
         self.pid_bank_angle.setpoint = target_bank_angle
-        bank_angle = self.pid_bank_angle(0)  # Assuming current bank angle is 0 for simplicity
+        bank_angle = self.pid_bank_angle(current_roll) 
         roll_rate = self.pid_roll_rate(bank_angle)
 
         # Thrust control: Adjust thrust based on tracking quality and airspeed control
