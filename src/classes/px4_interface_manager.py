@@ -287,3 +287,10 @@ class PX4InterfaceManager:
         Convert the flight mode code to a text label.
         """
         return self.FLIGHT_MODES.get(mode_code, f"Unknown ({mode_code})")
+    
+    def trigger_return_to_launch(self):
+        """
+        Send Return to Launch as a failsafe action
+        """
+        self.drone.action.return_to_launch()
+        logger.info("Initiating RTL.")

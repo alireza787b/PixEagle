@@ -205,6 +205,11 @@ class Parameters:
     MAX_GROUND_SPEED = 10 # For Chase mode throttle control
     TARGET_SPEED = 5
     MAX_BANK_ANGLE = 20
+    YAW_ERROR_CHECK_ENABLED = True  # Flag to enable/disable yaw error check
+    YAW_ERROR_THRESHOLD = 20  # Yaw error threshold in degrees before pitch command
+    
+    ALTITUDE_FAILSAFE_ENABLED = True  # Enable/disable the altitude failsafe
+
 
     # Control and PID parameters
     """

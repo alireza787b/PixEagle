@@ -96,44 +96,64 @@ class ChaseFollower(BaseFollower):
         pitch_rate = self.pid_pitch_rate(error_y)
         yaw_rate = self.pid_yaw_rate(error_x)
 
+        # Calculate yaw error
+        yaw_error = error_x  # Assuming error_x is the yaw error
+
+        # Check yaw error before sending pitch commands
+        self.check_yaw_and_control(yaw_error, pitch_rate)
+
         # Convert yaw rate from degrees/sec to radians/sec
         yaw_rate_rad = yaw_rate * (np.pi / 180)
 
         # Get current speed in meters per second
         current_speed = self.px4_controller.current_ground_speed
         current_roll = self.px4_controller.current_roll
-        logging.debug(f"Current Roll: {current_roll:.2f}, Current Speed: {current_speed:.2f} ")
+        logging.debug(f"Current Roll: {current_roll:.2f}, Current Speed: {current_speed:.2f}")
+
         # Calculate the desired bank angle from yaw rate and speed
         g = 9.81  # Acceleration due to gravity in m/s^2
-        #current_speed = 5 ################################ TEST
-        # Calculate the desired bank angle from yaw rate and speed
         target_bank_angle_rad = np.arctan((yaw_rate_rad * current_speed) / g)
 
         # Convert the bank angle from radians to degrees
         target_bank_angle = np.degrees(target_bank_angle_rad)
 
-
         # Calculate the error between desired and current bank angle
-        bank_angle_error = (-1)*(target_bank_angle - current_roll)
+        bank_angle_error = (-1) * (target_bank_angle - current_roll)
 
         # Use the bank angle error to calculate the required roll rate
         roll_rate = self.pid_roll_rate(bank_angle_error)
 
-        
         # Thrust control: Adjust thrust based on tracking quality and airspeed control
         thrust = self.control_thrust(current_speed)
 
         # Update the setpoint handler
         self.px4_controller.setpoint_handler.set_field('roll_rate', roll_rate)
-        self.px4_controller.setpoint_handler.set_field('pitch_rate', pitch_rate)
         self.px4_controller.setpoint_handler.set_field('yaw_rate', yaw_rate)
         self.px4_controller.setpoint_handler.set_field('thrust', thrust)
 
         # Log the calculated control commands for debugging
         logging.debug(f"Calculated commands - Roll rate: {roll_rate:.2f} degrees/sec to Bank angle: {target_bank_angle:.2f} degrees, "
-                    f"Pitch rate: {pitch_rate:.2f} degrees/sec, "
                     f"Yaw rate: {yaw_rate:.2f} degrees/sec, "
                     f"Thrust: {thrust:.2f}")
+        
+        
+    def check_yaw_and_control(self, yaw_error: float, pitch_command: float) -> None:
+        """
+        Checks the yaw error and controls pitch commands based on the result.
+
+        Args:
+            yaw_error (float): The current yaw error of the drone.
+            pitch_command (float): The pitch command to be potentially sent.
+        """
+        if Parameters.YAW_ERROR_CHECK_ENABLED:
+            if abs(yaw_error) < Parameters.YAW_ERROR_THRESHOLD:
+                self.px4_controller.setpoint_handler.set_field('pitch_rate', pitch_command)
+                logging.debug(f"Pitch command sent: {pitch_command:.2f}")
+            else:
+                logging.info(f"Yaw error {yaw_error:.2f} exceeds threshold {Parameters.YAW_ERROR_THRESHOLD}. Pitch command not sent.")
+        else:
+            self.px4_controller.setpoint_handler.set_field('pitch_rate', pitch_command)
+            logging.debug(f"Yaw error check disabled. Pitch command sent: {pitch_command:.2f}")
 
     def follow_target(self, target_coords: Tuple[float, float]):
         """
@@ -142,6 +162,7 @@ class ChaseFollower(BaseFollower):
         Args:
             target_coords (Tuple[float, float]): The target coordinates to follow.
         """
+        self.check_altitude_safety()
         self.calculate_control_commands(target_coords)
 
     def control_thrust(self, ground_speed) -> float:
@@ -177,3 +198,16 @@ class ChaseFollower(BaseFollower):
         """
         normalized_speed = (speed - min_speed) / (max_speed - min_speed)
         return max(0.0, min(1.0, normalized_speed))
+    
+    def check_altitude_safety(self):
+        if Parameters.ALTITUDE_FAILSAFE_ENABLED:
+            current_altitude = self.px4_controller.current_altitude
+            if current_altitude < Parameters.MIN_DESCENT_HEIGHT or current_altitude > Parameters.MAX_CLIMB_HEIGHT:
+                logging.warning(f"Altitude safety triggered! Current altitude: {current_altitude}")
+                self.trigger_failsafe()
+                
+                
+    def trigger_failsafe(self):
+        logging.critical("Initiating Return to Launch due to altitude safety violation")
+        # Assuming PX4Controller has a method to trigger RTL
+        self.px4_controller.trigger_return_to_launch()
