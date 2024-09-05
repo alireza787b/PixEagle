@@ -200,7 +200,7 @@ class Parameters:
     MAX_PITCH_RATE = 10.0  # Maximum pitch rate in degrees per second
     MAX_YAW_RATE = 10.0  # Maximum yaw rate in degrees per second
     MAX_THRUST = 1.0  # Maximum thrust (normalized between 0 and 1)
-    MIN_THRUST = 0.4  # Minimum thrust (normalized between 0 and 1)
+    MIN_THRUST = 0.2  # Minimum thrust (normalized between 0 and 1)
     MIN_GROUND_SPEED = 0 # For Chase mode throttle control
     MAX_GROUND_SPEED = 10 # For Chase mode throttle control
     TARGET_SPEED = 5
@@ -225,8 +225,8 @@ class Parameters:
         "y": {"p": 6, "i": 0.3, "d": 1.5},  # For lateral movement
         "z": {"p": 2, "i": 0.03, "d": 0.05},  # For vertical movement (altitude)
         "roll_rate": {"p": 0.1, "i": 0.001, "d": 0.001},  # For controlling roll rate
-        "pitch_rate": {"p": 15, "i": 0.05, "d": 0.01},  # For controlling pitch rate
-        "yaw_rate": {"p": 7, "i": 0.5, "d": 0.05},  # For controlling yaw rate
+        "pitch_rate": {"p": 3, "i": 0.01, "d": 0.005},  # For controlling pitch rate
+        "yaw_rate": {"p": 10, "i": 0.5, "d": 0.05},  # For controlling yaw rate
         "thrust": {"p": 0.01, "i": 0.02, "d": 0.01},  # For controlling forward velocity via thrust
     }
 

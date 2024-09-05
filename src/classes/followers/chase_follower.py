@@ -114,7 +114,7 @@ class ChaseFollower(BaseFollower):
 
 
         # Calculate the error between desired and current bank angle
-        bank_angle_error = (target_bank_angle - current_roll)
+        bank_angle_error = (-1)*(target_bank_angle - current_roll)
 
         # Use the bank angle error to calculate the required roll rate
         roll_rate = self.pid_roll_rate(bank_angle_error)
