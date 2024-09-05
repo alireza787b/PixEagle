@@ -249,8 +249,8 @@ class Parameters:
     # Velocity and descent limits
     VELOCITY_LIMITS = {'x': 10.0, 'y': 10.0, 'z': 5.0}  # Maximum velocity limits
     ENABLE_DESCEND_TO_TARGET = False # If True, It will Descend (or Climb) based on below parameters
-    MIN_DESCENT_HEIGHT = 20  # Minimum descent height
-    MAX_CLIMB_HEIGHT = 100 # Maximum climb hieght
+    MIN_DESCENT_HEIGHT = 40  # Minimum descent height
+    MAX_CLIMB_HEIGHT = 10000 # Maximum climb heoght
     MAX_RATE_OF_DESCENT = 2  # Maximum rate of descent
     MAX_YAW_RATE = 10  # Maximum yaw rate in degrees per second
 
