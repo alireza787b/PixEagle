@@ -208,7 +208,7 @@ class Parameters:
     YAW_ERROR_CHECK_ENABLED = True  # Flag to enable/disable yaw error check
     YAW_ERROR_THRESHOLD = 20  # Yaw error threshold in degrees before pitch command
     
-    ALTITUDE_FAILSAFE_ENABLED = True  # Enable/disable the altitude failsafe
+    ALTITUDE_FAILSAFE_ENABLED = True  # Enable/disable the altitude failsafe for Chase mode
 
 
     # Control and PID parameters
@@ -250,7 +250,7 @@ class Parameters:
     VELOCITY_LIMITS = {'x': 10.0, 'y': 10.0, 'z': 5.0}  # Maximum velocity limits
     ENABLE_DESCEND_TO_TARGET = False # If True, It will Descend (or Climb) based on below parameters
     MIN_DESCENT_HEIGHT = 40  # Minimum descent height
-    MAX_CLIMB_HEIGHT = 10000 # Maximum climb heoght
+    MAX_CLIMB_HEIGHT = 10000 # Maximum climb height
     MAX_RATE_OF_DESCENT = 2  # Maximum rate of descent
     MAX_YAW_RATE = 10  # Maximum yaw rate in degrees per second
 
