@@ -73,7 +73,12 @@ class MavlinkDataManager:
             with self._lock:
                 # Iterate through the data points defined in Parameters
                 for point_name, json_path in self.data_points.items():
-                    if point_name == "arm_status":
+                    if point_name in ["vn", "ve", "vd"]:
+                        value = self._extract_data_from_json(json_data, json_path)
+                        self.data[point_name] = float(value) if value is not None else 0.0
+                    elif point_name == "flight_path_angle":
+                        self.data[point_name] = self._calculate_flight_path_angle()
+                    elif point_name == "arm_status":
                         base_mode = self._extract_data_from_json(json_data, "/vehicles/1/components/191/messages/HEARTBEAT/message/base_mode/bits")
                         self.data[point_name] = self._determine_arm_status(base_mode)
                     else:
@@ -91,6 +96,22 @@ class MavlinkDataManager:
                         self.data[point_name] = value
         except requests.RequestException as e:
             self.logger.error(f"Error fetching data from {url}: {e}")
+            
+            
+    def _calculate_flight_path_angle(self):
+        vn = self.data.get("vn", 0.0)
+        ve = self.data.get("ve", 0.0)
+        vd = self.data.get("vd", 0.0)
+
+        # Calculate horizontal speed
+        v_horizontal = math.sqrt(vn**2 + ve**2)
+
+        # Calculate flight path angle
+        if v_horizontal == 0:
+            return 0.0  # Avoid division by zero
+        
+        flight_path_angle = math.degrees(math.atan2(-vd, v_horizontal))
+        return round(flight_path_angle, 2)
 
     def _determine_arm_status(self, base_mode_bits):
         """

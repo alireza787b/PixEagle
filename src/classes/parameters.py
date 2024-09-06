@@ -394,6 +394,10 @@ class Parameters:
     "throttle": "/vehicles/1/components/1/messages/VFR_HUD/message/throttle",
     "groundspeed": "/vehicles/1/components/1/messages/VFR_HUD/message/groundspeed",
     "climb": "/vehicles/1/components/1/messages/VFR_HUD/message/climb",
+    "vn": "/vehicles/1/components/1/messages/LOCAL_POSITION_NED/message/vx",
+    "ve": "/vehicles/1/components/1/messages/LOCAL_POSITION_NED/message/vy",
+    "vd": "/vehicles/1/components/1/messages/LOCAL_POSITION_NED/message/vz",
+    "flight_path_angle": None,  # This will be calculated, not directly fetched
     "roll": "/vehicles/1/components/1/messages/ATTITUDE/message/roll",
     "pitch": "/vehicles/1/components/1/messages/ATTITUDE/message/pitch",
     "heading": "/vehicles/1/components/1/messages/VFR_HUD/message/heading",
@@ -466,6 +470,11 @@ class Parameters:
                 },
                 "altitude_agl": {
                     "position": (65, 55),  # Below altitude_msl
+                    "font_size": 0.4,
+                    "color": (255, 255, 255)  # White
+                },
+                "flight_path_angle": {
+                    "position": (65, 65), 
                     "font_size": 0.4,
                     "color": (255, 255, 255)  # White
                 },
