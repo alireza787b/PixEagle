@@ -145,9 +145,9 @@ class OSDHandler:
             raw_value = self.app_controller.mavlink_data_manager.get_data(field.lower())
             if field == "flight_path_angle":
                 if raw_value == 0.0:
-                    formatted_value = "Hover/Ground"
+                    formatted_value = "Level"
                 else:
-                    formatted_value = f"{raw_value:.1f}°"
+                    formatted_value = f"{raw_value:.1f}"
             else:
                 formatted_value = self._format_value(field.replace("_", " ").title(), raw_value)
             if formatted_value is None:
