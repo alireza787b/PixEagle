@@ -143,9 +143,15 @@ class OSDHandler:
 
         for field, field_config in config["fields"].items():
             raw_value = self.app_controller.mavlink_data_manager.get_data(field.lower())
-            formatted_value = self._format_value(field.replace("_", " ").title(), raw_value)
+            if field == "flight_path_angle":
+                if raw_value == 0.0:
+                    formatted_value = "Hover/Ground"
+                else:
+                    formatted_value = f"{raw_value:.1f}°"
+            else:
+                formatted_value = self._format_value(field.replace("_", " ").title(), raw_value)
             if formatted_value is None:
-                self.logger.warning(f"Failed to retrieve data for {field}. Displaying 'N/A'.")
+                #self.logger.warning(f"Failed to retrieve data for {field}. Displaying 'N/A'.")
                 formatted_value = "N/A"
 
             position = self._convert_position(frame, field_config["position"])

@@ -1,3 +1,4 @@
+from collections import deque
 import threading
 import time
 from numpy import uint16
@@ -27,6 +28,8 @@ class MavlinkDataManager:
         self.data = {}  # Stores the fetched data
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
+        self.velocity_buffer = deque(maxlen=10)  # Buffer for velocity smoothing
+        self.min_velocity_threshold = 0.5  # m/s, adjust based on your drone's characteristics
 
         # Setup logging
         logging.basicConfig(level=logging.DEBUG)  # Set to DEBUG for detailed logging
@@ -103,15 +106,35 @@ class MavlinkDataManager:
         ve = self.data.get("ve", 0.0)
         vd = self.data.get("vd", 0.0)
 
-        # Calculate horizontal speed
-        v_horizontal = math.sqrt(vn**2 + ve**2)
+        # Calculate total velocity
+        v_total = math.sqrt(vn**2 + ve**2 + vd**2)
 
-        # Calculate flight path angle
+        # Add to buffer for smoothing
+        self.velocity_buffer.append((vn, ve, vd))
+
+        # Calculate average velocity over the buffer
+        avg_vn = sum(v[0] for v in self.velocity_buffer) / len(self.velocity_buffer)
+        avg_ve = sum(v[1] for v in self.velocity_buffer) / len(self.velocity_buffer)
+        avg_vd = sum(v[2] for v in self.velocity_buffer) / len(self.velocity_buffer)
+
+        # Calculate horizontal speed using averaged values
+        v_horizontal = math.sqrt(avg_vn**2 + avg_ve**2)
+
+        # Check if the total velocity is above the threshold
+        if v_total < self.min_velocity_threshold:
+            return 0.0  # Return 0 when the drone is effectively stationary
+
+        # Calculate flight path angle using averaged values
         if v_horizontal == 0:
-            return 0.0  # Avoid division by zero
-        
-        flight_path_angle = math.degrees(math.atan2(-vd, v_horizontal))
-        return round(flight_path_angle, 2)
+            return 90.0 if avg_vd < 0 else -90.0  # Vertical up or down
+
+        flight_path_angle = math.degrees(math.atan2(-avg_vd, v_horizontal))
+
+        # Apply additional smoothing
+        flight_path_angle = round(flight_path_angle, 1)  # Round to one decimal place
+
+        return flight_path_angle
+
 
     def _determine_arm_status(self, base_mode_bits):
         """
