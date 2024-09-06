@@ -16,17 +16,17 @@ Watch the latest video showcasing PixEagle v1.0, demonstrating advanced features
 - PixEagle Repository is Cloned and all steps in the [README](https://github.com/alireza787b/PixEagle/blob/main/README.md) are done.
 - MAVSDK Server manually installed and run on Windows. Download the MAVSDK Server binary appropriate for Windows from the [MAVSDK official repository](https://github.com/mavlink/MAVSDK/releases). Later, the process of starting the server will be automated.
 - SparkoCam (or simillar software) installed on Windows to stream X-Plane output to a virtual webcam.
-- PX4 simulation integration with X-Plane using [PX4XPlane](https://github.com/alireza787b/px4xplane).
+- PX4 simulation integration with X-Plane using [PX4XPlane](https://github.com/alireza787b/px4xplane) Version 2+.
 - PX4 SITL environment. Setting it up in Linux is much easier. For Windows, it is recommended to use WSL. This setup is covered in the [PX4XPlane](https://github.com/alireza787b/px4xplane) instruction and in this [YouTube video](https://www.youtube.com/watch?v=iVU8ZNoMn_U). Always check the latest documentation on PX4 official documentation [here](https://docs.px4.io/main/en/dev_setup/dev_env_windows_wsl.html).
 
 
 ## Configuration Steps
-
+(If you use the px4xplane command directly, you wont need to run the mavlink-router command and settings)
 ### Step 1: MAVLink Router Configuration on WSL
 Route MAVLink messages between your SITL environment on Linux and your development environment on Windows: (for MAVSDK, QGC and MAVLink2Rest)
 
 ```bash
-mavlink-routerd -e 172.21.144.1:14540 -e 172.21.144.1:14550 -e 127.0.0.1:14569 0.0.0.0:14550
+mavlink-routerd -e 172.21.144.1:14540 -e 172.21.144.1:14550 -e 172.21.144.1:14569 -e 127.0.0.1:14569 0.0.0.0:14550
 ```
 
 ### Step 2: MAVSDK Server Setup on Windows
