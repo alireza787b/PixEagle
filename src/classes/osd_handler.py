@@ -117,9 +117,9 @@ class OSDHandler:
                 return f"{float(value):.1f} V"
             elif field in ["Latitude", "Longitude"]:  # Coordinates
                 return f"{float(value):.6f}"
-            elif field in ["Hdop", "Vdop"]:  # DOP values
-                return f"{float(value):.1f}"
-            elif field == "Satellites Visible":  # Satellite count
+            elif field in ["Hdop", "Vdop"]:  # DOP 
+                return f"{float(value):.2f}"
+            elif field in ["Satellites Visible" ,  "Throttle"]:  # Satellite count and throttle values
                 return f"{int(float(value))}"
             elif field == "Flight Mode":  # Convert flight mode code to text using PX4InterfaceManager
                 mode = int(float(value))

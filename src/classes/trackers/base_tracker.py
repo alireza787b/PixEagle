@@ -219,6 +219,6 @@ class BaseTracker(ABC):
             norm_w = w / frame_width
             norm_h = h / frame_height
             self.normalized_bbox = (norm_x, norm_y, norm_w, norm_h)
-            logging.debug(f"Normalized bbox: {self.normalized_bbox}")
+            #logging.debug(f"Normalized bbox: {self.normalized_bbox}")
 
             return self.normalized_bbox

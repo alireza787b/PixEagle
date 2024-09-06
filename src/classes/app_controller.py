@@ -184,6 +184,8 @@ class AppController:
                     frame = self.tracker.draw_estimate(frame)
                 if self.following_active:
                     await self.follow_target()
+                    await self.check_failsafe()
+
             else:
                 if Parameters.USE_DETECTOR and Parameters.AUTO_REDETECT:
                     self.initiate_redetection()
@@ -201,9 +203,16 @@ class AppController:
         if Parameters.ENABLE_GSTREAMER_STREAM and self.gstreamer_handler:
             self.gstreamer_handler.stream_frame(frame)
         
-        logging.debug("Update loop complete.")
+        
+        #logging.debug("Update loop complete.")
         
         return frame
+    
+    
+    async def check_failsafe(self):
+        if self.px4_interface.failsafe_active :
+            await self.px4_interface.trigger_failsafe()
+            self.px4_interface.failsafe_active = False
 
     async def handle_key_input_async(self, key: int, frame: np.ndarray):
         """
@@ -330,6 +339,7 @@ class AppController:
                 initial_target_coords = self.tracker.normalized_center if Parameters.TARGET_POSITION_MODE == 'initial' else Parameters.DESIRE_AIM
                 self.follower = Follower(self.px4_interface, initial_target_coords)
                 self.telemetry_handler.follower = self.follower # Maybe do a better approach later.
+                await self.px4_interface.set_hover_throttle()
                 await self.px4_interface.send_initial_setpoint()
                 await self.px4_interface.start_offboard_mode()
                 self.following_active = True
@@ -416,3 +426,6 @@ class AppController:
             logging.error(f"Error during shutdown: {e}")
             result["errors"].append(f"Error during shutdown: {e}")
         return result
+    
+    
+        

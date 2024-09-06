@@ -43,6 +43,8 @@ class PX4InterfaceManager:
         normalized_profile_name = SetpointHandler.normalize_profile_name(Parameters.FOLLOWER_MODE)
         self.setpoint_handler = SetpointHandler(normalized_profile_name)    
         self.active_mode = False
+        self.hover_throttle = 0.0
+        self.failsafe_active = False
 
         # Determine if we are using MAVLink2Rest for telemetry data
         if Parameters.USE_MAVLINK2REST and self.app_controller:
@@ -184,7 +186,7 @@ class PX4InterfaceManager:
                 return
 
             # Initialize variables to zero for the fields that might not be present
-            roll_rate, pitch_rate, yaw_rate, thrust = 0.0, 0.0, 0.0, 0.0
+            roll_rate, pitch_rate, yaw_rate, thrust = 0.0, 0.0, 0.0, self.hover_throttle
 
             # Update values only if they are present in the current profile's setpoints
             roll_rate = float(setpoint.get('roll_rate', 0.0))
@@ -288,9 +290,18 @@ class PX4InterfaceManager:
         """
         return self.FLIGHT_MODES.get(mode_code, f"Unknown ({mode_code})")
     
-    def trigger_return_to_launch(self):
+    async def trigger_return_to_launch(self):
         """
         Send Return to Launch as a failsafe action
         """
-        self.drone.action.return_to_launch()
+        await self.drone.action.return_to_launch()
         logger.info("Initiating RTL.")
+
+    async def set_hover_throttle(self):
+        hover_throttle_raw =await self.mavlink_data_manager.fetch_throttle_percent()
+        self.hover_throttle = float(hover_throttle_raw) / 100.0
+        
+        
+    async def trigger_failsafe(self):
+        logging.critical("Initiating Return to Launch due to altitude safety violation")
+        await self.trigger_return_to_launch()

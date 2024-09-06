@@ -1,5 +1,6 @@
 import threading
 import time
+from numpy import uint16
 import requests
 import logging
 import asyncio
@@ -78,7 +79,7 @@ class MavlinkDataManager:
                     else:
                         value = self._extract_data_from_json(json_data, json_path)
                         if value is None:
-                            self.logger.warning(f"Failed to retrieve data for {point_name} using path {json_path}. Assigning 'N/A'.")
+                            #self.logger.warning(f"Failed to retrieve data for {point_name} using path {json_path}. Assigning 'N/A'.")
                             value = "N/A"
                         else:
                             if point_name in ["latitude", "longitude"]:
@@ -122,7 +123,7 @@ class MavlinkDataManager:
             if key in data:
                 data = data[key]
             else:
-                self.logger.debug(f"Key {key} not found in the current JSON level.")
+                #self.logger.debug(f"Key {key} not found in the current JSON level.")
                 return None
         return data
 
@@ -217,20 +218,42 @@ class MavlinkDataManager:
 
     async def fetch_ground_speed(self):
         """
-        Fetch ground speed data from MAVLink2Rest.
+        Fetch ground speed data from MAVLink2Rest. (onyl speed in horizontal plane)
 
         This value is critical for calculating the drone's speed over the ground, which is important for various control algorithms.
 
         Returns:
             float: The ground speed in m/s.
         """
-        velocity_data = await self.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/VFR_HUD")
+        velocity_data = await self.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/LOCAL_POSITION_NED")
         if velocity_data:
             message = velocity_data.get("message", {})
             try:
-                ground_speed = float(message.get("groundspeed", 0))
+                vx = float(message.get("vx", 0))
+                vy = float(message.get("vy", 0))
+                ground_speed = float(math.sqrt(vx**2+vy**2))
             except (ValueError, TypeError):
                 self.logger.warning("Invalid ground speed data received, falling back to 0.")
                 ground_speed = 0.0
             return ground_speed
+        return 0.0
+    
+    async def fetch_throttle_percent(self):
+        """
+        Fetch throttle percent data from MAVLink2Rest.
+
+        This value is critical for calculating the drone's inital throttle when switching to offboard.
+
+        Returns:
+            uint16_t: Current throttle setting (0 to 100).
+        """
+        throttle_data = await self.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/VFR_HUD")
+        if throttle_data:
+            message = throttle_data.get("message", {})
+            try:
+                throttle_percent = uint16(message.get("throttle", 50))
+            except (ValueError, TypeError):
+                self.logger.warning("Invalid throttle data received, falling back to 50.")
+                throttle_percent = uint16(50)
+            return throttle_percent
         return 0.0

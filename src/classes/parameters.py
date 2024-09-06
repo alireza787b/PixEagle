@@ -200,10 +200,10 @@ class Parameters:
     MAX_PITCH_RATE = 10.0  # Maximum pitch rate in degrees per second
     MAX_YAW_RATE = 10.0  # Maximum yaw rate in degrees per second
     MAX_THRUST = 1.0  # Maximum thrust (normalized between 0 and 1)
-    MIN_THRUST = 0.2  # Minimum thrust (normalized between 0 and 1)
+    MIN_THRUST = 0.3  # Minimum thrust (normalized between 0 and 1)
     MIN_GROUND_SPEED = 0 # For Chase mode throttle control
-    MAX_GROUND_SPEED = 10 # For Chase mode throttle control
-    TARGET_SPEED = 5
+    MAX_GROUND_SPEED = 100 # For Chase mode throttle control
+    TARGET_SPEED = 60
     MAX_BANK_ANGLE = 20
     YAW_ERROR_CHECK_ENABLED = True  # Flag to enable/disable yaw error check
     YAW_ERROR_THRESHOLD = 20  # Yaw error threshold in degrees before pitch command
@@ -230,9 +230,9 @@ class Parameters:
         "y": {"p": 6, "i": 0.3, "d": 1.5},  # For lateral movement
         "z": {"p": 2, "i": 0.03, "d": 0.05},  # For vertical movement (altitude)
         "roll_rate": {"p": 0.1, "i": 0.001, "d": 0.001},  # For controlling roll rate
-        "pitch_rate": {"p": 3, "i": 0.01, "d": 0.005},  # For controlling pitch rate
+        "pitch_rate": {"p": 10, "i": 0.1, "d": 0.005},  # For controlling pitch rate
         "yaw_rate": {"p": 10, "i": 0.5, "d": 0.05},  # For controlling yaw rate
-        "thrust": {"p": 0.01, "i": 0.02, "d": 0.01},  # For controlling forward velocity via thrust
+        "thrust": {"p": 0.1, "i": 3, "d": 1},  # For controlling forward velocity via thrust
     }
 
 
@@ -391,6 +391,7 @@ class Parameters:
     "altitude_agl": "/vehicles/1/components/1/messages/ALTITUDE/message/altitude_relative",  # AGL Altitude
     "voltage": "/vehicles/1/components/1/messages/SYS_STATUS/message/voltage_battery",
     "airspeed": "/vehicles/1/components/1/messages/VFR_HUD/message/airspeed",
+    "throttle": "/vehicles/1/components/1/messages/VFR_HUD/message/throttle",
     "groundspeed": "/vehicles/1/components/1/messages/VFR_HUD/message/groundspeed",
     "climb": "/vehicles/1/components/1/messages/VFR_HUD/message/climb",
     "roll": "/vehicles/1/components/1/messages/ATTITUDE/message/roll",
@@ -445,22 +446,27 @@ class Parameters:
                 },
                 "airspeed": {
                     "position": (10, 45),  # Left of the attitude indicator, aligned with its center
-                    "font_size": 0.5,
+                    "font_size": 0.4,
                     "color": (255, 255, 255)  # White
                 },
                 "groundspeed": {
                     "position": (10, 55),  # Below airspeed
-                    "font_size": 0.5,
+                    "font_size": 0.4,
+                    "color": (255, 255, 255)  # White
+                },
+                "throttle": {
+                    "position": (10, 65),  # Below airspeed
+                    "font_size": 0.3,
                     "color": (255, 255, 255)  # White
                 },
                 "altitude_msl": {
                     "position": (65, 45),  # Right of the attitude indicator, aligned with its center
-                    "font_size": 0.45,
+                    "font_size": 0.4,
                     "color": (255, 255, 255)  # White
                 },
                 "altitude_agl": {
                     "position": (65, 55),  # Below altitude_msl
-                    "font_size": 0.45,
+                    "font_size": 0.4,
                     "color": (255, 255, 255)  # White
                 },
                 "roll": {
