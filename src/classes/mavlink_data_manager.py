@@ -30,6 +30,7 @@ class MavlinkDataManager:
         self._lock = threading.Lock()
         self.velocity_buffer = deque(maxlen=10)  # Buffer for velocity smoothing
         self.min_velocity_threshold = 0.5  # m/s, adjust based on your drone's characteristics
+        self.gamma = 0
 
         # Setup logging
         logging.basicConfig(level=logging.DEBUG)  # Set to DEBUG for detailed logging
@@ -81,6 +82,7 @@ class MavlinkDataManager:
                         self.data[point_name] = float(value) if value is not None else 0.0
                     elif point_name == "flight_path_angle":
                         self.data[point_name] = self._calculate_flight_path_angle()
+                        self.gamma = self.data[point_name] #temporary we might need this
                     elif point_name == "arm_status":
                         base_mode = self._extract_data_from_json(json_data, "/vehicles/1/components/191/messages/HEARTBEAT/message/base_mode/bits")
                         self.data[point_name] = self._determine_arm_status(base_mode)
