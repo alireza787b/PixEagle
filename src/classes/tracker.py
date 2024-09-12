@@ -8,7 +8,7 @@ from .position_estimator import PositionEstimator
 logger = logging.getLogger(__name__)
 
 class Tracker:
-    def __init__(self, video_handler=None, detector=None):
+    def __init__(self, video_handler=None, detector=None,app_controller=None):
         """
         Initializes the Tracker with a specific tracking algorithm and optional video handler and detector.
 

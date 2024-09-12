@@ -15,7 +15,7 @@ class BaseTracker(ABC):
     for different tracking algorithms.
     """
     
-    def __init__(self, video_handler: Optional[object] = None, detector: Optional[object] = None):
+    def __init__(self, video_handler: Optional[object] = None, detector: Optional[object] = None,app_controller: Optional[object] = None):
         """
         Initializes the base tracker with common attributes.
         
@@ -33,6 +33,7 @@ class BaseTracker(ABC):
         self.estimated_position_history = deque(maxlen=Parameters.ESTIMATOR_HISTORY_LENGTH)
         self.last_update_time: float = 0.0
         self.frame = None
+        self.app_controller = app_controller
 
     @abstractmethod
     def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
@@ -97,39 +98,57 @@ class BaseTracker(ABC):
         cv2.rectangle(frame, p1, p2, (255, 0, 0), 2, 1)
 
     def draw_fancy_bbox(self, frame):
-        # Draw fancy bounding box similar to the provided screenshot
+        if self.bbox is None or self.center is None:
+            return frame
+
+        # Determine color based on tracking status
+        color = (Parameters.FOLLOWER_ACTIVE_COLOR 
+                 if self.app_controller.following_active 
+                 else Parameters.FOLLOWER_INACTIVE_COLOR)
+
         p1 = (int(self.bbox[0]), int(self.bbox[1]))
         p2 = (int(self.bbox[0] + self.bbox[2]), int(self.bbox[1] + self.bbox[3]))
         center_x, center_y = self.center
         
         # Draw crosshair
-        cv2.line(frame, (center_x - 20, center_y), (center_x + 20, center_y), (0, 255, 255), 2)
-        cv2.line(frame, (center_x, center_y - 20), (center_x, center_y + 20), (0, 255, 255), 2)
+        cv2.line(frame, 
+                 (center_x - Parameters.CROSSHAIR_ARM_LENGTH, center_y), 
+                 (center_x + Parameters.CROSSHAIR_ARM_LENGTH, center_y), 
+                 color, 
+                 Parameters.BBOX_LINE_THICKNESS)
+        cv2.line(frame, 
+                 (center_x, center_y - Parameters.CROSSHAIR_ARM_LENGTH), 
+                 (center_x, center_y + Parameters.CROSSHAIR_ARM_LENGTH), 
+                 color, 
+                 Parameters.BBOX_LINE_THICKNESS)
         
         # Draw bounding box with corners
-        cv2.line(frame, p1, (p1[0] + 20, p1[1]), (0, 255, 255), 2)
-        cv2.line(frame, p1, (p1[0], p1[1] + 20), (0, 255, 255), 2)
-        cv2.line(frame, p2, (p2[0] - 20, p2[1]), (0, 255, 255), 2)
-        cv2.line(frame, p2, (p2[0], p2[1] - 20), (0, 255, 255), 2)
-        cv2.line(frame, (p1[0], p2[1]), (p1[0] + 20, p2[1]), (0, 255, 255), 2)
-        cv2.line(frame, (p1[0], p2[1]), (p1[0], p2[1] - 20), (0, 255, 255), 2)
-        cv2.line(frame, (p2[0], p1[1]), (p2[0] - 20, p1[1]), (0, 255, 255), 2)
-        cv2.line(frame, (p2[0], p1[1]), (p2[0], p1[1] + 20), (0, 255, 255), 2)
+        corner_points = [
+            (p1, (p1[0] + Parameters.BBOX_CORNER_ARM_LENGTH, p1[1])),
+            (p1, (p1[0], p1[1] + Parameters.BBOX_CORNER_ARM_LENGTH)),
+            (p2, (p2[0] - Parameters.BBOX_CORNER_ARM_LENGTH, p2[1])),
+            (p2, (p2[0], p2[1] - Parameters.BBOX_CORNER_ARM_LENGTH)),
+            ((p1[0], p2[1]), (p1[0] + Parameters.BBOX_CORNER_ARM_LENGTH, p2[1])),
+            ((p1[0], p2[1]), (p1[0], p2[1] - Parameters.BBOX_CORNER_ARM_LENGTH)),
+            ((p2[0], p1[1]), (p2[0] - Parameters.BBOX_CORNER_ARM_LENGTH, p1[1])),
+            ((p2[0], p1[1]), (p2[0], p1[1] + Parameters.BBOX_CORNER_ARM_LENGTH))
+        ]
+        
+        for start, end in corner_points:
+            cv2.line(frame, start, end, color, Parameters.BBOX_LINE_THICKNESS)
 
         # Draw extended lines from the center of each edge of the bounding box
         height, width, _ = frame.shape
-        line_thickness = 2  # Adjust this for thicker lines
-        cv2.line(frame, (p1[0], center_y), (0, center_y), (0, 255, 255), line_thickness)  # Left edge to left
-        cv2.line(frame, (p2[0], center_y), (width, center_y), (0, 255, 255), line_thickness)  # Right edge to right
-        cv2.line(frame, (center_x, p1[1]), (center_x, 0), (0, 255, 255), line_thickness)  # Top edge to top
-        cv2.line(frame, (center_x, p2[1]), (center_x, height), (0, 255, 255), line_thickness)  # Bottom edge to bottom
+        cv2.line(frame, (p1[0], center_y), (0, center_y), color, Parameters.EXTENDED_LINE_THICKNESS)  # Left edge to left
+        cv2.line(frame, (p2[0], center_y), (width, center_y), color, Parameters.EXTENDED_LINE_THICKNESS)  # Right edge to right
+        cv2.line(frame, (center_x, p1[1]), (center_x, 0), color, Parameters.EXTENDED_LINE_THICKNESS)  # Top edge to top
+        cv2.line(frame, (center_x, p2[1]), (center_x, height), color, Parameters.EXTENDED_LINE_THICKNESS)  # Bottom edge to bottom
 
         # Draw smaller dots at the corners of the bounding box
-        dot_radius = 4  # Adjust this for larger dots
-        cv2.circle(frame, p1, dot_radius, (0, 255, 255), -1)
-        cv2.circle(frame, p2, dot_radius, (0, 255, 255), -1)
-        cv2.circle(frame, (p1[0], p2[1]), dot_radius, (0, 255, 255), -1)
-        cv2.circle(frame, (p2[0], p1[1]), dot_radius, (0, 255, 255), -1)
+        for point in [p1, p2, (p1[0], p2[1]), (p2[0], p1[1])]:
+            cv2.circle(frame, point, Parameters.CORNER_DOT_RADIUS, color, -1)
+
+        return frame
 
 
 

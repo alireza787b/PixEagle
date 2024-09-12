@@ -211,7 +211,8 @@ class ChaseFollower(BaseFollower):
             current_altitude = self.px4_controller.current_altitude
             if current_altitude < Parameters.MIN_DESCENT_HEIGHT or current_altitude > Parameters.MAX_CLIMB_HEIGHT:
                 logging.warning(f"Altitude safety triggered! Current altitude: {current_altitude}")
-                self.px4_controller.failsafe_active = True
+                self.px4_controller.app_controller.disconnect_px4()
+                #self.px4_controller.failsafe_active = True
                 
                 
     

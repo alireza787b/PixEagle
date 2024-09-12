@@ -14,7 +14,7 @@ class CustomTracker(BaseTracker):
     and functionality within the existing tracking framework.
     """
     
-    def __init__(self, video_handler: Optional[object] = None, detector: Optional[object] = None):
+    def __init__(self, video_handler: Optional[object] = None, detector: Optional[object] = None,app_controller: Optional[object] = None):
         """
         Initializes the custom tracker with an optional video handler and detector.
         

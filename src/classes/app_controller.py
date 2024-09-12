@@ -44,7 +44,7 @@ class AppController:
         self.video_handler = VideoHandler()
         self.video_streamer = None
         self.detector = Detector(algorithm_type=Parameters.DETECTION_ALGORITHM)
-        self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM, self.video_handler, self.detector)
+        self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM, self.video_handler, self.detector, self)
         self.segmentor = Segmentor(algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM)
 
         # Flags to track the state of tracking and segmentation

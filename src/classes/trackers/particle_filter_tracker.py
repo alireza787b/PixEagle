@@ -15,7 +15,7 @@ class ParticleFilterTracker(BaseTracker):
     """
     
     
-    def __init__(self, video_handler: Optional[object] = None, detector: Optional[object] = None, debug: bool = False):
+    def __init__(self, video_handler: Optional[object] = None, detector: Optional[object] = None,app_controller: Optional[object] = None, debug: bool = False):
         """
         Initializes the Particle Filter tracker with an optional video handler and detector.
         

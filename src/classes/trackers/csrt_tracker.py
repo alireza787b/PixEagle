@@ -14,14 +14,14 @@ class CSRTTracker(BaseTracker):
     Specializes in using the CSRT algorithm for object tracking.
     """
     
-    def __init__(self, video_handler: Optional[object] = None, detector: Optional[object] = None):
+    def __init__(self, video_handler: Optional[object] = None, detector: Optional[object] = None,app_controller: Optional[object] = None):
         """
         Initializes the CSRT tracker with an optional video handler and detector.
         
         :param video_handler: Handler for video streaming and processing.
         :param detector: Object detector for initializing tracking.
         """
-        super().__init__(video_handler, detector)
+        super().__init__(video_handler, detector,app_controller)
         self.tracker = cv2.TrackerCSRT_create()  # Tracker specific to CSRT
         self.trackerName: str = "CSRT"
 

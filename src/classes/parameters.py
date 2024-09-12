@@ -102,7 +102,7 @@ class Parameters:
     STORE_LAST_FRAMES = 5  # Number of recent frames to store
     USE_ESTIMATOR = False  # Enable/disable the position estimator
     ESTIMATOR_HISTORY_LENGTH = 5  # Number of past estimations to store
-    SHOW_VIDEO_WINDOW = True # If using headless or with React web-app you wont need this window anymore
+    SHOW_VIDEO_WINDOW = False # If using headless or with React web-app you wont need this window anymore
 
     # ----- Segmentation Configuration -----
     SEGMENTATION_ALGORITHMS = ["GrabCut", "Watershed", 'yolov8s-seg', 'yolov8n-oiv7', 'yolov8s-obb']
@@ -144,6 +144,22 @@ class Parameters:
     SHOW_TRACKING_WINDOW = True  # Show tracking window
     DISPLAY_DEVIATIONS = False  # Display deviations
     TRACKED_BBOX_STYLE = 'fancy'  # Options: 'normal', 'fancy'
+    # Colors
+    FOLLOWER_ACTIVE_COLOR = (0, 0, 255)  # Red color for active tracking
+    FOLLOWER_INACTIVE_COLOR = (0, 255, 255)  # Yellow color for inactive tracking
+    
+    # Line properties
+    BBOX_LINE_THICKNESS = 2
+    EXTENDED_LINE_THICKNESS = 2
+    
+    # Sizes
+    CORNER_DOT_RADIUS = 4
+    CROSSHAIR_ARM_LENGTH = 20
+    BBOX_CORNER_ARM_LENGTH = 20
+    
+    # Opacity (0-255)
+    OVERLAY_OPACITY = 128
+    
     FOLLOWER_MODE = 'chase_follower'  # Options: Down Looking Camera: ['ground_view'], Front View Camera: ['constant_distance', 'constant_position', 'chase_follower']
     ENABLE_ALTITUDE_CONTROL = True  # Set to True if altitude control is needed in 'constant_position' mode
 
@@ -208,7 +224,7 @@ class Parameters:
     YAW_ERROR_CHECK_ENABLED = True  # Flag to enable/disable yaw error check
     YAW_ERROR_THRESHOLD = 20  # Yaw error threshold in degrees before pitch command
     
-    ALTITUDE_FAILSAFE_ENABLED = True  # Enable/disable the altitude failsafe for Chase mode
+    ALTITUDE_FAILSAFE_ENABLED = False  # Enable/disable the altitude failsafe for Chase mode
 
 
     # Control and PID parameters
@@ -229,9 +245,9 @@ class Parameters:
         "x": {"p": 6, "i": 0.3, "d": 1.5},  # For lateral movement
         "y": {"p": 6, "i": 0.3, "d": 1.5},  # For lateral movement
         "z": {"p": 2, "i": 0.03, "d": 0.05},  # For vertical movement (altitude)
-        "roll_rate": {"p": 0.1, "i": 0.001, "d": 0.001},  # For controlling roll rate
-        "pitch_rate": {"p": 10, "i": 0.1, "d": 0.005},  # For controlling pitch rate
-        "yaw_rate": {"p": 10, "i": 0.5, "d": 0.05},  # For controlling yaw rate
+        "roll_rate": {"p": 1, "i": 0.1, "d": 0.2},  # For controlling roll rate
+        "pitch_rate": {"p": 10, "i": 0.1, "d": 0.2},  # For controlling pitch rate
+        "yaw_rate": {"p": 10, "i": 0.1, "d": 0.2},  # For controlling yaw rate
         "thrust": {"p": 0.1, "i": 3, "d": 1},  # For controlling forward velocity via thrust
     }
 

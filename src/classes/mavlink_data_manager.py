@@ -186,7 +186,7 @@ class MavlinkDataManager:
         with self._lock:
             if not self.enabled:
                 return None  # Avoid unnecessary logging and simply return None
-            return self.data.get(point, "N/A")
+            return self.data.get(point, 0)
 
     async def fetch_data_from_uri(self, uri):
         """

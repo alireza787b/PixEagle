@@ -164,7 +164,8 @@ class OSDHandler:
         try:
             roll = float(self.mavlink_data_manager.get_data("roll") or 0)
             pitch = float(self.mavlink_data_manager.get_data("pitch") or 0)
-
+            # roll = 0
+            # pitch = 0
             # Convert from radians to degrees
             roll = np.rad2deg(roll)
             pitch = np.rad2deg(pitch)
