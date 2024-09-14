@@ -192,7 +192,7 @@ class PX4InterfaceManager:
             roll_rate = float(setpoint.get('roll_rate', 0.0))
             pitch_rate = float(setpoint.get('pitch_rate', 0.0))
             yaw_rate = float(setpoint.get('yaw_rate', 0.0))
-            thrust = float(setpoint.get('thrust', 0.0))
+            thrust = float(setpoint.get('thrust', self.hover_throttle))
 
             logger.debug(f"Setting ATTITUDE_RATE setpoint: Roll Rate={roll_rate}, Pitch Rate={pitch_rate}, Yaw Rate={yaw_rate}, Thrust={thrust}")
             

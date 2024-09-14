@@ -88,7 +88,7 @@ class Parameters:
     HTTP_STREAM_PORT = 5077
     STREAM_WIDTH = 1920
     STREAM_HEIGHT = 1080
-    STREAM_QUALITY = 80  # JPEG quality 0-100
+    STREAM_QUALITY = 100  # JPEG quality 0-100
     STREAM_FPS = 30  # target FPS
     STREAM_PROCESSED_OSD = True
 
@@ -212,7 +212,7 @@ class Parameters:
 
         # ----- Chase Follower Rate Limits Configuration -----
     # Define maximum limits for roll, pitch, yaw, and thrust in the ChaseFollower mode
-    MAX_ROLL_RATE = 10.0  # Maximum roll rate in degrees per second
+    MAX_ROLL_RATE = 20.0  # Maximum roll rate in degrees per second
     MAX_PITCH_RATE = 10.0  # Maximum pitch rate in degrees per second
     MAX_YAW_RATE = 10.0  # Maximum yaw rate in degrees per second
     MAX_THRUST = 1.0  # Maximum thrust (normalized between 0 and 1)
