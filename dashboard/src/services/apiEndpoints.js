@@ -1,4 +1,4 @@
-//dashboard/src/services/apiEndpoints.js
+// dashboard/src/services/apiEndpoints.js
 const apiHost = process.env.REACT_APP_WEBSOCKET_VIDEO_HOST;
 const apiPort = process.env.REACT_APP_WEBSOCKET_VIDEO_PORT;
 
@@ -14,3 +14,6 @@ export const endpoints = {
 };
 
 export const videoFeed = `http://${apiHost}:${apiPort}/video_feed`;
+
+// New WebSocket video feed endpoint
+export const websocketVideoFeed = `ws://${apiHost}:${apiPort}/ws/video_feed`;

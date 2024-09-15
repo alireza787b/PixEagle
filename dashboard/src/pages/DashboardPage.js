@@ -1,5 +1,9 @@
+// dashboard/src/pages/DashboardPage.js
 import React, { useState, useEffect } from 'react';
-import { Container, Typography, CircularProgress, Box, Grid } from '@mui/material';
+import { 
+  Container, Typography, CircularProgress, Box, Grid, 
+  FormControl, InputLabel, Select, MenuItem 
+} from '@mui/material';
 import ActionButtons from '../components/ActionButtons';
 import BoundingBoxDrawer from '../components/BoundingBoxDrawer';
 import StatusIndicator from '../components/StatusIndicator';
@@ -10,6 +14,7 @@ import useBoundingBoxHandlers from '../hooks/useBoundingBoxHandlers';
 const DashboardPage = () => {
   const [isTracking, setIsTracking] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [streamingProtocol, setStreamingProtocol] = useState('websocket'); // Default to 'websocket'
   const checkInterval = 2000; // Check tracker and follower status every 2 seconds
 
   const isFollowing = useFollowerStatus(checkInterval);
@@ -87,8 +92,29 @@ const DashboardPage = () => {
   return (
     <Container>
       <Typography variant="h4" gutterBottom align="center">Dashboard</Typography>
+
+      {/* Dropdown for selecting streaming protocol */}
+      <FormControl variant="outlined" fullWidth margin="normal">
+        <InputLabel id="streaming-protocol-label">Streaming Protocol</InputLabel>
+        <Select
+          labelId="streaming-protocol-label"
+          value={streamingProtocol}
+          onChange={(e) => setStreamingProtocol(e.target.value)}
+          label="Streaming Protocol"
+        >
+          <MenuItem value="websocket">WebSocket</MenuItem>
+          <MenuItem value="http">HTTP</MenuItem>
+        </Select>
+      </FormControl>
+
       {loading ? (
-        <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" minHeight="400px">
+        <Box 
+          display="flex" 
+          flexDirection="column" 
+          alignItems="center" 
+          justifyContent="center" 
+          minHeight="400px"
+        >
           <CircularProgress />
           <Typography variant="body1" align="center" sx={{ mt: 2 }}>
             Loading video feed, please wait...
@@ -121,6 +147,7 @@ const DashboardPage = () => {
               handleTouchMove={handleTouchMove}
               handleTouchEnd={handleTouchEnd}
               videoSrc={videoFeed}
+              protocol={streamingProtocol} // Pass the protocol prop
             />
           </Grid>
 
