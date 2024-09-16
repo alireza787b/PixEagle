@@ -14,7 +14,7 @@ const BoundingBoxDrawer = ({
   handleTouchMove,
   handleTouchEnd,
   videoSrc,
-  protocol // Added protocol prop
+  protocol, // Added protocol prop
 }) => {
   return (
     <div

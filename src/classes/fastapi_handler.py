@@ -181,8 +181,9 @@ class FastAPIHandler:
                              else self.video_handler.current_raw_frame)
                     if frame is not None:
                         # Resize and encode the frame
-                        frame = cv2.resize(frame, (self.width, self.height))
-                        ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.quality])
+                        #frame = cv2.resize(frame, (self.width, self.height))
+                        #ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.quality])
+                        ret, buffer = cv2.imencode('.jpg', frame)
                         if ret:
                             # Send the frame over the WebSocket
                             await websocket.send_bytes(buffer.tobytes())

@@ -1,16 +1,17 @@
 // dashboard/src/components/WebRTCStream.js
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { websocketVideoFeed } from '../services/apiEndpoints';
 
 const WebRTCStream = ({ protocol = 'http', src }) => {
   const canvasRef = useRef(null);
   const wsRef = useRef(null); // Reference to the WebSocket
+  const [error, setError] = useState(null); // State to handle errors
 
   useEffect(() => {
     let isMounted = true; // Flag to track if the component is still mounted
 
     if (protocol === 'websocket') {
-      // Establish WebSocket connection
+      // Establish WebSocket connection using the endpoint from apiEndpoints.js
       const ws = new WebSocket(websocketVideoFeed);
       ws.binaryType = 'arraybuffer';
       wsRef.current = ws;
@@ -43,9 +44,10 @@ const WebRTCStream = ({ protocol = 'http', src }) => {
         img.src = URL.createObjectURL(new Blob([event.data], { type: 'image/jpeg' }));
       };
 
-      ws.onerror = (error) => {
+      ws.onerror = (errorEvent) => {
         if (!isMounted) return;
-        console.error('WebSocket error:', error);
+        console.error('WebSocket error:', errorEvent);
+        setError('An error occurred with the video stream.');
       };
 
       ws.onclose = () => {
@@ -69,6 +71,10 @@ const WebRTCStream = ({ protocol = 'http', src }) => {
       }
     }
   }, [protocol]);
+
+  if (error) {
+    return <div style={{ color: 'red', textAlign: 'center' }}>{error}</div>;
+  }
 
   if (protocol === 'websocket') {
     return (

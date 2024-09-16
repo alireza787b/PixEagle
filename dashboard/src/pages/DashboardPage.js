@@ -90,22 +90,8 @@ const DashboardPage = () => {
   }, []);
 
   return (
-    <Container>
+    <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
       <Typography variant="h4" gutterBottom align="center">Dashboard</Typography>
-
-      {/* Dropdown for selecting streaming protocol */}
-      <FormControl variant="outlined" fullWidth margin="normal">
-        <InputLabel id="streaming-protocol-label">Streaming Protocol</InputLabel>
-        <Select
-          labelId="streaming-protocol-label"
-          value={streamingProtocol}
-          onChange={(e) => setStreamingProtocol(e.target.value)}
-          label="Streaming Protocol"
-        >
-          <MenuItem value="websocket">WebSocket</MenuItem>
-          <MenuItem value="http">HTTP</MenuItem>
-        </Select>
-      </FormControl>
 
       {loading ? (
         <Box 
@@ -122,14 +108,31 @@ const DashboardPage = () => {
         </Box>
       ) : (
         <Grid container spacing={2}>
-          {/* Sidebar for Action Buttons */}
-          <Grid item xs={12} sm={3} md={2} container direction="column" spacing={2}>
-            <Grid item>
-              <ActionButtons 
-                isTracking={isTracking} 
-                handleTrackingToggle={handleTrackingToggle} 
-                handleButtonClick={handleButtonClick} 
-              />
+          {/* Sidebar for Action Buttons and Protocol Selection */}
+          <Grid item xs={12} sm={3} md={2}>
+            <Grid container direction="column" spacing={2}>
+              <Grid item>
+                <ActionButtons 
+                  isTracking={isTracking} 
+                  handleTrackingToggle={handleTrackingToggle} 
+                  handleButtonClick={handleButtonClick} 
+                />
+              </Grid>
+              <Grid item>
+                {/* Dropdown for selecting streaming protocol */}
+                <FormControl variant="outlined" fullWidth>
+                  <InputLabel id="streaming-protocol-label">Streaming Protocol</InputLabel>
+                  <Select
+                    labelId="streaming-protocol-label"
+                    value={streamingProtocol}
+                    onChange={(e) => setStreamingProtocol(e.target.value)}
+                    label="Streaming Protocol"
+                  >
+                    <MenuItem value="websocket">WebSocket</MenuItem>
+                    <MenuItem value="http">HTTP</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
             </Grid>
           </Grid>
 
@@ -152,12 +155,14 @@ const DashboardPage = () => {
           </Grid>
 
           {/* Status Indicators below Video Feed */}
-          <Grid item xs={12} container justifyContent="center" spacing={2} sx={{ mt: 2 }}>
-            <Grid item>
-              <StatusIndicator label="Tracking Status" status={trackerStatus} />
-            </Grid>
-            <Grid item>
-              <StatusIndicator label="Follower Status" status={isFollowing} />
+          <Grid item xs={12}>
+            <Grid container justifyContent="center" spacing={2}>
+              <Grid item>
+                <StatusIndicator label="Tracking Status" status={trackerStatus} />
+              </Grid>
+              <Grid item>
+                <StatusIndicator label="Follower Status" status={isFollowing} />
+              </Grid>
             </Grid>
           </Grid>
         </Grid>
