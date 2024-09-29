@@ -83,15 +83,9 @@ bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
 
 ### Running the PixEagle System
 
-This example assumes you are runnign PixEagle and X-Plane on Windows so you cant use the bash script startup codes. You should manaually run the main.py. Make sure you have installed all dependencies and created and activated your python environment (as described in [README](https://github.com/alireza787b/PixEagle/blob/main/README.md)) then run main.py
+This example assumes you are running PixEagle and X-Plane on Windows so you can't use the bash script startup codes. You should manaually run the main.py. Make sure you have installed all dependencies and created and activated your Python environment and node and npm packages setup (as described in [README](https://github.com/alireza787b/PixEagle/blob/main/README.md)) then run main.py
 
-To start the PixEagle main application and dashboard manually:
-
-1. **Activate the Python virtual environment:**
-   ```bash
-   source ~/PixEagle/venv/bin/activate
-   ```
-2. **Run the main application:**
+1. **Run the main application:**
    ```bash
    python ~/PixEagle/src/main.py
    ```
@@ -100,7 +94,6 @@ To start the PixEagle main application and dashboard manually:
    cd ~/PixEagle/dashboard
    npm start
    ```
-
 **Note:** If you do not want to use dashboard GUI, set the parameter `SHOW_VIDEO_WINDOW=True` to display a debug video window, and use the 'f' key to start following and 'x' to stop.
 
 ### Step 6: Performance Monitoring and Adjustment
