@@ -12,7 +12,8 @@ Watch the latest video showcasing PixEagle v2.0, demonstrating advanced features
 ## Prerequisites
 - Windows 10 or later with WSL installed.
 - [X-Plane](https://www.x-plane.com/desktop/try-it/) installed on Windows.
-- [MAVLink Router](https://github.com/mavlink-router/mavlink-router) installed on WSL.
+- [MAVLink Router](https://github.com/mavlink/mavlink2rest) installed on WSL.
+- [MAVLink2REST](https://github.com/mavlimvnk-router/mavlink-router) installed on WSL.
 - PixEagle Repository is Cloned and all steps in the [README](https://github.com/alireza787b/PixEagle/blob/main/README.md) are done.
 - MAVSDK Server manually installed and run on Windows. Download the MAVSDK Server binary appropriate for Windows from the [MAVSDK official repository](https://github.com/mavlink/MAVSDK/releases). Later, the process of starting the server will be automated.
 - SparkoCam (or simillar software) installed on Windows to stream X-Plane output to a virtual webcam.
