@@ -2,17 +2,18 @@
 # Integration Guide for Follow Mode Tracker Test with X-Plane and SITL
 
 ## Overview
-This guide details the steps to integrate MAVLink, SITL (Software in the Loop), X-Plane, and OpenCV for the follow mode tracker tests. This setup involves running SITL on Linux (WSF) and X-Plane on Windows, with video streaming through SparkoCam into OpenCV.
+This guide details the steps to integrate MAVLink, SITL (Software in the Loop), X-Plane, and OpenCV for the following, track mode tracker tests. This setup involves running PX4 SITL, px4xplane, MAVLink2REST on Linux (WSL) and X-Plane and PixEagle on Windows, with video streaming through SparkoCam into OpenCV.
 
 ## Latest Release
-Watch the latest video showcasing PixEagle v1.0, demonstrating advanced features including precision landing and intelligent target tracking in a Software in the Loop Simulation with X-Plane 12 and [PX4XPlane](https://github.com/alireza787b/px4xplane):
+Watch the latest video showcasing PixEagle v2.0, demonstrating advanced features including precision landing and intelligent target tracking in a Software in the Loop Simulation with X-Plane 12 and [PX4XPlane](https://github.com/alireza787b/px4xplane):
 [![PixEagle v1.0](https://github.com/user-attachments/assets/4acd965b-34c1-456e-be70-d4cc7f26eddb)](https://youtu.be/hw5MU0mPx2I)
 
 
 ## Prerequisites
 - Windows 10 or later with WSL installed.
 - [X-Plane](https://www.x-plane.com/desktop/try-it/) installed on Windows.
-- [MAVLink Router](https://github.com/mavlink-router/mavlink-router) installed on WSL.
+- [MAVLink Router](https://github.com/mavlink/mavlink2rest) installed on WSL.
+- [MAVLink2REST](https://github.com/mavlimvnk-router/mavlink-router) installed on WSL.
 - PixEagle Repository is Cloned and all steps in the [README](https://github.com/alireza787b/PixEagle/blob/main/README.md) are done.
 - MAVSDK Server manually installed and run on Windows. Download the MAVSDK Server binary appropriate for Windows from the [MAVSDK official repository](https://github.com/mavlink/MAVSDK/releases). Later, the process of starting the server will be automated.
 - SparkoCam (or simillar software) installed on Windows to stream X-Plane output to a virtual webcam.
@@ -21,7 +22,7 @@ Watch the latest video showcasing PixEagle v1.0, demonstrating advanced features
 
 
 ## Configuration Steps
-(If you use the px4xplane command directly, you wont need to run the mavlink-router command and settings)
+(If you use the px4xplane command directly (px4xplane version 2+), you won't need to run the mavlink-router command and settings)
 ### Step 1: MAVLink Router Configuration on WSL
 Route MAVLink messages between your SITL environment on Linux and your development environment on Windows: (for MAVSDK, QGC and MAVLink2Rest)
 
@@ -44,6 +45,15 @@ EXTERNAL_MAVSDK_SERVER = True  # Enable this option to use an external MAVSDK se
 ```
 ### Step 4: Configuration of X-Plane, SparkoCam, and OpenCV
 
+#### **X-Plane Setup**
+- Start by opening **X-Plane** on your Windows system and loading a supported aircraft, such as the ehang184.
+- Ensure that the **[PX4XPlane](https://github.com/alireza787b/px4xplane)** plugin is installed. Navigate to the plugin menu within X-Plane to select the correct airframe configuration.
+
+### Step 5: MAVLink2REST Setup
+from version 2.0 PixEagle relies more on MAVLink2REST and it is required. You can install and run MAVLink2REST simply with this command. This example assumes you are running SITL on WSL, so you should run MAVLink2REST on WSL. (If you face any errors, It might mean something has changed in MAVLink2REST and please send feedback).
+```bash
+bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
+```
 #### **X-Plane Setup**
 - Start by opening **X-Plane** on your Windows system and loading a supported aircraft, such as the ehang184.
 - Ensure that the **[PX4XPlane](https://github.com/alireza787b/px4xplane)** plugin is installed. Navigate to the plugin menu within X-Plane to select the correct airframe configuration.
@@ -73,29 +83,9 @@ EXTERNAL_MAVSDK_SERVER = True  # Enable this option to use an external MAVSDK se
 
 ### Running the PixEagle System
 
-To run the entire PixEagle system, including the main application, dashboard, and MAVLink2REST service, use the following command:
+This example assumes you are running PixEagle and X-Plane on Windows so you can't use the bash script startup codes. You should manaually run the main.py. Make sure you have installed all dependencies and created and activated your Python environment and node and npm packages setup (as described in [README](https://github.com/alireza787b/PixEagle/blob/main/README.md)) then run main.py
 
-```bash
-bash ~/PixEagle/run_pixeagle.sh
-```
-
-This script will:
-- Start all components in separate `tmux` panes, allowing you to monitor and control them simultaneously.
-- Automatically handle setup and execution.
-
-**Note:** You can customize which components are run by using flags (`-m` for MAVLink2REST, `-d` for Dashboard, and `-p` for the Main Application) or by modifying the variables inside the script.
-
----
-
-#### Running the Follow Mode Tracker
-
-To start the PixEagle main application and dashboard manually:
-
-1. **Activate the Python virtual environment:**
-   ```bash
-   source ~/PixEagle/venv/bin/activate
-   ```
-2. **Run the main application:**
+1. **Run the main application:**
    ```bash
    python ~/PixEagle/src/main.py
    ```
@@ -104,8 +94,7 @@ To start the PixEagle main application and dashboard manually:
    cd ~/PixEagle/dashboard
    npm start
    ```
-
-**Note:** Currently, starting/stopping offboard following via the dashboard isn't fully reliable. As a workaround, set the parameter `SHOW_VIDEO_WINDOW=True` to display a debug video window, and use the 'f' key to start following and 'x' to stop. This issue will be fixed soon.
+**Note:** If you do not want to use dashboard GUI, set the parameter `SHOW_VIDEO_WINDOW=True` to display a debug video window, and use the 'f' key to start following and 'x' to stop.
 
 ### Step 6: Performance Monitoring and Adjustment
 
@@ -121,4 +110,4 @@ This setup enables realistic flight dynamics simulation in X-Plane, which can be
 
 ---
 
-*Document last updated: 13 July 2024*
+*Document last updated: 29 September 2024*

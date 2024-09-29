@@ -31,7 +31,14 @@ To set up the PixEagle project, follow these steps:
    ```bash
    pip install -r requirements.txt
    ```
-5. (Optional) If you need PyTorch for YOLO detection, run the setup script:
+
+5. Install and run MAVLink2REST:
+   ```bash
+   bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh  # On Linux
+   ```
+
+
+6. (Optional) If you need PyTorch for YOLO detection, run the setup script:
    ```bash
    ./setup_pytorch.sh
    ```
