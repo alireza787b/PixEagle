@@ -34,7 +34,7 @@ To set up the PixEagle project, follow these steps:
 
 5. Install and run MAVLink2REST:
    ```bash
-   bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
+   bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh  # On Linux
    ```
 
 
