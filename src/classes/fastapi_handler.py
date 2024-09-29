@@ -10,6 +10,8 @@ import logging
 import time
 from classes.parameters import Parameters
 import uvicorn
+from typing import Dict
+from classes.webrtc_manager import WebRTCManager  # Import the WebRTCManager
 
 class BoundingBox(BaseModel):
     x: float
@@ -29,6 +31,9 @@ class FastAPIHandler:
         self.app_controller = app_controller
         self.video_handler = app_controller.video_handler
         self.telemetry_handler = app_controller.telemetry_handler
+
+        # Initialize WebRTC Manager
+        self.webrtc_manager = WebRTCManager(self.video_handler)
 
         # FastAPI app initialization
         self.app = FastAPI()
@@ -70,9 +75,13 @@ class FastAPIHandler:
         self.app.get("/video_feed")(self.video_feed)
         # WebSocket streaming endpoint
         self.app.websocket("/ws/video_feed")(self.video_feed_websocket)
+        # WebRTC Signaling endpoint
+        self.app.websocket("/ws/webrtc_signaling")(self.webrtc_manager.signaling_handler)
+
         # Telemetry endpoints
         self.app.get("/telemetry/tracker_data")(self.tracker_data)
         self.app.get("/telemetry/follower_data")(self.follower_data)
+
         # Command endpoints
         self.app.post("/commands/start_tracking")(self.start_tracking)
         self.app.post("/commands/stop_tracking")(self.stop_tracking)
@@ -181,9 +190,8 @@ class FastAPIHandler:
                              else self.video_handler.current_raw_frame)
                     if frame is not None:
                         # Resize and encode the frame
-                        #frame = cv2.resize(frame, (self.width, self.height))
-                        #ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.quality])
-                        ret, buffer = cv2.imencode('.jpg', frame)
+                        frame = cv2.resize(frame, (self.width, self.height))
+                        ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.quality])
                         if ret:
                             # Send the frame over the WebSocket
                             await websocket.send_bytes(buffer.tobytes())
