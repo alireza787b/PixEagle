@@ -139,7 +139,7 @@ class Parameters:
     # ----- Follower Configuration -----
     # General settings
     USE_MAVLINK2REST = True     # Enable or disable MAVLink2Rest usage, If set to False will keep using mavsdk for telemtery receiving
-    FOLLOWER_DATA_REFRESH_RATE = 2
+    FOLLOWER_DATA_REFRESH_RATE = 5
     ROI_SELECTION_MODE = "MANUAL"  # ROI selection mode
     SHOW_TRACKING_WINDOW = True  # Show tracking window
     DISPLAY_DEVIATIONS = False  # Display deviations
@@ -160,7 +160,7 @@ class Parameters:
     # Opacity (0-255)
     OVERLAY_OPACITY = 128
     
-    FOLLOWER_MODE = 'chase_follower'  # Options: Down Looking Camera: ['ground_view'], Front View Camera: ['constant_distance', 'constant_position', 'chase_follower']
+    FOLLOWER_MODE = 'constant_distance'  # Options: Down Looking Camera: ['ground_view'], Front View Camera: ['constant_distance', 'constant_position', 'chase_follower']
     ENABLE_ALTITUDE_CONTROL = True  # Set to True if altitude control is needed in 'constant_position' mode
 
 
@@ -242,12 +242,12 @@ class Parameters:
             and 'D' gain for damping oscillations.
     """
     PID_GAINS = {
-        "x": {"p": 6, "i": 0.3, "d": 1.5},  # For lateral movement
-        "y": {"p": 6, "i": 0.3, "d": 1.5},  # For lateral movement
+        "x": {"p": 4.5, "i": 0.1, "d": 1.5},  # For lateral movement
+        "y": {"p": 4.5, "i": 0.1, "d": 1.5},  # For lateral movement
         "z": {"p": 2, "i": 0.03, "d": 0.05},  # For vertical movement (altitude)
         "roll_rate": {"p": 1, "i": 0.1, "d": 0.2},  # For controlling roll rate
         "pitch_rate": {"p": 10, "i": 0.1, "d": 0.2},  # For controlling pitch rate
-        "yaw_rate": {"p": 10, "i": 0.1, "d": 0.2},  # For controlling yaw rate
+        "yaw_rate": {"p": 10, "i": 0.2, "d": 0.2},  # For controlling yaw rate
         "thrust": {"p": 0.1, "i": 3, "d": 1},  # For controlling forward velocity via thrust
     }
 

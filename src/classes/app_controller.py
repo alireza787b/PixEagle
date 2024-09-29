@@ -190,8 +190,8 @@ class AppController:
                 if Parameters.USE_DETECTOR and Parameters.AUTO_REDETECT:
                     self.initiate_redetection()
 
-        # if self.telemetry_handler.should_send_telemetry():
-        #     self.telemetry_handler.send_telemetry()
+        if self.telemetry_handler.should_send_telemetry():
+            self.telemetry_handler.send_telemetry()
 
         self.current_frame = frame
         self.video_handler.current_osd_frame = frame
