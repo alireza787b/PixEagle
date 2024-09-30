@@ -136,6 +136,17 @@ class Parameters:
     PARTICLE_FILTER_SIGMA_MOVE_FAR = 30  # Standard deviation of movement for far particles
     PARTICLE_FILTER_SIGMA_RATIO = 0.5  # Ratio of particles considered 'near' to the target
 
+    # Optical Flow parameters
+    OPTICAL_FLOW_MAX_CORNERS = 100
+    OPTICAL_FLOW_QUALITY_LEVEL = 0.3
+    OPTICAL_FLOW_MIN_DISTANCE = 7
+    OPTICAL_FLOW_BLOCK_SIZE = 7
+    OPTICAL_FLOW_WIN_SIZE = 15
+    OPTICAL_FLOW_MAX_LEVEL = 2
+    OPTICAL_FLOW_CRITERIA_COUNT = 10
+    OPTICAL_FLOW_CRITERIA_EPS = 0.03
+    OPTICAL_FLOW_MIN_POINTS = 10  # Minimum number of points to continue tracking
+
     # ----- Follower Configuration -----
     # General settings
     USE_MAVLINK2REST = True     # Enable or disable MAVLink2Rest usage, If set to False will keep using mavsdk for telemtery receiving
