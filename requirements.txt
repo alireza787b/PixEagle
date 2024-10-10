@@ -40,3 +40,4 @@ scikit-image
 
 fastapi
 uvicorn
+aiortc

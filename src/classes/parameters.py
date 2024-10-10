@@ -125,7 +125,7 @@ class Parameters:
     FLANN_SEARCH_PARAMS = {"checks": 50}
 
     # ----- Tracking Configuration -----
-    DEFAULT_TRACKING_ALGORITHM = "CSRT"  # Default tracking algorithm
+    DEFAULT_TRACKING_ALGORITHM = "OpticalFlow"  # Default tracking algorithm
     TRACKING_RECTANGLE_COLOR = (255, 0, 0)  # Blue color for the bounding box
     CENTER_CIRCLE_COLOR = (0, 255, 0)  # Green color for the center point
     CENTER_HISTORY_LENGTH = 10  # Number of past center points to store
