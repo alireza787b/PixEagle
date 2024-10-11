@@ -34,13 +34,14 @@ sudo apt install -y python3 python3-venv python3-pip tmux lsof
 1. **Clone the Repository:**
 
     ```bash
+    cd ~
     git clone https://github.com/alireza787b/PixEagle.git
     ```
 
 2. **Navigate to the Project Directory:**
 
     ```bash
-    cd PixEagle
+    cd ~/PixEagle
     ```
 
 3. **Initialize the Project:**
@@ -51,13 +52,8 @@ sudo apt install -y python3 python3-venv python3-pip tmux lsof
     ./init_pixeagle.sh
     ```
 
-    **Note:** If you prefer manual setup, you can create a virtual environment and install the requirements manually:
+    **Note:** If you prefer manual setup, you can create a virtual environment, creating configs and env files and install the requirements manually.
 
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install -r requirements.txt
-    ```
 
 4. **Install Node.js and npm:**
 
@@ -118,7 +114,10 @@ To integrate PixEagle with PX4 for flight control, you need to set up MAVLink co
 
 - **Using mavlink-anywhere Auto-Start Daemon:**
 
-  On systems like Raspberry Pi or Jetson, you can use the `mavlink-anywhere` auto-start daemon to automatically route serial connections (e.g., `/dev/ttyS0` or `/dev/ttyTHS1`) to UDP endpoints.
+  On systems like Raspberry Pi or Jetson, you can use the `mavlink-anywhere` auto-start daemon to automatically route serial connections (e.g., `/dev/ttyS0` or `/dev/ttyTHS1`) to UDP endpoints (eg. `127.0.0.1:14550 127.0.0.1:14540 127.0.0.1:14569`) using the following wizard. Refer to the `mavlink-anywhere` [documentation](https://github.com/alireza787b/mavlink-anywhere).
+  ```bash
+  bash ~/mavlink-anywhere/install_mavlink_router.sh
+  ```
 
 - **Manual MAVLink Router Commands:**
 
