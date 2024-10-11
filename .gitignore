@@ -51,6 +51,11 @@ coverage.xml
 .pytest_cache/
 pytest_debug.log
 
+
+#configs
+configs/config.yaml
+dashboard/.env
+
 # Translations
 *.mo
 *.pot
@@ -102,7 +107,7 @@ celerybeat.pid
 *.sage.py
 
 # Environments
-#.env
+.env
 .venv
 env/
 venv/
