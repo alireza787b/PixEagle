@@ -29,15 +29,15 @@ class AppController:
 
         # Initialize MAVLink Data Manager
         self.mavlink_data_manager = MavlinkDataManager(
-            mavlink_host=Parameters.mavlink_host,
-            mavlink_port=Parameters.mavlink_port,
-            polling_interval=Parameters.mavlink_polling_interval,
-            data_points=Parameters.mavlink_data_points,
-            enabled=Parameters.mavlink_enabled
+            mavlink_host=Parameters.MAVLINK_HOST,
+            mavlink_port=Parameters.MAVLINK_PORT,
+            polling_interval=Parameters.MAVLINK_POLLING_INTERVAL,
+            data_points=Parameters.MAVLINK_DATA_POINTS,
+            enabled=Parameters.MAVLINK_ENABLED
         )
         
         # Start polling MAVLink data if enabled
-        if Parameters.mavlink_enabled:
+        if Parameters.MAVLINK_ENABLED:
             self.mavlink_data_manager.start_polling()
 
         # Initialize video processing components
@@ -409,7 +409,7 @@ class AppController:
         result = {"steps": [], "errors": []}
         try:
             # Stop MAVLink polling
-            if Parameters.mavlink_enabled:
+            if Parameters.MAVLINK_ENABLED:
                 self.mavlink_data_manager.stop_polling()
                 
             if self.following_active:

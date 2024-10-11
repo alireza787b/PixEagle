@@ -1,0 +1,20 @@
+# Dashboard Configuration
+
+# WebSocket Configuration
+REACT_APP_WEBSOCKET_HOST: 127.0.0.1
+REACT_APP_WEBSOCKET_PORT: 5551
+REACT_APP_WEBSOCKET_PATH: /ws
+
+# Video Feed Configuration
+REACT_APP_WEBSOCKET_VIDEO_PORT: 5077
+REACT_APP_WEBSOCKET_VIDEO_HOST: 127.0.0.1
+
+# Polling Configuration
+REACT_APP_POLLING_RATE: 500  # milliseconds
+
+# API Configuration
+REACT_APP_API_HOST: 127.0.0.1
+REACT_APP_API_PORT: 5077
+
+# Other Configurations
+REACT_APP_MAX_SPEED: 1
