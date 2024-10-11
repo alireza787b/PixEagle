@@ -37,7 +37,7 @@ Manually run MAVSDK Server to interface with the MAVLink stream:
 .\mavsdk_server_bin.exe
 ```
 #### Step 3: Setting System Parameters
-Modify the parameters in the `parameters.py` file within the `src` folder:
+Modify the configs in the `configs/config.yaml`:
 
 ```python
 SYSTEM_ADDRESS = "udp://172.21.148.30:14540"  # Modify this with your own WSL IP if different.
@@ -75,7 +75,7 @@ bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
 - Launch **QGroundControl (QGC)** on Windows, connecting to the MAVLink Router streams available on ports 14550 and optionally on 18570, to receive telemetry and control data.
 
 #### **Video Source and Camera Configuration in PixEagle**
-- Within your PixEagle project, ensure the video source and camera settings are correctly configured in the `parameters.py` file:
+- Within your PixEagle project, ensure the video source and camera settings are correctly configured in the `configs/config.yaml` file:
     ```python
     VIDEO_SOURCE = "USB_CAMERA"  # Options include "VIDEO_FILE", "USB_CAMERA", "RTSP_STREAM", "UDP_STREAM", "HTTP_STREAM".
     CAMERA_INDEX = 1  # Index for USB Camera, adjust based on your system setup.
