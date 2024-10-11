@@ -26,7 +26,7 @@ class OSDHandler:
                     self._draw_datetime(frame, config)
                 elif element_name == "crosshair":
                     self._draw_crosshair(frame, config)
-                elif element_name == "mavlink_data" and Parameters.mavlink_enabled:
+                elif element_name == "mavlink_data" and Parameters.MAVLINK_ENABLED:
                     self._draw_mavlink_data(frame, config)
                 elif element_name == "attitude_indicator":
                     self._draw_attitude_indicator(frame, config)
@@ -133,7 +133,7 @@ class OSDHandler:
         """
         Draw MAVLink data on the frame.
         """
-        if not Parameters.mavlink_enabled:
+        if not Parameters.MAVLINK_ENABLED:
             self.logger.info("MAVLink integration is disabled. Skipping MAVLink data display.")
             return
 
