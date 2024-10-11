@@ -13,6 +13,8 @@ ultralytics
 Flask
 Flask-RESTful
 Flask-Cors
+websockets
+wsproto
 
 # Libraries for numerical processing, data handling, and mathematical operations
 numpy < 2
@@ -40,3 +42,4 @@ scikit-image
 
 fastapi
 uvicorn
+aiortc

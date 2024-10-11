@@ -86,8 +86,8 @@ class Parameters:
     ENABLE_STREAMING = True
     HTTP_STREAM_HOST = '0.0.0.0'
     HTTP_STREAM_PORT = 5077
-    STREAM_WIDTH = 1920
-    STREAM_HEIGHT = 1080
+    STREAM_WIDTH = 640
+    STREAM_HEIGHT = 480
     STREAM_QUALITY = 100  # JPEG quality 0-100
     STREAM_FPS = 30  # target FPS
     STREAM_PROCESSED_OSD = True
@@ -394,7 +394,7 @@ class Parameters:
 
     # MAVLink Configuration
     mavlink_enabled = True  # Enable or disable MAVLink integration
-    mavlink_host = "172.21.148.30"  # Configurable MAVLink host
+    mavlink_host = "127.0.0.1"  # Configurable MAVLink2REST host
     mavlink_port = 8088  # Configurable MAVLink port
     mavlink_polling_interval = 0.5  # Polling interval in seconds
 
