@@ -16,7 +16,8 @@ Watch the latest video showcasing PixEagle v1.0, demonstrating advanced features
 
 Before setting up PixEagle, ensure that your system meets the following requirements:
 
-- **Operating System:** Linux (recommended). Windows is supported but may require manual adjustments (see [Windows Setup](#windows-setup)).
+- **Operating System:** Linux (recommended). Windows is supported but only recommended for X-Plane SITL tests. (see [Integration Guide for Follow Mode Tracker Test with X-Plane and SITL
+](https://github.com/alireza787b/PixEagle/blob/smart-param/Follow_Mode_Xplane_Guide.md)).
 - **Python:** Version 3.9 or higher.
 - **Python Virtual Environment:** `venv` module.
 - **Python Packages:** As listed in `requirements.txt`.
