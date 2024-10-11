@@ -10,6 +10,9 @@ setlocal EnableDelayedExpansion
 :: Function to display the PixEagle banner
 call :display_banner
 
+:: Wait for 1 second
+ping -n 2 127.0.0.1 >nul
+
 :: Check Python version
 call :check_python_version
 
@@ -66,7 +69,6 @@ if not exist "%USER_CONFIG%" (
 :: Handle dashboard configuration
 set DASHBOARD_DIR=%BASE_DIR%\dashboard
 set DASHBOARD_DEFAULT_CONFIG=%DASHBOARD_DIR%\env_default.yaml
-set DASHBOARD_USER_CONFIG=%DASHBOARD_DIR%\env.yaml
 
 :: Check if dashboard directory exists
 if not exist "%DASHBOARD_DIR%" (
@@ -82,27 +84,7 @@ if not exist "%DASHBOARD_DEFAULT_CONFIG%" (
     exit /b 1
 )
 
-:: Check if dashboard user config exists
-if not exist "%DASHBOARD_USER_CONFIG%" (
-    echo ⚙️  Dashboard configuration file '%DASHBOARD_USER_CONFIG%' does not exist.
-    call :create_dashboard_config
-) else (
-    echo ⚠️  Dashboard configuration file '%DASHBOARD_USER_CONFIG%' already exists.
-    echo Do you want to reset it to default values?
-    echo ⚠️  Warning: This will overwrite your current dashboard configuration and cannot be undone.
-    set /p choice=Type 'yes' to reset or 'no' to keep your existing dashboard configuration [yes/no]: 
-    if /i "%choice%"=="yes" (
-        call :create_dashboard_config
-        echo ✅ Dashboard configuration file '%DASHBOARD_USER_CONFIG%' has been reset to default values.
-    ) else if /i "%choice%"=="no" (
-        echo 👍 Keeping existing dashboard configuration file '%DASHBOARD_USER_CONFIG%'.
-    ) else (
-        echo ❌ Invalid input. Please run the script again and type 'yes' or 'no'.
-        exit /b 1
-    )
-)
-
-:: Generate .env file from dashboard env.yaml
+:: Generate .env file from dashboard env_default.yaml
 call :generate_dashboard_env
 
 echo.
@@ -183,14 +165,8 @@ echo.
 echo ✅ Created '%USER_CONFIG%' from '%DEFAULT_CONFIG%'.
 goto :EOF
 
-:create_dashboard_config
-copy "%DASHBOARD_DEFAULT_CONFIG%" "%DASHBOARD_USER_CONFIG%"
-echo.
-echo ✅ Created '%DASHBOARD_USER_CONFIG%' from '%DASHBOARD_DEFAULT_CONFIG%'.
-goto :EOF
-
 :generate_dashboard_env
-echo 🔄 Generating '.env' file in '%DASHBOARD_DIR%' from '%DASHBOARD_USER_CONFIG%'...
+echo 🔄 Generating '.env' file in '%DASHBOARD_DIR%' from '%DASHBOARD_DEFAULT_CONFIG%'...
 
 set DASHBOARD_ENV_FILE=%DASHBOARD_DIR%\.env
 if exist "%DASHBOARD_ENV_FILE%" (
@@ -214,7 +190,7 @@ python - << EOF
 import yaml
 import os
 
-config_file = r"%DASHBOARD_USER_CONFIG%"
+config_file = r"%DASHBOARD_DEFAULT_CONFIG%"
 env_file = os.path.join(r"%DASHBOARD_DIR%", '.env')
 
 with open(config_file, 'r') as f:
