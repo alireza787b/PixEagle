@@ -6,15 +6,15 @@
 # installs required Python packages, and handles the configuration files.
 # It also informs the user about additional dependencies like Node.js and npm.
 
-# Function to display the Pix Eagle banner
+# Function to display the PixEagle banner
 display_banner() {
     echo -e "\n██████╗ ██╗  ██████╗ ███████╗     ███████╗ █████╗  ██████╗ ██╗     ███████╗"
     echo -e "██╔══██╗██║ ██╔══██╗██╔════╝     ██╔════╝██╔══██╗██╔════╝ ██║     ██╔════╝"
-    echo -e "██████╔╝██║ ██║       ╔╝█████╗       █████╗  ███████║██║  ███╗██║     █████╗  "
+    echo -e "██████╔╝██║ ██║  █████╗       █████╗  ███████║██║  ███╗██║     █████╗  "
     echo -e "██╔═══╝ ██║ ██║ ██╔══██╗██╔══╝       ██╔══╝  ██╔══██║██║   ██║██║     ██╔══╝  "
     echo -e "██║     ██║ ██║ ██████╔╝███████╗     ███████╗██║  ██║╚██████╔╝███████╗███████╗"
-    echo -e "╚═╝     ╚═╝╚═╝        ╚═════╝ ╚══════╝     ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚══════╝\n"
-    echo -e "Welcome to Pix Eagle Initialization Script\n"
+    echo -e "╚═╝     ╚═╝╚═╝        ╚═════╝ ╚══════╝     ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝\n"
+    echo -e "Welcome to PixEagle Initialization Script\n"
     echo -e "For more information and latest documentation, visit:"
     echo -e "👉 GitHub: https://github.com/alireza787b/PixEagle\n"
 }
@@ -71,9 +71,31 @@ create_dashboard_config() {
     echo -e "\n✅ Created '$DASHBOARD_USER_CONFIG' from '$DASHBOARD_DEFAULT_CONFIG'."
 }
 
-# Function to generate .env file from dashboard config.yaml
+# Function to generate .env file from dashboard env.yaml
 generate_dashboard_env() {
     echo -e "🔄 Generating '.env' file in '$DASHBOARD_DIR' from '$DASHBOARD_USER_CONFIG'..."
+
+    # Check if .env file exists
+    DASHBOARD_ENV_FILE="$DASHBOARD_DIR/.env"
+    if [ -f "$DASHBOARD_ENV_FILE" ]; then
+        echo -e "⚠️  .env file '$DASHBOARD_ENV_FILE' already exists."
+        echo -e "Do you want to overwrite it with default values?"
+        echo -e "⚠️  Warning: This will overwrite your current .env file and cannot be undone."
+        read -p "Type 'yes' to overwrite or 'no' to keep your existing .env file [yes/no]: " choice
+        case "$choice" in
+            yes|Yes|Y|y )
+                ;;
+            no|No|N|n )
+                echo -e "👍 Keeping existing .env file '$DASHBOARD_ENV_FILE'."
+                return
+                ;;
+            * )
+                echo -e "❌ Invalid input. Please run the script again and type 'yes' or 'no'."
+                exit 1
+                ;;
+        esac
+    fi
+
     source venv/bin/activate
     python3 << EOF
 import yaml
@@ -159,7 +181,7 @@ fi
 # Handle dashboard configuration
 DASHBOARD_DIR="$BASE_DIR/dashboard"
 DASHBOARD_DEFAULT_CONFIG="$DASHBOARD_DIR/env_default.yaml"
-DASHBOARD_USER_CONFIG="$DASHBOARD_DIR/config.yaml"
+DASHBOARD_USER_CONFIG="$DASHBOARD_DIR/env.yaml"
 
 # Check if dashboard directory exists
 if [ ! -d "$DASHBOARD_DIR" ]; then
@@ -199,7 +221,7 @@ else
     esac
 fi
 
-# Generate .env file from dashboard config.yaml
+# Generate .env file from dashboard env.yaml
 generate_dashboard_env
 
 echo -e "\n🎉 Initialization complete."
@@ -207,5 +229,7 @@ echo -e "🚀 You can now start using PixEagle. Happy flying!\n"
 
 echo -e "📢 Note:"
 echo -e "👉 You might need to install Node.js and npm if they are not already installed."
-echo -e "   You can install them by running 'sudo apt install nodejs npm' or refer to the Node.js website."
-echo -e "👉 Please edit '$USER_CONFIG' and '$DASHBOARD_USER_CONFIG' to configure settings according to your system."
+echo -e "   Using 'apt install' may install an outdated version."
+echo -e "   It's recommended to refer to the official Node.js website and follow the instructions for your operating system:"
+echo -e "   https://nodejs.org/en/download/package-manager/"
+echo -e "👉 Please edit '$USER_CONFIG' and '$DASHBOARD_DIR/.env' to configure settings according to your system."

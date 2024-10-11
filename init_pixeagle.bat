@@ -1,13 +1,13 @@
 :: init_pixeagle.bat
 :: Initialization script for the PixEagle project on Windows
 :: This script sets up the environment for PixEagle, including Python virtual environment,
-:: installs required Python packages, and handles the configuration file.
+:: installs required Python packages, and handles the configuration files.
 :: It also informs the user about additional dependencies like Node.js and npm.
 
 @echo off
 setlocal EnableDelayedExpansion
 
-:: Function to display the Pix Eagle banner
+:: Function to display the PixEagle banner
 call :display_banner
 
 :: Check Python version
@@ -63,14 +63,58 @@ if not exist "%USER_CONFIG%" (
     )
 )
 
+:: Handle dashboard configuration
+set DASHBOARD_DIR=%BASE_DIR%\dashboard
+set DASHBOARD_DEFAULT_CONFIG=%DASHBOARD_DIR%\env_default.yaml
+set DASHBOARD_USER_CONFIG=%DASHBOARD_DIR%\env.yaml
+
+:: Check if dashboard directory exists
+if not exist "%DASHBOARD_DIR%" (
+    echo ❌ Dashboard directory '%DASHBOARD_DIR%' does not exist.
+    echo Please ensure that '%DASHBOARD_DIR%' exists.
+    exit /b 1
+)
+
+:: Check if dashboard default config exists
+if not exist "%DASHBOARD_DEFAULT_CONFIG%" (
+    echo ❌ Error: Default dashboard configuration file '%DASHBOARD_DEFAULT_CONFIG%' not found.
+    echo Please ensure that '%DASHBOARD_DEFAULT_CONFIG%' exists in the '%DASHBOARD_DIR%' directory.
+    exit /b 1
+)
+
+:: Check if dashboard user config exists
+if not exist "%DASHBOARD_USER_CONFIG%" (
+    echo ⚙️  Dashboard configuration file '%DASHBOARD_USER_CONFIG%' does not exist.
+    call :create_dashboard_config
+) else (
+    echo ⚠️  Dashboard configuration file '%DASHBOARD_USER_CONFIG%' already exists.
+    echo Do you want to reset it to default values?
+    echo ⚠️  Warning: This will overwrite your current dashboard configuration and cannot be undone.
+    set /p choice=Type 'yes' to reset or 'no' to keep your existing dashboard configuration [yes/no]: 
+    if /i "%choice%"=="yes" (
+        call :create_dashboard_config
+        echo ✅ Dashboard configuration file '%DASHBOARD_USER_CONFIG%' has been reset to default values.
+    ) else if /i "%choice%"=="no" (
+        echo 👍 Keeping existing dashboard configuration file '%DASHBOARD_USER_CONFIG%'.
+    ) else (
+        echo ❌ Invalid input. Please run the script again and type 'yes' or 'no'.
+        exit /b 1
+    )
+)
+
+:: Generate .env file from dashboard env.yaml
+call :generate_dashboard_env
+
 echo.
 echo 🎉 Initialization complete.
 echo 🚀 You can now start using PixEagle. Happy flying!
 echo.
 echo 📢 Note:
 echo 👉 You might need to install Node.js and npm if they are not already installed.
-echo    You can install them by visiting https://nodejs.org/
-echo 👉 Please edit '%USER_CONFIG%' to configure settings like video source and other parameters according to your system.
+echo    Using 'apt install' may install an outdated version.
+echo    It's recommended to refer to the official Node.js website and follow the instructions for your operating system:
+echo    https://nodejs.org/en/download/package-manager/
+echo 👉 Please edit '%USER_CONFIG%' and '%DASHBOARD_DIR%\.env' to configure settings according to your system.
 pause
 exit /b
 
@@ -78,12 +122,12 @@ exit /b
 echo.
 echo ██████╗ ██╗  ██████╗ ███████╗     ███████╗ █████╗  ██████╗ ██╗     ███████╗
 echo ██╔══██╗██║ ██╔══██╗██╔════╝     ██╔════╝██╔══██╗██╔════╝ ██║     ██╔════╝
-echo ██████╔╝██║ ██║       ╔╝█████╗       █████╗  ███████║██║  ███╗██║     █████╗
+echo ██████╔╝██║ ██║  █████╗       █████╗  ███████║██║  ███╗██║     █████╗
 echo ██╔═══╝ ██║ ██║ ██╔══██╗██╔══╝       ██╔══╝  ██╔══██║██║   ██║██║     ██╔══╝
 echo ██║     ██║ ██║ ██████╔╝███████╗     ███████╗██║  ██║╚██████╔╝███████╗███████╗
-echo ╚═╝     ╚═╝╚═╝        ╚═════╝ ╚══════╝     ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚══════╝
+echo ╚═╝     ╚═╝╚═╝        ╚═════╝ ╚══════╝     ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝
 echo.
-echo Welcome to Pix Eagle Initialization Script
+echo Welcome to PixEagle Initialization Script
 echo.
 echo For more information and latest documentation, visit:
 echo 👉 GitHub: https://github.com/alireza787b/PixEagle
@@ -137,4 +181,50 @@ goto :EOF
 copy "%DEFAULT_CONFIG%" "%USER_CONFIG%"
 echo.
 echo ✅ Created '%USER_CONFIG%' from '%DEFAULT_CONFIG%'.
+goto :EOF
+
+:create_dashboard_config
+copy "%DASHBOARD_DEFAULT_CONFIG%" "%DASHBOARD_USER_CONFIG%"
+echo.
+echo ✅ Created '%DASHBOARD_USER_CONFIG%' from '%DASHBOARD_DEFAULT_CONFIG%'.
+goto :EOF
+
+:generate_dashboard_env
+echo 🔄 Generating '.env' file in '%DASHBOARD_DIR%' from '%DASHBOARD_USER_CONFIG%'...
+
+set DASHBOARD_ENV_FILE=%DASHBOARD_DIR%\.env
+if exist "%DASHBOARD_ENV_FILE%" (
+    echo ⚠️  .env file '%DASHBOARD_ENV_FILE%' already exists.
+    echo Do you want to overwrite it with default values?
+    echo ⚠️  Warning: This will overwrite your current .env file and cannot be undone.
+    set /p choice=Type 'yes' to overwrite or 'no' to keep your existing .env file [yes/no]: 
+    if /i "%choice%"=="yes" (
+        :: Proceed to overwrite
+    ) else if /i "%choice%"=="no" (
+        echo 👍 Keeping existing .env file '%DASHBOARD_ENV_FILE%'.
+        goto :EOF
+    ) else (
+        echo ❌ Invalid input. Please run the script again and type 'yes' or 'no'.
+        exit /b 1
+    )
+)
+
+call venv\Scripts\activate
+python - << EOF
+import yaml
+import os
+
+config_file = r"%DASHBOARD_USER_CONFIG%"
+env_file = os.path.join(r"%DASHBOARD_DIR%", '.env')
+
+with open(config_file, 'r') as f:
+    config = yaml.safe_load(f)
+
+with open(env_file, 'w') as f:
+    for key, value in config.items():
+        f.write(f"{key}={value}\n")
+EOF
+call venv\Scripts\deactivate
+
+echo ✅ Generated '.env' file.
 goto :EOF
