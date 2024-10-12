@@ -23,6 +23,7 @@ const DashboardPage = () => {
     imageRef,
     startPos,
     currentPos,
+    boundingBox,
     handleMouseDown,
     handleMouseMove,
     handleMouseUp,
@@ -138,20 +139,21 @@ const DashboardPage = () => {
 
           {/* Main Video Feed and Bounding Box Controls */}
           <Grid item xs={12} sm={9} md={10}>
-            <BoundingBoxDrawer 
-              isTracking={isTracking}
-              imageRef={imageRef}
-              startPos={startPos}
-              currentPos={currentPos}
-              handleMouseDown={handleMouseDown}
-              handleMouseMove={handleMouseMove}
-              handleMouseUp={handleMouseUp}
-              handleTouchStart={handleTouchStart}
-              handleTouchMove={handleTouchMove}
-              handleTouchEnd={handleTouchEnd}
-              videoSrc={videoFeed}
-              protocol={streamingProtocol} // Pass the protocol prop
-            />
+          <BoundingBoxDrawer
+            isTracking={isTracking}
+            imageRef={imageRef}
+            startPos={startPos}
+            currentPos={currentPos}
+            boundingBox={boundingBox}
+            handleMouseDown={handleMouseDown}
+            handleMouseMove={handleMouseMove}
+            handleMouseUp={handleMouseUp}
+            handleTouchStart={handleTouchStart}
+            handleTouchMove={handleTouchMove}
+            handleTouchEnd={handleTouchEnd}
+            videoSrc={videoFeed}
+            protocol={streamingProtocol} // Pass the protocol prop
+          />
           </Grid>
 
           {/* Status Indicators below Video Feed */}

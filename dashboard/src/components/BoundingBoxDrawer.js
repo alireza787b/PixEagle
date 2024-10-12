@@ -7,6 +7,7 @@ const BoundingBoxDrawer = ({
   imageRef,
   startPos,
   currentPos,
+  boundingBox,
   handleMouseDown,
   handleMouseMove,
   handleMouseUp,
@@ -33,15 +34,23 @@ const BoundingBoxDrawer = ({
       onTouchEnd={handleTouchEnd}
     >
       <WebRTCStream protocol={protocol} src={videoSrc} />
-      {startPos && currentPos && (
+      {((startPos && currentPos) || boundingBox) && (
         <div
           style={{
             position: 'absolute',
             border: '2px dashed red',
-            left: Math.min(startPos.x, currentPos.x),
-            top: Math.min(startPos.y, currentPos.y),
-            width: Math.abs(currentPos.x - startPos.x),
-            height: Math.abs(currentPos.y - startPos.y),
+            left: boundingBox
+              ? boundingBox.left
+              : Math.min(startPos.x, currentPos.x),
+            top: boundingBox
+              ? boundingBox.top
+              : Math.min(startPos.y, currentPos.y),
+            width: boundingBox
+              ? boundingBox.width
+              : Math.abs(currentPos.x - startPos.x),
+            height: boundingBox
+              ? boundingBox.height
+              : Math.abs(currentPos.y - startPos.y),
           }}
         />
       )}
