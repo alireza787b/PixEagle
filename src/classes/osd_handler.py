@@ -162,7 +162,9 @@ class OSDHandler:
         Draw the attitude indicator on the frame.
         """
         try:
+            print(self.mavlink_data_manager.get_data("roll"))
             roll = float(self.mavlink_data_manager.get_data("roll") or 0)
+            print(roll)
             pitch = float(self.mavlink_data_manager.get_data("pitch") or 0)
             # roll = 0
             # pitch = 0
