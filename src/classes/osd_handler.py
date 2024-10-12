@@ -150,7 +150,7 @@ class OSDHandler:
                     try:
                         formatted_value = f"{float(raw_value):.1f}"
                     except ValueError:
-                        self.logger.warning(f"Invalid flight path angle: '{raw_value}'. Displaying 'N/A'.")
+                        # self.logger.warning(f"Invalid flight path angle: '{raw_value}'. Displaying 'N/A'.")
                         formatted_value = "N/A"
             else:
                 formatted_value = self._format_value(field.replace("_", " ").title(), self._safe_get_float(field.lower(), default="N/A"))
@@ -237,10 +237,10 @@ class OSDHandler:
         """
         raw_value = self.app_controller.mavlink_data_manager.get_data(field_name)
         if raw_value is None:
-            self.logger.warning(f"No data received for '{field_name}'. Defaulting to {default}.")
+            # self.logger.warning(f"No data received for '{field_name}'. Defaulting to {default}.")
             return default
         try:
             return float(raw_value)
         except ValueError:
-            self.logger.warning(f"Invalid data for '{field_name}': '{raw_value}'. Defaulting to {default}.")
+            # self.logger.warning(f"Invalid data for '{field_name}': '{raw_value}'. Defaulting to {default}.")
             return default
