@@ -167,18 +167,19 @@ header_message "Installing npm packages"
 
 # Check if node_modules exists
 if [ -d "node_modules" ]; then
-  echo "🔍 node_modules directory exists. Checking for outdated packages..."
-    npm install
-    if [ $? -eq 0 ]; then
-      echo "✅ npm packages updated successfully."
-    else
-      echo "❌ Failed to update npm packages. Please check the error messages above."
-      exit 1
-    fi
+if [ -d "node_modules" ]; then
+  echo "🔍 node_modules directory exists. Ensuring dependencies are up to date..."
+  # Instead of using 'npm outdated', we'll run 'npm install' which updates dependencies as needed
+  npm install
+  if [ $? -eq 0 ]; then
+    echo "✅ npm packages are up to date."
+  else
+    echo "❌ Failed to update npm packages. Please check the error messages above."
+    exit 1
   fi
 else
   echo "📁 node_modules directory not found. Installing packages..."
-  # Use npm ci if package-lock.json exists
+  # Use npm ci if package-lock.json exists for a clean and consistent installation
   if [ -f "package-lock.json" ]; then
     echo "🔒 package-lock.json found. Running 'npm ci' for a clean installation..."
     npm ci
