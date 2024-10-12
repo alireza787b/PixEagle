@@ -168,12 +168,6 @@ header_message "Installing npm packages"
 # Check if node_modules exists
 if [ -d "node_modules" ]; then
   echo "🔍 node_modules directory exists. Checking for outdated packages..."
-  npm outdated --depth=0
-  OUTDATED_EXIT_CODE=$?
-  if [ $OUTDATED_EXIT_CODE -eq 0 ]; then
-    echo "✅ All npm packages are up-to-date."
-  else
-    echo "⚠️  Outdated packages found. Updating..."
     npm install
     if [ $? -eq 0 ]; then
       echo "✅ npm packages updated successfully."
