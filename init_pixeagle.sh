@@ -39,6 +39,10 @@ check_python_version() {
     fi
 }
 
+echo -e "📁 Installing libgl1 (seems necessary for OpenCV)..."
+sudo apt install libgl1
+
+
 # Function to create virtual environment
 create_virtualenv() {
     if [ ! -d "venv" ]; then
