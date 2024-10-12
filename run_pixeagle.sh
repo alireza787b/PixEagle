@@ -9,20 +9,21 @@
 #
 # This script manages the execution of the entire PixEagle system,
 # including MAVLink2REST, the React Dashboard, and the main Python
-# application. Components are run in separate tmux windows, and
-# also combined in a single window with split panes.
+# application. Components are run either in separate tmux windows,
+# or combined in a single window with split panes, based on user preference.
 #
 # Usage:
-#   ./run_pixeagle.sh [-m|-d|-p|-h]
+#   ./run_pixeagle.sh [-m|-d|-p|-s|-h]
 #   Flags:
 #     -m : Do NOT run MAVLink2REST (default: enabled)
 #     -d : Do NOT run Dashboard (default: enabled)
 #     -p : Do NOT run Main Python Application (default: enabled)
+#     -s : Run components in Separate windows (default: Combined view)
 #     -h : Display help
 #
 # Example:
-#   ./run_pixeagle.sh -p
-#   (Runs MAVLink2REST and Dashboard, skips the main Python application)
+#   ./run_pixeagle.sh -p -s
+#   (Runs MAVLink2REST and Dashboard in separate windows, skips the main Python application)
 #
 # Note:
 #   This script assumes all configurations and initializations are complete.
@@ -35,6 +36,7 @@
 RUN_MAVLINK2REST=true
 RUN_DASHBOARD=true
 RUN_MAIN_APP=true
+COMBINED_VIEW=true  # Default is combined view
 
 # Tmux session name
 SESSION_NAME="PixEagle"
@@ -52,21 +54,23 @@ MAIN_APP_SCRIPT="$BASE_DIR/run_main.sh"
 
 # Function to display usage instructions
 display_usage() {
-    echo "Usage: $0 [-m|-d|-p|-h]"
+    echo "Usage: $0 [-m|-d|-p|-s|-h]"
     echo "Flags:"
     echo "  -m : Do NOT run MAVLink2REST (default: enabled)"
     echo "  -d : Do NOT run Dashboard (default: enabled)"
     echo "  -p : Do NOT run Main Python Application (default: enabled)"
+    echo "  -s : Run components in Separate windows (default: Combined view)"
     echo "  -h : Display this help message"
-    echo "Example: $0 -p (Runs MAVLink2REST and Dashboard, skips the main Python application)"
+    echo "Example: $0 -p -s (Runs MAVLink2REST and Dashboard in separate windows, skips the main Python application)"
 }
 
 # Parse command-line options
-while getopts "mdph" opt; do
+while getopts "mdpsh" opt; do
   case ${opt} in
     m) RUN_MAVLINK2REST=false ;;
     d) RUN_DASHBOARD=false ;;
     p) RUN_MAIN_APP=false ;;
+    s) COMBINED_VIEW=false ;;
     h)
       display_usage
       exit 0
@@ -124,8 +128,12 @@ show_tmux_instructions() {
     echo "  Quick tmux Guide:"
     echo "==============================================="
     echo "Prefix key (Ctrl+B), then:"
-    echo "  - Switch between windows: Number keys (e.g., Ctrl+B, then 1, 2, 3)"
-    echo "  - Switch between panes: Arrow keys (e.g., Ctrl+B, then →)"
+    if [ "$COMBINED_VIEW" = true ]; then
+        echo "  - Switch between panes: Arrow keys (e.g., Ctrl+B, then →)"
+        echo "  - Resize panes: Hold Ctrl+B, then press and hold an arrow key"
+    else
+        echo "  - Switch between windows: Number keys (e.g., Ctrl+B, then 1, 2, 3)"
+    fi
     echo "  - Detach from session: Ctrl+B, then D"
     echo "  - Reattach to session: tmux attach -t $SESSION_NAME"
     echo "  - Close pane/window: Type 'exit' or press Ctrl+D"
@@ -133,16 +141,7 @@ show_tmux_instructions() {
     echo ""
 }
 
-# Function to start a process in a new tmux window
-start_process_tmux() {
-    local session="$1"
-    local window_name="$2"
-    local command="$3"
-    tmux new-window -t "$session" -n "$window_name"
-    tmux send-keys -t "$session:$window_name" "clear; $command" C-m
-}
-
-# Function to create a tmux session with both windows and split panes
+# Function to start services in tmux
 start_services_in_tmux() {
     local session="$SESSION_NAME"
 
@@ -159,45 +158,54 @@ start_services_in_tmux() {
     declare -A components
     local index=0
 
-    # Start components in separate windows and add to components array
+    # Add components to the components array
     if [ "$RUN_MAIN_APP" = true ]; then
-        tmux rename-window -t "$session:0" "MainApp"
-        tmux send-keys -t "$session:0" "clear; bash $MAIN_APP_SCRIPT; bash" C-m
-        components["MainApp"]="bash $MAIN_APP_SCRIPT"
+        components["MainApp"]="bash $MAIN_APP_SCRIPT; bash"
         index=$((index + 1))
-    else
-        tmux rename-window -t "$session:0" "MainApp"
-        tmux send-keys -t "$session:0" "echo 'Main Application is disabled'; bash" C-m
     fi
 
     if [ "$RUN_MAVLINK2REST" = true ]; then
-        start_process_tmux "$session" "MAVLink2REST" "bash $MAVLINK2REST_SCRIPT; bash"
-        components["MAVLink2REST"]="bash $MAVLINK2REST_SCRIPT"
+        components["MAVLink2REST"]="bash $MAVLINK2REST_SCRIPT; bash"
         index=$((index + 1))
     fi
 
     if [ "$RUN_DASHBOARD" = true ]; then
-        start_process_tmux "$session" "Dashboard" "bash $DASHBOARD_SCRIPT; bash"
-        components["Dashboard"]="bash $DASHBOARD_SCRIPT"
+        components["Dashboard"]="bash $DASHBOARD_SCRIPT; bash"
         index=$((index + 1))
     fi
 
-    # Create a window with split panes for a combined view
-    tmux new-window -t "$session" -n "CombinedView"
-    local pane_index=0
-    for component_name in "${!components[@]}"; do
-        if [ $pane_index -eq 0 ]; then
-            tmux send-keys -t "$session:CombinedView.$pane_index" "clear; ${components[$component_name]}; bash" C-m
-        else
-            tmux split-window -t "$session:CombinedView" -h
-            tmux select-pane -t "$session:CombinedView.$pane_index"
-            tmux send-keys -t "$session:CombinedView.$pane_index" "clear; ${components[$component_name]}; bash" C-m
-        fi
-        pane_index=$((pane_index + 1))
-    done
+    if [ "$COMBINED_VIEW" = true ]; then
+        # Create a window with split panes for a combined view
+        tmux rename-window -t "$session:0" "CombinedView"
+        local pane_index=0
+        for component_name in "${!components[@]}"; do
+            if [ $pane_index -eq 0 ]; then
+                tmux send-keys -t "$session:CombinedView.$pane_index" "clear; ${components[$component_name]}" C-m
+            else
+                tmux split-window -t "$session:CombinedView" -h
+                tmux select-pane -t "$session:CombinedView.$pane_index"
+                tmux send-keys -t "$session:CombinedView.$pane_index" "clear; ${components[$component_name]}" C-m
+            fi
+            pane_index=$((pane_index + 1))
+        done
 
-    if [ $pane_index -gt 1 ]; then
-        tmux select-layout -t "$session:CombinedView" tiled
+        if [ $pane_index -gt 1 ]; then
+            tmux select-layout -t "$session:CombinedView" tiled
+        fi
+    else
+        # Start components in separate windows
+        local window_index=0
+        for component_name in "${!components[@]}"; do
+            if [ $window_index -eq 0 ]; then
+                # Rename the first window (created by default)
+                tmux rename-window -t "$session:0" "$component_name"
+                tmux send-keys -t "$session:$component_name" "clear; ${components[$component_name]}" C-m
+            else
+                tmux new-window -t "$session" -n "$component_name"
+                tmux send-keys -t "$session:$component_name" "clear; ${components[$component_name]}" C-m
+            fi
+            window_index=$((window_index + 1))
+        done
     fi
 
     # Display tmux instructions before attaching
@@ -263,6 +271,12 @@ run_pixeagle_components() {
         echo "❌ Main Python Application is disabled."
     fi
 
+    if [ "$COMBINED_VIEW" = true ]; then
+        echo "Components will be started in a combined view (split panes)."
+    else
+        echo "Components will be started in separate tmux windows."
+    fi
+
     start_services_in_tmux
 }
 
@@ -277,4 +291,10 @@ echo ""
 echo "All selected components are now running in tmux."
 echo "You can detach from the session without stopping the services."
 echo "Use 'tmux attach -t $SESSION_NAME' to reattach to the session."
+echo ""
+echo "To kill the tmux session and stop all components, run:"
+echo "👉 tmux kill-session -t $SESSION_NAME"
+echo ""
+echo "To kill all tmux sessions (caution: this will kill all tmux sessions on the system), run:"
+echo "👉 tmux kill-server"
 echo ""
