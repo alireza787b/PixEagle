@@ -53,6 +53,23 @@ FrameEstimation:
   ESTIMATOR_HISTORY_LENGTH: 5
   SHOW_VIDEO_WINDOW: false
 
+#Frame Preprocessing Configuration
+FramePreprocessor:
+    ENABLE_PREPROCESSING: true
+
+    # Preprocessing techniques
+    PREPROCESSING_USE_BLUR: true
+    PREPROCESSING_BLUR_KERNEL_SIZE: 5  # Must be an odd number
+
+    PREPROCESSING_USE_MEDIAN_BLUR: false
+    PREPROCESSING_MEDIAN_BLUR_KERNEL_SIZE: 5  # Must be an odd number
+
+    PREPROCESSING_USE_CLAHE: true
+    PREPROCESSING_CLAHE_CLIP_LIMIT: 2.0
+    PREPROCESSING_CLAHE_TILE_GRID_SIZE: 8  # Typically between 1 and 10
+
+    PREPROCESSING_COLOR_SPACE: BGR  # Options: 'BGR', 'GRAY', 'HSV', 'LAB'
+
 # Segmentation Configuration
 Segmentation:
   SEGMENTATION_ALGORITHMS: ['GrabCut', 'Watershed', 'yolov8s-seg', 'yolov8n-oiv7', 'yolov8s-obb']

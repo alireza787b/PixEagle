@@ -18,6 +18,8 @@ from typing import Dict, Tuple
 from classes.osd_handler import OSDHandler
 from classes.gstreamer_handler import GStreamerHandler
 from classes.mavlink_data_manager import MavlinkDataManager
+from classes.frame_preprocessor import FramePreprocessor
+
 
 
 class AppController:
@@ -35,6 +37,12 @@ class AppController:
             data_points=Parameters.MAVLINK_DATA_POINTS,
             enabled=Parameters.MAVLINK_ENABLED
         )
+        
+        # Initialize the FramePreprocessor if enabled
+        if Parameters.ENABLE_PREPROCESSING:
+            self.preprocessor = FramePreprocessor()
+        else:
+            self.preprocessor = None
         
         # Start polling MAVLink data if enabled
         if Parameters.MAVLINK_ENABLED:
@@ -171,6 +179,11 @@ class AppController:
             np.ndarray: The processed video frame.
         """
         #logging.debug("Starting update loop.")
+        
+        # Preprocessing step
+        if Parameters.ENABLE_PREPROCESSING and self.preprocessor:
+            frame = self.preprocessor.preprocess(frame)
+        
         if self.segmentation_active:
             frame = self.segmentor.segment_frame(frame)
         
