@@ -5,7 +5,7 @@ mavsdk
 protobuf
 
 # OpenCV for computer vision and tracking
-#opencv-python < 4.7
+opencv-python < 4.7
 opencv-contrib-python < 4.7 # For extra features including tracking algorithms
 ultralytics
 
