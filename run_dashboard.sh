@@ -23,7 +23,7 @@ MIN_NODE_VERSION=12
 MIN_NPM_VERSION=6
 
 # Default Parameters (user can modify these)
-DEFAULT_PORT=3001
+DEFAULT_PORT=3000
 DEFAULT_DASHBOARD_DIR="$HOME/PixEagle/dashboard"
 
 # Resolve script directory to support execution from any location

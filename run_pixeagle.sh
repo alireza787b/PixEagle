@@ -44,7 +44,7 @@ SESSION_NAME="PixEagle"
 # Default ports used by the components
 MAVLINK2REST_PORT=8088
 BACKEND_PORT=5077
-DASHBOARD_PORT=3001
+DASHBOARD_PORT=3000
 
 # Paths to component scripts (modify these paths if your directory structure is different)
 BASE_DIR="$HOME/PixEagle"
