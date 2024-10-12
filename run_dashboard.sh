@@ -251,6 +251,9 @@ else
     echo "✅ 'serve' is already installed."
   fi
 
+  echo "📦 Making Sure xsel is installed..."
+  sudo apt install xsel
+
   # Start the server using 'serve'
   header_message "Serving the production build on port $PORT"
   npx serve -s build -l $PORT
