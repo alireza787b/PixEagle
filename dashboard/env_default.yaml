@@ -23,4 +23,5 @@ REACT_APP_DEFAULT_BOUNDING_BOX_SIZE: 0.2
 # Other Configurations
 REACT_APP_MAX_SPEED: 1
 
+# Default Bounding Box Size when Click
 REACT_APP_DEFAULT_BOUNDING_BOX_SIZE: 0.1

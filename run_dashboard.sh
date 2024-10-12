@@ -12,9 +12,20 @@
 # progress updates. It intelligently handles npm installations
 # and checks for required versions of Node.js and npm.
 #
+# By default, it runs in production mode, serving the optimized
+# build files. Use the -d flag to run in development mode.
+#
 # Default Usage: ./run_dashboard.sh
 # Custom Port:   ./run_dashboard.sh <PORT>
 # Custom Dir:    ./run_dashboard.sh <PORT> <DASHBOARD_DIR>
+# Development Mode: ./run_dashboard.sh -d
+#
+# Flags:
+#   -d : Run in development mode (default is production mode)
+#
+# Example:
+#   ./run_dashboard.sh -d 3001
+#   (Runs the dashboard in development mode on port 3001)
 #
 #########################################
 
@@ -28,6 +39,55 @@ DEFAULT_DASHBOARD_DIR="$HOME/PixEagle/dashboard"
 
 # Resolve script directory to support execution from any location
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Initialize variables
+MODE="production"
+POSITIONAL_ARGS=()
+
+# Function to display usage instructions
+display_usage() {
+  echo "Usage: $0 [-d] [PORT] [DASHBOARD_DIR]"
+  echo ""
+  echo "Flags:"
+  echo "  -d, --development : Run in development mode (default is production mode)"
+  echo "  -h, --help        : Display this help message"
+  echo ""
+  echo "Positional Arguments:"
+  echo "  PORT           : Port to run the server on (default: $DEFAULT_PORT)"
+  echo "  DASHBOARD_DIR  : Path to the dashboard directory (default: $DEFAULT_DASHBOARD_DIR)"
+  echo ""
+  echo "Examples:"
+  echo "  $0            # Runs in production mode on default port"
+  echo "  $0 -d         # Runs in development mode on default port"
+  echo "  $0 4000       # Runs in production mode on port 4000"
+  echo "  $0 -d 4000    # Runs in development mode on port 4000"
+}
+
+# Parse options
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -d|--development)
+      MODE="development"
+      shift # Remove argument from processing
+      ;;
+    -h|--help)
+      display_usage
+      exit 0
+      ;;
+    -*|--*)
+      echo "Unknown option $1"
+      display_usage
+      exit 1
+      ;;
+    *)
+      POSITIONAL_ARGS+=("$1") # Save positional argument
+      shift
+      ;;
+  esac
+done
+
+# Restore positional arguments
+set -- "${POSITIONAL_ARGS[@]}"
 
 # Optionally allow the port and directory to be passed as arguments
 PORT="${1:-$DEFAULT_PORT}"
@@ -47,9 +107,16 @@ version_ge() {
 
 # 1. Display initial information
 header_message "Starting PixEagle Dashboard Server"
+echo "Mode: $MODE"
 echo "Using dashboard directory: $DASHBOARD_DIR"
 echo "Server will run on port: $PORT"
 echo "You can modify the directory or port by editing the script or passing them as arguments."
+echo ""
+if [ "$MODE" = "development" ]; then
+  echo "Note: Development mode provides hot-reloading and detailed error messages."
+else
+  echo "Note: Production mode serves the optimized build for better performance."
+fi
 echo ""
 
 # 2. Navigate to the PixEagle dashboard directory
@@ -101,8 +168,9 @@ header_message "Installing npm packages"
 # Check if node_modules exists
 if [ -d "node_modules" ]; then
   echo "🔍 node_modules directory exists. Checking for outdated packages..."
-  OUTDATED_PACKAGES=$(npm outdated --depth=0)
-  if [ -z "$OUTDATED_PACKAGES" ]; then
+  npm outdated --depth=0
+  OUTDATED_EXIT_CODE=$?
+  if [ $OUTDATED_EXIT_CODE -eq 0 ]; then
     echo "✅ All npm packages are up-to-date."
   else
     echo "⚠️  Outdated packages found. Updating..."
@@ -149,25 +217,66 @@ else
 fi
 echo ""
 
-# 6. Start the React server on the specified port
-header_message "Starting the React server on port $PORT"
+# 6. Start the server based on the mode
+header_message "Starting the Dashboard Server in $MODE mode on port $PORT"
 
-# Set the PORT environment variable and start the server
+# Set the PORT environment variable
 export PORT="$PORT"
 
-# Start the server and redirect output to a log file
-npm start -- --port "$PORT"
-if [ $? -eq 0 ]; then
-  echo "✅ React server started successfully on port $PORT."
+if [ "$MODE" = "development" ]; then
+  # Start the development server
+  npm start
+  if [ $? -eq 0 ]; then
+    echo "✅ Development server started successfully on port $PORT."
+  else
+    echo "❌ Failed to start the development server. Please check the error messages above."
+    exit 1
+  fi
 else
-  echo "❌ Failed to start the React server. Please check the error messages above."
-  exit 1
+  # Build the app
+  header_message "Building the app for production"
+  npm run build
+  if [ $? -ne 0 ]; then
+    echo "❌ Build failed. Please check the error messages above."
+    exit 1
+  else
+    echo "✅ Build completed successfully."
+  fi
+
+  # Check if 'serve' is installed
+  if ! npx --no-install serve --version &> /dev/null; then
+    echo "📦 'serve' package is not installed. Installing locally..."
+    npm install --save-dev serve
+    if [ $? -ne 0 ]; then
+      echo "❌ Failed to install 'serve'. Please install it manually."
+      exit 1
+    else
+      echo "✅ 'serve' installed successfully."
+    fi
+  else
+    echo "✅ 'serve' is already installed."
+  fi
+
+  # Start the server using 'serve'
+  header_message "Serving the production build on port $PORT"
+  npx serve -s build -l $PORT
+  if [ $? -eq 0 ]; then
+    echo "✅ Production server started successfully on port $PORT."
+  else
+    echo "❌ Failed to start the production server. Please check the error messages above."
+    exit 1
+  fi
 fi
-echo ""
 
 # 7. Provide information on what the script is doing
 header_message "Server Information"
-echo "🌐 The PixEagle dashboard is being served on http://localhost:$PORT"
+if [ "$MODE" = "development" ]; then
+  echo "🌐 The PixEagle dashboard is running in development mode on http://localhost:$PORT"
+  echo "🌐 Development mode provides hot-reloading and detailed error messages."
+else
+  echo "🌐 The PixEagle dashboard is being served on http://localhost:$PORT"
+  echo "🌐 Production mode serves the optimized build for better performance."
+fi
 echo "🌐 To access it from another device on the network, replace 'localhost' with your device's IP address."
 echo "ℹ️  This dashboard provides a web interface for interacting with PixEagle, a system designed for UAV/UGV control and monitoring."
 echo ""
