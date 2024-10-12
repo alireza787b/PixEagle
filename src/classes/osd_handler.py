@@ -142,40 +142,39 @@ class OSDHandler:
             return
 
         for field, field_config in config["fields"].items():
-            raw_value = self.app_controller.mavlink_data_manager.get_data(field.lower())
             if field == "flight_path_angle":
+                raw_value = self.app_controller.mavlink_data_manager.get_data(field.lower())
                 if raw_value == 0.0:
                     formatted_value = "Level"
                 else:
-                    formatted_value = f"{raw_value:.1f}"
+                    try:
+                        formatted_value = f"{float(raw_value):.1f}"
+                    except ValueError:
+                        self.logger.warning(f"Invalid flight path angle: '{raw_value}'. Displaying 'N/A'.")
+                        formatted_value = "N/A"
             else:
-                formatted_value = self._format_value(field.replace("_", " ").title(), raw_value)
-            if formatted_value is None:
-                #self.logger.warning(f"Failed to retrieve data for {field}. Displaying 'N/A'.")
-                formatted_value = "N/A"
+                formatted_value = self._format_value(field.replace("_", " ").title(), self._safe_get_float(field.lower(), default="N/A"))
 
             position = self._convert_position(frame, field_config["position"])
             text = f"{field.replace('_', ' ').title()}: {formatted_value}"
-            cv2.putText(frame, text, position, cv2.FONT_HERSHEY_SIMPLEX, field_config["font_size"], field_config["color"], 2)
+            cv2.putText(
+                frame,
+                text,
+                position,
+                cv2.FONT_HERSHEY_SIMPLEX,
+                field_config["font_size"],
+                field_config["color"],
+                2
+            )
+
+    
     def _draw_attitude_indicator(self, frame, config):
         """
         Draw the attitude indicator on the frame.
         """
-        try:
-            print(self.mavlink_data_manager.get_data("roll"))
-            roll = float(self.mavlink_data_manager.get_data("roll") or 0)
-            print(roll)
-            pitch = float(self.mavlink_data_manager.get_data("pitch") or 0)
-            # roll = 0
-            # pitch = 0
-            # Convert from radians to degrees
-            roll = np.rad2deg(roll)
-            pitch = np.rad2deg(pitch)
-                
-        except ValueError as e:
-            self.logger.error(f"Error converting roll or pitch to float: {e}")
-            roll = 0
-            pitch = 0
+        # Safely retrieve and convert roll and pitch data
+        roll = np.rad2deg(self._safe_get_float("roll"))
+        pitch = np.rad2deg(self._safe_get_float("pitch"))
 
         # Define the center position for the horizon line
         center_x, center_y = self._convert_position(frame, config["position"])
@@ -198,10 +197,13 @@ class OSDHandler:
         # Draw the horizon line
         cv2.line(frame, pt1, pt2, config["horizon_color"], config["thickness"])
 
-        # Draw pitch lines (example: every 10 degrees up and down)
+        # Draw pitch lines (e.g., every 10 degrees up and down)
         for i in range(-90, 100, 10):
             tick_y = center_y + int(i * size_y / 90)
-            tick_line = np.array([[center_x - size_x / 4, tick_y], [center_x + size_x / 4, tick_y]], dtype=np.float32)
+            tick_line = np.array([
+                [center_x - size_x / 4, tick_y],
+                [center_x + size_x / 4, tick_y]
+            ], dtype=np.float32)
             tick_line = cv2.transform(np.array([tick_line]), rotation_matrix)[0]
 
             # Ensure the coordinates are integers
@@ -211,4 +213,34 @@ class OSDHandler:
             cv2.line(frame, tick_pt1, tick_pt2, config["grid_color"], config["thickness"])
 
         # Draw roll indicator (semi-circle at the top of the screen)
-        cv2.ellipse(frame, (center_x, center_y), (int(size_x / 2), int(size_y / 2)), 0, 0, 180, config["grid_color"], config["thickness"])
+        cv2.ellipse(
+            frame,
+            (center_x, center_y),
+            (int(size_x / 2), int(size_y / 2)),
+            0,
+            0,
+            180,
+            config["grid_color"],
+            config["thickness"]
+        )
+
+    def _safe_get_float(self, field_name, default=0.0):
+        """
+        Safely retrieve and convert MAVLink data to float.
+        
+        Args:
+            field_name (str): The name of the MAVLink field.
+            default (float): The default value to return if retrieval fails.
+        
+        Returns:
+            float: The converted float value or the default.
+        """
+        raw_value = self.app_controller.mavlink_data_manager.get_data(field_name)
+        if raw_value is None:
+            self.logger.warning(f"No data received for '{field_name}'. Defaulting to {default}.")
+            return default
+        try:
+            return float(raw_value)
+        except ValueError:
+            self.logger.warning(f"Invalid data for '{field_name}': '{raw_value}'. Defaulting to {default}.")
+            return default
