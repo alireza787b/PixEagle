@@ -31,6 +31,7 @@ const DashboardPage = () => {
     handleTouchMove,
     handleTouchEnd,
   } = useBoundingBoxHandlers(isTracking, setIsTracking);
+  
 
   // Handler for tracking toggle
   const handleTrackingToggle = async () => {

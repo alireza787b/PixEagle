@@ -1,5 +1,5 @@
 // dashboard/src/hooks/useBoundingBoxHandlers.js
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { endpoints } from '../services/apiEndpoints';
 
 const useBoundingBoxHandlers = (isTracking, setIsTracking) => {
@@ -18,6 +18,17 @@ const useBoundingBoxHandlers = (isTracking, setIsTracking) => {
     const dy = pos2.y - pos1.y;
     return Math.sqrt(dx * dx + dy * dy);
   };
+
+  const timeoutRef = useRef(null);
+
+  // Clean up the timeout when the component unmounts
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   const startTracking = async (bbox) => {
     try {
@@ -116,6 +127,11 @@ const useBoundingBoxHandlers = (isTracking, setIsTracking) => {
 
       console.log('Normalized Bounding Box:', bbox);
       await startTracking(bbox);
+
+      // Set timeout to clear boundingBox after 500ms
+      timeoutRef.current = setTimeout(() => {
+        setBoundingBox(null);
+      }, 500);
 
       // Reset positions
       setStartPos(null);
