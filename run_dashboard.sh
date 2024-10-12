@@ -167,7 +167,6 @@ header_message "Installing npm packages"
 
 # Check if node_modules exists
 if [ -d "node_modules" ]; then
-if [ -d "node_modules" ]; then
   echo "🔍 node_modules directory exists. Ensuring dependencies are up to date..."
   # Instead of using 'npm outdated', we'll run 'npm install' which updates dependencies as needed
   npm install
