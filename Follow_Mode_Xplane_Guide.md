@@ -42,7 +42,7 @@ Modify the configs in the `configs/config.yaml`:
 ```python
 SYSTEM_ADDRESS = "udp://172.21.148.30:14540"  # Modify this with your own WSL IP if different.
 EXTERNAL_MAVSDK_SERVER = True  # Enable this option to use an external MAVSDK server.
-MAVLINK_HOST = 172.21.144.1  # Since MAVLINK2REST is on WSL we should set that as host.
+MAVLINK_HOST = 172.21.148.30  # Since MAVLINK2REST is on WSL we should set that as host. (Modify this with your own WSL IP if different.)
 ```
 ### Step 4: Configuration of X-Plane, SparkoCam, and OpenCV
 
