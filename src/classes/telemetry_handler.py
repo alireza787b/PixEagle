@@ -68,7 +68,7 @@ class TelemetryHandler:
         if self.follower is not None:
             telemetry = self.follower.get_follower_telemetry() if Parameters.ENABLE_FOLLOWER_TELEMETRY else {}
             telemetry['following_active'] = self.app_controller.following_active
-            telemetry['profile_name'] = self.follower.profile_name
+            telemetry['profile_name'] = self.follower.follower.profile_name
             return telemetry
         return {}
 

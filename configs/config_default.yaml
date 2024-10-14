@@ -122,7 +122,7 @@ Follower:
   CROSSHAIR_ARM_LENGTH: 20
   BBOX_CORNER_ARM_LENGTH: 20
   OVERLAY_OPACITY: 128
-  FOLLOWER_MODE: constant_distance  # Options: ground_view, constant_distance, etc.
+  FOLLOWER_MODE: constant_distance  # Options: ground_view, constant_distance, constant_position, chase_follower etc.
   ENABLE_ALTITUDE_CONTROL: true
   TARGET_POSITION_MODE: center
 
@@ -247,7 +247,7 @@ GStreamer:
 # MAVLink Configuration
 MAVLink:
   MAVLINK_ENABLED: true
-  MAVLINK_HOST: 127.0.0.1
+  MAVLINK_HOST: 127.0.0.1 #for WSL:172.21.148.30
   MAVLINK_PORT: 8088
   MAVLINK_POLLING_INTERVAL: 0.5
   MAVLINK_DATA_POINTS:

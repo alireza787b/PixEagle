@@ -51,6 +51,6 @@ class BaseFollower(ABC):
         Returns:
             dict: The latest velocity telemetry data from the setpoint handler.
         """
-        telemetry = self.setpoint_handler.get_fields()
+        telemetry = self.px4_controller.setpoint_handler.get_fields()
         logger.debug(f"Telemetry data retrieved: {telemetry}")
         return telemetry

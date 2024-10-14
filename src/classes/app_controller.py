@@ -349,9 +349,11 @@ class AppController:
                 await self.px4_interface.connect()
                 logging.debug("Connected to PX4 Drone!")
                 
-                initial_target_coords = self.tracker.normalized_center if Parameters.TARGET_POSITION_MODE == 'initial' else Parameters.DESIRE_AIM
+                initial_target_coords = (
+                    tuple(self.tracker.normalized_center) if Parameters.TARGET_POSITION_MODE == 'initial' else tuple(Parameters.DESIRE_AIM)
+                )
                 self.follower = Follower(self.px4_interface, initial_target_coords)
-                self.telemetry_handler.follower = self.follower # Maybe do a better approach later.
+                self.telemetry_handler.follower = self.follower  # Maybe do a better approach later.
                 await self.px4_interface.set_hover_throttle()
                 await self.px4_interface.send_initial_setpoint()
                 await self.px4_interface.start_offboard_mode()
@@ -364,6 +366,7 @@ class AppController:
             result["steps"].append("Follow mode already active.")
         
         return result
+
 
 
     async def disconnect_px4(self) -> Dict[str, any]:
