@@ -102,9 +102,14 @@ To integrate PixEagle with PX4 for flight control, you need to set up MAVLink co
     bash install_mavlink_router.sh
     ```
 
-    This will install `mavlink-router`, which is essential for routing MAVLink messages.
-
-2. **Install and Run MAVLink2REST:**
+    Once installed you can either run mavlink-router manually each time or set it as a system daemon and start automatically (recommended)
+    ```bash
+    bash ~/mavlink-anywhere/configure_mavlink_router.sh
+    ```
+    As an MAVLink input stream, you should specify your mavlink source. On Raspberry Pi, if you using Serial hardware on GPIO its either `/dev/ttyAMA0` or `/dev/ttyS0`. you can double check with command `ls /dev/tty*`.
+    As output  you can enter as many endpoint you need. eg. `127.0.0.1:14540 127.0.0.1:14550 127.0.0.1:14569`
+   
+3. **Install and Run MAVLink2REST:**
 
     ```bash
     bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
