@@ -84,9 +84,10 @@ sudo apt install -y python3 python3-venv python3-pip tmux lsof
 
     Update server IP addresses, ports, and other relevant settings to match your system.
 
+
 ### PX4 Integration
 
-To integrate PixEagle with PX4 for flight control, you need to set up MAVLink communication.
+To integrate PixEagle with PX4 for flight control, you need to set up MAVLink communication and ensure all necessary components are installed and configured correctly.
 
 #### Installing MAVLink Router and MAVLink2REST
 
@@ -111,14 +112,37 @@ To integrate PixEagle with PX4 for flight control, you need to set up MAVLink co
 
     This script will install and start `mavlink2rest` on port `14569` by default.
 
+#### Ensuring MAVSDK Server Binary is Present
+
+PixEagle requires the `mavsdk_server_bin` binary for full functionality. This binary is essential for MAVSDK integration with PX4.
+
+1. **Check for `mavsdk_server_bin`:**
+
+    The `mavsdk_server_bin` should be located in the project root directory (`~/PixEagle`). It should be compatible with your hardware architecture. 
+
+2. **Download `mavsdk_server_bin`:**
+
+    If `mavsdk_server_bin` is not present, you have two options:
+
+    - **Manual Download:**
+
+        Download the MAVSDK Server binary from the [MAVSDK Releases](https://github.com/mavlink/MAVSDK/releases/) page. After downloading, rename the binary to `mavsdk_server_bin` and place it in the project root directory (`~/PixEagle`).
+
+    - **Automatic Download via Script:**
+
+        When you run the PixEagle system using the `run_pixeagle.sh` script, if the `mavsdk_server_bin` is not found, the script will prompt you to automatically download and install it. Follow the on-screen instructions to complete the installation.
+
 #### Setting Up MAVLink Routing
 
 - **Using mavlink-anywhere Auto-Start Daemon:**
 
-  On systems like Raspberry Pi or Jetson, you can use the `mavlink-anywhere` auto-start daemon to automatically route serial connections (e.g., `/dev/ttyS0` or `/dev/ttyTHS1`) to UDP endpoints (eg. `127.0.0.1:14550 127.0.0.1:14540 127.0.0.1:14569`) using the following wizard. Refer to the `mavlink-anywhere` [documentation](https://github.com/alireza787b/mavlink-anywhere).
+  On systems like Raspberry Pi or Jetson, you can use the `mavlink-anywhere` auto-start daemon to automatically route serial connections (e.g., `/dev/ttyS0` or `/dev/ttyTHS1`) to UDP endpoints (e.g., `127.0.0.1:14550`, `127.0.0.1:14540`, `127.0.0.1:14569`) using the following command:
+
   ```bash
   bash ~/mavlink-anywhere/install_mavlink_router.sh
   ```
+
+  Refer to the `mavlink-anywhere` [documentation](https://github.com/alireza787b/mavlink-anywhere) for more details.
 
 - **Manual MAVLink Router Commands:**
 
@@ -140,13 +164,14 @@ You can run the entire PixEagle application suite with a single command:
 
 This script will:
 
-- Automatically launch all necessary components (MAVLink2REST, Dashboard, Main Application) in separate `tmux` windows.
+- Automatically launch all necessary components (MAVLink2REST, Dashboard, Main Application, MAVSDK Server) in separate `tmux` windows or split panes.
 - Check and free up default ports (`8088`, `5077`, `3001`) before starting.
+- Ensure that the `mavsdk_server_bin` is present. If not, it will prompt you to automatically download it or guide you to download it manually.
 - Provide a split-screen view for monitoring all processes simultaneously.
 
 **Navigating Tmux:**
 
-- **Switch between windows:** `Ctrl+B`, then number keys (`1`, `2`, `3`).
+- **Switch between windows:** `Ctrl+B`, then number keys (`1`, `2`, `3`, `4`).
 - **Switch between panes:** `Ctrl+B`, then arrow keys (`←`, `→`, `↑`, `↓`).
 - **Detach from session:** `Ctrl+B`, then `D`.
 - **Reattach to session:** `tmux attach -t PixEagle`.
@@ -159,14 +184,11 @@ You can selectively run or skip components using flags:
 - `-m` : Do **NOT** run MAVLink2REST.
 - `-d` : Do **NOT** run Dashboard.
 - `-p` : Do **NOT** run Main Python Application.
+- `-k` : Do **NOT** run MAVSDK Server.
 
-For example, to run only the Dashboard and Main Application:
 
-```bash
-./run_pixeagle.sh -m
-```
 
-**Note:** After running `run_pixeagle.sh`, you can also run components separately using the provided scripts:
+**Note:** instead of running `run_pixeagle.sh`, you can also run components separately using the provided scripts:
 
 - **Run Dashboard Only:**
 

@@ -55,7 +55,7 @@ FrameEstimation:
 
 #Frame Preprocessing Configuration
 FramePreprocessor:
-    ENABLE_PREPROCESSING: true
+    ENABLE_PREPROCESSING: false
 
     # Preprocessing techniques
     PREPROCESSING_USE_BLUR: true
@@ -99,12 +99,16 @@ Tracking:
   TRACKING_RECTANGLE_COLOR: [255, 0, 0]
   CENTER_CIRCLE_COLOR: [0, 255, 0]
   CENTER_HISTORY_LENGTH: 10
-  PARTICLE_FILTER_NUM_PARTICLES: 200
-  PARTICLE_FILTER_SIMILARITY_MEASURE: MSE_color
-  PARTICLE_FILTER_SIGMA: 5
-  PARTICLE_FILTER_SIGMA_MOVE_NEAR: 15
-  PARTICLE_FILTER_SIGMA_MOVE_FAR: 30
-  PARTICLE_FILTER_SIGMA_RATIO: 0.5
+  MAX_DISPLACEMENT_THRESHOLD: 0.25  # As a fraction of the frame dimensions
+
+  # For appearance validation
+  APPEARANCE_THRESHOLD: 0.2  # Similarity threshold between 0 and 1
+
+  # For confidence scoring
+  CONFIDENCE_THRESHOLD: 0.3  # Minimum required confidence to accept tracking result
+
+  # For re-detection mechanism
+  REDETECTION_ATTEMPTS: 5
 
 # Follower Configuration
 Follower:
@@ -122,7 +126,7 @@ Follower:
   CROSSHAIR_ARM_LENGTH: 20
   BBOX_CORNER_ARM_LENGTH: 20
   OVERLAY_OPACITY: 128
-  FOLLOWER_MODE: constant_distance  # Options: ground_view, constant_distance, constant_position, chase_follower etc.
+  FOLLOWER_MODE: constant_position  # Options: ground_view, constant_distance, constant_position, chase_follower  etc.
   ENABLE_ALTITUDE_CONTROL: true
   TARGET_POSITION_MODE: center
 
@@ -167,7 +171,7 @@ PID:
     z: {p: 2, i: 0.03, d: 0.05}
     roll_rate: {p: 1, i: 0.1, d: 0.2}
     pitch_rate: {p: 10, i: 0.1, d: 0.2}
-    yaw_rate: {p: 10, i: 0.2, d: 0.2}
+    yaw_rate: {p: 2, i: 0, d: 0.1}
     thrust: {p: 0.1, i: 3, d: 1}
   PROPORTIONAL_ON_MEASUREMENT: false
   ENABLE_ANTI_WINDUP: true
