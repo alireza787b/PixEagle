@@ -189,7 +189,7 @@ You can selectively run or skip components using flags:
 - **Run Dashboard Only:**
 
     ```bash
-    ./run_dashboard.sh
+    bash ~/PixEagle/run_dashboard.sh
     ```
 
 - **Run MAVLink2REST Only:**
@@ -212,7 +212,7 @@ If accessing from another device, replace `127.0.0.1` with your machine's IP add
 
 PixEagle supports GStreamer for video input and output, including CSI camera input. Configure your video source in `configs/config.yaml`.
 
-**Note:** If you plan to use GStreamer or a CSI camera, ensure that OpenCV is built with GStreamer support. Build OpenCV from source with the necessary configurations. A detailed guide is available [here](https://github.com/alireza787b/PixEagle/blob/main/opencv_with_gstreamer.md).
+**Note:** If you plan to use GStreamer or a CSI camera, ensure that OpenCV is built with GStreamer support. You need to build OpenCV from the source with the necessary configurations. A detailed guide is available [here](https://github.com/alireza787b/PixEagle/blob/main/opencv_with_gstreamer.md).
 
 To verify your installation:
 
