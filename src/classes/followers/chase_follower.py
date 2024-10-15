@@ -133,6 +133,7 @@ class ChaseFollower(BaseFollower):
         # Update the setpoint handler
         self.px4_controller.setpoint_handler.set_field('roll_rate', roll_rate)
         self.px4_controller.setpoint_handler.set_field('yaw_rate', yaw_rate)
+        # self.px4_controller.setpoint_handler.set_field('yaw_rate', yaw_rate)
 
         # Log the calculated control commands for debugging
         logging.debug(f"Calculated commands - Roll rate: {roll_rate:.2f} degrees/sec to Bank angle: {target_bank_angle:.2f} degrees, "
