@@ -50,7 +50,7 @@ sudo apt install -y python3 python3-venv python3-pip tmux lsof
     Run the initialization script to set up the virtual environment, install dependencies, and handle configurations:
 
     ```bash
-    ./init_pixeagle.sh
+    bash init_pixeagle.sh
     ```
 
     **Note:** If you prefer manual setup, you can create a virtual environment, creating configs and env files and install the requirements manually.
@@ -92,7 +92,7 @@ To integrate PixEagle with PX4 for flight control, you need to set up MAVLink co
 #### Installing MAVLink Router and MAVLink2REST
 
 1. **Install MAVLink Router:**
-
+     On systems like Raspberry Pi or Jetson, you can use the `mavlink-anywhere` auto-start daemon to automatically route serial connections (e.g., `/dev/ttyS0` or `/dev/ttyAMA0` or `/dev/ttyTHS1`) to UDP endpoints (e.g., `127.0.0.1:14550`, `127.0.0.1:14540`, `127.0.0.1:14569`) using the following command:
     Navigate to your home directory and clone the `mavlink-anywhere` repository:
 
     ```bash
@@ -101,10 +101,24 @@ To integrate PixEagle with PX4 for flight control, you need to set up MAVLink co
     cd mavlink-anywhere
     bash install_mavlink_router.sh
     ```
+    Once installed you can either run mavlink-router manually each time or set it as a system daemon and start automatically (recommended)
+    ```bash
+    bash ~/mavlink-anywhere/configure_mavlink_router.sh
+    ```
+    As an MAVLink input stream, you should specify your mavlink source. On Raspberry Pi, if you using Serial hardware on GPIO its either `/dev/ttyAMA0` or `/dev/ttyS0`. you can double check with the command `ls /dev/tty*`.
+    As output  you can enter as many endpoints as you need. eg. `127.0.0.1:14540 127.0.0.1:14550 127.0.0.1:14569`. You can add extra GCS endpoints here.
+   
+   - **Manual MAVLink Router Commands:**
 
-    This will install `mavlink-router`, which is essential for routing MAVLink messages.
+  You can manually run `mavlink-router` commands as needed. For example, in SITL mode, depending on where SITL and PixEagle are running, you might use:
 
-2. **Install and Run MAVLink2REST:**
+  ```bash
+  mavlink-routerd -e 172.21.144.1:14540 -e 172.21.144.1:14550 -e 172.21.144.1:14569 -e 127.0.0.1:14569 0.0.0.0:14550
+  ```
+
+  Adjust the IP addresses and ports based on your network configuration.
+  
+3. **Install and Run MAVLink2REST:**
 
     ```bash
     bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
@@ -131,35 +145,17 @@ PixEagle requires the `mavsdk_server_bin` binary for full functionality. This bi
     - **Automatic Download via Script:**
 
         When you run the PixEagle system using the `run_pixeagle.sh` script, if the `mavsdk_server_bin` is not found, the script will prompt you to automatically download and install it. Follow the on-screen instructions to complete the installation.
+    ```bash
+    bash ~/PixEagle/src/tools/src/tools/download_mavsdk_server.sh
+    ```
 
-#### Setting Up MAVLink Routing
-
-- **Using mavlink-anywhere Auto-Start Daemon:**
-
-  On systems like Raspberry Pi or Jetson, you can use the `mavlink-anywhere` auto-start daemon to automatically route serial connections (e.g., `/dev/ttyS0` or `/dev/ttyTHS1`) to UDP endpoints (e.g., `127.0.0.1:14550`, `127.0.0.1:14540`, `127.0.0.1:14569`) using the following command:
-
-  ```bash
-  bash ~/mavlink-anywhere/install_mavlink_router.sh
-  ```
-
-  Refer to the `mavlink-anywhere` [documentation](https://github.com/alireza787b/mavlink-anywhere) for more details.
-
-- **Manual MAVLink Router Commands:**
-
-  You can manually run `mavlink-router` commands as needed. For example, in SITL mode, depending on where SITL and PixEagle are running, you might use:
-
-  ```bash
-  mavlink-routerd -e 172.21.144.1:14540 -e 172.21.144.1:14550 -e 172.21.144.1:14569 -e 127.0.0.1:14569 0.0.0.0:14550
-  ```
-
-  Adjust the IP addresses and ports based on your network configuration.
 
 ### Running PixEagle
 
 You can run the entire PixEagle application suite with a single command:
 
 ```bash
-./run_pixeagle.sh
+bash run_pixeagle.sh
 ```
 
 This script will:
