@@ -50,7 +50,7 @@ sudo apt install -y python3 python3-venv python3-pip tmux lsof
     Run the initialization script to set up the virtual environment, install dependencies, and handle configurations:
 
     ```bash
-    ./init_pixeagle.sh
+    bash init_pixeagle.sh
     ```
 
     **Note:** If you prefer manual setup, you can create a virtual environment, creating configs and env files and install the requirements manually.
@@ -159,7 +159,7 @@ PixEagle requires the `mavsdk_server_bin` binary for full functionality. This bi
 You can run the entire PixEagle application suite with a single command:
 
 ```bash
-./run_pixeagle.sh
+bash run_pixeagle.sh
 ```
 
 This script will:
