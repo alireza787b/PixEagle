@@ -92,7 +92,7 @@ To integrate PixEagle with PX4 for flight control, you need to set up MAVLink co
 #### Installing MAVLink Router and MAVLink2REST
 
 1. **Install MAVLink Router:**
-
+     On systems like Raspberry Pi or Jetson, you can use the `mavlink-anywhere` auto-start daemon to automatically route serial connections (e.g., `/dev/ttyS0` or `/dev/ttyAMA0` or `/dev/ttyTHS1`) to UDP endpoints (e.g., `127.0.0.1:14550`, `127.0.0.1:14540`, `127.0.0.1:14569`) using the following command:
     Navigate to your home directory and clone the `mavlink-anywhere` repository:
 
     ```bash
@@ -101,14 +101,23 @@ To integrate PixEagle with PX4 for flight control, you need to set up MAVLink co
     cd mavlink-anywhere
     bash install_mavlink_router.sh
     ```
-
     Once installed you can either run mavlink-router manually each time or set it as a system daemon and start automatically (recommended)
     ```bash
     bash ~/mavlink-anywhere/configure_mavlink_router.sh
     ```
-    As an MAVLink input stream, you should specify your mavlink source. On Raspberry Pi, if you using Serial hardware on GPIO its either `/dev/ttyAMA0` or `/dev/ttyS0`. you can double check with command `ls /dev/tty*`.
+    As an MAVLink input stream, you should specify your mavlink source. On Raspberry Pi, if you using Serial hardware on GPIO its either `/dev/ttyAMA0` or `/dev/ttyS0`. you can double check with the command `ls /dev/tty*`.
     As output  you can enter as many endpoints as you need. eg. `127.0.0.1:14540 127.0.0.1:14550 127.0.0.1:14569`. You can add extra GCS endpoints here.
    
+   - **Manual MAVLink Router Commands:**
+
+  You can manually run `mavlink-router` commands as needed. For example, in SITL mode, depending on where SITL and PixEagle are running, you might use:
+
+  ```bash
+  mavlink-routerd -e 172.21.144.1:14540 -e 172.21.144.1:14550 -e 172.21.144.1:14569 -e 127.0.0.1:14569 0.0.0.0:14550
+  ```
+
+  Adjust the IP addresses and ports based on your network configuration.
+  
 3. **Install and Run MAVLink2REST:**
 
     ```bash
@@ -149,15 +158,7 @@ PixEagle requires the `mavsdk_server_bin` binary for full functionality. This bi
 
   Refer to the `mavlink-anywhere` [documentation](https://github.com/alireza787b/mavlink-anywhere) for more details.
 
-- **Manual MAVLink Router Commands:**
 
-  You can manually run `mavlink-router` commands as needed. For example, in SITL mode, depending on where SITL and PixEagle are running, you might use:
-
-  ```bash
-  mavlink-routerd -e 172.21.144.1:14540 -e 172.21.144.1:14550 -e 172.21.144.1:14569 -e 127.0.0.1:14569 0.0.0.0:14550
-  ```
-
-  Adjust the IP addresses and ports based on your network configuration.
 
 ### Running PixEagle
 
