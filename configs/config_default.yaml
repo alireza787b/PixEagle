@@ -55,7 +55,7 @@ FrameEstimation:
 
 #Frame Preprocessing Configuration
 FramePreprocessor:
-    ENABLE_PREPROCESSING: true
+    ENABLE_PREPROCESSING: false
 
     # Preprocessing techniques
     PREPROCESSING_USE_BLUR: true
@@ -110,7 +110,6 @@ Tracking:
   # For re-detection mechanism
   REDETECTION_ATTEMPTS: 5
 
-
 # Follower Configuration
 Follower:
   USE_MAVLINK2REST: true
@@ -127,7 +126,7 @@ Follower:
   CROSSHAIR_ARM_LENGTH: 20
   BBOX_CORNER_ARM_LENGTH: 20
   OVERLAY_OPACITY: 128
-  FOLLOWER_MODE: constant_distance  # Options: ground_view, constant_distance, constant_position, chase_follower etc.
+  FOLLOWER_MODE: constant_position  # Options: ground_view, constant_distance, constant_position, chase_follower  etc.
   ENABLE_ALTITUDE_CONTROL: true
   TARGET_POSITION_MODE: center
 
@@ -172,7 +171,7 @@ PID:
     z: {p: 2, i: 0.03, d: 0.05}
     roll_rate: {p: 1, i: 0.1, d: 0.2}
     pitch_rate: {p: 10, i: 0.1, d: 0.2}
-    yaw_rate: {p: 10, i: 0.2, d: 0.2}
+    yaw_rate: {p: 2, i: 0, d: 0.1}
     thrust: {p: 0.1, i: 3, d: 1}
   PROPORTIONAL_ON_MEASUREMENT: false
   ENABLE_ANTI_WINDUP: true
