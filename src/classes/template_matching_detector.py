@@ -1,3 +1,4 @@
+#src\classes\template_matching_detector.py
 import cv2
 import numpy as np
 from .detector_interface import DetectorInterface

@@ -99,34 +99,17 @@ Tracking:
   TRACKING_RECTANGLE_COLOR: [255, 0, 0]
   CENTER_CIRCLE_COLOR: [0, 255, 0]
   CENTER_HISTORY_LENGTH: 10
-  PARTICLE_FILTER_NUM_PARTICLES: 200
-  PARTICLE_FILTER_SIMILARITY_MEASURE: MSE_color
-  PARTICLE_FILTER_SIGMA: 5
-  PARTICLE_FILTER_SIGMA_MOVE_NEAR: 15
-  PARTICLE_FILTER_SIGMA_MOVE_FAR: 30
-  PARTICLE_FILTER_SIGMA_RATIO: 0.5
-  # Motion Consistency Parameters
-  MAX_DISPLACEMENT_THRESHOLD: 50  # Pixels, adjust based on expected target speed
+  MAX_DISPLACEMENT_THRESHOLD: 0.25  # As a fraction of the frame dimensions
 
-  # Appearance Validation Parameters
-  APPEARANCE_THRESHOLD: 0.5  # Histogram correlation threshold (0 to 1)
+  # For appearance validation
+  APPEARANCE_THRESHOLD: 0.2  # Similarity threshold between 0 and 1
 
-  # Confidence Scoring System
-  CONFIDENCE_THRESHOLD: 0.6  # Minimum confidence to accept tracking result
+  # For confidence scoring
+  CONFIDENCE_THRESHOLD: 0.3  # Minimum required confidence to accept tracking result
 
-  # Re-detection Parameters
-  REDETECTION_ATTEMPTS: 3
-  REDETECTION_INTERVAL: 1.0  # Seconds
-  AUTO_REDETECT: True
+  # For re-detection mechanism
+  REDETECTION_ATTEMPTS: 5
 
-  # Display Parameters
-  TRACKER_BOX_COLOR: (0, 255, 0)  # Green
-  TRACKER_CENTER_COLOR: (255, 0, 0)  # Blue
-  CENTER_HISTORY_LENGTH: 10   # Center History Length for Estimator
-  ESTIMATOR_HISTORY_LENGTH: 10
-
-  # Enable Debugging
-  ENABLE_DEBUGGING: True
 
 # Follower Configuration
 Follower:

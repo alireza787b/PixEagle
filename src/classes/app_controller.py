@@ -1,5 +1,4 @@
-# src/classes/app_controller.py
-
+#src/classes/app_controller.py
 import asyncio
 import logging
 import numpy as np
@@ -21,6 +20,8 @@ from classes.gstreamer_handler import GStreamerHandler
 from classes.mavlink_data_manager import MavlinkDataManager
 from classes.frame_preprocessor import FramePreprocessor
 
+
+
 class AppController:
     def __init__(self):
         """
@@ -36,13 +37,13 @@ class AppController:
             data_points=Parameters.MAVLINK_DATA_POINTS,
             enabled=Parameters.MAVLINK_ENABLED
         )
-
+        
         # Initialize the FramePreprocessor if enabled
         if Parameters.ENABLE_PREPROCESSING:
             self.preprocessor = FramePreprocessor()
         else:
             self.preprocessor = None
-
+        
         # Start polling MAVLink data if enabled
         if Parameters.MAVLINK_ENABLED:
             self.mavlink_data_manager.start_polling()
@@ -80,11 +81,12 @@ class AppController:
 
         # Initialize the OSD handler with access to the AppController
         self.osd_handler = OSDHandler(self)
-
+        
         # Initialize GStreamerHandler if streaming is enabled
         if Parameters.ENABLE_GSTREAMER_STREAM:
             self.gstreamer_handler = GStreamerHandler()
             self.gstreamer_handler.initialize_stream()
+
 
         logging.info("AppController initialized.")
 
@@ -107,6 +109,8 @@ class AppController:
             if bbox and bbox[2] > 0 and bbox[3] > 0:
                 self.tracker.start_tracking(frame, bbox)
                 self.tracking_started = True
+                if hasattr(self.tracker, 'detector') and self.tracker.detector:
+                    self.tracker.detector.extract_features(frame, bbox)
                 logging.info("Tracking activated.")
             else:
                 logging.info("Tracking canceled or invalid ROI.")
@@ -136,6 +140,8 @@ class AppController:
             bbox_tuple = (bbox['x'], bbox['y'], bbox['width'], bbox['height'])
             self.tracker.start_tracking(self.current_frame, bbox_tuple)
             self.tracking_started = True
+            if hasattr(self.tracker, 'detector') and self.tracker.detector:
+                self.tracker.detector.extract_features(self.current_frame, bbox_tuple)
             logging.info("Tracking activated.")
         else:
             logging.info("Tracking is already active.")
@@ -172,93 +178,83 @@ class AppController:
         Returns:
             np.ndarray: The processed video frame.
         """
-        # Preprocessing step
-        if Parameters.ENABLE_PREPROCESSING and self.preprocessor:
-            frame = self.preprocessor.preprocess(frame)
-
-        if self.segmentation_active:
-            frame = self.segmentor.segment_frame(frame)
-
-        if self.tracking_started:
-            success, _ = self.tracker.update(frame)
-            if success:
-                frame = self.tracker.draw_tracking(frame)
-                if Parameters.ENABLE_DEBUGGING:
-                    self.tracker.print_normalized_center()
-                if Parameters.USE_ESTIMATOR:
-                    frame = self.tracker.draw_estimate(frame)
-                if self.following_active:
-                    await self.follow_target()
-                    await self.check_failsafe()
+        try:
+            # Preprocessing step
+            if Parameters.ENABLE_PREPROCESSING and self.preprocessor:
+                frame = self.preprocessor.preprocess(frame)
+            
+            if self.segmentation_active:
+                frame = self.segmentor.segment_frame(frame)
+            
+            if self.tracking_started:
+                success, _ = self.tracker.update(frame)
+                if success:
+                    frame = self.tracker.draw_tracking(frame)
+                    if Parameters.ENABLE_DEBUGGING:
+                        self.tracker.print_normalized_center()
+                    if Parameters.USE_ESTIMATOR:
+                        frame = self.tracker.draw_estimate(frame)
+                    if self.following_active:
+                        await self.follow_target()
+                        await self.check_failsafe()
+                else:
+                    logging.warning("Tracking lost. Attempting to handle failure.")
+                    self.tracking_started = False
+                    await self.handle_tracking_failure()
             else:
-                logging.warning("Tracking failure detected.")
-                await self.handle_tracking_failure()
+                # Tracking not active; continue processing frames
+                pass
 
-        if self.telemetry_handler.should_send_telemetry():
-            self.telemetry_handler.send_telemetry()
+            if self.telemetry_handler.should_send_telemetry():
+                self.telemetry_handler.send_telemetry()
 
-        self.current_frame = frame
-        self.video_handler.current_osd_frame = frame
+            self.current_frame = frame
+            self.video_handler.current_osd_frame = frame
 
-        # Draw OSD elements on the frame
-        frame = self.osd_handler.draw_osd(frame)
+            # Draw OSD elements on the frame
+            frame = self.osd_handler.draw_osd(frame)
 
-        # Stream the processed frame if GStreamer is enabled
-        if Parameters.ENABLE_GSTREAMER_STREAM and self.gstreamer_handler:
-            self.gstreamer_handler.stream_frame(frame)
-
+            # Stream the processed frame if GStreamer is enabled
+            if Parameters.ENABLE_GSTREAMER_STREAM and self.gstreamer_handler:
+                self.gstreamer_handler.stream_frame(frame)
+        except Exception as e:
+            logging.error(f"Error in update_loop: {e}")
         return frame
-
+    
+    
     async def handle_tracking_failure(self):
         """
-        Handles tracking failure by attempting re-detection or triggering failsafe.
+        Handles tracking failure by attempting re-detection using the existing detector.
         """
         if Parameters.USE_DETECTOR and Parameters.AUTO_REDETECT:
-            redetect_result = await self.attempt_redetection()
-            if not redetect_result:
-                logging.error("Redetection failed. Initiating failsafe.")
-                await self.trigger_failsafe()
-        else:
-            logging.error("Tracking failed and redetection is disabled. Initiating failsafe.")
-            await self.trigger_failsafe()
-
-    async def attempt_redetection(self):
-        """
-        Attempts to redetect the target.
-
-        Returns:
-            bool: True if redetection was successful, False otherwise.
-        """
-        logging.info("Attempting to re-detect the target...")
-        detection_success = False
-        for attempt in range(Parameters.REDETECTION_ATTEMPTS):
-            detections = self.detector.detect(self.current_frame)
-            for det_bbox in detections:
-                det_features = self.tracker.extract_features(self.current_frame, det_bbox)
-                similarity = cv2.compareHist(self.tracker.initial_features, det_features, cv2.HISTCMP_CORREL)
-                if similarity > Parameters.APPEARANCE_THRESHOLD:
-                    self.tracker.reinitialize_tracker(self.current_frame, det_bbox)
-                    self.tracking_started = True
-                    detection_success = True
+            logging.info("Attempting to re-detect the target using the detector.")
+            detection_success = False
+            for attempt in range(Parameters.REDETECTION_ATTEMPTS):
+                redetect_result = self.initiate_redetection()
+                if redetect_result["success"]:
                     logging.info("Target re-detected and tracker re-initialized.")
+                    detection_success = True
                     break
-            if detection_success:
-                break
-            await asyncio.sleep(Parameters.REDETECTION_INTERVAL)
-        return detection_success
-
-    async def trigger_failsafe(self):
-        """
-        Triggers the failsafe procedure by disconnecting PX4 and cancelling activities.
-        """
-        await self.disconnect_px4()
-        self.cancel_activities()
-        logging.info("Failsafe triggered. Drone control returned to operator.")
-
+                else:
+                    logging.info(f"Re-detection attempt {attempt + 1} failed. Retrying...")
+                #await asyncio.sleep(Parameters.REDETECTION_INTERVAL)
+            if not detection_success:
+                logging.error("Failed to re-detect the target after multiple attempts.")
+                await self.handle_failsafe()
+        else:
+            logging.error("Detector not enabled or AUTO_REDETECT is False. Initiating failsafe.")
+            await self.handle_failsafe()
+    
+    
     async def check_failsafe(self):
-        if self.px4_interface.failsafe_active:
-            await self.px4_interface.trigger_failsafe()
+        if self.px4_interface.failsafe_active :
+            # await self.px4_interface.trigger_failsafe()
+            await self.handle_failsafe()
             self.px4_interface.failsafe_active = False
+
+    async def handle_failsafe(self):
+        #for now only disconnect px4 so attemp default px4 behaviour (possibly hold  fligt mode)
+        await self.disconnect_px4()
 
     async def handle_key_input_async(self, key: int, frame: np.ndarray):
         """
@@ -268,12 +264,13 @@ class AppController:
             key (int): The key pressed.
             frame (np.ndarray): The current video frame.
         """
+        # logging.debug(f"Handling key input: {key}")
         if key == ord('y'):
             self.toggle_segmentation()
         elif key == ord('t'):
             self.toggle_tracking(frame)
         elif key == ord('d'):
-            await self.attempt_redetection()
+            self.initiate_redetection()
         elif key == ord('f'):
             await self.connect_px4()
         elif key == ord('x'):
@@ -328,6 +325,47 @@ class AppController:
                 return det
         return None
 
+    def initiate_redetection(self) -> Dict[str, any]:
+        """
+        Attempts to re-detect the object being tracked using the existing detector.
+        """
+        
+        #TODO:  Handle Multiple Re-detection Attempts with Different Detectors for later reminder
+        
+        if Parameters.USE_DETECTOR:
+            redetect_result = self.detector.smart_redetection(self.current_frame, self.tracker)
+            if redetect_result:
+                detected_bbox = self.detector.get_latest_bbox()
+                # Perform appearance validation
+                current_features = self.tracker.extract_features(self.current_frame, detected_bbox)
+                similarity = cv2.compareHist(self.tracker.initial_features, current_features, cv2.HISTCMP_CORREL)
+                if similarity >= Parameters.APPEARANCE_THRESHOLD:
+                    self.tracker.reinitialize_tracker(self.current_frame, detected_bbox)
+                    self.tracking_started = True
+                    logging.info("Re-detection successful and tracker re-initialized.")
+                    return {
+                        "success": True,
+                        "message": "Re-detection successful and tracker re-initialized.",
+                        "bounding_box": detected_bbox
+                    }
+                else:
+                    logging.warning("Re-detected object does not match initial appearance.")
+                    return {
+                        "success": False,
+                        "message": "Re-detected object does not match initial appearance."
+                    }
+            else:
+                logging.info("Re-detection failed or no new object found.")
+                return {
+                    "success": False,
+                    "message": "Re-detection failed or no new object found."
+                }
+        else:
+            return {
+                "success": False,
+                "message": "Detector is not enabled."
+            }
+
     def show_current_frame(self, frame_title: str = Parameters.FRAME_TITLE) -> np.ndarray:
         """
         Displays the current frame in a window if SHOW_VIDEO_WINDOW is True.
@@ -335,6 +373,7 @@ class AppController:
         Args:
             frame_title (str): The title of the frame window.
         """
+        #logging.debug(f"Showing current frame: {frame_title}")
         if Parameters.SHOW_VIDEO_WINDOW:
             cv2.imshow(frame_title, self.current_frame)
         return self.current_frame
@@ -352,12 +391,12 @@ class AppController:
                 logging.debug("Activating Follow Mode to PX4!")
                 await self.px4_interface.connect()
                 logging.debug("Connected to PX4 Drone!")
-
+                
                 initial_target_coords = (
                     tuple(self.tracker.normalized_center) if Parameters.TARGET_POSITION_MODE == 'initial' else tuple(Parameters.DESIRE_AIM)
                 )
                 self.follower = Follower(self.px4_interface, initial_target_coords)
-                self.telemetry_handler.follower = self.follower
+                self.telemetry_handler.follower = self.follower  # Maybe do a better approach later.
                 await self.px4_interface.set_hover_throttle()
                 await self.px4_interface.send_initial_setpoint()
                 await self.px4_interface.start_offboard_mode()
@@ -368,8 +407,10 @@ class AppController:
                 result["errors"].append(f"Failed to connect/start offboard mode: {e}")
         else:
             result["steps"].append("Follow mode already active.")
-
+        
         return result
+
+
 
     async def disconnect_px4(self) -> Dict[str, any]:
         """
@@ -393,7 +434,7 @@ class AppController:
                 result["errors"].append(f"Failed to stop offboard mode: {e}")
         else:
             result["steps"].append("Follow mode is not active.")
-
+        
         return result
 
     async def follow_target(self):
@@ -411,10 +452,11 @@ class AppController:
                 await self.px4_interface.send_attitude_rate_commands()
             elif control_type == 'velocity_body':
                 await self.px4_interface.send_body_velocity_commands()
-
+            
             return True
         else:
             return False
+
 
     async def shutdown(self) -> Dict[str, any]:
         """
@@ -428,7 +470,7 @@ class AppController:
             # Stop MAVLink polling
             if Parameters.MAVLINK_ENABLED:
                 self.mavlink_data_manager.stop_polling()
-
+                
             if self.following_active:
                 logging.debug("Stopping offboard mode and disconnecting PX4.")
                 await self.px4_interface.stop_offboard_mode()
@@ -443,3 +485,6 @@ class AppController:
             logging.error(f"Error during shutdown: {e}")
             result["errors"].append(f"Error during shutdown: {e}")
         return result
+    
+    
+        
