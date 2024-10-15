@@ -118,7 +118,7 @@ PixEagle requires the `mavsdk_server_bin` binary for full functionality. This bi
 
 1. **Check for `mavsdk_server_bin`:**
 
-    The `mavsdk_server_bin` should be located in the project root directory (`~/PixEagle`). 
+    The `mavsdk_server_bin` should be located in the project root directory (`~/PixEagle`). It should be compatible with your hardware architecture. 
 
 2. **Download `mavsdk_server_bin`:**
 
