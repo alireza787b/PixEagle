@@ -145,19 +145,9 @@ PixEagle requires the `mavsdk_server_bin` binary for full functionality. This bi
     - **Automatic Download via Script:**
 
         When you run the PixEagle system using the `run_pixeagle.sh` script, if the `mavsdk_server_bin` is not found, the script will prompt you to automatically download and install it. Follow the on-screen instructions to complete the installation.
-
-#### Setting Up MAVLink Routing
-
-- **Using mavlink-anywhere Auto-Start Daemon:**
-
-  On systems like Raspberry Pi or Jetson, you can use the `mavlink-anywhere` auto-start daemon to automatically route serial connections (e.g., `/dev/ttyS0` or `/dev/ttyTHS1`) to UDP endpoints (e.g., `127.0.0.1:14550`, `127.0.0.1:14540`, `127.0.0.1:14569`) using the following command:
-
-  ```bash
-  bash ~/mavlink-anywhere/install_mavlink_router.sh
-  ```
-
-  Refer to the `mavlink-anywhere` [documentation](https://github.com/alireza787b/mavlink-anywhere) for more details.
-
+    ```bash
+    bash ~/PixEagle/src/tools/src/tools/download_mavsdk_server.sh
+    ```
 
 
 ### Running PixEagle
