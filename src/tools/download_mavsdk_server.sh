@@ -35,7 +35,7 @@ if [ $? -eq 0 ]; then
     fi
 
     # Move the temporary file to the final binary name
-    mv mavsdk_server_temp mavsdk_server
+    mv mavsdk_server_temp mavsdk_server_bin
     echo "mavsdk_server binary is updated."
 
     # Set executable permissions using sudo

@@ -99,12 +99,17 @@ Tracking:
   TRACKING_RECTANGLE_COLOR: [255, 0, 0]
   CENTER_CIRCLE_COLOR: [0, 255, 0]
   CENTER_HISTORY_LENGTH: 10
-  PARTICLE_FILTER_NUM_PARTICLES: 200
-  PARTICLE_FILTER_SIMILARITY_MEASURE: MSE_color
-  PARTICLE_FILTER_SIGMA: 5
-  PARTICLE_FILTER_SIGMA_MOVE_NEAR: 15
-  PARTICLE_FILTER_SIGMA_MOVE_FAR: 30
-  PARTICLE_FILTER_SIGMA_RATIO: 0.5
+  MAX_DISPLACEMENT_THRESHOLD: 0.25  # As a fraction of the frame dimensions
+
+  # For appearance validation
+  APPEARANCE_THRESHOLD: 0.2  # Similarity threshold between 0 and 1
+
+  # For confidence scoring
+  CONFIDENCE_THRESHOLD: 0.3  # Minimum required confidence to accept tracking result
+
+  # For re-detection mechanism
+  REDETECTION_ATTEMPTS: 5
+
 
 # Follower Configuration
 Follower:

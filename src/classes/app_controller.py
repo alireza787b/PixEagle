@@ -178,54 +178,83 @@ class AppController:
         Returns:
             np.ndarray: The processed video frame.
         """
-        #logging.debug("Starting update loop.")
-        
-        # Preprocessing step
-        if Parameters.ENABLE_PREPROCESSING and self.preprocessor:
-            frame = self.preprocessor.preprocess(frame)
-        
-        if self.segmentation_active:
-            frame = self.segmentor.segment_frame(frame)
-        
-        if self.tracking_started:
-            success, _ = self.tracker.update(frame)
-            if success:
-                frame = self.tracker.draw_tracking(frame)
-                if Parameters.ENABLE_DEBUGGING:
-                    self.tracker.print_normalized_center()
-                if Parameters.USE_ESTIMATOR:
-                    frame = self.tracker.draw_estimate(frame)
-                if self.following_active:
-                    await self.follow_target()
-                    await self.check_failsafe()
-
+        try:
+            # Preprocessing step
+            if Parameters.ENABLE_PREPROCESSING and self.preprocessor:
+                frame = self.preprocessor.preprocess(frame)
+            
+            if self.segmentation_active:
+                frame = self.segmentor.segment_frame(frame)
+            
+            if self.tracking_started:
+                success, _ = self.tracker.update(frame)
+                if success:
+                    frame = self.tracker.draw_tracking(frame)
+                    if Parameters.ENABLE_DEBUGGING:
+                        self.tracker.print_normalized_center()
+                    if Parameters.USE_ESTIMATOR:
+                        frame = self.tracker.draw_estimate(frame)
+                    if self.following_active:
+                        await self.follow_target()
+                        await self.check_failsafe()
+                else:
+                    logging.warning("Tracking lost. Attempting to handle failure.")
+                    self.tracking_started = False
+                    await self.handle_tracking_failure()
             else:
-                if Parameters.USE_DETECTOR and Parameters.AUTO_REDETECT:
-                    self.initiate_redetection()
+                # Tracking not active; continue processing frames
+                pass
 
-        if self.telemetry_handler.should_send_telemetry():
-            self.telemetry_handler.send_telemetry()
+            if self.telemetry_handler.should_send_telemetry():
+                self.telemetry_handler.send_telemetry()
 
-        self.current_frame = frame
-        self.video_handler.current_osd_frame = frame
+            self.current_frame = frame
+            self.video_handler.current_osd_frame = frame
 
-        # Draw OSD elements on the frame
-        frame = self.osd_handler.draw_osd(frame)
+            # Draw OSD elements on the frame
+            frame = self.osd_handler.draw_osd(frame)
 
-        # Stream the processed frame if GStreamer is enabled
-        if Parameters.ENABLE_GSTREAMER_STREAM and self.gstreamer_handler:
-            self.gstreamer_handler.stream_frame(frame)
-        
-        
-        #logging.debug("Update loop complete.")
-        
+            # Stream the processed frame if GStreamer is enabled
+            if Parameters.ENABLE_GSTREAMER_STREAM and self.gstreamer_handler:
+                self.gstreamer_handler.stream_frame(frame)
+        except Exception as e:
+            logging.error(f"Error in update_loop: {e}")
         return frame
+    
+    
+    async def handle_tracking_failure(self):
+        """
+        Handles tracking failure by attempting re-detection using the existing detector.
+        """
+        if Parameters.USE_DETECTOR and Parameters.AUTO_REDETECT:
+            logging.info("Attempting to re-detect the target using the detector.")
+            detection_success = False
+            for attempt in range(Parameters.REDETECTION_ATTEMPTS):
+                redetect_result = self.initiate_redetection()
+                if redetect_result["success"]:
+                    logging.info("Target re-detected and tracker re-initialized.")
+                    detection_success = True
+                    break
+                else:
+                    logging.info(f"Re-detection attempt {attempt + 1} failed. Retrying...")
+                #await asyncio.sleep(Parameters.REDETECTION_INTERVAL)
+            if not detection_success:
+                logging.error("Failed to re-detect the target after multiple attempts.")
+                await self.handle_failsafe()
+        else:
+            logging.error("Detector not enabled or AUTO_REDETECT is False. Initiating failsafe.")
+            await self.handle_failsafe()
     
     
     async def check_failsafe(self):
         if self.px4_interface.failsafe_active :
-            await self.px4_interface.trigger_failsafe()
+            # await self.px4_interface.trigger_failsafe()
+            await self.handle_failsafe()
             self.px4_interface.failsafe_active = False
+
+    async def handle_failsafe(self):
+        #for now only disconnect px4 so attemp default px4 behaviour (possibly hold  fligt mode)
+        await self.disconnect_px4()
 
     async def handle_key_input_async(self, key: int, frame: np.ndarray):
         """
@@ -298,21 +327,35 @@ class AppController:
 
     def initiate_redetection(self) -> Dict[str, any]:
         """
-        Attempts to redetect the object being tracked.
-
-        Returns:
-            dict: Details of the redetection attempt.
+        Attempts to re-detect the object being tracked using the existing detector.
         """
+        
+        #TODO:  Handle Multiple Re-detection Attempts with Different Detectors for later reminder
+        
         if Parameters.USE_DETECTOR:
             redetect_result = self.detector.smart_redetection(self.current_frame, self.tracker)
-            if self.detector.get_latest_bbox() is not None and redetect_result:
-                self.tracker.reinitialize_tracker(self.current_frame, self.detector.get_latest_bbox())
-                return {
-                    "success": True,
-                    "message": "Re-detection activated and tracking updated.",
-                    "bounding_box": self.detector.get_latest_bbox()
-                }
+            if redetect_result:
+                detected_bbox = self.detector.get_latest_bbox()
+                # Perform appearance validation
+                current_features = self.tracker.extract_features(self.current_frame, detected_bbox)
+                similarity = cv2.compareHist(self.tracker.initial_features, current_features, cv2.HISTCMP_CORREL)
+                if similarity >= Parameters.APPEARANCE_THRESHOLD:
+                    self.tracker.reinitialize_tracker(self.current_frame, detected_bbox)
+                    self.tracking_started = True
+                    logging.info("Re-detection successful and tracker re-initialized.")
+                    return {
+                        "success": True,
+                        "message": "Re-detection successful and tracker re-initialized.",
+                        "bounding_box": detected_bbox
+                    }
+                else:
+                    logging.warning("Re-detected object does not match initial appearance.")
+                    return {
+                        "success": False,
+                        "message": "Re-detected object does not match initial appearance."
+                    }
             else:
+                logging.info("Re-detection failed or no new object found.")
                 return {
                     "success": False,
                     "message": "Re-detection failed or no new object found."

@@ -1,3 +1,4 @@
+#src\classes\detector.py
 import logging
 from .parameters import Parameters
 from .feature_matching_detector import FeatureMatchingDetector

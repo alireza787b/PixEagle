@@ -25,6 +25,8 @@ class BaseTracker(ABC):
         self.video_handler = video_handler
         self.detector = detector
         self.bbox: Optional[Tuple[int, int, int, int]] = None  # Current bounding box
+        self.prev_center: Optional[Tuple[int, int]] = None  # Store previous center
+        self.initial_features = None  # Store features of the initial target
         self.normalized_bbox: Optional[Tuple[float, float, float, float]] = None  # Normalized bounding box
         self.center: Optional[Tuple[int, int]] = None  # Use underscore to denote the private attribute
         self.normalized_center: Optional[Tuple[float, float]] = None  # Store normalized center        self.center_history = deque(maxlen=Parameters.CENTER_HISTORY_LENGTH)
@@ -34,6 +36,8 @@ class BaseTracker(ABC):
         self.last_update_time: float = 0.0
         self.frame = None
         self.app_controller = app_controller
+        
+        
 
     @abstractmethod
     def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
@@ -217,7 +221,8 @@ class BaseTracker(ABC):
         Assumes `normalize_center_coordinates` has been called after the latest tracking update.
         """
         if hasattr(self, 'normalized_center'):
-            logging.debug(f"Normalized Center Coordinates: {self.normalized_center}")
+            #logging.debug(f"Normalized Center Coordinates: {self.normalized_center}")
+            pass
         else:
             logging.warn("Normalized center coordinates not calculated or available.")
             
@@ -241,3 +246,41 @@ class BaseTracker(ABC):
             #logging.debug(f"Normalized bbox: {self.normalized_bbox}")
 
             return self.normalized_bbox
+        
+    def is_motion_consistent(self) -> bool:
+        """
+        Checks if the motion between the previous and current center is within expected limits.
+        """
+        if self.prev_center is None:
+            return True  # Can't compare on the first frame
+        displacement = np.linalg.norm(np.array(self.center) - np.array(self.prev_center))
+        frame_diag = np.hypot(self.video_handler.width, self.video_handler.height)
+        max_displacement = Parameters.MAX_DISPLACEMENT_THRESHOLD * frame_diag
+        if displacement > max_displacement:
+            logging.warning(f"Motion inconsistency detected: displacement={displacement}, max allowed={max_displacement}")
+            return False
+        return True
+    
+    def extract_features(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> np.ndarray:
+        """
+        Extracts features from the given bounding box in the frame.
+        """
+        x, y, w, h = [int(v) for v in bbox]
+        roi = frame[y:y+h, x:x+w]
+        features = cv2.calcHist([roi], [0, 1, 2], None, [8, 8, 8],
+                                [0, 256, 0, 256, 0, 256])
+        features = cv2.normalize(features, features).flatten()
+        return features
+    
+    def is_appearance_consistent(self, frame: np.ndarray) -> bool:
+        """
+        Checks if the appearance of the tracked object is consistent with the initial features.
+        """
+        if self.initial_features is None:
+            return True  # Can't compare without initial features
+        current_features = self.extract_features(frame, self.bbox)
+        similarity = cv2.compareHist(self.initial_features, current_features, cv2.HISTCMP_CORREL)
+        if similarity < Parameters.APPEARANCE_THRESHOLD:
+            logging.warning(f"Appearance inconsistency detected: similarity={similarity}")
+            return False
+        return True
