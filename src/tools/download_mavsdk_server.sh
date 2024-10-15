@@ -30,8 +30,8 @@ if [ $? -eq 0 ]; then
 
     # Replace existing binary if it exists
     if [ -f mavsdk_server ]; then
-        echo "Replacing existing mavsdk_server binary."
-        rm -f mavsdk_server
+        echo "Replacing existing mavsdk_server_bin binary."
+        rm -f mavsdk_server_bin
     fi
 
     # Move the temporary file to the final binary name
@@ -39,10 +39,10 @@ if [ $? -eq 0 ]; then
     echo "mavsdk_server binary is updated."
 
     # Set executable permissions using sudo
-    sudo chmod +x mavsdk_server
-    echo "Executable permissions set for mavsdk_server."
+    sudo chmod +x mavsdk_server_bin
+    echo "Executable permissions set for bash run_pixeagle.sh."
 
-    echo "Operation completed successfully. mavsdk_server is ready for use."
+    echo "Operation completed successfully. bash run_pixeagle.sh is ready for use."
 else
     echo "Download failed. Please check the URL and your internet connection."
     rm -f mavsdk_server_temp
