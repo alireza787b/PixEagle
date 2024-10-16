@@ -13,7 +13,7 @@ from classes.estimators.base_estimator import BaseEstimator  # Import the estima
 logger = logging.getLogger(__name__)
 
 class Tracker:
-    def __init__(self, video_handler=None, detector=None, app_controller=None, estimator: BaseEstimator = None):
+    def __init__(self, video_handler=None, detector=None, app_controller=None):
         """
         Initializes the Tracker with a specific tracking algorithm and optional video handler, detector, and estimator.
 
@@ -27,6 +27,7 @@ class Tracker:
         self.video_handler = video_handler
         self.detector = detector
         self.app_controller = app_controller
+        estimator = self.app_controller.estimator
 
         self.bbox = None  # Current bounding box
         self.prev_bbox = None  # Previous bounding box

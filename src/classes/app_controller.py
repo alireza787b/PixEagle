@@ -51,10 +51,13 @@ class AppController:
 
         # Initialize video processing components
         self.video_handler = VideoHandler()
+        # Initialize the estimator
+        self.estimator = create_estimator(Parameters.ESTIMATOR_TYPE) if Parameters.ESTIMATOR_ENABLED else None
         self.video_streamer = None
         self.detector = Detector(algorithm_type=Parameters.DETECTION_ALGORITHM)
         self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM, self.video_handler, self.detector, self)
         self.segmentor = Segmentor(algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM)
+        
 
         # Flags to track the state of tracking and segmentation
         self.tracking_started = False
@@ -193,7 +196,7 @@ class AppController:
                     frame = self.tracker.draw_tracking(frame)
                     if Parameters.ENABLE_DEBUGGING:
                         self.tracker.print_normalized_center()
-                    if Parameters.USE_ESTIMATOR:
+                    if self.estimator:
                         frame = self.tracker.draw_estimate(frame)
                     if self.following_active:
                         await self.follow_target()
@@ -245,6 +248,7 @@ class AppController:
         else:
             logging.error("Detector not enabled or AUTO_REDETECT is False. Initiating failsafe.")
             await self.handle_failsafe()
+            self.following_active = False #double check later why I need manually do this
     
     
     async def check_failsafe(self):
@@ -425,11 +429,11 @@ class AppController:
             try:
                 await self.px4_interface.stop_offboard_mode()
                 result["steps"].append("Offboard mode stopped.")
+                self.following_active = False
                 if self.setpoint_sender:
                     self.setpoint_sender.stop()
                     self.setpoint_sender.join()
                     self.setpoint_sender = None
-                self.following_active = False
             except Exception as e:
                 logging.error(f"Failed to stop offboard mode: {e}")
                 result["errors"].append(f"Failed to stop offboard mode: {e}")
@@ -443,7 +447,21 @@ class AppController:
         Prepares to follow the target based on tracking information.
         """
         if self.tracking_started and self.following_active:
-            target_coords = self.tracker.normalized_center
+            if self.estimator:
+                estimate = self.estimator.get_estimate()
+                if estimate:
+                    estimated_x, estimated_y = estimate[:2]
+                    frame_width, frame_height = self.video_handler.width, self.video_handler.height
+                    norm_x = estimated_x / frame_width
+                    norm_y = estimated_y / frame_height
+                    target_coords = (norm_x, norm_y)
+                    logging.debug(f"target coordinate estimated: {target_coords}")
+                else:
+                    target_coords = self.tracker.normalized_center  # Fallback to tracker center
+                    
+            else:
+                target_coords = self.tracker.normalized_center
+
             self.follower.follow_target(target_coords)
             self.px4_interface.update_setpoint()
 
@@ -453,7 +471,7 @@ class AppController:
                 await self.px4_interface.send_attitude_rate_commands()
             elif control_type == 'velocity_body':
                 await self.px4_interface.send_body_velocity_commands()
-            
+
             return True
         else:
             return False
