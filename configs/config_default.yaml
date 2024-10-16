@@ -53,6 +53,10 @@ FrameEstimation:
   ESTIMATOR_HISTORY_LENGTH: 5
   SHOW_VIDEO_WINDOW: false
 
+
+  ESTIMATOR_ENABLED: True
+  ESTIMATOR_TYPE: Kalman  # Or "None" to disable the estimator
+
 #Frame Preprocessing Configuration
 FramePreprocessor:
     ENABLE_PREPROCESSING: false

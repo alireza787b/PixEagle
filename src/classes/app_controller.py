@@ -19,6 +19,7 @@ from classes.osd_handler import OSDHandler
 from classes.gstreamer_handler import GStreamerHandler
 from classes.mavlink_data_manager import MavlinkDataManager
 from classes.frame_preprocessor import FramePreprocessor
+from classes.estimators.estimator_factory import create_estimator
 
 
 

@@ -6,19 +6,22 @@ import logging
 import numpy as np
 from collections import deque
 from .parameters import Parameters
-from .position_estimator import PositionEstimator
+# Remove direct import of PositionEstimator
+# from .position_estimator import PositionEstimator
+from classes.estimators.base_estimator import BaseEstimator  # Import the estimator interface
 
 logger = logging.getLogger(__name__)
 
 class Tracker:
-    def __init__(self, video_handler=None, detector=None, app_controller=None):
+    def __init__(self, video_handler=None, detector=None, app_controller=None, estimator: BaseEstimator = None):
         """
-        Initializes the Tracker with a specific tracking algorithm and optional video handler and detector.
+        Initializes the Tracker with a specific tracking algorithm and optional video handler, detector, and estimator.
 
         Args:
             video_handler (VideoHandler, optional): An instance of the VideoHandler class.
             detector (Detector, optional): An instance of the Detector class.
             app_controller (AppController, optional): Reference to the main app controller.
+            estimator (BaseEstimator, optional): An instance of an estimator implementing BaseEstimator.
         """
         self.tracker = None
         self.video_handler = video_handler
@@ -38,8 +41,8 @@ class Tracker:
         self.init_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM)
 
         # Estimator (if used)
-        self.estimator_enabled = Parameters.USE_ESTIMATOR
-        self.position_estimator = PositionEstimator() if self.estimator_enabled else None
+        self.position_estimator = estimator
+        self.estimator_enabled = estimator is not None
         self.estimated_position_history = deque(maxlen=Parameters.ESTIMATOR_HISTORY_LENGTH)
 
     def init_tracker(self, algorithm):
@@ -99,6 +102,10 @@ class Tracker:
 
         self.last_update_time = time.time()
 
+        # Reset the estimator if enabled
+        if self.estimator_enabled and self.position_estimator:
+            self.position_estimator = self.position_estimator.__class__()  # Re-initialize the estimator
+
     def update(self, frame):
         """
         Updates the tracker with the new frame, and manages bounding box, center, and estimator.
@@ -111,7 +118,7 @@ class Tracker:
         """
         current_time = time.time()
         success, new_bbox = self.tracker.update(frame)
-        dt = current_time - self.last_update_time if self.last_update_time else 0
+        dt = current_time - self.last_update_time if self.last_update_time else 0.1  # Default to 0.1 if first frame
         self.last_update_time = current_time
 
         if success:
@@ -286,3 +293,13 @@ class Tracker:
         norm_x = self.center[0] / frame_width
         norm_y = self.center[1] / frame_height
         return (norm_x, norm_y)
+
+    def set_estimator(self, estimator):
+        """
+        Sets the estimator for the tracker.
+
+        Args:
+            estimator (BaseEstimator): An instance of an estimator implementing BaseEstimator.
+        """
+        self.position_estimator = estimator
+        self.estimator_enabled = estimator is not None
