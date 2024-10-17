@@ -52,7 +52,6 @@ class AppController:
         # Initialize video processing components
         self.video_handler = VideoHandler()
         # Initialize the estimator
-        self.estimator = create_estimator(Parameters.ESTIMATOR_TYPE) if Parameters.ESTIMATOR_ENABLED else None
         self.video_streamer = None
         self.detector = Detector(algorithm_type=Parameters.DETECTION_ALGORITHM)
         self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM, self.video_handler, self.detector, self)
@@ -447,20 +446,16 @@ class AppController:
         Prepares to follow the target based on tracking information.
         """
         if self.tracking_started and self.following_active:
-            if self.estimator:
-                estimate = self.estimator.get_estimate()
-                if estimate:
-                    estimated_x, estimated_y = estimate[:2]
-                    frame_width, frame_height = self.video_handler.width, self.video_handler.height
-                    norm_x = estimated_x / frame_width
-                    norm_y = estimated_y / frame_height
-                    target_coords = (norm_x, norm_y)
-                    logging.debug(f"target coordinate estimated: {target_coords}")
-                else:
-                    target_coords = self.tracker.normalized_center  # Fallback to tracker center
-                    
+            estimate = self.tracker.get_estimated_position()
+            if estimate:
+                estimated_x, estimated_y = estimate[:2]
+                frame_width, frame_height = self.video_handler.width, self.video_handler.height
+                norm_x = estimated_x / frame_width
+                norm_y = estimated_y / frame_height
+                target_coords = (norm_x, norm_y)
+                logging.debug(f"target coordinate estimated: {target_coords}")
             else:
-                target_coords = self.tracker.normalized_center
+                target_coords = self.tracker.normalized_center  # Fallback to tracker center
 
             self.follower.follow_target(target_coords)
             self.px4_interface.update_setpoint()

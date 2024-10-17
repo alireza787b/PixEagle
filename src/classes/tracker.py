@@ -9,6 +9,7 @@ from .parameters import Parameters
 # Remove direct import of PositionEstimator
 # from .position_estimator import PositionEstimator
 from classes.estimators.base_estimator import BaseEstimator  # Import the estimator interface
+from classes.estimators.estimator_factory import create_estimator
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,7 @@ class Tracker:
 
         # Reset the estimator if enabled
         if self.estimator_enabled and self.position_estimator:
-            self.position_estimator = self.position_estimator.__class__()  # Re-initialize the estimator
+            self.position_estimator.reset()  # Reset the estimator's state
 
     def update(self, frame):
         """
@@ -304,3 +305,10 @@ class Tracker:
         """
         self.position_estimator = estimator
         self.estimator_enabled = estimator is not None
+
+    def get_estimated_position(self):
+        if self.estimator_enabled and self.position_estimator:
+            estimated_position = self.position_estimator.get_estimate()
+            return estimated_position
+        else:
+            return None

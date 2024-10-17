@@ -88,3 +88,8 @@ class KalmanEstimator(BaseEstimator):
         estimate = self.filter.x.flatten().tolist()
         logger.debug(f"Current state estimate: {estimate}")
         return estimate
+    # In KalmanEstimator class
+    def reset(self):
+        self.filter.x = np.zeros((4, 1))  # Reset state vector
+        self.filter.P *= 100  # Reset uncertainty
+        logger.debug("Kalman Filter state reset.")
