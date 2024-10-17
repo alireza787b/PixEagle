@@ -51,7 +51,6 @@ class AppController:
 
         # Initialize video processing components
         self.video_handler = VideoHandler()
-        # Initialize the estimator
         self.video_streamer = None
         self.detector = Detector(algorithm_type=Parameters.DETECTION_ALGORITHM)
         self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM, self.video_handler, self.detector, self)
@@ -195,7 +194,7 @@ class AppController:
                     frame = self.tracker.draw_tracking(frame)
                     if Parameters.ENABLE_DEBUGGING:
                         self.tracker.print_normalized_center()
-                    if self.estimator:
+                    if self.tracker.position_estimator:
                         frame = self.tracker.draw_estimate(frame)
                     if self.following_active:
                         await self.follow_target()
