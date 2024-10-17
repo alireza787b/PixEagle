@@ -2,13 +2,63 @@
 
 ## Overview
 
-PixEagle is an all-in-one image processing, following, and tracking solution designed for the PX4 ecosystem, with potential expansion to ArduPilot. It leverages MAVSDK Python, OpenCV, and optional YOLO for precise object tracking and drone navigation. The project emphasizes modularity and extensibility, allowing users to implement their own tracking, detection, and segmentation algorithms. Additionally, PixEagle includes a web-based React application that serves as a Ground Control Station (GCS), providing real-time monitoring and control with enhanced features like drag-and-select target tracking.
+PixEagle is an all-in-one image processing, following, and tracking solution designed for the PX4 ecosystem, with potential expansion to ArduPilot. It leverages **MAVSDK Python**, **OpenCV**, and optional **YOLO** for precise object tracking and drone navigation. The project emphasizes **modularity** and **extensibility**, allowing users to implement their own tracking, detection, and segmentation algorithms. Additionally, PixEagle includes a **web-based React application** that serves as a Ground Control Station (GCS), providing real-time monitoring and control with enhanced features like drag-and-select target tracking.
+
+With PixEagle 2.0, we've introduced a suite of advanced features to elevate your drone's capabilities, making it more robust, user-friendly, and versatile for various aerial robotics applications.
 
 ## Latest Release
 
-Watch the latest video showcasing PixEagle v1.0, demonstrating advanced features including precision landing and intelligent target tracking in a Software in the Loop (SITL) simulation with X-Plane 12 and [PX4XPlane](https://github.com/alireza787b/px4xplane):
+### 🎉 **PixEagle 2.0 - Enhanced Tracking, Modular Design & Advanced Features** 🚁✨
 
-[![PixEagle v1.0](https://github.com/user-attachments/assets/4acd965b-34c1-456e-be70-d4cc7f26eddb)](https://youtu.be/hw5MU0mPx2I)
+Watch our latest demo video showcasing **PixEagle 2.0**, where we demonstrate its advanced tracking functionalities, various following modes, and seamless integration with real hardware like the Raspberry Pi 5. This release brings significant improvements in tracker robustness, user experience, and operational efficiency.
+
+[![PixEagle 2.0 Demo Video](https://img.youtube.com/vi/vJn27WEXQJw/0.jpg)](https://www.youtube.com/watch?v=vJn27WEXQJw)
+
+
+### 📺 **Watch the PixEagle 2.0 Demo Video:**
+[Your PX4 Drone Can See, Track & Follow! Give Eagle Eyes to your Drone with PixEagle 2.0](https://www.youtube.com/watch?v=vJn27WEXQJw)
+
+### 🌟 **New Features in PixEagle 2.0:**
+
+- **🚀 Improved Tracker Robustness:**
+  - Enhanced algorithms for more reliable tracking in diverse environments.
+  - **Redetection & Tracker Failure Compensation (Beta):** Automatically recovers tracking in case of failures, ensuring continuous operation.
+
+- **🎨 Enhanced Visuals & User Experience:**
+  - Sleeker user interfaces for a more intuitive and seamless user journey.
+  - Easier operation features to streamline your workflow.
+
+- **🌐 Full-Featured Web-Based Dashboard:**
+  - Accessible from anywhere, providing comprehensive control and monitoring.
+  - Optimized to work efficiently on companion computers, enhancing flexibility.
+
+- **⚙️ Optimization for Companion Computers:**
+  - Efficient performance on various companion computer setups.
+
+- **🛠️ Fully Modular Design:**
+  - Easily add your own trackers using the base tracker abstract method implementation.
+  - **Customizable:** Tailor PixEagle 2.0 to fit your specific project needs with its all-in-one, modular design.
+
+- **🔄 Multiple Following Modes:**
+  - **Ground View Mode**
+  - **Constant Distance**
+  - **Constant Position**
+  - **Chase Mode (Dogfight)**
+
+- **🔗 Integration with MAVSDK & Mavlink2REST:**
+  - Seamless communication and control integration for enhanced drone management.
+
+- **📷 Support for CSI Cameras:**
+  - Requires manual GStreamer build for optimal performance.
+
+- **📡 Streaming Enhancements:**
+  - **Stream to QGC Over UDP:** Real-time data streaming for enhanced control and monitoring.
+  - **WebSocket & HTTP Streaming:** Improved WebSocket performance with reduced latency, ensuring smooth data transmission.
+
+- **🛡️ Failsafe Handling Implementations:**
+  - Enhanced safety measures for reliable drone operations in unforeseen scenarios.
+
+
 
 ## Getting Started
 
@@ -408,28 +458,30 @@ While in the video window, you can use the following keys:
 - `d`: Try to re-detect target
 - `q`: Quit
 
-## Known Issues
+### 📚 **Additional Resources:**
 
-- **Real-World Testing:** None of the modes have been tested in real-world conditions yet.
-- **User Interface:** The UI is not fully complete.
-- **MAVLink Data on OSD:** MAVLink data displayed on the On-Screen Display (OSD) might not be completely precise.
+- **📁 PixEagle GitHub Repository:**  
+  [https://github.com/alireza787b/PixEagle](https://github.com/alireza787b/PixEagle)
+  
+- **📄 X-Plane SITL Instructions:**  
+  [Follow Mode Xplane Guide](https://github.com/alireza787b/PixEagle/blob/smart-param/Follow_Mode_Xplane_Guide.md)
+  
+- **📂 PX4Xplane Repository:**  
+  [https://github.com/alireza787b/px4xplane](https://github.com/alireza787b/px4xplane)
+  
+- **📺 PixEagle YouTube Playlist:**  
+  [PixEagle Series](https://www.youtube.com/watch?v=nMThQLC7nBg&list=PLVZvZdBQdm_4oain9--ClKioiZrq64-Ky&index=1&t=0s)
 
-## Contribution Guidelines
+### ⚠️ **Disclaimer:**
 
-We welcome contributions from developers, researchers, and enthusiasts in drone technology, AI, and robotics. You can contribute by:
+*PixEagle 2.0 is currently in an experimental stage and has not been tested in real-world scenarios. Use at your own risk. The developers are not responsible for any misuse or damages resulting from the use of this software.*
 
-- Checking out current issues.
-- Discussing your ideas.
-- Submitting pull requests with new features or improvements.
+### 👍 **Stay Connected & Get Involved:**
 
-## Project Status
+- **🔔 Subscribe** to our [YouTube Channel](https://www.youtube.com/channel/YourChannelLink) for more updates and tutorials on PixEagle 2.0.
+- **💬 Share** your thoughts and suggestions in the [issues](https://github.com/alireza787b/PixEagle/issues) section of our GitHub repository!
+- **🔗 Join** our community by contributing on [GitHub](https://github.com/alireza787b/PixEagle).
 
-PixEagle is under active development, focusing on:
+### 📢 **Call to Action:**
 
-- Leveraging PX4 for flight control.
-- Incorporating AI for smart decision-making.
-- Utilizing advanced tracking for precise object interaction.
-
-## Disclaimer
-
-PixEagle has not yet been tested in real-world conditions. It has only been tested in SITL simulations. Real-world testing can significantly differ and might lead to crashes or damage. Use it at your own risk. The developers are not responsible for any damages or losses incurred during real-world testing.
+Enjoyed PixEagle 2.0? **Star ⭐** the repository, **fork 🔀** it for your projects, and **contribute** to help us continue to innovate and improve PixEagle. Your support is invaluable!
