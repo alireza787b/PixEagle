@@ -29,7 +29,7 @@ if [ $? -eq 0 ]; then
     echo "Download successful."
 
     # Replace existing binary if it exists
-    if [ -f mavsdk_server ]; then
+    if [ -f mavsdk_server_bin ]; then
         echo "Replacing existing mavsdk_server_bin binary."
         rm -f mavsdk_server_bin
     fi
