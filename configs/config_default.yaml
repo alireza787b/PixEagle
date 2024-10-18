@@ -97,6 +97,13 @@ Detector:
   FLANN_SEARCH_PARAMS:
     checks: 50
 
+  REDETECTION_SEARCH_RADIUS: 400  # Pixels, adjust as needed
+  TEMPLATE_MATCHING_THRESHOLD: 0.7
+
+  ESTIMATED_POSITION_COLOR: [255, 0, 0] # Blue when tracking is successful
+  ESTIMATION_ONLY_COLOR: [0, 165, 255]  # Orange when in estimation-only mode
+
+
 # Tracking Configuration
 Tracking:
   DEFAULT_TRACKING_ALGORITHM: CSRT
@@ -104,6 +111,8 @@ Tracking:
   CENTER_CIRCLE_COLOR: [0, 255, 0]
   CENTER_HISTORY_LENGTH: 10
   MAX_DISPLACEMENT_THRESHOLD: 0.25  # As a fraction of the frame dimensions
+  TRACKING_FAILURE_TIMEOUT: 5.0  # You can adjust this value as needed
+
 
   # For appearance validation
   APPEARANCE_THRESHOLD: 0.2  # Similarity threshold between 0 and 1

@@ -296,19 +296,6 @@ class Tracker:
         norm_y = self.center[1] / frame_height
         return (norm_x, norm_y)
 
-    def set_estimator(self, estimator):
-        """
-        Sets the estimator for the tracker.
 
-        Args:
-            estimator (BaseEstimator): An instance of an estimator implementing BaseEstimator.
-        """
-        self.position_estimator = estimator
-        self.estimator_enabled = estimator is not None
 
-    def get_estimated_position(self):
-        if self.estimator_enabled and self.position_estimator:
-            estimated_position = self.position_estimator.get_estimate()
-            return estimated_position
-        else:
-            return None
+

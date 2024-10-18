@@ -2,9 +2,10 @@
 
 import numpy as np
 import logging
+import time
 from filterpy.kalman import KalmanFilter
-from filterpy.common import Q_discrete_white_noise
 from .base_estimator import BaseEstimator
+from classes.parameters import Parameters  # Ensure correct import path
 
 logger = logging.getLogger(__name__)
 
@@ -13,21 +14,35 @@ class KalmanEstimator(BaseEstimator):
         """
         Initializes the KalmanEstimator with a Kalman Filter configured for 2D position estimation.
         """
-        # Initialize the Kalman Filter with 4 state dimensions (x, y, dx, dy) and 2 measurement dimensions (x, y)
+        # Initialize the Kalman Filter
         self.filter = KalmanFilter(dim_x=4, dim_z=2)
-        self.filter.x = np.zeros((4, 1))  # Initial state vector: [x, y, dx, dy]
-        self.filter.P *= 100  # Initial uncertainty (covariance matrix)
+        self.filter.x = np.zeros((4, 1))  # State vector: [x, y, dx, dy]
 
-        # Measurement function (only position is measured, not velocity)
+        # Initial covariance matrix P
+        initial_covariance = Parameters.ESTIMATOR_INITIAL_STATE_COVARIANCE
+        self.filter.P = np.diag(initial_covariance)
+
+        # Measurement function H
         self.filter.H = np.array([[1, 0, 0, 0],
                                   [0, 1, 0, 0]])
 
-        # Measurement noise covariance matrix
-        self.filter.R = np.eye(2) * 5  # Adjust this value based on the measurement noise characteristics
+        # Measurement noise covariance R
+        self.measurement_noise_variance = Parameters.ESTIMATOR_MEASUREMENT_NOISE_VARIANCE
+        self.filter.R = np.eye(2) * self.measurement_noise_variance
 
-        # Default time step (dt), updated dynamically in use
+        # Process noise variance
+        self.process_noise_variance = Parameters.ESTIMATOR_PROCESS_NOISE_VARIANCE
+
+        # Default time step dt
         self.dt = 0.1
         self.update_F_and_Q(self.dt)
+
+    def predict_only(self):
+        """
+        Performs only the predict step of the Kalman Filter without an update.
+        """
+        self.filter.predict()
+        logger.debug("Kalman Filter prediction step executed without measurement update.")
 
     def update_F_and_Q(self, dt):
         """
@@ -36,12 +51,29 @@ class KalmanEstimator(BaseEstimator):
         Args:
             dt (float): Time step between the current and previous measurements.
         """
+        # State transition matrix (constant velocity model)
         self.filter.F = np.array([[1, 0, dt, 0],
                                   [0, 1, 0, dt],
-                                  [0, 0, 1, 0],
-                                  [0, 0, 0, 1]])
+                                  [0, 0, 1,  0],
+                                  [0, 0, 0,  1]])
 
-        self.filter.Q = Q_discrete_white_noise(dim=4, dt=dt, var=0.1)
+        # Process noise covariance matrix
+        q = self.process_noise_variance
+        dt2 = dt ** 2
+        dt3 = dt ** 3
+        dt4 = dt ** 4
+
+        q11 = dt4 / 4
+        q13 = dt3 / 2
+        q31 = dt3 / 2
+        q33 = dt2
+
+        Q = np.array([[q11,   0,     q13,   0],
+                      [0,     q11,   0,     q13],
+                      [q31,   0,     q33,   0],
+                      [0,     q31,   0,     q33]]) * q
+
+        self.filter.Q = Q
         logger.debug(f"Updated F and Q matrices with dt = {dt}")
 
     def set_dt(self, dt):
@@ -49,7 +81,7 @@ class KalmanEstimator(BaseEstimator):
         Sets the time step (dt) and updates the filter's state transition matrix and process noise accordingly.
 
         Args:
-            dt (float): The new time step to use, typically the time elapsed between frames.
+            dt (float): The new time step to use.
 
         Raises:
             ValueError: If dt is non-positive.
@@ -59,7 +91,7 @@ class KalmanEstimator(BaseEstimator):
 
         self.dt = dt
         self.update_F_and_Q(dt)
-        logger.info(f"Time step updated to {dt}")
+        logger.debug(f"Time step updated to {dt}")
 
     def predict_and_update(self, measurement):
         """
@@ -76,7 +108,9 @@ class KalmanEstimator(BaseEstimator):
 
         self.filter.predict()
         self.filter.update(np.array(measurement).reshape(2, 1))
-        logger.debug(f"Kalman Filter updated with measurement: {measurement}")
+        logger.debug(f"Kalman Filter predicted and updated with measurement: {measurement}")
+        logger.debug(f"Post-update state estimate: {self.filter.x.flatten().tolist()}")
+        logger.debug(f"Post-update covariance P: {self.filter.P}")
 
     def get_estimate(self):
         """
@@ -88,8 +122,28 @@ class KalmanEstimator(BaseEstimator):
         estimate = self.filter.x.flatten().tolist()
         logger.debug(f"Current state estimate: {estimate}")
         return estimate
-    # In KalmanEstimator class
+
     def reset(self):
+        """
+        Resets the Kalman Filter to its initial state.
+        """
         self.filter.x = np.zeros((4, 1))  # Reset state vector
-        self.filter.P *= 100  # Reset uncertainty
+        initial_covariance = Parameters.ESTIMATOR_INITIAL_STATE_COVARIANCE
+        self.filter.P = np.diag(initial_covariance)  # Reset covariance matrix
+        self.dt = 0.1
+        self.update_F_and_Q(self.dt)
         logger.debug("Kalman Filter state reset.")
+
+    def is_estimate_reliable(self, uncertainty_threshold):
+        """
+        Checks if the current estimate is reliable based on the trace of the covariance matrix.
+
+        Args:
+            uncertainty_threshold (float): The maximum acceptable uncertainty.
+
+        Returns:
+            bool: True if the estimate is reliable, False otherwise.
+        """
+        uncertainty = np.trace(self.filter.P)
+        logger.debug(f"Current estimate uncertainty: {uncertainty}")
+        return uncertainty < uncertainty_threshold

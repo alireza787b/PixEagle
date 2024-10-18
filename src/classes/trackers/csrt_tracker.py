@@ -107,3 +107,37 @@ class CSRTTracker(BaseTracker):
         confidence = max(0.0, min(similarity, 1.0))
         return confidence
 
+
+    def update_estimator_without_measurement(self):
+        """Updates the position estimator when no measurement is available."""
+        current_time = time.time()
+        dt = current_time - self.last_update_time if self.last_update_time else 0.1  # Default to 0.1
+        self.last_update_time = current_time
+
+        if self.estimator_enabled and self.position_estimator:
+            self.position_estimator.set_dt(dt)
+            self.position_estimator.predict_only()
+            estimated_position = self.position_estimator.get_estimate()
+            self.estimated_position_history.append(estimated_position)
+            logging.debug(f"Estimated position (without measurement): {estimated_position}")
+        else:
+            logging.warning("Estimator is not enabled or not initialized.")
+            
+            
+    def set_estimator(self, estimator):
+        """
+        Sets the estimator for the tracker.
+
+        Args:
+            estimator (BaseEstimator): An instance of an estimator implementing BaseEstimator.
+        """
+        self.position_estimator = estimator
+        self.estimator_enabled = estimator is not None
+
+    def get_estimated_position(self):
+        if self.estimator_enabled and self.position_estimator:
+            estimated_position = self.position_estimator.get_estimate()
+            return estimated_position
+        else:
+            return None
+        

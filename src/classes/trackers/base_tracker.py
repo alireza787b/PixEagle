@@ -75,12 +75,12 @@ class BaseTracker(ABC):
                 self.draw_estimate(frame)
         return frame
 
-    def draw_tracking(self, frame):
+    def draw_tracking(self, frame, tracking_successful=True):
         if self.bbox and self.center and self.video_handler:
             if Parameters.TRACKED_BBOX_STYLE == 'fancy':
-                self.draw_fancy_bbox(frame)
+                self.draw_fancy_bbox(frame, tracking_successful=True)
             else:
-                self.draw_normal_bbox(frame)
+                self.draw_normal_bbox(frame, tracking_successful=True)
 
             # Draw center dot
             cv2.circle(frame, self.center, 5, (0, 255, 0), -1)
@@ -95,13 +95,13 @@ class BaseTracker(ABC):
 
         return frame
 
-    def draw_normal_bbox(self, frame):
+    def draw_normal_bbox(self, frame,tracking_successful=True):
         # Draw bounding box
         p1 = (int(self.bbox[0]), int(self.bbox[1]))
         p2 = (int(self.bbox[0] + self.bbox[2]), int(self.bbox[1] + self.bbox[3]))
         cv2.rectangle(frame, p1, p2, (255, 0, 0), 2, 1)
 
-    def draw_fancy_bbox(self, frame):
+    def draw_fancy_bbox(self, frame, tracking_successful=True):
         if self.bbox is None or self.center is None:
             return frame
 
@@ -156,18 +156,16 @@ class BaseTracker(ABC):
 
 
 
-    def draw_estimate(self, frame: np.ndarray) -> np.ndarray:
-        """
-        Draws the estimated position on the frame if estimation is enabled.
-        
-        :param frame: The video frame to draw on.
-        :return: The video frame with estimation visuals.
-        """
+    def draw_estimate(self, frame: np.ndarray, tracking_successful=True) -> np.ndarray:
         if self.estimator_enabled and self.position_estimator and self.video_handler:
             estimated_position = self.position_estimator.get_estimate()
             if estimated_position:
                 estimated_x, estimated_y = estimated_position[:2]
-                cv2.circle(frame, (int(estimated_x), int(estimated_y)), 5, (0, 0, 255), -1)
+                if tracking_successful:
+                    color = Parameters.ESTIMATED_POSITION_COLOR  # e.g., blue
+                else:
+                    color = Parameters.ESTIMATION_ONLY_COLOR  # e.g., orange
+                cv2.circle(frame, (int(estimated_x), int(estimated_y)), 5, color, -1)
         return frame
 
     def select_roi(self, frame: np.ndarray) -> Tuple[int, int, int, int]:

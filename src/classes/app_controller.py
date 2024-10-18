@@ -1,6 +1,7 @@
 #src/classes/app_controller.py
 import asyncio
 import logging
+import time
 import numpy as np
 from classes.parameters import Parameters
 from classes.follower import Follower
@@ -56,6 +57,8 @@ class AppController:
         self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM, self.video_handler, self.detector, self)
         self.segmentor = Segmentor(algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM)
         
+        self.tracking_failure_start_time = None  # Initialize tracking failure timer
+
 
         # Flags to track the state of tracking and segmentation
         self.tracking_started = False
@@ -185,31 +188,54 @@ class AppController:
             if Parameters.ENABLE_PREPROCESSING and self.preprocessor:
                 frame = self.preprocessor.preprocess(frame)
             
+            # Segmentation step
             if self.segmentation_active:
                 frame = self.segmentor.segment_frame(frame)
             
+            # Tracking and estimation
             if self.tracking_started:
                 success, _ = self.tracker.update(frame)
                 if success:
-                    frame = self.tracker.draw_tracking(frame)
+                    # Reset tracking failure timer
+                    self.tracking_failure_start_time = None
+                    frame = self.tracker.draw_tracking(frame, tracking_successful=True)
                     if Parameters.ENABLE_DEBUGGING:
                         self.tracker.print_normalized_center()
                     if self.tracker.position_estimator:
-                        frame = self.tracker.draw_estimate(frame)
+                        frame = self.tracker.draw_estimate(frame, tracking_successful=True)
                     if self.following_active:
                         await self.follow_target()
                         await self.check_failsafe()
                 else:
-                    logging.warning("Tracking lost. Attempting to handle failure.")
-                    self.tracking_started = False
-                    await self.handle_tracking_failure()
+                    if self.tracking_failure_start_time is None:
+                        # First failure, start timer
+                        self.tracking_failure_start_time = time.time()
+                        logging.warning("Tracking lost. Starting failure timer.")
+                    else:
+                        elapsed_time = time.time() - self.tracking_failure_start_time
+                        if elapsed_time > Parameters.TRACKING_FAILURE_TIMEOUT:
+                            logging.error("Tracking lost for too long. Handling failure.")
+                            self.tracking_started = False
+                            await self.handle_tracking_failure()
+                        else:
+                            # Continue updating estimator and control logic
+                            logging.warning(f"Tracking lost. Attempting to recover. Elapsed time: {elapsed_time:.2f} seconds.")
+                            # Update estimator without measurement
+                            self.tracker.update_estimator_without_measurement()
+                            # Draw estimation-only visuals
+                            frame = self.tracker.draw_estimate(frame, tracking_successful=False)
+                            if self.following_active:
+                                await self.follow_target()
+                                await self.check_failsafe()
             else:
                 # Tracking not active; continue processing frames
                 pass
-
+            
+            # Telemetry handling
             if self.telemetry_handler.should_send_telemetry():
                 self.telemetry_handler.send_telemetry()
 
+            # Update current frame and OSD
             self.current_frame = frame
             self.video_handler.current_osd_frame = frame
 
@@ -220,9 +246,10 @@ class AppController:
             if Parameters.ENABLE_GSTREAMER_STREAM and self.gstreamer_handler:
                 self.gstreamer_handler.stream_frame(frame)
         except Exception as e:
-            logging.error(f"Error in update_loop: {e}")
+            logging.exception(f"Error in update_loop: {e}")
         return frame
-    
+
+
     
     async def handle_tracking_failure(self):
         """
@@ -330,14 +357,29 @@ class AppController:
 
     def initiate_redetection(self) -> Dict[str, any]:
         """
-        Attempts to re-detect the object being tracked using the existing detector.
+        Attempts to re-detect the object being tracked using the existing detector,
+        focusing around the estimated position if available.
         """
-        
-        #TODO:  Handle Multiple Re-detection Attempts with Different Detectors for later reminder
-        
         if Parameters.USE_DETECTOR:
-            redetect_result = self.detector.smart_redetection(self.current_frame, self.tracker)
+            # Get estimated position
+            estimate = self.tracker.get_estimated_position()
+            if estimate:
+                estimated_x, estimated_y = estimate[:2]
+                # Define a region around the estimated position
+                search_radius = Parameters.REDETECTION_SEARCH_RADIUS
+                x_min = max(0, int(estimated_x - search_radius))
+                x_max = min(self.video_handler.width, int(estimated_x + search_radius))
+                y_min = max(0, int(estimated_y - search_radius))
+                y_max = min(self.video_handler.height, int(estimated_y + search_radius))
+                search_region = (x_min, y_min, x_max - x_min, y_max - y_min)
+                # Run detection on the search region
+                redetect_result = self.detector.smart_redetection(self.current_frame, self.tracker, roi=search_region)
+            else:
+                # No estimated position, use full frame
+                redetect_result = self.detector.smart_redetection(self.current_frame, self.tracker)
+
             if redetect_result:
+                # The latest_bbox from the detector is already adjusted to original frame coordinates
                 detected_bbox = self.detector.get_latest_bbox()
                 # Perform appearance validation
                 current_features = self.tracker.extract_features(self.current_frame, detected_bbox)
@@ -368,6 +410,8 @@ class AppController:
                 "success": False,
                 "message": "Detector is not enabled."
             }
+
+
 
     def show_current_frame(self, frame_title: str = Parameters.FRAME_TITLE) -> np.ndarray:
         """
