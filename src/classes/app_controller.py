@@ -15,7 +15,7 @@ import cv2
 from classes.px4_interface_manager import PX4InterfaceManager  # Updated import path
 from classes.telemetry_handler import TelemetryHandler
 from classes.fastapi_handler import FastAPIHandler  # Correct import
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 from classes.osd_handler import OSDHandler
 from classes.gstreamer_handler import GStreamerHandler
 from classes.mavlink_data_manager import MavlinkDataManager
@@ -493,27 +493,43 @@ class AppController:
         Prepares to follow the target based on tracking information.
         """
         if self.tracking_started and self.following_active:
-            estimate = self.tracker.get_estimated_position()
-            if Parameters.USE_ESTIMATOR_FOR_FOLLOWING and estimate:
-                estimated_x, estimated_y = estimate[:2]
+            target_coords: Optional[Tuple[float, float]] = None  # Initialize target coordinates
+
+            # Check if estimator is enabled and used for following
+            if Parameters.USE_ESTIMATOR_FOR_FOLLOWING and self.tracker.position_estimator:
+                # Get frame dimensions
                 frame_width, frame_height = self.video_handler.width, self.video_handler.height
-                norm_x = estimated_x / frame_width
-                norm_y = estimated_y / frame_height
-                target_coords = (norm_x, norm_y)
-                logging.debug(f"Using target estimated: {target_coords}")
+
+                # Get normalized estimate from the estimator
+                normalized_estimate = self.tracker.position_estimator.get_normalized_estimate(frame_width, frame_height)
+
+                if normalized_estimate:
+                    target_coords = normalized_estimate
+                    logging.debug(f"Using target estimated and normalized: {target_coords}")
+                else:
+                    # Estimator failed to provide a normalized estimate
+                    logging.warning("Estimator failed to provide a normalized estimate, falling back to tracker center.")
+            
+            if not target_coords:
+                # Fallback to tracker's normalized center if estimator is not used or failed
+                target_coords = self.tracker.normalized_center
+                logging.debug(f"Using target measured (tracker normalized center): {target_coords}")
+
+            if target_coords:
+                # Command the follower with the target coordinates
+                self.follower.follow_target(target_coords)
+                self.px4_interface.update_setpoint()
+
+                # Determine the control type and send the appropriate commands
+                control_type = self.follower.get_control_type()
+                if control_type == 'attitude_rate':
+                    await self.px4_interface.send_attitude_rate_commands()
+                elif control_type == 'velocity_body':
+                    await self.px4_interface.send_body_velocity_commands()
+                else:
+                    logging.warning(f"Unknown control type: {control_type}")
             else:
-                target_coords = self.tracker.normalized_center  # Fallback to tracker center
-                logging.debug(f"Using target measured: {target_coords}")
-
-            self.follower.follow_target(target_coords)
-            self.px4_interface.update_setpoint()
-
-            # Determine the control type and send the appropriate commands
-            control_type = self.follower.get_control_type()
-            if control_type == 'attitude_rate':
-                await self.px4_interface.send_attitude_rate_commands()
-            elif control_type == 'velocity_body':
-                await self.px4_interface.send_body_velocity_commands()
+                logging.warning("No target coordinates available to follow.")
 
             return True
         else:
