@@ -1,4 +1,5 @@
 # src/classes/trackers/base_tracker.py
+
 from abc import ABC, abstractmethod
 from collections import deque
 import time
@@ -6,7 +7,6 @@ import numpy as np
 from typing import Optional, Tuple
 import cv2
 from classes.parameters import Parameters
-from classes.position_estimator import PositionEstimator
 import logging
 
 class BaseTracker(ABC):
@@ -15,29 +15,35 @@ class BaseTracker(ABC):
     for different tracking algorithms.
     """
     
-    def __init__(self, video_handler: Optional[object] = None, detector: Optional[object] = None,app_controller: Optional[object] = None):
+    def __init__(self, video_handler: Optional[object] = None, detector: Optional[object] = None, app_controller: Optional[object] = None):
         """
         Initializes the base tracker with common attributes.
         
         :param video_handler: Optional handler for video streaming and processing.
         :param detector: Optional detector for initializing tracking.
+        :param app_controller: Reference to the main application controller.
         """
         self.video_handler = video_handler
         self.detector = detector
+        self.app_controller = app_controller  # Assign before using it
+
+        # Initialize tracking attributes
         self.bbox: Optional[Tuple[int, int, int, int]] = None  # Current bounding box
-        self.prev_center: Optional[Tuple[int, int]] = None  # Store previous center
-        self.initial_features = None  # Store features of the initial target
+        self.prev_center: Optional[Tuple[int, int]] = None     # Previous center
+        self.center: Optional[Tuple[int, int]] = None          # Current center
+        self.initial_features = None                           # Features of the initial target
         self.normalized_bbox: Optional[Tuple[float, float, float, float]] = None  # Normalized bounding box
-        self.center: Optional[Tuple[int, int]] = None  # Use underscore to denote the private attribute
-        self.normalized_center: Optional[Tuple[float, float]] = None  # Store normalized center        self.center_history = deque(maxlen=Parameters.CENTER_HISTORY_LENGTH)
+        self.normalized_center: Optional[Tuple[float, float]] = None              # Normalized center
+        self.center_history = deque(maxlen=Parameters.CENTER_HISTORY_LENGTH)      # History of centers
+
+        # Estimator initialization
         self.estimator_enabled = Parameters.USE_ESTIMATOR
-        self.position_estimator = PositionEstimator() if self.estimator_enabled else None
+        self.position_estimator = self.app_controller.estimator if self.estimator_enabled else None
         self.estimated_position_history = deque(maxlen=Parameters.ESTIMATOR_HISTORY_LENGTH)
         self.last_update_time: float = 0.0
+
+        # Frame placeholder
         self.frame = None
-        self.app_controller = app_controller
-        
-        
 
     @abstractmethod
     def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
@@ -68,40 +74,51 @@ class BaseTracker(ABC):
         :param frame: The current video frame.
         :return: The video frame with tracking and estimation visuals.
         """
-        success, bbox = self.update(frame)
+        success, _ = self.update(frame)
         if success:
-            self.draw_tracking(frame)
+            self.draw_tracking(frame, tracking_successful=True)
             if self.estimator_enabled:
-                self.draw_estimate(frame)
+                self.draw_estimate(frame, tracking_successful=True)
+        else:
+            logging.warning("Tracking update failed.")
         return frame
 
-    def draw_tracking(self, frame, tracking_successful=True):
+    def draw_tracking(self, frame: np.ndarray, tracking_successful: bool = True) -> np.ndarray:
+        """
+        Draws the tracking bounding box and center on the frame.
+        
+        :param frame: The video frame.
+        :param tracking_successful: Whether the tracking was successful.
+        :return: The frame with tracking drawn.
+        """
         if self.bbox and self.center and self.video_handler:
             if Parameters.TRACKED_BBOX_STYLE == 'fancy':
-                self.draw_fancy_bbox(frame, tracking_successful=True)
+                self.draw_fancy_bbox(frame, tracking_successful)
             else:
-                self.draw_normal_bbox(frame, tracking_successful=True)
+                self.draw_normal_bbox(frame, tracking_successful)
 
             # Draw center dot
             cv2.circle(frame, self.center, 5, (0, 255, 0), -1)
 
-            # Calculate relative deviation from frame center
-            frame_center = (self.video_handler.width / 2, self.video_handler.height / 2)
-            relative_deviation_x = (self.center[0] - frame_center[0]) / frame_center[0]
-            relative_deviation_y = (self.center[1] - frame_center[1]) / frame_center[1]
-
+            # Optionally display deviations
             if Parameters.DISPLAY_DEVIATIONS:
-                print(f"Relative deviation from center: (X: {relative_deviation_x:.2f}, Y: {relative_deviation_y:.2f})")
+                self.print_normalized_center()
 
         return frame
 
-    def draw_normal_bbox(self, frame,tracking_successful=True):
-        # Draw bounding box
+    def draw_normal_bbox(self, frame: np.ndarray, tracking_successful: bool = True) -> None:
+        """
+        Draws a normal rectangle bounding box on the frame.
+        
+        :param frame: The video frame.
+        :param tracking_successful: Whether the tracking was successful.
+        """
         p1 = (int(self.bbox[0]), int(self.bbox[1]))
         p2 = (int(self.bbox[0] + self.bbox[2]), int(self.bbox[1] + self.bbox[3]))
-        cv2.rectangle(frame, p1, p2, (255, 0, 0), 2, 1)
+        color = (255, 0, 0) if tracking_successful else (0, 0, 255)
+        cv2.rectangle(frame, p1, p2, color, 2)
 
-    def draw_fancy_bbox(self, frame, tracking_successful=True):
+    def draw_fancy_bbox(self, frame, tracking_successful: bool = True):
         if self.bbox is None or self.center is None:
             return frame
 
@@ -155,38 +172,21 @@ class BaseTracker(ABC):
         return frame
 
 
-
-    def draw_estimate(self, frame: np.ndarray, tracking_successful=True) -> np.ndarray:
+    def draw_estimate(self, frame: np.ndarray, tracking_successful: bool = True) -> np.ndarray:
+        """
+        Draws the estimated position on the frame if the estimator is enabled.
+        
+        :param frame: The video frame.
+        :param tracking_successful: Whether the tracking was successful.
+        :return: The frame with the estimate drawn on it.
+        """
         if self.estimator_enabled and self.position_estimator and self.video_handler:
             estimated_position = self.position_estimator.get_estimate()
             if estimated_position:
                 estimated_x, estimated_y = estimated_position[:2]
-                if tracking_successful:
-                    color = Parameters.ESTIMATED_POSITION_COLOR  # e.g., blue
-                else:
-                    color = Parameters.ESTIMATION_ONLY_COLOR  # e.g., orange
+                color = Parameters.ESTIMATED_POSITION_COLOR if tracking_successful else Parameters.ESTIMATION_ONLY_COLOR
                 cv2.circle(frame, (int(estimated_x), int(estimated_y)), 5, color, -1)
         return frame
-
-    def select_roi(self, frame: np.ndarray) -> Tuple[int, int, int, int]:
-        """
-        Allows the user to manually select the Region of Interest (ROI) for tracking on the given frame.
-        
-        :param frame: The video frame for selecting ROI.
-        :return: The bounding box representing the selected ROI.
-        """
-        bbox = cv2.selectROI("Frame", frame, False, False)
-        cv2.destroyWindow("Frame")
-        return bbox
-
-    def reinitialize_tracker(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
-        """
-        Reinitializes the tracker with a new bounding box on the given frame.
-        
-        :param frame: The video frame to reinitialize tracking.
-        :param bbox: The new bounding box for tracking.
-        """
-        self.start_tracking(frame, bbox)
 
     def update_time(self) -> float:
         """
@@ -195,41 +195,42 @@ class BaseTracker(ABC):
         :return: The time delta since the last update.
         """
         current_time = time.time()
-        dt = current_time - self.last_update_time if self.last_update_time else 0
+        dt = current_time - self.last_update_time if self.last_update_time else 0.0
         self.last_update_time = current_time
         return dt
 
-    def normalize_center_coordinates(self):
+    def normalize_center_coordinates(self) -> None:
         """
         Normalizes and stores the center coordinates of the tracked target.
         Normalization is done such that the center of the frame is (0,0),
         top-right is (1,1), and bottom-left is (-1,-1).
         """
-        if self.center :
-            frame_height, frame_width = (self.video_handler.height , self.video_handler.width)
-            # Normalize center coordinates
+        if self.center:
+            frame_width, frame_height = self.video_handler.width, self.video_handler.height
             normalized_x = (self.center[0] - frame_width / 2) / (frame_width / 2)
             normalized_y = (self.center[1] - frame_height / 2) / (frame_height / 2)
-            # Store normalized values
             self.normalized_center = (normalized_x, normalized_y)
-            
-    def print_normalized_center(self):
+
+    def print_normalized_center(self) -> None:
         """
         Prints the normalized center coordinates of the tracked target.
         Assumes `normalize_center_coordinates` has been called after the latest tracking update.
         """
-        if hasattr(self, 'normalized_center'):
-            #logging.debug(f"Normalized Center Coordinates: {self.normalized_center}")
-            pass
+        if self.normalized_center:
+            logging.debug(f"Normalized Center Coordinates: {self.normalized_center}")
         else:
-            logging.warn("Normalized center coordinates not calculated or available.")
-            
+            logging.warning("Normalized center coordinates not calculated or available.")
 
-    def set_center(self, value: Tuple[int, int]):
+    def set_center(self, value: Tuple[int, int]) -> None:
+        """
+        Sets the center of the bounding box and normalizes it.
+        
+        :param value: The (x, y) coordinates of the center.
+        """
         self.center = value
         self.normalize_center_coordinates()  # Automatically normalize when center is updated
-        
-    def normalize_bbox(self):
+
+    def normalize_bbox(self) -> None:
         """
         Normalizes the bounding box coordinates relative to the frame size.
         """
@@ -241,13 +242,13 @@ class BaseTracker(ABC):
             norm_w = w / frame_width
             norm_h = h / frame_height
             self.normalized_bbox = (norm_x, norm_y, norm_w, norm_h)
-            #logging.debug(f"Normalized bbox: {self.normalized_bbox}")
+            logging.debug(f"Normalized bbox: {self.normalized_bbox}")
 
-            return self.normalized_bbox
-        
     def is_motion_consistent(self) -> bool:
         """
         Checks if the motion between the previous and current center is within expected limits.
+        
+        :return: True if motion is consistent, False otherwise.
         """
         if self.prev_center is None:
             return True  # Can't compare on the first frame
@@ -258,10 +259,14 @@ class BaseTracker(ABC):
             logging.warning(f"Motion inconsistency detected: displacement={displacement}, max allowed={max_displacement}")
             return False
         return True
-    
+
     def extract_features(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> np.ndarray:
         """
         Extracts features from the given bounding box in the frame.
+        
+        :param frame: The video frame.
+        :param bbox: The bounding box coordinates.
+        :return: The extracted feature vector.
         """
         x, y, w, h = [int(v) for v in bbox]
         roi = frame[y:y+h, x:x+w]
@@ -269,10 +274,13 @@ class BaseTracker(ABC):
                                 [0, 256, 0, 256, 0, 256])
         features = cv2.normalize(features, features).flatten()
         return features
-    
+
     def is_appearance_consistent(self, frame: np.ndarray) -> bool:
         """
         Checks if the appearance of the tracked object is consistent with the initial features.
+        
+        :param frame: The current video frame.
+        :return: True if appearance is consistent, False otherwise.
         """
         if self.initial_features is None:
             return True  # Can't compare without initial features
@@ -282,3 +290,13 @@ class BaseTracker(ABC):
             logging.warning(f"Appearance inconsistency detected: similarity={similarity}")
             return False
         return True
+
+    def reinitialize_tracker(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
+        """
+        Reinitializes the tracker with a new bounding box on the given frame.
+        
+        :param frame: The video frame to reinitialize tracking.
+        :param bbox: The new bounding box for tracking.
+        """
+        logging.info(f"Reinitializing tracker with bbox: {bbox}")
+        self.start_tracking(frame, bbox)

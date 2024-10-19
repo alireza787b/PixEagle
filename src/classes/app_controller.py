@@ -50,12 +50,16 @@ class AppController:
         if Parameters.MAVLINK_ENABLED:
             self.mavlink_data_manager.start_polling()
 
+        # Initialize the estimator first
+        self.estimator = create_estimator(Parameters.ESTIMATOR_TYPE)
+
         # Initialize video processing components
         self.video_handler = VideoHandler()
         self.video_streamer = None
         self.detector = Detector(algorithm_type=Parameters.DETECTION_ALGORITHM)
         self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM, self.video_handler, self.detector, self)
         self.segmentor = Segmentor(algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM)
+        
         
         self.tracking_failure_start_time = None  # Initialize tracking failure timer
 
@@ -490,15 +494,16 @@ class AppController:
         """
         if self.tracking_started and self.following_active:
             estimate = self.tracker.get_estimated_position()
-            if estimate:
+            if Parameters.USE_ESTIMATOR_FOR_FOLLOWING and estimate:
                 estimated_x, estimated_y = estimate[:2]
                 frame_width, frame_height = self.video_handler.width, self.video_handler.height
                 norm_x = estimated_x / frame_width
                 norm_y = estimated_y / frame_height
                 target_coords = (norm_x, norm_y)
-                logging.debug(f"target coordinate estimated: {target_coords}")
+                logging.debug(f"Using target estimated: {target_coords}")
             else:
                 target_coords = self.tracker.normalized_center  # Fallback to tracker center
+                logging.debug(f"Using target measured: {target_coords}")
 
             self.follower.follow_target(target_coords)
             self.px4_interface.update_setpoint()

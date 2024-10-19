@@ -28,7 +28,6 @@ class Tracker:
         self.video_handler = video_handler
         self.detector = detector
         self.app_controller = app_controller
-        estimator = self.app_controller.estimator
 
         self.bbox = None  # Current bounding box
         self.prev_bbox = None  # Previous bounding box
@@ -43,6 +42,7 @@ class Tracker:
         self.init_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM)
 
         # Estimator (if used)
+        estimator = self.app_controller.estimator
         self.position_estimator = estimator
         self.estimator_enabled = estimator is not None
         self.estimated_position_history = deque(maxlen=Parameters.ESTIMATOR_HISTORY_LENGTH)

@@ -1,8 +1,6 @@
 # src/classes/estimators/kalman_estimator.py
-
 import numpy as np
 import logging
-import time
 from filterpy.kalman import KalmanFilter
 from .base_estimator import BaseEstimator
 from classes.parameters import Parameters  # Ensure correct import path
@@ -59,19 +57,19 @@ class KalmanEstimator(BaseEstimator):
 
         # Process noise covariance matrix
         q = self.process_noise_variance
+
         dt2 = dt ** 2
         dt3 = dt ** 3
-        dt4 = dt ** 4
 
-        q11 = dt4 / 4
-        q13 = dt3 / 2
-        q31 = dt3 / 2
-        q33 = dt2
+        q11 = dt3 / 3
+        q13 = dt2 / 2
+        q31 = dt2 / 2
+        q33 = dt
 
-        Q = np.array([[q11,   0,     q13,   0],
-                      [0,     q11,   0,     q13],
-                      [q31,   0,     q33,   0],
-                      [0,     q31,   0,     q33]]) * q
+        Q = q * np.array([[q11,   0,     q13,   0],
+                          [0,     q11,   0,     q13],
+                          [q31,   0,     q33,   0],
+                          [0,     q31,   0,     q33]])
 
         self.filter.Q = Q
         logger.debug(f"Updated F and Q matrices with dt = {dt}")
@@ -98,13 +96,13 @@ class KalmanEstimator(BaseEstimator):
         Performs the predict and update cycle of the Kalman Filter using the provided measurement.
 
         Args:
-            measurement (list or np.ndarray): The current measurement [x, y].
+            measurement (list, tuple, or np.ndarray): The current measurement [x, y].
 
         Raises:
-            ValueError: If the measurement is not a 2-element list or array.
+            ValueError: If the measurement is not a 2-element list, tuple, or array.
         """
-        if not isinstance(measurement, (list, np.ndarray)) or len(measurement) != 2:
-            raise ValueError("Measurement must be a list or numpy array with two elements [x, y].")
+        if not isinstance(measurement, (list, tuple, np.ndarray)) or len(measurement) != 2:
+            raise ValueError("Measurement must be a list, tuple, or numpy array with two elements [x, y].")
 
         self.filter.predict()
         self.filter.update(np.array(measurement).reshape(2, 1))
@@ -132,7 +130,7 @@ class KalmanEstimator(BaseEstimator):
         self.filter.P = np.diag(initial_covariance)  # Reset covariance matrix
         self.dt = 0.1
         self.update_F_and_Q(self.dt)
-        logger.debug("Kalman Filter state reset.")
+        logger.info("Kalman Filter state reset.")
 
     def is_estimate_reliable(self, uncertainty_threshold):
         """

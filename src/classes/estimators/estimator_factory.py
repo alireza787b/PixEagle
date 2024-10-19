@@ -1,6 +1,5 @@
 # src/classes/estimators/estimator_factory.py
-
-from .kalman_estimator import KalmanEstimator
+from classes.estimators.kalman_estimator import KalmanEstimator
 
 def create_estimator(estimator_type):
     if estimator_type == "Kalman":
