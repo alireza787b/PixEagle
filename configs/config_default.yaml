@@ -2,7 +2,7 @@
 VideoSource:
   VIDEO_SOURCE_TYPE: USB_CAMERA  # Options: VIDEO_FILE, USB_CAMERA, RTSP_STREAM, UDP_STREAM, HTTP_STREAM, CSI_CAMERA
   VIDEO_FILE_PATH: resources/test7.mp4
-  CAMERA_INDEX: 1  # For USB_CAMERA, specify the camera index (0 for default webcam)
+  CAMERA_INDEX: 0  # For USB_CAMERA, specify the camera index (0 for default webcam)
   RTSP_URL: rtsp://172.21.144.1:8554
   UDP_URL: udp://172.21.144.1:5000
   HTTP_URL: http://172.21.144.1:8100
