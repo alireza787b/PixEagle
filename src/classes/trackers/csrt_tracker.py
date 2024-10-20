@@ -25,6 +25,8 @@ class CSRTTracker(BaseTracker):
         super().__init__(video_handler, detector, app_controller)
         self.tracker = cv2.TrackerCSRT_create()  # Tracker specific to CSRT
         self.trackerName: str = "CSRT"
+        if self.position_estimator:
+            self.position_estimator.reset()
 
     def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
         """
