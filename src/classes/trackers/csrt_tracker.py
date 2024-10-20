@@ -1,5 +1,56 @@
 # src/classes/trackers/csrt_tracker.py
 
+"""
+CSRTTracker Module
+------------------
+
+This module implements the `CSRTTracker` class, a concrete tracker that uses the CSRT (Channel and Spatial Reliability Tracking) algorithm provided by OpenCV.
+
+Project Information:
+- Project Name: PixEagle
+- Repository: https://github.com/alireza787b/PixEagle
+- Date: October 2024
+- Author: Alireza Ghaderi
+- LinkedIn: https://www.linkedin.com/in/alireza787b
+
+Overview:
+---------
+The `CSRTTracker` class extends the `BaseTracker` and specializes in object tracking using the CSRT algorithm. CSRT is known for its accuracy in tracking objects with rotation, scale changes, and partial occlusions.
+
+Purpose:
+--------
+The CSRT tracker is used for tracking objects in video streams where high accuracy is required, and the objects may undergo significant changes in appearance or motion.
+
+Key Features:
+-------------
+- **High Accuracy**: Utilizes CSRT algorithm for precise tracking.
+- **Estimator Integration**: Works seamlessly with the estimator for enhanced position estimation.
+- **Consistency Checks**: Implements motion and appearance consistency checks to validate tracking reliability.
+- **Feature Extraction**: Uses histogram-based feature extraction for appearance comparison.
+
+Usage:
+------
+The `CSRTTracker` can be instantiated via the `tracker_factory.py` and requires a video handler and optional detector and app controller.
+
+Example:
+```python
+tracker = CSRTTracker(video_handler, detector, app_controller)
+tracker.start_tracking(initial_frame, initial_bbox)
+```
+
+Notes:
+------
+- **Estimator Dependency**: If an estimator is enabled, ensure it is properly initialized and reset.
+- **Parameter Tuning**: Adjust parameters in the `Parameters` class, such as `APPEARANCE_THRESHOLD` and `CONFIDENCE_THRESHOLD`, to optimize performance.
+- **OpenCV Version**: Requires OpenCV with the tracking module (usually `opencv-contrib-python`).
+
+References:
+-----------
+- OpenCV CSRT Tracker: https://docs.opencv.org/master/d2/dff/classcv_1_1TrackerCSRT.html
+- CSRT Paper: Lukezic et al., "Discriminative Correlation Filter with Channel and Spatial Reliability," CVPR 2017.
+
+"""
+
 import logging
 import time
 import cv2
@@ -10,17 +61,33 @@ from classes.trackers.base_tracker import BaseTracker
 
 class CSRTTracker(BaseTracker):
     """
-    CSRT Tracker implementation extending the BaseTracker class.
-    Specializes in using the CSRT algorithm for object tracking.
+    CSRTTracker Class
+
+    Implements object tracking using the CSRT algorithm, extending the `BaseTracker`.
+
+    Attributes:
+    -----------
+    - tracker (cv2.Tracker): OpenCV CSRT tracker instance.
+    - trackerName (str): Name identifier for the tracker.
+
+    Methods:
+    --------
+    - start_tracking(frame, bbox): Initializes the tracker with the provided bounding box.
+    - update(frame): Updates the tracker and performs consistency checks.
+    - compute_motion_confidence(): Computes confidence based on motion consistency.
+    - compute_appearance_confidence(frame): Computes confidence based on appearance consistency.
+    - update_estimator_without_measurement(): Updates the estimator when no measurement is available.
+    - get_estimated_position(): Retrieves the current estimated position from the estimator.
     """
-    
+
     def __init__(self, video_handler: Optional[object] = None, detector: Optional[object] = None, app_controller: Optional[object] = None):
         """
         Initializes the CSRT tracker with an optional video handler and detector.
-        
-        :param video_handler: Handler for video streaming and processing.
-        :param detector: Object detector for initializing tracking.
-        :param app_controller: Reference to the main application controller.
+
+        Args:
+            video_handler (Optional[object]): Handler for video streaming and processing.
+            detector (Optional[object]): Object detector for initializing tracking.
+            app_controller (Optional[object]): Reference to the main application controller.
         """
         super().__init__(video_handler, detector, app_controller)
         self.tracker = cv2.TrackerCSRT_create()  # Tracker specific to CSRT
@@ -32,8 +99,9 @@ class CSRTTracker(BaseTracker):
         """
         Initializes the tracker with the provided bounding box on the given frame.
 
-        :param frame: The initial video frame.
-        :param bbox: A tuple representing the bounding box (x, y, width, height).
+        Args:
+            frame (np.ndarray): The initial video frame.
+            bbox (Tuple[int, int, int, int]): A tuple representing the bounding box (x, y, width, height).
         """
         logging.info(f"Initializing {self.trackerName} tracker with bbox: {bbox}")
         self.tracker.init(frame, bbox)
@@ -45,8 +113,11 @@ class CSRTTracker(BaseTracker):
         """
         Updates the tracker with the current frame and returns the tracking success status and the new bounding box.
 
-        :param frame: The current video frame.
-        :return: A tuple containing the success status and the new bounding box.
+        Args:
+            frame (np.ndarray): The current video frame.
+
+        Returns:
+            Tuple[bool, Tuple[int, int, int, int]]: A tuple containing the success status and the new bounding box.
         """
         dt = self.update_time()
         success, detected_bbox = self.tracker.update(frame)
@@ -93,8 +164,11 @@ class CSRTTracker(BaseTracker):
     def compute_motion_confidence(self) -> float:
         """
         Computes confidence based on motion consistency.
-        
-        :return: The motion confidence score.
+
+        Returns:
+            float: The motion confidence score between 0.0 and 1.0.
+
+        A lower confidence indicates unexpected large movements, possibly due to tracking errors.
         """
         if self.prev_center is None:
             return 1.0  # Maximum confidence on first frame
@@ -106,9 +180,14 @@ class CSRTTracker(BaseTracker):
     def compute_appearance_confidence(self, frame: np.ndarray) -> float:
         """
         Computes confidence based on appearance consistency.
-        
-        :param frame: The current video frame.
-        :return: The appearance confidence score.
+
+        Args:
+            frame (np.ndarray): The current video frame.
+
+        Returns:
+            float: The appearance confidence score between 0.0 and 1.0.
+
+        A lower confidence indicates significant changes in appearance, suggesting the tracker may have lost the target.
         """
         current_features = self.extract_features(frame, self.bbox)
         similarity = cv2.compareHist(self.initial_features, current_features, cv2.HISTCMP_CORREL)
@@ -118,6 +197,8 @@ class CSRTTracker(BaseTracker):
     def update_estimator_without_measurement(self) -> None:
         """
         Updates the position estimator when no measurement is available.
+
+        This is useful when the tracker fails to provide a measurement, allowing the estimator to predict the next state.
         """
         dt = self.update_time()
         if self.estimator_enabled and self.position_estimator:
@@ -133,10 +214,11 @@ class CSRTTracker(BaseTracker):
         """
         Gets the current estimated position from the estimator.
 
-        :return: The estimated (x, y) position or None.
+        Returns:
+            Optional[Tuple[float, float]]: The estimated (x, y) position or None if unavailable.
         """
         if self.estimator_enabled and self.position_estimator:
             estimated_position = self.position_estimator.get_estimate()
-            return estimated_position
-        else:
-            return None
+            if estimated_position and len(estimated_position) >= 2:
+                return (estimated_position[0], estimated_position[1])
+        return None
