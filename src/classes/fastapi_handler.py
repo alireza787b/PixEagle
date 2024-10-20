@@ -262,7 +262,7 @@ class FastAPIHandler:
             dict: Status of the operation and details of the redetection attempt.
         """
         try:
-            result = await self.app_controller.initiate_redetection()
+            result = self.app_controller.initiate_redetection()
             return {"status": "success", "detection_result": result}
         except Exception as e:
             self.logger.error(f"Error in redetect: {e}")
