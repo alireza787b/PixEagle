@@ -46,7 +46,7 @@ Notes:
 
 References:
 -----------
-- OpenCV CSRT Tracker: https://docs.opencv.org/master/d2/dff/classcv_1_1TrackerCSRT.html
+- OpenCV CSRT Tracker
 - CSRT Paper: Lukezic et al., "Discriminative Correlation Filter with Channel and Spatial Reliability," CVPR 2017.
 
 """

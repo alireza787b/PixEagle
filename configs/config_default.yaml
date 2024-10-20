@@ -2,7 +2,7 @@
 VideoSource:
   VIDEO_SOURCE_TYPE: USB_CAMERA  # Options: VIDEO_FILE, USB_CAMERA, RTSP_STREAM, UDP_STREAM, HTTP_STREAM, CSI_CAMERA
   VIDEO_FILE_PATH: resources/test7.mp4
-  CAMERA_INDEX: 0  # For USB_CAMERA, specify the camera index (0 for default webcam)
+  CAMERA_INDEX: 1  # For USB_CAMERA, specify the camera index (0 for default webcam)
   RTSP_URL: rtsp://172.21.144.1:8554
   UDP_URL: udp://172.21.144.1:5000
   HTTP_URL: http://172.21.144.1:8100
@@ -42,20 +42,32 @@ Streaming:
 # PX4 MAVSDK Configuration
 PX4:
   EXTERNAL_MAVSDK_SERVER: true
-  SYSTEM_ADDRESS: udp://172.21.148.30:14540
+  SYSTEM_ADDRESS: udp://172.21.148.30:14540 #When on companion computer usually 127.0.0.1:14540, on WSL, your WSL ip instead
 
 # Frame and Estimation Configuration
 FrameEstimation:
   FRAME_TITLE: Video
   DEFAULT_FPS: 30
   STORE_LAST_FRAMES: 5
-  USE_ESTIMATOR: false
+  USE_ESTIMATOR: true
   ESTIMATOR_HISTORY_LENGTH: 5
   SHOW_VIDEO_WINDOW: false
 
-
-  ESTIMATOR_ENABLED: True
+  ESTIMATOR_ENABLED: true
   ESTIMATOR_TYPE: Kalman  # Or "None" to disable the estimator
+
+
+# Estimator parameters
+  ESTIMATOR_PROCESS_NOISE_VARIANCE: 10.0  # Increased to account for acceleration uncertainties
+  ESTIMATOR_MEASUREMENT_NOISE_VARIANCE: 1.0  # Decreased to trust measurements more
+  ESTIMATOR_INITIAL_STATE_COVARIANCE: [5, 5, 50, 50, 100, 100]  # Initial variances for x, y, dx, dy, ddx, ddy
+
+# Estimator usage
+  USE_ESTIMATOR_FOR_FOLLOWING: true  # Enable or disable using the estimator for following
+
+  ESTIMATED_POSITION_COLOR: [255, 0, 0] # Blue when tracking is successful
+  ESTIMATION_ONLY_COLOR: [0, 165, 255]  # Orange when in estimation-only mode
+
 
 #Frame Preprocessing Configuration
 FramePreprocessor:
@@ -99,9 +111,7 @@ Detector:
 
   REDETECTION_SEARCH_RADIUS: 400  # Pixels, adjust as needed
   TEMPLATE_MATCHING_THRESHOLD: 0.7
-
-  ESTIMATED_POSITION_COLOR: [255, 0, 0] # Blue when tracking is successful
-  ESTIMATION_ONLY_COLOR: [0, 165, 255]  # Orange when in estimation-only mode
+  ESTIMATOR_UNCERTAINTY_THRESHOLD: 1000.0
 
 
 # Tracking Configuration
@@ -111,14 +121,15 @@ Tracking:
   CENTER_CIRCLE_COLOR: [0, 255, 0]
   CENTER_HISTORY_LENGTH: 10
   MAX_DISPLACEMENT_THRESHOLD: 0.25  # As a fraction of the frame dimensions
+
   TRACKING_FAILURE_TIMEOUT: 5.0  # You can adjust this value as needed
 
 
   # For appearance validation
-  APPEARANCE_THRESHOLD: 0.2  # Similarity threshold between 0 and 1
+  APPEARANCE_THRESHOLD: 0.3  # Similarity threshold between 0 and 1
 
   # For confidence scoring
-  CONFIDENCE_THRESHOLD: 0.3  # Minimum required confidence to accept tracking result
+  CONFIDENCE_THRESHOLD: 0.5  # Minimum required confidence to accept tracking result
 
   # For re-detection mechanism
   REDETECTION_ATTEMPTS: 5
@@ -182,9 +193,9 @@ PID:
     x: {p: 4.5, i: 0.1, d: 1.5}
     y: {p: 4.5, i: 0.1, d: 1.5}
     z: {p: 2, i: 0.03, d: 0.05}
-    roll_rate: {p: 1, i: 0.1, d: 0.2}
-    pitch_rate: {p: 10, i: 0.1, d: 0.2}
-    yaw_rate: {p: 2, i: 0, d: 0.1}
+    roll_rate: {p: 0.75, i: 0.05, d: 0.2}
+    pitch_rate: {p: 15, i: 0.1, d: 0.4}
+    yaw_rate: {p: 2.5, i: 0.1, d: 0.1}
     thrust: {p: 0.1, i: 3, d: 1}
   PROPORTIONAL_ON_MEASUREMENT: false
   ENABLE_ANTI_WINDUP: true
@@ -264,7 +275,7 @@ GStreamer:
 # MAVLink Configuration
 MAVLink:
   MAVLINK_ENABLED: true
-  MAVLINK_HOST: 127.0.0.1 #for WSL:172.21.148.30
+  MAVLINK_HOST: 127.0.0.1 #for onboard compnaion computer usually 127.0.0.1 , for WSL:172.21.148.30 (your WSL IP)
   MAVLINK_PORT: 8088
   MAVLINK_POLLING_INTERVAL: 0.5
   MAVLINK_DATA_POINTS:
