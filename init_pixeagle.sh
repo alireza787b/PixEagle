@@ -48,9 +48,6 @@ check_python_version() {
     fi
 }
 
-echo -e "📁 Installing libgl1 (seems necessary for OpenCV)..."
-sudo apt install libgl1
-
 
 # Function to create virtual environment
 create_virtualenv() {
@@ -129,6 +126,11 @@ display_banner
 # Run apt update
 echo -e "🔄 Updating package lists..."
 sudo apt update
+
+# Install libgl1
+echo -e "📁 Installing libgl1 (seems necessary for OpenCV)..."
+sudo apt install libgl1 -y
+
 
 # Check Python version
 check_python_version
