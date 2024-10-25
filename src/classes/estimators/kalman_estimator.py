@@ -170,7 +170,7 @@ class KalmanEstimator(BaseEstimator):
         ])
 
         self.filter.Q = Q
-        logger.debug(f"Updated F and Q matrices with dt = {dt}")
+        # logger.debug(f"Updated F and Q matrices with dt = {dt}")
 
     def set_dt(self, dt):
         """
@@ -189,7 +189,7 @@ class KalmanEstimator(BaseEstimator):
 
         self.dt = dt
         self.update_F_and_Q(dt)
-        logger.debug(f"Time step updated to {dt}")
+        # logger.debug(f"Time step updated to {dt}")
 
     def predict_and_update(self, measurement):
         """
@@ -209,9 +209,9 @@ class KalmanEstimator(BaseEstimator):
 
         self.filter.predict()
         self.filter.update(np.array(measurement).reshape(2, 1))
-        logger.debug(f"Kalman Filter predicted and updated with measurement: {measurement}")
-        logger.debug(f"Post-update state estimate: {self.filter.x.flatten().tolist()}")
-        logger.debug(f"Post-update covariance P: {self.filter.P}")
+        # logger.debug(f"Kalman Filter predicted and updated with measurement: {measurement}")
+        # logger.debug(f"Post-update state estimate: {self.filter.x.flatten().tolist()}")
+        # logger.debug(f"Post-update covariance P: {self.filter.P}")
 
     def get_estimate(self) -> list:
         """
@@ -223,7 +223,7 @@ class KalmanEstimator(BaseEstimator):
         The estimate includes position, velocity, and acceleration components.
         """
         estimate = self.filter.x.flatten().tolist()
-        logger.debug(f"Current state estimate: {estimate}")
+        # logger.debug(f"Current state estimate: {estimate}")
         return estimate
 
     def get_normalized_estimate(self, frame_width: int, frame_height: int) -> Optional[Tuple[float, float]]:
@@ -257,7 +257,7 @@ class KalmanEstimator(BaseEstimator):
         norm_y = (y - frame_height / 2) / (frame_height / 2)
 
         normalized_estimate = (norm_x, norm_y)
-        logger.debug(f"Normalized estimate: {normalized_estimate}")
+        # logger.debug(f"Normalized estimate: {normalized_estimate}")
 
         return normalized_estimate
 
