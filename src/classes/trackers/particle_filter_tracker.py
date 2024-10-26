@@ -1,356 +1,382 @@
 # src/classes/trackers/particle_filter_tracker.py
+
+"""
+ParticleFilterTracker Module
+----------------------------
+
+This module implements the `ParticleFilterTracker` class, a concrete tracker that uses an enhanced Particle Filter algorithm for object tracking.
+
+Project Information:
+- Project Name: PixEagle
+- Repository: https://github.com/alireza787b/PixEagle
+- Date: October 2024
+- Author: Alireza Ghaderi
+- LinkedIn: https://www.linkedin.com/in/alireza787b
+
+Overview:
+---------
+The `ParticleFilterTracker` class extends the `BaseTracker` and specializes in object tracking using a particle filter with advanced techniques to handle real-world challenges.
+
+Key Enhancements:
+-----------------
+- Enhanced Motion Model with Acceleration
+- Particle Diversity Maintenance
+- Contextual Information Usage
+- Failure Recovery Mechanism
+- Optimized Resampling (Stratified Resampling)
+- Efficient Computations with Vectorization
+
+Usage:
+------
+The `ParticleFilterTracker` can be instantiated via the `tracker_factory.py` and requires a video handler, detector, and app controller.
+
+Example:
+```python
+tracker = ParticleFilterTracker(video_handler, detector, app_controller)
+tracker.start_tracking(initial_frame, initial_bbox)
+```
+
+Dependencies:
+-------------
+- NumPy
+- OpenCV
+
+Notes:
+------
+- Appearance-related methods have been moved to the detector class.
+- Confidence calculation is standardized using the `compute_confidence` method in the base tracker.
+
+"""
+
+import logging
+import time
 import cv2
 import numpy as np
 from typing import Optional, Tuple
-from classes.parameters import Parameters  # Ensure correct import path
-from classes.position_estimator import PositionEstimator  # Ensure correct import path
-from classes.trackers.base_tracker import BaseTracker  # Ensure correct import path
-import time
-#from skimage.measure import structural_similarity as ssim
+from classes.parameters import Parameters
+from classes.trackers.base_tracker import BaseTracker
 
 class ParticleFilterTracker(BaseTracker):
     """
-    Particle Filter Tracker implementation extending the BaseTracker class.
-    Uses a particle filter algorithm for object tracking.
+    ParticleFilterTracker Class
+
+    Implements object tracking using an enhanced Particle Filter algorithm, extending the `BaseTracker`.
     """
-    
-    
-    def __init__(self, video_handler: Optional[object] = None, detector: Optional[object] = None,app_controller: Optional[object] = None, debug: bool = False):
+
+    def __init__(self, video_handler: Optional[object] = None, detector: Optional[object] = None, app_controller: Optional[object] = None):
         """
-        Initializes the Particle Filter tracker with an optional video handler and detector.
-        
-        :param video_handler: Handler for video streaming and processing.
-        :param detector: Object detector for initializing tracking.
+        Initializes the ParticleFilterTracker with a video handler, detector, and app controller.
+
+        Args:
+            video_handler (Optional[object]): Handler for video streaming and processing.
+            detector (Optional[object]): Object detector for appearance-based methods.
+            app_controller (Optional[object]): Reference to the main application controller.
         """
-        super().__init__(video_handler, detector)
+        super().__init__(video_handler, detector, app_controller)
         self.trackerName: str = "ParticleFilter"
-        self.num_particles = Parameters.PARTICLE_FILTER_NUM_PARTICLES  # e.g., 200
+        self.num_particles = int(Parameters.PF_NUM_PARTICLES)
+        self.state_dim = 6  # State vector: [x, y, vx, vy, ax, ay]
         self.particles = None
-        self.p_weights = None
-        self.ref_img = None
-        self.ref_loc = None
-        self.initial_bbox_width = None
-        self.initial_bbox_height = None
-        self.debug = debug
+        self.weights = None
+        # Correctly initialize the effective particle number threshold
+        self.effective_particle_num_threshold = float(self.get_effective_particle_num_threshold())
+        if self.position_estimator:
+            self.position_estimator.reset()
 
-        # Initialize other particle filter-specific parameters here
-
-    
-    def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]):
+    def get_effective_particle_num_threshold(self) -> float:
         """
-        Initializes the Particle Filter tracker with the provided bounding box on the given frame.
-        
-        :param frame: The initial video frame to start tracking.
-        :param bbox: A tuple representing the bounding box (x, y, width, height).
-        """
-        # Extract width and height from the bbox and set them
-        _, _, width, height = bbox
-        self.initial_bbox_width = width
-        self.initial_bbox_height = height
+        Calculates the effective particle number threshold.
 
-        # Proceed with other initialization steps...
-        self.bbox = bbox  # Set the initial bounding box
-        self.ref_img, self.ref_loc = self.get_ref_image(frame, bbox)
-        self.initialize_particles() 
+        Returns:
+            float: The effective particle number threshold.
+        """
+        return Parameters.PF_EFFECTIVE_PARTICLE_NUM_THRESHOLD * Parameters.PF_NUM_PARTICLES
+
+    def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
+        """
+        Initializes the particle filter with the provided bounding box on the given frame.
+
+        Args:
+            frame (np.ndarray): The initial video frame.
+            bbox (Tuple[int, int, int, int]): A tuple representing the bounding box (x, y, width, height).
+        """
+        logging.info(f"Initializing {self.trackerName} tracker with bbox: {bbox}")
+        x, y, w, h = bbox
+        center_x = x + w / 2
+        center_y = y + h / 2
+
+        # Initialize particles around the initial position with some noise
+        self.particles = np.empty((self.num_particles, self.state_dim))
+        self.particles[:, 0] = np.random.normal(center_x, Parameters.PF_INIT_POS_STD, self.num_particles)
+        self.particles[:, 1] = np.random.normal(center_y, Parameters.PF_INIT_POS_STD, self.num_particles)
+        self.particles[:, 2] = np.random.normal(0, Parameters.PF_INIT_VEL_STD, self.num_particles)
+        self.particles[:, 3] = np.random.normal(0, Parameters.PF_INIT_VEL_STD, self.num_particles)
+        self.particles[:, 4] = np.random.normal(0, Parameters.PF_INIT_ACC_STD, self.num_particles)
+        self.particles[:, 5] = np.random.normal(0, Parameters.PF_INIT_ACC_STD, self.num_particles)
+
+        # Initialize weights uniformly
+        self.weights = np.ones(self.num_particles) / self.num_particles
+
+        # Initialize appearance models using the detector
+        if self.detector:
+            self.detector.initial_template = frame[y:y+h, x:x+w].copy()
+            self.detector.initial_features = self.detector.extract_features(frame, bbox)
+            self.detector.adaptive_features = self.detector.initial_features.copy()
+
+        self.prev_center = None  # Reset previous center
+        self.last_update_time = time.time()
+
+        # Set initial bbox and center
+        self.bbox = bbox
+        self.set_center((int(center_x), int(center_y)))
+        self.normalize_bbox()
+        self.center_history.append(self.center)
 
     def update(self, frame: np.ndarray) -> Tuple[bool, Tuple[int, int, int, int]]:
         """
-        Updates the Particle Filter tracker with the current frame and returns the tracking success status and the new bounding box.
-        
-        :param frame: The current video frame.
-        :return: A tuple containing the success status and the new bounding box.
+        Updates the particle filter with the current frame and returns the tracking success status and the new bounding box.
+
+        Args:
+            frame (np.ndarray): The current video frame.
+
+        Returns:
+            Tuple[bool, Tuple[int, int, int, int]]: A tuple containing the success status and the new bounding box.
         """
         dt = self.update_time()
-        # Update particles based on the frame
-        self.update_particle_filter(frame)
-        self.frame = frame
-        # Here you would determine the success and calculate the detected_bbox based on the updated particles
-        # This could involve taking the average position of the particles, or the position of the most weighted particle, etc.
-        success, detected_bbox = self.calculate_new_bbox()
-        if self.debug:
-            self.visualize_tracking(frame)
-        
-        if success:
-            self.bbox = detected_bbox
-            self.set_center(int(self.bbox[0] + self.bbox[2] / 2), int(self.bbox[1] + self.bbox[3] / 2))
-            self.ref_img, self.ref_loc = self.get_ref_image(frame, self.bbox)
 
-            
-            if self.estimator_enabled:
+        # Propagate particles
+        self.propagate_particles(dt)
+
+        # Compute weights based on appearance likelihood
+        self.compute_weights(frame)
+
+        # Check if weights are all zeros
+        if np.sum(self.weights) == 0:
+            logging.warning("All particle weights are zero. Tracking failed.")
+            success = False
+            # self.update_estimator_without_measurement()
+            return success, self.bbox
+
+        # Normalize weights
+        self.weights /= np.sum(self.weights)
+
+        # Estimate state
+        estimated_state = self.estimate_state()
+
+        # Update bbox and center
+        estimated_center = (int(estimated_state[0]), int(estimated_state[1]))
+        self.prev_center = self.center
+        self.set_center(estimated_center)
+        self.bbox = self.get_bbox_from_state(estimated_state)
+        self.normalize_bbox()
+        self.center_history.append(self.center)
+
+        # Update adaptive appearance model using the detector
+        if self.detector:
+            current_features = self.detector.extract_features(frame, self.bbox)
+            self.detector.adaptive_features = (1 - Parameters.PF_APPEARANCE_LEARNING_RATE) * self.detector.adaptive_features + \
+                                      Parameters.PF_APPEARANCE_LEARNING_RATE * current_features
+
+        # Resample particles
+        self.resample_particles()
+
+        # Maintain particle diversity
+        effective_particle_num = self.compute_effective_particle_number()
+        # Ensure both variables are floats
+        effective_particle_num = float(effective_particle_num)
+        threshold = float(self.effective_particle_num_threshold)
+        if effective_particle_num < threshold:
+            self.inject_random_particles()
+
+        # Compute confidence scores
+        self.compute_confidence(frame)
+        total_confidence = self.get_confidence()
+        logging.debug(f"Total Confidence: {total_confidence}")
+
+        # Perform consistency checks
+        success = True
+        if self.confidence < Parameters.CONFIDENCE_THRESHOLD:
+            logging.warning("Tracking failed due to low confidence.")
+            success = False
+
+        if success:
+            if self.estimator_enabled and self.position_estimator:
                 self.position_estimator.set_dt(dt)
-                self.position_estimator.predict_and_update(self.center)
+                self.position_estimator.predict_and_update(np.array(self.center))
                 estimated_position = self.position_estimator.get_estimate()
                 self.estimated_position_history.append(estimated_position)
-        
-        return success, detected_bbox
-    
-    
-    def calculate_new_bbox(self):
-        # Calculate the weighted average position of the particles
-        weighted_sum_x = np.sum([p[0] * w for p, w in zip(self.particles, self.p_weights)])
-        weighted_sum_y = np.sum([p[1] * w for p, w in zip(self.particles, self.p_weights)])
-        avg_x = int(weighted_sum_x / np.sum(self.p_weights))
-        avg_y = int(weighted_sum_y / np.sum(self.p_weights))
+        else:
+            logging.warning("Tracking update failed.")
+            # Optionally, handle estimator update without measurement
+            self.update_estimator_without_measurement()
 
-        # Dynamically adjust the size of the bbox based on the spread of particles
-        spread_x = np.std([p[0] for p in self.particles])
-        spread_y = np.std([p[1] for p in self.particles])
-        bbox_width = min(max(int(spread_x * 2), self.initial_bbox_width), self.frame.shape[1])
-        bbox_height = min(max(int(spread_y * 2), self.initial_bbox_height), self.frame.shape[0])
+        return success, self.bbox
 
-        # Calculate the top-left corner of the bbox
-        top_left_x = max(0, avg_x - bbox_width // 2)
-        top_left_y = max(0, avg_y - bbox_height // 2)
-
-        new_bbox = (top_left_x, top_left_y, bbox_width, bbox_height)
-        return True, new_bbox
-
-
-    # Implement additional methods specific to the Particle Filter algorithm here
-    # Including get_ref_image, initialize_particles, update_particle_filter, etc.
-
-
-    def initialize_particles(self):
+    def propagate_particles(self, dt: float) -> None:
         """
-        Initializes particles around the reference location with some random spread.
+        Propagates particles based on the enhanced motion model with acceleration.
+
+        Args:
+            dt (float): Time delta since the last update.
         """
-        # Spread range for initial particle distribution
-        spread = 50  # Adjust this value based on your application's needs
+        # Add process noise
+        noise_pos = np.random.normal(0, Parameters.PF_POS_STD, (self.num_particles, 2))
+        noise_vel = np.random.normal(0, Parameters.PF_VEL_STD, (self.num_particles, 2))
+        noise_acc = np.random.normal(0, Parameters.PF_ACC_STD, (self.num_particles, 2))
 
-        # Generate random offsets for particles around the reference location
-        dx = np.random.randint(-spread, spread, self.num_particles)
-        dy = np.random.randint(-spread, spread, self.num_particles)
+        # Update positions
+        self.particles[:, 0] += self.particles[:, 2] * dt + 0.5 * self.particles[:, 4] * dt**2 + noise_pos[:, 0]
+        self.particles[:, 1] += self.particles[:, 3] * dt + 0.5 * self.particles[:, 5] * dt**2 + noise_pos[:, 1]
 
-        # Calculate particles' positions
-        self.particles = np.array([self.ref_loc] * self.num_particles) + np.stack((dx, dy), axis=-1)
+        # Update velocities
+        self.particles[:, 2] += self.particles[:, 4] * dt + noise_vel[:, 0]
+        self.particles[:, 3] += self.particles[:, 5] * dt + noise_vel[:, 1]
 
-        # Initialize particles' weights uniformly
-        self.p_weights = np.ones(self.num_particles) / self.num_particles
-        if self.debug:
-            print(f"Initialized {self.num_particles} particles around {self.ref_loc} with spread {spread}.")
+        # Update accelerations
+        self.particles[:, 4] += noise_acc[:, 0]
+        self.particles[:, 5] += noise_acc[:, 1]
 
+        # Ensure particles are within frame bounds
+        frame_width = self.video_handler.width
+        frame_height = self.video_handler.height
+        self.particles[:, 0] = np.clip(self.particles[:, 0], 0, frame_width - 1)
+        self.particles[:, 1] = np.clip(self.particles[:, 1], 0, frame_height - 1)
 
-
-    def make_box(img,center,w,h):
-        """ utility function to calculate box corners given a center, width and height """
-        
-        w_half=w//2
-        h_half=h//2
-        x,y=center
-        
-        pt1=(int(x-w_half),int(y-h_half))
-        pt2=(int(x+w_half),int(y-h_half))
-        pt3=(int(x+w_half),int(y+h_half))
-        pt4=(int(x-w_half),int(y+h_half))
-        
-        cv2.line(img,pt1,pt2,[0,0,255],2)
-        cv2.line(img,pt2,pt3,[0,0,255],2)
-        cv2.line(img,pt3,pt4,[0,0,255],2)
-        cv2.line(img,pt4,pt1,[0,0,255],2)
-        
-        return img,pt1,pt2,pt3,pt4
-                
-
-    @staticmethod
-    def get_ref_image(frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> Tuple[np.ndarray, Tuple[int, int]]:
+    def compute_weights(self, frame: np.ndarray) -> None:
         """
-        Extracts a reference image from the given frame based on the provided bounding box.
-        
-        :param frame: The video frame from which to extract the reference image.
-        :param bbox: A tuple representing the bounding box (x, y, width, height) for the reference image.
-        :return: The extracted reference image and its center coordinates.
+        Computes weights for each particle based on combined appearance likelihood.
+
+        Args:
+            frame (np.ndarray): The current video frame.
         """
-        x, y, w, h = bbox
-        # Ensure the bounding box is fully within the frame dimensions
-        x, y, w, h = max(0, x), max(0, y), min(w, frame.shape[1] - x), min(h, frame.shape[0] - y)
-        
-        # Extract the reference image from the frame using bbox coordinates
-        ref_img = frame[y:y+h, x:x+w]
-        
-        # Calculate the center of the bounding box
-        ref_center = (x + w // 2, y + h // 2)
-        
-        return ref_img, ref_center
-        
+        # Precompute common variables
+        half_width = int(self.bbox[2] / 2)
+        half_height = int(self.bbox[3] / 2)
+        frame_height, frame_width = frame.shape[:2]
 
-    def calc_similarity(self,ref_img, patch, sigma, sim_type='MSE_grayscale'):
-        """Calculates the similarity between the reference and the candidate patches."""
-        
-        # Resize patch to match the reference image size
-        patch_resized = cv2.resize(patch, (ref_img.shape[1], ref_img.shape[0]))
+        # Vectorized computation
+        xs = self.particles[:, 0].astype(int)
+        ys = self.particles[:, 1].astype(int)
+        x1s = np.clip(xs - half_width, 0, frame_width - 1)
+        y1s = np.clip(ys - half_height, 0, frame_height - 1)
+        x2s = np.clip(xs + half_width, 0, frame_width - 1)
+        y2s = np.clip(ys + half_height, 0, frame_height - 1)
 
-        # Initialize variables
-        sim = 0
-        ranking_type = 'descending'  # Default ranking type
+        likelihoods = np.zeros(self.num_particles)
 
-        # Prepare images
-        color_ref_img = ref_img
-        color_patch = patch_resized
-        gray_ref_img = cv2.cvtColor(ref_img, cv2.COLOR_BGR2GRAY)
-        gray_patch = cv2.cvtColor(patch_resized, cv2.COLOR_BGR2GRAY)
+        for i in range(self.num_particles):
+            x1, y1, x2, y2 = x1s[i], y1s[i], x2s[i], y2s[i]
+            particle_bbox = (x1, y1, x2 - x1, y2 - y1)
+            if x1 >= x2 or y1 >= y2:
+                likelihoods[i] = 0
+                continue
 
-        if sim_type == 'MSE_color':
-            mse = np.mean((color_ref_img - color_patch) ** 2)
-            sim = np.exp(-mse / (2.0 * sigma ** 2))
-
-        elif sim_type == 'MSE_grayscale':
-            mse = np.mean((gray_ref_img - gray_patch) ** 2)
-            sim = np.exp(-mse / (2.0 * sigma ** 2))
-
-        elif sim_type in ['Covariance_color', 'Covariance_grayscale']:
-            if sim_type == 'Covariance_color':
-                channels_ref = cv2.split(color_ref_img)
-                channels_patch = cv2.split(color_patch)
+            # Compute appearance likelihood using detector
+            if self.detector:
+                particle_features = self.detector.extract_features(frame, particle_bbox)
+                color_similarity = cv2.compareHist(self.detector.adaptive_features, particle_features, cv2.HISTCMP_BHATTACHARYYA)
+                roi = frame[y1:y2, x1:x2]
+                edge_similarity = self.detector.compute_edge_similarity(self.detector.initial_template, roi)
+                total_similarity = (Parameters.PF_COLOR_WEIGHT * color_similarity +
+                                    Parameters.PF_EDGE_WEIGHT * edge_similarity)
+                likelihoods[i] = np.exp(-Parameters.PF_APPEARANCE_LIKELIHOOD_SCALE * total_similarity)
             else:
-                channels_ref = [gray_ref_img]
-                channels_patch = [gray_patch]
+                likelihoods[i] = 1.0  # If no detector, assign equal weight
 
-            covariances = [np.corrcoef(ch_ref.flatten(), ch_patch.flatten())[0, 1]
-                        for ch_ref, ch_patch in zip(channels_ref, channels_patch)]
-            sim = np.mean(covariances)
+        self.weights = likelihoods
 
-        elif sim_type.startswith('MSE_histogram'):
-            if 'color' in sim_type:
-                hist_ref = [cv2.calcHist([color_ref_img], [i], None, [256], [0, 256]) for i in range(3)]
-                hist_patch = [cv2.calcHist([color_patch], [i], None, [256], [0, 256]) for i in range(3)]
+    def resample_particles(self) -> None:
+        """
+        Resamples particles based on their weights using stratified resampling.
+        """
+        cumulative_sum = np.cumsum(self.weights)
+        cumulative_sum[-1] = 1.0  # Ensure sum is exactly one
+
+        positions = (np.arange(self.num_particles) + np.random.uniform(0, 1)) / self.num_particles
+
+        indexes = np.zeros(self.num_particles, dtype=int)
+        i, j = 0, 0
+        while i < self.num_particles:
+            if positions[i] < cumulative_sum[j]:
+                indexes[i] = j
+                i += 1
             else:
-                hist_ref = [cv2.calcHist([gray_ref_img], [0], None, [256], [0, 256])]
-                hist_patch = [cv2.calcHist([gray_patch], [0], None, [256], [0, 256])]
+                j += 1
+        self.particles = self.particles[indexes]
+        self.weights = np.ones(self.num_particles) / self.num_particles
 
-            mse_hist = np.mean([np.mean((h_ref - h_patch) ** 2) for h_ref, h_patch in zip(hist_ref, hist_patch)])
-            sim = np.exp(-mse_hist / (2.0 * sigma ** 2))
+    def estimate_state(self) -> np.ndarray:
+        """
+        Estimates the state from particles and weights.
 
-        # Add additional similarity measures if needed
+        Returns:
+            np.ndarray: The estimated state vector.
+        """
+        estimated_state = np.average(self.particles, weights=self.weights, axis=0)
+        return estimated_state
 
-        # For new similarity measures where lower values are better, adjust ranking_type
-        if sim_type == 'something_new' and 'lowest value is best':
-            ranking_type = 'ascending'
+    def compute_effective_particle_number(self) -> float:
+        """
+        Computes the effective number of particles to assess diversity.
 
-        #if self.debug:
-        #    print(f"Similarity between ref_img and patch: {sim}, Method: {sim_type}")
+        Returns:
+            float: The effective number of particles.
+        """
+        return 1.0 / np.sum(self.weights ** 2)
 
+    def inject_random_particles(self) -> None:
+        """
+        Injects random particles to maintain diversity.
 
-        return sim, ranking_type
+        This helps prevent particle degeneracy.
+        """
+        num_random_particles = int(self.num_particles * Parameters.PF_RANDOM_PARTICLE_RATIO)
+        random_indexes = np.random.choice(self.num_particles, num_random_particles, replace=False)
 
+        # Re-initialize selected particles
+        self.particles[random_indexes, 0] = np.random.uniform(0, self.video_handler.width, num_random_particles)
+        self.particles[random_indexes, 1] = np.random.uniform(0, self.video_handler.height, num_random_particles)
+        self.particles[random_indexes, 2:] = 0  # Reset velocities and accelerations
 
-    def resample_particles(self, particles, p_weights):
-        # Resample based on current similarity weights
-        num_particles = len(p_weights)
-        idx = np.random.choice(range(num_particles), size=num_particles, p=p_weights, replace=True)
-        new_particles = particles[idx]
+    def get_bbox_from_state(self, state: np.ndarray) -> Tuple[int, int, int, int]:
+        """
+        Constructs a bounding box from the state vector.
 
-        # Introduce a small random jitter to the particles' positions to maintain diversity
-        jitter = np.random.normal(0, self.initial_bbox_width * 0.05, (num_particles, 2))
-        new_particles = new_particles.astype(np.float64) + jitter  # Ensure addition in float64
+        Args:
+            state (np.ndarray): The state vector.
 
-        # Convert back to integers for pixel coordinates
-        new_particles = np.round(new_particles).astype(np.int64)
+        Returns:
+            Tuple[int, int, int, int]: The bounding box (x, y, w, h).
+        """
+        x_center, y_center = state[0], state[1]
+        w, h = self.bbox[2], self.bbox[3]
+        x = int(x_center - w / 2)
+        y = int(y_center - h / 2)
+        return (x, y, int(w), int(h))
 
-        return new_particles
+    def update_estimator_without_measurement(self) -> None:
+        """
+        Updates the position estimator when no measurement is available.
+        """
+        dt = self.update_time()
+        if self.estimator_enabled and self.position_estimator:
+            self.position_estimator.set_dt(dt)
+            self.position_estimator.predict_only()
+            estimated_position = self.position_estimator.get_estimate()
+            self.estimated_position_history.append(estimated_position)
+            logging.debug(f"Estimated position (without measurement): {estimated_position}")
+        else:
+            logging.warning("Estimator is not enabled or not initialized.")
 
+    def get_estimated_position(self) -> Optional[Tuple[float, float]]:
+        """
+        Gets the current estimated position from the estimator.
 
-
-
-    def get_patch(self,frame,w,h,x,y):
-        """ extracts a new image patch from a frame based on given coordinates and patch dimensions """
-        """ adjusts coordinates if off screen """
-        
-        #adjust edges if beyond frame
-        x=x+int(w//2-x) if int(x-w//2)<0 else x
-        x=x-(int(x+w//2)-len(frame[0])) if int(x+w//2)>len(frame[0]) else x
-        y=y+int(h//2-y) if int(y-h//2)<0 else y
-        y=y-(int(y+h//2)-len(frame)) if int(y+h//2)>len(frame) else y
-        
-        # calc box corners
-        min_x=int(x-w//2)
-        max_x=int(x+w//2)
-        min_y=int(y-h//2)
-        max_y=int(y+h//2)
-        
-        patch=frame[min_y:max_y,min_x:max_x]
-        
-        return patch,x,y
-
-
-    def update_particle_filter(self, frame: np.ndarray):
-        self.particles = self.resample_particles(self.particles, self.p_weights)
-
-        h, w = self.ref_img.shape[:2]
-        sims = np.zeros(self.num_particles)
-        new_particles = np.zeros_like(self.particles)
-        
-        for i, p in enumerate(self.particles):
-            motion_sigma = Parameters.PARTICLE_FILTER_SIGMA_MOVE_NEAR if self.p_weights[i] > np.mean(self.p_weights) else Parameters.PARTICLE_FILTER_SIGMA_MOVE_FAR
-            x, y = p[0] + np.random.normal(0, motion_sigma), p[1] + np.random.normal(0, motion_sigma)
-            
-            x, y = np.clip(x, 0, frame.shape[1] - 1), np.clip(y, 0, frame.shape[0] - 1)
-            
-            patch, px, py = self.get_patch(frame, w, h, x, y)
-            sim = self.calc_similarity(self.ref_img, patch, Parameters.PARTICLE_FILTER_SIGMA, Parameters.PARTICLE_FILTER_SIMILARITY_MEASURE)[0]
-            sims[i] = sim
-            new_particles[i] = [px, py]
-
-        sims = np.exp(sims - np.max(sims))  # Apply softmax-like normalization
-        self.p_weights = sims / np.sum(sims)
-        self.particles = new_particles
-
-       
-
-
-        def reset_particle_filter(frame,ref_img,particles,p_weights,ranking_type):
-            """ extract new reference image based on new estimated location """
-            
-            # best smallest/highest value should depend on comparison metric
-            if ranking_type=='descending':
-                idx=np.argsort(p_weights)[::-1][0]
-            else:
-                idx=np.argsort(p_weights)[0]
-                
-            # select coords based on top particle
-            x_best=particles[idx,0]
-            y_best=particles[idx,1]
-            
-            # make new ref_img, with tracking window included
-            h,w=ref_img.shape[:2]
-            
-            min_x=int(x_best-w//2)
-            max_x=int(x_best+w//2)
-            min_y=int(y_best-h//2)
-            max_y=int(y_best+h//2)
-            
-            new_particles=particles.copy()
-            for i,p in enumerate(particles):
-                new_particles[i]=[x_best,y_best]
-            
-            # extract new ref image
-            new_ref_img=frame[min_y:max_y,min_x:max_x]
-            
-            return new_ref_img,new_particles,(x_best,y_best)
-
-
-    def draw_particles(frame,particles):
-        """ draw dots to represent particle locations in the image """
-        
-        for p in particles:
-            cv2.circle(frame,(int(p[0]),int(p[1])),1,(0,0,255),1)
-        
-        return frame
-
-    
-    def visualize_tracking(self, frame):
-        for p in self.particles:
-            cv2.circle(frame, (int(p[0]), int(p[1])), 2, (0, 255, 0), -1)
-        if self.bbox:
-            x, y, w, h = self.bbox
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-        cv2.imshow(Parameters.FRAME_TITLE, frame)
-        cv2.waitKey(1)
-
-
-    def calculate_particle_spread(self):
-        if self.particles is not None:
-            particle_positions = np.array(self.particles)
-            x_spread = np.std(particle_positions[:, 0])
-            y_spread = np.std(particle_positions[:, 1])
-            return x_spread + y_spread
-        return 0
+        Returns:
+            Optional[Tuple[float, float]]: The estimated (x, y) position or None if unavailable.
+        """
+        if self.estimator_enabled and self.position_estimator:
+            estimated_position = self.position_estimator.get_estimate()
+            if estimated_position and len(estimated_position) >= 2:
+                return (estimated_position[0], estimated_position[1])
+        return None

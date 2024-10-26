@@ -41,6 +41,7 @@ Notes:
 """
 
 from classes.trackers.csrt_tracker import CSRTTracker
+from classes.trackers.particle_filter_tracker import ParticleFilterTracker
 # Import other trackers as necessary
 
 def create_tracker(algorithm: str, video_handler=None, detector=None, app_controller=None):
@@ -66,6 +67,9 @@ def create_tracker(algorithm: str, video_handler=None, detector=None, app_contro
     """
     if algorithm == "CSRT":
         return CSRTTracker(video_handler, detector, app_controller)
+    elif algorithm == "ParticleFilter":
+        return ParticleFilterTracker(video_handler, detector, app_controller)
     # Add other algorithms here
     else:
         raise ValueError(f"Unsupported tracking algorithm: {algorithm}")
+

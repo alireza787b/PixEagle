@@ -25,12 +25,11 @@ Key Features:
 -------------
 - **High Accuracy**: Utilizes CSRT algorithm for precise tracking.
 - **Estimator Integration**: Works seamlessly with the estimator for enhanced position estimation.
-- **Consistency Checks**: Implements motion and appearance consistency checks to validate tracking reliability.
-- **Feature Extraction**: Uses histogram-based feature extraction for appearance comparison.
+- **Confidence Calculation**: Uses standardized confidence calculation from the base tracker.
 
 Usage:
 ------
-The `CSRTTracker` can be instantiated via the `tracker_factory.py` and requires a video handler and optional detector and app controller.
+The `CSRTTracker` can be instantiated via the `tracker_factory.py` and requires a video handler, detector, and app controller.
 
 Example:
 ```python
@@ -74,19 +73,17 @@ class CSRTTracker(BaseTracker):
     --------
     - start_tracking(frame, bbox): Initializes the tracker with the provided bounding box.
     - update(frame): Updates the tracker and performs consistency checks.
-    - compute_motion_confidence(): Computes confidence based on motion consistency.
-    - compute_appearance_confidence(frame): Computes confidence based on appearance consistency.
     - update_estimator_without_measurement(): Updates the estimator when no measurement is available.
     - get_estimated_position(): Retrieves the current estimated position from the estimator.
     """
 
     def __init__(self, video_handler: Optional[object] = None, detector: Optional[object] = None, app_controller: Optional[object] = None):
         """
-        Initializes the CSRT tracker with an optional video handler and detector.
+        Initializes the CSRT tracker with a video handler, detector, and app controller.
 
         Args:
             video_handler (Optional[object]): Handler for video streaming and processing.
-            detector (Optional[object]): Object detector for initializing tracking.
+            detector (Optional[object]): Object detector for appearance-based methods.
             app_controller (Optional[object]): Reference to the main application controller.
         """
         super().__init__(video_handler, detector, app_controller)
@@ -105,7 +102,12 @@ class CSRTTracker(BaseTracker):
         """
         logging.info(f"Initializing {self.trackerName} tracker with bbox: {bbox}")
         self.tracker.init(frame, bbox)
-        self.initial_features = self.extract_features(frame, bbox)
+
+        # Initialize appearance models using the detector
+        if self.detector:
+            self.detector.initial_features = self.detector.extract_features(frame, bbox)
+            self.detector.adaptive_features = self.detector.initial_features.copy()
+
         self.prev_center = None  # Reset previous center
         self.last_update_time = time.time()
 
@@ -129,70 +131,32 @@ class CSRTTracker(BaseTracker):
             self.normalize_bbox()
             self.center_history.append(self.center)
 
+            # Update adaptive appearance model using the detector
+            if self.detector:
+                current_features = self.detector.extract_features(frame, self.bbox)
+                self.detector.adaptive_features = (1 - Parameters.CSRT_APPEARANCE_LEARNING_RATE) * self.detector.adaptive_features + \
+                                          Parameters.CSRT_APPEARANCE_LEARNING_RATE * current_features
+
             # Compute confidence scores
-            motion_confidence = self.compute_motion_confidence()
-            appearance_confidence = self.compute_appearance_confidence(frame)
-            total_confidence = (motion_confidence + appearance_confidence) / 2.0
-            logging.debug(f"Motion Confidence: {motion_confidence}, Appearance Confidence: {appearance_confidence}, Total Confidence: {total_confidence}")
+            self.compute_confidence(frame)
+            total_confidence = self.get_confidence()
+            logging.debug(f"Total Confidence: {total_confidence}")
 
             # Perform consistency checks
-            if not self.is_motion_consistent():
-                logging.warning("Tracking failed due to motion inconsistency.")
-                success = False
-
-            if total_confidence < Parameters.CONFIDENCE_THRESHOLD:
+            if self.confidence < Parameters.CONFIDENCE_THRESHOLD:
                 logging.warning("Tracking failed due to low confidence.")
-                success = False
-
-            if not self.is_appearance_consistent(frame):
-                logging.warning("Tracking failed due to appearance inconsistency.")
                 success = False
 
             if success and self.estimator_enabled and self.position_estimator:
                 self.position_estimator.set_dt(dt)
-                # Convert self.center to NumPy array
                 self.position_estimator.predict_and_update(np.array(self.center))
                 estimated_position = self.position_estimator.get_estimate()
                 self.estimated_position_history.append(estimated_position)
         else:
             logging.warning("Tracking update failed in tracker algorithm.")
             # Optionally, handle estimator update without measurement
-            self.update_estimator_without_measurement()
-
+            
         return success, self.bbox
-
-    def compute_motion_confidence(self) -> float:
-        """
-        Computes confidence based on motion consistency.
-
-        Returns:
-            float: The motion confidence score between 0.0 and 1.0.
-
-        A lower confidence indicates unexpected large movements, possibly due to tracking errors.
-        """
-        if self.prev_center is None:
-            return 1.0  # Maximum confidence on first frame
-        displacement = np.linalg.norm(np.array(self.center) - np.array(self.prev_center))
-        frame_diag = np.hypot(self.video_handler.width, self.video_handler.height)
-        confidence = max(0.0, 1.0 - (displacement / (Parameters.MAX_DISPLACEMENT_THRESHOLD * frame_diag)))
-        return confidence
-
-    def compute_appearance_confidence(self, frame: np.ndarray) -> float:
-        """
-        Computes confidence based on appearance consistency.
-
-        Args:
-            frame (np.ndarray): The current video frame.
-
-        Returns:
-            float: The appearance confidence score between 0.0 and 1.0.
-
-        A lower confidence indicates significant changes in appearance, suggesting the tracker may have lost the target.
-        """
-        current_features = self.extract_features(frame, self.bbox)
-        similarity = cv2.compareHist(self.initial_features, current_features, cv2.HISTCMP_CORREL)
-        confidence = max(0.0, min(similarity, 1.0))
-        return confidence
 
     def update_estimator_without_measurement(self) -> None:
         """

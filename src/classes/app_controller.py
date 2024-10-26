@@ -10,7 +10,6 @@ from classes.video_handler import VideoHandler
 from classes.trackers.csrt_tracker import CSRTTracker  # Import other trackers as necessary
 from classes.segmentor import Segmentor
 from classes.trackers.tracker_factory import create_tracker
-from classes.detector import Detector
 import cv2
 from classes.px4_interface_manager import PX4InterfaceManager  # Updated import path
 from classes.telemetry_handler import TelemetryHandler
@@ -21,6 +20,7 @@ from classes.gstreamer_handler import GStreamerHandler
 from classes.mavlink_data_manager import MavlinkDataManager
 from classes.frame_preprocessor import FramePreprocessor
 from classes.estimators.estimator_factory import create_estimator
+from classes.detectors.detector_factory import create_detector
 
 
 
@@ -56,13 +56,14 @@ class AppController:
         # Initialize video processing components
         self.video_handler = VideoHandler()
         self.video_streamer = None
-        self.detector = Detector(algorithm_type=Parameters.DETECTION_ALGORITHM)
+        self.detector = create_detector(Parameters.DETECTION_ALGORITHM)
         self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM, self.video_handler, self.detector, self)
         self.segmentor = Segmentor(algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM)
-        
-        
+                
         self.tracking_failure_start_time = None  # Initialize tracking failure timer
 
+        # Initialize frame counter
+        self.frame_counter = 0
 
         # Flags to track the state of tracking and segmentation
         self.tracking_started = False
@@ -118,8 +119,11 @@ class AppController:
             if bbox and bbox[2] > 0 and bbox[3] > 0:
                 self.tracker.start_tracking(frame, bbox)
                 self.tracking_started = True
-                if hasattr(self.tracker, 'detector') and self.tracker.detector:
-                    self.tracker.detector.extract_features(frame, bbox)
+                self.frame_counter = 0  # Initialize frame counter
+                if self.detector:
+                    # Initialize detector's features and template
+                    self.detector.extract_features(frame, bbox)
+                    logging.debug("Detector's initial features and template set.")
                 logging.info("Tracking activated.")
             else:
                 logging.info("Tracking canceled or invalid ROI.")
@@ -198,7 +202,10 @@ class AppController:
             
             # Tracking and estimation
             if self.tracking_started:
-                success, _ = self.tracker.update(frame)
+                if self.tracking_failure_start_time is None:
+                    success, _ = self.tracker.update(frame)
+                else:
+                    success = False
                 if success:
                     # Reset tracking failure timer
                     self.tracking_failure_start_time = None
@@ -210,7 +217,19 @@ class AppController:
                     if self.following_active:
                         await self.follow_target()
                         await self.check_failsafe()
+                    # Increment frame counter
+                    self.frame_counter += 1
+                    # Get tracker confidence
+                    tracker_confidence = self.tracker.get_confidence()
+                    # Update template based on confidence and interval
+                    if (tracker_confidence >= Parameters.TRACKER_CONFIDENCE_THRESHOLD_FOR_TEMPLATE_UPDATE and
+                        self.frame_counter % Parameters.TEMPLATE_UPDATE_INTERVAL == 0):
+                        bbox = self.tracker.bbox
+                        if bbox:
+                            self.detector.update_template(frame, bbox)
+                            logging.debug("Template updated during tracking.")
                 else:
+                    self.frame_counter = 0  # Reset frame counter on tracking failure
                     if self.tracking_failure_start_time is None:
                         # First failure, start timer
                         self.tracking_failure_start_time = time.time()
@@ -220,8 +239,9 @@ class AppController:
                         if elapsed_time > Parameters.TRACKING_FAILURE_TIMEOUT:
                             logging.error("Tracking lost for too long. Handling failure.")
                             self.tracking_started = False
-                            await self.handle_tracking_failure()
+                            self.tracking_failure_start_time = None
                         else:
+                            
                             # Continue updating estimator and control logic
                             logging.warning(f"Tracking lost. Attempting to recover. Elapsed time: {elapsed_time:.2f} seconds.")
                             # Update estimator without measurement
@@ -231,9 +251,12 @@ class AppController:
                             if self.following_active:
                                 await self.follow_target()
                                 await self.check_failsafe()
-            else:
-                # Tracking not active; continue processing frames
-                pass
+                                
+                            redetect_result = self.handle_tracking_failure()
+                            if redetect_result:
+                                self.tracking_failure_start_time = None
+
+
             
             # Telemetry handling
             if self.telemetry_handler.should_send_telemetry():
@@ -255,29 +278,23 @@ class AppController:
 
 
     
-    async def handle_tracking_failure(self):
+    def handle_tracking_failure(self):
         """
         Handles tracking failure by attempting re-detection using the existing detector.
         """
         if Parameters.USE_DETECTOR and Parameters.AUTO_REDETECT:
             logging.info("Attempting to re-detect the target using the detector.")
             detection_success = False
-            for attempt in range(Parameters.REDETECTION_ATTEMPTS):
-                redetect_result = self.initiate_redetection()
-                if redetect_result["success"]:
-                    logging.info("Target re-detected and tracker re-initialized.")
-                    detection_success = True
-                    break
-                else:
-                    logging.info(f"Re-detection attempt {attempt + 1} failed. Retrying...")
-                #await asyncio.sleep(Parameters.REDETECTION_INTERVAL)
-            if not detection_success:
-                logging.error("Failed to re-detect the target after multiple attempts.")
-                await self.handle_failsafe()
-        else:
-            logging.error("Detector not enabled or AUTO_REDETECT is False. Initiating failsafe.")
-            await self.handle_failsafe()
-            self.following_active = False #double check later why I need manually do this
+            redetect_result = self.initiate_redetection()
+            if redetect_result["success"]:
+                logging.info("Target re-detected and tracker re-initialized.")
+                detection_success = True
+                
+                
+            else:
+                logging.info(f"Re-detection attempt failed. Retrying...")
+        return redetect_result
+
     
     
     async def check_failsafe(self):
@@ -367,6 +384,7 @@ class AppController:
         if Parameters.USE_DETECTOR:
             # Get estimated position
             estimate = self.tracker.get_estimated_position()
+    
             if estimate:
                 estimated_x, estimated_y = estimate[:2]
                 # Define a region around the estimated position
@@ -384,25 +402,16 @@ class AppController:
 
             if redetect_result:
                 # The latest_bbox from the detector is already adjusted to original frame coordinates
-                detected_bbox = self.detector.get_latest_bbox()
-                # Perform appearance validation
-                current_features = self.tracker.extract_features(self.current_frame, detected_bbox)
-                similarity = cv2.compareHist(self.tracker.initial_features, current_features, cv2.HISTCMP_CORREL)
-                if similarity >= Parameters.APPEARANCE_THRESHOLD:
-                    self.tracker.reinitialize_tracker(self.current_frame, detected_bbox)
-                    self.tracking_started = True
-                    logging.info("Re-detection successful and tracker re-initialized.")
-                    return {
-                        "success": True,
-                        "message": "Re-detection successful and tracker re-initialized.",
-                        "bounding_box": detected_bbox
-                    }
-                else:
-                    logging.warning("Re-detected object does not match initial appearance.")
-                    return {
-                        "success": False,
-                        "message": "Re-detected object does not match initial appearance."
-                    }
+                detected_bbox = self.detector.get_latest_bbox()                
+                self.tracker.reinitialize_tracker(self.current_frame, detected_bbox)
+                self.tracking_started = True
+                logging.info("Re-detection successful and tracker re-initialized.")
+                return {
+                    "success": True,
+                    "message": "Re-detection successful and tracker re-initialized.",
+                    "bounding_box": detected_bbox
+                }
+                
             else:
                 logging.info("Re-detection failed or no new object found.")
                 return {
@@ -414,6 +423,7 @@ class AppController:
                 "success": False,
                 "message": "Detector is not enabled."
             }
+
 
 
 

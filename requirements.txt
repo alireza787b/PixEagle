@@ -44,3 +44,5 @@ fastapi
 uvicorn
 aiortc
 pyyaml
+
+scikit-image
