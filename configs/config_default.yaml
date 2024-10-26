@@ -1,171 +1,221 @@
-# Video Source Configuration
-VideoSource:
-  VIDEO_SOURCE_TYPE: VIDEO_FILE  # Options: VIDEO_FILE, USB_CAMERA, RTSP_STREAM, UDP_STREAM, HTTP_STREAM, CSI_CAMERA
-  VIDEO_FILE_PATH: resources/test6.mp4
-  CAMERA_INDEX: 1  # For USB_CAMERA, specify the camera index (0 for default webcam)
-  RTSP_URL: rtsp://172.21.144.1:8554
-  UDP_URL: udp://172.21.144.1:5000
-  HTTP_URL: http://172.21.144.1:8100
-  CSI_SENSOR_ID: 0  # CSI Camera Sensor ID (typically 0 for first camera)
+# ==============================================================================
+# Configuration File for Application
+# ==============================================================================
 
-# General Camera Parameters
+# ==============================================================================
+# Video Input Configuration
+# ==============================================================================
+VideoSource:
+  # Type of video source to use.
+  # Options: 'VIDEO_FILE', 'USB_CAMERA', 'RTSP_STREAM', 'UDP_STREAM', 'HTTP_STREAM', 'CSI_CAMERA'
+  VIDEO_SOURCE_TYPE: USB_CAMERA
+  # Path to video file if VIDEO_SOURCE_TYPE is 'VIDEO_FILE'
+  VIDEO_FILE_PATH: resources/test4.mp4
+  # Camera index for 'USB_CAMERA' (0 for default webcam)
+  CAMERA_INDEX: 0
+  # RTSP stream URL if VIDEO_SOURCE_TYPE is 'RTSP_STREAM'
+  RTSP_URL: rtsp://172.21.144.1:8554
+  # UDP stream URL if VIDEO_SOURCE_TYPE is 'UDP_STREAM'
+  UDP_URL: udp://172.21.144.1:5000
+  # HTTP stream URL if VIDEO_SOURCE_TYPE is 'HTTP_STREAM'
+  HTTP_URL: http://172.21.144.1:8100
+  # CSI camera sensor ID if VIDEO_SOURCE_TYPE is 'CSI_CAMERA'
+  CSI_SENSOR_ID: 0  # Typically 0 for the first camera
+
+# ==============================================================================
+# Camera Configuration
+# ==============================================================================
 Camera:
-  STORE_LAST_FRAMES: 100  # Number of frames to store in memory
-  DEFAULT_FPS: 30  # Default frames per second for streaming and recording
+  # Number of frames to store in memory
+  STORE_LAST_FRAMES: 100
+  # Default frames per second for streaming and recording
+  DEFAULT_FPS: 30
+  # CSI camera settings
   CSI_WIDTH: 1280
   CSI_HEIGHT: 720
   CSI_FRAMERATE: 30
   CSI_FLIP_METHOD: 0  # 0 - None (default), 1 - Rotate 90° CW, etc.
 
-# Telemetry and Streaming Configuration
+# ==============================================================================
+# Telemetry Configuration
+# ==============================================================================
 Telemetry:
+  # Enable or disable telemetry data
   ENABLE_TELEMETRY: true
-  TELEMETRY_SEND_RATE: 2  # Hz
+  # Rate at which telemetry data is sent (Hz)
+  TELEMETRY_SEND_RATE: 2
+  # Flask endpoint for telemetry data
   TELEMETRY_FLASK_ENDPOINT: /telemetry
+  # UDP streaming settings
   ENABLE_UDP_STREAM: false
   UDP_HOST: 127.0.0.1
   UDP_PORT: 5550
+  # WebSocket settings
   WEBSOCK_HOST: 127.0.0.1
   WEBSOCK_PORT: 5551
+  # Enable follower telemetry data
   ENABLE_FOLLOWER_TELEMETRY: true
 
+# ==============================================================================
+# Streaming Configuration
+# ==============================================================================
 Streaming:
+  # Enable or disable video streaming
   ENABLE_STREAMING: true
+  # HTTP streaming settings
   HTTP_STREAM_HOST: 0.0.0.0
   HTTP_STREAM_PORT: 5077
+  # Stream quality settings
   STREAM_WIDTH: 1920
   STREAM_HEIGHT: 1080
-  STREAM_QUALITY: 100  # JPEG quality 0-100
+  STREAM_QUALITY: 100  # JPEG quality (0-100)
   STREAM_FPS: 30
+  # Stream processed frame with OSD if true, raw frame if false
   STREAM_PROCESSED_OSD: true
 
+# ==============================================================================
 # PX4 MAVSDK Configuration
+# ==============================================================================
 PX4:
+  # Use external MAVSDK server
   EXTERNAL_MAVSDK_SERVER: true
-  SYSTEM_ADDRESS: udp://172.21.148.30:14540
+  # System address for connecting to PX4 (e.g., 'udp://:14540') For real companion computer set to 127.0.0.1, For WSL:172.21.148.30 (your WSL IP)
+  SYSTEM_ADDRESS: udp://127.0.0.1:14540
 
+# ==============================================================================
 # Frame and Estimation Configuration
+# ==============================================================================
 FrameEstimation:
+  # Video frame settings
   FRAME_TITLE: Video
   DEFAULT_FPS: 30
   STORE_LAST_FRAMES: 5
+  SHOW_VIDEO_WINDOW: false  # Set to true for debugging
+  # Estimator settings
   USE_ESTIMATOR: true
   ESTIMATOR_HISTORY_LENGTH: 5
-  SHOW_VIDEO_WINDOW: false
-
   ESTIMATOR_ENABLED: true
   ESTIMATOR_TYPE: Kalman  # Or "None" to disable the estimator
-
-
-# Estimator parameters
-  ESTIMATOR_PROCESS_NOISE_VARIANCE: 10.0  # Increased to account for acceleration uncertainties
-  ESTIMATOR_MEASUREMENT_NOISE_VARIANCE: 1.0  # Decreased to trust measurements more
-  ESTIMATOR_INITIAL_STATE_COVARIANCE: [5, 5, 50, 50, 100, 100]  # Initial variances for x, y, dx, dy, ddx, ddy
-
-# Estimator usage
-  USE_ESTIMATOR_FOR_FOLLOWING: true  # Enable or disable using the estimator for following
-
-  ESTIMATED_POSITION_COLOR: [255, 0, 0] # Blue when tracking is successful
+  # Estimator parameters
+  ESTIMATOR_PROCESS_NOISE_VARIANCE: 10.0  # For acceleration uncertainties
+  ESTIMATOR_MEASUREMENT_NOISE_VARIANCE: 1.0  # To trust measurements more
+  ESTIMATOR_INITIAL_STATE_COVARIANCE: [5, 5, 50, 50, 100, 100]  # x, y, dx, dy, ddx, ddy
+  # Estimator usage
+  USE_ESTIMATOR_FOR_FOLLOWING: true
+  # Visualization colors
+  ESTIMATED_POSITION_COLOR: [255, 0, 0]  # Blue when tracking is successful
   ESTIMATION_ONLY_COLOR: [0, 165, 255]  # Orange when in estimation-only mode
 
-
-#Frame Preprocessing Configuration
+# ==============================================================================
+# Frame Preprocessing Configuration
+# ==============================================================================
 FramePreprocessor:
-    ENABLE_PREPROCESSING: false
+  # Enable or disable preprocessing
+  ENABLE_PREPROCESSING: false
+  # Preprocessing techniques
+  PREPROCESSING_USE_BLUR: true
+  PREPROCESSING_BLUR_KERNEL_SIZE: 5  # Must be an odd number
+  PREPROCESSING_USE_MEDIAN_BLUR: false
+  PREPROCESSING_MEDIAN_BLUR_KERNEL_SIZE: 5  # Must be an odd number
+  PREPROCESSING_USE_CLAHE: true
+  PREPROCESSING_CLAHE_CLIP_LIMIT: 2.0
+  PREPROCESSING_CLAHE_TILE_GRID_SIZE: 8  # Typically between 1 and 10
+  # Color space options: 'BGR', 'GRAY', 'HSV', 'LAB'
+  PREPROCESSING_COLOR_SPACE: BGR
 
-    # Preprocessing techniques
-    PREPROCESSING_USE_BLUR: true
-    PREPROCESSING_BLUR_KERNEL_SIZE: 5  # Must be an odd number
-
-    PREPROCESSING_USE_MEDIAN_BLUR: false
-    PREPROCESSING_MEDIAN_BLUR_KERNEL_SIZE: 5  # Must be an odd number
-
-    PREPROCESSING_USE_CLAHE: true
-    PREPROCESSING_CLAHE_CLIP_LIMIT: 2.0
-    PREPROCESSING_CLAHE_TILE_GRID_SIZE: 8  # Typically between 1 and 10
-
-    PREPROCESSING_COLOR_SPACE: BGR  # Options: 'BGR', 'GRAY', 'HSV', 'LAB'
-
+# ==============================================================================
 # Segmentation Configuration
+# ==============================================================================
 Segmentation:
+  # Available segmentation algorithms
   SEGMENTATION_ALGORITHMS: ['GrabCut', 'Watershed', 'yolov8s-seg', 'yolov8n-oiv7', 'yolov8s-obb']
+  # Default segmentation algorithm to use
   DEFAULT_SEGMENTATION_ALGORITHM: yolo/yolov8n-oiv7
+  # Use segmentation results for tracking
   USE_SEGMENTATION_FOR_TRACKING: true
 
+# ==============================================================================
 # Detector Configuration
+# ==============================================================================
 Detector:
+  # Enable or disable the detector
   USE_DETECTOR: true
+  # Template matching settings
+  TEMPLATE_UPDATE_INTERVAL: 10  # Update template every N frames
   AUTO_REDETECT: true
   DETECTION_ALGORITHM: TemplateMatching
   TEMPLATE_MATCHING_METHOD: TM_CCOEFF_NORMED
   DEFAULT_FEATURE_EXTRACTION_ALGORITHM: ORB
-  MIN_MATCH_COUNT: 10
-  ORB_FLENN_TRESH: 0.8
-  ORB_FEATURES: 2000
-  FLANN_INDEX_LSH: 6
-  FLANN_TABLE_NUMBER: 6
-  FLANN_KEY_SIZE: 12
-  FLANN_MULTI_PROBE_LEVEL: 1
-  FLANN_SEARCH_PARAMS:
-    checks: 50
-
-  REDETECTION_SEARCH_RADIUS: 400  # Pixels, adjust as needed
-  TEMPLATE_MATCHING_THRESHOLD: 0.7
+  # Template matching parameters
+  TEMPLATE_APPEARANCE_LEARNING_RATE: 0.002
+  TEMPLATE_MATCHING_SCALES: [0.95, 1.0, 1.05]
+  APPEARANCE_CONFIDENCE_THRESHOLD: 0.7
+  TEMPLATE_MATCHING_THRESHOLD: 0.8
+  # Tracker confidence threshold for updating the template
+  TRACKER_CONFIDENCE_THRESHOLD_FOR_TEMPLATE_UPDATE: 0.8
+  # Redetection parameters
+  REDETECTION_SEARCH_RADIUS: 300  # Adjust based on estimator uncertainty
+  MIN_SEARCH_RADIUS: 50  # Minimum search radius in pixels
+  UNCERTAINTY_SCALE_FACTOR: 2.0  # Scales uncertainty to define search radius
   ESTIMATOR_UNCERTAINTY_THRESHOLD: 1000.0
+  # ORB feature matching parameters
+  ORB_NFEATURES: 500
+  ORB_MIN_MATCH_COUNT: 30  # Minimum matches for reliable detection
+  RANSAC_REPROJECTION_THRESHOLD: 10.0  # RANSAC reprojection threshold
 
-
+# ==============================================================================
 # Tracking Configuration
+# ==============================================================================
 Tracking:
-  DEFAULT_TRACKING_ALGORITHM: ParticleFilter #Options CSRT , ParticleFilter
+  # Default tracking algorithm: 'CSRT', 'ParticleFilter', etc.
+  DEFAULT_TRACKING_ALGORITHM: ParticleFilter
+  # Visualization settings
   TRACKING_RECTANGLE_COLOR: [255, 0, 0]
   CENTER_CIRCLE_COLOR: [0, 255, 0]
   CENTER_HISTORY_LENGTH: 10
-  MAX_DISPLACEMENT_THRESHOLD: 0.25  # As a fraction of the frame dimensions
-
-  TRACKING_FAILURE_TIMEOUT: 5.0  # You can adjust this value as needed
-
-
-  # For appearance validation
+  # Displacement threshold (as a fraction of frame dimensions)
+  MAX_DISPLACEMENT_THRESHOLD: 0.25
+  # Tracking failure timeout before attempting redetection (seconds)
+  TRACKING_FAILURE_TIMEOUT: 5.0
+  # CSRT tracker parameters (if using CSRT)
+  CSRT_APPEARANCE_LEARNING_RATE: 0.05
+  # Appearance validation parameters
   APPEARANCE_THRESHOLD: 0.3  # Similarity threshold between 0 and 1
-
-  # For confidence scoring
-  CONFIDENCE_THRESHOLD: 0.5  # Minimum required confidence to accept tracking result
-
-  # For re-detection mechanism
+  APPEARANCE_CONFIDENCE_THRESHOLD: 0.5
+  # Confidence weights
+  MOTION_CONFIDENCE_WEIGHT: 0.5
+  APPEARANCE_CONFIDENCE_WEIGHT: 0.5
+  # Confidence threshold for accepting tracking result
+  CONFIDENCE_THRESHOLD: 0.6
+  # Re-detection mechanism
   REDETECTION_ATTEMPTS: 5
-
-
-  # Particle Filter Parameters
-  PF_NUM_PARTICLES: 200  # Number of particles
+  # Particle Filter parameters (if using ParticleFilter)
+  PF_NUM_PARTICLES: 500
   PF_INIT_POS_STD: 20.0  # Initial position standard deviation
   PF_INIT_VEL_STD: 5.0   # Initial velocity standard deviation
   PF_INIT_ACC_STD: 1.0   # Initial acceleration standard deviation
-
   PF_POS_STD: 15.0       # Process noise standard deviation for position
   PF_VEL_STD: 5.0        # Process noise standard deviation for velocity
   PF_ACC_STD: 1.0        # Process noise standard deviation for acceleration
-
   PF_APPEARANCE_LIKELIHOOD_SCALE: 25.0  # Scale factor for appearance likelihood
   PF_APPEARANCE_LEARNING_RATE: 0.05     # Learning rate for adaptive appearance model
-
   PF_COLOR_WEIGHT: 0.7   # Weight for color histogram similarity
   PF_EDGE_WEIGHT: 0.3    # Weight for edge-based similarity
-
-  PF_CANNY_THRESHOLD1: 50  # First threshold for the hysteresis procedure in Canny edge detector
-  PF_CANNY_THRESHOLD2: 150 # Second threshold for the hysteresis procedure in Canny edge detector
-
+  PF_CANNY_THRESHOLD1: 50
+  PF_CANNY_THRESHOLD2: 150
   PF_EFFECTIVE_PARTICLE_NUM_THRESHOLD: 0.5  # Ratio of PF_NUM_PARTICLES
   PF_RANDOM_PARTICLE_RATIO: 0.1  # Ratio of particles to reinitialize randomly
 
-  # Confidence Thresholds
-  CONFIDENCE_THRESHOLD: 0.6  # Adjusted for stricter confidence requirements
-
-
+# ==============================================================================
 # Follower Configuration
+# ==============================================================================
 Follower:
+  # MAVLink interface settings
   USE_MAVLINK2REST: true
   FOLLOWER_DATA_REFRESH_RATE: 5
+  # ROI selection mode
   ROI_SELECTION_MODE: MANUAL
+  # Visualization settings
   SHOW_TRACKING_WINDOW: true
   DISPLAY_DEVIATIONS: false
   TRACKED_BBOX_STYLE: fancy
@@ -177,29 +227,43 @@ Follower:
   CROSSHAIR_ARM_LENGTH: 20
   BBOX_CORNER_ARM_LENGTH: 20
   OVERLAY_OPACITY: 128
-  FOLLOWER_MODE: chase_follower  # Options: ground_view, constant_distance, constant_position, chase_follower  etc.
+  # Follower mode options: 'ground_view', 'constant_distance', 'constant_position', 'chase_follower', etc.
+  FOLLOWER_MODE: chase_follower
+  # Control settings
   ENABLE_ALTITUDE_CONTROL: true
   TARGET_POSITION_MODE: center
 
+# ==============================================================================
 # Yaw Control Parameters
+# ==============================================================================
 YawControl:
   ENABLE_YAW_CONTROL: false
   YAW_CONTROL_THRESHOLD: 0.3
   YAW_LATERAL_BLEND_FACTOR: 0.5
   YAW_DEAD_ZONE: 0.2
 
+# ==============================================================================
 # Vertical Error Recalculation Parameters
+# ==============================================================================
 VerticalErrorRecalculation:
   VERTICAL_RECALC_DELAY: 0.1
   YAW_PITCH_SYNC_FACTOR: 0.5
 
+# ==============================================================================
+# Gimbal Configuration
+# ==============================================================================
 Gimbal:
   ENABLE_GIMBAL_PRIORITY: true
 
+# ==============================================================================
+# Adaptive Control Configuration
+# ==============================================================================
 AdaptiveControl:
   ADAPTIVE_YAW_CONTROL: false
 
+# ==============================================================================
 # Chase Follower Rate Limits Configuration
+# ==============================================================================
 ChaseFollower:
   MAX_ROLL_RATE: 20.0
   MAX_PITCH_RATE: 10.0
@@ -214,21 +278,25 @@ ChaseFollower:
   YAW_ERROR_THRESHOLD: 20
   ALTITUDE_FAILSAFE_ENABLED: false
 
-# Control and PID parameters
+# ==============================================================================
+# Control and PID Parameters
+# ==============================================================================
 PID:
   PID_GAINS:
     x: {p: 4.5, i: 0.1, d: 1.5}
     y: {p: 4.5, i: 0.1, d: 1.5}
     z: {p: 2, i: 0.03, d: 0.05}
     roll_rate: {p: 1, i: 0.05, d: 0.2}
-    pitch_rate: {p: 15, i: 0.1, d: 0.4}
-    yaw_rate: {p: 2.5, i: 0, d: 0.1}
+    pitch_rate: {p: 20, i: 0.1, d: 0.4}
+    yaw_rate: {p: 2.7, i: 0.1, d: 0.01}
     thrust: {p: 0.1, i: 3, d: 1}
   PROPORTIONAL_ON_MEASUREMENT: false
   ENABLE_ANTI_WINDUP: true
   ANTI_WINDUP_BACK_CALC_COEFF: 0.1
 
-# Velocity and descent limits
+# ==============================================================================
+# Velocity and Descent Limits Configuration
+# ==============================================================================
 VelocityDescent:
   VELOCITY_LIMITS:
     x: 10.0
@@ -245,8 +313,12 @@ VelocityDescent:
   BASE_ADJUSTMENT_FACTOR_Y: 0.1
   ALTITUDE_FACTOR: 0.005
 
-# Gain scheduling configuration
+# ==============================================================================
+# Gain Scheduling Configuration
+# ==============================================================================
 GainScheduling:
+  ENABLE_GAIN_SCHEDULING: false
+  GAIN_SCHEDULING_PARAMETER: current_altitude
   ALTITUDE_GAIN_SCHEDULE:
     '(0, 20)':
       x: {p: 5.5, i: 0.2, d: 0.4}
@@ -268,21 +340,25 @@ GainScheduling:
       x: {p: 5.5, i: 0.25, d: 0.8}
       y: {p: 5.5, i: 0.25, d: 0.8}
       z: {p: 1, i: 0.01, d: 0.05}
-  ENABLE_GAIN_SCHEDULING: false
-  GAIN_SCHEDULING_PARAMETER: current_altitude
 
-# Camera and setpoint configurations
+# ==============================================================================
+# Setpoint Configuration
+# ==============================================================================
 Setpoint:
   CAMERA_YAW_OFFSET: 0
   SETPOINT_PUBLISH_RATE_S: 0.1
   ENABLE_SETPOINT_DEBUGGING: false
 
+# ==============================================================================
 # Debugging and Logging
+# ==============================================================================
 Debugging:
   ENABLE_DEBUGGING: true
   LOG_FILE_PATH: logs/tracking_log.txt
 
+# ==============================================================================
 # GStreamer Configuration
+# ==============================================================================
 GStreamer:
   ENABLE_GSTREAMER_STREAM: false
   GSTREAMER_HOST: 127.0.0.1
@@ -298,11 +374,12 @@ GStreamer:
   GSTREAMER_CONTRAST: 5.0
   GSTREAMER_BRIGHTNESS: 10
   GSTREAMER_SATURATION: 5
-
+# ==============================================================================
 # MAVLink Configuration
+# ==============================================================================
 MAVLink:
   MAVLINK_ENABLED: true
-  MAVLINK_HOST: 127.0.0.1 #for WSL:172.21.148.30
+  MAVLINK_HOST: 127.0.0.1 #For WSL:172.21.148.30 (your WSL IP).  For real companion computer set to 127.0.0.1
   MAVLINK_PORT: 8088
   MAVLINK_POLLING_INTERVAL: 0.5
   MAVLINK_DATA_POINTS:
