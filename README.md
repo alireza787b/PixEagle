@@ -4,15 +4,15 @@
 
 PixEagle is an all-in-one image processing, following, and tracking solution designed for the PX4 ecosystem, with potential expansion to ArduPilot. It leverages **MAVSDK Python**, **OpenCV**, and optional **YOLO** for precise object tracking and drone navigation. The project emphasizes **modularity** and **extensibility**, allowing users to implement their own tracking, detection, and segmentation algorithms. Additionally, PixEagle includes a **web-based React application** that serves as a Ground Control Station (GCS), providing real-time monitoring and control with enhanced features like drag-and-select target tracking.
 
-With PixEagle 2.0, we've introduced a suite of advanced features to elevate your drone's capabilities, making it more robust, user-friendly, and versatile for various aerial robotics applications.
+With PixEagle 2, we've introduced a suite of advanced features to elevate your drone's capabilities, making it more robust, user-friendly, and versatile for various aerial robotics applications.
 
 ## Latest Release
 
-### 🎉 **PixEagle 2.0 - Enhanced Tracking, Modular Design & Advanced Features** 🚁✨
+### 🎉 **PixEagle 2 - Enhanced Tracking, Modular Design & Advanced Features** 🚁✨
 
-Watch our latest demo video showcasing **PixEagle 2.0**, where we demonstrate its advanced tracking functionalities, various following modes, and seamless integration with real hardware like the Raspberry Pi 5. This release brings significant improvements in tracker robustness, user experience, and operational efficiency.
+Watch our latest demo video showcasing **PixEagle 2**, where we demonstrate its advanced tracking functionalities, various following modes, and seamless integration with real hardware like the Raspberry Pi 5. This release brings significant improvements in tracker robustness, user experience, and operational efficiency.
 
-[![PixEagle 2.0 Demo Video](https://img.youtube.com/vi/vJn27WEXQJw/0.jpg)](https://www.youtube.com/watch?v=vJn27WEXQJw)
+[![PixEagle 2 Demo Video](https://img.youtube.com/vi/vJn27WEXQJw/0.jpg)](https://www.youtube.com/watch?v=vJn27WEXQJw)
 
 
 ### 📺 **Watch the PixEagle 2.0 Demo Video:**
