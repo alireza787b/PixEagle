@@ -4,13 +4,22 @@
 # Date: Dec 2024
 # Description: This script configures the Ethernet interface to use a static IP for XK-F301E.
 #              It ensures the Wi-Fi interface remains the default for internet access.
+#              Additionally, it performs both local and internet connectivity tests.
 
+# ============================
 # User-configurable parameters
-INTERFACE="eth0" # Network interface to be configured
-STATIC_IP="192.168.0.226/24" # Static IP address
-# GATEWAY="192.168.0.251" # Gateway for Doodle Labs network (Removed to prevent overriding Wi-Fi gateway)
-PING_TARGET="8.8.8.8" # Use a reliable external IP for internet connectivity test
-CONNECTION_NAME="Wired connection 1" # Name of the NetworkManager connection (adjust if needed)
+# ============================
+
+INTERFACE="eth0"                      # Network interface to be configured (Ethernet)
+STATIC_IP="192.168.0.226/24"          # Static IP address for Ethernet
+# GATEWAY="192.168.0.251"             # Gateway for Doodle Labs network (Removed to prevent overriding Wi-Fi gateway)
+LOCAL_PING_TARGET="192.168.0.1"       # Local Ethernet gateway or another local device IP
+INTERNET_PING_TARGET="8.8.8.8"        # External IP for internet connectivity test (Google DNS)
+CONNECTION_NAME="Wired connection 1"  # Name of the NetworkManager connection (adjust if needed)
+
+# ============================
+# Function Definitions
+# ============================
 
 # Function to display information to the user
 function info {
@@ -32,10 +41,16 @@ function prompt_user {
     echo -e "\e[33m[NOTE]\e[0m $1"
 }
 
-# Start of the script
+# ============================
+# Start of the Script
+# ============================
+
 info "Starting the process to switch to Doodle Labs Network..."
 
-# Flushing current IP configuration
+# =====================================
+# 1. Flush Current IP Configuration
+# =====================================
+
 info "Flushing current IP configuration on $INTERFACE..."
 if sudo ip addr flush dev $INTERFACE; then
     success "Successfully flushed IP configuration."
@@ -44,7 +59,10 @@ else
     exit 1
 fi
 
-# Setting static IP configuration without gateway
+# =====================================
+# 2. Set Static IP Configuration
+# =====================================
+
 info "Setting static IP to $STATIC_IP on $INTERFACE..."
 if sudo ip addr add $STATIC_IP dev $INTERFACE && sudo ip link set $INTERFACE up; then
     success "Static IP configuration applied successfully."
@@ -52,6 +70,10 @@ else
     error "Failed to set static IP configuration."
     exit 1
 fi
+
+# =====================================
+# 3. Remove Default Route via Ethernet
+# =====================================
 
 # === Removed Section: Adding default route via Ethernet gateway ===
 # Explanation:
@@ -69,7 +91,10 @@ fi
 
 success "Default route via Ethernet is not set to preserve Wi-Fi internet access."
 
-# Making the static IP configuration persistent
+# =====================================
+# 4. Make Static IP Configuration Persistent
+# =====================================
+
 info "Attempting to make the static IP configuration persistent across reboots..."
 if systemctl is-active --quiet NetworkManager; then
     # Using NetworkManager to persist the settings without setting a gateway
@@ -93,7 +118,10 @@ else
     prompt_user "Could not find a known network management system. Ensure your network is configured correctly."
 fi
 
-# Restarting networking services (handling different cases)
+# =====================================
+# 5. Restart Networking Services
+# =====================================
+
 info "Attempting to restart networking services..."
 if systemctl is-active --quiet NetworkManager; then
     if sudo systemctl restart NetworkManager; then
@@ -113,31 +141,32 @@ else
     prompt_user "No known networking service found. Skipping service restart. Ensure your network is configured correctly."
 fi
 
-# Testing internet connectivity via Wi-Fi
-info "Testing internet connectivity by pinging $PING_TARGET..."
-if ping -c 4 $PING_TARGET &> /dev/null; then
+# =====================================
+# 6. Connectivity Tests
+# =====================================
+
+# === Local Connectivity Test ===
+info "Testing local Ethernet connectivity by pinging $LOCAL_PING_TARGET..."
+if ping -c 4 $LOCAL_PING_TARGET &> /dev/null; then
+    success "Successfully connected to the local Ethernet device at $LOCAL_PING_TARGET."
+else
+    error "Failed to reach $LOCAL_PING_TARGET. Please check your local Ethernet connection."
+    prompt_user "Ensure that the local Ethernet device is up and properly configured."
+    # Not exiting here as internet connectivity is more critical
+fi
+
+# === Internet Connectivity Test ===
+info "Testing internet connectivity by pinging $INTERNET_PING_TARGET..."
+if ping -c 4 $INTERNET_PING_TARGET &> /dev/null; then
     success "Successfully connected to the internet via Wi-Fi."
 else
-    error "Failed to reach $PING_TARGET. Please check your internet connection."
+    error "Failed to reach $INTERNET_PING_TARGET. Please check your internet connection."
     prompt_user "Ensure that your Wi-Fi is connected and has internet access."
     exit 1
 fi
 
-# === Optional: Testing Local Ethernet Connectivity ===
-# Explanation:
-# This section tests the connectivity to the Ethernet gateway or another local device to ensure that
-# the Ethernet interface is functioning correctly for local data links.
-#
-# Uncomment the following lines if you have a specific local IP to test connectivity.
-#
-# LOCAL_PING_TARGET="192.168.0.1" # Replace with your local Ethernet target IP
-# info "Testing local Ethernet connectivity by pinging $LOCAL_PING_TARGET..."
-# if ping -c 4 $LOCAL_PING_TARGET &> /dev/null; then
-#     success "Successfully connected to the local Ethernet device at $LOCAL_PING_TARGET."
-# else
-#     error "Failed to reach $LOCAL_PING_TARGET. Please check your local Ethernet connection."
-#     prompt_user "Ensure that the local Ethernet device is up and properly configured."
-#     # Not exiting here as internet connectivity is more critical
-# fi
+# =====================================
+# 7. Final Report
+# =====================================
 
 info "Process complete. Your device is now configured for local Ethernet and internet access via Wi-Fi."
