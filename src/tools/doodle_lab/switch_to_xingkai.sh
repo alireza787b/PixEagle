@@ -8,7 +8,7 @@
 # User-configurable parameters
 INTERFACE="eth0" # Network interface to be configured
 STATIC_IP="192.168.0.226/24" # Static IP address (Subnet /16: 255.255.255.0)
-GATEWAY="192.168.0.1" # Gateway for Doodle Labs network
+GATEWAY="192.168.0.251" # Gateway for Doodle Labs network
 PING_TARGET="$GATEWAY" # IP address to ping (Doodle Labs gateway for testing connection)
 CONNECTION_NAME="Wired connection 1" # Name of the NetworkManager connection (adjust if needed)
 
