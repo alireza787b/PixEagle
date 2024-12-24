@@ -1,3 +1,5 @@
+# src/classes/gstreamer_handler.py (QGroundControl version)
+
 import cv2
 import numpy as np
 import logging

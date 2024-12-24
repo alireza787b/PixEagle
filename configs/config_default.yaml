@@ -90,7 +90,7 @@ FrameEstimation:
   FRAME_TITLE: Video
   DEFAULT_FPS: 30
   STORE_LAST_FRAMES: 5
-  SHOW_VIDEO_WINDOW: false  # Set to true for debugging
+  SHOW_VIDEO_WINDOW: true  # Set to true for debugging
   # Estimator settings
   USE_ESTIMATOR: true
   ESTIMATOR_HISTORY_LENGTH: 5
@@ -360,7 +360,9 @@ Debugging:
 # GStreamer Configuration
 # ==============================================================================
 GStreamer:
-  ENABLE_GSTREAMER_STREAM: false
+  ENABLE_GSTREAMER_STREAM: true
+  # Can be 'QGC', 'HTTP', or something else
+  GSTREAMER_MODE: QGC
   GSTREAMER_HOST: 127.0.0.1
   GSTREAMER_PORT: 2000
   GSTREAMER_BITRATE: 2000
