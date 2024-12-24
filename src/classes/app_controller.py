@@ -1,4 +1,5 @@
-#src/classes/app_controller.py
+# src/classes/app_controller.py
+
 import asyncio
 import logging
 import time
@@ -21,7 +22,6 @@ from classes.mavlink_data_manager import MavlinkDataManager
 from classes.frame_preprocessor import FramePreprocessor
 from classes.estimators.estimator_factory import create_estimator
 from classes.detectors.detector_factory import create_detector
-
 
 
 class AppController:
@@ -57,7 +57,8 @@ class AppController:
         self.video_handler = VideoHandler()
         self.video_streamer = None
         self.detector = create_detector(Parameters.DETECTION_ALGORITHM)
-        self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM, self.video_handler, self.detector, self)
+        self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM,
+                                      self.video_handler, self.detector, self)
         self.segmentor = Segmentor(algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM)
                 
         self.tracking_failure_start_time = None  # Initialize tracking failure timer
@@ -96,7 +97,6 @@ class AppController:
         if Parameters.ENABLE_GSTREAMER_STREAM:
             self.gstreamer_handler = GStreamerHandler()
             self.gstreamer_handler.initialize_stream()
-
 
         logging.info("AppController initialized.")
 
@@ -206,6 +206,7 @@ class AppController:
                     success, _ = self.tracker.update(frame)
                 else:
                     success = False
+
                 if success:
                     # Reset tracking failure timer
                     self.tracking_failure_start_time = None
@@ -217,11 +218,11 @@ class AppController:
                     if self.following_active:
                         await self.follow_target()
                         await self.check_failsafe()
+
                     # Increment frame counter
                     self.frame_counter += 1
-                    # Get tracker confidence
+                    # Update template if confidence is high and interval matched
                     tracker_confidence = self.tracker.get_confidence()
-                    # Update template based on confidence and interval
                     if (tracker_confidence >= Parameters.TRACKER_CONFIDENCE_THRESHOLD_FOR_TEMPLATE_UPDATE and
                         self.frame_counter % Parameters.TEMPLATE_UPDATE_INTERVAL == 0):
                         bbox = self.tracker.bbox
@@ -229,7 +230,7 @@ class AppController:
                             self.detector.update_template(frame, bbox)
                             logging.debug("Template updated during tracking.")
                 else:
-                    self.frame_counter = 0  # Reset frame counter on tracking failure
+                    self.frame_counter = 0  # Reset on failure
                     if self.tracking_failure_start_time is None:
                         # First failure, start timer
                         self.tracking_failure_start_time = time.time()
@@ -241,81 +242,73 @@ class AppController:
                             self.tracking_started = False
                             self.tracking_failure_start_time = None
                         else:
-                            
-                            # Continue updating estimator and control logic
-                            logging.warning(f"Tracking lost. Attempting to recover. Elapsed time: {elapsed_time:.2f} seconds.")
-                            # Update estimator without measurement
+                            logging.warning(
+                                f"Tracking lost. Attempting to recover. Elapsed time: {elapsed_time:.2f} seconds."
+                            )
                             self.tracker.update_estimator_without_measurement()
-                            # Draw estimation-only visuals
                             frame = self.tracker.draw_estimate(frame, tracking_successful=False)
                             if self.following_active:
                                 await self.follow_target()
                                 await self.check_failsafe()
-                                
+
                             redetect_result = self.handle_tracking_failure()
                             if redetect_result:
                                 self.tracking_failure_start_time = None
-
-
             
             # Telemetry handling
             if self.telemetry_handler.should_send_telemetry():
                 self.telemetry_handler.send_telemetry()
 
-            # Update current frame and OSD
+            # Update current frame (raw + OSD)
             self.current_frame = frame
-            self.video_handler.current_osd_frame = frame
+            self.video_handler.current_osd_frame = frame  # The "processed" frame with OSD
 
-            # Draw OSD elements on the frame
+            # Draw OSD elements
             frame = self.osd_handler.draw_osd(frame)
 
-            # Stream the processed frame if GStreamer is enabled
+            # At this point, frame is the fully processed OSD frame.
+            # If GStreamer is enabled, stream the processed frame
             if Parameters.ENABLE_GSTREAMER_STREAM and self.gstreamer_handler:
                 self.gstreamer_handler.stream_frame(frame)
+
+            # --- SINGLE-POINT RESIZING STEP ---
+            # Update the resized versions (raw vs. OSD) only once here
+            self.video_handler.update_resized_frames(
+                Parameters.STREAM_WIDTH, Parameters.STREAM_HEIGHT
+            )
+            # ----------------------------------
+
         except Exception as e:
             logging.exception(f"Error in update_loop: {e}")
         return frame
 
-
-    
     def handle_tracking_failure(self):
         """
         Handles tracking failure by attempting re-detection using the existing detector.
         """
         if Parameters.USE_DETECTOR and Parameters.AUTO_REDETECT:
             logging.info("Attempting to re-detect the target using the detector.")
-            detection_success = False
             redetect_result = self.initiate_redetection()
             if redetect_result["success"]:
                 logging.info("Target re-detected and tracker re-initialized.")
-                detection_success = True
-                
-                
             else:
                 logging.info(f"Re-detection attempt failed. Retrying...")
-        return redetect_result
+            return redetect_result
+        return {"success": False, "message": "Detector not enabled or auto-redetect off."}
 
-    
-    
     async def check_failsafe(self):
-        if self.px4_interface.failsafe_active :
-            # await self.px4_interface.trigger_failsafe()
+        if self.px4_interface.failsafe_active:
             await self.handle_failsafe()
             self.px4_interface.failsafe_active = False
 
     async def handle_failsafe(self):
-        #for now only disconnect px4 so attemp default px4 behaviour (possibly hold  fligt mode)
+        # For now, just disconnect PX4 so it reverts to default hold/flight mode
         await self.disconnect_px4()
 
     async def handle_key_input_async(self, key: int, frame: np.ndarray):
         """
-        Handles key inputs for toggling segmentation, toggling tracking, starting feature extraction, and cancelling activities.
-
-        Args:
-            key (int): The key pressed.
-            frame (np.ndarray): The current video frame.
+        Handles key inputs for toggling segmentation, toggling tracking, etc.
         """
-        # logging.debug(f"Handling key input: {key}")
         if key == ord('y'):
             self.toggle_segmentation()
         elif key == ord('t'):
@@ -332,20 +325,12 @@ class AppController:
     def handle_key_input(self, key: int, frame: np.ndarray):
         """
         Handles key inputs synchronously by creating an async task.
-
-        Args:
-            key (int): The key pressed.
-            frame (np.ndarray): The current video frame.
         """
         asyncio.create_task(self.handle_key_input_async(key, frame))
 
     def handle_user_click(self, x: int, y: int):
         """
         Identifies the object clicked by the user for tracking within the segmented area.
-
-        Args:
-            x (int): X coordinate of the click.
-            y (int): Y coordinate of the click.
         """
         if not self.segmentation_active:
             return
@@ -353,22 +338,14 @@ class AppController:
         detections = self.segmentor.get_last_detections()
         selected_bbox = self.identify_clicked_object(detections, x, y)
         if selected_bbox:
-            selected_bbox = tuple(map(lambda x: int(round(x)), selected_bbox))
+            selected_bbox = tuple(map(lambda a: int(round(a)), selected_bbox))
             self.tracker.reinitialize_tracker(self.current_frame, selected_bbox)
             self.tracking_started = True
             logging.info(f"Object selected for tracking: {selected_bbox}")
 
     def identify_clicked_object(self, detections: list, x: int, y: int) -> Tuple[int, int, int, int]:
         """
-        Identifies the clicked object based on segmentation detections and mouse click coordinates.
-
-        Args:
-            detections (list): List of detected objects.
-            x (int): X coordinate of the click.
-            y (int): Y coordinate of the click.
-
-        Returns:
-            tuple: The bounding box of the clicked object.
+        Identifies the clicked object based on segmentation detections and mouse click coords.
         """
         for det in detections:
             x1, y1, x2, y2 = det
@@ -382,27 +359,24 @@ class AppController:
         focusing around the estimated position if available.
         """
         if Parameters.USE_DETECTOR:
-            # Get estimated position
             estimate = self.tracker.get_estimated_position()
-    
             if estimate:
                 estimated_x, estimated_y = estimate[:2]
-                # Define a region around the estimated position
                 search_radius = Parameters.REDETECTION_SEARCH_RADIUS
                 x_min = max(0, int(estimated_x - search_radius))
                 x_max = min(self.video_handler.width, int(estimated_x + search_radius))
                 y_min = max(0, int(estimated_y - search_radius))
                 y_max = min(self.video_handler.height, int(estimated_y + search_radius))
                 search_region = (x_min, y_min, x_max - x_min, y_max - y_min)
-                # Run detection on the search region
-                redetect_result = self.detector.smart_redetection(self.current_frame, self.tracker, roi=search_region)
+                redetect_result = self.detector.smart_redetection(
+                    self.current_frame, self.tracker, roi=search_region
+                )
             else:
-                # No estimated position, use full frame
+                # No estimated position, full frame
                 redetect_result = self.detector.smart_redetection(self.current_frame, self.tracker)
 
             if redetect_result:
-                # The latest_bbox from the detector is already adjusted to original frame coordinates
-                detected_bbox = self.detector.get_latest_bbox()                
+                detected_bbox = self.detector.get_latest_bbox()
                 self.tracker.reinitialize_tracker(self.current_frame, detected_bbox)
                 self.tracking_started = True
                 logging.info("Re-detection successful and tracker re-initialized.")
@@ -411,7 +385,6 @@ class AppController:
                     "message": "Re-detection successful and tracker re-initialized.",
                     "bounding_box": detected_bbox
                 }
-                
             else:
                 logging.info("Re-detection failed or no new object found.")
                 return {
@@ -424,17 +397,10 @@ class AppController:
                 "message": "Detector is not enabled."
             }
 
-
-
-
     def show_current_frame(self, frame_title: str = Parameters.FRAME_TITLE) -> np.ndarray:
         """
         Displays the current frame in a window if SHOW_VIDEO_WINDOW is True.
-
-        Args:
-            frame_title (str): The title of the frame window.
         """
-        #logging.debug(f"Showing current frame: {frame_title}")
         if Parameters.SHOW_VIDEO_WINDOW:
             cv2.imshow(frame_title, self.current_frame)
         return self.current_frame
@@ -442,9 +408,6 @@ class AppController:
     async def connect_px4(self) -> Dict[str, any]:
         """
         Connects to PX4 when following mode is activated.
-
-        Returns:
-            dict: Details of the connection and offboard mode process.
         """
         result = {"steps": [], "errors": []}
         if not self.following_active:
@@ -452,12 +415,14 @@ class AppController:
                 logging.debug("Activating Follow Mode to PX4!")
                 await self.px4_interface.connect()
                 logging.debug("Connected to PX4 Drone!")
-                
+
                 initial_target_coords = (
-                    tuple(self.tracker.normalized_center) if Parameters.TARGET_POSITION_MODE == 'initial' else tuple(Parameters.DESIRE_AIM)
+                    tuple(self.tracker.normalized_center)
+                    if Parameters.TARGET_POSITION_MODE == 'initial'
+                    else tuple(Parameters.DESIRE_AIM)
                 )
                 self.follower = Follower(self.px4_interface, initial_target_coords)
-                self.telemetry_handler.follower = self.follower  # Maybe do a better approach later.
+                self.telemetry_handler.follower = self.follower
                 await self.px4_interface.set_hover_throttle()
                 await self.px4_interface.send_initial_setpoint()
                 await self.px4_interface.start_offboard_mode()
@@ -468,17 +433,11 @@ class AppController:
                 result["errors"].append(f"Failed to connect/start offboard mode: {e}")
         else:
             result["steps"].append("Follow mode already active.")
-        
         return result
-
-
 
     async def disconnect_px4(self) -> Dict[str, any]:
         """
         Disconnects PX4 and stops offboard mode.
-
-        Returns:
-            dict: Details of the disconnect process.
         """
         result = {"steps": [], "errors": []}
         if self.following_active:
@@ -495,7 +454,6 @@ class AppController:
                 result["errors"].append(f"Failed to stop offboard mode: {e}")
         else:
             result["steps"].append("Follow mode is not active.")
-        
         return result
 
     async def follow_target(self):
@@ -503,34 +461,30 @@ class AppController:
         Prepares to follow the target based on tracking information.
         """
         if self.tracking_started and self.following_active:
-            target_coords: Optional[Tuple[float, float]] = None  # Initialize target coordinates
+            target_coords: Optional[Tuple[float, float]] = None
 
-            # Check if estimator is enabled and used for following
+            # Check if estimator is enabled
             if Parameters.USE_ESTIMATOR_FOR_FOLLOWING and self.tracker.position_estimator:
-                # Get frame dimensions
+                # get dimensions
                 frame_width, frame_height = self.video_handler.width, self.video_handler.height
-
-                # Get normalized estimate from the estimator
-                normalized_estimate = self.tracker.position_estimator.get_normalized_estimate(frame_width, frame_height)
-
+                normalized_estimate = self.tracker.position_estimator.get_normalized_estimate(
+                    frame_width, frame_height
+                )
                 if normalized_estimate:
                     target_coords = normalized_estimate
-                    logging.debug(f"Using target estimated and normalized: {target_coords}")
+                    logging.debug(f"Using estimated normalized coords: {target_coords}")
                 else:
-                    # Estimator failed to provide a normalized estimate
-                    logging.warning("Estimator failed to provide a normalized estimate, falling back to tracker center.")
-            
+                    logging.warning("Estimator failed to provide a normalized estimate.")
+
             if not target_coords:
-                # Fallback to tracker's normalized center if estimator is not used or failed
+                # fallback to tracker's normalized center
                 target_coords = self.tracker.normalized_center
-                logging.debug(f"Using target measured (tracker normalized center): {target_coords}")
+                logging.debug(f"Using tracker's normalized center: {target_coords}")
 
             if target_coords:
-                # Command the follower with the target coordinates
                 self.follower.follow_target(target_coords)
                 self.px4_interface.update_setpoint()
 
-                # Determine the control type and send the appropriate commands
                 control_type = self.follower.get_control_type()
                 if control_type == 'attitude_rate':
                     await self.px4_interface.send_attitude_rate_commands()
@@ -540,25 +494,20 @@ class AppController:
                     logging.warning(f"Unknown control type: {control_type}")
             else:
                 logging.warning("No target coordinates available to follow.")
-
             return True
         else:
             return False
 
-
     async def shutdown(self) -> Dict[str, any]:
         """
         Shuts down the application gracefully.
-
-        Returns:
-            dict: Details of the shutdown process.
         """
         result = {"steps": [], "errors": []}
         try:
             # Stop MAVLink polling
             if Parameters.MAVLINK_ENABLED:
                 self.mavlink_data_manager.stop_polling()
-                
+
             if self.following_active:
                 logging.debug("Stopping offboard mode and disconnecting PX4.")
                 await self.px4_interface.stop_offboard_mode()
@@ -566,6 +515,7 @@ class AppController:
                     self.setpoint_sender.stop()
                     self.setpoint_sender.join()
                 self.following_active = False
+
             self.video_handler.release()
             logging.debug("Video handler released.")
             result["steps"].append("Shutdown complete.")
@@ -573,6 +523,3 @@ class AppController:
             logging.error(f"Error during shutdown: {e}")
             result["errors"].append(f"Error during shutdown: {e}")
         return result
-    
-    
-        

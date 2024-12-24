@@ -1,10 +1,11 @@
+# src/classes/video_handler.py
+
 import cv2
-from .parameters import Parameters
 from collections import deque
 import time
 import logging
+from classes.parameters import Parameters
 
-# Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
@@ -21,13 +22,20 @@ class VideoHandler:
         """
         self.cap = None  # VideoCapture object
         self.frame_history = deque(maxlen=Parameters.STORE_LAST_FRAMES)
-        self.width = None  # Width of the video source
-        self.height = None  # Height of the video source
+        self.width = None  # Actual width of the video source
+        self.height = None  # Actual height of the video source
         self.delay_frame = self.init_video_source()
-        self.current_raw_frame = None
-        self.current_osd_frame = None
 
-    def gstreamer_pipeline(self, sensor_id=0, capture_width=1280, capture_height=720, framerate=30, flip_method=0):
+        # Store frames
+        self.current_raw_frame = None      # The unprocessed frame from capture
+        self.current_osd_frame = None      # The final processed frame (e.g., with OSD)
+        
+        # Resized frames for streaming
+        self.current_resized_raw_frame = None
+        self.current_resized_osd_frame = None
+
+    def gstreamer_pipeline(self, sensor_id=0, capture_width=1280, capture_height=720,
+                           framerate=30, flip_method=0):
         """
         Generates a GStreamer pipeline string for accessing a CSI camera.
         """
@@ -40,7 +48,8 @@ class VideoHandler:
             "video/x-raw, format=(string)BGR ! "
             "videoscale ! "
             "appsink"
-            % (sensor_id, capture_width, capture_height, framerate, flip_method, capture_width, capture_height)
+            % (sensor_id, capture_width, capture_height, framerate,
+               flip_method, capture_width, capture_height)
         )
         logger.debug(f"Constructed GStreamer pipeline: {pipeline}")
         return pipeline
@@ -48,10 +57,7 @@ class VideoHandler:
     def init_video_source(self, max_retries=5, retry_delay=1):
         """
         Initializes the video source based on the configuration specified in Parameters.
-        Sets up the `cv2.VideoCapture` object (`self.cap`) to capture video from various sources.
-
-        Returns:
-            int: The calculated delay in milliseconds between frames, based on the detected or default FPS.
+        Sets up the `cv2.VideoCapture` object.
         """
         for attempt in range(max_retries):
             logger.debug(f"Attempt {attempt + 1} to open video source.")
@@ -63,24 +69,20 @@ class VideoHandler:
                 else:
                     logger.warning(f"Failed to open video source on attempt {attempt + 1}.")
             except Exception as e:
-                logger.error(f"Exception occurred while opening video source: {e}")
+                logger.error(f"Exception while opening video source: {e}")
             time.sleep(retry_delay)
         else:
-            raise ValueError("Could not open video source with the provided settings after maximum retries.")
+            raise ValueError("Could not open video source after max retries.")
 
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = self.cap.get(cv2.CAP_PROP_FPS) or Parameters.DEFAULT_FPS
-        delay_frame = max(int(1000 / fps), 1)  # Ensure delay is at least 1ms to avoid division by zero
-
+        delay_frame = max(int(1000 / fps), 1)
         return delay_frame
 
     def _create_capture_object(self):
         """
-        Creates and returns a cv2.VideoCapture object based on the video source type.
-
-        Returns:
-            cv2.VideoCapture: The video capture object.
+        Creates a cv2.VideoCapture object based on the video source type in Parameters.
         """
         source_initializers = {
             "VIDEO_FILE": lambda: cv2.VideoCapture(Parameters.VIDEO_FILE_PATH),
@@ -99,19 +101,14 @@ class VideoHandler:
                 cv2.CAP_GSTREAMER,
             ),
         }
-
         if Parameters.VIDEO_SOURCE_TYPE not in source_initializers:
             raise ValueError(f"Unsupported video source type: {Parameters.VIDEO_SOURCE_TYPE}")
-
         return source_initializers[Parameters.VIDEO_SOURCE_TYPE]()
 
     def get_frame(self):
         """
         Reads and returns the next frame from the video source.
-        Also stores the frame in the history if required.
-
-        Returns:
-            frame (numpy.ndarray or None): The next video frame, or None if there are no more frames.
+        Also stores the frame in history if needed.
         """
         if self.cap:
             ret, frame = self.cap.read()
@@ -129,42 +126,47 @@ class VideoHandler:
     def get_last_frames(self):
         """
         Returns the most recent frames stored in the history.
-
-        Returns:
-            list: The most recent frames, up to the number specified in Parameters.STORE_LAST_FRAMES.
         """
         return list(self.frame_history)
 
     def clear_frame_history(self):
-        """
-        Clears the entire frame history, effectively resetting the stored frames.
-        """
+        """ Clears the entire frame history. """
         self.frame_history.clear()
 
+    def update_resized_frames(self, width, height):
+        """
+        Resizes the raw_frame and osd_frame for streaming exactly once per update loop.
+        """
+        # Resize RAW frame
+        if self.current_raw_frame is not None:
+            self.current_resized_raw_frame = cv2.resize(self.current_raw_frame, (width, height))
+        else:
+            self.current_resized_raw_frame = None
+
+        # Resize OSD frame
+        if self.current_osd_frame is not None:
+            self.current_resized_osd_frame = cv2.resize(self.current_osd_frame, (width, height))
+        else:
+            self.current_resized_osd_frame = None
+
     def release(self):
-        """
-        Releases the video source and any associated resources.
-        """
+        """ Releases the video source and resources. """
         if self.cap:
             self.cap.release()
             logger.debug("Video source released.")
 
     def test_video_feed(self):
         """
-        Displays the video feed to verify that the video source is correctly initialized
-        and frames can be read. Press 'q' to quit the test.
+        Displays the video feed to verify the source. Press 'q' to quit the test.
         """
         logger.info("Testing video feed. Press 'q' to exit.")
         while True:
             frame = self.get_frame()
             if frame is None:
-                logger.info("No more frames to display, or an error occurred.")
+                logger.info("No more frames or an error occurred.")
                 break
-
             cv2.imshow("Test Video Feed", frame)
-
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
-
         self.release()
         cv2.destroyAllWindows()

@@ -67,6 +67,10 @@ class FastAPIHandler:
         # Lock for thread-safe frame access
         self.frame_lock = asyncio.Lock()
 
+        # For frame skipping/capping
+        self.last_http_send_time = 0.0
+        self.last_ws_send_time = 0.0
+
     def define_routes(self):
         """
         Define all the API routes for the FastAPIHandler.
@@ -142,66 +146,68 @@ class FastAPIHandler:
 
     async def video_feed(self):
         """
-        FastAPI route to serve the video feed over HTTP.
-
-        Returns:
-            StreamingResponse: A streaming response with video frames.
+        FastAPI route to serve the video feed over HTTP as an MJPEG stream.
         """
         async def generate():
             while not self.is_shutting_down:
-                start_time = time.time()
+                # Simple capping: ensure we don't exceed STREAM_FPS
+                current_time = time.time()
+                if (current_time - self.last_http_send_time) < self.frame_interval:
+                    # We are still within the interval; skip frame sending
+                    await asyncio.sleep(0.001)
+                    continue
+                self.last_http_send_time = current_time
+
+                # Lock to safely access frames
                 async with self.frame_lock:
-                    # Get the current frame
-                    frame = (self.video_handler.current_osd_frame if self.processed_osd
-                             else self.video_handler.current_raw_frame)
+                    # Select the proper resized frame
+                    frame = (self.video_handler.current_resized_osd_frame
+                             if self.processed_osd
+                             else self.video_handler.current_resized_raw_frame)
+
                     if frame is None:
-                        self.logger.warning("No frame available to send")
+                        self.logger.warning("No frame available to send (HTTP)")
                         break
-                    # Resize and encode the frame
-                    frame = cv2.resize(frame, (self.width, self.height))
+
                     ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.quality])
                     if ret:
                         frame_bytes = buffer.tobytes()
-                        # Yield the frame in the HTTP response
+                        # Yield MJPEG frame
                         yield (b'--frame\r\n'
                                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
                     else:
-                        self.logger.error("Failed to encode frame")
-                # Control the frame rate
-                elapsed_time = time.time() - start_time
-                await asyncio.sleep(max(0, self.frame_interval - elapsed_time))
+                        self.logger.error("Failed to encode frame (HTTP)")
+
         return StreamingResponse(generate(), media_type='multipart/x-mixed-replace; boundary=frame')
 
     async def video_feed_websocket(self, websocket: WebSocket):
         """
-        WebSocket endpoint to stream video frames.
-
-        Args:
-            websocket (WebSocket): The WebSocket connection object.
+        WebSocket endpoint to stream video frames (MJPEG over WebSocket).
         """
         await websocket.accept()
         self.logger.info(f"WebSocket connection accepted: {websocket.client}")
         try:
             while not self.is_shutting_down:
-                start_time = time.time()
+                # Simple capping: ensure we don't exceed STREAM_FPS
+                current_time = time.time()
+                if (current_time - self.last_ws_send_time) < self.frame_interval:
+                    await asyncio.sleep(0.001)
+                    continue
+                self.last_ws_send_time = current_time
+
                 async with self.frame_lock:
-                    # Get the current frame
-                    frame = (self.video_handler.current_osd_frame if self.processed_osd
-                             else self.video_handler.current_raw_frame)
+                    frame = (self.video_handler.current_resized_osd_frame
+                             if self.processed_osd
+                             else self.video_handler.current_resized_raw_frame)
                     if frame is not None:
-                        # Resize and encode the frame
-                        frame = cv2.resize(frame, (self.width, self.height))
                         ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.quality])
                         if ret:
-                            # Send the frame over the WebSocket
                             await websocket.send_bytes(buffer.tobytes())
                         else:
-                            self.logger.error("Failed to encode frame")
+                            self.logger.error("Failed to encode frame (WebSocket)")
                     else:
-                        self.logger.warning("No frame available to send")
-                # Control the frame rate
-                elapsed_time = time.time() - start_time
-                await asyncio.sleep(max(0, self.frame_interval - elapsed_time))
+                        self.logger.warning("No frame available to send (WebSocket)")
+
         except WebSocketDisconnect:
             self.logger.info(f"WebSocket disconnected: {websocket.client}")
         except Exception as e:
