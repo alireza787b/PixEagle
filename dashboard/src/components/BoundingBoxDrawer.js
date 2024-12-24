@@ -15,7 +15,7 @@ const BoundingBoxDrawer = ({
   handleTouchMove,
   handleTouchEnd,
   videoSrc,
-  protocol, // Added protocol prop
+  protocol,
 }) => {
   const [containerDimensions, setContainerDimensions] = useState({ width: 0, height: 0 });
 
@@ -28,21 +28,12 @@ const BoundingBoxDrawer = ({
         });
       }
     };
-
-    // Initial setting
     updateDimensions();
-
-    // Add event listener for window resize
     window.addEventListener('resize', updateDimensions);
-
-    // Cleanup
-    return () => {
-      window.removeEventListener('resize', updateDimensions);
-    };
+    return () => window.removeEventListener('resize', updateDimensions);
   }, [imageRef]);
 
   const isDrawing = (startPos && currentPos) || boundingBox;
-
   let left, top, width, height;
   let overlays = [];
 
@@ -63,36 +54,32 @@ const BoundingBoxDrawer = ({
     const containerWidth = containerDimensions.width;
     const containerHeight = containerDimensions.height;
 
-    // Ensure values are within bounds
+    // Bound checks
     left = Math.max(0, left);
     top = Math.max(0, top);
     width = Math.min(width, containerWidth - left);
     height = Math.min(height, containerHeight - top);
 
-    // Calculate overlays
+    // Overlays for dark areas
     overlays = [
-      // Top overlay
       {
         top: 0,
         left: 0,
         width: containerWidth,
         height: top,
       },
-      // Bottom overlay
       {
         top: top + height,
         left: 0,
         width: containerWidth,
         height: containerHeight - (top + height),
       },
-      // Left overlay
       {
         top: top,
         left: 0,
         width: left,
         height: height,
       },
-      // Right overlay
       {
         top: top,
         left: left + width,
@@ -109,7 +96,7 @@ const BoundingBoxDrawer = ({
         position: 'relative',
         display: 'inline-block',
         width: '100%',
-        touchAction: 'none', // Prevent touch scrolling
+        touchAction: 'none',
       }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -119,23 +106,23 @@ const BoundingBoxDrawer = ({
       onTouchEnd={handleTouchEnd}
     >
       <WebRTCStream protocol={protocol} src={videoSrc} />
+
       {isDrawing && (
         <>
           <div
             style={{
               position: 'absolute',
               border: '2px dashed red',
-              left: left,
-              top: top,
-              width: width,
-              height: height,
+              left,
+              top,
+              width,
+              height,
               pointerEvents: 'none',
             }}
           />
-          {/* Overlays */}
-          {overlays.map((overlay, index) => (
+          {overlays.map((overlay, i) => (
             <div
-              key={index}
+              key={i}
               style={{
                 position: 'absolute',
                 top: overlay.top,

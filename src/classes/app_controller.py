@@ -23,6 +23,8 @@ from classes.mavlink_data_manager import MavlinkDataManager
 from classes.frame_preprocessor import FramePreprocessor
 from classes.estimators.estimator_factory import create_estimator
 from classes.detectors.detector_factory import create_detector
+from classes.webrtc_handler import WebRTCHandler
+
 
 # We'll define an import for the new GStreamerHTTPHandler below.
 # If you keep it in a separate file, import from that file. For simplicity, we'll import from fastapi_handler if needed.
@@ -115,6 +117,14 @@ class AppController:
                     logging.warning("Could not initialize GStreamerHTTPHandler, skipping.")
             else:
                 logging.warning(f"Unknown GSTREAMER_MODE='{mode}'. No pipeline started.")
+
+
+        # WebRTC
+        if getattr(Parameters, "ENABLE_WEBRTC", False):
+            self.webrtc_handler = WebRTCHandler()
+            self.webrtc_handler.start()
+        else:
+            self.webrtc_handler = None
 
         logging.info("AppController initialized.")
 
@@ -226,6 +236,10 @@ class AppController:
             # GStreamer HTTP pipeline
             if self.gstreamer_http_handler:
                 self.gstreamer_http_handler.push_frame(frame)
+
+            # If WebRTC is enabled, push frames
+            if self.webrtc_handler:
+                self.webrtc_handler.push_frame(frame)
 
             # Single-point resizing
             self.video_handler.update_resized_frames(
@@ -506,6 +520,10 @@ class AppController:
             # Release HTTP pipeline
             if self.gstreamer_http_handler:
                 self.gstreamer_http_handler.stop()
+
+            if self.webrtc_handler:
+                self.webrtc_handler.stop()
+
 
             self.video_handler.release()
             result["steps"].append("Shutdown complete.")

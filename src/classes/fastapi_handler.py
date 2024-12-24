@@ -1,5 +1,4 @@
-# src/classes/fastapi_handler.py
-
+import json
 import sys
 import asyncio
 import cv2
@@ -14,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from classes.parameters import Parameters
-from classes.webrtc_manager import WebRTCManager
+from classes.webrtc_handler import WebRTCHandler  # if needed
 
 
 class BoundingBox(BaseModel):
@@ -26,17 +25,10 @@ class BoundingBox(BaseModel):
 
 class FastAPIHandler:
     def __init__(self, app_controller):
-        """
-        The main FastAPI handler, with optional routes for GStreamer if available.
-        """
         self.app_controller = app_controller
         self.video_handler = app_controller.video_handler
         self.telemetry_handler = app_controller.telemetry_handler
 
-        # WebRTC manager
-        self.webrtc_manager = WebRTCManager(self.video_handler)
-
-        # Create the FastAPI application
         self.app = FastAPI()
         self.app.add_middleware(
             CORSMiddleware,
@@ -46,14 +38,11 @@ class FastAPIHandler:
             allow_headers=["*"],
         )
 
-        # Logging
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
 
-        # Define all routes
         self.define_routes()
 
-        # Streaming parameters
         self.frame_rate = Parameters.STREAM_FPS
         self.width = Parameters.STREAM_WIDTH
         self.height = Parameters.STREAM_HEIGHT
@@ -64,26 +53,22 @@ class FastAPIHandler:
         self.is_shutting_down = False
         self.server = None
 
-        # For concurrency
         self.frame_lock = asyncio.Lock()
         self.last_http_send_time = 0.0
         self.last_ws_send_time = 0.0
 
     def define_routes(self):
-        # MJPEG routes
         self.app.get("/video_feed")(self.video_feed)
         self.app.websocket("/ws/video_feed")(self.video_feed_websocket)
-        self.app.websocket("/ws/webrtc_signaling")(self.webrtc_manager.signaling_handler)
 
-        # If the app_controller defines "gstreamer_http_handler", we add an H.264 route
+        self.app.websocket("/ws/webrtc_signaling")(self.webrtc_signaling_handler)
+
         if getattr(self.app_controller, "gstreamer_http_handler", None):
             self.app.get("/video_feed_gstreamer")(self.video_feed_gstreamer)
 
-        # Telemetry
         self.app.get("/telemetry/tracker_data")(self.tracker_data)
         self.app.get("/telemetry/follower_data")(self.follower_data)
 
-        # Commands
         self.app.post("/commands/start_tracking")(self.start_tracking)
         self.app.post("/commands/stop_tracking")(self.stop_tracking)
         self.app.post("/commands/toggle_segmentation")(self.toggle_segmentation)
@@ -97,7 +82,6 @@ class FastAPIHandler:
         try:
             width = self.video_handler.width
             height = self.video_handler.height
-            # Convert bounding box to pixel coords if normalized
             if all(0 <= v <= 1 for v in [bbox.x, bbox.y, bbox.width, bbox.height]):
                 bbox_pixels = {
                     'x': int(bbox.x * width),
@@ -125,9 +109,6 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def video_feed(self):
-        """
-        MJPEG over HTTP route. 
-        """
         async def generate():
             while not self.is_shutting_down:
                 current_time = time.time()
@@ -137,9 +118,9 @@ class FastAPIHandler:
                 self.last_http_send_time = current_time
 
                 async with self.frame_lock:
-                    frame = (self.video_handler.current_resized_osd_frame
+                    frame = (self.video_handler.current_osd_frame
                              if self.processed_osd
-                             else self.video_handler.current_resized_raw_frame)
+                             else self.video_handler.current_raw_frame)
                     if frame is None:
                         self.logger.warning("No MJPEG frame available.")
                         break
@@ -154,11 +135,8 @@ class FastAPIHandler:
         return StreamingResponse(generate(), media_type='multipart/x-mixed-replace; boundary=frame')
 
     async def video_feed_websocket(self, websocket: WebSocket):
-        """
-        MJPEG over WebSocket route.
-        """
         await websocket.accept()
-        self.logger.info(f"WebSocket client connected: {websocket.client}")
+        self.logger.info(f"[video_feed_websocket] Client connected: {websocket.client}")
         try:
             while not self.is_shutting_down:
                 current_time = time.time()
@@ -168,27 +146,31 @@ class FastAPIHandler:
                 self.last_ws_send_time = current_time
 
                 async with self.frame_lock:
-                    frame = (self.video_handler.current_resized_osd_frame
-                             if self.processed_osd
-                             else self.video_handler.current_resized_raw_frame)
+                    # Decide if you want raw or OSD
+                    frame = (
+                        self.video_handler.current_osd_frame
+                        if self.processed_osd
+                        else self.video_handler.current_raw_frame
+                    )
                     if frame is not None:
                         ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.quality])
                         if ret:
+                            self.logger.debug("[video_feed_websocket] Sending WS frame.")
                             await websocket.send_bytes(buffer.tobytes())
                         else:
-                            self.logger.error("Failed to encode MJPEG frame (WebSocket).")
+                            self.logger.error("[video_feed_websocket] Failed to encode MJPEG frame.")
                     else:
-                        self.logger.warning("No frame available (WebSocket).")
+                        self.logger.warning("[video_feed_websocket] No frame available. Continuing to wait.")
+                        await asyncio.sleep(0.001)  # Sleep briefly before next frame check
+                        continue  # Do not break; keep the WebSocket open
         except WebSocketDisconnect:
-            self.logger.info("WebSocket disconnected.")
+            self.logger.info("[video_feed_websocket] Client disconnected.")
         except Exception as e:
-            self.logger.error(f"Error in WebSocket feed: {e}")
+            self.logger.error(f"[video_feed_websocket] Error: {e}")
             await websocket.close()
 
+
     async def video_feed_gstreamer(self):
-        """
-        H.264 chunked streaming route, only available if gstreamer_http_handler is set up.
-        """
         handler = self.app_controller.gstreamer_http_handler
         if not handler:
             raise HTTPException(status_code=400, detail="HTTP GStreamer pipeline not enabled.")
@@ -203,7 +185,6 @@ class FastAPIHandler:
                         await asyncio.sleep(0.001)
                     if chunk:
                         yield chunk
-                # on shutdown
                 await handler.data_queue.put(b'')
             except Exception as e:
                 self.logger.error(f"GStreamerHTTP streaming error: {e}")
@@ -291,3 +272,53 @@ class FastAPIHandler:
             self.server.should_exit = True
             await self.server.shutdown()
             self.logger.info("Stopped FastAPI server")
+
+    async def webrtc_signaling_handler(self, websocket: WebSocket):
+        """
+        Parse "offer", "candidate", or "bye" from the client
+        and call the relevant webrtc_handler methods.
+        """
+        await websocket.accept()
+        webrtc_handler = self.app_controller.webrtc_handler
+        if not webrtc_handler or not webrtc_handler.enabled:
+            logging.warning("webrtc_signaling_handler: webrtc_handler is None or disabled.")
+            return
+
+        logging.info("WebRTC Signaling: Client connected.")
+        try:
+            while True:
+                data = await websocket.receive_text()
+                message = json.loads(data)
+                msg_type = message.get("type", None)
+
+                if msg_type == "offer":
+                    sdp = message["sdp"]
+                    logging.info("WebRTC Signaling: Received 'offer'.")
+                    await webrtc_handler.set_remote_description(sdp, "offer")
+                    # create answer
+                    answer = await webrtc_handler.create_answer()
+                    if answer:
+                        response = {
+                            "type": "answer",
+                            "sdp": answer.sdp
+                        }
+                        logging.info("WebRTC Signaling: Sending 'answer' to client.")
+                        await websocket.send_text(json.dumps(response))
+
+                elif msg_type == "candidate":
+                    candidate = message["candidate"]
+                    logging.info(f"WebRTC Signaling: Received ICE candidate -> {candidate}")
+                    await webrtc_handler.add_ice_candidate(candidate)
+
+                elif msg_type == "bye":
+                    logging.info("WebRTC Signaling: Received 'bye' from client. Closing connection soon.")
+                    break
+
+                else:
+                    logging.warning(f"WebRTC Signaling: Unknown msg type '{msg_type}'.")
+
+        except WebSocketDisconnect:
+            self.logger.info("WebRTC Signaling WebSocket disconnected.")
+        except Exception as e:
+            logging.error(f"webrtc_signaling_handler error: {e}")
+            await websocket.close()

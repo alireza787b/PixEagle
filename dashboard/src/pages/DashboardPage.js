@@ -14,11 +14,15 @@ import useBoundingBoxHandlers from '../hooks/useBoundingBoxHandlers';
 const DashboardPage = () => {
   const [isTracking, setIsTracking] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [streamingProtocol, setStreamingProtocol] = useState('websocket'); // Default to 'websocket'
-  const checkInterval = 2000; // Check tracker and follower status every 2 seconds
+  const [streamingProtocol, setStreamingProtocol] = useState('websocket');
+  // By default, 'websocket'; user can pick 'http' or 'webrtc'.
+
+  const checkInterval = 2000; // Check statuses every 2s
 
   const isFollowing = useFollowerStatus(checkInterval);
   const trackerStatus = useTrackerStatus(checkInterval);
+
+  // Custom bounding box hooks
   const {
     imageRef,
     startPos,
@@ -31,9 +35,8 @@ const DashboardPage = () => {
     handleTouchMove,
     handleTouchEnd,
   } = useBoundingBoxHandlers(isTracking, setIsTracking);
-  
 
-  // Handler for tracking toggle
+  // Toggle tracking handler
   const handleTrackingToggle = async () => {
     if (isTracking) {
       try {
@@ -49,7 +52,7 @@ const DashboardPage = () => {
     setIsTracking(!isTracking);
   };
 
-  // Handler for action button click
+  // Generic action button click handler
   const handleButtonClick = async (endpoint, updateTrackingState = false) => {
     try {
       const response = await fetch(endpoint, {
@@ -60,7 +63,7 @@ const DashboardPage = () => {
       console.log(`Response from ${endpoint}:`, data);
 
       if (endpoint === endpoints.quit) {
-        window.location.reload();  // Reload the page to ensure proper shutdown
+        window.location.reload(); // Reload on quit
       }
 
       if (updateTrackingState) {
@@ -72,35 +75,35 @@ const DashboardPage = () => {
     }
   };
 
-  // Effect to check the video stream
-  useEffect(() => {
-    const checkStream = setInterval(() => {
-      const img = new Image();
-      img.src = videoFeed;
+  // Effect to check if the /video_feed is up
+useEffect(() => {
+  const checkStream = setInterval(() => {
+    const img = new Image();
+    img.src = videoFeed;
 
-      img.onload = () => {
-        setLoading(false);
-        clearInterval(checkStream);
-      };
+    img.onload = () => {
+      setLoading(false);
+      clearInterval(checkStream);
+    };
+    img.onerror = () => {
+      console.error('Error loading video feed (HTTP or WS fallback).');
+    };
+  }, checkInterval);
 
-      img.onerror = () => {
-        console.error('Error loading video feed');
-      };
-    }, checkInterval); // Check every 2 seconds
+  return () => clearInterval(checkStream);
+}, [checkInterval]);
 
-    return () => clearInterval(checkStream);
-  }, []);
 
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
       <Typography variant="h4" gutterBottom align="center">Dashboard</Typography>
 
       {loading ? (
-        <Box 
-          display="flex" 
-          flexDirection="column" 
-          alignItems="center" 
-          justifyContent="center" 
+        <Box
+          display="flex"
+          flexDirection="column"
+          alignItems="center"
+          justifyContent="center"
           minHeight="400px"
         >
           <CircularProgress />
@@ -110,7 +113,7 @@ const DashboardPage = () => {
         </Box>
       ) : (
         <Grid container spacing={2}>
-          {/* Sidebar for Action Buttons and Protocol Selection */}
+          {/* Sidebar with action buttons, protocol selection */}
           <Grid item xs={12} sm={3} md={2}>
             <Grid container direction="column" spacing={2}>
               <Grid item>
@@ -121,7 +124,6 @@ const DashboardPage = () => {
                 />
               </Grid>
               <Grid item>
-                {/* Dropdown for selecting streaming protocol */}
                 <FormControl variant="outlined" fullWidth>
                   <InputLabel id="streaming-protocol-label">Streaming Protocol</InputLabel>
                   <Select
@@ -132,32 +134,33 @@ const DashboardPage = () => {
                   >
                     <MenuItem value="websocket">WebSocket</MenuItem>
                     <MenuItem value="http">HTTP</MenuItem>
+                    <MenuItem value="webrtc">WebRTC</MenuItem>
                   </Select>
                 </FormControl>
               </Grid>
             </Grid>
           </Grid>
 
-          {/* Main Video Feed and Bounding Box Controls */}
+          {/* Main content: video feed + bounding box */}
           <Grid item xs={12} sm={9} md={10}>
-          <BoundingBoxDrawer
-            isTracking={isTracking}
-            imageRef={imageRef}
-            startPos={startPos}
-            currentPos={currentPos}
-            boundingBox={boundingBox}
-            handleMouseDown={handleMouseDown}
-            handleMouseMove={handleMouseMove}
-            handleMouseUp={handleMouseUp}
-            handleTouchStart={handleTouchStart}
-            handleTouchMove={handleTouchMove}
-            handleTouchEnd={handleTouchEnd}
-            videoSrc={videoFeed}
-            protocol={streamingProtocol} // Pass the protocol prop
-          />
+            <BoundingBoxDrawer
+              isTracking={isTracking}
+              imageRef={imageRef}
+              startPos={startPos}
+              currentPos={currentPos}
+              boundingBox={boundingBox}
+              handleMouseDown={handleMouseDown}
+              handleMouseMove={handleMouseMove}
+              handleMouseUp={handleMouseUp}
+              handleTouchStart={handleTouchStart}
+              handleTouchMove={handleTouchMove}
+              handleTouchEnd={handleTouchEnd}
+              videoSrc={videoFeed}
+              protocol={streamingProtocol}
+            />
           </Grid>
 
-          {/* Status Indicators below Video Feed */}
+          {/* Status indicators */}
           <Grid item xs={12}>
             <Grid container justifyContent="center" spacing={2}>
               <Grid item>

@@ -361,8 +361,6 @@ Debugging:
 # ==============================================================================
 GStreamer:
   ENABLE_GSTREAMER_STREAM: true
-  # Can be 'QGC', 'HTTP', or something else
-  GSTREAMER_MODE: QGC
   GSTREAMER_HOST: 127.0.0.1
   GSTREAMER_PORT: 2000
   GSTREAMER_BITRATE: 2000
@@ -376,6 +374,29 @@ GStreamer:
   GSTREAMER_CONTRAST: 5.0
   GSTREAMER_BRIGHTNESS: 10
   GSTREAMER_SATURATION: 5
+
+   # Options might be: "x264enc", "nvv4l2h264enc", "omxh264enc", "vaapih264enc", etc.
+   # x264enc is the default software encoder. If you want hardware acceleration on a Jetson, set nvv4l2h264enc. On a Pi, maybe omxh264enc or v4l2h264enc
+  GSTREAMER_ENCODER: x264enc
+
+  # HTTP vs QGC vs something else, so we know which pipeline to build
+  GSTREAMER_MODE: QGC   # or "HTTP
+
+
+# ==============================================================================
+# WebRTC Configuration
+# ==============================================================================
+WebRTC:
+  # Whether or not to spin up a WebRTC server/pipeline in the future
+  ENABLE_WEBRTC: true
+  # Stun/Turn server credentials for NAT traversal
+  STUN_SERVER: stun:stun.l.google.com:19302
+  TURN_SERVER: turn:your.turn.server:3478
+  TURN_USERNAME: myTurnUsername
+  TURN_PASSWORD: myTurnPassword
+  
+  # Future placeholders for advanced config (bitrate, trickle ICE, etc.)
+
 # ==============================================================================
 # MAVLink Configuration
 # ==============================================================================

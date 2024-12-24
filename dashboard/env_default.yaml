@@ -16,6 +16,7 @@ REACT_APP_POLLING_RATE: 500  # milliseconds
 REACT_APP_API_HOST: 127.0.0.1
 REACT_APP_API_PORT: 5077
 
+
 # Default Length of the Bounding Box Square when just clicked on the Video
 REACT_APP_DEFAULT_BOUNDING_BOX_SIZE: 0.2
 
@@ -25,3 +26,5 @@ REACT_APP_MAX_SPEED: 1
 
 # Default Bounding Box Size when Click
 REACT_APP_DEFAULT_BOUNDING_BOX_SIZE: 0.1
+
+
