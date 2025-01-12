@@ -153,6 +153,7 @@ To integrate PixEagle with PX4 for flight control, you need to set up MAVLink co
     bash install_mavlink_router.sh
     ```
     Once installed you can either run mavlink-router manually each time or set it as a system daemon and start automatically (recommended)
+    - If you face difficulties building mavlink-router, you can install the binaries directly from the released binaries.
     ```bash
     bash ~/mavlink-anywhere/configure_mavlink_router.sh
     ```
@@ -176,6 +177,8 @@ To integrate PixEagle with PX4 for flight control, you need to set up MAVLink co
     ```
 
     This script will install and start `mavlink2rest` on port `14569` by default.
+
+    - If you face difficulties building mavlink2rest, you can install the binaries directly from the released binaries.
 
 #### Ensuring MAVSDK Server Binary is Present
 
