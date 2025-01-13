@@ -168,7 +168,7 @@ Detector:
 # ==============================================================================
 Tracking:
   # Default tracking algorithm: 'CSRT', 'ParticleFilter', etc.
-  DEFAULT_TRACKING_ALGORITHM: ParticleFilter
+  DEFAULT_TRACKING_ALGORITHM: CSRT
   # Visualization settings
   TRACKING_RECTANGLE_COLOR: [255, 0, 0]
   CENTER_CIRCLE_COLOR: [0, 255, 0]
