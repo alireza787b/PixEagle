@@ -66,10 +66,10 @@ Streaming:
   HTTP_STREAM_HOST: 0.0.0.0
   HTTP_STREAM_PORT: 5077
   # Stream quality settings
-  STREAM_WIDTH: 1920
-  STREAM_HEIGHT: 1080
-  STREAM_QUALITY: 100  # JPEG quality (0-100)
-  STREAM_FPS: 30
+  STREAM_WIDTH: 1280
+  STREAM_HEIGHT: 720
+  STREAM_QUALITY: 80  # JPEG quality (0-100)
+  STREAM_FPS: 15
   # Stream processed frame with OSD if true, raw frame if false
   STREAM_PROCESSED_OSD: true
 
@@ -212,7 +212,7 @@ Tracking:
 # ==============================================================================
 VideoProcessing:
   ENABLE_VIDEO_PROCESSING: true  # Set to false to disable processing steps while still receiving/displaying the video feed. (eg. external tracker mode)
-  ALLOW_NO_VIDEO_MODE: false  # Set to false for dummy/no video mode. It will set dummy black frame, whenever the frame is None
+  ALLOW_NO_VIDEO_MODE: true  # Set to false for dummy/no video mode. It will set dummy black frame, whenever the frame is None
 
 # ==============================================================================
 # Follower Configuration
