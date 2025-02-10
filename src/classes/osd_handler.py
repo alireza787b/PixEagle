@@ -1,3 +1,5 @@
+# src/classes/osd_handler.py
+
 import cv2
 import time
 import logging
@@ -17,7 +19,25 @@ class OSDHandler:
     def draw_osd(self, frame):
         """
         Draw all enabled OSD elements on the frame.
+        If the provided frame is None, create a dummy black image based on streaming dimensions.
+        
+        Args:
+            frame (numpy.ndarray): The video frame.
+        
+        Returns:
+            numpy.ndarray: The frame with OSD elements drawn.
         """
+        # If frame is None, create a dummy frame using STREAM_WIDTH and STREAM_HEIGHT
+        if frame is None:
+            try:
+                width = int(Parameters.STREAM_WIDTH)
+                height = int(Parameters.STREAM_HEIGHT)
+            except Exception:
+                width, height = 640, 480
+            frame = np.zeros((height, width, 3), dtype=np.uint8)
+            self.logger.debug("No frame provided. Using dummy black frame for OSD drawing.")
+
+        # Draw each enabled OSD element
         for element_name, config in self.osd_config.items():
             if config["enabled"]:
                 if element_name == "name":
@@ -58,11 +78,20 @@ class OSDHandler:
         text = f"Follower: {status}"
         cv2.putText(frame, text, position, cv2.FONT_HERSHEY_SIMPLEX, config["font_size"], color, 2)
 
-
     def _convert_position(self, frame, position):
         """
         Convert a position from percentage to pixel coordinates.
+        If the frame is None, returns a default position (0, 0).
+        
+        Args:
+            frame (numpy.ndarray): The video frame.
+            position (tuple): A tuple (x_percentage, y_percentage).
+        
+        Returns:
+            tuple: The pixel coordinates (x, y).
         """
+        if frame is None:
+            return (0, 0)
         x_percent, y_percent = position
         height, width = frame.shape[:2]
         x = int(width * x_percent / 100)
@@ -119,7 +148,7 @@ class OSDHandler:
                 return f"{float(value):.6f}"
             elif field in ["Hdop", "Vdop"]:  # DOP 
                 return f"{float(value):.2f}"
-            elif field in ["Satellites Visible" ,  "Throttle"]:  # Satellite count and throttle values
+            elif field in ["Satellites Visible", "Throttle"]:  # Satellite count and throttle values
                 return f"{int(float(value))}"
             elif field == "Flight Mode":  # Convert flight mode code to text using PX4InterfaceManager
                 mode = int(float(value))
@@ -150,7 +179,6 @@ class OSDHandler:
                     try:
                         formatted_value = f"{float(raw_value):.1f}"
                     except ValueError:
-                        # self.logger.warning(f"Invalid flight path angle: '{raw_value}'. Displaying 'N/A'.")
                         formatted_value = "N/A"
             else:
                 formatted_value = self._format_value(field.replace("_", " ").title(), self._safe_get_float(field.lower(), default="N/A"))
@@ -167,7 +195,6 @@ class OSDHandler:
                 2
             )
 
-    
     def _draw_attitude_indicator(self, frame, config):
         """
         Draw the attitude indicator on the frame.
@@ -237,10 +264,8 @@ class OSDHandler:
         """
         raw_value = self.app_controller.mavlink_data_manager.get_data(field_name)
         if raw_value is None:
-            # self.logger.warning(f"No data received for '{field_name}'. Defaulting to {default}.")
             return default
         try:
             return float(raw_value)
         except ValueError:
-            # self.logger.warning(f"Invalid data for '{field_name}': '{raw_value}'. Defaulting to {default}.")
             return default

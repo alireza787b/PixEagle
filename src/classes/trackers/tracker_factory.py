@@ -31,25 +31,27 @@ tracker = create_tracker("CSRT", video_handler, detector, app_controller)
 Supported Algorithms:
 ---------------------
 - "CSRT": Channel and Spatial Reliability Tracker
+- "ParticleFilter": Particle Filter based Tracker
+- "ExternalTracker": Tracker that receives an externally provided bounding box
 - Additional trackers can be added by implementing their classes and updating the factory.
 
 Notes:
 ------
 - If an unsupported algorithm is specified, the factory raises a `ValueError`.
 - Ensure that all tracker classes are properly imported and available in the factory.
-
 """
 
+# Import the available tracker classes
 from classes.trackers.csrt_tracker import CSRTTracker
 from classes.trackers.particle_filter_tracker import ParticleFilterTracker
-# Import other trackers as necessary
+from classes.trackers.external_tracker import ExternalTracker  # New external tracker integration
 
 def create_tracker(algorithm: str, video_handler=None, detector=None, app_controller=None):
     """
     Factory function to create tracker instances based on the specified algorithm.
 
     Args:
-        algorithm (str): The name of the tracking algorithm (e.g., "CSRT").
+        algorithm (str): The name of the tracking algorithm (e.g., "CSRT", "ParticleFilter", "ExternalTracker").
         video_handler (Optional[object]): Video handler instance.
         detector (Optional[object]): Detector instance.
         app_controller (Optional[object]): AppController instance.
@@ -69,7 +71,7 @@ def create_tracker(algorithm: str, video_handler=None, detector=None, app_contro
         return CSRTTracker(video_handler, detector, app_controller)
     elif algorithm == "ParticleFilter":
         return ParticleFilterTracker(video_handler, detector, app_controller)
-    # Add other algorithms here
+    elif algorithm == "ExternalTracker":
+        return ExternalTracker(video_handler, detector, app_controller)
     else:
         raise ValueError(f"Unsupported tracking algorithm: {algorithm}")
-

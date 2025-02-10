@@ -1,12 +1,10 @@
 # src/classes/video_handler.py
-
 import cv2
 from collections import deque
 import time
 import logging
 from classes.parameters import Parameters
 
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 class VideoHandler:
@@ -109,6 +107,9 @@ class VideoHandler:
         """
         Reads and returns the next frame from the video source.
         Also stores the frame in history if needed.
+        
+        Returns:
+            numpy.ndarray: The next frame, or None if reading fails.
         """
         if self.cap:
             ret, frame = self.cap.read()

@@ -4,6 +4,7 @@ import logging
 import threading
 import signal
 import cv2
+import numpy as np  # Added numpy import for dummy frame creation
 from uvicorn import Config, Server
 from classes.app_controller import AppController
 from classes.parameters import Parameters
@@ -54,7 +55,15 @@ class FlowController:
             while not self.controller.shutdown_flag:
                 frame = self.controller.video_handler.get_frame()
                 if frame is None:
-                    break
+                    # If no frame is captured and ALLOW_NO_VIDEO_MODE is true,
+                    # create a dummy black frame using STREAM_WIDTH and STREAM_HEIGHT.
+                    if  getattr(Parameters, "ALLOW_NO_VIDEO_MODE", True):
+                        width = int(getattr(Parameters, "STREAM_WIDTH", 640))
+                        height = int(getattr(Parameters, "STREAM_HEIGHT", 480))
+                        frame = np.zeros((height, width, 3), dtype=np.uint8)
+                        logging.debug("No frame captured. Using dummy black frame due to video processing disabled.")
+                    else:
+                        break
 
                 # Run the update loop within the persistent event loop
                 frame = loop.run_until_complete(self.controller.update_loop(frame))
@@ -77,7 +86,6 @@ class FlowController:
         self.server_thread.join()  # Wait for the FastAPI server thread to finish
         cv2.destroyAllWindows()
         logging.debug("Application shutdown complete.")
-
 
     def shutdown_handler(self, signum, frame):
         """

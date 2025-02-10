@@ -167,7 +167,7 @@ Detector:
 # Tracking Configuration
 # ==============================================================================
 Tracking:
-  # Default tracking algorithm: 'CSRT', 'ParticleFilter', etc.
+  # Default tracking algorithm: 'CSRT', 'ParticleFilter', 'ExternalTracker' etc.
   DEFAULT_TRACKING_ALGORITHM: CSRT
   # Visualization settings
   TRACKING_RECTANGLE_COLOR: [255, 0, 0]
@@ -205,6 +205,14 @@ Tracking:
   PF_CANNY_THRESHOLD2: 150
   PF_EFFECTIVE_PARTICLE_NUM_THRESHOLD: 0.5  # Ratio of PF_NUM_PARTICLES
   PF_RANDOM_PARTICLE_RATIO: 0.1  # Ratio of particles to reinitialize randomly
+
+
+# ==============================================================================
+# Video Processing Configuration
+# ==============================================================================
+VideoProcessing:
+  ENABLE_VIDEO_PROCESSING: true  # Set to false to disable processing steps while still receiving/displaying the video feed. (eg. external tracker mode)
+  ALLOW_NO_VIDEO_MODE: false  # Set to false for dummy/no video mode. It will set dummy black frame, whenever the frame is None
 
 # ==============================================================================
 # Follower Configuration
