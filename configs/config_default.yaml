@@ -29,8 +29,8 @@ VideoSource:
 # ==============================================================================
 Camera:
   # CSI camera settings
-  CSI_WIDTH: 1280
-  CSI_HEIGHT: 720
+  CSI_WIDTH: 640
+  CSI_HEIGHT: 480
   CSI_FRAMERATE: 30
   CSI_FLIP_METHOD: 0  # 0 - None (default), 1 - Rotate 90° CW, etc.
 
@@ -109,7 +109,7 @@ FrameEstimation:
 # ==============================================================================
 FramePreprocessor:
   # Enable or disable preprocessing
-  ENABLE_PREPROCESSING: false
+  ENABLE_PREPROCESSING: true
   # Preprocessing techniques
   PREPROCESSING_USE_BLUR: true
   PREPROCESSING_BLUR_KERNEL_SIZE: 5  # Must be an odd number
