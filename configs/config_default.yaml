@@ -14,7 +14,7 @@ VideoSource:
   # Camera index for 'USB_CAMERA' (0 for default webcam)
   CAMERA_INDEX: 0
   # RTSP stream URL if VIDEO_SOURCE_TYPE is 'RTSP_STREAM'
-  RTSP_URL: rtsp://172.21.144.1:8554
+  RTSP_URL: rtsp://192.168.0.108:554/stream=0
   # UDP stream URL if VIDEO_SOURCE_TYPE is 'UDP_STREAM'
   UDP_URL: udp://172.21.144.1:5000
   # HTTP stream URL if VIDEO_SOURCE_TYPE is 'HTTP_STREAM'

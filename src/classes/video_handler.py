@@ -1,9 +1,8 @@
 # src/classes/video_handler.py
-
 import cv2
-from collections import deque
 import time
 import logging
+from collections import deque
 from classes.parameters import Parameters
 
 logging.basicConfig(level=logging.DEBUG)
@@ -11,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 class VideoHandler:
     """
-    Handles video input from various sources, such as video files or USB cameras.
+    Handles video input from various sources, such as video files, USB cameras, and RTSP streams.
     Capable of storing a recent history of video frames for later retrieval.
     """
 
@@ -21,15 +20,15 @@ class VideoHandler:
         frame storage if required.
         """
         self.cap = None  # VideoCapture object
-        self.frame_history = deque(maxlen=Parameters.STORE_LAST_FRAMES)
+        self.frame_history = deque(maxlen=Parameters.STORE_LAST_FRAMES)  # Stores the history of frames
         self.width = None  # Actual width of the video source
         self.height = None  # Actual height of the video source
-        self.delay_frame = self.init_video_source()
+        self.delay_frame = self.init_video_source()  # Delay between frames (ms)
 
-        # Store frames
-        self.current_raw_frame = None      # The unprocessed frame from capture
-        self.current_osd_frame = None      # The final processed frame (e.g., with OSD)
-        
+        # Raw and processed frames for later use
+        self.current_raw_frame = None      # Raw unprocessed frame
+        self.current_osd_frame = None      # Processed frame (e.g., with OSD)
+
         # Resized frames for streaming
         self.current_resized_raw_frame = None
         self.current_resized_osd_frame = None
@@ -62,7 +61,7 @@ class VideoHandler:
         for attempt in range(max_retries):
             logger.debug(f"Attempt {attempt + 1} to open video source.")
             try:
-                self.cap = self._create_capture_object()
+                self.cap = self._create_capture_object()  # Create capture object based on source type
                 if self.cap and self.cap.isOpened():
                     logger.debug("Successfully opened video source.")
                     break
@@ -76,7 +75,7 @@ class VideoHandler:
 
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps = self.cap.get(cv2.CAP_PROP_FPS) or Parameters.DEFAULT_FPS
+        fps = self.cap.get(cv2.CAP_PROP_FPS) or Parameters.DEFAULT_FPS  # Use default if FPS is unavailable
         delay_frame = max(int(1000 / fps), 1)
         return delay_frame
 
