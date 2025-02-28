@@ -24,6 +24,7 @@ from classes.estimators.estimator_factory import create_estimator
 from classes.detectors.detector_factory import create_detector
 
 
+
 class AppController:
     def __init__(self):
         """
