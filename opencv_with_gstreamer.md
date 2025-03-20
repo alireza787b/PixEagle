@@ -17,7 +17,7 @@ First, ensure that GStreamer and its development libraries are installed globall
 ```bash
 sudo apt-get update
 sudo apt-get upgrade -y
-sudo apt-get install -y build-essential cmake git pkg-config
+sudo apt-get install -y build-essential cmake git pkg-config libgtk2.0-dev
 sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
                         gstreamer1.0-tools gstreamer1.0-libav gstreamer1.0-gl \
                         gstreamer1.0-gtk3 gstreamer1.0-plugins-good \
