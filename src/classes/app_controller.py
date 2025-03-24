@@ -4,6 +4,8 @@ import asyncio
 import logging
 import time
 import numpy as np
+import cv2
+
 from classes.parameters import Parameters
 from classes.follower import Follower
 from classes.setpoint_sender import SetpointSender
@@ -11,7 +13,6 @@ from classes.video_handler import VideoHandler
 from classes.trackers.csrt_tracker import CSRTTracker  # Import other trackers as necessary
 from classes.segmentor import Segmentor
 from classes.trackers.tracker_factory import create_tracker
-import cv2
 from classes.px4_interface_manager import PX4InterfaceManager  # Updated import path
 from classes.telemetry_handler import TelemetryHandler
 from classes.fastapi_handler import FastAPIHandler  # Correct import
@@ -23,12 +24,15 @@ from classes.frame_preprocessor import FramePreprocessor
 from classes.estimators.estimator_factory import create_estimator
 from classes.detectors.detector_factory import create_detector
 
+# Import the SmartTracker module
+from classes.smart_tracker import SmartTracker
 
 
 class AppController:
     def __init__(self):
         """
         Initializes the AppController with necessary components and starts the FastAPI handler.
+        Also sets up flags for both classic and smart tracking modes.
         """
         logging.debug("Initializing AppController...")
 
@@ -41,7 +45,7 @@ class AppController:
             enabled=Parameters.MAVLINK_ENABLED
         )
         
-        # Initialize the FramePreprocessor if enabled
+        # Initialize frame preprocessor if enabled
         if Parameters.ENABLE_PREPROCESSING:
             self.preprocessor = FramePreprocessor()
         else:
@@ -51,7 +55,7 @@ class AppController:
         if Parameters.MAVLINK_ENABLED:
             self.mavlink_data_manager.start_polling()
 
-        # Initialize the estimator first
+        # Initialize the estimator
         self.estimator = create_estimator(Parameters.ESTIMATOR_TYPE)
 
         # Initialize video processing components
@@ -61,23 +65,26 @@ class AppController:
         self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM,
                                       self.video_handler, self.detector, self)
         self.segmentor = Segmentor(algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM)
-                
-        self.tracking_failure_start_time = None  # Initialize tracking failure timer
+                    
+        self.tracking_failure_start_time = None  # For tracking failure timer
 
-        # Initialize frame counter
+        # Initialize frame counter and tracking flags
         self.frame_counter = 0
-
-        # Flags to track the state of tracking and segmentation
         self.tracking_started = False
         self.segmentation_active = False
 
-        # Setup a named window and a mouse callback for interactions
+        # Flags and attributes for Smart Mode (YOLO-based)
+        self.smart_mode_active = False
+        self.smart_tracker: Optional[SmartTracker] = None
+        self.selected_bbox: Optional[Tuple[int, int, int, int]] = None
+
+        # Setup video window and mouse callback if enabled
         if Parameters.SHOW_VIDEO_WINDOW:
             cv2.namedWindow("Video")
             cv2.setMouseCallback("Video", self.on_mouse_click)
         self.current_frame = None
 
-        # Initialize PX4 interface manager and following mode flag
+        # Initialize PX4 interface and following mode components
         self.px4_interface = PX4InterfaceManager(app_controller=self)
         self.following_active = False
         self.follower = None
@@ -91,10 +98,10 @@ class AppController:
         self.api_handler = FastAPIHandler(self)
         logging.debug("FastAPIHandler initialized.")
 
-        # Initialize the OSD handler with access to the AppController
+        # Initialize OSD handler for overlay graphics
         self.osd_handler = OSDHandler(self)
         
-        # Initialize GStreamerHandler if streaming is enabled
+        # Initialize GStreamer streaming if enabled
         if Parameters.ENABLE_GSTREAMER_STREAM:
             self.gstreamer_handler = GStreamerHandler()
             self.gstreamer_handler.initialize_stream()
@@ -103,41 +110,61 @@ class AppController:
 
     def on_mouse_click(self, event: int, x: int, y: int, flags: int, param: any):
         """
-        Handles mouse click events in the video window, specifically for initiating segmentation.
+        Mouse callback for user interactions.
+        In smart mode, selects the closest YOLO detection.
+        Otherwise, handles segmentation click events.
         """
-        if event == cv2.EVENT_LBUTTONDOWN and self.segmentation_active:
-            self.handle_user_click(x, y)
+        if event == cv2.EVENT_LBUTTONDOWN:
+            if self.smart_mode_active:
+                self.handle_smart_click(x, y)
+            elif self.segmentation_active:
+                self.handle_user_click(x, y)
+
+    def handle_smart_click(self, x: int, y: int):
+        """
+        In smart mode, finds the closest YOLO detection to the click
+        and marks it as the selected target.
+        """
+        if self.current_frame is None or self.smart_tracker is None:
+            logging.warning("Smart mode active but frame or smart tracker is unavailable.")
+            return
+
+        # Run detection on the current frame
+        detections = self.smart_tracker.detect(self.current_frame)
+        selected_bbox = self.smart_tracker.get_closest_detection(detections, x, y)
+        if selected_bbox:
+            self.selected_bbox = tuple(map(int, selected_bbox))
+            # Optionally reinitialize tracker with this bounding box if further tracking is desired.
+            # Here we simply log and highlight the selected target.
+            logging.info(f"Smart tracking target selected: {self.selected_bbox}")
+        else:
+            logging.info("No YOLO detection close to the click.")
 
     def toggle_tracking(self, frame: np.ndarray):
         """
-        Toggles the tracking state, starts or stops tracking based on the current state.
-
-        Args:
-            frame (np.ndarray): The current video frame.
+        Toggles classic tracking (CSRT-based) state.
+        If starting tracking, uses a user-drawn ROI.
         """
         if not self.tracking_started:
             bbox = cv2.selectROI(Parameters.FRAME_TITLE, frame, False, False)
             if bbox and bbox[2] > 0 and bbox[3] > 0:
                 self.tracker.start_tracking(frame, bbox)
                 self.tracking_started = True
-                self.frame_counter = 0  # Initialize frame counter
+                self.frame_counter = 0  # Reset frame counter
                 if self.detector:
-                    # Initialize detector's features and template
+                    # Initialize detector features and template
                     self.detector.extract_features(frame, bbox)
-                    logging.debug("Detector's initial features and template set.")
-                logging.info("Tracking activated.")
+                    logging.debug("Detector's features and template set.")
+                logging.info("Classic tracking activated.")
             else:
                 logging.info("Tracking canceled or invalid ROI.")
         else:
             self.cancel_activities()
-            logging.info("Tracking deactivated.")
+            logging.info("Classic tracking deactivated.")
 
     def toggle_segmentation(self) -> bool:
         """
-        Toggles the segmentation state. Activates or deactivates segmentation.
-
-        Returns:
-            bool: The current state of segmentation after toggling.
+        Toggles the segmentation state.
         """
         self.segmentation_active = not self.segmentation_active
         logging.info(f"Segmentation {'activated' if self.segmentation_active else 'deactivated'}.")
@@ -146,9 +173,6 @@ class AppController:
     async def start_tracking(self, bbox: Dict[str, int]):
         """
         Starts tracking with the provided bounding box.
-
-        Args:
-            bbox (dict): The bounding box for tracking.
         """
         if not self.tracking_started:
             bbox_tuple = (bbox['x'], bbox['y'], bbox['width'], bbox['height'])
@@ -162,7 +186,7 @@ class AppController:
 
     async def stop_tracking(self):
         """
-        Stops the tracking process if it is currently active.
+        Stops tracking if active.
         """
         if self.tracking_started:
             self.cancel_activities()
@@ -172,10 +196,12 @@ class AppController:
 
     def cancel_activities(self):
         """
-        Cancels both tracking and segmentation activities, resetting their states.
+        Cancels tracking, segmentation, and smart mode activities.
         """
         self.tracking_started = False
         self.segmentation_active = False
+        self.smart_mode_active = False
+        self.selected_bbox = None
         if self.setpoint_sender:
             self.setpoint_sender.stop()
             self.setpoint_sender.join()
@@ -184,33 +210,50 @@ class AppController:
 
     async def update_loop(self, frame: np.ndarray) -> np.ndarray:
         """
-        The main update loop for processing each video frame.
-
-        Args:
-            frame (np.ndarray): The current video frame.
-
-        Returns:
-            np.ndarray: The processed video frame.
+        Main update loop for processing each video frame.
+        In classic mode, runs the usual tracker and estimator logic.
+        In smart mode, runs YOLO detection and draws bounding boxes.
         """
         try:
-            # Preprocessing step
+            # Preprocess the frame if enabled
             if Parameters.ENABLE_PREPROCESSING and self.preprocessor:
                 frame = self.preprocessor.preprocess(frame)
             
-            # Segmentation step
+            # Apply segmentation if active (applies regardless of mode)
             if self.segmentation_active:
                 frame = self.segmentor.segment_frame(frame)
             
-            # Tracking and estimation
-            if self.tracking_started:
+            # Smart Mode: YOLO-based detection workflow
+            if self.smart_mode_active:
+                if self.smart_tracker is None:
+                    # Lazily instantiate the smart tracker if not already done
+                    try:
+                        self.smart_tracker = SmartTracker(Parameters.SMART_TRACKER_MODEL_PATH)
+                        logging.info("SmartTracker instantiated successfully.")
+                    except Exception as e:
+                        logging.error(f"Failed to initialize SmartTracker: {e}")
+                        self.smart_mode_active = False
+
+                if self.smart_tracker is not None:
+                    detections = self.smart_tracker.detect(frame)
+                    # Draw all YOLO detections
+                    frame = self.smart_tracker.draw_detections(frame, detections)
+                    # If a target has been selected via mouse click, highlight it distinctly
+                    if self.selected_bbox:
+                        x, y, w, h = self.selected_bbox
+                        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 3)
+                        cv2.putText(frame, "Target", (x, y - 10),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            
+            # Classic Tracking Mode
+            elif self.tracking_started:
                 if self.tracking_failure_start_time is None:
                     success, _ = self.tracker.update(frame)
                 else:
                     success = False
 
                 if success:
-                    # Reset tracking failure timer
-                    self.tracking_failure_start_time = None
+                    self.tracking_failure_start_time = None  # Reset failure timer
                     frame = self.tracker.draw_tracking(frame, tracking_successful=True)
                     if Parameters.ENABLE_DEBUGGING:
                         self.tracker.print_normalized_center()
@@ -220,9 +263,7 @@ class AppController:
                         await self.follow_target()
                         await self.check_failsafe()
 
-                    # Increment frame counter
                     self.frame_counter += 1
-                    # Update template if confidence is high and interval matched
                     tracker_confidence = self.tracker.get_confidence()
                     if (tracker_confidence >= Parameters.TRACKER_CONFIDENCE_THRESHOLD_FOR_TEMPLATE_UPDATE and
                         self.frame_counter % Parameters.TEMPLATE_UPDATE_INTERVAL == 0):
@@ -231,9 +272,8 @@ class AppController:
                             self.detector.update_template(frame, bbox)
                             logging.debug("Template updated during tracking.")
                 else:
-                    self.frame_counter = 0  # Reset on failure
+                    self.frame_counter = 0  # Reset frame counter on failure
                     if self.tracking_failure_start_time is None:
-                        # First failure, start timer
                         self.tracking_failure_start_time = time.time()
                         logging.warning("Tracking lost. Starting failure timer.")
                     else:
@@ -243,41 +283,35 @@ class AppController:
                             self.tracking_started = False
                             self.tracking_failure_start_time = None
                         else:
-                            logging.warning(
-                                f"Tracking lost. Attempting to recover. Elapsed time: {elapsed_time:.2f} seconds."
-                            )
+                            logging.warning(f"Tracking lost. Attempting recovery. Elapsed time: {elapsed_time:.2f} sec.")
                             self.tracker.update_estimator_without_measurement()
                             frame = self.tracker.draw_estimate(frame, tracking_successful=False)
                             if self.following_active:
                                 await self.follow_target()
                                 await self.check_failsafe()
-
                             redetect_result = self.handle_tracking_failure()
                             if redetect_result:
                                 self.tracking_failure_start_time = None
-            
+
             # Telemetry handling
             if self.telemetry_handler.should_send_telemetry():
                 self.telemetry_handler.send_telemetry()
 
-            # Update current frame (raw + OSD)
+            # Update current frame for OSD and video handler
             self.current_frame = frame
-            self.video_handler.current_osd_frame = frame  # The "processed" frame with OSD
+            self.video_handler.current_osd_frame = frame
 
-            # Draw OSD elements
+            # Draw OSD elements on frame
             frame = self.osd_handler.draw_osd(frame)
 
-            # At this point, frame is the fully processed OSD frame.
-            # If GStreamer is enabled, stream the processed frame
-            if Parameters.ENABLE_GSTREAMER_STREAM and self.gstreamer_handler:
+            # GStreamer streaming if enabled
+            if Parameters.ENABLE_GSTREAMER_STREAM and hasattr(self, 'gstreamer_handler'):
                 self.gstreamer_handler.stream_frame(frame)
 
-            # --- SINGLE-POINT RESIZING STEP ---
-            # Update the resized versions (raw vs. OSD) only once here
+            # Update resized frames for streaming
             self.video_handler.update_resized_frames(
                 Parameters.STREAM_WIDTH, Parameters.STREAM_HEIGHT
             )
-            # ----------------------------------
 
         except Exception as e:
             logging.exception(f"Error in update_loop: {e}")
@@ -285,7 +319,8 @@ class AppController:
 
     def handle_tracking_failure(self):
         """
-        Handles tracking failure by attempting re-detection using the existing detector.
+        Handles tracking failure by attempting re-detection using the detector.
+        Only used in classic mode.
         """
         if Parameters.USE_DETECTOR and Parameters.AUTO_REDETECT:
             logging.info("Attempting to re-detect the target using the detector.")
@@ -293,7 +328,7 @@ class AppController:
             if redetect_result["success"]:
                 logging.info("Target re-detected and tracker re-initialized.")
             else:
-                logging.info(f"Re-detection attempt failed. Retrying...")
+                logging.info("Re-detection attempt failed. Retrying...")
             return redetect_result
         return {"success": False, "message": "Detector not enabled or auto-redetect off."}
 
@@ -303,17 +338,41 @@ class AppController:
             self.px4_interface.failsafe_active = False
 
     async def handle_failsafe(self):
-        # For now, just disconnect PX4 so it reverts to default hold/flight mode
         await self.disconnect_px4()
 
     async def handle_key_input_async(self, key: int, frame: np.ndarray):
         """
-        Handles key inputs for toggling segmentation, toggling tracking, etc.
+        Asynchronous key input handler.
+        'y' toggles segmentation.
+        't' toggles classic tracking.
+        's' toggles smart mode.
+        Other keys perform PX4 or re-detection actions.
         """
         if key == ord('y'):
             self.toggle_segmentation()
         elif key == ord('t'):
             self.toggle_tracking(frame)
+        # Within the key input handler (handle_key_input_async)
+        elif key == ord('s'):
+            # Toggle Smart Mode: cancel classic tracking and start smart tracker.
+            if not self.smart_mode_active:
+                self.cancel_activities()  # Ensure classic tracker is stopped
+                self.smart_mode_active = True
+                # Instantiate SmartTracker if not already instantiated
+                if self.smart_tracker is None:
+                    try:
+                        self.smart_tracker = SmartTracker(Parameters.SMART_TRACKER_MODEL_NAME)
+                        logging.info("Smart mode activated with SmartTracker.")
+                    except Exception as e:
+                        logging.error(f"Failed to activate SmartTracker: {e}")
+                        self.smart_mode_active = False
+                else:
+                    logging.info("Smart mode activated.")
+            else:
+                # Deactivate smart mode
+                self.smart_mode_active = False
+                self.selected_bbox = None
+                logging.info("Smart mode deactivated.")
         elif key == ord('d'):
             self.initiate_redetection()
         elif key == ord('f'):
@@ -325,13 +384,13 @@ class AppController:
 
     def handle_key_input(self, key: int, frame: np.ndarray):
         """
-        Handles key inputs synchronously by creating an async task.
+        Synchronous key input handler that schedules the asynchronous handler.
         """
         asyncio.create_task(self.handle_key_input_async(key, frame))
 
     def handle_user_click(self, x: int, y: int):
         """
-        Identifies the object clicked by the user for tracking within the segmented area.
+        Handles user click events for segmentation-based object selection.
         """
         if not self.segmentation_active:
             return
@@ -344,9 +403,9 @@ class AppController:
             self.tracking_started = True
             logging.info(f"Object selected for tracking: {selected_bbox}")
 
-    def identify_clicked_object(self, detections: list, x: int, y: int) -> Tuple[int, int, int, int]:
+    def identify_clicked_object(self, detections: list, x: int, y: int) -> Optional[Tuple[int, int, int, int]]:
         """
-        Identifies the clicked object based on segmentation detections and mouse click coords.
+        Identifies the clicked object based on segmentation detections.
         """
         for det in detections:
             x1, y1, x2, y2 = det
@@ -356,8 +415,7 @@ class AppController:
 
     def initiate_redetection(self) -> Dict[str, any]:
         """
-        Attempts to re-detect the object being tracked using the existing detector,
-        focusing around the estimated position if available.
+        Attempts to re-detect the target using the detector (classic mode only).
         """
         if Parameters.USE_DETECTOR:
             estimate = self.tracker.get_estimated_position()
@@ -373,7 +431,6 @@ class AppController:
                     self.current_frame, self.tracker, roi=search_region
                 )
             else:
-                # No estimated position, full frame
                 redetect_result = self.detector.smart_redetection(self.current_frame, self.tracker)
 
             if redetect_result:
@@ -400,7 +457,7 @@ class AppController:
 
     def show_current_frame(self, frame_title: str = Parameters.FRAME_TITLE) -> np.ndarray:
         """
-        Displays the current frame in a window if SHOW_VIDEO_WINDOW is True.
+        Displays the current frame in a window if enabled.
         """
         if Parameters.SHOW_VIDEO_WINDOW:
             cv2.imshow(frame_title, self.current_frame)
@@ -408,7 +465,7 @@ class AppController:
 
     async def connect_px4(self) -> Dict[str, any]:
         """
-        Connects to PX4 when following mode is activated.
+        Connects to the PX4 when following mode is activated.
         """
         result = {"steps": [], "errors": []}
         if not self.following_active:
@@ -438,7 +495,7 @@ class AppController:
 
     async def disconnect_px4(self) -> Dict[str, any]:
         """
-        Disconnects PX4 and stops offboard mode.
+        Disconnects from PX4 and stops offboard mode.
         """
         result = {"steps": [], "errors": []}
         if self.following_active:
@@ -459,14 +516,12 @@ class AppController:
 
     async def follow_target(self):
         """
-        Prepares to follow the target based on tracking information.
+        Follows the target based on tracking information.
         """
         if self.tracking_started and self.following_active:
             target_coords: Optional[Tuple[float, float]] = None
 
-            # Check if estimator is enabled
             if Parameters.USE_ESTIMATOR_FOR_FOLLOWING and self.tracker.position_estimator:
-                # get dimensions
                 frame_width, frame_height = self.video_handler.width, self.video_handler.height
                 normalized_estimate = self.tracker.position_estimator.get_normalized_estimate(
                     frame_width, frame_height
@@ -478,7 +533,6 @@ class AppController:
                     logging.warning("Estimator failed to provide a normalized estimate.")
 
             if not target_coords:
-                # fallback to tracker's normalized center
                 target_coords = self.tracker.normalized_center
                 logging.debug(f"Using tracker's normalized center: {target_coords}")
 
@@ -501,11 +555,10 @@ class AppController:
 
     async def shutdown(self) -> Dict[str, any]:
         """
-        Shuts down the application gracefully.
+        Gracefully shuts down the application.
         """
         result = {"steps": [], "errors": []}
         try:
-            # Stop MAVLink polling
             if Parameters.MAVLINK_ENABLED:
                 self.mavlink_data_manager.stop_polling()
 
