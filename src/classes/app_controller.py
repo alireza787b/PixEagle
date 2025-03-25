@@ -122,24 +122,24 @@ class AppController:
 
     def handle_smart_click(self, x: int, y: int):
         """
-        Handles user click during smart mode. Selects the closest YOLO detection.
+        Handles user click during smart mode. Selects the closest YOLO detection and activates override.
         """
         if self.current_frame is None or self.smart_tracker is None:
             logging.warning("SmartTracker unavailable or frame not ready.")
             return
+
         self.smart_tracker.select_object_by_click(x, y)
 
-
-        # Run detection on the current frame
-        detections = self.smart_tracker.detect(self.current_frame)
-        selected_bbox = self.smart_tracker.get_closest_detection(detections, x, y)
-        if selected_bbox:
-            self.selected_bbox = tuple(map(int, selected_bbox))
-            # Optionally reinitialize tracker with this bounding box if further tracking is desired.
-            # Here we simply log and highlight the selected target.
-            logging.info(f"Smart tracking target selected: {self.selected_bbox}")
+        if self.smart_tracker.selected_bbox and self.smart_tracker.selected_center:
+            self.selected_bbox = tuple(map(int, self.smart_tracker.selected_bbox))
+            self.tracker.set_external_override(
+                self.smart_tracker.selected_bbox,
+                self.smart_tracker.selected_center
+            )
+            logging.info(f"Smart tracking override activated with bbox: {self.selected_bbox}")
         else:
-            logging.info("No YOLO detection close to the click.")
+            logging.info("No YOLO detection selected. Override not applied.")
+
 
     def toggle_tracking(self, frame: np.ndarray):
         """
@@ -203,14 +203,28 @@ class AppController:
         self.segmentation_active = False
         self.smart_mode_active = False
         self.selected_bbox = None
+
         if self.setpoint_sender:
             self.setpoint_sender.stop()
             self.setpoint_sender.join()
             self.setpoint_sender = None
+
         if self.smart_tracker:
             self.smart_tracker.clear_selection()
+            self.smart_tracker = None  # <<< FULL reset
+
+
+        if self.tracker:
+            self.tracker.clear_external_override()  # <<< NEW LINE to disable override when cancelling
+            self.tracker.reset()  
 
         logging.info("All activities cancelled.")
+
+
+    def is_smart_override_active(self) -> bool:
+        return self.smart_mode_active and self.tracker and self.tracker.override_active
+
+
 
     async def update_loop(self, frame: np.ndarray) -> np.ndarray:
         """
@@ -227,28 +241,29 @@ class AppController:
             if self.segmentation_active:
                 frame = self.segmentor.segment_frame(frame)
             
-            # Smart Tracker Mode
-            if self.smart_mode_active:
-                if self.smart_tracker is None:
-                    try:
-                        self.smart_tracker = SmartTracker(Parameters.SMART_TRACKER_MODEL_NAME)
-                        logging.info("SmartTracker instantiated successfully.")
-                    except Exception as e:
-                        logging.error(f"Failed to initialize SmartTracker: {e}")
-                        self.smart_mode_active = False
+            # Smart Tracker: always draw overlays if instantiated
+            if self.smart_tracker is None and self.smart_mode_active:
+                try:
+                    self.smart_tracker = SmartTracker(Parameters.SMART_TRACKER_MODEL_NAME)
+                    logging.info("SmartTracker instantiated successfully.")
+                except Exception as e:
+                    logging.error(f"Failed to initialize SmartTracker: {e}")
+                    self.smart_mode_active = False
 
-                if self.smart_tracker is not None:
-                    frame = self.smart_tracker.track_and_draw(frame)
-            
-            # Classic Tracking Mode
-            elif self.tracking_started:
+            if self.smart_tracker:
+                frame = self.smart_tracker.track_and_draw(frame)
+
+            # Classic Tracker (normal tracking or smart override)
+            classic_active = (
+            (self.tracking_started and not self.smart_mode_active) or
+            self.is_smart_override_active()
+            )
+            if classic_active:
+                success = False
                 if self.tracking_failure_start_time is None:
                     success, _ = self.tracker.update(frame)
-                else:
-                    success = False
-
                 if success:
-                    self.tracking_failure_start_time = None  # Reset failure timer
+                    self.tracking_failure_start_time = None
                     frame = self.tracker.draw_tracking(frame, tracking_successful=True)
                     if Parameters.ENABLE_DEBUGGING:
                         self.tracker.print_normalized_center()
@@ -260,14 +275,16 @@ class AppController:
 
                     self.frame_counter += 1
                     tracker_confidence = self.tracker.get_confidence()
-                    if (tracker_confidence >= Parameters.TRACKER_CONFIDENCE_THRESHOLD_FOR_TEMPLATE_UPDATE and
-                        self.frame_counter % Parameters.TEMPLATE_UPDATE_INTERVAL == 0):
-                        bbox = self.tracker.bbox
-                        if bbox:
-                            self.detector.update_template(frame, bbox)
-                            logging.debug("Template updated during tracking.")
+                    if not self.smart_mode_active:
+                        if (tracker_confidence >= Parameters.TRACKER_CONFIDENCE_THRESHOLD_FOR_TEMPLATE_UPDATE and
+                            self.frame_counter % Parameters.TEMPLATE_UPDATE_INTERVAL == 0):
+                            bbox = self.tracker.bbox
+                            if bbox:
+                                self.detector.update_template(frame, bbox)
+                                logging.debug("Template updated during tracking.")
+
                 else:
-                    self.frame_counter = 0  # Reset frame counter on failure
+                    self.frame_counter = 0
                     if self.tracking_failure_start_time is None:
                         self.tracking_failure_start_time = time.time()
                         logging.warning("Tracking lost. Starting failure timer.")
@@ -287,6 +304,7 @@ class AppController:
                             redetect_result = self.handle_tracking_failure()
                             if redetect_result:
                                 self.tracking_failure_start_time = None
+
 
             # Telemetry handling
             if self.telemetry_handler.should_send_telemetry():
