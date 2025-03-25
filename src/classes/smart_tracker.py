@@ -3,7 +3,6 @@ import numpy as np
 import logging
 from ultralytics import YOLO
 from classes.parameters import Parameters
-
 class SmartTracker:
     def __init__(self, model_path: str):
         """
