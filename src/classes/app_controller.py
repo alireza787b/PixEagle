@@ -122,12 +122,13 @@ class AppController:
 
     def handle_smart_click(self, x: int, y: int):
         """
-        In smart mode, finds the closest YOLO detection to the click
-        and marks it as the selected target.
+        Handles user click during smart mode. Selects the closest YOLO detection.
         """
         if self.current_frame is None or self.smart_tracker is None:
-            logging.warning("Smart mode active but frame or smart tracker is unavailable.")
+            logging.warning("SmartTracker unavailable or frame not ready.")
             return
+        self.smart_tracker.select_object_by_click(x, y)
+
 
         # Run detection on the current frame
         detections = self.smart_tracker.detect(self.current_frame)
@@ -206,6 +207,9 @@ class AppController:
             self.setpoint_sender.stop()
             self.setpoint_sender.join()
             self.setpoint_sender = None
+        if self.smart_tracker:
+            self.smart_tracker.clear_selection()
+
         logging.info("All activities cancelled.")
 
     async def update_loop(self, frame: np.ndarray) -> np.ndarray:
@@ -223,27 +227,18 @@ class AppController:
             if self.segmentation_active:
                 frame = self.segmentor.segment_frame(frame)
             
-            # Smart Mode: YOLO-based detection workflow
+            # Smart Tracker Mode
             if self.smart_mode_active:
                 if self.smart_tracker is None:
-                    # Lazily instantiate the smart tracker if not already done
                     try:
-                        self.smart_tracker = SmartTracker(Parameters.SMART_TRACKER_MODEL_PATH)
+                        self.smart_tracker = SmartTracker(Parameters.SMART_TRACKER_MODEL_NAME)
                         logging.info("SmartTracker instantiated successfully.")
                     except Exception as e:
                         logging.error(f"Failed to initialize SmartTracker: {e}")
                         self.smart_mode_active = False
 
                 if self.smart_tracker is not None:
-                    detections = self.smart_tracker.detect(frame)
-                    # Draw all YOLO detections
-                    frame = self.smart_tracker.draw_detections(frame, detections)
-                    # If a target has been selected via mouse click, highlight it distinctly
-                    if self.selected_bbox:
-                        x, y, w, h = self.selected_bbox
-                        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 3)
-                        cv2.putText(frame, "Target", (x, y - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    frame = self.smart_tracker.track_and_draw(frame)
             
             # Classic Tracking Mode
             elif self.tracking_started:
@@ -354,25 +349,24 @@ class AppController:
             self.toggle_tracking(frame)
         # Within the key input handler (handle_key_input_async)
         elif key == ord('s'):
-            # Toggle Smart Mode: cancel classic tracking and start smart tracker.
             if not self.smart_mode_active:
-                self.cancel_activities()  # Ensure classic tracker is stopped
+                self.cancel_activities()
                 self.smart_mode_active = True
-                # Instantiate SmartTracker if not already instantiated
                 if self.smart_tracker is None:
                     try:
                         self.smart_tracker = SmartTracker(Parameters.SMART_TRACKER_MODEL_NAME)
-                        logging.info("Smart mode activated with SmartTracker.")
+                        logging.info("SmartTracker mode activated.")
                     except Exception as e:
                         logging.error(f"Failed to activate SmartTracker: {e}")
                         self.smart_mode_active = False
                 else:
-                    logging.info("Smart mode activated.")
+                    logging.info("SmartTracker mode re-activated.")
             else:
-                # Deactivate smart mode
                 self.smart_mode_active = False
-                self.selected_bbox = None
-                logging.info("Smart mode deactivated.")
+                if self.smart_tracker:
+                    self.smart_tracker.clear_selection()
+                logging.info("SmartTracker mode deactivated.")
+
         elif key == ord('d'):
             self.initiate_redetection()
         elif key == ord('f'):
