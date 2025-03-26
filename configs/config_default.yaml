@@ -88,7 +88,7 @@ FrameEstimation:
   FRAME_TITLE: Video
   DEFAULT_FPS: 30
   STORE_LAST_FRAMES: 5
-  SHOW_VIDEO_WINDOW: true  # Set to true for debugging
+  SHOW_VIDEO_WINDOW: false  # Set to true for debugging
   # Estimator settings
   USE_ESTIMATOR: true
   ESTIMATOR_HISTORY_LENGTH: 5

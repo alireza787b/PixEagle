@@ -200,3 +200,6 @@ opencv_contrib/
 
 
 yolo/
+
+dashboard/package.json  
+dashboard/package-lock.json  
