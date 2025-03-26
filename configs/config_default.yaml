@@ -209,7 +209,7 @@ Tracking:
 # ==============================================================================
 SmartTracker:
   SMART_TRACKER_ENABLED: true
-  SMART_TRACKER_MODEL_NAME: "yolo/yolov8s_ncnn_model"
+  SMART_TRACKER_MODEL_NAME: "yolo/yolov11n_ncnn_model"
   SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.5
   SMART_TRACKER_NMS_THRESHOLD: 0.45
   SMART_TRACKER_DETECTION_FREQUENCY: 5
