@@ -88,7 +88,7 @@ FrameEstimation:
   FRAME_TITLE: Video
   DEFAULT_FPS: 30
   STORE_LAST_FRAMES: 5
-  SHOW_VIDEO_WINDOW: false  # Set to true for debugging
+  SHOW_VIDEO_WINDOW: true  # Set to true for debugging
   # Estimator settings
   USE_ESTIMATOR: true
   ESTIMATOR_HISTORY_LENGTH: 5
@@ -126,9 +126,9 @@ FramePreprocessor:
 # ==============================================================================
 Segmentation:
   # Available segmentation algorithms
-  SEGMENTATION_ALGORITHMS: ['GrabCut', 'Watershed', 'yolov8s-seg', 'yolov8n-oiv7', 'yolov8s-obb']
+  SEGMENTATION_ALGORITHMS: ['GrabCut', 'Watershed', 'yolov8s-seg', 'yolov8n-oiv7', 'yolov8s-obb','yolov11n']
   # Default segmentation algorithm to use
-  DEFAULT_SEGMENTATION_ALGORITHM: yolo/yolov8n-oiv7
+  DEFAULT_SEGMENTATION_ALGORITHM: yolov11n.pt
   # Use segmentation results for tracking
   USE_SEGMENTATION_FOR_TRACKING: true
 
@@ -162,7 +162,7 @@ Detector:
   RANSAC_REPROJECTION_THRESHOLD: 10.0  # RANSAC reprojection threshold
 
 # ==============================================================================
-# Tracking Configuration
+# Classic Tracking Configuration
 # ==============================================================================
 Tracking:
   # Default tracking algorithm: 'CSRT', 'ParticleFilter', etc.
@@ -204,6 +204,27 @@ Tracking:
   PF_EFFECTIVE_PARTICLE_NUM_THRESHOLD: 0.5  # Ratio of PF_NUM_PARTICLES
   PF_RANDOM_PARTICLE_RATIO: 0.1  # Ratio of particles to reinitialize randomly
 
+
+
+# ==============================================================================
+# Smart Tracker Configuration
+# ==============================================================================
+SmartTracker:
+  SMART_TRACKER_ENABLED: true
+  SMART_TRACKER_MODEL_NAME: "yolo/yolov8s_ncnn_model"
+  SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.5
+  SMART_TRACKER_NMS_THRESHOLD: 0.45
+  SMART_TRACKER_DETECTION_FREQUENCY: 5
+  SMART_TRACKER_COLOR: [0, 255, 255]
+  TRACKING_BUFFER_SIZE: 60
+  SMART_TRACKER_IOU_THRESHOLD: 0.3
+  SMART_TRACKER_MAX_DETECTIONS: 20
+  SMART_TRACKER_TRACKER_TYPE: "bytetrack.yaml"
+  SMART_TRACKER_SHOW_FPS: false
+
+
+
+
 # ==============================================================================
 # Follower Configuration
 # ==============================================================================
@@ -214,7 +235,7 @@ Follower:
   # ROI selection mode
   ROI_SELECTION_MODE: MANUAL
   # Visualization settings
-  SHOW_TRACKING_WINDOW: true
+  SHOW_TRACKING_WINDOW: false
   DISPLAY_DEVIATIONS: false
   TRACKED_BBOX_STYLE: fancy
   FOLLOWER_ACTIVE_COLOR: [0, 0, 255]
