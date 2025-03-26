@@ -1,6 +1,15 @@
 // dashboard/src/components/ActionButtons.js
-import React from 'react';
-import { Grid, Button, Typography, Tooltip, Container } from '@mui/material';
+import React, { useState } from 'react';
+import {
+  Grid,
+  Button,
+  Typography,
+  Tooltip,
+  Container,
+  FormControlLabel,
+  Switch,
+  Box,
+} from '@mui/material';
 import { endpoints } from '../services/apiEndpoints';
 import QuitButton from './QuitButton';
 
@@ -9,58 +18,73 @@ const ActionButtons = ({
   smartModeActive,
   handleTrackingToggle,
   handleButtonClick,
-  handleToggleSmartMode, // ✅ new
+  handleToggleSmartMode,
 }) => {
+  const [switchLoading, setSwitchLoading] = useState(false);
+
+  const handleSmartModeSwitch = async () => {
+    setSwitchLoading(true);
+    await handleToggleSmartMode();
+    setSwitchLoading(false);
+  };
+
   return (
     <Container>
       <Grid container spacing={2} sx={{ mb: 2 }}>
-        {/* Tracker Mode Toggle */}
+        {/* Smart Tracker Toggle */}
         <Grid item xs={12}>
           <Typography variant="h6" gutterBottom>Tracker Mode</Typography>
-          <Tooltip title="Switch between Smart Tracker (YOLO) and Classic Tracker (CSRT)">
-            <Button
-              variant="contained"
-              color={smartModeActive ? "success" : "primary"}
-              onClick={handleToggleSmartMode}
-              fullWidth
-            >
-              {smartModeActive ? "Smart Mode (YOLO)" : "Classic Mode (CSRT)"}
-            </Button>
-          </Tooltip>
+          <Box display="flex" justifyContent="center" alignItems="center">
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={smartModeActive}
+                  onChange={handleSmartModeSwitch}
+                  disabled={switchLoading}
+                  color="success"
+                />
+              }
+              label={smartModeActive ? 'Smart Tracker (YOLO)' : 'Classic Tracker (CSRT)'}
+            />
+          </Box>
         </Grid>
 
         {/* Tracking Controls */}
         <Grid item xs={12}>
           <Typography variant="h6" gutterBottom>Tracking Controls</Typography>
           <Tooltip title="Start or stop classic tracking">
-            <Button
-              variant="contained"
-              color={isTracking ? "secondary" : "primary"}
-              onClick={handleTrackingToggle}
-              fullWidth
-              disabled={smartModeActive} // ✅ Disable in smart mode
-            >
-              {isTracking ? "Stop Tracking" : "Start Tracking"}
-            </Button>
+            <span>
+              <Button
+                variant="contained"
+                color={isTracking ? "secondary" : "primary"}
+                onClick={handleTrackingToggle}
+                fullWidth
+                disabled={smartModeActive}
+              >
+                {isTracking ? "Stop Tracking" : "Start Tracking"}
+              </Button>
+            </span>
           </Tooltip>
 
           <Tooltip title="Re-detect object (Classic only)">
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={() => handleButtonClick(endpoints.redetect)}
-              fullWidth
-              sx={{ mt: 1 }}
-              disabled={smartModeActive} // ✅ Disable in smart mode
-            >
-              Re-Detect
-            </Button>
+            <span>
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={() => handleButtonClick(endpoints.redetect)}
+                fullWidth
+                sx={{ mt: 1 }}
+                disabled={smartModeActive}
+              >
+                Re-Detect
+              </Button>
+            </span>
           </Tooltip>
 
           <Tooltip title="Cancel all tracking activities">
             <Button
               variant="contained"
-              color="primary"
+              color="warning"
               onClick={() => handleButtonClick(endpoints.cancelActivities, true)}
               fullWidth
               sx={{ mt: 1 }}
@@ -85,7 +109,7 @@ const ActionButtons = ({
           </Tooltip>
         </Grid>
 
-        {/* Offboard / PX4 Controls */}
+        {/* PX4 Offboard Controls */}
         <Grid item xs={12}>
           <Typography variant="h6" gutterBottom>Offboard Controls</Typography>
           <Tooltip title="Start following in offboard mode">
