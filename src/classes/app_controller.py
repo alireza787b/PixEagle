@@ -168,6 +168,31 @@ class AppController:
             self.cancel_activities()
             logging.info("Classic tracking deactivated.")
 
+
+    def toggle_smart_mode(self):
+        """
+        Toggles the YOLO-based smart tracking mode.
+        Initializes the SmartTracker if needed.
+        """
+        if not self.smart_mode_active:
+            self.cancel_activities()
+            self.smart_mode_active = True
+            if self.smart_tracker is None:
+                try:
+                    self.smart_tracker = SmartTracker(Parameters.SMART_TRACKER_MODEL_NAME)
+                    logging.info("SmartTracker mode activated.")
+                except Exception as e:
+                    logging.error(f"Failed to activate SmartTracker: {e}")
+                    self.smart_mode_active = False
+            else:
+                logging.info("SmartTracker mode re-activated.")
+        else:
+            self.smart_mode_active = False
+            if self.smart_tracker:
+                self.smart_tracker.clear_selection()
+            logging.info("SmartTracker mode deactivated.")
+
+
     def toggle_segmentation(self) -> bool:
         """
         Toggles the segmentation state.
@@ -372,24 +397,7 @@ class AppController:
             self.toggle_tracking(frame)
         # Within the key input handler (handle_key_input_async)
         elif key == ord('s'):
-            if not self.smart_mode_active:
-                self.cancel_activities()
-                self.smart_mode_active = True
-                if self.smart_tracker is None:
-                    try:
-                        self.smart_tracker = SmartTracker(Parameters.SMART_TRACKER_MODEL_NAME)
-                        logging.info("SmartTracker mode activated.")
-                    except Exception as e:
-                        logging.error(f"Failed to activate SmartTracker: {e}")
-                        self.smart_mode_active = False
-                else:
-                    logging.info("SmartTracker mode re-activated.")
-            else:
-                self.smart_mode_active = False
-                if self.smart_tracker:
-                    self.smart_tracker.clear_selection()
-                logging.info("SmartTracker mode deactivated.")
-
+            self.toggle_smart_mode()
         elif key == ord('d'):
             self.initiate_redetection()
         elif key == ord('f'):
