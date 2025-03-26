@@ -216,6 +216,7 @@ class FastAPIHandler:
                 "smart_mode_active": self.app_controller.smart_mode_active,
                 "tracking_started": self.app_controller.tracking_started,
                 "segmentation_active": self.app_controller.segmentation_active,
+                "following_active": self.app_controller.following_active,
             }
         except Exception as e:
             self.logger.error(f"Error in get_status: {e}")
