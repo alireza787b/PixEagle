@@ -13,6 +13,9 @@ export const endpoints = {
   startOffboardMode: `http://${apiHost}:${apiPort}/commands/start_offboard_mode`,
   stopOffboardMode: `http://${apiHost}:${apiPort}/commands/stop_offboard_mode`,
   quit: `http://${apiHost}:${apiPort}/commands/quit`,
+  status: `http://${apiHost}:${apiPort}/status`,
+  toggleSmartMode: `http://${apiHost}:${apiPort}/commands/toggle_smart_mode`,
+  smartClick: `http://${apiHost}:${apiPort}/commands/smart_click`,
 };
 
 export const videoFeed = `http://${apiHost}:${apiPort}/video_feed`;
