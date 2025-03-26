@@ -44,7 +44,7 @@ const ActionButtons = ({
                   color="success"
                 />
               }
-              label={smartModeActive ? 'Smart Tracker (YOLO)' : 'Classic Tracker (CSRT)'}
+              label={smartModeActive ? 'Smart Tracker' : 'Classic Tracker'}
             />
           </Box>
         </Grid>
