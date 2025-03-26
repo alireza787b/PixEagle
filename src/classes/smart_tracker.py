@@ -8,7 +8,7 @@ from classes.parameters import Parameters
 
 
 class SmartTracker:
-    def __init__(self, model_path: str):
+    def __init__(self, model_path: str,app_controller):
         """Initializes YOLO model and tracking parameters."""
         try:
             self.model = YOLO(model_path, task='detect')
@@ -24,6 +24,7 @@ class SmartTracker:
         self.tracker_args = {"persist": True, "verbose": False}
         self.show_fps = Parameters.SMART_TRACKER_SHOW_FPS
         self.draw_color = tuple(Parameters.SMART_TRACKER_COLOR)
+        self.app_controller = app_controller
 
         # YOLO class labels
         self.labels = self.model.names if hasattr(self.model, 'names') else {}
@@ -120,7 +121,11 @@ class SmartTracker:
         self.selected_center = None
 
     def track_and_draw(self, frame):
-        """Runs YOLO detection + tracking, draws overlays, returns annotated frame."""
+        """
+        Runs YOLO detection + tracking, draws overlays, and returns the annotated frame.
+        Updates tracking state based on selection and draws active/detected object boxes.
+        """
+        # Run YOLO tracking on the frame
         results = self.model.track(
             frame,
             conf=self.conf_threshold,
@@ -134,11 +139,14 @@ class SmartTracker:
         detections = results[0].boxes.data if results[0].boxes is not None else []
         frame_overlay = frame.copy()
 
+        selected_this_frame = False  # Track if the selected object is detected in this frame
+
         for track in detections:
             track = track.tolist()
             if len(track) < 6:
                 continue
 
+            # Unpack box and metadata
             x1, y1, x2, y2 = map(int, track[:4])
             conf = float(track[5])
             class_id = int(track[6]) if len(track) >= 7 else int(track[5])
@@ -147,7 +155,7 @@ class SmartTracker:
             color = self.object_colors.setdefault(track_id, self.get_yolo_color(track_id))
             label = f"{label_name} ID {track_id} ({conf:.2f})"
 
-            # Robust selection based on class AND IoU match with previous bbox
+            # Check if this is the selected object (by class and IoU)
             is_selected = False
             if self.selected_class_id == class_id and self.selected_bbox:
                 iou = self.compute_iou((x1, y1, x2, y2), self.selected_bbox)
@@ -155,14 +163,16 @@ class SmartTracker:
                     is_selected = True
 
             if is_selected:
+                # Update selected box and draw thick tracking box
                 self.selected_bbox = (x1, y1, x2, y2)
                 self.selected_center = self.get_center(x1, y1, x2, y2)
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 4)
                 self.draw_tracking_scope(frame, (x1, y1, x2, y2), color)
                 cv2.circle(frame, self.selected_center, 6, color, -1)
                 label = f"*ACTIVE* {label}"
+                selected_this_frame = True
             else:
-                # Dashed overlay box for other objects
+                # Dashed overlay box for unselected objects
                 for i in range(x1, x2, 10):
                     cv2.line(frame_overlay, (i, y1), (i + 5, y1), color, 2)
                     cv2.line(frame_overlay, (i, y2), (i + 5, y2), color, 2)
@@ -170,9 +180,13 @@ class SmartTracker:
                     cv2.line(frame_overlay, (x1, i), (x1, i + 5), color, 2)
                     cv2.line(frame_overlay, (x2, i), (x2, i + 5), color, 2)
 
+            # Draw label text on the frame
             cv2.putText(frame, label, (x1 + 5, y1 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-        # Show FPS if enabled
+        # Update app controller tracking status after processing all detections
+        self.app_controller.tracking_started = selected_this_frame
+
+        # FPS Counter
         if self.show_fps:
             self.fps_counter += 1
             if time.time() - self.fps_timer >= 1.0:
@@ -182,6 +196,7 @@ class SmartTracker:
             cv2.putText(frame, f"FPS: {self.fps_display}", (10, 25),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
-        # Combine overlay and main frame
+        # Final blended result
         blended_frame = cv2.addWeighted(frame_overlay, 0.5, frame, 0.5, 0)
         return blended_frame
+

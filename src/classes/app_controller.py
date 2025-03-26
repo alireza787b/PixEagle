@@ -179,7 +179,7 @@ class AppController:
             self.smart_mode_active = True
             if self.smart_tracker is None:
                 try:
-                    self.smart_tracker = SmartTracker(Parameters.SMART_TRACKER_MODEL_NAME)
+                    self.smart_tracker = SmartTracker(Parameters.SMART_TRACKER_MODEL_NAME,self)
                     logging.info("SmartTracker mode activated.")
                 except Exception as e:
                     logging.error(f"Failed to activate SmartTracker: {e}")
