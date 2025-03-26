@@ -1,14 +1,13 @@
 // dashboard/src/pages/DashboardPage.js
 import React, { useState, useEffect } from 'react';
 import {
-  Container, Typography, CircularProgress, Box, Grid,
-  FormControl, InputLabel, Select, MenuItem
+  Container, Typography, CircularProgress, Box, Grid, Snackbar, Alert,
+  FormControl, InputLabel, Select, MenuItem, Divider
 } from '@mui/material';
 
 import ActionButtons from '../components/ActionButtons';
 import BoundingBoxDrawer from '../components/BoundingBoxDrawer';
 import StatusIndicator from '../components/StatusIndicator';
-import TrackerModeToggle from '../components/TrackerModeToggle';
 
 import { videoFeed, endpoints } from '../services/apiEndpoints';
 import {
@@ -23,20 +22,18 @@ const DashboardPage = () => {
   const [loading, setLoading] = useState(true);
   const [streamingProtocol, setStreamingProtocol] = useState('websocket');
   const [smartModeActive, setSmartModeActive] = useState(false);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
 
   const checkInterval = 2000;
 
-  // Status hooks
   const isFollowing = useFollowerStatus(checkInterval);
   const trackerStatus = useTrackerStatus(checkInterval);
   const smartModeStatus = useSmartModeStatus(checkInterval);
 
-  // Sync backend smart mode with toggle UI
   useEffect(() => {
     setSmartModeActive(smartModeStatus);
   }, [smartModeStatus]);
 
-  // Bounding box tracking handler (classic mode)
   const {
     imageRef,
     startPos,
@@ -49,9 +46,7 @@ const DashboardPage = () => {
     handleTouchMove,
     handleTouchEnd,
   } = useBoundingBoxHandlers(isTracking, setIsTracking, smartModeActive);
-  
 
-  // Toggle between start and stop classic tracker
   const handleTrackingToggle = async () => {
     if (isTracking) {
       try {
@@ -67,7 +62,6 @@ const DashboardPage = () => {
     setIsTracking(!isTracking);
   };
 
-  // Handle any button click action
   const handleButtonClick = async (endpoint, updateTrackingState = false) => {
     try {
       const response = await fetch(endpoint, {
@@ -90,20 +84,30 @@ const DashboardPage = () => {
     }
   };
 
-  // Check video feed stream is live
+  const handleToggleSmartMode = async () => {
+    try {
+      await fetch(endpoints.toggleSmartMode, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      setSmartModeActive((prev) => !prev);
+      setSnackbarOpen(true);
+    } catch (err) {
+      console.error('Failed to toggle smart mode:', err);
+    }
+  };
+
+  const handleSnackbarClose = () => setSnackbarOpen(false);
+
   useEffect(() => {
     const checkStream = setInterval(() => {
       const img = new Image();
       img.src = videoFeed;
-
       img.onload = () => {
         setLoading(false);
         clearInterval(checkStream);
       };
-
-      img.onerror = () => {
-        console.error('Error loading video feed');
-      };
+      img.onerror = () => console.error('Error loading video feed');
     }, checkInterval);
 
     return () => clearInterval(checkStream);
@@ -116,13 +120,7 @@ const DashboardPage = () => {
       </Typography>
 
       {loading ? (
-        <Box
-          display="flex"
-          flexDirection="column"
-          alignItems="center"
-          justifyContent="center"
-          minHeight="400px"
-        >
+        <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" minHeight="400px">
           <CircularProgress />
           <Typography variant="body1" align="center" sx={{ mt: 2 }}>
             Loading video feed, please wait...
@@ -130,16 +128,24 @@ const DashboardPage = () => {
         </Box>
       ) : (
         <Grid container spacing={2}>
-          {/* Sidebar for controls */}
+          {/* Sidebar */}
           <Grid item xs={12} sm={3} md={2}>
             <Grid container direction="column" spacing={2}>
+              {/* Mode Toggle Button */}
               <Grid item>
-                <ActionButtons
-                  isTracking={isTracking}
-                  handleTrackingToggle={handleTrackingToggle}
-                  handleButtonClick={handleButtonClick}
-                />
+                <Typography variant="h6">Tracker Mode</Typography>
+                <Box mt={1}>
+                  <ActionButtons
+                    isTracking={isTracking}
+                    smartModeActive={smartModeActive}
+                    handleTrackingToggle={handleTrackingToggle}
+                    handleButtonClick={handleButtonClick}
+                    handleToggleSmartMode={handleToggleSmartMode}
+                  />
+                </Box>
               </Grid>
+
+              <Divider sx={{ my: 2 }} />
 
               {/* Streaming protocol dropdown */}
               <Grid item>
@@ -156,18 +162,10 @@ const DashboardPage = () => {
                   </Select>
                 </FormControl>
               </Grid>
-
-              {/* Smart / Classic mode toggle */}
-              <Grid item>
-                <TrackerModeToggle
-                  smartModeActive={smartModeActive}
-                  setSmartModeActive={setSmartModeActive}
-                />
-              </Grid>
             </Grid>
           </Grid>
 
-          {/* Main feed + tracking interaction */}
+          {/* Main Video + Bounding */}
           <Grid item xs={12} sm={9} md={10}>
             <BoundingBoxDrawer
               isTracking={isTracking}
@@ -183,10 +181,11 @@ const DashboardPage = () => {
               handleTouchEnd={handleTouchEnd}
               videoSrc={videoFeed}
               protocol={streamingProtocol}
+              smartModeActive={smartModeActive}
             />
           </Grid>
 
-          {/* Status indicators below */}
+          {/* Status Indicators */}
           <Grid item xs={12}>
             <Grid container justifyContent="center" spacing={2}>
               <Grid item>
@@ -199,6 +198,18 @@ const DashboardPage = () => {
           </Grid>
         </Grid>
       )}
+
+      {/* Snackbar confirmation for mode toggle */}
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={3000}
+        onClose={handleSnackbarClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={handleSnackbarClose} severity="info" sx={{ width: '100%' }}>
+          Switched to {smartModeActive ? 'Smart Tracker (YOLO)' : 'Classic Tracker (CSRT)'}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 };
