@@ -162,6 +162,10 @@ class BaseTracker(ABC):
         # Frame placeholder
         self.frame = None
 
+        self.override_active:bool  = False
+        self.override_bbox: Optional[Tuple[int, int, int, int]] = None
+        self.override_center: Optional[Tuple[int, int]] = None
+
     @abstractmethod
     def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
         """
@@ -440,3 +444,87 @@ class BaseTracker(ABC):
                 color = Parameters.ESTIMATED_POSITION_COLOR if tracking_successful else Parameters.ESTIMATION_ONLY_COLOR
                 cv2.circle(frame, (int(estimated_x), int(estimated_y)), 5, color, -1)
         return frame
+
+
+
+    def set_external_override(self, bbox: Tuple[int, int, int, int], center: Tuple[int, int]) -> None:
+        """
+        Enables override mode and sets the tracker’s bounding box and center manually.
+        Used by SmartTracker to inject detections directly.
+
+        Args:
+            bbox (Tuple[int, int, int, int]): The bounding box (x, y, x2, y2).
+            center (Tuple[int, int]): The (x, y) center of the selected target.
+        """
+        self.override_active = True
+        self.bbox = (bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1])  # Convert x1,y1,x2,y2 to x,y,w,h
+        self.set_center(center)
+        self.center_history.append(center)
+        self.normalize_bbox()
+        logging.info(f"[OVERRIDE] Classic tracker is now overridden with SmartTracker bbox: {self.bbox}, center: {self.center}")
+
+    def clear_external_override(self) -> None:
+        """
+        Disables external override (used when cancelling SmartTracker mode).
+        """
+        self.override_active = False
+        logging.info("[OVERRIDE] Classic tracker override cleared.")
+
+
+    def get_effective_bbox(self) -> Optional[Tuple[int, int, int, int]]:
+        """
+        Returns the active bounding box: override if active, else internal tracker bbox.
+        """
+        return self.override_bbox if self.override_active else self.bbox
+
+    def get_effective_center(self) -> Optional[Tuple[int, int]]:
+        """
+        Returns the active center: override if active, else internal tracker center.
+        """
+        return self.override_center if self.override_active else self.center
+
+    def _normalize_center_static(self, center: Tuple[int, int]) -> Tuple[float, float]:
+        """
+        Normalizes a center point statically (without modifying class state).
+
+        Returns:
+            Tuple[float, float]: Normalized (x, y) in range [-1, 1]
+        """
+        frame_width, frame_height = self.video_handler.width, self.video_handler.height
+        x, y = center
+        norm_x = (x - frame_width / 2) / (frame_width / 2)
+        norm_y = (y - frame_height / 2) / (frame_height / 2)
+        return (norm_x, norm_y)
+
+    def _normalize_bbox_static(self, bbox: Tuple[int, int, int, int]) -> Tuple[float, float, float, float]:
+        """
+        Normalizes a bounding box statically (without modifying class state).
+
+        Returns:
+            Tuple[float, float, float, float]: Normalized (x, y, w, h)
+        """
+        frame_width, frame_height = self.video_handler.width, self.video_handler.height
+        x, y, w, h = bbox
+        norm_x = (x - frame_width / 2) / (frame_width / 2)
+        norm_y = (y - frame_height / 2) / (frame_height / 2)
+        norm_w = w / frame_width
+        norm_h = h / frame_height
+        return (norm_x, norm_y, norm_w, norm_h)
+    
+
+    def reset(self):
+        self.bbox = None
+        self.center = None
+        self.override_active = False
+        self.override_bbox = None
+        self.override_center = None
+        self.center_history.clear()
+        self.estimated_position_history.clear()
+        self.prev_center = None
+        self.last_update_time = time.time()
+        if self.position_estimator:
+            self.position_estimator.reset()
+        # Re-instantiate the OpenCV tracker to ensure clean state
+        self.tracker = cv2.TrackerCSRT_create()
+        logging.info("Tracker fully reset.")
+

@@ -19,6 +19,11 @@ class BoundingBox(BaseModel):
     width: float
     height: float
 
+class ClickPosition(BaseModel):
+    x: float
+    y: float
+
+
 class FastAPIHandler:
     def __init__(self, app_controller):
         """
@@ -86,6 +91,11 @@ class FastAPIHandler:
         self.app.get("/telemetry/tracker_data")(self.tracker_data)
         self.app.get("/telemetry/follower_data")(self.follower_data)
 
+        self.app.get("/status")(self.get_status)
+
+
+        
+
         # Command endpoints
         self.app.post("/commands/start_tracking")(self.start_tracking)
         self.app.post("/commands/stop_tracking")(self.stop_tracking)
@@ -95,6 +105,10 @@ class FastAPIHandler:
         self.app.post("/commands/start_offboard_mode")(self.start_offboard_mode)
         self.app.post("/commands/stop_offboard_mode")(self.stop_offboard_mode)
         self.app.post("/commands/quit")(self.quit)
+
+        # Smart Tracking (new)
+        self.app.post("/commands/toggle_smart_mode")(self.toggle_smart_mode)
+        self.app.post("/commands/smart_click")(self.smart_click)
 
     async def start_tracking(self, bbox: BoundingBox):
         """
@@ -143,6 +157,72 @@ class FastAPIHandler:
         except Exception as e:
             self.logger.error(f"Error in stop_tracking: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+        
+
+    async def toggle_smart_mode(self):
+        """
+        Toggles the YOLO-based smart tracking mode.
+
+        Returns:
+            dict: Smart mode status.
+        """
+        try:
+            self.app_controller.toggle_smart_mode()
+            status = "enabled" if self.app_controller.smart_mode_active else "disabled"
+            return {"status": f"Smart mode {status}"}
+        except Exception as e:
+            self.logger.error(f"Error in toggle_smart_mode: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+        
+    async def smart_click(self, click: ClickPosition):
+        """
+        Handles user click for selecting an object in smart mode.
+
+        Args:
+            click (ClickPosition): Click coordinates (normalized or absolute).
+        
+        Returns:
+            dict: Selection status.
+        """
+        try:
+            if not self.app_controller.smart_mode_active:
+                raise HTTPException(status_code=400, detail="Smart mode not active.")
+            
+            width = self.video_handler.width
+            height = self.video_handler.height
+
+            # Handle normalized or absolute pixel coordinates
+            if 0 <= click.x <= 1 and 0 <= click.y <= 1:
+                x_px = int(click.x * width)
+                y_px = int(click.y * height)
+                self.logger.debug(f"Normalized click received. Converted to: ({x_px}, {y_px})")
+            else:
+                x_px = int(click.x)
+                y_px = int(click.y)
+                self.logger.debug(f"Absolute click received: ({x_px}, {y_px})")
+
+            self.app_controller.handle_smart_click(x_px, y_px)
+            return {"status": "Click processed", "x": x_px, "y": y_px}
+
+        except Exception as e:
+            self.logger.error(f"Error in smart_click: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+        
+
+    async def get_status(self):
+        try:
+            return {
+                "smart_mode_active": self.app_controller.smart_mode_active,
+                "tracking_started": self.app_controller.tracking_started,
+                "segmentation_active": self.app_controller.segmentation_active,
+                "following_active": self.app_controller.following_active,
+            }
+        except Exception as e:
+            self.logger.error(f"Error in get_status: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+
 
     async def video_feed(self):
         """

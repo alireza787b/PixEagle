@@ -1,40 +1,90 @@
-//dashboard/src/components/ActionButtons.js
-import React from 'react';
-import { Grid, Button, Typography, Tooltip, Container } from '@mui/material';
+// dashboard/src/components/ActionButtons.js
+import React, { useState } from 'react';
+import {
+  Grid,
+  Button,
+  Typography,
+  Tooltip,
+  Container,
+  FormControlLabel,
+  Switch,
+  Box,
+} from '@mui/material';
 import { endpoints } from '../services/apiEndpoints';
 import QuitButton from './QuitButton';
 
-const ActionButtons = ({ isTracking, handleTrackingToggle, handleButtonClick }) => {
+const ActionButtons = ({
+  isTracking,
+  smartModeActive,
+  handleTrackingToggle,
+  handleButtonClick,
+  handleToggleSmartMode,
+}) => {
+  const [switchLoading, setSwitchLoading] = useState(false);
+
+  const handleSmartModeSwitch = async () => {
+    setSwitchLoading(true);
+    await handleToggleSmartMode();
+    setSwitchLoading(false);
+  };
+
   return (
     <Container>
       <Grid container spacing={2} sx={{ mb: 2 }}>
+        {/* Smart Tracker Toggle */}
+        <Grid item xs={12}>
+          <Typography variant="h6" gutterBottom>Tracker Mode</Typography>
+          <Box display="flex" justifyContent="center" alignItems="center">
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={smartModeActive}
+                  onChange={handleSmartModeSwitch}
+                  disabled={switchLoading}
+                  color="success"
+                />
+              }
+              label={smartModeActive ? 'Smart Tracker' : 'Classic Tracker'}
+            />
+          </Box>
+        </Grid>
+
+        {/* Tracking Controls */}
         <Grid item xs={12}>
           <Typography variant="h6" gutterBottom>Tracking Controls</Typography>
-          <Tooltip title="Start or stop tracking">
+          <Tooltip title="Start or stop classic tracking">
+            <span>
+              <Button
+                variant="contained"
+                color={isTracking ? "secondary" : "primary"}
+                onClick={handleTrackingToggle}
+                fullWidth
+                disabled={smartModeActive}
+              >
+                {isTracking ? "Stop Tracking" : "Start Tracking"}
+              </Button>
+            </span>
+          </Tooltip>
+
+          <Tooltip title="Re-detect object (Classic only)">
+            <span>
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={() => handleButtonClick(endpoints.redetect)}
+                fullWidth
+                sx={{ mt: 1 }}
+                disabled={smartModeActive}
+              >
+                Re-Detect
+              </Button>
+            </span>
+          </Tooltip>
+
+          <Tooltip title="Cancel all tracking activities">
             <Button
               variant="contained"
-              color={isTracking ? "secondary" : "primary"}
-              onClick={handleTrackingToggle}
-              fullWidth
-            >
-              {isTracking ? "Stop Tracking" : "Start Tracking"}
-            </Button>
-          </Tooltip>
-          <Tooltip title="Redetect object">
-            <Button 
-              variant="contained" 
-              color="primary" 
-              onClick={() => handleButtonClick(endpoints.redetect)}
-              fullWidth
-              sx={{ mt: 1 }}
-            >
-              Re-Detect
-            </Button>
-          </Tooltip>
-          <Tooltip title="Cancel current tracker">
-            <Button 
-              variant="contained" 
-              color="primary" 
+              color="warning"
               onClick={() => handleButtonClick(endpoints.cancelActivities, true)}
               fullWidth
               sx={{ mt: 1 }}
@@ -43,25 +93,29 @@ const ActionButtons = ({ isTracking, handleTrackingToggle, handleButtonClick }) 
             </Button>
           </Tooltip>
         </Grid>
+
+        {/* Segmentation Controls */}
         <Grid item xs={12}>
           <Typography variant="h6" gutterBottom>Segmentation Controls</Typography>
-          <Tooltip title="Toggle segmentation">
-            <Button 
-              variant="contained" 
-              color="secondary" 
+          <Tooltip title="Toggle YOLO segmentation overlay">
+            <Button
+              variant="contained"
+              color="secondary"
               onClick={() => handleButtonClick(endpoints.toggleSegmentation)}
               fullWidth
             >
-              Toggle YOLO
+              Toggle Segmentation
             </Button>
           </Tooltip>
         </Grid>
+
+        {/* PX4 Offboard Controls */}
         <Grid item xs={12}>
           <Typography variant="h6" gutterBottom>Offboard Controls</Typography>
           <Tooltip title="Start following in offboard mode">
-            <Button 
-              variant="contained" 
-              color="success" 
+            <Button
+              variant="contained"
+              color="success"
               onClick={() => handleButtonClick(endpoints.startOffboardMode)}
               fullWidth
             >
@@ -69,9 +123,9 @@ const ActionButtons = ({ isTracking, handleTrackingToggle, handleButtonClick }) 
             </Button>
           </Tooltip>
           <Tooltip title="Stop following in offboard mode">
-            <Button 
-              variant="contained" 
-              color="success" 
+            <Button
+              variant="contained"
+              color="success"
               onClick={() => handleButtonClick(endpoints.stopOffboardMode)}
               fullWidth
               sx={{ mt: 1 }}
@@ -80,6 +134,8 @@ const ActionButtons = ({ isTracking, handleTrackingToggle, handleButtonClick }) 
             </Button>
           </Tooltip>
         </Grid>
+
+        {/* Quit App */}
         <Grid item xs={12}>
           <QuitButton fullWidth />
         </Grid>

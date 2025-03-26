@@ -1,24 +1,39 @@
 // dashboard/src/pages/DashboardPage.js
 import React, { useState, useEffect } from 'react';
-import { 
-  Container, Typography, CircularProgress, Box, Grid, 
-  FormControl, InputLabel, Select, MenuItem 
+import {
+  Container, Typography, CircularProgress, Box, Grid, Snackbar, Alert,
+  FormControl, InputLabel, Select, MenuItem, Divider
 } from '@mui/material';
+
 import ActionButtons from '../components/ActionButtons';
 import BoundingBoxDrawer from '../components/BoundingBoxDrawer';
 import StatusIndicator from '../components/StatusIndicator';
+
 import { videoFeed, endpoints } from '../services/apiEndpoints';
-import { useTrackerStatus, useFollowerStatus } from '../hooks/useStatuses';
+import {
+  useTrackerStatus,
+  useFollowerStatus,
+  useSmartModeStatus
+} from '../hooks/useStatuses';
 import useBoundingBoxHandlers from '../hooks/useBoundingBoxHandlers';
 
 const DashboardPage = () => {
   const [isTracking, setIsTracking] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [streamingProtocol, setStreamingProtocol] = useState('websocket'); // Default to 'websocket'
-  const checkInterval = 2000; // Check tracker and follower status every 2 seconds
+  const [streamingProtocol, setStreamingProtocol] = useState('websocket');
+  const [smartModeActive, setSmartModeActive] = useState(false);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+
+  const checkInterval = 2000;
 
   const isFollowing = useFollowerStatus(checkInterval);
   const trackerStatus = useTrackerStatus(checkInterval);
+  const smartModeStatus = useSmartModeStatus(checkInterval);
+
+  useEffect(() => {
+    setSmartModeActive(smartModeStatus);
+  }, [smartModeStatus]);
+
   const {
     imageRef,
     startPos,
@@ -30,10 +45,8 @@ const DashboardPage = () => {
     handleTouchStart,
     handleTouchMove,
     handleTouchEnd,
-  } = useBoundingBoxHandlers(isTracking, setIsTracking);
-  
+  } = useBoundingBoxHandlers(isTracking, setIsTracking, smartModeActive);
 
-  // Handler for tracking toggle
   const handleTrackingToggle = async () => {
     if (isTracking) {
       try {
@@ -49,7 +62,6 @@ const DashboardPage = () => {
     setIsTracking(!isTracking);
   };
 
-  // Handler for action button click
   const handleButtonClick = async (endpoint, updateTrackingState = false) => {
     try {
       const response = await fetch(endpoint, {
@@ -60,7 +72,7 @@ const DashboardPage = () => {
       console.log(`Response from ${endpoint}:`, data);
 
       if (endpoint === endpoints.quit) {
-        window.location.reload();  // Reload the page to ensure proper shutdown
+        window.location.reload();
       }
 
       if (updateTrackingState) {
@@ -72,37 +84,43 @@ const DashboardPage = () => {
     }
   };
 
-  // Effect to check the video stream
+  const handleToggleSmartMode = async () => {
+    try {
+      await fetch(endpoints.toggleSmartMode, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      setSmartModeActive((prev) => !prev);
+      setSnackbarOpen(true);
+    } catch (err) {
+      console.error('Failed to toggle smart mode:', err);
+    }
+  };
+
+  const handleSnackbarClose = () => setSnackbarOpen(false);
+
   useEffect(() => {
     const checkStream = setInterval(() => {
       const img = new Image();
       img.src = videoFeed;
-
       img.onload = () => {
         setLoading(false);
         clearInterval(checkStream);
       };
-
-      img.onerror = () => {
-        console.error('Error loading video feed');
-      };
-    }, checkInterval); // Check every 2 seconds
+      img.onerror = () => console.error('Error loading video feed');
+    }, checkInterval);
 
     return () => clearInterval(checkStream);
   }, []);
 
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
-      <Typography variant="h4" gutterBottom align="center">Dashboard</Typography>
+      <Typography variant="h4" gutterBottom align="center">
+        Dashboard
+      </Typography>
 
       {loading ? (
-        <Box 
-          display="flex" 
-          flexDirection="column" 
-          alignItems="center" 
-          justifyContent="center" 
-          minHeight="400px"
-        >
+        <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" minHeight="400px">
           <CircularProgress />
           <Typography variant="body1" align="center" sx={{ mt: 2 }}>
             Loading video feed, please wait...
@@ -110,18 +128,27 @@ const DashboardPage = () => {
         </Box>
       ) : (
         <Grid container spacing={2}>
-          {/* Sidebar for Action Buttons and Protocol Selection */}
+          {/* Sidebar */}
           <Grid item xs={12} sm={3} md={2}>
             <Grid container direction="column" spacing={2}>
+              {/* Mode Toggle Button */}
               <Grid item>
-                <ActionButtons 
-                  isTracking={isTracking} 
-                  handleTrackingToggle={handleTrackingToggle} 
-                  handleButtonClick={handleButtonClick} 
-                />
+                <Typography variant="h6">Tracker Mode</Typography>
+                <Box mt={1}>
+                  <ActionButtons
+                    isTracking={isTracking}
+                    smartModeActive={smartModeActive}
+                    handleTrackingToggle={handleTrackingToggle}
+                    handleButtonClick={handleButtonClick}
+                    handleToggleSmartMode={handleToggleSmartMode}
+                  />
+                </Box>
               </Grid>
+
+              <Divider sx={{ my: 2 }} />
+
+              {/* Streaming protocol dropdown */}
               <Grid item>
-                {/* Dropdown for selecting streaming protocol */}
                 <FormControl variant="outlined" fullWidth>
                   <InputLabel id="streaming-protocol-label">Streaming Protocol</InputLabel>
                   <Select
@@ -138,26 +165,27 @@ const DashboardPage = () => {
             </Grid>
           </Grid>
 
-          {/* Main Video Feed and Bounding Box Controls */}
+          {/* Main Video + Bounding */}
           <Grid item xs={12} sm={9} md={10}>
-          <BoundingBoxDrawer
-            isTracking={isTracking}
-            imageRef={imageRef}
-            startPos={startPos}
-            currentPos={currentPos}
-            boundingBox={boundingBox}
-            handleMouseDown={handleMouseDown}
-            handleMouseMove={handleMouseMove}
-            handleMouseUp={handleMouseUp}
-            handleTouchStart={handleTouchStart}
-            handleTouchMove={handleTouchMove}
-            handleTouchEnd={handleTouchEnd}
-            videoSrc={videoFeed}
-            protocol={streamingProtocol} // Pass the protocol prop
-          />
+            <BoundingBoxDrawer
+              isTracking={isTracking}
+              imageRef={imageRef}
+              startPos={startPos}
+              currentPos={currentPos}
+              boundingBox={boundingBox}
+              handleMouseDown={handleMouseDown}
+              handleMouseMove={handleMouseMove}
+              handleMouseUp={handleMouseUp}
+              handleTouchStart={handleTouchStart}
+              handleTouchMove={handleTouchMove}
+              handleTouchEnd={handleTouchEnd}
+              videoSrc={videoFeed}
+              protocol={streamingProtocol}
+              smartModeActive={smartModeActive}
+            />
           </Grid>
 
-          {/* Status Indicators below Video Feed */}
+          {/* Status Indicators */}
           <Grid item xs={12}>
             <Grid container justifyContent="center" spacing={2}>
               <Grid item>
@@ -170,6 +198,18 @@ const DashboardPage = () => {
           </Grid>
         </Grid>
       )}
+
+      {/* Snackbar confirmation for mode toggle */}
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={3000}
+        onClose={handleSnackbarClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={handleSnackbarClose} severity="info" sx={{ width: '100%' }}>
+          Switched to {smartModeActive ? 'Smart Tracker (YOLO)' : 'Classic Tracker (CSRT)'}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 };

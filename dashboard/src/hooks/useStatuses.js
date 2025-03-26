@@ -57,3 +57,28 @@ export const useFollowerStatus = (interval = 2000) => {
 
   return isFollowing;
 };
+
+
+export const useSmartModeStatus = (interval = 2000) => {
+  const [smartModeActive, setSmartModeActive] = useState(false);
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const response = await axios.get(`${API_URL}/status`);
+        const data = response.data;
+        setSmartModeActive(data.smart_mode_active || false);
+      } catch (error) {
+        console.error('Error fetching smart mode status:', error);
+        setSmartModeActive(false);
+      }
+    };
+
+    const intervalId = setInterval(fetchStatus, interval);
+    fetchStatus(); // Initial call
+
+    return () => clearInterval(intervalId);
+  }, [interval]);
+
+  return smartModeActive;
+};

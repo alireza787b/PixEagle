@@ -114,35 +114,65 @@ class CSRTTracker(BaseTracker):
     def update(self, frame: np.ndarray) -> Tuple[bool, Tuple[int, int, int, int]]:
         """
         Updates the tracker with the current frame and returns the tracking success status and the new bounding box.
+        If override is enabled, uses the SmartTracker's selected object instead of CSRT internal tracking.
 
         Args:
             frame (np.ndarray): The current video frame.
 
         Returns:
-            Tuple[bool, Tuple[int, int, int, int]]: A tuple containing the success status and the new bounding box.
+            Tuple[bool, Tuple[int, int, int, int]]: Success flag and the updated bounding box.
         """
         dt = self.update_time()
+
+        if self.override_active:
+            # Smart tracking override is active; pull bbox from smart tracker
+            smart_tracker = self.app_controller.smart_tracker
+            if smart_tracker and smart_tracker.selected_bbox:
+                self.prev_center = self.center
+                x1, y1, x2, y2 = smart_tracker.selected_bbox
+                w, h = x2 - x1, y2 - y1
+                self.bbox = (x1, y1, w, h)
+                self.set_center(((x1 + x2) // 2, (y1 + y2) // 2))
+                self.normalize_bbox()
+                self.center_history.append(self.center)
+
+                self.confidence = 1.0  # Max confidence since override is trusted
+
+                # Estimator update
+                if self.estimator_enabled and self.position_estimator:
+                    self.position_estimator.set_dt(dt)
+                    self.position_estimator.predict_and_update(np.array(self.center))
+                    estimated_position = self.position_estimator.get_estimate()
+                    self.estimated_position_history.append(estimated_position)
+
+                return True, self.bbox
+            else:
+                logging.warning("Override is active but SmartTracker has no selected bbox.")
+                return False, self.bbox
+
+        # Normal CSRT tracking
         success, detected_bbox = self.tracker.update(frame)
         
         if success:
-            self.prev_center = self.center  # Store the previous center
+            self.prev_center = self.center
             self.bbox = detected_bbox
             self.set_center((int(self.bbox[0] + self.bbox[2] / 2), int(self.bbox[1] + self.bbox[3] / 2)))
             self.normalize_bbox()
             self.center_history.append(self.center)
 
-            # Update adaptive appearance model using the detector
+            # Update appearance model
             if self.detector:
                 current_features = self.detector.extract_features(frame, self.bbox)
-                self.detector.adaptive_features = (1 - Parameters.CSRT_APPEARANCE_LEARNING_RATE) * self.detector.adaptive_features + \
-                                          Parameters.CSRT_APPEARANCE_LEARNING_RATE * current_features
+                self.detector.adaptive_features = (
+                    (1 - Parameters.CSRT_APPEARANCE_LEARNING_RATE) * self.detector.adaptive_features +
+                    Parameters.CSRT_APPEARANCE_LEARNING_RATE * current_features
+                )
 
-            # Compute confidence scores
+            # Confidence checks
             self.compute_confidence(frame)
             total_confidence = self.get_confidence()
             logging.debug(f"Total Confidence: {total_confidence}")
 
-            # Perform consistency checks
             if self.confidence < Parameters.CONFIDENCE_THRESHOLD:
                 logging.warning("Tracking failed due to low confidence.")
                 success = False
@@ -154,9 +184,9 @@ class CSRTTracker(BaseTracker):
                 self.estimated_position_history.append(estimated_position)
         else:
             logging.warning("Tracking update failed in tracker algorithm.")
-            # Optionally, handle estimator update without measurement
-            
+
         return success, self.bbox
+
 
     def update_estimator_without_measurement(self) -> None:
         """
