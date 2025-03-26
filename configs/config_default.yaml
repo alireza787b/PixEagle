@@ -204,8 +204,6 @@ Tracking:
   PF_EFFECTIVE_PARTICLE_NUM_THRESHOLD: 0.5  # Ratio of PF_NUM_PARTICLES
   PF_RANDOM_PARTICLE_RATIO: 0.1  # Ratio of particles to reinitialize randomly
 
-
-
 # ==============================================================================
 # Smart Tracker Configuration
 # ==============================================================================
