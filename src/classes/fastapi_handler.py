@@ -20,8 +20,9 @@ class BoundingBox(BaseModel):
     height: float
 
 class ClickPosition(BaseModel):
-    x: int
-    y: int
+    x: float
+    y: float
+
 
 class FastAPIHandler:
     def __init__(self, app_controller):
@@ -178,19 +179,35 @@ class FastAPIHandler:
         Handles user click for selecting an object in smart mode.
 
         Args:
-            click (ClickPosition): Click coordinates.
-
+            click (ClickPosition): Click coordinates (normalized or absolute).
+        
         Returns:
             dict: Selection status.
         """
         try:
             if not self.app_controller.smart_mode_active:
                 raise HTTPException(status_code=400, detail="Smart mode not active.")
-            self.app_controller.handle_smart_click(click.x, click.y)
-            return {"status": "Click processed", "x": click.x, "y": click.y}
+            
+            width = self.video_handler.width
+            height = self.video_handler.height
+
+            # Handle normalized or absolute pixel coordinates
+            if 0 <= click.x <= 1 and 0 <= click.y <= 1:
+                x_px = int(click.x * width)
+                y_px = int(click.y * height)
+                self.logger.debug(f"Normalized click received. Converted to: ({x_px}, {y_px})")
+            else:
+                x_px = int(click.x)
+                y_px = int(click.y)
+                self.logger.debug(f"Absolute click received: ({x_px}, {y_px})")
+
+            self.app_controller.handle_smart_click(x_px, y_px)
+            return {"status": "Click processed", "x": x_px, "y": y_px}
+
         except Exception as e:
             self.logger.error(f"Error in smart_click: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
         
 
     async def get_status(self):
