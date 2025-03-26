@@ -115,6 +115,7 @@ class AppController:
         Otherwise, handles segmentation click events.
         """
         if event == cv2.EVENT_LBUTTONDOWN:
+            logging.info("clicked")
             if self.smart_mode_active:
                 self.handle_smart_click(x, y)
             elif self.segmentation_active:
@@ -128,6 +129,10 @@ class AppController:
             logging.warning("SmartTracker unavailable or frame not ready.")
             return
 
+
+        if self.smart_tracker.last_results is None:
+            logging.warning("SmartTracker has no results yet. Please wait for detection.")
+            return
         self.smart_tracker.select_object_by_click(x, y)
 
         if self.smart_tracker.selected_bbox and self.smart_tracker.selected_center:
@@ -241,14 +246,14 @@ class AppController:
             if self.segmentation_active:
                 frame = self.segmentor.segment_frame(frame)
             
-            # Smart Tracker: always draw overlays if instantiated
-            if self.smart_tracker is None and self.smart_mode_active:
-                try:
-                    self.smart_tracker = SmartTracker(Parameters.SMART_TRACKER_MODEL_NAME)
-                    logging.info("SmartTracker instantiated successfully.")
-                except Exception as e:
-                    logging.error(f"Failed to initialize SmartTracker: {e}")
-                    self.smart_mode_active = False
+            # # Smart Tracker: always draw overlays if instantiated
+            # if self.smart_tracker is None and self.smart_mode_active:
+            #     try:
+            #         self.smart_tracker = SmartTracker(Parameters.SMART_TRACKER_MODEL_NAME)
+            #         logging.info("SmartTracker instantiated successfully.")
+            #     except Exception as e:
+            #         logging.error(f"Failed to initialize SmartTracker: {e}")
+            #         self.smart_mode_active = False
 
             if self.smart_tracker:
                 frame = self.smart_tracker.track_and_draw(frame)
