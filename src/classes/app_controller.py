@@ -232,7 +232,7 @@ class AppController:
         """
         self.tracking_started = False
         self.segmentation_active = False
-        self.smart_mode_active = False
+        # self.smart_mode_active = False
         self.selected_bbox = None
 
         if self.setpoint_sender:
