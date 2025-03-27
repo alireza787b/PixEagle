@@ -27,8 +27,8 @@ Your Drone Can Now Think — Smart Tracking with YOLO + PX4
 
 #### 🤖 Smart YOLO Tracker (New)
 
-- Built-in **YOLOv8-powered tracking engine**, running in real-time
-- **Supports any custom YOLOv8 model** — auto-detection with bounding box or click-to-track
+- Built-in **YOLO-powered tracking engine**, running in real-time
+- **Supports any custom YOLO model** — auto-detection with bounding box or click-to-track
 - **Works alongside classic trackers** (e.g. CSRT) for hybrid tracking scenarios
 - **User-friendly switching between Classic / Smart modes** via updated Dashboard
 
@@ -47,7 +47,7 @@ Your Drone Can Now Think — Smart Tracking with YOLO + PX4
 #### 📦 Easy YOLO Model Management
 
 - New `add_yolo_model.py` utility to:
-  - Download YOLOv8 models from Ultralytics
+  - Download YOLO models from Ultralytics
   - Auto-convert and register them for GPU/CPU usage
 
 #### 🎯 Performance, Bug Fixes & Reliability
@@ -116,7 +116,7 @@ This script will:
 
 ### 🧰 YOLO Model Setup (For Smart Tracker)
 
-PixEagle 3.0 includes `add_yolo_model.py`, a utility to download and prepare YOLOv8 models for use in the Smart Tracker (GPU or CPU compatible).
+PixEagle 3.0 includes `add_yolo_model.py`, a utility to download and prepare YOLO models for use in the Smart Tracker (GPU or CPU compatible).
 
 ```bash
 python src/tools/add_yolo_model.py
@@ -124,12 +124,12 @@ python src/tools/add_yolo_model.py
 
 This will:
 
-- Download a model (e.g. `yolov8n.pt`) from Ultralytics
+- Download a model (e.g. `yolo11s.pt`) from Ultralytics
 - Export to ONNX
 - Optionally optimize for GPU inference
 - Register the model in `configs/config.yaml`
 
-> 💡 Supports custom or fine-tuned YOLOv8 models too!
+> 💡 Supports custom or fine-tuned YOLO models too!
 
 ---
 
