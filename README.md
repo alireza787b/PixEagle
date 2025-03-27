@@ -59,8 +59,6 @@ Your Drone Can Now Think — Smart Tracking with YOLO + PX4
 
 ---
 
-> ✅ The PixEagle ecosystem continues to support full **MAVLink**, **PX4 offboard control**, and advanced **failsafe handling** — with plug-and-play extensibility for custom trackers, segmentors, and estimators.
-
 
 ## 🚀 Getting Started with PixEagle 3.0
 
@@ -586,3 +584,32 @@ npm start
 To run on Windows, use **WSL** (Windows Subsystem for Linux) or adapt the commands accordingly.
 
 > 📄 **For detailed SITL/X-Plane setup on Windows**, refer to [Follow Mode + X-Plane Guide](https://github.com/alireza787b/PixEagle/blob/main/Follow_Mode_Xplane_Guide.md).
+
+
+### 📚 **Additional Resources:**
+
+- **📁 PixEagle GitHub Repository:**  
+  [https://github.com/alireza787b/PixEagle](https://github.com/alireza787b/PixEagle)
+  
+- **📄 X-Plane SITL Instructions:**  
+  [Follow Mode Xplane Guide](https://github.com/alireza787b/PixEagle/blob/smart-param/Follow_Mode_Xplane_Guide.md)
+  
+- **📂 PX4Xplane Repository:**  
+  [https://github.com/alireza787b/px4xplane](https://github.com/alireza787b/px4xplane)
+  
+- **📺 PixEagle YouTube Playlist:**  
+  [PixEagle Series](https://www.youtube.com/watch?v=nMThQLC7nBg&list=PLVZvZdBQdm_4oain9--ClKioiZrq64-Ky&index=1&t=0s)
+
+### ⚠️ **Disclaimer:**
+
+*PixEagle 3.0 is currently in an experimental stage and has not been tested in real-world scenarios. Use at your own risk. The developers are not responsible for any misuse or damages resulting from the use of this software.*
+
+### 👍 **Stay Connected & Get Involved:**
+
+- **🔔 Subscribe** to our [YouTube Channel](https://www.youtube.com/channel/YourChannelLink) for more updates and tutorials on PixEagle 2.0.
+- **💬 Share** your thoughts and suggestions in the [issues](https://github.com/alireza787b/PixEagle/issues) section of our GitHub repository!
+- **🔗 Join** our community by contributing on [GitHub](https://github.com/alireza787b/PixEagle).
+
+### 📢 **Call to Action:**
+
+Enjoyed PixEagle 3.0? **Star ⭐** the repository, **fork 🔀** it for your projects, and **contribute** to help us continue to innovate and improve PixEagle. Your support is invaluable!
