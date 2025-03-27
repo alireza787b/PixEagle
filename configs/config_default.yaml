@@ -81,14 +81,20 @@ PX4:
   SYSTEM_ADDRESS: udp://127.0.0.1:14540
 
 # ==============================================================================
-# Frame and Estimation Configuration
+# Frame Window Configuration
 # ==============================================================================
 FrameEstimation:
   # Video frame settings
   FRAME_TITLE: Video
   DEFAULT_FPS: 30
-  STORE_LAST_FRAMES: 5
   SHOW_VIDEO_WINDOW: false  # Set to true for debugging
+
+
+# ==============================================================================
+# Estimator Configuration
+# ==============================================================================
+
+  STORE_LAST_FRAMES: 5
   # Estimator settings
   USE_ESTIMATOR: true
   ESTIMATOR_HISTORY_LENGTH: 5
@@ -207,18 +213,37 @@ Tracking:
 # ==============================================================================
 # Smart Tracker Configuration
 # ==============================================================================
+
 SmartTracker:
   SMART_TRACKER_ENABLED: true
-  SMART_TRACKER_MODEL_NAME: "yolo/yolov11n_ncnn_model"
-  SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.5
-  SMART_TRACKER_NMS_THRESHOLD: 0.45
-  SMART_TRACKER_DETECTION_FREQUENCY: 5
-  SMART_TRACKER_COLOR: [0, 255, 255]
-  TRACKING_BUFFER_SIZE: 60
-  SMART_TRACKER_IOU_THRESHOLD: 0.3
-  SMART_TRACKER_MAX_DETECTIONS: 20
-  SMART_TRACKER_TRACKER_TYPE: "bytetrack.yaml"
-  SMART_TRACKER_SHOW_FPS: false
+
+  # === Runtime Selection ===
+  SMART_TRACKER_USE_GPU: true               # true = try to use GPU (CUDA), false = force CPU
+  SMART_TRACKER_FALLBACK_TO_CPU: true       # If GPU fails, try to load CPU model
+
+  # 📘 Notes:
+  # - If GPU is enabled but not available, system will automatically fall back to CPU.
+  # - Download YOLOv8 PyTorch models from: https://github.com/ultralytics/ultralytics
+  # - For CUDA support, install PyTorch with GPU support:
+  #   → https://pytorch.org/get-started/locally/
+  #   Example (CUDA 11.8): pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+  # === Model Paths ===
+  SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo11n.pt"       # PyTorch .pt file (recommended for GPU)
+  SMART_TRACKER_CPU_MODEL_PATH: "yolo/yolo11n_ncnn_model"   # Can be .pt or .onnx or .ncnn depending on deployment (ncnn is recommended for ARM CPUs)
+  # 📘 Notes:
+  # - Use add_yolo_model.py to automatically download and convert models. Models will be stored in yolo/ folder. 
+
+
+  # === YOLO Detection Parameters ===
+  SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.3     # Minimum confidence for detections
+  SMART_TRACKER_IOU_THRESHOLD: 0.3            # IoU threshold for object matching
+  SMART_TRACKER_MAX_DETECTIONS: 20            # Max objects per frame
+
+  # === Tracker & Drawing Settings ===
+  SMART_TRACKER_TRACKER_TYPE: "bytetrack.yaml"  # Tracker config
+  SMART_TRACKER_COLOR: [0, 255, 255]            # BGR color for tracking overlays
+  SMART_TRACKER_SHOW_FPS: false                 # Show FPS in output
 
 
 

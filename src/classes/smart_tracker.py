@@ -8,15 +8,44 @@ from classes.parameters import Parameters
 
 
 class SmartTracker:
-    def __init__(self, model_path: str,app_controller):
-        """Initializes YOLO model and tracking parameters."""
-        try:
-            self.model = YOLO(model_path, task='detect')
-        except Exception as e:
-            logging.error(f"Failed to load YOLO model: {e}")
-            raise RuntimeError("YOLO model loading failed.")
+    def __init__(self, app_controller):
+        """
+        Initializes the YOLO model (supports GPU/CPU config + optional fallback).
+        Model path is selected based on config flags.
+        """
+        self.app_controller = app_controller
+        use_gpu = Parameters.SMART_TRACKER_USE_GPU
+        fallback_enabled = Parameters.SMART_TRACKER_FALLBACK_TO_CPU
 
-        # Configurable detection/tracking thresholds
+        try:
+            if use_gpu:
+                model_path = Parameters.SMART_TRACKER_GPU_MODEL_PATH
+                logging.info(f"[SmartTracker] Attempting to load YOLO model with GPU: {model_path}")
+            else:
+                model_path = Parameters.SMART_TRACKER_CPU_MODEL_PATH
+                logging.info(f"[SmartTracker] Loading YOLO model with CPU: {model_path}")
+
+            self.model = YOLO(model_path, task="detect")
+            logging.info(f"[SmartTracker] YOLO model loaded on device: {self.model.device}")
+
+        except Exception as e:
+            if use_gpu and fallback_enabled:
+                logging.warning(f"[SmartTracker] GPU load failed: {e}")
+                logging.info("[SmartTracker] Falling back to CPU model...")
+
+                try:
+                    model_path = Parameters.SMART_TRACKER_CPU_MODEL_PATH
+                    self.model = YOLO(model_path, task="detect")
+                    logging.info(f"[SmartTracker] CPU model loaded successfully: {self.model.device}")
+                except Exception as cpu_error:
+                    logging.error(f"[SmartTracker] CPU fallback also failed: {cpu_error}")
+                    raise RuntimeError("YOLO model loading failed (both GPU and CPU).")
+
+            else:
+                logging.error(f"[SmartTracker] Failed to load YOLO model: {e}")
+                raise RuntimeError("YOLO model loading failed.")
+
+        # === Tracker Parameters
         self.conf_threshold = Parameters.SMART_TRACKER_CONFIDENCE_THRESHOLD
         self.iou_threshold = Parameters.SMART_TRACKER_IOU_THRESHOLD
         self.max_det = Parameters.SMART_TRACKER_MAX_DETECTIONS
@@ -24,12 +53,10 @@ class SmartTracker:
         self.tracker_args = {"persist": True, "verbose": False}
         self.show_fps = Parameters.SMART_TRACKER_SHOW_FPS
         self.draw_color = tuple(Parameters.SMART_TRACKER_COLOR)
-        self.app_controller = app_controller
 
-        # YOLO class labels
         self.labels = self.model.names if hasattr(self.model, 'names') else {}
 
-        # Tracking state
+        # === Tracking state
         self.selected_object_id = None
         self.selected_class_id = None
         self.selected_bbox = None
@@ -37,10 +64,11 @@ class SmartTracker:
         self.last_results = None
         self.object_colors = {}
 
-        # FPS Counter
         self.fps_counter, self.fps_timer, self.fps_display = 0, time.time(), 0
 
-        logging.info(f"SmartTracker initialized with model: {model_path}")
+        logging.info("[SmartTracker] Initialization complete.")
+
+
 
     def get_yolo_color(self, index):
         """Generate unique color for each object ID using golden ratio."""
