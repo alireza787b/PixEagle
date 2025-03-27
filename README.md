@@ -2,489 +2,583 @@
 
 ## Overview
 
-PixEagle is an all-in-one image processing, following, and tracking solution designed for the PX4 ecosystem, with potential expansion to ArduPilot. It leverages **MAVSDK Python**, **OpenCV**, and optional **YOLO** for precise object tracking and drone navigation. The project emphasizes **modularity** and **extensibility**, allowing users to implement their own tracking, detection, and segmentation algorithms. Additionally, PixEagle includes a **web-based React application** that serves as a Ground Control Station (GCS), providing real-time monitoring and control with enhanced features like drag-and-select target tracking.
+**PixEagle** is a powerful, modular image-processing and tracking suite for drones running the **PX4 autopilot** — with optional support for ArduPilot and integration-ready for custom systems. It combines **MAVSDK Python**, **OpenCV**, and **YOLO** object detection to deliver high-performance visual tracking and autonomous following.
 
-With PixEagle 2, we've introduced a suite of advanced features to elevate your drone's capabilities, making it more robust, user-friendly, and versatile for various aerial robotics applications.
+With **PixEagle 3.0**, we’ve taken things to the next level — introducing a new GPU-accelerated **Smart Tracker**, seamless **YOLO integration**, a redesigned web-based GCS dashboard, and automatic model conversion tools. PixEagle is now more intelligent, flexible, and field-ready than ever before.
 
-## Latest Release
+> Whether you're using a Raspberry Pi, Jetson, or x86 companion computer — PixEagle is built for real-time, on-board vision-based autonomy.
 
-### 🎉 **PixEagle 2 - Enhanced Tracking, Modular Design & Advanced Features** 🚁✨
+---
 
-Watch our latest demo video showcasing **PixEagle 2**, where we demonstrate its advanced tracking functionalities, various following modes, and seamless integration with real hardware like the Raspberry Pi 5. This release brings significant improvements in tracker robustness, user experience, and operational efficiency.
+## 🚀 PixEagle 3.0 – YOLO Smart Tracker, GPU Power & Pro-Grade Tools
 
-[![PixEagle 2 Demo Video](https://img.youtube.com/vi/vJn27WEXQJw/0.jpg)](https://www.youtube.com/watch?v=vJn27WEXQJw)
+🎬 **Watch the PixEagle 3.0 Demo Video:**  
+[Your Drone Can Now Think — Smart Tracking with YOLO + PX4](https://www.youtube.com/watch?v=vJn27WEXQJw)
 
+[![PixEagle 3 Demo Thumbnail](https://img.youtube.com/vi/vJn27WEXQJw/0.jpg)](https://www.youtube.com/watch?v=vJn27WEXQJw)
 
-### 📺 **Watch the PixEagle 2.0 Demo Video:**
-[Your PX4 Drone Can See, Track & Follow! Give Eagle Eyes to your Drone with PixEagle 2.0](https://www.youtube.com/watch?v=vJn27WEXQJw)
+---
 
-### 🌟 **New Features in PixEagle 2.0:**
+### ✨ What's New in PixEagle 3.0
 
-- **🚀 Improved Tracker Robustness:**
-  - Enhanced algorithms for more reliable tracking in diverse environments.
-  - **Redetection & Tracker Failure Compensation (Beta):** Automatically recovers tracking in case of failures, ensuring continuous operation.
+#### 🤖 Smart YOLO Tracker (New)
 
-- **🎨 Enhanced Visuals & User Experience:**
-  - Sleeker user interfaces for a more intuitive and seamless user journey.
-  - Easier operation features to streamline your workflow.
+- Built-in **YOLOv8-powered tracking engine**, running in real-time
+- **Supports any custom YOLOv8 model** — auto-detection with bounding box or click-to-track
+- **Works alongside classic trackers** (e.g. CSRT) for hybrid tracking scenarios
+- **User-friendly switching between Classic / Smart modes** via updated Dashboard
 
-- **🌐 Full-Featured Web-Based Dashboard:**
-  - Accessible from anywhere, providing comprehensive control and monitoring.
-  - Optimized to work efficiently on companion computers, enhancing flexibility.
+#### ⚡ CUDA / GPU Acceleration (New)
 
-- **⚙️ Optimization for Companion Computers:**
-  - Efficient performance on various companion computer setups.
+- Enable **GPU support with a single config switch**
+- Automatically falls back to CPU if needed
+- Works seamlessly on Jetson, NVIDIA GPUs, or CPU-only setups
 
-- **🛠️ Fully Modular Design:**
-  - Easily add your own trackers using the base tracker abstract method implementation.
-  - **Customizable:** Tailor PixEagle 2.0 to fit your specific project needs with its all-in-one, modular design.
+#### 📊 Dashboard Revamp (Improved UI/UX)
 
-- **🔄 Multiple Following Modes:**
-  - **Ground View Mode**
-  - **Constant Distance**
-  - **Constant Position**
-  - **Chase Mode (Dogfight)**
+- Clean toggle UI for Smart vs Classic Mode
+- Visual mode indicators and status feedback
+- Fully responsive layout for GCS use in the field
 
-- **🔗 Integration with MAVSDK & Mavlink2REST:**
-  - Seamless communication and control integration for enhanced drone management.
+#### 📦 Easy YOLO Model Management
 
-- **📷 Support for CSI Cameras:**
-  - Requires manual GStreamer build for optimal performance.
+- New `add_yolo_model.py` utility to:
+  - Download YOLOv8 models from Ultralytics
+  - Auto-convert and register them for GPU/CPU usage
 
-- **📡 Streaming Enhancements:**
-  - **Stream to QGC Over UDP:** Real-time data streaming for enhanced control and monitoring.
-  - **WebSocket & HTTP Streaming:** Improved WebSocket performance with reduced latency, ensuring smooth data transmission.
+#### 🎯 Performance, Bug Fixes & Reliability
 
-- **🛡️ Failsafe Handling Implementations:**
-  - Enhanced safety measures for reliable drone operations in unforeseen scenarios.
+- Better tracker fallback and recovery logic
+- Updated GStreamer streaming support
+- Added support for **RTSP** camera feeds
+- Improved logging, error handling, and startup detection
 
+---
+
+> ✅ The PixEagle ecosystem continues to support full **MAVLink**, **PX4 offboard control**, and advanced **failsafe handling** — with plug-and-play extensibility for custom trackers, segmentors, and estimators.
 
 
-## Getting Started
+## 🚀 Getting Started with PixEagle 3.0
 
-### Prerequisites
+### 🔧 Prerequisites
 
-Before setting up PixEagle, ensure that your system meets the following requirements:
+Make sure your system meets the following requirements before installing PixEagle:
 
-- **Operating System:** Linux (recommended). Windows is supported but only recommended for X-Plane SITL tests. (see [Integration Guide for Follow Mode Tracker Test with X-Plane and SITL
-](https://github.com/alireza787b/PixEagle/blob/smart-param/Follow_Mode_Xplane_Guide.md)).
-- **Python:** Version 3.9 or higher.
-- **Python Virtual Environment:** `venv` module.
-- **Python Packages:** As listed in `requirements.txt`.
-- **Additional Tools:** `tmux`, `lsof` for better control and management.
+- **Operating System:**  
+  - Linux (🟢 Recommended for all use cases)  
+  - Windows (🟡 Supported only for simulation/SITL testing via X-Plane + WSL)  
+    → [X-Plane SITL Guide](https://github.com/alireza787b/PixEagle/blob/smart-param/Follow_Mode_Xplane_Guide.md)
 
-#### Install Prerequisites on Linux
+- **Python:** 3.9 or higher  
+- **Virtual Environment Tool:** `venv`  
+- **Python Packages:** Listed in `requirements.txt`  
+- **Node.js & npm:** Required for the Dashboard UI  
+- **Other Tools:** `tmux`, `lsof`, `curl` (for automatic setups)
+
+#### 📦 Install Prerequisites (Linux)
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip tmux lsof 
+sudo apt install -y python3 python3-venv python3-pip tmux lsof curl
 ```
 
-### Installation
+---
+
+### 📥 Installation
 
 1. **Clone the Repository:**
 
-    ```bash
-    cd ~
-    git clone https://github.com/alireza787b/PixEagle.git
-    ```
+```bash
+cd ~
+git clone https://github.com/alireza787b/PixEagle.git
+cd PixEagle
+```
 
-2. **Navigate to the Project Directory:**
+2. **Initialize the Project (Recommended):**
 
-    ```bash
-    cd ~/PixEagle
-    ```
+```bash
+bash init_pixeagle.sh
+```
 
-3. **Initialize the Project:**
+This script will:
 
-    Run the initialization script to set up the virtual environment, install dependencies, and handle configurations:
+- Create a Python virtual environment
+- Install all required Python packages
+- Generate `config.yaml` and `.env` files if missing
+- Download the required `mavsdk_server_bin` if not present
+- Provide guidance for installing Node.js if not already installed
 
-    ```bash
-    bash init_pixeagle.sh
-    ```
+> 🧠 **Manual setup available** if preferred — just activate `venv`, install requirements, and create configs manually.
 
-    **Note:** If you prefer manual setup, you can create a virtual environment, creating configs and env files and install the requirements manually.
+---
 
+### 🧰 YOLO Model Setup (For Smart Tracker)
 
-4. **Install Node.js and npm:**
+PixEagle 3.0 includes `add_yolo_model.py`, a utility to download and prepare YOLOv8 models for use in the Smart Tracker (GPU or CPU compatible).
 
-    PixEagle's dashboard requires Node.js and npm. Install them by following the instructions for your operating system on the [official Node.js website](https://nodejs.org/en/download/package-manager/).
+```bash
+python src/tools/add_yolo_model.py
+```
 
-    **Note:** Using package managers like `apt` may install outdated versions. It's recommended to use the official installation methods.
+This will:
 
-### Configuration
+- Download a model (e.g. `yolov8n.pt`) from Ultralytics
+- Export to ONNX
+- Optionally optimize for GPU inference
+- Register the model in `configs/config.yaml`
 
-1. **Update Application Configuration:**
+> 💡 Supports custom or fine-tuned YOLOv8 models too!
 
-    Edit the main application configuration file to suit your setup:
+---
 
-    ```bash
-    nano configs/config.yaml
-    ```
+### ⚙️ Configuration
 
-    Adjust settings such as video source, PID gains, camera angles, and other parameters.
+#### 1. **Main Application Settings**
 
-2. **Update Dashboard Configuration:**
+Open the configuration file to customize your setup:
 
-    Edit the dashboard's environment variables:
+```bash
+nano configs/config.yaml
+```
 
-    ```bash
-    nano dashboard/.env
-    ```
+Edit values such as:
 
-    Update server IP addresses, ports, and other relevant settings to match your system.
+- Video input (webcam, RTSP, CSI, or test files)
+- PID tuning
+- Tracker options
+- SmartTracker mode selection: GPU vs CPU, fallback behavior
+- Camera field of view and orientation
 
+#### 2. **Dashboard Environment**
 
-### PX4 Integration
+Configure dashboard networking (API and streaming ports):
 
-To integrate PixEagle with PX4 for flight control, you need to set up MAVLink communication and ensure all necessary components are installed and configured correctly.
+```bash
+nano dashboard/.env
+```
 
-#### Installing MAVLink Router and MAVLink2REST
+Make sure the backend IP/port matches the one used by your drone or dev machine.
 
-1. **Install MAVLink Router:**
-     On systems like Raspberry Pi or Jetson, you can use the `mavlink-anywhere` auto-start daemon to automatically route serial connections (e.g., `/dev/ttyS0` or `/dev/ttyAMA0` or `/dev/ttyTHS1`) to UDP endpoints (e.g., `127.0.0.1:14550`, `127.0.0.1:14540`, `127.0.0.1:14569`) using the following command:
-    Navigate to your home directory and clone the `mavlink-anywhere` repository:
+> 🧪 Test your installation anytime with:
+```bash
+python src/test_Ver.py
+```
 
-    ```bash
-    cd ~
-    git clone https://github.com/alireza787b/mavlink-anywhere.git
-    cd mavlink-anywhere
-    bash install_mavlink_router.sh
-    ```
-    Once installed you can either run mavlink-router manually each time or set it as a system daemon and start automatically (recommended)
-    - If you face difficulties building mavlink-router, you can install the binaries directly from the released binaries.
-    ```bash
-    bash ~/mavlink-anywhere/configure_mavlink_router.sh
-    ```
-    As an MAVLink input stream, you should specify your mavlink source. On Raspberry Pi, if you using Serial hardware on GPIO its either `/dev/ttyAMA0` or `/dev/ttyS0`. you can double check with the command `ls /dev/tty*`.
-    As output  you can enter as many endpoints as you need. eg. `127.0.0.1:14540 127.0.0.1:14550 127.0.0.1:14569`. You can add extra GCS endpoints here.
-   
-   - **Manual MAVLink Router Commands:**
+## 🧩 PX4 Integration
 
-  You can manually run `mavlink-router` commands as needed. For example, in SITL mode, depending on where SITL and PixEagle are running, you might use:
+PixEagle integrates with PX4 via MAVLink for real-time command and telemetry. Follow the steps below to set up MAVLink routing and required bridge components.
 
-  ```bash
-  mavlink-routerd -e 172.21.144.1:14540 -e 172.21.144.1:14550 -e 172.21.144.1:14569 -e 127.0.0.1:14569 0.0.0.0:14550
-  ```
+---
 
-  Adjust the IP addresses and ports based on your network configuration.
-  
-3. **Install and Run MAVLink2REST:**
+### 🔄 MAVLink Routing Setup
 
-    ```bash
-    bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
-    ```
+#### ✅ Option A: Auto Setup via `mavlink-anywhere` (Recommended for Pi/Jetson)
 
-    This script will install and start `mavlink2rest` on port `14569` by default.
+1. **Clone and Install:**
 
-    - If you face difficulties building mavlink2rest, you can install the binaries directly from the released binaries.
+```bash
+cd ~
+git clone https://github.com/alireza787b/mavlink-anywhere.git
+cd mavlink-anywhere
+bash install_mavlink_router.sh
+```
 
-#### Ensuring MAVSDK Server Binary is Present
+2. **Configure Serial & Endpoints:**
 
-PixEagle requires the `mavsdk_server_bin` binary for full functionality. This binary is essential for MAVSDK integration with PX4.
+```bash
+bash ~/mavlink-anywhere/configure_mavlink_router.sh
+```
 
-1. **Check for `mavsdk_server_bin`:**
+- Input: e.g., `/dev/ttyAMA0`, `/dev/ttyS0`, or `/dev/ttyTHS1`  
+- Output: e.g., `127.0.0.1:14540`, `127.0.0.1:14550`, `127.0.0.1:14569`
 
-    The `mavsdk_server_bin` should be located in the project root directory (`~/PixEagle`). It should be compatible with your hardware architecture. 
+> 🧠 You can run `ls /dev/tty*` to locate the right serial port.
 
-2. **Download `mavsdk_server_bin`:**
+---
 
-    If `mavsdk_server_bin` is not present, you have two options:
+#### 🛠️ Option B: Manual MAVLink Router Command
 
-    - **Manual Download:**
+```bash
+mavlink-routerd \
+  -e 127.0.0.1:14540 \
+  -e 127.0.0.1:14550 \
+  -e 127.0.0.1:14569 \
+  0.0.0.0:14550
+```
 
-        Download the MAVSDK Server binary from the [MAVSDK Releases](https://github.com/mavlink/MAVSDK/releases/) page. After downloading, rename the binary to `mavsdk_server_bin` and place it in the project root directory (`~/PixEagle`).
+Use IPs that match your SITL, companion, or GCS network setup.
 
-    - **Automatic Download via Script:**
+---
 
-        When you run the PixEagle system using the `run_pixeagle.sh` script, if the `mavsdk_server_bin` is not found, the script will prompt you to automatically download and install it. Follow the on-screen instructions to complete the installation.
-    ```bash
-    bash ~/PixEagle/src/tools/src/tools/download_mavsdk_server.sh
-    ```
+### 🌐 MAVLink2REST (Telemetry Bridge)
 
+1. **Start MAVLink2REST:**
 
-### Running PixEagle
+```bash
+bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
+```
 
-You can run the entire PixEagle application suite with a single command:
+- Default port: `14569`
+- Binaries are auto-installed, or you can build manually from source.
+
+---
+
+### 🧠 MAVSDK Server Binary (Required)
+
+PixEagle uses `mavsdk_server_bin` for all MAVSDK functionality.
+
+#### A. **Check for Binary:**
+
+Make sure it's in the root directory:  
+```bash
+~/PixEagle/mavsdk_server_bin
+```
+
+#### B. **Install Automatically:**
+
+The main startup script (`run_pixeagle.sh`) will prompt to install it if missing.
+
+#### C. **Or Download Manually:**
+
+```bash
+bash ~/PixEagle/src/tools/download_mavsdk_server.sh
+```
+
+Or grab it from the [MAVSDK Releases](https://github.com/mavlink/MAVSDK/releases) page and rename it to `mavsdk_server_bin`.
+
+---
+
+## ▶️ Running PixEagle
+
+Start the full PixEagle suite with a single command:
 
 ```bash
 bash run_pixeagle.sh
 ```
 
-This script will:
+### This will:
 
-- Automatically launch all necessary components (MAVLink2REST, Dashboard, Main Application, MAVSDK Server) in separate `tmux` windows or split panes.
-- Check and free up default ports (`8088`, `5077`, `3001`) before starting.
-- Ensure that the `mavsdk_server_bin` is present. If not, it will prompt you to automatically download it or guide you to download it manually.
-- Provide a split-screen view for monitoring all processes simultaneously.
+- ✅ Launch:
+  - Main Python app (classic + smart tracking)
+  - FastAPI backend
+  - Web dashboard (React)
+  - MAVSDK server
+  - MAVLink2REST
+- 🧼 Clean ports (`8088`, `5077`, `3001`) if in use
+- ⚙️ Setup all tmux panes automatically
 
-**Navigating Tmux:**
+---
 
-- **Switch between windows:** `Ctrl+B`, then number keys (`1`, `2`, `3`, `4`).
-- **Switch between panes:** `Ctrl+B`, then arrow keys (`←`, `→`, `↑`, `↓`).
-- **Detach from session:** `Ctrl+B`, then `D`.
-- **Reattach to session:** `tmux attach -t PixEagle`.
-- **Close a pane/window:** Type `exit` or press `Ctrl+D`.
+### 🪟 Tmux Controls
 
-**Customizing Execution:**
-
-You can selectively run or skip components using flags:
-
-- `-m` : Do **NOT** run MAVLink2REST.
-- `-d` : Do **NOT** run Dashboard.
-- `-p` : Do **NOT** run Main Python Application.
-- `-k` : Do **NOT** run MAVSDK Server.
-
-
-
-**Note:** instead of running `run_pixeagle.sh`, you can also run components separately using the provided scripts:
-
-- **Run Dashboard Only:**
-
-    ```bash
-    bash ~/PixEagle/run_dashboard.sh
-    ```
-
-- **Run MAVLink2REST Only:**
-
-    ```bash
-    bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
-    ```
-
-### Accessing the Dashboard
-
-Once the dashboard is running, access it in your browser at:
-
-```
-http://127.0.0.1:3001
-```
-
-If accessing from another device, replace `127.0.0.1` with your machine's IP address. Ensure your firewall allows access to this port.
-
-### GStreamer and CSI Camera Support
-
-PixEagle supports GStreamer for video input and output, including CSI camera input. Configure your video source in `configs/config.yaml`.
-
-**Note:** If you plan to use GStreamer or a CSI camera, ensure that OpenCV is built with GStreamer support. You need to build OpenCV from the source with the necessary configurations. A detailed guide is available [here](https://github.com/alireza787b/PixEagle/blob/main/opencv_with_gstreamer.md).
-
-To verify your installation:
-
-```bash
-python src/test_Ver.py
-```
-
-### Key Bindings
-
-While in the video window, you can use the following keys:
-
-- `t`: Select target
-- `c`: Cancel selection
-- `y`: YOLO detection
-- `f`: Start following (offboard mode)
-- `d`: Try to re-detect target
-- `q`: Quit
-
-## Windows Setup
-
-PixEagle is supported on Windows, but you may need to handle some steps manually as bash scripts may not work out of the box. In Windows, you should manually run:
-
-- **Main Python Application:**
-
-    ```bash
-    python src/main.py
-    ```
-
-- **Dashboard:**
-
-    Navigate to the dashboard directory, install dependencies, and start the dashboard:
-
-    ```bash
-    cd dashboard
-    npm install
-    npm start
-    ```
-
-- **MAVLink2REST and MAVLink Router:**
-
-    You may need to run these on WSL (Windows Subsystem for Linux) or adapt the commands accordingly.
-
-For detailed instructions on setting up PixEagle with X-Plane on Windows and SITL on WSL with PX4XPlane, refer to the [Follow Mode X-Plane Guide](https://github.com/alireza787b/PixEagle/blob/main/Follow_Mode_Xplane_Guide.md).
-
-## PX4 Integration
-
-To integrate PixEagle with PX4 for flight control, you need to set up MAVLink communication.
-
-### Installing MAVLink Router and MAVLink2REST
-
-1. **Install MAVLink Router:**
-
-    Navigate to your home directory and clone the `mavlink-anywhere` repository:
-
-    ```bash
-    cd ~
-    git clone https://github.com/alireza787b/mavlink-anywhere.git
-    cd mavlink-anywhere
-    bash install_mavlink_router.sh
-    ```
-
-    This will install `mavlink-router`, which is essential for routing MAVLink messages.
-
-2. **Install and Run MAVLink2REST:**
-
-    ```bash
-    bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
-    ```
-
-    This script will install and start `mavlink2rest` on port `14569` by default.
-
-### Setting Up MAVLink Routing
-
-- **Using mavlink-anywhere Auto-Start Daemon:**
-
-  On systems like Raspberry Pi or Jetson, you can use the `mavlink-anywhere` auto-start daemon to automatically route serial connections (e.g., `/dev/ttyS0` or `/dev/ttyTHS1`) to UDP endpoints.
-
-- **Manual MAVLink Router Commands:**
-
-  You can manually run `mavlink-router` commands as needed. For example, in SITL mode, depending on where SITL and PixEagle are running, you might use:
-
+- **Switch panes/windows:**  
+  `Ctrl + B`, then arrow keys or window number
+- **Detach session:**  
+  `Ctrl + B`, then `D`
+- **Reattach session:**  
   ```bash
-  mavlink-routerd -e 172.21.144.1:14540 -e 172.21.144.1:14550 -e 172.21.144.1:14569 -e 127.0.0.1:14569 0.0.0.0:14550
+  tmux attach -t PixEagle
   ```
 
-  Adjust the IP addresses and ports based on your network configuration.
+---
 
-## Running PixEagle
-
-You can run the entire PixEagle application suite with a single command:
+### 🎯 Advanced CLI Flags (Optional)
 
 ```bash
-./run_pixeagle.sh
+bash run_pixeagle.sh [-m] [-d] [-p] [-k]
 ```
 
-This script will:
+- `-m`: Skip MAVLink2REST  
+- `-d`: Skip Dashboard  
+- `-p`: Skip Python main app  
+- `-k`: Skip MAVSDK server  
 
-- Automatically launch all necessary components (MAVLink2REST, Dashboard, Main Application) in separate `tmux` windows.
-- Check and free up default ports (`8088`, `5077`, `3001`) before starting.
-- Provide a split-screen view for monitoring all processes simultaneously.
+---
 
-**Navigating Tmux:**
+### 🔗 Accessing the Web Dashboard
 
-- **Switch between windows:** `Ctrl+B`, then number keys (`1`, `2`, `3`).
-- **Switch between panes:** `Ctrl+B`, then arrow keys (`←`, `→`, `↑`, `↓`).
-- **Detach from session:** `Ctrl+B`, then `D`.
-- **Reattach to session:** `tmux attach -t PixEagle`.
-- **Close a pane/window:** Type `exit` or press `Ctrl+D`.
-
-**Customizing Execution:**
-
-You can selectively run or skip components using flags:
-
-- `-m` : Do **NOT** run MAVLink2REST.
-- `-d` : Do **NOT** run Dashboard.
-- `-p` : Do **NOT** run Main Python Application.
-
-For example, to run only the Dashboard and Main Application:
-
-```bash
-./run_pixeagle.sh -m
-```
-
-**Note:** After running `run_pixeagle.sh`, you can also run components separately using the provided scripts:
-
-- **Run Dashboard Only:**
-
-    ```bash
-    ./run_dashboard.sh
-    ```
-
-- **Run MAVLink2REST Only:**
-
-    ```bash
-    bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
-    ```
-
-### Manual Execution
-
-If you prefer to run components separately:
-
-1. **MAVLink2REST Service:**
-
-    ```bash
-    bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
-    ```
-
-2. **Main Python Application:**
-
-    ```bash
-    source venv/bin/activate
-    python src/main.py
-    ```
-
-3. **Dashboard:**
-
-    ```bash
-    cd dashboard
-    npm install
-    npm start
-    ```
-
-## Accessing the Dashboard
-
-Once the dashboard is running, access it in your browser at:
+Once running, open in your browser:
 
 ```
-http://127.0.0.1:3001
+http://localhost:3001
 ```
 
-If accessing from another device, replace `127.0.0.1` with your machine's IP address. Ensure your firewall allows access to this port.
+From a remote device, use the host's IP address instead of `localhost`. Ensure the firewall permits port `3001`.
 
-## GStreamer and CSI Camera Support
+---
 
-PixEagle supports GStreamer for video input and output, including CSI camera input. Configure your video source in `configs/config.yaml`.
+## 🎥 GStreamer & CSI Camera Support
 
-**Note:** If you plan to use GStreamer or a CSI camera, ensure that OpenCV is built with GStreamer support. Build OpenCV from source with the necessary configurations. A detailed guide is available [here](https://github.com/alireza787b/PixEagle/blob/main/opencv_with_gstreamer.md).
+PixEagle supports RTSP, CSI, and GStreamer pipelines.
 
-To verify your installation:
+To enable, set the `VIDEO_SOURCE` in `configs/config.yaml`. Example:
+
+```yaml
+VIDEO_SOURCE: "gst-pipeline://nvarguscamerasrc ! video/x-raw(memory:NVMM), width=640, height=480, framerate=30/1 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! appsink"
+```
+
+> ⚠️ Ensure OpenCV is built with GStreamer support!  
+> [GStreamer OpenCV Build Guide](https://github.com/alireza787b/PixEagle/blob/main/opencv_with_gstreamer.md)
+
+Test camera and config:
 
 ```bash
 python src/test_Ver.py
 ```
 
-## Key Bindings
+---
 
-While in the video window, you can use the following keys:
+### ⌨️ Key Bindings (Video Window)
 
-- `t`: Select target
-- `c`: Cancel selection
-- `y`: YOLO detection
-- `f`: Start following (offboard mode)
-- `d`: Try to re-detect target
-- `q`: Quit
+| Key | Action                        |
+|-----|-------------------------------|
+| `t` | Select ROI (Classic Tracker)  |
+| `c` | Cancel Tracking               |
+| `y` | Trigger YOLO Detection        |
+| `f` | Start Following               |
+| `d` | Redetect Lost Object          |
+| `s` | Toggle Smart Tracker Mode     |
+| `q` | Quit PixEagle Session         |
 
-### 📚 **Additional Resources:**
+---
 
-- **📁 PixEagle GitHub Repository:**  
-  [https://github.com/alireza787b/PixEagle](https://github.com/alireza787b/PixEagle)
-  
-- **📄 X-Plane SITL Instructions:**  
-  [Follow Mode Xplane Guide](https://github.com/alireza787b/PixEagle/blob/smart-param/Follow_Mode_Xplane_Guide.md)
-  
-- **📂 PX4Xplane Repository:**  
-  [https://github.com/alireza787b/px4xplane](https://github.com/alireza787b/px4xplane)
-  
-- **📺 PixEagle YouTube Playlist:**  
-  [PixEagle Series](https://www.youtube.com/watch?v=nMThQLC7nBg&list=PLVZvZdBQdm_4oain9--ClKioiZrq64-Ky&index=1&t=0s)
+## 🪟 Windows Setup Notes
 
-### ⚠️ **Disclaimer:**
+PixEagle is compatible with Windows for **SITL/X-Plane simulation only**. Use WSL for routing tools and terminal scripts.
 
-*PixEagle 2.0 is currently in an experimental stage and has not been tested in real-world scenarios. Use at your own risk. The developers are not responsible for any misuse or damages resulting from the use of this software.*
+Manual steps:
 
-### 👍 **Stay Connected & Get Involved:**
+1. **Main App:**
 
-- **🔔 Subscribe** to our [YouTube Channel](https://www.youtube.com/channel/YourChannelLink) for more updates and tutorials on PixEagle 2.0.
-- **💬 Share** your thoughts and suggestions in the [issues](https://github.com/alireza787b/PixEagle/issues) section of our GitHub repository!
-- **🔗 Join** our community by contributing on [GitHub](https://github.com/alireza787b/PixEagle).
+```bash
+python src/main.py
+```
 
-### 📢 **Call to Action:**
+2. **Dashboard:**
 
-Enjoyed PixEagle 2.0? **Star ⭐** the repository, **fork 🔀** it for your projects, and **contribute** to help us continue to innovate and improve PixEagle. Your support is invaluable!
+```bash
+cd dashboard
+npm install
+npm start
+```
+
+3. **MAVLink2REST:**
+
+Use WSL or Linux machine. You may need to port-forward if testing across devices.
+
+4. **Reference Guide:**  
+[Follow Mode + X-Plane Guide](https://github.com/alireza787b/PixEagle/blob/main/Follow_Mode_Xplane_Guide.md)
+
+
+## 🧩 Setting Up MAVLink Routing
+
+To enable PixEagle to communicate with PX4, you must configure MAVLink routing. This setup includes configuring serial connections, as well as integrating MAVLink2REST for telemetry.
+
+---
+
+### ⚙️ Using `mavlink-anywhere` Auto-Start Daemon
+
+For systems like Raspberry Pi or Jetson, the **mavlink-anywhere** auto-start daemon will automatically route serial connections (e.g., `/dev/ttyS0`, `/dev/ttyAMA0`, or `/dev/ttyTHS1`) to UDP endpoints (e.g., `127.0.0.1:14550`, `127.0.0.1:14540`, etc.).
+
+#### Setup:
+
+1. **Clone and Install the MAVLink Anywhere Router:**
+
+```bash
+cd ~
+git clone https://github.com/alireza787b/mavlink-anywhere.git
+cd mavlink-anywhere
+bash install_mavlink_router.sh
+```
+
+2. **Configure Router for Serial & UDP Endpoints:**
+
+```bash
+bash ~/mavlink-anywhere/configure_mavlink_router.sh
+```
+
+- **Serial Source (Input):** Example: `/dev/ttyAMA0`, `/dev/ttyS0`
+- **UDP Endpoints (Output):** Example: `127.0.0.1:14540 127.0.0.1:14550 127.0.0.1:14569`
+
+> 🧠 To confirm serial ports, run `ls /dev/tty*` to check available ports.
+
+---
+
+### 🛠️ Manual MAVLink Router Commands (Optional)
+
+Alternatively, you can run the `mavlink-router` manually using the following command:
+
+```bash
+mavlink-routerd -e 172.21.144.1:14540 -e 172.21.144.1:14550 -e 172.21.144.1:14569 -e 127.0.0.1:14569 0.0.0.0:14550
+```
+
+Adjust the **IP addresses** and **ports** to match your network setup. This is useful if you want more control over routing and don't use the auto-start daemon.
+
+---
+
+### 🌐 Installing and Running MAVLink2REST
+
+MAVLink2REST is used for exposing MAVLink telemetry as REST APIs. It helps bridge communication between PixEagle and external applications.
+
+1. **Run the Installation Script for MAVLink2REST:**
+
+```bash
+bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
+```
+
+This will install and start the MAVLink2REST service on port `14569` by default. If you encounter issues building it, pre-built binaries are available for download.
+
+---
+
+### 🧠 Ensuring `mavsdk_server_bin` is Present
+
+PixEagle uses the `mavsdk_server_bin` binary to interface with MAVSDK for PX4 communication. If it's missing, follow these steps to ensure it is available.
+
+1. **Check for the Binary in the Root Directory:**
+
+   ```bash
+   ~/PixEagle/mavsdk_server_bin
+   ```
+
+2. **Download `mavsdk_server_bin` Manually:**
+
+   If the binary is missing, either download it directly from the [MAVSDK Releases](https://github.com/mavlink/MAVSDK/releases) page and place it in the root directory (`~/PixEagle`), or use the provided script:
+
+```bash
+bash ~/PixEagle/src/tools/download_mavsdk_server.sh
+```
+
+---
+
+## ▶️ Running PixEagle
+
+With everything set up, you can start PixEagle using the following command:
+
+```bash
+bash run_pixeagle.sh
+```
+
+This will:
+
+- ✅ Launch all necessary components (MAVLink2REST, Dashboard, Main Application, MAVSDK Server) in separate `tmux` windows.
+- 🧼 Ensure default ports (`8088`, `5077`, `3001`) are free before starting.
+- ⚙️ Provide a split-screen view of all running processes.
+
+---
+
+### 🪟 Tmux Session Management
+
+PixEagle runs all components within `tmux` sessions. Below are the useful `tmux` controls:
+
+- **Switch Between Windows:** `Ctrl+B`, then the window number (`1`, `2`, `3`)
+- **Switch Between Panes:** `Ctrl+B`, then arrow keys (`←`, `→`, `↑`, `↓`)
+- **Detach from Session:** `Ctrl+B`, then `D`
+- **Reattach to Session:** 
+
+```bash
+tmux attach -t PixEagle
+```
+
+- **Close a Pane/Window:** Type `exit` or `Ctrl+D`
+
+---
+
+### 🎯 Customize Execution (Flags)
+
+You can selectively run or skip components by passing flags to the script:
+
+```bash
+bash run_pixeagle.sh [-m] [-d] [-p] [-k]
+```
+
+- `-m`: Skip MAVLink2REST
+- `-d`: Skip Dashboard
+- `-p`: Skip Main Python Application
+- `-k`: Skip MAVSDK Server
+
+> Example: Run only Dashboard and Main Application:
+
+```bash
+bash run_pixeagle.sh -m
+```
+
+---
+
+### 🌐 Accessing the Dashboard
+
+Once the dashboard is running, access it at:
+
+```
+http://127.0.0.1:3001
+```
+
+For remote access, replace `127.0.0.1` with your system's IP. Make sure your firewall allows access to port `3001`.
+
+---
+
+## 🎥 GStreamer & CSI Camera Support
+
+PixEagle supports video input/output via **GStreamer** and **CSI cameras**.
+
+1. **Configure Video Source in `config.yaml`:**
+
+   Example pipeline for CSI cameras:
+
+```yaml
+VIDEO_SOURCE: "gst-pipeline://nvarguscamerasrc ! video/x-raw(memory:NVMM), width=640, height=480, framerate=30/1 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! appsink"
+```
+
+2. **Ensure OpenCV is Built with GStreamer Support:**
+
+   Follow this [GStreamer OpenCV Build Guide](https://github.com/alireza787b/PixEagle/blob/main/opencv_with_gstreamer.md) to ensure OpenCV is properly built.
+
+---
+
+### 🧪 Verify Installation:
+
+Test your setup with:
+
+```bash
+python src/test_Ver.py
+```
+
+---
+
+### ⌨️ Key Bindings (During Video Window)
+
+While in the video window, these key bindings are available:
+
+| Key | Action                                |
+|-----|---------------------------------------|
+| `t` | Select target for tracking           |
+| `c` | Cancel selection                     |
+| `y` | Trigger YOLO detection               |
+| `f` | Start following (offboard mode)      |
+| `d` | Attempt to re-detect the target      |
+| `q` | Quit PixEagle                        |
+
+---
+
+## 🪟 Windows Setup Notes
+
+PixEagle is **supported on Windows** for **SITL/X-Plane only**. You’ll need to manually execute certain components as bash scripts won’t work out of the box.
+
+1. **Main Application:**
+
+```bash
+python src/main.py
+```
+
+2. **Run Dashboard:**
+
+```bash
+cd dashboard
+npm install
+npm start
+```
+
+3. **MAVLink2REST & MAVLink Router:**
+
+To run on Windows, use **WSL** (Windows Subsystem for Linux) or adapt the commands accordingly.
+
+> 📄 **For detailed SITL/X-Plane setup on Windows**, refer to [Follow Mode + X-Plane Guide](https://github.com/alireza787b/PixEagle/blob/main/Follow_Mode_Xplane_Guide.md).
