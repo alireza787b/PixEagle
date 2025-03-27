@@ -302,10 +302,10 @@ bash run_pixeagle.sh [-m] [-d] [-p] [-k]
 Once running, open in your browser:
 
 ```
-http://localhost:3001
+http://localhost:3000
 ```
 
-From a remote device, use the host's IP address instead of `localhost`. Ensure the firewall permits port `3001`.
+From a remote device, use the host's IP address instead of `localhost`. Ensure the firewall permits port `3000`.
 
 ---
 
@@ -344,9 +344,9 @@ python src/test_Ver.py
 
 ---
 
-## 🪟 Windows Setup Notes
+## Windows Setup Notes
 
-PixEagle is compatible with Windows for **SITL/X-Plane simulation only**. Use WSL for routing tools and terminal scripts.
+PixEagle is compatible with Windows for **SITL/X-Plane simulation**. Use WSL for routing tools and terminal scripts.
 
 Manual steps:
 
@@ -372,179 +372,7 @@ Use WSL or Linux machine. You may need to port-forward if testing across devices
 [Follow Mode + X-Plane Guide](https://github.com/alireza787b/PixEagle/blob/main/Follow_Mode_Xplane_Guide.md)
 
 
-## 🧩 Setting Up MAVLink Routing
 
-To enable PixEagle to communicate with PX4, you must configure MAVLink routing. This setup includes configuring serial connections, as well as integrating MAVLink2REST for telemetry.
-
----
-
-### ⚙️ Using `mavlink-anywhere` Auto-Start Daemon
-
-For systems like Raspberry Pi or Jetson, the **mavlink-anywhere** auto-start daemon will automatically route serial connections (e.g., `/dev/ttyS0`, `/dev/ttyAMA0`, or `/dev/ttyTHS1`) to UDP endpoints (e.g., `127.0.0.1:14550`, `127.0.0.1:14540`, etc.).
-
-#### Setup:
-
-1. **Clone and Install the MAVLink Anywhere Router:**
-
-```bash
-cd ~
-git clone https://github.com/alireza787b/mavlink-anywhere.git
-cd mavlink-anywhere
-bash install_mavlink_router.sh
-```
-
-2. **Configure Router for Serial & UDP Endpoints:**
-
-```bash
-bash ~/mavlink-anywhere/configure_mavlink_router.sh
-```
-
-- **Serial Source (Input):** Example: `/dev/ttyAMA0`, `/dev/ttyS0`
-- **UDP Endpoints (Output):** Example: `127.0.0.1:14540 127.0.0.1:14550 127.0.0.1:14569`
-
-> 🧠 To confirm serial ports, run `ls /dev/tty*` to check available ports.
-
----
-
-### 🛠️ Manual MAVLink Router Commands (Optional)
-
-Alternatively, you can run the `mavlink-router` manually using the following command:
-
-```bash
-mavlink-routerd -e 172.21.144.1:14540 -e 172.21.144.1:14550 -e 172.21.144.1:14569 -e 127.0.0.1:14569 0.0.0.0:14550
-```
-
-Adjust the **IP addresses** and **ports** to match your network setup. This is useful if you want more control over routing and don't use the auto-start daemon.
-
----
-
-### 🌐 Installing and Running MAVLink2REST
-
-MAVLink2REST is used for exposing MAVLink telemetry as REST APIs. It helps bridge communication between PixEagle and external applications.
-
-1. **Run the Installation Script for MAVLink2REST:**
-
-```bash
-bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
-```
-
-This will install and start the MAVLink2REST service on port `14569` by default. If you encounter issues building it, pre-built binaries are available for download.
-
----
-
-### 🧠 Ensuring `mavsdk_server_bin` is Present
-
-PixEagle uses the `mavsdk_server_bin` binary to interface with MAVSDK for PX4 communication. If it's missing, follow these steps to ensure it is available.
-
-1. **Check for the Binary in the Root Directory:**
-
-   ```bash
-   ~/PixEagle/mavsdk_server_bin
-   ```
-
-2. **Download `mavsdk_server_bin` Manually:**
-
-   If the binary is missing, either download it directly from the [MAVSDK Releases](https://github.com/mavlink/MAVSDK/releases) page and place it in the root directory (`~/PixEagle`), or use the provided script:
-
-```bash
-bash ~/PixEagle/src/tools/download_mavsdk_server.sh
-```
-
----
-
-## ▶️ Running PixEagle
-
-With everything set up, you can start PixEagle using the following command:
-
-```bash
-bash run_pixeagle.sh
-```
-
-This will:
-
-- ✅ Launch all necessary components (MAVLink2REST, Dashboard, Main Application, MAVSDK Server) in separate `tmux` windows.
-- 🧼 Ensure default ports (`8088`, `5077`, `3001`) are free before starting.
-- ⚙️ Provide a split-screen view of all running processes.
-
----
-
-### 🪟 Tmux Session Management
-
-PixEagle runs all components within `tmux` sessions. Below are the useful `tmux` controls:
-
-- **Switch Between Windows:** `Ctrl+B`, then the window number (`1`, `2`, `3`)
-- **Switch Between Panes:** `Ctrl+B`, then arrow keys (`←`, `→`, `↑`, `↓`)
-- **Detach from Session:** `Ctrl+B`, then `D`
-- **Reattach to Session:** 
-
-```bash
-tmux attach -t PixEagle
-```
-
-- **Close a Pane/Window:** Type `exit` or `Ctrl+D`
-
----
-
-### 🎯 Customize Execution (Flags)
-
-You can selectively run or skip components by passing flags to the script:
-
-```bash
-bash run_pixeagle.sh [-m] [-d] [-p] [-k]
-```
-
-- `-m`: Skip MAVLink2REST
-- `-d`: Skip Dashboard
-- `-p`: Skip Main Python Application
-- `-k`: Skip MAVSDK Server
-
-> Example: Run only Dashboard and Main Application:
-
-```bash
-bash run_pixeagle.sh -m
-```
-
----
-
-### 🌐 Accessing the Dashboard
-
-Once the dashboard is running, access it at:
-
-```
-http://127.0.0.1:3001
-```
-
-For remote access, replace `127.0.0.1` with your system's IP. Make sure your firewall allows access to port `3001`.
-
----
-
-## 🎥 GStreamer & CSI Camera Support
-
-PixEagle supports video input/output via **GStreamer** and **CSI cameras**.
-
-1. **Configure Video Source in `config.yaml`:**
-
-   Example pipeline for CSI cameras:
-
-```yaml
-VIDEO_SOURCE: "gst-pipeline://nvarguscamerasrc ! video/x-raw(memory:NVMM), width=640, height=480, framerate=30/1 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! appsink"
-```
-
-2. **Ensure OpenCV is Built with GStreamer Support:**
-
-   Follow this [GStreamer OpenCV Build Guide](https://github.com/alireza787b/PixEagle/blob/main/opencv_with_gstreamer.md) to ensure OpenCV is properly built.
-
----
-
-### 🧪 Verify Installation:
-
-Test your setup with:
-
-```bash
-python src/test_Ver.py
-```
-
----
 
 ### ⌨️ Key Bindings (During Video Window)
 
