@@ -190,6 +190,7 @@ class AppController:
             self.smart_mode_active = False
             if self.smart_tracker:
                 self.smart_tracker.clear_selection()
+                self.smart_tracker = None
             logging.info("SmartTracker mode deactivated.")
 
 
