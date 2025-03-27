@@ -242,7 +242,7 @@ class AppController:
 
         if self.smart_tracker:
             self.smart_tracker.clear_selection()
-            self.smart_tracker = None  # <<< FULL reset
+            # self.smart_tracker = None  # <<< FULL reset
 
 
         if self.tracker:

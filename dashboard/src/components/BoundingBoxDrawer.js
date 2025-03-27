@@ -72,7 +72,7 @@ const BoundingBoxDrawer = ({
     const normY = (e.clientY - rect.top) / rect.height;
 
     try {
-      await sendCommand('smart_click', { x: normX, y: normY });
+      await sendCommand('smartClick', { x: normX, y: normY });
       console.log('Smart click sent:', { x: normX, y: normY });
     } catch (err) {
       console.error('Smart click failed:', err);
