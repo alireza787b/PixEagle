@@ -266,7 +266,7 @@ bash run_pixeagle.sh
   - Web dashboard (React)
   - MAVSDK server
   - MAVLink2REST
-- 🧼 Clean ports (`8088`, `5077`, `3001`) if in use
+- 🧼 Clean ports (`8088`, `5077`, `3000`) if in use
 - ⚙️ Setup all tmux panes automatically
 
 ---
@@ -369,7 +369,7 @@ npm start
 Use WSL or Linux machine. You may need to port-forward if testing across devices.
 
 4. **Reference Guide:**  
-[Follow Mode + X-Plane Guide](https://github.com/alireza787b/PixEagle/blob/main/Follow_Mode_Xplane_Guide.md)
+[Follow Mode + X-Plane setup on Windows Guide](https://github.com/alireza787b/PixEagle/blob/main/Follow_Mode_Xplane_Guide.md)
 
 
 
