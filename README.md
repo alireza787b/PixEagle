@@ -10,12 +10,16 @@ With **PixEagle 3.0**, we’ve taken things to the next level — introducing a 
 
 ---
 
-## 🚀 PixEagle 3.0 – YOLO Smart Tracker, GPU Power & Pro-Grade Tools
+## 🚀 PixEagle – Demo
 
-🎬 **Watch the PixEagle 3.0 Demo Video:**  
-[Your Drone Can Now Think — Smart Tracking with YOLO + PX4](https://www.youtube.com/watch?v=vJn27WEXQJw)
+🎬 **Watch the PixEagle 2.0 Demo Video:**  
 
-[![PixEagle 3 Demo Thumbnail](https://img.youtube.com/vi/vJn27WEXQJw/0.jpg)](https://www.youtube.com/watch?v=vJn27WEXQJw)
+[![PixEagle 2 Demo Video](https://img.youtube.com/vi/vJn27WEXQJw/0.jpg)](https://www.youtube.com/watch?v=vJn27WEXQJw)
+
+
+🎬 **Watch the PixEagle 3.0 Demo Video: (Soon...) **  
+Your Drone Can Now Think — Smart Tracking with YOLO + PX4
+
 
 ---
 
