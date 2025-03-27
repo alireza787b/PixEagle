@@ -172,25 +172,29 @@ class AppController:
     def toggle_smart_mode(self):
         """
         Toggles the YOLO-based smart tracking mode.
-        Initializes the SmartTracker if needed.
+        If enabling for the first time, initializes SmartTracker (with GPU/CPU config + fallback).
         """
         if not self.smart_mode_active:
             self.cancel_activities()
             self.smart_mode_active = True
+
             if self.smart_tracker is None:
                 try:
-                    self.smart_tracker = SmartTracker(Parameters.SMART_TRACKER_MODEL_NAME,self)
+                    self.smart_tracker = SmartTracker(app_controller=self)
                     logging.info("SmartTracker mode activated.")
                 except Exception as e:
                     logging.error(f"Failed to activate SmartTracker: {e}")
                     self.smart_mode_active = False
             else:
                 logging.info("SmartTracker mode re-activated.")
+
         else:
             self.smart_mode_active = False
             if self.smart_tracker:
                 self.smart_tracker.clear_selection()
+                self.smart_tracker = None
             logging.info("SmartTracker mode deactivated.")
+
 
 
     def toggle_segmentation(self) -> bool:
@@ -231,7 +235,7 @@ class AppController:
         """
         self.tracking_started = False
         self.segmentation_active = False
-        self.smart_mode_active = False
+        # self.smart_mode_active = False
         self.selected_bbox = None
 
         if self.setpoint_sender:
@@ -241,7 +245,7 @@ class AppController:
 
         if self.smart_tracker:
             self.smart_tracker.clear_selection()
-            self.smart_tracker = None  # <<< FULL reset
+            # self.smart_tracker = None  # <<< FULL reset
 
 
         if self.tracker:
@@ -274,7 +278,7 @@ class AppController:
             # # Smart Tracker: always draw overlays if instantiated
             # if self.smart_tracker is None and self.smart_mode_active:
             #     try:
-            #         self.smart_tracker = SmartTracker(Parameters.SMART_TRACKER_MODEL_NAME)
+            #         self.smart_tracker = SmartTracker(app_controller=self)
             #         logging.info("SmartTracker instantiated successfully.")
             #     except Exception as e:
             #         logging.error(f"Failed to initialize SmartTracker: {e}")

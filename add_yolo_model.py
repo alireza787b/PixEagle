@@ -23,8 +23,19 @@ Dependencies:
     - requests (install via: pip install requests) – used for URL-based downloads
     - ultralytics (install via: pip install ultralytics) – provides the YOLO class with the export() method for NCNN conversion
 
-Author: Alireza Ghaderi
-Date: October 2024
+Author:
+-------
+Alireza Ghaderi  <p30planets@gmail.com>
+📅 March 2025
+🔗 LinkedIn: https://www.linkedin.com/in/alireza787b/
+
+License & Disclaimer:
+---------------------
+This project is provided for **educational and demonstration purposes** only.
+The author takes **no responsibility for improper use** or deployment in production systems.
+Use at your own discretion. Contributions are welcome!
+    
+
 """
 
 import argparse
@@ -135,19 +146,21 @@ def export_model_to_ncnn(model_path: str) -> bool:
     """
     try:
         from ultralytics import YOLO
-        import ultralytics.nn.modules.block as block
-        # Workaround: if 'C3k2' is missing, alias it to 'C3'
-        if not hasattr(block, "C3k2"):
-            print("[INFO] Registering missing attribute 'C3k2' as an alias for 'C3'.")
-            block.C3k2 = block.C3
         print("\n[INFO] Exporting model to NCNN format using model.export(format='ncnn')...")
         model = YOLO(model_path)
         export_results = model.export(format="ncnn")
         print(f"[INFO] Export successful. Export details:\n{export_results}")
         return True
+    except ImportError as e:
+        print(f"[ERROR] Import error: {e}")
     except Exception as e:
         print(f"[ERROR] Exception during model export: {e}")
-        return False
+        if "not found" in str(e):
+            print("[INFO] Ensure the model file exists and the path is correct.")
+        elif "export" in str(e):
+            print("[INFO] Check if the model supports export to NCNN.")
+    return False
+
 
 def main():
     """
