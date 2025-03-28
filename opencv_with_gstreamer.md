@@ -91,6 +91,7 @@ cmake -D CMAKE_BUILD_TYPE=Release \
       -D CMAKE_INSTALL_PREFIX=~/PixEagle/venv \
       -D OPENCV_EXTRA_MODULES_PATH=~/PixEagle/opencv_contrib/modules \
       -D WITH_GSTREAMER=ON \
+      -D WITH_GTK=ON \
       -D WITH_QT=ON \
       -D WITH_OPENGL=ON \
       -D BUILD_EXAMPLES=ON \
