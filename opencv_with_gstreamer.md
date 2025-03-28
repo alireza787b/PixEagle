@@ -12,11 +12,15 @@ August 2024
 
 ### 1. Install GStreamer and Development Libraries
 
-First, ensure that GStreamer and its development libraries are installed globally on your system:
+First, ensure your repositories are up to date.
 
 ```bash
 sudo apt-get update
 sudo apt-get upgrade -y
+```
+Ensure that GStreamer and its development libraries are installed globally on your system:
+
+```bash
 sudo apt-get install -y build-essential cmake git pkg-config libgtk2.0-dev \
                         libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
                         gstreamer1.0-tools gstreamer1.0-libav gstreamer1.0-gl \
