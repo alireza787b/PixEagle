@@ -47,17 +47,32 @@ cd ../opencv_contrib
 git checkout 4.9.0
 ```
 
+
+
+
 ### 4. Activate the venv Python environment
 
-If you are using a venv (which I recommend doing), activate your python environment
+If you are using a venv (which I recommend doing), activate your Python environment
 
 ```bash
 cd ~/PixEagle/
 source venv/bin/activate
 ```
+If you have previously installed OpenCV using pip, make sure to uninstall it.
+
+```bash
+pip uninstall opencv-python opencv-contrib-python
+```
 
 
 ### 5. Create a Build Directory
+
+If you have previously cloned OpenCV and tried to build, remove the build directory to start clean.
+
+```bash
+cd ~/PixEagle/opencv
+rm -rf build
+```
 
 Create a build directory inside the OpenCV folder:
 
@@ -104,15 +119,33 @@ python -c "import cv2; print(cv2.getBuildInformation())"
 
 Look for `GStreamer: YES` in the output.
 
-## Summary of Changes
 
-- **Environment Variables**: `PKG_CONFIG_PATH` and `GST_PLUGIN_PATH` are set to ensure that the GStreamer libraries are correctly located.
-- **CMake Configuration**: The `cmake` command includes flags to enable GStreamer, point to the Python interpreter in the virtual environment, and set up other necessary paths.
+### Troubleshooting
 
-## Troubleshooting
+  - **OpenCV Installation Issues**: If you encounter errors related to OpenCV installation, such as recursive import errors, ensure that any existing OpenCV installations are removed from your virtual environment. You can do this by running:
+  ```bash
+  rm -rf ~/PixEagle/venv/lib/python*/site-packages/cv2
+  ```
+  This command removes any existing `cv2` modules from your virtual environment, regardless of the Python version.
 
-- **Check OpenCV Build Information**: Use the provided Python command to verify if GStreamer is enabled.
+  **Note**: The `python*` part in the path will match any Python version (e.g., `python3.8`, `python3.9`, etc.), ensuring that the command works across different versions.
+  To delete only a specific version, check your virtual environment python version and remove that specific version instead.
+
+  ```bash
+  python --version
+  ```
+
+- **Check OpenCV Build Information**: Use the provided Python command to verify if GStreamer is enabled:
+  ```bash
+  python -c "import cv2; print(cv2.getBuildInformation())"
+  ```
+  Look for `GStreamer: YES` in the output.
+
 - **Global vs. Virtual Environment**: Ensure you are using the correct Python interpreter (`python` in the virtual environment).
-- **Environment Variables**: Make sure the environment variables are set correctly before building OpenCV.
 
-By following these steps, you will ensure that OpenCV is rebuilt with GStreamer support in your virtual environment, allowing your application to access the CSI camera.
+- **Environment Variables**: Make sure the environment variables are set correctly before building OpenCV.
+By using `python*` in the path, the command becomes version-agnostic, allowing users with different Python versions to easily remove any existing OpenCV installations without needing to manually specify their Python version. This approach makes the troubleshooting step more robust and user-friendly. 
+
+
+
+By following these steps, you will ensure that OpenCV is rebuilt with GStreamer support in your virtual environment, allowing your application to access the CSI camera or use GStreamer in streaming or reading video processes.
