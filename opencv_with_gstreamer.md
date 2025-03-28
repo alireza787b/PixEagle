@@ -119,12 +119,6 @@ python -c "import cv2; print(cv2.getBuildInformation())"
 
 Look for `GStreamer: YES` in the output.
 
-## Summary of Changes
-
-- **Environment Variables**: `PKG_CONFIG_PATH` and `GST_PLUGIN_PATH` are set to ensure that the GStreamer libraries are correctly located.
-- **CMake Configuration**: The `cmake` command includes flags to enable GStreamer, point to the Python interpreter in the virtual environment, and set up other necessary paths.
-
-To make the troubleshooting step robust and easy to understand for users with different Python versions, you can modify the **Troubleshooting** section in your README as follows:
 
 ### Troubleshooting
 
