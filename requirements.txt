@@ -9,6 +9,7 @@ opencv-python < 4.7
 opencv-contrib-python < 4.7 # For extra features including tracking algorithms
 ultralytics
 ncnn
+lap
 
 # Flask for web API and interaction
 Flask
