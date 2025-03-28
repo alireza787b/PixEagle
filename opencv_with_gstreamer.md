@@ -47,17 +47,32 @@ cd ../opencv_contrib
 git checkout 4.9.0
 ```
 
+
+
+
 ### 4. Activate the venv Python environment
 
-If you are using a venv (which I recommend doing), activate your python environment
+If you are using a venv (which I recommend doing), activate your Python environment
 
 ```bash
 cd ~/PixEagle/
 source venv/bin/activate
 ```
+If you have previously installed OpenCV using pip, make sure to uninstall it.
+
+```bash
+pip uninstall opencv-python opencv-contrib-python
+```
 
 
 ### 5. Create a Build Directory
+
+If you have previously cloned OpenCV and tried to build, remove the build directory to start clean.
+
+```bash
+cd ~/PixEagle/opencv
+rm -rf build
+```
 
 Create a build directory inside the OpenCV folder:
 
