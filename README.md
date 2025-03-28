@@ -249,6 +249,14 @@ bash ~/PixEagle/src/tools/download_mavsdk_server.sh
 Or grab it from the [MAVSDK Releases](https://github.com/mavlink/MAVSDK/releases) page and rename it to `mavsdk_server_bin`.
 
 ---
+##  Building Opencv
+If you want to use GStreamer, you need to build opencv manually. You can use the step by step instruction [here](https://github.com/alireza787b/PixEagle/blob/main/opencv_with_gstreamer.md) or use (`auto_opencv_build.sh`) sciprt.
+
+```bash
+bash ~/PixEagle/auto_opencv_build.sh
+```
+
+---
 
 ## ▶️ Running PixEagle
 
