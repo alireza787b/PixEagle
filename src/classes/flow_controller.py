@@ -75,7 +75,8 @@ class FlowController:
         loop.run_until_complete(self.controller.shutdown())
         self.server.should_exit = True
         self.server_thread.join()  # Wait for the FastAPI server thread to finish
-        cv2.destroyAllWindows()
+        if Parameters.SHOW_VIDEO_WINDOW:
+            cv2.destroyAllWindows()
         logging.debug("Application shutdown complete.")
 
 
