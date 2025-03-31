@@ -21,9 +21,11 @@ class SmartTracker:
             if use_gpu:
                 model_path = Parameters.SMART_TRACKER_GPU_MODEL_PATH
                 logging.info(f"[SmartTracker] Attempting to load YOLO model with GPU: {model_path}")
+                self.model = YOLO(model_path, task="detect").to('cuda')
             else:
                 model_path = Parameters.SMART_TRACKER_CPU_MODEL_PATH
                 logging.info(f"[SmartTracker] Loading YOLO model with CPU: {model_path}")
+                self.model = YOLO(model_path, task="detect").to('cpu')
 
             self.model = YOLO(model_path, task="detect")
             logging.info(f"[SmartTracker] YOLO model loaded on device: {self.model.device}")
