@@ -104,13 +104,41 @@ bash init_pixeagle.sh
 
 This script will:
 
-- Create a Python virtual environment
-- Install all required Python packages
-- Generate `config.yaml` and `.env` files if missing
-- Download the required `mavsdk_server_bin` if not present
-- Provide guidance for installing Node.js if not already installed
+- Create a Python virtual environment  
+- Install all required Python packages  
+- Generate `config.yaml` and `.env` files if missing  
+- Download the required `mavsdk_server_bin` if not present  
+- Provide guidance for installing Node.js if not already installed  
 
-> 🧠 **Manual setup available** if preferred — just activate `venv`, install requirements, and create configs manually.
+> 🧠 **Manual setup available** if preferred — just activate the `venv`, install requirements, and create configs manually.
+
+---
+
+### ⚙️ Note for Smart Tracker & YOLO Users (GPU Support)
+
+If you're planning to use **YOLO models with Smart Tracker**, especially with **GPU acceleration via CUDA**, you need to **manually install PyTorch** to match your hardware and CUDA version.
+
+> ✅ As of now, **PyTorch 2.1.0** or newer (e.g. **2.5.1**) is recommended.
+
+📌 Go to the [official PyTorch installation page](https://pytorch.org/get-started/locally/)  
+Select your preferences (OS, package manager, Python version, CUDA version)  
+Then follow the command it provides to install PyTorch manually **before** running the tracker.
+
+Example (for CUDA 12.4, PyTorch 2.5.1 tested on NVidia 3080Ti):
+
+```bash
+pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+```
+
+Example (for CUDA 12.4, PyTorch 2.5.1 tested on CPU):
+
+```bash
+pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+```
+
+> 🔧 The version of PyTorch installed automatically might not be optimized for your GPU. Installing it manually ensures **maximum performance** and **CUDA compatibility** based on your hardware instructions.
+
+
 
 ---
 
