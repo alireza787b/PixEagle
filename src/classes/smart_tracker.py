@@ -235,5 +235,11 @@ class SmartTracker:
 
         # Final blended result
         blended_frame = cv2.addWeighted(frame_overlay, 0.5, frame, 0.5, 0)
+        
+        
+        if not selected_this_frame:
+            self.clear_selection()
+
+
         return blended_frame
 
