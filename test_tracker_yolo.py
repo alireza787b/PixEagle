@@ -77,10 +77,10 @@ from ultralytics import YOLO
 # ================================
 
 # 🖥️ Toggle this to True if your machine has a CUDA GPU (like Jetson Nano or desktop GPU)
-USE_GPU = False
+USE_GPU = True
 
 # 🧠 Select the correct model paths for GPU vs CPU
-MODEL_PATH_GPU = "yolo/yolo11n.pt"  # PyTorch model (GPU)
+MODEL_PATH_GPU = "yolo/unidrone_yolov8m_640px.pt"  # PyTorch model (GPU)
 MODEL_PATH_CPU = "yolo/yolo11n_ncnn_model"  # NCNN model (CPU)
 
 # 🎯 Detection and tracking settings
@@ -109,7 +109,7 @@ else:
 # ================================
 # 🎥 VIDEO SOURCE (Camera or Video)
 # ================================
-cap = cv2.VideoCapture(0)  # Replace with path to a video file if needed
+cap = cv2.VideoCapture(5)  # Replace with path to a video file if needed
 
 selected_object_id = None
 selected_bbox = None
