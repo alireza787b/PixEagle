@@ -74,7 +74,7 @@ Make sure your system meets the following requirements before installing PixEagl
 - **Python:** 3.9 or higher  
 - **Virtual Environment Tool:** `venv`  
 - **Python Packages:** Listed in `requirements.txt`  
-- **Node.js & npm:** Required for the Dashboard UI  
+- **Node.js & npm:** Required for the Dashboard UI. (Install from: https://nodejs.org/en/download)  
 - **Other Tools:** `tmux`, `lsof`, `curl` (for automatic setups)
 
 #### 📦 Install Prerequisites (Linux)
