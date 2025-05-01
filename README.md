@@ -98,6 +98,7 @@ cd PixEagle
 
 2. **Initialize the Project (Recommended):**
 
+Make sure you have all the prerequisites installed before running this script. (Nodejs, npm, python, etc.)
 ```bash
 bash init_pixeagle.sh
 ```
