@@ -1,155 +1,116 @@
-#!/bin/bash
-# auto_build_opencv.sh
-# This script automates building OpenCV with GStreamer support for the PixEagle project.
-# It installs necessary dependencies, sets environment variables, clones the required repositories,
-# activates a Python virtual environment, builds OpenCV using CMake, and verifies that GStreamer is enabled.
-# Author: Your Name | Date: August 2024
-
-set -e  # Exit immediately if a command exits with a non-zero status
+#!/usr/bin/env bash
+set -euo pipefail
 
 #############################
 # Utility Functions
 #############################
 
-# Print info messages with step numbering
-print_info() {
-    echo -e "\n[INFO] $1\n"
-}
-
-# Print error messages and exit
-print_error() {
-    echo -e "\n[ERROR] $1\n"
-    exit 1
-}
+print_info()  { echo -e "\n[INFO]  $1"; }
+print_error() { echo -e "\n[ERROR] $1"; exit 1; }
 
 #############################
-# 1. Update System and Install Dependencies
+# 1. Install System Dependencies
 #############################
 
-print_info "Step 1: Updating system and installing dependencies"
+print_info "Updating system and installing dependencies"
 sudo apt-get update && sudo apt-get upgrade -y
-sudo apt-get install -y build-essential cmake git pkg-config libgtk2.0-dev
-sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-                        gstreamer1.0-tools gstreamer1.0-libav gstreamer1.0-gl \
-                        gstreamer1.0-gtk3 gstreamer1.0-plugins-good \
-                        gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly
+sudo apt-get install -y build-essential cmake git pkg-config \
+     libgtk2.0-dev \
+     libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+     gstreamer1.0-tools gstreamer1.0-libav gstreamer1.0-gl \
+     gstreamer1.0-gtk3 gstreamer1.0-plugins-good \
+     gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly
 
 #############################
-# 2. Set Environment Variables for GStreamer
+# 2. GStreamer Environment
 #############################
 
-print_info "Step 2: Setting environment variables"
+print_info "Configuring GStreamer environment variables"
 export PKG_CONFIG_PATH=/usr/lib/pkgconfig
 export GST_PLUGIN_PATH=/usr/lib/gstreamer-1.0
 
 #############################
-# 3. Create Project Directory and Clone Repositories
+# 3. Clone OpenCV Repos
 #############################
 
 PIX_DIR="$HOME/PixEagle"
-OPENCV_DIR="$PIX_DIR/opencv"
-OPENCV_CONTRIB_DIR="$PIX_DIR/opencv_contrib"
 OPENCV_VERSION="4.9.0"
+print_info "Preparing project directory at $PIX_DIR"
+mkdir -p "$PIX_DIR" && cd "$PIX_DIR"
 
-print_info "Step 3: Setting up project directory at $PIX_DIR"
-mkdir -p "$PIX_DIR"
-cd "$PIX_DIR"
-
-# Clone or update OpenCV repository
-if [ ! -d "$OPENCV_DIR" ]; then
-    print_info "Cloning OpenCV repository..."
-    git clone https://github.com/opencv/opencv.git
-else
-    print_info "OpenCV repository already exists. Skipping clone."
-fi
-
-# Checkout the specified version for OpenCV
-cd "$OPENCV_DIR"
-git fetch --all
-git checkout "$OPENCV_VERSION"
-
-# Clone or update OpenCV Contrib repository
-cd "$PIX_DIR"
-if [ ! -d "$OPENCV_CONTRIB_DIR" ]; then
-    print_info "Cloning OpenCV Contrib repository..."
-    git clone https://github.com/opencv/opencv_contrib.git
-else
-    print_info "OpenCV Contrib repository already exists. Skipping clone."
-fi
-
-cd "$OPENCV_CONTRIB_DIR"
-git fetch --all
-git checkout "$OPENCV_VERSION"
+for repo in opencv opencv_contrib; do
+  DIR="$PIX_DIR/$repo"
+  URL="https://github.com/opencv/$repo.git"
+  if [ ! -d "$DIR" ]; then
+    print_info "Cloning $repo..."
+    git clone "$URL" "$DIR"
+  else
+    print_info "Updating $repo..."
+    git -C "$DIR" fetch --all
+  fi
+  git -C "$DIR" checkout "$OPENCV_VERSION"
+done
 
 #############################
-# 4. Activate Python Virtual Environment and Remove Existing OpenCV Installations
+# 4. Python Virtualenv Setup
 #############################
 
 VENV_DIR="$PIX_DIR/venv"
+print_info "Creating Python3 virtualenv at $VENV_DIR"
+python3 -m venv "$VENV_DIR"  # ships with pip :contentReference[oaicite:5]{index=5}
+# shellcheck disable=SC1090
+source "$VENV_DIR/bin/activate"
 
-print_info "Step 4: Activating Python virtual environment"
-if [ -d "$VENV_DIR" ]; then
-    # shellcheck disable=SC1090
-    source "$VENV_DIR/bin/activate"
-else
-    print_error "Virtual environment not found at $VENV_DIR. Please create one before running this script."
-fi
-
-print_info "Removing any pre-installed OpenCV packages from the virtual environment"
-pip uninstall -y opencv-python opencv-contrib-python || echo "[INFO] No previous OpenCV packages found."
+print_info "Removing pre-installed OpenCV packages"
+pip uninstall -y opencv-python opencv-contrib-python \
+  || echo "[INFO] No existing OpenCV pip packages found."
 
 #############################
-# 5. Create Build Directory
+# 5. Build Directory
 #############################
 
-print_info "Step 5: Preparing the build directory"
-cd "$OPENCV_DIR"
-if [ -d "build" ]; then
-    print_info "Removing previous build directory..."
-    rm -rf build
-fi
-mkdir build && cd build
+print_info "Setting up build directory"
+cd "$PIX_DIR/opencv"
+rm -rf build && mkdir build && cd build
 
 #############################
-# 6. Configure the Build with CMake
+# 6. Configure with CMake
 #############################
 
-print_info "Step 6: Configuring the build with CMake"
-# Get Python paths dynamically from the activated virtual environment
-PYTHON_EXECUTABLE=$(which python)
-PYTHON_INCLUDE_DIR=$(python -c "from distutils.sysconfig import get_python_inc(); print(get_python_inc())")
-PYTHON_PACKAGES_PATH=$(python -c "from distutils.sysconfig import get_python_lib(); print(get_python_lib())")
-
-cmake -D CMAKE_BUILD_TYPE=Release \
-      -D CMAKE_INSTALL_PREFIX="$VENV_DIR" \
-      -D OPENCV_EXTRA_MODULES_PATH="$OPENCV_CONTRIB_DIR/modules" \
-      -D WITH_GSTREAMER=ON \
-      -D WITH_QT=ON \
-      -D WITH_OPENGL=ON \
-      -D BUILD_EXAMPLES=ON \
-      -D PYTHON3_EXECUTABLE="$PYTHON_EXECUTABLE" \
-      -D PYTHON3_INCLUDE_DIR="$PYTHON_INCLUDE_DIR" \
-      -D PYTHON3_PACKAGES_PATH="$PYTHON_PACKAGES_PATH" \
-      ..
+print_info "Configuring CMake build"
+cmake .. \
+  -D CMAKE_BUILD_TYPE=Release \
+  -D CMAKE_INSTALL_PREFIX="$VENV_DIR" \
+  -D OPENCV_EXTRA_MODULES_PATH="$PIX_DIR/opencv_contrib/modules" \
+  -D WITH_GSTREAMER=ON \
+  -D WITH_QT=ON \
+  -D WITH_OPENGL=ON \
+  -D BUILD_EXAMPLES=ON \
+  -D Python3_FIND_REGISTRY=NEVER \
+  -D Python3_FIND_IMPLEMENTATIONS=CPython \
+  -D Python3_FIND_STRATEGY=LOCATION  # uses FindPython3 :contentReference[oaicite:6]{index=6}
 
 #############################
-# 7. Compile and Install OpenCV
+# 7. Compile & Install
 #############################
 
-print_info "Step 7: Compiling OpenCV (this may take a while)..."
+print_info "Compiling OpenCV (using all CPU cores)"
 make -j"$(nproc)"
 
-print_info "Installing OpenCV into the virtual environment"
+print_info "Installing into virtualenv"
 make install
 
 #############################
-# 8. Verify GStreamer Support in OpenCV Build
+# 8. Verify GStreamer Support
 #############################
 
-print_info "Step 8: Verifying OpenCV build information for GStreamer support"
-BUILD_INFO=$(python -c "import cv2; print(cv2.getBuildInformation())")
-echo "$BUILD_INFO" | grep "GStreamer: YES" > /dev/null && \
-    print_info "Verification successful: GStreamer support is ENABLED in OpenCV" || \
-    print_error "GStreamer support is NOT enabled in the OpenCV build. Please review the CMake configuration."
+print_info "Checking GStreamer support in cv2 build info"
+if python - <<'EOF' 2>/dev/null
+import cv2; print(cv2.getBuildInformation())
+EOF | grep -q "GStreamer:.*YES"; then
+  print_info "GStreamer support ENABLED"
+else
+  print_error "GStreamer support NOT enabled—inspect CMake output"
+fi
 
-print_info "OpenCV build with GStreamer support is complete. Enjoy your PixEagle project!"
+print_info "OpenCV build with GStreamer is complete!"
