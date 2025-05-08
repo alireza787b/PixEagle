@@ -64,7 +64,7 @@ class VideoHandler:
         logger.debug(f"Constructed CSI GStreamer pipeline: {pipeline}")
         return pipeline
 
-    def rtsp_gstreamer_pipeline(self, rtsp_url, latency=1000):
+    def rtsp_gstreamer_pipeline(self, rtsp_url, latency=0):
         """
         Constructs a GStreamer pipeline string for an RTSP stream using the GStreamer backend.
         
@@ -77,8 +77,9 @@ class VideoHandler:
         """
         pipeline = (
         f"rtspsrc location={rtsp_url} latency={latency} ! "
-        "rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink"
+        "decodebin"
         )
+        
         logger.debug(f"Constructed RTSP GStreamer pipeline: {pipeline}")
         return pipeline
 

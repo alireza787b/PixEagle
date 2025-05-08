@@ -16,7 +16,7 @@ VideoSource:
   # RTSP stream URL if VIDEO_SOURCE_TYPE is 'RTSP_STREAM'
   RTSP_URL: rtsp://192.168.0.108:554/stream=0
   # latency in ms for RTSP_GSTREAMER mode
-  RTSP_LATENCY: 50                
+  RTSP_LATENCY: 0                
   # UDP stream URL if VIDEO_SOURCE_TYPE is 'UDP_STREAM'
   UDP_URL: udp://172.21.144.1:5000
   # HTTP stream URL if VIDEO_SOURCE_TYPE is 'HTTP_STREAM'
