@@ -32,7 +32,7 @@ from mavsdk.offboard import PositionNedYaw
 # CAMERA FRAME TARGET DEFINITION:
 # X_cam = forward, Y_cam = right, Z_cam = down (meters)
 CAM_TARGET_INIT  = np.array([20.0, 0.0, -5.0])   # initial target in CAMERA frame
-CAM_TARGET_VEL   = np.array([-0.5, -2.2, 0.0])     # constant velocity in CAMERA frame (m/s)
+CAM_TARGET_VEL   = np.array([-3.5, -1.0, 0.0])     # constant velocity in CAMERA frame (m/s)
 
 # Camera-to-body extrinsics (rotation matrix)
 # Allows arbitrary azimuth/elevation/roll of camera mount
@@ -40,7 +40,7 @@ R_CAM2BODY       = np.eye(3)
 
 # Takeoff settings
 TAKEOFF_ALTITUDE = 5.0    # meters above home
-ASCENT_SPEED     = -1.0   # m/s (BODY down rate, negative=up)
+ASCENT_SPEED     = -2.0   # m/s (BODY down rate, negative=up)
 
 # PID gains for body-frame X (forward), Y (right), Z (down)
 KP_X, KI_X, KD_X = 0.5,  0.05, 0.1
@@ -55,7 +55,7 @@ YAW_RATE_MAX     = 30.0   # deg/s
 YAW_SLEW_RATE    = 90.0   # deg/s^2
 
 # Velocity limits (body frame)
-MAX_VX, MAX_VY, MAX_VZ = 5.0, 2.0, 1.0  # m/s
+MAX_VX, MAX_VY, MAX_VZ = 5.0, 5.0, 1.0  # m/s
 
 # Mission logic
 TARGET_THRESHOLD = 1.0    # m finish radius
