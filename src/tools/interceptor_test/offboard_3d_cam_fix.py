@@ -32,9 +32,10 @@ from mavsdk.offboard import PositionNedYaw
 #                            USER-CONFIGURABLE ZONE
 # =============================================================================
 # CAMERA FRAME TARGET DEFINITION:
+# Simulates OAK-D camera detection output in this phase of SITL
 # X_cam = forward, Y_cam = right, Z_cam = down (meters)
 CAM_TARGET_INIT     = np.array([20.0,  0.0, -5.0])
-CAM_TARGET_VEL      = np.array([-3.5, -1.0,  0.0])
+CAM_TARGET_VEL      = np.array([-2.5, -1.0,  0.0])
 
 # Camera mount extrinsics: yaw, pitch, roll (degrees)
 CAM_MOUNT_YAW_DEG   = 0.0   # + rotates camera left of vehicle X+ axis
@@ -53,9 +54,9 @@ CAM_Z_DEADBAND      = 0.1    # m deadband in camera Z
 
 # Yaw control parameters
 YAW_DEADBAND        = 5.0    # deg
-YAW_GAIN            = 1.0    # deg/s per deg error
-YAW_RATE_MAX        = 30.0   # deg/s
-YAW_SLEW_RATE       = 90.0   # deg/s^2
+YAW_GAIN            = 1.5    # deg/s per deg error
+YAW_RATE_MAX        = 60.0   # deg/s
+YAW_SLEW_RATE       = 120.0   # deg/s^2
 
 # Velocity limits (body frame)
 MAX_VX_BODY, MAX_VY_BODY, MAX_VZ_BODY = 5.0, 5.0, 1.0
