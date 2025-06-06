@@ -48,3 +48,6 @@ aiortc
 pyyaml
 
 scikit-image
+
+
+pymap3d
