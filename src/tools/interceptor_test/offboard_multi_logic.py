@@ -18,7 +18,7 @@ Features:
   - Informative console logging.
   - Modular guidance modes:
       * "local_velocity": camera-frame PID → body-velocity offboard.
-      * "global_position": compute target LLA → offboard PositionGlobalInt.
+      * "global_position": compute target LLA → offboard PositionGlobalYaw.
       * "global_velocity": compute target LLA → convert back to NED → body-velocity offboard.
 """
 
@@ -35,7 +35,7 @@ from mavsdk.offboard import (
     OffboardError,
     VelocityBodyYawspeed,
     PositionNedYaw,
-    PositionGlobalInt
+    PositionGlobalYaw
 )
 
 # =============================================================================
@@ -66,7 +66,7 @@ CAM_Z_DEADBAND      = 0.1    # m deadband in camera Z
 YAW_DEADBAND        = 5.0    # deg
 YAW_GAIN            = 1.5    # deg/s per deg error
 YAW_RATE_MAX        = 60.0   # deg/s
-YAW_SLEW_RATE       = 120.0   # deg/s^2
+YAW_SLEW_RATE       = 120.0  # deg/s^2
 
 # Velocity limits (body frame)
 MAX_VX_BODY, MAX_VY_BODY, MAX_VZ_BODY = 5.0, 5.0, 1.0
@@ -85,7 +85,7 @@ ARROW_LEN           = 2.0    # m length of direction arrows
 # Guidance mode configuration:
 # Options:
 #   "local_velocity"   → camera-frame PID → body-velocity offboard
-#   "global_position"  → compute target LLA → offboard PositionGlobalInt
+#   "global_position"  → compute target LLA → offboard PositionGlobalYaw
 #   "global_velocity"  → compute target LLA → convert back to NED → body-velocity offboard
 GUIDANCE_MODE = "local_velocity"
 # =============================================================================
@@ -225,10 +225,12 @@ async def guidance_local_velocity(drone: System, err_body: np.ndarray,
     """
     try:
         await drone.offboard.set_velocity_body(
-            VelocityBodyYawspeed(vel_body[0],
-                                 vel_body[1],
-                                 vel_body[2],
-                                 yaw_rate)
+            VelocityBodyYawspeed(
+                vel_body[0],
+                vel_body[1],
+                vel_body[2],
+                yaw_rate
+            )
         )
     except OffboardError as e:
         print(f"[ERROR] Local Velocity command failed: {e}")
@@ -244,7 +246,7 @@ async def guidance_global_position(drone: System, err_body: np.ndarray,
       - err_body: [X_body_error, Y_body_error, Z_body_error] in BODY frame.
       - yaw_rad: current yaw in radians.
       - desired_yaw_body: desired vehicle yaw (deg) to point camera at target.
-    Action: compute target LLA (ENU→geodetic) and send PositionGlobalInt + yaw.
+    Action: compute target LLA (ENU→geodetic) and send PositionGlobalYaw + yaw.
     """
     # 1) Fetch current LLA + NED
     lat_cur, lon_cur, alt_cur, cn, ce, cd = await get_lla_ned(drone)
@@ -252,7 +254,7 @@ async def guidance_global_position(drone: System, err_body: np.ndarray,
     # 2) BODY → WORLD NED offset
     offset_n, offset_e, offset_d = cam_to_world(err_body, yaw_rad)
 
-    # 3) NED → ENU conversion
+    # 3) NED → ENU conversion (pymap3d expects ENU)
     enu_e = offset_e
     enu_n = offset_n
     enu_u = -offset_d  # down positive → up negative
@@ -265,15 +267,15 @@ async def guidance_global_position(drone: System, err_body: np.ndarray,
     )
 
     # 5) Send global-position setpoint + yaw
+    gp = PositionGlobalYaw(
+        tgt_lat,
+        tgt_lon,
+        tgt_alt,
+        desired_yaw_body,
+        PositionGlobalYaw.AltitudeType.AMSL
+    )
     try:
-        await drone.offboard.set_position_global_int(
-            PositionGlobalInt(
-                int(tgt_lat * 1e7),    # latitude in 1e-7 deg
-                int(tgt_lon * 1e7),    # longitude in 1e-7 deg
-                int(tgt_alt * 1000),   # altitude in millimeters
-                yaw_deg=desired_yaw_body
-            )
-        )
+        await drone.offboard.set_position_global(gp)
     except OffboardError as e:
         print(f"[ERROR] Global Position command failed: {e}")
 
@@ -302,7 +304,7 @@ async def guidance_global_velocity(drone: System, err_body: np.ndarray,
     # 2) BODY → WORLD NED offset
     offset_n, offset_e, offset_d = cam_to_world(err_body, yaw_rad)
 
-    # 3) NED → ENU conversion
+    # 3) NED → ENU
     enu_e = offset_e
     enu_n = offset_n
     enu_u = -offset_d
@@ -324,14 +326,16 @@ async def guidance_global_velocity(drone: System, err_body: np.ndarray,
     offset_e2 = enu_e_back
     offset_d2 = -enu_u_back
 
-    # 6) Now offset_n2, offset_e2, offset_d2 matches original offset_n, offset_e, offset_d.
+    # 6) Now offset_n2/offset_e2/offset_d2 match original offset_n/offset_e/offset_d.
     #    We simply reissue the PID-based body velocities + yaw_rate.
     try:
         await drone.offboard.set_velocity_body(
-            VelocityBodyYawspeed(vel_body[0],
-                                 vel_body[1],
-                                 vel_body[2],
-                                 yaw_rate)
+            VelocityBodyYawspeed(
+                vel_body[0],
+                vel_body[1],
+                vel_body[2],
+                yaw_rate
+            )
         )
     except OffboardError as e:
         print(f"[ERROR] Global Velocity command failed: {e}")
@@ -368,7 +372,7 @@ async def main():
     last_log = time.time()
     while True:
         await drone.offboard.set_velocity_body(VelocityBodyYawspeed(0, 0, ASCENT_SPEED, 0))
-        _, _, down = await get_lla_ned(drone)[3:]  # ignore lat/lon/alt, use down from NED
+        _, _, _, _, _, down = await get_lla_ned(drone)
         alt = -down
         now = time.time()
         if now - last_log >= 1.0:
@@ -421,13 +425,17 @@ async def main():
         # Draw initial arrows
         drone_arrow.remove()
         cam_arrow.remove()
-        drone_arrow = ax.quiver(n0, e0, d0,
-                                math.cos(yaw_rad), math.sin(yaw_rad), 0,
-                                length=ARROW_LEN, normalize=True)
+        drone_arrow = ax.quiver(
+            n0, e0, d0,
+            math.cos(yaw_rad), math.sin(yaw_rad), 0,
+            length=ARROW_LEN, normalize=True
+        )
         yaw_cam_rad = yaw_rad + math.radians(CAM_MOUNT_YAW_DEG)
-        cam_arrow = ax.quiver(n0, e0, d0,
-                              math.cos(yaw_cam_rad), math.sin(yaw_cam_rad), 0,
-                              length=ARROW_LEN, normalize=True, color='cyan')
+        cam_arrow = ax.quiver(
+            n0, e0, d0,
+            math.cos(yaw_cam_rad), math.sin(yaw_cam_rad), 0,
+            length=ARROW_LEN, normalize=True, color='cyan'
+        )
         plt.draw()
         plt.pause(0.001)
 
@@ -468,7 +476,7 @@ async def main():
         rel_d = target_d - cd
         dist = math.sqrt(rel_n**2 + rel_e**2 + rel_d**2)
         speed = math.hypot(vn, ve)
-        eta = dist/speed if speed > 0.1 else float('inf')
+        eta = dist / speed if speed > 0.1 else float('inf')
 
         # Compute error in BODY frame: rotate NED error by yaw
         err_body = np.array([
@@ -526,6 +534,7 @@ async def main():
             await guidance_local_velocity(drone, err_body, vel_body, yaw_rate)
 
         elif GUIDANCE_MODE == "global_position":
+            # For global_position, we use absolute yaw setpoint (desired_yaw_body)
             await guidance_global_position(drone, err_body, yaw_rad, desired_yaw_body)
 
         elif GUIDANCE_MODE == "global_velocity":
@@ -565,13 +574,17 @@ async def main():
             # Redraw arrows
             drone_arrow.remove()
             cam_arrow.remove()
-            drone_arrow = ax.quiver(cn, ce, cd,
-                                    math.cos(yaw_rad), math.sin(yaw_rad), 0,
-                                    length=ARROW_LEN, normalize=True)
+            drone_arrow = ax.quiver(
+                cn, ce, cd,
+                math.cos(yaw_rad), math.sin(yaw_rad), 0,
+                length=ARROW_LEN, normalize=True
+            )
             yaw_cam_rad = yaw_rad + math.radians(CAM_MOUNT_YAW_DEG)
-            cam_arrow = ax.quiver(cn, ce, cd,
-                                  math.cos(yaw_cam_rad), math.sin(yaw_cam_rad), 0,
-                                  length=ARROW_LEN, normalize=True, color='cyan')
+            cam_arrow = ax.quiver(
+                cn, ce, cd,
+                math.cos(yaw_cam_rad), math.sin(yaw_cam_rad), 0,
+                length=ARROW_LEN, normalize=True, color='cyan'
+            )
 
             # Dynamic zoom
             all_n = np.array(dn + tn)
