@@ -1,982 +1,745 @@
 #!/usr/bin/env python3
 """
 Robust Offboard Pursuit of a Moving Target
-with Modular Guidance Modes (Local Velocity, Global Position, Global Velocity),
-Full 3D PID in CAMERA frame, Yaw Slew Limiting,
-Camera Mount Extrinsics (Yaw/Pitch/Roll), and Camera-Frame Target Definition.
+with Modular Guidance Modes,
+Built-in Kalman Filtering & 3D Visualization,
+and NED-Frame Velocity Commands + Desired Yaw.
+
+Usage:
+  - Configure params in the "USER-CONFIGURABLE ZONE"
+  - Select GUIDANCE_MODE (local_velocity, global_position, global_velocity, pn)
+  - Toggle USE_KALMAN to enable/disable target filtering
 
 Features:
-  - Configuration at top (future YAML).
-  - User-definable camera mount yaw, pitch, and roll angles.
-  - Build rotation matrix R_CAM2BODY from mount angles.
-  - Moving target defined in CAMERA frame: forward (X), right (Y), down (Z).
-  - Pursuit control uses PID in camera axes, rotated to body velocities.
-  - Desired yaw = bearing_to_target - camera_mount_yaw.
-  - Yaw-rate slew limiting for smooth camera-pointing.
-  - Optional real-time 3D Matplotlib visualization with dynamic zoom, path history,
-    and arrows for body X and camera X directions with guide annotation.
-  - Informative console logging.
-  - Modular guidance modes:
-      * "local_velocity": camera-frame PID → body-velocity offboard.
-      * "global_position": compute target LLA → offboard PositionGlobalYaw (AMSL).
-      * "global_velocity": compute target LLA → full NED‐PID → body-velocity offboard.
-  - [NEW] Built‐in Kalman filter (via FilterPy) on target NED position/velocity to handle
-    intermittent target loss and smooth estimates. Automatically applied regardless of guidance mode.
+  • Synthetic target defined in CAMERA frame (X forward, Y right, Z down)
+  • Camera mount extrinsics (yaw/pitch/roll) applied to transform to body
+  • Guidance strategies dispatchable via uniform interface
+  • PID controllers for camera- & NED-frame errors
+  • Optional FilterPy Kalman filter for target smoothing and dropout handling
+  • Direct NED velocity commands (VelocityNedYaw) with explicit yaw angle
+  • 3D Matplotlib visualization with dynamic zoom, path history, and arrows
+  • Informative logging and console metrics
+
+Requirements:
+  • Python 3.7+
+  • mavsdk
+  • filterpy
+  • numpy
+  • pymap3d
+  • matplotlib
+
 """
 
 import asyncio
+import logging
 import math
 import time
-from enum import Enum
+from abc import ABC, abstractmethod
+from typing import Optional, Tuple, Dict, Type
 
-import numpy as np
 import matplotlib.pyplot as plt
-import pymap3d as pm  # for geodetic ↔ ENU conversions
-
-# 3rd‐party Kalman filter from FilterPy
+import numpy as np
+import pymap3d as pm
 from filterpy.kalman import KalmanFilter
-
 from mavsdk import System
 from mavsdk.offboard import (
     OffboardError,
-    VelocityBodyYawspeed,
-    PositionNedYaw,
     PositionGlobalYaw,
+    PositionNedYaw,
+    VelocityNedYaw,
 )
 
 # =============================================================================
-#                            USER‐CONFIGURABLE ZONE
+#                          USER-CONFIGURABLE ZONE
 # =============================================================================
+# Offboard timing & mission parameters
+TAKEOFF_ALTITUDE = 5.0    # meters above home position
+ASCENT_SPEED     = -2.0   # m/s (negative = ascend)
+SETPOINT_FREQ    = 20.0   # control loop frequency (Hz)
+MAX_MISSION_TIME = 120.0  # mission timeout (s)
+TARGET_THRESHOLD = 3.0    # target acceptance radius (m)
+HOLD_TIME_AFTER  = 3.0    # hold time at target (s)
 
-# CAMERA FRAME TARGET DEFINITION:
-# Simulates OAK-D camera detection output in SITL
-# X_cam = forward, Y_cam = right, Z_cam = down (meters)
-CAM_TARGET_INIT     = np.array([20.0,  0.0, -10.0])  # 10 m above the drone
-CAM_TARGET_VEL      = np.array([0.0,   0.0,   0.0])  # static target
+# Simulated target in CAMERA frame: X forward, Y right, Z down (m)
+CAM_TARGET_INIT = np.array([20.0, 0.0, -10.0])  
+CAM_TARGET_VEL  = np.array([1.0,  0.0,   0.0])  
 
-# Camera mount extrinsics: yaw, pitch, roll (degrees)
-CAM_MOUNT_YAW_DEG   = 0.0   # + rotates camera left of vehicle X+ axis
-CAM_MOUNT_PITCH_DEG = 0.0   # + tilts camera nose up
-CAM_MOUNT_ROLL_DEG  = 0.0   # + rolls camera clockwise looking forward
+# Camera mount extrinsics (degrees)
+CAM_MOUNT_YAW_DEG   = 90.0  # camera yaw offset relative to vehicle X+
+CAM_MOUNT_PITCH_DEG = 0.0
+CAM_MOUNT_ROLL_DEG  = 0.0
 
-# Takeoff settings
-TAKEOFF_ALTITUDE    = 5.0    # meters above home
-ASCENT_SPEED        = -2.0   # m/s down rate (negative = up)
+# PID gains for camera-frame axes: X (forward), Y (right), Z (down)
+KP_CAM_X, KI_CAM_X, KD_CAM_X = 0.5, 0.05, 0.1
+KP_CAM_Y, KI_CAM_Y, KD_CAM_Y = 0.5, 0.05, 0.1
+KP_CAM_Z, KI_CAM_Z, KD_CAM_Z = 0.5, 0.02, 0.1
+CAM_Z_DEADBAND = 0.1         # deadband for Z-axis (m)
 
-# PID gains for CAMERA‐frame X (forward), Y (right), Z (down)
-KP_CAM_X, KI_CAM_X, KD_CAM_X = 0.5,  0.05, 0.1
-KP_CAM_Y, KI_CAM_Y, KD_CAM_Y = 0.5,  0.05, 0.1
-KP_CAM_Z, KI_CAM_Z, KD_CAM_Z = 0.5,  0.02, 0.1
-CAM_Z_DEADBAND      = 0.1    # m deadband in camera Z
-
-# Yaw control parameters (applies to all modes)
-YAW_DEADBAND        = 2.0    # deg
-YAW_GAIN            = 2      # deg/s per deg error
-YAW_RATE_MAX        = 90.0   # deg/s
-YAW_SLEW_RATE       = 150.0  # deg/s^2
-
-# Velocity limits (body frame)
-# Note: if MAX_VZ_BODY is small (1 m/s), climbing 10 m will be slow
+# Maximum allowed velocities in body frame (m/s)
 MAX_VX_BODY, MAX_VY_BODY, MAX_VZ_BODY = 5.0, 5.0, 1.0
 
-# Mission logic
-TARGET_THRESHOLD    = 1.0    # m finish radius
-HOLD_TIME_AFTER     = 3.0    # s hold at target
-SETPOINT_FREQ       = 20.0   # Hz control loop
-MAX_MISSION_TIME    = 120.0  # s timeout
+# Visualization parameters
+ENABLE_PLOT  = True
+PLOT_RATE_HZ = 5
+ARROW_LEN    = 2.0  # arrow length for orientation indicators (m)
 
-# Visualization
-ENABLE_PLOT         = True
-PLOT_RATE_HZ        = 5      # update plot this many times per second
-ARROW_LEN           = 2.0    # m length of direction arrows
+# Guidance mode selection:
+#   "local_velocity"  → camera-frame PID → NED velocity offboard
+#   "global_position" → compute geo setpoint → PositionGlobalYaw
+#   "global_velocity" → full NED-PID → NED velocity offboard
+#   "pn"              → stub for Proportional Navigation
+GUIDANCE_MODE = "global_velocity"
 
-# Guidance mode configuration:
-#   "local_velocity"   → camera‐frame PID → body‐velocity offboard
-#   "global_position"  → compute target LLA → offboard PositionGlobalYaw (AMSL)
-#   "global_velocity"  → compute target LLA → full NED‐PID → body‐velocity offboard
-GUIDANCE_MODE = "global_position"
-
-# Kalman filter configuration (applies to all guidance modes)
-USE_KALMAN          = True
-KF_POS_NOISE        = 1e-1   # Process noise (position) 
-KF_VEL_NOISE        = 1e-2   # Process noise (velocity)
-KF_MEAS_NOISE       = 0.5    # Measurement noise (position)
-KF_MISS_TIMEOUT     = 5.0    # seconds to continue predicting without measurements
+# Kalman filter settings (applies to all guidance modes)
+USE_KALMAN      = True   # enable synthetic target smoothing
+KF_POS_NOISE    = 1e-1   # process noise density for position
+KF_VEL_NOISE    = 1e-2   # process noise density for velocity
+KF_MEAS_NOISE   = 0.5    # measurement noise (position)
+KF_MISS_TIMEOUT = 5.0    # seconds to continue predicting without updates
 # =============================================================================
-#                              END CONFIGURATION
+#                                LOGGER SETUP
 # =============================================================================
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(levelname)s] %(asctime)s %(message)s",
+    datefmt="%H:%M:%S"
+)
+logger = logging.getLogger(__name__)
 
-
+# =============================================================================
+#                              UTILITIES & MATH
+# =============================================================================
 def clamp(val: float, lo: float, hi: float) -> float:
-    """Clamp val to [lo, hi]."""
-    return max(lo, min(val, hi))
-
+    """Clamp a value to the interval [lo, hi]."""
+    return max(lo, min(hi, val))
 
 def normalize(angle: float) -> float:
-    """Wrap angle to [-180, +180] degrees."""
+    """Wrap an angle in degrees to [-180, +180]."""
     return ((angle + 180) % 360) - 180
 
-
 def rotation_x(deg: float) -> np.ndarray:
-    """Rotation matrix about X axis by deg degrees."""
+    """Build a rotation matrix about the X-axis by `deg` degrees."""
     r = math.radians(deg)
     c, s = math.cos(r), math.sin(r)
     return np.array([[1, 0,  0],
                      [0, c, -s],
                      [0, s,  c]])
 
-
 def rotation_y(deg: float) -> np.ndarray:
-    """Rotation matrix about Y axis by deg degrees."""
+    """Build a rotation matrix about the Y-axis by `deg` degrees."""
     r = math.radians(deg)
     c, s = math.cos(r), math.sin(r)
     return np.array([[ c, 0, s],
                      [ 0, 1, 0],
                      [-s, 0, c]])
 
-
 def rotation_z(deg: float) -> np.ndarray:
-    """Rotation matrix about Z axis by deg degrees."""
+    """Build a rotation matrix about the Z-axis by `deg` degrees."""
     r = math.radians(deg)
     c, s = math.cos(r), math.sin(r)
     return np.array([[ c, -s, 0],
                      [ s,  c, 0],
                      [ 0,  0, 1]])
 
-
-# Build camera‐to‐body extrinsics: R_CAM2BODY = R_z(yaw) @ R_y(pitch) @ R_x(roll)
+# Pre-computed camera→body extrinsic rotation
 R_CAM2BODY = (
     rotation_z(CAM_MOUNT_YAW_DEG)
     @ rotation_y(CAM_MOUNT_PITCH_DEG)
     @ rotation_x(CAM_MOUNT_ROLL_DEG)
 )
 
-
-class PIDController:
+def cam_to_world(vec: np.ndarray, yaw_rad: float) -> Tuple[float, float, float]:
     """
-    A generic PID controller.
-    Stores integrator, previous error, gains, and clamps output.
-    """
-
-    def __init__(self, kp: float, ki: float, kd: float, clamp_low: float, clamp_high: float, deadband: float = 0.0):
-        self.kp = kp
-        self.ki = ki
-        self.kd = kd
-        self.clamp_low = clamp_low
-        self.clamp_high = clamp_high
-        self.deadband = deadband
-
-        self.integrator = 0.0
-        self.prev_error = 0.0
-
-    def reset(self):
-        """Reset integrator and previous error."""
-        self.integrator = 0.0
-        self.prev_error = 0.0
-
-    def update(self, error: float, dt: float) -> float:
-        """
-        Compute PID output for given error and timestep dt.
-        Returns the clamped output. Applies deadband on the error if configured.
-        """
-        # Deadband check
-        if abs(error) <= self.deadband:
-            self.prev_error = error
-            return 0.0
-
-        # Integrator update
-        self.integrator += error * dt
-
-        # Derivative term
-        derivative = (error - self.prev_error) / dt if dt > 0 else 0.0
-
-        # PID formula
-        output = self.kp * error + self.ki * self.integrator + self.kd * derivative
-
-        # Clamp output
-        clamped = clamp(output, self.clamp_low, self.clamp_high)
-
-        # Anti-windup: if output was clamped, remove the last integration step
-        if output != clamped:
-            self.integrator -= error * dt
-
-        # Update previous error
-        self.prev_error = error
-
-        return clamped
-
-
-class FilterPyKalmanNED:
-    """
-    6D Kalman Filter in NED coordinates using FilterPy.
-    State: [n, e, d, vn, ve, vd].
-    Process model: constant‐velocity discrete.
-    """
-
-    def __init__(self, dt: float, process_noise_pos: float, process_noise_vel: float,
-                 meas_noise: float, miss_timeout: float):
-        # Create FilterPy KalmanFilter instance with 6‐state, 3‐measurement
-        self.kf = KalmanFilter(dim_x=6, dim_z=3)
-
-        # Time step
-        self.dt = dt
-
-        # State transition matrix F
-        # [1 0 0 dt  0  0]
-        # [0 1 0  0 dt  0]
-        # [0 0 1  0  0 dt]
-        # [0 0 0  1  0  0]
-        # [0 0 0  0  1  0]
-        # [0 0 0  0  0  1]
-        self.kf.F = np.array([
-            [1, 0, 0, dt,  0,  0],
-            [0, 1, 0,  0, dt,  0],
-            [0, 0, 1,  0,  0, dt],
-            [0, 0, 0,  1,  0,  0],
-            [0, 0, 0,  0,  1,  0],
-            [0, 0, 0,  0,  0,  1],
-        ])
-
-        # Measurement function H: we measure position only
-        self.kf.H = np.array([
-            [1, 0, 0, 0, 0, 0],
-            [0, 1, 0, 0, 0, 0],
-            [0, 0, 1, 0, 0, 0],
-        ])
-
-        # Initial state covariance
-        self.kf.P = np.eye(6) * 1.0
-
-        # Process noise covariance Q
-        q_pos = process_noise_pos
-        q_vel = process_noise_vel
-        dt2, dt3, dt4 = dt**2, dt**3, dt**4
-
-        Q_pos = q_pos * np.array([
-            [dt4/4, dt3/2,    0],
-            [dt3/2, dt2,      0],
-            [0,     0,     dt2],
-        ])
-        Q_vel = q_vel * np.eye(3) * dt2
-
-        self.kf.Q = np.block([
-            [Q_pos,        np.zeros((3, 3))],
-            [np.zeros((3, 3)), Q_vel      ]
-        ])
-
-        # Measurement noise covariance R
-        self.kf.R = np.eye(3) * meas_noise**2
-
-        # Last update time, for missing‐data logic
-        self.last_update_time = time.time()
-        self.miss_timeout = miss_timeout
-
-    def predict(self, dt: float):
-        """
-        Predict step with possibly updated dt.
-        If dt changes significantly, recompute F and Q accordingly.
-        """
-        if abs(dt - self.dt) > 1e-6:
-            self.dt = dt
-            # Rebuild F, Q with new dt
-            dt2, dt3, dt4 = dt**2, dt**3, dt**4
-            self.kf.F = np.array([
-                [1, 0, 0, dt,  0,  0],
-                [0, 1, 0,  0, dt,  0],
-                [0, 0, 1,  0,  0, dt],
-                [0, 0, 0,  1,  0,  0],
-                [0, 0, 0,  0,  1,  0],
-                [0, 0, 0,  0,  0,  1],
-            ])
-            Q_pos = KF_POS_NOISE * np.array([
-                [dt4/4, dt3/2,    0],
-                [dt3/2, dt2,      0],
-                [0,     0,     dt2],
-            ])
-            Q_vel = KF_VEL_NOISE * np.eye(3) * dt2
-            self.kf.Q = np.block([
-                [Q_pos,        np.zeros((3, 3))],
-                [np.zeros((3, 3)), Q_vel      ]
-            ])
-
-        # Standard predict
-        self.kf.predict()
-
-    def update(self, measurement: np.ndarray or None):
-        """
-        Update step if measurement is provided; else skip if timed out.
-        measurement: 3‐vector [n, e, d] or None.
-        """
-        now = time.time()
-        if measurement is not None:
-            z = measurement.reshape((3, 1))
-            self.kf.update(z)
-            self.last_update_time = now
-        else:
-            # If no measurement and too long since last update, skip update
-            if now - self.last_update_time > self.miss_timeout:
-                # Do nothing (pure prediction)
-                pass
-
-    def step(self, measurement: np.ndarray or None, dt: float):
-        """
-        Single iteration: predict then update (if measurement present).
-        Returns (pos_est, vel_est), each 3‐vector.
-        """
-        self.predict(dt)
-        self.update(measurement)
-        x = self.kf.x.flatten()
-        pos_est = x[0:3]  # [n, e, d]
-        vel_est = x[3:6]  # [vn, ve, vd]
-        return pos_est, vel_est
-
-
-class PlotUpdater:
-    """
-    Encapsulates all plotting logic:
-      - Initializes 3D plot
-      - Updates path lines, scatter points, arrows, zoom
-    """
-
-    def __init__(self):
-        # Initialize interactive plotting
-        plt.ion()
-        self.fig = plt.figure()
-        self.ax = self.fig.add_subplot(projection='3d')
-
-        # Drone/target path lines
-        self.drone_line, = self.ax.plot([], [], [], c='blue', label='Drone Path')
-        self.tgt_line,   = self.ax.plot([], [], [], c='red',  label='Target Path')
-
-        # Drone/target scatter markers
-        self.drone_scatter = self.ax.scatter([], [], [], c='blue', s=50)
-        self.tgt_scatter   = self.ax.scatter([], [], [], c='red',  s=50)
-
-        # Engagement text box
-        self.engagement_text = self.ax.text2D(0.02, 0.95, "", transform=self.ax.transAxes)
-
-        # Axis labels & legend
-        self.ax.set_xlabel('North (m)')
-        self.ax.set_ylabel('East (m)')
-        self.ax.set_zlabel('Down (m)')
-        self.ax.legend()
-
-        # Invert Z-axis so that negative-down (higher altitude) appears upward
-        self.ax.invert_zaxis()
-
-        # Placeholder arrows for drone body-X (blue) and camera-X (cyan)
-        self.drone_arrow = self.ax.quiver(0, 0, 0, 0, 0, 0)
-        self.cam_arrow   = self.ax.quiver(0, 0, 0, 0, 0, 0, color='cyan')
-
-        # Store path history
-        self.path_drone = []
-        self.path_tgt = []
-        self.zoom_margin = 2.0
-        self.last_plot_time = 0.0
-
-    def initialize(self, n0, e0, d0, target_n, target_e, target_d, yaw_rad):
-        """
-        Initial draw of drone & target positions and arrows.
-        Must be called once before main loop.
-        """
-        # Initialize path lists
-        self.path_drone = [(n0, e0, d0)]
-        self.path_tgt = [(target_n, target_e, target_d)]
-
-        # Draw initial path lines
-        self.drone_line.set_data([n0], [e0])
-        self.drone_line.set_3d_properties([d0])
-        self.tgt_line.set_data([target_n], [target_e])
-        self.tgt_line.set_3d_properties([target_d])
-
-        # Draw initial scatter points
-        self.drone_scatter._offsets3d = ([n0], [e0], [d0])
-        self.tgt_scatter._offsets3d   = ([target_n], [target_e], [target_d])
-
-        # Draw initial arrows
-        self.drone_arrow.remove()
-        self.cam_arrow.remove()
-        self.drone_arrow = self.ax.quiver(
-            n0, e0, d0,
-            math.cos(yaw_rad), math.sin(yaw_rad), 0,
-            length=ARROW_LEN, normalize=True
-        )
-        yaw_cam_rad = yaw_rad + math.radians(CAM_MOUNT_YAW_DEG)
-        self.cam_arrow = self.ax.quiver(
-            n0, e0, d0,
-            math.cos(yaw_cam_rad), math.sin(yaw_cam_rad), 0,
-            length=ARROW_LEN, normalize=True, color='cyan'
-        )
-
-        plt.draw()
-        plt.pause(0.001)
-        self.last_plot_time = time.time()
-
-    def update(self, cn, ce, cd, target_n, target_e, target_d, yaw_rad, dist, speed, eta, chi):
-        """
-        Update the plot with new drone/target positions, arrows, and dynamic zoom.
-        Only updates if enough time has passed since last update (PLOT_RATE_HZ).
-        """
-        now = time.time()
-        if now - self.last_plot_time < 1.0 / PLOT_RATE_HZ:
-            return
-
-        # Append current positions
-        self.path_drone.append((cn, ce, cd))
-        self.path_tgt.append((target_n, target_e, target_d))
-
-        # Unpack path lists
-        dn, de, dd = zip(*self.path_drone)
-        tn, te, td = zip(*self.path_tgt)
-
-        # Update path lines
-        self.drone_line.set_data(dn, de)
-        self.drone_line.set_3d_properties(dd)
-        self.tgt_line.set_data(tn, te)
-        self.tgt_line.set_3d_properties(td)
-
-        # Update scatter points
-        self.drone_scatter._offsets3d = ([cn], [ce], [cd])
-        self.tgt_scatter._offsets3d   = ([target_n], [target_e], [target_d])
-
-        # Update engagement text
-        self.engagement_text.set_text(f"Dist={dist:.2f}m, Speed={speed:.2f}m/s, ETA={eta:.1f}s")
-
-        # Redraw arrows
-        self.drone_arrow.remove()
-        self.cam_arrow.remove()
-        self.drone_arrow = self.ax.quiver(
-            cn, ce, cd,
-            math.cos(yaw_rad), math.sin(yaw_rad), 0,
-            length=ARROW_LEN, normalize=True
-        )
-        yaw_cam_rad = yaw_rad + math.radians(CAM_MOUNT_YAW_DEG)
-        self.cam_arrow = self.ax.quiver(
-            cn, ce, cd,
-            math.cos(yaw_cam_rad), math.sin(yaw_cam_rad), 0,
-            length=ARROW_LEN, normalize=True, color='cyan'
-        )
-
-        # Dynamic zoom (Z-axis inverted)
-        all_n = np.array(dn + tn)
-        all_e = np.array(de + te)
-        all_d = np.array(dd + td)
-        self.ax.set_xlim(all_n.min() - self.zoom_margin, all_n.max() + self.zoom_margin)
-        self.ax.set_ylim(all_e.min() - self.zoom_margin, all_e.max() + self.zoom_margin)
-        # Because z-axis is inverted, reverse the limits
-        self.ax.set_zlim(all_d.max() + self.zoom_margin, all_d.min() - self.zoom_margin)
-
-        plt.draw()
-        plt.pause(0.001)
-        self.last_plot_time = now
-
-
-class GuidanceMode(Enum):
-    LOCAL_VELOCITY = "local_velocity"
-    GLOBAL_POSITION = "global_position"
-    GLOBAL_VELOCITY = "global_velocity"
-
-
-class GuidanceDispatcher:
-    """
-    Dispatches to the appropriate guidance function based on GUIDANCE_MODE.
-    """
-
-    def __init__(self):
-        # PID controllers for camera‐frame errors
-        self.pid_cam_x = PIDController(KP_CAM_X, KI_CAM_X, KD_CAM_X,
-                                       -MAX_VX_BODY, MAX_VX_BODY, deadband=0.0)
-        self.pid_cam_y = PIDController(KP_CAM_Y, KI_CAM_Y, KD_CAM_Y,
-                                       -MAX_VY_BODY, MAX_VY_BODY, deadband=0.0)
-        self.pid_cam_z = PIDController(KP_CAM_Z, KI_CAM_Z, KD_CAM_Z,
-                                       -MAX_VZ_BODY, MAX_VZ_BODY, deadband=CAM_Z_DEADBAND)
-
-        # PID controllers for NED‐frame errors (used only in global_velocity)
-        self.pid_n = PIDController(KP_CAM_X, KI_CAM_X, KD_CAM_X,
-                                   -MAX_VX_BODY, MAX_VX_BODY, deadband=0.0)
-        self.pid_e = PIDController(KP_CAM_Y, KI_CAM_Y, KD_CAM_Y,
-                                   -MAX_VY_BODY, MAX_VY_BODY, deadband=0.0)
-        self.pid_d = PIDController(KP_CAM_Z, KI_CAM_Z, KD_CAM_Z,
-                                   -MAX_VZ_BODY, MAX_VZ_BODY, deadband=CAM_Z_DEADBAND)
-
-    def reset_all(self):
-        """Reset all PID controllers."""
-        self.pid_cam_x.reset()
-        self.pid_cam_y.reset()
-        self.pid_cam_z.reset()
-        self.pid_n.reset()
-        self.pid_e.reset()
-        self.pid_d.reset()
-
-    async def local_velocity(self, drone: System, err_body: np.ndarray,
-                             dt: float, yaw_rate: float):
-        """
-        Local Velocity Mode:
-          - err_body: [X_body_error, Y_body_error, Z_body_error] in BODY frame.
-          - dt: timestep
-          - yaw_rate: commanded yaw‐rate (deg/s)
-        Action: Run camera‐frame PID → BODY velocities → send set_velocity_body.
-        """
-        # Rotate error into camera frame
-        err_cam = R_CAM2BODY.T.dot(err_body)
-        err_x, err_y, err_z = err_cam
-
-        # Compute PID output in camera axes
-        u_cam_x = self.pid_cam_x.update(err_x, dt)
-        u_cam_y = self.pid_cam_y.update(err_y, dt)
-        u_cam_z = self.pid_cam_z.update(err_z, dt)
-
-        # Rotate camera‐PID output → BODY frame velocities
-        vel_body = R_CAM2BODY.dot(np.array([u_cam_x, u_cam_y, u_cam_z]))
-
-        # Send BODY‐velocity + yaw_rate
-        try:
-            await drone.offboard.set_velocity_body(
-                VelocityBodyYawspeed(
-                    vel_body[0],
-                    vel_body[1],
-                    vel_body[2],
-                    yaw_rate
-                )
-            )
-        except OffboardError as e:
-            print(f"[ERROR] Local Velocity command failed: {e}")
-
-    async def global_position(self, drone: System, err_body: np.ndarray,
-                              yaw_rad: float, desired_yaw_body: float):
-        """
-        Global Position Mode (AMSL):
-          - err_body: [X_body_error, Y_body_error, Z_body_error] in BODY frame.
-          - yaw_rad: current yaw in radians.
-          - desired_yaw_body: desired vehicle yaw (deg) to point camera at target.
-        Action: compute target LLA (ENU→geodetic, AMSL) and send PositionGlobalYaw.
-        """
-        # 1) Fetch current LLA + NED (using AMSL)
-        lat_cur, lon_cur, alt_cur, cn, ce, cd = await get_lla_ned(drone)
-
-        # 2) BODY → WORLD NED offset
-        offset_n, offset_e, offset_d = cam_to_world(err_body, yaw_rad)
-
-        # 3) NED → ENU conversion (pymap3d expects ENU)
-        enu_e = offset_e
-        enu_n = offset_n
-        enu_u = -offset_d  # down positive → up negative
-
-        # 4) ENU → geodetic (target LLA, AMSL)
-        tgt_lat, tgt_lon, tgt_alt = pm.enu2geodetic(
-            enu_e, enu_n, enu_u,
-            lat_cur, lon_cur, alt_cur,
-            deg=True
-        )
-
-        # 5) Send global‐position setpoint + yaw (AMSL mode)
-        gp = PositionGlobalYaw(
-            tgt_lat,
-            tgt_lon,
-            tgt_alt,
-            desired_yaw_body,
-            PositionGlobalYaw.AltitudeType.AMSL  # explicitly use AMSL
-        )
-        try:
-            await drone.offboard.set_position_global(gp)
-        except OffboardError as e:
-            print(f"[ERROR] Global Position command failed: {e}")
-
-    async def global_velocity(self, drone: System, err_body: np.ndarray,
-                              dt: float, yaw_rad: float, yaw_rate: float):
-        """
-        Global Velocity Mode:
-          - err_body: [X_body_error, Y_body_error, Z_body_error] in BODY frame.
-          - dt: timestep
-          - yaw_rad: current yaw in radians.
-          - yaw_rate: commanded yaw‐rate (deg/s).
-        Action:
-          1) Compute target LLA (ENU→geodetic, AMSL).
-          2) Convert that LLA → NED offset (geodetic2enu).
-          3) FULL NED‐PID on (offset_n2, offset_e2, offset_d2) using camera gains.
-          4) Rotate NED‐PID result → BODY velocities, send set_velocity_body.
-          5) Yaw slew‐limit so camera X always points at target.
-        """
-        # 1) Fetch current LLA + NED
-        lat_cur, lon_cur, alt_cur, cn, ce, cd = await get_lla_ned(drone)
-
-        # 2) BODY → WORLD NED offset
-        offset_n, offset_e, offset_d = cam_to_world(err_body, yaw_rad)
-
-        # 3) NED → ENU
-        enu_e = offset_e
-        enu_n = offset_n
-        enu_u = -offset_d  # down positive → up negative
-
-        # 4) ENU → geodetic (target LLA, AMSL)
-        tgt_lat, tgt_lon, tgt_alt = pm.enu2geodetic(
-            enu_e, enu_n, enu_u,
-            lat_cur, lon_cur, alt_cur,
-            deg=True
-        )
-
-        # 5) geodetic → ENU (back conversion) to get truly consistent NED offset
-        enu_e_back, enu_n_back, enu_u_back = pm.geodetic2enu(
-            tgt_lat, tgt_lon, tgt_alt,
-            lat_cur, lon_cur, alt_cur,
-            deg=True
-        )
-        offset_n2 = enu_n_back
-        offset_e2 = enu_e_back
-        offset_d2 = -enu_u_back
-
-        # 6) FULL PID on NED offset (north, east, down) using camera gains
-        u_n_cl = self.pid_n.update(offset_n2, dt)
-        u_e_cl = self.pid_e.update(offset_e2, dt)
-        u_d_cl = self.pid_d.update(offset_d2, dt)
-
-        # 7) Rotate NED‐velocity → BODY‐velocity
-        u_x_body = u_n_cl * math.cos(yaw_rad) + u_e_cl * math.sin(yaw_rad)
-        u_y_body = -u_n_cl * math.sin(yaw_rad) + u_e_cl * math.cos(yaw_rad)
-        u_z_body = u_d_cl
-
-        # 8) Send BODY‐velocity + yaw_rate to PX4
-        try:
-            await drone.offboard.set_velocity_body(
-                VelocityBodyYawspeed(
-                    u_x_body,
-                    u_y_body,
-                    u_z_body,
-                    yaw_rate
-                )
-            )
-        except OffboardError as e:
-            print(f"[ERROR] Global Velocity command failed: {e}")
-
-    async def dispatch(self, drone: System, err_body: np.ndarray, dt: float,
-                       yaw_rad: float, yaw_rate: float, desired_yaw_body: float):
-        """
-        Call the appropriate guidance function based on GUIDANCE_MODE.
-        """
-        mode = GUIDANCE_MODE
-        if mode == GuidanceMode.LOCAL_VELOCITY.value:
-            await self.local_velocity(drone, err_body, dt, yaw_rate)
-        elif mode == GuidanceMode.GLOBAL_POSITION.value:
-            await self.global_position(drone, err_body, yaw_rad, desired_yaw_body)
-        elif mode == GuidanceMode.GLOBAL_VELOCITY.value:
-            await self.global_velocity(drone, err_body, dt, yaw_rad, yaw_rate)
-        else:
-            print(f"[ERROR] Invalid GUIDANCE_MODE “{mode}”. Defaulting to local_velocity.")
-            await self.local_velocity(drone, err_body, dt, yaw_rate)
-
-
-# =============================================================================
-#                                   UTILITIES
-# =============================================================================
-
-async def get_lla_ned(drone: System):
-    """
-    Get latest LLA (latitude, longitude, altitude) and NED position.
-    Uses absolute AMSL altitude for "alt_m".
-    Returns:
-      lat_deg, lon_deg, alt_m (AMSL), north_m, east_m, down_m
-    """
-    # 1) Fetch geodetic position (absolute_altitude_m = AMSL)
-    async for pos in drone.telemetry.position():
-        lat_deg = pos.latitude_deg
-        lon_deg = pos.longitude_deg
-        alt_m   = pos.absolute_altitude_m  # altitude above mean sea level (m)
-        break
-
-    # 2) Fetch NED position (down is positive)
-    async for pv in drone.telemetry.position_velocity_ned():
-        n = pv.position.north_m
-        e = pv.position.east_m
-        d = pv.position.down_m
-        return lat_deg, lon_deg, alt_m, n, e, d
-
-
-async def get_yaw(drone: System):
-    """Get latest yaw: returns (yaw_deg, yaw_rad)."""
-    async for att in drone.telemetry.attitude_euler():
-        return att.yaw_deg, math.radians(att.yaw_deg)
-
-
-async def get_position_velocity(drone: System):
-    """Get latest position+velocity telemetry (for ground speed)."""
-    async for pv in drone.telemetry.position_velocity_ned():
-        return pv
-
-
-def init_plot():
-    """
-    Initialize 3D plot with:
-      - drone path (blue line), target path (red line)
-      - current drone/target positions (scatter)
-      - engagement text box (Distance, Speed, ETA)
-      - placeholder arrows for drone body-X (blue) and camera-X (cyan).
-      - **Invert Z-axis** so that higher altitude (more negative down) plots upward.
-    Returns all handles for updating.
-    """
-    plotter = PlotUpdater()
-    return plotter
-
-
-def cam_to_world(vec: np.ndarray, yaw_rad: float):
-    """
-    Convert a vector in BODY frame to WORLD NED frame.
-    vec: (bx, by, bz) in BODY (forward, right, down).
-    yaw_rad: current vehicle yaw in radians (zero means nose→north).
-    Returns: (dn, de, dd) in WORLD NED.
+    Transform a vector in BODY frame to WORLD NED frame:
+      vec = [forward, right, down]
+      yaw_rad = vehicle heading (rad) relative to North
+
+    Returns (north_offset, east_offset, down_offset)
     """
     bx, by, bz = vec
     dn = bx * math.cos(yaw_rad) - by * math.sin(yaw_rad)
     de = bx * math.sin(yaw_rad) + by * math.cos(yaw_rad)
-    dd = bz  # down in body = down in NED
+    dd = bz
     return dn, de, dd
 
+# =============================================================================
+#                                PID CONTROLLER
+# =============================================================================
+
+class PIDController:
+    """
+    Generic PID with deadband and anti-windup.
+
+    kp, ki, kd  → gains
+    lo, hi      → output clamping
+    deadband    → error range to ignore
+    """
+    def __init__(self, kp, ki, kd, lo, hi, deadband=0.0):
+        self.kp, self.ki, self.kd = kp, ki, kd
+        self.lo, self.hi, self.deadband = lo, hi, deadband
+        self.integral = 0.0
+        self.prev_error = 0.0
+
+    def reset(self) -> None:
+        """Zero integrator & previous error."""
+        self.integral = 0.0
+        self.prev_error = 0.0
+
+    def update(self, error: float, dt: float) -> float:
+        """
+        Compute PID output for given error & dt.
+        Applies deadband, clamps, and anti-windup.
+        Returns clamped control.
+        """
+        if abs(error) <= self.deadband:
+            self.prev_error = error
+            return 0.0
+
+        self.integral += error * dt
+        derivative = (error - self.prev_error) / dt if dt > 0 else 0.0
+        raw = self.kp*error + self.ki*self.integral + self.kd*derivative
+        out = clamp(raw, self.lo, self.hi)
+        if out != raw:
+            # anti-windup
+            self.integral -= error * dt
+        self.prev_error = error
+        return out
+
+# =============================================================================
+#                             KALMAN FILTER (FilterPy)
+# =============================================================================
+
+class FilterPyKalmanNED:
+    """
+    6D constant-velocity Kalman filter in NED coordinates.
+
+    State vector: [n, e, d, vn, ve, vd]
+    Measures position only (n,e,d).
+    Missed-measurement logic: pure predict until MISS_TIMEOUT
+    """
+    def __init__(self,
+                 dt: float,
+                 q_pos: float,
+                 q_vel: float,
+                 r_meas: float,
+                 miss_timeout: float):
+        self.dt = dt
+        self.kf = KalmanFilter(dim_x=6, dim_z=3)
+        F = np.eye(6)
+        F[0,3] = F[1,4] = F[2,5] = dt
+        self.kf.F = F
+        self.kf.H = np.block([np.eye(3), np.zeros((3,3))])
+        self.kf.P = np.eye(6)
+
+        # Process noise Q
+        dt2, dt3, dt4 = dt**2, dt**3, dt**4
+        Qp = q_pos * np.array([[dt4/4, dt3/2,    0],
+                                [dt3/2, dt2,      0],
+                                [0,     0,     dt2]])
+        Qv = q_vel * np.eye(3) * dt2
+        self.kf.Q = np.block([[Qp,        np.zeros((3,3))],
+                              [np.zeros((3,3)), Qv       ]])
+
+        # Measurement noise R
+        self.kf.R = np.eye(3) * (r_meas**2)
+
+        self.miss_timeout = miss_timeout
+        self.last_update = time.time()
+
+    def predict(self, dt: float) -> None:
+        """Perform Kalman predict; no dynamic F/Q rebuild for brevity."""
+        self.kf.predict()
+
+    def update(self, meas: Optional[np.ndarray]) -> None:
+        """
+        Perform update if `meas` is provided and not timed out.
+        `meas` should be shape=(3,) array [n,e,d].
+        """
+        now = time.time()
+        if meas is not None:
+            self.kf.update(meas.reshape((3,1)))
+            self.last_update = now
+        elif now - self.last_update > self.miss_timeout:
+            # pure prediction until next measurement
+            pass
+
+    def step(self, meas: Optional[np.ndarray], dt: float) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Combined predict+update for one cycle.
+        Returns (pos_est[3], vel_est[3])
+        """
+        self.predict(dt)
+        self.update(meas)
+        x = self.kf.x.flatten()
+        return x[0:3], x[3:6]
+
+# =============================================================================
+#                          GUIDANCE STRATEGY INTERFACE
+# =============================================================================
+
+class GuidanceStrategy(ABC):
+    """
+    Abstract base class for pursuit guidance strategies.
+    """
+    @abstractmethod
+    async def run(self,
+                  drone: System,
+                  err_body: np.ndarray,
+                  *,
+                  dt: float,
+                  yaw_rad: float,
+                  desired_yaw: float) -> None:
+        """
+        Compute & send offboard command based on camera-body error.
+
+        :param drone: MAVSDK System instance
+        :param err_body: [x_body_error,y_body_error,z_body_error]
+        :param dt: time since last update (s)
+        :param yaw_rad: vehicle yaw in radians
+        :param desired_yaw: final heading command (deg)
+        """
+        pass
+
+# =============================================================================
+#                     BUILT-IN GUIDANCE STRATEGIES
+# =============================================================================
+
+class LocalVelocityStrategy(GuidanceStrategy):
+    """
+    Applies camera-frame PID → BODY velocities → NED velocities → offboard.
+    Always points camera X axis at target via desired_yaw.
+    """
+    def __init__(self):
+        self.pid_x = PIDController(KP_CAM_X, KI_CAM_X, KD_CAM_X,
+                                   -MAX_VX_BODY, MAX_VX_BODY)
+        self.pid_y = PIDController(KP_CAM_Y, KI_CAM_Y, KD_CAM_Y,
+                                   -MAX_VY_BODY, MAX_VY_BODY)
+        self.pid_z = PIDController(KP_CAM_Z, KI_CAM_Z, KD_CAM_Z,
+                                   -MAX_VZ_BODY, MAX_VZ_BODY,
+                                   CAM_Z_DEADBAND)
+
+    async def run(self, drone, err_body, *, dt, yaw_rad, desired_yaw):
+        # 1) Rotate error into CAMERA frame
+        err_cam = R_CAM2BODY.T.dot(err_body)
+        # 2) PID in X,Y,Z camera axes
+        ux = self.pid_x.update(err_cam[0], dt)
+        uy = self.pid_y.update(err_cam[1], dt)
+        uz = self.pid_z.update(err_cam[2], dt)
+        # 3) Rotate camera-output back to BODY
+        vel_body = R_CAM2BODY.dot(np.array([ux, uy, uz]))
+        # 4) Rotate BODY velocities to WORLD NED
+        dn, de, dd = cam_to_world(vel_body, yaw_rad)
+        # 5) Send NED velocity + yaw angle
+        try:
+            await drone.offboard.set_velocity_ned(
+                VelocityNedYaw(dn, de, dd, desired_yaw)
+            )
+        except OffboardError as e:
+            logger.error("LocalVelocity failed: %s", e)
+
+
+class GlobalPositionStrategy(GuidanceStrategy):
+    """
+    Computes geodetic setpoint from camera-body error and sends PositionGlobalYaw.
+    Uses absolute AMSL altitude from telemetry.
+    """
+    async def run(self, drone, err_body, *, dt, yaw_rad, desired_yaw):
+        # fetch current geodetic + NED
+        lat, lon, alt, cn, ce, cd = await get_lla_ned(drone)
+        # compute NED offset in world
+        dn, de, dd = cam_to_world(err_body, yaw_rad)
+        enu_e, enu_n, enu_u = de, dn, -dd
+        # convert ENU→geodetic
+        tgt_lat, tgt_lon, tgt_alt = pm.enu2geodetic(
+            enu_e, enu_n, enu_u,
+            lat, lon, alt,
+            deg=True
+        )
+        # send setpoint
+        try:
+            await drone.offboard.set_position_global(
+                PositionGlobalYaw(
+                    tgt_lat,
+                    tgt_lon,
+                    tgt_alt,
+                    desired_yaw,
+                    PositionGlobalYaw.AltitudeType.AMSL
+                )
+            )
+        except OffboardError as e:
+            logger.error("GlobalPosition failed: %s", e)
+
+
+class GlobalVelocityStrategy(GuidanceStrategy):
+    """
+    Full NED-frame PID on geodetic-derived offset → send NED velocities.
+    """
+    def __init__(self):
+        self.pid_n = PIDController(KP_CAM_X, KI_CAM_X, KD_CAM_X,
+                                   -MAX_VX_BODY, MAX_VX_BODY)
+        self.pid_e = PIDController(KP_CAM_Y, KI_CAM_Y, KD_CAM_Y,
+                                   -MAX_VY_BODY, MAX_VY_BODY)
+        self.pid_d = PIDController(KP_CAM_Z, KI_CAM_Z, KD_CAM_Z,
+                                   -MAX_VZ_BODY, MAX_VZ_BODY,
+                                   CAM_Z_DEADBAND)
+
+    async def run(self, drone, err_body, *, dt, yaw_rad, desired_yaw):
+        # fetch current geodetic + NED
+        lat, lon, alt, cn, ce, cd = await get_lla_ned(drone)
+        # compute world NED offset
+        dn, de, dd = cam_to_world(err_body, yaw_rad)
+        enu_e, enu_n, enu_u = de, dn, -dd
+        # geodetic target
+        tgt_lat, tgt_lon, tgt_alt = pm.enu2geodetic(
+            enu_e, enu_n, enu_u, lat, lon, alt, deg=True
+        )
+        # back to ENU→consistent NED offset
+        be, bn, bu = pm.geodetic2enu(
+            tgt_lat, tgt_lon, tgt_alt, lat, lon, alt, deg=True
+        )
+        off_n, off_e, off_d = bn, be, -bu
+        # PID in NED
+        un = self.pid_n.update(off_n, dt)
+        ue = self.pid_e.update(off_e, dt)
+        ud = self.pid_d.update(off_d, dt)
+        # send NED velocity + yaw
+        try:
+            await drone.offboard.set_velocity_ned(
+                VelocityNedYaw(un, ue, ud, desired_yaw)
+            )
+        except OffboardError as e:
+            logger.error("GlobalVelocity failed: %s", e)
+
+
+class PNStrategy(GuidanceStrategy):
+    """
+    Stub for Proportional Navigation guidance.
+    Replace `run` with PN implementation.
+    """
+    async def run(self, drone, err_body, *, dt, yaw_rad, desired_yaw):
+        logger.warning("PNStrategy not implemented.")
+
+
+STRATEGY_REGISTRY: Dict[str, Type[GuidanceStrategy]] = {
+    "local_velocity":  LocalVelocityStrategy,
+    "global_position": GlobalPositionStrategy,
+    "global_velocity": GlobalVelocityStrategy,
+    "pn":              PNStrategy,
+}
+
+# =============================================================================
+#                           PLOTTING / VISUALIZATION
+# =============================================================================
+
+class PlotUpdater:
+    """
+    Real-time 3D visualization of drone & target in NED.
+    Shows path history, current markers, arrows, and engagement metrics.
+    """
+    def __init__(self):
+        plt.ion()
+        self.fig = plt.figure()
+        self.ax  = self.fig.add_subplot(projection="3d")
+        self.drone_line, = self.ax.plot([], [], [], c="blue", label="Drone")
+        self.tgt_line,   = self.ax.plot([], [], [], c="red",  label="Target")
+        self.drone_sc = self.ax.scatter([], [], [], c="blue", s=50)
+        self.tgt_sc   = self.ax.scatter([], [], [], c="red",  s=50)
+        self.text     = self.ax.text2D(0.02, 0.95, "", transform=self.ax.transAxes)
+        self.ax.set_xlabel("North (m)")
+        self.ax.set_ylabel("East (m)")
+        self.ax.set_zlabel("Down (m)")
+        self.ax.legend()
+        self.ax.invert_zaxis()  # so negative-down (higher altitude) appears up
+        self.drone_arr = self.ax.quiver(0,0,0,0,0,0)
+        self.cam_arr   = self.ax.quiver(0,0,0,0,0,0, color="cyan")
+        self.path_drone, self.path_tgt = [], []
+        self.zoom = 2.0; self.last = 0.0
+
+    def initialize(self, n0, e0, d0, tn, te, td, yaw):
+        """
+        Initial draw: paths, scatters, arrows.
+        yaw in radians.
+        """
+        self.path_drone = [(n0,e0,d0)]
+        self.path_tgt    = [(tn,te,td)]
+        self.drone_line.set_data([n0],[e0]); self.drone_line.set_3d_properties([d0])
+        self.tgt_line.set_data([tn],[te]);     self.tgt_line.set_3d_properties([td])
+        self.drone_sc._offsets3d = ([n0],[e0],[d0])
+        self.tgt_sc._offsets3d   = ([tn],[te],[td])
+        self.drone_arr.remove(); self.cam_arr.remove()
+        self.drone_arr = self.ax.quiver(n0,e0,d0,
+                                        math.cos(yaw), math.sin(yaw), 0,
+                                        length=ARROW_LEN, normalize=True)
+        cy = yaw + math.radians(CAM_MOUNT_YAW_DEG)
+        self.cam_arr = self.ax.quiver(n0,e0,d0,
+                                      math.cos(cy), math.sin(cy), 0,
+                                      length=ARROW_LEN, normalize=True, color="cyan")
+        plt.draw(); plt.pause(0.001)
+        self.last = time.time()
+
+    def update(self, cn, ce, cd, tn, te, td, yaw, dist, speed, eta, chi):
+        """
+        Update plot if enough time elapsed.
+        Adds to history, redraws lines, scatters, arrows, zoom.
+        """
+        now = time.time()
+        if now - self.last < 1.0/PLOT_RATE_HZ:
+            return
+        self.path_drone.append((cn,ce,cd))
+        self.path_tgt.append((tn,te,td))
+        dn,de,dd = zip(*self.path_drone)
+        tn_,te_,td_ = zip(*self.path_tgt)
+        self.drone_line.set_data(dn,de); self.drone_line.set_3d_properties(dd)
+        self.tgt_line.set_data(tn_,te_); self.tgt_line.set_3d_properties(td_)
+        self.drone_sc._offsets3d = ([cn],[ce],[cd])
+        self.tgt_sc._offsets3d   = ([tn],[te],[td])
+        self.text.set_text(f"D={dist:.1f}m V={speed:.1f}m/s ETA={eta:.1f}s χ={chi:.1f}°")
+        self.drone_arr.remove(); self.cam_arr.remove()
+        self.drone_arr = self.ax.quiver(cn,ce,cd,
+                                        math.cos(yaw), math.sin(yaw), 0,
+                                        length=ARROW_LEN, normalize=True)
+        cy = yaw + math.radians(CAM_MOUNT_YAW_DEG)
+        self.cam_arr   = self.ax.quiver(cn,ce,cd,
+                                        math.cos(cy), math.sin(cy), 0,
+                                        length=ARROW_LEN, normalize=True, color="cyan")
+        all_n = np.array(dn + tn_)
+        all_e = np.array(de + te_)
+        all_d = np.array(dd + td_)
+        self.ax.set_xlim(all_n.min()-self.zoom, all_n.max()+self.zoom)
+        self.ax.set_ylim(all_e.min()-self.zoom, all_e.max()+self.zoom)
+        self.ax.set_zlim(all_d.max()+self.zoom, all_d.min()-self.zoom)
+        plt.draw(); plt.pause(0.001)
+        self.last = now
+
+# =============================================================================
+#                           TELEMETRY HELPERS
+# =============================================================================
+
+async def get_lla_ned(drone: System) -> Tuple[float, float, float, float, float, float]:
+    """
+    Return (lat_deg, lon_deg, alt_AMSL_m, north_m, east_m, down_m).
+    Uses absolute_altitude_m for true AMSL.
+    """
+    async for p in drone.telemetry.position():
+        lat, lon, alt = p.latitude_deg, p.longitude_deg, p.absolute_altitude_m
+        break
+    async for pv in drone.telemetry.position_velocity_ned():
+        return lat, lon, alt, pv.position.north_m, pv.position.east_m, pv.position.down_m
+
+async def get_yaw(drone: System) -> Tuple[float, float]:
+    """
+    Return (yaw_deg, yaw_rad) from attitude_euler telemetry.
+    """
+    async for att in drone.telemetry.attitude_euler():
+        return att.yaw_deg, math.radians(att.yaw_deg)
+
+async def get_ground_speed(drone: System) -> Tuple[float, float]:
+    """
+    Return ground speed components (vn, ve) in NED.
+    """
+    async for pv in drone.telemetry.position_velocity_ned():
+        return pv.velocity.north_m_s, pv.velocity.east_m_s
 
 # =============================================================================
 #                                   MAIN
 # =============================================================================
 
 async def main():
-    # Instantiate dispatcher and optionally plot updater
-    dispatcher = GuidanceDispatcher()
-    plotter = None
-    if ENABLE_PLOT:
-        plotter = init_plot()
+    drone = System()
+    await drone.connect(system_address="udp://:14540")
+    logger.info("Connecting to PX4 SITL…")
+    async for h in drone.telemetry.health():
+        if h.is_global_position_ok and h.is_home_position_ok:
+            logger.info("Vehicle ready.")
+            break
 
-    # Initialize Kalman filter if enabled
+    logger.info("Arming & OFFBOARD…")
+    await drone.action.hold()
+    await drone.action.arm()
+    try:
+        # start with zero NED velocity + zero yaw
+        await drone.offboard.set_velocity_ned(VelocityNedYaw(0, 0, 0, 0))
+        await drone.offboard.start()
+        logger.info("Offboard engaged.")
+    except OffboardError as e:
+        logger.error("Offboard start failed: %s", e)
+        return
+
+    # --- Takeoff to hover altitude ---
+    logger.info("Takeoff to %.1f m", TAKEOFF_ALTITUDE)
+    t0 = time.time()
+    last = t0
+    while True:
+        await drone.offboard.set_velocity_ned(VelocityNedYaw(0, 0, ASCENT_SPEED, 0))
+        _,_,_,_,_,down = await get_lla_ned(drone)
+        alt = -down
+        if time.time()-last > 1.0:
+            logger.info(" Ascending: %.2f m", alt)
+            last = time.time()
+        if alt >= TAKEOFF_ALTITUDE:
+            logger.info("Reached altitude %.2f m", alt)
+            break
+        await asyncio.sleep(1/SETPOINT_FREQ)
+
+    # hover
+    await drone.offboard.set_velocity_ned(VelocityNedYaw(0,0,0,0))
+
+    # record home state
+    lat0, lon0, alt0, n0, e0, d0 = await get_lla_ned(drone)
+    yaw_deg, yaw_rad = await get_yaw(drone)
+    logger.info("Home LLA=(%.6f,%.6f,%.2f AMSL) NED=(%.2f,%.2f,%.2f) Yaw=%.1f°",
+                lat0, lon0, alt0, n0, e0, d0, yaw_deg)
+
+    # --- Compute initial target in WORLD NED using current yaw ---
+    body_init = R_CAM2BODY.dot(CAM_TARGET_INIT)
+    dn0, de0, dd0 = cam_to_world(body_init, yaw_rad)
+    target_n = n0 + dn0
+    target_e = e0 + de0
+    target_d = d0 + dd0
+    # target velocity in world NED
+    body_vel = R_CAM2BODY.dot(CAM_TARGET_VEL)
+    vel_n, vel_e, vel_d = cam_to_world(body_vel, yaw_rad)
+    logger.info("Initial target NED=(%.2f,%.2f,%.2f)", target_n, target_e, target_d)
+
+    # --- Initialize Kalman filter if enabled ---
     kf = None
     if USE_KALMAN:
         kf = FilterPyKalmanNED(
-            dt=1.0/SETPOINT_FREQ,
-            process_noise_pos=KF_POS_NOISE,
-            process_noise_vel=KF_VEL_NOISE,
-            meas_noise=KF_MEAS_NOISE,
-            miss_timeout=KF_MISS_TIMEOUT,
+            dt=1/SETPOINT_FREQ,
+            q_pos=KF_POS_NOISE,
+            q_vel=KF_VEL_NOISE,
+            r_meas=KF_MEAS_NOISE,
+            miss_timeout=KF_MISS_TIMEOUT
         )
+        kf.kf.x[:3] = np.array([target_n, target_e, target_d]).reshape((3,1))
 
-    # --- connect & arm ---
-    drone = System()
-    await drone.connect(system_address="udp://:14540")
-    print("[INFO] Connecting to PX4 SITL...")
-
-    async for health in drone.telemetry.health():
-        if health.is_global_position_ok and health.is_home_position_ok:
-            print("[INFO] Vehicle ready for Offboard.")
-            break
-
-    print("[ACTION] Arming and holding...")
-    await drone.action.hold()
-    await drone.action.arm()
-
-    try:
-        # Start offboard in velocity mode
-        await drone.offboard.set_velocity_body(VelocityBodyYawspeed(0, 0, 0, 0))
-        await drone.offboard.start()
-        print("[OFFBOARD] Engaged.")
-    except OffboardError as e:
-        print(f"[ERROR] Offboard start failed: {e._result.result}")
-        return
-
-    # --- takeoff ---
-    print(f"[TAKEOFF] Ascending to {TAKEOFF_ALTITUDE:.1f} m...", end='\r', flush=True)
-    last_log = time.time()
-    while True:
-        await drone.offboard.set_velocity_body(VelocityBodyYawspeed(0, 0, ASCENT_SPEED, 0))
-        # Check altitude via NED
-        _, _, _, _, _, down = await get_lla_ned(drone)
-        alt = -down  # negative‐down = altitude above home
-        now = time.time()
-        if now - last_log >= 1.0:
-            print(f"[TAKEOFF] Altitude: {alt:.2f} m", end='\r', flush=True)
-            last_log = now
-        if alt >= TAKEOFF_ALTITUDE:
-            print(f"\n[INFO] Reached altitude {alt:.2f} m")
-            break
-        await asyncio.sleep(1 / SETPOINT_FREQ)
-
-    # Hover briefly
-    await drone.offboard.set_velocity_body(VelocityBodyYawspeed(0, 0, 0, 0))
-
-    # --- record home state ---
-    lat0, lon0, alt0, n0, e0, d0 = await get_lla_ned(drone)
-    yaw_deg, yaw_rad = await get_yaw(drone)
-    print(
-        f"[DATA] Home LLA=({lat0:.6f},{lon0:.6f},{alt0:.2f} m AMSL), "
-        f"NED=({n0:.2f},{e0:.2f},{d0:.2f}), Yaw={yaw_deg:.1f}°"
-    )
-
-    # --- Force yaw to 0 (face true North) for initial camera‐to‐world mapping ---
-    print(f"[ACTION] Yaw to 0.0° (true North) for initial camera→world mapping...", end='\r', flush=True)
-    await drone.offboard.set_position_ned(PositionNedYaw(n0, e0, d0, 0.0))
-    await asyncio.sleep(2.0)
-    print(f"\n[INFO] Yaw aligned to 0.0°")
-
-    # After yaw is zero, fetch yaw again (should be ~0)
-    yaw_deg, yaw_rad = await get_yaw(drone)
-
-    # --- prepare initial world‐frame target ---
-    # (Now yaw_rad = 0, so forward = +North)
-    body_init = R_CAM2BODY.dot(CAM_TARGET_INIT)
-    body_vel  = R_CAM2BODY.dot(CAM_TARGET_VEL)
-
-    dn0, de0, dd0 = cam_to_world(body_init, yaw_rad)
-    target_n, target_e, target_d = n0 + dn0, e0 + de0, d0 + dd0
-    vel_n, vel_e, vel_d         = cam_to_world(body_vel, yaw_rad)
-
-    print(f"[COMPUTE] Initial world target NED=({target_n:.2f},{target_e:.2f},{target_d:.2f})")
-
-    # Initialize Kalman filter state if enabled
-    if kf:
-        meas = np.array([target_n, target_e, target_d])
-        kf.kf.x[0:3] = meas.reshape((3, 1))  # set initial position
-        kf.kf.x[3:6] = np.zeros((3, 1))      # assume zero initial velocity
-        kf.kf.P = np.eye(6) * 1.0
-        kf.last_update_time = time.time()
-
-    # --- initial yaw align for camera‐facing (again) ---
+    # --- Yaw to face initial target ---
     raw_bearing = math.degrees(math.atan2(target_e - e0, target_n - n0))
-    desired_yaw_body = normalize(raw_bearing - CAM_MOUNT_YAW_DEG)
-    print(f"[ACTION] Yaw to {desired_yaw_body:.1f}° for camera‐facing...", end='\r', flush=True)
-    await drone.offboard.set_position_ned(PositionNedYaw(n0, e0, d0, desired_yaw_body))
+    desired_yaw = normalize(raw_bearing - CAM_MOUNT_YAW_DEG)
+    logger.info("Yaw→%.1f° for camera-facing", desired_yaw)
+    await drone.offboard.set_position_ned(PositionNedYaw(n0, e0, d0, desired_yaw))
     await asyncio.sleep(2.0)
-    print(f"\n[INFO] Yaw aligned to {desired_yaw_body:.1f}°")
+    yaw_deg, yaw_rad = await get_yaw(drone)
+    logger.info("Yaw aligned to %.1f°", yaw_deg)
 
-    # --- setup plot ---
+    # --- Setup visualization ---
+    plotter = PlotUpdater() if ENABLE_PLOT else None
     if plotter:
         plotter.initialize(n0, e0, d0, target_n, target_e, target_d, yaw_rad)
 
-    # --- initialize PID state variables ---
-    dispatcher.reset_all()
+    # --- Select guidance strategy ---
+    strat_cls = STRATEGY_REGISTRY.get(GUIDANCE_MODE, LocalVelocityStrategy)
+    strategy = strat_cls()
 
-    prev_time = start_time = time.time()
-    prev_yaw_rate = 0.0
-
-    # Print header once (above dynamic updates)
+    prev_t = start_t = time.time()
     print("Time(s) | Dist(m) | Speed(m/s) | ETA(s) | χ(deg) | tgt lat | tgt lon | tgt alt (m AMSL)")
 
-    # --- pursuit loop ---
+    # --- Main pursuit loop ---
     while True:
         now = time.time()
-        dt = now - prev_time
-        prev_time = now
+        dt = now - prev_t
+        prev_t = now
 
-        # 1) Propagate simulated target in world NED (for SITL simulation)
+        # propagate synthetic target in world NED
         target_n += vel_n * dt
         target_e += vel_e * dt
         target_d += vel_d * dt
 
-        # 2) Telemetry: yaw + ground speed
+        # current telemetry
         yaw_deg, yaw_rad = await get_yaw(drone)
-        pv = await get_position_velocity(drone)
-        vn, ve = pv.velocity.north_m_s, pv.velocity.east_m_s
+        vn, ve = await get_ground_speed(drone)
 
-        # 3) Depending on GUIDANCE_MODE, fetch LLA+NED or only NED
-        if GUIDANCE_MODE in (GuidanceMode.GLOBAL_POSITION.value,
-                             GuidanceMode.GLOBAL_VELOCITY.value):
-            lat_cur, lon_cur, alt_cur, cn, ce, cd = await get_lla_ned(drone)
+        # get state based on guidance mode
+        if GUIDANCE_MODE.startswith("global"):
+            lat, lon, alt, cn, ce, cd = await get_lla_ned(drone)
         else:
-            # local_velocity mode: ignore LLA fields
             _, _, _, cn, ce, cd = await get_lla_ned(drone)
-            lat_cur = lon_cur = alt_cur = None
+            lat = lon = alt = None
 
-        # 4) Compute relative vector in NED & distance/ETA
+        # compute relative NED & metrics
         rel_n = target_n - cn
         rel_e = target_e - ce
         rel_d = target_d - cd
-        dist = math.sqrt(rel_n**2 + rel_e**2 + rel_d**2)
+        dist  = math.sqrt(rel_n**2 + rel_e**2 + rel_d**2)
         speed = math.hypot(vn, ve)
-        eta = dist / speed if speed > 0.1 else float('inf')
+        eta   = dist / speed if speed > 0.1 else float('inf')
 
-        # 5) Compute error in BODY frame: rotate NED error by yaw
+        # body-frame error
         err_body = np.array([
             rel_n * math.cos(yaw_rad) + rel_e * math.sin(yaw_rad),
             -rel_n * math.sin(yaw_rad) + rel_e * math.cos(yaw_rad),
             rel_d
         ])
 
-        # 6) Always apply Kalman filter to smooth target NED (if enabled)
+        # apply Kalman filter if enabled
         if USE_KALMAN and kf:
-            measurement = np.array([target_n, target_e, target_d])
-            est_pos, est_vel = kf.step(measurement, dt)
-            # Overwrite target NED with filtered estimate
-            target_n, target_e, target_d = est_pos
-            # Recompute relative vector using filtered position
-            rel_n = target_n - cn
-            rel_e = target_e - ce
-            rel_d = target_d - cd
+            meas = np.array([target_n, target_e, target_d])
+            pos_est, _ = kf.step(meas, dt)
+            target_n, target_e, target_d = pos_est
+            rel_n = target_n - cn; rel_e = target_e - ce; rel_d = target_d - cd
             err_body = np.array([
                 rel_n * math.cos(yaw_rad) + rel_e * math.sin(yaw_rad),
                 -rel_n * math.sin(yaw_rad) + rel_e * math.cos(yaw_rad),
                 rel_d
             ])
-        else:
-            # If no measurement (should not happen in SITL), simply predict
-            if USE_KALMAN and kf:
-                kf.predict(dt)
 
-        # 7) Compute desired yaw so camera X always points at target
+        # compute desired yaw so camera X faces target
         raw_bearing = math.degrees(math.atan2(rel_e, rel_n))
-        desired_yaw_body = normalize(raw_bearing - CAM_MOUNT_YAW_DEG)
-        chi = normalize(desired_yaw_body - yaw_deg)
-        raw_rate = clamp(chi * YAW_GAIN, -YAW_RATE_MAX, YAW_RATE_MAX) \
-            if abs(chi) > YAW_DEADBAND else 0.0
-        max_d = YAW_SLEW_RATE * dt
-        yaw_rate = prev_yaw_rate + clamp(raw_rate - prev_yaw_rate, -max_d, max_d)
-        prev_yaw_rate = yaw_rate
+        desired_yaw = normalize(raw_bearing - CAM_MOUNT_YAW_DEG)
+        chi = normalize(desired_yaw - yaw_deg)
 
-        # 8) Prepare variables for in‐line printing of target LLA (AMSL)
+        # compute target LLA for logging if global mode
         tgt_lat = tgt_lon = tgt_alt = None
-        if GUIDANCE_MODE in (GuidanceMode.GLOBAL_POSITION.value,
-                             GuidanceMode.GLOBAL_VELOCITY.value):
-            offset_n, offset_e, offset_d = cam_to_world(err_body, yaw_rad)
-            enu_e = offset_e
-            enu_n = offset_n
-            enu_u = -offset_d
+        if GUIDANCE_MODE.startswith("global"):
+            dn, de, dd = cam_to_world(err_body, yaw_rad)
             tgt_lat, tgt_lon, tgt_alt = pm.enu2geodetic(
-                enu_e, enu_n, enu_u,
-                lat_cur, lon_cur, alt_cur,
-                deg=True
+                de, dn, -dd, lat, lon, alt, deg=True
             )
 
-        # 9) Dispatch to chosen guidance mode
-        await dispatcher.dispatch(drone, err_body, dt, yaw_rad, yaw_rate, desired_yaw_body)
+        # dispatch to guidance strategy
+        await strategy.run(
+            drone,
+            err_body,
+            dt=dt,
+            yaw_rad=yaw_rad,
+            desired_yaw=desired_yaw
+        )
 
-        # 10) Dynamic single‐line console log including "TARGET LLA" in‐line
-        if GUIDANCE_MODE in (GuidanceMode.GLOBAL_POSITION.value,
-                             GuidanceMode.GLOBAL_VELOCITY.value):
-            print(
-                f"{now - start_time:7.1f} | {dist:7.2f} | {speed:8.2f} | {eta:7.1f} | {chi:6.1f} | "
-                f"{tgt_lat:.6f} | {tgt_lon:.6f} | {tgt_alt:.2f} m AMSL",
-                end='\r', flush=True
-            )
+        # console log
+        if GUIDANCE_MODE.startswith("global"):
+            print(f"{now-start_t:7.1f} | {dist:7.2f} | {speed:8.2f} | "
+                  f"{eta:7.1f} | {chi:6.1f} | "
+                  f"{tgt_lat:.6f} | {tgt_lon:.6f} | {tgt_alt:.2f} m", end="\r")
         else:
-            print(
-                f"{now - start_time:7.1f} | {dist:7.2f} | {speed:8.2f} | {eta:7.1f} | {chi:6.1f}",
-                end='\r', flush=True
-            )
+            print(f"{now-start_t:7.1f} | {dist:7.2f} | {speed:8.2f} | "
+                  f"{eta:7.1f} | {chi:6.1f}", end="\r")
 
-        # 11) Mission end checks
-        if now - start_time > MAX_MISSION_TIME:
-            print("\n[ERROR] Mission timeout.")
+        # end checks
+        if now - start_t > MAX_MISSION_TIME:
+            logger.error("Mission timeout.")
             break
         if dist <= TARGET_THRESHOLD:
-            print(f"\n[INFO] Reached target (dist={dist:.2f} m)")
+            logger.info("Reached target (%.2f m).", dist)
             break
 
-        # 12) Update plot if enabled
-        if plotter:
-            plotter.update(cn, ce, cd, target_n, target_e, target_d,
-                           yaw_rad, dist, speed, eta, chi)
+        # plot update
+        if ENABLE_PLOT:
+            plotter.update(
+                cn, ce, cd,
+                target_n, target_e, target_d,
+                yaw_rad,
+                dist, speed, eta, chi
+            )
 
-        await asyncio.sleep(1 / SETPOINT_FREQ)
+        await asyncio.sleep(1/SETPOINT_FREQ)
 
-    # --- finish: hold & RTL ---
-    print(f"[ACTION] Holding for {HOLD_TIME_AFTER:.1f} s")
+    # hold & RTL
+    logger.info("Holding for %.1f s", HOLD_TIME_AFTER)
     await asyncio.sleep(HOLD_TIME_AFTER)
-    print("[OFFBOARD] Stopping & RTL")
+    logger.info("Stopping offboard & RTL")
     await drone.offboard.stop()
     await drone.action.return_to_launch()
-    print("[COMPLETE] RTL initiated.")
-
+    logger.info("RTL initiated.")
 
 if __name__ == "__main__":
     asyncio.run(main())

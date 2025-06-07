@@ -34,8 +34,8 @@ from mavsdk.offboard import PositionNedYaw
 # CAMERA FRAME TARGET DEFINITION:
 # Simulates OAK-D camera detection output in this phase of SITL
 # X_cam = forward, Y_cam = right, Z_cam = down (meters)
-CAM_TARGET_INIT     = np.array([20.0,  0.0, -5.0])
-CAM_TARGET_VEL      = np.array([-2.5, -1.0,  0.0])
+CAM_TARGET_INIT     = np.array([-50.0,  10.0, -30.0])
+CAM_TARGET_VEL      = np.array([0.0, 0.0,  0.0])
 
 # Camera mount extrinsics: yaw, pitch, roll (degrees)
 CAM_MOUNT_YAW_DEG   = 0.0   # + rotates camera left of vehicle X+ axis
