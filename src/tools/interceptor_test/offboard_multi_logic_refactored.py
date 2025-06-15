@@ -61,11 +61,11 @@ TARGET_THRESHOLD = 3.0    # target acceptance radius (m)
 HOLD_TIME_AFTER  = 3.0    # hold time at target (s)
 
 # Simulated target in CAMERA frame: X forward, Y right, Z down (m)
-CAM_TARGET_INIT = np.array([20.0, 0.0, -10.0])  
-CAM_TARGET_VEL  = np.array([1.0,  0.0,   0.0])  
+CAM_TARGET_INIT = np.array([30.0, 0.0, -10.0])  
+CAM_TARGET_VEL  = np.array([-1.0, 2.0 , 0.5])  
 
 # Camera mount extrinsics (degrees)
-CAM_MOUNT_YAW_DEG   = 90.0  # camera yaw offset relative to vehicle X+
+CAM_MOUNT_YAW_DEG   = 0.0  # camera yaw offset relative to vehicle X+
 CAM_MOUNT_PITCH_DEG = 0.0
 CAM_MOUNT_ROLL_DEG  = 0.0
 
@@ -88,7 +88,7 @@ ARROW_LEN    = 2.0  # arrow length for orientation indicators (m)
 #   "global_position" → compute geo setpoint → PositionGlobalYaw
 #   "global_velocity" → full NED-PID → NED velocity offboard
 #   "pn"              → stub for Proportional Navigation
-GUIDANCE_MODE = "global_velocity"
+GUIDANCE_MODE = "global_position"
 
 # Kalman filter settings (applies to all guidance modes)
 USE_KALMAN      = True   # enable synthetic target smoothing
