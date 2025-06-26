@@ -11,7 +11,7 @@ Navigation Modes:
 - Global: WGS84 geodetic navigation
 
 Command Modes:
-- Body Velocity: VelocityBodyYaw commands
+- Body Velocity: VelocityBodyYawspeed commands
 - NED Velocity: VelocityNedYaw commands
 - Global Position: PositionGlobalYaw commands
 
@@ -58,7 +58,7 @@ from mavsdk.offboard import (
     PositionGlobalYaw,
     PositionNedYaw,
     VelocityNedYaw,
-    VelocityBodyYaw,
+    VelocityBodyYawspeed,
 )
 from scipy import stats
 from scipy.linalg import block_diag
@@ -1094,11 +1094,11 @@ class GuidanceStrategy(ABC):
 
 class BodyVelocityGuidance(GuidanceStrategy):
     """
-    Body-frame velocity guidance using VelocityBodyYaw commands.
+    Body-frame velocity guidance using VelocityBodyYawSpeed commands.
     Best for: Close-range tracking, camera-centric control, non-GPS scenarios
     
     Navigation: Body frame relative to aircraft
-    Commands: VelocityBodyYaw (body frame velocities with yaw rate)
+    Commands: VelocityBodyYawSpeed (body frame velocities with yaw rate)
     """
     
     def __init__(self, params: InterceptionParameters,
@@ -1141,7 +1141,7 @@ class BodyVelocityGuidance(GuidanceStrategy):
         
         # Check deadband
         if distance < self.params.control_position_deadband:
-            await drone.offboard.set_velocity_body(VelocityBodyYaw(0, 0, 0, 0))
+            await drone.offboard.set_velocity_body(VelocityBodyYawspeed(0, 0, 0, 0))
             return True
         
         # Transform error to camera frame
@@ -1177,7 +1177,7 @@ class BodyVelocityGuidance(GuidanceStrategy):
         # Send command
         try:
             await drone.offboard.set_velocity_body(
-                VelocityBodyYaw(
+                VelocityBodyYawspeed(
                     float(vel_body[0]),
                     float(vel_body[1]),
                     float(vel_body[2]),
