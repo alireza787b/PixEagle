@@ -97,7 +97,7 @@ class InterceptionParameters:
         self.mission_hold_time = 3.0                 # seconds after reaching target
         
         # ===== Safety Limits =====
-        self.safety_min_altitude = 2.0               # meters AGL
+        self.safety_min_altitude = -2.0               # meters AGL  # Remmebr to fix only work when passed intial climb
         self.safety_max_altitude = 100.0             # meters AGL
         self.safety_max_distance = 500.0             # meters from home
         self.safety_geofence_action = "RTL"          # RTL or LOITER
@@ -122,7 +122,7 @@ class InterceptionParameters:
         self.camera_has_gimbal = False               # gimbal support flag
         
         # ===== Navigation & Control =====
-        self.nav_mode = "body_velocity"              # Navigation strategy mode
+        self.nav_mode = "global_position"              # Navigation strategy mode
         # Options: "body_velocity", "ned_velocity", "global_position"
         # Future: "proportional_navigation", "augmented_pn", "optimal_guidance"
         
