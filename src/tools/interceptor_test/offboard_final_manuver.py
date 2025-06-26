@@ -691,7 +691,7 @@ class TargetTrackingEKF:
                    velocity: Optional[np.ndarray] = None,
                    acceleration: Optional[np.ndarray] = None):
         """Initialize filter with known state."""
-        self.ekf.x[0:3] = position
+        self.ekf.x[0:3] = position.reshape(3, 1)
         if velocity is not None:
             self.ekf.x[3:6] = velocity
         if acceleration is not None:
