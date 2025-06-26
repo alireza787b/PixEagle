@@ -693,9 +693,9 @@ class TargetTrackingEKF:
         """Initialize filter with known state."""
         self.ekf.x[0:3] = position.reshape(3, 1)
         if velocity is not None:
-            self.ekf.x[3:6] = velocity
+            self.ekf.x[3:6] = velocity.reshape(3, 1)
         if acceleration is not None:
-            self.ekf.x[6:9] = acceleration
+            self.ekf.x[6:9] = acceleration.reshape(3, 1)
         
         self.is_initialized = True
         self.last_measurement_time = time.time()
