@@ -722,7 +722,7 @@ class TargetTrackingEKF:
             return False
 
         # Accept measurement
-        self.ekf.update(z, self.ekf.R)  # <-- Only pass z and R, not H
+        self.ekf.update(z, self.ekf.H, self.ekf.R)  # <-- Pass the Jacobian function, not the matrix!
         self.last_measurement_time = time.time()
         self.measurement_count += 1
 
