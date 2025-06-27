@@ -1525,7 +1525,7 @@ class MissionVisualizer:
                target_state: Tuple[np.ndarray, np.ndarray, np.ndarray],
                predictions: Optional[List[np.ndarray]] = None,
                uncertainty: Optional[Tuple[np.ndarray, float]] = None,
-               mission_state: str = "UNKNOWN":
+               mission_state: str = "UNKNOWN"):
         """Update all visualizations."""
         if not self.enabled:
             return
