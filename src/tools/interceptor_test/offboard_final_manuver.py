@@ -1478,7 +1478,15 @@ class MissionVisualizer:
             return
         
         self.enabled = True
-        
+        # Color scheme
+        self.colors = {
+            'drone': '#1f77b4',      # Blue
+            'target': '#d62728',     # Red
+            'prediction': '#2ca02c', # Green
+            'good': '#2ca02c',
+            'warning': '#ff7f0e',
+            'danger': '#d62728'
+        }
         # Fix matplotlib backend for real-time display
         import matplotlib
         matplotlib.use('TkAgg')  # or 'Qt5Agg' if you have Qt
@@ -1507,15 +1515,7 @@ class MissionVisualizer:
         # Data storage
         self.reset_data()
         
-        # Color scheme
-        self.colors = {
-            'drone': '#1f77b4',      # Blue
-            'target': '#d62728',     # Red
-            'prediction': '#2ca02c', # Green
-            'good': '#2ca02c',
-            'warning': '#ff7f0e',
-            'danger': '#d62728'
-        }
+        
     
     def reset_data(self):
         """Reset visualization data."""
