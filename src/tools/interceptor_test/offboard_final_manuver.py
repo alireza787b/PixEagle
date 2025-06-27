@@ -171,7 +171,8 @@ class InterceptionParameters:
         self.viz_path_history_length = 200           # points (reduced for clarity)
         self.viz_show_predictions = True
         self.viz_show_uncertainty = True
-        
+        self.save_mission_report = True  # Save mission report to CSV file
+
         # ===== System Configuration =====
         self.system_connection = "udp://:14540"      # MAVSDK connection
         self.system_log_level = "INFO"               # logging level
@@ -586,6 +587,9 @@ class TargetTrackingEKF:
         """Initialize EKF."""
         self.params = params
         self.dt = params.ekf_dt
+
+        self.last_reset_time = 0.0  # Track last reset warning time
+        self.init_time = time.time()  # Track filter initialization time
         
         # 9-state EKF: [x, y, z, vx, vy, vz, ax, ay, az]
         self.ekf = ExtendedKalmanFilter(dim_x=9, dim_z=3)
@@ -688,7 +692,7 @@ class TargetTrackingEKF:
         self.logger.info(f"EKF initialized at position: {position}")
     
     def predict(self, dt: Optional[float] = None):
-        """Predict next state."""
+        """Predict next state with improved covariance management."""
         if not self.is_initialized:
             return
         
@@ -698,20 +702,50 @@ class TargetTrackingEKF:
         
         self.ekf.predict()
         
-        # More sophisticated covariance health check
-        max_pos_variance = 100.0  # Maximum position variance (m²)
-        max_vel_variance = 25.0   # Maximum velocity variance (m²/s²)
+        # Adaptive covariance limiting based on filter age
+        filter_age = time.time() - self.init_time
         
-        # Check diagonal elements instead of trace
-        pos_variance = np.max(np.diag(self.ekf.P)[0:3])
-        vel_variance = np.max(np.diag(self.ekf.P)[3:6])
+        # Start with tight bounds, relax over time
+        if filter_age < 5.0:
+            max_pos_variance = 25.0   # Early: tight bounds
+            max_vel_variance = 10.0
+        elif filter_age < 30.0:
+            max_pos_variance = 100.0  # Medium: normal bounds
+            max_vel_variance = 25.0
+        else:
+            max_pos_variance = 400.0  # Mature: relaxed bounds
+            max_vel_variance = 100.0
         
-        if pos_variance > max_pos_variance or vel_variance > max_vel_variance:
-            self.logger.warning(f"EKF reset: pos_var={pos_variance:.1f}, vel_var={vel_variance:.1f}")
-            # Scale down covariance more intelligently
-            self.ekf.P[0:3, 0:3] *= 0.1
-            self.ekf.P[3:6, 3:6] *= 0.2
-            self.ekf.P[6:9, 6:9] *= 0.5
+        # Check individual axes
+        pos_variances = np.diag(self.ekf.P)[0:3]
+        vel_variances = np.diag(self.ekf.P)[3:6]
+        
+        needs_reset = False
+        
+        # Check each axis independently
+        for i in range(3):
+            if pos_variances[i] > max_pos_variance:
+                self.ekf.P[i, i] = max_pos_variance * 0.5
+                needs_reset = True
+            if vel_variances[i+3] > max_vel_variance:
+                self.ekf.P[i+3, i+3] = max_vel_variance * 0.5
+                needs_reset = True
+        
+        if needs_reset:
+            # Only log once per second to reduce spam
+            current_time = time.time()
+            if current_time - self.last_reset_time > 1.0:
+                self.logger.warning(
+                    f"EKF covariance limited: max_pos_var={np.max(pos_variances):.1f}, "
+                    f"max_vel_var={np.max(vel_variances):.1f}"
+                )
+                self.last_reset_time = current_time
+            
+            # Ensure covariance remains symmetric
+            self.ekf.P = 0.5 * (self.ekf.P + self.ekf.P.T)
+            
+            # Add small diagonal to ensure positive definite
+            self.ekf.P += np.eye(9) * 1e-6
     
     def update(self, measurement: np.ndarray) -> bool:
         """Update with measurement after outlier check."""
@@ -1469,7 +1503,7 @@ class MissionVisualizer:
     """
     
     def __init__(self, params: InterceptionParameters):
-        """Initialize visualizer."""
+        """Initialize visualizer with headless mode detection."""
         self.params = params
         self.logger = logging.getLogger(self.__class__.__name__)
         
@@ -1477,43 +1511,74 @@ class MissionVisualizer:
             self.enabled = False
             return
         
-        self.enabled = True
-        # Color scheme
-        self.colors = {
-            'drone': '#1f77b4',      # Blue
-            'target': '#d62728',     # Red
-            'prediction': '#2ca02c', # Green
-            'good': '#2ca02c',
-            'warning': '#ff7f0e',
-            'danger': '#d62728'
-        }
-        # Fix matplotlib backend for real-time display
+        # Detect headless mode
+        import os
         import matplotlib
-        matplotlib.use('TkAgg')  # or 'Qt5Agg' if you have Qt
+        
+        # Check for display
+        display_available = True
+        if os.environ.get('DISPLAY') is None and os.name != 'nt':
+            display_available = False
+            self.logger.warning("No display detected, running in headless mode")
+        
+        # Try to set backend
+        if display_available:
+            try:
+                matplotlib.use('TkAgg')
+            except ImportError:
+                try:
+                    matplotlib.use('Qt5Agg')
+                except ImportError:
+                    try:
+                        matplotlib.use('GTKAgg')
+                    except ImportError:
+                        self.logger.warning("No interactive backend available, disabling visualization")
+                        display_available = False
+        
+        if not display_available:
+            # Use non-interactive backend
+            matplotlib.use('Agg')
+            self.enabled = False
+            self.logger.info("Visualization disabled due to headless environment")
+            return
+        
+        self.enabled = True
+        
+        # Import pyplot after backend is set
+        import matplotlib.pyplot as plt
         
         # Setup figure
-        plt.ion()  # Interactive mode
-        self.fig = plt.figure(figsize=(16, 9))
-        self.fig.suptitle('Drone Pursuit Mission Monitor', fontsize=16, fontweight='bold')
-        
-        # Create cleaner layout - 2x2 grid
-        gs = self.fig.add_gridspec(2, 2, hspace=0.25, wspace=0.2,
-                                  left=0.05, right=0.95, top=0.93, bottom=0.05)
-        
-        # Main 3D view (larger)
-        self.ax_3d = self.fig.add_subplot(gs[0:2, 0], projection='3d')
-        self._setup_3d_plot()
-        
-        # Top-down view
-        self.ax_topdown = self.fig.add_subplot(gs[0, 1])
-        self._setup_topdown_plot()
-        
-        # Status panel
-        self.ax_status = self.fig.add_subplot(gs[1, 1])
-        self._setup_status_plot()
-        
-        # Data storage
-        self.reset_data()
+        try:
+            plt.ion()  # Interactive mode
+            self.fig = plt.figure(figsize=(16, 9))
+            
+            # Create grid layout
+            gs = self.fig.add_gridspec(2, 2, width_ratios=[2, 1], height_ratios=[1, 1])
+            
+            # Create subplots
+            self.ax_3d = self.fig.add_subplot(gs[:, 0], projection='3d')
+            self.ax_2d = self.fig.add_subplot(gs[0, 1])
+            self.ax_info = self.fig.add_subplot(gs[1, 1])
+            
+            # Initialize data storage
+            self.history = {
+                'drone': deque(maxlen=self.params.viz_history_length),
+                'target': deque(maxlen=self.params.viz_history_length),
+                'predictions': deque(maxlen=self.params.viz_history_length)
+            }
+            
+            # State tracking
+            self.update_count = 0
+            self.last_update_time = time.time()
+            
+            # Frame manager reference
+            self.frame_manager = FrameManager(self.params)
+            
+            self.fig.tight_layout()
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize visualization: {e}")
+            self.enabled = False
         
         
     
@@ -1527,6 +1592,155 @@ class MissionVisualizer:
         self.times = []
         self.start_time = time.time()
         self.last_update = 0
+
+    def _plot_3d_view(self, telemetry: TelemetryData, target_state: Tuple, mission_state: str):
+        """Enhanced 3D visualization with drone orientation and camera FOV."""
+        self.ax_3d.clear()
+        
+        # Get positions
+        drone_pos = self.frame_manager.geodetic_to_ned(
+            telemetry.latitude_deg, telemetry.longitude_deg, telemetry.altitude_amsl_m
+        )
+        target_pos, target_vel, _ = target_state
+        
+        # Plot drone with orientation
+        drone_size = 2.0
+        
+        # Draw drone body (triangle showing heading)
+        yaw = telemetry.yaw_rad
+        # Drone shape vertices (triangle pointing forward)
+        drone_shape = np.array([
+            [1.5, 0, 0],      # Nose
+            [-0.75, 0.75, 0], # Left wing
+            [-0.75, -0.75, 0], # Right wing
+            [1.5, 0, 0]       # Close shape
+        ]) * drone_size
+        
+        # Rotate by yaw
+        rotation = np.array([
+            [np.cos(yaw), -np.sin(yaw), 0],
+            [np.sin(yaw), np.cos(yaw), 0],
+            [0, 0, 1]
+        ])
+        
+        drone_rotated = drone_shape @ rotation.T
+        drone_rotated += drone_pos
+        
+        # Plot drone
+        self.ax_3d.plot(
+            drone_rotated[:, 0], 
+            drone_rotated[:, 1], 
+            -drone_rotated[:, 2],
+            'b-', linewidth=3, label='Drone'
+        )
+        
+        # Draw heading arrow
+        arrow_length = 5.0
+        arrow_end = drone_pos + arrow_length * np.array([np.cos(yaw), np.sin(yaw), 0])
+        self.ax_3d.plot(
+            [drone_pos[0], arrow_end[0]],
+            [drone_pos[1], arrow_end[1]],
+            [-drone_pos[2], -arrow_end[2]],
+            'b--', linewidth=2, alpha=0.5
+        )
+        
+        # Draw camera FOV cone
+        camera_angle_h = np.radians(60)  # Horizontal FOV
+        camera_angle_v = np.radians(45)  # Vertical FOV
+        fov_distance = 15.0
+        
+        # Camera is aligned with drone yaw (assuming fixed mount)
+        # Generate FOV corners
+        fov_corners = []
+        for h_sign in [-1, 1]:
+            for v_sign in [-1, 1]:
+                # Local camera frame
+                x = fov_distance
+                y = x * np.tan(camera_angle_h/2) * h_sign
+                z = x * np.tan(camera_angle_v/2) * v_sign
+                
+                # Rotate to world frame
+                fov_point = np.array([x, y, z])
+                fov_world = rotation @ fov_point + drone_pos
+                fov_corners.append(fov_world)
+        
+        # Draw FOV pyramid
+        fov_color = 'yellow'
+        fov_alpha = 0.2
+        
+        # Draw lines from drone to FOV corners
+        for corner in fov_corners:
+            self.ax_3d.plot(
+                [drone_pos[0], corner[0]],
+                [drone_pos[1], corner[1]],
+                [-drone_pos[2], -corner[2]],
+                color=fov_color, alpha=0.5, linewidth=1
+            )
+        
+        # Draw FOV rectangle
+        rect_order = [0, 1, 3, 2, 0]  # Order to draw rectangle
+        fov_rect = [fov_corners[i] for i in rect_order]
+        fov_rect_array = np.array(fov_rect)
+        self.ax_3d.plot(
+            fov_rect_array[:, 0],
+            fov_rect_array[:, 1],
+            -fov_rect_array[:, 2],
+            color=fov_color, alpha=0.7, linewidth=2
+        )
+        
+        # Add yaw text
+        self.ax_3d.text(
+            drone_pos[0], drone_pos[1], -drone_pos[2] + 2,
+            f'Yaw: {np.degrees(yaw):.0f}°',
+            fontsize=10, ha='center'
+        )
+        
+        # Plot target
+        self.ax_3d.scatter(
+            target_pos[0], target_pos[1], -target_pos[2],
+            color='red', s=100, marker='o', label='Target'
+        )
+        
+        # Plot target velocity vector
+        if np.linalg.norm(target_vel) > 0.1:
+            vel_scale = 3.0
+            self.ax_3d.quiver(
+                target_pos[0], target_pos[1], -target_pos[2],
+                target_vel[0], target_vel[1], -target_vel[2],
+                length=vel_scale, color='red', alpha=0.6,
+                arrow_length_ratio=0.2
+            )
+        
+        # Plot trajectory history
+        if self.history['drone']:
+            drone_hist = np.array(self.history['drone'])
+            self.ax_3d.plot(
+                drone_hist[:, 0], drone_hist[:, 1], -drone_hist[:, 2],
+                'b-', alpha=0.3, linewidth=1
+            )
+        
+        if self.history['target']:
+            target_hist = np.array(self.history['target'])
+            self.ax_3d.plot(
+                target_hist[:, 0], target_hist[:, 1], -target_hist[:, 2],
+                'r-', alpha=0.3, linewidth=1
+            )
+        
+        # Set labels and limits
+        self.ax_3d.set_xlabel('North (m)', fontsize=10)
+        self.ax_3d.set_ylabel('East (m)', fontsize=10)
+        self.ax_3d.set_zlabel('Up (m)', fontsize=10)
+        self.ax_3d.set_title(f'3D View - {mission_state}', fontsize=12, fontweight='bold')
+        
+        # Equal aspect ratio
+        max_range = 50
+        self.ax_3d.set_xlim([drone_pos[0] - max_range, drone_pos[0] + max_range])
+        self.ax_3d.set_ylim([drone_pos[1] - max_range, drone_pos[1] + max_range])
+        self.ax_3d.set_zlim([-telemetry.altitude_agl_m - 10, 10])
+        
+        self.ax_3d.grid(True, alpha=0.3)
+        self.ax_3d.legend(loc='upper right', fontsize=10)
+
     
     def _setup_3d_plot(self):
         """Setup clean 3D trajectory plot."""
@@ -1655,7 +1869,7 @@ class MissionVisualizer:
             self.target_altitudes = self.target_altitudes[-max_points:]
         
         # Update 3D plot
-        self._update_3d(drone_pos, target_pos, predictions, error_3d)
+        self._plot_3d_view(telemetry, target_state, mission_state)
         
         # Update top-down
         self._update_topdown(drone_pos, target_pos, telemetry, uncertainty, error_horizontal)
@@ -2378,26 +2592,36 @@ class MissionExecutor:
             plt.show()
     
     def _print_mission_report(self):
-        """Print comprehensive mission report."""
-        print("\n" + "="*70)
-        print("MISSION REPORT".center(70))
-        print("="*70)
-
+        """Print comprehensive mission report and optionally save to CSV."""
+        from datetime import datetime
+        import csv
+        import os
         
+        # Prepare report data
+        timestamp = datetime.now()
+        timestamp_str = timestamp.strftime("%Y%m%d_%H%M%S")
+        
+        # Calculate summary statistics
+        total_time = sum(s['duration'] for s in self.state_machine.state_history)
+        
+        # Build report sections
+        report_lines = []
+        report_lines.append("\n" + "="*70)
+        report_lines.append("MISSION REPORT".center(70))
+        report_lines.append("="*70)
         
         # Summary Section
-        total_time = sum(s['duration'] for s in self.state_machine.state_history)
-        print(f"\n{'MISSION SUMMARY':^70}")
-        print("-"*70)
-        print(f"{'Total Mission Duration:':<35} {total_time:>10.1f} seconds")
-        print(f"{'Final Mission State:':<35} {self.state_machine.state.name:>10}")
-        print(f"{'Guidance Mode:':<35} {self.params.guidance_mode:>10}")
+        report_lines.append(f"\n{'MISSION SUMMARY':^70}")
+        report_lines.append("-"*70)
+        report_lines.append(f"{'Total Mission Duration:':<35} {total_time:>10.1f} seconds")
+        report_lines.append(f"{'Final Mission State:':<35} {self.state_machine.state.name:>10}")
+        report_lines.append(f"{'Guidance Mode:':<35} {self.params.guidance_mode:>10}")
         
         # Mission Success Status
         if self.mission_stats.get('target_acquired', False):
-            print(f"{'Target Acquisition:':<35} {'SUCCESS':>10}")
+            report_lines.append(f"{'Target Acquisition:':<35} {'SUCCESS':>10}")
         else:
-            print(f"{'Target Acquisition:':<35} {'NOT ACHIEVED':>10}")
+            report_lines.append(f"{'Target Acquisition:':<35} {'NOT ACHIEVED':>10}")
         
         # GPS Mode Info
         if "ned_velocity" in self.params.guidance_mode:
@@ -2406,61 +2630,137 @@ class MissionExecutor:
             else:
                 ref_mode = "Current Position" if self.params.reference_use_current_position else "Fixed Home"
                 ref_info = f"Global ({ref_mode})"
-            print(f"{'Reference System:':<35} {ref_info:>10}")
+            report_lines.append(f"{'Reference System:':<35} {ref_info:>10}")
         
         # State Timeline
-        print(f"\n{'STATE TIMELINE':^70}")
-        print("-"*70)
-        print(f"{'State':<20} {'Duration (s)':<15} {'Reason':<35}")
-        print("-"*70)
+        report_lines.append(f"\n{'STATE TIMELINE':^70}")
+        report_lines.append("-"*70)
+        report_lines.append(f"{'State':<20} {'Duration (s)':<15} {'Reason':<35}")
+        report_lines.append("-"*70)
         for state in self.state_machine.state_history:
-            print(f"{state['state']:<20} {state['duration']:>10.1f}     {state['reason']:<35}")
+            report_lines.append(f"{state['state']:<20} {state['duration']:>10.1f}     {state['reason']:<35}")
         
         # Performance Metrics
         if self.mission_stats:
-            print(f"\n{'PERFORMANCE METRICS':^70}")
-            print("-"*70)
-            print(f"{'Maximum Position Error:':<35} {self.mission_stats.get('max_error', 0):>10.2f} meters")
-            print(f"{'Minimum Position Error:':<35} {self.mission_stats.get('min_error', 0):>10.2f} meters")
-            print(f"{'Average Position Error:':<35} {self.mission_stats.get('average_error', 0):>10.2f} meters")
-            print(f"{'Pursuit Phase Duration:':<35} {self.mission_stats.get('pursuit_duration', 0):>10.1f} seconds")
-            print(f"{'Maximum Altitude AGL:':<35} {self.mission_stats.get('max_altitude', 0):>10.1f} meters")
-            print(f"{'Minimum Battery Level:':<35} {self.mission_stats.get('min_battery', 0):>10.0f} %")
+            report_lines.append(f"\n{'PERFORMANCE METRICS':^70}")
+            report_lines.append("-"*70)
+            report_lines.append(f"{'Maximum Position Error:':<35} {self.mission_stats.get('max_error', 0):>10.2f} meters")
+            report_lines.append(f"{'Minimum Position Error:':<35} {self.mission_stats.get('min_error', 0):>10.2f} meters")
+            report_lines.append(f"{'Average Position Error:':<35} {self.mission_stats.get('average_error', 0):>10.2f} meters")
+            report_lines.append(f"{'Pursuit Phase Duration:':<35} {self.mission_stats.get('pursuit_duration', 0):>10.1f} seconds")
+            report_lines.append(f"{'Maximum Altitude AGL:':<35} {self.mission_stats.get('max_altitude', 0):>10.1f} meters")
+            report_lines.append(f"{'Minimum Battery Level:':<35} {self.mission_stats.get('min_battery', 0):>10.0f} %")
             
             # EKF Performance
             if self.ekf and self.mission_stats.get('measurements_accepted', 0) > 0:
-                print(f"\n{'TARGET TRACKING PERFORMANCE':^70}")
-                print("-"*70)
+                report_lines.append(f"\n{'TARGET TRACKING PERFORMANCE':^70}")
+                report_lines.append("-"*70)
                 total_meas = (self.mission_stats['measurements_accepted'] + 
                             self.mission_stats['measurements_rejected'])
                 accept_rate = 100 * self.mission_stats['measurements_accepted'] / total_meas if total_meas > 0 else 0
-                print(f"{'Measurement Accept Rate:':<35} {accept_rate:>10.1f} %")
-                print(f"{'Total Measurements Processed:':<35} {total_meas:>10.0f}")
-                print(f"{'Measurements Accepted:':<35} {self.mission_stats['measurements_accepted']:>10.0f}")
-                print(f"{'Measurements Rejected (Outliers):':<35} {self.mission_stats['measurements_rejected']:>10.0f}")
+                report_lines.append(f"{'Measurement Accept Rate:':<35} {accept_rate:>10.1f} %")
+                report_lines.append(f"{'Total Measurements Processed:':<35} {total_meas:>10.0f}")
+                report_lines.append(f"{'Measurements Accepted:':<35} {self.mission_stats['measurements_accepted']:>10.0f}")
+                report_lines.append(f"{'Measurements Rejected (Outliers):':<35} {self.mission_stats['measurements_rejected']:>10.0f}")
                 
                 if self.ekf.is_initialized:
                     _, uncertainty = self.ekf.get_uncertainty()
-                    print(f"{'Final Position Uncertainty:':<35} {uncertainty:>10.2f} meters")
-                    print(f"{'Time Since Last Measurement:':<35} {self.ekf.time_since_measurement():>10.1f} seconds")
+                    report_lines.append(f"{'Final Position Uncertainty:':<35} {uncertainty:>10.2f} meters")
+                    report_lines.append(f"{'Time Since Last Measurement:':<35} {self.ekf.time_since_measurement():>10.1f} seconds")
         
         # Mission Result
-        print("\n" + "="*70)
+        report_lines.append("\n" + "="*70)
         if self.state_machine.state == MissionState.LANDED:
             if self.mission_stats.get('target_acquired', False):
-                print("MISSION SUCCESS - TARGET INTERCEPTED".center(70))
-                print(f"Target successfully tracked and intercepted within {self.params.mission_target_threshold}m threshold".center(70))
+                report_lines.append("MISSION SUCCESS - TARGET INTERCEPTED".center(70))
+                report_lines.append(f"Target successfully tracked and intercepted within {self.params.mission_target_threshold}m threshold".center(70))
             elif self.mission_stats.get('min_error', float('inf')) < self.params.mission_target_threshold * 2:
-                print("MISSION COMPLETE - CLOSE APPROACH".center(70))
-                print(f"Minimum distance to target: {self.mission_stats.get('min_error', 0):.2f}m".center(70))
+                report_lines.append("MISSION COMPLETE - CLOSE APPROACH".center(70))
+                report_lines.append(f"Minimum distance to target: {self.mission_stats.get('min_error', 0):.2f}m".center(70))
             else:
-                print("MISSION COMPLETE - TARGET TRACKED".center(70))
-                print(f"Minimum distance to target: {self.mission_stats.get('min_error', 0):.2f}m".center(70))
+                report_lines.append("MISSION COMPLETE - TARGET TRACKED".center(70))
+                report_lines.append(f"Minimum distance to target: {self.mission_stats.get('min_error', 0):.2f}m".center(70))
         else:
-            print(f"MISSION INCOMPLETE - ENDED IN {self.state_machine.state.name}".center(70))
+            report_lines.append(f"MISSION INCOMPLETE - ENDED IN {self.state_machine.state.name}".center(70))
             if self.state_machine.emergency_reason:
-                print(f"Reason: {self.state_machine.emergency_reason}".center(70))
-        print("="*70 + "\n")
+                report_lines.append(f"Reason: {self.state_machine.emergency_reason}".center(70))
+        report_lines.append("="*70 + "\n")
+        
+        # Print to console
+        report_content = '\n'.join(report_lines)
+        print(report_content)
+        
+        # Save to CSV if enabled
+        if hasattr(self.params, 'save_mission_report') and self.params.save_mission_report:
+            # Create reports directory
+            os.makedirs("reports", exist_ok=True)
+            
+            # Prepare CSV data
+            csv_filename = f"reports/mission_report_{timestamp_str}.csv"
+            
+            with open(csv_filename, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                
+                # Header information
+                writer.writerow(['Mission Report', timestamp.strftime("%Y-%m-%d %H:%M:%S")])
+                writer.writerow([])
+                
+                # Mission Summary
+                writer.writerow(['MISSION SUMMARY'])
+                writer.writerow(['Metric', 'Value'])
+                writer.writerow(['Total Duration (s)', f'{total_time:.1f}'])
+                writer.writerow(['Final State', self.state_machine.state.name])
+                writer.writerow(['Guidance Mode', self.params.guidance_mode])
+                writer.writerow(['Target Acquired', 'Yes' if self.mission_stats.get('target_acquired', False) else 'No'])
+                writer.writerow([])
+                
+                # State Timeline
+                writer.writerow(['STATE TIMELINE'])
+                writer.writerow(['State', 'Duration (s)', 'Start Time', 'Reason'])
+                cumulative_time = 0
+                for state in self.state_machine.state_history:
+                    writer.writerow([
+                        state['state'],
+                        f"{state['duration']:.1f}",
+                        f"{cumulative_time:.1f}",
+                        state['reason']
+                    ])
+                    cumulative_time += state['duration']
+                writer.writerow([])
+                
+                # Performance Metrics
+                if self.mission_stats:
+                    writer.writerow(['PERFORMANCE METRICS'])
+                    writer.writerow(['Metric', 'Value', 'Unit'])
+                    writer.writerow(['Max Position Error', f"{self.mission_stats.get('max_error', 0):.2f}", 'meters'])
+                    writer.writerow(['Min Position Error', f"{self.mission_stats.get('min_error', 0):.2f}", 'meters'])
+                    writer.writerow(['Average Position Error', f"{self.mission_stats.get('average_error', 0):.2f}", 'meters'])
+                    writer.writerow(['Pursuit Duration', f"{self.mission_stats.get('pursuit_duration', 0):.1f}", 'seconds'])
+                    writer.writerow(['Max Altitude AGL', f"{self.mission_stats.get('max_altitude', 0):.1f}", 'meters'])
+                    writer.writerow(['Min Battery Level', f"{self.mission_stats.get('min_battery', 0):.0f}", '%'])
+                    writer.writerow([])
+                    
+                    # EKF Performance
+                    if self.ekf and self.mission_stats.get('measurements_accepted', 0) > 0:
+                        writer.writerow(['EKF PERFORMANCE'])
+                        writer.writerow(['Metric', 'Value', 'Unit'])
+                        total_meas = (self.mission_stats['measurements_accepted'] + 
+                                    self.mission_stats['measurements_rejected'])
+                        accept_rate = 100 * self.mission_stats['measurements_accepted'] / total_meas if total_meas > 0 else 0
+                        writer.writerow(['Measurement Accept Rate', f"{accept_rate:.1f}", '%'])
+                        writer.writerow(['Total Measurements', total_meas, 'count'])
+                        writer.writerow(['Accepted Measurements', self.mission_stats['measurements_accepted'], 'count'])
+                        writer.writerow(['Rejected Measurements', self.mission_stats['measurements_rejected'], 'count'])
+                        
+                        if self.ekf.is_initialized:
+                            _, uncertainty = self.ekf.get_uncertainty()
+                            writer.writerow(['Final Position Uncertainty', f"{uncertainty:.2f}", 'meters'])
+                            writer.writerow(['Time Since Last Measurement', f"{self.ekf.time_since_measurement():.1f}", 'seconds'])
+                
+                writer.writerow([])
+                writer.writerow(['Mission Result', 'SUCCESS' if self.mission_stats.get('target_acquired', False) else 'COMPLETE'])
+            
+            print(f"Report saved to: {csv_filename}")
 
 # =============================================================================
 # MAIN ENTRY POINT
