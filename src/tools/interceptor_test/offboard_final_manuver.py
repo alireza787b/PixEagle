@@ -1452,7 +1452,6 @@ class MissionVisualizer:
         self.drone_path = []
         self.target_path = []
         self.time_history = []
-        self.error_history = []
         self.battery_history = []
         self.start_time = time.time()
         self.last_update = 0
@@ -1526,8 +1525,7 @@ class MissionVisualizer:
                target_state: Tuple[np.ndarray, np.ndarray, np.ndarray],
                predictions: Optional[List[np.ndarray]] = None,
                uncertainty: Optional[Tuple[np.ndarray, float]] = None,
-               mission_state: str = "UNKNOWN",
-               guidance_metrics: Optional[Dict[str, Any]] = None):
+               mission_state: str = "UNKNOWN":
         """Update all visualizations."""
         if not self.enabled:
             return
@@ -1548,7 +1546,6 @@ class MissionVisualizer:
         self.target_path.append(target_pos)
         
         error = np.linalg.norm(drone_pos[:2] - target_pos[:2])
-        self.error_history.append(error)
         self.battery_history.append(telemetry.battery_voltage)
         
         # Limit history
@@ -1556,7 +1553,6 @@ class MissionVisualizer:
             self.drone_path.pop(0)
             self.target_path.pop(0)
             self.time_history.pop(0)
-            self.error_history.pop(0)
             self.battery_history.pop(0)
         
         # Update 3D plot
@@ -1663,9 +1659,7 @@ class MissionVisualizer:
         col1 += f"Position Error: {error:.2f} m\n"
         col1 += f"Ground Speed: {telemetry.get_ground_speed():.1f} m/s\n"
         col1 += f"Target Speed: {np.linalg.norm(target_state[1]):.1f} m/s\n"
-        
-        if len(self.error_history) > 10:
-            col1 += f"RMS Error: {np.sqrt(np.mean(np.array(self.error_history[-50:])**2)):.2f} m\n"
+
         
         col2 = "System Health\n" + "="*25 + "\n"
         col2 += f"Battery: {telemetry.battery_voltage:.1f}V ({telemetry.battery_percent:.0f}%)\n"
@@ -2153,9 +2147,6 @@ class MissionExecutor:
                         if self.params.viz_show_uncertainty:
                             uncertainty = self.ekf.get_uncertainty()
                     
-                    guidance_metrics = {}
-                    if hasattr(self.guidance_strategy, 'pid_n'):
-                        guidance_metrics['rms_error'] = self.guidance_strategy.pid_n.error_history[-1] if self.guidance_strategy.pid_n.error_history else 0
                     
                     self.visualizer.update(
                         telemetry,
@@ -2163,7 +2154,6 @@ class MissionExecutor:
                         predictions,
                         uncertainty,
                         self.state_machine.state.name,
-                        guidance_metrics
                     )
                 
                 # Terminal display (clean and informative)
