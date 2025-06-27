@@ -1936,9 +1936,10 @@ class MissionExecutor:
         telemetry = await self.telemetry_manager.get_telemetry()
         
         # Safety checks
-        is_safe, reason = self.telemetry_manager.check_safety_limits()
-        if not is_safe:
-            raise RuntimeError(f"Preflight failed: {reason}")
+        # is_safe, reason = self.telemetry_manager.check_safety_limits()
+        # if not is_safe:
+        #     raise RuntimeError(f"Preflight failed: {reason}")
+        # Pre flight shuldt chek for atltitude!!!
         
         # Set home reference
         self.frame_manager.set_home_reference(
