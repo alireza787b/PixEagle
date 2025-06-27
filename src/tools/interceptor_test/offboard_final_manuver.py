@@ -1497,7 +1497,7 @@ class MissionVisualizer:
         self.heading_arrow = None
         
         # Uncertainty ellipse
-        self.uncertainty_ellipse = Ellipse((0, 0), 0, 0, 0, fill=False, 
+        self.uncertainty_ellipse = Ellipse((0, 0), 0, 0, angle=0, fill=False, 
                                          edgecolor='red', alpha=0.5, linestyle='--')
         self.ax_tactical.add_patch(self.uncertainty_ellipse)
     
