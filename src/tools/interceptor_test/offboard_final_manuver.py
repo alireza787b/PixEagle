@@ -116,7 +116,7 @@ class InterceptionParameters:
         self.camera_has_gimbal = False               # gimbal support flag
         
         # ===== Guidance Mode Selection =====
-        self.guidance_mode = "global_ned_velocity"    
+        self.guidance_mode = "global_position"    
         # Options:
         # - "local_ned_velocity": Uses PX4 local NED (works without GPS but may drift)
         # - "global_ned_velocity": Recalculates from geodetic (avoids GPS drift)
