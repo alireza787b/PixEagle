@@ -727,7 +727,7 @@ class TargetTrackingEKF:
             if pos_variances[i] > max_pos_variance:
                 self.ekf.P[i, i] = max_pos_variance * 0.5
                 needs_reset = True
-            if vel_variances[i+3] > max_vel_variance:
+            if vel_variances[i] > max_vel_variance:
                 self.ekf.P[i+3, i+3] = max_vel_variance * 0.5
                 needs_reset = True
         
