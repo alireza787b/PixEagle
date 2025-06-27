@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Production-Ready Drone Pursuit System v5.0 Final
+Production-Ready Drone Pursuit System v5.1 Fixed
 ================================================
 
 Professional autonomous target tracking system with GPS drift mitigation.
+Fixed EKF implementation and improved pursuit logic.
 
 Guidance Modes:
 1. local_ned_velocity: Uses PX4 local NED (non-GPS compatible, but may drift)
@@ -11,14 +12,15 @@ Guidance Modes:
 3. body_velocity: Body frame control (uses global reference)
 4. global_position: Direct position commands to PX4
 
-Key Features:
-- EKF-based target tracking with prediction
-- GPS drift mitigation using fixed/current reference
-- Modular architecture for easy extension
-- Professional logging and 3D visualization
+Key Fixes in v5.1:
+- Corrected EKF implementation with proper filterpy usage
+- Fixed coordinate system transformations
+- Improved target tracking logic
+- Cleaned up visualization for better clarity
+- Enhanced pursuit stability
 
 Author: Pursuit Guidance Team
-Version: 5.0 Final Production
+Version: 5.1 Fixed Production
 License: MIT
 """
 
@@ -39,7 +41,8 @@ from pathlib import Path
 from typing import Dict, Optional, Tuple, Type, Any, List, Union, Callable
 
 import matplotlib.pyplot as plt
-from matplotlib.patches import Ellipse
+from matplotlib.patches import Ellipse, Circle
+import matplotlib.patches as mpatches
 import numpy as np
 import pymap3d as pm
 import yaml
@@ -52,7 +55,7 @@ from mavsdk.offboard import (
     PositionGlobalYaw,
     PositionNedYaw,
     VelocityNedYaw,
-    VelocityBodyYawspeed,  # Correct MAVSDK command
+    VelocityBodyYawspeed,
 )
 from scipy import stats
 from scipy.linalg import block_diag
@@ -119,7 +122,6 @@ class InterceptionParameters:
         # - "global_ned_velocity": Recalculates from geodetic (avoids GPS drift)
         # - "body_velocity": Body frame control
         # - "global_position": Direct position commands
-        # Future: "proportional_navigation", "augmented_pn", etc.
         
         # ===== Reference Frame Settings =====
         self.reference_use_current_position = False  # True: use current drone pos as ref
@@ -165,8 +167,8 @@ class InterceptionParameters:
         
         # ===== Visualization =====
         self.viz_enabled = True
-        self.viz_update_rate = 10.0                  # Hz
-        self.viz_path_history_length = 500           # points
+        self.viz_update_rate = 5.0                   # Hz (reduced for cleaner display)
+        self.viz_path_history_length = 200           # points (reduced for clarity)
         self.viz_show_predictions = True
         self.viz_show_uncertainty = True
         
@@ -568,14 +570,13 @@ class TelemetryManager:
             self.logger.error(f"GPS subscription error: {e}")
 
 # =============================================================================
-# FILE: target_tracker.py
-# EKF and target source interface
+# FILE: target_tracker.py - FIXED EKF IMPLEMENTATION
 # =============================================================================
 
 class TargetTrackingEKF:
     """
     Extended Kalman Filter for robust target tracking.
-    Provides prediction capability for all guidance strategies.
+    Fixed implementation with proper filterpy usage.
     """
     
     def __init__(self, params: InterceptionParameters):
@@ -600,7 +601,7 @@ class TargetTrackingEKF:
     def _setup_ekf(self):
         """Setup EKF matrices."""
         # State vector initialization
-        self.ekf.x = np.zeros((9, 1))  # Column vector
+        self.ekf.x = np.zeros(9)  # Use 1D array, not column vector
         
         # State transition (constant acceleration model)
         self.ekf.F = self._get_F(self.dt)
@@ -608,7 +609,7 @@ class TargetTrackingEKF:
         # Measurement function (position only)
         def h_func(x):
             """Measurement function: z = [x, y, z]"""
-            return x[0:3, 0]  # Return first 3 elements as 1D array
+            return x[0:3]  # Return first 3 elements
         
         def h_jacobian(x):
             """Jacobian of measurement function"""
@@ -616,8 +617,8 @@ class TargetTrackingEKF:
             H[0:3, 0:3] = np.eye(3)
             return H
         
-        self.ekf.h = h_func
-        self.ekf.H = h_jacobian
+        self.ekf.hx = h_func  # Use hx, not h
+        self.ekf.HJacobian = h_jacobian  # Use HJacobian, not H
         
         # Process noise
         self.ekf.Q = self._get_Q(self.dt)
@@ -642,22 +643,22 @@ class TargetTrackingEKF:
     
     def _get_Q(self, dt: float) -> np.ndarray:
         """Get process noise matrix."""
-        q_p = self.params.ekf_process_noise_position
-        q_v = self.params.ekf_process_noise_velocity
-        q_a = self.params.ekf_process_noise_acceleration
+        # Simplified process noise model
+        q_pos = self.params.ekf_process_noise_position
+        q_vel = self.params.ekf_process_noise_velocity
+        q_acc = self.params.ekf_process_noise_acceleration
         
+        # Create Q matrix using discrete white noise model
         Q = np.zeros((9, 9))
         
-        # Position block
-        Q[0:3, 0:3] = np.eye(3) * q_p * dt**4 / 4
-        Q[0:3, 3:6] = np.eye(3) * q_p * dt**3 / 2
+        # Position process noise
+        Q[0:3, 0:3] = np.eye(3) * q_pos * dt**4 / 4
+        Q[0:3, 3:6] = np.eye(3) * q_pos * dt**3 / 2
         Q[3:6, 0:3] = Q[0:3, 3:6].T
+        Q[3:6, 3:6] = np.eye(3) * q_vel * dt**2
         
-        # Velocity block
-        Q[3:6, 3:6] = np.eye(3) * q_v * dt**2
-        
-        # Acceleration block
-        Q[6:9, 6:9] = np.eye(3) * q_a
+        # Acceleration process noise
+        Q[6:9, 6:9] = np.eye(3) * q_acc * dt
         
         return Q
     
@@ -665,22 +666,22 @@ class TargetTrackingEKF:
                    velocity: Optional[np.ndarray] = None,
                    acceleration: Optional[np.ndarray] = None):
         """Initialize filter with known state."""
-        self.ekf.x[0:3, 0] = position
+        self.ekf.x[0:3] = position
         if velocity is not None:
-            self.ekf.x[3:6, 0] = velocity
+            self.ekf.x[3:6] = velocity
         if acceleration is not None:
-            self.ekf.x[6:9, 0] = acceleration
+            self.ekf.x[6:9] = acceleration
         
         self.is_initialized = True
         self.last_measurement_time = time.time()
-        self.logger.info("EKF initialized")
+        self.logger.info(f"EKF initialized at position: {position}")
     
     def predict(self, dt: Optional[float] = None):
         """Predict next state."""
         if not self.is_initialized:
             return
         
-        if dt and dt != self.dt:
+        if dt and abs(dt - self.dt) > 0.001:  # Only update if significantly different
             self.ekf.F = self._get_F(dt)
             self.ekf.Q = self._get_Q(dt)
         
@@ -688,7 +689,7 @@ class TargetTrackingEKF:
         
         # Covariance health check
         if np.trace(self.ekf.P) > self.params.ekf_max_covariance:
-            self.logger.warning("EKF covariance reset")
+            self.logger.warning("EKF covariance reset due to high uncertainty")
             self.ekf.P *= 0.1
     
     def update(self, measurement: np.ndarray) -> bool:
@@ -696,44 +697,42 @@ class TargetTrackingEKF:
         if not self.is_initialized:
             self.initialize(measurement)
             return True
-
+        
         # Ensure measurement is 1D array
         z = measurement.flatten()
-
-        # Calculate innovation
-        y = z - self.ekf.h(self.ekf.x)
-        H = self.ekf.H(self.ekf.x)
-        S = H @ self.ekf.P @ H.T + self.ekf.R
-
-        # Outlier detection
+        
+        # Innovation calculation for outlier detection
+        y = z - self.ekf.hx(self.ekf.x)  # Innovation
+        H = self.ekf.HJacobian(self.ekf.x)
+        S = H @ self.ekf.P @ H.T + self.ekf.R  # Innovation covariance
+        
+        # Outlier detection using chi-squared test
         try:
-            nis = float(y.T @ np.linalg.inv(S) @ y)
-            chi2_threshold = stats.chi2.ppf(
-                1 - 10**(-self.params.ekf_outlier_threshold_sigma), df=3
-            )
-
+            nis = float(y.T @ np.linalg.inv(S) @ y)  # Normalized Innovation Squared
+            chi2_threshold = stats.chi2.ppf(0.997, df=3)  # 99.7% confidence
+            
             if nis > chi2_threshold:
                 self.outlier_count += 1
-                self.logger.debug(f"Measurement rejected: NIS={nis:.1f}")
+                self.logger.debug(f"Measurement rejected - NIS: {nis:.2f} > threshold: {chi2_threshold:.2f}")
                 return False
-
+                
         except np.linalg.LinAlgError:
-            self.logger.warning("Singular innovation covariance")
+            self.logger.warning("Singular innovation covariance matrix")
             return False
-
-        # Accept measurement
-        self.ekf.update(z, self.ekf.H, self.ekf.h, self.ekf.R)  # <-- Pass HJacobian, Hx, R
+        
+        # Accept measurement - use proper EKF update
+        self.ekf.update(z, self.ekf.HJacobian, self.ekf.hx)
         self.last_measurement_time = time.time()
         self.measurement_count += 1
-
+        
         return True
     
     def get_state(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Get current state estimate: (position, velocity, acceleration)."""
         return (
-            self.ekf.x[0:3, 0].copy(),
-            self.ekf.x[3:6, 0].copy(),
-            self.ekf.x[6:9, 0].copy()
+            self.ekf.x[0:3].copy(),
+            self.ekf.x[3:6].copy(),
+            self.ekf.x[6:9].copy()
         )
     
     def predict_future_position(self, time_ahead: float) -> np.ndarray:
@@ -742,9 +741,9 @@ class TargetTrackingEKF:
             return np.zeros(3)
         
         # Kinematic prediction: p = p0 + v0*t + 0.5*a0*t²
-        pos = self.ekf.x[0:3, 0] + \
-              self.ekf.x[3:6, 0] * time_ahead + \
-              0.5 * self.ekf.x[6:9, 0] * time_ahead**2
+        pos = self.ekf.x[0:3] + \
+              self.ekf.x[3:6] * time_ahead + \
+              0.5 * self.ekf.x[6:9] * time_ahead**2
         
         return pos.copy()
     
@@ -763,7 +762,7 @@ class TargetTrackingEKF:
         # Generate predictions
         for _ in range(steps):
             self.predict(dt)
-            predictions.append(self.ekf.x[0:3, 0].copy())
+            predictions.append(self.ekf.x[0:3].copy())
         
         # Restore state
         self.ekf.x = x_saved
@@ -780,7 +779,7 @@ class TargetTrackingEKF:
     def get_uncertainty(self) -> Tuple[np.ndarray, float]:
         """Get position uncertainty."""
         pos_cov = self.ekf.P[0:3, 0:3]
-        uncertainty = np.sqrt(np.trace(pos_cov))
+        uncertainty = np.sqrt(np.trace(pos_cov) / 3)  # Average uncertainty
         return pos_cov, uncertainty
 
 # Target Source Interface
@@ -812,7 +811,7 @@ class TargetSource(ABC):
         pass
 
 class SimulatedTargetSource(TargetSource):
-    """Simulated target for SITL testing."""
+    """Simulated target for SITL testing - Fixed implementation."""
     
     def __init__(self, params: InterceptionParameters, 
                  frame_manager: ReferenceFrameManager):
@@ -820,19 +819,19 @@ class SimulatedTargetSource(TargetSource):
         self.params = params
         self.frame_manager = frame_manager
         
-        # Target model
-        self.position = np.array(params.target_initial_position)
-        self.velocity = np.array(params.target_initial_velocity)
-        self.acceleration = np.array(params.target_initial_acceleration)
+        # Target model - absolute position in NED
+        self.position = np.array(params.target_initial_position, dtype=float)
+        self.velocity = np.array(params.target_initial_velocity, dtype=float)
+        self.acceleration = np.array(params.target_initial_acceleration, dtype=float)
         
-        # Maneuvering
+        # Maneuvering parameters
         self.amp = np.array(params.target_maneuver_amplitudes)
         self.freq = np.array(params.target_maneuver_frequencies)
         self.phase = np.array(params.target_maneuver_phases) if params.target_maneuver_phases \
                      else np.random.random(3) * 2 * np.pi
         
         # Simulation state
-        self.start_time = time.time()
+        self.start_time = None
         self.drone_position = np.zeros(3)
         self.drone_yaw = 0.0
         
@@ -840,25 +839,30 @@ class SimulatedTargetSource(TargetSource):
     
     async def initialize(self) -> bool:
         """Initialize simulation."""
-        self.logger.info("Simulated target source ready")
+        self.start_time = time.time()
+        self.logger.info(f"Simulated target initialized at NED position: {self.position}")
         return True
     
     async def get_measurement(self) -> Optional[Dict[str, Any]]:
         """Generate simulated measurement in camera frame."""
+        if self.start_time is None:
+            return None
+            
         # Update target state
         t = time.time() - self.start_time
         
-        # Linear motion
-        pos = self.position + self.velocity * t + 0.5 * self.acceleration * t**2
+        # Base motion: position + velocity * time + 0.5 * acceleration * time²
+        current_pos = self.position + self.velocity * t + 0.5 * self.acceleration * t**2
         
-        # Add maneuvering
+        # Add sinusoidal maneuvering
         for i in range(3):
             if self.amp[i] > 0 and self.freq[i] > 0:
                 omega = 2 * np.pi * self.freq[i]
-                pos[i] += -(self.amp[i] / (omega**2)) * np.sin(omega * t + self.phase[i])
+                # Position offset from sinusoidal acceleration
+                current_pos[i] += (self.amp[i] / (omega**2)) * (1 - np.cos(omega * t + self.phase[i]))
         
         # Get relative position in NED
-        relative_ned = pos - self.drone_position
+        relative_ned = current_pos - self.drone_position
         
         # Transform to camera frame
         pos_camera = self.frame_manager.ned_to_camera(relative_ned, self.drone_yaw)
@@ -867,20 +871,21 @@ class SimulatedTargetSource(TargetSource):
         noise = np.random.normal(0, self.params.ekf_measurement_noise, 3)
         pos_camera += noise
         
-        # Simulate confidence
-        distance = np.linalg.norm(pos_camera)
-        confidence = np.clip(1.0 - distance / 100.0, 0.1, 1.0)
+        # Simulate confidence based on distance
+        distance = np.linalg.norm(relative_ned)
+        confidence = np.clip(1.0 - distance / 200.0, 0.3, 1.0)
         
         return {
             'position': pos_camera,
             'timestamp': time.time(),
             'confidence': confidence,
-            'frame': 'camera'
+            'frame': 'camera',
+            'true_ned_position': current_pos  # For debugging
         }
     
     def update_drone_state(self, position: np.ndarray, yaw: float):
         """Update drone state for simulation."""
-        self.drone_position = position
+        self.drone_position = position.copy()
         self.drone_yaw = yaw
     
     async def shutdown(self) -> None:
@@ -951,8 +956,7 @@ def create_target_source(params: InterceptionParameters,
             return CameraAPITargetSource(params)
 
 # =============================================================================
-# FILE: guidance_strategies.py
-# Modular guidance strategies with GPS drift mitigation
+# FILE: guidance_strategies.py - Fixed implementations
 # =============================================================================
 
 class GuidanceStrategy(ABC):
@@ -990,7 +994,7 @@ class GuidanceStrategy(ABC):
         else:
             bearing = math.degrees(math.atan2(error_ned[1], error_ned[0]))
         
-        return normalize_angle(bearing - self.params.camera_mount_yaw)
+        return normalize_angle(bearing)
 
 class LocalNEDVelocityGuidance(GuidanceStrategy):
     """
@@ -1036,7 +1040,7 @@ class LocalNEDVelocityGuidance(GuidanceStrategy):
         
         # Compute error
         error_ned = target_ned - current_ned
-        distance = np.linalg.norm(error_ned)
+        distance = np.linalg.norm(error_ned[:2])  # Horizontal distance
         
         # Check deadband
         if distance < self.params.control_position_deadband:
@@ -1063,6 +1067,15 @@ class LocalNEDVelocityGuidance(GuidanceStrategy):
             vn += target_velocity[0] * ff_scale
             ve += target_velocity[1] * ff_scale
             vd += target_velocity[2] * ff_scale
+        
+        # Ensure velocities are within limits
+        horizontal_vel = np.hypot(vn, ve)
+        if horizontal_vel > self.params.velocity_max_horizontal:
+            scale = self.params.velocity_max_horizontal / horizontal_vel
+            vn *= scale
+            ve *= scale
+        
+        vd = np.clip(vd, -self.params.velocity_max_vertical, self.params.velocity_max_vertical)
         
         # Desired yaw
         desired_yaw = self.compute_desired_yaw(error_ned, target_velocity)
@@ -1144,7 +1157,7 @@ class GlobalNEDVelocityGuidance(GuidanceStrategy):
         
         # Compute error
         error_ned = target_ned - current_ned
-        distance = np.linalg.norm(error_ned)
+        distance = np.linalg.norm(error_ned[:2])  # Horizontal distance
         
         # Check deadband
         if distance < self.params.control_position_deadband:
@@ -1171,6 +1184,15 @@ class GlobalNEDVelocityGuidance(GuidanceStrategy):
             vn += target_velocity[0] * ff_scale
             ve += target_velocity[1] * ff_scale
             vd += target_velocity[2] * ff_scale
+        
+        # Ensure velocities are within limits
+        horizontal_vel = np.hypot(vn, ve)
+        if horizontal_vel > self.params.velocity_max_horizontal:
+            scale = self.params.velocity_max_horizontal / horizontal_vel
+            vn *= scale
+            ve *= scale
+        
+        vd = np.clip(vd, -self.params.velocity_max_vertical, self.params.velocity_max_vertical)
         
         # Desired yaw
         desired_yaw = self.compute_desired_yaw(error_ned, target_velocity)
@@ -1250,7 +1272,7 @@ class BodyVelocityGuidance(GuidanceStrategy):
         
         # Compute error
         error_ned = target_ned - current_ned
-        distance = np.linalg.norm(error_ned)
+        distance = np.linalg.norm(error_ned[:2])
         
         # Check deadband
         if distance < self.params.control_position_deadband:
@@ -1276,16 +1298,26 @@ class BodyVelocityGuidance(GuidanceStrategy):
         vel_camera = np.array([vx_cam, vy_cam, vz_cam])
         vel_body = self.frame_manager.camera_to_body(vel_camera)
         
-        # Compute yaw with rate limiting
+        # Ensure velocities are within limits
+        horizontal_vel = np.hypot(vel_body[0], vel_body[1])
+        if horizontal_vel > self.params.velocity_max_horizontal:
+            scale = self.params.velocity_max_horizontal / horizontal_vel
+            vel_body[0] *= scale
+            vel_body[1] *= scale
+        
+        vel_body[2] = np.clip(vel_body[2], -self.params.velocity_max_vertical, 
+                              self.params.velocity_max_vertical)
+        
+        # Compute yaw rate
         desired_yaw = self.compute_desired_yaw(error_ned, target_velocity)
         yaw_error = normalize_angle(desired_yaw - telemetry.yaw_deg)
         
-        # Apply yaw rate limit for body commands
-        if abs(yaw_error) > self.params.velocity_max_yaw_rate * dt:
-            yaw_error = np.sign(yaw_error) * self.params.velocity_max_yaw_rate * dt
-        
-        # Convert to rate
-        yaw_rate = 0 if abs(yaw_error) < self.params.control_yaw_deadband else yaw_error / dt
+        # Convert to rate with deadband
+        if abs(yaw_error) < self.params.control_yaw_deadband:
+            yaw_rate = 0
+        else:
+            yaw_rate = np.clip(yaw_error * 2.0, -self.params.velocity_max_yaw_rate, 
+                              self.params.velocity_max_yaw_rate)
         
         # Send command
         try:
@@ -1395,14 +1427,13 @@ def create_guidance_strategy(params: InterceptionParameters,
     return strategies[params.guidance_mode](params, ekf, frame_manager)
 
 # =============================================================================
-# FILE: visualization.py
-# 3D visualization for mission monitoring
+# FILE: visualization.py - CLEANED AND ORGANIZED
 # =============================================================================
 
 class MissionVisualizer:
     """
-    Professional 3D visualization for stakeholders.
-    Clean, intuitive, real-time display.
+    Clean, organized 3D visualization for mission monitoring.
+    Simplified and professional display.
     """
     
     def __init__(self, params: InterceptionParameters):
@@ -1416,117 +1447,143 @@ class MissionVisualizer:
         
         self.enabled = True
         
-        # Setup figure
+        # Setup figure with cleaner layout
         plt.ion()
-        self.fig = plt.figure(figsize=(18, 10))
-        self.fig.suptitle('Drone Pursuit Mission - Real-Time Monitor', fontsize=16, fontweight='bold')
+        self.fig = plt.figure(figsize=(16, 9))
+        self.fig.suptitle('Drone Pursuit Mission Monitor', fontsize=16, fontweight='bold')
         
-        # Create layout
-        gs = self.fig.add_gridspec(3, 3, hspace=0.3, wspace=0.3)
+        # Create cleaner layout - 2x2 grid
+        gs = self.fig.add_gridspec(2, 2, hspace=0.25, wspace=0.2,
+                                  left=0.05, right=0.95, top=0.93, bottom=0.05)
         
-        # Main 3D view
-        self.ax_3d = self.fig.add_subplot(gs[0:2, 0:2], projection='3d')
+        # Main 3D view (larger)
+        self.ax_3d = self.fig.add_subplot(gs[0:2, 0], projection='3d')
         self._setup_3d_plot()
         
-        # Top-down tactical view
-        self.ax_tactical = self.fig.add_subplot(gs[0, 2])
-        self._setup_tactical_plot()
+        # Top-down view
+        self.ax_topdown = self.fig.add_subplot(gs[0, 1])
+        self._setup_topdown_plot()
         
-        # Altitude profile
-        self.ax_altitude = self.fig.add_subplot(gs[1, 2])
-        self._setup_altitude_plot()
-        
-        # Performance metrics
-        self.ax_metrics = self.fig.add_subplot(gs[2, :2])
-        self._setup_metrics_plot()
-        
-        # Mission status
-        self.ax_status = self.fig.add_subplot(gs[2, 2])
+        # Status panel
+        self.ax_status = self.fig.add_subplot(gs[1, 1])
         self._setup_status_plot()
         
         # Data storage
         self.reset_data()
+        
+        # Color scheme
+        self.colors = {
+            'drone': '#1f77b4',      # Blue
+            'target': '#d62728',     # Red
+            'prediction': '#2ca02c', # Green
+            'good': '#2ca02c',
+            'warning': '#ff7f0e',
+            'danger': '#d62728'
+        }
     
     def reset_data(self):
         """Reset visualization data."""
         self.drone_path = []
         self.target_path = []
-        self.time_history = []
-        self.battery_history = []
+        self.drone_altitudes = []
+        self.target_altitudes = []
+        self.distances = []
+        self.times = []
         self.start_time = time.time()
         self.last_update = 0
     
     def _setup_3d_plot(self):
-        """Setup 3D trajectory plot."""
-        self.ax_3d.set_title('3D Mission View', fontsize=14, fontweight='bold')
-        self.ax_3d.set_xlabel('North (m)')
-        self.ax_3d.set_ylabel('East (m)')
-        self.ax_3d.set_zlabel('Altitude (m)')
+        """Setup clean 3D trajectory plot."""
+        self.ax_3d.set_title('3D Pursuit View', fontsize=14, pad=10)
+        self.ax_3d.set_xlabel('North (m)', labelpad=5)
+        self.ax_3d.set_ylabel('East (m)', labelpad=5)
+        self.ax_3d.set_zlabel('Altitude (m)', labelpad=5)
         self.ax_3d.grid(True, alpha=0.3)
         
-        # Plot elements
-        self.drone_trail, = self.ax_3d.plot([], [], [], 'b-', linewidth=2, alpha=0.7, label='Drone Path')
-        self.target_trail, = self.ax_3d.plot([], [], [], 'r--', linewidth=2, alpha=0.7, label='Target Path')
-        self.drone_marker = self.ax_3d.scatter([], [], [], c='blue', s=200, marker='o', edgecolors='darkblue', linewidth=2)
-        self.target_marker = self.ax_3d.scatter([], [], [], c='red', s=200, marker='*', edgecolors='darkred', linewidth=2)
+        # Initialize plot elements
+        self.drone_trail, = self.ax_3d.plot([], [], [], 
+                                           color=self.colors['drone'], 
+                                           linewidth=2, alpha=0.7, label='Drone')
+        self.target_trail, = self.ax_3d.plot([], [], [], 
+                                            color=self.colors['target'], 
+                                            linestyle='--', linewidth=2, 
+                                            alpha=0.7, label='Target')
         
-        # Prediction line
-        self.prediction_line, = self.ax_3d.plot([], [], [], 'g:', linewidth=2, alpha=0.6, label='Prediction')
+        # Current positions
+        self.drone_marker = self.ax_3d.scatter([], [], [], 
+                                              c=self.colors['drone'], s=100, 
+                                              marker='o', edgecolors='darkblue', 
+                                              linewidth=2, zorder=5)
+        self.target_marker = self.ax_3d.scatter([], [], [], 
+                                               c=self.colors['target'], s=100, 
+                                               marker='*', edgecolors='darkred', 
+                                               linewidth=2, zorder=5)
         
-        # Connection line
-        self.connection_line, = self.ax_3d.plot([], [], [], 'k-', linewidth=1, alpha=0.5)
+        # Prediction (only show when close)
+        self.prediction_line, = self.ax_3d.plot([], [], [], 
+                                               color=self.colors['prediction'], 
+                                               linestyle=':', linewidth=2, 
+                                               alpha=0.6, label='Prediction')
         
-        self.ax_3d.legend(loc='upper right')
-        self.ax_3d.view_init(elev=30, azim=45)
+        self.ax_3d.legend(loc='upper right', framealpha=0.9)
+        self.ax_3d.view_init(elev=25, azim=45)
     
-    def _setup_tactical_plot(self):
-        """Setup top-down tactical view."""
-        self.ax_tactical.set_title('Tactical View', fontsize=12, fontweight='bold')
-        self.ax_tactical.set_xlabel('East (m)')
-        self.ax_tactical.set_ylabel('North (m)')
-        self.ax_tactical.set_aspect('equal')
-        self.ax_tactical.grid(True, alpha=0.3)
+    def _setup_topdown_plot(self):
+        """Setup clean top-down view."""
+        self.ax_topdown.set_title('Top-Down View', fontsize=12, pad=10)
+        self.ax_topdown.set_xlabel('East (m)')
+        self.ax_topdown.set_ylabel('North (m)')
+        self.ax_topdown.set_aspect('equal')
+        self.ax_topdown.grid(True, alpha=0.3)
         
-        # Elements
-        self.tactical_drone, = self.ax_tactical.plot([], [], 'bo', markersize=12)
-        self.tactical_target, = self.ax_tactical.plot([], [], 'r*', markersize=14)
-        self.tactical_trail, = self.ax_tactical.plot([], [], 'b-', linewidth=1, alpha=0.3)
+        # Initialize elements
+        self.topdown_drone_trail, = self.ax_topdown.plot([], [], 
+                                                         color=self.colors['drone'], 
+                                                         linewidth=1, alpha=0.3)
+        self.topdown_target_trail, = self.ax_topdown.plot([], [], 
+                                                          color=self.colors['target'], 
+                                                          linewidth=1, alpha=0.3, 
+                                                          linestyle='--')
         
-        # Drone heading arrow
-        self.heading_arrow = None
+        self.topdown_drone, = self.ax_topdown.plot([], [], 
+                                                   color=self.colors['drone'], 
+                                                   marker='o', markersize=10)
+        self.topdown_target, = self.ax_topdown.plot([], [], 
+                                                    color=self.colors['target'], 
+                                                    marker='*', markersize=12)
         
-        # Uncertainty ellipse
-        self.uncertainty_ellipse = Ellipse((0, 0), 0, 0, angle=0, fill=False, 
-                                         edgecolor='red', alpha=0.5, linestyle='--')
-        self.ax_tactical.add_patch(self.uncertainty_ellipse)
-    
-    def _setup_altitude_plot(self):
-        """Setup altitude profile."""
-        self.ax_altitude.set_title('Altitude Profile', fontsize=12, fontweight='bold')
-        self.ax_altitude.set_xlabel('Time (s)')
-        self.ax_altitude.set_ylabel('Altitude AGL (m)')
-        self.ax_altitude.grid(True, alpha=0.3)
+        # Range rings
+        self.range_rings = []
+        for r in [10, 25, 50]:
+            circle = Circle((0, 0), r, fill=False, linestyle=':', 
+                          alpha=0.3, color='gray')
+            self.ax_topdown.add_patch(circle)
+            self.range_rings.append(circle)
         
-        self.altitude_drone, = self.ax_altitude.plot([], [], 'b-', linewidth=2, label='Drone')
-        self.altitude_target, = self.ax_altitude.plot([], [], 'r--', linewidth=2, label='Target')
-        self.ax_altitude.legend(loc='upper right')
-    
-    def _setup_metrics_plot(self):
-        """Setup performance metrics display."""
-        self.ax_metrics.set_title('Performance Metrics', fontsize=12, fontweight='bold')
-        self.ax_metrics.axis('off')
+        # Uncertainty ellipse (only show when significant)
+        self.uncertainty_ellipse = Ellipse((0, 0), 0, 0, angle=0, 
+                                         fill=False, edgecolor=self.colors['target'], 
+                                         alpha=0.5, linestyle='--', linewidth=1)
+        self.ax_topdown.add_patch(self.uncertainty_ellipse)
+        self.uncertainty_ellipse.set_visible(False)
     
     def _setup_status_plot(self):
-        """Setup mission status display."""
-        self.ax_status.set_title('Mission Status', fontsize=12, fontweight='bold')
+        """Setup clean status display."""
+        self.ax_status.set_title('Mission Status', fontsize=12, pad=10)
         self.ax_status.axis('off')
+        
+        # Create text elements
+        self.status_text = self.ax_status.text(0.05, 0.95, '', 
+                                              transform=self.ax_status.transAxes,
+                                              fontsize=11, verticalalignment='top',
+                                              fontfamily='monospace')
     
     def update(self, telemetry: TelemetryData,
                target_state: Tuple[np.ndarray, np.ndarray, np.ndarray],
                predictions: Optional[List[np.ndarray]] = None,
                uncertainty: Optional[Tuple[np.ndarray, float]] = None,
                mission_state: str = "UNKNOWN"):
-        """Update all visualizations."""
+        """Update visualization with cleaner display."""
         if not self.enabled:
             return
         
@@ -1534,81 +1591,103 @@ class MissionVisualizer:
         if now - self.last_update < 1.0 / self.params.viz_update_rate:
             return
         
+        # Get positions
+        drone_pos = np.array([telemetry.north_m, telemetry.east_m, -telemetry.altitude_agl_m])
+        target_pos = target_state[0].copy()
+        
         # Store data
         elapsed = now - self.start_time
-        self.time_history.append(elapsed)
-        
-        drone_pos = np.array([telemetry.north_m, telemetry.east_m, telemetry.altitude_agl_m])
-        target_pos = target_state[0].copy()
-        target_pos[2] = -target_pos[2]  # Convert down to up for display
-        
+        self.times.append(elapsed)
         self.drone_path.append(drone_pos)
         self.target_path.append(target_pos)
+        self.drone_altitudes.append(telemetry.altitude_agl_m)
+        self.target_altitudes.append(-target_pos[2])
         
-        error = np.linalg.norm(drone_pos[:2] - target_pos[:2])
-        self.battery_history.append(telemetry.battery_voltage)
+        # Calculate metrics
+        error_horizontal = np.linalg.norm(drone_pos[:2] - target_pos[:2])
+        error_3d = np.linalg.norm(drone_pos - target_pos)
+        self.distances.append(error_horizontal)
         
         # Limit history
-        if len(self.drone_path) > self.params.viz_path_history_length:
-            self.drone_path.pop(0)
-            self.target_path.pop(0)
-            self.time_history.pop(0)
-            self.battery_history.pop(0)
+        max_points = self.params.viz_path_history_length
+        if len(self.drone_path) > max_points:
+            self.drone_path = self.drone_path[-max_points:]
+            self.target_path = self.target_path[-max_points:]
+            self.times = self.times[-max_points:]
+            self.distances = self.distances[-max_points:]
+            self.drone_altitudes = self.drone_altitudes[-max_points:]
+            self.target_altitudes = self.target_altitudes[-max_points:]
         
         # Update 3D plot
+        self._update_3d(drone_pos, target_pos, predictions, error_3d)
+        
+        # Update top-down
+        self._update_topdown(drone_pos, target_pos, telemetry, uncertainty, error_horizontal)
+        
+        # Update status
+        self._update_status_display(telemetry, target_state, error_horizontal, 
+                                   elapsed, mission_state, uncertainty)
+        
+        plt.draw()
+        plt.pause(0.001)
+        self.last_update = now
+    
+    def _update_3d(self, drone_pos, target_pos, predictions, error_3d):
+        """Update 3D plot."""
         if len(self.drone_path) > 1:
+            # Convert positions for display (invert Z)
             drone_array = np.array(self.drone_path)
             target_array = np.array(self.target_path)
+            drone_array[:, 2] = -drone_array[:, 2]
+            target_array[:, 2] = -target_array[:, 2]
             
-            # Trails
+            # Update trails
             self.drone_trail.set_data(drone_array[:, 0], drone_array[:, 1])
             self.drone_trail.set_3d_properties(drone_array[:, 2])
             self.target_trail.set_data(target_array[:, 0], target_array[:, 1])
             self.target_trail.set_3d_properties(target_array[:, 2])
             
-            # Current positions
-            self.drone_marker._offsets3d = ([drone_pos[0]], [drone_pos[1]], [drone_pos[2]])
-            self.target_marker._offsets3d = ([target_pos[0]], [target_pos[1]], [target_pos[2]])
+            # Update markers
+            self.drone_marker._offsets3d = ([drone_pos[0]], [drone_pos[1]], [-drone_pos[2]])
+            self.target_marker._offsets3d = ([target_pos[0]], [target_pos[1]], [-target_pos[2]])
             
-            # Connection line
-            self.connection_line.set_data([drone_pos[0], target_pos[0]], [drone_pos[1], target_pos[1]])
-            self.connection_line.set_3d_properties([drone_pos[2], target_pos[2]])
-            
-            # Predictions
-            if predictions and len(predictions) > 1:
-                pred_array = np.array(predictions)
-                pred_array[:, 2] = -pred_array[:, 2]
+            # Update prediction (only show when close)
+            if predictions and error_3d < 50:
+                pred_array = np.array(predictions[:20])  # Limit prediction display
                 self.prediction_line.set_data(pred_array[:, 0], pred_array[:, 1])
-                self.prediction_line.set_3d_properties(pred_array[:, 2])
+                self.prediction_line.set_3d_properties(-pred_array[:, 2])
+            else:
+                self.prediction_line.set_data([], [])
+                self.prediction_line.set_3d_properties([])
             
-            # Auto-scale
+            # Auto-scale with margins
             all_points = np.vstack([drone_array, target_array])
             margin = 10
-            self.ax_3d.set_xlim(all_points[:, 0].min() - margin, all_points[:, 0].max() + margin)
-            self.ax_3d.set_ylim(all_points[:, 1].min() - margin, all_points[:, 1].max() + margin)
-            self.ax_3d.set_zlim(0, max(all_points[:, 2].max() + margin, self.params.mission_takeoff_altitude + 5))
+            self.ax_3d.set_xlim(all_points[:, 0].min() - margin, 
+                               all_points[:, 0].max() + margin)
+            self.ax_3d.set_ylim(all_points[:, 1].min() - margin, 
+                               all_points[:, 1].max() + margin)
+            self.ax_3d.set_zlim(0, max(all_points[:, 2].max() + margin, 20))
+    
+    def _update_topdown(self, drone_pos, target_pos, telemetry, uncertainty, error):
+        """Update top-down view."""
+        # Update positions
+        self.topdown_drone.set_data([drone_pos[1]], [drone_pos[0]])
+        self.topdown_target.set_data([target_pos[1]], [target_pos[0]])
         
-        # Update tactical view
-        self.tactical_drone.set_data([drone_pos[1]], [drone_pos[0]])
-        self.tactical_target.set_data([target_pos[1]], [target_pos[0]])
-        
+        # Update trails (last 50 points)
         if len(self.drone_path) > 1:
-            trail = np.array(self.drone_path[-50:])
-            self.tactical_trail.set_data(trail[:, 1], trail[:, 0])
+            drone_trail = np.array(self.drone_path[-50:])
+            target_trail = np.array(self.target_path[-50:])
+            self.topdown_drone_trail.set_data(drone_trail[:, 1], drone_trail[:, 0])
+            self.topdown_target_trail.set_data(target_trail[:, 1], target_trail[:, 0])
         
-        # Update heading arrow
-        if self.heading_arrow:
-            self.heading_arrow.remove()
-        arrow_len = 5
-        dx = arrow_len * np.cos(telemetry.yaw_rad)
-        dy = arrow_len * np.sin(telemetry.yaw_rad)
-        self.heading_arrow = self.ax_tactical.arrow(
-            drone_pos[1], drone_pos[0], dy, dx,
-            head_width=2, head_length=1.5, fc='blue', ec='blue', alpha=0.7
-        )
+        # Update range rings position
+        for ring in self.range_rings:
+            ring.center = (drone_pos[1], drone_pos[0])
         
-        # Update uncertainty ellipse
-        if uncertainty and uncertainty[0] is not None:
+        # Update uncertainty ellipse (only show if significant)
+        if uncertainty and uncertainty[1] > 2.0:  # Only show if > 2m uncertainty
             try:
                 cov_2d = uncertainty[0][:2, :2]
                 eigenvalues, eigenvectors = np.linalg.eigh(cov_2d)
@@ -1620,103 +1699,81 @@ class MissionVisualizer:
                 self.uncertainty_ellipse.width = width
                 self.uncertainty_ellipse.height = height
                 self.uncertainty_ellipse.angle = angle
+                self.uncertainty_ellipse.set_visible(True)
             except:
-                pass
-        
-        # Auto-scale tactical
-        if len(self.drone_path) > 0:
-            self.ax_tactical.set_xlim(drone_pos[1] - 50, drone_pos[1] + 50)
-            self.ax_tactical.set_ylim(drone_pos[0] - 50, drone_pos[0] + 50)
-        
-        # Update altitude plot
-        if len(self.time_history) > 1:
-            drone_alts = [p[2] for p in self.drone_path]
-            target_alts = [p[2] for p in self.target_path]
-            
-            self.altitude_drone.set_data(self.time_history, drone_alts)
-            self.altitude_target.set_data(self.time_history, target_alts)
-            
-            self.ax_altitude.set_xlim(0, max(self.time_history) + 5)
-            self.ax_altitude.set_ylim(0, max(max(drone_alts), max(target_alts)) + 5)
-        
-        # Update metrics
-        self._update_metrics(telemetry, target_state, uncertainty, error, elapsed)
-        
-        # Update status
-        self._update_status(mission_state, telemetry, error)
-        
-        plt.draw()
-        plt.pause(0.001)
-        self.last_update = now
-    
-    def _update_metrics(self, telemetry, target_state, uncertainty, error, elapsed):
-        """Update performance metrics display."""
-        self.ax_metrics.clear()
-        self.ax_metrics.axis('off')
-        
-        # Create three columns
-        col1 = "Navigation Performance\n" + "="*25 + "\n"
-        col1 += f"Position Error: {error:.2f} m\n"
-        col1 += f"Ground Speed: {telemetry.get_ground_speed():.1f} m/s\n"
-        col1 += f"Target Speed: {np.linalg.norm(target_state[1]):.1f} m/s\n"
-
-        
-        col2 = "System Health\n" + "="*25 + "\n"
-        col2 += f"Battery: {telemetry.battery_voltage:.1f}V ({telemetry.battery_percent:.0f}%)\n"
-        col2 += f"GPS Satellites: {telemetry.gps_satellites}\n"
-        col2 += f"Altitude AGL: {telemetry.altitude_agl_m:.1f} m\n"
-        col2 += f"Mission Time: {elapsed:.1f} s\n"
-        
-        col3 = "Tracking Performance\n" + "="*25 + "\n"
-        if uncertainty and uncertainty[1] is not None:
-            col3 += f"EKF Uncertainty: {uncertainty[1]:.2f} m\n"
-        
-        # Display columns
-        self.ax_metrics.text(0.05, 0.95, col1, transform=self.ax_metrics.transAxes,
-                           fontsize=10, verticalalignment='top', fontfamily='monospace')
-        self.ax_metrics.text(0.35, 0.95, col2, transform=self.ax_metrics.transAxes,
-                           fontsize=10, verticalalignment='top', fontfamily='monospace')
-        self.ax_metrics.text(0.65, 0.95, col3, transform=self.ax_metrics.transAxes,
-                           fontsize=10, verticalalignment='top', fontfamily='monospace')
-    
-    def _update_status(self, state, telemetry, error):
-        """Update mission status display."""
-        self.ax_status.clear()
-        self.ax_status.axis('off')
-        
-        # Status color
-        status_colors = {
-            'PURSUIT': 'green',
-            'HOLDING': 'blue',
-            'TAKEOFF': 'yellow',
-            'LANDING': 'yellow',
-            'EMERGENCY': 'red'
-        }
-        color = status_colors.get(state, 'gray')
-        
-        # Large status
-        self.ax_status.text(0.5, 0.7, state, transform=self.ax_status.transAxes,
-                          fontsize=20, fontweight='bold', color=color,
-                          horizontalalignment='center')
-        
-        # Target status
-        if error < self.params.mission_target_threshold:
-            target_status = "TARGET ACQUIRED"
-            target_color = 'green'
-        elif error < self.params.mission_target_threshold * 3:
-            target_status = "CLOSING"
-            target_color = 'yellow'
+                self.uncertainty_ellipse.set_visible(False)
         else:
-            target_status = "TRACKING"
-            target_color = 'orange'
+            self.uncertainty_ellipse.set_visible(False)
         
-        self.ax_status.text(0.5, 0.3, target_status, transform=self.ax_status.transAxes,
-                          fontsize=16, color=target_color, fontweight='bold',
-                          horizontalalignment='center')
+        # Auto-scale around drone
+        view_range = 75
+        self.ax_topdown.set_xlim(drone_pos[1] - view_range, drone_pos[1] + view_range)
+        self.ax_topdown.set_ylim(drone_pos[0] - view_range, drone_pos[0] + view_range)
+    
+    def _update_status_display(self, telemetry, target_state, error, elapsed, 
+                              mission_state, uncertainty):
+        """Update status panel with clean, organized information."""
+        # Determine status color
+        if error < self.params.mission_target_threshold:
+            error_color = self.colors['good']
+            error_status = "ON TARGET"
+        elif error < self.params.mission_target_threshold * 3:
+            error_color = self.colors['warning']
+            error_status = "CLOSING"
+        else:
+            error_color = self.colors['danger']
+            error_status = "TRACKING"
+        
+        # Battery status
+        if telemetry.battery_percent > 30:
+            battery_color = self.colors['good']
+        elif telemetry.battery_percent > 20:
+            battery_color = self.colors['warning']
+        else:
+            battery_color = self.colors['danger']
+        
+        # Format time
+        minutes = int(elapsed // 60)
+        seconds = int(elapsed % 60)
+        
+        # Build status text
+        status_lines = [
+            f"{'='*35}",
+            f"Mission State: {mission_state:>18}",
+            f"Time Elapsed:  {minutes:02d}:{seconds:02d}",
+            f"{'='*35}",
+            f"",
+            f"TRACKING STATUS",
+            f"Distance:      {error:>6.1f} m [{error_status}]",
+            f"Target Speed:  {np.linalg.norm(target_state[1]):>6.1f} m/s",
+            f"Drone Speed:   {telemetry.get_ground_speed():>6.1f} m/s",
+        ]
+        
+        if uncertainty and uncertainty[1] is not None:
+            status_lines.append(f"EKF Uncert.:   {uncertainty[1]:>6.1f} m")
+        
+        status_lines.extend([
+            f"",
+            f"DRONE STATUS",
+            f"Altitude:      {telemetry.altitude_agl_m:>6.1f} m",
+            f"Battery:       {telemetry.battery_percent:>6.0f} %",
+            f"GPS Sats:      {telemetry.gps_satellites:>6d}",
+        ])
+        
+        # Color-coded display
+        full_text = '\n'.join(status_lines)
+        self.status_text.set_text(full_text)
+        
+        # Add colored background for critical info
+        if error < self.params.mission_target_threshold:
+            bbox_props = dict(boxstyle="round,pad=0.3", facecolor=error_color, 
+                            alpha=0.2, edgecolor=error_color)
+            self.ax_status.add_patch(plt.Rectangle((0.02, 0.55), 0.96, 0.15,
+                                                  transform=self.ax_status.transAxes,
+                                                  facecolor=error_color, alpha=0.1))
 
 # =============================================================================
-# FILE: mission_executor.py
-# Main mission execution and state management
+# FILE: mission_executor.py - Main mission execution
 # =============================================================================
 
 class MissionState(Enum):
@@ -1886,7 +1943,7 @@ class MissionExecutor:
         """Execute the complete mission."""
         try:
             print("\n" + "="*70)
-            print("DRONE PURSUIT SYSTEM v5.0".center(70))
+            print("DRONE PURSUIT SYSTEM v5.1 FIXED".center(70))
             print("Professional Autonomous Target Tracking".center(70))
             print(f"Mode: {self.params.guidance_mode}".center(70))
             print("="*70 + "\n")
@@ -1924,12 +1981,6 @@ class MissionExecutor:
         # Get telemetry
         telemetry = await self.telemetry_manager.get_telemetry()
         
-        # Safety checks
-        # is_safe, reason = self.telemetry_manager.check_safety_limits()
-        # if not is_safe:
-        #     raise RuntimeError(f"Preflight failed: {reason}")
-        # Pre flight shuldt chek for atltitude!!!
-        
         # Set home reference
         self.frame_manager.set_home_reference(
             telemetry.latitude_deg,
@@ -1942,11 +1993,9 @@ class MissionExecutor:
         
         # Initialize EKF with target
         if self.ekf and hasattr(self.target_source, 'position'):
-            self.ekf.initialize(
-                self.target_source.position,
-                self.target_source.velocity,
-                self.target_source.acceleration
-            )
+            initial_target_pos = np.array(self.target_source.position)
+            initial_target_vel = np.array(self.target_source.velocity) if hasattr(self.target_source, 'velocity') else np.zeros(3)
+            self.ekf.initialize(initial_target_pos, initial_target_vel)
         
         self.logger.info("Preflight checks complete")
     
@@ -1973,7 +2022,7 @@ class MissionExecutor:
         while True:
             telemetry = await self.telemetry_manager.get_telemetry()
             
-            if telemetry.altitude_agl_m >= self.params.mission_takeoff_altitude:
+            if telemetry.altitude_agl_m >= self.params.mission_takeoff_altitude - 0.5:
                 self.logger.info(f"Reached altitude: {telemetry.altitude_agl_m:.1f}m")
                 break
             
@@ -1982,22 +2031,22 @@ class MissionExecutor:
             )
             
             # Update visualization during takeoff
-            if self.visualizer:
-                target_state = self.target_source.position, self.target_source.velocity, self.target_source.acceleration
+            if self.visualizer and self.ekf:
+                target_pos, target_vel, _ = self.ekf.get_state()
                 self.visualizer.update(
                     telemetry,
-                    target_state,
+                    (target_pos, target_vel, np.zeros(3)),
                     mission_state=self.state_machine.state.name
                 )
             
             await asyncio.sleep(self.params.control_loop_period)
         
-        # Hold position
+        # Hold position briefly
         await self.drone.offboard.set_velocity_ned(VelocityNedYaw(0, 0, 0, 0))
         await asyncio.sleep(2.0)
     
     async def _execute_pursuit(self):
-        """Main pursuit phase."""
+        """Main pursuit phase - Fixed implementation."""
         self.state_machine.transition_to(MissionState.PURSUIT, "Starting pursuit")
         
         self.logger.info("Pursuit phase active")
@@ -2006,13 +2055,15 @@ class MissionExecutor:
         # Initialize stats
         self.mission_stats = {
             'max_error': 0,
+            'min_error': float('inf'),
             'measurements_accepted': 0,
             'measurements_rejected': 0,
             'min_battery': 100,
             'max_altitude': 0,
             'pursuit_duration': 0,
             'average_error': 0,
-            'error_samples': 0
+            'error_samples': 0,
+            'target_acquired': False
         }
         
         print("\n" + "="*60)
@@ -2020,6 +2071,7 @@ class MissionExecutor:
         print("="*60 + "\n")
         
         last_time = time.time()
+        consecutive_target_acquisitions = 0
         
         while self.state_machine.state == MissionState.PURSUIT:
             loop_start = time.time()
@@ -2030,40 +2082,39 @@ class MissionExecutor:
                 # Get telemetry
                 telemetry = await self.telemetry_manager.get_telemetry()
                 
+                # Get current drone position (avoid drift by using geodetic)
+                current_ned = self.frame_manager.geodetic_to_ned(
+                    telemetry.latitude_deg,
+                    telemetry.longitude_deg,
+                    telemetry.altitude_amsl_m
+                )
+                
                 # Update simulated target
                 if isinstance(self.target_source, SimulatedTargetSource):
-                    # Get current position (avoid drift)
-                    current_ned = self.frame_manager.geodetic_to_ned(
-                        telemetry.latitude_deg,
-                        telemetry.longitude_deg,
-                        telemetry.altitude_amsl_m
-                    )
                     self.target_source.update_drone_state(current_ned, telemetry.yaw_rad)
                 
                 # Get target measurement
                 measurement = await self.target_source.get_measurement()
                 
+                # Process measurement or use prediction
                 if measurement is None:
                     self.logger.warning("No target measurement")
                     # Continue with EKF prediction if available
-                    if self.ekf and self.ekf.time_since_measurement() < self.params.ekf_miss_timeout:
+                    if self.ekf and self.ekf.is_initialized and \
+                       self.ekf.time_since_measurement() < self.params.ekf_miss_timeout:
                         self.ekf.predict(dt)
                         target_pos, target_vel, _ = self.ekf.get_state()
                     else:
+                        self.logger.warning("No valid target data available")
                         continue
                 else:
-                    # Process measurement
+                    # Transform measurement to NED
                     target_cam = measurement['position']
                     target_ned_relative = self.frame_manager.camera_to_ned(
                         target_cam, telemetry.yaw_rad
                     )
                     
                     # Get absolute target position
-                    current_ned = self.frame_manager.geodetic_to_ned(
-                        telemetry.latitude_deg,
-                        telemetry.longitude_deg,
-                        telemetry.altitude_amsl_m
-                    )
                     target_ned = current_ned + target_ned_relative
                     
                     # Apply EKF
@@ -2078,10 +2129,11 @@ class MissionExecutor:
                         # Get filtered state
                         target_pos, target_vel, _ = self.ekf.get_state()
                     else:
+                        # No EKF, use raw measurement
                         target_pos = target_ned
                         target_vel = np.zeros(3)
                 
-                # Check constraints
+                # Check mission constraints
                 elapsed = time.time() - self.mission_start_time
                 if elapsed > self.params.mission_max_time:
                     self.logger.info("Mission time limit reached")
@@ -2093,23 +2145,32 @@ class MissionExecutor:
                 )
                 if not is_safe:
                     self.logger.warning(f"Safety limit: {reason}")
-                    if "battery" in reason.lower():
+                    if "battery" in reason.lower() or "altitude" in reason.lower():
                         break
                 
                 # Calculate error
-                error = np.linalg.norm(target_pos - current_ned)
-                self.mission_stats['max_error'] = max(self.mission_stats['max_error'], error)
+                error_3d = np.linalg.norm(target_pos - current_ned)
+                error_horizontal = np.linalg.norm((target_pos - current_ned)[:2])
+                
+                # Update statistics
+                self.mission_stats['max_error'] = max(self.mission_stats['max_error'], error_3d)
+                self.mission_stats['min_error'] = min(self.mission_stats['min_error'], error_3d)
                 self.mission_stats['average_error'] = (
-                    (self.mission_stats['average_error'] * self.mission_stats['error_samples'] + error) /
+                    (self.mission_stats['average_error'] * self.mission_stats['error_samples'] + error_3d) /
                     (self.mission_stats['error_samples'] + 1)
                 )
                 self.mission_stats['error_samples'] += 1
                 
                 # Check if target reached
-                if error <= self.params.mission_target_threshold:
-                    self.logger.info(f"Target reached! Distance: {error:.2f}m")
-                    self.state_machine.transition_to(MissionState.HOLDING, "Target acquired")
-                    break
+                if error_3d <= self.params.mission_target_threshold:
+                    consecutive_target_acquisitions += 1
+                    if consecutive_target_acquisitions >= 10:  # Require stable acquisition
+                        self.logger.info(f"Target acquired! Distance: {error_3d:.2f}m")
+                        self.mission_stats['target_acquired'] = True
+                        self.state_machine.transition_to(MissionState.HOLDING, "Target acquired")
+                        break
+                else:
+                    consecutive_target_acquisitions = 0
                 
                 # Send guidance command
                 success = await self.guidance_strategy.compute_command(
@@ -2142,7 +2203,6 @@ class MissionExecutor:
                         if self.params.viz_show_uncertainty:
                             uncertainty = self.ekf.get_uncertainty()
                     
-                    
                     self.visualizer.update(
                         telemetry,
                         (target_pos, target_vel, np.zeros(3)),
@@ -2153,17 +2213,21 @@ class MissionExecutor:
                 
                 # Terminal display (clean and informative)
                 speed = telemetry.get_ground_speed()
-                closing_rate = -np.dot(
-                    (target_pos - current_ned)[:2] / error,
-                    telemetry.get_velocity_ned()[:2]
-                ) if error > 0 else 0
+                target_speed = np.linalg.norm(target_vel[:2])
                 
-                eta = error / closing_rate if closing_rate > 0.1 else float('inf')
+                # Calculate closing rate
+                if error_horizontal > 0:
+                    error_direction = (target_pos - current_ned)[:2] / error_horizontal
+                    closing_rate = -np.dot(error_direction, telemetry.get_velocity_ned()[:2])
+                else:
+                    closing_rate = 0
+                
+                eta = error_horizontal / closing_rate if closing_rate > 0.1 else float('inf')
                 
                 # Clean terminal output
                 print(f"\r{'Time:':<6} {elapsed:>6.1f}s | "
-                      f"{'Dist:':<5} {error:>5.1f}m | "
-                      f"{'Speed:':<6} {speed:>4.1f}m/s | "
+                      f"{'Dist:':<5} {error_3d:>5.1f}m | "
+                      f"{'H-Dist:':<7} {error_horizontal:>5.1f}m | "
                       f"{'Close:':<6} {closing_rate:>4.1f}m/s | "
                       f"{'ETA:':<4} {eta:>5.1f}s | "
                       f"{'Bat:':<4} {telemetry.battery_percent:>3.0f}%",
@@ -2185,9 +2249,23 @@ class MissionExecutor:
         """Execute landing sequence."""
         # Hold if target reached
         if self.state_machine.state == MissionState.HOLDING:
-            self.logger.info(f"Holding for {self.params.mission_hold_time}s...")
-            await self.drone.offboard.set_velocity_ned(VelocityNedYaw(0, 0, 0, 0))
-            await asyncio.sleep(self.params.mission_hold_time)
+            self.logger.info(f"Holding position for {self.params.mission_hold_time}s...")
+            
+            hold_start = time.time()
+            while time.time() - hold_start < self.params.mission_hold_time:
+                await self.drone.offboard.set_velocity_ned(VelocityNedYaw(0, 0, 0, 0))
+                
+                # Update visualization during hold
+                if self.visualizer and self.ekf:
+                    telemetry = await self.telemetry_manager.get_telemetry()
+                    target_pos, target_vel, _ = self.ekf.get_state()
+                    self.visualizer.update(
+                        telemetry,
+                        (target_pos, target_vel, np.zeros(3)),
+                        mission_state="HOLDING"
+                    )
+                
+                await asyncio.sleep(self.params.control_loop_period)
         
         self.state_machine.transition_to(MissionState.LANDING, "Landing")
         
@@ -2195,6 +2273,13 @@ class MissionExecutor:
             await self.drone.offboard.stop()
             await self.drone.action.return_to_launch()
             self.logger.info("Return to launch initiated")
+            
+            # Wait for landing
+            while True:
+                telemetry = await self.telemetry_manager.get_telemetry()
+                if telemetry.altitude_agl_m < 0.5:
+                    break
+                await asyncio.sleep(1.0)
         else:
             # Controlled descent
             while True:
@@ -2207,11 +2292,11 @@ class MissionExecutor:
                 )
                 
                 # Update visualization during landing
-                if self.visualizer and hasattr(self.target_source, 'position'):
-                    target_state = self.target_source.position, self.target_source.velocity, self.target_source.acceleration
+                if self.visualizer and self.ekf:
+                    target_pos, target_vel, _ = self.ekf.get_state()
                     self.visualizer.update(
                         telemetry,
-                        target_state,
+                        (target_pos, target_vel, np.zeros(3)),
                         mission_state=self.state_machine.state.name
                     )
                 
@@ -2219,6 +2304,9 @@ class MissionExecutor:
             
             await self.drone.offboard.stop()
             await self.drone.action.land()
+        
+        # Wait for disarm
+        await asyncio.sleep(5.0)
         
         self.state_machine.transition_to(MissionState.LANDED, "Landed safely")
     
@@ -2233,8 +2321,9 @@ class MissionExecutor:
         except:
             try:
                 await self.drone.action.land()
+                self.logger.info("Emergency landing executed")
             except:
-                pass
+                self.logger.error("Failed to execute emergency procedures")
     
     async def _cleanup(self):
         """Clean up resources."""
@@ -2264,6 +2353,12 @@ class MissionExecutor:
         print(f"{'Final Mission State:':<35} {self.state_machine.state.name:>10}")
         print(f"{'Guidance Mode:':<35} {self.params.guidance_mode:>10}")
         
+        # Mission Success Status
+        if self.mission_stats.get('target_acquired', False):
+            print(f"{'Target Acquisition:':<35} {'SUCCESS':>10}")
+        else:
+            print(f"{'Target Acquisition:':<35} {'NOT ACHIEVED':>10}")
+        
         # GPS Mode Info
         if "ned_velocity" in self.params.guidance_mode:
             if "local" in self.params.guidance_mode:
@@ -2286,6 +2381,7 @@ class MissionExecutor:
             print(f"\n{'PERFORMANCE METRICS':^70}")
             print("-"*70)
             print(f"{'Maximum Position Error:':<35} {self.mission_stats.get('max_error', 0):>10.2f} meters")
+            print(f"{'Minimum Position Error:':<35} {self.mission_stats.get('min_error', 0):>10.2f} meters")
             print(f"{'Average Position Error:':<35} {self.mission_stats.get('average_error', 0):>10.2f} meters")
             print(f"{'Pursuit Phase Duration:':<35} {self.mission_stats.get('pursuit_duration', 0):>10.1f} seconds")
             print(f"{'Maximum Altitude AGL:':<35} {self.mission_stats.get('max_altitude', 0):>10.1f} meters")
@@ -2297,23 +2393,29 @@ class MissionExecutor:
                 print("-"*70)
                 total_meas = (self.mission_stats['measurements_accepted'] + 
                             self.mission_stats['measurements_rejected'])
-                accept_rate = 100 * self.mission_stats['measurements_accepted'] / total_meas
+                accept_rate = 100 * self.mission_stats['measurements_accepted'] / total_meas if total_meas > 0 else 0
                 print(f"{'Measurement Accept Rate:':<35} {accept_rate:>10.1f} %")
                 print(f"{'Total Measurements Processed:':<35} {total_meas:>10.0f}")
+                print(f"{'Measurements Accepted:':<35} {self.mission_stats['measurements_accepted']:>10.0f}")
+                print(f"{'Measurements Rejected (Outliers):':<35} {self.mission_stats['measurements_rejected']:>10.0f}")
                 
-                _, uncertainty = self.ekf.get_uncertainty()
-                print(f"{'Final Position Uncertainty:':<35} {uncertainty:>10.2f} meters")
-                print(f"{'Time Since Last Measurement:':<35} {self.ekf.time_since_measurement():>10.1f} seconds")
+                if self.ekf.is_initialized:
+                    _, uncertainty = self.ekf.get_uncertainty()
+                    print(f"{'Final Position Uncertainty:':<35} {uncertainty:>10.2f} meters")
+                    print(f"{'Time Since Last Measurement:':<35} {self.ekf.time_since_measurement():>10.1f} seconds")
         
         # Mission Result
         print("\n" + "="*70)
         if self.state_machine.state == MissionState.LANDED:
-            if self.mission_stats.get('max_error', float('inf')) <= self.params.mission_target_threshold:
+            if self.mission_stats.get('target_acquired', False):
                 print("MISSION SUCCESS - TARGET INTERCEPTED".center(70))
-                print("Target successfully tracked and intercepted within threshold".center(70))
+                print(f"Target successfully tracked and intercepted within {self.params.mission_target_threshold}m threshold".center(70))
+            elif self.mission_stats.get('min_error', float('inf')) < self.params.mission_target_threshold * 2:
+                print("MISSION COMPLETE - CLOSE APPROACH".center(70))
+                print(f"Minimum distance to target: {self.mission_stats.get('min_error', 0):.2f}m".center(70))
             else:
                 print("MISSION COMPLETE - TARGET TRACKED".center(70))
-                print(f"Final distance to target: {self.mission_stats.get('max_error', 0):.2f}m".center(70))
+                print(f"Minimum distance to target: {self.mission_stats.get('min_error', 0):.2f}m".center(70))
         else:
             print(f"MISSION INCOMPLETE - ENDED IN {self.state_machine.state.name}".center(70))
             if self.state_machine.emergency_reason:
@@ -2325,21 +2427,52 @@ class MissionExecutor:
 # =============================================================================
 
 async def main():
-    """Main entry point."""
-    # Create parameters
-    params = InterceptionParameters()
+    """Main entry point with configuration options."""
+    import argparse
     
-    # Optional: Load from config file
-    # import argparse
-    # parser = argparse.ArgumentParser(description="Drone Pursuit System")
-    # parser.add_argument('--config', type=Path, help='Configuration file')
-    # args = parser.parse_args()
-    # if args.config and args.config.exists():
-    #     params = InterceptionParameters.from_file(args.config)
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description="Drone Pursuit System v5.1 - Professional Target Tracking"
+    )
+    parser.add_argument('--config', type=Path, help='Configuration file (YAML or JSON)')
+    parser.add_argument('--mode', choices=['local_ned_velocity', 'global_ned_velocity', 
+                                          'body_velocity', 'global_position'],
+                       help='Override guidance mode')
+    parser.add_argument('--connection', type=str, help='Override connection string')
+    parser.add_argument('--no-viz', action='store_true', help='Disable visualization')
+    
+    args = parser.parse_args()
+    
+    # Create parameters
+    if args.config and args.config.exists():
+        params = InterceptionParameters.from_file(args.config)
+        print(f"Loaded configuration from: {args.config}")
+    else:
+        params = InterceptionParameters()
+    
+    # Apply command line overrides
+    if args.mode:
+        params.guidance_mode = args.mode
+        print(f"Guidance mode override: {args.mode}")
+    
+    if args.connection:
+        params.system_connection = args.connection
+        print(f"Connection override: {args.connection}")
+    
+    if args.no_viz:
+        params.viz_enabled = False
+        print("Visualization disabled")
     
     # Create and run mission
     executor = MissionExecutor(params)
     await executor.run_mission()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n\nMission aborted by user")
+    except Exception as e:
+        print(f"\n\nFatal error: {e}")
+        import traceback
+        traceback.print_exc()
