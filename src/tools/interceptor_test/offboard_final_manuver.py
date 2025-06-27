@@ -156,14 +156,14 @@ class InterceptionParameters:
         
         # ===== Extended Kalman Filter =====
         self.ekf_enabled = True
-        self.ekf_process_noise_position = 0.1        # meters
-        self.ekf_process_noise_velocity = 0.05       # m/s
-        self.ekf_process_noise_acceleration = 0.01   # m/s²
-        self.ekf_measurement_noise = 0.5             # meters
+        self.ekf_process_noise_position = 0.01        # meters
+        self.ekf_process_noise_velocity = 0.1       # m/s
+        self.ekf_process_noise_acceleration = 0.5   # m/s²
+        self.ekf_measurement_noise = 0.2             # meters
         self.ekf_outlier_threshold_sigma = 3.0       # standard deviations
-        self.ekf_max_covariance = 100.0              # max before reset
-        self.ekf_prediction_horizon = 5.0            # seconds
-        self.ekf_miss_timeout = 5.0                  # seconds without measurement
+        self.ekf_max_covariance = 1000.0              # max before reset
+        self.ekf_prediction_horizon = 3.0            # seconds
+        self.ekf_miss_timeout = 2.0                  # seconds without measurement
         
         # ===== Visualization =====
         self.viz_enabled = True
@@ -553,7 +553,10 @@ class TelemetryManager:
                     break
                 async with self.lock:
                     self.data.battery_voltage = battery.voltage_v
-                    self.data.battery_percent = battery.remaining_percent * 100
+                    # Fix: remaining_percent is already 0-1, multiply by 100
+                    self.data.battery_percent = battery.remaining_percent * 100.0
+                    # Clamp to reasonable values
+                    self.data.battery_percent = np.clip(self.data.battery_percent, 0, 100)
         except Exception as e:
             self.logger.error(f"Battery subscription error: {e}")
     
@@ -627,7 +630,10 @@ class TargetTrackingEKF:
         self.ekf.R = np.eye(3) * (self.params.ekf_measurement_noise ** 2)
         
         # Initial covariance
-        self.ekf.P = np.diag([10, 10, 10, 5, 5, 5, 1, 1, 1])
+        # Initial covariance - more reasonable values
+        self.ekf.P = np.diag([1.0, 1.0, 1.0,    # Position: 1m uncertainty
+                            0.5, 0.5, 0.5,    # Velocity: 0.5m/s uncertainty
+                            0.1, 0.1, 0.1])   # Acceleration: 0.1m/s² uncertainty
     
     def _get_F(self, dt: float) -> np.ndarray:
         """Get state transition matrix."""
@@ -642,23 +648,28 @@ class TargetTrackingEKF:
         return F
     
     def _get_Q(self, dt: float) -> np.ndarray:
-        """Get process noise matrix."""
-        # Simplified process noise model
-        q_pos = self.params.ekf_process_noise_position
-        q_vel = self.params.ekf_process_noise_velocity
-        q_acc = self.params.ekf_process_noise_acceleration
+        """Get process noise matrix - FIXED with proper discrete-time model."""
+        # Much smaller, more realistic process noise values
+        q_pos = 0.01  # Position uncertainty growth: 0.01 m/√s
+        q_vel = 0.1   # Velocity uncertainty growth: 0.1 m/s/√s  
+        q_acc = 0.5   # Acceleration uncertainty growth: 0.5 m/s²/√s
         
-        # Create Q matrix using discrete white noise model
+        # Discrete-time process noise for constant acceleration model
         Q = np.zeros((9, 9))
         
-        # Position process noise
-        Q[0:3, 0:3] = np.eye(3) * q_pos * dt**4 / 4
-        Q[0:3, 3:6] = np.eye(3) * q_pos * dt**3 / 2
+        # Position uncertainty from acceleration
+        Q[0:3, 0:3] = np.eye(3) * q_acc * dt**5 / 20
+        Q[0:3, 3:6] = np.eye(3) * q_acc * dt**4 / 8
+        Q[0:3, 6:9] = np.eye(3) * q_acc * dt**3 / 6
         Q[3:6, 0:3] = Q[0:3, 3:6].T
-        Q[3:6, 3:6] = np.eye(3) * q_vel * dt**2
-        
-        # Acceleration process noise
+        Q[3:6, 3:6] = np.eye(3) * q_acc * dt**3 / 3
+        Q[3:6, 6:9] = np.eye(3) * q_acc * dt**2 / 2
+        Q[6:9, 0:3] = Q[0:3, 6:9].T
+        Q[6:9, 3:6] = Q[3:6, 6:9].T
         Q[6:9, 6:9] = np.eye(3) * q_acc * dt
+        
+        # Add small diagonal noise for numerical stability
+        Q += np.eye(9) * 1e-6
         
         return Q
     
@@ -681,16 +692,26 @@ class TargetTrackingEKF:
         if not self.is_initialized:
             return
         
-        if dt and abs(dt - self.dt) > 0.001:  # Only update if significantly different
+        if dt and abs(dt - self.dt) > 0.001:
             self.ekf.F = self._get_F(dt)
             self.ekf.Q = self._get_Q(dt)
         
         self.ekf.predict()
         
-        # Covariance health check
-        if np.trace(self.ekf.P) > self.params.ekf_max_covariance:
-            self.logger.warning("EKF covariance reset due to high uncertainty")
-            self.ekf.P *= 0.1
+        # More sophisticated covariance health check
+        max_pos_variance = 100.0  # Maximum position variance (m²)
+        max_vel_variance = 25.0   # Maximum velocity variance (m²/s²)
+        
+        # Check diagonal elements instead of trace
+        pos_variance = np.max(np.diag(self.ekf.P)[0:3])
+        vel_variance = np.max(np.diag(self.ekf.P)[3:6])
+        
+        if pos_variance > max_pos_variance or vel_variance > max_vel_variance:
+            self.logger.warning(f"EKF reset: pos_var={pos_variance:.1f}, vel_var={vel_variance:.1f}")
+            # Scale down covariance more intelligently
+            self.ekf.P[0:3, 0:3] *= 0.1
+            self.ekf.P[3:6, 3:6] *= 0.2
+            self.ekf.P[6:9, 6:9] *= 0.5
     
     def update(self, measurement: np.ndarray) -> bool:
         """Update with measurement after outlier check."""
@@ -851,15 +872,25 @@ class SimulatedTargetSource(TargetSource):
         # Update target state
         t = time.time() - self.start_time
         
-        # Base motion: position + velocity * time + 0.5 * acceleration * time²
-        current_pos = self.position + self.velocity * t + 0.5 * self.acceleration * t**2
+        # Target motion model
+        current_pos = self.position.copy()
+        current_vel = self.velocity.copy()
+        
+        # Linear motion
+        current_pos += self.velocity * t + 0.5 * self.acceleration * t**2
         
         # Add sinusoidal maneuvering
         for i in range(3):
             if self.amp[i] > 0 and self.freq[i] > 0:
                 omega = 2 * np.pi * self.freq[i]
-                # Position offset from sinusoidal acceleration
+                # Position offset
                 current_pos[i] += (self.amp[i] / (omega**2)) * (1 - np.cos(omega * t + self.phase[i]))
+                # Velocity component
+                current_vel[i] += (self.amp[i] / omega) * np.sin(omega * t + self.phase[i])
+        
+        # Store true position for debugging
+        self.current_position = current_pos
+        self.current_velocity = current_vel
         
         # Get relative position in NED
         relative_ned = current_pos - self.drone_position
@@ -867,8 +898,8 @@ class SimulatedTargetSource(TargetSource):
         # Transform to camera frame
         pos_camera = self.frame_manager.ned_to_camera(relative_ned, self.drone_yaw)
         
-        # Add measurement noise
-        noise = np.random.normal(0, self.params.ekf_measurement_noise, 3)
+        # Add realistic measurement noise
+        noise = np.random.normal(0, 0.2, 3)  # 20cm standard deviation
         pos_camera += noise
         
         # Simulate confidence based on distance
@@ -880,7 +911,8 @@ class SimulatedTargetSource(TargetSource):
             'timestamp': time.time(),
             'confidence': confidence,
             'frame': 'camera',
-            'true_ned_position': current_pos  # For debugging
+            'true_ned_position': current_pos,
+            'true_ned_velocity': current_vel
         }
     
     def update_drone_state(self, position: np.ndarray, yaw: float):
@@ -1446,19 +1478,13 @@ class MissionVisualizer:
             return
         
         self.enabled = True
-
-        # Color scheme (move this up before _setup_* calls)
-        self.colors = {
-            'drone': '#1f77b4',      # Blue
-            'target': '#d62728',     # Red
-            'prediction': '#2ca02c', # Green
-            'good': '#2ca02c',
-            'warning': '#ff7f0e',
-            'danger': '#d62728'
-        }
         
-        # Setup figure with cleaner layout
-        plt.ion()
+        # Fix matplotlib backend for real-time display
+        import matplotlib
+        matplotlib.use('TkAgg')  # or 'Qt5Agg' if you have Qt
+        
+        # Setup figure
+        plt.ion()  # Interactive mode
         self.fig = plt.figure(figsize=(16, 9))
         self.fig.suptitle('Drone Pursuit Mission Monitor', fontsize=16, fontweight='bold')
         
@@ -2225,10 +2251,12 @@ class MissionExecutor:
                 speed = telemetry.get_ground_speed()
                 target_speed = np.linalg.norm(target_vel[:2])
                 
-                # Calculate closing rate
-                if error_horizontal > 0:
+                # Calculate closing rate (positive when approaching)
+                if error_horizontal > 0.1:  # Avoid division by zero
                     error_direction = (target_pos - current_ned)[:2] / error_horizontal
-                    closing_rate = -np.dot(error_direction, telemetry.get_velocity_ned()[:2])
+                    drone_velocity_horizontal = telemetry.get_velocity_ned()[:2]
+                    # Positive when approaching target
+                    closing_rate = np.dot(error_direction, drone_velocity_horizontal)
                 else:
                     closing_rate = 0
                 
@@ -2354,6 +2382,8 @@ class MissionExecutor:
         print("\n" + "="*70)
         print("MISSION REPORT".center(70))
         print("="*70)
+
+        
         
         # Summary Section
         total_time = sum(s['duration'] for s in self.state_machine.state_history)
