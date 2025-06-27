@@ -1446,6 +1446,16 @@ class MissionVisualizer:
             return
         
         self.enabled = True
+
+        # Color scheme (move this up before _setup_* calls)
+        self.colors = {
+            'drone': '#1f77b4',      # Blue
+            'target': '#d62728',     # Red
+            'prediction': '#2ca02c', # Green
+            'good': '#2ca02c',
+            'warning': '#ff7f0e',
+            'danger': '#d62728'
+        }
         
         # Setup figure with cleaner layout
         plt.ion()
