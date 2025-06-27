@@ -1640,7 +1640,7 @@ class MissionVisualizer:
             self.ax_altitude.set_ylim(0, max(max(drone_alts), max(target_alts)) + 5)
         
         # Update metrics
-        self._update_metrics(telemetry, target_state, uncertainty, error, elapsed, guidance_metrics)
+        self._update_metrics(telemetry, target_state, uncertainty, error, elapsed)
         
         # Update status
         self._update_status(mission_state, telemetry, error)
@@ -1649,7 +1649,7 @@ class MissionVisualizer:
         plt.pause(0.001)
         self.last_update = now
     
-    def _update_metrics(self, telemetry, target_state, uncertainty, error, elapsed, guidance_metrics):
+    def _update_metrics(self, telemetry, target_state, uncertainty, error, elapsed):
         """Update performance metrics display."""
         self.ax_metrics.clear()
         self.ax_metrics.axis('off')
@@ -1670,11 +1670,6 @@ class MissionVisualizer:
         col3 = "Tracking Performance\n" + "="*25 + "\n"
         if uncertainty and uncertainty[1] is not None:
             col3 += f"EKF Uncertainty: {uncertainty[1]:.2f} m\n"
-        
-        if guidance_metrics:
-            for key, value in list(guidance_metrics.items())[:4]:
-                if isinstance(value, float):
-                    col3 += f"{key}: {value:.3f}\n"
         
         # Display columns
         self.ax_metrics.text(0.05, 0.95, col1, transform=self.ax_metrics.transAxes,
