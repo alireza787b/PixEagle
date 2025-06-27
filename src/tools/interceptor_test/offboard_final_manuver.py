@@ -109,8 +109,8 @@ class InterceptionParameters:
         self.target_initial_acceleration = [0.0, 0.0, 0]   # [aN, aE, aD] m/s² (vehicle only, no gravity!)
         
         # ===== Target Maneuvering =====
-        self.target_maneuver_amplitudes = [2.0, 2.0, 0.0]    # m/s² per axis
-        self.target_maneuver_frequencies = [0.1, 0.15, 0.0] # Hz per axis
+        self.target_maneuver_amplitudes = [0.0, 0.0, 0.0]    # m/s² per axis
+        self.target_maneuver_frequencies = [0.0, 0.0, 0.0] # Hz per axis
         self.target_maneuver_phases = None                   # radians (None = random)
         
         # ===== Camera Configuration =====
