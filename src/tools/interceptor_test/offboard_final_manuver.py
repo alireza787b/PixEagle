@@ -106,11 +106,11 @@ class InterceptionParameters:
         # ===== Target Definition (NED relative to launch) =====
         self.target_initial_position = [30.0, 0.0, -10.0]    # [N, E, D] meters
         self.target_initial_velocity = [-1.0, 2.0, 0.0]      # [vN, vE, vD] m/s
-        self.target_initial_acceleration = [0.0, 0.0, 9.8]   # [aN, aE, aD] m/s² (vehicle only, no gravity!)
+        self.target_initial_acceleration = [0.0, 0.0, 0]   # [aN, aE, aD] m/s² (vehicle only, no gravity!)
         
         # ===== Target Maneuvering =====
-        self.target_maneuver_amplitudes = [2.0, 2.0, 0.5]    # m/s² per axis
-        self.target_maneuver_frequencies = [0.1, 0.15, 0.05] # Hz per axis
+        self.target_maneuver_amplitudes = [2.0, 2.0, 0.0]    # m/s² per axis
+        self.target_maneuver_frequencies = [0.1, 0.15, 0.0] # Hz per axis
         self.target_maneuver_phases = None                   # radians (None = random)
         
         # ===== Camera Configuration =====
