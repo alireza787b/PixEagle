@@ -696,36 +696,36 @@ class TargetTrackingEKF:
         if not self.is_initialized:
             self.initialize(measurement)
             return True
-        
+
         # Ensure measurement is 1D array
         z = measurement.flatten()
-        
+
         # Calculate innovation
         y = z - self.ekf.h(self.ekf.x)
         H = self.ekf.H(self.ekf.x)
         S = H @ self.ekf.P @ H.T + self.ekf.R
-        
+
         # Outlier detection
         try:
             nis = float(y.T @ np.linalg.inv(S) @ y)
             chi2_threshold = stats.chi2.ppf(
                 1 - 10**(-self.params.ekf_outlier_threshold_sigma), df=3
             )
-            
+
             if nis > chi2_threshold:
                 self.outlier_count += 1
                 self.logger.debug(f"Measurement rejected: NIS={nis:.1f}")
                 return False
-                
+
         except np.linalg.LinAlgError:
             self.logger.warning("Singular innovation covariance")
             return False
-        
+
         # Accept measurement
-        self.ekf.update(z, self.ekf.R, H)
+        self.ekf.update(z, self.ekf.R)  # <-- Only pass z and R, not H
         self.last_measurement_time = time.time()
         self.measurement_count += 1
-        
+
         return True
     
     def get_state(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
