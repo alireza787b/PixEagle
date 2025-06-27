@@ -1588,7 +1588,7 @@ class MissionVisualizer:
             self._setup_altitude_plot()
             
             self.fig.tight_layout()
-            
+            self.plt.show(block=False)  # <-- Add this line
         except Exception as e:
             self.logger.error(f"Failed to initialize visualization: {e}")
             self.enabled = False
@@ -2002,9 +2002,9 @@ class MissionVisualizer:
             fov_dir = yaw + angle_offset
             fov_end = drone_pos[:2] + fov_length * np.array([np.cos(fov_dir), np.sin(fov_dir)])
             self.ax_3d.plot([drone_pos[0], fov_end[0]], 
-                        [drone_pos[1], fov_end[1]], 
-                        [-drone_pos[2], -drone_pos[2]],
-                        color='yellow', linewidth=1, alpha=0.5)
+                    [drone_pos[1], fov_end[1]], 
+                    [-drone_pos[2], -drone_pos[2]],
+                    color='yellow', linewidth=1, alpha=0.5)
         
         # Add yaw text
         self.ax_3d.text(drone_pos[0], drone_pos[1], -drone_pos[2] + 3,
@@ -2856,7 +2856,6 @@ class MissionExecutor:
                     writer.writerow(['Pursuit Duration', f"{self.mission_stats.get('pursuit_duration', 0):.1f}", 'seconds'])
                     writer.writerow(['Max Altitude AGL', f"{self.mission_stats.get('max_altitude', 0):.1f}", 'meters'])
                     writer.writerow(['Min Battery Level', f"{self.mission_stats.get('min_battery', 0):.0f}", '%'])
-                    writer.writerow([])
                     
                     # EKF Performance
                     if self.ekf and self.mission_stats.get('measurements_accepted', 0) > 0:
