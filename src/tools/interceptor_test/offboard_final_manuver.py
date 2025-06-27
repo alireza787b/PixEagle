@@ -60,6 +60,8 @@ from mavsdk.offboard import (
 from scipy import stats
 from scipy.linalg import block_diag
 from scipy.spatial.transform import Rotation
+from collections import deque
+
 
 warnings.filterwarnings('ignore', category=UserWarning)
 
@@ -1546,33 +1548,44 @@ class MissionVisualizer:
         
         # Import pyplot after backend is set
         import matplotlib.pyplot as plt
+        from matplotlib.patches import Circle, Ellipse
+        
+        # Store plt reference
+        self.plt = plt
         
         # Setup figure
         try:
             plt.ion()  # Interactive mode
             self.fig = plt.figure(figsize=(16, 9))
-            
-            # Create grid layout
-            gs = self.fig.add_gridspec(2, 2, width_ratios=[2, 1], height_ratios=[1, 1])
+            self.fig.canvas.manager.set_window_title('Mission Visualizer')
             
             # Create subplots
-            self.ax_3d = self.fig.add_subplot(gs[:, 0], projection='3d')
-            self.ax_2d = self.fig.add_subplot(gs[0, 1])
-            self.ax_info = self.fig.add_subplot(gs[1, 1])
+            self.ax_3d = self.fig.add_subplot(221, projection='3d')
+            self.ax_topdown = self.fig.add_subplot(222)
+            self.ax_status = self.fig.add_subplot(223)
+            self.ax_altitude = self.fig.add_subplot(224)
             
-            # Initialize data storage
-            self.history = {
-                'drone': deque(maxlen=self.params.viz_history_length),
-                'target': deque(maxlen=self.params.viz_history_length),
-                'predictions': deque(maxlen=self.params.viz_history_length)
+            # Colors
+            self.colors = {
+                'drone': '#0066CC',
+                'target': '#CC0000',
+                'prediction': '#00CC66',
+                'good': '#00CC00',
+                'warning': '#FFAA00',
+                'danger': '#FF0000'
             }
             
-            # State tracking
-            self.update_count = 0
-            self.last_update_time = time.time()
+            # Initialize data storage
+            self.reset_data()
             
             # Frame manager reference
             self.frame_manager = FrameManager(self.params)
+            
+            # Setup plots
+            self._setup_3d_plot()
+            self._setup_topdown_plot()
+            self._setup_status_plot()
+            self._setup_altitude_plot()
             
             self.fig.tight_layout()
             
@@ -1816,6 +1829,25 @@ class MissionVisualizer:
                                          alpha=0.5, linestyle='--', linewidth=1)
         self.ax_topdown.add_patch(self.uncertainty_ellipse)
         self.uncertainty_ellipse.set_visible(False)
+
+    def _setup_altitude_plot(self):
+        """Setup altitude vs time plot."""
+        self.ax_altitude.set_title('Altitude Profile', fontsize=12, pad=10)
+        self.ax_altitude.set_xlabel('Time (s)')
+        self.ax_altitude.set_ylabel('Altitude AGL (m)')
+        self.ax_altitude.grid(True, alpha=0.3)
+        
+        # Initialize plot lines
+        self.altitude_drone_line, = self.ax_altitude.plot([], [], 
+                                                        color=self.colors['drone'],
+                                                        linewidth=2, label='Drone')
+        self.altitude_target_line, = self.ax_altitude.plot([], [], 
+                                                        color=self.colors['target'],
+                                                        linewidth=2, linestyle='--',
+                                                        label='Target')
+        
+        self.ax_altitude.legend(loc='upper right')
+        self.ax_altitude.set_ylim(0, 50)
     
     def _setup_status_plot(self):
         """Setup clean status display."""
@@ -1836,7 +1868,7 @@ class MissionVisualizer:
         """Update visualization with cleaner display."""
         if not self.enabled:
             return
-        
+        self.last_telemetry = telemetry
         now = time.time()
         if now - self.last_update < 1.0 / self.params.viz_update_rate:
             return
@@ -1878,46 +1910,132 @@ class MissionVisualizer:
         self._update_status_display(telemetry, target_state, error_horizontal, 
                                    elapsed, mission_state, uncertainty)
         
-        plt.draw()
-        plt.pause(0.001)
+        # Update altitude plot
+        if len(self.times) > 1:
+            self.altitude_drone_line.set_data(self.times, self.drone_altitudes)
+            self.altitude_target_line.set_data(self.times, self.target_altitudes)
+            
+            # Auto-scale
+            self.ax_altitude.set_xlim(0, max(self.times[-1], 10))
+            max_alt = max(max(self.drone_altitudes + self.target_altitudes, default=10), 10)
+            self.ax_altitude.set_ylim(0, max_alt * 1.2)
+
+        self.plt.draw()
+        self.plt.pause(0.001)
         self.last_update = now
     
     def _update_3d(self, drone_pos, target_pos, predictions, error_3d):
-        """Update 3D plot."""
+        """Update 3D plot with drone orientation."""
+        # Clear previous drone/target markers
+        self.ax_3d.clear()
+        
+        # Re-setup basic elements
+        self.ax_3d.set_title('3D Pursuit View', fontsize=14, pad=10)
+        self.ax_3d.set_xlabel('North (m)', labelpad=5)
+        self.ax_3d.set_ylabel('East (m)', labelpad=5)
+        self.ax_3d.set_zlabel('Altitude (m)', labelpad=5)
+        self.ax_3d.grid(True, alpha=0.3)
+        
+        # Get telemetry for yaw
+        telemetry = self.last_telemetry  # Store telemetry in update method
+        yaw = telemetry.yaw_rad if telemetry else 0
+        
+        # Plot trails
         if len(self.drone_path) > 1:
-            # Convert positions for display (invert Z)
             drone_array = np.array(self.drone_path)
             target_array = np.array(self.target_path)
             drone_array[:, 2] = -drone_array[:, 2]
             target_array[:, 2] = -target_array[:, 2]
             
-            # Update trails
-            self.drone_trail.set_data(drone_array[:, 0], drone_array[:, 1])
-            self.drone_trail.set_3d_properties(drone_array[:, 2])
-            self.target_trail.set_data(target_array[:, 0], target_array[:, 1])
-            self.target_trail.set_3d_properties(target_array[:, 2])
+            # Trails
+            self.ax_3d.plot(drone_array[:, 0], drone_array[:, 1], drone_array[:, 2],
+                        color=self.colors['drone'], linewidth=2, alpha=0.3)
+            self.ax_3d.plot(target_array[:, 0], target_array[:, 1], target_array[:, 2],
+                        color=self.colors['target'], linewidth=2, alpha=0.3, linestyle='--')
+        
+        # Draw drone with orientation
+        drone_size = 2.0
+        
+        # Drone shape (triangle)
+        drone_shape = np.array([
+            [1.5, 0, 0],      # Nose
+            [-0.75, 0.75, 0], # Left wing
+            [-0.75, -0.75, 0], # Right wing
+            [1.5, 0, 0]       # Close shape
+        ]) * drone_size
+        
+        # Rotate by yaw
+        rotation = np.array([
+            [np.cos(yaw), -np.sin(yaw), 0],
+            [np.sin(yaw), np.cos(yaw), 0],
+            [0, 0, 1]
+        ])
+        
+        drone_rotated = drone_shape @ rotation.T
+        drone_rotated[:, 0] += drone_pos[0]
+        drone_rotated[:, 1] += drone_pos[1]
+        drone_rotated[:, 2] -= drone_pos[2]  # Invert Z for display
+        
+        # Plot drone body
+        self.ax_3d.plot(drone_rotated[:, 0], drone_rotated[:, 1], drone_rotated[:, 2],
+                    'b-', linewidth=3, label='Drone')
+        
+        # Add drone marker at center
+        self.ax_3d.scatter([drone_pos[0]], [drone_pos[1]], [-drone_pos[2]],
+                        c=self.colors['drone'], s=100, marker='o', 
+                        edgecolors='darkblue', linewidth=2)
+        
+        # Draw heading arrow
+        arrow_length = 5.0
+        arrow_end = drone_pos[:2] + arrow_length * np.array([np.cos(yaw), np.sin(yaw)])
+        self.ax_3d.plot([drone_pos[0], arrow_end[0]], 
+                    [drone_pos[1], arrow_end[1]], 
+                    [-drone_pos[2], -drone_pos[2]],
+                    'b--', linewidth=2, alpha=0.5)
+        
+        # Draw simple camera FOV indicator
+        fov_length = 10.0
+        fov_angle = np.radians(30)  # Half angle
+        
+        # Left and right FOV lines
+        for angle_offset in [-fov_angle, fov_angle]:
+            fov_dir = yaw + angle_offset
+            fov_end = drone_pos[:2] + fov_length * np.array([np.cos(fov_dir), np.sin(fov_dir)])
+            self.ax_3d.plot([drone_pos[0], fov_end[0]], 
+                        [drone_pos[1], fov_end[1]], 
+                        [-drone_pos[2], -drone_pos[2]],
+                        color='yellow', linewidth=1, alpha=0.5)
+        
+        # Add yaw text
+        self.ax_3d.text(drone_pos[0], drone_pos[1], -drone_pos[2] + 3,
+                    f'Yaw: {np.degrees(yaw):.0f}°',
+                    fontsize=9, ha='center')
+        
+        # Plot target
+        self.ax_3d.scatter([target_pos[0]], [target_pos[1]], [-target_pos[2]],
+                        c=self.colors['target'], s=150, marker='*',
+                        edgecolors='darkred', linewidth=2, label='Target')
+        
+        # Plot prediction
+        if predictions and error_3d < 50 and len(predictions) > 0:
+            pred_array = np.array(predictions[:20])
+            self.ax_3d.plot(pred_array[:, 0], pred_array[:, 1], -pred_array[:, 2],
+                        color=self.colors['prediction'], linestyle=':',
+                        linewidth=2, alpha=0.6, label='Prediction')
+        
+        # Auto-scale with proper limits
+        if len(self.drone_path) > 0:
+            all_x = [p[0] for p in self.drone_path + self.target_path]
+            all_y = [p[1] for p in self.drone_path + self.target_path]
+            all_z = [-p[2] for p in self.drone_path + self.target_path]
             
-            # Update markers
-            self.drone_marker._offsets3d = ([drone_pos[0]], [drone_pos[1]], [-drone_pos[2]])
-            self.target_marker._offsets3d = ([target_pos[0]], [target_pos[1]], [-target_pos[2]])
-            
-            # Update prediction (only show when close)
-            if predictions and error_3d < 50:
-                pred_array = np.array(predictions[:20])  # Limit prediction display
-                self.prediction_line.set_data(pred_array[:, 0], pred_array[:, 1])
-                self.prediction_line.set_3d_properties(-pred_array[:, 2])
-            else:
-                self.prediction_line.set_data([], [])
-                self.prediction_line.set_3d_properties([])
-            
-            # Auto-scale with margins
-            all_points = np.vstack([drone_array, target_array])
-            margin = 10
-            self.ax_3d.set_xlim(all_points[:, 0].min() - margin, 
-                               all_points[:, 0].max() + margin)
-            self.ax_3d.set_ylim(all_points[:, 1].min() - margin, 
-                               all_points[:, 1].max() + margin)
-            self.ax_3d.set_zlim(0, max(all_points[:, 2].max() + margin, 20))
+            margin = 15
+            self.ax_3d.set_xlim(min(all_x) - margin, max(all_x) + margin)
+            self.ax_3d.set_ylim(min(all_y) - margin, max(all_y) + margin)
+            self.ax_3d.set_zlim(0, max(max(all_z) + margin, 20))
+        
+        self.ax_3d.legend(loc='upper right', framealpha=0.9)
+        self.ax_3d.view_init(elev=25, azim=45)
     
     def _update_topdown(self, drone_pos, target_pos, telemetry, uncertainty, error):
         """Update top-down view."""
