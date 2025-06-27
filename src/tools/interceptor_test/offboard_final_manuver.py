@@ -105,7 +105,7 @@ class InterceptionParameters:
         
         # ===== Target Definition (NED relative to launch) =====
         self.target_initial_position = [30.0, 0.0, -10.0]    # [N, E, D] meters
-        self.target_initial_velocity = [-1.0, 2.0, 0.0]      # [vN, vE, vD] m/s
+        self.target_initial_velocity = [0.0, 0.0, 0.0]      # [vN, vE, vD] m/s
         self.target_initial_acceleration = [0.0, 0.0, 0]   # [aN, aE, aD] m/s² (vehicle only, no gravity!)
         
         # ===== Target Maneuvering =====
@@ -115,7 +115,7 @@ class InterceptionParameters:
         
         # ===== Camera Configuration =====
         self.camera_mount_roll = 0.0                 # degrees
-        self.camera_mount_pitch = -45.0              # degrees (negative = down)
+        self.camera_mount_pitch = 0.0             # degrees (negative = down)
         self.camera_mount_yaw = 0.0                  # degrees
         self.camera_has_gimbal = False               # gimbal support flag
         
