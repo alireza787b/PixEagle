@@ -156,7 +156,7 @@ class InterceptionParameters:
         self.adaptive_control_enabled = True         
         self.adaptive_gain_min = 0.3                 # minimum gain scale
         self.adaptive_gain_max = 1.5                 # maximum gain scale
-        self.adaptive_distance_threshold = 20.0      # meters
+        self.adaptive_distance_threshold = 5.0      # meters
         
         # ===== Extended Kalman Filter =====
         self.ekf_enabled = True
@@ -1961,6 +1961,7 @@ class MissionState(Enum):
     ARMING = auto()
     TAKEOFF = auto()
     PURSUIT = auto()
+    PROXIMITY = auto()
     HOLDING = auto()
     LANDING = auto()
     LANDED = auto()
@@ -1983,6 +1984,7 @@ class MissionStateMachine:
             MissionState.PREFLIGHT: [MissionState.ARMING, MissionState.FAILED],
             MissionState.ARMING: [MissionState.TAKEOFF, MissionState.EMERGENCY, MissionState.FAILED],
             MissionState.TAKEOFF: [MissionState.PURSUIT, MissionState.EMERGENCY, MissionState.LANDING],
+            MissionState.PROXIMITY: [MissionState.HOLDING, MissionState.LANDING, MissionState.EMERGENCY],
             MissionState.PURSUIT: [MissionState.HOLDING, MissionState.EMERGENCY, MissionState.LANDING],
             MissionState.HOLDING: [MissionState.LANDING, MissionState.PURSUIT, MissionState.EMERGENCY],
             MissionState.LANDING: [MissionState.LANDED, MissionState.EMERGENCY],
@@ -2205,8 +2207,8 @@ class MissionExecutor:
                 self.logger.info(f"Reached altitude: {telemetry.altitude_agl_m:.1f}m")
                 break
             
-            await self.drone.offboard.set_velocity_ned(
-                VelocityNedYaw(0, 0, self.params.mission_ascent_speed, 0)
+            await self.drone.offboard.set_velocity_body(
+            VelocityBodyYawspeed(0, 0, self.params.mission_ascent_speed, 0)
             )
             
             # Update visualization during takeoff
@@ -2344,10 +2346,10 @@ class MissionExecutor:
                 # Check if target reached
                 if error_3d <= self.params.mission_target_threshold:
                     consecutive_target_acquisitions += 1
-                    if consecutive_target_acquisitions >= 10:  # Require stable acquisition
+                    if consecutive_target_acquisitions >= 3:  # Require stable acquisition
                         self.logger.info(f"Target acquired! Distance: {error_3d:.2f}m")
                         self.mission_stats['target_acquired'] = True
-                        self.state_machine.transition_to(MissionState.HOLDING, "Target acquired")
+                        self.state_machine.transition_to(MissionState.PROXIMITY, "Target acquired")  # <-- update
                         break
                 else:
                     consecutive_target_acquisitions = 0
@@ -2423,31 +2425,50 @@ class MissionExecutor:
             loop_duration = time.time() - loop_start
             if loop_duration < self.params.control_loop_period:
                 await asyncio.sleep(self.params.control_loop_period - loop_duration)
+
+                
         
+        # After the pursuit loop:
         self.mission_stats['pursuit_duration'] = time.time() - self.mission_start_time
         print("\n" + "="*60 + "\n")  # Clean line after pursuit
+
+        # If target was acquired, run proximity behavior
+        if self.state_machine.state == MissionState.PROXIMITY:
+            await self._execute_proximity_behavior()
+
+
+    async def _execute_proximity_behavior(self):
+        """
+        Modular behavior after reaching target proximity.
+        Continues current trajectory for mission_hold_time seconds.
+        """
+        self.logger.info(f"Proximity behavior: continue current trajectory for {self.params.mission_hold_time}s")
+        hold_start = time.time()
+        while time.time() - hold_start < self.params.mission_hold_time:
+            # Get current velocity and yaw from telemetry
+            telemetry = await self.telemetry_manager.get_telemetry()
+            vn, ve, vd = telemetry.vn_m_s, telemetry.ve_m_s, telemetry.vd_m_s
+            yaw = telemetry.yaw_deg
+
+            # Command the current velocity and yaw
+            await self.drone.offboard.set_velocity_ned(
+                VelocityNedYaw(vn, ve, vd, yaw)
+            )
+
+            # Optionally update visualization
+            if self.visualizer and self.ekf:
+                target_pos, target_vel, target_acc = self.ekf.get_state()
+                self.visualizer.update(
+                    telemetry,
+                    (target_pos, target_vel, target_acc),
+                    mission_state="PROXIMITY"
+                )
+
+            await asyncio.sleep(self.params.control_loop_period)
+        self.state_machine.transition_to(MissionState.LANDING, "Proximity hold complete")
     
     async def _execute_landing(self):
         """Execute landing sequence."""
-        # Hold if target reached
-        if self.state_machine.state == MissionState.HOLDING:
-            self.logger.info(f"Holding position for {self.params.mission_hold_time}s...")
-            
-            hold_start = time.time()
-            while time.time() - hold_start < self.params.mission_hold_time:
-                await self.drone.offboard.set_velocity_ned(VelocityNedYaw(0, 0, 0, 0))
-                
-                # Update visualization during hold
-                if self.visualizer and self.ekf:
-                    telemetry = await self.telemetry_manager.get_telemetry()
-                    target_pos, target_vel, target_acc = self.ekf.get_state()
-                    self.visualizer.update(
-                        telemetry,
-                        (target_pos, target_vel, target_acc),
-                        mission_state="HOLDING"
-                    )
-                
-                await asyncio.sleep(self.params.control_loop_period)
         
         self.state_machine.transition_to(MissionState.LANDING, "Landing")
         
