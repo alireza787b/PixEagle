@@ -89,7 +89,7 @@ class InterceptionParameters:
         self.mission_takeoff_altitude = 5.0           # meters AGL
         self.mission_ascent_speed = -2.0             # m/s (negative = up)
         self.mission_descent_speed = 1.0             # m/s (positive = down)  
-        self.mission_setpoint_freq = 20.0            # Hz
+        self.mission_setpoint_freq = 10.0            # Hz
         self.mission_max_time = 300.0                # seconds
         self.mission_target_threshold = 3.0          # meters
         self.mission_hold_time = 3.0                 # seconds after reaching target
@@ -171,7 +171,7 @@ class InterceptionParameters:
         
         # ===== Visualization =====
         self.viz_enabled = True
-        self.viz_update_rate = 5.0                   # Hz (reduced for cleaner display)
+        self.viz_update_rate = 1.0                   # Hz (reduced for cleaner display)
         self.viz_path_history_length = 200           # points (reduced for clarity)
         self.viz_show_predictions = True
         self.viz_show_uncertainty = True
@@ -534,6 +534,8 @@ class TelemetryManager:
                     self.data.ve_m_s = pv_ned.velocity.east_m_s
                     self.data.vd_m_s = pv_ned.velocity.down_m_s
                     self.data.last_update = time.time()
+                    if hasattr(self, 'visualizer') and self.visualizer:
+                        self.visualizer.telemetry_times.append(time.time())
         except Exception as e:
             self.logger.error(f"Velocity subscription error: {e}")
     
@@ -780,6 +782,8 @@ class TargetTrackingEKF:
         self.ekf.update(z, self.ekf.HJacobian, self.ekf.hx)
         self.last_measurement_time = time.time()
         self.measurement_count += 1
+
+        
         
         return True
     
@@ -1508,7 +1512,12 @@ class MissionVisualizer:
         """Initialize visualizer with headless mode detection."""
         self.params = params
         self.logger = logging.getLogger(self.__class__.__name__)
-        
+        self.rate_window = 5.0  # seconds for moving average
+        self.control_loop_times = deque(maxlen=200)
+        self.telemetry_times = deque(maxlen=200)
+        self.ekf_update_times = deque(maxlen=200)
+        self.target_meas_times = deque(maxlen=200)
+
         if not params.viz_enabled:
             self.enabled = False
             return
@@ -1599,6 +1608,13 @@ class MissionVisualizer:
         except Exception as e:
             self.logger.error(f"Failed to initialize visualization: {e}")
             self.enabled = False
+
+    def _compute_rate(self, times):
+        now = time.time()
+        times = [t for t in times if now - t < self.rate_window]
+        if len(times) < 2:
+            return 0.0
+        return (len(times) - 1) / (times[-1] - times[0])
     
     def _setup_3d_plot(self):
         """Setup clean 3D trajectory plot."""
@@ -1940,6 +1956,15 @@ class MissionVisualizer:
             f"Battery:       {telemetry.battery_percent:>6.0f} %",
             f"GPS Sats:      {telemetry.gps_satellites:>6d}",
         ])
+
+        # Add rates
+        control_rate = self._compute_rate(self.control_loop_times)
+        telemetry_rate = self._compute_rate(self.telemetry_times)
+        ekf_rate = self._compute_rate(self.ekf_update_times)
+        target_rate = self._compute_rate(self.target_meas_times)
+        status_lines.append("")
+        status_lines.append(f"RATES [Hz]:")
+        status_lines.append(f"Control: {control_rate:5.1f} | Telemetry: {telemetry_rate:5.1f} | EKF: {ekf_rate:5.1f} | Target: {target_rate:5.1f}")
         
         full_text = '\n'.join(status_lines)
         self.status_text.set_text(full_text)
@@ -2290,6 +2315,8 @@ class MissionExecutor:
                         continue
                 else:
                     # Transform measurement to NED
+                    if self.visualizer:
+                        self.visualizer.target_meas_times.append(time.time())
                     target_cam = measurement['position']
                     target_ned_relative = self.frame_manager.camera_to_ned(
                         target_cam, telemetry.yaw_rad
@@ -2304,6 +2331,8 @@ class MissionExecutor:
                         
                         if self.ekf.update(target_ned):
                             self.mission_stats['measurements_accepted'] += 1
+                            if self.visualizer:
+                                self.visualizer.ekf_update_times.append(time.time())
                         else:
                             self.mission_stats['measurements_rejected'] += 1
                         
@@ -2376,6 +2405,8 @@ class MissionExecutor:
                 if self.visualizer:
                     predictions = None
                     uncertainty = None
+
+                    self.visualizer.control_loop_times.append(time.time())
                     
                     if self.ekf:
                         if self.params.viz_show_predictions:
