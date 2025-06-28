@@ -153,7 +153,7 @@ class InterceptionParameters:
         }
         
         # ===== Adaptive Control =====
-        self.adaptive_control_enabled = True         
+        self.adaptive_control_enabled = False         
         self.adaptive_gain_min = 0.3                 # minimum gain scale
         self.adaptive_gain_max = 1.5                 # maximum gain scale
         self.adaptive_distance_threshold = 20.0      # meters
