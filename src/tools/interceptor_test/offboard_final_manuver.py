@@ -156,7 +156,7 @@ class InterceptionParameters:
         self.adaptive_control_enabled = True         
         self.adaptive_gain_min = 0.3                 # minimum gain scale
         self.adaptive_gain_max = 1.5                 # maximum gain scale
-        self.adaptive_distance_threshold = 5.0      # meters
+        self.adaptive_distance_threshold = 20.0      # meters
         
         # ===== Extended Kalman Filter =====
         self.ekf_enabled = True
