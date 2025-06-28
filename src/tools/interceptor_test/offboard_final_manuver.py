@@ -104,7 +104,7 @@ class InterceptionParameters:
         self.safety_telemetry_timeout = 5.0          # seconds
         
         # ===== Target Definition (NED relative to launch) =====
-        self.target_initial_position = [60.0, -60.0, -10.0]    # [N, E, D] meters
+        self.target_initial_position = [30.0, 30.0, -20.0]    # [N, E, D] meters
         self.target_initial_velocity = [1.0, 0.0, 0.0]      # [vN, vE, vD] m/s
         self.target_initial_acceleration = [0.0, 0.0, 0]   # [aN, aE, aD] m/s² (vehicle only, no gravity!)
         
@@ -142,9 +142,9 @@ class InterceptionParameters:
         self.velocity_max_yaw_rate = 45.0            # deg/s (for body commands only)
         
         # ===== Predictive Guidance =====
-        self.guidance_position_lead_time = 2.0       # seconds (for position modes)
-        self.guidance_velocity_lead_time = 0.5       # seconds (for velocity modes)
-        self.guidance_yaw_lead_time = 1.0            # seconds (yaw anticipation)
+        self.guidance_position_lead_time = 1.0       # seconds (for position modes)
+        self.guidance_velocity_lead_time = 0.2       # seconds (for velocity modes)
+        self.guidance_yaw_lead_time = 0.5            # seconds (yaw anticipation)
         
         # ===== PID Gains (unified for velocity control) =====
         self.pid_velocity_gains = {
@@ -153,7 +153,7 @@ class InterceptionParameters:
         }
         
         # ===== Adaptive Control =====
-        self.adaptive_control_enabled = False         
+        self.adaptive_control_enabled = True         
         self.adaptive_gain_min = 0.3                 # minimum gain scale
         self.adaptive_gain_max = 1.5                 # maximum gain scale
         self.adaptive_distance_threshold = 20.0      # meters
