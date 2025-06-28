@@ -104,7 +104,7 @@ class InterceptionParameters:
         self.safety_telemetry_timeout = 5.0          # seconds
         
         # ===== Target Definition (NED relative to launch) =====
-        self.target_initial_position = [30.0, 0.0, -10.0]    # [N, E, D] meters
+        self.target_initial_position = [60.0, 60.0, -10.0]    # [N, E, D] meters
         self.target_initial_velocity = [0.0, 0.0, 0.0]      # [vN, vE, vD] m/s
         self.target_initial_acceleration = [0.0, 0.0, 0]   # [aN, aE, aD] m/s² (vehicle only, no gravity!)
         
