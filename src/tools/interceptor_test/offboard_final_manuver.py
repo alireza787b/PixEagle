@@ -1836,15 +1836,15 @@ class MissionVisualizer:
         """Update visualization with all components."""
         if not self.enabled:
             return
-        
+
         # Store telemetry
         self.last_telemetry = telemetry
-        
+
         # Rate limiting
         now = time.time()
         if now - self.last_update_time < 1.0 / self.params.viz_update_rate:
             return
-        
+
         self.last_update_time = now
         self.update_count += 1
         
