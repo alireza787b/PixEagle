@@ -1829,10 +1829,10 @@ class MissionVisualizer:
                                               fontfamily='monospace')
     
     def update(self, telemetry: TelemetryData,
-               target_state: Tuple[np.ndarray, np.ndarray, np.ndarray],
-               predictions: Optional[List[np.ndarray]] = None,
-               uncertainty: Optional[Tuple[np.ndarray, float]] = None,
-               mission_state: str = "UNKNOWN"):
+    target_state: Tuple[np.ndarray, np.ndarray, np.ndarray],
+    predictions: Optional[List[np.ndarray]] = None,
+    uncertainty: Optional[Tuple[np.ndarray, float]] = None,
+    mission_state: str = "UNKNOWN"):
         """Update visualization with all components."""
         if not self.enabled:
             return
@@ -1847,40 +1847,18 @@ class MissionVisualizer:
 
         self.last_update_time = now
         self.update_count += 1
-        
+
         # Get positions
         drone_pos = np.array([telemetry.north_m, telemetry.east_m, -telemetry.altitude_agl_m])
         target_pos = target_state[0].copy()
         target_vel = target_state[1].copy()
-        
-        if self.ekf:
-            self.ekf.predict(dt)
-            if self.ekf.update(target_ned):
-                self.mission_stats['measurements_accepted'] += 1
-                if self.visualizer:
-                    self.visualizer.ekf_update_times.append(time.time())
-            else:
-                self.mission_stats['measurements_rejected'] += 1
-
-            # Get filtered state
-            target_pos, target_vel, target_acc = self.ekf.get_state()
-
-            # === Add model mismatch handling here ===
-            if self.ekf.is_initialized:
-                ekf_health = self.ekf.get_health_status()
-                if not ekf_health['healthy']:
-                    self.logger.warning(f"EKF unhealthy: {ekf_health['reason']}")
-                    # Reinitialize if too unhealthy
-                    if 'High uncertainty' in ekf_health['reason']:
-                        self.logger.info("Reinitializing EKF due to high uncertainty")
-                        self.ekf.initialize(target_ned, target_vel)
 
         # Store history
         self.history['drone'].append(drone_pos.copy())
         self.history['target'].append(target_pos.copy())
         if predictions:
             self.history['predictions'].append(predictions[:20])
-        
+
         # Store data for plots
         elapsed = now - self.start_time
         self.times.append(elapsed)
@@ -1888,12 +1866,12 @@ class MissionVisualizer:
         self.target_path.append(target_pos)
         self.drone_altitudes.append(telemetry.altitude_agl_m)
         self.target_altitudes.append(-target_pos[2])
-        
+
         # Calculate metrics
         error_horizontal = np.linalg.norm(drone_pos[:2] - target_pos[:2])
         error_3d = np.linalg.norm(drone_pos - target_pos)
         self.distances.append(error_horizontal)
-        
+
         # Limit history
         max_points = self.params.viz_path_history_length
         if len(self.drone_path) > max_points:
@@ -1903,14 +1881,14 @@ class MissionVisualizer:
             self.distances = self.distances[-max_points:]
             self.drone_altitudes = self.drone_altitudes[-max_points:]
             self.target_altitudes = self.target_altitudes[-max_points:]
-        
+
         # Update all plots
         self._update_3d(drone_pos, target_pos, predictions, error_3d, telemetry.yaw_rad)
         self._update_topdown(drone_pos, target_pos, telemetry, uncertainty, error_horizontal)
         self._update_altitude()
-        self._update_status_display(telemetry, target_state, error_horizontal, 
-                                   elapsed, mission_state, uncertainty)
-        
+        self._update_status_display(telemetry, target_state, error_horizontal,
+                                elapsed, mission_state, uncertainty)
+
         # Refresh display
         plt.draw()
         plt.pause(0.001)
