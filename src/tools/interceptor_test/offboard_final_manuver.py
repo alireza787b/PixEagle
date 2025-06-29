@@ -613,8 +613,6 @@ class TargetTrackingEKF:
         self.last_reset_time = 0.0  # Track last reset warning time
         self.init_time = time.time()  # Track filter initialization time
         
-        # 9-state EKF: [x, y, z, vx, vy, vz, ax, ay, az]
-        self.ekf = ExtendedKalmanFilter(dim_x=9, dim_z=3)
         
         # Initialize matrices
         self._setup_ekf()
@@ -629,36 +627,34 @@ class TargetTrackingEKF:
     
     def _setup_ekf(self):
         """Setup EKF matrices."""
-        # State vector initialization
-        self.ekf.x = np.zeros(9)  # Use 1D array, not column vector
-        
-        # State transition (constant acceleration model)
-        self.ekf.F = self._get_F(self.dt)
-        
-        # Measurement function (position only)
-        def h_func(x):
-            """Measurement function: z = [x, y, z]"""
-            return x[0:3]  # Return first 3 elements
-        
-        def h_jacobian(x):
-            """Jacobian of measurement function"""
-            H = np.zeros((3, 9))
-            H[0:3, 0:3] = np.eye(3)
-            return H
-        
-        self.ekf.hx = h_func  # Use hx, not h
-        self.ekf.HJacobian = h_jacobian  # Use HJacobian, not H
-        
-        # Process noise
-        self.ekf.Q = self._get_Q(self.dt)
-        
-        # Measurement noise
-        self.ekf.R = np.eye(3) * (self.params.ekf_measurement_noise ** 2)
-        
-        # Initial covariance - reasonable values
-        self.ekf.P = np.diag([1.0, 1.0, 1.0,    # Position: 1m uncertainty
-                            0.5, 0.5, 0.5,      # Velocity: 0.5m/s uncertainty
-                            0.1, 0.1, 0.1])     # Acceleration: 0.1m/s² uncertainty
+        if self.use_acceleration:
+            self.ekf.x = np.zeros(9)
+            self.ekf.F = self._get_F(self.dt)
+            def h_func(x):
+                return x[0:3]
+            def h_jacobian(x):
+                H = np.zeros((3, 9))
+                H[0:3, 0:3] = np.eye(3)
+                return H
+            self.ekf.hx = h_func
+            self.ekf.HJacobian = h_jacobian
+            self.ekf.Q = self._get_Q(self.dt)
+            self.ekf.R = np.eye(3) * (self.params.ekf_measurement_noise ** 2)
+            self.ekf.P = np.diag([1.0, 1.0, 1.0, 0.5, 0.5, 0.5, 0.1, 0.1, 0.1])
+        else:
+            self.ekf.x = np.zeros(6)
+            self.ekf.F = self._get_F(self.dt)
+            def h_func(x):
+                return x[0:3]
+            def h_jacobian(x):
+                H = np.zeros((3, 6))
+                H[0:3, 0:3] = np.eye(3)
+                return H
+            self.ekf.hx = h_func
+            self.ekf.HJacobian = h_jacobian
+            self.ekf.Q = self._get_Q(self.dt)
+            self.ekf.R = np.eye(3) * (self.params.ekf_measurement_noise ** 2)
+            self.ekf.P = np.diag([1.0, 1.0, 1.0, 0.5, 0.5, 0.5])
     
     def _get_F(self, dt: float) -> np.ndarray:
         """Get state transition matrix."""
@@ -677,26 +673,32 @@ class TargetTrackingEKF:
         return F
     
     def _get_Q(self, dt: float) -> np.ndarray:
-        """Get process noise matrix using proper CWNA model."""
-        # Process noise parameters (tune these based on expected target dynamics)
-        # These represent the spectral density of acceleration noise
-        q_acc_horizontal = 2.0  # m²/s³ for horizontal axes (higher for maneuvering targets)
-        q_acc_vertical = 0.5    # m²/s³ for vertical axis (typically less dynamic)
-        
-        # Build process noise for each axis using closed-form solution
-        Q_single_axis_h = self._get_Q_single_axis(dt, q_acc_horizontal)
-        Q_single_axis_v = self._get_Q_single_axis(dt, q_acc_vertical)
-        
-        # Combine for 3D state (x,y with horizontal noise, z with vertical noise)
-        Q = np.zeros((9, 9))
-        Q[0:3:1, 0:3:1] = Q_single_axis_h[0:3:1, 0:3:1]  # x position
-        Q[3:6:1, 3:6:1] = Q_single_axis_h[0:3:1, 0:3:1]  # x velocity  
-        Q[6:9:1, 6:9:1] = Q_single_axis_h[0:3:1, 0:3:1]  # x acceleration
-        
-        Q[1:9:3, 1:9:3] = Q_single_axis_h  # y axis
-        Q[2:9:3, 2:9:3] = Q_single_axis_v  # z axis
-        
-        return Q
+        """Get process noise matrix for EKF (6 or 9 state)."""
+        if self.use_acceleration:
+            # 9-state: [x, y, z, vx, vy, vz, ax, ay, az]
+            q_acc_horizontal = self.params.ekf_process_noise_acceleration if hasattr(self.params, 'ekf_process_noise_acceleration') else 2.0
+            q_acc_vertical = self.params.ekf_process_noise_acceleration if hasattr(self.params, 'ekf_process_noise_acceleration') else 0.5
+
+            Q_single_axis_h = self._get_Q_single_axis(dt, q_acc_horizontal)
+            Q_single_axis_v = self._get_Q_single_axis(dt, q_acc_vertical)
+
+            # Compose block-diagonal for x/y/z
+            Q = np.zeros((9, 9))
+            # X axis (horizontal)
+            Q[0:3, 0:3] = Q_single_axis_h
+            # Y axis (horizontal)
+            Q[3:6, 3:6] = Q_single_axis_h
+            # Z axis (vertical)
+            Q[6:9, 6:9] = Q_single_axis_v
+            return Q
+        else:
+            # 6-state: [x, y, z, vx, vy, vz]
+            q_pos = self.params.ekf_process_noise_position if hasattr(self.params, 'ekf_process_noise_position') else 0.1
+            q_vel = self.params.ekf_process_noise_velocity if hasattr(self.params, 'ekf_process_noise_velocity') else 0.5
+            Q = np.zeros((6, 6))
+            Q[0:3, 0:3] = np.eye(3) * q_pos * dt
+            Q[3:6, 3:6] = np.eye(3) * q_vel * dt
+            return Q
 
     def _get_Q_single_axis(self, dt: float, q: float) -> np.ndarray:
         """Get process noise for single axis using exact discretization."""
@@ -719,9 +721,8 @@ class TargetTrackingEKF:
         self.ekf.x[0:3] = position
         if velocity is not None:
             self.ekf.x[3:6] = velocity
-        if acceleration is not None:
+        if self.use_acceleration and acceleration is not None:
             self.ekf.x[6:9] = acceleration
-        
         self.is_initialized = True
         self.last_measurement_time = time.time()
         self.logger.info(f"EKF initialized at position: {position}")
@@ -739,6 +740,15 @@ class TargetTrackingEKF:
         
         # Much more conservative covariance limiting
         filter_age = time.time() - self.init_time
+        if self.use_acceleration:
+            pos_indices = [0, 1, 2]
+            vel_indices = [3, 4, 5]
+            acc_indices = [6, 7, 8]
+            identity = np.eye(9)
+        else:
+            pos_indices = [0, 1, 2]
+            vel_indices = [3, 4, 5]
+            identity = np.eye(6)
         
         # Gradually increase allowed uncertainty
         if filter_age < 10.0:
@@ -779,7 +789,7 @@ class TargetTrackingEKF:
             
             # Ensure covariance remains symmetric and positive definite
             self.ekf.P = 0.5 * (self.ekf.P + self.ekf.P.T)
-            self.ekf.P += np.eye(9) * 1e-6
+            self.ekf.P += identity * 1e-6
     
     
     def update(self, measurement: np.ndarray) -> bool:
@@ -874,23 +884,23 @@ class TargetTrackingEKF:
             return self.update(measurement)
     
     def get_state(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Get current state estimate: (position, velocity, acceleration)."""
-        return (
-            self.ekf.x[0:3].copy(),
-            self.ekf.x[3:6].copy(),
-            self.ekf.x[6:9].copy()
-        )
+        if self.use_acceleration:
+            pos = self.ekf.x[0:3].copy()
+            vel = self.ekf.x[3:6].copy()
+            acc = self.ekf.x[6:9].copy()
+        else:
+            pos = self.ekf.x[0:3].copy()
+            vel = self.ekf.x[3:6].copy()
+            acc = np.zeros(3)
+        return pos, vel, acc
     
     def predict_future_position(self, time_ahead: float) -> np.ndarray:
-        """Predict position at future time using current state."""
         if not self.is_initialized:
             return np.zeros(3)
-        
-        # Kinematic prediction: p = p0 + v0*t + 0.5*a0*t²
-        pos = self.ekf.x[0:3] + \
-              self.ekf.x[3:6] * time_ahead + \
-              0.5 * self.ekf.x[6:9] * time_ahead**2
-        
+        if self.use_acceleration:
+            pos = self.ekf.x[0:3] + self.ekf.x[3:6] * time_ahead + 0.5 * self.ekf.x[6:9] * time_ahead**2
+        else:
+            pos = self.ekf.x[0:3] + self.ekf.x[3:6] * time_ahead
         return pos.copy()
     
     def predict_trajectory(self, time_horizon: float, dt: float = 0.1) -> List[np.ndarray]:
@@ -1631,13 +1641,14 @@ class MissionVisualizer:
     Fixed to work properly with tkinter and headless mode.
     """
     
-    def __init__(self, params: InterceptionParameters):
+    def __init__(self, params: InterceptionParameters, ekf: Optional[TargetTrackingEKF] = None):
         """Initialize visualizer with headless mode detection."""
         self.params = params
         self.logger = logging.getLogger(self.__class__.__name__)
         self.rate_window = 5.0  # seconds for moving average
         self.control_loop_times = deque(maxlen=200)
         self.telemetry_times = deque(maxlen=200)
+        self.ekf = ekf
         self.ekf_update_times = deque(maxlen=200)
         self.target_meas_times = deque(maxlen=200)
 
@@ -2285,7 +2296,7 @@ class MissionExecutor:
         
         # Initialize visualization
         if self.params.viz_enabled:
-            self.visualizer = MissionVisualizer(self.params)
+            self.visualizer = MissionVisualizer(self.params, self.ekf)
         
         self.logger.info("All systems initialized successfully")
     
