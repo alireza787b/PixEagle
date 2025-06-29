@@ -133,24 +133,26 @@ class InterceptionParameters:
         self.reference_update_rate = 0.0             # How often to update reference (0 = never)
         
         # ===== Control Parameters =====
-        self.control_position_deadband = 0.5         # meters
+        self.control_position_deadband = 1.0         # meters
         self.control_yaw_deadband = 5.0              # degrees
         
         # ===== Velocity Limits =====
-        self.velocity_max_horizontal = 5.0           # m/s
+        self.velocity_max_horizontal = 8.0           # m/s
         self.velocity_max_vertical = 2.0             # m/s
         self.velocity_max_yaw_rate = 45.0            # deg/s (for body commands only)
         
         # ===== Predictive Guidance =====
         self.guidance_position_lead_time = 1.0       # seconds (for position modes)
-        self.guidance_velocity_lead_time = 0.2       # seconds (for velocity modes)
+        self.guidance_velocity_lead_time = 0.5       # seconds (for velocity modes)
         self.guidance_yaw_lead_time = 0.5            # seconds (yaw anticipation)
         
         # ===== PID Gains (unified for velocity control) =====
         self.pid_velocity_gains = {
-            'horizontal': [0.5, 0.05, 0.1],          # [Kp, Ki, Kd]
-            'vertical': [0.5, 0.02, 0.1],            # [Kp, Ki, Kd]
+            'horizontal': [0.8, 0.1, 0.2],  # Increased P for faster response
+            'vertical': [1.0, 0.15, 0.3],   # More aggressive vertical control
         }
+        self.pid_integral_limit = 2.0  # Maximum integral term contribution
+
         
         # ===== Adaptive Control =====
         self.adaptive_control_enabled = True         
@@ -160,14 +162,17 @@ class InterceptionParameters:
         
         # ===== Extended Kalman Filter =====
         self.ekf_enabled = True
-        self.ekf_process_noise_position = 0.001      # meters (reduced from 0.01)
-        self.ekf_process_noise_velocity = 0.01       # m/s (reduced from 0.1)
-        self.ekf_process_noise_acceleration = 0.1    # m/s² (reduced from 0.5)
-        self.ekf_measurement_noise = 0.2             # meters
-        self.ekf_outlier_threshold_sigma = 3.0       # standard deviations
-        self.ekf_max_covariance = 1000.0             # max before reset
-        self.ekf_prediction_horizon = 3.0            # seconds
+        self.ekf_estimate_acceleration = False  # Use 6-state model by default
+        self.ekf_process_noise_position = 0.1      # meters (reduced from 0.01)
+        self.ekf_process_noise_velocity = 0.5       # m/s (reduced from 0.1)
+        self.ekf_process_noise_acceleration = 2.0    # m/s² (reduced from 0.5)
+        self.ekf_measurement_noise = 0.5             # meters
+        self.ekf_outlier_threshold_sigma = 3.5       # standard deviations
+        self.ekf_max_covariance = 2500.0             # max before reset
+        self.ekf_prediction_horizon = 2.0            # seconds
         self.ekf_miss_timeout = 2.0                  # seconds without measurement
+        self.ekf_measurement_delay = 0.05  # seconds - typical camera processing delay
+
         
         # ===== Visualization =====
         self.viz_enabled = True
@@ -595,6 +600,16 @@ class TargetTrackingEKF:
         self.params = params
         self.dt = params.ekf_dt
         
+        # Add option for reduced state model
+        self.use_acceleration = params.ekf_estimate_acceleration if hasattr(params, 'ekf_estimate_acceleration') else False
+        
+        if self.use_acceleration:
+            # 9-state EKF: [x, y, z, vx, vy, vz, ax, ay, az]
+            self.ekf = ExtendedKalmanFilter(dim_x=9, dim_z=3)
+        else:
+            # 6-state EKF: [x, y, z, vx, vy, vz] - more stable
+            self.ekf = ExtendedKalmanFilter(dim_x=6, dim_z=3)
+
         self.last_reset_time = 0.0  # Track last reset warning time
         self.init_time = time.time()  # Track filter initialization time
         
@@ -647,39 +662,55 @@ class TargetTrackingEKF:
     
     def _get_F(self, dt: float) -> np.ndarray:
         """Get state transition matrix."""
-        F = np.eye(9)
-        dt2 = dt * dt / 2
-        
-        # Kinematic relationships
-        F[0:3, 3:6] = np.eye(3) * dt      # position <- velocity
-        F[0:3, 6:9] = np.eye(3) * dt2     # position <- acceleration
-        F[3:6, 6:9] = np.eye(3) * dt      # velocity <- acceleration
+        if self.use_acceleration:
+            # Original 9-state model
+            F = np.eye(9)
+            dt2 = dt * dt / 2
+            F[0:3, 3:6] = np.eye(3) * dt
+            F[0:3, 6:9] = np.eye(3) * dt2
+            F[3:6, 6:9] = np.eye(3) * dt
+        else:
+            # 6-state constant velocity model
+            F = np.eye(6)
+            F[0:3, 3:6] = np.eye(3) * dt
         
         return F
     
     def _get_Q(self, dt: float) -> np.ndarray:
-        """Get process noise matrix - FIXED with proper discrete-time model."""
-        # Much smaller, more realistic process noise values
-        q_pos = self.params.ekf_process_noise_position     # 0.001 m/√s
-        q_vel = self.params.ekf_process_noise_velocity     # 0.01 m/s/√s  
-        q_acc = self.params.ekf_process_noise_acceleration # 0.1 m/s²/√s
+        """Get process noise matrix using proper CWNA model."""
+        # Process noise parameters (tune these based on expected target dynamics)
+        # These represent the spectral density of acceleration noise
+        q_acc_horizontal = 2.0  # m²/s³ for horizontal axes (higher for maneuvering targets)
+        q_acc_vertical = 0.5    # m²/s³ for vertical axis (typically less dynamic)
         
-        # Simple diagonal process noise (more stable than complex model)
+        # Build process noise for each axis using closed-form solution
+        Q_single_axis_h = self._get_Q_single_axis(dt, q_acc_horizontal)
+        Q_single_axis_v = self._get_Q_single_axis(dt, q_acc_vertical)
+        
+        # Combine for 3D state (x,y with horizontal noise, z with vertical noise)
         Q = np.zeros((9, 9))
+        Q[0:3:1, 0:3:1] = Q_single_axis_h[0:3:1, 0:3:1]  # x position
+        Q[3:6:1, 3:6:1] = Q_single_axis_h[0:3:1, 0:3:1]  # x velocity  
+        Q[6:9:1, 6:9:1] = Q_single_axis_h[0:3:1, 0:3:1]  # x acceleration
         
-        # Position noise
-        Q[0:3, 0:3] = np.eye(3) * (q_pos ** 2) * dt
-        
-        # Velocity noise  
-        Q[3:6, 3:6] = np.eye(3) * (q_vel ** 2) * dt
-        
-        # Acceleration noise
-        Q[6:9, 6:9] = np.eye(3) * (q_acc ** 2) * dt
-        
-        # Add small diagonal noise for numerical stability
-        Q += np.eye(9) * 1e-9
+        Q[1:9:3, 1:9:3] = Q_single_axis_h  # y axis
+        Q[2:9:3, 2:9:3] = Q_single_axis_v  # z axis
         
         return Q
+
+    def _get_Q_single_axis(self, dt: float, q: float) -> np.ndarray:
+        """Get process noise for single axis using exact discretization."""
+        # For constant acceleration model with white noise jerk
+        dt2 = dt * dt
+        dt3 = dt2 * dt
+        dt4 = dt3 * dt
+        dt5 = dt4 * dt
+        
+        return q * np.array([
+            [dt5/20, dt4/8,  dt3/6],
+            [dt4/8,  dt3/3,  dt2/2],
+            [dt3/6,  dt2/2,  dt]
+        ])
     
     def initialize(self, position: np.ndarray, 
                    velocity: Optional[np.ndarray] = None,
@@ -750,6 +781,7 @@ class TargetTrackingEKF:
             self.ekf.P = 0.5 * (self.ekf.P + self.ekf.P.T)
             self.ekf.P += np.eye(9) * 1e-6
     
+    
     def update(self, measurement: np.ndarray) -> bool:
         """Update with measurement after outlier check."""
         if not self.is_initialized:
@@ -759,33 +791,87 @@ class TargetTrackingEKF:
         # Ensure measurement is 1D array
         z = measurement.flatten()
         
-        # Innovation calculation for outlier detection
-        y = z - self.ekf.hx(self.ekf.x)  # Innovation
+        # Calculate innovation
+        y = z - self.ekf.hx(self.ekf.x)
         H = self.ekf.HJacobian(self.ekf.x)
-        S = H @ self.ekf.P @ H.T + self.ekf.R  # Innovation covariance
         
-        # Outlier detection using chi-squared test
+        # Adaptive measurement noise based on innovation
+        innovation_norm = np.linalg.norm(y)
+        if innovation_norm > 5.0:  # Large innovation suggests higher noise
+            R_adaptive = self.ekf.R * (1 + innovation_norm / 10.0)
+        else:
+            R_adaptive = self.ekf.R
+        
+        S = H @ self.ekf.P @ H.T + R_adaptive
+        
+        # More robust outlier detection
         try:
-            nis = float(y.T @ np.linalg.inv(S) @ y)  # Normalized Innovation Squared
-            chi2_threshold = stats.chi2.ppf(0.997, df=3)  # 99.7% confidence
+            nis = float(y.T @ np.linalg.inv(S) @ y)
+            
+            # Adaptive threshold based on filter convergence
+            if self.measurement_count < 10:
+                chi2_threshold = stats.chi2.ppf(0.999, df=3)  # More permissive initially
+            else:
+                chi2_threshold = stats.chi2.ppf(0.997, df=3)
             
             if nis > chi2_threshold:
                 self.outlier_count += 1
-                self.logger.debug(f"Measurement rejected - NIS: {nis:.2f} > threshold: {chi2_threshold:.2f}")
+                # Increase process noise after outlier to help filter adapt
+                self.ekf.Q = self.ekf.Q * 1.5
+                self.logger.debug(f"Measurement rejected - NIS: {nis:.2f}")
                 return False
                 
         except np.linalg.LinAlgError:
-            self.logger.warning("Singular innovation covariance matrix")
+            self.logger.warning("Singular innovation covariance")
             return False
         
-        # Accept measurement - use proper EKF update
+        # Update with adaptive R
+        self.ekf.R = R_adaptive
         self.ekf.update(z, self.ekf.HJacobian, self.ekf.hx)
+        self.ekf.R = self.ekf.R  # Reset to original
+        
         self.last_measurement_time = time.time()
         self.measurement_count += 1
-
         
+        # Reduce process noise after successful update
+        if self.measurement_count > 5:
+            self.ekf.Q = self._get_Q(self.dt)  # Reset to nominal
         
         return True
+    
+    def update_with_delay(self, measurement: np.ndarray, measurement_time: float) -> bool:
+        """Update with delayed measurement."""
+        current_time = time.time()
+        delay = current_time - measurement_time
+        
+        if delay > 0.5:  # Reject very old measurements
+            self.logger.warning(f"Measurement too old: {delay:.3f}s")
+            return False
+        
+        if delay > 0.01:  # Compensate for delay
+            # Save current state
+            x_current = self.ekf.x.copy()
+            P_current = self.ekf.P.copy()
+            
+            # Retrodict to measurement time
+            F_back = self._get_F(-delay)
+            self.ekf.x = F_back @ self.ekf.x
+            self.ekf.P = F_back @ self.ekf.P @ F_back.T
+            
+            # Update at measurement time
+            success = self.update(measurement)
+            
+            if success:
+                # Predict forward to current time
+                self.predict(delay)
+            else:
+                # Restore state if update failed
+                self.ekf.x = x_current
+                self.ekf.P = P_current
+            
+            return success
+        else:
+            return self.update(measurement)
     
     def get_state(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Get current state estimate: (position, velocity, acceleration)."""
@@ -829,6 +915,36 @@ class TargetTrackingEKF:
         self.ekf.P = P_saved
         
         return predictions
+    
+
+    def get_health_status(self) -> Dict[str, Any]:
+        """Get EKF health metrics."""
+        if not self.is_initialized:
+            return {'healthy': False, 'reason': 'Not initialized'}
+        
+        # Check measurement staleness
+        time_since_meas = self.time_since_measurement()
+        if time_since_meas > 2.0:
+            return {'healthy': False, 'reason': f'No measurements for {time_since_meas:.1f}s'}
+        
+        # Check covariance health
+        pos_variance = np.diag(self.ekf.P)[0:3]
+        max_std = np.sqrt(np.max(pos_variance))
+        if max_std > 50.0:  # 50m standard deviation is too high
+            return {'healthy': False, 'reason': f'High uncertainty: {max_std:.1f}m'}
+        
+        # Check outlier ratio
+        if self.measurement_count > 20:
+            outlier_ratio = self.outlier_count / self.measurement_count
+            if outlier_ratio > 0.3:
+                return {'healthy': False, 'reason': f'High outlier ratio: {outlier_ratio:.1%}'}
+        
+        return {
+            'healthy': True,
+            'max_std': max_std,
+            'time_since_meas': time_since_meas,
+            'outlier_ratio': self.outlier_count / max(1, self.measurement_count)
+        }
     
     def time_since_measurement(self) -> float:
         """Time elapsed since last measurement."""
@@ -1098,12 +1214,19 @@ class LocalNEDVelocityGuidance(GuidanceStrategy):
         self.logger.info("Local NED velocity guidance initialized (may drift with GPS)")
     
     def _create_pid(self, gains: List[float], limit: float) -> PID:
-        """Create PID controller."""
-        return PID(
+        """Create PID controller with anti-windup."""
+        pid = PID(
             Kp=gains[0], Ki=gains[1], Kd=gains[2],
             setpoint=0,
-            output_limits=(-limit, limit)
+            output_limits=(-limit, limit),
+            sample_time=self.params.control_loop_period  # Specify sample time
         )
+        # Add integral windup limit
+        pid.set_auto_mode(True, last_output=0)
+        if hasattr(pid, '_integral'):
+            pid._integral_limits = (-self.params.pid_integral_limit, 
+                                self.params.pid_integral_limit)
+        return pid
     
     async def compute_command(self, drone, telemetry, target_ned, target_velocity=None, dt=0.05):
         """Compute NED velocity using PX4 local position."""
@@ -1719,6 +1842,28 @@ class MissionVisualizer:
         target_pos = target_state[0].copy()
         target_vel = target_state[1].copy()
         
+        if self.ekf:
+            self.ekf.predict(dt)
+            if self.ekf.update(target_ned):
+                self.mission_stats['measurements_accepted'] += 1
+                if self.visualizer:
+                    self.visualizer.ekf_update_times.append(time.time())
+            else:
+                self.mission_stats['measurements_rejected'] += 1
+
+            # Get filtered state
+            target_pos, target_vel, target_acc = self.ekf.get_state()
+
+            # === Add model mismatch handling here ===
+            if self.ekf.is_initialized:
+                ekf_health = self.ekf.get_health_status()
+                if not ekf_health['healthy']:
+                    self.logger.warning(f"EKF unhealthy: {ekf_health['reason']}")
+                    # Reinitialize if too unhealthy
+                    if 'High uncertainty' in ekf_health['reason']:
+                        self.logger.info("Reinitializing EKF due to high uncertainty")
+                        self.ekf.initialize(target_ned, target_vel)
+
         # Store history
         self.history['drone'].append(drone_pos.copy())
         self.history['target'].append(target_pos.copy())
