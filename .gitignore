@@ -204,4 +204,4 @@ yolo/
 dashboard/package.json  
 dashboard/package-lock.json  
 # Interceptor reports
-src/tools/interceptor_test/reports/
+reports/

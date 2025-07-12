@@ -25,8 +25,21 @@ Key Features in v6.0:
 - Async target source management
 - Backward compatible with v5.2
 
-Author: Pursuit Guidance Team
-Version: 6.0 Multi-Source
+
+Changes in v6.1:
+- Fixed velocity oscillation in fallback state with exponential smoothing
+- Added coordinated flight mode where drone faces velocity vector
+- Improved velocity estimation with sanity checks
+- Added runtime yaw mode switching capability
+
+Key Features:
+- Smooth velocity display without flickering
+- Multiple yaw control modes (target tracking, coordinated, fixed, manual)
+- Configurable yaw smoothing and rate limiting
+- Backward compatible with existing configurations
+
+Author: Alireza Ghaderi (@alireza787b)
+Version: 6.1 Multi-Source
 License: MIT
 """
 
@@ -71,6 +84,7 @@ from scipy.spatial.transform import Rotation
 import os
 from datetime import datetime
 
+
 # For HTTP/WebSocket sources (optional dependencies)
 try:
     import aiohttp
@@ -85,6 +99,13 @@ except ImportError:
     WEBSOCKETS_AVAILABLE = False
 
 warnings.filterwarnings('ignore', category=UserWarning)
+
+class YawControlMode(Enum):
+    """Yaw control modes for different flight behaviors."""
+    TARGET_TRACKING = "target_tracking"  # Always face target (default)
+    COORDINATED = "coordinated"          # Face velocity vector
+    FIXED = "fixed"                      # Maintain fixed heading
+    MANUAL = "manual"                    # User-controlled yaw
 
 # =============================================================================
 # FILE: interceptor_params.py
@@ -111,7 +132,7 @@ class InterceptionParameters:
         self.mission_descent_speed = 1.0             # m/s (positive = down)  
         self.mission_setpoint_freq = 10.0            # Hz
         self.mission_max_time = 300.0                # seconds
-        self.mission_target_threshold = 3.0          # meters
+        self.mission_target_threshold = 5.0          # meters
         self.mission_hold_time = 3.0                 # seconds after reaching target
         
         # ===== Safety Limits =====
@@ -124,8 +145,8 @@ class InterceptionParameters:
         self.safety_telemetry_timeout = 5.0          # seconds
         
         # ===== Legacy Target Definition (for backward compatibility) =====
-        self.target_initial_position = [30.0, 30.0, -20.0]    # [N, E, D] meters
-        self.target_initial_velocity = [1.0, 0.0, 0.0]      # [vN, vE, vD] m/s
+        self.target_initial_position = [-150.0, 300.0, -50.0]    # [N, E, D] meters
+        self.target_initial_velocity = [8.0, -2.0, -0.2]      # [vN, vE, vD] m/s
         self.target_initial_acceleration = [0.0, 0.0, 0]   # [aN, aE, aD] m/s² (vehicle only, no gravity!)
         
         # ===== Target Maneuvering =====
@@ -165,6 +186,13 @@ class InterceptionParameters:
         self.target_camera_endpoint_legacy = self.target_camera_endpoint
         self.target_camera_api_key_legacy = self.target_camera_api_key
         
+        self.control_yaw_mode = "coordinated"      # Default mode target_tracking, coordinated
+        self.control_coordinated_min_speed = 2.0       # Min speed for coordinated mode (m/s)
+        self.control_coordinated_yaw_rate = 45.0       # Max yaw rate in coordinated mode (deg/s)
+        self.control_fixed_yaw_angle = 0.0             # Fixed yaw angle (degrees)
+        self.control_manual_yaw_angle = 0.0            # Manual yaw setpoint (degrees)
+        self.control_yaw_smoothing = 0.8               # Yaw command smoothing (0-1)
+        
         # ===== Camera Configuration =====
         self.camera_mount_roll = 0.0                 # degrees
         self.camera_mount_pitch = 0.0             # degrees (negative = down)
@@ -172,7 +200,7 @@ class InterceptionParameters:
         self.camera_has_gimbal = False               # gimbal support flag
         
         # ===== Guidance Mode Selection =====
-        self.guidance_mode = "global_ned_velocity"    
+        self.guidance_mode = "global_position"    
         # Options:
         # - "local_ned_velocity": Uses PX4 local NED (works without GPS but may drift)
         # - "global_ned_velocity": Recalculates from geodetic (avoids GPS drift)
@@ -194,7 +222,7 @@ class InterceptionParameters:
         self.velocity_max_yaw_rate = 45.0            # deg/s (for body commands only)
         
         # ===== Predictive Guidance =====
-        self.guidance_position_lead_time = 1.0       # seconds (for position modes)
+        self.guidance_position_lead_time = 1       # seconds (for position modes)
         self.guidance_velocity_lead_time = 0.5       # seconds (for velocity modes)
         self.guidance_yaw_lead_time = 0.5            # seconds (yaw anticipation)
         
@@ -225,10 +253,53 @@ class InterceptionParameters:
         self.ekf_miss_timeout = 2.0                  # seconds without measurement
         self.ekf_measurement_delay = 0.05  # seconds - typical camera processing delay
 
+
+        # Adaptive measurement noise
+        self.ekf_timeout_threshold = 2.0          # Time threshold for target loss (seconds)
+        self.ekf_high_trust_noise = 0.01          # Low noise for established tracking
+        self.ekf_normal_trust_noise = self.ekf_measurement_noise  # Default noise
+        self.ekf_reacquisition_noise = 0.1        # Medium noise for reacquisition
+
+        # Initial state uncertainty
+        self.ekf_initial_velocity_uncertainty = 10.0    # m/s - high if velocity unknown
+        self.ekf_initial_position_uncertainty = 5.0     # m - moderate position uncertainty
+        self.ekf_initial_acceleration_uncertainty = 5.0 # m/s² - high if acceleration unknown
+
+        # Mahalanobis gating
+        self.ekf_innovation_threshold = 0.5       # Innovation magnitude threshold
+        self.ekf_chi2_confidence = 0.997          # 99.7% confidence for gating
+        self.ekf_gate_scale_factor = 1.2          # P inflation factor on rejection
+        self.ekf_innovation_norm_threshold = 5.0  # meters - for adaptive noise
+
+        # Dynamic process noise
+        self.ekf_process_noise_scale = 2.0        # Maximum Q scale factor
+        self.ekf_process_noise_decay = 0.95      # Decay rate for Q scale
+        
+        
+        # ===== EKF Warm-up and Health Parameters =====
+        # Enable/disable control
+        self.ekf_auto_enable = True              # Auto-enable after warm-up
+        self.ekf_warm_up_time = 3.0              # Warm-up period (seconds)
+        self.ekf_warm_up_measurements = 10       # Min measurements for warm-up
+
+        # Velocity initialization
+        self.ekf_velocity_init_method = 'finite_difference'  # 'zero', 'finite_difference'
+        self.ekf_velocity_init_samples = 3       # Samples for velocity estimation
+
+        # Health monitoring thresholds
+        self.ekf_max_innovation_norm = 20.0      # Max acceptable innovation (meters)
+        self.ekf_max_state_jump = 50.0          # Max position jump (meters)
+        self.ekf_max_velocity = 50.0            # Max velocity (m/s)
+        self.ekf_max_acceleration = 20.0        # Max acceleration (m/s²)
+        self.ekf_divergence_threshold = 100.0   # Max uncertainty before reset (meters)
+
+        # Recovery parameters
+        self.ekf_recovery_measurements = 5       # Good measurements to recover
+        self.ekf_reset_cooldown = 2.0           # Cooldown between resets (seconds)
         
         # ===== Visualization =====
         self.viz_enabled = True
-        self.viz_update_rate = 1.0                   # Hz (reduced for cleaner display)
+        self.viz_update_rate = 10.0                   # Hz (reduced for cleaner display)
         self.viz_path_history_length = 200           # points (reduced for clarity)
         self.viz_show_predictions = True
         self.viz_show_uncertainty = True
@@ -903,47 +974,200 @@ class TelemetryManager:
 # =============================================================================
 # FILE: target_tracker.py
 # PATH: /target_tracker.py
-# Extended Kalman Filter implementation
+# Enhanced Extended Kalman Filter with warm-up and auto-recovery
 # =============================================================================
 
-class TargetTrackingEKF:
+class EKFHealthMonitor:
     """
-    Extended Kalman Filter for robust target tracking.
-    Fixed implementation with proper process noise and acceleration model.
+    Monitors EKF health and determines when to trust/reset the filter.
     """
     
     def __init__(self, params: InterceptionParameters):
-        """Initialize EKF."""
+        self.params = params
+        
+        # Health thresholds
+        self.max_innovation_norm = getattr(params, 'ekf_max_innovation_norm', 20.0)  # meters
+        self.max_state_jump = getattr(params, 'ekf_max_state_jump', 50.0)  # meters
+        self.max_velocity = getattr(params, 'ekf_max_velocity', 50.0)  # m/s
+        self.max_acceleration = getattr(params, 'ekf_max_acceleration', 20.0)  # m/s²
+        self.divergence_threshold = getattr(params, 'ekf_divergence_threshold', 100.0)  # meters
+        
+        # Recovery parameters
+        self.consecutive_good_measurements = getattr(params, 'ekf_recovery_measurements', 5)
+        self.reset_cooldown = getattr(params, 'ekf_reset_cooldown', 2.0)  # seconds
+        
+        # State tracking
+        self.innovation_history = deque(maxlen=10)
+        self.position_history = deque(maxlen=5)
+        self.good_measurement_count = 0
+        self.last_reset_time = 0
+        self.is_healthy = True
+        self.health_score = 1.0
+        
+    def check_innovation(self, innovation: np.ndarray) -> bool:
+        """Check if innovation is reasonable."""
+        norm = np.linalg.norm(innovation)
+        self.innovation_history.append(norm)
+        
+        if norm > self.max_innovation_norm:
+            self.good_measurement_count = 0
+            return False
+        
+        self.good_measurement_count += 1
+        return True
+    
+    def check_state_jump(self, new_pos: np.ndarray) -> bool:
+        """Check for unreasonable state jumps."""
+        if len(self.position_history) > 0:
+            last_pos = self.position_history[-1]
+            jump = np.linalg.norm(new_pos - last_pos)
+            
+            if jump > self.max_state_jump:
+                return False
+        
+        self.position_history.append(new_pos.copy())
+        return True
+    
+    def check_velocity(self, velocity: np.ndarray) -> bool:
+        """Check if velocity is reasonable."""
+        vel_norm = np.linalg.norm(velocity)
+        return vel_norm <= self.max_velocity
+    
+    def check_divergence(self, uncertainty: float) -> bool:
+        """Check if filter has diverged based on uncertainty."""
+        return uncertainty <= self.divergence_threshold
+    
+    def update_health_score(self, innovation_ok: bool, state_ok: bool, 
+                           velocity_ok: bool, divergence_ok: bool):
+        """Update overall health score."""
+        # Weight different factors
+        weights = {
+            'innovation': 0.3,
+            'state': 0.3,
+            'velocity': 0.2,
+            'divergence': 0.2
+        }
+        
+        score = (weights['innovation'] * float(innovation_ok) +
+                weights['state'] * float(state_ok) +
+                weights['velocity'] * float(velocity_ok) +
+                weights['divergence'] * float(divergence_ok))
+        
+        # Smooth health score
+        self.health_score = 0.7 * self.health_score + 0.3 * score
+        
+        # Determine if healthy
+        self.is_healthy = self.health_score > 0.5
+    
+    def should_reset(self) -> bool:
+        """Determine if EKF should be reset."""
+        current_time = time.time()
+        
+        # Check cooldown
+        if current_time - self.last_reset_time < self.reset_cooldown:
+            return False
+        
+        # Reset if unhealthy for too long
+        if not self.is_healthy and self.good_measurement_count == 0:
+            self.last_reset_time = current_time
+            return True
+        
+        return False
+    
+    def has_recovered(self) -> bool:
+        """Check if filter has recovered after being unhealthy."""
+        return self.good_measurement_count >= self.consecutive_good_measurements
+
+
+class TargetTrackingEKF:
+    """
+    Extended Kalman Filter with warm-up period and auto-recovery.
+    
+    Features:
+    - Warm-up period for initial learning
+    - Automatic health monitoring
+    - Fallback to raw measurements
+    - Auto-reset on divergence
+    - Configurable enable/disable
+    """
+    
+    def __init__(self, params: InterceptionParameters):
+        """Initialize EKF with enhanced robustness parameters."""
         self.params = params
         self.dt = params.ekf_dt
         
-        # Add option for reduced state model
+        # EKF enable/disable control
+        self.ekf_enabled = params.ekf_enabled
+        self.ekf_auto_enable = getattr(params, 'ekf_auto_enable', True)
+        self.ekf_warm_up_time = getattr(params, 'ekf_warm_up_time', 3.0)  # seconds
+        self.ekf_warm_up_measurements = getattr(params, 'ekf_warm_up_measurements', 10)
+        
+        # State model selection
         self.use_acceleration = params.ekf_estimate_acceleration if hasattr(params, 'ekf_estimate_acceleration') else False
         
         if self.use_acceleration:
-            # 9-state EKF: [x, y, z, vx, vy, vz, ax, ay, az]
             self.ekf = ExtendedKalmanFilter(dim_x=9, dim_z=3)
         else:
-            # 6-state EKF: [x, y, z, vx, vy, vz] - more stable
             self.ekf = ExtendedKalmanFilter(dim_x=6, dim_z=3)
-
-        self.last_reset_time = 0.0  # Track last reset warning time
-        self.init_time = time.time()  # Track filter initialization time
         
+        # Health monitor
+        self.health_monitor = EKFHealthMonitor(params)
+        
+        # Enhanced initialization parameters
+        self.velocity_init_method = getattr(params, 'ekf_velocity_init_method', 'finite_difference')  # 'zero', 'finite_difference', 'from_measurement'
+        self.velocity_init_samples = getattr(params, 'ekf_velocity_init_samples', 3)
+        
+        # State tracking
+        self.is_initialized = False
+        self.is_warmed_up = False
+        self.warm_up_start_time = None
+        self.warm_up_measurements = 0
+        self.measurement_buffer = deque(maxlen=self.velocity_init_samples)
+        
+        # Fallback state (raw measurements)
+        self.fallback_position = None
+        self.fallback_velocity = None
+        self.fallback_measurement_times = deque(maxlen=5)
+        self.fallback_positions = deque(maxlen=5)
+        
+        # All other robustness parameters from previous implementation
+        self.timeout_threshold = getattr(params, 'ekf_timeout_threshold', 2.0)
+        self.high_trust_noise = getattr(params, 'ekf_high_trust_noise', 0.01)
+        self.normal_trust_noise = getattr(params, 'ekf_normal_trust_noise', params.ekf_measurement_noise)
+        self.reacquisition_noise = getattr(params, 'ekf_reacquisition_noise', 0.1)
+        
+        self.initial_velocity_uncertainty = getattr(params, 'ekf_initial_velocity_uncertainty', 10.0)
+        self.initial_position_uncertainty = getattr(params, 'ekf_initial_position_uncertainty', 5.0)
+        self.initial_acceleration_uncertainty = getattr(params, 'ekf_initial_acceleration_uncertainty', 5.0)
+        
+        self.innovation_threshold = getattr(params, 'ekf_innovation_threshold', 0.5)
+        self.chi2_confidence = getattr(params, 'ekf_chi2_confidence', 0.997)
+        self.gate_scale_factor = getattr(params, 'ekf_gate_scale_factor', 1.2)
+        
+        self.process_noise_scale = getattr(params, 'ekf_process_noise_scale', 2.0)
+        self.innovation_norm_threshold = getattr(params, 'ekf_innovation_norm_threshold', 5.0)
+        self.process_noise_decay = getattr(params, 'ekf_process_noise_decay', 0.95)
+        
+        # Runtime state
+        self.last_reset_time = 0.0
+        self.init_time = time.time()
+        self.last_measurement_time = None
+        self.measurement_count = 0
+        self.outlier_count = 0
+        self.consecutive_outliers = 0
+        self.reacquisition_mode = False
+        self.dynamic_q_scale = 1.0
         
         # Initialize matrices
         self._setup_ekf()
         
-        # State tracking
-        self.is_initialized = False
-        self.last_measurement_time = None
-        self.measurement_count = 0
-        self.outlier_count = 0
-        
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger.info(f"EKF initialized - enabled: {self.ekf_enabled}, "
+                        f"auto_enable: {self.ekf_auto_enable}, "
+                        f"warm_up_time: {self.ekf_warm_up_time}s")
     
     def _setup_ekf(self):
-        """Setup EKF matrices."""
+        """Setup EKF matrices with enhanced initial uncertainties."""
         if self.use_acceleration:
             self.ekf.x = np.zeros(9)
             self.ekf.F = self._get_F(self.dt)
@@ -956,8 +1180,14 @@ class TargetTrackingEKF:
             self.ekf.hx = h_func
             self.ekf.HJacobian = h_jacobian
             self.ekf.Q = self._get_Q(self.dt)
-            self.ekf.R = np.eye(3) * (self.params.ekf_measurement_noise ** 2)
-            self.ekf.P = np.diag([1.0, 1.0, 1.0, 0.5, 0.5, 0.5, 0.1, 0.1, 0.1])
+            self.ekf.R = np.eye(3) * (self.normal_trust_noise ** 2)
+            
+            pos_var = self.initial_position_uncertainty ** 2
+            vel_var = self.initial_velocity_uncertainty ** 2
+            acc_var = self.initial_acceleration_uncertainty ** 2
+            self.ekf.P = np.diag([pos_var, pos_var, pos_var, 
+                                 vel_var, vel_var, vel_var,
+                                 acc_var, acc_var, acc_var])
         else:
             self.ekf.x = np.zeros(6)
             self.ekf.F = self._get_F(self.dt)
@@ -970,204 +1200,432 @@ class TargetTrackingEKF:
             self.ekf.hx = h_func
             self.ekf.HJacobian = h_jacobian
             self.ekf.Q = self._get_Q(self.dt)
-            self.ekf.R = np.eye(3) * (self.params.ekf_measurement_noise ** 2)
-            self.ekf.P = np.diag([1.0, 1.0, 1.0, 0.5, 0.5, 0.5])
+            self.ekf.R = np.eye(3) * (self.normal_trust_noise ** 2)
+            
+            pos_var = self.initial_position_uncertainty ** 2
+            vel_var = self.initial_velocity_uncertainty ** 2
+            self.ekf.P = np.diag([pos_var, pos_var, pos_var,
+                                 vel_var, vel_var, vel_var])
     
-    def _get_F(self, dt: float) -> np.ndarray:
-        """Get state transition matrix."""
-        if self.use_acceleration:
-            # Original 9-state model
-            F = np.eye(9)
-            dt2 = dt * dt / 2
-            F[0:3, 3:6] = np.eye(3) * dt
-            F[0:3, 6:9] = np.eye(3) * dt2
-            F[3:6, 6:9] = np.eye(3) * dt
-        else:
-            # 6-state constant velocity model
-            F = np.eye(6)
-            F[0:3, 3:6] = np.eye(3) * dt
+    def _estimate_initial_velocity(self, measurements: List[Tuple[np.ndarray, float]]) -> Optional[np.ndarray]:
+        """Estimate initial velocity from measurement history."""
+        if len(measurements) < 2:
+            return None
         
-        return F
+        if self.velocity_init_method == 'finite_difference':
+            # Use finite difference on recent measurements
+            positions = np.array([m[0] for m in measurements])
+            times = np.array([m[1] for m in measurements])
+            
+            # Simple finite difference
+            if len(measurements) == 2:
+                dt = times[1] - times[0]
+                if dt > 0:
+                    velocity = (positions[1] - positions[0]) / dt
+                    return velocity
+            else:
+                # Use least squares for multiple points
+                velocities = []
+                for i in range(1, len(measurements)):
+                    dt = times[i] - times[i-1]
+                    if dt > 0:
+                        vel = (positions[i] - positions[i-1]) / dt
+                        velocities.append(vel)
+                
+                if velocities:
+                    return np.mean(velocities, axis=0)
+        
+        return None
     
-    def _get_Q(self, dt: float) -> np.ndarray:
-        """Get process noise matrix for EKF (6 or 9 state)."""
-        if self.use_acceleration:
-            # 9-state: [x, y, z, vx, vy, vz, ax, ay, az]
-            q_acc_horizontal = self.params.ekf_process_noise_acceleration if hasattr(self.params, 'ekf_process_noise_acceleration') else 2.0
-            q_acc_vertical = self.params.ekf_process_noise_acceleration if hasattr(self.params, 'ekf_process_noise_acceleration') else 0.5
-
-            Q_single_axis_h = self._get_Q_single_axis(dt, q_acc_horizontal)
-            Q_single_axis_v = self._get_Q_single_axis(dt, q_acc_vertical)
-
-            # Compose block-diagonal for x/y/z
-            Q = np.zeros((9, 9))
-            # X axis (horizontal)
-            Q[0:3, 0:3] = Q_single_axis_h
-            # Y axis (horizontal)
-            Q[3:6, 3:6] = Q_single_axis_h
-            # Z axis (vertical)
-            Q[6:9, 6:9] = Q_single_axis_v
-            return Q
-        else:
-            # 6-state: [x, y, z, vx, vy, vz]
-            q_pos = self.params.ekf_process_noise_position if hasattr(self.params, 'ekf_process_noise_position') else 0.1
-            q_vel = self.params.ekf_process_noise_velocity if hasattr(self.params, 'ekf_process_noise_velocity') else 0.5
-            Q = np.zeros((6, 6))
-            Q[0:3, 0:3] = np.eye(3) * q_pos * dt
-            Q[3:6, 3:6] = np.eye(3) * q_vel * dt
-            return Q
-
-    def _get_Q_single_axis(self, dt: float, q: float) -> np.ndarray:
-        """Get process noise for single axis using exact discretization."""
-        # For constant acceleration model with white noise jerk
-        dt2 = dt * dt
-        dt3 = dt2 * dt
-        dt4 = dt3 * dt
-        dt5 = dt4 * dt
+    def _update_fallback_state(self, measurement: np.ndarray):
+        """Update fallback state with raw measurements and velocity smoothing."""
+        current_time = time.time()
         
-        return q * np.array([
-            [dt5/20, dt4/8,  dt3/6],
-            [dt4/8,  dt3/3,  dt2/2],
-            [dt3/6,  dt2/2,  dt]
-        ])
+        self.fallback_position = measurement.copy()
+        self.fallback_positions.append(measurement.copy())
+        self.fallback_measurement_times.append(current_time)
+        
+        # Calculate velocity with smoothing
+        if len(self.fallback_positions) >= 2:
+            # Calculate instantaneous velocity
+            dt = self.fallback_measurement_times[-1] - self.fallback_measurement_times[-2]
+            if dt > 0 and dt < 1.0:  # Sanity check on time delta
+                instant_velocity = (self.fallback_positions[-1] - self.fallback_positions[-2]) / dt
+                
+                # Apply exponential smoothing to velocity
+                if self.fallback_velocity is not None:
+                    # Smooth with previous velocity (alpha = 0.3 for smoothing)
+                    alpha = 0.3
+                    self.fallback_velocity = alpha * instant_velocity + (1 - alpha) * self.fallback_velocity
+                else:
+                    self.fallback_velocity = instant_velocity
+            else:
+                # Keep previous velocity if dt is invalid
+                if self.fallback_velocity is None:
+                    self.fallback_velocity = np.zeros(3)
+        else:
+            # Not enough measurements yet
+            if self.fallback_velocity is None:
+                self.fallback_velocity = np.zeros(3)
     
     def initialize(self, position: np.ndarray, 
                    velocity: Optional[np.ndarray] = None,
                    acceleration: Optional[np.ndarray] = None):
-        """Initialize filter with known state."""
-        self.ekf.x[0:3] = position
-        if velocity is not None:
-            self.ekf.x[3:6] = velocity
-        if self.use_acceleration and acceleration is not None:
-            self.ekf.x[6:9] = acceleration
-        self.is_initialized = True
-        self.last_measurement_time = time.time()
-        self.logger.info(f"EKF initialized at position: {position}")
-    
-    def predict(self, dt: Optional[float] = None):
-        """Predict next state with improved covariance management."""
-        if not self.is_initialized:
+        """Initialize filter with warm-up period."""
+        # Always update fallback state
+        self._update_fallback_state(position)
+        
+        # Store measurement for velocity estimation
+        self.measurement_buffer.append((position.copy(), time.time()))
+        
+        if not self.ekf_enabled:
+            self.logger.info("EKF disabled - using fallback state only")
             return
         
+        # Start warm-up period
+        if not self.is_initialized:
+            self.warm_up_start_time = time.time()
+            self.warm_up_measurements = 0
+            self.is_warmed_up = False
+            self.logger.info("Starting EKF warm-up period")
+        
+        # Initialize EKF state
+        self.ekf.x[0:3] = position
+        
+        # Smart velocity initialization
+        if velocity is not None:
+            self.ekf.x[3:6] = velocity
+            # Reduce uncertainty if velocity is provided
+            for i in [3, 4, 5]:
+                self.ekf.P[i, i] = (self.initial_velocity_uncertainty * 0.3) ** 2
+        else:
+            # Try to estimate velocity from measurements
+            estimated_vel = self._estimate_initial_velocity(list(self.measurement_buffer))
+            if estimated_vel is not None:
+                self.ekf.x[3:6] = estimated_vel
+                # Moderate uncertainty for estimated velocity
+                for i in [3, 4, 5]:
+                    self.ekf.P[i, i] = (self.initial_velocity_uncertainty * 0.5) ** 2
+                self.logger.info(f"Initialized with estimated velocity: {estimated_vel}")
+            else:
+                # No velocity - use zero with high uncertainty
+                self.ekf.x[3:6] = np.zeros(3)
+                for i in [3, 4, 5]:
+                    self.ekf.P[i, i] = self.initial_velocity_uncertainty ** 2
+        
+        # Handle acceleration
+        if self.use_acceleration:
+            if acceleration is not None:
+                self.ekf.x[6:9] = acceleration
+            else:
+                self.ekf.x[6:9] = np.zeros(3)
+        
+        self.is_initialized = True
+        self.last_measurement_time = time.time()
+        self.reacquisition_mode = False
+        self.consecutive_outliers = 0
+        self.dynamic_q_scale = 1.0
+        
+    def _check_warm_up_complete(self) -> bool:
+        """Check if warm-up period is complete."""
+        if self.is_warmed_up:
+            return True
+        
+        current_time = time.time()
+        time_elapsed = current_time - self.warm_up_start_time
+        
+        # Check both time and measurement count
+        if (time_elapsed >= self.ekf_warm_up_time and 
+            self.warm_up_measurements >= self.ekf_warm_up_measurements):
+            self.is_warmed_up = True
+            self.logger.info(f"EKF warm-up complete after {time_elapsed:.1f}s and "
+                           f"{self.warm_up_measurements} measurements")
+            return True
+        
+        return False
+    
+    def predict(self, dt: Optional[float] = None):
+        """Predict with warm-up awareness."""
+        if not self.is_initialized or not self.ekf_enabled:
+            return
+        
+        # Always run predict to maintain filter state
         if dt and abs(dt - self.dt) > 0.001:
             self.ekf.F = self._get_F(dt)
             self.ekf.Q = self._get_Q(dt)
+        else:
+            self.ekf.Q = self._get_Q(self.dt)
+        
+        # Decay dynamic Q scale
+        self.dynamic_q_scale = 1.0 + (self.dynamic_q_scale - 1.0) * self.process_noise_decay
+        
+        # Check for target loss
+        current_time = time.time()
+        if self.last_measurement_time and (current_time - self.last_measurement_time) > self.timeout_threshold:
+            if not self.reacquisition_mode:
+                self.reacquisition_mode = True
+                self.logger.info("Target lost - entering reacquisition mode")
+                self.dynamic_q_scale *= 1.5
         
         self.ekf.predict()
-        
-        # Much more conservative covariance limiting
-        filter_age = time.time() - self.init_time
-        if self.use_acceleration:
-            pos_indices = [0, 1, 2]
-            vel_indices = [3, 4, 5]
-            acc_indices = [6, 7, 8]
-            identity = np.eye(9)
-        else:
-            pos_indices = [0, 1, 2]
-            vel_indices = [3, 4, 5]
-            identity = np.eye(6)
-        
-        # Gradually increase allowed uncertainty
-        if filter_age < 10.0:
-            max_pos_variance = 100.0   # 10m standard deviation
-            max_vel_variance = 25.0    # 5m/s standard deviation
-        elif filter_age < 60.0:
-            max_pos_variance = 400.0   # 20m standard deviation
-            max_vel_variance = 100.0   # 10m/s standard deviation
-        else:
-            max_pos_variance = 900.0   # 30m standard deviation
-            max_vel_variance = 225.0   # 15m/s standard deviation
-        
-        # Check individual axes
-        pos_variances = np.diag(self.ekf.P)[0:3]
-        vel_variances = np.diag(self.ekf.P)[3:6]
-        
-        needs_reset = False
-        
-        # Soft limit - reduce variance gradually
-        for i in range(3):
-            if pos_variances[i] > max_pos_variance:
-                # Gradually reduce instead of hard reset
-                self.ekf.P[i, i] = max_pos_variance * 0.9
-                needs_reset = True
-            if vel_variances[i] > max_vel_variance:
-                self.ekf.P[i+3, i+3] = max_vel_variance * 0.9
-                needs_reset = True
-        
-        if needs_reset:
-            # Only log once per 5 seconds to reduce spam
-            current_time = time.time()
-            if current_time - self.last_reset_time > 5.0:
-                self.logger.debug(
-                    f"EKF covariance limited: max_pos_std={np.sqrt(np.max(pos_variances)):.1f}m, "
-                    f"max_vel_std={np.sqrt(np.max(vel_variances)):.1f}m/s"
-                )
-                self.last_reset_time = current_time
-            
-            # Ensure covariance remains symmetric and positive definite
-            self.ekf.P = 0.5 * (self.ekf.P + self.ekf.P.T)
-            self.ekf.P += identity * 1e-6
-    
+        self._limit_covariance()
     
     def update(self, measurement: np.ndarray) -> bool:
-        """Update with measurement after outlier check."""
+        """Update with warm-up period and health monitoring."""
+        # Always update fallback state
+        self._update_fallback_state(measurement)
+        
+        if not self.ekf_enabled:
+            return True  # Fallback state updated successfully
+        
         if not self.is_initialized:
             self.initialize(measurement)
             return True
         
-        # Ensure measurement is 1D array
+        # Store measurement for velocity estimation
+        self.measurement_buffer.append((measurement.copy(), time.time()))
+        
+        # Increment warm-up counter
+        if not self.is_warmed_up:
+            self.warm_up_measurements += 1
+        
+        # Always run EKF update to learn during warm-up
         z = measurement.flatten()
         
         # Calculate innovation
         y = z - self.ekf.hx(self.ekf.x)
         H = self.ekf.HJacobian(self.ekf.x)
         
-        # Adaptive measurement noise based on innovation
-        innovation_norm = np.linalg.norm(y)
-        if innovation_norm > 5.0:  # Large innovation suggests higher noise
-            R_adaptive = self.ekf.R * (1 + innovation_norm / 10.0)
-        else:
-            R_adaptive = self.ekf.R
+        # Health checks
+        pos, vel, _ = self.get_state()
+        innovation_ok = self.health_monitor.check_innovation(y)
+        state_ok = self.health_monitor.check_state_jump(pos)
+        velocity_ok = self.health_monitor.check_velocity(vel)
+        _, uncertainty = self.get_uncertainty()
+        divergence_ok = self.health_monitor.check_divergence(uncertainty)
         
+        # Update health score
+        self.health_monitor.update_health_score(
+            innovation_ok, state_ok, velocity_ok, divergence_ok
+        )
+        
+        # Check if we should reset
+        if self.health_monitor.should_reset():
+            self.logger.warning("EKF unhealthy - resetting filter")
+            self.reset_filter()
+            return False
+        
+        # Continue with normal update process...
+        current_time = time.time()
+        time_since_last = current_time - self.last_measurement_time if self.last_measurement_time else 0
+        
+        # Adaptive measurement noise
+        if self.reacquisition_mode and time_since_last > self.timeout_threshold:
+            R_adaptive = np.eye(3) * (self.reacquisition_noise ** 2)
+            self.reacquisition_mode = False
+        elif self.consecutive_outliers > 3:
+            R_adaptive = np.eye(3) * ((self.normal_trust_noise * 2) ** 2)
+        elif self.measurement_count < 10 or not self.is_warmed_up:
+            R_adaptive = np.eye(3) * (self.normal_trust_noise ** 2)
+        else:
+            R_adaptive = np.eye(3) * (self.high_trust_noise ** 2)
+        
+        # Innovation-based noise scaling
+        innovation_norm = np.linalg.norm(y)
+        if innovation_norm > self.innovation_norm_threshold:
+            noise_scale = 1 + (innovation_norm / self.innovation_norm_threshold)
+            R_adaptive *= noise_scale
+        
+        # Compute innovation covariance
         S = H @ self.ekf.P @ H.T + R_adaptive
         
-        # More robust outlier detection
+        # Mahalanobis gating
         try:
-            nis = float(y.T @ np.linalg.inv(S) @ y)
+            S_inv = np.linalg.inv(S)
+            mahalanobis_dist = float(y.T @ S_inv @ y)
             
-            # Adaptive threshold based on filter convergence
-            if self.measurement_count < 10:
-                chi2_threshold = stats.chi2.ppf(0.999, df=3)  # More permissive initially
-            else:
-                chi2_threshold = stats.chi2.ppf(0.997, df=3)
+            chi2_threshold = stats.chi2.ppf(self.chi2_confidence, df=3)
             
-            if nis > chi2_threshold:
+            # More permissive during warm-up
+            if not self.is_warmed_up:
+                chi2_threshold *= 2.0
+            elif self.reacquisition_mode:
+                chi2_threshold *= 1.5
+            
+            if mahalanobis_dist > chi2_threshold:
                 self.outlier_count += 1
-                # Increase process noise after outlier to help filter adapt
-                self.ekf.Q = self.ekf.Q * 1.5
-                self.logger.debug(f"Measurement rejected - NIS: {nis:.2f}")
+                self.consecutive_outliers += 1
+                
+                self.ekf.P *= self.gate_scale_factor
+                self.dynamic_q_scale *= 1.2
+                
+                if self.consecutive_outliers > 5:
+                    self.dynamic_q_scale = self.process_noise_scale
+                
                 return False
                 
         except np.linalg.LinAlgError:
             self.logger.warning("Singular innovation covariance")
             return False
         
-        # Update with adaptive R
+        # Measurement passed gating
+        self.consecutive_outliers = 0
+        
+        # Dynamic process noise
+        if innovation_norm > self.innovation_threshold:
+            scale_factor = min(innovation_norm / self.innovation_threshold, self.process_noise_scale)
+            self.dynamic_q_scale = scale_factor
+        
+        # Apply update
         self.ekf.R = R_adaptive
         self.ekf.update(z, self.ekf.HJacobian, self.ekf.hx)
-        self.ekf.R = self.ekf.R  # Reset to original
+        self.ekf.R = np.eye(3) * (self.normal_trust_noise ** 2)
         
-        self.last_measurement_time = time.time()
+        self.last_measurement_time = current_time
         self.measurement_count += 1
         
-        # Reduce process noise after successful update
-        if self.measurement_count > 5:
-            self.ekf.Q = self._get_Q(self.dt)  # Reset to nominal
+        # Check warm-up completion
+        self._check_warm_up_complete()
         
         return True
     
+    def reset_filter(self):
+        """Reset the filter to initial state."""
+        self.logger.info("Resetting EKF")
+        
+        # Keep position but reset velocity and covariance
+        if self.fallback_position is not None:
+            position = self.fallback_position
+        else:
+            position = self.ekf.x[0:3].copy()
+        
+        # Re-initialize
+        self._setup_ekf()
+        self.is_initialized = False
+        self.is_warmed_up = False
+        self.warm_up_measurements = 0
+        self.measurement_count = 0
+        self.outlier_count = 0
+        self.consecutive_outliers = 0
+        self.dynamic_q_scale = 1.0
+        
+        # Re-initialize with position
+        self.initialize(position)
+    
+    def enable_filter(self):
+        """Enable the EKF."""
+        if not self.ekf_enabled:
+            self.ekf_enabled = True
+            self.logger.info("EKF enabled")
+            if self.fallback_position is not None:
+                self.initialize(self.fallback_position)
+    
+    def disable_filter(self):
+        """Disable the EKF."""
+        self.ekf_enabled = False
+        self.is_warmed_up = False
+        self.logger.info("EKF disabled - using fallback state")
+    
+    def get_state(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Get current state estimate with fallback and smoothing."""
+        # If EKF is disabled or not ready, use fallback
+        if not self.ekf_enabled or not self.is_warmed_up or not self.health_monitor.is_healthy:
+            if self.fallback_position is not None:
+                # Always return non-None velocity
+                velocity = self.fallback_velocity if self.fallback_velocity is not None else np.zeros(3)
+                return (
+                    self.fallback_position.copy(),
+                    velocity.copy(),
+                    np.zeros(3)  # No acceleration in fallback
+                )
+            else:
+                return np.zeros(3), np.zeros(3), np.zeros(3)
+        
+        # Use EKF state
+        if self.use_acceleration:
+            pos = self.ekf.x[0:3].copy()
+            vel = self.ekf.x[3:6].copy()
+            acc = self.ekf.x[6:9].copy()
+        else:
+            pos = self.ekf.x[0:3].copy()
+            vel = self.ekf.x[3:6].copy()
+            acc = np.zeros(3)
+        
+        # Apply sanity check on velocity
+        vel_norm = np.linalg.norm(vel)
+        if vel_norm > self.health_monitor.max_velocity:
+            # Clip velocity to maximum
+            vel = vel * (self.health_monitor.max_velocity / vel_norm)
+        
+        return pos, vel, acc
+
+
+        
+        # Use EKF state
+        if self.use_acceleration:
+            pos = self.ekf.x[0:3].copy()
+            vel = self.ekf.x[3:6].copy()
+            acc = self.ekf.x[6:9].copy()
+        else:
+            pos = self.ekf.x[0:3].copy()
+            vel = self.ekf.x[3:6].copy()
+            acc = np.zeros(3)
+            
+        return pos, vel, acc
+    
+    def is_ready(self) -> bool:
+        """Check if filter is ready to provide estimates."""
+        if not self.ekf_enabled:
+            return self.fallback_position is not None
+        
+        return (self.is_initialized and 
+                self.is_warmed_up and 
+                self.health_monitor.is_healthy)
+    
+    def get_health_status(self) -> Dict[str, Any]:
+        """Enhanced health metrics."""
+        if not self.is_initialized:
+            return {
+                'healthy': False, 
+                'reason': 'Not initialized',
+                'ekf_enabled': self.ekf_enabled,
+                'using_fallback': True
+            }
+        
+        # Basic health checks
+        time_since_meas = self.time_since_measurement()
+        _, uncertainty = self.get_uncertainty()
+        
+        health_info = {
+            'healthy': self.health_monitor.is_healthy,
+            'health_score': self.health_monitor.health_score,
+            'ekf_enabled': self.ekf_enabled,
+            'is_warmed_up': self.is_warmed_up,
+            'using_fallback': not self.ekf_enabled or not self.is_warmed_up or not self.health_monitor.is_healthy,
+            'warm_up_progress': f"{self.warm_up_measurements}/{self.ekf_warm_up_measurements}",
+            'time_since_measurement': time_since_meas,
+            'position_uncertainty': uncertainty,
+            'measurement_count': self.measurement_count,
+            'outlier_ratio': self.outlier_count / max(1, self.measurement_count),
+            'consecutive_outliers': self.consecutive_outliers,
+            'dynamic_q_scale': self.dynamic_q_scale,
+        }
+        
+        # Add specific reason if unhealthy
+        if not self.health_monitor.is_healthy:
+            if uncertainty > self.health_monitor.divergence_threshold:
+                health_info['reason'] = f'High uncertainty: {uncertainty:.1f}m'
+            elif self.consecutive_outliers > 5:
+                health_info['reason'] = 'Multiple consecutive outliers'
+            elif time_since_meas > self.timeout_threshold:
+                health_info['reason'] = f'No measurements for {time_since_meas:.1f}s'
+            else:
+                health_info['reason'] = 'Low health score'
+        
+        return health_info
+    
     def update_with_delay(self, measurement: np.ndarray, measurement_time: float) -> bool:
-        """Update with delayed measurement."""
+        """Update with delayed measurement - enhanced for robustness."""
         current_time = time.time()
         delay = current_time - measurement_time
         
@@ -1179,11 +1637,15 @@ class TargetTrackingEKF:
             # Save current state
             x_current = self.ekf.x.copy()
             P_current = self.ekf.P.copy()
+            Q_scale_current = self.dynamic_q_scale
             
             # Retrodict to measurement time
             F_back = self._get_F(-delay)
             self.ekf.x = F_back @ self.ekf.x
-            self.ekf.P = F_back @ self.ekf.P @ F_back.T
+            
+            # Increase uncertainty when retrodicting
+            Q_back = self._get_Q(abs(delay)) * 2  # Double process noise for retrodiction
+            self.ekf.P = F_back @ self.ekf.P @ F_back.T + Q_back
             
             # Update at measurement time
             success = self.update(measurement)
@@ -1195,21 +1657,13 @@ class TargetTrackingEKF:
                 # Restore state if update failed
                 self.ekf.x = x_current
                 self.ekf.P = P_current
+                self.dynamic_q_scale = Q_scale_current
             
             return success
         else:
             return self.update(measurement)
+
     
-    def get_state(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        if self.use_acceleration:
-            pos = self.ekf.x[0:3].copy()
-            vel = self.ekf.x[3:6].copy()
-            acc = self.ekf.x[6:9].copy()
-        else:
-            pos = self.ekf.x[0:3].copy()
-            vel = self.ekf.x[3:6].copy()
-            acc = np.zeros(3)
-        return pos, vel, acc
     
     def predict_future_position(self, time_ahead: float) -> np.ndarray:
         if not self.is_initialized:
@@ -1242,47 +1696,88 @@ class TargetTrackingEKF:
         self.ekf.P = P_saved
         
         return predictions
+    def _get_F(self, dt: float) -> np.ndarray:
+        """Get state transition matrix."""
+        if self.use_acceleration:
+            F = np.eye(9)
+            dt2 = dt * dt / 2
+            F[0:3, 3:6] = np.eye(3) * dt
+            F[0:3, 6:9] = np.eye(3) * dt2
+            F[3:6, 6:9] = np.eye(3) * dt
+        else:
+            F = np.eye(6)
+            F[0:3, 3:6] = np.eye(3) * dt
+        return F
     
-
-    def get_health_status(self) -> Dict[str, Any]:
-        """Get EKF health metrics."""
-        if not self.is_initialized:
-            return {'healthy': False, 'reason': 'Not initialized'}
+    def _get_Q(self, dt: float) -> np.ndarray:
+        """Get process noise matrix with dynamic scaling."""
+        Q_base = self._get_base_Q(dt)
+        return Q_base * self.dynamic_q_scale
+    
+    def _get_base_Q(self, dt: float) -> np.ndarray:
+        """Get base process noise matrix."""
+        if self.use_acceleration:
+            q_acc = 2.0
+            Q_single = self._get_Q_single_axis(dt, q_acc)
+            Q = block_diag(Q_single, Q_single, Q_single)
+            return Q
+        else:
+            q_pos = 0.1
+            q_vel = 0.5
+            Q = np.zeros((6, 6))
+            Q[0:3, 0:3] = np.eye(3) * q_pos * dt
+            Q[3:6, 3:6] = np.eye(3) * q_vel * dt
+            return Q
+    
+    def _get_Q_single_axis(self, dt: float, q: float) -> np.ndarray:
+        """Get process noise for single axis."""
+        dt2 = dt * dt
+        dt3 = dt2 * dt
+        dt4 = dt3 * dt
+        dt5 = dt4 * dt
         
-        # Check measurement staleness
-        time_since_meas = self.time_since_measurement()
-        if time_since_meas > 2.0:
-            return {'healthy': False, 'reason': f'No measurements for {time_since_meas:.1f}s'}
+        return q * np.array([
+            [dt5/20, dt4/8,  dt3/6],
+            [dt4/8,  dt3/3,  dt2/2],
+            [dt3/6,  dt2/2,  dt]
+        ])
+    
+    def _limit_covariance(self):
+        """Limit covariance growth."""
+        if self.use_acceleration:
+            identity = np.eye(9)
+        else:
+            identity = np.eye(6)
         
-        # Check covariance health
-        pos_variance = np.diag(self.ekf.P)[0:3]
-        max_std = np.sqrt(np.max(pos_variance))
-        if max_std > 50.0:  # 50m standard deviation is too high
-            return {'healthy': False, 'reason': f'High uncertainty: {max_std:.1f}m'}
+        # Get max allowed variances
+        max_pos_var = 900.0  # 30m std
+        max_vel_var = 225.0  # 15m/s std
         
-        # Check outlier ratio
-        if self.measurement_count > 20:
-            outlier_ratio = self.outlier_count / self.measurement_count
-            if outlier_ratio > 0.3:
-                return {'healthy': False, 'reason': f'High outlier ratio: {outlier_ratio:.1%}'}
+        # Limit diagonal elements
+        for i in range(3):
+            if self.ekf.P[i, i] > max_pos_var:
+                self.ekf.P[i, i] = max_pos_var * 0.9
+            if self.ekf.P[i+3, i+3] > max_vel_var:
+                self.ekf.P[i+3, i+3] = max_vel_var * 0.9
         
-        return {
-            'healthy': True,
-            'max_std': max_std,
-            'time_since_meas': time_since_meas,
-            'outlier_ratio': self.outlier_count / max(1, self.measurement_count)
-        }
+        # Ensure positive definite
+        self.ekf.P = 0.5 * (self.ekf.P + self.ekf.P.T)
+        self.ekf.P += identity * 1e-6
     
     def time_since_measurement(self) -> float:
-        """Time elapsed since last measurement."""
+        """Time since last measurement."""
         if self.last_measurement_time is None:
             return float('inf')
         return time.time() - self.last_measurement_time
     
     def get_uncertainty(self) -> Tuple[np.ndarray, float]:
         """Get position uncertainty."""
+        if not self.ekf_enabled or not self.is_initialized:
+            # Return high uncertainty when using fallback
+            return np.eye(3) * 100, 100.0
+            
         pos_cov = self.ekf.P[0:3, 0:3]
-        uncertainty = np.sqrt(np.trace(pos_cov) / 3)  # Average uncertainty
+        uncertainty = np.sqrt(np.trace(pos_cov) / 3)
         return pos_cov, uncertainty
 
 # =============================================================================
@@ -1311,9 +1806,14 @@ class SimulatedTargetSourceV2(TargetSource):
         self.acceleration = np.array(params.get('initial_acceleration', [0.0, 0.0, 0.0]), dtype=float)
         
         # Maneuvering parameters
-        self.amp = np.array(params.get('maneuver_amplitudes', [0.0, 0.0, 0.0]))
-        self.freq = np.array(params.get('maneuver_frequencies', [0.0, 0.0, 0.0]))
-        self.phase = np.array(params.get('maneuver_phases', np.random.random(3) * 2 * np.pi))
+        self.amp   = np.array(params.get('maneuver_amplitudes', [0.0, 0.0, 0.0]))
+        self.freq  = np.array(params.get('maneuver_frequencies', [0.0, 0.0, 0.0]))
+        # If no explicit phases provided, generate random ones; otherwise use the array
+        raw_phase = params.get('maneuver_phases')
+        if raw_phase is None:
+            self.phase = np.random.random(3) * 2 * np.pi
+        else:
+            self.phase = np.array(raw_phase)
         
         # Noise parameters
         self.position_noise_std = params.get('position_noise_std', 0.2)  # meters
@@ -2238,6 +2738,10 @@ class GuidanceStrategy(ABC):
         self.frame_manager = frame_manager
         self.logger = logging.getLogger(self.__class__.__name__)
         
+        # Yaw control state
+        self.last_commanded_yaw = None
+        self.yaw_mode = YawControlMode(params.control_yaw_mode)
+        
     @abstractmethod
     async def compute_command(self,
                             drone: System,
@@ -2253,15 +2757,83 @@ class GuidanceStrategy(ABC):
         return self.ekf.predict_future_position(lead_time)
     
     def compute_desired_yaw(self, error_ned: np.ndarray,
-                          target_velocity: Optional[np.ndarray] = None) -> float:
-        """Compute desired yaw angle with optional lead compensation."""
-        if target_velocity is not None and self.params.guidance_yaw_lead_time > 0:
-            future_error = error_ned + target_velocity * self.params.guidance_yaw_lead_time
-            bearing = math.degrees(math.atan2(future_error[1], future_error[0]))
-        else:
-            bearing = math.degrees(math.atan2(error_ned[1], error_ned[0]))
+                          target_velocity: Optional[np.ndarray] = None,
+                          drone_velocity_ned: Optional[np.ndarray] = None,
+                          current_yaw: float = 0.0) -> float:
+        """
+        Compute desired yaw angle based on selected mode.
         
-        return normalize_angle(bearing)
+        Args:
+            error_ned: Position error vector in NED
+            target_velocity: Target velocity in NED (for target tracking)
+            drone_velocity_ned: Drone velocity in NED (for coordinated mode)
+            current_yaw: Current yaw angle in degrees
+            
+        Returns:
+            Desired yaw angle in degrees
+        """
+        
+        if self.yaw_mode == YawControlMode.TARGET_TRACKING:
+            # Original behavior - face the target
+            if target_velocity is not None and self.params.guidance_yaw_lead_time > 0:
+                future_error = error_ned + target_velocity * self.params.guidance_yaw_lead_time
+                bearing = math.degrees(math.atan2(future_error[1], future_error[0]))
+            else:
+                bearing = math.degrees(math.atan2(error_ned[1], error_ned[0]))
+            desired_yaw = normalize_angle(bearing)
+            
+        elif self.yaw_mode == YawControlMode.COORDINATED:
+            # Face velocity vector
+            if drone_velocity_ned is not None:
+                speed = np.linalg.norm(drone_velocity_ned[:2])  # Horizontal speed
+                
+                if speed >= self.params.control_coordinated_min_speed:
+                    # Calculate heading from velocity
+                    heading = math.degrees(math.atan2(drone_velocity_ned[1], drone_velocity_ned[0]))
+                    desired_yaw = normalize_angle(heading)
+                else:
+                    # Below minimum speed - maintain current yaw or face target
+                    if self.last_commanded_yaw is not None:
+                        desired_yaw = self.last_commanded_yaw
+                    else:
+                        # Fall back to target tracking at low speed
+                        bearing = math.degrees(math.atan2(error_ned[1], error_ned[0]))
+                        desired_yaw = normalize_angle(bearing)
+            else:
+                # No velocity info - maintain current
+                desired_yaw = current_yaw
+                
+        elif self.yaw_mode == YawControlMode.FIXED:
+            # Fixed heading
+            desired_yaw = normalize_angle(self.params.control_fixed_yaw_angle)
+            
+        elif self.yaw_mode == YawControlMode.MANUAL:
+            # Manual control
+            desired_yaw = normalize_angle(self.params.control_manual_yaw_angle)
+            
+        else:
+            # Default to target tracking
+            bearing = math.degrees(math.atan2(error_ned[1], error_ned[0]))
+            desired_yaw = normalize_angle(bearing)
+        
+        # Apply smoothing if enabled
+        if self.params.control_yaw_smoothing > 0 and self.last_commanded_yaw is not None:
+            # Smooth yaw changes
+            yaw_diff = normalize_angle(desired_yaw - self.last_commanded_yaw)
+            max_yaw_change = self.params.control_coordinated_yaw_rate * 0.1  # Assume 10Hz update
+            
+            if abs(yaw_diff) > max_yaw_change:
+                # Limit yaw rate
+                yaw_diff = np.clip(yaw_diff, -max_yaw_change, max_yaw_change)
+            
+            # Apply smoothing
+            alpha = self.params.control_yaw_smoothing
+            smoothed_yaw = self.last_commanded_yaw + yaw_diff * (1 - alpha)
+            desired_yaw = normalize_angle(smoothed_yaw)
+        
+        self.last_commanded_yaw = desired_yaw
+        return desired_yaw
+
 
 class LocalNEDVelocityGuidance(GuidanceStrategy):
     """
@@ -2352,7 +2924,13 @@ class LocalNEDVelocityGuidance(GuidanceStrategy):
         vd = np.clip(vd, -self.params.velocity_max_vertical, self.params.velocity_max_vertical)
         
         # Desired yaw
-        desired_yaw = self.compute_desired_yaw(error_ned, target_velocity)
+        drone_velocity_ned = telemetry.get_velocity_ned()
+        desired_yaw = self.compute_desired_yaw(
+            error_ned, 
+            target_velocity,
+            drone_velocity_ned,
+            telemetry.yaw_deg
+        )
         
         # Send command
         try:
@@ -2469,7 +3047,13 @@ class GlobalNEDVelocityGuidance(GuidanceStrategy):
         vd = np.clip(vd, -self.params.velocity_max_vertical, self.params.velocity_max_vertical)
         
         # Desired yaw
-        desired_yaw = self.compute_desired_yaw(error_ned, target_velocity)
+        drone_velocity_ned = telemetry.get_velocity_ned()
+        desired_yaw = self.compute_desired_yaw(
+            error_ned, 
+            target_velocity,
+            drone_velocity_ned,
+            telemetry.yaw_deg
+        )
         
         # Send command
         try:
@@ -2583,7 +3167,13 @@ class BodyVelocityGuidance(GuidanceStrategy):
                               self.params.velocity_max_vertical)
         
         # Compute yaw rate
-        desired_yaw = self.compute_desired_yaw(error_ned, target_velocity)
+        drone_velocity_ned = telemetry.get_velocity_ned()
+        desired_yaw = self.compute_desired_yaw(
+            error_ned, 
+            target_velocity,
+            drone_velocity_ned,
+            telemetry.yaw_deg
+        )
         yaw_error = normalize_angle(desired_yaw - telemetry.yaw_deg)
         
         # Convert to rate with deadband
@@ -2641,7 +3231,7 @@ class GlobalPositionGuidance(GuidanceStrategy):
     async def compute_command(self, drone, telemetry, target_ned, target_velocity=None, dt=0.05):
         """Compute global position command."""
         # Get predicted target position
-        if self.params.guidance_position_lead_time > 0:
+        if self.params.guidance_position_lead_time > 0 and self.params.ekf_enabled and self.ekf.is_ready():
             predicted_ned = self.get_future_target_position(
                 self.params.guidance_position_lead_time
             )
@@ -2658,7 +3248,13 @@ class GlobalPositionGuidance(GuidanceStrategy):
             telemetry.altitude_amsl_m
         )
         error_ned = target_ned - current_ned
-        desired_yaw = self.compute_desired_yaw(error_ned, target_velocity)
+        drone_velocity_ned = telemetry.get_velocity_ned()
+        desired_yaw = self.compute_desired_yaw(
+            error_ned, 
+            target_velocity,
+            drone_velocity_ned,
+            telemetry.yaw_deg
+        )
         
         # Send command
         try:
@@ -2706,17 +3302,17 @@ def create_guidance_strategy(params: InterceptionParameters,
 # Mission visualization
 # =============================================================================
 
+
 class MissionVisualizer:
     """
     Clean, organized 3D visualization for mission monitoring.
     Fixed to work properly with tkinter and headless mode.
     """
     
-    def __init__(self, params: InterceptionParameters, ekf: Optional[TargetTrackingEKF] = None):
-        """Initialize visualizer with headless mode detection."""
+    def __init__(self, params, ekf: Optional[Any] = None):
         self.params = params
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.rate_window = 5.0  # seconds for moving average
+        self.rate_window = 5.0
         self.control_loop_times = deque(maxlen=200)
         self.telemetry_times = deque(maxlen=200)
         self.ekf = ekf
@@ -2726,212 +3322,161 @@ class MissionVisualizer:
         if not params.viz_enabled:
             self.enabled = False
             return
-        
-        # Detect headless mode
+
         display_available = True
         if os.environ.get('DISPLAY') is None and os.name != 'nt':
             display_available = False
             self.logger.warning("No display detected, running in headless mode")
-        
-        # Try to set backend
+
         if display_available:
             try:
                 matplotlib.use('TkAgg')
             except ImportError:
-                try:
-                    matplotlib.use('Qt5Agg')
-                except ImportError:
-                    try:
-                        matplotlib.use('GTKAgg')
-                    except ImportError:
-                        self.logger.warning("No interactive backend available")
-                        display_available = False
-        
+                matplotlib.use('Agg')
+                display_available = False
+
         if not display_available:
-            # Use non-interactive backend
-            matplotlib.use('Agg')
             self.enabled = False
             self.logger.info("Visualization disabled due to headless environment")
             return
-        
-        self.enabled = True
-        
-        # Setup figure
-        try:
-            plt.ion()  # Interactive mode
-            self.fig = plt.figure(figsize=(16, 9))
-            self.fig.canvas.manager.set_window_title('Mission Visualizer')
-            
-            # Create subplots
-            self.ax_3d = self.fig.add_subplot(221, projection='3d')
-            self.ax_topdown = self.fig.add_subplot(222)
-            self.ax_status = self.fig.add_subplot(223)
-            self.ax_altitude = self.fig.add_subplot(224)
-            
-            # Colors
-            self.colors = {
-                'drone': '#0066CC',
-                'target': '#CC0000',
-                'prediction': '#00CC66',
-                'good': '#00CC00',
-                'warning': '#FFAA00',
-                'danger': '#FF0000'
-            }
-            
-            # Initialize data storage
-            self.history = {
-                'drone': deque(maxlen=self.params.viz_history_length),
-                'target': deque(maxlen=self.params.viz_history_length),
-                'predictions': deque(maxlen=self.params.viz_history_length)
-            }
-            
-            # State tracking
-            self.update_count = 0
-            self.last_update_time = time.time()
-            self.start_time = time.time()
-            self.last_telemetry = None
-            
-            # Data for plots
-            self.drone_path = []
-            self.target_path = []
-            self.drone_altitudes = []
-            self.target_altitudes = []
-            self.distances = []
-            self.times = []
-            
-            # Setup plots
-            self._setup_3d_plot()
-            self._setup_topdown_plot()
-            self._setup_status_plot()
-            self._setup_altitude_plot()
-            
-            self.fig.tight_layout()
-            plt.show(block=False)
-            
-            self.logger.info("Visualization initialized successfully")
-            
-        except Exception as e:
-            self.logger.error(f"Failed to initialize visualization: {e}")
-            self.enabled = False
 
-    def _compute_rate(self, times):
-        now = time.time()
-        times = [t for t in times if now - t < self.rate_window]
-        if len(times) < 2:
-            return 0.0
-        return (len(times) - 1) / (times[-1] - times[0])
-    
+        self.enabled = True
+        plt.ion()
+        self.fig = plt.figure(figsize=(16, 9))
+        self.fig.canvas.manager.set_window_title('Mission Visualizer')
+
+        # Subplots
+        self.ax_3d = self.fig.add_subplot(221, projection='3d')
+        self.ax_topdown = self.fig.add_subplot(222)
+        self.ax_status = self.fig.add_subplot(223)
+        self.ax_altitude = self.fig.add_subplot(224)
+
+        # Colors
+        self.colors = {
+            'drone': '#0066CC',
+            'target': '#CC0000',
+            'prediction': '#00CC66',
+            'good': '#00CC00',
+            'warning': '#FFAA00',
+            'danger': '#FF0000'
+        }
+
+        # History
+        self.history = {
+            'drone': deque(maxlen=self.params.viz_history_length),
+            'target': deque(maxlen=self.params.viz_history_length),
+            'predictions': deque(maxlen=self.params.viz_history_length)
+        }
+
+        self.update_count = 0
+        self.last_update_time = time.time()
+        self.start_time = time.time()
+        self.last_telemetry = None
+
+        self.drone_path = []
+        self.target_path = []
+        self.drone_altitudes = []
+        self.target_altitudes = []
+        self.distances = []
+        self.times = []
+
+        # Setup
+        self._setup_3d_plot()
+        self._setup_topdown_plot()
+        self._setup_status_plot()
+        self._setup_altitude_plot()
+
+        self.fig.tight_layout()
+        plt.show(block=False)
+        self.logger.info("Visualization initialized successfully")
+
     def _setup_3d_plot(self):
-        """Setup clean 3D trajectory plot."""
         self.ax_3d.set_title('3D Pursuit View', fontsize=14, pad=10)
         self.ax_3d.set_xlabel('North (m)', labelpad=5)
         self.ax_3d.set_ylabel('East (m)', labelpad=5)
         self.ax_3d.set_zlabel('Altitude (m)', labelpad=5)
         self.ax_3d.grid(True, alpha=0.3)
         self.ax_3d.view_init(elev=25, azim=45)
-    
+
     def _setup_topdown_plot(self):
-        """Setup clean top-down view."""
         self.ax_topdown.set_title('Top-Down View', fontsize=12, pad=10)
         self.ax_topdown.set_xlabel('East (m)')
         self.ax_topdown.set_ylabel('North (m)')
         self.ax_topdown.set_aspect('equal')
         self.ax_topdown.grid(True, alpha=0.3)
-        
-        # Initialize elements
-        self.topdown_drone_trail, = self.ax_topdown.plot([], [], 
-                                                         color=self.colors['drone'], 
-                                                         linewidth=1, alpha=0.3)
-        self.topdown_target_trail, = self.ax_topdown.plot([], [], 
-                                                          color=self.colors['target'], 
-                                                          linewidth=1, alpha=0.3, 
-                                                          linestyle='--')
-        
-        self.topdown_drone, = self.ax_topdown.plot([], [], 
-                                                   color=self.colors['drone'], 
-                                                   marker='o', markersize=10)
-        self.topdown_target, = self.ax_topdown.plot([], [], 
-                                                    color=self.colors['target'], 
-                                                    marker='*', markersize=12)
-        
+
+        # Trails
+        self.topdown_drone_trail, = self.ax_topdown.plot([], [], color=self.colors['drone'], linewidth=1, alpha=0.3)
+        self.topdown_target_trail, = self.ax_topdown.plot([], [], color=self.colors['target'], linewidth=1, alpha=0.3, linestyle='--')
+
+        # Heading arrow
+        self.topdown_drone_arrow = self.ax_topdown.quiver(
+            0, 0, 0, 0,
+            color=self.colors['drone'],
+            angles='xy', scale_units='xy', scale=1, width=0.005
+        )
+
+        # Target marker
+        self.topdown_target, = self.ax_topdown.plot([], [], color=self.colors['target'], marker='*', markersize=12)
+
         # Range rings
         self.range_rings = []
         for r in [10, 25, 50]:
-            circle = Circle((0, 0), r, fill=False, linestyle=':', 
-                          alpha=0.3, color='gray')
-            self.ax_topdown.add_patch(circle)
-            self.range_rings.append(circle)
-        
-        # Uncertainty ellipse
-        self.uncertainty_ellipse = Ellipse((0, 0), 0, 0, angle=0, 
-                                         fill=False, edgecolor=self.colors['target'], 
-                                         alpha=0.5, linestyle='--', linewidth=1)
+            ring = Circle((0, 0), r, fill=False, linestyle=':', alpha=0.3, color='gray')
+            self.ax_topdown.add_patch(ring)
+            self.range_rings.append(ring)
+
+        # Uncertainty
+        self.uncertainty_ellipse = Ellipse((0, 0), 0, 0, angle=0,
+                                          fill=False, edgecolor=self.colors['target'],
+                                          alpha=0.5, linestyle='--', linewidth=1)
         self.ax_topdown.add_patch(self.uncertainty_ellipse)
         self.uncertainty_ellipse.set_visible(False)
-    
+
     def _setup_altitude_plot(self):
-        """Setup altitude vs time plot."""
         self.ax_altitude.set_title('Altitude Profile', fontsize=12, pad=10)
         self.ax_altitude.set_xlabel('Time (s)')
         self.ax_altitude.set_ylabel('Altitude AGL (m)')
         self.ax_altitude.grid(True, alpha=0.3)
-        
-        # Initialize plot lines
-        self.altitude_drone_line, = self.ax_altitude.plot([], [], 
-                                                         color=self.colors['drone'],
-                                                         linewidth=2, label='Drone')
-        self.altitude_target_line, = self.ax_altitude.plot([], [], 
-                                                          color=self.colors['target'],
-                                                          linewidth=2, linestyle='--',
-                                                          label='Target')
-        
+        self.altitude_drone_line, = self.ax_altitude.plot([], [], color=self.colors['drone'], linewidth=2, label='Drone')
+        self.altitude_target_line, = self.ax_altitude.plot([], [], color=self.colors['target'], linewidth=2, linestyle='--', label='Target')
         self.ax_altitude.legend(loc='upper right')
         self.ax_altitude.set_ylim(0, 50)
-    
+
     def _setup_status_plot(self):
-        """Setup clean status display."""
         self.ax_status.set_title('Mission Status', fontsize=12, pad=10)
         self.ax_status.axis('off')
-        
-        # Create text element
-        self.status_text = self.ax_status.text(0.05, 0.95, '', 
-                                              transform=self.ax_status.transAxes,
-                                              fontsize=11, verticalalignment='top',
-                                              fontfamily='monospace')
-    
-    def update(self, telemetry: TelemetryData,
-    target_state: Tuple[np.ndarray, np.ndarray, np.ndarray],
-    predictions: Optional[List[np.ndarray]] = None,
-    uncertainty: Optional[Tuple[np.ndarray, float]] = None,
-    mission_state: str = "UNKNOWN",
-    target_sources: Optional[Dict[str, Any]] = None):
-        """Update visualization with all components."""
+        self.status_text = self.ax_status.text(0.05, 0.95, '', transform=self.ax_status.transAxes,
+                                              fontsize=11, verticalalignment='top', fontfamily='monospace')
+
+    def _compute_rate(self, times):
+        now = time.time()
+        recent = [t for t in times if now - t < self.rate_window]
+        if len(recent) < 2:
+            return 0.0
+        return (len(recent)-1) / (recent[-1] - recent[0])
+
+    def update(self, telemetry, target_state: Tuple[np.ndarray, np.ndarray, np.ndarray],
+               predictions: Optional[List[np.ndarray]] = None,
+               uncertainty: Optional[Tuple[np.ndarray, float]] = None,
+               mission_state: str = "UNKNOWN",
+               target_sources: Optional[Dict[str, Any]] = None):
         if not self.enabled:
             return
-
-        # Store telemetry
-        self.last_telemetry = telemetry
-
-        # Rate limiting
         now = time.time()
         if now - self.last_update_time < 1.0 / self.params.viz_update_rate:
             return
-
         self.last_update_time = now
         self.update_count += 1
 
-        # Get positions
         drone_pos = np.array([telemetry.north_m, telemetry.east_m, -telemetry.altitude_agl_m])
         target_pos = target_state[0].copy()
-        target_vel = target_state[1].copy()
 
-        # Store history
         self.history['drone'].append(drone_pos.copy())
         self.history['target'].append(target_pos.copy())
         if predictions:
             self.history['predictions'].append(predictions[:20])
 
-        # Store data for plots
         elapsed = now - self.start_time
         self.times.append(elapsed)
         self.drone_path.append(drone_pos)
@@ -2939,191 +3484,126 @@ class MissionVisualizer:
         self.drone_altitudes.append(telemetry.altitude_agl_m)
         self.target_altitudes.append(-target_pos[2])
 
-        # Calculate metrics
         error_horizontal = np.linalg.norm(drone_pos[:2] - target_pos[:2])
         error_3d = np.linalg.norm(drone_pos - target_pos)
         self.distances.append(error_horizontal)
 
-        # Limit history
-        max_points = self.params.viz_path_history_length
-        if len(self.drone_path) > max_points:
-            self.drone_path = self.drone_path[-max_points:]
-            self.target_path = self.target_path[-max_points:]
-            self.times = self.times[-max_points:]
-            self.distances = self.distances[-max_points:]
-            self.drone_altitudes = self.drone_altitudes[-max_points:]
-            self.target_altitudes = self.target_altitudes[-max_points:]
+        max_pts = self.params.viz_path_history_length
+        if len(self.drone_path) > max_pts:
+            self.drone_path = self.drone_path[-max_pts:]
+            self.target_path = self.target_path[-max_pts:]
+            self.times = self.times[-max_pts:]
+            self.distances = self.distances[-max_pts:]
+            self.drone_altitudes = self.drone_altitudes[-max_pts:]
+            self.target_altitudes = self.target_altitudes[-max_pts:]
 
-        # Update all plots
         self._update_3d(drone_pos, target_pos, predictions, error_3d, telemetry.yaw_rad)
         self._update_topdown(drone_pos, target_pos, telemetry, uncertainty, error_horizontal)
         self._update_altitude()
-        self._update_status_display(telemetry, target_state, error_horizontal,
-                                elapsed, mission_state, uncertainty, target_sources)
+        self._update_status_display(telemetry, target_state, error_horizontal, elapsed, mission_state, uncertainty, target_sources)
 
-        # Refresh display
         plt.draw()
         plt.pause(0.001)
-    
+
     def _update_3d(self, drone_pos, target_pos, predictions, error_3d, yaw):
-        """Update 3D plot with drone orientation."""
-        # Clear and redraw
         self.ax_3d.clear()
-        
-        # Re-setup
-        self.ax_3d.set_title('3D Pursuit View', fontsize=14, pad=10)
-        self.ax_3d.set_xlabel('North (m)', labelpad=5)
-        self.ax_3d.set_ylabel('East (m)', labelpad=5)
-        self.ax_3d.set_zlabel('Altitude (m)', labelpad=5)
-        self.ax_3d.grid(True, alpha=0.3)
-        
-        # Plot trails
+        self._setup_3d_plot()
+
+        # Trails
         if len(self.drone_path) > 1:
-            drone_array = np.array(self.drone_path)
-            target_array = np.array(self.target_path)
-            drone_array[:, 2] = -drone_array[:, 2]
-            target_array[:, 2] = -target_array[:, 2]
-            
-            self.ax_3d.plot(drone_array[:, 0], drone_array[:, 1], drone_array[:, 2],
-                           color=self.colors['drone'], linewidth=2, alpha=0.3)
-            self.ax_3d.plot(target_array[:, 0], target_array[:, 1], target_array[:, 2],
-                           color=self.colors['target'], linewidth=2, alpha=0.3, linestyle='--')
-        
-        # Draw drone with orientation
+            da = np.array(self.drone_path); ta = np.array(self.target_path)
+            da[:,2] = -da[:,2]; ta[:,2] = -ta[:,2]
+            self.ax_3d.plot(da[:,0], da[:,1], da[:,2], color=self.colors['drone'], linewidth=2, alpha=0.3)
+            self.ax_3d.plot(ta[:,0], ta[:,1], ta[:,2], color=self.colors['target'], linewidth=2, alpha=0.3, linestyle='--')
+
+        # Drone body
         drone_size = 2.0
-        
-        # Drone shape (triangle pointing forward)
-        drone_shape = np.array([
-            [1.5, 0, 0],      # Nose
-            [-0.75, 0.75, 0], # Left wing
-            [-0.75, -0.75, 0], # Right wing
-            [1.5, 0, 0]       # Close shape
-        ]) * drone_size
-        
-        # Rotate by yaw
-        rotation = np.array([
-            [np.cos(yaw), -np.sin(yaw), 0],
-            [np.sin(yaw), np.cos(yaw), 0],
-            [0, 0, 1]
-        ])
-        
-        drone_rotated = drone_shape @ rotation.T
-        drone_rotated[:, 0] += drone_pos[0]
-        drone_rotated[:, 1] += drone_pos[1]
-        drone_rotated[:, 2] -= drone_pos[2]
-        
-        # Plot drone body
-        self.ax_3d.plot(drone_rotated[:, 0], drone_rotated[:, 1], drone_rotated[:, 2],
-                       'b-', linewidth=3, label='Drone')
-        
-        # Add drone marker
-        self.ax_3d.scatter([drone_pos[0]], [drone_pos[1]], [-drone_pos[2]],
-                          c=self.colors['drone'], s=100, marker='o', 
-                          edgecolors='darkblue', linewidth=2)
-        
-        # Draw heading arrow
-        arrow_length = 5.0
-        arrow_end = drone_pos[:2] + arrow_length * np.array([np.cos(yaw), np.sin(yaw)])
-        self.ax_3d.plot([drone_pos[0], arrow_end[0]], 
-                       [drone_pos[1], arrow_end[1]], 
-                       [-drone_pos[2], -drone_pos[2]],
-                       'b--', linewidth=2, alpha=0.5)
-        
-        # Draw simple camera FOV
-        fov_length = 10.0
-        fov_angle = np.radians(30)
-        
-        for angle_offset in [-fov_angle, fov_angle]:
-            fov_dir = yaw + angle_offset
-            fov_end = drone_pos[:2] + fov_length * np.array([np.cos(fov_dir), np.sin(fov_dir)])
-            self.ax_3d.plot([drone_pos[0], fov_end[0]], 
-                           [drone_pos[1], fov_end[1]], 
-                           [-drone_pos[2], -drone_pos[2]],
-                           color='yellow', linewidth=1, alpha=0.5)
-        
-        # Add yaw text
-        self.ax_3d.text(drone_pos[0], drone_pos[1], -drone_pos[2] + 3,
-                       f'Yaw: {np.degrees(yaw):.0f}°',
-                       fontsize=9, ha='center')
-        
-        # Plot target
+        shape = np.array([[1.5,0,0],[-0.75,0.75,0],[-0.75,-0.75,0],[1.5,0,0]]) * drone_size
+        R = np.array([[np.cos(yaw), -np.sin(yaw),0],[np.sin(yaw),np.cos(yaw),0],[0,0,1]])
+        pts = shape @ R.T
+        pts += [drone_pos[0], drone_pos[1], -drone_pos[2]]
+        self.ax_3d.plot(pts[:,0], pts[:,1], pts[:,2], '-', color=self.colors['drone'], linewidth=3)
+
+        # Heading arrow
+        arrow_len = 10.0
+        dx = arrow_len * np.cos(yaw)
+        dy = arrow_len * np.sin(yaw)
+        dz = 0.0
+        self.ax_3d.quiver(
+            drone_pos[0], drone_pos[1], -drone_pos[2],
+            dx, dy, dz,
+            color=self.colors['drone'], length=arrow_len,
+            normalize=True, arrow_length_ratio=0.3, linewidth=2
+        )
+
+        # Camera FOV
+        fov_l, fov_a = 10.0, np.radians(30)
+        for off in (-fov_a, fov_a):
+            ang = yaw + off
+            fe = drone_pos[:2] + fov_l * np.array([np.cos(ang), np.sin(ang)])
+            self.ax_3d.plot([drone_pos[0], fe[0]], [drone_pos[1], fe[1]], [-drone_pos[2]]*2, color='yellow', linewidth=1, alpha=0.5)
+
+        # Target
         self.ax_3d.scatter([target_pos[0]], [target_pos[1]], [-target_pos[2]],
-                          c=self.colors['target'], s=150, marker='*',
-                          edgecolors='darkred', linewidth=2, label='Target')
-        
-        # Plot prediction
-        if predictions and error_3d < 50 and len(predictions) > 0:
-            pred_array = np.array(predictions[:20])
-            self.ax_3d.plot(pred_array[:, 0], pred_array[:, 1], -pred_array[:, 2],
-                           color=self.colors['prediction'], linestyle=':',
-                           linewidth=2, alpha=0.6, label='Prediction')
-        
-        # Auto-scale
-        if len(self.drone_path) > 0:
-            all_x = [p[0] for p in self.drone_path + self.target_path]
-            all_y = [p[1] for p in self.drone_path + self.target_path]
-            all_z = [-p[2] for p in self.drone_path + self.target_path]
-            
-            margin = 15
-            self.ax_3d.set_xlim(min(all_x) - margin, max(all_x) + margin)
-            self.ax_3d.set_ylim(min(all_y) - margin, max(all_y) + margin)
-            self.ax_3d.set_zlim(0, max(max(all_z) + margin, 20))
-        
-        self.ax_3d.legend(loc='upper right', framealpha=0.9)
-        self.ax_3d.view_init(elev=25, azim=45)
-    
+                           c=self.colors['target'], s=150, marker='*',
+                           edgecolors='darkred', linewidth=2)
+
+        # Predictions
+        if predictions and error_3d<50:
+            pa = np.array(predictions[:20])
+            self.ax_3d.plot(pa[:,0], pa[:,1], -pa[:,2], color=self.colors['prediction'], linestyle=':', linewidth=2, alpha=0.6)
+
+        # Autoscale
+        all_x = [p[0] for p in self.drone_path+self.target_path]
+        all_y = [p[1] for p in self.drone_path+self.target_path]
+        all_z = [-p[2] for p in self.drone_path+self.target_path]
+        m=15
+        self.ax_3d.set_xlim(min(all_x)-m, max(all_x)+m)
+        self.ax_3d.set_ylim(min(all_y)-m, max(all_y)+m)
+        self.ax_3d.set_zlim(0, max(max(all_z)+m,20))
+
     def _update_topdown(self, drone_pos, target_pos, telemetry, uncertainty, error):
-        """Update top-down view."""
-        # Update positions
-        self.topdown_drone.set_data([drone_pos[1]], [drone_pos[0]])
-        self.topdown_target.set_data([target_pos[1]], [target_pos[0]])
-        
-        # Update trails
-        if len(self.drone_path) > 1:
-            drone_trail = np.array(self.drone_path[-50:])
-            target_trail = np.array(self.target_path[-50:])
-            self.topdown_drone_trail.set_data(drone_trail[:, 1], drone_trail[:, 0])
-            self.topdown_target_trail.set_data(target_trail[:, 1], target_trail[:, 0])
-        
-        # Update range rings
+        x, y = drone_pos[1], drone_pos[0]
+        yaw = telemetry.yaw_rad
+        l=5.0
+        u = l * np.sin(yaw)
+        v = l * np.cos(yaw)
+        self.topdown_drone_arrow.set_offsets([[x,y]])
+        self.topdown_drone_arrow.set_UVC([u],[v])
+
+        self.topdown_target.set_data([target_pos[1]],[target_pos[0]])
+        if len(self.drone_path)>1:
+            dt = np.array(self.drone_path[-50:]); tt = np.array(self.target_path[-50:])
+            self.topdown_drone_trail.set_data(dt[:,1], dt[:,0])
+            self.topdown_target_trail.set_data(tt[:,1], tt[:,0])
+
         for ring in self.range_rings:
-            ring.center = (drone_pos[1], drone_pos[0])
-        
-        # Update uncertainty ellipse
-        if uncertainty and uncertainty[1] > 2.0:
-            try:
-                cov_2d = uncertainty[0][:2, :2]
-                eigenvalues, eigenvectors = np.linalg.eigh(cov_2d)
-                angle = np.degrees(np.arctan2(eigenvectors[1, 0], eigenvectors[0, 0]))
-                width = 2 * np.sqrt(5.991 * eigenvalues[0])
-                height = 2 * np.sqrt(5.991 * eigenvalues[1])
-                
-                self.uncertainty_ellipse.set_center((target_pos[1], target_pos[0]))
-                self.uncertainty_ellipse.width = width
-                self.uncertainty_ellipse.height = height
-                self.uncertainty_ellipse.angle = angle
-                self.uncertainty_ellipse.set_visible(True)
-            except:
-                self.uncertainty_ellipse.set_visible(False)
+            ring.center = (x,y)
+
+        if uncertainty and uncertainty[1]>2.0:
+            cov=uncertainty[0][:2,:2]
+            vals, vecs = np.linalg.eigh(cov)
+            ang = np.degrees(np.arctan2(vecs[1,0], vecs[0,0]))
+            w=2*np.sqrt(5.991*vals[0]); h=2*np.sqrt(5.991*vals[1])
+            self.uncertainty_ellipse.set_center((target_pos[1], target_pos[0]))
+            self.uncertainty_ellipse.width, self.uncertainty_ellipse.height = w, h
+            self.uncertainty_ellipse.angle = ang
+            self.uncertainty_ellipse.set_visible(True)
         else:
             self.uncertainty_ellipse.set_visible(False)
-        
-        # Auto-scale
-        view_range = 75
-        self.ax_topdown.set_xlim(drone_pos[1] - view_range, drone_pos[1] + view_range)
-        self.ax_topdown.set_ylim(drone_pos[0] - view_range, drone_pos[0] + view_range)
-    
+
+        vr=75
+        self.ax_topdown.set_xlim(x-vr, x+vr)
+        self.ax_topdown.set_ylim(y-vr, y+vr)
+
     def _update_altitude(self):
-        """Update altitude plot."""
-        if len(self.times) > 1:
+        if len(self.times)>1:
             self.altitude_drone_line.set_data(self.times, self.drone_altitudes)
             self.altitude_target_line.set_data(self.times, self.target_altitudes)
-            
-            # Auto-scale
-            self.ax_altitude.set_xlim(0, max(self.times[-1], 10))
-            max_alt = max(max(self.drone_altitudes + self.target_altitudes, default=10), 10)
-            self.ax_altitude.set_ylim(0, max_alt * 1.2)
-    
+            self.ax_altitude.set_xlim(0, max(self.times[-1],10))
+            ma = max(max(self.drone_altitudes+self.target_altitudes, default=10),10)
+            self.ax_altitude.set_ylim(0, ma*1.2)
+
     def _update_status_display(self, telemetry, target_state, error, elapsed, 
                               mission_state, uncertainty, target_sources):
         """Update status panel with target source info."""
@@ -3184,9 +3664,9 @@ class MissionVisualizer:
         
         full_text = '\n'.join(status_lines)
         self.status_text.set_text(full_text)
-    
+        
+        
     def save_plot(self, filename: str):
-        """Save current plot to file."""
         if self.enabled:
             self.fig.savefig(filename, dpi=150, bbox_inches='tight')
             self.logger.info(f"Plot saved to {filename}")
@@ -3371,6 +3851,21 @@ class MissionExecutor:
             self.visualizer = MissionVisualizer(self.params, self.ekf)
         
         self.logger.info("All systems initialized successfully")
+        
+    def set_yaw_mode(self, mode: str):
+        """Change yaw control mode at runtime."""
+        try:
+            new_mode = YawControlMode(mode)
+            if self.guidance_strategy:
+                self.guidance_strategy.yaw_mode = new_mode
+                self.logger.info(f"Yaw mode changed to: {mode}")
+                
+                # Update parameters for consistency
+                self.params.control_yaw_mode = mode
+            return True
+        except ValueError:
+            self.logger.error(f"Invalid yaw mode: {mode}")
+            return False
     
     async def _configure_target_sources(self):
         """Configure target sources based on parameters."""
@@ -3494,6 +3989,7 @@ class MissionExecutor:
         """Arm and start offboard mode."""
         self.state_machine.transition_to(MissionState.ARMING, "Arming vehicle")
         
+        await self.drone.action.hold()
         await self.drone.action.arm()
         
         # Start offboard
@@ -3703,7 +4199,7 @@ class MissionExecutor:
                     self.visualizer.control_loop_times.append(time.time())
                     
                     if self.ekf:
-                        if self.params.viz_show_predictions:
+                        if self.params.viz_show_predictions and self.ekf.is_ready():
                             predictions = self.ekf.predict_trajectory(
                                 self.params.ekf_prediction_horizon
                             )
@@ -4155,4 +4651,53 @@ async def main():
         params = InterceptionParameters()
     
     # Apply command line overrides
-    if args.mode
+    if args.mode:
+        params.guidance_mode = args.mode
+        print(f"Guidance mode override: {args.mode}")
+    
+    if args.fusion:
+        params.target_fusion_strategy = args.fusion
+        print(f"Fusion strategy override: {args.fusion}")
+    
+    if args.connection:
+        params.system_connection = args.connection
+        print(f"Connection override: {args.connection}")
+    
+    if args.no_viz:
+        params.viz_enabled = False
+        print("Visualization disabled")
+    
+    if args.no_save:
+        params.save_mission_report = False
+        print("Report saving disabled")
+    
+    # Target source overrides
+    if args.enable_camera:
+        params.target_camera_enabled = True
+        print("Camera source enabled")
+    
+    if args.enable_tracker:
+        params.target_tracker_enabled = True
+        print("Tracker source enabled")
+    
+    if args.enable_gps:
+        params.target_gps_enabled = True
+        print("GPS source enabled")
+    
+    if args.disable_sim:
+        params.target_simulation_enabled = False
+        print("Simulation source disabled")
+    
+    # Create and run mission
+    executor = MissionExecutor(params)
+    await executor.run_mission()
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n\nMission aborted by user")
+    except Exception as e:
+        print(f"\n\nFatal error: {e}")
+        import traceback
+        traceback.print_exc()
