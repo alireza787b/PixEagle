@@ -81,7 +81,7 @@ Make sure your system meets the following requirements before installing PixEagl
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip tmux lsof curl
+sudo apt install -y python3 python3-venv python3-pip tmux lsof curl git
 ```
 
 ---
