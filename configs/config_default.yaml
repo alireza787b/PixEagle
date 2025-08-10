@@ -23,7 +23,9 @@ VideoSource:
   HTTP_URL: http://172.21.144.1:8100
   # CSI camera sensor ID if VIDEO_SOURCE_TYPE is 'CSI_CAMERA'
   CSI_SENSOR_ID: 0  # Typically 0 for the first camera
-
+  # hardware type for CSI Camera used by handler
+  EMBEDDED_ENVIRONMENT: rasspberry_pi  # Set to 'raspberry_pi' for Raspberry Pi, 'nvidia' for nvidia Jetson
+   
 # ==============================================================================
 # Camera Configuration
 # ==============================================================================

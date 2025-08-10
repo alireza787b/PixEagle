@@ -49,18 +49,47 @@ class VideoHandler:
         Returns:
             str: A GStreamer pipeline for CSI camera input.
         """
-        pipeline = (
-            "nvarguscamerasrc sensor-id=%d ! "
-            "video/x-raw(memory:NVMM), width=(int)%d, height=(int)%d, format=(string)NV12, framerate=(fraction)%d/1 ! "
-            "nvvidconv flip-method=%d ! "
-            "video/x-raw, format=(string)I420, width=(int)%d, height=(int)%d ! "
-            "videoconvert ! "
-            "video/x-raw, format=(string)BGR ! "
-            "videoscale ! "
-            "appsink"
-            % (sensor_id, capture_width, capture_height, framerate,
-               flip_method, capture_width, capture_height)
-        )
+        if Parameters.EMBEDDED_ENVIRONMENT == 'nvidia':
+            pipeline = (
+                "nvarguscamerasrc sensor-id=%d ! "
+                "video/x-raw(memory:NVMM), width=(int)%d, height=(int)%d, format=(string)NV12, framerate=(fraction)%d/1 ! "
+                "nvvidconv flip-method=%d ! "
+                "video/x-raw, format=(string)I420, width=(int)%d, height=(int)%d ! "
+                "videoconvert ! "
+                "video/x-raw, format=(string)BGR ! "
+                "videoscale ! "
+                "appsink"
+                % (sensor_id, capture_width, capture_height, framerate,
+                flip_method, capture_width, capture_height)
+            )
+        elif Parameters.EMBEDDED_ENVIRONMENT == 'raspberry_pi':
+            VIDEFLIP_MAP = {
+                0: "none",
+                1: "counterclockwise",
+                2: "rotate-180",
+                3: "clockwise",
+                4: "horizontal-flip",
+                5: "vertical-flip",
+                6: "upper-left-diagonal",
+                7: "upper-right-diagonal",
+            }
+            
+            flip_str = VIDEFLIP_MAP.get(flip_method, "none")
+
+            pipeline = (
+                "gst-inspect-1.0 libcamerasrc ! "
+                "video/x-raw,format=NV12,width=(int)%d,height=(int)%d,framerate=(fraction)%d/1 ! "
+                "queue ! "
+                "videoconvert ! "
+                "videoflip method=%s ! "
+                "video/x-raw,format=BGR ! "
+                "videoscale ! "
+                "appsink drop=1 max-buffers=1 sync=false"
+                % (capture_width, capture_height, framerate, flip_str)
+            )
+        else:
+            logger.error("Unsupported embedded environment for CSI camera.")
+            
         logger.debug(f"Constructed CSI GStreamer pipeline: {pipeline}")
         return pipeline
 
