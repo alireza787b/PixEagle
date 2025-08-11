@@ -1,7 +1,7 @@
 # Core MAVSDK for drone control
 aiogrpc
 grpcio
-mavsdk
+mavsdk  >= 3.9.0
 protobuf
 
 # OpenCV for computer vision and tracking
