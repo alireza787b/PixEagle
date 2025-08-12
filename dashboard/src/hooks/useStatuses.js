@@ -20,6 +20,7 @@ export const useTrackerStatus = (interval = 2000) => {
         }
       } catch (error) {
         console.error('Error fetching tracker data:', error);
+        console.log("URI Used is:", `${API_URL}/telemetry/tracker_data`);
         setIsTracking(false);
       }
     };

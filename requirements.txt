@@ -19,7 +19,7 @@ websockets
 wsproto
 
 # Libraries for numerical processing, data handling, and mathematical operations
-numpy == 1.24.3
+numpy == 1.26.4
 pandas
 scipy # Includes modules for optimization, linear algebra, integration, and more
 scikit-learn
