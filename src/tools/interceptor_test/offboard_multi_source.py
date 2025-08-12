@@ -102,10 +102,11 @@ warnings.filterwarnings('ignore', category=UserWarning)
 
 class YawControlMode(Enum):
     """Yaw control modes for different flight behaviors."""
-    TARGET_TRACKING = "target_tracking"  # Always face target (default)
-    COORDINATED = "coordinated"          # Face velocity vector
-    FIXED = "fixed"                      # Maintain fixed heading
-    MANUAL = "manual"                    # User-controlled yaw
+    TARGET_TRACKING = "target_tracking"    # Aircraft NOSE points at target
+    CAMERA_TRACKING = "camera_tracking"    # CAMERA points at target (NEW!)
+    COORDINATED = "coordinated"            # Face velocity vector
+    FIXED = "fixed"                        # Maintain fixed heading
+    MANUAL = "manual"                      # User-controlled yaw
 
 # =============================================================================
 # FILE: interceptor_params.py
@@ -145,13 +146,13 @@ class InterceptionParameters:
         self.safety_telemetry_timeout = 5.0          # seconds
         
         # ===== Legacy Target Definition (for backward compatibility) =====
-        self.target_initial_position = [-150.0, 300.0, -50.0]    # [N, E, D] meters
-        self.target_initial_velocity = [8.0, -2.0, -0.2]      # [vN, vE, vD] m/s
+        self.target_initial_position = [-150.0, -300.0, -50.0]    # [N, E, D] meters
+        self.target_initial_velocity = [-5.0, -2.0, -0.2]      # [vN, vE, vD] m/s
         self.target_initial_acceleration = [0.0, 0.0, 0]   # [aN, aE, aD] m/s² (vehicle only, no gravity!)
         
         # ===== Target Maneuvering =====
-        self.target_maneuver_amplitudes = [0.0, 0.0, 0.0]    # m/s² per axis
-        self.target_maneuver_frequencies = [0.0, 0.0, 0.0] # Hz per axis
+        self.target_maneuver_amplitudes = [3, 3, 0.0]    # m/s² per axis
+        self.target_maneuver_frequencies = [0.1, 0.05, 0.0] # Hz per axis
         self.target_maneuver_phases = None                   # radians (None = random)
         
         # ===== Multi-Source Target Configuration =====
@@ -186,17 +187,20 @@ class InterceptionParameters:
         self.target_camera_endpoint_legacy = self.target_camera_endpoint
         self.target_camera_api_key_legacy = self.target_camera_api_key
         
-        self.control_yaw_mode = "coordinated"      # Default mode target_tracking, coordinated
+        self.control_yaw_mode = "target_tracking"      # Default mode target_tracking, coordinated, camera_tracking
         self.control_coordinated_min_speed = 2.0       # Min speed for coordinated mode (m/s)
         self.control_coordinated_yaw_rate = 45.0       # Max yaw rate in coordinated mode (deg/s)
         self.control_fixed_yaw_angle = 0.0             # Fixed yaw angle (degrees)
         self.control_manual_yaw_angle = 0.0            # Manual yaw setpoint (degrees)
         self.control_yaw_smoothing = 0.8               # Yaw command smoothing (0-1)
+        self.control_camera_lead_compensation = True  # Apply lead when camera tracking
+        
+        
         
         # ===== Camera Configuration =====
         self.camera_mount_roll = 0.0                 # degrees
         self.camera_mount_pitch = 0.0             # degrees (negative = down)
-        self.camera_mount_yaw = 0.0                  # degrees
+        self.camera_mount_yaw = 0                  # degrees
         self.camera_has_gimbal = False               # gimbal support flag
         
         # ===== Guidance Mode Selection =====
@@ -217,7 +221,7 @@ class InterceptionParameters:
         self.control_yaw_deadband = 5.0              # degrees
         
         # ===== Velocity Limits =====
-        self.velocity_max_horizontal = 8.0           # m/s
+        self.velocity_max_horizontal = 12.0           # m/s
         self.velocity_max_vertical = 2.0             # m/s
         self.velocity_max_yaw_rate = 45.0            # deg/s (for body commands only)
         
@@ -228,7 +232,7 @@ class InterceptionParameters:
         
         # ===== PID Gains (unified for velocity control) =====
         self.pid_velocity_gains = {
-            'horizontal': [0.8, 0.1, 0.2],  # Increased P for faster response
+            'horizontal': [0.8, 0.5, 0.2],  # Increased P for faster response
             'vertical': [1.0, 0.15, 0.3],   # More aggressive vertical control
         }
         self.pid_integral_limit = 2.0  # Maximum integral term contribution
@@ -357,6 +361,10 @@ class InterceptionParameters:
         valid_fusion = ["priority", "weighted", "kalman"]
         if self.target_fusion_strategy not in valid_fusion:
             errors.append(f"Invalid fusion strategy: {self.target_fusion_strategy}")
+            
+        valid_yaw_modes = ["target_tracking", "camera_tracking", "coordinated", "fixed", "manual"]
+        if self.control_yaw_mode not in valid_yaw_modes:
+            errors.append(f"Invalid yaw mode: {self.control_yaw_mode}")
         
         return errors
 
@@ -2763,10 +2771,14 @@ class GuidanceStrategy(ABC):
         """
         Compute desired yaw angle based on selected mode.
         
+        TWO tracking modes:
+        - TARGET_TRACKING: Aircraft NOSE points at target (ignores camera mount angle)
+        - CAMERA_TRACKING: CAMERA points at target (accounts for camera mount angle)
+        
         Args:
             error_ned: Position error vector in NED
-            target_velocity: Target velocity in NED (for target tracking)
-            drone_velocity_ned: Drone velocity in NED (for coordinated mode)
+            target_velocity: Target velocity in NED (for lead)
+            drone_velocity_ned: Drone velocity in NED (for coordinated)
             current_yaw: Current yaw angle in degrees
             
         Returns:
@@ -2774,7 +2786,7 @@ class GuidanceStrategy(ABC):
         """
         
         if self.yaw_mode == YawControlMode.TARGET_TRACKING:
-            # Original behavior - face the target
+            # Mode 1: Aircraft NOSE points at target (original behavior)
             if target_velocity is not None and self.params.guidance_yaw_lead_time > 0:
                 future_error = error_ned + target_velocity * self.params.guidance_yaw_lead_time
                 bearing = math.degrees(math.atan2(future_error[1], future_error[0]))
@@ -2782,25 +2794,35 @@ class GuidanceStrategy(ABC):
                 bearing = math.degrees(math.atan2(error_ned[1], error_ned[0]))
             desired_yaw = normalize_angle(bearing)
             
+        elif self.yaw_mode == YawControlMode.CAMERA_TRACKING:
+            # Mode 2: CAMERA points at target (NEW!)
+            # Must account for camera mount angle
+            if target_velocity is not None and self.params.control_camera_lead_compensation:
+                future_error = error_ned + target_velocity * self.params.guidance_yaw_lead_time
+                target_bearing = math.degrees(math.atan2(future_error[1], future_error[0]))
+            else:
+                target_bearing = math.degrees(math.atan2(error_ned[1], error_ned[0]))
+            
+            # KEY EQUATION: Aircraft_Yaw = Target_Bearing - Camera_Mount_Yaw
+            # Example: Target at 90°, camera mounted at +30° → aircraft must yaw to 60°
+            desired_yaw = normalize_angle(target_bearing - self.params.camera_mount_yaw)
+            
         elif self.yaw_mode == YawControlMode.COORDINATED:
             # Face velocity vector
             if drone_velocity_ned is not None:
-                speed = np.linalg.norm(drone_velocity_ned[:2])  # Horizontal speed
+                speed = np.linalg.norm(drone_velocity_ned[:2])
                 
                 if speed >= self.params.control_coordinated_min_speed:
-                    # Calculate heading from velocity
                     heading = math.degrees(math.atan2(drone_velocity_ned[1], drone_velocity_ned[0]))
                     desired_yaw = normalize_angle(heading)
                 else:
-                    # Below minimum speed - maintain current yaw or face target
                     if self.last_commanded_yaw is not None:
                         desired_yaw = self.last_commanded_yaw
                     else:
-                        # Fall back to target tracking at low speed
+                        # Fallback to camera tracking
                         bearing = math.degrees(math.atan2(error_ned[1], error_ned[0]))
-                        desired_yaw = normalize_angle(bearing)
+                        desired_yaw = normalize_angle(bearing - self.params.camera_mount_yaw)
             else:
-                # No velocity info - maintain current
                 desired_yaw = current_yaw
                 
         elif self.yaw_mode == YawControlMode.FIXED:
@@ -2812,21 +2834,18 @@ class GuidanceStrategy(ABC):
             desired_yaw = normalize_angle(self.params.control_manual_yaw_angle)
             
         else:
-            # Default to target tracking
+            # Default to camera tracking
             bearing = math.degrees(math.atan2(error_ned[1], error_ned[0]))
-            desired_yaw = normalize_angle(bearing)
+            desired_yaw = normalize_angle(bearing - self.params.camera_mount_yaw)
         
         # Apply smoothing if enabled
         if self.params.control_yaw_smoothing > 0 and self.last_commanded_yaw is not None:
-            # Smooth yaw changes
             yaw_diff = normalize_angle(desired_yaw - self.last_commanded_yaw)
-            max_yaw_change = self.params.control_coordinated_yaw_rate * 0.1  # Assume 10Hz update
+            max_yaw_change = self.params.control_coordinated_yaw_rate * 0.1
             
             if abs(yaw_diff) > max_yaw_change:
-                # Limit yaw rate
                 yaw_diff = np.clip(yaw_diff, -max_yaw_change, max_yaw_change)
             
-            # Apply smoothing
             alpha = self.params.control_yaw_smoothing
             smoothed_yaw = self.last_commanded_yaw + yaw_diff * (1 - alpha)
             desired_yaw = normalize_angle(smoothed_yaw)
