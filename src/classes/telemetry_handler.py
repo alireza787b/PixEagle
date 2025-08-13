@@ -60,16 +60,38 @@ class TelemetryHandler:
 
     def get_follower_data(self):
         """
-        Get the latest follower telemetry data using the SetpointHandler.
+        Get the latest follower telemetry data using the enhanced unified interface.
         
         Returns:
             dict: The follower telemetry data.
         """
         if self.follower is not None:
-            telemetry = self.follower.get_follower_telemetry() if Parameters.ENABLE_FOLLOWER_TELEMETRY else {}
-            telemetry['following_active'] = self.app_controller.following_active
-            telemetry['profile_name'] = self.follower.follower.profile_name
-            return telemetry
+            try:
+                # Use the enhanced telemetry interface
+                telemetry = self.follower.get_follower_telemetry() if Parameters.ENABLE_FOLLOWER_TELEMETRY else {}
+                
+                # Add application-level information
+                telemetry['following_active'] = self.app_controller.following_active
+                
+                # Use the new unified interface to get profile name
+                if hasattr(self.follower, 'get_display_name'):
+                    telemetry['profile_name'] = self.follower.get_display_name()
+                elif hasattr(self.follower, 'follower') and hasattr(self.follower.follower, 'get_display_name'):
+                    telemetry['profile_name'] = self.follower.follower.get_display_name()
+                else:
+                    # Fallback for older interface
+                    telemetry['profile_name'] = getattr(self.follower, 'mode', 'Unknown')
+                
+                return telemetry
+                
+            except Exception as e:
+                logging.error(f"Error getting follower telemetry: {e}")
+                return {
+                    'error': str(e),
+                    'following_active': self.app_controller.following_active,
+                    'profile_name': 'Error',
+                    'timestamp': datetime.utcnow().isoformat()
+                }
         return {}
 
     def gather_telemetry_data(self):

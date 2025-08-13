@@ -1,6 +1,6 @@
 # src/classes/fastapi_handler.py
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +12,8 @@ from classes.parameters import Parameters
 import uvicorn
 from typing import Dict
 from classes.webrtc_manager import WebRTCManager  # Import the WebRTCManager
+from classes.setpoint_handler import SetpointHandler
+from classes.follower import FollowerFactory
 
 class BoundingBox(BaseModel):
     x: float
@@ -109,6 +111,13 @@ class FastAPIHandler:
         # Smart Tracking (new)
         self.app.post("/commands/toggle_smart_mode")(self.toggle_smart_mode)
         self.app.post("/commands/smart_click")(self.smart_click)
+
+
+        self.app.get("/api/follower/schema")(self.get_follower_schema)
+        self.app.get("/api/follower/profiles")(self.get_follower_profiles)
+        self.app.get("/api/follower/current-profile")(self.get_current_follower_profile)
+        self.app.get("/api/follower/configured-mode")(self.get_configured_follower_mode)  # New endpoint
+        self.app.post("/api/follower/switch-profile")(self.switch_follower_profile)
 
     async def start_tracking(self, bbox: BoundingBox):
         """
@@ -435,3 +444,223 @@ class FastAPIHandler:
             self.server.should_exit = True
             await self.server.shutdown()
             self.logger.info("Stopped FastAPI server")
+
+
+    async def get_follower_schema(self):
+        """
+        Endpoint to get the complete follower command schema.
+        
+        Returns:
+            dict: Complete schema including all fields and profiles.
+        """
+        try:
+            # Read the schema file directly
+            import yaml
+            with open('configs/follower_commands.yaml', 'r') as f:
+                schema = yaml.safe_load(f)
+            return JSONResponse(content=schema)
+        except Exception as e:
+            self.logger.error(f"Error getting follower schema: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_follower_profiles(self):
+        """
+        Endpoint to get available follower profiles with implementation status.
+        
+        Returns:
+            dict: Available profiles with detailed information.
+        """
+        try:
+            profiles = {}
+            available_modes = FollowerFactory.get_available_modes()
+            
+            for mode in available_modes:
+                profiles[mode] = FollowerFactory.get_follower_info(mode)
+                
+            return JSONResponse(content=profiles)
+        except Exception as e:
+            self.logger.error(f"Error getting follower profiles: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_current_follower_profile(self):
+        """
+        Endpoint to get current follower profile information.
+        Shows configured profile even when not actively engaged.
+        
+        Returns:
+            dict: Current profile details and status.
+        """
+        try:
+            # Check if follower is actively engaged
+            has_active_follower = (
+                hasattr(self.app_controller, 'follower') and 
+                self.app_controller.follower is not None and
+                self.app_controller.following_active
+            )
+            
+            # Get configured mode from Parameters
+            configured_mode = Parameters.FOLLOWER_MODE
+            
+            if has_active_follower:
+                # Return active follower info
+                follower = self.app_controller.follower
+                profile_info = {
+                    'status': 'engaged',
+                    'active': True,
+                    'mode': follower.mode,
+                    'display_name': follower.get_display_name(),
+                    'description': follower.get_description(),
+                    'control_type': follower.get_control_type(),
+                    'available_fields': follower.get_available_fields(),
+                    'current_field_values': follower.get_follower_telemetry().get('fields', {}),
+                    'validation_status': follower.validate_current_mode(),
+                    'configured_mode': configured_mode
+                }
+            else:
+                # Return configured but not engaged follower info
+                try:
+                    # Get schema info for the configured mode
+                    profile_config = SetpointHandler.get_profile_info(configured_mode)
+                    profile_info = {
+                        'status': 'configured',
+                        'active': False,
+                        'mode': configured_mode,
+                        'display_name': profile_config.get('display_name', configured_mode.replace('_', ' ').title()),
+                        'description': profile_config.get('description', 'Not engaged'),
+                        'control_type': profile_config.get('control_type', 'unknown'),
+                        'available_fields': profile_config.get('required_fields', []) + profile_config.get('optional_fields', []),
+                        'current_field_values': {},
+                        'validation_status': True,  # Assume valid if in schema
+                        'configured_mode': configured_mode,
+                        'message': 'Profile configured but not engaged. Start offboard mode to activate.'
+                    }
+                except Exception as e:
+                    self.logger.warning(f"Could not get schema info for configured mode '{configured_mode}': {e}")
+                    profile_info = {
+                        'status': 'unknown',
+                        'active': False,
+                        'mode': configured_mode,
+                        'display_name': configured_mode.replace('_', ' ').title(),
+                        'description': 'Unknown profile',
+                        'control_type': 'unknown',
+                        'available_fields': [],
+                        'current_field_values': {},
+                        'validation_status': False,
+                        'configured_mode': configured_mode,
+                        'error': f'Profile not found in schema: {configured_mode}'
+                    }
+            
+            return JSONResponse(content=profile_info)
+            
+        except Exception as e:
+            self.logger.error(f"Error getting current follower profile: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def switch_follower_profile(self, request: Request):
+        """
+        Endpoint to switch follower profile.
+        Updates configuration for future engagement or switches active follower.
+        
+        Args:
+            request: Should contain {'profile_name': 'new_profile_name'}
+            
+        Returns:
+            dict: Switch operation result.
+        """
+        try:
+            data = await request.json()
+            new_profile = data.get('profile_name')
+            
+            if not new_profile:
+                raise HTTPException(status_code=400, detail="profile_name is required")
+            
+            # Validate that the profile exists in schema
+            try:
+                available_profiles = SetpointHandler.get_available_profiles()
+                if new_profile not in available_profiles:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"Invalid profile '{new_profile}'. Available: {available_profiles}"
+                    )
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Schema validation failed: {e}")
+            
+            # Check if follower is actively engaged
+            has_active_follower = (
+                hasattr(self.app_controller, 'follower') and 
+                self.app_controller.follower is not None and
+                self.app_controller.following_active
+            )
+            
+            old_configured_mode = Parameters.FOLLOWER_MODE
+            
+            if has_active_follower:
+                # Switch the active follower
+                follower = self.app_controller.follower
+                success = follower.switch_mode(new_profile)
+                
+                if success:
+                    # Also update the configured mode
+                    Parameters.FOLLOWER_MODE = new_profile
+                    self.logger.info(f"Active follower switched: {old_configured_mode} → {new_profile}")
+                    
+                    return JSONResponse(content={
+                        'status': 'success',
+                        'action': 'active_switch',
+                        'old_profile': old_configured_mode,
+                        'new_profile': new_profile,
+                        'message': f'Active follower switched to {new_profile}'
+                    })
+                else:
+                    return JSONResponse(content={
+                        'status': 'error',
+                        'action': 'active_switch_failed',
+                        'message': f'Failed to switch active follower to {new_profile}'
+                    }, status_code=500)
+            else:
+                # Just update the configured mode (for future engagement)
+                Parameters.FOLLOWER_MODE = new_profile
+                self.logger.info(f"Configured follower mode updated: {old_configured_mode} → {new_profile}")
+                
+                return JSONResponse(content={
+                    'status': 'success',
+                    'action': 'config_update',
+                    'old_profile': old_configured_mode,
+                    'new_profile': new_profile,
+                    'message': f'Configured follower mode set to {new_profile}. Will activate when offboard mode starts.'
+                })
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error switching follower profile: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_configured_follower_mode(self):
+        """
+        Endpoint to get the currently configured follower mode from Parameters.
+        
+        Returns:
+            dict: Configured mode information.
+        """
+        try:
+            configured_mode = Parameters.FOLLOWER_MODE
+            
+            try:
+                profile_config = SetpointHandler.get_profile_info(configured_mode)
+                return JSONResponse(content={
+                    'configured_mode': configured_mode,
+                    'profile_info': profile_config,
+                    'status': 'valid'
+                })
+            except Exception as e:
+                return JSONResponse(content={
+                    'configured_mode': configured_mode,
+                    'profile_info': None,
+                    'status': 'invalid',
+                    'error': str(e)
+                })
+                
+        except Exception as e:
+            self.logger.error(f"Error getting configured follower mode: {e}")
+            raise HTTPException(status_code=500, detail=str(e))

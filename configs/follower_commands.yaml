@@ -1,0 +1,173 @@
+# ==============================================================================
+# Follower Command Schema - Unified Protocol Definition
+# ==============================================================================
+# This file defines all available command fields and follower profiles
+# for the Pixeagle drone control system. This schema replaces hardcoded
+# profile definitions and enables extensible follower modes.
+
+# Schema version for future compatibility
+schema_version: "1.0.0"
+
+# ==============================================================================
+# Command Field Definitions
+# ==============================================================================
+# All possible command fields that can be used by any follower mode
+command_fields:
+  # === Velocity Control Fields ===
+  vel_x:
+    type: float
+    default: 0.0
+    unit: "m/s"
+    description: "Body frame X velocity (forward/backward)"
+    limits:
+      min: -10.0
+      max: 10.0
+    
+  vel_y:
+    type: float
+    default: 0.0
+    unit: "m/s" 
+    description: "Body frame Y velocity (left/right)"
+    limits:
+      min: -10.0
+      max: 10.0
+    
+  vel_z:
+    type: float
+    default: 0.0
+    unit: "m/s"
+    description: "Body frame Z velocity (up/down)"
+    limits:
+      min: -5.0
+      max: 5.0
+    
+  yaw_rate:
+    type: float
+    default: 0.0
+    unit: "rad/s"
+    description: "Yaw rate (rotation around Z-axis)"
+    limits:
+      min: -1.57
+      max: 1.57
+  
+  # === Attitude Rate Control Fields ===
+  roll_rate:
+    type: float
+    default: 0.0
+    unit: "rad/s"
+    description: "Roll rate (rotation around X-axis)"
+    limits:
+      min: -3.14
+      max: 3.14
+  
+  pitch_rate:
+    type: float
+    default: 0.0
+    unit: "rad/s"
+    description: "Pitch rate (rotation around Y-axis)"
+    limits:
+      min: -3.14
+      max: 3.14
+  
+  thrust:
+    type: float
+    default: 0.5
+    unit: "normalized"
+    description: "Thrust command (0.0 to 1.0)"
+    limits:
+      min: 0.0
+      max: 1.0
+
+# ==============================================================================
+# Follower Profile Definitions
+# ==============================================================================
+# Each profile defines which fields are used by that follower mode
+follower_profiles:
+  
+  # Ground View Follower - Full velocity control for ground target tracking
+  ground_view:
+    display_name: "Ground View"
+    description: "Full velocity control for tracking ground targets"
+    control_type: "velocity_body"
+    required_fields: ["vel_x", "vel_y", "vel_z"]
+    optional_fields: []
+    ui_category: "velocity"
+    
+  # Constant Distance Follower - Enhanced velocity control with yaw
+  constant_distance:
+    display_name: "Constant Distance"
+    description: "Maintains constant distance while following target"
+    control_type: "velocity_body"
+    required_fields: ["vel_x", "vel_y", "vel_z", "yaw_rate"]
+    optional_fields: []
+    ui_category: "velocity"
+    
+  # Constant Position Follower - Limited movement, yaw and altitude only
+  constant_position:
+    display_name: "Constant Position"
+    description: "Maintains position, only yaw and altitude control"
+    control_type: "velocity_body"
+    required_fields: ["vel_z", "yaw_rate"]
+    optional_fields: []
+    ui_category: "velocity"
+    
+  # Chase Follower - Full attitude rate control for aggressive following
+  chase_follower:
+    display_name: "Chase Follower"
+    description: "Aggressive following using attitude rate control"
+    control_type: "attitude_rate"
+    required_fields: ["roll_rate", "pitch_rate", "yaw_rate", "thrust"]
+    optional_fields: []
+    ui_category: "attitude"
+
+# ==============================================================================
+# Control Type Definitions
+# ==============================================================================
+# Maps control types to their corresponding MAVSDK methods
+control_types:
+  velocity_body:
+    mavsdk_method: "set_velocity_body"
+    description: "Body frame velocity commands"
+    ui_display: "Velocity Control"
+    
+  attitude_rate:
+    mavsdk_method: "set_attitude_rate"  
+    description: "Attitude rate commands"
+    ui_display: "Attitude Rate Control"
+
+# ==============================================================================
+# UI Configuration
+# ==============================================================================
+# Configuration for dashboard auto-discovery and display
+ui_config:
+  field_display_order: ["vel_x", "vel_y", "vel_z", "yaw_rate", "roll_rate", "pitch_rate", "thrust"]
+  
+  field_groups:
+    velocity:
+      name: "Velocity Control"
+      fields: ["vel_x", "vel_y", "vel_z", "yaw_rate"]
+      color: "#2196F3"
+      
+    attitude:
+      name: "Attitude Rate Control"  
+      fields: ["roll_rate", "pitch_rate", "yaw_rate", "thrust"]
+      color: "#FF5722"
+  
+  profile_display_order: ["ground_view", "constant_distance", "constant_position", "chase_follower"]
+
+# ==============================================================================
+# Validation Rules
+# ==============================================================================
+# Additional validation rules beyond basic field limits
+validation_rules:
+  # Ensure attitude rate fields are only used with attitude control
+  attitude_rate_exclusive:
+    description: "Attitude rate fields can only be used with attitude_rate control type"
+    fields: ["roll_rate", "pitch_rate", "thrust"]
+    allowed_control_types: ["attitude_rate"]
+    
+  # Ensure velocity fields are not mixed with attitude rate inappropriately  
+  velocity_exclusive:
+    description: "Velocity fields should primarily be used with velocity_body control"
+    fields: ["vel_x", "vel_y", "vel_z"]
+    preferred_control_types: ["velocity_body"]
