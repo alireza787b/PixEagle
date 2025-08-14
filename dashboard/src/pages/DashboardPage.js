@@ -20,6 +20,8 @@ import BoundingBoxDrawer from '../components/BoundingBoxDrawer';
 import StatusIndicator from '../components/StatusIndicator';
 import FollowerStatusCard from '../components/FollowerStatusCard';
 import FollowerQuickControl from '../components/FollowerQuickControl';
+import StreamingStats from '../components/StreamingStats';
+
 
 import { videoFeed, endpoints } from '../services/apiEndpoints';
 import {
@@ -80,6 +82,8 @@ const SystemHealthCard = ({ trackerStatus, isFollowing, smartModeActive }) => {
     </Card>
   );
 };
+
+
 
 const QuickActionsCard = () => {
   return (
@@ -271,6 +275,9 @@ const DashboardPage = () => {
                   isFollowing={isFollowing}
                   smartModeActive={smartModeActive}
                 />
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <StreamingStats />
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
                 <FollowerQuickControl />

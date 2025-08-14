@@ -79,7 +79,12 @@ const LiveFeedPage = () => {
         </Box>
       ) : (
         <Box>
-          <WebRTCStream protocol={streamingProtocol} src={videoFeed} />
+        <WebRTCStream 
+          protocol={streamingProtocol} 
+          src={videoFeed}
+          showStats={true}          // Show FPS, bandwidth, latency
+          showQualityControl={true} // Show quality adjustment slider
+        />
         </Box>
       )}
     </Container>

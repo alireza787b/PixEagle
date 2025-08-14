@@ -4,7 +4,6 @@ import logging
 import threading
 import signal
 import cv2
-from uvicorn import Config, Server
 from classes.app_controller import AppController
 from classes.parameters import Parameters
 
@@ -33,15 +32,18 @@ class FlowController:
         """
         logging.debug("Initializing FastAPI server...")
         fastapi_handler = self.controller.api_handler
-        app = fastapi_handler.app
-
-        config = Config(app=app, host=Parameters.HTTP_STREAM_HOST, port=Parameters.HTTP_STREAM_PORT, log_level="info")
-        server = Server(config)
         
-        server_thread = threading.Thread(target=server.run)
+        # Start the FastAPI server using the async start method
+        def run_server():
+            asyncio.run(fastapi_handler.start(
+                host=Parameters.HTTP_STREAM_HOST, 
+                port=Parameters.HTTP_STREAM_PORT
+            ))
+        
+        server_thread = threading.Thread(target=run_server)
         server_thread.start()
         logging.debug("FastAPI server started on a separate thread.")
-        return server, server_thread
+        return None, server_thread  # Return None for server since we're using the handler's start method
 
     def main_loop(self):
         """
@@ -73,7 +75,9 @@ class FlowController:
 
         # Ensure proper shutdown
         loop.run_until_complete(self.controller.shutdown())
-        self.server.should_exit = True
+        # Stop the FastAPI server
+        if hasattr(self.controller.api_handler, 'stop'):
+            loop.run_until_complete(self.controller.api_handler.stop())
         self.server_thread.join()  # Wait for the FastAPI server thread to finish
         if Parameters.SHOW_VIDEO_WINDOW:
             cv2.destroyAllWindows()
@@ -90,4 +94,7 @@ class FlowController:
         """
         logging.info("Shutting down...")
         asyncio.run(self.controller.shutdown())
+        # Stop the FastAPI server
+        if hasattr(self.controller.api_handler, 'stop'):
+            asyncio.run(self.controller.api_handler.stop())
         self.controller.shutdown_flag = True
