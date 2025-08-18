@@ -54,6 +54,10 @@ from version 2.0 PixEagle relies more on MAVLink2REST and it is required. You ca
 ```bash
 bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
 ```
+For first-time use, either use `build_mavlink2rest` or download manually from **[Official Release Page](https://github.com/mavlink/mavlink2rest/releases/tag/t0.11.25)** the `mavlink2rest-x86_64-unknown-linux-musl` for WSL.
+```bash
+bash ~/PixEagle/src/tools/mavlink2rest/build_mavlink2rest.sh
+```
 #### **X-Plane Setup**
 - Start by opening **X-Plane** on your Windows system and loading a supported aircraft, such as the ehang184.
 - Ensure that the **[PX4XPlane](https://github.com/alireza787b/px4xplane)** plugin is installed. Navigate to the plugin menu within X-Plane to select the correct airframe configuration.
