@@ -1,11 +1,10 @@
 # src/classes/followers/body_velocity_chase_follower.py
 """
-Body Velocity Chase Follower Module
-===================================
+Body Velocity Chase Follower Module - Dual-Mode Lateral Guidance
+================================================================
 
 This module implements the BodyVelocityChaseFollower class for quadcopter target following
-using offboard body velocity control. It provides forward velocity ramping, PID-controlled
-lateral and vertical tracking, and comprehensive safety monitoring.
+using offboard body velocity control with dual-mode lateral guidance capabilities.
 
 Project Information:
 - Project Name: PixEagle  
@@ -15,12 +14,27 @@ Project Information:
 
 Key Features:
 - Body velocity offboard control (forward, right, down, yaw speed)
+- Dual-mode lateral guidance: Sideslip vs Coordinated Turn
 - Forward velocity ramping with configurable acceleration
 - PID-controlled lateral and vertical tracking
 - Altitude safety monitoring with RTL capability
 - Target loss handling with automatic ramp-down
 - Emergency stop functionality
 - Comprehensive telemetry and status reporting
+
+Lateral Guidance Modes:
+======================
+- **Sideslip Mode**: Direct lateral velocity control (v_right ≠ 0, yaw_rate = 0)
+  Best for: Precision hovering, close proximity operations, confined spaces
+  
+- **Coordinated Turn Mode**: Turn-to-track control (v_right = 0, yaw_rate ≠ 0)
+  Best for: Forward flight efficiency, natural behavior, wind resistance
+
+Configuration:
+=============
+- Static mode selection via LATERAL_GUIDANCE_MODE parameter
+- Auto-switching based on forward velocity threshold
+- Separate PID tuning for each mode (vel_body_right vs yawspeed_deg_s)
 """
 
 from classes.followers.base_follower import BaseFollower
@@ -37,27 +51,31 @@ logger = logging.getLogger(__name__)
 
 class BodyVelocityChaseFollower(BaseFollower):
     """
-    Advanced body velocity chase follower for quadcopter target following.
+    Advanced body velocity chase follower with dual-mode lateral guidance for quadcopter target following.
     
     This follower uses offboard body velocity commands (forward, right, down, yaw speed)
-    to achieve smooth target tracking with forward velocity ramping and safety monitoring.
+    to achieve smooth target tracking with forward velocity ramping, dual-mode lateral guidance,
+    and comprehensive safety monitoring.
     
     Control Strategy:
     ================
     - **Forward Velocity**: Ramped acceleration from 0 to max velocity
-    - **Right Velocity**: PID-controlled lateral tracking
-    - **Down Velocity**: PID-controlled vertical tracking  
-    - **Yaw Speed**: Zero (placeholder for future integration)
+    - **Lateral Guidance**: Dual-mode approach:
+      * Sideslip Mode: Direct lateral velocity (v_right ≠ 0, yaw_rate = 0)
+      * Coordinated Turn Mode: Turn-to-track (v_right = 0, yaw_rate ≠ 0)
+    - **Vertical Control**: PID-controlled down velocity for altitude tracking
     
     Features:
     =========
     - Forward velocity ramping with configurable acceleration rate
+    - Dual-mode lateral guidance with auto-switching capability
     - PID-controlled lateral and vertical tracking
     - Target loss detection with automatic velocity ramp-down
     - Altitude safety monitoring with RTL capability
     - Emergency stop functionality for critical situations
     - Velocity smoothing for stable control commands
     - Comprehensive telemetry and status reporting
+    - Dynamic mode switching based on flight conditions
     
     Safety Features:
     ===============
@@ -66,11 +84,12 @@ class BodyVelocityChaseFollower(BaseFollower):
     - Emergency velocity zeroing capability
     - Velocity command smoothing and limiting
     - Comprehensive error handling and recovery
+    - Mode-specific safety considerations
     """
     
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
-        Initializes the BodyVelocityChaseFollower with schema-aware offboard control.
+        Initializes the BodyVelocityChaseFollower with schema-aware dual-mode offboard control.
 
         Args:
             px4_controller: Instance of PX4Controller to control the drone.
@@ -104,33 +123,41 @@ class BodyVelocityChaseFollower(BaseFollower):
         self.last_altitude_check_time = time.time()
         self.altitude_violation_count = 0
         
-        # Initialize velocity smoothing
+        # Initialize velocity smoothing for all axes
         self.smoothed_right_velocity = 0.0
         self.smoothed_down_velocity = 0.0
+        self.smoothed_yaw_speed = 0.0
         
-        # Initialize PID controllers
+        # Initialize lateral guidance mode tracking
+        self.active_lateral_mode = None  # Will be set by PID initialization
+        
+        # Initialize PID controllers (includes mode determination)
         self._initialize_pid_controllers()
         
         # Update telemetry metadata
         self.update_telemetry_metadata('controller_type', 'velocity_body_offboard')
-        self.update_telemetry_metadata('control_strategy', 'body_velocity_chase')
+        self.update_telemetry_metadata('control_strategy', 'body_velocity_chase_dual_mode')
+        self.update_telemetry_metadata('lateral_guidance_modes', ['sideslip', 'coordinated_turn'])
+        self.update_telemetry_metadata('active_lateral_mode', self.active_lateral_mode)
         self.update_telemetry_metadata('safety_features', [
-            'altitude_monitoring', 'target_loss_handling', 'velocity_ramping', 'emergency_stop'
+            'altitude_monitoring', 'target_loss_handling', 'velocity_ramping', 'emergency_stop', 'dual_mode_guidance'
         ])
         self.update_telemetry_metadata('forward_ramping_enabled', True)
         self.update_telemetry_metadata('altitude_safety_enabled', Parameters.ALTITUDE_SAFETY_ENABLED)
         
-        logger.info(f"BodyVelocityChaseFollower initialized with offboard velocity control")
+        logger.info(f"BodyVelocityChaseFollower initialized with dual-mode offboard velocity control")
+        logger.info(f"Active lateral guidance mode: {self.active_lateral_mode}")
         logger.debug(f"Initial target coordinates: {initial_target_coords}")
         logger.debug(f"Max forward velocity: {self.target_forward_velocity:.1f} m/s")
 
     def _initialize_pid_controllers(self) -> None:
         """
-        Initializes PID controllers for lateral and vertical tracking.
+        Initializes PID controllers for lateral and vertical tracking with dual-mode support.
         
-        Creates two PID controllers:
-        - Right Velocity: Lateral target tracking
-        - Down Velocity: Vertical target tracking
+        Creates PID controllers based on configured guidance mode:
+        - Sideslip Mode: Right Velocity PID for direct lateral control
+        - Coordinated Turn Mode: Yaw Speed PID for turn-to-track control
+        - Always: Down Velocity PID for vertical tracking (if enabled)
         
         Note: Forward velocity is controlled by ramping logic, not PID.
         
@@ -140,13 +167,32 @@ class BodyVelocityChaseFollower(BaseFollower):
         try:
             setpoint_x, setpoint_y = self.initial_target_coords
             
-            # Right Velocity Controller - Lateral Control
-            self.pid_right = CustomPID(
-                *self._get_pid_gains('vel_body_right'),
-                setpoint=setpoint_x,
-                output_limits=(-Parameters.VELOCITY_LIMITS['vel_body_right'], 
-                              Parameters.VELOCITY_LIMITS['vel_body_right'])
-            )
+            # Initialize lateral guidance PIDs based on mode
+            self.pid_right = None
+            self.pid_yaw_speed = None
+            
+            # Determine active lateral guidance mode
+            self.active_lateral_mode = self._get_active_lateral_mode()
+            
+            if self.active_lateral_mode == 'sideslip':
+                # Sideslip Mode: Direct lateral velocity control
+                self.pid_right = CustomPID(
+                    *self._get_pid_gains('vel_body_right'),
+                    setpoint=setpoint_x,
+                    output_limits=(-Parameters.VELOCITY_LIMITS['vel_body_right'], 
+                                  Parameters.VELOCITY_LIMITS['vel_body_right'])
+                )
+                logger.debug(f"Sideslip mode PID initialized with gains {self._get_pid_gains('vel_body_right')}")
+                
+            elif self.active_lateral_mode == 'coordinated_turn':
+                # Coordinated Turn Mode: Yaw rate control
+                self.pid_yaw_speed = CustomPID(
+                    *self._get_pid_gains('yawspeed_deg_s'),
+                    setpoint=setpoint_x,
+                    output_limits=(-Parameters.VELOCITY_LIMITS['yawspeed_deg_s'], 
+                                  Parameters.VELOCITY_LIMITS['yawspeed_deg_s'])
+                )
+                logger.debug(f"Coordinated turn mode PID initialized with gains {self._get_pid_gains('yawspeed_deg_s')}")
             
             # Down Velocity Controller - Vertical Control (if enabled)
             self.pid_down = None
@@ -161,19 +207,96 @@ class BodyVelocityChaseFollower(BaseFollower):
             else:
                 logger.debug("Altitude control disabled - no down velocity PID controller created")
             
-            logger.info("PID controllers initialized successfully for BodyVelocityChaseFollower")
-            logger.debug(f"PID setpoints - Right: {setpoint_x}, Down: {setpoint_y if self.pid_down else 'N/A'}")
+            logger.info(f"PID controllers initialized for BodyVelocityChaseFollower - Mode: {self.active_lateral_mode}")
+            logger.debug(f"PID setpoints - Lateral: {setpoint_x}, Down: {setpoint_y if self.pid_down else 'N/A'}")
             
         except Exception as e:
             logger.error(f"Failed to initialize PID controllers: {e}")
             raise RuntimeError(f"PID controller initialization failed: {e}")
+
+    def _get_active_lateral_mode(self) -> str:
+        """
+        Determines the active lateral guidance mode based on configuration and flight state.
+        
+        Returns:
+            str: 'sideslip' or 'coordinated_turn'
+        """
+        try:
+            # Get configured mode
+            configured_mode = getattr(Parameters, 'LATERAL_GUIDANCE_MODE', 'coordinated_turn')
+            
+            # Check for auto-switching
+            if getattr(Parameters, 'ENABLE_AUTO_MODE_SWITCHING', False):
+                switch_velocity = getattr(Parameters, 'GUIDANCE_MODE_SWITCH_VELOCITY', 3.0)
+                
+                if self.current_forward_velocity >= switch_velocity:
+                    return 'coordinated_turn'  # High speed: use coordinated turns
+                else:
+                    return 'sideslip'  # Low speed: use sideslip
+            
+            # Use configured mode
+            return configured_mode
+            
+        except Exception as e:
+            logger.error(f"Error determining lateral mode: {e}")
+            return 'coordinated_turn'  # Safe default
+
+    def _switch_lateral_mode(self, new_mode: str) -> None:
+        """
+        Switches between lateral guidance modes dynamically.
+        
+        Args:
+            new_mode (str): New lateral guidance mode ('sideslip' or 'coordinated_turn')
+        """
+        try:
+            if new_mode == self.active_lateral_mode:
+                return  # No change needed
+            
+            logger.info(f"Switching lateral guidance mode: {self.active_lateral_mode} → {new_mode}")
+            
+            old_mode = self.active_lateral_mode
+            self.active_lateral_mode = new_mode
+            
+            setpoint_x, _ = self.initial_target_coords
+            
+            if new_mode == 'sideslip' and self.pid_right is None:
+                # Initialize sideslip PID controller
+                self.pid_right = CustomPID(
+                    *self._get_pid_gains('vel_body_right'),
+                    setpoint=setpoint_x,
+                    output_limits=(-Parameters.VELOCITY_LIMITS['vel_body_right'], 
+                                  Parameters.VELOCITY_LIMITS['vel_body_right'])
+                )
+                logger.debug("Sideslip PID controller initialized during mode switch")
+                
+            elif new_mode == 'coordinated_turn' and self.pid_yaw_speed is None:
+                # Initialize coordinated turn PID controller
+                self.pid_yaw_speed = CustomPID(
+                    *self._get_pid_gains('yawspeed_deg_s'),
+                    setpoint=setpoint_x,
+                    output_limits=(-Parameters.VELOCITY_LIMITS['yawspeed_deg_s'], 
+                                  Parameters.VELOCITY_LIMITS['yawspeed_deg_s'])
+                )
+                logger.debug("Coordinated turn PID controller initialized during mode switch")
+            
+            # Update telemetry
+            self.update_telemetry_metadata('lateral_mode_switch', {
+                'old_mode': old_mode,
+                'new_mode': new_mode,
+                'forward_velocity': self.current_forward_velocity,
+                'timestamp': datetime.utcnow().isoformat()
+            })
+            self.update_telemetry_metadata('active_lateral_mode', new_mode)
+            
+        except Exception as e:
+            logger.error(f"Error switching lateral mode to {new_mode}: {e}")
 
     def _get_pid_gains(self, axis: str) -> Tuple[float, float, float]:
         """
         Retrieves PID gains for the specified control axis.
 
         Args:
-            axis (str): Control axis name ('vel_body_right', 'vel_body_down').
+            axis (str): Control axis name ('vel_body_right', 'vel_body_down', 'yawspeed_deg_s').
 
         Returns:
             Tuple[float, float, float]: (P, I, D) gains for the specified axis.
@@ -191,17 +314,24 @@ class BodyVelocityChaseFollower(BaseFollower):
     def _update_pid_gains(self) -> None:
         """
         Updates all PID controller gains from current parameter configuration.
+        Handles both lateral guidance modes dynamically.
         
         This method should be called when parameters are updated during runtime
         to ensure controllers use the latest gain values.
         """
         try:
-            self.pid_right.tunings = self._get_pid_gains('vel_body_right')
+            # Update lateral guidance PIDs based on active mode
+            if self.pid_right is not None:
+                self.pid_right.tunings = self._get_pid_gains('vel_body_right')
+                
+            if self.pid_yaw_speed is not None:
+                self.pid_yaw_speed.tunings = self._get_pid_gains('yawspeed_deg_s')
             
+            # Update vertical PID
             if self.pid_down is not None:
                 self.pid_down.tunings = self._get_pid_gains('vel_body_down')
             
-            logger.debug("PID gains updated for BodyVelocityChaseFollower controllers")
+            logger.debug(f"PID gains updated for BodyVelocityChaseFollower - Mode: {self.active_lateral_mode}")
             
         except Exception as e:
             logger.error(f"Failed to update PID gains: {e}")
@@ -253,55 +383,102 @@ class BodyVelocityChaseFollower(BaseFollower):
             logger.error(f"Error updating forward velocity: {e}")
             return 0.0  # Safe fallback
 
-    def _calculate_tracking_velocities(self, target_coords: Tuple[float, float]) -> Tuple[float, float]:
+    def _calculate_tracking_commands(self, target_coords: Tuple[float, float]) -> Tuple[float, float, float]:
         """
-        Calculates right and down velocities for target tracking using PID controllers.
+        Calculates lateral, vertical, and yaw commands based on active guidance mode.
         
         Args:
             target_coords (Tuple[float, float]): Normalized target coordinates from vision system.
             
         Returns:
-            Tuple[float, float]: (right_velocity, down_velocity) in m/s.
+            Tuple[float, float, float]: (right_velocity, down_velocity, yaw_speed) commands.
         """
         try:
-            # Update PID gains (in case parameters changed)
+            # Update PID gains and check for mode changes
             self._update_pid_gains()
             
+            # Check if mode switching is needed
+            new_mode = self._get_active_lateral_mode()
+            if new_mode != self.active_lateral_mode:
+                self._switch_lateral_mode(new_mode)
+            
             # Calculate tracking errors
-            error_x = (self.pid_right.setpoint - target_coords[0])  # Horizontal error
+            error_x = (self.pid_right.setpoint if self.pid_right else 
+                      self.pid_yaw_speed.setpoint) - target_coords[0]  # Horizontal error
             error_y = (self.pid_down.setpoint - target_coords[1]) if self.pid_down else 0.0  # Vertical error
             
-            # Generate control velocities using PID controllers
-            right_velocity = self.pid_right(error_x)
+            # Initialize commands
+            right_velocity = 0.0
+            down_velocity = 0.0
+            yaw_speed = 0.0
+            
+            # Calculate lateral guidance commands based on active mode
+            if self.active_lateral_mode == 'sideslip':
+                # Sideslip Mode: Direct lateral velocity, no yaw
+                right_velocity = self.pid_right(error_x) if self.pid_right else 0.0
+                yaw_speed = 0.0
+                
+            elif self.active_lateral_mode == 'coordinated_turn':
+                # Coordinated Turn Mode: Yaw to track, no sideslip
+                right_velocity = 0.0
+                yaw_speed = self.pid_yaw_speed(error_x) if self.pid_yaw_speed else 0.0
+            
+            # Calculate vertical command (same for both modes)
             down_velocity = self.pid_down(error_y) if self.pid_down else 0.0
             
             # Apply velocity smoothing if enabled
             if Parameters.VELOCITY_SMOOTHING_ENABLED:
                 smoothing_factor = Parameters.SMOOTHING_FACTOR
+                
+                # Smooth right velocity (sideslip mode)
                 self.smoothed_right_velocity = (smoothing_factor * self.smoothed_right_velocity + 
                                                (1 - smoothing_factor) * right_velocity)
+                
+                # Smooth down velocity
                 self.smoothed_down_velocity = (smoothing_factor * self.smoothed_down_velocity + 
                                               (1 - smoothing_factor) * down_velocity)
+                
+                # Smooth yaw speed (coordinated turn mode)
+                self.smoothed_yaw_speed = (smoothing_factor * self.smoothed_yaw_speed + 
+                                          (1 - smoothing_factor) * yaw_speed)
+                
+                # Apply smoothed values
                 right_velocity = self.smoothed_right_velocity
                 down_velocity = self.smoothed_down_velocity
+                yaw_speed = self.smoothed_yaw_speed
             
             # Apply emergency limits based on tracking error magnitude
             max_error = Parameters.MAX_TRACKING_ERROR
             if abs(error_x) > max_error or abs(error_y) > max_error:
-                # Reduce velocities when tracking error is excessive
+                # Reduce commands when tracking error is excessive
                 reduction_factor = 0.5
                 right_velocity *= reduction_factor
                 down_velocity *= reduction_factor
-                logger.debug(f"Large tracking error detected, reducing velocities by {reduction_factor}")
+                yaw_speed *= reduction_factor
+                logger.debug(f"Large tracking error detected, reducing commands by {reduction_factor}")
             
-            logger.debug(f"Tracking velocities - Right: {right_velocity:.2f} m/s, "
-                        f"Down: {down_velocity:.2f} m/s, Errors: [{error_x:.2f}, {error_y:.2f}]")
+            logger.debug(f"Tracking commands ({self.active_lateral_mode}) - "
+                        f"Right: {right_velocity:.2f} m/s, Down: {down_velocity:.2f} m/s, "
+                        f"Yaw: {yaw_speed:.2f} deg/s, Errors: [{error_x:.2f}, {error_y:.2f}]")
             
-            return right_velocity, down_velocity
+            return right_velocity, down_velocity, yaw_speed
             
         except Exception as e:
-            logger.error(f"Error calculating tracking velocities: {e}")
-            return 0.0, 0.0  # Safe fallback
+            logger.error(f"Error calculating tracking commands: {e}")
+            return 0.0, 0.0, 0.0  # Safe fallback
+
+    def _calculate_tracking_velocities(self, target_coords: Tuple[float, float]) -> Tuple[float, float]:
+        """
+        Legacy method wrapper for backward compatibility.
+        
+        Args:
+            target_coords (Tuple[float, float]): Normalized target coordinates from vision system.
+            
+        Returns:
+            Tuple[float, float]: (right_velocity, down_velocity) - yaw_speed handled separately
+        """
+        right_velocity, down_velocity, _ = self._calculate_tracking_commands(target_coords)
+        return right_velocity, down_velocity
 
     def _handle_target_loss(self, target_coords: Tuple[float, float]) -> bool:
         """
@@ -423,12 +600,13 @@ class BodyVelocityChaseFollower(BaseFollower):
 
     def calculate_control_commands(self, target_coords: Tuple[float, float]) -> None:
         """
-        Calculates and sets body velocity control commands based on target coordinates.
+        Calculates and sets body velocity control commands with dual-mode lateral guidance.
         
-        This method implements the core body velocity chase logic:
+        This method implements the core body velocity chase logic with support for both
+        sideslip and coordinated turn lateral guidance modes:
         1. Handles target loss detection and recovery
         2. Updates forward velocity using ramping logic
-        3. Calculates lateral and vertical tracking velocities
+        3. Calculates lateral and vertical tracking commands with mode switching
         4. Applies safety checks and emergency stops
         5. Updates setpoint handler with commands
         
@@ -453,30 +631,33 @@ class BodyVelocityChaseFollower(BaseFollower):
             # Update forward velocity using ramping logic
             forward_velocity = self._update_forward_velocity(dt)
             
-            # Calculate tracking velocities (right and down)
-            right_velocity, down_velocity = self._calculate_tracking_velocities(tracking_coords)
+            # Calculate tracking commands (includes mode switching logic)
+            right_velocity, down_velocity, yaw_speed = self._calculate_tracking_commands(tracking_coords)
             
             # Apply emergency stop if active
             if self.emergency_stop_active:
                 forward_velocity = 0.0
                 right_velocity = 0.0
                 down_velocity = 0.0
-                logger.debug("Emergency stop active - all velocities set to zero")
+                yaw_speed = 0.0
+                logger.debug("Emergency stop active - all commands set to zero")
             
             # Update setpoint handler using schema-aware methods
             self.set_command_field('vel_body_fwd', forward_velocity)
             self.set_command_field('vel_body_right', right_velocity)
             self.set_command_field('vel_body_down', down_velocity)
-            self.set_command_field('yawspeed_deg_s', 0.0)  # Placeholder for future yaw integration
+            self.set_command_field('yawspeed_deg_s', yaw_speed)
             
             # Update telemetry metadata
             self.update_telemetry_metadata('last_target_coords', target_coords)
             self.update_telemetry_metadata('target_valid', target_valid)
             self.update_telemetry_metadata('current_forward_velocity', forward_velocity)
+            self.update_telemetry_metadata('active_lateral_mode', self.active_lateral_mode)
             self.update_telemetry_metadata('emergency_stop_active', self.emergency_stop_active)
             
-            logger.debug(f"Body velocity commands - Fwd: {forward_velocity:.2f}, "
-                        f"Right: {right_velocity:.2f}, Down: {down_velocity:.2f} m/s")
+            logger.debug(f"Body velocity commands ({self.active_lateral_mode}) - "
+                        f"Fwd: {forward_velocity:.2f}, Right: {right_velocity:.2f}, "
+                        f"Down: {down_velocity:.2f} m/s, Yaw: {yaw_speed:.2f} deg/s")
             
         except Exception as e:
             logger.error(f"Error calculating control commands: {e}")
@@ -488,7 +669,7 @@ class BodyVelocityChaseFollower(BaseFollower):
 
     def follow_target(self, target_coords: Tuple[float, float]) -> bool:
         """
-        Executes target following with body velocity chase control logic.
+        Executes target following with dual-mode body velocity chase control logic.
         
         This is the main entry point for body velocity chase following behavior. It performs
         safety checks, calculates control commands, and applies them via the setpoint handler.
@@ -519,10 +700,10 @@ class BodyVelocityChaseFollower(BaseFollower):
     
     def get_chase_status(self) -> Dict[str, Any]:
         """
-        Returns comprehensive body velocity chase follower status information.
+        Returns comprehensive body velocity chase follower status with dual-mode information.
         
         Returns:
-            Dict[str, Any]: Detailed status including velocities, safety status, and control state.
+            Dict[str, Any]: Detailed status including velocities, modes, safety status, and control state.
         """
         try:
             current_time = time.time()
@@ -533,6 +714,13 @@ class BodyVelocityChaseFollower(BaseFollower):
                 'target_forward_velocity': self.target_forward_velocity,
                 'smoothed_right_velocity': self.smoothed_right_velocity,
                 'smoothed_down_velocity': self.smoothed_down_velocity,
+                'smoothed_yaw_speed': self.smoothed_yaw_speed,
+                
+                # Lateral Guidance Mode State
+                'active_lateral_mode': self.active_lateral_mode,
+                'configured_lateral_mode': getattr(Parameters, 'LATERAL_GUIDANCE_MODE', 'coordinated_turn'),
+                'auto_mode_switching_enabled': getattr(Parameters, 'ENABLE_AUTO_MODE_SWITCHING', False),
+                'mode_switch_velocity': getattr(Parameters, 'GUIDANCE_MODE_SWITCH_VELOCITY', 3.0),
                 
                 # Target Tracking State
                 'target_lost': self.target_lost,
@@ -549,8 +737,9 @@ class BodyVelocityChaseFollower(BaseFollower):
                 
                 # PID States
                 'pid_states': {
-                    'right_setpoint': self.pid_right.setpoint,
+                    'right_setpoint': self.pid_right.setpoint if self.pid_right else None,
                     'down_setpoint': self.pid_down.setpoint if self.pid_down else None,
+                    'yaw_speed_setpoint': self.pid_yaw_speed.setpoint if hasattr(self, 'pid_yaw_speed') and self.pid_yaw_speed else None,
                 },
                 
                 # Configuration Status
@@ -569,25 +758,39 @@ class BodyVelocityChaseFollower(BaseFollower):
 
     def get_status_report(self) -> str:
         """
-        Generates a comprehensive human-readable status report for body velocity chase follower.
+        Generates a comprehensive human-readable status report with dual-mode information.
         
         Returns:
-            str: Formatted status report including all chase-specific information.
+            str: Formatted status report including all chase-specific and mode information.
         """
         try:
-            # Get base status from parent class
-            base_report = super().get_status_report()
+            # Get base status from parent class (if available)
+            try:
+                base_report = super().get_status_report()
+            except AttributeError:
+                base_report = ""
             
             # Add chase-specific status
             chase_status = self.get_chase_status()
             
             chase_report = f"\n{'='*60}\n"
-            chase_report += f"Body Velocity Chase Follower Status\n"
+            chase_report += f"Body Velocity Chase Follower Status (Dual-Mode)\n"
             chase_report += f"{'='*60}\n"
+            
+            # Velocity Status
             chase_report += f"Forward Velocity: {chase_status.get('current_forward_velocity', 0.0):.2f} m/s "
             chase_report += f"(target: {chase_status.get('target_forward_velocity', 0.0):.2f} m/s)\n"
             chase_report += f"Right Velocity: {chase_status.get('smoothed_right_velocity', 0.0):.2f} m/s\n"
             chase_report += f"Down Velocity: {chase_status.get('smoothed_down_velocity', 0.0):.2f} m/s\n"
+            chase_report += f"Yaw Speed: {chase_status.get('smoothed_yaw_speed', 0.0):.2f} deg/s\n"
+            
+            # Lateral Guidance Mode Status
+            chase_report += f"\nLateral Guidance Mode:\n"
+            chase_report += f"  Active Mode: {chase_status.get('active_lateral_mode', 'unknown').title()}\n"
+            chase_report += f"  Configured Mode: {chase_status.get('configured_lateral_mode', 'unknown').title()}\n"
+            chase_report += f"  Auto-Switching: {'✓' if chase_status.get('auto_mode_switching_enabled', False) else '✗'}\n"
+            if chase_status.get('auto_mode_switching_enabled', False):
+                chase_report += f"  Switch Velocity: {chase_status.get('mode_switch_velocity', 0.0):.1f} m/s\n"
             
             # Target status
             chase_report += f"\nTarget Status:\n"
@@ -616,7 +819,7 @@ class BodyVelocityChaseFollower(BaseFollower):
 
     def reset_chase_state(self) -> None:
         """
-        Resets chase-specific state variables to initial conditions.
+        Resets chase-specific state variables to initial conditions including mode state.
         
         Useful for reinitializing after mode switches or error recovery.
         """
@@ -625,6 +828,7 @@ class BodyVelocityChaseFollower(BaseFollower):
             self.current_forward_velocity = Parameters.INITIAL_FORWARD_VELOCITY
             self.smoothed_right_velocity = 0.0
             self.smoothed_down_velocity = 0.0
+            self.smoothed_yaw_speed = 0.0
             
             # Reset tracking state
             self.target_lost = False
@@ -638,15 +842,23 @@ class BodyVelocityChaseFollower(BaseFollower):
             self.last_ramp_update_time = time.time()
             self.last_altitude_check_time = time.time()
             
+            # Reset lateral guidance mode to configured default
+            self.active_lateral_mode = self._get_active_lateral_mode()
+            
             # Reset PID integrators to prevent windup
-            self.pid_right.reset()
-            if self.pid_down is not None:
+            if self.pid_right:
+                self.pid_right.reset()
+            if self.pid_down:
                 self.pid_down.reset()
+            if hasattr(self, 'pid_yaw_speed') and self.pid_yaw_speed:
+                self.pid_yaw_speed.reset()
             
             # Update telemetry
             self.update_telemetry_metadata('chase_state_reset', datetime.utcnow().isoformat())
+            self.update_telemetry_metadata('lateral_mode_reset', self.active_lateral_mode)
+            self.update_telemetry_metadata('active_lateral_mode', self.active_lateral_mode)
             
-            logger.info("Body velocity chase follower state reset to initial conditions")
+            logger.info(f"Body velocity chase follower state reset - Mode: {self.active_lateral_mode}")
             
         except Exception as e:
             logger.error(f"Error resetting chase state: {e}")
@@ -686,3 +898,54 @@ class BodyVelocityChaseFollower(BaseFollower):
             
         except Exception as e:
             logger.error(f"Error deactivating emergency stop: {e}")
+
+    # ==================== Mode-Specific Utility Methods ====================
+    
+    def get_lateral_mode_description(self, mode: str = None) -> str:
+        """
+        Returns a description of the specified lateral guidance mode.
+        
+        Args:
+            mode (str, optional): Mode to describe. If None, uses active mode.
+            
+        Returns:
+            str: Human-readable description of the mode.
+        """
+        mode = mode or self.active_lateral_mode
+        
+        descriptions = {
+            'sideslip': "Direct lateral velocity control (v_right ≠ 0, yaw_rate = 0). "
+                       "Best for precision hovering, close proximity operations, confined spaces.",
+            'coordinated_turn': "Turn-to-track control (v_right = 0, yaw_rate ≠ 0). "
+                               "Best for forward flight efficiency, natural behavior, wind resistance."
+        }
+        
+        return descriptions.get(mode, f"Unknown mode: {mode}")
+
+    def force_lateral_mode(self, mode: str) -> bool:
+        """
+        Forces a specific lateral guidance mode, overriding auto-switching.
+        
+        Args:
+            mode (str): Desired mode ('sideslip' or 'coordinated_turn').
+            
+        Returns:
+            bool: True if mode switch successful, False otherwise.
+        """
+        try:
+            if mode not in ['sideslip', 'coordinated_turn']:
+                logger.error(f"Invalid lateral mode: {mode}")
+                return False
+            
+            logger.info(f"Force switching to lateral mode: {mode}")
+            self._switch_lateral_mode(mode)
+            
+            # Update telemetry to indicate forced mode
+            self.update_telemetry_metadata('forced_lateral_mode', mode)
+            self.update_telemetry_metadata('mode_force_timestamp', datetime.utcnow().isoformat())
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error forcing lateral mode to {mode}: {e}")
+            return False

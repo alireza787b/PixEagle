@@ -301,8 +301,18 @@ BODY_VELOCITY_CHASE:
   ENABLE_ALTITUDE_CONTROL: true           # Enable down velocity control
   ENABLE_YAW_INTEGRATION: false           # Future: combine yaw with lateral
   
+  # === 🧭 LATERAL GUIDANCE MODES ===
+  # Two guidance strategies for lateral target tracking:
+  # - sideslip: Direct lateral velocity (v_right ≠ 0, yaw_rate = 0)
+  #   Best for: Precision hovering, close proximity, confined spaces
+  # - coordinated_turn: Turn-to-track (v_right = 0, yaw_rate ≠ 0) 
+  #   Best for: Forward flight efficiency, natural behavior, wind resistance
+  LATERAL_GUIDANCE_MODE: coordinated_turn     # sideslip | coordinated_turn
+  GUIDANCE_MODE_SWITCH_VELOCITY: 3.0          # m/s - auto-switch threshold
+  ENABLE_AUTO_MODE_SWITCHING: false          # Auto-switch based on forward velocity
+  
   # === 🛡️ ALTITUDE SAFETY (Body Velocity Chase Specific) ===
-  ALTITUDE_SAFETY_ENABLED: true          # Enable altitude monitoring
+  ALTITUDE_SAFETY_ENABLED: false          # Enable altitude monitoring  
   MIN_ALTITUDE_LIMIT: 10.0               # meters - trigger RTL below this
   MAX_ALTITUDE_LIMIT: 120.0              # meters - trigger RTL above this
   ALTITUDE_CHECK_INTERVAL: 1.0           # seconds - check frequency
@@ -509,7 +519,7 @@ PID:
     thrust: {p: 0.1, i: 3, d: 1}
     vel_body_right: {p: 3.0, i: 0.1, d: 0.4}
     vel_body_down: {p: 2.0, i: 0.05, d: 0.3}
-  
+    yawspeed_deg_s: {p: 1.5, i: 0.05, d: 0.2}  # Yaw rate (coordinated turn mode)
   # === Advanced PID Features ===
   PROPORTIONAL_ON_MEASUREMENT: false        # Avoid derivative kick
   ENABLE_ANTI_WINDUP: true                  # Prevent integral windup
