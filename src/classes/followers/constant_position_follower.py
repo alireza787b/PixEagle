@@ -293,8 +293,8 @@ class ConstantPositionFollower(BaseFollower):
             self._control_statistics['last_update_time'] = datetime.utcnow().isoformat()
             
             # Log command summary
-            logger.debug(f"Commands calculated - Vel_z: {vel_z_command:.3f} m/s, "
-                        f"Yaw_rate: {yaw_rate_command:.3f} rad/s")
+            # logger.debug(f"Commands calculated - Vel_z: {vel_z_command:.3f} m/s, "
+            #             f"Yaw_rate: {yaw_rate_command:.3f} rad/s")
                         
         except ValueError:
             raise  # Re-raise validation errors
@@ -337,7 +337,7 @@ class ConstantPositionFollower(BaseFollower):
             logger.error(f"Error calculating altitude command: {e}")
             return 0.0  # Safe default
     
-    async def follow_target(self, target_coords: Tuple[float, float]):
+    def follow_target(self, target_coords: Tuple[float, float]):
         """
         Executes target following by calculating and applying control commands.
         

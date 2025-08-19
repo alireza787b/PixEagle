@@ -77,15 +77,19 @@ class BaseFollower(ABC):
         pass
 
     @abstractmethod
-    async def follow_target(self, target_coords: Tuple[float, float]):
+    def follow_target(self, target_coords: Tuple[float, float]) -> bool:
         """
-        Asynchronously sends control commands to follow the target.
+        Synchronously calculates and applies control commands to follow the target.
 
         This method must be implemented by all concrete follower classes to define
-        their specific following behavior.
+        their specific following behavior. It should calculate and set commands 
+        but NOT send them directly (that's handled by the async control loop).
 
         Args:
             target_coords (Tuple[float, float]): The coordinates of the target to follow.
+            
+        Returns:
+            bool: True if successful, False otherwise.
             
         Raises:
             NotImplementedError: If not implemented by concrete class.
@@ -224,7 +228,7 @@ class BaseFollower(ABC):
                 logger.warning(f"Invalid target coordinate types: {target_coords}. Expected numeric values.")
                 return False
             
-            # Check reasonable bounds (normalized coordinates should be between -1 and 1)
+            # Check reasonable bounds (normalized coordinates should be between -2 and 2)
             if not all(-2.0 <= coord <= 2.0 for coord in [x, y]):
                 logger.warning(f"Target coordinates out of reasonable bounds: {target_coords}")
                 return False
@@ -296,96 +300,6 @@ class BaseFollower(ABC):
             logger.debug(f"Updated telemetry metadata: {key} = {value}")
         except Exception as e:
             logger.error(f"Error updating telemetry metadata: {e}")
-    
-    # ==================== Status and Debug Methods ====================
-    
-    def get_status_report(self) -> str:
-        """
-        Generates a comprehensive status report for debugging and monitoring.
-        
-        Returns:
-            str: Formatted status report.
-        """
-        try:
-            report = f"\n{'='*50}\n"
-            report += f"Follower Status Report: {self.get_display_name()}\n"
-            report += f"{'='*50}\n"
-            report += f"Profile: {self.profile_name}\n"
-            report += f"Control Type: {self.get_control_type()}\n"
-            report += f"Description: {self.get_description()}\n"
-            report += f"Available Fields: {', '.join(self.get_available_fields())}\n"
-            report += f"Validation Status: {'✓ Valid' if self.validate_profile_consistency() else '✗ Invalid'}\n"
-            
-            report += f"\nCurrent Command Values:\n"
-            for field, value in self.get_all_command_fields().items():
-                report += f"  {field}: {value:.3f}\n"
-            
-            report += f"\nTelemetry Metadata:\n"
-            for key, value in self._telemetry_metadata.items():
-                report += f"  {key}: {value}\n"
-            
-            report += f"{'='*50}\n"
-            
-            return report
-            
-        except Exception as e:
-            return f"Error generating status report: {e}"
-    
-    def log_status(self, level: str = 'info') -> None:
-        """
-        Logs the current status report at the specified level.
-        
-        Args:
-            level (str): Logging level ('debug', 'info', 'warning', 'error').
-        """
-        try:
-            report = self.get_status_report()
-            log_method = getattr(logger, level.lower(), logger.info)
-            log_method(report)
-        except Exception as e:
-            logger.error(f"Error logging status: {e}")
-    
-    # ==================== Utility Methods ====================
-    
-    def is_field_available(self, field_name: str) -> bool:
-        """
-        Checks if a specific field is available for this profile.
-        
-        Args:
-            field_name (str): Field name to check.
-            
-        Returns:
-            bool: True if field is available, False otherwise.
-        """
-        return field_name in self.get_available_fields()
-    
-    def get_required_fields(self) -> List[str]:
-        """
-        Returns the list of required fields for this profile.
-        
-        Returns:
-            List[str]: List of required field names.
-        """
-        try:
-            profile_config = self.setpoint_handler.profile_config
-            return profile_config.get('required_fields', [])
-        except Exception as e:
-            logger.error(f"Error getting required fields: {e}")
-            return []
-    
-    def get_optional_fields(self) -> List[str]:
-        """
-        Returns the list of optional fields for this profile.
-        
-        Returns:
-            List[str]: List of optional field names.
-        """
-        try:
-            profile_config = self.setpoint_handler.profile_config
-            return profile_config.get('optional_fields', [])
-        except Exception as e:
-            logger.error(f"Error getting optional fields: {e}")
-            return []
     
     # ==================== Backward Compatibility ====================
     

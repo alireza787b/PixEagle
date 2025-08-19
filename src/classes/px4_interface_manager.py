@@ -58,6 +58,36 @@ class PX4InterfaceManager:
             self.drone = System(mavsdk_server_address='localhost', port=50051)
         else:
             self.drone = System()
+            
+            
+    async def _safe_mavsdk_call(self, coro):
+        """
+        Safely execute MAVSDK coroutine calls with proper error handling.
+        
+        Args:
+            coro: Coroutine to execute safely
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            await coro
+            return True
+        except Exception as e:
+            # Check if it's the specific async loop error
+            if "attached to a different loop" in str(e):
+                logger.debug("Async loop conflict detected, retrying...")
+                # Try once more after a brief delay
+                try:
+                    await asyncio.sleep(0.001)  # 1ms delay
+                    await coro
+                    return True
+                except Exception as retry_error:
+                    logger.warning(f"MAVSDK call failed after retry: {retry_error}")
+                    return False
+            else:
+                logger.error(f"MAVSDK call error: {e}")
+                return False
 
     async def connect(self):
         """
@@ -164,7 +194,9 @@ class PX4InterfaceManager:
             
             # Send the velocity commands to the drone
             next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_rate)
-            await self.drone.offboard.set_velocity_body(next_setpoint)
+            await self._safe_mavsdk_call(
+                self.drone.offboard.set_velocity_body(next_setpoint)
+            )
 
         except OffboardError as e:
             logger.error(f"Failed to send offboard velocity command: {e}")
@@ -208,7 +240,50 @@ class PX4InterfaceManager:
             logger.error(f"An unexpected error occurred: {ex}")
 
 
+    async def send_velocity_body_offboard_commands(self):
+        """
+        Sends body velocity offboard commands for quadcopter control.
+        Uses the new body velocity field names (vel_body_fwd, vel_body_right, vel_body_down, yawspeed_deg_s).
+        This operation uses MAVSDK VelocityBodyYawspeed.
+        """
+        try:
+            if not hasattr(self, 'setpoint_handler') or self.setpoint_handler is None:
+                logger.error("Setpoint handler not initialized")
+                return
+                
+            # Verify this is the correct control type
+            if self.setpoint_handler.get_control_type() != 'velocity_body_offboard':
+                logger.warning(f"Attempting to send velocity_body_offboard commands but control type is: {self.setpoint_handler.get_control_type()}")
+                
+            setpoint = self.setpoint_handler.get_fields()
+            if not setpoint:
+                logger.error("No setpoint data available")
+                return
 
+            # Extract body velocity fields with safe defaults
+            vel_fwd = float(setpoint.get('vel_body_fwd', 0.0))      # Forward velocity
+            vel_right = float(setpoint.get('vel_body_right', 0.0))  # Right velocity  
+            vel_down = float(setpoint.get('vel_body_down', 0.0))    # Down velocity
+            yawspeed = float(setpoint.get('yawspeed_deg_s', 0.0))   # Yaw speed in deg/s
+
+            # Convert yaw speed from degrees/s to radians/s for MAVSDK
+            yawspeed_rad = math.radians(yawspeed)
+
+            logger.debug(f"Sending VELOCITY_BODY_OFFBOARD: Fwd={vel_fwd:.3f}, Right={vel_right:.3f}, Down={vel_down:.3f}, YawSpeed={yawspeed:.1f}°/s")
+            
+            # Send the velocity commands to the drone using MAVSDK VelocityBodyYawspeed
+            # Note: VelocityBodyYawspeed expects (forward, right, down, yawspeed_rad)
+            next_setpoint = VelocityBodyYawspeed(vel_fwd, vel_right, vel_down, yawspeed_rad)
+            await self._safe_mavsdk_call(
+                self.drone.offboard.set_velocity_body(next_setpoint)
+            )
+
+        except OffboardError as e:
+            logger.error(f"MAVSDK offboard velocity_body_offboard command failed: {e}")
+        except ValueError as e:
+            logger.error(f"Invalid setpoint values for velocity_body_offboard command: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error in send_velocity_body_offboard_commands: {e}")
 
 
     def convert_to_ned(self, vel_x, vel_y, yaw):
@@ -324,6 +399,8 @@ class PX4InterfaceManager:
                 await self.send_body_velocity_commands()
             elif control_type == 'attitude_rate':
                 await self.send_attitude_rate_commands()
+            elif control_type == 'velocity_body_offboard':
+                await self.send_velocity_body_offboard_commands()
             else:
                 logger.error(f"Unknown control type from schema: {control_type}")
                 return False
@@ -364,7 +441,9 @@ class PX4InterfaceManager:
             # Send the velocity commands to the drone
             from mavsdk.offboard import VelocityBodyYawspeed, OffboardError
             next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_rate)
-            await self.drone.offboard.set_velocity_body(next_setpoint)
+            await self._safe_mavsdk_call(
+                self.drone.offboard.set_velocity_body(next_setpoint)
+            )
 
         except OffboardError as e:
             logger.error(f"MAVSDK offboard velocity command failed: {e}")
@@ -435,6 +514,8 @@ class PX4InterfaceManager:
                 await self.send_body_velocity_commands()
             elif control_type == 'attitude_rate':
                 await self.send_attitude_rate_commands()
+            elif control_type == 'velocity_body_offboard':
+                await self.send_velocity_body_offboard_commands()
             else:
                 logger.error(f"Unknown control type from schema: {control_type}")
                 return

@@ -155,58 +155,56 @@ class SetpointHandler:
     
     def set_field(self, field_name: str, value: float):
         """
-        Sets the value of a specific field with validation.
-        
-        Args:
-            field_name (str): The name of the field to set.
-            value (float): The value to assign to the field.
-        
-        Raises:
-            ValueError: If the field name is not valid for the current profile,
-                       if the value is not numeric, or if the value exceeds limits.
+        Sets the value of a specific field with validation and clamping if enabled.
+        If the value is out of range and 'clamp' is true in the config, clamps to min/max.
+        If 'clamp' is false, raises ValueError.
         """
         # Check if field is valid for this profile
         if field_name not in self.fields:
             valid_fields = list(self.fields.keys())
             raise ValueError(f"Field '{field_name}' is not valid for profile '{self.profile_name}'. "
                            f"Valid fields: {valid_fields}")
-        
         # Validate value type
         try:
             numeric_value = float(value)
         except (ValueError, TypeError):
             raise ValueError(f"The value for {field_name} must be a numeric type (int or float), got {type(value)}")
-        
-        # Validate value limits
-        self._validate_field_limits(field_name, numeric_value)
-        
-        # Set the value
-        self.fields[field_name] = numeric_value
-        logger.debug(f"Setpoint updated: {field_name} = {numeric_value}")
+        # Validate and clamp value if needed
+        clamped_value = self._validate_field_limits(field_name, numeric_value)
+        self.fields[field_name] = clamped_value
+        logger.debug(f"Setpoint updated: {field_name} = {clamped_value}")
     
-    def _validate_field_limits(self, field_name: str, value: float):
+    def _validate_field_limits(self, field_name: str, value: float) -> float:
         """
-        Validates that the field value is within defined limits.
-        
-        Args:
-            field_name (str): The field name to validate.
-            value (float): The value to validate.
-            
-        Raises:
-            ValueError: If the value exceeds the defined limits.
+        Validates and clamps the field value according to limits and clamp config.
+        If clamp is enabled (default), clamps to min/max and logs a warning.
+        If clamp is disabled, raises ValueError if out of bounds.
+        Returns the (possibly clamped) value.
         """
         schema = SetpointHandler._schema_cache
         field_definitions = schema.get('command_fields', {})
-        
         if field_name in field_definitions:
             field_def = field_definitions[field_name]
             limits = field_def.get('limits', {})
-            
-            if 'min' in limits and value < limits['min']:
-                raise ValueError(f"Value {value} for field '{field_name}' is below minimum limit {limits['min']}")
-            
-            if 'max' in limits and value > limits['max']:
-                raise ValueError(f"Value {value} for field '{field_name}' is above maximum limit {limits['max']}")
+            clamp = field_def.get('clamp', True)  # Default to True if not specified
+            min_val = limits.get('min', None)
+            max_val = limits.get('max', None)
+            original_value = value
+            # Clamp logic
+            if min_val is not None and value < min_val:
+                if clamp:
+                    logger.warning(f"Value {value} for field '{field_name}' below min {min_val}; clamped to {min_val}.")
+                    value = min_val
+                else:
+                    raise ValueError(f"Value {value} for field '{field_name}' is below minimum limit {min_val}")
+            if max_val is not None and value > max_val:
+                if clamp:
+                    logger.warning(f"Value {value} for field '{field_name}' above max {max_val}; clamped to {max_val}.")
+                    value = max_val
+                else:
+                    raise ValueError(f"Value {value} for field '{field_name}' is above maximum limit {max_val}")
+            return value
+        return value
     
     def get_fields(self) -> Dict[str, float]:
         """

@@ -440,7 +440,7 @@ class ChaseFollower(BaseFollower):
             logger.error(f"Altitude safety check failed: {e}")
             return True  # Fail safe - allow operation if check fails
 
-    async def follow_target(self, target_coords: Tuple[float, float]) -> bool:
+    def follow_target(self, target_coords: Tuple[float, float]) -> bool:
         """
         Executes target following with chase control logic.
         

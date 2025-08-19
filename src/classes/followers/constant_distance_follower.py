@@ -366,7 +366,7 @@ class ConstantDistanceFollower(BaseFollower):
             self.reset_command_fields()
             raise RuntimeError(f"Control calculation failed: {e}")
     
-    async def follow_target(self, target_coords: Tuple[float, float]):
+    def follow_target(self, target_coords: Tuple[float, float]):
         """
         Execute target following behavior asynchronously.
         

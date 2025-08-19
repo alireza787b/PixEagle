@@ -678,7 +678,7 @@ class AppController:
 
     async def follow_target(self):
         """
-        Enhanced target following with unified command protocol.
+        Enhanced target following with proper async command dispatch.
         """
         if not (self.tracking_started and self.following_active):
             return False
@@ -706,12 +706,7 @@ class AppController:
                 logging.warning("No target coordinates available to follow.")
                 return False
             
-            # Validate target coordinates
-            if not self.follower.follower.validate_target_coordinates(target_coords):
-                logging.warning(f"Invalid target coordinates: {target_coords}")
-                return False
-            
-            # Send follower commands (this updates the setpoint handler)
+            # SYNCHRONOUS: Calculate and set commands (no await needed)
             try:
                 follow_result = self.follower.follow_target(target_coords)
                 if follow_result is False:
@@ -721,38 +716,21 @@ class AppController:
                 logging.error(f"Error in follower.follow_target: {e}")
                 return False
             
-            # Update PX4 interface setpoint reference
+            # ASYNCHRONOUS: Send the actual commands to PX4
             try:
-                if hasattr(self.px4_interface, 'update_setpoint_enhanced'):
-                    self.px4_interface.update_setpoint_enhanced()
+                control_type = self.follower.get_control_type()
+                if control_type == 'attitude_rate':
+                    await self.px4_interface.send_attitude_rate_commands()
+                elif control_type == 'velocity_body':
+                    await self.px4_interface.send_body_velocity_commands()
+                elif control_type == 'velocity_body_offboard':
+                    await self.px4_interface.send_velocity_body_offboard_commands()
                 else:
-                    self.px4_interface.update_setpoint()
-            except Exception as e:
-                logging.error(f"Error updating PX4 setpoint: {e}")
-            
-            # The SetpointSender thread automatically handles command dispatch
-            # based on the control type, so we don't need to manually send commands here.
-            # However, if setpoint sender is not running, we can send commands directly:
-            
-            if not (hasattr(self, 'setpoint_sender') and self.setpoint_sender and self.setpoint_sender.running):
-                logging.debug("SetpointSender not running, sending commands directly")
-                try:
-                    # Use unified command dispatch if available
-                    if hasattr(self.px4_interface, 'send_commands_unified'):
-                        await self.px4_interface.send_commands_unified()
-                    else:
-                        # Fallback to manual dispatch
-                        control_type = self.follower.get_control_type()
-                        if control_type == 'attitude_rate':
-                            await self.px4_interface.send_attitude_rate_commands()
-                        elif control_type == 'velocity_body':
-                            await self.px4_interface.send_body_velocity_commands()
-                        else:
-                            logging.warning(f"Unknown control type: {control_type}")
-                            return False
-                except Exception as e:
-                    logging.error(f"Error sending direct commands: {e}")
+                    logging.warning(f"Unknown control type: {control_type}")
                     return False
+            except Exception as e:
+                logging.error(f"Error sending commands to PX4: {e}")
+                return False
             
             return True
             

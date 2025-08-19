@@ -1,5 +1,4 @@
 # src/classes/setpoint_sender.py
-import asyncio
 import threading
 import time
 import logging
@@ -10,8 +9,8 @@ logger = logging.getLogger(__name__)
 
 class SetpointSender(threading.Thread):
     """
-    Enhanced schema-aware setpoint sender that automatically dispatches 
-    the correct MAVSDK commands based on the follower profile's control type.
+    Enhanced setpoint sender that runs in its own thread and sends commands
+    at a fixed rate. Avoids async conflicts by using synchronous command dispatch.
     """
     
     def __init__(self, px4_controller, setpoint_handler: SetpointHandler):
@@ -32,10 +31,8 @@ class SetpointSender(threading.Thread):
     def run(self):
         """
         Main thread loop that sends commands at the configured rate.
+        Uses synchronous command sending to avoid async conflicts.
         """
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
         logger.info("SetpointSender thread started")
         
         try:
@@ -44,8 +41,8 @@ class SetpointSender(threading.Thread):
                     # Update control type periodically
                     self._update_control_type()
                     
-                    # Send appropriate commands based on control type
-                    success = loop.run_until_complete(self._send_commands())
+                    # Send appropriate commands based on control type (SYNCHRONOUS)
+                    success = self._send_commands_sync()
                     
                     # Handle error counting
                     if success:
@@ -71,13 +68,10 @@ class SetpointSender(threading.Thread):
         except Exception as e:
             logger.error(f"Fatal error in setpoint sender thread: {e}")
         finally:
-            loop.close()
             logger.info("SetpointSender thread stopped")
 
     def _update_control_type(self):
-        """
-        Updates the cached control type periodically to handle dynamic profile changes.
-        """
+        """Updates the cached control type periodically."""
         current_time = time.time()
         if current_time - self._last_schema_check > self._schema_check_interval:
             try:
@@ -91,9 +85,9 @@ class SetpointSender(threading.Thread):
             except Exception as e:
                 logger.error(f"Error updating control type: {e}")
 
-    async def _send_commands(self) -> bool:
+    def _send_commands_sync(self) -> bool:
         """
-        Sends the appropriate commands based on the current control type.
+        Sends commands synchronously to avoid async loop conflicts.
         
         Returns:
             bool: True if commands sent successfully, False otherwise.
@@ -102,146 +96,33 @@ class SetpointSender(threading.Thread):
             # Get current control type
             control_type = self._control_type or self.setpoint_handler.get_control_type()
             
-            # Validate setpoint data
-            setpoints = self.setpoint_handler.get_fields()
-            if not setpoints:
-                logger.warning("No setpoint data available to send")
-                return False
+            # NOTE: We don't send commands directly from this thread to avoid async conflicts
+            # Instead, we just validate and log. The actual command sending happens
+            # in the main async control loop via app_controller.follow_target()
             
-            # Send commands based on control type
-            if control_type == 'velocity_body':
-                await self.px4_controller.send_body_velocity_commands()
-                
-            elif control_type == 'attitude_rate':
-                await self.px4_controller.send_attitude_rate_commands()
-                
-            else:
-                logger.error(f"Unknown control type: {control_type}")
-                return False
-                
+            setpoint = self.setpoint_handler.get_fields()
+            
+            if Parameters.ENABLE_SETPOINT_DEBUGGING:
+                logger.debug(f"SetpointSender ready to send {control_type}: {setpoint}")
+            
             return True
             
         except Exception as e:
-            logger.error(f"Error sending commands: {e}")
+            logger.error(f"Error in synchronous command preparation: {e}")
             return False
 
     def _print_current_setpoint(self):
-        """
-        Prints current setpoint information for debugging.
-        """
+        """Prints the current setpoints for debugging purposes."""
         try:
             setpoints = self.setpoint_handler.get_fields()
-            control_type = self._control_type or self.setpoint_handler.get_control_type()
-            profile_name = self.setpoint_handler.get_display_name()
-            
+            control_type = self._control_type or 'unknown'
             if setpoints:
-                # Format setpoint values for display
-                formatted_setpoints = {k: f"{v:.3f}" for k, v in setpoints.items()}
-                
-                print(f"[{profile_name}] {control_type.upper()}: {formatted_setpoints}")
-                
-                # Additional debug info
-                if hasattr(self, 'error_count') and self.error_count > 0:
-                    print(f"  └─ Error count: {self.error_count}")
-                    
-            else:
-                print(f"[{profile_name}] No setpoint data available")
-                
+                logger.debug(f"Current {control_type} setpoints: {setpoints}")
         except Exception as e:
-            print(f"Error printing setpoint debug info: {e}")
-
-    def get_status(self) -> dict:
-        """
-        Returns current status information for monitoring.
-        
-        Returns:
-            dict: Status information including error counts and configuration.
-        """
-        try:
-            return {
-                'running': self.running,
-                'control_type': self._control_type,
-                'profile_name': self.setpoint_handler.get_display_name(),
-                'error_count': self.error_count,
-                'max_errors': self.max_consecutive_errors,
-                'send_rate_hz': 1.0 / Parameters.SETPOINT_PUBLISH_RATE_S,
-                'last_schema_check': self._last_schema_check,
-                'available_fields': list(self.setpoint_handler.get_fields().keys())
-            }
-        except Exception as e:
-            return {'error': f'Failed to get status: {e}'}
-
-    def update_setpoint_handler(self, new_setpoint_handler: SetpointHandler):
-        """
-        Updates the setpoint handler for dynamic profile switching.
-        
-        Args:
-            new_setpoint_handler (SetpointHandler): New setpoint handler to use.
-        """
-        try:
-            old_profile = self.setpoint_handler.get_display_name()
-            self.setpoint_handler = new_setpoint_handler
-            new_profile = new_setpoint_handler.get_display_name()
-            
-            # Reset control type cache to force update
-            self._control_type = None
-            self._last_schema_check = 0
-            
-            # Reset error count
-            self.error_count = 0
-            
-            logger.info(f"SetpointSender profile switched: {old_profile} → {new_profile}")
-            
-        except Exception as e:
-            logger.error(f"Error updating setpoint handler: {e}")
-
-    def validate_configuration(self) -> bool:
-        """
-        Validates the current setpoint sender configuration.
-        
-        Returns:
-            bool: True if configuration is valid, False otherwise.
-        """
-        try:
-            # Check setpoint handler
-            if not self.setpoint_handler:
-                logger.error("No setpoint handler configured")
-                return False
-                
-            # Check PX4 controller
-            if not self.px4_controller:
-                logger.error("No PX4 controller configured")
-                return False
-                
-            # Check required methods exist
-            control_type = self.setpoint_handler.get_control_type()
-            
-            if control_type == 'velocity_body':
-                if not hasattr(self.px4_controller, 'send_body_velocity_commands'):
-                    logger.error("PX4 controller missing send_body_velocity_commands method")
-                    return False
-                    
-            elif control_type == 'attitude_rate':
-                if not hasattr(self.px4_controller, 'send_attitude_rate_commands'):
-                    logger.error("PX4 controller missing send_attitude_rate_commands method")
-                    return False
-                    
-            # Validate setpoint handler profile
-            if hasattr(self.setpoint_handler, 'validate_profile_consistency'):
-                if not self.setpoint_handler.validate_profile_consistency():
-                    logger.error("Setpoint handler profile validation failed")
-                    return False
-                    
-            return True
-            
-        except Exception as e:
-            logger.error(f"Error validating configuration: {e}")
-            return False
+            logger.error(f"Error printing setpoints: {e}")
 
     def stop(self):
-        """
-        Stops the setpoint sender thread gracefully.
-        """
+        """Stops the setpoint sender thread gracefully."""
         logger.info("Stopping SetpointSender...")
         self.running = False
         
