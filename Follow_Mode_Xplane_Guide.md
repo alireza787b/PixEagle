@@ -23,7 +23,7 @@ Watch the latest video showcasing PixEagle v2.0, demonstrating advanced features
 
 ## Configuration Steps
 (If you use the px4xplane command directly (px4xplane version 2+), you won't need to run the mavlink-router command and settings)
-### Step 1: MAVLink Router Configuration on WSL
+### Step 1: MAVLink Router Configuration on WSL (if not using px4xplane 2+)
 Route MAVLink messages between your SITL environment on Linux and your development environment on Windows: (for MAVSDK, QGC and MAVLink2Rest)
 
 ```bash
@@ -37,7 +37,7 @@ Manually run MAVSDK Server to interface with the MAVLink stream:
 .\mavsdk_server_bin.exe
 ```
 #### Step 3: Setting System Parameters
-Modify the parameters in the `parameters.py` file within the `src` folder:
+Modify the parameters (configs) in the `configs.yaml` file within the `configs` folder:
 
 ```python
 SYSTEM_ADDRESS = "udp://172.21.148.30:14540"  # Modify this with your own WSL IP if different.
