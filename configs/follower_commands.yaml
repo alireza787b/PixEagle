@@ -1,0 +1,255 @@
+# ==============================================================================
+# Follower Command Schema - Unified Protocol Definition
+# ==============================================================================
+# This file defines all available command fields and follower profiles
+# for the Pixeagle drone control system. This schema replaces hardcoded
+# profile definitions and enables extensible follower modes.
+
+# Schema version for future compatibility
+schema_version: "1.0.0"
+
+# ==============================================================================
+# Command Field Definitions
+# ==============================================================================
+# All possible command fields that can be used by any follower mode
+command_fields:
+  # === Velocity Control Fields ===
+  vel_x:
+    type: float
+    default: 0.0
+    unit: "m/s"
+    description: "Body frame X velocity (forward/backward)"
+    limits:
+      min: -10.0
+      max: 10.0
+    clamp: true  # Clamp values to min/max if out of range (recommended)
+    
+  vel_y:
+    type: float
+    default: 0.0
+    unit: "m/s" 
+    description: "Body frame Y velocity (left/right)"
+    limits:
+      min: -10.0
+      max: 10.0
+    clamp: true
+    
+  vel_z:
+    type: float
+    default: 0.0
+    unit: "m/s"
+    description: "Body frame Z velocity (up/down)"
+    limits:
+      min: -5.0
+      max: 5.0
+    clamp: true
+    
+  yaw_rate:
+    type: float
+    default: 0.0
+    unit: "rad/s"
+    description: "Yaw rate (rotation around Z-axis)"
+    limits:
+      min: -1.57
+      max: 1.57
+    clamp: true
+
+  # === Body Velocity Fields for Quadcopter Offboard Control ===
+  vel_body_fwd:
+    type: float
+    default: 0.0
+    unit: "m/s"
+    description: "Body frame forward velocity (positive = forward)"
+    limits:
+      min: -15.0
+      max: 15.0
+    clamp: true
+
+  vel_body_right:
+    type: float
+    default: 0.0
+    unit: "m/s"
+    description: "Body frame right velocity (positive = right)"
+    limits:
+      min: -8.0
+      max: 8.0
+    clamp: true
+
+  vel_body_down:
+    type: float
+    default: 0.0
+    unit: "m/s"
+    description: "Body frame down velocity (positive = down)"
+    limits:
+      min: -5.0
+      max: 5.0
+    clamp: true
+
+  yawspeed_deg_s:
+    type: float
+    default: 0.0
+    unit: "deg/s"
+    description: "Yaw angular rate in degrees/second (positive = clockwise)"
+    limits:
+      min: -180.0
+      max: 180.0
+    clamp: true
+  
+  # === Attitude Rate Control Fields ===
+  roll_rate:
+    type: float
+    default: 0.0
+    unit: "rad/s"
+    description: "Roll rate (rotation around X-axis)"
+    limits:
+      min: -3.14
+      max: 3.14
+    clamp: true
+  
+  pitch_rate:
+    type: float
+    default: 0.0
+    unit: "rad/s"
+    description: "Pitch rate (rotation around Y-axis)"
+    limits:
+      min: -3.14
+      max: 3.14
+    clamp: true
+  
+  thrust:
+    type: float
+    default: 0.5
+    unit: "normalized"
+    description: "Thrust command (0.0 to 1.0)"
+    limits:
+      min: 0.0
+      max: 1.0
+    clamp: true
+
+# ==============================================================================
+# Follower Profile Definitions
+# ==============================================================================
+# CLAMPING BEHAVIOR:
+# Each field can specify 'clamp: true' to enable clamping to min/max limits.
+# If 'clamp' is omitted, clamping defaults to true for safety.
+# If 'clamp: false', out-of-range values will raise an error.
+# This prevents silent zeroing and ensures predictable control.
+#
+# Example:
+#   clamp: true   # Clamp values to min/max if out of range (recommended)
+#   clamp: false  # Raise error if out of range
+# Each profile defines which fields are used by that follower mode
+follower_profiles:
+  
+  # Ground View Follower - Full velocity control for ground target tracking
+  ground_view:
+    display_name: "Ground View"
+    description: "Full velocity control for tracking ground targets"
+    control_type: "velocity_body"
+    required_fields: ["vel_x", "vel_y", "vel_z"]
+    optional_fields: []
+    ui_category: "velocity"
+    
+  # Constant Distance Follower - Enhanced velocity control with yaw
+  constant_distance:
+    display_name: "Constant Distance"
+    description: "Maintains constant distance while following target"
+    control_type: "velocity_body"
+    required_fields: ["vel_x", "vel_y", "vel_z", "yaw_rate"]
+    optional_fields: []
+    ui_category: "velocity"
+    
+  # Constant Position Follower - Limited movement, yaw and altitude only
+  constant_position:
+    display_name: "Constant Position"
+    description: "Maintains position, only yaw and altitude control"
+    control_type: "velocity_body"
+    required_fields: ["vel_z", "yaw_rate"]
+    optional_fields: []
+    ui_category: "velocity"
+    
+  # Chase Follower - Full attitude rate control for aggressive following
+  chase_follower:
+    display_name: "Chase Follower"
+    description: "Aggressive following using attitude rate control"
+    control_type: "attitude_rate"
+    required_fields: ["roll_rate", "pitch_rate", "yaw_rate", "thrust"]
+    optional_fields: []
+    ui_category: "attitude"
+
+  # Body Velocity Chase Follower - Quadcopter offboard velocity control
+  body_velocity_chase:
+    display_name: "Body Velocity Chase"
+    description: "Quadcopter chase using body velocity with forward ramp-up"
+    control_type: "velocity_body_offboard"
+    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down"]
+    optional_fields: ["yawspeed_deg_s"]
+    ui_category: "velocity"
+
+# ==============================================================================
+# Control Type Definitions
+# ==============================================================================
+# Maps control types to their corresponding MAVSDK methods
+control_types:
+  velocity_body:
+    mavsdk_method: "set_velocity_body"
+    description: "Body frame velocity commands"
+    ui_display: "Velocity Control"
+    
+  attitude_rate:
+    mavsdk_method: "set_attitude_rate"  
+    description: "Attitude rate commands"
+    ui_display: "Attitude Rate Control"
+
+  velocity_body_offboard:
+    mavsdk_method: "set_velocity_body_offboard"
+    description: "Offboard body velocity commands for quadcopters"
+    ui_display: "Body Velocity Offboard"
+
+# ==============================================================================
+# UI Configuration
+# ==============================================================================
+# Configuration for dashboard auto-discovery and display
+ui_config:
+  field_display_order: ["vel_x", "vel_y", "vel_z", "yaw_rate", "vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s", "roll_rate", "pitch_rate", "thrust"]
+  
+  field_groups:
+    velocity:
+      name: "Velocity Control"
+      fields: ["vel_x", "vel_y", "vel_z", "yaw_rate"]
+      color: "#2196F3"
+
+    body_velocity:
+      name: "Body Velocity Offboard"
+      fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
+      color: "#4CAF50"
+      
+    attitude:
+      name: "Attitude Rate Control"  
+      fields: ["roll_rate", "pitch_rate", "yaw_rate", "thrust"]
+      color: "#FF5722"
+  
+  profile_display_order: ["ground_view", "constant_distance", "constant_position", "chase_follower", "body_velocity_chase"]
+
+# ==============================================================================
+# Validation Rules
+# ==============================================================================
+# Additional validation rules beyond basic field limits
+validation_rules:
+  # Ensure attitude rate fields are only used with attitude control
+  attitude_rate_exclusive:
+    description: "Attitude rate fields can only be used with attitude_rate control type"
+    fields: ["roll_rate", "pitch_rate", "thrust"]
+    allowed_control_types: ["attitude_rate"]
+    
+  # Ensure velocity fields are not mixed with attitude rate inappropriately  
+  velocity_exclusive:
+    description: "Velocity fields should primarily be used with velocity_body control"
+    fields: ["vel_x", "vel_y", "vel_z"]
+    preferred_control_types: ["velocity_body"]
+
+  # Ensure body velocity fields are used with appropriate control type
+  body_velocity_exclusive:
+    description: "Body velocity fields should be used with velocity_body_offboard control type"
+    fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
+    allowed_control_types: ["velocity_body_offboard"]

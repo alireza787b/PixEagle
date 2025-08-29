@@ -494,62 +494,199 @@ class AppController:
 
     async def connect_px4(self) -> Dict[str, any]:
         """
-        Connects to the PX4 when following mode is activated.
+        Enhanced PX4 connection with unified command protocol support.
         """
         result = {"steps": [], "errors": []}
         if not self.following_active:
             try:
-                logging.debug("Activating Follow Mode to PX4!")
+                logging.info("Activating Follow Mode to PX4!")
+                
+                # Connect to PX4
                 await self.px4_interface.connect()
-                logging.debug("Connected to PX4 Drone!")
-
+                logging.info("Connected to PX4 Drone!")
+                
+                # Determine initial target coordinates
                 initial_target_coords = (
                     tuple(self.tracker.normalized_center)
                     if Parameters.TARGET_POSITION_MODE == 'initial'
                     else tuple(Parameters.DESIRE_AIM)
                 )
-                self.follower = Follower(self.px4_interface, initial_target_coords)
-                self.telemetry_handler.follower = self.follower
-                await self.px4_interface.set_hover_throttle()
-                await self.px4_interface.send_initial_setpoint()
-                await self.px4_interface.start_offboard_mode()
+                
+                # Create follower using enhanced factory
+                try:
+                    self.follower = Follower(self.px4_interface, initial_target_coords)
+                    
+                    # Update telemetry handler
+                    self.telemetry_handler.follower = self.follower
+                    
+                    # Log follower information
+                    logging.info(f"Follower initialized: {self.follower.get_display_name()}")
+                    logging.info(f"Control type: {self.follower.get_control_type()}")
+                    logging.info(f"Available fields: {self.follower.get_available_fields()}")
+                    
+                    # Validate follower configuration
+                    if not self.follower.validate_current_mode():
+                        logging.warning("Follower mode validation failed, but continuing...")
+                    
+                    result["steps"].append(f"Follower created: {self.follower.get_display_name()}")
+                    
+                except Exception as e:
+                    error_msg = f"Failed to create follower: {e}"
+                    logging.error(error_msg)
+                    result["errors"].append(error_msg)
+                    raise
+                
+                # Set hover throttle for attitude rate control modes
+                try:
+                    await self.px4_interface.set_hover_throttle()
+                    result["steps"].append("Hover throttle configured")
+                except Exception as e:
+                    logging.warning(f"Failed to set hover throttle: {e}")
+                    # Continue anyway, not critical for velocity modes
+                
+                # Send initial setpoint using schema-aware method
+                try:
+                    await self.px4_interface.send_initial_setpoint()
+                    result["steps"].append("Initial setpoint sent")
+                except Exception as e:
+                    error_msg = f"Failed to send initial setpoint: {e}"
+                    logging.error(error_msg)
+                    result["errors"].append(error_msg)
+                    raise
+                
+                # Start offboard mode
+                try:
+                    await self.px4_interface.start_offboard_mode()
+                    result["steps"].append("Offboard mode started")
+                except Exception as e:
+                    error_msg = f"Failed to start offboard mode: {e}"
+                    logging.error(error_msg)
+                    result["errors"].append(error_msg)
+                    raise
+                
+                # Create and start enhanced setpoint sender
+                try:
+                    from classes.setpoint_sender import SetpointSender
+                    self.setpoint_sender = SetpointSender(
+                        self.px4_interface, 
+                        self.follower.follower.setpoint_handler
+                    )
+                    
+                    # Validate configuration before starting
+                    if self.setpoint_sender.validate_configuration():
+                        self.setpoint_sender.start()
+                        result["steps"].append("Enhanced setpoint sender started")
+                        logging.info(f"SetpointSender started for {self.follower.get_display_name()}")
+                    else:
+                        error_msg = "SetpointSender configuration validation failed"
+                        logging.error(error_msg)
+                        result["errors"].append(error_msg)
+                        
+                except Exception as e:
+                    error_msg = f"Failed to start setpoint sender: {e}"
+                    logging.error(error_msg)
+                    result["errors"].append(error_msg)
+                    # Continue without setpoint sender if needed
+                
+                # Mark as active
                 self.following_active = True
-                result["steps"].append("Offboard mode started.")
+                
+                # Log final status
+                logging.info("Follow mode activation completed successfully!")
+                if hasattr(self.follower, 'get_status_report'):
+                    logging.debug(self.follower.get_status_report())
+                    
             except Exception as e:
-                logging.error(f"Failed to connect/start offboard mode: {e}")
-                result["errors"].append(f"Failed to connect/start offboard mode: {e}")
+                error_msg = f"Failed to connect/start offboard mode: {e}"
+                logging.error(error_msg)
+                result["errors"].append(error_msg)
+                
+                # Cleanup on failure
+                try:
+                    if hasattr(self, 'setpoint_sender') and self.setpoint_sender:
+                        self.setpoint_sender.stop()
+                    await self.px4_interface.stop_offboard_mode()
+                except:
+                    pass  # Best effort cleanup
+                    
         else:
             result["steps"].append("Follow mode already active.")
+            
         return result
 
     async def disconnect_px4(self) -> Dict[str, any]:
         """
-        Disconnects from PX4 and stops offboard mode.
+        Enhanced PX4 disconnection with proper cleanup of unified protocol components.
         """
         result = {"steps": [], "errors": []}
         if self.following_active:
             try:
-                await self.px4_interface.stop_offboard_mode()
-                result["steps"].append("Offboard mode stopped.")
+                logging.info("Deactivating Follow Mode...")
+                
+                # Stop setpoint sender first
+                if hasattr(self, 'setpoint_sender') and self.setpoint_sender:
+                    try:
+                        # Get status before stopping
+                        sender_status = self.setpoint_sender.get_status()
+                        logging.debug(f"SetpointSender status before stop: {sender_status}")
+                        
+                        self.setpoint_sender.stop()
+                        result["steps"].append("Enhanced setpoint sender stopped")
+                        logging.info("SetpointSender stopped successfully")
+                    except Exception as e:
+                        error_msg = f"Error stopping setpoint sender: {e}"
+                        logging.error(error_msg)
+                        result["errors"].append(error_msg)
+                    finally:
+                        self.setpoint_sender = None
+                
+                # Stop offboard mode
+                try:
+                    await self.px4_interface.stop_offboard_mode()
+                    result["steps"].append("Offboard mode stopped")
+                except Exception as e:
+                    error_msg = f"Failed to stop offboard mode: {e}"
+                    logging.error(error_msg)
+                    result["errors"].append(error_msg)
+                
+                # Reset follower
+                if hasattr(self, 'follower') and self.follower:
+                    try:
+                        # Log final follower status
+                        if hasattr(self.follower, 'get_status_report'):
+                            logging.debug("Final follower status:")
+                            logging.debug(self.follower.get_status_report())
+                        
+                        self.follower = None
+                        result["steps"].append("Follower instance cleaned up")
+                    except Exception as e:
+                        logging.warning(f"Error during follower cleanup: {e}")
+                
+                # Mark as inactive
                 self.following_active = False
-                if self.setpoint_sender:
-                    self.setpoint_sender.stop()
-                    self.setpoint_sender.join()
-                    self.setpoint_sender = None
+                
+                logging.info("Follow mode deactivated successfully!")
+                
             except Exception as e:
-                logging.error(f"Failed to stop offboard mode: {e}")
-                result["errors"].append(f"Failed to stop offboard mode: {e}")
+                error_msg = f"Error during PX4 disconnection: {e}"
+                logging.error(error_msg)
+                result["errors"].append(error_msg)
         else:
             result["steps"].append("Follow mode is not active.")
+            
         return result
 
     async def follow_target(self):
         """
-        Follows the target based on tracking information.
+        Enhanced target following with proper async command dispatch.
         """
-        if self.tracking_started and self.following_active:
+        if not (self.tracking_started and self.following_active):
+            return False
+            
+        try:
             target_coords: Optional[Tuple[float, float]] = None
-
+            
+            # Get target coordinates from estimator or tracker
             if Parameters.USE_ESTIMATOR_FOR_FOLLOWING and self.tracker.position_estimator:
                 frame_width, frame_height = self.video_handler.width, self.video_handler.height
                 normalized_estimate = self.tracker.position_estimator.get_normalized_estimate(
@@ -560,49 +697,108 @@ class AppController:
                     logging.debug(f"Using estimated normalized coords: {target_coords}")
                 else:
                     logging.warning("Estimator failed to provide a normalized estimate.")
-
+            
             if not target_coords:
                 target_coords = self.tracker.normalized_center
                 logging.debug(f"Using tracker's normalized center: {target_coords}")
-
-            if target_coords:
-                self.follower.follow_target(target_coords)
-                self.px4_interface.update_setpoint()
-
+            
+            if not target_coords:
+                logging.warning("No target coordinates available to follow.")
+                return False
+            
+            # SYNCHRONOUS: Calculate and set commands (no await needed)
+            try:
+                follow_result = self.follower.follow_target(target_coords)
+                if follow_result is False:
+                    logging.warning("Follower follow_target returned False")
+                    return False
+            except Exception as e:
+                logging.error(f"Error in follower.follow_target: {e}")
+                return False
+            
+            # ASYNCHRONOUS: Send the actual commands to PX4
+            try:
                 control_type = self.follower.get_control_type()
                 if control_type == 'attitude_rate':
                     await self.px4_interface.send_attitude_rate_commands()
                 elif control_type == 'velocity_body':
                     await self.px4_interface.send_body_velocity_commands()
+                elif control_type == 'velocity_body_offboard':
+                    await self.px4_interface.send_velocity_body_offboard_commands()
                 else:
                     logging.warning(f"Unknown control type: {control_type}")
-            else:
-                logging.warning("No target coordinates available to follow.")
+                    return False
+            except Exception as e:
+                logging.error(f"Error sending commands to PX4: {e}")
+                return False
+            
             return True
-        else:
+            
+        except Exception as e:
+            logging.error(f"Error in follow_target: {e}")
             return False
 
     async def shutdown(self) -> Dict[str, any]:
         """
-        Gracefully shuts down the application.
+        Enhanced graceful shutdown with proper cleanup of all unified protocol components.
         """
         result = {"steps": [], "errors": []}
         try:
-            if Parameters.MAVLINK_ENABLED:
-                self.mavlink_data_manager.stop_polling()
-
+            logging.info("Starting application shutdown...")
+            
+            # Stop MAVLink data manager if enabled
+            if Parameters.MAVLINK_ENABLED and hasattr(self, 'mavlink_data_manager'):
+                try:
+                    self.mavlink_data_manager.stop_polling()
+                    result["steps"].append("MAVLink data manager stopped")
+                except Exception as e:
+                    logging.error(f"Error stopping MAVLink data manager: {e}")
+                    result["errors"].append(f"MAVLink stop error: {e}")
+            
+            # Disconnect PX4 and cleanup following components
             if self.following_active:
-                logging.debug("Stopping offboard mode and disconnecting PX4.")
-                await self.px4_interface.stop_offboard_mode()
-                if self.setpoint_sender:
-                    self.setpoint_sender.stop()
-                    self.setpoint_sender.join()
-                self.following_active = False
-
-            self.video_handler.release()
-            logging.debug("Video handler released.")
-            result["steps"].append("Shutdown complete.")
+                try:
+                    logging.info("Stopping follow mode and PX4 connection...")
+                    disconnect_result = await self.disconnect_px4()
+                    result["steps"].extend(disconnect_result.get("steps", []))
+                    result["errors"].extend(disconnect_result.get("errors", []))
+                except Exception as e:
+                    error_msg = f"Error during PX4 disconnection: {e}"
+                    logging.error(error_msg)
+                    result["errors"].append(error_msg)
+            
+            # Release video handler
+            try:
+                if hasattr(self, 'video_handler') and self.video_handler:
+                    self.video_handler.release()
+                    result["steps"].append("Video handler released")
+                    logging.info("Video handler released")
+            except Exception as e:
+                logging.error(f"Error releasing video handler: {e}")
+                result["errors"].append(f"Video handler release error: {e}")
+            
+            # Additional cleanup for new components
+            try:
+                # Clear follower reference
+                if hasattr(self, 'follower'):
+                    self.follower = None
+                
+                # Clear setpoint sender reference
+                if hasattr(self, 'setpoint_sender'):
+                    self.setpoint_sender = None
+                    
+                result["steps"].append("Component references cleared")
+                
+            except Exception as e:
+                logging.error(f"Error during component cleanup: {e}")
+                result["errors"].append(f"Component cleanup error: {e}")
+            
+            result["steps"].append("Shutdown complete")
+            logging.info("Application shutdown completed")
+            
         except Exception as e:
-            logging.error(f"Error during shutdown: {e}")
-            result["errors"].append(f"Error during shutdown: {e}")
+            error_msg = f"Critical error during shutdown: {e}"
+            logging.error(error_msg)
+            result["errors"].append(error_msg)
+        
         return result

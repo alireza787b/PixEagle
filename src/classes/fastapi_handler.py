@@ -1,18 +1,31 @@
 # src/classes/fastapi_handler.py
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
+from fastapi.responses import StreamingResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import asyncio
 import cv2
+import numpy as np
 import logging
 import time
+import hashlib
+from typing import Dict, Optional, Set, Tuple
+from collections import deque
+from dataclasses import dataclass
+import json
 from classes.parameters import Parameters
 import uvicorn
-from typing import Dict
-from classes.webrtc_manager import WebRTCManager  # Import the WebRTCManager
+from classes.webrtc_manager import WebRTCManager
+from classes.setpoint_handler import SetpointHandler
+from classes.follower import FollowerFactory
 
+# Performance monitoring
+from contextlib import asynccontextmanager
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+# Models
 class BoundingBox(BaseModel):
     x: float
     y: float
@@ -23,80 +36,193 @@ class ClickPosition(BaseModel):
     x: float
     y: float
 
+@dataclass
+class ClientConnection:
+    """Track client connection state."""
+    id: str
+    connected_at: float
+    last_frame_time: float
+    quality: int
+    frame_drops: int
+    bandwidth_estimate: float  # bytes/second
+    frame_queue: deque
+
+@dataclass
+class CachedFrame:
+    """Cached encoded frame."""
+    data: bytes
+    timestamp: float
+    hash: str
+    quality: int
+
+
+class StreamingOptimizer:
+    """Optimized streaming with caching and adaptive quality."""
+    
+    def __init__(self, max_cache_size: int = 10):
+        self.frame_cache: Dict[str, CachedFrame] = {}
+        self.max_cache_size = max_cache_size
+        self.encoder_pool = ThreadPoolExecutor(max_workers=Parameters.ENCODING_THREADS)
+        self.last_frame_hash: Optional[str] = None
+        self.encoding_lock = threading.Lock()
+        
+    def get_frame_hash(self, frame: np.ndarray) -> str:
+        """Generate hash for frame comparison."""
+        # Downsample for faster hashing
+        small = cv2.resize(frame, (64, 64))
+        return hashlib.md5(small.tobytes()).hexdigest()
+    
+    def encode_frame_cached(self, frame: np.ndarray, quality: int) -> bytes:
+        """Encode frame with caching."""
+        # Generate frame hash
+        frame_hash = self.get_frame_hash(frame)
+        
+        # Check if frame is identical to last
+        if Parameters.SKIP_IDENTICAL_FRAMES and frame_hash == self.last_frame_hash:
+            cache_key = f"{frame_hash}_{quality}"
+            if cache_key in self.frame_cache:
+                cached = self.frame_cache[cache_key]
+                if time.time() - cached.timestamp < Parameters.CACHE_TTL_MS / 1000:
+                    return cached.data
+        
+        self.last_frame_hash = frame_hash
+        
+        # Check cache
+        cache_key = f"{frame_hash}_{quality}"
+        if Parameters.ENABLE_FRAME_CACHE and cache_key in self.frame_cache:
+            cached = self.frame_cache[cache_key]
+            if time.time() - cached.timestamp < Parameters.CACHE_TTL_MS / 1000:
+                return cached.data
+        
+        # Encode frame
+        with self.encoding_lock:
+            ret, buffer = cv2.imencode('.jpg', frame, 
+                                       [cv2.IMWRITE_JPEG_QUALITY, quality])
+            if not ret:
+                raise ValueError("Failed to encode frame")
+            
+            frame_bytes = buffer.tobytes()
+        
+        # Update cache
+        if Parameters.ENABLE_FRAME_CACHE:
+            self.frame_cache[cache_key] = CachedFrame(
+                data=frame_bytes,
+                timestamp=time.time(),
+                hash=frame_hash,
+                quality=quality
+            )
+            
+            # Cleanup old cache entries
+            if len(self.frame_cache) > self.max_cache_size:
+                oldest_key = min(self.frame_cache.keys(), 
+                               key=lambda k: self.frame_cache[k].timestamp)
+                del self.frame_cache[oldest_key]
+        
+        return frame_bytes
+    
+    async def encode_frame_async(self, frame: np.ndarray, quality: int) -> bytes:
+        """Async wrapper for frame encoding."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self.encoder_pool, 
+            self.encode_frame_cached, 
+            frame, 
+            quality
+        )
+
 
 class FastAPIHandler:
+    """
+    Optimized FastAPI handler with professional streaming capabilities.
+    Features adaptive quality, frame caching, and connection management.
+    """
+    
     def __init__(self, app_controller):
-        """
-        Initialize the FastAPIHandler with necessary dependencies and settings.
-
-        Args:
-            app_controller (AppController): An instance of the AppController class.
-        """
-        # Dependencies
+        """Initialize with optimized streaming support."""
+        # Core dependencies
         self.app_controller = app_controller
         self.video_handler = app_controller.video_handler
         self.telemetry_handler = app_controller.telemetry_handler
-
-        # Initialize WebRTC Manager
+        
+        # Streaming optimization
+        self.stream_optimizer = StreamingOptimizer()
+        
+        # WebRTC Manager
         self.webrtc_manager = WebRTCManager(self.video_handler)
-
-        # FastAPI app initialization
-        self.app = FastAPI()
-        self.app.add_middleware(
-            CORSMiddleware,
-            allow_origins=["*"],  # Update as needed for security
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
-
-        # Setup logging
+        
+        # FastAPI app
+        self.app = FastAPI(title="PixEagle API", version="2.0")
+        self._setup_middleware()
+        
+        # Logging
         self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(logging.INFO)  # Adjust the logging level as needed
-
-        # Define API routes
+        self.logger.setLevel(logging.INFO)
+        
+        # Define routes
         self.define_routes()
-
-        # Video streaming parameters
+        
+        # Streaming parameters
         self.frame_rate = Parameters.STREAM_FPS
         self.width = Parameters.STREAM_WIDTH
         self.height = Parameters.STREAM_HEIGHT
         self.quality = Parameters.STREAM_QUALITY
-        self.processed_osd = Parameters.STREAM_PROCESSED_OSD
         self.frame_interval = 1.0 / self.frame_rate
-
-        # State variables
+        
+        # Connection management
+        self.http_connections: Set[str] = set()
+        self.ws_connections: Dict[str, ClientConnection] = {}
+        self.connection_lock = asyncio.Lock()
+        
+        # State
         self.is_shutting_down = False
         self.server = None
-
-        # Lock for thread-safe frame access
-        self.frame_lock = asyncio.Lock()
-
-        # For frame skipping/capping
+        
+        # Performance monitoring
+        self.stats = {
+            'frames_sent': 0,
+            'frames_dropped': 0,
+            'total_bandwidth': 0,
+            'active_connections': 0
+        }
+        
+        # Background tasks will be started when the server starts
+        self.background_tasks = []
+        
+        # Frame timing for rate limiting
         self.last_http_send_time = 0.0
         self.last_ws_send_time = 0.0
-
+        
+        # Frame lock for thread-safe frame access
+        self.frame_lock = asyncio.Lock()
+        
+        # OSD processing flag
+        self.processed_osd = Parameters.STREAM_PROCESSED_OSD
+    
+    def _setup_middleware(self):
+        """Configure middleware with security best practices."""
+        self.app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],  # Configure for production
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "DELETE"],
+            allow_headers=["*"],
+            max_age=3600
+        )
+    
     def define_routes(self):
-        """
-        Define all the API routes for the FastAPIHandler.
-        """
-        # HTTP streaming endpoint
+        """Define all API routes."""
+        # Streaming endpoints
         self.app.get("/video_feed")(self.video_feed)
-        # WebSocket streaming endpoint
-        self.app.websocket("/ws/video_feed")(self.video_feed_websocket)
-        # WebRTC Signaling endpoint
+        self.app.websocket("/ws/video_feed")(self.video_feed_websocket_optimized)
         self.app.websocket("/ws/webrtc_signaling")(self.webrtc_manager.signaling_handler)
-
-        # Telemetry endpoints
+        
+        # Telemetry
         self.app.get("/telemetry/tracker_data")(self.tracker_data)
         self.app.get("/telemetry/follower_data")(self.follower_data)
-
         self.app.get("/status")(self.get_status)
-
-
+        self.app.get("/stats")(self.get_streaming_stats)
         
-
-        # Command endpoints
+        # Commands
         self.app.post("/commands/start_tracking")(self.start_tracking)
         self.app.post("/commands/stop_tracking")(self.stop_tracking)
         self.app.post("/commands/toggle_segmentation")(self.toggle_segmentation)
@@ -105,10 +231,287 @@ class FastAPIHandler:
         self.app.post("/commands/start_offboard_mode")(self.start_offboard_mode)
         self.app.post("/commands/stop_offboard_mode")(self.stop_offboard_mode)
         self.app.post("/commands/quit")(self.quit)
-
-        # Smart Tracking (new)
+        
+        # Smart tracking
         self.app.post("/commands/toggle_smart_mode")(self.toggle_smart_mode)
         self.app.post("/commands/smart_click")(self.smart_click)
+        
+        # Follower API
+        self.app.get("/api/follower/schema")(self.get_follower_schema)
+        self.app.get("/api/follower/profiles")(self.get_follower_profiles)
+        self.app.get("/api/follower/current-profile")(self.get_current_follower_profile)
+        self.app.get("/api/follower/configured-mode")(self.get_configured_follower_mode)
+        self.app.post("/api/follower/switch-profile")(self.switch_follower_profile)
+    
+    async def video_feed(self):
+        """Optimized HTTP MJPEG streaming with adaptive quality."""
+        client_id = f"http_{time.time()}"
+        
+        # Check connection limit
+        async with self.connection_lock:
+            if len(self.http_connections) >= Parameters.HTTP_MAX_CONNECTIONS:
+                raise HTTPException(status_code=503, detail="Max connections reached")
+            self.http_connections.add(client_id)
+        
+        async def generate():
+            """Optimized frame generator."""
+            quality = Parameters.STREAM_QUALITY
+            last_send_time = 0
+            frame_count = 0
+            start_time = time.time()
+            
+            try:
+                while not self.is_shutting_down:
+                    current_time = time.time()
+                    
+                    # Frame rate limiting
+                    if (current_time - last_send_time) < self.frame_interval:
+                        await asyncio.sleep(0.001)
+                        continue
+                    
+                    # Get frame
+                    frame = (self.video_handler.current_resized_osd_frame
+                            if Parameters.STREAM_PROCESSED_OSD
+                            else self.video_handler.current_resized_raw_frame)
+                    
+                    if frame is None:
+                        await asyncio.sleep(0.01)
+                        continue
+                    
+                    # Adaptive quality based on frame rate
+                    if Parameters.ENABLE_ADAPTIVE_QUALITY:
+                        actual_fps = frame_count / max(1, current_time - start_time)
+                        if actual_fps < self.frame_rate * 0.8:
+                            quality = max(Parameters.MIN_QUALITY, quality - Parameters.QUALITY_STEP)
+                        elif actual_fps > self.frame_rate * 0.95:
+                            quality = min(Parameters.MAX_QUALITY, quality + Parameters.QUALITY_STEP)
+                    
+                    # Encode with caching
+                    try:
+                        frame_bytes = await self.stream_optimizer.encode_frame_async(frame, quality)
+                        
+                        # Send frame
+                        yield (b'--frame\r\n'
+                              b'Content-Type: image/jpeg\r\n'
+                              b'Content-Length: ' + str(len(frame_bytes)).encode() + b'\r\n'
+                              b'\r\n' + frame_bytes + b'\r\n')
+                        
+                        last_send_time = current_time
+                        frame_count += 1
+                        self.stats['frames_sent'] += 1
+                        self.stats['total_bandwidth'] += len(frame_bytes)
+                        
+                    except Exception as e:
+                        self.logger.error(f"Frame encoding error: {e}")
+                        self.stats['frames_dropped'] += 1
+                        
+            finally:
+                # Cleanup
+                async with self.connection_lock:
+                    self.http_connections.discard(client_id)
+                    self.stats['active_connections'] = len(self.http_connections) + len(self.ws_connections)
+        
+        return StreamingResponse(
+            generate(), 
+            media_type='multipart/x-mixed-replace; boundary=frame',
+            headers={'Cache-Control': 'no-cache'}
+        )
+    
+    async def video_feed_websocket_optimized(self, websocket: WebSocket):
+        """Optimized WebSocket streaming with adaptive quality and queuing."""
+        await websocket.accept()
+        
+        client_id = f"ws_{id(websocket)}_{time.time()}"
+        
+        # Check connection limit
+        async with self.connection_lock:
+            if len(self.ws_connections) >= Parameters.WS_MAX_CONNECTIONS:
+                await websocket.close(code=1008, reason="Max connections reached")
+                return
+            
+            # Register client
+            self.ws_connections[client_id] = ClientConnection(
+                id=client_id,
+                connected_at=time.time(),
+                last_frame_time=0,
+                quality=Parameters.STREAM_QUALITY,
+                frame_drops=0,
+                bandwidth_estimate=0,
+                frame_queue=deque(maxlen=Parameters.MAX_FRAME_QUEUE)
+            )
+        
+        self.logger.info(f"WebSocket connected: {client_id}")
+        
+        try:
+            client = self.ws_connections[client_id]
+            send_task = asyncio.create_task(self._ws_send_frames(websocket, client))
+            receive_task = asyncio.create_task(self._ws_receive_messages(websocket, client))
+            
+            # Wait for either task to complete
+            done, pending = await asyncio.wait(
+                [send_task, receive_task],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            
+            # Cancel remaining tasks
+            for task in pending:
+                task.cancel()
+                
+        except WebSocketDisconnect:
+            self.logger.info(f"WebSocket disconnected: {client_id}")
+        except Exception as e:
+            self.logger.error(f"WebSocket error: {e}")
+        finally:
+            # Cleanup
+            async with self.connection_lock:
+                self.ws_connections.pop(client_id, None)
+                self.stats['active_connections'] = len(self.http_connections) + len(self.ws_connections)
+    
+    async def _ws_send_frames(self, websocket: WebSocket, client: ClientConnection):
+        """Send frames to WebSocket client with adaptive quality."""
+        last_send_time = 0
+        bytes_sent = 0
+        time_window_start = time.time()
+        
+        while not self.is_shutting_down:
+            current_time = time.time()
+            
+            # Frame rate limiting
+            if (current_time - last_send_time) < self.frame_interval:
+                await asyncio.sleep(0.001)
+                continue
+            
+            # Get frame
+            frame = (self.video_handler.current_resized_osd_frame
+                    if Parameters.STREAM_PROCESSED_OSD
+                    else self.video_handler.current_resized_raw_frame)
+            
+            if frame is None:
+                await asyncio.sleep(0.01)
+                continue
+            
+            # Adaptive quality based on bandwidth
+            if Parameters.ENABLE_ADAPTIVE_QUALITY and current_time - time_window_start > 1.0:
+                # Calculate bandwidth
+                bandwidth = bytes_sent / (current_time - time_window_start)
+                client.bandwidth_estimate = bandwidth
+                
+                # Adjust quality
+                target_bytes_per_frame = bandwidth / self.frame_rate
+                if target_bytes_per_frame < 10000:  # Less than 10KB per frame
+                    client.quality = max(Parameters.MIN_QUALITY, client.quality - Parameters.QUALITY_STEP)
+                elif target_bytes_per_frame > 50000:  # More than 50KB per frame
+                    client.quality = min(Parameters.MAX_QUALITY, client.quality + Parameters.QUALITY_STEP)
+                
+                # Reset measurement window
+                bytes_sent = 0
+                time_window_start = current_time
+            
+            try:
+                # Encode frame
+                frame_bytes = await self.stream_optimizer.encode_frame_async(frame, client.quality)
+                
+                # Send frame with metadata
+                message = {
+                    'type': 'frame',
+                    'timestamp': current_time,
+                    'quality': client.quality,
+                    'size': len(frame_bytes)
+                }
+                
+                # Send metadata first
+                await websocket.send_json(message)
+                # Send binary frame
+                await websocket.send_bytes(frame_bytes)
+                
+                last_send_time = current_time
+                bytes_sent += len(frame_bytes)
+                client.last_frame_time = current_time
+                
+                self.stats['frames_sent'] += 1
+                self.stats['total_bandwidth'] += len(frame_bytes)
+                
+            except Exception as e:
+                self.logger.error(f"Failed to send frame: {e}")
+                client.frame_drops += 1
+                self.stats['frames_dropped'] += 1
+                break
+    
+    async def _ws_receive_messages(self, websocket: WebSocket, client: ClientConnection):
+        """Handle incoming WebSocket messages."""
+        try:
+            while not self.is_shutting_down:
+                message = await websocket.receive_json()
+                
+                # Handle quality adjustment requests
+                if message.get('type') == 'quality':
+                    requested_quality = message.get('quality')
+                    if Parameters.MIN_QUALITY <= requested_quality <= Parameters.MAX_QUALITY:
+                        client.quality = requested_quality
+                        self.logger.debug(f"Client {client.id} requested quality: {requested_quality}")
+                
+                # Handle heartbeat
+                elif message.get('type') == 'ping':
+                    await websocket.send_json({'type': 'pong', 'timestamp': time.time()})
+                    
+        except WebSocketDisconnect:
+            pass
+        except Exception as e:
+            self.logger.error(f"Error receiving WebSocket message: {e}")
+    
+    async def _heartbeat_task(self):
+        """Send periodic heartbeats to WebSocket clients."""
+        while not self.is_shutting_down:
+            await asyncio.sleep(Parameters.WS_HEARTBEAT_INTERVAL)
+            
+            # Check for stale connections
+            current_time = time.time()
+            async with self.connection_lock:
+                stale_clients = [
+                    client_id for client_id, client in self.ws_connections.items()
+                    if current_time - client.last_frame_time > Parameters.WS_HEARTBEAT_INTERVAL * 2
+                ]
+                
+                for client_id in stale_clients:
+                    self.logger.warning(f"Removing stale client: {client_id}")
+                    self.ws_connections.pop(client_id, None)
+    
+    async def _stats_reporter(self):
+        """Report streaming statistics periodically."""
+        while not self.is_shutting_down:
+            await asyncio.sleep(30)  # Report every 30 seconds
+            
+            if self.stats['frames_sent'] > 0:
+                self.logger.info(
+                    f"Streaming stats - Frames sent: {self.stats['frames_sent']}, "
+                    f"Dropped: {self.stats['frames_dropped']}, "
+                    f"Bandwidth: {self.stats['total_bandwidth'] / 1024 / 1024:.2f} MB, "
+                    f"Connections: {self.stats['active_connections']}"
+                )
+    
+    async def get_streaming_stats(self):
+        """Get current streaming statistics."""
+        ws_clients_info = []
+        async with self.connection_lock:
+            for client in self.ws_connections.values():
+                ws_clients_info.append({
+                    'id': client.id,
+                    'connected_duration': time.time() - client.connected_at,
+                    'quality': client.quality,
+                    'frame_drops': client.frame_drops,
+                    'bandwidth_kbps': client.bandwidth_estimate * 8 / 1024
+                })
+        
+        return JSONResponse(content={
+            'frames_sent': self.stats['frames_sent'],
+            'frames_dropped': self.stats['frames_dropped'],
+            'total_bandwidth_mb': self.stats['total_bandwidth'] / 1024 / 1024,
+            'http_connections': len(self.http_connections),
+            'websocket_connections': len(self.ws_connections),
+            'websocket_clients': ws_clients_info,
+            'cache_size': len(self.stream_optimizer.frame_cache),
+            'uptime': time.time() - (self.server.started if self.server else time.time())
+        })
 
     async def start_tracking(self, bbox: BoundingBox):
         """
@@ -224,75 +627,7 @@ class FastAPIHandler:
 
 
 
-    async def video_feed(self):
-        """
-        FastAPI route to serve the video feed over HTTP as an MJPEG stream.
-        """
-        async def generate():
-            while not self.is_shutting_down:
-                # Simple capping: ensure we don't exceed STREAM_FPS
-                current_time = time.time()
-                if (current_time - self.last_http_send_time) < self.frame_interval:
-                    # We are still within the interval; skip frame sending
-                    await asyncio.sleep(0.001)
-                    continue
-                self.last_http_send_time = current_time
 
-                # Lock to safely access frames
-                async with self.frame_lock:
-                    # Select the proper resized frame
-                    frame = (self.video_handler.current_resized_osd_frame
-                             if self.processed_osd
-                             else self.video_handler.current_resized_raw_frame)
-
-                    if frame is None:
-                        self.logger.warning("No frame available to send (HTTP)")
-                        break
-
-                    ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.quality])
-                    if ret:
-                        frame_bytes = buffer.tobytes()
-                        # Yield MJPEG frame
-                        yield (b'--frame\r\n'
-                               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-                    else:
-                        self.logger.error("Failed to encode frame (HTTP)")
-
-        return StreamingResponse(generate(), media_type='multipart/x-mixed-replace; boundary=frame')
-
-    async def video_feed_websocket(self, websocket: WebSocket):
-        """
-        WebSocket endpoint to stream video frames (MJPEG over WebSocket).
-        """
-        await websocket.accept()
-        self.logger.info(f"WebSocket connection accepted: {websocket.client}")
-        try:
-            while not self.is_shutting_down:
-                # Simple capping: ensure we don't exceed STREAM_FPS
-                current_time = time.time()
-                if (current_time - self.last_ws_send_time) < self.frame_interval:
-                    await asyncio.sleep(0.001)
-                    continue
-                self.last_ws_send_time = current_time
-
-                async with self.frame_lock:
-                    frame = (self.video_handler.current_resized_osd_frame
-                             if self.processed_osd
-                             else self.video_handler.current_resized_raw_frame)
-                    if frame is not None:
-                        ret, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.quality])
-                        if ret:
-                            await websocket.send_bytes(buffer.tobytes())
-                        else:
-                            self.logger.error("Failed to encode frame (WebSocket)")
-                    else:
-                        self.logger.warning("No frame available to send (WebSocket)")
-
-        except WebSocketDisconnect:
-            self.logger.info(f"WebSocket disconnected: {websocket.client}")
-        except Exception as e:
-            self.logger.error(f"Error in WebSocket video feed: {e}")
-            await websocket.close()
 
     async def tracker_data(self):
         """
@@ -413,25 +748,278 @@ class FastAPIHandler:
             self.logger.error(f"Error in quit: {e}")
             return {"status": "failure", "error": str(e)}
 
-    async def start(self, host='0.0.0.0', port=Parameters.HTTP_STREAM_PORT):
-        """
-        Start the FastAPI server using uvicorn.
+    async def _start_background_tasks(self):
+        """Start background tasks now that we have an event loop."""
+        self.background_tasks = []
+        
+        # Start heartbeat task
+        heartbeat_task = asyncio.create_task(self._heartbeat_task())
+        self.background_tasks.append(heartbeat_task)
+        
+        # Start stats reporter task
+        stats_task = asyncio.create_task(self._stats_reporter())
+        self.background_tasks.append(stats_task)
+        
+        self.logger.info("Started background tasks: heartbeat and stats reporter")
 
-        Args:
-            host (str): The hostname to listen on.
-            port (int): The port to listen on.
-        """
-        config = uvicorn.Config(self.app, host=host, port=port, log_level="info")
+    async def start(self, host='0.0.0.0', port=None):
+        """Start the FastAPI server."""
+        port = port or Parameters.HTTP_STREAM_PORT
+        
+        # Start background tasks now that we have an event loop
+        await self._start_background_tasks()
+        
+        config = uvicorn.Config(
+            self.app, 
+            host=host, 
+            port=port, 
+            log_level="info",
+            access_log=False
+        )
         self.server = uvicorn.Server(config)
         self.logger.info(f"Starting FastAPI server on {host}:{port}")
         await self.server.serve()
-
+    
     async def stop(self):
-        """
-        Stop the FastAPI server.
-        """
+        """Stop the FastAPI server."""
+        self.is_shutting_down = True
+        
+        # Cancel background tasks
+        for task in self.background_tasks:
+            task.cancel()
+        
+        # Close all connections
+        async with self.connection_lock:
+            self.logger.info(f"Closing {len(self.ws_connections)} WebSocket connections")
+            self.ws_connections.clear()
+            self.http_connections.clear()
+        
+        # Shutdown encoder pool if exists
+        if hasattr(self, 'stream_optimizer') and self.stream_optimizer:
+            self.stream_optimizer.encoder_pool.shutdown(wait=True)
+        
         if self.server:
             self.logger.info("Stopping FastAPI server...")
             self.server.should_exit = True
             await self.server.shutdown()
             self.logger.info("Stopped FastAPI server")
+
+
+    async def get_follower_schema(self):
+        """
+        Endpoint to get the complete follower command schema.
+        
+        Returns:
+            dict: Complete schema including all fields and profiles.
+        """
+        try:
+            # Read the schema file directly
+            import yaml
+            with open('configs/follower_commands.yaml', 'r') as f:
+                schema = yaml.safe_load(f)
+            return JSONResponse(content=schema)
+        except Exception as e:
+            self.logger.error(f"Error getting follower schema: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_follower_profiles(self):
+        """
+        Endpoint to get available follower profiles with implementation status.
+        
+        Returns:
+            dict: Available profiles with detailed information.
+        """
+        try:
+            profiles = {}
+            available_modes = FollowerFactory.get_available_modes()
+            
+            for mode in available_modes:
+                profiles[mode] = FollowerFactory.get_follower_info(mode)
+                
+            return JSONResponse(content=profiles)
+        except Exception as e:
+            self.logger.error(f"Error getting follower profiles: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_current_follower_profile(self):
+        """
+        Endpoint to get current follower profile information.
+        Shows configured profile even when not actively engaged.
+        
+        Returns:
+            dict: Current profile details and status.
+        """
+        try:
+            # Check if follower is actively engaged
+            has_active_follower = (
+                hasattr(self.app_controller, 'follower') and 
+                self.app_controller.follower is not None and
+                self.app_controller.following_active
+            )
+            
+            # Get configured mode from Parameters
+            configured_mode = Parameters.FOLLOWER_MODE
+            
+            if has_active_follower:
+                # Return active follower info
+                follower = self.app_controller.follower
+                profile_info = {
+                    'status': 'engaged',
+                    'active': True,
+                    'mode': follower.mode,
+                    'display_name': follower.get_display_name(),
+                    'description': follower.get_description(),
+                    'control_type': follower.get_control_type(),
+                    'available_fields': follower.get_available_fields(),
+                    'current_field_values': follower.get_follower_telemetry().get('fields', {}),
+                    'validation_status': follower.validate_current_mode(),
+                    'configured_mode': configured_mode
+                }
+            else:
+                # Return configured but not engaged follower info
+                try:
+                    # Get schema info for the configured mode
+                    profile_config = SetpointHandler.get_profile_info(configured_mode)
+                    profile_info = {
+                        'status': 'configured',
+                        'active': False,
+                        'mode': configured_mode,
+                        'display_name': profile_config.get('display_name', configured_mode.replace('_', ' ').title()),
+                        'description': profile_config.get('description', 'Not engaged'),
+                        'control_type': profile_config.get('control_type', 'unknown'),
+                        'available_fields': profile_config.get('required_fields', []) + profile_config.get('optional_fields', []),
+                        'current_field_values': {},
+                        'validation_status': True,  # Assume valid if in schema
+                        'configured_mode': configured_mode,
+                        'message': 'Profile configured but not engaged. Start offboard mode to activate.'
+                    }
+                except Exception as e:
+                    self.logger.warning(f"Could not get schema info for configured mode '{configured_mode}': {e}")
+                    profile_info = {
+                        'status': 'unknown',
+                        'active': False,
+                        'mode': configured_mode,
+                        'display_name': configured_mode.replace('_', ' ').title(),
+                        'description': 'Unknown profile',
+                        'control_type': 'unknown',
+                        'available_fields': [],
+                        'current_field_values': {},
+                        'validation_status': False,
+                        'configured_mode': configured_mode,
+                        'error': f'Profile not found in schema: {configured_mode}'
+                    }
+            
+            return JSONResponse(content=profile_info)
+            
+        except Exception as e:
+            self.logger.error(f"Error getting current follower profile: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def switch_follower_profile(self, request: Request):
+        """
+        Endpoint to switch follower profile.
+        Updates configuration for future engagement or switches active follower.
+        
+        Args:
+            request: Should contain {'profile_name': 'new_profile_name'}
+            
+        Returns:
+            dict: Switch operation result.
+        """
+        try:
+            data = await request.json()
+            new_profile = data.get('profile_name')
+            
+            if not new_profile:
+                raise HTTPException(status_code=400, detail="profile_name is required")
+            
+            # Validate that the profile exists in schema
+            try:
+                available_profiles = SetpointHandler.get_available_profiles()
+                if new_profile not in available_profiles:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"Invalid profile '{new_profile}'. Available: {available_profiles}"
+                    )
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Schema validation failed: {e}")
+            
+            # Check if follower is actively engaged
+            has_active_follower = (
+                hasattr(self.app_controller, 'follower') and 
+                self.app_controller.follower is not None and
+                self.app_controller.following_active
+            )
+            
+            old_configured_mode = Parameters.FOLLOWER_MODE
+            
+            if has_active_follower:
+                # Switch the active follower
+                follower = self.app_controller.follower
+                success = follower.switch_mode(new_profile)
+                
+                if success:
+                    # Also update the configured mode
+                    Parameters.FOLLOWER_MODE = new_profile
+                    self.logger.info(f"Active follower switched: {old_configured_mode} → {new_profile}")
+                    
+                    return JSONResponse(content={
+                        'status': 'success',
+                        'action': 'active_switch',
+                        'old_profile': old_configured_mode,
+                        'new_profile': new_profile,
+                        'message': f'Active follower switched to {new_profile}'
+                    })
+                else:
+                    return JSONResponse(content={
+                        'status': 'error',
+                        'action': 'active_switch_failed',
+                        'message': f'Failed to switch active follower to {new_profile}'
+                    }, status_code=500)
+            else:
+                # Just update the configured mode (for future engagement)
+                Parameters.FOLLOWER_MODE = new_profile
+                self.logger.info(f"Configured follower mode updated: {old_configured_mode} → {new_profile}")
+                
+                return JSONResponse(content={
+                    'status': 'success',
+                    'action': 'config_update',
+                    'old_profile': old_configured_mode,
+                    'new_profile': new_profile,
+                    'message': f'Configured follower mode set to {new_profile}. Will activate when offboard mode starts.'
+                })
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error switching follower profile: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_configured_follower_mode(self):
+        """
+        Endpoint to get the currently configured follower mode from Parameters.
+        
+        Returns:
+            dict: Configured mode information.
+        """
+        try:
+            configured_mode = Parameters.FOLLOWER_MODE
+            
+            try:
+                profile_config = SetpointHandler.get_profile_info(configured_mode)
+                return JSONResponse(content={
+                    'configured_mode': configured_mode,
+                    'profile_info': profile_config,
+                    'status': 'valid'
+                })
+            except Exception as e:
+                return JSONResponse(content={
+                    'configured_mode': configured_mode,
+                    'profile_info': None,
+                    'status': 'invalid',
+                    'error': str(e)
+                })
+                
+        except Exception as e:
+            self.logger.error(f"Error getting configured follower mode: {e}")
+            raise HTTPException(status_code=500, detail=str(e))

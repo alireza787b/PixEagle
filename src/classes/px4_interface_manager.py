@@ -58,6 +58,36 @@ class PX4InterfaceManager:
             self.drone = System(mavsdk_server_address='localhost', port=50051)
         else:
             self.drone = System()
+            
+            
+    async def _safe_mavsdk_call(self, coro):
+        """
+        Safely execute MAVSDK coroutine calls with proper error handling.
+        
+        Args:
+            coro: Coroutine to execute safely
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            await coro
+            return True
+        except Exception as e:
+            # Check if it's the specific async loop error
+            if "attached to a different loop" in str(e):
+                logger.debug("Async loop conflict detected, retrying...")
+                # Try once more after a brief delay
+                try:
+                    await asyncio.sleep(0.001)  # 1ms delay
+                    await coro
+                    return True
+                except Exception as retry_error:
+                    logger.warning(f"MAVSDK call failed after retry: {retry_error}")
+                    return False
+            else:
+                logger.error(f"MAVSDK call error: {e}")
+                return False
 
     async def connect(self):
         """
@@ -164,7 +194,9 @@ class PX4InterfaceManager:
             
             # Send the velocity commands to the drone
             next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_rate)
-            await self.drone.offboard.set_velocity_body(next_setpoint)
+            await self._safe_mavsdk_call(
+                self.drone.offboard.set_velocity_body(next_setpoint)
+            )
 
         except OffboardError as e:
             logger.error(f"Failed to send offboard velocity command: {e}")
@@ -208,7 +240,50 @@ class PX4InterfaceManager:
             logger.error(f"An unexpected error occurred: {ex}")
 
 
+    async def send_velocity_body_offboard_commands(self):
+        """
+        Sends body velocity offboard commands for quadcopter control.
+        Uses the new body velocity field names (vel_body_fwd, vel_body_right, vel_body_down, yawspeed_deg_s).
+        This operation uses MAVSDK VelocityBodyYawspeed.
+        """
+        try:
+            if not hasattr(self, 'setpoint_handler') or self.setpoint_handler is None:
+                logger.error("Setpoint handler not initialized")
+                return
+                
+            # Verify this is the correct control type
+            if self.setpoint_handler.get_control_type() != 'velocity_body_offboard':
+                logger.warning(f"Attempting to send velocity_body_offboard commands but control type is: {self.setpoint_handler.get_control_type()}")
+                
+            setpoint = self.setpoint_handler.get_fields()
+            if not setpoint:
+                logger.error("No setpoint data available")
+                return
 
+            # Extract body velocity fields with safe defaults
+            vel_fwd = float(setpoint.get('vel_body_fwd', 0.0))      # Forward velocity
+            vel_right = float(setpoint.get('vel_body_right', 0.0))  # Right velocity  
+            vel_down = float(setpoint.get('vel_body_down', 0.0))    # Down velocity
+            yawspeed = float(setpoint.get('yawspeed_deg_s', 0.0))   # Yaw speed in deg/s
+
+            # Convert yaw speed from degrees/s to radians/s for MAVSDK
+            yawspeed_rad = math.radians(yawspeed)
+
+            logger.debug(f"Sending VELOCITY_BODY_OFFBOARD: Fwd={vel_fwd:.3f}, Right={vel_right:.3f}, Down={vel_down:.3f}, YawSpeed={yawspeed:.1f}°/s")
+            
+            # Send the velocity commands to the drone using MAVSDK VelocityBodyYawspeed
+            # Note: VelocityBodyYawspeed expects (forward, right, down, yawspeed_rad)
+            next_setpoint = VelocityBodyYawspeed(vel_fwd, vel_right, vel_down, yawspeed_rad)
+            await self._safe_mavsdk_call(
+                self.drone.offboard.set_velocity_body(next_setpoint)
+            )
+
+        except OffboardError as e:
+            logger.error(f"MAVSDK offboard velocity_body_offboard command failed: {e}")
+        except ValueError as e:
+            logger.error(f"Invalid setpoint values for velocity_body_offboard command: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error in send_velocity_body_offboard_commands: {e}")
 
 
     def convert_to_ned(self, vel_x, vel_y, yaw):
@@ -305,3 +380,238 @@ class PX4InterfaceManager:
     async def trigger_failsafe(self):
         logging.critical("Initiating Return to Launch due to altitude safety violation")
         await self.trigger_return_to_launch()
+        
+    async def send_commands_unified(self):
+        """
+        Unified command dispatcher that automatically selects the appropriate 
+        MAVSDK method based on the current follower's control type from schema.
+        """
+        try:
+            if not hasattr(self, 'setpoint_handler') or self.setpoint_handler is None:
+                logger.error("Setpoint handler not initialized")
+                return False
+                
+            # Get control type from schema
+            control_type = self.setpoint_handler.get_control_type()
+            
+            # Dispatch to appropriate method
+            if control_type == 'velocity_body':
+                await self.send_body_velocity_commands()
+            elif control_type == 'attitude_rate':
+                await self.send_attitude_rate_commands()
+            elif control_type == 'velocity_body_offboard':
+                await self.send_velocity_body_offboard_commands()
+            else:
+                logger.error(f"Unknown control type from schema: {control_type}")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error in unified command dispatch: {e}")
+            return False
+
+    async def send_body_velocity_commands(self):
+        """
+        Enhanced schema-aware body velocity command sender.
+        Only sends velocity commands if the current profile supports them.
+        """
+        try:
+            if not hasattr(self, 'setpoint_handler') or self.setpoint_handler is None:
+                logger.error("Setpoint handler not initialized")
+                return
+                
+            # Verify this is the correct control type
+            if self.setpoint_handler.get_control_type() != 'velocity_body':
+                logger.warning(f"Attempting to send velocity commands but control type is: {self.setpoint_handler.get_control_type()}")
+                
+            setpoint = self.setpoint_handler.get_fields()
+            if not setpoint:
+                logger.error("No setpoint data available")
+                return
+
+            # Extract velocity fields with safe defaults
+            vx = float(setpoint.get('vel_x', 0.0))
+            vy = float(setpoint.get('vel_y', 0.0))
+            vz = float(setpoint.get('vel_z', 0.0))
+            yaw_rate = float(setpoint.get('yaw_rate', 0.0))
+
+            logger.debug(f"Sending VELOCITY_BODY: Vx={vx:.3f}, Vy={vy:.3f}, Vz={vz:.3f}, Yaw_rate={yaw_rate:.3f}")
+            
+            # Send the velocity commands to the drone
+            from mavsdk.offboard import VelocityBodyYawspeed, OffboardError
+            next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_rate)
+            await self._safe_mavsdk_call(
+                self.drone.offboard.set_velocity_body(next_setpoint)
+            )
+
+        except OffboardError as e:
+            logger.error(f"MAVSDK offboard velocity command failed: {e}")
+        except ValueError as e:
+            logger.error(f"Invalid setpoint values for velocity command: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error in send_body_velocity_commands: {e}")
+
+    async def send_attitude_rate_commands(self):
+        """
+        Enhanced schema-aware attitude rate command sender.
+        Only sends attitude rate commands if the current profile supports them.
+        """
+        try:
+            if not hasattr(self, 'setpoint_handler') or self.setpoint_handler is None:
+                logger.error("Setpoint handler not initialized")
+                return
+                
+            # Verify this is the correct control type
+            if self.setpoint_handler.get_control_type() != 'attitude_rate':
+                logger.warning(f"Attempting to send attitude rate commands but control type is: {self.setpoint_handler.get_control_type()}")
+                
+            setpoint = self.setpoint_handler.get_fields()
+            if not setpoint:
+                logger.error("No setpoint data available")
+                return
+
+            # Extract attitude rate fields with safe defaults
+            roll_rate = float(setpoint.get('roll_rate', 0.0))
+            pitch_rate = float(setpoint.get('pitch_rate', 0.0))
+            yaw_rate = float(setpoint.get('yaw_rate', 0.0))
+            thrust = float(setpoint.get('thrust', getattr(self, 'hover_throttle', 0.5)))
+
+            logger.debug(f"Sending ATTITUDE_RATE: Roll={roll_rate:.3f}, Pitch={pitch_rate:.3f}, Yaw={yaw_rate:.3f}, Thrust={thrust:.3f}")
+            
+            # Send the attitude rate commands to the drone
+            from mavsdk.offboard import AttitudeRate, OffboardError
+            next_setpoint = AttitudeRate(roll_rate, pitch_rate, yaw_rate, thrust)
+            await self.drone.offboard.set_attitude_rate(next_setpoint)
+
+        except OffboardError as e:
+            logger.error(f"MAVSDK offboard attitude rate command failed: {e}")
+        except ValueError as e:
+            logger.error(f"Invalid setpoint values for attitude rate command: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error in send_attitude_rate_commands: {e}")
+
+    async def send_initial_setpoint(self):
+        """
+        Enhanced schema-aware initial setpoint sender.
+        Automatically determines the correct command type from the schema.
+        """
+        try:
+            if not hasattr(self, 'setpoint_handler') or self.setpoint_handler is None:
+                logger.error("Setpoint handler not initialized, cannot send initial setpoint")
+                return
+                
+            # Get control type directly from setpoint handler schema
+            control_type = self.setpoint_handler.get_control_type()
+            
+            logger.info(f"Sending initial {control_type} setpoint (all zeros)")
+            
+            # Reset all fields to defaults before sending
+            self.setpoint_handler.reset_setpoints()
+            
+            # Send appropriate command type
+            if control_type == 'velocity_body':
+                await self.send_body_velocity_commands()
+            elif control_type == 'attitude_rate':
+                await self.send_attitude_rate_commands()
+            elif control_type == 'velocity_body_offboard':
+                await self.send_velocity_body_offboard_commands()
+            else:
+                logger.error(f"Unknown control type from schema: {control_type}")
+                return
+                
+            logger.debug(f"Initial {control_type} setpoint sent successfully")
+
+        except Exception as e:
+            logger.error(f"Error sending initial setpoint: {e}")
+
+    def validate_setpoint_compatibility(self) -> bool:
+        """
+        Validates that the current setpoint configuration is compatible 
+        with the expected control type.
+        
+        Returns:
+            bool: True if compatible, False otherwise.
+        """
+        try:
+            if not hasattr(self, 'setpoint_handler') or self.setpoint_handler is None:
+                logger.error("Setpoint handler not initialized")
+                return False
+                
+            # Validate profile consistency
+            if hasattr(self.setpoint_handler, 'validate_profile_consistency'):
+                if not self.setpoint_handler.validate_profile_consistency():
+                    logger.error("Setpoint profile consistency validation failed")
+                    return False
+            
+            # Check that we have the required fields for the control type
+            control_type = self.setpoint_handler.get_control_type()
+            available_fields = set(self.setpoint_handler.get_fields().keys())
+            
+            if control_type == 'velocity_body':
+                # At minimum we need vel_z for any velocity control
+                if not any(field in available_fields for field in ['vel_x', 'vel_y', 'vel_z']):
+                    logger.error("Velocity control type but no velocity fields available")
+                    return False
+                    
+            elif control_type == 'attitude_rate':
+                # At minimum we need thrust for attitude rate control
+                if 'thrust' not in available_fields:
+                    logger.error("Attitude rate control type but no thrust field available")
+                    return False
+                    
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error validating setpoint compatibility: {e}")
+            return False
+
+    def get_command_summary(self) -> dict:
+        """
+        Returns a summary of the current command configuration for debugging.
+        
+        Returns:
+            dict: Summary of command state and configuration.
+        """
+        try:
+            if not hasattr(self, 'setpoint_handler') or self.setpoint_handler is None:
+                return {'error': 'Setpoint handler not initialized'}
+                
+            summary = {
+                'control_type': self.setpoint_handler.get_control_type(),
+                'profile_name': self.setpoint_handler.get_display_name(),
+                'available_fields': list(self.setpoint_handler.get_fields().keys()),
+                'current_values': self.setpoint_handler.get_fields(),
+                'validation_status': self.validate_setpoint_compatibility(),
+                'schema_version': getattr(self.setpoint_handler, '_schema_cache', {}).get('schema_version', 'unknown')
+            }
+            
+            return summary
+            
+        except Exception as e:
+            return {'error': f'Failed to generate command summary: {e}'}
+
+    # Method to replace update_setpoint for better schema integration
+    def update_setpoint_enhanced(self):
+        """
+        Enhanced setpoint update that validates compatibility and logs status.
+        """
+        try:
+            if not hasattr(self, 'setpoint_handler'):
+                logger.error("Setpoint handler not available for update")
+                return
+                
+            # Validate before updating
+            if not self.validate_setpoint_compatibility():
+                logger.warning("Setpoint compatibility validation failed during update")
+                
+            # Update the last command reference
+            self.last_command = self.setpoint_handler
+            
+            # Optional: Log current state for debugging
+            if hasattr(self, 'debug_mode') and self.debug_mode:
+                summary = self.get_command_summary()
+                logger.debug(f"Setpoint updated: {summary}")
+                
+        except Exception as e:
+            logger.error(f"Error updating setpoint: {e}")

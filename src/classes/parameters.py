@@ -15,16 +15,18 @@ class Parameters:
         """
         Class method to load configurations from the config.yaml file and set class variables.
         """
-        with open(config_file, 'r') as f:
+        # Fix: Specify UTF-8 encoding to handle special characters
+        with open(config_file, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
 
         # Iterate over all top-level keys (sections)
         for section, params in config.items():
-            for key, value in params.items():
-                # Construct the attribute name in uppercase to match existing usage
-                attr_name = key.upper()
-                # Set the attribute as a class variable
-                setattr(cls, attr_name, value)
+            if params:  # Check if params is not None
+                for key, value in params.items():
+                    # Construct the attribute name in uppercase to match existing usage
+                    attr_name = key.upper()
+                    # Set the attribute as a class variable
+                    setattr(cls, attr_name, value)
 
     @classmethod
     def get_section(cls, section_name):

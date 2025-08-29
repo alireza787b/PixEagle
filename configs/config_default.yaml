@@ -1,429 +1,106 @@
 # ==============================================================================
-# Configuration File for Application
+# PixEagle Configuration File - v2.0
+# ==============================================================================
+# 📋 Priority parameters are at the top for quick access
+# 🔧 All legacy parameters preserved (deprecated ones marked in comments)
+# 📘 Enhanced documentation for each parameter
 # ==============================================================================
 
 # ==============================================================================
-# Video Input Configuration
+# PRIMARY VIDEO INPUT CONFIGURATION (Top Priority)
 # ==============================================================================
 VideoSource:
-  # Type of video source to use.
-  # Options: 'VIDEO_FILE', 'USB_CAMERA', 'RTSP_OPENCV', 'RTSP_GSTREAMER', 'HTTP_STREAM', 'CSI_CAMERA'
+  # Primary video source selection
+  # Options: VIDEO_FILE, USB_CAMERA, RTSP_OPENCV, RTSP_GSTREAMER, UDP_STREAM, HTTP_STREAM, CSI_CAMERA, CUSTOM_GSTREAMER
   VIDEO_SOURCE_TYPE: USB_CAMERA
-  # Path to video file if VIDEO_SOURCE_TYPE is 'VIDEO_FILE'
+  
+  # === Universal Capture Parameters (Applied to ALL sources) ===
+  # 🔧 These ensure consistent processing regardless of input type
+  CAPTURE_WIDTH: 640          # Width in pixels (lower = less CPU)
+  CAPTURE_HEIGHT: 480         # Height in pixels 
+  CAPTURE_FPS: 30            # Target FPS (actual may vary by source)
+  DEFAULT_FPS: 30            # Fallback if source doesn't report FPS
+  
+  # === Performance Optimization ===
+  # 🚀 Enable for Raspberry Pi, Jetson, or low-power systems
+  USE_GSTREAMER: false       # true = Use GStreamer pipelines (better for embedded)
+  
+  # === Source-Specific Parameters ===
+  # Video file source
   VIDEO_FILE_PATH: resources/test4.mp4
-  # Camera index for 'USB_CAMERA' (0 for default webcam)
-  CAMERA_INDEX: 0
-  # RTSP stream URL if VIDEO_SOURCE_TYPE is 'RTSP_STREAM'
+  
+  # USB Camera (webcam)
+  CAMERA_INDEX: 0            # 0=first camera, 1=second, etc.
+  
+  # Network streams
   RTSP_URL: rtsp://192.168.0.108:554/stream=0
-  # latency in ms for RTSP_GSTREAMER mode
-  RTSP_LATENCY: 0                
-  # UDP stream URL if VIDEO_SOURCE_TYPE is 'UDP_STREAM'
+  RTSP_LATENCY: 0           # Buffer in ms (0=minimum latency, 200=stable)
   UDP_URL: udp://172.21.144.1:5000
-  # HTTP stream URL if VIDEO_SOURCE_TYPE is 'HTTP_STREAM'
   HTTP_URL: http://172.21.144.1:8100
-  # CSI camera sensor ID if VIDEO_SOURCE_TYPE is 'CSI_CAMERA'
-  CSI_SENSOR_ID: 0  # Typically 0 for the first camera
+  
+  # CSI Camera (Raspberry Pi/Jetson camera)
+  CSI_SENSOR_ID: 0          # Usually 0 for first CSI port
+  
+  # Custom GStreamer pipeline (advanced users)
+  # Example: "videotestsrc ! video/x-raw,width=640,height=480 ! videoconvert ! appsink"
+  CUSTOM_PIPELINE: ""
+  
+  # === Legacy Parameters (kept for compatibility) ===
+  # DEPRECATED: Use CAPTURE_WIDTH/HEIGHT instead of CSI_WIDTH/HEIGHT
+  STORE_LAST_FRAMES: 5      # Frame history buffer size
 
 # ==============================================================================
-# Camera Configuration
+# USB CAMERA OPTIMIZATION
 # ==============================================================================
-Camera:
-  # CSI camera settings
-  CSI_WIDTH: 640
-  CSI_HEIGHT: 480
-  CSI_FRAMERATE: 30
-  CSI_FLIP_METHOD: 0  # 0 - None (default), 1 - Rotate 90° CW, etc.
+USBCamera:
+  # Device path for Linux GStreamer (ignored on Windows)
+  DEVICE_PATH: /dev/video0
+  
+  # Pixel format selection (impacts CPU usage)
+  # YUYV = uncompressed (moderate CPU)
+  # MJPG = compressed (lowest CPU, recommended for RPi)
+  PIXEL_FORMAT: YUYV
+  
+  # OpenCV backend optimizations (when USE_GSTREAMER=false)
+  USE_V4L2_BACKEND: false    # Linux only: direct V4L2 access
+  OPENCV_BUFFER_SIZE: 1      # 1=lowest latency, 3=smoother
+  OPENCV_FOURCC: ""          # Force codec: "MJPG", "H264", etc.
 
 # ==============================================================================
-# Telemetry Configuration
+# CSI CAMERA CONFIGURATION (Raspberry Pi/Jetson)
 # ==============================================================================
-Telemetry:
-  # Enable or disable telemetry data
-  ENABLE_TELEMETRY: true
-  # Rate at which telemetry data is sent (Hz)
-  TELEMETRY_SEND_RATE: 2
-  # Flask endpoint for telemetry data
-  TELEMETRY_FLASK_ENDPOINT: /telemetry
-  # UDP streaming settings
-  ENABLE_UDP_STREAM: false
-  UDP_HOST: 127.0.0.1
-  UDP_PORT: 5550
-  # WebSocket settings
-  WEBSOCK_HOST: 127.0.0.1
-  WEBSOCK_PORT: 5551
-  # Enable follower telemetry data
-  ENABLE_FOLLOWER_TELEMETRY: true
+Camera:  # Legacy name kept for compatibility
+  # CSI-specific settings
+  CSI_WIDTH: 640            # DEPRECATED: Use CAPTURE_WIDTH in VideoSource
+  CSI_HEIGHT: 480           # DEPRECATED: Use CAPTURE_HEIGHT in VideoSource
+  CSI_FRAMERATE: 30         # DEPRECATED: Use CAPTURE_FPS in VideoSource
+  CSI_FLIP_METHOD: 0        # 0=none, 1=90°CW, 2=180°, 3=90°CCW, 4=horizontal, 5=vertical
+
+CSICamera:  # New section name (preferred)
+  SENSOR_ID: 0              # Camera sensor ID
+  FLIP_METHOD: 0            # Image rotation/flip
 
 # ==============================================================================
-# Streaming Configuration
-# ==============================================================================
-Streaming:
-  # Enable or disable video streaming
-  ENABLE_STREAMING: true
-  # HTTP streaming settings
-  HTTP_STREAM_HOST: 0.0.0.0
-  HTTP_STREAM_PORT: 5077
-  # Stream quality settings
-  STREAM_WIDTH: 640
-  STREAM_HEIGHT: 480
-  STREAM_QUALITY: 60  # JPEG quality (0-100)
-  STREAM_FPS: 10
-  # Stream processed frame with OSD if true, raw frame if false
-  STREAM_PROCESSED_OSD: true
-
-# ==============================================================================
-# PX4 MAVSDK Configuration
+# NETWORK CONFIGURATION (Connection Settings)
 # ==============================================================================
 PX4:
-  # Use external MAVSDK server
+  # 🚁 PX4 Autopilot connection via MAVSDK
   EXTERNAL_MAVSDK_SERVER: true
-  # System address for connecting to PX4 (e.g., 'udp://:14540') For real companion computer set to 127.0.0.1, For WSL:172.21.148.30 (your WSL IP)
+  # For SITL: udp://127.0.0.1:14540
+  # For companion computer: udp://127.0.0.1:14540  
+  # For WSL: udp://172.21.148.30:14540 (use your WSL IP)
   SYSTEM_ADDRESS: udp://127.0.0.1:14540
 
-# ==============================================================================
-# Frame Window Configuration
-# ==============================================================================
-FrameEstimation:
-  # Video frame settings
-  FRAME_TITLE: Video
-  DEFAULT_FPS: 30
-  SHOW_VIDEO_WINDOW: false  # Set to true for debugging
-
-
-# ==============================================================================
-# Estimator Configuration
-# ==============================================================================
-
-  STORE_LAST_FRAMES: 5
-  # Estimator settings
-  USE_ESTIMATOR: true
-  ESTIMATOR_HISTORY_LENGTH: 5
-  ESTIMATOR_ENABLED: true
-  ESTIMATOR_TYPE: Kalman  # Or "None" to disable the estimator
-  # Estimator parameters
-  ESTIMATOR_PROCESS_NOISE_VARIANCE: 10.0  # For acceleration uncertainties
-  ESTIMATOR_MEASUREMENT_NOISE_VARIANCE: 1.0  # To trust measurements more
-  ESTIMATOR_INITIAL_STATE_COVARIANCE: [5, 5, 50, 50, 100, 100]  # x, y, dx, dy, ddx, ddy
-  # Estimator usage
-  USE_ESTIMATOR_FOR_FOLLOWING: true
-  # Visualization colors
-  ESTIMATED_POSITION_COLOR: [255, 0, 0]  # Blue when tracking is successful
-  ESTIMATION_ONLY_COLOR: [0, 165, 255]  # Orange when in estimation-only mode
-
-# ==============================================================================
-# Frame Preprocessing Configuration
-# ==============================================================================
-FramePreprocessor:
-  # Enable or disable preprocessing
-  ENABLE_PREPROCESSING: true
-  # Preprocessing techniques
-  PREPROCESSING_USE_BLUR: true
-  PREPROCESSING_BLUR_KERNEL_SIZE: 5  # Must be an odd number
-  PREPROCESSING_USE_MEDIAN_BLUR: false
-  PREPROCESSING_MEDIAN_BLUR_KERNEL_SIZE: 5  # Must be an odd number
-  PREPROCESSING_USE_CLAHE: true
-  PREPROCESSING_CLAHE_CLIP_LIMIT: 2.0
-  PREPROCESSING_CLAHE_TILE_GRID_SIZE: 8  # Typically between 1 and 10
-  # Color space options: 'BGR', 'GRAY', 'HSV', 'LAB'
-  PREPROCESSING_COLOR_SPACE: BGR
-
-# ==============================================================================
-# Segmentation Configuration
-# ==============================================================================
-Segmentation:
-  # Available segmentation algorithms
-  SEGMENTATION_ALGORITHMS: ['GrabCut', 'Watershed', 'yolov8s-seg', 'yolov8n-oiv7', 'yolov8s-obb','yolov11n']
-  # Default segmentation algorithm to use
-  DEFAULT_SEGMENTATION_ALGORITHM: yolov11n.pt
-  # Use segmentation results for tracking
-  USE_SEGMENTATION_FOR_TRACKING: true
-
-# ==============================================================================
-# Detector Configuration
-# ==============================================================================
-Detector:
-  # Enable or disable the detector
-  USE_DETECTOR: true
-  # Template matching settings
-  TEMPLATE_UPDATE_INTERVAL: 10  # Update template every N frames
-  AUTO_REDETECT: true
-  DETECTION_ALGORITHM: TemplateMatching
-  TEMPLATE_MATCHING_METHOD: TM_CCOEFF_NORMED
-  DEFAULT_FEATURE_EXTRACTION_ALGORITHM: ORB
-  # Template matching parameters
-  TEMPLATE_APPEARANCE_LEARNING_RATE: 0.002
-  TEMPLATE_MATCHING_SCALES: [0.95, 1.0, 1.05]
-  APPEARANCE_CONFIDENCE_THRESHOLD: 0.7
-  TEMPLATE_MATCHING_THRESHOLD: 0.8
-  # Tracker confidence threshold for updating the template
-  TRACKER_CONFIDENCE_THRESHOLD_FOR_TEMPLATE_UPDATE: 0.8
-  # Redetection parameters
-  REDETECTION_SEARCH_RADIUS: 300  # Adjust based on estimator uncertainty
-  MIN_SEARCH_RADIUS: 50  # Minimum search radius in pixels
-  UNCERTAINTY_SCALE_FACTOR: 2.0  # Scales uncertainty to define search radius
-  ESTIMATOR_UNCERTAINTY_THRESHOLD: 1000.0
-  # ORB feature matching parameters
-  ORB_NFEATURES: 500
-  ORB_MIN_MATCH_COUNT: 30  # Minimum matches for reliable detection
-  RANSAC_REPROJECTION_THRESHOLD: 10.0  # RANSAC reprojection threshold
-
-# ==============================================================================
-# Classic Tracking Configuration
-# ==============================================================================
-Tracking:
-  # Default tracking algorithm: 'CSRT', 'ParticleFilter', etc.
-  DEFAULT_TRACKING_ALGORITHM: CSRT
-  # Visualization settings
-  TRACKING_RECTANGLE_COLOR: [255, 0, 0]
-  CENTER_CIRCLE_COLOR: [0, 255, 0]
-  CENTER_HISTORY_LENGTH: 10
-  # Displacement threshold (as a fraction of frame dimensions)
-  MAX_DISPLACEMENT_THRESHOLD: 0.25
-  # Tracking failure timeout before attempting redetection (seconds)
-  TRACKING_FAILURE_TIMEOUT: 5.0
-  # CSRT tracker parameters (if using CSRT)
-  CSRT_APPEARANCE_LEARNING_RATE: 0.05
-  # Appearance validation parameters
-  APPEARANCE_THRESHOLD: 0.3  # Similarity threshold between 0 and 1
-  APPEARANCE_CONFIDENCE_THRESHOLD: 0.5
-  # Confidence weights
-  MOTION_CONFIDENCE_WEIGHT: 0.5
-  APPEARANCE_CONFIDENCE_WEIGHT: 0.5
-  # Confidence threshold for accepting tracking result
-  CONFIDENCE_THRESHOLD: 0.6
-  # Re-detection mechanism
-  REDETECTION_ATTEMPTS: 5
-  # Particle Filter parameters (if using ParticleFilter)
-  PF_NUM_PARTICLES: 500
-  PF_INIT_POS_STD: 20.0  # Initial position standard deviation
-  PF_INIT_VEL_STD: 5.0   # Initial velocity standard deviation
-  PF_INIT_ACC_STD: 1.0   # Initial acceleration standard deviation
-  PF_POS_STD: 15.0       # Process noise standard deviation for position
-  PF_VEL_STD: 5.0        # Process noise standard deviation for velocity
-  PF_ACC_STD: 1.0        # Process noise standard deviation for acceleration
-  PF_APPEARANCE_LIKELIHOOD_SCALE: 25.0  # Scale factor for appearance likelihood
-  PF_APPEARANCE_LEARNING_RATE: 0.05     # Learning rate for adaptive appearance model
-  PF_COLOR_WEIGHT: 0.7   # Weight for color histogram similarity
-  PF_EDGE_WEIGHT: 0.3    # Weight for edge-based similarity
-  PF_CANNY_THRESHOLD1: 50
-  PF_CANNY_THRESHOLD2: 150
-  PF_EFFECTIVE_PARTICLE_NUM_THRESHOLD: 0.5  # Ratio of PF_NUM_PARTICLES
-  PF_RANDOM_PARTICLE_RATIO: 0.1  # Ratio of particles to reinitialize randomly
-
-# ==============================================================================
-# Smart Tracker Configuration
-# ==============================================================================
-
-SmartTracker:
-  SMART_TRACKER_ENABLED: true
-
-  # === Runtime Selection ===
-  SMART_TRACKER_USE_GPU: true               # true = try to use GPU (CUDA), false = force CPU
-  SMART_TRACKER_FALLBACK_TO_CPU: true       # If GPU fails, try to load CPU model
-
-  # 📘 Notes:
-  # - If GPU is enabled but not available, system will automatically fall back to CPU.
-  # - Download YOLOv8 PyTorch models from: https://github.com/ultralytics/ultralytics
-  # - For CUDA support, install PyTorch with GPU support:
-  #   → https://pytorch.org/get-started/locally/
-  #   Example (CUDA 11.8): pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-
-  # === Model Paths ===
-  SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo11n.pt"       # PyTorch .pt file (recommended for GPU)
-  SMART_TRACKER_CPU_MODEL_PATH: "yolo/yolo11n_ncnn_model"   # Can be .pt or .onnx or .ncnn depending on deployment (ncnn is recommended for ARM CPUs)
-  # 📘 Notes:
-  # - Use add_yolo_model.py to automatically download and convert models. Models will be stored in yolo/ folder. 
-
-
-  # === YOLO Detection Parameters ===
-  SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.3     # Minimum confidence for detections
-  SMART_TRACKER_IOU_THRESHOLD: 0.3            # IoU threshold for object matching
-  SMART_TRACKER_MAX_DETECTIONS: 20            # Max objects per frame
-
-  # === Tracker & Drawing Settings ===
-  SMART_TRACKER_TRACKER_TYPE: "bytetrack.yaml"  # Tracker config
-  SMART_TRACKER_COLOR: [0, 255, 255]            # BGR color for tracking overlays
-  SMART_TRACKER_SHOW_FPS: false                 # Show FPS in output
-
-
-
-
-# ==============================================================================
-# Follower Configuration
-# ==============================================================================
-Follower:
-  # MAVLink interface settings
-  USE_MAVLINK2REST: true
-  FOLLOWER_DATA_REFRESH_RATE: 5
-  # ROI selection mode
-  ROI_SELECTION_MODE: MANUAL
-  # Visualization settings
-  SHOW_TRACKING_WINDOW: false
-  DISPLAY_DEVIATIONS: false
-  TRACKED_BBOX_STYLE: fancy
-  FOLLOWER_ACTIVE_COLOR: [0, 0, 255]
-  FOLLOWER_INACTIVE_COLOR: [0, 255, 255]
-  BBOX_LINE_THICKNESS: 2
-  EXTENDED_LINE_THICKNESS: 2
-  CORNER_DOT_RADIUS: 4
-  CROSSHAIR_ARM_LENGTH: 20
-  BBOX_CORNER_ARM_LENGTH: 20
-  OVERLAY_OPACITY: 128
-  # Follower mode options: 'ground_view', 'constant_distance', 'constant_position', 'chase_follower', etc.
-  FOLLOWER_MODE: chase_follower
-  # Control settings
-  ENABLE_ALTITUDE_CONTROL: true
-  TARGET_POSITION_MODE: center
-
-# ==============================================================================
-# Yaw Control Parameters
-# ==============================================================================
-YawControl:
-  ENABLE_YAW_CONTROL: false
-  YAW_CONTROL_THRESHOLD: 0.3
-  YAW_LATERAL_BLEND_FACTOR: 0.5
-  YAW_DEAD_ZONE: 0.2
-
-# ==============================================================================
-# Vertical Error Recalculation Parameters
-# ==============================================================================
-VerticalErrorRecalculation:
-  VERTICAL_RECALC_DELAY: 0.1
-  YAW_PITCH_SYNC_FACTOR: 0.5
-
-# ==============================================================================
-# Gimbal Configuration
-# ==============================================================================
-Gimbal:
-  ENABLE_GIMBAL_PRIORITY: true
-
-# ==============================================================================
-# Adaptive Control Configuration
-# ==============================================================================
-AdaptiveControl:
-  ADAPTIVE_YAW_CONTROL: false
-
-# ==============================================================================
-# Chase Follower Rate Limits Configuration
-# ==============================================================================
-ChaseFollower:
-  MAX_ROLL_RATE: 20.0
-  MAX_PITCH_RATE: 10.0
-  MAX_YAW_RATE: 10.0
-  MAX_THRUST: 1.0
-  MIN_THRUST: 0.3
-  MIN_GROUND_SPEED: 0
-  MAX_GROUND_SPEED: 100
-  TARGET_SPEED: 60
-  MAX_BANK_ANGLE: 20
-  YAW_ERROR_CHECK_ENABLED: true
-  YAW_ERROR_THRESHOLD: 20
-  ALTITUDE_FAILSAFE_ENABLED: false
-
-# ==============================================================================
-# Control and PID Parameters
-# ==============================================================================
-PID:
-  PID_GAINS:
-    x: {p: 4.5, i: 0.1, d: 1.5}
-    y: {p: 4.5, i: 0.1, d: 1.5}
-    z: {p: 2, i: 0.03, d: 0.05}
-    roll_rate: {p: 1, i: 0.05, d: 0.2}
-    pitch_rate: {p: 20, i: 0.1, d: 0.4}
-    yaw_rate: {p: 2.7, i: 0.1, d: 0.01}
-    thrust: {p: 0.1, i: 3, d: 1}
-  PROPORTIONAL_ON_MEASUREMENT: false
-  ENABLE_ANTI_WINDUP: true
-  ANTI_WINDUP_BACK_CALC_COEFF: 0.1
-
-# ==============================================================================
-# Velocity and Descent Limits Configuration
-# ==============================================================================
-VelocityDescent:
-  VELOCITY_LIMITS:
-    x: 10.0
-    y: 10.0
-    z: 5.0
-  ENABLE_DESCEND_TO_TARGET: false
-  MIN_DESCENT_HEIGHT: 40
-  MAX_CLIMB_HEIGHT: 10000
-  MAX_RATE_OF_DESCENT: 2
-  MAX_YAW_RATE: 10
-  DESIRE_AIM: [0, 0]
-  IS_CAMERA_GIMBALED: false
-  BASE_ADJUSTMENT_FACTOR_X: 0.1
-  BASE_ADJUSTMENT_FACTOR_Y: 0.1
-  ALTITUDE_FACTOR: 0.005
-
-# ==============================================================================
-# Gain Scheduling Configuration
-# ==============================================================================
-GainScheduling:
-  ENABLE_GAIN_SCHEDULING: false
-  GAIN_SCHEDULING_PARAMETER: current_altitude
-  ALTITUDE_GAIN_SCHEDULE:
-    '(0, 20)':
-      x: {p: 5.5, i: 0.2, d: 0.4}
-      y: {p: 5.5, i: 0.2, d: 0.4}
-      z: {p: 1, i: 0.01, d: 0.1}
-    '(20, 50)':
-      x: {p: 6, i: 0.25, d: 0.5}
-      y: {p: 6, i: 0.25, d: 0.5}
-      z: {p: 1, i: 0.015, d: 0.15}
-    '(50, 100)':
-      x: {p: 6.5, i: 0.3, d: 0.6}
-      y: {p: 6.5, i: 0.3, d: 0.6}
-      z: {p: 1, i: 0.02, d: 0.2}
-    '(100, 150)':
-      x: {p: 6, i: 0.3, d: 1.0}
-      y: {p: 6, i: 0.3, d: 1.0}
-      z: {p: 1, i: 0.01, d: 0.01}
-    '(150, 200)':
-      x: {p: 5.5, i: 0.25, d: 0.8}
-      y: {p: 5.5, i: 0.25, d: 0.8}
-      z: {p: 1, i: 0.01, d: 0.05}
-
-# ==============================================================================
-# Setpoint Configuration
-# ==============================================================================
-Setpoint:
-  CAMERA_YAW_OFFSET: 0
-  SETPOINT_PUBLISH_RATE_S: 0.1
-  ENABLE_SETPOINT_DEBUGGING: false
-
-# ==============================================================================
-# Debugging and Logging
-# ==============================================================================
-Debugging:
-  ENABLE_DEBUGGING: true
-  LOG_FILE_PATH: logs/tracking_log.txt
-
-# ==============================================================================
-# GStreamer Configuration
-# ==============================================================================
-GStreamer:
-  ENABLE_GSTREAMER_STREAM: false
-  GSTREAMER_HOST: 127.0.0.1
-  GSTREAMER_PORT: 2000
-  GSTREAMER_BITRATE: 2000
-  GSTREAMER_WIDTH: 1280
-  GSTREAMER_HEIGHT: 720
-  GSTREAMER_FRAMERATE: 15
-  GSTREAMER_BUFFER_SIZE: 50000000
-  GSTREAMER_SPEED_PRESET: ultrafast
-  GSTREAMER_KEY_INT_MAX: 30
-  GSTREAMER_TUNE: zerolatency
-  GSTREAMER_CONTRAST: 5.0
-  GSTREAMER_BRIGHTNESS: 10
-  GSTREAMER_SATURATION: 5
-# ==============================================================================
-# MAVLink Configuration
-# ==============================================================================
 MAVLink:
+  # 📡 MAVLink telemetry data source (MAVLink2REST)
   MAVLINK_ENABLED: true
-  MAVLINK_HOST: 127.0.0.1 #For WSL:172.21.148.30 (your WSL IP).  For real companion computer set to 127.0.0.1
+  # For local: 127.0.0.1
+  # For WSL: 172.21.148.30 (your WSL IP)
+  MAVLINK_HOST: 127.0.0.1
   MAVLINK_PORT: 8088
-  MAVLINK_POLLING_INTERVAL: 0.5
+  MAVLINK_POLLING_INTERVAL: 0.5    # Data refresh rate in seconds
+  
+  # Data points to fetch from MAVLink2REST API
   MAVLINK_DATA_POINTS:
     latitude: /vehicles/1/components/1/messages/GLOBAL_POSITION_INT/message/lat
     longitude: /vehicles/1/components/1/messages/GLOBAL_POSITION_INT/message/lon
@@ -447,37 +124,567 @@ MAVLink:
     flight_mode: /vehicles/1/components/1/messages/HEARTBEAT/message/custom_mode
     arm_status: /vehicles/1/components/1/messages/HEARTBEAT/message/base_mode
 
-# OSD Configuration
+
+# ==============================================================================
+# VIDEO STREAMING OUTPUT (Dashboard/Client) - ENHANCED
+# ==============================================================================
+Streaming:
+  # 🖥️ Enable HTTP/WebSocket video streaming to web dashboard
+  ENABLE_STREAMING: true
+  
+  # === Server Settings ===
+  HTTP_STREAM_HOST: 0.0.0.0      # 0.0.0.0 = all interfaces
+  HTTP_STREAM_PORT: 5077          # Web dashboard port
+  
+  # === Stream Quality Settings ===
+  STREAM_WIDTH: 640               # Output resolution
+  STREAM_HEIGHT: 480              
+  STREAM_FPS: 10                  # Target FPS (actual may vary)
+  STREAM_QUALITY: 60              # Default JPEG quality (0-100)
+  STREAM_PROCESSED_OSD: true      # Include overlays
+  
+  
+  # === Frame Buffering ===
+  ENABLE_FRAME_CACHE: true        # Cache encoded frames
+  CACHE_TTL_MS: 100              # Cache time-to-live in ms
+  MAX_FRAME_QUEUE: 3             # Max queued frames per client
+  
+  # === WebSocket Settings ===
+  WS_MAX_CONNECTIONS: 10         # Max concurrent WebSocket clients
+  WS_ENABLE_COMPRESSION: false   # Enable WebSocket compression
+  
+
+   # Adaptive Quality Control
+  ENABLE_ADAPTIVE_QUALITY: true    # Set true for auto quality adjustment
+  MIN_QUALITY: 30                   # Minimum JPEG quality (1-100)
+  MAX_QUALITY: 85                   # Maximum JPEG quality (1-100)
+  QUALITY_STEP: 10                  # Quality adjustment step size
+  
+  # Frame Caching (reduces CPU usage)
+  ENABLE_FRAME_CACHE: true         # Set true to cache encoded frames
+  CACHE_TTL_MS: 100                # Cache time-to-live in milliseconds
+  SKIP_IDENTICAL_FRAMES: true     # Skip encoding if frame unchanged
+  
+  # Connection Limits
+  HTTP_MAX_CONNECTIONS: 20         # Max concurrent HTTP streams
+  WS_MAX_CONNECTIONS: 10           # Max concurrent WebSocket clients
+  MAX_FRAME_QUEUE: 3               # Max queued frames per WebSocket client
+  HTTP_CHUNK_SIZE: 65536         # Chunk size for streaming
+
+  
+  # === Performance ===
+  ENCODING_THREADS: 2            # Parallel encoding threads
+  ENABLE_HARDWARE_ENCODING: false # Use hardware encoder if available
+  SKIP_IDENTICAL_FRAMES: true    # Skip encoding if frame unchanged
+  FRAME_DIFFERENCE_THRESHOLD: 5  # Pixel difference threshold
+  
+  # === H.264 Streaming (Advanced) ===
+  ENABLE_H264_STREAM: false      # Enable H.264/WebRTC streaming
+  H264_BITRATE: 1000000          # H.264 bitrate (bps)
+  H264_PROFILE: baseline         # H.264 profile (baseline/main/high)
+  H264_PRESET: ultrafast         # Encoding preset
+
+# ==============================================================================
+# TRACKING MODE CONFIGURATION
+# ==============================================================================
+Tracking:
+  # 🎯 Classic tracker algorithm selection
+  # Options: CSRT (accurate), KCF (fast), MOSSE (fastest), ParticleFilter (robust)
+  DEFAULT_TRACKING_ALGORITHM: CSRT
+  
+  # === Visualization ===
+  TRACKING_RECTANGLE_COLOR: [255, 0, 0]    # BGR: Blue
+  CENTER_CIRCLE_COLOR: [0, 255, 0]         # BGR: Green
+  CENTER_HISTORY_LENGTH: 10                # Trail length
+  
+  # === Tracking Quality Control ===
+  MAX_DISPLACEMENT_THRESHOLD: 0.25         # Max jump as fraction of frame
+  TRACKING_FAILURE_TIMEOUT: 5.0            # Seconds before re-detection
+  CONFIDENCE_THRESHOLD: 0.6                # Min confidence to accept result
+  
+  # === CSRT Parameters ===
+  CSRT_APPEARANCE_LEARNING_RATE: 0.05      # Adaptation speed
+  
+  # === Appearance Model ===
+  APPEARANCE_THRESHOLD: 0.3                # Similarity threshold (0-1)
+  APPEARANCE_CONFIDENCE_THRESHOLD: 0.5     
+  MOTION_CONFIDENCE_WEIGHT: 0.5            # Balance motion vs appearance
+  APPEARANCE_CONFIDENCE_WEIGHT: 0.5
+  
+  # === Re-detection ===
+  REDETECTION_ATTEMPTS: 5                  # Max attempts before giving up
+  
+  # === Particle Filter Parameters (if using) ===
+  PF_NUM_PARTICLES: 500                    # More = accurate but slower
+  PF_INIT_POS_STD: 20.0                   # Initial position uncertainty
+  PF_INIT_VEL_STD: 5.0                    # Initial velocity uncertainty
+  PF_INIT_ACC_STD: 1.0                    # Initial acceleration uncertainty
+  PF_POS_STD: 15.0                        # Process noise for position
+  PF_VEL_STD: 5.0                         # Process noise for velocity
+  PF_ACC_STD: 1.0                         # Process noise for acceleration
+  PF_APPEARANCE_LIKELIHOOD_SCALE: 25.0    
+  PF_APPEARANCE_LEARNING_RATE: 0.05       
+  PF_COLOR_WEIGHT: 0.7                    # Color vs edge importance
+  PF_EDGE_WEIGHT: 0.3
+  PF_CANNY_THRESHOLD1: 50                 # Edge detection params
+  PF_CANNY_THRESHOLD2: 150
+  PF_EFFECTIVE_PARTICLE_NUM_THRESHOLD: 0.5 
+  PF_RANDOM_PARTICLE_RATIO: 0.1           # Random resampling ratio
+
+# ==============================================================================
+# SMART TRACKER (YOLO-based AI Tracking)
+# ==============================================================================
+SmartTracker:
+  # 🤖 Enable AI-powered object tracking
+  SMART_TRACKER_ENABLED: true
+  
+  # === Hardware Selection ===
+  SMART_TRACKER_USE_GPU: true              # Try GPU first (CUDA)
+  SMART_TRACKER_FALLBACK_TO_CPU: true      # Fall back if GPU fails
+  
+  # === Model Paths ===
+  # 📁 Use add_yolo_model.py to download/convert models
+  SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo11n.pt"          # PyTorch model
+  SMART_TRACKER_CPU_MODEL_PATH: "yolo/yolo11n_ncnn_model"  # Optimized for ARM
+  
+  # === Detection Parameters ===
+  SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.3   # Min detection confidence
+  SMART_TRACKER_IOU_THRESHOLD: 0.3          # Overlap threshold
+  SMART_TRACKER_MAX_DETECTIONS: 20          # Max objects per frame
+  
+  # === Tracker Settings ===
+  SMART_TRACKER_TRACKER_TYPE: "bytetrack.yaml"
+  SMART_TRACKER_COLOR: [0, 255, 255]        # BGR: Yellow
+  SMART_TRACKER_SHOW_FPS: false
+
+# ==============================================================================
+# FOLLOWER MODE (Drone Following Behavior)
+# ==============================================================================
+Follower:
+  # === Interface Settings ===
+  USE_MAVLINK2REST: true                    # Use REST API for MAVLink
+  FOLLOWER_DATA_REFRESH_RATE: 5             # Hz
+  
+  # === Target Selection ===
+  ROI_SELECTION_MODE: MANUAL                # MANUAL or AUTO
+  TARGET_POSITION_MODE: center              # center, top, bottom
+  
+  # === Following Mode ===
+  # Options: ground_view, constant_distance, constant_position, chase_follower
+  FOLLOWER_MODE: chase_follower
+  
+  # === Control Features ===
+  ENABLE_ALTITUDE_CONTROL: true             # Follow target altitude changes
+  
+  # === Visualization ===
+  SHOW_TRACKING_WINDOW: false               # Debug window
+  DISPLAY_DEVIATIONS: false                 # Show error vectors
+  TRACKED_BBOX_STYLE: fancy                 # simple or fancy
+  FOLLOWER_ACTIVE_COLOR: [0, 0, 255]       # BGR: Red when active
+  FOLLOWER_INACTIVE_COLOR: [0, 255, 255]   # BGR: Yellow when inactive
+  BBOX_LINE_THICKNESS: 2
+  EXTENDED_LINE_THICKNESS: 2
+  CORNER_DOT_RADIUS: 4
+  CROSSHAIR_ARM_LENGTH: 20
+  BBOX_CORNER_ARM_LENGTH: 20
+  OVERLAY_OPACITY: 128
+
+BODY_VELOCITY_CHASE:
+  # === Forward Velocity Ramping ===
+  INITIAL_FORWARD_VELOCITY: 0.0           # m/s - starting velocity
+  MAX_FORWARD_VELOCITY: 8.0               # m/s - maximum chase speed
+  FORWARD_RAMP_RATE: 2.0                  # m/s² - acceleration rate
+  RAMP_DOWN_ON_TARGET_LOSS: true          # Decelerate when target lost
+  TARGET_LOSS_TIMEOUT: 2.0                # seconds before ramp down starts
+  
+  # === Control Enablement ===
+  ENABLE_ALTITUDE_CONTROL: true           # Enable down velocity control
+  ENABLE_YAW_INTEGRATION: false           # Future: combine yaw with lateral
+  
+  # === 🧭 LATERAL GUIDANCE MODES ===
+  # Two guidance strategies for lateral target tracking:
+  # - sideslip: Direct lateral velocity (v_right ≠ 0, yaw_rate = 0)
+  #   Best for: Precision hovering, close proximity, confined spaces
+  # - coordinated_turn: Turn-to-track (v_right = 0, yaw_rate ≠ 0) 
+  #   Best for: Forward flight efficiency, natural behavior, wind resistance
+  LATERAL_GUIDANCE_MODE: coordinated_turn     # sideslip | coordinated_turn
+  GUIDANCE_MODE_SWITCH_VELOCITY: 3.0          # m/s - auto-switch threshold
+  ENABLE_AUTO_MODE_SWITCHING: false          # Auto-switch based on forward velocity
+  
+  # === 🛡️ ALTITUDE SAFETY (Body Velocity Chase Specific) ===
+  ALTITUDE_SAFETY_ENABLED: false          # Enable altitude monitoring  
+  MIN_ALTITUDE_LIMIT: 10.0               # meters - trigger RTL below this
+  MAX_ALTITUDE_LIMIT: 120.0              # meters - trigger RTL above this
+  ALTITUDE_CHECK_INTERVAL: 1.0           # seconds - check frequency
+  RTL_ON_ALTITUDE_VIOLATION: true        # Trigger RTL on violation
+  ALTITUDE_WARNING_BUFFER: 2.0           # meters - warning zone before limits
+  
+  # === Safety Limits (Additional to Schema Limits) ===
+  EMERGENCY_STOP_ENABLED: true            # Enable emergency velocity zeroing
+  MAX_TRACKING_ERROR: 1.5                 # Max normalized error before limiting
+  VELOCITY_SMOOTHING_ENABLED: true       # Enable velocity command smoothing
+  SMOOTHING_FACTOR: 0.8                  # Smoothing coefficient (0-1)
+  
+  # === Performance Tuning ===
+  MIN_FORWARD_VELOCITY_THRESHOLD: 0.5    # m/s - minimum velocity to maintain
+  RAMP_UPDATE_RATE: 10.0                 # Hz - forward velocity update frequency
+  PID_UPDATE_RATE: 20.0                  # Hz - tracking PID update frequency
+
+# ==============================================================================
+# DETECTOR CONFIGURATION
+# ==============================================================================
+Detector:
+  # 🔍 Object detection for tracker initialization/recovery
+  USE_DETECTOR: true
+  DETECTION_ALGORITHM: TemplateMatching     # or FeatureMatching, YOLO
+  
+  # === Template Matching ===
+  TEMPLATE_MATCHING_METHOD: TM_CCOEFF_NORMED
+  TEMPLATE_UPDATE_INTERVAL: 10              # Frames between updates
+  TEMPLATE_APPEARANCE_LEARNING_RATE: 0.002
+  TEMPLATE_MATCHING_SCALES: [0.95, 1.0, 1.05]  # Multi-scale search
+  TEMPLATE_MATCHING_THRESHOLD: 0.8
+  APPEARANCE_CONFIDENCE_THRESHOLD: 0.7
+  TRACKER_CONFIDENCE_THRESHOLD_FOR_TEMPLATE_UPDATE: 0.8
+  
+  # === Feature Matching ===
+  DEFAULT_FEATURE_EXTRACTION_ALGORITHM: ORB  # or SIFT, SURF
+  ORB_NFEATURES: 500
+  ORB_MIN_MATCH_COUNT: 30
+  RANSAC_REPROJECTION_THRESHOLD: 10.0
+  
+  # === Re-detection Parameters ===
+  AUTO_REDETECT: true
+  REDETECTION_SEARCH_RADIUS: 300            # Pixels
+  MIN_SEARCH_RADIUS: 50
+  UNCERTAINTY_SCALE_FACTOR: 2.0
+  ESTIMATOR_UNCERTAINTY_THRESHOLD: 1000.0
+
+# ==============================================================================
+# GSTREAMER PIPELINE TEMPLATES
+# ==============================================================================
+# 🔧 Advanced users can edit these templates
+# Variables: {width}, {height}, {fps}, {device_id}, {url}, {latency}
+GStreamerPipelines:
+  # USB camera pipelines
+  USB_YUYV: "v4l2src device=/dev/video{device_id} ! video/x-raw,format=YUY2,width={width},height={height},framerate={fps}/1 ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true max-buffers=1 sync=false"
+  
+  USB_MJPEG: "v4l2src device=/dev/video{device_id} ! image/jpeg,width={width},height={height},framerate={fps}/1 ! jpegdec ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true max-buffers=1 sync=false"
+  
+  # CSI camera pipelines
+  CSI_NVIDIA: "nvarguscamerasrc sensor-id={sensor_id} ! video/x-raw(memory:NVMM),width={width},height={height},format=NV12,framerate={fps}/1 ! nvvidconv flip-method={flip_method} ! video/x-raw,format=BGRx ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true sync=false"
+  
+  CSI_RPI: "libcamerasrc ! video/x-raw,width={width},height={height},framerate={fps}/1 ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true sync=false"
+  
+  # Network stream pipelines
+  RTSP: "rtspsrc location={url} latency={latency} ! decodebin ! videoconvert ! video/x-raw,format=BGR ! videoscale ! video/x-raw,width={width},height={height} ! appsink drop=true sync=false"
+  
+  UDP: "udpsrc uri={url} ! application/x-rtp ! rtph264depay ! avdec_h264 ! videoconvert ! video/x-raw,format=BGR ! videoscale ! video/x-raw,width={width},height={height} ! appsink drop=true sync=false"
+  
+  HTTP: "souphttpsrc location={url} ! decodebin ! videoconvert ! video/x-raw,format=BGR ! videoscale ! video/x-raw,width={width},height={height} ! appsink drop=true sync=false"
+
+# ==============================================================================
+# FRAME WINDOW & DISPLAY
+# ==============================================================================
+FrameEstimation:
+  # 🖼️ Video display window settings
+  FRAME_TITLE: Video                        # Window title
+  DEFAULT_FPS: 30                           # DEPRECATED: Use VideoSource/DEFAULT_FPS
+  SHOW_VIDEO_WINDOW: false                  # true for debugging with display
+
+# ==============================================================================
+# ESTIMATOR (Kalman Filter for Tracking)
+# ==============================================================================
+Estimator:
+  # 📊 State estimation for smooth tracking
+  USE_ESTIMATOR: true
+  ESTIMATOR_TYPE: Kalman                    # Options: Kalman, None
+  ESTIMATOR_ENABLED: true                   # DEPRECATED: Use USE_ESTIMATOR
+  ESTIMATOR_HISTORY_LENGTH: 5               # State history buffer
+  
+  # === Kalman Filter Parameters ===
+  ESTIMATOR_PROCESS_NOISE_VARIANCE: 10.0    # Motion uncertainty
+  ESTIMATOR_MEASUREMENT_NOISE_VARIANCE: 1.0 # Sensor noise
+  # Initial covariance: [x, y, dx, dy, ddx, ddy]
+  ESTIMATOR_INITIAL_STATE_COVARIANCE: [5, 5, 50, 50, 100, 100]
+  
+  # === Usage ===
+  USE_ESTIMATOR_FOR_FOLLOWING: true         # Use predictions for control
+  
+  # === Visualization ===
+  ESTIMATED_POSITION_COLOR: [255, 0, 0]     # Blue: tracking active
+  ESTIMATION_ONLY_COLOR: [0, 165, 255]      # Orange: prediction only
+
+# ==============================================================================
+# FRAME PREPROCESSING
+# ==============================================================================
+FramePreprocessor:
+  # 🎨 Image enhancement for better tracking
+  ENABLE_PREPROCESSING: true
+  
+  # === Blur (noise reduction) ===
+  PREPROCESSING_USE_BLUR: true
+  PREPROCESSING_BLUR_KERNEL_SIZE: 5         # Must be odd (3, 5, 7...)
+  PREPROCESSING_USE_MEDIAN_BLUR: false
+  PREPROCESSING_MEDIAN_BLUR_KERNEL_SIZE: 5
+  
+  # === Contrast Enhancement ===
+  PREPROCESSING_USE_CLAHE: true             # Adaptive histogram equalization
+  PREPROCESSING_CLAHE_CLIP_LIMIT: 2.0       # Contrast limit
+  PREPROCESSING_CLAHE_TILE_GRID_SIZE: 8     # Grid size (1-10)
+  
+  # === Color Space ===
+  PREPROCESSING_COLOR_SPACE: BGR            # Options: BGR, GRAY, HSV, LAB
+
+# ==============================================================================
+# SEGMENTATION
+# ==============================================================================
+Segmentation:
+  # 🎭 Object segmentation for precise tracking
+  SEGMENTATION_ALGORITHMS: ['GrabCut', 'Watershed', 'yolov8s-seg', 'yolov8n-oiv7', 'yolov8s-obb','yolov11n']
+  DEFAULT_SEGMENTATION_ALGORITHM: yolov11n.pt
+  USE_SEGMENTATION_FOR_TRACKING: true
+  
+  # === Morphological Operations ===
+  MORPHOLOGICAL_KERNEL_SIZE: 5
+  DILATION_ITERATIONS: 2
+  EROSION_ITERATIONS: 1
+  
+  # === GrabCut Parameters ===
+  SEGMENTATION_GRABCUT_ITER: 5
+  SEGMENTATION_MIN_AREA: 500                # Min segment area in pixels
+
+# ==============================================================================
+# YAW CONTROL
+# ==============================================================================
+YawControl:
+  # 🔄 Drone yaw (heading) control
+  ENABLE_YAW_CONTROL: false
+  YAW_CONTROL_THRESHOLD: 0.3                # Activation threshold
+  YAW_LATERAL_BLEND_FACTOR: 0.5             # Blend yaw with lateral motion
+  YAW_DEAD_ZONE: 0.2                        # Ignore small errors
+
+# ==============================================================================
+# VERTICAL ERROR RECALCULATION
+# ==============================================================================
+VerticalErrorRecalculation:
+  # 📐 Altitude control parameters
+  VERTICAL_RECALC_DELAY: 0.1                # Seconds
+  YAW_PITCH_SYNC_FACTOR: 0.5                # Coupling factor
+
+# ==============================================================================
+# GIMBAL CONTROL
+# ==============================================================================
+Gimbal:
+  # 📷 Camera gimbal settings
+  ENABLE_GIMBAL_PRIORITY: true              # Gimbal overrides body motion
+
+# ==============================================================================
+# ADAPTIVE CONTROL
+# ==============================================================================
+AdaptiveControl:
+  # 🔧 Adaptive control features
+  ADAPTIVE_YAW_CONTROL: false               # Auto-tune yaw gains
+
+# ==============================================================================
+# CHASE FOLLOWER LIMITS
+# ==============================================================================
+ChaseFollower:
+  # 🚁 Safety limits for chase mode
+  MAX_ROLL_RATE: 20.0                      # deg/s
+  MAX_PITCH_RATE: 10.0                     # deg/s
+  MAX_YAW_RATE: 10.0                       # deg/s
+  MAX_THRUST: 1.0                          # 0-1
+  MIN_THRUST: 0.3                          # 0-1
+  MIN_GROUND_SPEED: 0                      # m/s
+  MAX_GROUND_SPEED: 100                    # m/s
+  TARGET_SPEED: 60                         # m/s
+  MAX_BANK_ANGLE: 20                       # degrees
+  YAW_ERROR_CHECK_ENABLED: true
+  YAW_ERROR_THRESHOLD: 20                  # degrees
+  ALTITUDE_FAILSAFE_ENABLED: false
+
+# ==============================================================================
+# PID CONTROLLER
+# ==============================================================================
+PID:
+  # ⚙️ PID gains for each control axis
+  PID_GAINS:
+    x: {p: 4.5, i: 0.1, d: 1.5}            # Lateral
+    y: {p: 4.5, i: 0.1, d: 1.5}            # Longitudinal  
+    z: {p: 2, i: 0.03, d: 0.05}            # Vertical
+    roll_rate: {p: 1, i: 0.05, d: 0.2}
+    pitch_rate: {p: 20, i: 0.1, d: 0.4}
+    yaw_rate: {p: 2.7, i: 0.1, d: 0.01}
+    thrust: {p: 0.1, i: 3, d: 1}
+    vel_body_right: {p: 3.0, i: 0.1, d: 0.4}
+    vel_body_down: {p: 2.0, i: 0.05, d: 0.3}
+    yawspeed_deg_s: {p: 1.5, i: 0.05, d: 0.2}  # Yaw rate (coordinated turn mode)
+  # === Advanced PID Features ===
+  PROPORTIONAL_ON_MEASUREMENT: false        # Avoid derivative kick
+  ENABLE_ANTI_WINDUP: true                  # Prevent integral windup
+  ANTI_WINDUP_BACK_CALC_COEFF: 0.1         # Back-calculation coefficient
+
+# ==============================================================================
+# VELOCITY & SAFETY LIMITS
+# ==============================================================================
+VelocityDescent:
+  # 🛡️ Safety limits and control parameters
+  VELOCITY_LIMITS:
+    x: 10.0                                 # Max lateral velocity (m/s)
+    y: 10.0                                 # Max longitudinal velocity (m/s)
+    z: 5.0                                  # Max vertical velocity (m/s)
+    vel_body_fwd: 15.0
+    vel_body_right: 8.0  
+    vel_body_down: 5.0
+    yawspeed_deg_s: 180.0
+  
+  # === Altitude Control ===
+  ENABLE_DESCEND_TO_TARGET: false          # Follow target down
+  MIN_DESCENT_HEIGHT: 40                   # Min altitude (m)
+  MAX_CLIMB_HEIGHT: 10000                  # Max altitude (m)
+  MAX_RATE_OF_DESCENT: 2                   # m/s
+  
+  # === Yaw Control ===
+  MAX_YAW_RATE: 10                         # deg/s
+  
+  # === Camera Aiming ===
+  DESIRE_AIM: [0, 0]                       # Desired aim point in frame
+  IS_CAMERA_GIMBALED: false                # Fixed vs gimbal camera
+  
+  # === Control Scaling ===
+  BASE_ADJUSTMENT_FACTOR_X: 0.1
+  BASE_ADJUSTMENT_FACTOR_Y: 0.1
+  ALTITUDE_FACTOR: 0.005                   # Scale with altitude
+
+# ==============================================================================
+# GAIN SCHEDULING
+# ==============================================================================
+GainScheduling:
+  # 📈 Altitude-based gain adjustment
+  ENABLE_GAIN_SCHEDULING: false
+  GAIN_SCHEDULING_PARAMETER: current_altitude
+  
+  # Altitude ranges and corresponding gains
+  ALTITUDE_GAIN_SCHEDULE:
+    '(0, 20)':      # 0-20m altitude
+      x: {p: 5.5, i: 0.2, d: 0.4}
+      y: {p: 5.5, i: 0.2, d: 0.4}
+      z: {p: 1, i: 0.01, d: 0.1}
+    '(20, 50)':     # 20-50m altitude
+      x: {p: 6, i: 0.25, d: 0.5}
+      y: {p: 6, i: 0.25, d: 0.5}
+      z: {p: 1, i: 0.015, d: 0.15}
+    '(50, 100)':    # 50-100m altitude
+      x: {p: 6.5, i: 0.3, d: 0.6}
+      y: {p: 6.5, i: 0.3, d: 0.6}
+      z: {p: 1, i: 0.02, d: 0.2}
+    '(100, 150)':   # 100-150m altitude
+      x: {p: 6, i: 0.3, d: 1.0}
+      y: {p: 6, i: 0.3, d: 1.0}
+      z: {p: 1, i: 0.01, d: 0.01}
+    '(150, 200)':   # 150-200m altitude
+      x: {p: 5.5, i: 0.25, d: 0.8}
+      y: {p: 5.5, i: 0.25, d: 0.8}
+      z: {p: 1, i: 0.01, d: 0.05}
+
+# ==============================================================================
+# SETPOINT CONTROL
+# ==============================================================================
+Setpoint:
+  # 📍 Position/velocity setpoint configuration
+  CAMERA_YAW_OFFSET: 0                     # Camera mounting offset (degrees)
+  SETPOINT_PUBLISH_RATE_S: 0.1             # Setpoint update period (seconds)
+  ENABLE_SETPOINT_DEBUGGING: false         # Debug output
+
+# ==============================================================================
+# TELEMETRY
+# ==============================================================================
+Telemetry:
+  # 📊 Telemetry data distribution
+  ENABLE_TELEMETRY: true
+  TELEMETRY_SEND_RATE: 2                   # Hz
+  TELEMETRY_FLASK_ENDPOINT: /telemetry     # REST endpoint
+  
+  # === UDP Telemetry ===
+  ENABLE_UDP_STREAM: false
+  UDP_HOST: 127.0.0.1
+  UDP_PORT: 5550
+  
+  # === WebSocket Telemetry ===
+  WEBSOCK_HOST: 127.0.0.1
+  WEBSOCK_PORT: 5551
+  
+  # === Data Selection ===
+  ENABLE_FOLLOWER_TELEMETRY: true          # Include follower status
+
+# ==============================================================================
+# GSTREAMER OUTPUT STREAM (Secondary Output)
+# ==============================================================================
+GStreamer:
+  # 📹 Optional GStreamer pipeline for external streaming
+  ENABLE_GSTREAMER_STREAM: false
+  GSTREAMER_HOST: 127.0.0.1
+  GSTREAMER_PORT: 2000
+  GSTREAMER_BITRATE: 2000                  # kbps
+  GSTREAMER_WIDTH: 1280
+  GSTREAMER_HEIGHT: 720
+  GSTREAMER_FRAMERATE: 15
+  GSTREAMER_BUFFER_SIZE: 50000000          # bytes
+  GSTREAMER_SPEED_PRESET: ultrafast        # x264 preset
+  GSTREAMER_KEY_INT_MAX: 30                # Keyframe interval
+  GSTREAMER_TUNE: zerolatency               # x264 tuning
+  
+  # === Video Enhancement ===
+  GSTREAMER_CONTRAST: 5.0
+  GSTREAMER_BRIGHTNESS: 10
+  GSTREAMER_SATURATION: 5
+
+# ==============================================================================
+# OSD (ON-SCREEN DISPLAY)
+# ==============================================================================
 OSD:
+  # 📺 Video overlay configuration
   OSD_ENABLED: true
+  
   OSD_CONFIG:
+    # === Title/Watermark ===
     name:
       enabled: true
       text: PixEagle
-      position: [3, 5]
-      color: [255, 255, 255]
+      position: [3, 5]                     # % from top-left
+      color: [255, 255, 255]               # BGR: White
       font_size: 0.7
+    
+    # === Timestamp ===
     datetime:
       enabled: true
-      position: [98, 5]
+      position: [98, 5]                    # % from top-left
       color: [255, 255, 255]
       font_size: 0.6
       alignment: right
+    
+    # === Crosshair ===
     crosshair:
       enabled: true
-      color: [0, 255, 0]
+      color: [0, 255, 0]                   # BGR: Green
       thickness: 2
       length: 15
+    
+    # === Attitude Indicator (Artificial Horizon) ===
     attitude_indicator:
       enabled: true
-      position: [50, 50]
-      size: [70, 70]
+      position: [50, 50]                   # Center position
+      size: [70, 70]                       # Width, height
       horizon_color: [255, 255, 255]
       grid_color: [200, 200, 200]
       thickness: 2
+    
+    # === MAVLink Telemetry Data ===
     mavlink_data:
       enabled: true
       fields:
+        # Navigation data
         heading:
           position: [45, 30]
           font_size: 0.5
@@ -494,6 +701,8 @@ OSD:
           position: [10, 65]
           font_size: 0.3
           color: [255, 255, 255]
+        
+        # Altitude data
         altitude_msl:
           position: [65, 45]
           font_size: 0.4
@@ -506,6 +715,8 @@ OSD:
           position: [65, 65]
           font_size: 0.4
           color: [255, 255, 255]
+        
+        # Attitude
         roll:
           position: [45, 75]
           font_size: 0.5
@@ -514,6 +725,8 @@ OSD:
           position: [45, 80]
           font_size: 0.5
           color: [255, 255, 255]
+        
+        # GPS data
         latitude:
           position: [2, 92]
           font_size: 0.3
@@ -530,6 +743,8 @@ OSD:
           position: [2, 84]
           font_size: 0.4
           color: [255, 255, 255]
+        
+        # System status
         voltage:
           position: [2, 12]
           font_size: 0.4
@@ -541,15 +756,41 @@ OSD:
         flight_mode:
           position: [45, 10]
           font_size: 0.5
-          color: [0, 0, 255]
+          color: [0, 0, 255]               # BGR: Blue
           alignment: center
+    
+    # === Tracker Status ===
     tracker_status:
       enabled: true
       position: [75, 92]
       font_size: 0.4
-      color: [255, 255, 0]
+      color: [255, 255, 0]                 # BGR: Cyan
+    
+    # === Follower Status ===
     follower_status:
       enabled: true
       position: [75, 96]
       font_size: 0.4
-      color: [255, 255, 0]
+      color: [255, 255, 0]                 # BGR: Cyan
+
+# ==============================================================================
+# DEBUGGING & LOGGING
+# ==============================================================================
+Debugging:
+  # 🐛 Debug and logging configuration
+  ENABLE_DEBUGGING: true
+  LOG_FILE_PATH: logs/tracking_log.txt
+  LOG_LEVEL: INFO                          # DEBUG, INFO, WARNING, ERROR
+  SAVE_DEBUG_FRAMES: false                 # Save frames for analysis
+  DEBUG_FRAME_PATH: debug_frames/          # Debug frame storage
+
+# ==============================================================================
+# DEPRECATED PARAMETERS
+# ==============================================================================
+# ⚠️ These parameters are kept for backward compatibility but should not be used
+# in new deployments. They will be removed in future versions.
+#
+# CSI_WIDTH/HEIGHT/FRAMERATE → Use CAPTURE_WIDTH/HEIGHT/FPS in VideoSource
+# ESTIMATOR_ENABLED → Use USE_ESTIMATOR in Estimator section
+# DEFAULT_FPS in FrameEstimation → Use DEFAULT_FPS in VideoSource
+# ==============================================================================
