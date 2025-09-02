@@ -270,8 +270,8 @@ Follower:
   TARGET_POSITION_MODE: center              # center, top, bottom
   
   # === Following Mode ===
-  # Options: ground_view, constant_distance, constant_position, chase_follower
-  FOLLOWER_MODE: chase_follower
+  # Options: ground_view, constant_distance, constant_position, chase_follower, body_velocity_chase
+  FOLLOWER_MODE: constant_position
   
   # === Control Features ===
   ENABLE_ALTITUDE_CONTROL: true             # Follow target altitude changes
@@ -518,7 +518,7 @@ PID:
     yaw_rate: {p: 2.7, i: 0.1, d: 0.01}
     thrust: {p: 0.1, i: 3, d: 1}
     vel_body_right: {p: 3.0, i: 0.1, d: 0.4}
-    vel_body_down: {p: 2.0, i: 0.05, d: 0.3}
+    vel_body_down: {p: 4.0, i: 0.5, d: 0.3}
     yawspeed_deg_s: {p: 1.5, i: 0.05, d: 0.2}  # Yaw rate (coordinated turn mode)
   # === Advanced PID Features ===
   PROPORTIONAL_ON_MEASUREMENT: false        # Avoid derivative kick
