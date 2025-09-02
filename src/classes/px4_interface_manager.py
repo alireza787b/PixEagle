@@ -266,14 +266,14 @@ class PX4InterfaceManager:
             vel_down = float(setpoint.get('vel_body_down', 0.0))    # Down velocity
             yawspeed = float(setpoint.get('yawspeed_deg_s', 0.0))   # Yaw speed in deg/s
 
-            # Convert yaw speed from degrees/s to radians/s for MAVSDK
-            yawspeed_rad = math.radians(yawspeed)
+            # Convert yaw speed from degrees/s to radians/s if needed
+            # yawspeed_rad = math.radians(yawspeed)
 
             logger.debug(f"Sending VELOCITY_BODY_OFFBOARD: Fwd={vel_fwd:.3f}, Right={vel_right:.3f}, Down={vel_down:.3f}, YawSpeed={yawspeed:.1f}°/s")
             
             # Send the velocity commands to the drone using MAVSDK VelocityBodyYawspeed
-            # Note: VelocityBodyYawspeed expects (forward, right, down, yawspeed_rad)
-            next_setpoint = VelocityBodyYawspeed(vel_fwd, vel_right, vel_down, yawspeed_rad)
+            # Note: VelocityBodyYawspeed expects (forward, right, down, yawspeed_deg_s)
+            next_setpoint = VelocityBodyYawspeed(vel_fwd, vel_right, vel_down, yawspeed)
             await self._safe_mavsdk_call(
                 self.drone.offboard.set_velocity_body(next_setpoint)
             )
