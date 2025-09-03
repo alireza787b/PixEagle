@@ -50,6 +50,14 @@ Your Drone Can Now Think — Smart Tracking with YOLO + PX4
   - Download YOLO models from Ultralytics
   - Auto-convert and register them for GPU/CPU usage
 
+#### 🏗️ Schema-Aware Architecture (New)
+
+- **YAML-based configuration system** for trackers and followers
+- **Add custom trackers** without modifying core code
+- **Dynamic validation** and type-safe data structures
+- **Extensible follower modes** with unified command processing
+- 📚 [Complete Developer Guide](docs/Tracker_and_Follower_Schema_Developer_Guide.md)
+
 #### 🎯 Performance, Bug Fixes & Reliability
 
 - Better tracker fallback and recovery logic
