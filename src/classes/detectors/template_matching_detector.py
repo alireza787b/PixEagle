@@ -90,7 +90,7 @@ class TemplateMatchingDetector(BaseDetector):
         # Update adaptive features only
         self.adaptive_features = (1 - Parameters.TEMPLATE_APPEARANCE_LEARNING_RATE) * self.adaptive_features + \
                                  Parameters.TEMPLATE_APPEARANCE_LEARNING_RATE * features
-        logger.debug("Adaptive features updated in TemplateMatchingDetector.")
+        logger.debug(f"TEMPLATE: Adaptive features updated (Learning rate: {Parameters.TEMPLATE_APPEARANCE_LEARNING_RATE})")
 
     def smart_redetection(self, frame: np.ndarray, tracker=None, roi: Optional[Tuple[int, int, int, int]] = None) -> bool:
         """
@@ -124,7 +124,7 @@ class TemplateMatchingDetector(BaseDetector):
         # Perform multi-scale template matching
         match_found, match_result = self.perform_multiscale_template_matching(frame_to_search)
         if not match_found:
-            logger.info("No matches found using template matching.")
+            logger.debug("TEMPLATE: No matches found during redetection")
             return False
 
         # Extract the matched bounding box
@@ -133,12 +133,12 @@ class TemplateMatchingDetector(BaseDetector):
         top_left_x += x_offset
         top_left_y += y_offset
         self.latest_bbox = (top_left_x, top_left_y, w, h)
-        logger.debug(f"Redetection successful. New bbox: {self.latest_bbox}")
+        logger.info(f"TEMPLATE: Redetection successful - Target found at {self.latest_bbox}")
 
         # Validate the match
         is_valid = self.validate_match(frame, self.latest_bbox)
         if not is_valid:
-            logger.info("Match validation failed after redetection.")
+            logger.debug("TEMPLATE: Match validation failed after redetection")
             return False
 
         # Update adaptive features

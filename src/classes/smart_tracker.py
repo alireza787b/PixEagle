@@ -5,6 +5,7 @@ import time
 import logging
 from ultralytics import YOLO
 from classes.parameters import Parameters
+from classes.tracker_output import TrackerOutput, TrackerDataType
 
 
 class SmartTracker:
@@ -242,4 +243,162 @@ class SmartTracker:
 
 
         return blended_frame
+
+    def get_output(self) -> TrackerOutput:
+        """
+        Returns SmartTracker output in the new flexible schema format.
+        
+        Returns:
+            TrackerOutput: YOLO-based tracker data with multi-target support
+        """
+        # Check if we have an active selection
+        tracking_active = (self.selected_object_id is not None and 
+                          self.selected_bbox is not None and
+                          self.selected_center is not None)
+        
+        # Prepare multi-target data if available
+        targets = []
+        if self.last_results and self.last_results[0].boxes is not None:
+            detections = self.last_results[0].boxes.data
+            for track in detections:
+                track = track.tolist()
+                if len(track) >= 6:
+                    x1, y1, x2, y2 = map(int, track[:4])
+                    conf = float(track[5])
+                    class_id = int(track[6]) if len(track) >= 7 else int(track[5])
+                    track_id = int(track[4]) if len(track) >= 7 else -1
+                    
+                    target_data = {
+                        'target_id': track_id,
+                        'class_id': class_id,
+                        'class_name': self.labels.get(class_id, str(class_id)),
+                        'bbox': (x1, y1, x2 - x1, y2 - y1),  # Convert to x,y,w,h
+                        'center': self.get_center(x1, y1, x2, y2),
+                        'confidence': conf,
+                        'is_selected': track_id == self.selected_object_id
+                    }
+                    targets.append(target_data)
+        
+        return TrackerOutput(
+            data_type=TrackerDataType.MULTI_TARGET,
+            timestamp=time.time(),
+            tracking_active=tracking_active,
+            tracker_id=f"SmartTracker_{id(self)}",
+            
+            # Primary target data (selected object)
+            position_2d=self._normalize_center(self.selected_center) if self.selected_center else None,
+            bbox=self._convert_bbox_format(self.selected_bbox) if self.selected_bbox else None,
+            normalized_bbox=self._normalize_bbox(self.selected_bbox) if self.selected_bbox else None,
+            confidence=self._get_selected_confidence(),
+            
+            # Multi-target data
+            target_id=self.selected_object_id,
+            targets=targets,
+            
+            quality_metrics={
+                'detection_count': len(targets),
+                'fps': self.fps_display,
+                'model_confidence_threshold': self.conf_threshold
+            },
+            
+            raw_data={
+                'yolo_results': self.last_results[0].boxes.data.tolist() if self.last_results and self.last_results[0].boxes is not None else [],
+                'selected_class_id': self.selected_class_id,
+                'tracker_type': self.tracker_type,
+                'device': str(self.model.device) if hasattr(self.model, 'device') else 'unknown'
+            },
+            
+            metadata={
+                'tracker_class': self.__class__.__name__,
+                'tracker_algorithm': 'YOLO + ByteTrack',
+                'model_type': 'YOLO',
+                'supports_multi_target': True,
+                'supports_classification': True,
+                'real_time': True,
+                'detection_classes': list(self.labels.keys()) if self.labels else []
+            }
+        )
+
+    def get_capabilities(self) -> dict:
+        """
+        Returns SmartTracker capabilities.
+        
+        Returns:
+            dict: SmartTracker-specific capabilities
+        """
+        return {
+            'data_types': [TrackerDataType.MULTI_TARGET.value],
+            'supports_confidence': True,
+            'supports_velocity': False,  # YOLO doesn't directly provide velocity
+            'supports_bbox': True,
+            'supports_normalization': True,
+            'supports_multi_target': True,
+            'supports_classification': True,
+            'estimator_available': False,
+            'multi_target': True,
+            'real_time': True,
+            'tracker_algorithm': 'YOLO + ByteTrack',
+            'accuracy_rating': 'very_high',
+            'speed_rating': 'high' if hasattr(self.model, 'device') and 'cuda' in str(self.model.device) else 'medium',
+            'detection_classes': len(self.labels) if self.labels else 0
+        }
+
+    def _normalize_center(self, center):
+        """Normalize center coordinates to [-1, 1] range."""
+        if not center or not hasattr(self.app_controller, 'video_handler'):
+            return None
+        
+        video_handler = self.app_controller.video_handler
+        if not video_handler:
+            return None
+            
+        frame_width, frame_height = video_handler.width, video_handler.height
+        x, y = center
+        norm_x = (x - frame_width / 2) / (frame_width / 2)
+        norm_y = (y - frame_height / 2) / (frame_height / 2)
+        return (norm_x, norm_y)
+
+    def _normalize_bbox(self, bbox):
+        """Normalize bounding box coordinates."""
+        if not bbox or not hasattr(self.app_controller, 'video_handler'):
+            return None
+            
+        video_handler = self.app_controller.video_handler
+        if not video_handler:
+            return None
+            
+        frame_width, frame_height = video_handler.width, video_handler.height
+        x1, y1, x2, y2 = bbox
+        w, h = x2 - x1, y2 - y1
+        x, y = x1, y1
+        
+        norm_x = (x - frame_width / 2) / (frame_width / 2)
+        norm_y = (y - frame_height / 2) / (frame_height / 2)
+        norm_w = w / frame_width
+        norm_h = h / frame_height
+        return (norm_x, norm_y, norm_w, norm_h)
+
+    def _convert_bbox_format(self, bbox):
+        """Convert x1,y1,x2,y2 to x,y,w,h format."""
+        if not bbox:
+            return None
+        x1, y1, x2, y2 = bbox
+        return (x1, y1, x2 - x1, y2 - y1)
+
+    def _get_selected_confidence(self):
+        """Get confidence of the selected object."""
+        if not self.last_results or not self.selected_object_id:
+            return None
+            
+        if not self.last_results[0].boxes:
+            return None
+            
+        detections = self.last_results[0].boxes.data
+        for track in detections:
+            track = track.tolist()
+            if len(track) >= 6:
+                track_id = int(track[4]) if len(track) >= 7 else -1
+                if track_id == self.selected_object_id:
+                    return float(track[5])
+        return None
 

@@ -81,9 +81,10 @@ from abc import ABC, abstractmethod
 from collections import deque
 import time
 import numpy as np
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 import cv2
 from classes.parameters import Parameters
+from classes.tracker_output import TrackerOutput, TrackerDataType, create_legacy_tracker_output
 import logging
 
 class BaseTracker(ABC):
@@ -149,6 +150,9 @@ class BaseTracker(ABC):
         self.normalized_bbox: Optional[Tuple[float, float, float, float]] = None  # Normalized bounding box
         self.normalized_center: Optional[Tuple[float, float]] = None              # Normalized center
         self.center_history = deque(maxlen=Parameters.CENTER_HISTORY_LENGTH)      # History of centers
+        
+        # Tracking state management
+        self.tracking_started: bool = False  # Whether this tracker has been started
 
         # Estimator initialization
         self.estimator_enabled = Parameters.USE_ESTIMATOR
@@ -189,6 +193,19 @@ class BaseTracker(ABC):
             Tuple[bool, Tuple[int, int, int, int]]: A tuple containing the success status and the new bounding box.
         """
         pass
+
+    def stop_tracking(self) -> None:
+        """
+        Stops the tracker and resets its state.
+        """
+        self.tracking_started = False
+        self.bbox = None
+        self.center = None
+        self.prev_center = None
+        self.normalized_bbox = None
+        self.normalized_center = None
+        self.confidence = 1.0
+        logging.debug(f"{self.__class__.__name__} tracking stopped and state reset")
 
     def compute_confidence(self, frame: np.ndarray) -> float:
         """
@@ -527,4 +544,71 @@ class BaseTracker(ABC):
         # Re-instantiate the OpenCV tracker to ensure clean state
         self.tracker = cv2.TrackerCSRT_create()
         logging.info("Tracker fully reset.")
+
+    def get_output(self) -> TrackerOutput:
+        """
+        Returns standardized tracker output in the new flexible schema format.
+        
+        This method provides the unified interface for all tracker types,
+        ensuring consistent data access across the application.
+        
+        Returns:
+            TrackerOutput: Structured tracker data with all available information
+        """
+        return TrackerOutput(
+            data_type=TrackerDataType.POSITION_2D,
+            timestamp=time.time(),
+            tracking_active=self.tracking_started,
+            tracker_id=self.__class__.__name__,
+            position_2d=self.normalized_center,
+            bbox=self.bbox,
+            normalized_bbox=self.normalized_bbox,
+            confidence=self.confidence,
+            velocity=None,  # Can be overridden by subclasses
+            raw_data={
+                'center_history_length': len(self.center_history) if self.center_history else 0,
+                'estimator_enabled': self.estimator_enabled,
+                'override_active': self.override_active,
+                'tracking_started': self.tracking_started
+            },
+            metadata={
+                'tracker_class': self.__class__.__name__,
+                'has_estimator': bool(self.position_estimator),
+                'center_pixel': self.center,
+                'bbox_pixel': self.bbox
+            }
+        )
+
+    def get_capabilities(self) -> Dict[str, Any]:
+        """
+        Returns the capabilities of this tracker implementation.
+        
+        Returns:
+            Dict[str, Any]: Tracker capabilities and supported features
+        """
+        return {
+            'data_types': [TrackerDataType.POSITION_2D.value],
+            'supports_confidence': True,
+            'supports_velocity': bool(self.position_estimator),
+            'supports_bbox': True,
+            'supports_normalization': True,
+            'estimator_available': bool(self.position_estimator),
+            'multi_target': False,
+            'real_time': True
+        }
+
+    def get_legacy_data(self) -> Dict[str, Any]:
+        """
+        Returns data in the legacy format for backwards compatibility.
+        
+        Returns:
+            Dict[str, Any]: Legacy format data structure
+        """
+        return {
+            'bounding_box': self.normalized_bbox,
+            'center': self.normalized_center,
+            'confidence': self.confidence,
+            'tracker_started': self.tracking_started if hasattr(self, 'tracking_started') else bool(self.center),
+            'timestamp': time.time()
+        }
 

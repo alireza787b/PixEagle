@@ -27,7 +27,31 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
   }
 
   const latestTrackerData = trackerData[trackerData.length - 1];
-  if (!latestTrackerData || !latestTrackerData.center || !latestTrackerData.bounding_box) {
+  
+  // Enhanced data extraction supporting flexible schema
+  const getTrackerCenter = (data) => {
+    // New schema format
+    if (data.tracker_data) {
+      if (data.tracker_data.position_2d) return data.tracker_data.position_2d;
+      if (data.tracker_data.position_3d) return data.tracker_data.position_3d.slice(0, 2);
+    }
+    // Legacy format
+    return data.center;
+  };
+  
+  const getTrackerBbox = (data) => {
+    // New schema format
+    if (data.tracker_data && data.tracker_data.normalized_bbox) {
+      return data.tracker_data.normalized_bbox;
+    }
+    // Legacy format
+    return data.bounding_box;
+  };
+  
+  const trackerCenter = getTrackerCenter(latestTrackerData);
+  const trackerBbox = getTrackerBbox(latestTrackerData);
+  
+  if (!latestTrackerData || !trackerCenter || !trackerBbox) {
     return (
       <div>
         <h3>{title}</h3>
@@ -41,14 +65,14 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
   const datasets = [
     {
       label: 'Center Point',
-      data: [{ x: latestTrackerData.center[0], y: latestTrackerData.center[1] * -1 }],
+      data: [{ x: trackerCenter[0], y: trackerCenter[1] * -1 }],
       backgroundColor: 'rgba(75, 192, 192, 1)',
       pointRadius: 5,
     },
     {
       label: 'Bounding Box',
       data: (() => {
-        const [x, y, width, height] = latestTrackerData.bounding_box;
+        const [x, y, width, height] = trackerBbox;
         return [
           { x: x, y: -y },
           { x: x + 2 * width, y: -y },

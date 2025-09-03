@@ -32,6 +32,12 @@ class MavlinkDataManager:
         self.min_velocity_threshold = 0.5  # m/s, adjust based on your drone's characteristics
         self.gamma = 0
 
+        # Connection state tracking
+        self.connection_state = "disconnected"  # disconnected, connecting, connected, error
+        self.last_successful_connection = None
+        self.connection_error_count = 0
+        self.last_status_log = 0  # For throttling status messages
+
         # Setup logging
         logging.basicConfig(level=logging.DEBUG)  # Set to DEBUG for detailed logging
         self.logger = logging.getLogger(__name__)
@@ -68,11 +74,23 @@ class MavlinkDataManager:
         """
         Fetch all MAVLink data in a single request and parse it into the data dictionary.
         """
+        url = f"http://{self.mavlink_host}:{self.mavlink_port}/v1/mavlink"
+        
         try:
-            url = f"http://{self.mavlink_host}:{self.mavlink_port}/v1/mavlink"
-            response = requests.get(url)
+            # Update connection state
+            if self.connection_state != "connecting":
+                self.connection_state = "connecting"
+            
+            response = requests.get(url, timeout=5)  # Add timeout
             response.raise_for_status()
             json_data = response.json()
+
+            # Connection successful
+            if self.connection_state != "connected":
+                self.connection_state = "connected"
+                self.last_successful_connection = time.time()
+                self.connection_error_count = 0
+                self.logger.info(f"MAVLINK CONNECTION: Established to {self.mavlink_host}:{self.mavlink_port}")
 
             with self._lock:
                 # Iterate through the data points defined in Parameters
@@ -99,8 +117,48 @@ class MavlinkDataManager:
                                     self.logger.error(f"Failed to convert {point_name} value to float for division: {e}")
                                     value = "N/A"
                         self.data[point_name] = value
+                        
+            # Log status periodically when connected
+            current_time = time.time()
+            if current_time - self.last_status_log > 30:  # Every 30 seconds
+                arm_status = self.data.get('arm_status', 'Unknown')
+                altitude = self.data.get('altitude', 'N/A')
+                lat = self.data.get('latitude', 'N/A')
+                lon = self.data.get('longitude', 'N/A')
+                
+                # Format coordinates for display
+                coord_str = f"GPS: {lat:.6f},{lon:.6f}" if lat != 'N/A' and lon != 'N/A' else "GPS: N/A"
+                
+                self.logger.info(f"MAVLINK: Connected | Armed: {arm_status} | Alt: {altitude}m | {coord_str}")
+                self.last_status_log = current_time
+                
+        except requests.exceptions.ConnectionError:
+            self._handle_connection_error("Connection refused - MAVLink server not running or unreachable")
+        except requests.exceptions.Timeout:
+            self._handle_connection_error("Connection timeout - MAVLink server not responding")
         except requests.RequestException as e:
-            self.logger.error(f"Error fetching data from {url}: {e}")
+            self._handle_connection_error(f"Request failed: {str(e)[:50]}...")
+        except Exception as e:
+            self._handle_connection_error(f"Unexpected error: {str(e)[:50]}...")
+    
+    def _handle_connection_error(self, error_reason):
+        """Handle connection errors with clean, throttled logging."""
+        self.connection_state = "error"
+        self.connection_error_count += 1
+        
+        # Log connection errors with throttling
+        current_time = time.time()
+        if (self.connection_error_count == 1 or  # First error
+            self.connection_error_count % 10 == 0 or  # Every 10th error
+            current_time - self.last_status_log > 60):  # Every minute
+            
+            if self.connection_error_count == 1:
+                self.logger.warning(f"MAVLINK: Disconnected - {error_reason} ({self.mavlink_host}:{self.mavlink_port})")
+            else:
+                elapsed_time = int(current_time - (self.last_successful_connection or current_time - 60))
+                self.logger.warning(f"MAVLINK: Still disconnected ({self.connection_error_count} attempts, {elapsed_time}s) - {error_reason}")
+            
+            self.last_status_log = current_time
             
             
     def _calculate_flight_path_angle(self):

@@ -16,13 +16,14 @@ from classes.trackers.tracker_factory import create_tracker
 from classes.px4_interface_manager import PX4InterfaceManager  # Updated import path
 from classes.telemetry_handler import TelemetryHandler
 from classes.fastapi_handler import FastAPIHandler  # Correct import
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Any
 from classes.osd_handler import OSDHandler
 from classes.gstreamer_handler import GStreamerHandler
 from classes.mavlink_data_manager import MavlinkDataManager
 from classes.frame_preprocessor import FramePreprocessor
 from classes.estimators.estimator_factory import create_estimator
 from classes.detectors.detector_factory import create_detector
+from classes.tracker_output import TrackerOutput, TrackerDataType
 
 # Import the SmartTracker module
 from classes.smart_tracker import SmartTracker
@@ -72,6 +73,10 @@ class AppController:
         self.frame_counter = 0
         self.tracking_started = False
         self.segmentation_active = False
+        
+        # System status tracking for periodic updates
+        self.last_system_status_time = 0
+        self.system_status_interval = 15  # Report system status every 15 seconds
 
         # Flags and attributes for Smart Mode (YOLO-based)
         self.smart_mode_active = False
@@ -181,12 +186,12 @@ class AppController:
             if self.smart_tracker is None:
                 try:
                     self.smart_tracker = SmartTracker(app_controller=self)
-                    logging.info("SmartTracker mode activated.")
+                    logging.info("SMART TRACKER MODE: Activated (YOLO-based multi-target tracking)")
                 except Exception as e:
                     logging.error(f"Failed to activate SmartTracker: {e}")
                     self.smart_mode_active = False
             else:
-                logging.info("SmartTracker mode re-activated.")
+                logging.info("SMART TRACKER MODE: Re-activated")
 
         else:
             self.smart_mode_active = False
@@ -238,6 +243,12 @@ class AppController:
         # self.smart_mode_active = False
         self.selected_bbox = None
 
+        # Reset tracker state
+        if self.tracker and hasattr(self.tracker, 'stop_tracking'):
+            self.tracker.stop_tracking()
+
+        logging.info("TRACKING STOPPED: All tracker activities canceled")
+
         if self.setpoint_sender:
             self.setpoint_sender.stop()
             self.setpoint_sender.join()
@@ -258,6 +269,44 @@ class AppController:
     def is_smart_override_active(self) -> bool:
         return self.smart_mode_active and self.tracker and self.tracker.override_active
 
+    def _log_system_status(self):
+        """
+        Logs comprehensive system status including tracking, following, and connection states.
+        """
+        try:
+            # Determine active tracking mode
+            tracking_status = "Inactive"
+            if self.smart_mode_active and self.smart_tracker:
+                if hasattr(self.smart_tracker, 'is_tracking_active') and self.smart_tracker.is_tracking_active():
+                    tracking_status = "SMART (Active)"
+                else:
+                    tracking_status = "SMART (Standby)"
+            elif self.tracking_started:
+                tracker_name = self.tracker.__class__.__name__.replace("Tracker", "")
+                tracking_status = f"CLASSIC ({tracker_name})"
+            elif self.segmentation_active:
+                tracking_status = "Segmentation"
+            
+            # Following status
+            following_status = "Active" if self.following_active else "Inactive"
+            
+            # MAVLink status
+            mavlink_status = "Disabled"
+            if Parameters.MAVLINK_ENABLED and self.mavlink_data_manager:
+                mavlink_status = self.mavlink_data_manager.connection_state.title()
+            
+            # PX4 status
+            px4_status = "Disconnected"
+            if hasattr(self.px4_interface, 'connected') and self.px4_interface.connected:
+                px4_status = "Connected"
+            
+            # Log comprehensive status
+            logging.info(f"SYSTEM: Tracking: {tracking_status} | Following: {following_status} | "
+                        f"MAVLink: {mavlink_status} | PX4: {px4_status}")
+            
+        except Exception as e:
+            logging.error(f"Error generating system status: {e}")
+
 
 
     async def update_loop(self, frame: np.ndarray) -> np.ndarray:
@@ -267,6 +316,12 @@ class AppController:
         In smart mode, runs YOLO detection and draws bounding boxes.
         """
         try:
+            # Periodic system status update
+            current_time = time.time()
+            if current_time - self.last_system_status_time > self.system_status_interval:
+                self._log_system_status()
+                self.last_system_status_time = current_time
+            
             # Preprocess the frame if enabled
             if Parameters.ENABLE_PREPROCESSING and self.preprocessor:
                 frame = self.preprocessor.preprocess(frame)
@@ -315,7 +370,7 @@ class AppController:
                             bbox = self.tracker.bbox
                             if bbox:
                                 self.detector.update_template(frame, bbox)
-                                logging.debug("Template updated during tracking.")
+                                logging.debug(f"TEMPLATE: Updated (Conf: {tracker_confidence:.2f}, Frame: {self.frame_counter})")
 
                 else:
                     self.frame_counter = 0
@@ -327,6 +382,8 @@ class AppController:
                         if elapsed_time > Parameters.TRACKING_FAILURE_TIMEOUT:
                             logging.error("Tracking lost for too long. Handling failure.")
                             self.tracking_started = False
+                            if self.tracker and hasattr(self.tracker, 'stop_tracking'):
+                                self.tracker.stop_tracking()
                             self.tracking_failure_start_time = None
                         else:
                             logging.warning(f"Tracking lost. Attempting recovery. Elapsed time: {elapsed_time:.2f} sec.")
@@ -369,6 +426,11 @@ class AppController:
         Handles tracking failure by attempting re-detection using the detector.
         Only used in classic mode.
         """
+        # Don't use classic detector re-detection when smart tracker is active
+        if self.smart_mode_active:
+            logging.debug("Smart tracker is active, skipping classic re-detection")
+            return {"success": False, "message": "Smart tracker mode - classic re-detection disabled."}
+            
         if Parameters.USE_DETECTOR and Parameters.AUTO_REDETECT:
             logging.info("Attempting to re-detect the target using the detector.")
             redetect_result = self.initiate_redetection()
@@ -678,37 +740,26 @@ class AppController:
 
     async def follow_target(self):
         """
-        Enhanced target following with proper async command dispatch.
+        Enhanced target following with flexible tracker schema and proper async command dispatch.
         """
         if not (self.tracking_started and self.following_active):
             return False
             
         try:
-            target_coords: Optional[Tuple[float, float]] = None
-            
-            # Get target coordinates from estimator or tracker
-            if Parameters.USE_ESTIMATOR_FOR_FOLLOWING and self.tracker.position_estimator:
-                frame_width, frame_height = self.video_handler.width, self.video_handler.height
-                normalized_estimate = self.tracker.position_estimator.get_normalized_estimate(
-                    frame_width, frame_height
-                )
-                if normalized_estimate:
-                    target_coords = normalized_estimate
-                    logging.debug(f"Using estimated normalized coords: {target_coords}")
-                else:
-                    logging.warning("Estimator failed to provide a normalized estimate.")
-            
-            if not target_coords:
-                target_coords = self.tracker.normalized_center
-                logging.debug(f"Using tracker's normalized center: {target_coords}")
-            
-            if not target_coords:
-                logging.warning("No target coordinates available to follow.")
+            # Get structured tracker output
+            tracker_output = self.get_tracker_output()
+            if not tracker_output:
+                logging.warning("No tracker output available for following.")
                 return False
             
-            # SYNCHRONOUS: Calculate and set commands (no await needed)
+            # Validate tracker compatibility with current follower
+            if not self.validate_tracker_follower_compatibility(tracker_output):
+                logging.warning("Current tracker incompatible with active follower")
+                return False
+            
+            # SYNCHRONOUS: Calculate and set commands using structured data (no await needed)
             try:
-                follow_result = self.follower.follow_target(target_coords)
+                follow_result = self.follower.follow_target(tracker_output)
                 if follow_result is False:
                     logging.warning("Follower follow_target returned False")
                     return False
@@ -802,3 +853,216 @@ class AppController:
             result["errors"].append(error_msg)
         
         return result
+
+    # ==================== Enhanced Tracker Schema Methods ====================
+    
+    def get_tracker_output(self) -> Optional[TrackerOutput]:
+        """
+        Gets structured output from the current active tracker.
+        
+        Returns:
+            Optional[TrackerOutput]: Structured tracker data or None if unavailable
+        """
+        try:
+            # Determine which tracker is active
+            if self.smart_mode_active and self.smart_tracker:
+                # Smart tracker is active
+                if hasattr(self.smart_tracker, 'get_output'):
+                    tracker_output = self.smart_tracker.get_output()
+                    # Log status periodically with minimal, informative output
+                    if tracker_output and tracker_output.tracking_active and (time.time() % 10 < 0.1):
+                        target_info = f"ID:{tracker_output.target_id}" if tracker_output.target_id else "None"
+                        logging.info(f"SMART TRACKER: {tracker_output.data_type.value} | Target: {target_info}")
+                    return tracker_output
+                else:
+                    logging.warning("Smart tracker doesn't have get_output method")
+                    return None
+                    
+            elif self.tracking_started and self.tracker:
+                # Classic tracker (CSRT, etc.) is active  
+                if hasattr(self.tracker, 'get_output'):
+                    tracker_output = self.tracker.get_output()
+                    # Log status periodically with minimal, informative output
+                    if tracker_output and tracker_output.tracking_active and (time.time() % 10 < 0.1):
+                        tracker_name = self.tracker.__class__.__name__.replace("Tracker", "")  # CSRT, Particle, etc.
+                        conf_info = f"Conf:{tracker_output.confidence:.2f}" if tracker_output.confidence else "NoConf"
+                        logging.info(f"CLASSIC TRACKER ({tracker_name}): {tracker_output.data_type.value} | {conf_info}")
+                    return tracker_output
+                else:
+                    # Fallback for legacy trackers
+                    logging.debug("Using legacy tracker compatibility mode")
+                    return self._create_legacy_tracker_output()
+            else:
+                # No active tracking - log this only occasionally
+                if time.time() % 30 < 0.1:  # Every 30 seconds
+                    logging.info("NO TRACKER ACTIVE: Waiting for tracking to start")
+                return None
+                
+        except Exception as e:
+            logging.error(f"Error getting tracker output: {e}")
+            return None
+    
+    def get_tracker_status_debug(self) -> str:
+        """
+        Returns a comprehensive debug string about the current tracker state.
+        
+        Returns:
+            str: Debug information about tracker states
+        """
+        status_parts = []
+        status_parts.append(f"tracking_started: {self.tracking_started}")
+        status_parts.append(f"smart_mode_active: {self.smart_mode_active}")
+        status_parts.append(f"tracker: {self.tracker.__class__.__name__ if self.tracker else None}")
+        status_parts.append(f"smart_tracker: {'Active' if self.smart_tracker else 'None'}")
+        
+        if self.tracker and hasattr(self.tracker, 'tracking_started'):
+            status_parts.append(f"tracker.tracking_started: {self.tracker.tracking_started}")
+        
+        if self.smart_tracker and hasattr(self.smart_tracker, 'selected_object_id'):
+            status_parts.append(f"smart_tracker.selected_object_id: {self.smart_tracker.selected_object_id}")
+            
+        return " | ".join(status_parts)
+    
+    def _create_legacy_tracker_output(self) -> Optional[TrackerOutput]:
+        """
+        Creates TrackerOutput from legacy tracker for backwards compatibility.
+        
+        Returns:
+            Optional[TrackerOutput]: Legacy-compatible tracker output
+        """
+        try:
+            if not (hasattr(self.tracker, 'normalized_center') and 
+                   hasattr(self.tracker, 'normalized_bbox')):
+                return None
+            
+            return TrackerOutput(
+                data_type=TrackerDataType.POSITION_2D,
+                timestamp=time.time(),
+                tracking_active=self.tracking_started,
+                tracker_id="legacy_tracker",
+                position_2d=self.tracker.normalized_center,
+                bbox=getattr(self.tracker, 'bbox', None),
+                normalized_bbox=self.tracker.normalized_bbox,
+                confidence=getattr(self.tracker, 'confidence', 1.0),
+                metadata={"legacy_mode": True}
+            )
+            
+        except Exception as e:
+            logging.error(f"Error creating legacy tracker output: {e}")
+            return None
+    
+    def validate_tracker_follower_compatibility(self, tracker_output: TrackerOutput) -> bool:
+        """
+        Validates compatibility between current tracker and follower.
+        
+        Args:
+            tracker_output (TrackerOutput): Tracker output to validate
+            
+        Returns:
+            bool: True if compatible, False otherwise
+        """
+        try:
+            if not self.follower:
+                logging.warning("No active follower to validate against")
+                return False
+            
+            # Use follower's validation method if available
+            if hasattr(self.follower, 'validate_tracker_compatibility'):
+                return self.follower.validate_tracker_compatibility(tracker_output)
+            else:
+                # Basic compatibility check for legacy followers
+                return tracker_output.position_2d is not None
+                
+        except Exception as e:
+            logging.error(f"Error validating tracker-follower compatibility: {e}")
+            return False
+    
+    def get_tracker_capabilities(self) -> Optional[Dict[str, Any]]:
+        """
+        Gets capabilities of the current active tracker.
+        
+        Returns:
+            Optional[Dict[str, Any]]: Tracker capabilities or None if unavailable
+        """
+        try:
+            if not self.tracker:
+                return None
+            
+            if hasattr(self.tracker, 'get_capabilities'):
+                return self.tracker.get_capabilities()
+            else:
+                # Default capabilities for legacy trackers
+                return {
+                    'data_types': [TrackerDataType.POSITION_2D.value],
+                    'supports_confidence': hasattr(self.tracker, 'confidence'),
+                    'supports_velocity': False,
+                    'supports_bbox': hasattr(self.tracker, 'bbox'),
+                    'legacy_tracker': True
+                }
+                
+        except Exception as e:
+            logging.error(f"Error getting tracker capabilities: {e}")
+            return None
+    
+    def get_system_compatibility_report(self) -> Dict[str, Any]:
+        """
+        Generates a comprehensive compatibility report between tracker and follower.
+        
+        Returns:
+            Dict[str, Any]: Detailed compatibility analysis
+        """
+        try:
+            report = {
+                'timestamp': time.time(),
+                'tracker_active': bool(self.tracker),
+                'follower_active': bool(self.follower),
+                'compatible': False,
+                'issues': [],
+                'recommendations': []
+            }
+            
+            if not self.tracker:
+                report['issues'].append("No active tracker")
+                return report
+            
+            if not self.follower:
+                report['issues'].append("No active follower")
+                return report
+            
+            # Get current tracker output
+            tracker_output = self.get_tracker_output()
+            if not tracker_output:
+                report['issues'].append("Unable to get tracker output")
+                return report
+            
+            # Get capabilities
+            tracker_caps = self.get_tracker_capabilities()
+            
+            report.update({
+                'tracker_capabilities': tracker_caps,
+                'current_tracker_data': {
+                    'type': tracker_output.data_type.value,
+                    'tracking_active': tracker_output.tracking_active,
+                    'has_position_2d': tracker_output.position_2d is not None,
+                    'has_confidence': tracker_output.confidence is not None,
+                }
+            })
+            
+            # Validate compatibility
+            is_compatible = self.validate_tracker_follower_compatibility(tracker_output)
+            report['compatible'] = is_compatible
+            
+            if not is_compatible:
+                report['issues'].append("Tracker data incompatible with follower requirements")
+            else:
+                report['recommendations'].append("Current tracker-follower combination is compatible")
+            
+            return report
+            
+        except Exception as e:
+            logging.error(f"Error generating compatibility report: {e}")
+            return {
+                'timestamp': time.time(),
+                'error': str(e),
+                'compatible': False
+            }

@@ -4,6 +4,7 @@ import socket
 import json
 from datetime import datetime, timedelta
 from classes.parameters import Parameters
+from classes.tracker_output import TrackerOutput, TrackerDataType
 
 class TelemetryHandler:
     def __init__(self, app_controller, tracking_started_flag):
@@ -44,18 +45,130 @@ class TelemetryHandler:
 
     def get_tracker_data(self):
         """
-        Get the latest tracker telemetry data.
+        Get the latest tracker telemetry data using the enhanced flexible schema.
         
         Returns:
-            dict: The tracker telemetry data.
+            dict: The tracker telemetry data with backwards compatibility.
         """
         timestamp = datetime.utcnow().isoformat()
-        tracker_started = self.tracking_started_flag()  # Use the callable to check if tracking is started
-        return {
-            'bounding_box': self.tracker.normalized_bbox,
-            'center': self.tracker.normalized_center,
+        tracker_started = self.tracking_started_flag()
+        
+        try:
+            # Try to get structured tracker output
+            if hasattr(self.app_controller, 'get_tracker_output'):
+                tracker_output = self.app_controller.get_tracker_output()
+                if tracker_output:
+                    return self._format_tracker_data(tracker_output, timestamp, tracker_started)
+            
+            # Fallback to legacy method for backwards compatibility
+            return self._get_legacy_tracker_data(timestamp, tracker_started)
+            
+        except Exception as e:
+            logging.error(f"Error getting tracker data: {e}")
+            return self._get_legacy_tracker_data(timestamp, tracker_started)
+    
+    def _format_tracker_data(self, tracker_output: TrackerOutput, timestamp: str, tracker_started: bool) -> dict:
+        """
+        Format structured TrackerOutput for telemetry with enhanced metadata.
+        
+        Args:
+            tracker_output (TrackerOutput): Structured tracker data
+            timestamp (str): Current timestamp
+            tracker_started (bool): Tracking status
+            
+        Returns:
+            dict: Formatted telemetry data
+        """
+        # Base telemetry data with backwards compatibility
+        data = {
+            # Legacy fields for backwards compatibility
+            'bounding_box': tracker_output.normalized_bbox,
+            'center': tracker_output.position_2d,
             'timestamp': timestamp,
-            'tracker_started': tracker_started
+            'tracker_started': tracker_started,
+            
+            # Enhanced structured data
+            'tracker_data': {
+                'data_type': tracker_output.data_type.value,
+                'tracker_id': tracker_output.tracker_id,
+                'tracking_active': tracker_output.tracking_active,
+                'confidence': tracker_output.confidence,
+                'timestamp': tracker_output.timestamp
+            }
+        }
+        
+        # Add data type specific information
+        if tracker_output.data_type == TrackerDataType.POSITION_2D:
+            data['tracker_data'].update({
+                'position_2d': tracker_output.position_2d,
+                'bbox_pixel': tracker_output.bbox,
+                'normalized_bbox': tracker_output.normalized_bbox
+            })
+            
+        elif tracker_output.data_type == TrackerDataType.POSITION_3D:
+            data['tracker_data'].update({
+                'position_3d': tracker_output.position_3d,
+                'position_2d': tracker_output.position_3d[:2] if tracker_output.position_3d else None,
+                'depth': tracker_output.position_3d[2] if tracker_output.position_3d else None
+            })
+            
+        elif tracker_output.data_type == TrackerDataType.ANGULAR:
+            data['tracker_data'].update({
+                'angular': tracker_output.angular,
+                'bearing': tracker_output.angular[0] if tracker_output.angular else None,
+                'elevation': tracker_output.angular[1] if tracker_output.angular else None
+            })
+            
+        elif tracker_output.data_type == TrackerDataType.MULTI_TARGET:
+            data['tracker_data'].update({
+                'targets': tracker_output.targets,
+                'target_count': len(tracker_output.targets) if tracker_output.targets else 0,
+                'selected_target_id': tracker_output.target_id
+            })
+        
+        # Add velocity data if available
+        if tracker_output.velocity:
+            data['tracker_data']['velocity'] = {
+                'vx': tracker_output.velocity[0],
+                'vy': tracker_output.velocity[1],
+                'magnitude': (tracker_output.velocity[0]**2 + tracker_output.velocity[1]**2)**0.5
+            }
+        
+        # Add quality metrics if available
+        if tracker_output.quality_metrics:
+            data['tracker_data']['quality_metrics'] = tracker_output.quality_metrics
+        
+        # Add capabilities information
+        if hasattr(self.app_controller, 'get_tracker_capabilities'):
+            capabilities = self.app_controller.get_tracker_capabilities()
+            if capabilities:
+                data['tracker_data']['capabilities'] = capabilities
+        
+        return data
+    
+    def _get_legacy_tracker_data(self, timestamp: str, tracker_started: bool) -> dict:
+        """
+        Fallback method for legacy tracker data extraction.
+        
+        Args:
+            timestamp (str): Current timestamp
+            tracker_started (bool): Tracking status
+            
+        Returns:
+            dict: Legacy format tracker data
+        """
+        return {
+            'bounding_box': getattr(self.tracker, 'normalized_bbox', None),
+            'center': getattr(self.tracker, 'normalized_center', None),
+            'timestamp': timestamp,
+            'tracker_started': tracker_started,
+            'tracker_data': {
+                'data_type': 'position_2d',
+                'tracker_id': 'legacy_tracker',
+                'tracking_active': tracker_started,
+                'confidence': getattr(self.tracker, 'confidence', None),
+                'legacy_mode': True
+            }
         }
 
     def get_follower_data(self):

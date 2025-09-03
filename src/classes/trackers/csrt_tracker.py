@@ -57,6 +57,7 @@ import numpy as np
 from typing import Optional, Tuple
 from classes.parameters import Parameters
 from classes.trackers.base_tracker import BaseTracker
+from classes.tracker_output import TrackerOutput, TrackerDataType
 
 class CSRTTracker(BaseTracker):
     """
@@ -102,6 +103,9 @@ class CSRTTracker(BaseTracker):
         """
         logging.info(f"Initializing {self.trackerName} tracker with bbox: {bbox}")
         self.tracker.init(frame, bbox)
+        
+        # Set tracking started flag
+        self.tracking_started = True
 
         # Initialize appearance models using the detector
         if self.detector:
@@ -171,7 +175,6 @@ class CSRTTracker(BaseTracker):
             # Confidence checks
             self.compute_confidence(frame)
             total_confidence = self.get_confidence()
-            logging.debug(f"Total Confidence: {total_confidence}")
 
             if self.confidence < Parameters.CONFIDENCE_THRESHOLD:
                 logging.warning("Tracking failed due to low confidence.")
@@ -216,3 +219,77 @@ class CSRTTracker(BaseTracker):
             if estimated_position and len(estimated_position) >= 2:
                 return (estimated_position[0], estimated_position[1])
         return None
+
+    def get_output(self) -> TrackerOutput:
+        """
+        Returns CSRT-specific tracker output with enhanced velocity information.
+        
+        Overrides the base implementation to provide CSRT-specific features
+        including velocity estimates from the position estimator.
+        
+        Returns:
+            TrackerOutput: Enhanced CSRT tracker data
+        """
+        # Get velocity from estimator if available
+        velocity = None
+        if self.estimator_enabled and self.position_estimator:
+            estimated_state = self.position_estimator.get_estimate()
+            if estimated_state and len(estimated_state) >= 4:
+                # Extract velocity components (dx, dy)
+                velocity = (estimated_state[2], estimated_state[3])
+        
+        # Determine appropriate data type based on available data
+        has_bbox = self.bbox is not None or self.normalized_bbox is not None
+        data_type = TrackerDataType.BBOX_CONFIDENCE if has_bbox else TrackerDataType.POSITION_2D
+        
+        return TrackerOutput(
+            data_type=data_type,
+            timestamp=time.time(),
+            tracking_active=self.tracking_started,
+            tracker_id=f"CSRT_{id(self)}",
+            position_2d=self.normalized_center,
+            bbox=self.bbox,
+            normalized_bbox=self.normalized_bbox,
+            confidence=self.confidence,
+            velocity=velocity,
+            quality_metrics={
+                'motion_consistency': self.compute_motion_confidence() if self.prev_center else 1.0,
+                'appearance_confidence': getattr(self, 'appearance_confidence', 1.0)
+            },
+            raw_data={
+                'center_history_length': len(self.center_history) if self.center_history else 0,
+                'estimator_enabled': self.estimator_enabled,
+                'override_active': self.override_active,
+                'csrt_tracker_name': self.trackerName,
+                'estimated_position_history_length': len(self.estimated_position_history) if self.estimated_position_history else 0,
+                'tracking_started': self.tracking_started
+            },
+            metadata={
+                'tracker_class': self.__class__.__name__,
+                'tracker_algorithm': 'CSRT',
+                'has_estimator': bool(self.position_estimator),
+                'supports_velocity': bool(self.position_estimator),
+                'center_pixel': self.center,
+                'bbox_pixel': self.bbox,
+                'opencv_version': cv2.__version__
+            }
+        )
+
+    def get_capabilities(self) -> dict:
+        """
+        Returns CSRT-specific capabilities.
+        
+        Returns:
+            dict: Enhanced capabilities for CSRT tracker
+        """
+        base_capabilities = super().get_capabilities()
+        base_capabilities.update({
+            'tracker_algorithm': 'CSRT',
+            'supports_rotation': True,
+            'supports_scale_change': True, 
+            'supports_occlusion': True,
+            'accuracy_rating': 'high',
+            'speed_rating': 'medium',
+            'opencv_tracker': True
+        })
+        return base_capabilities

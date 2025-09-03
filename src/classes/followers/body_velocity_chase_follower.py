@@ -40,11 +40,12 @@ Configuration:
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
+from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
 import numpy as np
 import time
 import asyncio
-from typing import Tuple, Optional, Dict, Any
+from typing import Tuple, Optional, Dict, Any, List
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -598,20 +599,21 @@ class BodyVelocityChaseFollower(BaseFollower):
             logger.error(f"Altitude safety check failed: {e}")
             return True  # Fail safe - allow operation if check fails
 
-    def calculate_control_commands(self, target_coords: Tuple[float, float]) -> None:
+    def calculate_control_commands(self, tracker_data: TrackerOutput) -> None:
         """
         Calculates and sets body velocity control commands with dual-mode lateral guidance.
         
         This method implements the core body velocity chase logic with support for both
         sideslip and coordinated turn lateral guidance modes:
-        1. Handles target loss detection and recovery
-        2. Updates forward velocity using ramping logic
-        3. Calculates lateral and vertical tracking commands with mode switching
-        4. Applies safety checks and emergency stops
-        5. Updates setpoint handler with commands
+        1. Extracts target coordinates from structured tracker data
+        2. Handles target loss detection and recovery with confidence analysis
+        3. Updates forward velocity using ramping logic
+        4. Calculates lateral and vertical tracking commands with mode switching
+        5. Applies safety checks and emergency stops
+        6. Updates setpoint handler with commands
         
         Args:
-            target_coords (Tuple[float, float]): Normalized target coordinates from vision system.
+            tracker_data (TrackerOutput): Structured tracker data with position, confidence, etc.
             
         Note:
             This method updates the setpoint handler directly and does not return values.
@@ -622,8 +624,15 @@ class BodyVelocityChaseFollower(BaseFollower):
             dt = current_time - self.last_ramp_update_time
             self.last_ramp_update_time = current_time
             
-            # Handle target loss detection
-            target_valid = self._handle_target_loss(target_coords)
+            # Extract target coordinates from structured data
+            target_coords = self.extract_target_coordinates(tracker_data)
+            if not target_coords:
+                logger.warning("No valid target coordinates found in tracker data")
+                self._handle_tracking_failure()
+                return
+            
+            # Handle target loss detection (enhanced with confidence analysis)
+            target_valid = self._handle_target_loss_enhanced(target_coords, tracker_data)
             
             # Use last valid coordinates if target is lost
             tracking_coords = target_coords if target_valid else self.last_valid_target_coords
@@ -667,29 +676,34 @@ class BodyVelocityChaseFollower(BaseFollower):
             self.set_command_field('vel_body_down', 0.0)
             self.set_command_field('yawspeed_deg_s', 0.0)
 
-    def follow_target(self, target_coords: Tuple[float, float]) -> bool:
+    def follow_target(self, tracker_data: TrackerOutput) -> bool:
         """
         Executes target following with dual-mode body velocity chase control logic.
         
         This is the main entry point for body velocity chase following behavior. It performs
-        safety checks, calculates control commands, and applies them via the setpoint handler.
+        compatibility validation, safety checks, and calculates control commands.
         
         Args:
-            target_coords (Tuple[float, float]): Target coordinates from vision system.
+            tracker_data (TrackerOutput): Structured tracker data with position and metadata.
             
         Returns:
             bool: True if following executed successfully, False otherwise.
         """
         try:
+            # Validate tracker compatibility
+            if not self.validate_tracker_compatibility(tracker_data):
+                logger.error("Tracker data incompatible with BodyVelocityChaseFollower")
+                return False
+            
             # Perform altitude safety check
             if not self._check_altitude_safety():
                 logger.error("Altitude safety check failed - aborting body velocity following")
                 return False
             
-            # Calculate and apply control commands
-            self.calculate_control_commands(target_coords)
+            # Calculate and apply control commands using structured data
+            self.calculate_control_commands(tracker_data)
             
-            logger.debug(f"Body velocity following executed for target: {target_coords}")
+            logger.debug(f"Body velocity following executed for tracker: {tracker_data.tracker_id}")
             return True
             
         except Exception as e:
@@ -949,3 +963,93 @@ class BodyVelocityChaseFollower(BaseFollower):
         except Exception as e:
             logger.error(f"Error forcing lateral mode to {mode}: {e}")
             return False
+
+    # ==================== Enhanced Tracker Data Methods ====================
+    
+    def _handle_target_loss_enhanced(self, target_coords: Tuple[float, float], tracker_data: TrackerOutput) -> bool:
+        """
+        Enhanced target loss detection with confidence analysis.
+        
+        Args:
+            target_coords (Tuple[float, float]): Target coordinates
+            tracker_data (TrackerOutput): Structured tracker data with confidence
+            
+        Returns:
+            bool: True if target is valid, False if lost
+        """
+        try:
+            # Use existing target loss logic first
+            basic_validity = self._handle_target_loss(target_coords)
+            
+            # Enhance with confidence analysis if available
+            if tracker_data.confidence is not None:
+                confidence_threshold = 0.5  # Can be made configurable
+                confidence_valid = tracker_data.confidence >= confidence_threshold
+                
+                if not confidence_valid:
+                    logger.debug(f"Target confidence too low: {tracker_data.confidence:.2f} < {confidence_threshold}")
+                    return False
+            
+            # Consider velocity information if available
+            if tracker_data.velocity is not None:
+                # Validate that velocity is reasonable
+                vx, vy = tracker_data.velocity
+                velocity_magnitude = np.sqrt(vx**2 + vy**2)
+                max_reasonable_velocity = 50.0  # pixels/frame or similar unit
+                
+                if velocity_magnitude > max_reasonable_velocity:
+                    logger.debug(f"Target velocity too high: {velocity_magnitude:.2f}")
+                    return False
+            
+            return basic_validity
+            
+        except Exception as e:
+            logger.error(f"Error in enhanced target loss detection: {e}")
+            return basic_validity if 'basic_validity' in locals() else False
+    
+    def _handle_tracking_failure(self) -> None:
+        """
+        Handles complete tracking failure by applying safe fallback behavior.
+        """
+        try:
+            logger.warning("Complete tracking failure detected - applying safe fallback")
+            
+            # Reduce forward velocity
+            self.current_forward_velocity *= 0.5
+            
+            # Zero lateral commands
+            self.set_command_field('vel_body_right', 0.0)
+            self.set_command_field('vel_body_down', 0.0)
+            self.set_command_field('yawspeed_deg_s', 0.0)
+            
+            # Continue with reduced forward velocity
+            self.set_command_field('vel_body_fwd', self.current_forward_velocity)
+            
+            # Update telemetry
+            self.update_telemetry_metadata('tracking_failure', datetime.utcnow().isoformat())
+            
+        except Exception as e:
+            logger.error(f"Error handling tracking failure: {e}")
+            self.activate_emergency_stop()
+
+    def get_required_tracker_data_types(self) -> List[TrackerDataType]:
+        """
+        Returns tracker data types required by BodyVelocityChaseFollower.
+        
+        Returns:
+            List[TrackerDataType]: Required data types
+        """
+        return [TrackerDataType.POSITION_2D]
+    
+    def get_optional_tracker_data_types(self) -> List[TrackerDataType]:
+        """
+        Returns optional tracker data types that enhance BodyVelocityChaseFollower performance.
+        
+        Returns:
+            List[TrackerDataType]: Optional data types that provide additional functionality
+        """
+        return [
+            TrackerDataType.BBOX_CONFIDENCE,
+            TrackerDataType.VELOCITY_AWARE,
+            TrackerDataType.MULTI_TARGET
+        ]

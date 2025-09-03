@@ -1,0 +1,255 @@
+# PixEagle Tracker Schema Configuration
+# This file defines all available tracker data types and their requirements
+# Allows easy addition of new tracker schemas without code changes
+#
+# Note on coordinate ranges:
+# - Normalized coordinates can exceed [0.0, 1.0] when objects are partially off-screen
+# - Range [-2.0, 2.0] allows for complete off-screen tracking while preventing extreme outliers
+
+tracker_data_types:
+  POSITION_2D:
+    name: "2D Position Tracking"
+    description: "Standard 2D normalized position tracking"
+    category: "position"
+    required_fields:
+      - position_2d
+    optional_fields:
+      - confidence
+      - bbox
+      - normalized_bbox
+      - velocity
+    validation:
+      position_2d:
+        type: "tuple"
+        length: 2
+        element_type: "float"
+        range: [-2.0, 2.0]  # Allow off-screen tracking
+  
+  POSITION_3D:
+    name: "3D Position with Depth"
+    description: "3D position tracking with depth information"
+    category: "position"
+    required_fields:
+      - position_3d
+    optional_fields:
+      - confidence
+      - bbox
+      - normalized_bbox
+      - velocity
+    validation:
+      position_3d:
+        type: "tuple"
+        length: 3
+        element_type: "float"
+        range: [-2.0, 2.0]  # Allow off-screen tracking  # x,y normalized, z can be > 1
+        
+  ANGULAR:
+    name: "Angular Bearing/Elevation"
+    description: "Bearing and elevation angles in degrees"
+    category: "angular"
+    required_fields:
+      - angular
+    optional_fields:
+      - confidence
+      - velocity
+    validation:
+      angular:
+        type: "tuple" 
+        length: 2
+        element_type: "float"
+        range: [-180.0, 180.0]
+        
+  BBOX_CONFIDENCE:
+    name: "Bounding Box with Confidence"
+    description: "Traditional bounding box tracking with confidence"
+    category: "bbox"
+    required_fields:
+      - bbox_or_normalized_bbox  # Special requirement - at least one must exist
+    optional_fields:
+      - confidence
+      - position_2d
+      - velocity
+    validation:
+      bbox:
+        type: "tuple"
+        length: 4
+        element_type: "int"
+        min_value: 0
+      normalized_bbox:
+        type: "tuple"
+        length: 4
+        element_type: "float"
+        range: [-2.0, 2.0]  # Allow objects partially or completely off-screen
+        
+  VELOCITY_AWARE:
+    name: "Position with Velocity Estimation"
+    description: "Position tracking with velocity estimates"
+    category: "motion"
+    required_fields:
+      - position_2d
+      - velocity
+    optional_fields:
+      - confidence
+      - acceleration
+      - bbox
+      - normalized_bbox
+    validation:
+      position_2d:
+        type: "tuple"
+        length: 2
+        element_type: "float"
+        range: [-2.0, 2.0]  # Allow off-screen tracking
+      velocity:
+        type: "tuple"
+        length: 2
+        element_type: "float"
+        
+  EXTERNAL:
+    name: "External Data Source"
+    description: "Data from external sources (radar, GPS, etc.)"
+    category: "external"
+    required_fields:
+      - raw_data  # Must contain source-specific data
+    optional_fields:
+      - position_2d
+      - position_3d
+      - angular
+      - confidence
+      - metadata
+    validation:
+      raw_data:
+        type: "dict"
+        required_keys:
+          - source_type
+          - source_data
+          
+  MULTI_TARGET:
+    name: "Multiple Target Tracking"
+    description: "Tracking multiple targets simultaneously"
+    category: "multi"
+    required_fields:
+      - targets
+    optional_fields:
+      - target_id  # ID of selected/primary target
+      - position_2d  # Primary target position
+      - confidence
+      - bbox
+      - normalized_bbox
+    validation:
+      targets:
+        type: "list"
+        min_length: 1
+        element_schema:
+          type: "dict"
+          required_keys:
+            - target_id
+            - confidence
+          optional_keys:
+            - class_id
+            - class_name
+            - bbox
+            - center
+            - is_selected
+
+# Tracker type configurations
+tracker_types:
+  CSRTTracker:
+    name: "CSRT Tracker"
+    description: "Channel and Spatial Reliability Tracker from OpenCV"
+    supported_schemas:
+      - POSITION_2D
+      - BBOX_CONFIDENCE
+      - VELOCITY_AWARE  # When estimator is enabled
+    capabilities:
+      - rotation_invariant
+      - scale_invariant
+      - occlusion_handling
+    performance:
+      accuracy: "high"
+      speed: "medium"
+      
+  SmartTracker:
+    name: "YOLO-based Smart Tracker"
+    description: "YOLO object detection with tracking"
+    supported_schemas:
+      - MULTI_TARGET
+      - POSITION_2D  # For selected target
+      - BBOX_CONFIDENCE
+    capabilities:
+      - multi_target
+      - object_classification
+      - real_time_detection
+    performance:
+      accuracy: "very_high"
+      speed: "fast"
+      
+  ParticleFilterTracker:
+    name: "Particle Filter Tracker"
+    description: "Probabilistic particle filter tracking"
+    supported_schemas:
+      - POSITION_2D
+      - VELOCITY_AWARE
+      - BBOX_CONFIDENCE
+    capabilities:
+      - uncertainty_estimation
+      - non_linear_motion
+      - multiple_hypotheses
+    performance:
+      accuracy: "high"
+      speed: "slow"
+
+# Schema compatibility matrix
+compatibility:
+  followers:
+    ChaseFollower:
+      required_schemas:
+        - POSITION_2D
+      optional_schemas:
+        - BBOX_CONFIDENCE
+        - VELOCITY_AWARE
+    BodyVelocityChaseFollower:
+      required_schemas:
+        - POSITION_2D
+      preferred_schemas:
+        - VELOCITY_AWARE
+      optional_schemas:
+        - BBOX_CONFIDENCE
+    ConstantPositionFollower:
+      required_schemas:
+        - POSITION_2D
+      optional_schemas:
+        - ANGULAR
+        - BBOX_CONFIDENCE
+    ConstantDistanceFollower:
+      required_schemas:
+        - POSITION_2D
+      optional_schemas:
+        - POSITION_3D
+        - ANGULAR
+    GroundTargetFollower:
+      required_schemas:
+        - POSITION_2D
+      preferred_schemas:
+        - ANGULAR
+      optional_schemas:
+        - POSITION_3D
+        - EXTERNAL
+
+# Future extensibility guidelines
+extensibility:
+  adding_new_schema:
+    steps:
+      - "Define schema in this YAML file"
+      - "Add validation rules"
+      - "Update tracker implementations as needed"
+      - "Test compatibility with existing followers"
+  adding_new_tracker:
+    steps:
+      - "Implement BaseTracker interface"
+      - "Define supported schemas in this file"
+      - "Add to tracker factory"
+      - "Test with all compatible followers"
+  schema_versioning:
+    current_version: "1.0"
+    backward_compatibility: true
+    migration_support: true

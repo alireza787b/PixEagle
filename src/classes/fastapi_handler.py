@@ -10,7 +10,7 @@ import numpy as np
 import logging
 import time
 import hashlib
-from typing import Dict, Optional, Set, Tuple
+from typing import Dict, Optional, Set, Tuple, List
 from collections import deque
 from dataclasses import dataclass
 import json
@@ -19,6 +19,7 @@ import uvicorn
 from classes.webrtc_manager import WebRTCManager
 from classes.setpoint_handler import SetpointHandler
 from classes.follower import FollowerFactory
+from classes.tracker_output import TrackerOutput, TrackerDataType
 
 # Performance monitoring
 from contextlib import asynccontextmanager
@@ -221,6 +222,12 @@ class FastAPIHandler:
         self.app.get("/telemetry/follower_data")(self.follower_data)
         self.app.get("/status")(self.get_status)
         self.app.get("/stats")(self.get_streaming_stats)
+        
+        # Enhanced tracker schema endpoints
+        self.app.get("/api/tracker/output")(self.get_tracker_output)
+        self.app.get("/api/tracker/capabilities")(self.get_tracker_capabilities)
+        self.app.get("/api/compatibility/report")(self.get_compatibility_report)
+        self.app.get("/api/system/schema_info")(self.get_schema_info)
         
         # Commands
         self.app.post("/commands/start_tracking")(self.start_tracking)
@@ -1022,4 +1029,163 @@ class FastAPIHandler:
                 
         except Exception as e:
             self.logger.error(f"Error getting configured follower mode: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # ==================== Enhanced Tracker Schema API Endpoints ====================
+    
+    async def get_tracker_output(self):
+        """
+        Enhanced API endpoint to get structured tracker output.
+        
+        Returns:
+            JSONResponse: Structured tracker data with flexible schema support
+        """
+        try:
+            self.logger.debug("Received request at /api/tracker/output")
+            
+            if not hasattr(self.app_controller, 'get_tracker_output'):
+                raise HTTPException(status_code=501, detail="Enhanced tracker schema not available")
+            
+            tracker_output = self.app_controller.get_tracker_output()
+            if not tracker_output:
+                return JSONResponse(content={
+                    'error': 'No tracker output available',
+                    'tracking_active': False,
+                    'timestamp': time.time()
+                })
+            
+            # Convert to dict for JSON response
+            output_dict = tracker_output.to_dict()
+            
+            # Add additional metadata
+            output_dict['api_version'] = '2.0'
+            output_dict['schema_version'] = 'flexible'
+            
+            self.logger.debug(f"Returning structured tracker output: {tracker_output.data_type.value}")
+            return JSONResponse(content=output_dict)
+            
+        except Exception as e:
+            self.logger.error(f"Error in /api/tracker/output: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_tracker_capabilities(self):
+        """
+        API endpoint to get tracker capabilities and supported features.
+        
+        Returns:
+            JSONResponse: Tracker capabilities information
+        """
+        try:
+            self.logger.debug("Received request at /api/tracker/capabilities")
+            
+            if not hasattr(self.app_controller, 'get_tracker_capabilities'):
+                return JSONResponse(content={
+                    'error': 'Capabilities API not available',
+                    'legacy_mode': True
+                })
+            
+            capabilities = self.app_controller.get_tracker_capabilities()
+            if not capabilities:
+                return JSONResponse(content={
+                    'error': 'No active tracker',
+                    'tracker_active': False
+                })
+            
+            # Add system information
+            result = {
+                'tracker_capabilities': capabilities,
+                'system_info': {
+                    'tracker_active': bool(self.app_controller.tracker),
+                    'tracker_class': self.app_controller.tracker.__class__.__name__ if self.app_controller.tracker else None,
+                    'api_version': '2.0',
+                    'timestamp': time.time()
+                }
+            }
+            
+            self.logger.debug(f"Returning tracker capabilities")
+            return JSONResponse(content=result)
+            
+        except Exception as e:
+            self.logger.error(f"Error in /api/tracker/capabilities: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_compatibility_report(self):
+        """
+        API endpoint to get tracker-follower compatibility analysis.
+        
+        Returns:
+            JSONResponse: Detailed compatibility report
+        """
+        try:
+            self.logger.debug("Received request at /api/compatibility/report")
+            
+            if not hasattr(self.app_controller, 'get_system_compatibility_report'):
+                return JSONResponse(content={
+                    'error': 'Compatibility API not available',
+                    'legacy_mode': True
+                })
+            
+            report = self.app_controller.get_system_compatibility_report()
+            
+            # Add API metadata
+            report['api_version'] = '2.0'
+            report['report_generated_at'] = time.time()
+            
+            self.logger.debug(f"Returning compatibility report: compatible={report.get('compatible', False)}")
+            return JSONResponse(content=report)
+            
+        except Exception as e:
+            self.logger.error(f"Error in /api/compatibility/report: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_schema_info(self):
+        """
+        API endpoint to get information about the tracker schema system.
+        
+        Returns:
+            JSONResponse: Schema system information
+        """
+        try:
+            self.logger.debug("Received request at /api/system/schema_info")
+            
+            # Get available tracker data types
+            data_types = [dt.value for dt in TrackerDataType]
+            
+            # Get current system status
+            system_info = {
+                'schema_version': '2.0',
+                'api_version': '2.0',
+                'supported_data_types': data_types,
+                'data_type_descriptions': {
+                    'position_2d': 'Standard 2D position tracking',
+                    'position_3d': '3D position with depth information',
+                    'angular': 'Bearing and elevation angles',
+                    'bbox_confidence': 'Bounding box with confidence metrics',
+                    'velocity_aware': 'Position with velocity estimates',
+                    'external': 'External data source (e.g., radar)',
+                    'multi_target': 'Multiple target tracking'
+                },
+                'current_tracker': {
+                    'active': bool(self.app_controller.tracker),
+                    'class_name': self.app_controller.tracker.__class__.__name__ if self.app_controller.tracker else None,
+                    'enhanced_schema': hasattr(self.app_controller.tracker, 'get_output') if self.app_controller.tracker else False
+                },
+                'current_follower': {
+                    'active': bool(self.app_controller.follower),
+                    'class_name': self.app_controller.follower.__class__.__name__ if self.app_controller.follower else None,
+                    'enhanced_schema': hasattr(self.app_controller.follower, 'validate_tracker_compatibility') if self.app_controller.follower else False
+                },
+                'backward_compatibility': {
+                    'enabled': True,
+                    'legacy_endpoints_available': True,
+                    'automatic_fallback': True
+                },
+                'timestamp': time.time()
+            }
+            
+            self.logger.debug("Returning schema system information")
+            return JSONResponse(content=system_info)
+            
+        except Exception as e:
+            self.logger.error(f"Error in /api/system/schema_info: {e}")
             raise HTTPException(status_code=500, detail=str(e))

@@ -25,6 +25,7 @@ Key Features:
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
+from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
 import numpy as np
 from typing import Tuple, Optional, Dict, Any
@@ -190,25 +191,32 @@ class ChaseFollower(BaseFollower):
         except Exception as e:
             logger.error(f"Failed to update PID gains: {e}")
 
-    def calculate_control_commands(self, target_coords: Tuple[float, float]) -> None:
+    def calculate_control_commands(self, tracker_data: TrackerOutput) -> None:
         """
-        Calculates and sets attitude rate control commands based on target coordinates.
+        Calculates and sets attitude rate control commands using enhanced tracker data.
         
         This method implements the core chase logic:
-        1. Updates PID gains
-        2. Calculates pitch and yaw rate errors
-        3. Computes control outputs
-        4. Calculates coordinated turn dynamics
-        5. Updates setpoint handler with commands
+        1. Extracts target coordinates from structured data
+        2. Updates PID gains
+        3. Calculates pitch and yaw rate errors
+        4. Computes control outputs
+        5. Calculates coordinated turn dynamics
+        6. Updates setpoint handler with commands
         
         Args:
-            target_coords (Tuple[float, float]): Normalized target coordinates from vision system.
+            tracker_data (TrackerOutput): Structured tracker data with position and metadata.
             
         Note:
             This method updates the setpoint handler directly and does not return values.
             Control commands are applied via the schema-aware setpoint management system.
         """
-        # Validate input coordinates
+        # Extract target coordinates
+        target_coords = self.extract_target_coordinates(tracker_data)
+        if not target_coords:
+            logger.warning("No valid target coordinates in tracker data, skipping control update")
+            return
+        
+        # Validate input coordinates  
         if not self.validate_target_coordinates(target_coords):
             logger.warning(f"Invalid target coordinates: {target_coords}, skipping control update")
             return
@@ -440,21 +448,31 @@ class ChaseFollower(BaseFollower):
             logger.error(f"Altitude safety check failed: {e}")
             return True  # Fail safe - allow operation if check fails
 
-    def follow_target(self, target_coords: Tuple[float, float]) -> bool:
+    def follow_target(self, tracker_data: TrackerOutput) -> bool:
         """
-        Executes target following with chase control logic.
+        Executes target following with chase control logic using enhanced tracker schema.
         
         This is the main entry point for chase following behavior. It performs
-        safety checks, calculates control commands, and applies them via the
-        setpoint handler.
+        compatibility validation, safety checks, and calculates control commands.
         
         Args:
-            target_coords (Tuple[float, float]): Target coordinates from vision system.
+            tracker_data (TrackerOutput): Structured tracker data with position and metadata.
             
         Returns:
             bool: True if following executed successfully, False otherwise.
         """
         try:
+            # Validate tracker compatibility
+            if not self.validate_tracker_compatibility(tracker_data):
+                logger.error("Tracker data incompatible with ChaseFollower")
+                return False
+            
+            # Extract target coordinates
+            target_coords = self.extract_target_coordinates(tracker_data)
+            if not target_coords:
+                logger.warning("No valid target coordinates found in tracker data")
+                return False
+            
             # Validate target coordinates
             if not self.validate_target_coordinates(target_coords):
                 logger.warning(f"Invalid target coordinates for chase following: {target_coords}")
@@ -465,8 +483,8 @@ class ChaseFollower(BaseFollower):
                 logger.error("Altitude safety check failed - aborting chase following")
                 return False
             
-            # Calculate and apply control commands
-            self.calculate_control_commands(target_coords)
+            # Calculate and apply control commands using structured data
+            self.calculate_control_commands(tracker_data)
             
             # Update telemetry metadata
             self.update_telemetry_metadata('last_target_coords', target_coords)

@@ -53,6 +53,7 @@ Technical Details:
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
+from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
 from typing import Tuple, Optional, Dict, Any
 from datetime import datetime
@@ -227,7 +228,7 @@ class ConstantPositionFollower(BaseFollower):
             logger.error(f"Failed to update PID gains: {e}")
             return False
     
-    def calculate_control_commands(self, target_coords: Tuple[float, float]) -> None:
+    def calculate_control_commands(self, tracker_data: TrackerOutput) -> None:
         """
         Calculates and applies control commands based on target coordinates.
         
@@ -239,13 +240,17 @@ class ConstantPositionFollower(BaseFollower):
         5. Applies commands using schema-aware field setters
         
         Args:
-            target_coords (Tuple[float, float]): Normalized target coordinates from image processing
-                                               where (0,0) represents image center.
+            tracker_data (TrackerOutput): Structured tracker data with position and metadata.
                                                
         Raises:
-            ValueError: If target coordinates are invalid.
+            ValueError: If tracker data is invalid.
             RuntimeError: If command calculation or application fails.
         """
+        # Extract target coordinates
+        target_coords = self.extract_target_coordinates(tracker_data)
+        if not target_coords:
+            raise ValueError("No valid target coordinates in tracker data")
+        
         # Validate input coordinates
         if not self.validate_target_coordinates(target_coords):
             raise ValueError(f"Invalid target coordinates: {target_coords}")
@@ -337,7 +342,7 @@ class ConstantPositionFollower(BaseFollower):
             logger.error(f"Error calculating altitude command: {e}")
             return 0.0  # Safe default
     
-    def follow_target(self, target_coords: Tuple[float, float]):
+    def follow_target(self, tracker_data: TrackerOutput) -> bool:
         """
         Executes target following by calculating and applying control commands.
         
@@ -345,15 +350,26 @@ class ConstantPositionFollower(BaseFollower):
         the complete control process while maintaining robust error handling.
         
         Args:
-            target_coords (Tuple[float, float]): Current target coordinates from tracking.
+            tracker_data (TrackerOutput): Structured tracker data with position and metadata.
             
         Raises:
             ValueError: If target coordinates are invalid.
             RuntimeError: If control execution fails.
         """
         try:
-            # Calculate and apply control commands
-            self.calculate_control_commands(target_coords)
+            # Validate tracker compatibility
+            if not self.validate_tracker_compatibility(tracker_data):
+                logger.error("Tracker data incompatible with ConstantPositionFollower")
+                return False
+            
+            # Extract target coordinates
+            target_coords = self.extract_target_coordinates(tracker_data)
+            if not target_coords:
+                logger.warning("No valid target coordinates found in tracker data")
+                return False
+            
+            # Calculate and apply control commands using structured data
+            self.calculate_control_commands(tracker_data)
             
             # Update execution statistics
             self._control_statistics['commands_sent'] += 1
@@ -363,13 +379,14 @@ class ConstantPositionFollower(BaseFollower):
             self.update_telemetry_metadata('control_active', True)
             
             logger.debug(f"Following target at coordinates: {target_coords}")
+            return True
             
         except Exception as e:
-            logger.error(f"Failed to follow target at {target_coords}: {e}")
+            logger.error(f"Failed to follow target: {e}")
             # Update error status in telemetry
             self.update_telemetry_metadata('control_active', False)
             self.update_telemetry_metadata('last_error', str(e))
-            raise
+            return False
     
     # ==================== Enhanced Status and Monitoring ====================
     

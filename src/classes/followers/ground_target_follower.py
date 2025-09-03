@@ -35,6 +35,7 @@ Control Strategy:
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
+from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
 from typing import Tuple, Dict, Optional, Any
 from datetime import datetime
@@ -382,7 +383,7 @@ class GroundTargetFollower(BaseFollower):
     
     # ==================== Required Abstract Method Implementations ====================
     
-    def calculate_control_commands(self, target_coords: Tuple[float, float]) -> None:
+    def calculate_control_commands(self, tracker_data: TrackerOutput) -> None:
         """
         Calculate and apply comprehensive control commands for ground target tracking.
         
@@ -483,8 +484,8 @@ class GroundTargetFollower(BaseFollower):
         logger.debug(f"Following target at coordinates: {target_coords}")
         
         try:
-            # Calculate and apply control commands
-            self.calculate_control_commands(target_coords)
+            # Calculate and apply control commands using structured data
+            self.calculate_control_commands(tracker_data)
             
             # Update telemetry metadata
             self.update_telemetry_metadata('last_follow_update', datetime.utcnow().isoformat())

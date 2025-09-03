@@ -4,12 +4,29 @@ const useWebSocket = (url, maxEntries = 300) => {
   const [trackerData, setTrackerData] = useState([]);
   const [rawData, setRawData] = useState([]);
 
+  // Enhanced data validation for flexible tracker schema
+  const validateTrackerData = useCallback((data) => {
+    // Support both legacy and new schema formats
+    const isLegacyFormat = data.tracker_started !== undefined;
+    const isEnhancedFormat = data.tracker_data && data.tracker_data.tracking_active !== undefined;
+    
+    if (isLegacyFormat) {
+      return data.tracker_started;
+    }
+    
+    if (isEnhancedFormat) {
+      return data.tracker_data.tracking_active;
+    }
+    
+    return false;
+  }, []);
+
   const addData = useCallback((data) => {
-    if (data.tracker_started) {
+    if (validateTrackerData(data)) {
       setTrackerData((prevData) => [...prevData, data].slice(-maxEntries));
       setRawData((prevData) => [...prevData, JSON.stringify(data, null, 2)].slice(-maxEntries));
     }
-  }, [maxEntries]);
+  }, [maxEntries, validateTrackerData]);
 
   useEffect(() => {
     const socket = new WebSocket(url);

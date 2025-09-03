@@ -1,9 +1,19 @@
 # src/classes/followers/base_follower.py
 from abc import ABC, abstractmethod
-from typing import Tuple, Dict, Any, List, Optional
+from typing import Tuple, Dict, Any, List, Optional, Union
 from classes.setpoint_handler import SetpointHandler
+from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
+import time
 from datetime import datetime
+
+# Import schema manager for compatibility checking
+try:
+    from classes.schema_manager import get_schema_manager
+    SCHEMA_MANAGER_AVAILABLE = True
+except ImportError:
+    logger.warning("Schema manager not available for follower compatibility checks")
+    SCHEMA_MANAGER_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -61,15 +71,16 @@ class BaseFollower(ABC):
     # ==================== Abstract Methods ====================
     
     @abstractmethod
-    def calculate_control_commands(self, target_coords: Tuple[float, float]) -> None:
+    def calculate_control_commands(self, tracker_data: TrackerOutput) -> None:
         """
-        Calculate control commands based on target coordinates and update the setpoint handler.
+        Calculate control commands based on tracker data and update the setpoint handler.
 
         This method must be implemented by all concrete follower classes to define
-        their specific control logic.
+        their specific control logic. The implementation should extract the necessary
+        data from the TrackerOutput based on the follower's requirements.
 
         Args:
-            target_coords (Tuple[float, float]): The coordinates of the target to follow.
+            tracker_data (TrackerOutput): Structured tracker data with all available information.
             
         Raises:
             NotImplementedError: If not implemented by concrete class.
@@ -77,7 +88,7 @@ class BaseFollower(ABC):
         pass
 
     @abstractmethod
-    def follow_target(self, target_coords: Tuple[float, float]) -> bool:
+    def follow_target(self, tracker_data: TrackerOutput) -> bool:
         """
         Synchronously calculates and applies control commands to follow the target.
 
@@ -86,7 +97,7 @@ class BaseFollower(ABC):
         but NOT send them directly (that's handled by the async control loop).
 
         Args:
-            target_coords (Tuple[float, float]): The coordinates of the target to follow.
+            tracker_data (TrackerOutput): Structured tracker data with position, confidence, etc.
             
         Returns:
             bool: True if successful, False otherwise.
@@ -320,3 +331,158 @@ class BaseFollower(ABC):
             }
         except Exception:
             return {'timestamp': None, 'status': 'error'}
+
+    # ==================== Tracker Data Validation & Compatibility ====================
+    
+    def get_required_tracker_data_types(self) -> List[TrackerDataType]:
+        """
+        Returns the list of tracker data types this follower requires.
+        
+        This method can be overridden by subclasses to specify their requirements.
+        Default implementation supports position_2d for backwards compatibility.
+        
+        Returns:
+            List[TrackerDataType]: Required tracker data types
+        """
+        return [TrackerDataType.POSITION_2D]
+    
+    def get_optional_tracker_data_types(self) -> List[TrackerDataType]:
+        """
+        Returns the list of optional tracker data types this follower can utilize.
+        
+        Returns:
+            List[TrackerDataType]: Optional tracker data types
+        """
+        return [TrackerDataType.BBOX_CONFIDENCE, TrackerDataType.VELOCITY_AWARE]
+    
+    def validate_tracker_compatibility(self, tracker_data: TrackerOutput) -> bool:
+        """
+        Validates if the tracker data is compatible with this follower's requirements.
+        Uses schema manager for advanced compatibility checking when available.
+        
+        Args:
+            tracker_data (TrackerOutput): Tracker data to validate
+            
+        Returns:
+            bool: True if compatible, False otherwise
+        """
+        if not tracker_data or not tracker_data.tracking_active:
+            logger.debug("Tracker data is inactive or None")
+            return False
+        
+        # Use schema manager for advanced compatibility checking
+        if SCHEMA_MANAGER_AVAILABLE:
+            try:
+                schema_manager = get_schema_manager()
+                follower_class_name = self.__class__.__name__
+                data_type = tracker_data.data_type.value.upper()
+                
+                compatibility = schema_manager.check_follower_compatibility(follower_class_name, data_type)
+                
+                if compatibility == 'required' or compatibility == 'preferred':
+                    logger.debug(f"Schema manager: {follower_class_name} has {compatibility} compatibility with {data_type}")
+                    return True
+                elif compatibility == 'optional':
+                    logger.debug(f"Schema manager: {follower_class_name} has optional compatibility with {data_type}")
+                    return True  # Still compatible
+                else:
+                    logger.warning(f"Schema manager: {follower_class_name} incompatible with {data_type}")
+                    return False
+                    
+            except Exception as e:
+                logger.warning(f"Schema manager compatibility check failed: {e}, falling back to legacy validation")
+                # Fall through to legacy validation
+        
+        # Legacy validation - check if tracker provides required data types
+        required_types = self.get_required_tracker_data_types()
+        for required_type in required_types:
+            if not self._has_required_data(tracker_data, required_type):
+                logger.warning(f"Tracker missing required data type: {required_type.value}")
+                return False
+        
+        logger.debug(f"Tracker data is compatible with {self.get_display_name()}")
+        return True
+    
+    def _has_required_data(self, tracker_data: TrackerOutput, data_type: TrackerDataType) -> bool:
+        """
+        Checks if tracker data contains the required data type.
+        
+        Args:
+            tracker_data (TrackerOutput): Tracker data to check
+            data_type (TrackerDataType): Required data type
+            
+        Returns:
+            bool: True if data is available
+        """
+        if data_type == TrackerDataType.POSITION_2D:
+            return tracker_data.position_2d is not None
+        elif data_type == TrackerDataType.POSITION_3D:
+            return tracker_data.position_3d is not None
+        elif data_type == TrackerDataType.ANGULAR:
+            return tracker_data.angular is not None
+        elif data_type == TrackerDataType.BBOX_CONFIDENCE:
+            return (tracker_data.bbox is not None or 
+                   tracker_data.normalized_bbox is not None)
+        elif data_type == TrackerDataType.VELOCITY_AWARE:
+            return tracker_data.velocity is not None
+        elif data_type == TrackerDataType.MULTI_TARGET:
+            return tracker_data.targets is not None
+        elif data_type == TrackerDataType.EXTERNAL:
+            return tracker_data.raw_data is not None
+        return False
+    
+    def extract_target_coordinates(self, tracker_data: TrackerOutput) -> Optional[Tuple[float, float]]:
+        """
+        Extracts 2D target coordinates from tracker data for backwards compatibility.
+        
+        Args:
+            tracker_data (TrackerOutput): Tracker data to extract from
+            
+        Returns:
+            Optional[Tuple[float, float]]: 2D coordinates or None
+        """
+        # Try primary position data first
+        if tracker_data.position_2d:
+            return tracker_data.position_2d
+        
+        # Extract from 3D if available
+        if tracker_data.position_3d:
+            return tracker_data.position_3d[:2]
+        
+        # Convert from angular if needed (would need additional context)
+        if tracker_data.angular:
+            logger.warning("Angular data cannot be directly converted to 2D coordinates without additional context")
+            return None
+        
+        logger.warning("No compatible position data found in tracker output")
+        return None
+    
+    def follow_target_legacy(self, target_coords: Tuple[float, float]) -> bool:
+        """
+        Legacy method for backwards compatibility with old follower interface.
+        
+        This method creates a minimal TrackerOutput from legacy coordinates
+        and calls the new follow_target method.
+        
+        Args:
+            target_coords (Tuple[float, float]): Legacy 2D coordinates
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Create minimal tracker output for backwards compatibility
+            legacy_tracker_data = TrackerOutput(
+                data_type=TrackerDataType.POSITION_2D,
+                timestamp=time.time(),
+                tracking_active=True,
+                tracker_id="legacy_input",
+                position_2d=target_coords,
+                metadata={"legacy_input": True}
+            )
+            
+            return self.follow_target(legacy_tracker_data)
+            
+        except Exception as e:
+            logger.error(f"Error in legacy follow_target: {e}")
+            return False
