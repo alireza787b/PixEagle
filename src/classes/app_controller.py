@@ -82,6 +82,9 @@ class AppController:
         self.smart_mode_active = False
         self.smart_tracker: Optional[SmartTracker] = None
         self.selected_bbox: Optional[Tuple[int, int, int, int]] = None
+        
+        # Current tracker type configuration for UI selection
+        self.current_tracker_type = Parameters.DEFAULT_TRACKING_ALGORITHM
 
         # Setup video window and mouse callback if enabled
         if Parameters.SHOW_VIDEO_WINDOW:

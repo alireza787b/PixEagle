@@ -228,6 +228,9 @@ class FastAPIHandler:
         self.app.get("/api/tracker/current-status")(self.get_current_tracker_status)
         self.app.get("/api/tracker/output")(self.get_tracker_output)
         self.app.get("/api/tracker/capabilities")(self.get_tracker_capabilities)
+        self.app.get("/api/tracker/available-types")(self.get_available_tracker_types)
+        self.app.get("/api/tracker/current-config")(self.get_current_tracker_config)
+        self.app.post("/api/tracker/set-type")(self.set_tracker_type)
         self.app.get("/api/compatibility/report")(self.get_compatibility_report)
         self.app.get("/api/system/schema_info")(self.get_schema_info)
         
@@ -1258,4 +1261,187 @@ class FastAPIHandler:
             
         except Exception as e:
             self.logger.error(f"Error in /api/system/schema_info: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # ==================== Tracker Selection & Management API Endpoints ====================
+    
+    async def get_available_tracker_types(self):
+        """
+        Endpoint to get available tracker types/algorithms.
+        
+        Returns:
+            dict: Available tracker types with descriptions.
+        """
+        try:
+            from classes.trackers.tracker_factory import create_tracker
+            import inspect
+            
+            available_trackers = {
+                'CSRT': {
+                    'name': 'CSRT',
+                    'display_name': 'CSRT Tracker',
+                    'description': 'Channel and Spatial Reliability Tracker - Classical CV algorithm',
+                    'data_type': 'POSITION_2D',
+                    'smart_mode': False,
+                    'suitable_for': ['Single target', 'Stable tracking', 'Classical computer vision']
+                },
+                'ParticleFilter': {
+                    'name': 'ParticleFilter', 
+                    'display_name': 'Particle Filter',
+                    'description': 'Particle Filter Tracker - Probabilistic tracking',
+                    'data_type': 'POSITION_2D',
+                    'smart_mode': False,
+                    'suitable_for': ['Complex movements', 'Occlusions', 'Probabilistic tracking']
+                },
+                'SmartTracker': {
+                    'name': 'SmartTracker',
+                    'display_name': 'Smart Tracker (YOLO)',
+                    'description': 'AI-powered YOLO-based smart tracking system',
+                    'data_type': 'BBOX_CONFIDENCE',
+                    'smart_mode': True,
+                    'suitable_for': ['Multiple targets', 'AI detection', 'Complex scenarios']
+                }
+            }
+            
+            # Get current configured tracker
+            current_tracker = getattr(self.app_controller, 'current_tracker_type', 'CSRT')
+            
+            return JSONResponse(content={
+                'available_trackers': available_trackers,
+                'current_configured': current_tracker,
+                'current_active': self.app_controller.tracker.__class__.__name__ if self.app_controller.tracker else None,
+                'smart_mode_active': getattr(self.app_controller, 'smart_mode_active', False)
+            })
+            
+        except Exception as e:
+            self.logger.error(f"Error getting available tracker types: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def set_tracker_type(self, request: dict):
+        """
+        Endpoint to set/change the tracker type.
+        
+        Args:
+            request (dict): Request body containing tracker_type
+            
+        Returns:
+            dict: Success/failure response
+        """
+        try:
+            tracker_type = request.get('tracker_type')
+            if not tracker_type:
+                raise HTTPException(status_code=400, detail="tracker_type is required")
+            
+            # Validate tracker type
+            valid_types = ['CSRT', 'ParticleFilter', 'SmartTracker']
+            if tracker_type not in valid_types:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid tracker type '{tracker_type}'. Available: {valid_types}"
+                )
+            
+            # Check if tracker is currently active
+            is_tracking_active = (
+                hasattr(self.app_controller, 'tracker') and 
+                self.app_controller.tracker is not None and
+                getattr(self.app_controller, 'tracking_active', False)
+            )
+            
+            old_tracker_type = getattr(self.app_controller, 'current_tracker_type', 'CSRT')
+            
+            if tracker_type == 'SmartTracker':
+                # Handle smart mode activation
+                if not getattr(self.app_controller, 'smart_mode_active', False):
+                    # Enable smart mode
+                    self.app_controller.smart_mode_active = True
+                    self.app_controller.current_tracker_type = 'SmartTracker'
+                    
+                    if is_tracking_active:
+                        # Need to restart tracking with smart mode
+                        return JSONResponse(content={
+                            'status': 'success',
+                            'action': 'smart_mode_enabled',
+                            'old_tracker': old_tracker_type,
+                            'new_tracker': tracker_type,
+                            'message': 'Smart mode enabled. Stop and restart tracking to activate smart tracker.',
+                            'requires_restart': True
+                        })
+                    else:
+                        return JSONResponse(content={
+                            'status': 'success',
+                            'action': 'configured_smart',
+                            'old_tracker': old_tracker_type,
+                            'new_tracker': tracker_type,
+                            'message': 'Smart tracker configured. Will activate when tracking starts.'
+                        })
+                else:
+                    return JSONResponse(content={
+                        'status': 'success',
+                        'action': 'already_smart',
+                        'message': 'Smart tracker already active'
+                    })
+            else:
+                # Handle classic tracker selection
+                if getattr(self.app_controller, 'smart_mode_active', False):
+                    # Disable smart mode
+                    self.app_controller.smart_mode_active = False
+                
+                self.app_controller.current_tracker_type = tracker_type
+                
+                if is_tracking_active:
+                    # Need to restart tracking with new tracker
+                    return JSONResponse(content={
+                        'status': 'success',
+                        'action': 'classic_tracker_set',
+                        'old_tracker': old_tracker_type,
+                        'new_tracker': tracker_type,
+                        'message': f'Tracker set to {tracker_type}. Stop and restart tracking to activate new tracker.',
+                        'requires_restart': True
+                    })
+                else:
+                    return JSONResponse(content={
+                        'status': 'success',
+                        'action': 'configured_classic',
+                        'old_tracker': old_tracker_type,
+                        'new_tracker': tracker_type,
+                        'message': f'{tracker_type} tracker configured. Will activate when tracking starts.'
+                    })
+                    
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error setting tracker type: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_current_tracker_config(self):
+        """
+        Endpoint to get the current tracker configuration.
+        
+        Returns:
+            dict: Current tracker configuration and status.
+        """
+        try:
+            current_type = getattr(self.app_controller, 'current_tracker_type', 'CSRT')
+            is_smart_active = getattr(self.app_controller, 'smart_mode_active', False)
+            is_tracking_active = (
+                hasattr(self.app_controller, 'tracker') and 
+                self.app_controller.tracker is not None and
+                getattr(self.app_controller, 'tracking_active', False)
+            )
+            
+            # Determine expected data type based on tracker
+            expected_data_type = 'BBOX_CONFIDENCE' if is_smart_active else 'POSITION_2D'
+            
+            return JSONResponse(content={
+                'configured_tracker': current_type,
+                'smart_mode_active': is_smart_active,
+                'tracking_active': is_tracking_active,
+                'expected_data_type': expected_data_type,
+                'active_tracker_class': self.app_controller.tracker.__class__.__name__ if self.app_controller.tracker else None,
+                'status': 'active' if is_tracking_active else 'configured',
+                'timestamp': time.time()
+            })
+            
+        except Exception as e:
+            self.logger.error(f"Error getting current tracker config: {e}")
             raise HTTPException(status_code=500, detail=str(e))

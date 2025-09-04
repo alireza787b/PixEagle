@@ -219,3 +219,81 @@ export const useTrackerOutput = (refreshInterval = 1000) => {
     refetch: fetchOutput 
   }), [output, loading, error, fetchOutput]);
 };
+
+/**
+ * Hook for tracker selection and management
+ * Provides available tracker types and current configuration
+ */
+export const useTrackerSelection = () => {
+  const [availableTrackers, setAvailableTrackers] = useState({});
+  const [currentConfig, setCurrentConfig] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [isChanging, setIsChanging] = useState(false);
+
+  const fetchAvailableTrackers = useCallback(async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/tracker/available-types`);
+      setAvailableTrackers(response.data);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching available trackers:', err);
+      setError(err.message);
+    }
+  }, []);
+
+  const fetchCurrentConfig = useCallback(async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/tracker/current-config`);
+      setCurrentConfig(response.data);
+      setError(null);
+      setLoading(false);
+    } catch (err) {
+      console.error('Error fetching current tracker config:', err);
+      setError(err.message);
+      setLoading(false);
+    }
+  }, []);
+
+  const changeTrackerType = useCallback(async (trackerType) => {
+    setIsChanging(true);
+    try {
+      const response = await axios.post(`${API_URL}/api/tracker/set-type`, {
+        tracker_type: trackerType
+      });
+      
+      // Refresh current config
+      await fetchCurrentConfig();
+      await fetchAvailableTrackers();
+      
+      setIsChanging(false);
+      return response.data;
+    } catch (err) {
+      console.error('Error changing tracker type:', err);
+      setError(err.message);
+      setIsChanging(false);
+      throw err;
+    }
+  }, [fetchCurrentConfig, fetchAvailableTrackers]);
+
+  useEffect(() => {
+    Promise.all([fetchAvailableTrackers(), fetchCurrentConfig()]);
+    
+    // Refresh every 5 seconds to stay in sync
+    const interval = setInterval(() => {
+      fetchCurrentConfig();
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, [fetchAvailableTrackers, fetchCurrentConfig]);
+
+  return useMemo(() => ({
+    availableTrackers,
+    currentConfig,
+    loading,
+    error,
+    isChanging,
+    changeTrackerType,
+    refetch: () => Promise.all([fetchAvailableTrackers(), fetchCurrentConfig()])
+  }), [availableTrackers, currentConfig, loading, error, isChanging, changeTrackerType, fetchAvailableTrackers, fetchCurrentConfig]);
+};

@@ -27,10 +27,11 @@ tracker_data_types:
   
   POSITION_3D:
     name: "3D Position with Depth"
-    description: "3D position tracking with depth information"
+    description: "3D position tracking with depth information (includes 2D projection)"
     category: "position"
     required_fields:
       - position_3d
+      - position_2d  # 2D projection is mandatory for compatibility
     optional_fields:
       - confidence
       - bbox
@@ -41,7 +42,12 @@ tracker_data_types:
         type: "tuple"
         length: 3
         element_type: "float"
-        range: [-2.0, 2.0]  # Allow off-screen tracking  # x,y normalized, z can be > 1
+        range: [-2.0, 2.0]  # x,y normalized, z can be > 1
+      position_2d:
+        type: "tuple"
+        length: 2
+        element_type: "float"
+        range: [-2.0, 2.0]  # Must match x,y components of position_3d
         
   ANGULAR:
     name: "Angular Bearing/Elevation"
@@ -204,12 +210,15 @@ compatibility:
     ChaseFollower:
       required_schemas:
         - POSITION_2D
-      optional_schemas:
+      compatible_schemas:
+        - POSITION_3D  # Works because 3D includes 2D projection
         - BBOX_CONFIDENCE
         - VELOCITY_AWARE
     BodyVelocityChaseFollower:
       required_schemas:
         - POSITION_2D
+      compatible_schemas:
+        - POSITION_3D  # Works because 3D includes 2D projection
       preferred_schemas:
         - VELOCITY_AWARE
       optional_schemas:
@@ -217,22 +226,29 @@ compatibility:
     ConstantPositionFollower:
       required_schemas:
         - POSITION_2D
+      compatible_schemas:
+        - POSITION_3D  # Works because 3D includes 2D projection
       optional_schemas:
         - ANGULAR
         - BBOX_CONFIDENCE
     ConstantDistanceFollower:
       required_schemas:
         - POSITION_2D
+      compatible_schemas:
+        - POSITION_3D  # Works because 3D includes 2D projection (and adds depth info)
+      preferred_schemas:
+        - POSITION_3D  # Actually prefers 3D for distance calculations
       optional_schemas:
-        - POSITION_3D
         - ANGULAR
     GroundTargetFollower:
       required_schemas:
         - POSITION_2D
+      compatible_schemas:
+        - POSITION_3D  # Works because 3D includes 2D projection
       preferred_schemas:
         - ANGULAR
+        - POSITION_3D  # 3D helps with ground projection
       optional_schemas:
-        - POSITION_3D
         - EXTERNAL
 
 # Future extensibility guidelines

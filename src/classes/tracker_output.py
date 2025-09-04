@@ -47,13 +47,13 @@ class TrackerDataType(Enum):
     
     Note: When schema manager is available, these values are loaded from YAML configuration.
     """
-    POSITION_2D = "position_2d"           # Standard 2D position tracking
-    POSITION_3D = "position_3d"           # 3D position with depth
-    ANGULAR = "angular"                   # Bearing/elevation angles  
-    BBOX_CONFIDENCE = "bbox_confidence"   # Bounding box with confidence
-    VELOCITY_AWARE = "velocity_aware"     # Position + velocity estimates
-    EXTERNAL = "external"                 # External data source (e.g., radar)
-    MULTI_TARGET = "multi_target"         # Multiple target tracking
+    POSITION_2D = "POSITION_2D"           # Standard 2D position tracking
+    POSITION_3D = "POSITION_3D"           # 3D position with depth
+    ANGULAR = "ANGULAR"                   # Bearing/elevation angles  
+    BBOX_CONFIDENCE = "BBOX_CONFIDENCE"   # Bounding box with confidence
+    VELOCITY_AWARE = "VELOCITY_AWARE"     # Position + velocity estimates
+    EXTERNAL = "EXTERNAL"                 # External data source (e.g., radar)
+    MULTI_TARGET = "MULTI_TARGET"         # Multiple target tracking
 
 # Initialize schema manager if available
 if SCHEMA_MANAGER_AVAILABLE:
@@ -181,36 +181,10 @@ class TrackerOutput:
                 return True
                 
             except Exception as e:
-                logger.warning(f"Schema manager validation failed, using fallback: {e}")
-                # Fall through to hardcoded validation
-        
-        # Fallback to hardcoded validation
-        if self.tracking_active:
-            if self.data_type == TrackerDataType.POSITION_2D:
-                if self.position_2d is None:
-                    raise ValueError("position_2d is required for POSITION_2D type when tracking is active")
-                if len(self.position_2d) != 2:
-                    raise ValueError("position_2d must have exactly 2 elements")
-                    
-            elif self.data_type == TrackerDataType.POSITION_3D:
-                if self.position_3d is None:
-                    raise ValueError("position_3d is required for POSITION_3D type when tracking is active")
-                if len(self.position_3d) != 3:
-                    raise ValueError("position_3d must have exactly 3 elements")
-                    
-            elif self.data_type == TrackerDataType.ANGULAR:
-                if self.angular is None:
-                    raise ValueError("angular is required for ANGULAR type when tracking is active")
-                if len(self.angular) != 2:
-                    raise ValueError("angular must have exactly 2 elements")
-            
-            elif self.data_type == TrackerDataType.BBOX_CONFIDENCE:
-                if self.bbox is None and self.normalized_bbox is None:
-                    raise ValueError("bbox or normalized_bbox required for BBOX_CONFIDENCE type when tracking is active")
-            
-            elif self.data_type == TrackerDataType.MULTI_TARGET:
-                if self.targets is None:
-                    raise ValueError("targets is required for MULTI_TARGET type when tracking is active")
+                logger.error(f"Schema validation failed: {e}")
+                raise ValueError(f"Schema validation is required but failed: {e}")
+        else:
+            logger.warning("Schema manager not available - validation may be incomplete")
         
         return True
     
@@ -343,6 +317,7 @@ if __name__ == "__main__":
         timestamp=time.time(),
         tracking_active=True,
         position_3d=(0.1, -0.2, 5.3),
+        position_2d=(0.1, -0.2),  # Required: 2D projection of 3D position
         confidence=0.9
     )
     

@@ -19,6 +19,7 @@ import ActionButtons from '../components/ActionButtons';
 import BoundingBoxDrawer from '../components/BoundingBoxDrawer';
 import StatusIndicator from '../components/StatusIndicator';
 import FollowerStatusCard from '../components/FollowerStatusCard';
+import TrackerStatusCard from '../components/TrackerStatusCard';
 import FollowerQuickControl from '../components/FollowerQuickControl';
 import StreamingStats from '../components/StreamingStats';
 
@@ -36,47 +37,64 @@ import axios from 'axios';
 const API_URL = `http://${process.env.REACT_APP_API_HOST}:${process.env.REACT_APP_API_PORT}`;
 
 const SystemHealthCard = ({ trackerStatus, isFollowing, smartModeActive }) => {
+  const getSystemStatus = () => {
+    if (trackerStatus && isFollowing) return { label: 'Fully Active', color: 'success', icon: <CheckCircle /> };
+    if (trackerStatus || isFollowing) return { label: 'Partially Active', color: 'warning', icon: <Warning /> };
+    return { label: 'Standby', color: 'default', icon: <Warning /> };
+  };
+
+  const systemStatus = getSystemStatus();
+
   return (
     <Card>
       <CardContent>
-        <Typography variant="h6" gutterBottom>
-          System Health
-        </Typography>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="body2">Tracking:</Typography>
-            <Chip 
-              label={trackerStatus ? 'Active' : 'Inactive'}
-              color={trackerStatus ? 'success' : 'default'}
-              size="small"
-              icon={trackerStatus ? <CheckCircle /> : <Warning />}
-            />
-          </Box>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="body2">Following:</Typography>
-            <Chip 
-              label={isFollowing ? 'Active' : 'Inactive'}
-              color={isFollowing ? 'success' : 'default'}
-              size="small"
-              icon={isFollowing ? <CheckCircle /> : <Warning />}
-            />
-          </Box>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="body2">Smart Mode:</Typography>
-            <Chip 
-              label={smartModeActive ? 'YOLO' : 'CSRT'}
-              color={smartModeActive ? 'secondary' : 'primary'}
-              size="small"
-            />
-          </Box>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="body2">Connection:</Typography>
-            <Chip 
-              label="Connected"
-              color="success"
-              size="small"
-            />
-          </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+          <Speed color="action" />
+          <Typography variant="h6">System Health</Typography>
+          <Chip 
+            label={systemStatus.label}
+            color={systemStatus.color}
+            size="small"
+            icon={systemStatus.icon}
+          />
+        </Box>
+        
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+          <Chip 
+            label={`Tracking: ${trackerStatus ? 'ON' : 'OFF'}`}
+            color={trackerStatus ? 'success' : 'default'}
+            size="small"
+            variant="outlined"
+          />
+          <Chip 
+            label={`Following: ${isFollowing ? 'ON' : 'OFF'}`}
+            color={isFollowing ? 'success' : 'default'}
+            size="small"
+            variant="outlined"
+          />
+        </Box>
+
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="body2" color="textSecondary">
+            Detection Mode:
+          </Typography>
+          <Chip 
+            label={smartModeActive ? 'YOLO (Smart)' : 'CSRT (Classic)'}
+            color={smartModeActive ? 'secondary' : 'primary'}
+            size="small"
+          />
+        </Box>
+        
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+          <Typography variant="body2" color="textSecondary">
+            Connection:
+          </Typography>
+          <Chip 
+            label="Online"
+            color="success"
+            size="small"
+            variant="outlined"
+          />
         </Box>
       </CardContent>
     </Card>
@@ -85,46 +103,6 @@ const SystemHealthCard = ({ trackerStatus, isFollowing, smartModeActive }) => {
 
 
 
-const QuickActionsCard = () => {
-  return (
-    <Card>
-      <CardContent>
-        <Typography variant="h6" gutterBottom>
-          Quick Navigation
-        </Typography>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          <Button 
-            variant="outlined" 
-            onClick={() => window.location.href = '/tracker'}
-            startIcon={<TrackChanges />}
-            fullWidth
-            size="small"
-          >
-            Tracker Control
-          </Button>
-          <Button 
-            variant="outlined"
-            onClick={() => window.location.href = '/follower'}
-            startIcon={<FlightTakeoff />}
-            fullWidth
-            size="small"
-          >
-            Follower Control
-          </Button>
-          <Button 
-            variant="outlined"
-            onClick={() => window.location.href = '/live-feed'}
-            startIcon={<LiveTv />}
-            fullWidth
-            size="small"
-          >
-            Live Feed
-          </Button>
-        </Box>
-      </CardContent>
-    </Card>
-  );
-};
 
 const DashboardPage = () => {
   const [isTracking, setIsTracking] = useState(false);
@@ -244,13 +222,18 @@ const DashboardPage = () => {
   }, []);
 
   return (
-    <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" gutterBottom align="center">
+    <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
+      <Box sx={{ 
+        mb: 3, 
+        py: 2,
+        borderBottom: '1px solid',
+        borderColor: 'divider'
+      }}>
+        <Typography variant="h4" gutterBottom sx={{ fontWeight: 500, color: 'text.primary' }}>
           PixEagle Dashboard
         </Typography>
-        <Typography variant="subtitle1" color="textSecondary" align="center">
-          System Overview and Real-time Control
+        <Typography variant="subtitle1" color="text.secondary">
+          Professional Drone Control & Tracking System
         </Typography>
       </Box>
 
@@ -263,120 +246,168 @@ const DashboardPage = () => {
         </Box>
       ) : (
         <Grid container spacing={3}>
-          {/* Top Status Cards Row */}
-          <Grid item xs={12}>
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6} md={3}>
-                <FollowerStatusCard followerData={followerData} />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <SystemHealthCard 
-                  trackerStatus={trackerStatus}
-                  isFollowing={isFollowing}
-                  smartModeActive={smartModeActive}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <StreamingStats />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <FollowerQuickControl />
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
-                <QuickActionsCard />
-              </Grid>
-            </Grid>
-          </Grid>
+          {/* PRIMARY: Main Video Feed Section - Hero Section */}
 
-          {/* Main Control Section */}
+          {/* PRIMARY: Main Video and Controls Section */}
           <Grid item xs={12}>
-            <Grid container spacing={2}>
-              {/* Sidebar Controls */}
-              <Grid item xs={12} sm={3} md={2}>
-                <Grid container direction="column" spacing={2}>
-                  {/* Tracker Mode Controls */}
-                  <Grid item>
-                    <Card>
-                      <CardContent>
-                        <Typography variant="h6" gutterBottom>Tracker Control</Typography>
-                        <ActionButtons
+            <Card elevation={4} sx={{ mb: 2 }}>
+              <CardContent sx={{ p: 2 }}>
+                <Grid container spacing={2}>
+                  {/* Control Panel - Sidebar */}
+                  <Grid item xs={12} lg={3}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%' }}>
+                      {/* Primary Controls */}
+                      <Card variant="outlined" sx={{ minHeight: 200 }}>
+                        <CardContent>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                            <TrackChanges color="primary" />
+                            <Typography variant="h6">Control Panel</Typography>
+                          </Box>
+                          <ActionButtons
+                            isTracking={isTracking}
+                            smartModeActive={smartModeActive}
+                            handleTrackingToggle={handleTrackingToggle}
+                            handleButtonClick={handleButtonClick}
+                            handleToggleSmartMode={handleToggleSmartMode}
+                          />
+                        </CardContent>
+                      </Card>
+
+                      {/* Settings */}
+                      <Card variant="outlined" sx={{ minHeight: 120 }}>
+                        <CardContent>
+                          <Typography variant="subtitle1" gutterBottom>Settings</Typography>
+                          <FormControl variant="outlined" fullWidth size="small">
+                            <InputLabel>Streaming Protocol</InputLabel>
+                            <Select
+                              value={streamingProtocol}
+                              onChange={(e) => setStreamingProtocol(e.target.value)}
+                              label="Streaming Protocol"
+                            >
+                              <MenuItem value="websocket">WebSocket</MenuItem>
+                              <MenuItem value="http">HTTP</MenuItem>
+                            </Select>
+                          </FormControl>
+                        </CardContent>
+                      </Card>
+
+                      {/* Active Profile Display */}
+                      {currentProfile && currentProfile.active && (
+                        <Card variant="outlined" sx={{ bgcolor: 'primary.light', color: 'primary.contrastText', minHeight: 100 }}>
+                          <CardContent>
+                            <Typography variant="subtitle2" gutterBottom>
+                              Active Follower Profile
+                            </Typography>
+                            <Typography variant="body1" fontWeight="bold">
+                              {currentProfile.display_name}
+                            </Typography>
+                            <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                              {currentProfile.description}
+                            </Typography>
+                          </CardContent>
+                        </Card>
+                      )}
+                    </Box>
+                  </Grid>
+
+                  {/* Main Video Feed - Primary Focus */}
+                  <Grid item xs={12} lg={9}>
+                    <Card variant="outlined" sx={{ bgcolor: 'grey.50', minHeight: 400 }}>
+                      <CardContent sx={{ p: 1 }}>
+                        <BoundingBoxDrawer
                           isTracking={isTracking}
+                          imageRef={imageRef}
+                          startPos={startPos}
+                          currentPos={currentPos}
+                          boundingBox={boundingBox}
+                          handleMouseDown={handleMouseDown}
+                          handleMouseMove={handleMouseMove}
+                          handleMouseUp={handleMouseUp}
+                          handleTouchStart={handleTouchStart}
+                          handleTouchMove={handleTouchMove}
+                          handleTouchEnd={handleTouchEnd}
+                          videoSrc={videoFeed}
+                          protocol={streamingProtocol}
                           smartModeActive={smartModeActive}
-                          handleTrackingToggle={handleTrackingToggle}
-                          handleButtonClick={handleButtonClick}
-                          handleToggleSmartMode={handleToggleSmartMode}
                         />
                       </CardContent>
                     </Card>
                   </Grid>
-
-                  <Divider sx={{ my: 1 }} />
-
-                  {/* Streaming Protocol */}
-                  <Grid item>
-                    <Card>
-                      <CardContent>
-                        <FormControl variant="outlined" fullWidth size="small">
-                          <InputLabel id="streaming-protocol-label">Streaming Protocol</InputLabel>
-                          <Select
-                            labelId="streaming-protocol-label"
-                            value={streamingProtocol}
-                            onChange={(e) => setStreamingProtocol(e.target.value)}
-                            label="Streaming Protocol"
-                          >
-                            <MenuItem value="websocket">WebSocket</MenuItem>
-                            <MenuItem value="http">HTTP</MenuItem>
-                          </Select>
-                        </FormControl>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-
-                  {/* Current Status Summary */}
-                  <Grid item>
-                    <Card>
-                      <CardContent>
-                        <Typography variant="subtitle2" gutterBottom>Current Status</Typography>
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                          <StatusIndicator label="Tracking" status={trackerStatus} />
-                          <StatusIndicator label="Following" status={isFollowing} />
-                          {currentProfile && currentProfile.active && (
-                            <Box sx={{ mt: 1 }}>
-                              <Typography variant="caption" color="textSecondary">
-                                Profile:
-                              </Typography>
-                              <Typography variant="body2" fontWeight="bold">
-                                {currentProfile.display_name}
-                              </Typography>
-                            </Box>
-                          )}
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
                 </Grid>
-              </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
 
-              {/* Main Video + Bounding Box */}
-              <Grid item xs={12} sm={9} md={10}>
-                <Card>
-                  <CardContent sx={{ p: 1 }}>
-                    <BoundingBoxDrawer
-                      isTracking={isTracking}
-                      imageRef={imageRef}
-                      startPos={startPos}
-                      currentPos={currentPos}
-                      boundingBox={boundingBox}
-                      handleMouseDown={handleMouseDown}
-                      handleMouseMove={handleMouseMove}
-                      handleMouseUp={handleMouseUp}
-                      handleTouchStart={handleTouchStart}
-                      handleTouchMove={handleTouchMove}
-                      handleTouchEnd={handleTouchEnd}
-                      videoSrc={videoFeed}
-                      protocol={streamingProtocol}
-                      smartModeActive={smartModeActive}
-                    />
+          {/* SECONDARY: System Status Cards Row - Below Video */}
+          <Grid item xs={12}>
+            <Grid container spacing={3} sx={{ minHeight: 200 }}>
+              <Grid item xs={12} md={4}>
+                <Box sx={{ height: '100%' }}>
+                  <TrackerStatusCard />
+                </Box>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Box sx={{ height: '100%' }}>
+                  <FollowerStatusCard followerData={followerData} />
+                </Box>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Box sx={{ height: '100%' }}>
+                  <SystemHealthCard 
+                    trackerStatus={trackerStatus}
+                    isFollowing={isFollowing}
+                    smartModeActive={smartModeActive}
+                  />
+                </Box>
+              </Grid>
+            </Grid>
+          </Grid>
+          
+          {/* TERTIARY: Quick Controls & Stats Row - Bottom */}
+          <Grid item xs={12}>
+            <Grid container spacing={2} sx={{ minHeight: 150 }}>
+              <Grid item xs={12} sm={6} md={4}>
+                <Box sx={{ height: '100%' }}>
+                  <StreamingStats />
+                </Box>
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <Box sx={{ height: '100%' }}>
+                  <FollowerQuickControl />
+                </Box>
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <Card sx={{ height: '100%' }}>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom>
+                      System Navigation
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      <Button 
+                        variant="outlined" 
+                        onClick={() => window.location.href = '/tracker'}
+                        startIcon={<TrackChanges />}
+                        size="small"
+                      >
+                        Tracker
+                      </Button>
+                      <Button 
+                        variant="outlined"
+                        onClick={() => window.location.href = '/follower'}
+                        startIcon={<FlightTakeoff />}
+                        size="small"
+                      >
+                        Follower
+                      </Button>
+                      <Button 
+                        variant="outlined"
+                        onClick={() => window.location.href = '/live-feed'}
+                        startIcon={<LiveTv />}
+                        size="small"
+                      >
+                        Live Feed
+                      </Button>
+                    </Box>
                   </CardContent>
                 </Card>
               </Grid>

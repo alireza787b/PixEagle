@@ -59,6 +59,8 @@ from classes.parameters import Parameters
 from classes.trackers.base_tracker import BaseTracker
 from classes.tracker_output import TrackerOutput, TrackerDataType
 
+logger = logging.getLogger(__name__)
+
 class CSRTTracker(BaseTracker):
     """
     CSRTTracker Class
@@ -232,15 +234,35 @@ class CSRTTracker(BaseTracker):
         """
         # Get velocity from estimator if available
         velocity = None
-        if self.estimator_enabled and self.position_estimator:
+        if (self.estimator_enabled and self.position_estimator and 
+            self.tracking_started and len(self.center_history) > 2):
+            # Only use estimator velocity if we've been tracking for a few frames
             estimated_state = self.position_estimator.get_estimate()
             if estimated_state and len(estimated_state) >= 4:
                 # Extract velocity components (dx, dy)
-                velocity = (estimated_state[2], estimated_state[3])
+                vel_x, vel_y = estimated_state[2], estimated_state[3]
+                # Only use velocity if it's meaningful (non-zero with minimum threshold)
+                velocity_magnitude = (vel_x ** 2 + vel_y ** 2) ** 0.5
+                if velocity_magnitude > 0.001:  # Minimum velocity threshold
+                    velocity = (vel_x, vel_y)
+                    logger.debug(f"CSRT: Using VELOCITY_AWARE - velocity: {velocity}, magnitude: {velocity_magnitude:.4f}")
+                else:
+                    logger.debug(f"CSRT: Ignoring near-zero velocity - magnitude: {velocity_magnitude:.4f}")
+        elif self.estimator_enabled:
+            logger.debug(f"CSRT: Estimator available but insufficient tracking history ({len(self.center_history) if self.center_history else 0} frames)")
         
         # Determine appropriate data type based on available data
         has_bbox = self.bbox is not None or self.normalized_bbox is not None
-        data_type = TrackerDataType.BBOX_CONFIDENCE if has_bbox else TrackerDataType.POSITION_2D
+        has_velocity = velocity is not None
+        
+        if has_velocity:
+            data_type = TrackerDataType.VELOCITY_AWARE
+        elif has_bbox:
+            data_type = TrackerDataType.BBOX_CONFIDENCE  
+        else:
+            data_type = TrackerDataType.POSITION_2D
+            
+        logger.debug(f"CSRT: Selected data_type: {data_type.value} (has_velocity: {has_velocity}, has_bbox: {has_bbox})")
         
         return TrackerOutput(
             data_type=data_type,
@@ -259,6 +281,8 @@ class CSRTTracker(BaseTracker):
             raw_data={
                 'center_history_length': len(self.center_history) if self.center_history else 0,
                 'estimator_enabled': self.estimator_enabled,
+                'estimator_providing_velocity': has_velocity,
+                'velocity_magnitude': round((velocity[0]**2 + velocity[1]**2)**0.5, 4) if velocity else 0.0,
                 'override_active': self.override_active,
                 'csrt_tracker_name': self.trackerName,
                 'estimated_position_history_length': len(self.estimated_position_history) if self.estimated_position_history else 0,
@@ -269,6 +293,8 @@ class CSRTTracker(BaseTracker):
                 'tracker_algorithm': 'CSRT',
                 'has_estimator': bool(self.position_estimator),
                 'supports_velocity': bool(self.position_estimator),
+                'velocity_source': 'Kalman Estimator' if has_velocity else 'None',
+                'schema_enhancement': 'Estimator' if has_velocity else 'Base Tracker',
                 'center_pixel': self.center,
                 'bbox_pixel': self.bbox,
                 'opencv_version': cv2.__version__

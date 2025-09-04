@@ -308,24 +308,28 @@ class ConstantDistanceFollower(BaseFollower):
         5. Command field updates via schema-aware interface
         
         Args:
-            target_coords (Tuple[float, float]): Normalized target coordinates from vision system
-                - X-axis: horizontal displacement (controls Y movement and yaw)
-                - Y-axis: vertical displacement (controls Z movement)
+            tracker_data (TrackerOutput): Structured tracker data with position and metadata
                 
         Raises:
-            ValueError: If target coordinates are invalid
+            ValueError: If tracker data or target coordinates are invalid
             RuntimeError: If control calculation fails
             
         Note:
             X-axis velocity is always set to zero to maintain constant distance.
             The method maps target coordinates to appropriate control axes.
         """
-        # Validate input coordinates
-        if not self.validate_target_coordinates(target_coords):
-            logger.error(f"Invalid target coordinates: {target_coords}")
-            raise ValueError(f"Invalid target coordinates: {target_coords}")
-        
         try:
+            # Extract target coordinates from tracker data
+            target_coords = self.extract_target_coordinates(tracker_data)
+            if not target_coords:
+                logger.error("Could not extract target coordinates from tracker data")
+                return
+            
+            # Validate extracted coordinates
+            if not self.validate_target_coordinates(target_coords):
+                logger.error(f"Invalid target coordinates: {target_coords}")
+                raise ValueError(f"Invalid target coordinates: {target_coords}")
+            
             # Update PID gains
             self._update_pid_gains()
             
@@ -367,18 +371,21 @@ class ConstantDistanceFollower(BaseFollower):
             self.reset_command_fields()
             raise RuntimeError(f"Control calculation failed: {e}")
     
-    def follow_target(self, target_coords: Tuple[float, float]):
+    def follow_target(self, tracker_data: TrackerOutput) -> bool:
         """
-        Execute target following behavior asynchronously.
+        Execute target following behavior using schema-driven tracker data.
         
         This method implements the high-level following logic by calculating
         and applying control commands for constant distance tracking.
         
         Args:
-            target_coords (Tuple[float, float]): Current target coordinates from vision
+            tracker_data (TrackerOutput): Structured tracker data with position and metadata
+            
+        Returns:
+            bool: True if following executed successfully, False otherwise
             
         Raises:
-            ValueError: If target coordinates are invalid
+            ValueError: If tracker data is invalid
             RuntimeError: If following operation fails
             
         Note:
@@ -387,9 +394,20 @@ class ConstantDistanceFollower(BaseFollower):
             - Non-blocking command transmission
             - Concurrent safety monitoring
         """
-        logger.debug(f"Following target at coordinates: {target_coords}")
-        
         try:
+            # Validate tracker data
+            if not tracker_data or not hasattr(tracker_data, 'data_type'):
+                logger.error("Invalid tracker data provided")
+                return False
+            
+            # Extract target coordinates from tracker data
+            target_coords = self.extract_target_coordinates(tracker_data)
+            if not target_coords:
+                logger.warning("Could not extract target coordinates from tracker data")
+                return False
+            
+            logger.debug(f"Following target at coordinates: {target_coords}")
+            
             # Calculate and apply control commands using structured data
             self.calculate_control_commands(tracker_data)
             
@@ -398,10 +416,11 @@ class ConstantDistanceFollower(BaseFollower):
             self.update_telemetry_metadata('current_target', target_coords)
             
             logger.info(f"Successfully following target at: {target_coords}")
+            return True
             
         except Exception as e:
-            logger.error(f"Failed to follow target at {target_coords}: {e}")
-            raise
+            logger.error(f"Failed to follow target: {e}")
+            return False
     
     # ==================== Enhanced Status and Debug Methods ====================
     

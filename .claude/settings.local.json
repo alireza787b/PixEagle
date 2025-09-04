@@ -3,7 +3,8 @@
     "allow": [
       "Bash(dir:*)",
       "Bash(move:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

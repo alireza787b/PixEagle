@@ -108,6 +108,13 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
         { name: 'vel_z', icon: <FlightTakeoff fontSize="small" />, color: '#FF9800', unit: 'm/s' },
         { name: 'yaw_rate', icon: <Rotate90DegreesCcw fontSize="small" />, color: '#9C27B0', unit: 'rad/s' }
       ];
+    } else if (controlType === 'velocity_body_offboard') {
+      fieldDefinitions = [
+        { name: 'vel_body_fwd', icon: <Speed fontSize="small" />, color: '#2196F3', unit: 'm/s' },
+        { name: 'vel_body_right', icon: <Speed fontSize="small" />, color: '#4CAF50', unit: 'm/s' },
+        { name: 'vel_body_down', icon: <FlightTakeoff fontSize="small" />, color: '#FF9800', unit: 'm/s' },
+        { name: 'yawspeed_deg_s', icon: <Rotate90DegreesCcw fontSize="small" />, color: '#9C27B0', unit: '°/s' }
+      ];
     } else if (controlType === 'attitude_rate') {
       fieldDefinitions = [
         { name: 'roll_rate', icon: <Rotate90DegreesCcw fontSize="small" />, color: '#F44336', unit: 'rad/s' },
@@ -233,39 +240,53 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
           </Box>
         )}
 
-        {/* Key Field Values - Show for engaged, or available fields for configured */}
+        {/* Key Setpoint Values - Similar to Tracker Key Fields */}
         {keyFields.length > 0 && (
-          <Box>
-            <Typography variant="subtitle2" color="textSecondary" gutterBottom>
-              {isEngaged ? 'Current Commands' : 'Available Fields'}
+          <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+            <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
+              {isEngaged ? 'Live Setpoints:' : 'Expected Fields:'}
             </Typography>
-            <Grid container spacing={1}>
-              {keyFields.map((field) => (
-                <Grid item xs={6} key={field.name}>
-                  <FieldQuickView
-                    fieldName={field.name}
-                    value={isEngaged ? fields[field.name] : 0}
-                    unit={field.unit}
-                    color={field.color}
-                    icon={field.icon}
-                  />
-                </Grid>
-              ))}
-            </Grid>
+            {keyFields.slice(0, 3).map((field) => {
+              const currentValue = isEngaged ? fields[field.name] : null;
+              const displayValue = currentValue !== null && currentValue !== undefined 
+                ? (typeof currentValue === 'number' ? currentValue.toFixed(3) : currentValue.toString())
+                : (isEngaged ? '0.000' : 'Ready');
+                
+              return (
+                <Box key={field.name} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                  <Box sx={{ color: field.color }}>
+                    {field.icon}
+                  </Box>
+                  <Typography variant="caption" sx={{ minWidth: 60 }}>
+                    {field.name.replace('_', ' ')}:
+                  </Typography>
+                  <Typography 
+                    variant="caption" 
+                    fontFamily="monospace" 
+                    color={isEngaged ? 'primary' : 'textSecondary'}
+                    fontWeight={isEngaged ? 'bold' : 'normal'}
+                  >
+                    {displayValue} {field.unit}
+                  </Typography>
+                </Box>
+              );
+            })}
+            
+            {/* Show control type info when configured but not engaged */}
+            {!isEngaged && isConfigured && (
+              <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5, display: 'block' }}>
+                Control: {controlType?.replace('_', ' ').toUpperCase()}
+              </Typography>
+            )}
           </Box>
         )}
 
-        {/* Description */}
-        {description && (
+        {/* Description - Only show if not engaged and no setpoints */}
+        {description && !isEngaged && keyFields.length === 0 && (
           <Typography variant="caption" color="textSecondary" sx={{ mt: 1, display: 'block' }}>
             {description}
           </Typography>
         )}
-
-        {/* Show mode for debugging */}
-        <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5, display: 'block', fontStyle: 'italic' }}>
-          Mode: {mode} | Status: {status}
-        </Typography>
       </CardContent>
     </Card>
   );

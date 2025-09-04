@@ -99,26 +99,15 @@ class SchemaManager:
             return False
     
     def _generate_enum(self):
-        """Generate TrackerDataType enum values from loaded schemas."""
-        # For now, we'll keep the existing enum and just log the loaded schemas
-        # Full dynamic enum generation requires more complex implementation
+        """Log loaded schema types for system verification."""
+        # System is now fully YAML-driven - enum values are created dynamically from YAML
         logger.info(f"Loaded schema types: {list(self.schemas.keys())}")
         
-        # Verify that all loaded schemas match existing enum values
-        existing_enum_values = set(item.name for item in TrackerDataType)
-        loaded_schemas = set(self.schemas.keys())
-        
-        # Check for missing schemas
-        missing_in_enum = loaded_schemas - existing_enum_values
-        if missing_in_enum:
-            logger.warning(f"Schemas in YAML but not in enum: {missing_in_enum}")
-        
-        # Check for extra enum values  
-        missing_in_yaml = existing_enum_values - loaded_schemas
-        if missing_in_yaml:
-            logger.warning(f"Enum values not in YAML: {missing_in_yaml}")
-            
-        logger.info("Schema-enum alignment check complete")
+        # Validate schema completeness
+        if len(self.schemas) == 0:
+            logger.warning("No tracker schemas loaded - check YAML configuration")
+        else:
+            logger.debug(f"Successfully loaded {len(self.schemas)} tracker data type schemas")
     
     def get_schema(self, schema_type: str) -> Optional[Dict[str, Any]]:
         """
@@ -180,6 +169,17 @@ class SchemaManager:
             if field_name in data and data[field_name] is not None:
                 field_errors = self._validate_field(field_name, data[field_name], rules)
                 errors.extend(field_errors)
+        
+        # Special validation for POSITION_3D: ensure 2D projection consistency
+        if data_type == 'POSITION_3D' and tracking_active:
+            pos_2d = data.get('position_2d')
+            pos_3d = data.get('position_3d')
+            if pos_2d and pos_3d and len(pos_2d) == 2 and len(pos_3d) >= 2:
+                # Check if 2D position matches first two components of 3D position
+                tolerance = 1e-6
+                if (abs(pos_2d[0] - pos_3d[0]) > tolerance or 
+                    abs(pos_2d[1] - pos_3d[1]) > tolerance):
+                    errors.append("position_2d must match x,y components of position_3d")
         
         return len(errors) == 0, errors
     
