@@ -12,8 +12,12 @@ const StaticPlot = ({ title, data, dataKey }) => {
                              data && data.length > 0 && data.some(d => d.center !== null);
   const isFollowerDataValid = (dataKey === 'vel_x' || dataKey === 'vel_y' || dataKey === 'vel_z') &&
                               data && data.length > 0 && data.some(d => d[dataKey] !== undefined);
+  
+  // Schema-aware tracker field validation
+  const isSchemaTrackerDataValid = data && data.length > 0 && 
+                                   data.some(d => d.fields && d.fields[dataKey] !== undefined);
 
-  if (!isTrackerDataValid && !isFollowerDataValid) {
+  if (!isTrackerDataValid && !isFollowerDataValid && !isSchemaTrackerDataValid) {
     return (
       <div>
         <h3>{title}</h3>
@@ -22,7 +26,14 @@ const StaticPlot = ({ title, data, dataKey }) => {
     );
   }
 
-  const validData = isTrackerDataValid ? data.filter(d => d.center !== null) : data.filter(d => d[dataKey] !== undefined);
+  let validData;
+  if (isTrackerDataValid) {
+    validData = data.filter(d => d.center !== null);
+  } else if (isFollowerDataValid) {
+    validData = data.filter(d => d[dataKey] !== undefined);
+  } else {
+    validData = data.filter(d => d.fields && d.fields[dataKey] !== undefined);
+  }
 
   const maxWindowSize = 30; // in seconds
   const startTime = new Date(validData[0].timestamp).getTime();
@@ -32,8 +43,16 @@ const StaticPlot = ({ title, data, dataKey }) => {
     if (isTrackerDataValid) {
       const index = dataKey === 'center.0' ? 0 : 1;
       return d.center ? d.center[index] : 0;
-    } else {
+    } else if (isFollowerDataValid) {
       return d[dataKey] !== undefined ? d[dataKey] : 0;
+    } else {
+      // Schema-driven tracker field data
+      const fieldValue = d.fields[dataKey];
+      if (Array.isArray(fieldValue)) {
+        // For array fields like position_2d, use first element
+        return fieldValue[0] || 0;
+      }
+      return typeof fieldValue === 'number' ? fieldValue : 0;
     }
   });
 

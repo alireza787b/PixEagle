@@ -229,31 +229,29 @@ class Follower:
     
     # ==================== Core Follower Interface ====================
     
-    def follow_target(self, target_coords: Tuple[float, float]):
+    def follow_target(self, tracker_data):
         """
-        Sends control commands to follow a target based on its coordinates.
+        Sends control commands to follow a target based on tracker data.
 
         Args:
-            target_coords (Tuple[float, float]): The current target coordinates to follow.
+            tracker_data: The current tracker data to follow. Can be TrackerOutput object or legacy tuple.
 
         Returns:
             The result of the follower's `follow_target` method.
             
         Raises:
-            ValueError: If target coordinates are invalid.
+            ValueError: If tracker data is invalid.
         """
-        # Validate target coordinates
-        if not self.follower.validate_target_coordinates(target_coords):
-            logger.warning(f"Invalid target coordinates: {target_coords}")
-            return False
+        logger.debug(f"Following target with data type: {type(tracker_data)}")
         
-        logger.debug(f"Following target at coordinates: {target_coords}")
         try:
-            result = self.follower.follow_target(target_coords)
+            # Call the follower's follow_target method directly
+            # The individual follower will handle TrackerOutput validation and extraction
+            result = self.follower.follow_target(tracker_data)
             return result
             
         except Exception as e:
-            logger.error(f"Failed to follow target at coordinates {target_coords}: {e}")
+            logger.error(f"Failed to follow target with data {tracker_data}: {e}")
             raise
     
     def get_follower_telemetry(self) -> Dict[str, Any]:

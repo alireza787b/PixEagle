@@ -1032,24 +1032,13 @@ class BodyVelocityChaseFollower(BaseFollower):
             logger.error(f"Error handling tracking failure: {e}")
             self.activate_emergency_stop()
 
-    def get_required_tracker_data_types(self) -> List[TrackerDataType]:
-        """
-        Returns tracker data types required by BodyVelocityChaseFollower.
-        
-        Returns:
-            List[TrackerDataType]: Required data types
-        """
-        return [TrackerDataType.POSITION_2D]
-    
-    def get_optional_tracker_data_types(self) -> List[TrackerDataType]:
-        """
-        Returns optional tracker data types that enhance BodyVelocityChaseFollower performance.
-        
-        Returns:
-            List[TrackerDataType]: Optional data types that provide additional functionality
-        """
-        return [
-            TrackerDataType.BBOX_CONFIDENCE,
-            TrackerDataType.VELOCITY_AWARE,
-            TrackerDataType.MULTI_TARGET
-        ]
+    # ==================== Schema-Driven Data Requirements ====================
+    # 
+    # NOTE: Tracker data requirements are now read from schema (follower_commands.yaml)
+    # instead of being hardcoded here. This enables dynamic extensibility without
+    # modifying individual follower classes.
+    #
+    # Schema location: configs/follower_commands.yaml -> body_velocity_chase -> required_tracker_data
+    # The base class automatically loads these requirements from the profile configuration.
+    #
+    # No override methods needed - base class handles schema-driven data requirements ✅

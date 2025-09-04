@@ -933,17 +933,29 @@ class AppController:
         try:
             if not (hasattr(self.tracker, 'normalized_center') and 
                    hasattr(self.tracker, 'normalized_bbox')):
+                logging.debug("Legacy tracker missing required attributes (normalized_center or normalized_bbox)")
                 return None
+            
+            # Debug the values being used
+            normalized_center = self.tracker.normalized_center
+            normalized_bbox = self.tracker.normalized_bbox
+            bbox = getattr(self.tracker, 'bbox', None)
+            confidence = getattr(self.tracker, 'confidence', 1.0)
+            
+            logging.debug(f"Legacy tracker output: center={normalized_center}, bbox={bbox}, confidence={confidence}")
+            
+            if normalized_center is None:
+                logging.warning("Legacy tracker has None normalized_center - follower will fail")
             
             return TrackerOutput(
                 data_type=TrackerDataType.POSITION_2D,
                 timestamp=time.time(),
                 tracking_active=self.tracking_started,
                 tracker_id="legacy_tracker",
-                position_2d=self.tracker.normalized_center,
-                bbox=getattr(self.tracker, 'bbox', None),
-                normalized_bbox=self.tracker.normalized_bbox,
-                confidence=getattr(self.tracker, 'confidence', 1.0),
+                position_2d=normalized_center,
+                bbox=bbox,
+                normalized_bbox=normalized_bbox,
+                confidence=confidence,
                 metadata={"legacy_mode": True}
             )
             

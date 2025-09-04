@@ -224,6 +224,8 @@ class FastAPIHandler:
         self.app.get("/stats")(self.get_streaming_stats)
         
         # Enhanced tracker schema endpoints
+        self.app.get("/api/tracker/schema")(self.get_tracker_schema)
+        self.app.get("/api/tracker/current-status")(self.get_current_tracker_status)
         self.app.get("/api/tracker/output")(self.get_tracker_output)
         self.app.get("/api/tracker/capabilities")(self.get_tracker_capabilities)
         self.app.get("/api/compatibility/report")(self.get_compatibility_report)
@@ -1107,6 +1109,74 @@ class FastAPIHandler:
             
         except Exception as e:
             self.logger.error(f"Error in /api/tracker/capabilities: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_tracker_schema(self):
+        """
+        Endpoint to get the complete tracker data schema.
+        
+        Returns:
+            dict: Complete tracker schema including all data types and validation rules.
+        """
+        try:
+            # Read the schema file directly
+            import yaml
+            with open('configs/tracker_schemas.yaml', 'r') as f:
+                schema = yaml.safe_load(f)
+            return JSONResponse(content=schema)
+        except Exception as e:
+            self.logger.error(f"Error getting tracker schema: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_current_tracker_status(self):
+        """
+        Endpoint to get current tracker status with real-time data fields.
+        
+        Returns:
+            dict: Current tracker status with schema-driven field information.
+        """
+        try:
+            tracker_output = self.app_controller.get_tracker_output()
+            
+            if not tracker_output:
+                return JSONResponse(content={
+                    'active': False,
+                    'tracker_type': None,
+                    'data_type': None,
+                    'fields': {},
+                    'timestamp': time.time()
+                })
+            
+            # Get schema information for current data type
+            data_type = tracker_output.data_type.value
+            
+            # Extract available fields dynamically
+            available_fields = {}
+            output_dict = tracker_output.to_dict()
+            
+            # Filter out None values and system fields
+            system_fields = {'timestamp', 'tracking_active', 'tracker_id', 'data_type', 'metadata'}
+            for key, value in output_dict.items():
+                if key not in system_fields and value is not None:
+                    available_fields[key] = {
+                        'value': value,
+                        'type': type(value).__name__,
+                        'display_name': key.replace('_', ' ').title()
+                    }
+            
+            tracker_class = self.app_controller.tracker.__class__.__name__ if self.app_controller.tracker else 'Unknown'
+            
+            return JSONResponse(content={
+                'active': tracker_output.tracking_active,
+                'tracker_type': tracker_class,
+                'data_type': data_type,
+                'fields': available_fields,
+                'smart_mode': getattr(self.app_controller, 'smart_mode_active', False),
+                'timestamp': time.time()
+            })
+            
+        except Exception as e:
+            self.logger.error(f"Error getting current tracker status: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     async def get_compatibility_report(self):

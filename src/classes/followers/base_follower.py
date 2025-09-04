@@ -219,35 +219,50 @@ class BaseFollower(ABC):
     
     # ==================== Validation Methods ====================
     
-    def validate_target_coordinates(self, target_coords: Tuple[float, float]) -> bool:
+    def validate_target_coordinates(self, target_data) -> bool:
         """
-        Validates target coordinates format and range.
+        Validates target data format and extracts coordinates for validation.
+        Supports both legacy tuple format and new TrackerOutput format.
         
         Args:
-            target_coords (Tuple[float, float]): Target coordinates to validate.
+            target_data: Target data to validate. Can be Tuple[float, float] or TrackerOutput.
             
         Returns:
             bool: True if valid, False otherwise.
         """
         try:
-            if not isinstance(target_coords, (tuple, list)) or len(target_coords) != 2:
-                logger.warning(f"Invalid target coordinates format: {target_coords}. Expected tuple of 2 floats.")
-                return False
+            # Handle TrackerOutput objects
+            from classes.tracker_output import TrackerOutput
+            if isinstance(target_data, TrackerOutput):
+                # Use the existing extraction method
+                coords = self.extract_target_coordinates(target_data)
+                if coords is None:
+                    logger.warning(f"Could not extract valid coordinates from TrackerOutput")
+                    return False
+                # Continue with coordinate validation
+                x, y = coords
             
-            x, y = target_coords
-            if not all(isinstance(coord, (int, float)) for coord in [x, y]):
-                logger.warning(f"Invalid target coordinate types: {target_coords}. Expected numeric values.")
+            # Handle legacy tuple/list format  
+            elif isinstance(target_data, (tuple, list)) and len(target_data) == 2:
+                x, y = target_data
+                if not all(isinstance(coord, (int, float)) for coord in [x, y]):
+                    logger.warning(f"Invalid coordinate types in tuple: {target_data}. Expected numeric values.")
+                    return False
+            
+            # Invalid format
+            else:
+                logger.warning(f"Invalid target data format: {type(target_data)}. Expected TrackerOutput or tuple of 2 floats.")
                 return False
             
             # Check reasonable bounds (normalized coordinates should be between -2 and 2)
             if not all(-2.0 <= coord <= 2.0 for coord in [x, y]):
-                logger.warning(f"Target coordinates out of reasonable bounds: {target_coords}")
+                logger.warning(f"Target coordinates out of reasonable bounds: ({x}, {y})")
                 return False
                 
             return True
             
         except Exception as e:
-            logger.error(f"Error validating target coordinates: {e}")
+            logger.error(f"Error validating target data: {e}")
             return False
     
     def validate_profile_consistency(self) -> bool:
@@ -336,24 +351,67 @@ class BaseFollower(ABC):
     
     def get_required_tracker_data_types(self) -> List[TrackerDataType]:
         """
-        Returns the list of tracker data types this follower requires.
-        
-        This method can be overridden by subclasses to specify their requirements.
-        Default implementation supports position_2d for backwards compatibility.
+        Returns the list of tracker data types that this follower requires to function.
+        Reads from schema instead of hardcoding for true extensibility.
         
         Returns:
-            List[TrackerDataType]: Required tracker data types
+            List[TrackerDataType]: Required tracker data types from schema
         """
-        return [TrackerDataType.POSITION_2D]
+        try:
+            # Get tracker data requirements from schema
+            if hasattr(self, 'setpoint_handler') and self.setpoint_handler:
+                profile_config = self.setpoint_handler.profile_config
+                required_data_names = profile_config.get('required_tracker_data', ['POSITION_2D'])
+                
+                # Convert string names to TrackerDataType enums
+                required_types = []
+                for name in required_data_names:
+                    try:
+                        data_type = TrackerDataType[name.upper()]
+                        required_types.append(data_type)
+                    except KeyError:
+                        logger.warning(f"Unknown tracker data type in schema: {name}")
+                
+                return required_types
+            else:
+                logger.warning("No setpoint handler available, using fallback required tracker data types")
+                return [TrackerDataType.POSITION_2D]  # Fallback
+                
+        except Exception as e:
+            logger.error(f"Error reading required tracker data types from schema: {e}")
+            return [TrackerDataType.POSITION_2D]  # Safe fallback
     
     def get_optional_tracker_data_types(self) -> List[TrackerDataType]:
         """
         Returns the list of optional tracker data types this follower can utilize.
+        Reads from schema instead of hardcoding for true extensibility.
         
         Returns:
-            List[TrackerDataType]: Optional tracker data types
+            List[TrackerDataType]: Optional tracker data types from schema
         """
-        return [TrackerDataType.BBOX_CONFIDENCE, TrackerDataType.VELOCITY_AWARE]
+        try:
+            # Get optional tracker data from schema
+            if hasattr(self, 'setpoint_handler') and self.setpoint_handler:
+                profile_config = self.setpoint_handler.profile_config
+                optional_data_names = profile_config.get('optional_tracker_data', [])
+                
+                # Convert string names to TrackerDataType enums
+                optional_types = []
+                for name in optional_data_names:
+                    try:
+                        data_type = TrackerDataType[name.upper()]
+                        optional_types.append(data_type)
+                    except KeyError:
+                        logger.warning(f"Unknown tracker data type in schema: {name}")
+                
+                return optional_types
+            else:
+                logger.warning("No setpoint handler available, using fallback optional tracker data types")
+                return [TrackerDataType.BBOX_CONFIDENCE, TrackerDataType.VELOCITY_AWARE]  # Fallback
+                
+        except Exception as e:
+            logger.error(f"Error reading optional tracker data types from schema: {e}")
+            return []  # Safe fallback
     
     def validate_tracker_compatibility(self, tracker_data: TrackerOutput) -> bool:
         """
@@ -441,20 +499,28 @@ class BaseFollower(ABC):
         Returns:
             Optional[Tuple[float, float]]: 2D coordinates or None
         """
+        logger.debug(f"Extracting coordinates from tracker data: position_2d={tracker_data.position_2d}, "
+                    f"position_3d={tracker_data.position_3d}, tracking_active={tracker_data.tracking_active}")
+        
         # Try primary position data first
         if tracker_data.position_2d:
+            logger.debug(f"Using position_2d coordinates: {tracker_data.position_2d}")
             return tracker_data.position_2d
         
         # Extract from 3D if available
         if tracker_data.position_3d:
-            return tracker_data.position_3d[:2]
+            coords = tracker_data.position_3d[:2]
+            logger.debug(f"Using position_3d coordinates (2D slice): {coords}")
+            return coords
         
         # Convert from angular if needed (would need additional context)
         if tracker_data.angular:
             logger.warning("Angular data cannot be directly converted to 2D coordinates without additional context")
             return None
         
-        logger.warning("No compatible position data found in tracker output")
+        logger.warning(f"No compatible position data found in tracker output: "
+                      f"position_2d={tracker_data.position_2d}, position_3d={tracker_data.position_3d}, "
+                      f"angular={tracker_data.angular}")
         return None
     
     def follow_target_legacy(self, target_coords: Tuple[float, float]) -> bool:

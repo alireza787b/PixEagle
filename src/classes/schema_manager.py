@@ -64,7 +64,7 @@ class SchemaManager:
         # Get the project root directory
         current_file = Path(__file__)
         project_root = current_file.parent.parent.parent  # Go up to PixEagle root
-        config_path = project_root / "config" / "tracker_schemas.yaml"
+        config_path = project_root / "configs" / "tracker_schemas.yaml"
         return str(config_path)
     
     def load_schemas(self) -> bool:

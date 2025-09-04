@@ -131,7 +131,7 @@ handler.set_field('height_offset', -1.0)
 
 ## ⚙️ Schema Configuration System
 
-### Tracker Schema (`config/tracker_schemas.yaml`)
+### Tracker Schema (`configs/tracker_schemas.yaml`)
 
 Defines all available tracker data types and their validation rules:
 
@@ -198,7 +198,7 @@ command_fields:
 
 ### Step 1: Define Data Schema
 
-Add your new tracker data type to `config/tracker_schemas.yaml`:
+Add your new tracker data type to `configs/tracker_schemas.yaml`:
 
 ```yaml
 tracker_data_types:
@@ -908,7 +908,7 @@ For advanced use cases, schemas can be loaded dynamically:
 from classes.schema_manager import SchemaManager
 
 # Load custom schema from different location
-schema_manager = SchemaManager(schema_path="custom/path/tracker_schemas.yaml")
+schema_manager = SchemaManager(schema_path="custom/path/configs/tracker_schemas.yaml")
 ```
 
 ### 3. Multi-Stage Validation
@@ -979,7 +979,7 @@ def validate_complex_tracker_data(self, data):
 ## 📞 Support
 
 ### Documentation
-- **Schema Files**: `config/tracker_schemas.yaml`, `configs/follower_commands.yaml`
+- **Schema Files**: `configs/tracker_schemas.yaml`, `configs/follower_commands.yaml`
 - **Core Classes**: `src/classes/schema_manager.py`, `src/classes/tracker_output.py`
 - **Examples**: See `src/classes/trackers/` and `src/classes/followers/` directories
 

@@ -149,6 +149,9 @@ follower_profiles:
     required_fields: ["vel_x", "vel_y", "vel_z"]
     optional_fields: []
     ui_category: "velocity"
+    # Schema-driven tracker data requirements
+    required_tracker_data: ["POSITION_2D"]
+    optional_tracker_data: ["BBOX_CONFIDENCE", "VELOCITY_AWARE"]
     
   # Constant Distance Follower - Enhanced velocity control with yaw
   constant_distance:
@@ -185,6 +188,9 @@ follower_profiles:
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down"]
     optional_fields: ["yawspeed_deg_s"]
     ui_category: "velocity"
+    # Schema-driven tracker data requirements
+    required_tracker_data: ["POSITION_2D"]
+    optional_tracker_data: ["BBOX_CONFIDENCE", "VELOCITY_AWARE", "MULTI_TARGET"]
 
 # ==============================================================================
 # Control Type Definitions
