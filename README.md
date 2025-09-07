@@ -156,7 +156,7 @@ pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https
 PixEagle 3.0 includes `add_yolo_model.py`, a utility to download and prepare YOLO models for use in the Smart Tracker (GPU or CPU compatible).
 
 ```bash
-python src/tools/add_yolo_model.py
+python add_yolo_model.py
 ```
 
 This will:
