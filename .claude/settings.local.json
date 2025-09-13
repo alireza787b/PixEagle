@@ -4,7 +4,8 @@
       "Bash(dir:*)",
       "Bash(move:*)",
       "Bash(grep:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

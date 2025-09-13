@@ -173,15 +173,70 @@ class VideoHandler:
             return cap
     
     def _create_rtsp_capture(self, use_gstreamer: bool) -> cv2.VideoCapture:
-        """Create capture for RTSP stream."""
+        """Create optimized capture for RTSP stream with auto-detection and fallback."""
         if use_gstreamer:
-            pipeline = self._build_gstreamer_rtsp_pipeline()
-            return cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+            return self._create_gstreamer_rtsp_with_fallback()
         else:
-            cap = cv2.VideoCapture(Parameters.RTSP_URL)
-            # Optimize RTSP buffering
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            return self._create_opencv_rtsp_optimized()
+    
+    def _create_gstreamer_rtsp_with_fallback(self) -> cv2.VideoCapture:
+        """Create GStreamer RTSP capture with automatic fallback pipelines."""
+        # Try primary optimized pipeline first
+        pipeline = self._build_gstreamer_rtsp_pipeline()
+        logger.info("Attempting primary RTSP GStreamer pipeline...")
+        
+        cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+        if cap.isOpened():
+            logger.info("✅ Primary GStreamer RTSP pipeline successful")
+            self._log_rtsp_stream_info(cap)
             return cap
+        
+        cap.release()
+        logger.warning("❌ Primary pipeline failed, trying fallback pipelines...")
+        
+        # Try fallback pipelines
+        fallback_pipelines = self._build_fallback_rtsp_pipelines()
+        
+        for i, fallback_pipeline in enumerate(fallback_pipelines, 1):
+            logger.info(f"Trying fallback pipeline {i}/{len(fallback_pipelines)}...")
+            logger.debug(f"Fallback pipeline: {fallback_pipeline}")
+            
+            cap = cv2.VideoCapture(fallback_pipeline, cv2.CAP_GSTREAMER)
+            if cap.isOpened():
+                logger.info(f"✅ Fallback pipeline {i} successful")
+                self._log_rtsp_stream_info(cap)
+                return cap
+            
+            cap.release()
+            logger.warning(f"❌ Fallback pipeline {i} failed")
+        
+        # If all GStreamer pipelines fail, try OpenCV as last resort
+        logger.warning("All GStreamer pipelines failed, falling back to OpenCV...")
+        return self._create_opencv_rtsp_optimized()
+    
+    def _create_opencv_rtsp_optimized(self) -> cv2.VideoCapture:
+        """Create OpenCV RTSP capture with optimizations."""
+        rtsp_url = Parameters.RTSP_URL
+        logger.info("Attempting OpenCV RTSP capture...")
+        
+        # Try FFMPEG backend first (usually best for RTSP)
+        cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+        
+        if not cap.isOpened():
+            logger.warning("FFMPEG backend failed, trying default backend...")
+            cap = cv2.VideoCapture(rtsp_url)
+        
+        if cap.isOpened():
+            # Real-time optimizations
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)        # Minimum buffering
+            cap.set(cv2.CAP_PROP_FPS, 30)              # Request 30 FPS
+            
+            logger.info("✅ OpenCV RTSP capture successful")
+            self._log_rtsp_stream_info(cap)
+        else:
+            logger.error("❌ All RTSP connection methods failed")
+        
+        return cap
     
     def _create_udp_capture(self, use_gstreamer: bool) -> cv2.VideoCapture:
         """Create capture for UDP stream."""
@@ -243,14 +298,65 @@ class VideoHandler:
         return pipeline
     
     def _build_gstreamer_rtsp_pipeline(self) -> str:
-        """Build GStreamer pipeline for RTSP stream."""
-        template = Parameters.RTSP
-        return template.format(
-            url=Parameters.RTSP_URL,
-            latency=Parameters.RTSP_LATENCY,
-            width=Parameters.CAPTURE_WIDTH,
-            height=Parameters.CAPTURE_HEIGHT
+        """Build optimized GStreamer pipeline for RTSP stream with auto-detection."""
+        rtsp_url = Parameters.RTSP_URL
+        
+        # Primary pipeline - real-time optimized (like VLC but for OpenCV)
+        pipeline = (
+            f"rtspsrc location={rtsp_url} "
+            f"protocols=tcp "                    # Force TCP for reliability
+            f"latency=0 "                       # Minimum latency
+            f"buffer-mode=0 "                   # No additional buffering
+            f"drop-on-latency=true "            # Drop frames if lagging
+            f"do-rtcp=false "                   # Disable RTCP for lower overhead
+            f"! queue max-size-buffers=1 leaky=downstream "  # Single frame buffer
+            f"! rtph264depay "                  # H.264 RTP depayloader
+            f"! avdec_h264 "                    # Hardware-accelerated decoder
+            f"max-threads=2 "                   # Limit decoder threads
+            f"skip-frame=1 "                    # Skip B-frames for lower latency
+            f"! videoconvert "                  # Color space conversion
+            f"! video/x-raw,format=BGR "        # OpenCV compatible format
+            f"! appsink "                       # Application sink
+            f"drop=true "                       # Drop frames if consumer is slow
+            f"max-buffers=1 "                   # Single frame buffer
+            f"sync=false "                      # No synchronization
+            f"emit-signals=true"                # Enable signal emission
         )
+        
+        logger.debug(f"Primary RTSP pipeline: {pipeline}")
+        return pipeline
+    
+    def _build_fallback_rtsp_pipelines(self) -> list:
+        """Build fallback RTSP pipelines for auto-detection."""
+        rtsp_url = Parameters.RTSP_URL
+        
+        fallback_pipelines = [
+            # Fallback 1: Auto-detect with both TCP/UDP
+            (
+                f"rtspsrc location={rtsp_url} "
+                f"latency=0 drop-on-latency=true do-rtcp=false "
+                f"! queue max-size-buffers=1 leaky=downstream "
+                f"! decodebin ! videoconvert ! video/x-raw,format=BGR "
+                f"! appsink drop=true max-buffers=1 sync=false"
+            ),
+            
+            # Fallback 2: Force UDP (some cameras prefer this)
+            (
+                f"rtspsrc location={rtsp_url} "
+                f"protocols=udp latency=0 drop-on-latency=true "
+                f"! queue max-size-buffers=1 leaky=downstream "
+                f"! decodebin ! videoconvert ! video/x-raw,format=BGR "
+                f"! appsink drop=true max-buffers=1 sync=false"
+            ),
+            
+            # Fallback 3: Simple pipeline (maximum compatibility)
+            (
+                f"rtspsrc location={rtsp_url} latency=0 "
+                f"! decodebin ! videoconvert ! appsink sync=false"
+            )
+        ]
+        
+        return fallback_pipelines
     
     def _build_gstreamer_udp_pipeline(self) -> str:
         """Build GStreamer pipeline for UDP stream."""
@@ -316,6 +422,54 @@ class VideoHandler:
             
         except Exception as e:
             logger.warning(f"Failed to apply OpenCV optimizations: {e}")
+    
+    def _log_rtsp_stream_info(self, cap: cv2.VideoCapture) -> None:
+        """
+        Auto-detect and log RTSP stream properties (like VLC does).
+        
+        Args:
+            cap: Opened VideoCapture object
+        """
+        try:
+            # Get stream properties
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            fourcc = cap.get(cv2.CAP_PROP_FOURCC)
+            backend = cap.getBackendName()
+            
+            # Convert FOURCC to readable format
+            fourcc_str = ""
+            if fourcc > 0:
+                fourcc_bytes = int(fourcc).to_bytes(4, byteorder='little')
+                try:
+                    fourcc_str = fourcc_bytes.decode('ascii')
+                except:
+                    fourcc_str = f"0x{int(fourcc):08x}"
+            
+            # Log detected properties
+            logger.info("=== RTSP Stream Auto-Detection ===")
+            logger.info(f"URL: {Parameters.RTSP_URL}")
+            logger.info(f"Backend: {backend}")
+            logger.info(f"Resolution: {width}x{height}")
+            logger.info(f"FPS: {fps:.2f}")
+            logger.info(f"Codec: {fourcc_str}")
+            
+            # Additional stream info
+            buffer_size = cap.get(cv2.CAP_PROP_BUFFERSIZE)
+            logger.info(f"Buffer size: {int(buffer_size)}")
+            
+            # Test frame capture to verify stream
+            ret, frame = cap.read()
+            if ret and frame is not None:
+                actual_shape = frame.shape
+                logger.info(f"Actual frame shape: {actual_shape}")
+                logger.info("✅ RTSP stream is working - real-time feed ready")
+            else:
+                logger.warning("❌ Could not capture test frame from RTSP stream")
+                
+        except Exception as e:
+            logger.error(f"Error detecting RTSP stream properties: {e}")
     
     def get_frame(self) -> Optional[Any]:
         """
