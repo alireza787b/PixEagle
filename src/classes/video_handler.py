@@ -12,7 +12,6 @@ from collections import deque
 from typing import Optional, Dict, Any
 from classes.parameters import Parameters
 
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
@@ -52,6 +51,16 @@ class VideoHandler:
         self.current_osd_frame = None
         self.current_resized_raw_frame = None
         self.current_resized_osd_frame = None
+        
+        # Robust connection handling - configurable via Parameters
+        self._consecutive_failures = 0
+        self._max_consecutive_failures = getattr(Parameters, 'RTSP_MAX_CONSECUTIVE_FAILURES', 10)
+        self._last_successful_frame_time = time.time()
+        self._connection_timeout = getattr(Parameters, 'RTSP_CONNECTION_TIMEOUT', 5.0)
+        self._is_recovering = False
+        self._recovery_attempts = 0
+        self._max_recovery_attempts = getattr(Parameters, 'RTSP_MAX_RECOVERY_ATTEMPTS', 3)
+        self._frame_cache = deque(maxlen=getattr(Parameters, 'RTSP_FRAME_CACHE_SIZE', 5))
         
         # Platform detection for optimization
         self.platform = platform.system()
@@ -187,12 +196,12 @@ class VideoHandler:
         
         cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
         if cap.isOpened():
-            logger.info("✅ Primary GStreamer RTSP pipeline successful")
+            logger.info("Primary GStreamer RTSP pipeline successful")
             self._log_rtsp_stream_info(cap)
             return cap
         
         cap.release()
-        logger.warning("❌ Primary pipeline failed, trying fallback pipelines...")
+        logger.warning("Primary pipeline failed, trying fallback pipelines...")
         
         # Try fallback pipelines
         fallback_pipelines = self._build_fallback_rtsp_pipelines()
@@ -203,12 +212,12 @@ class VideoHandler:
             
             cap = cv2.VideoCapture(fallback_pipeline, cv2.CAP_GSTREAMER)
             if cap.isOpened():
-                logger.info(f"✅ Fallback pipeline {i} successful")
+                logger.info(f"Fallback pipeline {i} successful")
                 self._log_rtsp_stream_info(cap)
                 return cap
             
             cap.release()
-            logger.warning(f"❌ Fallback pipeline {i} failed")
+            logger.warning(f"Fallback pipeline {i} failed")
         
         # If all GStreamer pipelines fail, try OpenCV as last resort
         logger.warning("All GStreamer pipelines failed, falling back to OpenCV...")
@@ -231,10 +240,10 @@ class VideoHandler:
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)        # Minimum buffering
             cap.set(cv2.CAP_PROP_FPS, 30)              # Request 30 FPS
             
-            logger.info("✅ OpenCV RTSP capture successful")
+            logger.info("OpenCV RTSP capture successful")
             self._log_rtsp_stream_info(cap)
         else:
-            logger.error("❌ All RTSP connection methods failed")
+            logger.error("All RTSP connection methods failed")
         
         return cap
     
@@ -298,32 +307,41 @@ class VideoHandler:
         return pipeline
     
     def _build_gstreamer_rtsp_pipeline(self) -> str:
-        """Build optimized GStreamer pipeline for RTSP stream with auto-detection."""
+        """Build ultra-low latency GStreamer pipeline for RTSP stream."""
         rtsp_url = Parameters.RTSP_URL
         
-        # Primary pipeline - real-time optimized (like VLC but for OpenCV)
+        # Ultra-low latency pipeline optimized for real-time computer vision
         pipeline = (
             f"rtspsrc location={rtsp_url} "
             f"protocols=tcp "                    # Force TCP for reliability
-            f"latency=0 "                       # Minimum latency
-            f"buffer-mode=0 "                   # No additional buffering
-            f"drop-on-latency=true "            # Drop frames if lagging
-            f"do-rtcp=false "                   # Disable RTCP for lower overhead
-            f"! queue max-size-buffers=1 leaky=downstream "  # Single frame buffer
-            f"! rtph264depay "                  # H.264 RTP depayloader
-            f"! avdec_h264 "                    # Hardware-accelerated decoder
-            f"max-threads=2 "                   # Limit decoder threads
-            f"skip-frame=1 "                    # Skip B-frames for lower latency
-            f"! videoconvert "                  # Color space conversion
-            f"! video/x-raw,format=BGR "        # OpenCV compatible format
+            f"latency=0 "                       # Zero latency buffering
+            f"buffer-mode=0 "                   # No jitter buffer
+            f"drop-on-latency=true "            # Drop frames immediately if late
+            f"do-rtcp=false "                   # Disable RTCP overhead
+            f"do-retransmission=false "         # No retransmission delays
+            f"ntp-sync=false "                  # Disable NTP sync overhead
+            f"! rtpjitterbuffer "               # Minimal jitter buffer
+            f"latency=0 "                       # Zero jitter buffer
+            f"drop-on-latency=true "
+            f"! rtph264depay "                  # RTP H.264 depayloader
+            f"! h264parse "                     # Parse H.264 stream
+            f"! avdec_h264 "                    # Hardware decoder
+            f"max-threads=1 "                   # Single thread for lowest latency
+            f"skip-frame=1 "                    # Skip non-reference frames
+            f"lowres=1 "                        # Low resolution decoding if needed
+            f"! videoconvert "                  # Fast color conversion
+            f"n-threads=1 "                     # Single thread conversion
+            f"! video/x-raw,format=BGR "        # OpenCV format
             f"! appsink "                       # Application sink
-            f"drop=true "                       # Drop frames if consumer is slow
-            f"max-buffers=1 "                   # Single frame buffer
-            f"sync=false "                      # No synchronization
-            f"emit-signals=true"                # Enable signal emission
+            f"drop=true "                       # Drop frames if app is slow
+            f"max-buffers=1 "                   # Absolute minimum buffering
+            f"sync=false "                      # No clock synchronization
+            f"async=false "                     # No async processing
+            f"emit-signals=true "               # Enable new-sample signal
+            f"wait-on-eos=false"                # Don't wait on EOS
         )
         
-        logger.debug(f"Primary RTSP pipeline: {pipeline}")
+        logger.debug(f"Ultra-low latency RTSP pipeline: {pipeline}")
         return pipeline
     
     def _build_fallback_rtsp_pipelines(self) -> list:
@@ -464,56 +482,194 @@ class VideoHandler:
             if ret and frame is not None:
                 actual_shape = frame.shape
                 logger.info(f"Actual frame shape: {actual_shape}")
-                logger.info("✅ RTSP stream is working - real-time feed ready")
+                logger.info("RTSP stream is working - real-time feed ready")
             else:
-                logger.warning("❌ Could not capture test frame from RTSP stream")
+                logger.warning("Could not capture test frame from RTSP stream")
                 
         except Exception as e:
             logger.error(f"Error detecting RTSP stream properties: {e}")
     
     def get_frame(self) -> Optional[Any]:
         """
-        Read and return the next frame.
+        Read and return the next frame with robust error handling and auto-recovery.
         
         Returns:
-            Frame as numpy array or None if capture fails
+            Frame as numpy array, cached frame if available, or None
         """
         if not self.cap:
             logger.error("Video capture not initialized")
-            return None
+            return self._get_cached_frame()
         
         try:
             ret, frame = self.cap.read()
             
             if ret and frame is not None:
+                # Successful frame capture
                 self.current_raw_frame = frame
                 self.frame_history.append(frame)
+                self._reset_failure_counters()
                 return frame
             else:
-                logger.debug("Failed to read frame")
-                return None
+                # Frame read failed - handle gracefully
+                return self._handle_frame_failure()
                 
         except Exception as e:
-            logger.error(f"Exception during frame capture: {e}")
-            return None
+            logger.warning(f"Exception during frame capture: {e}")
+            return self._handle_frame_failure()
+    
+    def _reset_failure_counters(self) -> None:
+        """Reset failure counters after successful frame capture."""
+        if self._consecutive_failures > 0 or self._is_recovering:
+            logger.info("Video stream recovered - connection stable")
+        
+        self._consecutive_failures = 0
+        self._last_successful_frame_time = time.time()
+        self._is_recovering = False
+        self._recovery_attempts = 0
+        
+        # Cache the good frame
+        if self.current_raw_frame is not None:
+            self._frame_cache.append(self.current_raw_frame.copy())
+    
+    def _handle_frame_failure(self) -> Optional[Any]:
+        """
+        Handle frame read failure with graceful degradation and recovery.
+        
+        Returns:
+            Cached frame or None if recovery fails
+        """
+        self._consecutive_failures += 1
+        current_time = time.time()
+        time_since_last_frame = current_time - self._last_successful_frame_time
+        
+        # Log failure details
+        if self._consecutive_failures == 1:
+            logger.warning(f"Frame read failure detected (attempt {self._consecutive_failures})")
+        elif self._consecutive_failures % 5 == 0:
+            logger.warning(f"Consecutive frame failures: {self._consecutive_failures}")
+        
+        # Check if we should attempt recovery
+        should_recover = (
+            self._consecutive_failures >= self._max_consecutive_failures or
+            time_since_last_frame >= self._connection_timeout
+        )
+        
+        if should_recover and not self._is_recovering:
+            return self._attempt_recovery()
+        
+        # Return cached frame for graceful degradation
+        cached_frame = self._get_cached_frame()
+        if cached_frame is not None:
+            logger.debug(f"Using cached frame during connection issues")
+            return cached_frame
+        
+        # No cached frame available
+        logger.warning("No cached frame available during connection failure")
+        return None
+    
+    def _attempt_recovery(self) -> Optional[Any]:
+        """
+        Attempt to recover the video connection.
+        
+        Returns:
+            Frame if recovery successful, cached frame otherwise
+        """
+        if self._recovery_attempts >= self._max_recovery_attempts:
+            logger.error(f"Max recovery attempts ({self._max_recovery_attempts}) reached")
+            return self._get_cached_frame()
+        
+        self._is_recovering = True
+        self._recovery_attempts += 1
+        
+        logger.warning(f"Attempting connection recovery ({self._recovery_attempts}/{self._max_recovery_attempts})")
+        
+        try:
+            # Quick connection test first
+            if self.cap and self.cap.isOpened():
+                # Try to grab a frame to test connection
+                ret = self.cap.grab()
+                if ret:
+                    ret, frame = self.cap.retrieve()
+                    if ret and frame is not None:
+                        logger.info("Connection recovered without reconnect")
+                        self.current_raw_frame = frame
+                        self.frame_history.append(frame)
+                        self._reset_failure_counters()
+                        return frame
+            
+            # Full reconnection needed
+            logger.info("Performing full reconnection...")
+            success = self.reconnect()
+            
+            if success:
+                # Try to get a frame immediately
+                ret, frame = self.cap.read()
+                if ret and frame is not None:
+                    logger.info("Full reconnection successful")
+                    self.current_raw_frame = frame
+                    self.frame_history.append(frame)
+                    self._reset_failure_counters()
+                    return frame
+            
+            logger.warning(f"Recovery attempt {self._recovery_attempts} failed")
+            
+        except Exception as e:
+            logger.error(f"Exception during recovery: {e}")
+        
+        # Recovery failed, return cached frame
+        return self._get_cached_frame()
+    
+    def _get_cached_frame(self) -> Optional[Any]:
+        """
+        Get the most recent cached frame.
+        
+        Returns:
+            Most recent cached frame or None
+        """
+        if self._frame_cache:
+            cached_frame = self._frame_cache[-1]  # Get most recent
+            logger.debug("Using cached frame")
+            return cached_frame
+        return None
     
     def get_frame_fast(self) -> Optional[Any]:
         """
-        Get frame with buffer clearing for lowest latency.
-        Use this for real-time applications.
+        Get frame with aggressive buffer clearing for ultra-low latency.
+        Use this for real-time applications where latency is critical.
         
         Returns:
-            Latest frame or None
+            Latest frame or cached frame if connection issues
         """
         if not self.cap:
-            return None
+            return self._get_cached_frame()
         
-        # Clear buffer by grabbing frames without decoding
-        for _ in range(Parameters.OPENCV_BUFFER_SIZE - 1):
-            self.cap.grab()
-        
-        # Get the latest frame
-        return self.get_frame()
+        try:
+            # For GStreamer RTSP streams, grab is more efficient
+            if Parameters.USE_GSTREAMER and Parameters.VIDEO_SOURCE_TYPE == "RTSP_STREAM":
+                # GStreamer with single buffer should be current already
+                return self.get_frame()
+            else:
+                # For other sources, clear buffer aggressively
+                buffer_clear_attempts = min(Parameters.OPENCV_BUFFER_SIZE, 3)
+                
+                for _ in range(buffer_clear_attempts):
+                    if not self.cap.grab():
+                        # Grab failed, use regular get_frame for error handling
+                        return self.get_frame()
+                
+                # Get the latest frame after clearing buffer
+                ret, frame = self.cap.retrieve()
+                if ret and frame is not None:
+                    self.current_raw_frame = frame
+                    self.frame_history.append(frame)
+                    self._reset_failure_counters()
+                    return frame
+                else:
+                    return self._handle_frame_failure()
+                    
+        except Exception as e:
+            logger.warning(f"Exception in get_frame_fast: {e}")
+            return self._handle_frame_failure()
     
     def get_last_frames(self) -> list:
         """
@@ -679,6 +835,52 @@ class VideoHandler:
         total_time = time.time() - start_time
         avg_fps = frame_count / total_time if total_time > 0 else 0
         logger.info(f"Test completed. Frames: {frame_count}, Avg FPS: {avg_fps:.2f}")
+    
+    def get_connection_health(self) -> dict:
+        """
+        Get current connection health status.
+        
+        Returns:
+            Dictionary with connection health metrics
+        """
+        current_time = time.time()
+        time_since_last_frame = current_time - self._last_successful_frame_time
+        
+        # Determine connection status
+        if self._consecutive_failures == 0:
+            status = "healthy"
+        elif self._consecutive_failures < 5:
+            status = "degraded"
+        elif self._is_recovering:
+            status = "recovering"
+        else:
+            status = "failed"
+        
+        health_info = {
+            "status": status,
+            "consecutive_failures": self._consecutive_failures,
+            "time_since_last_frame": time_since_last_frame,
+            "is_recovering": self._is_recovering,
+            "recovery_attempts": self._recovery_attempts,
+            "cached_frames_available": len(self._frame_cache),
+            "connection_open": self.cap.isOpened() if self.cap else False,
+            "video_source_type": Parameters.VIDEO_SOURCE_TYPE,
+            "use_gstreamer": Parameters.USE_GSTREAMER
+        }
+        
+        return health_info
+    
+    def force_recovery(self) -> bool:
+        """
+        Force a connection recovery attempt.
+        
+        Returns:
+            True if recovery successful
+        """
+        logger.info("Forcing connection recovery...")
+        self._consecutive_failures = self._max_consecutive_failures
+        frame = self._attempt_recovery()
+        return frame is not None
     
     def __del__(self):
         """Cleanup on deletion."""
