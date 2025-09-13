@@ -6,6 +6,7 @@ import requests
 import logging
 import asyncio
 from .parameters import Parameters
+from .logging_manager import logging_manager
 import math
 
 class MavlinkDataManager:
@@ -39,7 +40,6 @@ class MavlinkDataManager:
         self.last_status_log = 0  # For throttling status messages
 
         # Setup logging
-        logging.basicConfig(level=logging.DEBUG)  # Set to DEBUG for detailed logging
         self.logger = logging.getLogger(__name__)
 
     def start_polling(self):
@@ -49,9 +49,9 @@ class MavlinkDataManager:
         if self.enabled:
             self._thread = threading.Thread(target=self._poll_data)
             self._thread.start()
-            self.logger.info("Started polling MAVLink data.")
+            logging_manager.log_operation(self.logger, "MAVLink Polling", "info", "Started")
         else:
-            self.logger.info("MAVLink polling is disabled.")
+            logging_manager.log_operation(self.logger, "MAVLink Polling", "info", "Disabled in configuration")
 
     def stop_polling(self):
         """
@@ -60,7 +60,7 @@ class MavlinkDataManager:
         if self.enabled:
             self._stop_event.set()
             self._thread.join()
-            self.logger.info("Stopped polling MAVLink data.")
+            logging_manager.log_operation(self.logger, "MAVLink Polling", "info", "Stopped")
 
     def _poll_data(self):
         """
@@ -86,11 +86,18 @@ class MavlinkDataManager:
             json_data = response.json()
 
             # Connection successful
-            if self.connection_state != "connected":
+            was_disconnected = self.connection_state != "connected"
+            if was_disconnected:
                 self.connection_state = "connected"
                 self.last_successful_connection = time.time()
                 self.connection_error_count = 0
-                self.logger.info(f"MAVLINK CONNECTION: Established to {self.mavlink_host}:{self.mavlink_port}")
+                logging_manager.log_connection_status(
+                    self.logger, "MAVLink", True, 
+                    f"to {self.mavlink_host}:{self.mavlink_port}"
+                )
+            
+            # Log polling activity
+            logging_manager.log_polling_activity(self.logger, "MAVLink", True)
 
             with self._lock:
                 # Iterate through the data points defined in Parameters
@@ -133,9 +140,9 @@ class MavlinkDataManager:
                 self.last_status_log = current_time
                 
         except requests.exceptions.ConnectionError:
-            self._handle_connection_error("Connection refused - MAVLink server not running or unreachable")
+            self._handle_connection_error("Connection refused - server not running")
         except requests.exceptions.Timeout:
-            self._handle_connection_error("Connection timeout - MAVLink server not responding")
+            self._handle_connection_error("Connection timeout - server not responding")
         except requests.RequestException as e:
             self._handle_connection_error(f"Request failed: {str(e)[:50]}...")
         except Exception as e:
@@ -146,19 +153,12 @@ class MavlinkDataManager:
         self.connection_state = "error"
         self.connection_error_count += 1
         
-        # Log connection errors with throttling
-        current_time = time.time()
-        if (self.connection_error_count == 1 or  # First error
-            self.connection_error_count % 10 == 0 or  # Every 10th error
-            current_time - self.last_status_log > 60):  # Every minute
-            
-            if self.connection_error_count == 1:
-                self.logger.warning(f"MAVLINK: Disconnected - {error_reason} ({self.mavlink_host}:{self.mavlink_port})")
-            else:
-                elapsed_time = int(current_time - (self.last_successful_connection or current_time - 60))
-                self.logger.warning(f"MAVLINK: Still disconnected ({self.connection_error_count} attempts, {elapsed_time}s) - {error_reason}")
-            
-            self.last_status_log = current_time
+        # Log connection status and polling activity
+        logging_manager.log_connection_status(
+            self.logger, "MAVLink", False, 
+            f"{error_reason} ({self.mavlink_host}:{self.mavlink_port})"
+        )
+        logging_manager.log_polling_activity(self.logger, "MAVLink", False, error_reason)
             
             
     def _calculate_flight_path_angle(self):

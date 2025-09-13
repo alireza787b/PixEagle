@@ -11,6 +11,7 @@ import platform
 from collections import deque
 from typing import Optional, Dict, Any
 from classes.parameters import Parameters
+from classes.logging_manager import logging_manager
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +197,7 @@ class VideoHandler:
         
         cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
         if cap.isOpened():
-            logger.info("Primary GStreamer RTSP pipeline successful")
+            logging_manager.log_connection_status(logger, "Video", True, "Primary GStreamer RTSP pipeline")
             self._log_rtsp_stream_info(cap)
             return cap
         
@@ -212,7 +213,7 @@ class VideoHandler:
             
             cap = cv2.VideoCapture(fallback_pipeline, cv2.CAP_GSTREAMER)
             if cap.isOpened():
-                logger.info(f"Fallback pipeline {i} successful")
+                logging_manager.log_connection_status(logger, "Video", True, f"Fallback pipeline {i}")
                 self._log_rtsp_stream_info(cap)
                 return cap
             
@@ -240,10 +241,10 @@ class VideoHandler:
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)        # Minimum buffering
             cap.set(cv2.CAP_PROP_FPS, 30)              # Request 30 FPS
             
-            logger.info("OpenCV RTSP capture successful")
+            logging_manager.log_connection_status(logger, "Video", True, "OpenCV RTSP")
             self._log_rtsp_stream_info(cap)
         else:
-            logger.error("All RTSP connection methods failed")
+            logging_manager.log_connection_status(logger, "Video", False, "All RTSP methods failed")
         
         return cap
     
@@ -520,7 +521,7 @@ class VideoHandler:
     def _reset_failure_counters(self) -> None:
         """Reset failure counters after successful frame capture."""
         if self._consecutive_failures > 0 or self._is_recovering:
-            logger.info("Video stream recovered - connection stable")
+            logging_manager.log_connection_status(logger, "Video", True, "Stream recovered - connection stable")
         
         self._consecutive_failures = 0
         self._last_successful_frame_time = time.time()

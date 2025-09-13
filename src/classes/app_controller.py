@@ -5,8 +5,10 @@ import logging
 import time
 import numpy as np
 import cv2
+import threading
 
 from classes.parameters import Parameters
+from classes.logging_manager import logging_manager
 from classes.follower import Follower
 from classes.setpoint_sender import SetpointSender
 from classes.video_handler import VideoHandler
@@ -77,6 +79,9 @@ class AppController:
         # System status tracking for periodic updates
         self.last_system_status_time = 0
         self.system_status_interval = 15  # Report system status every 15 seconds
+        
+        # Start periodic system summary logging
+        self._start_system_summary_thread()
 
         # Flags and attributes for Smart Mode (YOLO-based)
         self.smart_mode_active = False
@@ -1081,3 +1086,30 @@ class AppController:
                 'error': str(e),
                 'compatible': False
             }
+    
+    def _start_system_summary_thread(self):
+        """Start a background thread for periodic system summary logging."""
+        self._summary_stop_event = threading.Event()
+        self._summary_thread = threading.Thread(target=self._system_summary_loop, daemon=True)
+        self._summary_thread.start()
+        
+        # Log the system startup
+        logging_manager.log_operation(logging.getLogger(__name__), "System Startup", "info", "PixEagle initialized")
+    
+    def _system_summary_loop(self):
+        """Background loop that generates periodic system summaries."""
+        logger = logging.getLogger(__name__)
+        
+        while not self._summary_stop_event.is_set():
+            try:
+                # Wait for the next summary interval
+                if self._summary_stop_event.wait(60):  # 60-second summaries
+                    break  # Stop event was set
+                
+                # Generate system summary
+                logging_manager.log_system_summary(logger)
+                
+            except Exception as e:
+                logger.error(f"Error in system summary loop: {e}")
+                
+        logger.debug("System summary thread stopped")
