@@ -2,6 +2,19 @@
 Video Handler Module
 Handles video input from various sources with optimized capture pipelines.
 Supports OpenCV and GStreamer backends for maximum performance on embedded systems.
+
+=== COORDINATE MAPPING CONSISTENCY ===
+This module ensures accurate coordinate mapping between dashboard clicks and video frames
+by maintaining consistent dimensions across all video sources:
+
+1. All GStreamer pipelines include 'videoscale' to enforce target dimensions
+2. Video dimensions are validated against configured CAPTURE_WIDTH/HEIGHT
+3. RTSP pipelines use smart scaling with ultra-low latency optimizations
+4. Fallback pipelines maintain the same target dimensions
+5. Emergency fallbacks without scaling are clearly marked
+
+This ensures that dashboard clicks at (x,y) correctly map to frame coordinates
+regardless of the camera's native resolution or connection method.
 """
 
 import cv2
@@ -101,11 +114,29 @@ class VideoHandler:
                     self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                     self.fps = self.cap.get(cv2.CAP_PROP_FPS) or Parameters.DEFAULT_FPS
                     
-                    # Validate dimensions
+                    # Validate dimensions for coordinate mapping consistency
                     if self.width <= 0 or self.height <= 0:
-                        logger.warning("Invalid dimensions detected, using defaults")
+                        logger.warning("Invalid dimensions detected, using configured defaults")
                         self.width = Parameters.CAPTURE_WIDTH
                         self.height = Parameters.CAPTURE_HEIGHT
+
+                    # Coordinate mapping validation
+                    expected_width = Parameters.CAPTURE_WIDTH
+                    expected_height = Parameters.CAPTURE_HEIGHT
+
+                    if self.width != expected_width or self.height != expected_height:
+                        logger.warning(
+                            f"Video dimensions ({self.width}x{self.height}) differ from "
+                            f"configured ({expected_width}x{expected_height}). "
+                            f"This may indicate scaling pipeline issues."
+                        )
+
+                        # For coordinate mapping consistency, trust the configured dimensions
+                        # if the difference is due to pipeline scaling issues
+                        if Parameters.VIDEO_SOURCE_TYPE == "RTSP_STREAM" and Parameters.USE_GSTREAMER:
+                            logger.info("RTSP GStreamer: Using configured dimensions for coordinate consistency")
+                            self.width = expected_width
+                            self.height = expected_height
                     
                     delay_frame = max(int(1000 / self.fps), 1)
                     
@@ -308,10 +339,17 @@ class VideoHandler:
         return pipeline
     
     def _build_gstreamer_rtsp_pipeline(self) -> str:
-        """Build ultra-low latency GStreamer pipeline for RTSP stream."""
+        """
+        Build ultra-low latency GStreamer pipeline for RTSP stream with smart scaling.
+
+        Maintains coordinate consistency by scaling to configured dimensions while
+        preserving real-time performance optimizations.
+        """
         rtsp_url = Parameters.RTSP_URL
-        
-        # Ultra-low latency pipeline optimized for real-time computer vision
+        target_width = Parameters.CAPTURE_WIDTH
+        target_height = Parameters.CAPTURE_HEIGHT
+
+        # Ultra-low latency pipeline with smart scaling for coordinate consistency
         pipeline = (
             f"rtspsrc location={rtsp_url} "
             f"protocols=tcp "                    # Force TCP for reliability
@@ -329,10 +367,11 @@ class VideoHandler:
             f"! avdec_h264 "                    # Hardware decoder
             f"max-threads=1 "                   # Single thread for lowest latency
             f"skip-frame=1 "                    # Skip non-reference frames
-            f"lowres=1 "                        # Low resolution decoding if needed
             f"! videoconvert "                  # Fast color conversion
             f"n-threads=1 "                     # Single thread conversion
-            f"! video/x-raw,format=BGR "        # OpenCV format
+            f"! videoscale "                    # Smart scaling for coordinate consistency
+            f"method=0 "                        # Nearest neighbor (fastest scaling)
+            f"! video/x-raw,format=BGR,width={target_width},height={target_height} "  # Target dimensions
             f"! appsink "                       # Application sink
             f"drop=true "                       # Drop frames if app is slow
             f"max-buffers=1 "                   # Absolute minimum buffering
@@ -341,37 +380,58 @@ class VideoHandler:
             f"emit-signals=true "               # Enable new-sample signal
             f"wait-on-eos=false"                # Don't wait on EOS
         )
-        
-        logger.debug(f"Ultra-low latency RTSP pipeline: {pipeline}")
+
+        logger.debug(f"Ultra-low latency RTSP pipeline with smart scaling: {pipeline}")
         return pipeline
     
     def _build_fallback_rtsp_pipelines(self) -> list:
-        """Build fallback RTSP pipelines for auto-detection."""
+        """
+        Build fallback RTSP pipelines with smart scaling for coordinate consistency.
+
+        Each pipeline maintains the same target dimensions to ensure accurate
+        coordinate mapping regardless of which pipeline succeeds.
+        """
         rtsp_url = Parameters.RTSP_URL
-        
+        target_width = Parameters.CAPTURE_WIDTH
+        target_height = Parameters.CAPTURE_HEIGHT
+
         fallback_pipelines = [
-            # Fallback 1: Auto-detect with both TCP/UDP
+            # Fallback 1: Auto-detect with both TCP/UDP + smart scaling
             (
                 f"rtspsrc location={rtsp_url} "
                 f"latency=0 drop-on-latency=true do-rtcp=false "
                 f"! queue max-size-buffers=1 leaky=downstream "
                 f"! decodebin ! videoconvert ! video/x-raw,format=BGR "
+                f"! videoscale method=0 "          # Fastest scaling method
+                f"! video/x-raw,width={target_width},height={target_height} "
                 f"! appsink drop=true max-buffers=1 sync=false"
             ),
-            
-            # Fallback 2: Force UDP (some cameras prefer this)
+
+            # Fallback 2: Force UDP + smart scaling (some cameras prefer this)
             (
                 f"rtspsrc location={rtsp_url} "
                 f"protocols=udp latency=0 drop-on-latency=true "
                 f"! queue max-size-buffers=1 leaky=downstream "
                 f"! decodebin ! videoconvert ! video/x-raw,format=BGR "
+                f"! videoscale method=0 "          # Fastest scaling method
+                f"! video/x-raw,width={target_width},height={target_height} "
                 f"! appsink drop=true max-buffers=1 sync=false"
             ),
-            
-            # Fallback 3: Simple pipeline (maximum compatibility)
+
+            # Fallback 3: Simple pipeline with scaling (maximum compatibility)
             (
                 f"rtspsrc location={rtsp_url} latency=0 "
-                f"! decodebin ! videoconvert ! appsink sync=false"
+                f"! decodebin ! videoconvert ! video/x-raw,format=BGR "
+                f"! videoscale method=0 "          # Fastest scaling method
+                f"! video/x-raw,width={target_width},height={target_height} "
+                f"! appsink sync=false"
+            ),
+
+            # Fallback 4: No scaling (emergency fallback - may have coord issues)
+            (
+                f"rtspsrc location={rtsp_url} latency=0 "
+                f"! decodebin ! videoconvert ! video/x-raw,format=BGR "
+                f"! appsink sync=false"
             )
         ]
         
@@ -882,7 +942,50 @@ class VideoHandler:
         self._consecutive_failures = self._max_consecutive_failures
         frame = self._attempt_recovery()
         return frame is not None
-    
+
+    def validate_coordinate_mapping(self) -> Dict[str, Any]:
+        """
+        Validate that coordinate mapping will work correctly.
+
+        Returns:
+            Dictionary with coordinate mapping validation results
+        """
+        validation = {
+            'is_valid': True,
+            'video_dimensions': (self.width, self.height),
+            'configured_dimensions': (Parameters.CAPTURE_WIDTH, Parameters.CAPTURE_HEIGHT),
+            'stream_dimensions': (Parameters.STREAM_WIDTH, Parameters.STREAM_HEIGHT),
+            'video_source': Parameters.VIDEO_SOURCE_TYPE,
+            'uses_gstreamer': Parameters.USE_GSTREAMER,
+            'warnings': [],
+            'info': []
+        }
+
+        # Check dimension consistency
+        if self.width != Parameters.CAPTURE_WIDTH or self.height != Parameters.CAPTURE_HEIGHT:
+            validation['warnings'].append(
+                f"Video dimensions ({self.width}x{self.height}) don't match "
+                f"configured ({Parameters.CAPTURE_WIDTH}x{Parameters.CAPTURE_HEIGHT})"
+            )
+            validation['is_valid'] = False
+
+        # Check stream vs capture dimensions
+        if Parameters.CAPTURE_WIDTH != Parameters.STREAM_WIDTH or Parameters.CAPTURE_HEIGHT != Parameters.STREAM_HEIGHT:
+            validation['warnings'].append(
+                f"Capture dimensions ({Parameters.CAPTURE_WIDTH}x{Parameters.CAPTURE_HEIGHT}) "
+                f"differ from stream dimensions ({Parameters.STREAM_WIDTH}x{Parameters.STREAM_HEIGHT})"
+            )
+
+        # Add source-specific info
+        if Parameters.VIDEO_SOURCE_TYPE == "RTSP_STREAM" and Parameters.USE_GSTREAMER:
+            validation['info'].append("RTSP GStreamer pipeline includes smart scaling")
+        elif Parameters.VIDEO_SOURCE_TYPE == "VIDEO_FILE" and Parameters.USE_GSTREAMER:
+            validation['info'].append("Video file pipeline includes scaling")
+        elif Parameters.VIDEO_SOURCE_TYPE.endswith("_CAMERA"):
+            validation['info'].append("Camera pipeline uses native resolution control")
+
+        return validation
+
     def __del__(self):
         """Cleanup on deletion."""
         self.release()

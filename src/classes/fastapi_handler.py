@@ -233,7 +233,10 @@ class FastAPIHandler:
         self.app.post("/api/tracker/set-type")(self.set_tracker_type)
         self.app.get("/api/compatibility/report")(self.get_compatibility_report)
         self.app.get("/api/system/schema_info")(self.get_schema_info)
-        
+
+        # Debug endpoints
+        self.app.get("/debug/coordinate_mapping")(self.get_coordinate_mapping_info)
+
         # Commands
         self.app.post("/commands/start_tracking")(self.start_tracking)
         self.app.post("/commands/stop_tracking")(self.stop_tracking)
@@ -1444,4 +1447,44 @@ class FastAPIHandler:
             
         except Exception as e:
             self.logger.error(f"Error getting current tracker config: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_coordinate_mapping_info(self):
+        """
+        Debug endpoint to validate coordinate mapping configuration.
+
+        Returns:
+            dict: Coordinate mapping validation information
+        """
+        try:
+            # Get validation from video handler
+            validation = self.video_handler.validate_coordinate_mapping()
+
+            # Add FastAPI handler info
+            validation['fastapi_info'] = {
+                'frame_rate': self.frame_rate,
+                'streaming_width': self.width,
+                'streaming_height': self.height,
+                'quality': self.quality
+            }
+
+            # Add sample coordinate transformation
+            sample_click = {'x': 0.5, 'y': 0.5}  # Center of screen
+            if validation['is_valid']:
+                sample_pixel_x = int(sample_click['x'] * self.video_handler.width)
+                sample_pixel_y = int(sample_click['y'] * self.video_handler.height)
+                validation['sample_transform'] = {
+                    'dashboard_click': sample_click,
+                    'pixel_coordinates': {'x': sample_pixel_x, 'y': sample_pixel_y},
+                    'explanation': f"Dashboard center click maps to pixel ({sample_pixel_x}, {sample_pixel_y})"
+                }
+            else:
+                validation['sample_transform'] = {
+                    'error': 'Cannot provide sample due to validation failures'
+                }
+
+            return validation
+
+        except Exception as e:
+            self.logger.error(f"Error getting coordinate mapping info: {e}")
             raise HTTPException(status_code=500, detail=str(e))
