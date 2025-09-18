@@ -170,6 +170,10 @@ class BaseTracker(ABC):
         self.override_bbox: Optional[Tuple[int, int, int, int]] = None
         self.override_center: Optional[Tuple[int, int]] = None
 
+        # Component suppression support (for trackers that don't need image processing)
+        self.suppress_detector = False
+        self.suppress_predictor = False
+
     @abstractmethod
     def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
         """
@@ -600,7 +604,7 @@ class BaseTracker(ABC):
     def get_legacy_data(self) -> Dict[str, Any]:
         """
         Returns data in the legacy format for backwards compatibility.
-        
+
         Returns:
             Dict[str, Any]: Legacy format data structure
         """
@@ -610,5 +614,35 @@ class BaseTracker(ABC):
             'confidence': self.confidence,
             'tracker_started': self.tracking_started if hasattr(self, 'tracking_started') else bool(self.center),
             'timestamp': time.time()
+        }
+
+    def is_detector_suppressed(self) -> bool:
+        """
+        Check if detector component is suppressed for this tracker.
+
+        Returns:
+            bool: True if detector should be suppressed
+        """
+        return getattr(self, 'suppress_detector', False)
+
+    def is_predictor_suppressed(self) -> bool:
+        """
+        Check if predictor component is suppressed for this tracker.
+
+        Returns:
+            bool: True if predictor should be suppressed
+        """
+        return getattr(self, 'suppress_predictor', False)
+
+    def get_suppression_status(self) -> Dict[str, bool]:
+        """
+        Get the suppression status of all components.
+
+        Returns:
+            Dict[str, bool]: Suppression status for each component
+        """
+        return {
+            'detector_suppressed': self.is_detector_suppressed(),
+            'predictor_suppressed': self.is_predictor_suppressed()
         }
 

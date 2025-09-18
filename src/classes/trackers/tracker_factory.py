@@ -31,6 +31,8 @@ tracker = create_tracker("CSRT", video_handler, detector, app_controller)
 Supported Algorithms:
 ---------------------
 - "CSRT": Channel and Spatial Reliability Tracker
+- "ParticleFilter": Particle Filter Tracker
+- "Gimbal": Gimbal-based UDP Angle Tracker
 - Additional trackers can be added by implementing their classes and updating the factory.
 
 Notes:
@@ -42,6 +44,7 @@ Notes:
 
 from classes.trackers.csrt_tracker import CSRTTracker
 from classes.trackers.particle_filter_tracker import ParticleFilterTracker
+from classes.trackers.gimbal_tracker import GimbalTracker
 # Import other trackers as necessary
 
 def create_tracker(algorithm: str, video_handler=None, detector=None, app_controller=None):
@@ -69,6 +72,8 @@ def create_tracker(algorithm: str, video_handler=None, detector=None, app_contro
         return CSRTTracker(video_handler, detector, app_controller)
     elif algorithm == "ParticleFilter":
         return ParticleFilterTracker(video_handler, detector, app_controller)
+    elif algorithm == "Gimbal":
+        return GimbalTracker(video_handler, detector, app_controller)
     # Add other algorithms here
     else:
         raise ValueError(f"Unsupported tracking algorithm: {algorithm}")

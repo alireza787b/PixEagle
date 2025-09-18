@@ -33,14 +33,16 @@ class FollowerFactory:
             from classes.followers.constant_position_follower import ConstantPositionFollower
             from classes.followers.chase_follower import ChaseFollower
             from classes.followers.body_velocity_chase_follower import BodyVelocityChaseFollower
-            
+            from classes.followers.gimbal_follower import GimbalFollower
+
             # Register followers with their schema profile names
             cls._follower_registry = {
                 'ground_view': GroundTargetFollower,
                 'constant_distance': ConstantDistanceFollower,
                 'constant_position': ConstantPositionFollower,
                 'chase_follower': ChaseFollower,
-                'body_velocity_chase': BodyVelocityChaseFollower
+                'body_velocity_chase': BodyVelocityChaseFollower,
+                'gimbal_unified': GimbalFollower
             }
             
             cls._registry_initialized = True

@@ -94,6 +94,27 @@ command_fields:
       min: -180.0
       max: 180.0
     clamp: true
+
+  # === Gimbal-specific Command Fields ===
+  yaw_angle_deg:
+    type: float
+    default: 0.0
+    unit: "deg"
+    description: "Target yaw angle in degrees (NED offboard mode)"
+    limits:
+      min: -180.0
+      max: 180.0
+    clamp: true
+
+  yaw_speed_deg_s:
+    type: float
+    default: 0.0
+    unit: "deg/s"
+    description: "Yaw angular rate in degrees per second (Body offboard mode)"
+    limits:
+      min: -90.0
+      max: 90.0
+    clamp: true
   
   # === Attitude Rate Control Fields ===
   roll_rate:
@@ -192,6 +213,21 @@ follower_profiles:
     required_tracker_data: ["POSITION_2D"]
     optional_tracker_data: ["BBOX_CONFIDENCE", "VELOCITY_AWARE", "MULTI_TARGET"]
 
+  # Gimbal Follower - Unified NED/Body control from gimbal angles
+  gimbal_unified:
+    display_name: "Gimbal Follower"
+    description: "Configurable NED/Body velocity control from gimbal angles"
+    control_type: "dynamic"  # Set at runtime based on GIMBAL_CONTROL_MODE
+    required_fields: []      # Set dynamically based on control mode
+    optional_fields: []      # Set dynamically based on control mode
+    ui_category: "gimbal"
+    # Schema-driven tracker data requirements
+    required_tracker_data: ["GIMBAL_ANGLES"]
+    optional_tracker_data: ["ANGULAR", "POSITION_2D"]
+    # Dynamic field configuration based on control mode
+    ned_mode_fields: ["vel_x", "vel_y", "vel_z", "yaw_angle_deg"]
+    body_mode_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yaw_speed_deg_s"]
+
 # ==============================================================================
 # Control Type Definitions
 # ==============================================================================
@@ -212,12 +248,17 @@ control_types:
     description: "Offboard body velocity commands for quadcopters"
     ui_display: "Body Velocity Offboard"
 
+  dynamic:
+    mavsdk_method: "dynamic"
+    description: "Dynamic control type set at runtime"
+    ui_display: "Dynamic Control"
+
 # ==============================================================================
 # UI Configuration
 # ==============================================================================
 # Configuration for dashboard auto-discovery and display
 ui_config:
-  field_display_order: ["vel_x", "vel_y", "vel_z", "yaw_rate", "vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s", "roll_rate", "pitch_rate", "thrust"]
+  field_display_order: ["vel_x", "vel_y", "vel_z", "yaw_rate", "vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s", "yaw_angle_deg", "yaw_speed_deg_s", "roll_rate", "pitch_rate", "thrust"]
   
   field_groups:
     velocity:
@@ -231,11 +272,16 @@ ui_config:
       color: "#4CAF50"
       
     attitude:
-      name: "Attitude Rate Control"  
+      name: "Attitude Rate Control"
       fields: ["roll_rate", "pitch_rate", "yaw_rate", "thrust"]
       color: "#FF5722"
-  
-  profile_display_order: ["ground_view", "constant_distance", "constant_position", "chase_follower", "body_velocity_chase"]
+
+    gimbal:
+      name: "Gimbal Control"
+      fields: ["yaw_angle_deg", "yaw_speed_deg_s"]
+      color: "#9C27B0"
+
+  profile_display_order: ["ground_view", "constant_distance", "constant_position", "chase_follower", "body_velocity_chase", "gimbal_unified"]
 
 # ==============================================================================
 # Validation Rules

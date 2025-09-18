@@ -60,10 +60,41 @@ tracker_data_types:
       - velocity
     validation:
       angular:
-        type: "tuple" 
+        type: "tuple"
         length: 2
         element_type: "float"
         range: [-180.0, 180.0]
+
+  GIMBAL_ANGLES:
+    name: "Gimbal Angle Tracking"
+    description: "Real-time gimbal yaw, pitch, roll angles from external gimbal system"
+    category: "angular"
+    required_fields:
+      - angular
+    optional_fields:
+      - position_2d
+      - confidence
+      - gimbal_metadata
+    validation:
+      angular:
+        type: "tuple"
+        length: 3  # yaw, pitch, roll
+        element_type: "float"
+        range: [-180.0, 180.0]
+        description: "Gimbal angles (yaw, pitch, roll) in degrees"
+      position_2d:
+        type: "tuple"
+        length: 2
+        element_type: "float"
+        range: [-2.0, 2.0]
+        description: "Projected target position from gimbal angles"
+      gimbal_metadata:
+        type: "dict"
+        optional_keys:
+          - coordinate_system
+          - connection_status
+          - target_vector_body
+          - aircraft_attitude
         
   BBOX_CONFIDENCE:
     name: "Bounding Box with Confidence"
@@ -188,6 +219,23 @@ tracker_types:
     performance:
       accuracy: "very_high"
       speed: "fast"
+
+  GimbalTracker:
+    name: "Gimbal Angle Tracker"
+    description: "Real-time gimbal angle tracking via UDP protocol"
+    supported_schemas:
+      - GIMBAL_ANGLES
+      - ANGULAR  # Backward compatibility
+      - POSITION_2D  # Derived from angle conversion
+    capabilities:
+      - external_data_source
+      - real_time_updates
+      - coordinate_transformation
+      - suppressed_image_processing
+    performance:
+      accuracy: "very_high"  # Direct gimbal data
+      speed: "very_fast"     # No image processing
+      latency: "minimal"     # UDP direct connection
       
   ParticleFilterTracker:
     name: "Particle Filter Tracker"
@@ -250,6 +298,15 @@ compatibility:
         - POSITION_3D  # 3D helps with ground projection
       optional_schemas:
         - EXTERNAL
+    GimbalFollower:
+      required_schemas:
+        - GIMBAL_ANGLES
+      compatible_schemas:
+        - ANGULAR  # Can work with standard angular data
+      preferred_schemas:
+        - GIMBAL_ANGLES  # Designed specifically for gimbal data
+      optional_schemas:
+        - POSITION_2D  # Additional positioning data
 
 # Future extensibility guidelines
 extensibility:

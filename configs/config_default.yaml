@@ -7,6 +7,62 @@
 # ==============================================================================
 
 # ==============================================================================
+# GIMBAL TRACKER CONFIGURATION (New Feature)
+# ==============================================================================
+GimbalTracker:
+  # Enable/disable gimbal tracker
+  ENABLED: false
+
+  # Network configuration for gimbal UDP communication
+  UDP_HOST: "192.168.1.108"     # Gimbal IP address
+  UDP_PORT: 8080                # Gimbal UDP port
+  CONNECTION_TIMEOUT: 5.0       # Connection timeout in seconds
+
+  # Coordinate system configuration
+  COORDINATE_SYSTEM: "GIMBAL_BODY"  # Options: "GIMBAL_BODY", "SPATIAL_FIXED"
+
+  # Camera mount offsets (degrees relative to aircraft body frame)
+  CAMERA_MOUNT_OFFSET_ROLL: 0.0    # Roll offset
+  CAMERA_MOUNT_OFFSET_PITCH: 0.0   # Pitch offset (+ = nose down from aircraft)
+  CAMERA_MOUNT_OFFSET_YAW: 0.0     # Yaw offset (+ = right from aircraft nose)
+
+  # Validation limits
+  YAW_LIMIT: 180.0              # Maximum yaw angle (degrees)
+  PITCH_LIMIT: 90.0             # Maximum pitch angle (degrees)
+  ROLL_LIMIT: 180.0             # Maximum roll angle (degrees)
+
+  # Processing configuration
+  SUPPRESS_DETECTOR: true       # Disable image detector (not needed for gimbal)
+  SUPPRESS_PREDICTOR: true      # Disable predictor (not needed for gimbal)
+  DISABLE_ESTIMATOR: true       # Disable Kalman estimator (gimbal provides direct data)
+
+  # Data quality parameters
+  MAX_DATA_AGE: 5.0            # Maximum age of data to consider valid (seconds)
+
+# ==============================================================================
+# GIMBAL FOLLOWER CONFIGURATION
+# ==============================================================================
+GimbalFollower:
+  # Control mode selection
+  CONTROL_MODE: "BODY"          # Options: "NED", "BODY"
+
+  # Velocity parameters
+  BASE_VELOCITY: 2.0            # Base following velocity (m/s)
+  MAX_VELOCITY: 8.0             # Maximum velocity limit (m/s)
+  VELOCITY_RAMP_RATE: 1.0       # Acceleration rate (m/s²)
+
+  # Safety parameters
+  MIN_ALTITUDE_SAFETY: 3.0      # Minimum safe altitude (meters)
+  SAFETY_RETURN_SPEED: 3.0      # Velocity when returning to safe altitude (m/s)
+
+  # Control tuning
+  YAW_RATE_GAIN: 0.5           # Proportional gain for yaw rate control
+  MAX_YAW_RATE: 45.0           # Maximum yaw rate (degrees/second)
+
+  # Filtering and smoothing
+  VELOCITY_FILTER_ALPHA: 0.7    # Velocity smoothing filter coefficient (0-1)
+
+# ==============================================================================
 # PRIMARY VIDEO INPUT CONFIGURATION (Top Priority)
 # ==============================================================================
 VideoSource:
