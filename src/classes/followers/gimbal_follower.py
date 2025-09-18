@@ -611,7 +611,8 @@ class GimbalFollower(BaseFollower):
             if hasattr(self, 'px4_controller'):
                 current_altitude = getattr(self.px4_controller, 'current_altitude', None)
                 if current_altitude is not None and current_altitude < self.min_altitude_safety:
-                    logger.warning(f"Altitude too low: {current_altitude:.1f}m < {self.min_altitude_safety:.1f}m")
+                    logger.critical(f"ALTITUDE SAFETY VIOLATION: {current_altitude:.1f}m < {self.min_altitude_safety:.1f}m")
+                    self._trigger_rtl_safety()
                     return False
 
             return True
@@ -619,6 +620,30 @@ class GimbalFollower(BaseFollower):
         except Exception as e:
             logger.error(f"Error checking safety conditions: {e}")
             return False
+
+    def _trigger_rtl_safety(self) -> None:
+        """Trigger PX4 native RTL (Return to Launch) for safety."""
+        try:
+            logger.critical("TRIGGERING PX4 NATIVE RTL DUE TO SAFETY VIOLATION")
+
+            # Activate emergency stop
+            self.emergency_stop_active = True
+
+            # Use PX4 native RTL command
+            if hasattr(self, 'px4_controller') and hasattr(self.px4_controller, 'trigger_rtl'):
+                self.px4_controller.trigger_rtl()
+                logger.critical("PX4 RTL command sent successfully")
+            else:
+                logger.error("PX4 controller RTL method not available")
+
+            # Update telemetry
+            self.update_telemetry_metadata('safety_rtl_triggered', time.time())
+            self.update_telemetry_metadata('rtl_reason', 'altitude_safety_violation')
+
+        except Exception as e:
+            logger.error(f"Error triggering RTL safety: {e}")
+            # Fallback to emergency stop
+            self._apply_emergency_stop()
 
     def _apply_emergency_stop(self) -> None:
         """Apply emergency stop by zeroing all velocity commands."""
