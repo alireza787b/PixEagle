@@ -1,12 +1,12 @@
 # src/classes/gimbal_interface.py
 
 """
-GimbalInterface Module
-=====================
+GimbalInterface Module - Passive UDP Listener
+=============================================
 
-This module provides a clean, thread-safe interface for communicating with gimbal systems
-via UDP protocol. It's designed as a black box that PixEagle can use without knowing
-the details of the gimbal communication protocol.
+This module provides a passive UDP listener for gimbal systems that are controlled
+by external applications. It receives real-time gimbal data including angles and
+tracking status without sending any commands to the gimbal.
 
 Project Information:
 - Project Name: PixEagle
@@ -16,31 +16,36 @@ Project Information:
 
 Overview:
 ---------
-The GimbalInterface class handles:
-- UDP socket management with automatic reconnection
-- Real-time angle data reception (yaw, pitch, roll)
-- Thread-safe data access with proper locking
-- Connection health monitoring
-- Support for both GIMBAL_BODY and SPATIAL_FIXED coordinate systems
+The GimbalInterface class is designed for the workflow where:
+1. External camera UI application controls gimbal tracking (start/stop)
+2. Gimbal broadcasts UDP data containing angles and tracking status
+3. PixEagle passively listens and activates following when tracking is active
+4. No control commands are sent from PixEagle to gimbal
+
+Key Features:
+- ✅ Passive UDP listening only (no command sending)
+- ✅ Tracking status detection from gimbal protocol
+- ✅ Support for both GIMBAL_BODY and SPATIAL_FIXED coordinate systems
+- ✅ Thread-safe data access with proper locking
+- ✅ Connection health monitoring
+- ✅ Automatic activation based on gimbal tracking state
 
 Usage:
 ------
 ```python
-gimbal = GimbalInterface('192.168.1.100', 8080, 5.0)
-gimbal.start()
+gimbal = GimbalInterface(listen_port=9004)
+gimbal.start_listening()
 
-angles = gimbal.get_current_angles()
-if angles:
-    yaw, pitch, roll = angles
-    # Use angles for navigation
-
-gimbal.stop()
+data = gimbal.get_current_data()
+if data and data.tracking_status == TrackingState.TRACKING_ACTIVE:
+    # Use data.angles for drone control
+    yaw, pitch, roll = data.angles
 ```
 
 Integration with PixEagle:
 -------------------------
-This module is designed to be used by GimbalTracker as a data source.
-The tracker doesn't need to know about UDP, sockets, or protocol details.
+This module is used by GimbalTracker to receive data from external gimbal systems.
+It never sends commands - all gimbal control happens through external applications.
 """
 
 import socket
@@ -62,9 +67,16 @@ class CoordinateSystem(Enum):
 class ConnectionStatus(Enum):
     """Connection status states"""
     DISCONNECTED = "disconnected"
-    CONNECTING = "connecting"
-    CONNECTED = "connected"
+    LISTENING = "listening"
+    RECEIVING = "receiving"
     ERROR = "error"
+
+class TrackingState(Enum):
+    """Tracking system states from gimbal protocol"""
+    DISABLED = 0          # Tracking not enabled
+    TARGET_SELECTION = 1  # Waiting for target selection
+    TRACKING_ACTIVE = 2   # Actively tracking target
+    TARGET_LOST = 3       # Target temporarily lost
 
 @dataclass
 class GimbalAngles:
@@ -87,143 +99,181 @@ class GimbalAngles:
         """Convert to tuple format (yaw, pitch, roll)"""
         return (self.yaw, self.pitch, self.roll)
 
+@dataclass
+class TrackingStatus:
+    """Current tracking system status from gimbal"""
+    state: TrackingState
+    target_x: Optional[int] = None    # Target X coordinate (if tracking)
+    target_y: Optional[int] = None    # Target Y coordinate (if tracking)
+    target_width: Optional[int] = None
+    target_height: Optional[int] = None
+    timestamp: datetime = None
+
+    def is_tracking_active(self) -> bool:
+        """Check if gimbal is actively tracking a target"""
+        return self.state == TrackingState.TRACKING_ACTIVE
+
+@dataclass
+class GimbalData:
+    """Complete gimbal data package"""
+    angles: Optional[GimbalAngles] = None
+    tracking_status: Optional[TrackingStatus] = None
+    coordinate_system: Optional[CoordinateSystem] = None
+    timestamp: datetime = None
+    raw_packet: str = ""
+
+    def is_tracking_active(self) -> bool:
+        """Check if gimbal is actively tracking"""
+        return (self.tracking_status and
+                self.tracking_status.is_tracking_active())
+
 class GimbalInterface:
     """
-    Thread-safe interface for gimbal UDP communication.
+    Passive UDP listener for gimbal data reception.
 
-    This class provides a clean abstraction over the gimbal protocol,
-    allowing PixEagle components to get angle data without dealing with
-    UDP socket management, protocol parsing, or connection handling.
+    This class ONLY receives data from gimbal systems. It never sends commands
+    or tries to control the gimbal. All gimbal control is handled by external
+    camera UI applications.
     """
 
-    def __init__(self, host: str, port: int, timeout: float = 5.0):
+    def __init__(self, listen_port: int = 9004, gimbal_ip: str = "192.168.1.108"):
         """
-        Initialize gimbal interface.
+        Initialize gimbal passive UDP listener.
 
         Args:
-            host (str): Gimbal IP address
-            port (int): Gimbal UDP port
-            timeout (float): Connection timeout in seconds
+            listen_port (int): UDP port to listen on for gimbal data
+            gimbal_ip (str): Expected gimbal IP for validation (optional)
         """
-        self.host = host
-        self.port = port
-        self.timeout = timeout
+        self.listen_port = listen_port
+        self.gimbal_ip = gimbal_ip
 
-        # Network setup
-        self.control_socket: Optional[socket.socket] = None
+        # Network setup - only listening socket
         self.listen_socket: Optional[socket.socket] = None
-        self.listen_port = port + 1  # Use port+1 for listening
 
         # Thread management
         self.running = False
         self.listener_thread: Optional[threading.Thread] = None
-        self.query_thread: Optional[threading.Thread] = None
         self.lock = threading.Lock()
 
         # Current state
-        self.current_angles: Optional[GimbalAngles] = None
+        self.current_data: Optional[GimbalData] = None
         self.connection_status = ConnectionStatus.DISCONNECTED
         self.last_data_time: Optional[float] = None
-        self.connection_attempts = 0
-        self.max_connection_attempts = 3
 
         # Statistics
         self.total_packets_received = 0
         self.invalid_packets_received = 0
+        self.tracking_state_changes = 0
+        self.last_tracking_state = TrackingState.DISABLED
         self.last_status_log_time = 0.0
 
-        logger.info(f"GimbalInterface initialized: {host}:{port} (listen port: {self.listen_port})")
+        logger.info(f"GimbalInterface initialized as passive listener on port {listen_port}")
 
-    def start(self) -> bool:
+    def start_listening(self) -> bool:
         """
-        Start gimbal communication threads.
+        Start passive UDP listening for gimbal data.
 
         Returns:
-            bool: True if started successfully, False otherwise
+            bool: True if listening started successfully, False otherwise
         """
         if self.running:
-            logger.warning("GimbalInterface already running")
+            logger.warning("GimbalInterface already listening")
             return True
 
         try:
-            logger.info("Starting gimbal interface...")
+            logger.info("Starting passive gimbal UDP listener...")
 
-            # Initialize sockets
-            if not self._init_sockets():
+            # Initialize listening socket only
+            if not self._init_listening_socket():
                 return False
 
-            # Start background threads
+            # Start background listener thread
             self.running = True
-
             self.listener_thread = threading.Thread(target=self._listener_loop, daemon=True)
             self.listener_thread.start()
 
-            self.query_thread = threading.Thread(target=self._query_loop, daemon=True)
-            self.query_thread.start()
-
-            # Allow threads to start
+            # Allow thread to start
             time.sleep(0.1)
 
-            # Set initial connection status
+            # Set connection status
             with self.lock:
-                self.connection_status = ConnectionStatus.CONNECTING
+                self.connection_status = ConnectionStatus.LISTENING
 
-            logger.info("GimbalInterface started successfully")
+            logger.info("Passive gimbal listener started successfully")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to start gimbal interface: {e}")
-            self.stop()
+            logger.error(f"Failed to start gimbal listener: {e}")
+            self.stop_listening()
             return False
 
-    def stop(self) -> None:
-        """Stop gimbal communication and cleanup resources."""
+    def stop_listening(self) -> None:
+        """Stop gimbal data reception and cleanup resources."""
         if not self.running:
             return
 
-        logger.info("Stopping gimbal interface...")
+        logger.info("Stopping gimbal listener...")
         self.running = False
 
-        # Wait for threads to finish
+        # Wait for listener thread to finish
         if self.listener_thread and self.listener_thread.is_alive():
             self.listener_thread.join(timeout=2.0)
 
-        if self.query_thread and self.query_thread.is_alive():
-            self.query_thread.join(timeout=2.0)
-
-        # Close sockets
-        self._cleanup_sockets()
+        # Close socket
+        self._cleanup_socket()
 
         # Reset state
         with self.lock:
             self.connection_status = ConnectionStatus.DISCONNECTED
-            self.current_angles = None
+            self.current_data = None
 
-        logger.info("GimbalInterface stopped")
+        logger.info("Gimbal listener stopped")
+
+    def get_current_data(self) -> Optional[GimbalData]:
+        """
+        Get current gimbal data including angles and tracking status.
+
+        Returns:
+            Optional[GimbalData]: Complete gimbal data or None if no recent data
+        """
+        with self.lock:
+            if self.current_data and self._is_data_fresh():
+                return self.current_data
+            return None
 
     def get_current_angles(self) -> Optional[Tuple[float, float, float]]:
         """
-        Get current gimbal angles as tuple.
+        Get current gimbal angles as tuple (for backward compatibility).
 
         Returns:
             Optional[Tuple[float, float, float]]: (yaw, pitch, roll) in degrees or None
         """
-        with self.lock:
-            if self.current_angles and self._is_data_fresh():
-                return self.current_angles.to_tuple()
-            return None
+        data = self.get_current_data()
+        if data and data.angles:
+            return data.angles.to_tuple()
+        return None
 
-    def get_current_angles_detailed(self) -> Optional[GimbalAngles]:
+    def get_tracking_status(self) -> Optional[TrackingState]:
         """
-        Get current gimbal angles with metadata.
+        Get current tracking status from gimbal.
 
         Returns:
-            Optional[GimbalAngles]: Complete angle data or None
+            Optional[TrackingState]: Current tracking state or None
         """
-        with self.lock:
-            if self.current_angles and self._is_data_fresh():
-                return self.current_angles
-            return None
+        data = self.get_current_data()
+        if data and data.tracking_status:
+            return data.tracking_status.state
+        return None
+
+    def is_tracking_active(self) -> bool:
+        """
+        Check if gimbal is actively tracking a target.
+
+        Returns:
+            bool: True if gimbal is in TRACKING_ACTIVE state
+        """
+        data = self.get_current_data()
+        return data.is_tracking_active() if data else False
 
     def get_connection_status(self) -> str:
         """
@@ -235,22 +285,9 @@ class GimbalInterface:
         with self.lock:
             return self.connection_status.value
 
-    def is_connected(self) -> bool:
-        """
-        Check if gimbal is connected and providing fresh data.
-
-        Returns:
-            bool: True if connected with fresh data
-        """
-        with self.lock:
-            return (
-                self.connection_status == ConnectionStatus.CONNECTED and
-                self._is_data_fresh()
-            )
-
     def get_statistics(self) -> Dict[str, Any]:
         """
-        Get connection and data statistics.
+        Get comprehensive statistics about gimbal data reception.
 
         Returns:
             Dict[str, Any]: Statistics dictionary
@@ -261,97 +298,141 @@ class GimbalInterface:
                 if self.last_data_time else float('inf')
             )
 
+            current_data = self.current_data
+
             return {
                 'connection_status': self.connection_status.value,
                 'total_packets_received': self.total_packets_received,
                 'invalid_packets_received': self.invalid_packets_received,
                 'data_age_seconds': data_age,
-                'connection_attempts': self.connection_attempts,
-                'has_current_data': self.current_angles is not None,
-                'data_fresh': self._is_data_fresh()
+                'has_current_data': current_data is not None,
+                'data_fresh': self._is_data_fresh(),
+                'tracking_state_changes': self.tracking_state_changes,
+                'current_tracking_state': (
+                    current_data.tracking_status.state.name
+                    if current_data and current_data.tracking_status else 'UNKNOWN'
+                ),
+                'is_tracking_active': self.is_tracking_active(),
+                'listen_port': self.listen_port
             }
 
-    def _init_sockets(self) -> bool:
-        """Initialize UDP sockets for communication."""
+    def _init_listening_socket(self) -> bool:
+        """Initialize UDP listening socket."""
         try:
-            # Control socket for sending commands
-            self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.control_socket.settimeout(self.timeout)
-
-            # Listen socket for receiving responses
+            # Create UDP socket for listening only
             self.listen_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.listen_socket.bind(('0.0.0.0', self.listen_port))
-            self.listen_socket.settimeout(0.1)  # Short timeout for non-blocking
+            self.listen_socket.settimeout(0.1)  # Non-blocking with short timeout
 
-            logger.debug(f"Sockets initialized - Control: {self.host}:{self.port}, Listen: {self.listen_port}")
+            logger.debug(f"Listening socket initialized on port {self.listen_port}")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to initialize sockets: {e}")
-            self._cleanup_sockets()
+            logger.error(f"Failed to initialize listening socket: {e}")
+            self._cleanup_socket()
             return False
 
-    def _cleanup_sockets(self) -> None:
+    def _cleanup_socket(self) -> None:
         """Clean up socket resources."""
         try:
-            if self.control_socket:
-                self.control_socket.close()
-                self.control_socket = None
-
             if self.listen_socket:
                 self.listen_socket.close()
                 self.listen_socket = None
-
         except Exception as e:
             logger.debug(f"Socket cleanup error (expected): {e}")
 
-    def _build_command(self, address_dest: str, control: str, command: str, data: str = "00") -> str:
-        """Build protocol command according to SIP specification."""
-        frame = "#TP"  # Fixed length command
-        src = "P"      # Network source address
-        length = "2"   # Fixed length
+    def _listener_loop(self) -> None:
+        """Background thread to receive gimbal data packets."""
+        logger.debug("Gimbal passive listener thread started")
 
-        # Build command string
-        cmd = f"{frame}{src}{address_dest}{length}{control}{command}{data}"
+        while self.running:
+            try:
+                if not self.listen_socket:
+                    time.sleep(0.1)
+                    continue
 
-        # Calculate CRC (sum of all bytes mod 256)
-        crc = sum(cmd.encode('ascii')) & 0xFF
-        cmd += f"{crc:02X}"
+                # Receive UDP packet (passive listening)
+                data, addr = self.listen_socket.recvfrom(4096)
+                packet = data.decode('utf-8', errors='replace').strip()
 
-        return cmd
+                if not packet:
+                    continue
 
-    def _send_command(self, command: str) -> bool:
-        """Send UDP command to gimbal."""
+                logger.debug(f"Received gimbal packet from {addr}: {packet}")
+
+                # Update statistics
+                with self.lock:
+                    self.total_packets_received += 1
+                    self.connection_status = ConnectionStatus.RECEIVING
+
+                # Parse complete gimbal data
+                gimbal_data = self._parse_gimbal_packet(packet)
+                if gimbal_data:
+                    with self.lock:
+                        self.current_data = gimbal_data
+                        self.last_data_time = time.time()
+
+                        # Track tracking state changes
+                        if (gimbal_data.tracking_status and
+                            gimbal_data.tracking_status.state != self.last_tracking_state):
+                            self.tracking_state_changes += 1
+                            old_state = self.last_tracking_state
+                            new_state = gimbal_data.tracking_status.state
+                            self.last_tracking_state = new_state
+                            logger.info(f"Gimbal tracking state changed: {old_state.name} → {new_state.name}")
+
+                    logger.debug(f"Updated gimbal data: tracking={gimbal_data.is_tracking_active()}")
+                else:
+                    with self.lock:
+                        self.invalid_packets_received += 1
+
+            except socket.timeout:
+                continue
+            except Exception as e:
+                logger.debug(f"Listener error: {e}")
+
+        logger.debug("Gimbal passive listener thread stopped")
+
+    def _parse_gimbal_packet(self, packet: str) -> Optional[GimbalData]:
+        """
+        Parse complete gimbal packet including angles and tracking status.
+
+        Args:
+            packet (str): Raw packet data from gimbal
+
+        Returns:
+            Optional[GimbalData]: Parsed gimbal data or None if invalid
+        """
         try:
-            if not self.control_socket:
-                return False
-
-            self.control_socket.sendto(
-                command.encode('ascii'),
-                (self.host, self.port)
+            gimbal_data = GimbalData(
+                timestamp=datetime.now(),
+                raw_packet=packet
             )
-            logger.debug(f"Sent command: {command}")
-            return True
+
+            # Parse angle data
+            angles = self._parse_angle_response(packet)
+            if angles:
+                gimbal_data.angles = angles
+                gimbal_data.coordinate_system = angles.coordinate_system
+
+            # Parse tracking status
+            tracking_status = self._parse_tracking_response(packet)
+            if tracking_status:
+                gimbal_data.tracking_status = tracking_status
+
+            # Return data if we got at least one valid component
+            if gimbal_data.angles or gimbal_data.tracking_status:
+                return gimbal_data
+
+            return None
 
         except Exception as e:
-            logger.debug(f"Command send failed: {e}")
-            return False
-
-    def _query_gimbal_angles(self) -> bool:
-        """Query gimbal angles using the preferred coordinate system."""
-        # Query both coordinate systems to get comprehensive data
-        # Start with GIMBAL_BODY (relative to aircraft)
-        cmd1 = self._build_command("G", "r", "GAC", "00")  # Gimbal body angles
-        cmd2 = self._build_command("G", "r", "GIC", "00")  # Spatial fixed angles
-
-        success1 = self._send_command(cmd1)
-        time.sleep(0.01)  # Small delay between commands
-        success2 = self._send_command(cmd2)
-
-        return success1 or success2
+            logger.debug(f"Error parsing gimbal packet: {e}")
+            return None
 
     def _parse_angle_response(self, response: str) -> Optional[GimbalAngles]:
-        """Parse angle data from gimbal response."""
+        """Parse angle data from gimbal response (existing logic enhanced)."""
         try:
             response = response.strip()
 
@@ -405,104 +486,61 @@ class GimbalInterface:
             logger.debug(f"Angle parse error: {e}")
             return None
 
-    def _listener_loop(self) -> None:
-        """Background thread to receive gimbal responses."""
-        logger.debug("Gimbal listener thread started")
+    def _parse_tracking_response(self, response: str) -> Optional[TrackingStatus]:
+        """Parse tracking status from gimbal response (NEW FUNCTIONALITY)."""
+        try:
+            response = response.strip()
 
-        while self.running:
+            if "TRC" not in response:
+                return None
+
+            # Find tracking data after TRC identifier
+            trc_pos = response.find("TRC") + 3
+            if trc_pos + 2 > len(response):
+                return None
+
+            # Extract tracking state (2 characters)
+            state_data = response[trc_pos:trc_pos + 2]
+
+            # Parse state value from protocol
             try:
-                if not self.listen_socket:
-                    time.sleep(0.1)
-                    continue
+                # The demo code shows states as single digit in second character
+                state_val = int(state_data[1])
+                state = TrackingState(state_val)
+            except (ValueError, IndexError):
+                # Fallback parsing if format is different
+                try:
+                    state_val = int(state_data)
+                    state = TrackingState(state_val)
+                except (ValueError, IndexError):
+                    logger.debug(f"Could not parse tracking state from: {state_data}")
+                    return None
 
-                data, addr = self.listen_socket.recvfrom(4096)
-                response = data.decode('utf-8', errors='replace').strip()
+            return TrackingStatus(
+                state=state,
+                timestamp=datetime.now()
+            )
 
-                if not response:
-                    continue
-
-                logger.debug(f"Received: {response}")
-
-                # Update statistics
-                with self.lock:
-                    self.total_packets_received += 1
-
-                # Parse angle data
-                angles = self._parse_angle_response(response)
-                if angles:
-                    with self.lock:
-                        self.current_angles = angles
-                        self.last_data_time = time.time()
-                        self.connection_status = ConnectionStatus.CONNECTED
-                        self.connection_attempts = 0  # Reset on successful data
-
-                    logger.debug(f"Updated angles: yaw={angles.yaw:.1f}°, pitch={angles.pitch:.1f}°, roll={angles.roll:.1f}°")
-                else:
-                    with self.lock:
-                        self.invalid_packets_received += 1
-
-            except socket.timeout:
-                continue
-            except Exception as e:
-                logger.debug(f"Listener error: {e}")
-
-        logger.debug("Gimbal listener thread stopped")
-
-    def _query_loop(self) -> None:
-        """Background thread to periodically query angles."""
-        logger.debug("Gimbal query thread started")
-
-        while self.running:
-            try:
-                # Query angles at regular intervals
-                if not self._query_gimbal_angles():
-                    with self.lock:
-                        self.connection_attempts += 1
-                        if self.connection_attempts >= self.max_connection_attempts:
-                            self.connection_status = ConnectionStatus.ERROR
-                        else:
-                            self.connection_status = ConnectionStatus.CONNECTING
-
-                # Check for stale data
-                if self._is_data_stale():
-                    with self.lock:
-                        if self.connection_status == ConnectionStatus.CONNECTED:
-                            self.connection_status = ConnectionStatus.ERROR
-                            logger.warning("Gimbal data is stale, marking as disconnected")
-
-                # Log status periodically
-                self._log_status_periodically()
-
-                # Query every 100ms for real-time performance
-                time.sleep(0.1)
-
-            except Exception as e:
-                logger.error(f"Query loop error: {e}")
-                time.sleep(1.0)  # Longer sleep on error
-
-        logger.debug("Gimbal query thread stopped")
+        except Exception as e:
+            logger.debug(f"Tracking parse error: {e}")
+            return None
 
     def _is_data_fresh(self) -> bool:
-        """Check if current data is fresh (within timeout period)."""
+        """Check if current data is fresh (within reasonable timeout)."""
         if not self.last_data_time:
             return False
-        return (time.time() - self.last_data_time) < (self.timeout * 2)
-
-    def _is_data_stale(self) -> bool:
-        """Check if data is stale and connection should be considered lost."""
-        if not self.last_data_time:
-            return True
-        return (time.time() - self.last_data_time) > (self.timeout * 3)
+        return (time.time() - self.last_data_time) < 5.0  # 5 second timeout
 
     def _log_status_periodically(self) -> None:
-        """Log connection status and statistics periodically."""
+        """Log status periodically for monitoring."""
         current_time = time.time()
         if current_time - self.last_status_log_time > 30.0:  # Every 30 seconds
             stats = self.get_statistics()
             logger.info(
-                f"Gimbal Status: {stats['connection_status']} | "
+                f"Gimbal Listener Status: {stats['connection_status']} | "
                 f"Packets: {stats['total_packets_received']} "
                 f"(Invalid: {stats['invalid_packets_received']}) | "
+                f"Tracking: {stats['current_tracking_state']} | "
                 f"Data Age: {stats['data_age_seconds']:.1f}s"
             )
             self.last_status_log_time = current_time

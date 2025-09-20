@@ -10,7 +10,8 @@
       "Read(//c/Users/p30pl/**)",
       "Bash(git checkout:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(.venv/Scripts/python:*)"
     ],
     "deny": [],
     "ask": []
