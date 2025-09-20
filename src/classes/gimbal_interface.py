@@ -440,17 +440,31 @@ class GimbalInterface:
             if "GAC" in response:  # Magnetic coding response
                 coord_sys = CoordinateSystem.GIMBAL_BODY
                 data_start = response.find("GAC") + 3
+                # Extract 12-character angle data: YYYYPPPPRRRR
+                angle_data = response[data_start:data_start + 12]
+                if len(angle_data) != 12:
+                    return None
+                return self._parse_hex_angles(angle_data, coord_sys)
+
             elif "GIC" in response:  # Gyroscope response
                 coord_sys = CoordinateSystem.SPATIAL_FIXED
                 data_start = response.find("GIC") + 3
+                # Extract 12-character angle data: YYYYPPPPRRRR
+                angle_data = response[data_start:data_start + 12]
+                if len(angle_data) != 12:
+                    return None
+                return self._parse_hex_angles(angle_data, coord_sys)
+
             else:
                 return None
 
-            # Extract 12-character angle data: YYYYPPPPRRRR
-            angle_data = response[data_start:data_start + 12]
-            if len(angle_data) != 12:
-                return None
+        except Exception as e:
+            logger.debug(f"Angle parse error: {e}")
+            return None
 
+    def _parse_hex_angles(self, angle_data: str, coord_sys: CoordinateSystem) -> Optional[GimbalAngles]:
+        """Parse hex-encoded angle data."""
+        try:
             # Parse hex values (4 chars each, signed 16-bit, 0.01° units)
             yaw_hex = angle_data[0:4]
             pitch_hex = angle_data[4:8]
@@ -477,14 +491,15 @@ class GimbalInterface:
 
             # Validate angles
             if not angles.is_valid():
-                logger.warning(f"Invalid angles received: {angles.yaw}, {angles.pitch}, {angles.roll}")
+                logger.warning(f"Invalid hex angles: {angles.yaw}, {angles.pitch}, {angles.roll}")
                 return None
 
             return angles
 
         except Exception as e:
-            logger.debug(f"Angle parse error: {e}")
+            logger.debug(f"Error parsing hex angles: {e}")
             return None
+
 
     def _parse_tracking_response(self, response: str) -> Optional[TrackingStatus]:
         """Parse tracking status from gimbal response (NEW FUNCTIONALITY)."""
