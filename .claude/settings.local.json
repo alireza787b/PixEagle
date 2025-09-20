@@ -6,7 +6,11 @@
       "Bash(grep:*)",
       "Bash(find:*)",
       "Bash(python:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Read(//c/Users/p30pl/**)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
