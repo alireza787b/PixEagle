@@ -86,12 +86,31 @@ class GroundTargetFollower(BaseFollower):
         # Initialize with Ground View profile for full velocity control
         super().__init__(px4_controller, "Ground View")
         
+        # Get configuration section (like other followers do)
+        config = getattr(Parameters, 'GROUND_VIEW', {})
+
         # Store configuration parameters
-        self.target_position_mode = Parameters.TARGET_POSITION_MODE
+        self.target_position_mode = config.get('TARGET_POSITION_MODE', 'center')
         self.initial_target_coords = (
-            initial_target_coords if self.target_position_mode == 'initial' 
+            initial_target_coords if self.target_position_mode == 'initial'
             else (0.0, 0.0)
         )
+
+        # Load ground view specific parameters from config
+        self.max_velocity_x = config.get('MAX_VELOCITY_X', 10.0)
+        self.max_velocity_y = config.get('MAX_VELOCITY_Y', 10.0)
+        self.max_rate_of_descent = config.get('MAX_RATE_OF_DESCENT', 2.0)
+        self.enable_descend_to_target = config.get('ENABLE_DESCEND_TO_TARGET', False)
+        self.min_descent_height = config.get('MIN_DESCENT_HEIGHT', 40.0)
+        self.is_camera_gimbaled = config.get('IS_CAMERA_GIMBALED', False)
+        self.base_adjustment_factor_x = config.get('BASE_ADJUSTMENT_FACTOR_X', 0.1)
+        self.base_adjustment_factor_y = config.get('BASE_ADJUSTMENT_FACTOR_Y', 0.1)
+        self.altitude_factor = config.get('ALTITUDE_FACTOR', 0.005)
+        self.enable_gain_scheduling = config.get('ENABLE_GAIN_SCHEDULING', False)
+        self.gain_scheduling_parameter = config.get('GAIN_SCHEDULING_PARAMETER', 'current_altitude')
+        self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
+        self.coordinate_corrections_enabled = config.get('COORDINATE_CORRECTIONS_ENABLED', True)
+        self.error_logging_enabled = config.get('ERROR_LOGGING_ENABLED', True)
         
         # Initialize control system components
         self._initialize_pid_controllers()
@@ -130,27 +149,27 @@ class GroundTargetFollower(BaseFollower):
             self.pid_x = CustomPID(
                 *self._get_pid_gains('x'),
                 setpoint=setpoint_x,
-                output_limits=(-Parameters.VELOCITY_LIMITS['x'], Parameters.VELOCITY_LIMITS['x'])
+                output_limits=(-self.max_velocity_x, self.max_velocity_x)
             )
-            
+
             # Initialize Y-axis PID controller (longitudinal movement)
             self.pid_y = CustomPID(
                 *self._get_pid_gains('y'),
                 setpoint=setpoint_y,
-                output_limits=(-Parameters.VELOCITY_LIMITS['y'], Parameters.VELOCITY_LIMITS['y'])
+                output_limits=(-self.max_velocity_y, self.max_velocity_y)
             )
-            
+
             # Initialize Z-axis PID controller (altitude control)
             self.pid_z = CustomPID(
                 *self._get_pid_gains('z'),
-                setpoint=Parameters.MIN_DESCENT_HEIGHT,
-                output_limits=(-Parameters.MAX_RATE_OF_DESCENT, Parameters.MAX_RATE_OF_DESCENT)
+                setpoint=self.min_descent_height,
+                output_limits=(-self.max_rate_of_descent, self.max_rate_of_descent)
             )
             
             # Log successful initialization
             logger.info("PID controllers initialized successfully for GroundTargetFollower")
             logger.debug(f"PID setpoints - X: {setpoint_x}, Y: {setpoint_y}, "
-                        f"Z: {Parameters.MIN_DESCENT_HEIGHT}")
+                        f"Z: {self.min_descent_height}")
             
         except Exception as e:
             logger.error(f"Failed to initialize PID controllers: {e}")
@@ -181,16 +200,16 @@ class GroundTargetFollower(BaseFollower):
         """
         try:
             # Check if gain scheduling is enabled
-            if Parameters.ENABLE_GAIN_SCHEDULING:
+            if self.enable_gain_scheduling:
                 current_value = getattr(
-                    self.px4_controller, 
-                    Parameters.GAIN_SCHEDULING_PARAMETER, 
+                    self.px4_controller,
+                    self.gain_scheduling_parameter,
                     None
                 )
-                
+
                 if current_value is None:
                     logger.warning(
-                        f"Gain scheduling parameter '{Parameters.GAIN_SCHEDULING_PARAMETER}' "
+                        f"Gain scheduling parameter '{self.gain_scheduling_parameter}' "
                         f"not available in PX4Controller. Using default gains."
                     )
                 else:
@@ -260,7 +279,7 @@ class GroundTargetFollower(BaseFollower):
             - Correction factors are configurable via Parameters
         """
         # Skip correction for gimbaled cameras
-        if Parameters.IS_CAMERA_GIMBALED:
+        if self.is_camera_gimbaled:
             logger.debug("Camera is gimbaled - skipping gimbal corrections")
             return target_coords
         
@@ -274,10 +293,10 @@ class GroundTargetFollower(BaseFollower):
             yaw, pitch, roll = orientation
             
             # Apply orientation-based corrections
-            corrected_x = (target_coords[0] + 
-                          Parameters.BASE_ADJUSTMENT_FACTOR_X * roll)
-            corrected_y = (target_coords[1] - 
-                          Parameters.BASE_ADJUSTMENT_FACTOR_Y * pitch)
+            corrected_x = (target_coords[0] +
+                          self.base_adjustment_factor_x * roll)
+            corrected_y = (target_coords[1] -
+                          self.base_adjustment_factor_y * pitch)
             
             logger.debug(f"Applied gimbal corrections - "
                         f"Roll: {roll:.3f}, Pitch: {pitch:.3f}, "
@@ -318,10 +337,10 @@ class GroundTargetFollower(BaseFollower):
                 return target_x, target_y
             
             # Calculate altitude-dependent adjustment factors
-            adj_factor_x = (Parameters.BASE_ADJUSTMENT_FACTOR_X / 
-                           (1 + Parameters.ALTITUDE_FACTOR * current_altitude))
-            adj_factor_y = (Parameters.BASE_ADJUSTMENT_FACTOR_Y / 
-                           (1 + Parameters.ALTITUDE_FACTOR * current_altitude))
+            adj_factor_x = (self.base_adjustment_factor_x /
+                           (1 + self.altitude_factor * current_altitude))
+            adj_factor_y = (self.base_adjustment_factor_y /
+                           (1 + self.altitude_factor * current_altitude))
             
             # Apply adjustments
             adjusted_x = target_x + adj_factor_x
@@ -354,7 +373,7 @@ class GroundTargetFollower(BaseFollower):
             - Integrates with PID controller for smooth altitude control
         """
         # Check if descent is enabled
-        if not Parameters.ENABLE_DESCEND_TO_TARGET:
+        if not self.enable_descend_to_target:
             logger.debug("Descent to target is disabled")
             return 0.0
         
@@ -365,10 +384,10 @@ class GroundTargetFollower(BaseFollower):
                 return 0.0
             
             logger.debug(f"Altitude control - Current: {current_altitude:.1f}m, "
-                        f"Minimum: {Parameters.MIN_DESCENT_HEIGHT:.1f}m")
-            
+                        f"Minimum: {self.min_descent_height:.1f}m")
+
             # Check altitude limits
-            if current_altitude > Parameters.MIN_DESCENT_HEIGHT:
+            if current_altitude > self.min_descent_height:
                 # Calculate descent command using PID controller
                 descent_command = self.pid_z(-current_altitude)
                 logger.debug(f"Descent command: {descent_command:.3f} m/s")
@@ -551,9 +570,16 @@ class GroundTargetFollower(BaseFollower):
                 'configuration': {
                     'target_position_mode': self.target_position_mode,
                     'initial_target_coords': self.initial_target_coords,
-                    'gain_scheduling_enabled': Parameters.ENABLE_GAIN_SCHEDULING,
-                    'gimbal_corrections_enabled': not Parameters.IS_CAMERA_GIMBALED,
-                    'descent_enabled': Parameters.ENABLE_DESCEND_TO_TARGET
+                    'gain_scheduling_enabled': self.enable_gain_scheduling,
+                    'gimbal_corrections_enabled': not self.is_camera_gimbaled,
+                    'descent_enabled': self.enable_descend_to_target,
+                    'velocity_limits': {
+                        'max_velocity_x': self.max_velocity_x,
+                        'max_velocity_y': self.max_velocity_y,
+                        'max_rate_of_descent': self.max_rate_of_descent
+                    },
+                    'coordinate_corrections_enabled': self.coordinate_corrections_enabled,
+                    'control_update_rate': self.control_update_rate
                 },
                 'current_commands': self.get_all_command_fields(),
                 'validation_status': self.validate_profile_consistency()

@@ -108,10 +108,38 @@ class BodyVelocityChaseFollower(BaseFollower):
             raise ValueError(f"Invalid initial target coordinates: {initial_target_coords}")
         
         self.initial_target_coords = initial_target_coords
-        
+
+        # Get configuration section (like other followers do)
+        config = getattr(Parameters, 'BODY_VELOCITY_CHASE', {})
+
+        # Load body velocity chase specific parameters from config
+        self.initial_forward_velocity = config.get('INITIAL_FORWARD_VELOCITY', 0.0)
+        self.max_forward_velocity = config.get('MAX_FORWARD_VELOCITY', 8.0)
+        self.forward_ramp_rate = config.get('FORWARD_RAMP_RATE', 2.0)
+        self.ramp_down_on_target_loss = config.get('RAMP_DOWN_ON_TARGET_LOSS', True)
+        self.target_loss_timeout = config.get('TARGET_LOSS_TIMEOUT', 2.0)
+        self.enable_altitude_control = config.get('ENABLE_ALTITUDE_CONTROL', True)
+        self.enable_yaw_integration = config.get('ENABLE_YAW_INTEGRATION', False)
+        self.lateral_guidance_mode = config.get('LATERAL_GUIDANCE_MODE', 'coordinated_turn')
+        self.guidance_mode_switch_velocity = config.get('GUIDANCE_MODE_SWITCH_VELOCITY', 3.0)
+        self.enable_auto_mode_switching = config.get('ENABLE_AUTO_MODE_SWITCHING', False)
+        self.altitude_safety_enabled = config.get('ALTITUDE_SAFETY_ENABLED', False)
+        self.min_altitude_limit = config.get('MIN_ALTITUDE_LIMIT', 10.0)
+        self.max_altitude_limit = config.get('MAX_ALTITUDE_LIMIT', 120.0)
+        self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 1.0)
+        self.rtl_on_altitude_violation = config.get('RTL_ON_ALTITUDE_VIOLATION', True)
+        self.altitude_warning_buffer = config.get('ALTITUDE_WARNING_BUFFER', 2.0)
+        self.emergency_stop_enabled = config.get('EMERGENCY_STOP_ENABLED', True)
+        self.max_tracking_error = config.get('MAX_TRACKING_ERROR', 1.5)
+        self.velocity_smoothing_enabled = config.get('VELOCITY_SMOOTHING_ENABLED', True)
+        self.smoothing_factor = config.get('SMOOTHING_FACTOR', 0.8)
+        self.min_forward_velocity_threshold = config.get('MIN_FORWARD_VELOCITY_THRESHOLD', 0.5)
+        self.ramp_update_rate = config.get('RAMP_UPDATE_RATE', 10.0)
+        self.pid_update_rate = config.get('PID_UPDATE_RATE', 20.0)
+
         # Initialize forward velocity ramping state
-        self.current_forward_velocity = Parameters.INITIAL_FORWARD_VELOCITY
-        self.target_forward_velocity = Parameters.MAX_FORWARD_VELOCITY
+        self.current_forward_velocity = self.initial_forward_velocity
+        self.target_forward_velocity = self.max_forward_velocity
         self.last_ramp_update_time = time.time()
         
         # Initialize target tracking state
@@ -144,7 +172,7 @@ class BodyVelocityChaseFollower(BaseFollower):
             'altitude_monitoring', 'target_loss_handling', 'velocity_ramping', 'emergency_stop', 'dual_mode_guidance'
         ])
         self.update_telemetry_metadata('forward_ramping_enabled', True)
-        self.update_telemetry_metadata('altitude_safety_enabled', Parameters.ALTITUDE_SAFETY_ENABLED)
+        self.update_telemetry_metadata('altitude_safety_enabled', self.altitude_safety_enabled)
         
         logger.info(f"BodyVelocityChaseFollower initialized with dual-mode offboard velocity control")
         logger.info(f"Active lateral guidance mode: {self.active_lateral_mode}")
@@ -197,7 +225,7 @@ class BodyVelocityChaseFollower(BaseFollower):
             
             # Down Velocity Controller - Vertical Control (if enabled)
             self.pid_down = None
-            if Parameters.ENABLE_ALTITUDE_CONTROL:
+            if self.enable_altitude_control:
                 self.pid_down = CustomPID(
                     *self._get_pid_gains('vel_body_down'),
                     setpoint=setpoint_y,
@@ -224,11 +252,11 @@ class BodyVelocityChaseFollower(BaseFollower):
         """
         try:
             # Get configured mode
-            configured_mode = getattr(Parameters, 'LATERAL_GUIDANCE_MODE', 'coordinated_turn')
-            
+            configured_mode = self.lateral_guidance_mode
+
             # Check for auto-switching
-            if getattr(Parameters, 'ENABLE_AUTO_MODE_SWITCHING', False):
-                switch_velocity = getattr(Parameters, 'GUIDANCE_MODE_SWITCH_VELOCITY', 3.0)
+            if self.enable_auto_mode_switching:
+                switch_velocity = self.guidance_mode_switch_velocity
                 
                 if self.current_forward_velocity >= switch_velocity:
                     return 'coordinated_turn'  # High speed: use coordinated turns
@@ -351,13 +379,13 @@ class BodyVelocityChaseFollower(BaseFollower):
             # Determine target velocity based on system state
             if self.emergency_stop_active:
                 target_velocity = 0.0
-            elif self.target_lost and Parameters.RAMP_DOWN_ON_TARGET_LOSS:
-                target_velocity = Parameters.MIN_FORWARD_VELOCITY_THRESHOLD
+            elif self.target_lost and self.ramp_down_on_target_loss:
+                target_velocity = self.min_forward_velocity_threshold
             else:
-                target_velocity = Parameters.MAX_FORWARD_VELOCITY
-            
+                target_velocity = self.max_forward_velocity
+
             # Calculate velocity change
-            ramp_rate = Parameters.FORWARD_RAMP_RATE
+            ramp_rate = self.forward_ramp_rate
             velocity_error = target_velocity - self.current_forward_velocity
             
             if abs(velocity_error) < 0.01:  # Close enough to target
@@ -372,7 +400,7 @@ class BodyVelocityChaseFollower(BaseFollower):
             self.current_forward_velocity = np.clip(
                 self.current_forward_velocity,
                 0.0,  # Never go backward
-                Parameters.MAX_FORWARD_VELOCITY
+                self.max_forward_velocity
             )
             
             logger.debug(f"Forward velocity updated: {self.current_forward_velocity:.2f} m/s "
@@ -428,8 +456,8 @@ class BodyVelocityChaseFollower(BaseFollower):
             down_velocity = self.pid_down(error_y) if self.pid_down else 0.0
             
             # Apply velocity smoothing if enabled
-            if Parameters.VELOCITY_SMOOTHING_ENABLED:
-                smoothing_factor = Parameters.SMOOTHING_FACTOR
+            if self.velocity_smoothing_enabled:
+                smoothing_factor = self.smoothing_factor
                 
                 # Smooth right velocity (sideslip mode)
                 self.smoothed_right_velocity = (smoothing_factor * self.smoothed_right_velocity + 
@@ -449,7 +477,7 @@ class BodyVelocityChaseFollower(BaseFollower):
                 yaw_speed = self.smoothed_yaw_speed
             
             # Apply emergency limits based on tracking error magnitude
-            max_error = Parameters.MAX_TRACKING_ERROR
+            max_error = self.max_tracking_error
             if abs(error_x) > max_error or abs(error_y) > max_error:
                 # Reduce commands when tracking error is excessive
                 reduction_factor = 0.5
@@ -521,7 +549,7 @@ class BodyVelocityChaseFollower(BaseFollower):
                 else:
                     # Target has been lost for some time
                     loss_duration = current_time - self.target_loss_start_time
-                    timeout = Parameters.TARGET_LOSS_TIMEOUT
+                    timeout = self.target_loss_timeout
                     
                     if loss_duration > timeout:
                         logger.debug(f"Target lost for {loss_duration:.1f}s (timeout: {timeout}s)")
@@ -539,12 +567,12 @@ class BodyVelocityChaseFollower(BaseFollower):
         Returns:
             bool: True if altitude is safe, False if violation occurred.
         """
-        if not Parameters.ALTITUDE_SAFETY_ENABLED:
+        if not self.altitude_safety_enabled:
             return True
-        
+
         try:
             current_time = time.time()
-            check_interval = Parameters.ALTITUDE_CHECK_INTERVAL
+            check_interval = self.altitude_check_interval
             
             # Only check at specified intervals to avoid excessive processing
             if (current_time - self.last_altitude_check_time) < check_interval:
@@ -554,9 +582,9 @@ class BodyVelocityChaseFollower(BaseFollower):
             
             # Get current altitude from PX4 controller
             current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)
-            min_altitude = Parameters.MIN_ALTITUDE_LIMIT
-            max_altitude = Parameters.MAX_ALTITUDE_LIMIT
-            warning_buffer = Parameters.ALTITUDE_WARNING_BUFFER
+            min_altitude = self.min_altitude_limit
+            max_altitude = self.max_altitude_limit
+            warning_buffer = self.altitude_warning_buffer
             
             # Check for violations
             altitude_violation = (current_altitude < min_altitude or current_altitude > max_altitude)
@@ -572,7 +600,7 @@ class BodyVelocityChaseFollower(BaseFollower):
                               f"Violation count: {self.altitude_violation_count}")
                 
                 # Trigger RTL if enabled
-                if Parameters.RTL_ON_ALTITUDE_VIOLATION:
+                if self.rtl_on_altitude_violation:
                     logger.critical("Triggering Return to Launch due to altitude violation")
                     try:
                         # Schedule RTL safely without event loop conflicts
@@ -732,9 +760,9 @@ class BodyVelocityChaseFollower(BaseFollower):
                 
                 # Lateral Guidance Mode State
                 'active_lateral_mode': self.active_lateral_mode,
-                'configured_lateral_mode': getattr(Parameters, 'LATERAL_GUIDANCE_MODE', 'coordinated_turn'),
-                'auto_mode_switching_enabled': getattr(Parameters, 'ENABLE_AUTO_MODE_SWITCHING', False),
-                'mode_switch_velocity': getattr(Parameters, 'GUIDANCE_MODE_SWITCH_VELOCITY', 3.0),
+                'configured_lateral_mode': self.lateral_guidance_mode,
+                'auto_mode_switching_enabled': self.enable_auto_mode_switching,
+                'mode_switch_velocity': self.guidance_mode_switch_velocity,
                 
                 # Target Tracking State
                 'target_lost': self.target_lost,
@@ -747,7 +775,7 @@ class BodyVelocityChaseFollower(BaseFollower):
                 # Safety Status
                 'emergency_stop_active': self.emergency_stop_active,
                 'altitude_violation_count': self.altitude_violation_count,
-                'altitude_safety_enabled': Parameters.ALTITUDE_SAFETY_ENABLED,
+                'altitude_safety_enabled': self.altitude_safety_enabled,
                 
                 # PID States
                 'pid_states': {
@@ -758,11 +786,14 @@ class BodyVelocityChaseFollower(BaseFollower):
                 
                 # Configuration Status
                 'config': {
-                    'max_forward_velocity': Parameters.MAX_FORWARD_VELOCITY,
-                    'ramp_rate': Parameters.FORWARD_RAMP_RATE,
-                    'altitude_control_enabled': Parameters.ENABLE_ALTITUDE_CONTROL,
-                    'min_altitude_limit': Parameters.MIN_ALTITUDE_LIMIT,
-                    'max_altitude_limit': Parameters.MAX_ALTITUDE_LIMIT,
+                    'max_forward_velocity': self.max_forward_velocity,
+                    'ramp_rate': self.forward_ramp_rate,
+                    'altitude_control_enabled': self.enable_altitude_control,
+                    'min_altitude_limit': self.min_altitude_limit,
+                    'max_altitude_limit': self.max_altitude_limit,
+                    'velocity_smoothing_enabled': self.velocity_smoothing_enabled,
+                    'smoothing_factor': self.smoothing_factor,
+                    'max_tracking_error': self.max_tracking_error
                 }
             }
             
@@ -839,7 +870,7 @@ class BodyVelocityChaseFollower(BaseFollower):
         """
         try:
             # Reset velocity state
-            self.current_forward_velocity = Parameters.INITIAL_FORWARD_VELOCITY
+            self.current_forward_velocity = self.initial_forward_velocity
             self.smoothed_right_velocity = 0.0
             self.smoothed_down_velocity = 0.0
             self.smoothed_yaw_speed = 0.0

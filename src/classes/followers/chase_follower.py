@@ -83,7 +83,29 @@ class ChaseFollower(BaseFollower):
             raise ValueError(f"Invalid initial target coordinates: {initial_target_coords}")
         
         self.initial_target_coords = initial_target_coords
-        
+
+        # Get configuration section (like other followers do)
+        config = getattr(Parameters, 'CHASE_FOLLOWER', {})
+
+        # Load chase-specific parameters from config
+        self.yaw_error_check_enabled = config.get('YAW_ERROR_CHECK_ENABLED', True)
+        self.altitude_failsafe_enabled = config.get('ALTITUDE_FAILSAFE_ENABLED', False)
+        self.max_pitch_rate = config.get('MAX_PITCH_RATE', 10.0)
+        self.max_yaw_rate = config.get('MAX_YAW_RATE', 10.0)
+        self.max_roll_rate = config.get('MAX_ROLL_RATE', 20.0)
+        self.max_bank_angle = config.get('MAX_BANK_ANGLE', 20.0)
+        self.target_speed = config.get('TARGET_SPEED', 60.0)
+        self.min_ground_speed = config.get('MIN_GROUND_SPEED', 0.0)
+        self.max_ground_speed = config.get('MAX_GROUND_SPEED', 100.0)
+        self.min_thrust = config.get('MIN_THRUST', 0.3)
+        self.max_thrust = config.get('MAX_THRUST', 1.0)
+        self.yaw_error_threshold = config.get('YAW_ERROR_THRESHOLD', 20.0)
+        self.min_descent_height = config.get('MIN_DESCENT_HEIGHT', 40.0)
+        self.max_climb_height = config.get('MAX_CLIMB_HEIGHT', 10000.0)
+        self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
+        self.coordinate_turn_enabled = config.get('COORDINATE_TURN_ENABLED', True)
+        self.aggressive_mode = config.get('AGGRESSIVE_MODE', True)
+
         # Initialize chase-specific state
         self.dive_started = False
         self.last_bank_angle = 0.0
@@ -120,29 +142,29 @@ class ChaseFollower(BaseFollower):
             self.pid_pitch_rate = CustomPID(
                 *self._get_pid_gains('pitch_rate'),
                 setpoint=setpoint_y,
-                output_limits=(-Parameters.MAX_PITCH_RATE, Parameters.MAX_PITCH_RATE)
+                output_limits=(-self.max_pitch_rate, self.max_pitch_rate)
             )
-            
+
             # Yaw Rate Controller - Horizontal Control
             self.pid_yaw_rate = CustomPID(
                 *self._get_pid_gains('yaw_rate'),
                 setpoint=setpoint_x,
-                output_limits=(-Parameters.MAX_YAW_RATE, Parameters.MAX_YAW_RATE)
+                output_limits=(-self.max_yaw_rate, self.max_yaw_rate)
             )
-            
+
             # Roll Rate Controller - Coordinated Turn Control (setpoint updated dynamically)
             self.pid_roll_rate = CustomPID(
                 *self._get_pid_gains('roll_rate'),
                 setpoint=0.0,  # Updated based on bank angle calculations
-                output_limits=(-Parameters.MAX_ROLL_RATE, Parameters.MAX_ROLL_RATE)
+                output_limits=(-self.max_roll_rate, self.max_roll_rate)
             )
             
             # Thrust Controller - Speed Management
-            target_speed_normalized = self._normalize_speed(Parameters.TARGET_SPEED)
+            target_speed_normalized = self._normalize_speed(self.target_speed)
             self.pid_thrust = CustomPID(
                 *self._get_pid_gains('thrust'),
                 setpoint=target_speed_normalized,
-                output_limits=(Parameters.MIN_THRUST, Parameters.MAX_THRUST)
+                output_limits=(self.min_thrust, self.max_thrust)
             )
             
             logger.info("All PID controllers initialized successfully for ChaseFollower")
@@ -312,7 +334,7 @@ class ChaseFollower(BaseFollower):
         
         # Convert back to degrees and apply limits
         target_bank_angle = np.rad2deg(target_bank_angle_rad)
-        target_bank_angle = np.clip(target_bank_angle, -Parameters.MAX_BANK_ANGLE, Parameters.MAX_BANK_ANGLE)
+        target_bank_angle = np.clip(target_bank_angle, -self.max_bank_angle, self.max_bank_angle)
         
         return target_bank_angle
 
@@ -328,16 +350,16 @@ class ChaseFollower(BaseFollower):
             pitch_command (float): Calculated pitch rate command.
             thrust_command (float): Calculated thrust command.
         """
-        if not Parameters.YAW_ERROR_CHECK_ENABLED:
+        if not self.yaw_error_check_enabled:
             # If gating disabled, apply commands directly
             self.set_command_field('pitch_rate', pitch_command)
             self.set_command_field('thrust', thrust_command)
             self.dive_started = True
             logger.debug("Yaw error gating disabled - applying all commands directly")
             return
-        
+
         # Check if already in dive mode or yaw error is acceptable
-        if self.dive_started or abs(yaw_error) < Parameters.YAW_ERROR_THRESHOLD:
+        if self.dive_started or abs(yaw_error) < self.yaw_error_threshold:
             # Apply full control commands
             self.set_command_field('pitch_rate', pitch_command)
             self.set_command_field('thrust', thrust_command)
@@ -354,7 +376,7 @@ class ChaseFollower(BaseFollower):
             self.set_command_field('pitch_rate', 0.0)  # No pitch until aligned
             self.set_command_field('thrust', hover_throttle)
             
-            logger.debug(f"Yaw error {abs(yaw_error):.1f}° exceeds threshold {Parameters.YAW_ERROR_THRESHOLD}° - "
+            logger.debug(f"Yaw error {abs(yaw_error):.1f}° exceeds threshold {self.yaw_error_threshold}° - "
                         f"holding hover, pitch disabled")
 
     def _calculate_thrust_command(self, ground_speed: float) -> float:
@@ -381,7 +403,7 @@ class ChaseFollower(BaseFollower):
         thrust_command = thrust_adjustment + hover_throttle_offset
         
         # Ensure thrust is within valid bounds
-        thrust_command = np.clip(thrust_command, Parameters.MIN_THRUST, Parameters.MAX_THRUST)
+        thrust_command = np.clip(thrust_command, self.min_thrust, self.max_thrust)
         
         logger.debug(f"Thrust calculation - Speed: {ground_speed:.1f} m/s, "
                     f"Normalized: {normalized_speed:.3f}, Command: {thrust_command:.3f}")
@@ -403,8 +425,8 @@ class ChaseFollower(BaseFollower):
             float: Normalized speed value clamped to [0.0, 1.0] range.
         """
         # Use parameter defaults if not specified
-        min_speed = min_speed if min_speed is not None else Parameters.MIN_GROUND_SPEED
-        max_speed = max_speed if max_speed is not None else Parameters.MAX_GROUND_SPEED
+        min_speed = min_speed if min_speed is not None else self.min_ground_speed
+        max_speed = max_speed if max_speed is not None else self.max_ground_speed
         
         # Avoid division by zero
         if max_speed <= min_speed:
@@ -422,13 +444,13 @@ class ChaseFollower(BaseFollower):
         Returns:
             bool: True if altitude is safe, False if failsafe triggered.
         """
-        if not Parameters.ALTITUDE_FAILSAFE_ENABLED:
+        if not self.altitude_failsafe_enabled:
             return True
-        
+
         try:
             current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)
-            min_altitude = getattr(Parameters, 'MIN_DESCENT_HEIGHT', 5.0)
-            max_altitude = getattr(Parameters, 'MAX_CLIMB_HEIGHT', 100.0)
+            min_altitude = self.min_descent_height
+            max_altitude = self.max_climb_height
             
             # Check altitude bounds
             if current_altitude < min_altitude or current_altitude > max_altitude:
@@ -533,13 +555,19 @@ class ChaseFollower(BaseFollower):
                 },
                 
                 # Safety Status
-                'altitude_safety_enabled': Parameters.ALTITUDE_FAILSAFE_ENABLED,
-                'yaw_error_gating_enabled': Parameters.YAW_ERROR_CHECK_ENABLED,
+                'altitude_safety_enabled': self.altitude_failsafe_enabled,
+                'yaw_error_gating_enabled': self.yaw_error_check_enabled,
                 'safety_thresholds': {
-                    'yaw_error_threshold': Parameters.YAW_ERROR_THRESHOLD,
-                    'max_bank_angle': Parameters.MAX_BANK_ANGLE,
-                    'min_thrust': Parameters.MIN_THRUST,
-                    'max_thrust': Parameters.MAX_THRUST,
+                    'yaw_error_threshold': self.yaw_error_threshold,
+                    'max_bank_angle': self.max_bank_angle,
+                    'min_thrust': self.min_thrust,
+                    'max_thrust': self.max_thrust,
+                },
+                'configuration': {
+                    'target_speed': self.target_speed,
+                    'coordinate_turn_enabled': self.coordinate_turn_enabled,
+                    'aggressive_mode': self.aggressive_mode,
+                    'control_update_rate': self.control_update_rate
                 }
             }
             
@@ -643,8 +671,8 @@ class ChaseFollower(BaseFollower):
     def normalize_speed(self, speed: float, min_speed=None, max_speed=None) -> float:
         """Backward compatibility wrapper for speed normalization."""
         logger.warning("normalize_speed() is deprecated, use _normalize_speed()")
-        min_speed = min_speed or Parameters.MIN_GROUND_SPEED
-        max_speed = max_speed or Parameters.MAX_GROUND_SPEED
+        min_speed = min_speed or self.min_ground_speed
+        max_speed = max_speed or self.max_ground_speed
         return self._normalize_speed(speed, min_speed, max_speed)
     
     def check_altitude_safety(self) -> None:

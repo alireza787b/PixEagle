@@ -106,9 +106,23 @@ class ConstantPositionFollower(BaseFollower):
         
         self.initial_target_coords = initial_target_coords
         
+        # Get configuration section (like body velocity chase does)
+        config = getattr(Parameters, 'CONSTANT_POSITION', {})
+
         # Control configuration
-        self.yaw_control_enabled = True  # Always enabled for this mode
-        self.altitude_control_enabled = Parameters.ENABLE_ALTITUDE_CONTROL
+        self.yaw_control_enabled = config.get('ENABLE_YAW_CONTROL', True)  # Always enabled for this mode
+        self.altitude_control_enabled = config.get('ENABLE_ALTITUDE_CONTROL', True)
+
+        # Load other parameters from config
+        self.min_descent_height = config.get('MIN_DESCENT_HEIGHT', 3.0)
+        self.max_climb_height = config.get('MAX_CLIMB_HEIGHT', 120.0)
+        self.max_vertical_velocity = config.get('MAX_VERTICAL_VELOCITY', 3.0)
+        self.max_yaw_rate = config.get('MAX_YAW_RATE', 45.0)
+        self.yaw_control_threshold = config.get('YAW_CONTROL_THRESHOLD', 0.05)
+        self.target_lost_timeout = config.get('TARGET_LOST_TIMEOUT', 3.0)
+        self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
+        self.command_smoothing_enabled = config.get('COMMAND_SMOOTHING_ENABLED', True)
+        self.smoothing_factor = config.get('SMOOTHING_FACTOR', 0.8)
         
         # Performance tracking
         self._control_statistics = {
@@ -147,7 +161,7 @@ class ConstantPositionFollower(BaseFollower):
             self.pid_yaw_rate = CustomPID(
                 *yaw_gains,
                 setpoint=setpoint_x,
-                output_limits=(-Parameters.MAX_YAW_RATE, Parameters.MAX_YAW_RATE)
+                output_limits=(-self.max_yaw_rate, self.max_yaw_rate)
             )
             logger.debug(f"Yaw rate PID initialized with gains {yaw_gains}, setpoint {setpoint_x}")
             
@@ -158,7 +172,7 @@ class ConstantPositionFollower(BaseFollower):
                 self.pid_z = CustomPID(
                     *z_gains,
                     setpoint=setpoint_y,
-                    output_limits=(-Parameters.VELOCITY_LIMITS['z'], Parameters.VELOCITY_LIMITS['z'])
+                    output_limits=(-self.max_vertical_velocity, self.max_vertical_velocity)
                 )
                 logger.debug(f"Altitude PID initialized with gains {z_gains}, setpoint {setpoint_y}")
             else:
@@ -268,7 +282,7 @@ class ConstantPositionFollower(BaseFollower):
             yaw_error = self.pid_yaw_rate.setpoint - target_x
             
             # Apply yaw control with dead zone to prevent unnecessary oscillation
-            if abs(yaw_error) > Parameters.YAW_CONTROL_THRESHOLD:
+            if abs(yaw_error) > self.yaw_control_threshold:
                 yaw_rate_command = self.pid_yaw_rate(yaw_error)
                 logger.debug(f"Yaw control active: error={yaw_error:.3f}, command={yaw_rate_command:.3f}")
             else:
@@ -322,16 +336,15 @@ class ConstantPositionFollower(BaseFollower):
             current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)
             
             # Check minimum altitude safety limit
-            if (current_altitude <= Parameters.MIN_DESCENT_HEIGHT and altitude_error < 0):
-                logger.warning(f"Altitude safety limit reached: {current_altitude:.1f}m <= {Parameters.MIN_DESCENT_HEIGHT:.1f}m")
+            if (current_altitude <= self.min_descent_height and altitude_error < 0):
+                logger.warning(f"Altitude safety limit reached: {current_altitude:.1f}m <= {self.min_descent_height:.1f}m")
                 return 0.0  # Stop descent
             
             # Calculate PID output
             vel_z_raw = self.pid_z(altitude_error)
             
             # Apply additional safety limiting
-            max_rate = Parameters.VELOCITY_LIMITS.get('z', 2.0)
-            vel_z_limited = max(-max_rate, min(max_rate, vel_z_raw))
+            vel_z_limited = max(-self.max_vertical_velocity, min(self.max_vertical_velocity, vel_z_raw))
             
             if abs(vel_z_limited - vel_z_raw) > 0.001:
                 logger.debug(f"Altitude command limited: {vel_z_raw:.3f} -> {vel_z_limited:.3f}")
@@ -416,10 +429,12 @@ class ConstantPositionFollower(BaseFollower):
                 
                 # Configuration status
                 'configuration': {
-                    'yaw_control_threshold': Parameters.YAW_CONTROL_THRESHOLD,
-                    'max_yaw_rate': Parameters.MAX_YAW_RATE,
-                    'velocity_limits': Parameters.VELOCITY_LIMITS.get('z', 'undefined'),
-                    'min_descent_height': Parameters.MIN_DESCENT_HEIGHT
+                    'yaw_control_threshold': self.yaw_control_threshold,
+                    'max_yaw_rate': self.max_yaw_rate,
+                    'max_vertical_velocity': self.max_vertical_velocity,
+                    'min_descent_height': self.min_descent_height,
+                    'altitude_control_enabled': self.altitude_control_enabled,
+                    'command_smoothing_enabled': self.command_smoothing_enabled
                 },
                 
                 # Health indicators

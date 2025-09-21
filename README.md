@@ -189,7 +189,35 @@ Edit values such as:
 - SmartTracker mode selection: GPU vs CPU, fallback behavior
 - Camera field of view and orientation
 
-#### 2. **Dashboard Environment**
+#### 2. **Follower Mode Configuration**
+
+PixEagle 3.0 features unified follower configurations for easy customization:
+
+```yaml
+# Example follower configurations in config_default.yaml
+
+CONSTANT_POSITION:
+  ENABLE_ALTITUDE_CONTROL: true
+  MIN_DESCENT_HEIGHT: 3.0
+  MAX_CLIMB_HEIGHT: 120.0
+  CONTROL_UPDATE_RATE: 20.0
+
+BODY_VELOCITY_CHASE:
+  MAX_FORWARD_VELOCITY: 8.0
+  LATERAL_GUIDANCE_MODE: coordinated_turn
+  ALTITUDE_SAFETY_ENABLED: false
+```
+
+**Available Follower Modes:**
+- **CONSTANT_POSITION** (11 params) - Position hold with altitude control
+- **CONSTANT_DISTANCE** (14 params) - Fixed distance tracking
+- **CHASE_FOLLOWER** (17 params) - High-speed pursuit with coordinated turns
+- **GROUND_VIEW** (15 params) - Ground target tracking with gimbal compensation
+- **BODY_VELOCITY_CHASE** (23 params) - Body velocity control with dual guidance modes
+
+Each follower mode has dedicated parameters for control enablement, safety limits, performance tuning, and mode-specific features. All parameters include sensible defaults and comprehensive documentation.
+
+#### 3. **Dashboard Environment**
 
 Configure dashboard networking (API and streaming ports):
 

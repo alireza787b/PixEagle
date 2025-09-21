@@ -11,7 +11,7 @@ class Parameters:
     """
 
     @classmethod
-    def load_config(cls, config_file='configs/config.yaml'):
+    def load_config(cls, config_file='configs/config_default.yaml'):
         """
         Class method to load configurations from the config.yaml file and set class variables.
         """
@@ -22,11 +22,21 @@ class Parameters:
         # Iterate over all top-level keys (sections)
         for section, params in config.items():
             if params:  # Check if params is not None
-                for key, value in params.items():
-                    # Construct the attribute name in uppercase to match existing usage
-                    attr_name = key.upper()
-                    # Set the attribute as a class variable
-                    setattr(cls, attr_name, value)
+                # Check if this section should be kept as a group (follower configs)
+                if section in ['CONSTANT_POSITION', 'CONSTANT_DISTANCE', 'CHASE_FOLLOWER', 'GROUND_VIEW', 'BODY_VELOCITY_CHASE',
+                              'GimbalFollower', 'GimbalTracker', 'GimbalTrackerSettings']:
+                    # Keep as grouped section for new followers
+                    setattr(cls, section, params)
+                elif isinstance(params, dict):
+                    # Flatten other sections (legacy behavior)
+                    for key, value in params.items():
+                        # Construct the attribute name in uppercase to match existing usage
+                        attr_name = key.upper()
+                        # Set the attribute as a class variable
+                        setattr(cls, attr_name, value)
+                else:
+                    # Simple values (not dict) - set directly
+                    setattr(cls, section, params)
 
     @classmethod
     def get_section(cls, section_name):

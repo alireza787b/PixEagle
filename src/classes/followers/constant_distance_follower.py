@@ -85,9 +85,27 @@ class ConstantDistanceFollower(BaseFollower):
         # Initialize with Constant Distance profile for enhanced velocity control
         super().__init__(px4_controller, "Constant Distance")
         
+        # Get configuration section (like body velocity chase does)
+        config = getattr(Parameters, 'CONSTANT_DISTANCE', {})
+
         # Store configuration parameters
-        self.yaw_enabled = Parameters.ENABLE_YAW_CONTROL
+        self.yaw_enabled = config.get('ENABLE_YAW_CONTROL', False)
+        self.altitude_control_enabled = config.get('ENABLE_ALTITUDE_CONTROL', True)
         self.initial_target_coords = initial_target_coords
+
+        # Load other parameters from config
+        self.min_descent_height = config.get('MIN_DESCENT_HEIGHT', 3.0)
+        self.max_climb_height = config.get('MAX_CLIMB_HEIGHT', 120.0)
+        self.max_vertical_velocity = config.get('MAX_VERTICAL_VELOCITY', 5.0)
+        self.max_lateral_velocity = config.get('MAX_LATERAL_VELOCITY', 10.0)
+        self.max_yaw_rate = config.get('MAX_YAW_RATE', 10.0)
+        self.yaw_control_threshold = config.get('YAW_CONTROL_THRESHOLD', 0.3)
+        self.target_lost_timeout = config.get('TARGET_LOST_TIMEOUT', 3.0)
+        self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
+        self.command_smoothing_enabled = config.get('COMMAND_SMOOTHING_ENABLED', True)
+        self.smoothing_factor = config.get('SMOOTHING_FACTOR', 0.8)
+        self.distance_hold_enabled = config.get('DISTANCE_HOLD_ENABLED', True)
+        self.distance_hold_tolerance = config.get('DISTANCE_HOLD_TOLERANCE', 0.1)
         
         # Initialize control system components
         self._initialize_pid_controllers()
@@ -127,14 +145,14 @@ class ConstantDistanceFollower(BaseFollower):
             self.pid_y = CustomPID(
                 *self._get_pid_gains('y'),
                 setpoint=setpoint_x,  # X coordinate controls Y movement
-                output_limits=(-Parameters.VELOCITY_LIMITS['y'], Parameters.VELOCITY_LIMITS['y'])
+                output_limits=(-self.max_lateral_velocity, self.max_lateral_velocity)
             )
-            
+
             # Initialize Z-axis PID controller (altitude control)
             self.pid_z = CustomPID(
                 *self._get_pid_gains('z'),
                 setpoint=setpoint_y,  # Y coordinate controls Z movement
-                output_limits=(-Parameters.VELOCITY_LIMITS['z'], Parameters.VELOCITY_LIMITS['z'])
+                output_limits=(-self.max_vertical_velocity, self.max_vertical_velocity)
             )
             
             # Initialize yaw PID controller if enabled
@@ -142,7 +160,7 @@ class ConstantDistanceFollower(BaseFollower):
                 self.pid_yaw_rate = CustomPID(
                     *self._get_pid_gains('yaw_rate'),
                     setpoint=setpoint_x,  # X coordinate controls yaw
-                    output_limits=(-Parameters.MAX_YAW_RATE, Parameters.MAX_YAW_RATE)
+                    output_limits=(-self.max_yaw_rate, self.max_yaw_rate)
                 )
                 logger.debug("Yaw rate PID controller initialized")
             else:
@@ -241,22 +259,22 @@ class ConstantDistanceFollower(BaseFollower):
                 return 0.0
             
             logger.debug(f"Altitude control - Current: {current_altitude:.1f}m, "
-                        f"Min: {Parameters.MIN_DESCENT_HEIGHT:.1f}m, "
-                        f"Max: {Parameters.MAX_CLIMB_HEIGHT:.1f}m")
+                        f"Min: {self.min_descent_height:.1f}m, "
+                        f"Max: {self.max_climb_height:.1f}m")
             
             # Calculate PID-controlled vertical command
             command = self.pid_z(error_y)
             
             # Apply altitude safety limits
             if command > 0:  # Descending (positive command)
-                if current_altitude >= Parameters.MIN_DESCENT_HEIGHT:
+                if current_altitude >= self.min_descent_height:
                     logger.debug(f"Descent command: {command:.3f} m/s")
                     return command
                 else:
                     logger.debug("At minimum descent height - descent halted")
                     return 0.0
             else:  # Climbing (negative command)
-                if current_altitude < Parameters.MAX_CLIMB_HEIGHT:
+                if current_altitude < self.max_climb_height:
                     logger.debug(f"Climb command: {command:.3f} m/s")
                     return command
                 else:
@@ -282,12 +300,12 @@ class ConstantDistanceFollower(BaseFollower):
         
         try:
             # Only apply yaw control if error exceeds threshold
-            if abs(error_x) > Parameters.YAW_CONTROL_THRESHOLD:
+            if abs(error_x) > self.yaw_control_threshold:
                 yaw_command = self.pid_yaw_rate(error_x)
                 logger.debug(f"Yaw control active - Error: {error_x:.3f}, Command: {yaw_command:.3f}")
                 return yaw_command
             else:
-                logger.debug(f"Yaw error {error_x:.3f} below threshold {Parameters.YAW_CONTROL_THRESHOLD}")
+                logger.debug(f"Yaw error {error_x:.3f} below threshold {self.yaw_control_threshold}")
                 return 0.0
                 
         except Exception as e:
@@ -452,12 +470,22 @@ class ConstantDistanceFollower(BaseFollower):
                 },
                 'configuration': {
                     'yaw_control_enabled': self.yaw_enabled,
+                    'altitude_control_enabled': self.altitude_control_enabled,
                     'initial_target_coords': self.initial_target_coords,
                     'x_axis_behavior': 'fixed_zero',
-                    'yaw_control_threshold': Parameters.YAW_CONTROL_THRESHOLD,
+                    'yaw_control_threshold': self.yaw_control_threshold,
                     'altitude_limits': {
-                        'min_descent_height': Parameters.MIN_DESCENT_HEIGHT,
-                        'max_climb_height': Parameters.MAX_CLIMB_HEIGHT
+                        'min_descent_height': self.min_descent_height,
+                        'max_climb_height': self.max_climb_height
+                    },
+                    'velocity_limits': {
+                        'max_lateral_velocity': self.max_lateral_velocity,
+                        'max_vertical_velocity': self.max_vertical_velocity,
+                        'max_yaw_rate': self.max_yaw_rate
+                    },
+                    'distance_maintenance': {
+                        'distance_hold_enabled': self.distance_hold_enabled,
+                        'distance_hold_tolerance': self.distance_hold_tolerance
                     }
                 },
                 'current_commands': self.get_all_command_fields(),
