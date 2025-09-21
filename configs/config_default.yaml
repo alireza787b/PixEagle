@@ -253,7 +253,7 @@ Streaming:
 Tracking:
   # 🎯 Classic tracker algorithm selection
   # Options: CSRT (accurate), KCF (fast), MOSSE (fastest), ParticleFilter (robust)
-  DEFAULT_TRACKING_ALGORITHM: Gimbal
+  DEFAULT_TRACKING_ALGORITHM: CSRT
   
   # === Visualization ===
   TRACKING_RECTANGLE_COLOR: [255, 0, 0]    # BGR: Blue
@@ -335,9 +335,6 @@ Follower:
   # === Following Mode ===
   # Options: ground_view, constant_distance, constant_position, chase_follower, body_velocity_chase
   FOLLOWER_MODE: constant_position
-  
-  # === Control Features ===
-  ENABLE_ALTITUDE_CONTROL: true             # Follow target altitude changes
   
   # === Visualization ===
   SHOW_TRACKING_WINDOW: false               # Debug window
