@@ -252,7 +252,7 @@ Streaming:
 # ==============================================================================
 Tracking:
   # 🎯 Classic tracker algorithm selection
-  # Options: CSRT (accurate), KCF (fast), MOSSE (fastest), ParticleFilter (robust)
+  # Options: CSRT (accurate), KCF (fast), MOSSE (fastest), ParticleFilter (robust), Gimbal (External Gimbal Tracker)
   DEFAULT_TRACKING_ALGORITHM: CSRT
   
   # === Visualization ===

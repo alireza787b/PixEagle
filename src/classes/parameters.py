@@ -11,7 +11,7 @@ class Parameters:
     """
 
     @classmethod
-    def load_config(cls, config_file='configs/config_default.yaml'):
+    def load_config(cls, config_file='configs/config.yaml'):
         """
         Class method to load configurations from the config.yaml file and set class variables.
         """
