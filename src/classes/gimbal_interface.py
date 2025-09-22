@@ -129,30 +129,35 @@ class GimbalData:
 
 class GimbalInterface:
     """
-    Passive UDP listener for gimbal data reception.
+    Active gimbal interface using SIP protocol for real-time angle reading and tracking status.
 
-    This class ONLY receives data from gimbal systems. It never sends commands
-    or tries to control the gimbal. All gimbal control is handled by external
-    camera UI applications.
+    This class implements the complete SIP protocol to:
+    - Send commands to query camera angles and tracking status
+    - Parse responses using the proper protocol format
+    - Provide real-time gimbal data to PixEagle tracking system
     """
 
-    def __init__(self, listen_port: int = 9004, gimbal_ip: str = "192.168.1.108"):
+    def __init__(self, listen_port: int = 9004, gimbal_ip: str = "192.168.144.108", control_port: int = 9003):
         """
-        Initialize gimbal passive UDP listener.
+        Initialize gimbal interface with SIP protocol support.
 
         Args:
-            listen_port (int): UDP port to listen on for gimbal data
-            gimbal_ip (str): Expected gimbal IP for validation (optional)
+            listen_port (int): UDP port to listen on for gimbal responses
+            gimbal_ip (str): Gimbal IP address for sending commands
+            control_port (int): Gimbal control port for sending commands
         """
         self.listen_port = listen_port
         self.gimbal_ip = gimbal_ip
+        self.control_port = control_port
 
-        # Network setup - only listening socket
+        # Network setup - both control and listen sockets
         self.listen_socket: Optional[socket.socket] = None
+        self.control_socket: Optional[socket.socket] = None
 
         # Thread management
         self.running = False
         self.listener_thread: Optional[threading.Thread] = None
+        self.query_thread: Optional[threading.Thread] = None
         self.lock = threading.Lock()
 
         # Current state
@@ -167,7 +172,50 @@ class GimbalInterface:
         self.last_tracking_state = TrackingState.DISABLED
         self.last_status_log_time = 0.0
 
-        logger.info(f"GimbalInterface initialized as passive listener on port {listen_port}")
+        logger.info(f"GimbalInterface initialized with SIP protocol on port {listen_port}")
+
+    def _build_command(self, address_dest: str, control: str, command: str, data: str = "00") -> str:
+        """Build SIP protocol command according to specification"""
+        frame = "#TP"  # Fixed length command
+        src = "P"       # Network source address
+        length = "2"    # Fixed length
+
+        # Build command string
+        cmd = f"{frame}{src}{address_dest}{length}{control}{command}{data}"
+
+        # Calculate CRC (sum of all bytes mod 256)
+        crc = sum(cmd.encode('ascii')) & 0xFF
+        cmd += f"{crc:02X}"
+
+        return cmd
+
+    def _send_command(self, command: str) -> bool:
+        """Send UDP command to gimbal"""
+        try:
+            if self.control_socket:
+                self.control_socket.sendto(command.encode('ascii'),
+                                         (self.gimbal_ip, self.control_port))
+                logger.debug(f"Sent gimbal command: {command}")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Failed to send gimbal command: {e}")
+            return False
+
+    def query_spatial_fixed_angles(self) -> bool:
+        """Query camera angles in absolute spatial coordinates (Gyroscope mode)"""
+        command = self._build_command("G", "r", "GIC", "00")
+        return self._send_command(command)
+
+    def query_gimbal_body_angles(self) -> bool:
+        """Query camera angles relative to gimbal body (Magnetic mode)"""
+        command = self._build_command("G", "r", "GAC", "00")
+        return self._send_command(command)
+
+    def query_tracking_status(self) -> bool:
+        """Query current tracking status"""
+        command = self._build_command("D", "r", "TRC", "00")
+        return self._send_command(command)
 
     def start_listening(self) -> bool:
         """
@@ -181,25 +229,31 @@ class GimbalInterface:
             return True
 
         try:
-            logger.info("Starting passive gimbal UDP listener...")
+            logger.info("Starting active gimbal SIP interface...")
 
-            # Initialize listening socket only
+            # Initialize both listen and control sockets
             if not self._init_listening_socket():
                 return False
 
-            # Start background listener thread
+            # Start background threads
             self.running = True
+
+            # Start listener thread for responses
             self.listener_thread = threading.Thread(target=self._listener_loop, daemon=True)
             self.listener_thread.start()
 
-            # Allow thread to start
+            # Start query thread for active polling
+            self.query_thread = threading.Thread(target=self._query_loop, daemon=True)
+            self.query_thread.start()
+
+            # Allow threads to start
             time.sleep(0.1)
 
             # Set connection status
             with self.lock:
                 self.connection_status = ConnectionStatus.LISTENING
 
-            logger.info("Passive gimbal listener started successfully")
+            logger.info("Active gimbal SIP interface started successfully")
             return True
 
         except Exception as e:
@@ -212,12 +266,14 @@ class GimbalInterface:
         if not self.running:
             return
 
-        logger.info("Stopping gimbal listener...")
+        logger.info("Stopping gimbal interface...")
         self.running = False
 
-        # Wait for listener thread to finish
+        # Wait for both threads to finish
         if self.listener_thread and self.listener_thread.is_alive():
             self.listener_thread.join(timeout=2.0)
+        if self.query_thread and self.query_thread.is_alive():
+            self.query_thread.join(timeout=2.0)
 
         # Close socket
         self._cleanup_socket()
@@ -317,19 +373,22 @@ class GimbalInterface:
             }
 
     def _init_listening_socket(self) -> bool:
-        """Initialize UDP listening socket."""
+        """Initialize UDP sockets for both listening and control."""
         try:
-            # Create UDP socket for listening only
+            # Create UDP socket for listening to gimbal responses
             self.listen_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.listen_socket.bind(('0.0.0.0', self.listen_port))
             self.listen_socket.settimeout(0.1)  # Non-blocking with short timeout
 
-            logger.debug(f"Listening socket initialized on port {self.listen_port}")
+            # Create UDP socket for sending commands to gimbal
+            self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+            logger.debug(f"Sockets initialized - Listen: {self.listen_port}, Control: {self.gimbal_ip}:{self.control_port}")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to initialize listening socket: {e}")
+            logger.error(f"Failed to initialize sockets: {e}")
             self._cleanup_socket()
             return False
 
@@ -339,6 +398,9 @@ class GimbalInterface:
             if self.listen_socket:
                 self.listen_socket.close()
                 self.listen_socket = None
+            if self.control_socket:
+                self.control_socket.close()
+                self.control_socket = None
         except Exception as e:
             logger.debug(f"Socket cleanup error (expected): {e}")
 
@@ -393,6 +455,30 @@ class GimbalInterface:
                 logger.debug(f"Listener error: {e}")
 
         logger.debug("Gimbal passive listener thread stopped")
+
+    def _query_loop(self) -> None:
+        """Background thread to actively query gimbal for angles and tracking status."""
+        logger.debug("Gimbal active query thread started")
+
+        while self.running:
+            try:
+                # Query spatial fixed angles (absolute coordinates)
+                self.query_spatial_fixed_angles()
+                time.sleep(0.5)
+
+                # Query tracking status
+                self.query_tracking_status()
+                time.sleep(0.5)
+
+                # Query gimbal body angles periodically
+                self.query_gimbal_body_angles()
+                time.sleep(1.0)
+
+            except Exception as e:
+                logger.debug(f"Query loop error: {e}")
+                time.sleep(1.0)
+
+        logger.debug("Gimbal active query thread stopped")
 
     def _parse_gimbal_packet(self, packet: str) -> Optional[GimbalData]:
         """

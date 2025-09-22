@@ -113,11 +113,19 @@ class GimbalTracker(BaseTracker):
 
         self.tracker_name = "GimbalTracker"
 
-        # Initialize gimbal interface as passive listener
+        # Initialize gimbal interface with SIP protocol support
         listen_port = getattr(Parameters, 'GIMBAL_LISTEN_PORT', 9004)
-        gimbal_ip = getattr(Parameters, 'GIMBAL_UDP_HOST', '192.168.1.108')
+        gimbal_ip = getattr(Parameters, 'GIMBAL_UDP_HOST', '192.168.144.108')
 
-        self.gimbal_interface = GimbalInterface(listen_port=listen_port, gimbal_ip=gimbal_ip)
+        # Get control port from GimbalTracker config or default
+        gimbal_config = getattr(Parameters, 'GimbalTracker', {})
+        control_port = gimbal_config.get('UDP_PORT', 9003)
+
+        self.gimbal_interface = GimbalInterface(
+            listen_port=listen_port,
+            gimbal_ip=gimbal_ip,
+            control_port=control_port
+        )
 
         # Initialize coordinate transformer
         self.coordinate_transformer = CoordinateTransformer()
