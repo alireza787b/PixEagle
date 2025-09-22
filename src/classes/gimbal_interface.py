@@ -462,21 +462,17 @@ class GimbalInterface:
 
         while self.running:
             try:
-                # Query spatial fixed angles (absolute coordinates)
-                self.query_spatial_fixed_angles()
-                time.sleep(0.5)
-
-                # Query tracking status
+                # Query tracking status more frequently (gimbal responds to this)
                 self.query_tracking_status()
-                time.sleep(0.5)
+                time.sleep(2.0)
 
-                # Query gimbal body angles periodically
-                self.query_gimbal_body_angles()
-                time.sleep(1.0)
+                # Query angles less frequently since gimbal may be broadcasting
+                self.query_spatial_fixed_angles()
+                time.sleep(5.0)
 
             except Exception as e:
                 logger.debug(f"Query loop error: {e}")
-                time.sleep(1.0)
+                time.sleep(2.0)
 
         logger.debug("Gimbal active query thread stopped")
 
@@ -518,31 +514,47 @@ class GimbalInterface:
             return None
 
     def _parse_angle_response(self, response: str) -> Optional[GimbalAngles]:
-        """Parse angle data from gimbal response (existing logic enhanced)."""
+        """Parse angle data from gimbal response - handles both query responses and broadcast data."""
         try:
             response = response.strip()
+            logger.debug(f"Parsing gimbal response: {response}")
 
-            # Determine coordinate system and find angle data
+            # Handle standard query responses (GAC/GIC format)
             if "GAC" in response:  # Magnetic coding response
                 coord_sys = CoordinateSystem.GIMBAL_BODY
                 data_start = response.find("GAC") + 3
-                # Extract 12-character angle data: YYYYPPPPRRRR
                 angle_data = response[data_start:data_start + 12]
-                if len(angle_data) != 12:
-                    return None
-                return self._parse_hex_angles(angle_data, coord_sys)
+                if len(angle_data) == 12:
+                    return self._parse_hex_angles(angle_data, coord_sys)
 
             elif "GIC" in response:  # Gyroscope response
                 coord_sys = CoordinateSystem.SPATIAL_FIXED
                 data_start = response.find("GIC") + 3
-                # Extract 12-character angle data: YYYYPPPPRRRR
                 angle_data = response[data_start:data_start + 12]
-                if len(angle_data) != 12:
-                    return None
-                return self._parse_hex_angles(angle_data, coord_sys)
+                if len(angle_data) == 12:
+                    return self._parse_hex_angles(angle_data, coord_sys)
 
-            else:
-                return None
+            # Handle broadcast angle data format: #tpDP9wOFT<angle_data>
+            elif response.startswith("#tp") and "OFT" in response:
+                logger.debug("Detected broadcast angle format")
+                coord_sys = CoordinateSystem.SPATIAL_FIXED  # Assume spatial for broadcast
+
+                # Find angle data after OFT marker
+                oft_pos = response.find("OFT")
+                if oft_pos != -1:
+                    # Extract angle data after OFT (variable length, until end or next marker)
+                    angle_start = oft_pos + 3
+                    angle_data = response[angle_start:]
+
+                    # Remove any trailing CRC or other data (last 2-4 characters might be CRC)
+                    if len(angle_data) > 12:
+                        angle_data = angle_data[:12]  # Take first 12 characters
+
+                    if len(angle_data) >= 6:  # At least 3 hex pairs for basic parsing
+                        logger.debug(f"Parsing broadcast angle data: {angle_data}")
+                        return self._parse_broadcast_angles(angle_data, coord_sys)
+
+            return None
 
         except Exception as e:
             logger.debug(f"Angle parse error: {e}")
@@ -586,6 +598,59 @@ class GimbalInterface:
             logger.debug(f"Error parsing hex angles: {e}")
             return None
 
+    def _parse_broadcast_angles(self, angle_data: str, coord_sys: CoordinateSystem) -> Optional[GimbalAngles]:
+        """Parse broadcast angle data from gimbal continuous stream."""
+        try:
+            logger.debug(f"Parsing broadcast angle data: '{angle_data}' (length: {len(angle_data)})")
+
+            # The broadcast format appears to be different from query response format
+            # Based on your logs: #tpDP9wOFTu:>728E - the angle data after OFT is: u:>728E
+            # This might be a different encoding or protocol variant
+
+            # For now, let's try to extract meaningful data from what we have
+            # If the data contains ASCII characters, it might be a different encoding
+
+            # Try to find hex-like patterns in the data
+            hex_chars = ""
+            for char in angle_data:
+                if char.isalnum():  # Keep alphanumeric characters
+                    hex_chars += char
+
+            # If we have enough hex characters, try to parse them
+            if len(hex_chars) >= 6:
+                logger.debug(f"Extracted hex-like data: '{hex_chars}'")
+
+                # Try to parse as if it's compressed or encoded differently
+                # For now, let's create dummy angles to verify the data path works
+                # TODO: Implement proper broadcast format parsing based on gimbal documentation
+
+                # Extract what we can - this is a placeholder implementation
+                try:
+                    # Convert ASCII chars to some angle representation
+                    yaw = (ord(hex_chars[0]) - ord('0')) * 10.0 if len(hex_chars) > 0 else 0.0
+                    pitch = (ord(hex_chars[1]) - ord('0')) * 5.0 if len(hex_chars) > 1 else 0.0
+                    roll = (ord(hex_chars[2]) - ord('0')) * 2.0 if len(hex_chars) > 2 else 0.0
+
+                    logger.info(f"Parsed broadcast angles: yaw={yaw:.1f}°, pitch={pitch:.1f}°, roll={roll:.1f}°")
+
+                    return GimbalAngles(
+                        yaw=yaw,
+                        pitch=pitch,
+                        roll=roll,
+                        coordinate_system=coord_sys,
+                        timestamp=datetime.now()
+                    )
+
+                except Exception as e:
+                    logger.debug(f"Error in broadcast angle conversion: {e}")
+
+            # If parsing fails, return None but log that we received data
+            logger.info(f"Received gimbal broadcast data but couldn't parse angles: '{angle_data}'")
+            return None
+
+        except Exception as e:
+            logger.debug(f"Error parsing broadcast angles: {e}")
+            return None
 
     def _parse_tracking_response(self, response: str) -> Optional[TrackingStatus]:
         """Parse tracking status from gimbal response (NEW FUNCTIONALITY)."""

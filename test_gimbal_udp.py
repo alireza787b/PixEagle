@@ -21,7 +21,7 @@ import threading
 from datetime import datetime
 
 # Configuration - adjust these to match your gimbal
-GIMBAL_IP = "192.168.144.108"
+GIMBAL_IP = "192.168.0.108"
 CONTROL_PORT = 9003
 LISTEN_PORT = 9004
 
