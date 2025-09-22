@@ -395,7 +395,7 @@ BODY_VELOCITY_CHASE:
 # ==============================================================================
 CONSTANT_POSITION:
   # === Control Enablement ===
-  ENABLE_ALTITUDE_CONTROL: true           # Enable vel_z control
+  ENABLE_ALTITUDE_CONTROL: false           # Enable vel_z control
   ENABLE_YAW_CONTROL: true                # Always enabled for this mode
 
   # === Altitude Parameters ===
@@ -405,7 +405,7 @@ CONSTANT_POSITION:
 
   # === Yaw Control ===
   MAX_YAW_RATE: 45.0                      # Max yaw rate (deg/s)
-  YAW_CONTROL_THRESHOLD: 0.05             # Dead zone threshold (normalized)
+  YAW_CONTROL_THRESHOLD: 0.02             # Dead zone threshold (normalized)
 
   # === Safety & Performance ===
   TARGET_LOST_TIMEOUT: 3.0                # Target loss timeout (seconds)
@@ -419,7 +419,7 @@ CONSTANT_POSITION:
 CONSTANT_DISTANCE:
   # === Control Enablement ===
   ENABLE_YAW_CONTROL: false              # Enable yaw rate control for target centering
-  ENABLE_ALTITUDE_CONTROL: true          # Enable bidirectional altitude control
+  ENABLE_ALTITUDE_CONTROL: false          # Enable bidirectional altitude control
 
   # === Altitude Parameters ===
   MIN_DESCENT_HEIGHT: 3.0                # Minimum safe altitude (meters)
