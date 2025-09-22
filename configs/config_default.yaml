@@ -14,7 +14,7 @@ GimbalTracker:
   ENABLED: true
 
   # Network configuration for gimbal UDP communication
-  UDP_HOST: "192.168.1.108"     # Gimbal IP address
+  UDP_HOST: "192.168.0.108"     # Gimbal IP address
   UDP_PORT: 8080                # Gimbal UDP port
   CONNECTION_TIMEOUT: 5.0       # Connection timeout in seconds
 
