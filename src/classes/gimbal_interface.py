@@ -88,10 +88,10 @@ class GimbalAngles:
     timestamp: datetime
 
     def is_valid(self) -> bool:
-        """Check if angles are within valid ranges"""
+        """Check if angles are within valid ranges - relaxed for gimbal compatibility"""
         return (
             -180.0 <= self.yaw <= 180.0 and
-            -90.0 <= self.pitch <= 90.0 and
+            -180.0 <= self.pitch <= 180.0 and  # Extended pitch range for gimbal compatibility
             -180.0 <= self.roll <= 180.0
         )
 
@@ -601,39 +601,30 @@ class GimbalInterface:
     def _parse_broadcast_angles(self, angle_data: str, coord_sys: CoordinateSystem) -> Optional[GimbalAngles]:
         """Parse broadcast angle data from gimbal continuous stream."""
         try:
-            logger.debug(f"Parsing broadcast angle data: '{angle_data}' (length: {len(angle_data)})")
+            # Convert string to bytes for proper binary data handling
+            angle_bytes = angle_data.encode('latin1')  # Preserve all byte values including non-printable
+            logger.debug(f"Parsing broadcast angle bytes: {angle_bytes.hex()} (length: {len(angle_bytes)})")
 
-            # The broadcast format appears to be different from query response format
-            # Based on your logs: #tpDP9wOFTu:>728E - the angle data after OFT is: u:>728E
-            # This might be a different encoding or protocol variant
-
-            # For now, let's try to extract meaningful data from what we have
-            # If the data contains ASCII characters, it might be a different encoding
-
-            # Try to find hex-like patterns in the data
-            hex_chars = ""
-            for char in angle_data:
-                if char.isalnum():  # Keep alphanumeric characters
-                    hex_chars += char
-
-            # If we have enough hex characters, try to parse them
-            if len(hex_chars) >= 6:
-                logger.debug(f"Extracted hex-like data: '{hex_chars}'")
-
-                # Try to parse as if it's compressed or encoded differently
-                # For now, let's create dummy angles to verify the data path works
-                # TODO: Implement proper broadcast format parsing based on gimbal documentation
-
-                # Extract what we can - this is a placeholder implementation
+            # For broadcast data, we need to parse the binary format directly
+            # The gimbal sends binary angle data, not ASCII hex
+            if len(angle_bytes) >= 6:  # Need at least 6 bytes for 3 angles (2 bytes each)
                 try:
-                    # Convert ASCII chars to some angle representation
-                    yaw = (ord(hex_chars[0]) - ord('0')) * 10.0 if len(hex_chars) > 0 else 0.0
-                    pitch = (ord(hex_chars[1]) - ord('0')) * 5.0 if len(hex_chars) > 1 else 0.0
-                    roll = (ord(hex_chars[2]) - ord('0')) * 2.0 if len(hex_chars) > 2 else 0.0
+                    # Parse as 3 x 16-bit signed integers in big-endian format
+                    # Each angle is 2 bytes, signed, in 0.01° units
+                    yaw_raw = int.from_bytes(angle_bytes[0:2], byteorder='big', signed=True)
+                    pitch_raw = int.from_bytes(angle_bytes[2:4], byteorder='big', signed=True)
+                    roll_raw = int.from_bytes(angle_bytes[4:6], byteorder='big', signed=True)
 
-                    logger.info(f"Parsed broadcast angles: yaw={yaw:.1f}°, pitch={pitch:.1f}°, roll={roll:.1f}°")
+                    logger.debug(f"Raw angle values: yaw={yaw_raw}, pitch={pitch_raw}, roll={roll_raw}")
 
-                    return GimbalAngles(
+                    # Convert to degrees (protocol uses 0.01° resolution)
+                    yaw = yaw_raw / 100.0
+                    pitch = pitch_raw / 100.0
+                    roll = roll_raw / 100.0
+
+                    logger.info(f"Parsed broadcast angles: yaw={yaw:.2f}°, pitch={pitch:.2f}°, roll={roll:.2f}°")
+
+                    angles = GimbalAngles(
                         yaw=yaw,
                         pitch=pitch,
                         roll=roll,
@@ -641,11 +632,71 @@ class GimbalInterface:
                         timestamp=datetime.now()
                     )
 
+                    # Validate angles
+                    if not angles.is_valid():
+                        logger.warning(f"Parsed angles out of range: yaw={yaw:.2f}°, pitch={pitch:.2f}°, roll={roll:.2f}°")
+                        return None
+
+                    return angles
+
                 except Exception as e:
-                    logger.debug(f"Error in broadcast angle conversion: {e}")
+                    logger.debug(f"Failed to parse as binary format: {e}")
+
+            # Fallback: try parsing as hex string (for compatibility)
+            if len(angle_bytes) >= 6:
+                # Try to extract hex data from the byte sequence
+                hex_data = angle_bytes[:6].hex()  # Take first 6 bytes as hex
+                logger.debug(f"Fallback: trying hex format: {hex_data}")
+
+                # Pad to 12 characters if needed
+                if len(hex_data) < 12:
+                    hex_data = hex_data.ljust(12, '0')
+
+                # Try to parse as standard hex angles format
+                if len(hex_data) == 12:
+                    try:
+                        # Parse as 3 x 4-character hex values (yaw, pitch, roll)
+                        yaw_hex = hex_data[0:4]
+                        pitch_hex = hex_data[4:8]
+                        roll_hex = hex_data[8:12]
+
+                        # Convert to signed integers
+                        yaw_raw = int(yaw_hex, 16)
+                        pitch_raw = int(pitch_hex, 16)
+                        roll_raw = int(roll_hex, 16)
+
+                        # Handle 16-bit signed values
+                        if yaw_raw > 32767: yaw_raw -= 65536
+                        if pitch_raw > 32767: pitch_raw -= 65536
+                        if roll_raw > 32767: roll_raw -= 65536
+
+                        # Convert to degrees (protocol uses 0.01° resolution)
+                        yaw = yaw_raw / 100.0
+                        pitch = pitch_raw / 100.0
+                        roll = roll_raw / 100.0
+
+                        logger.info(f"Parsed broadcast angles: yaw={yaw:.2f}°, pitch={pitch:.2f}°, roll={roll:.2f}°")
+
+                        angles = GimbalAngles(
+                            yaw=yaw,
+                            pitch=pitch,
+                            roll=roll,
+                            coordinate_system=coord_sys,
+                            timestamp=datetime.now()
+                        )
+
+                        # Validate angles
+                        if not angles.is_valid():
+                            logger.warning(f"Parsed angles out of range: yaw={yaw:.2f}°, pitch={pitch:.2f}°, roll={roll:.2f}°")
+                            return None
+
+                        return angles
+
+                    except Exception as e:
+                        logger.debug(f"Error parsing hex angles from broadcast: {e}")
 
             # If parsing fails, return None but log that we received data
-            logger.info(f"Received gimbal broadcast data but couldn't parse angles: '{angle_data}'")
+            logger.debug(f"Received gimbal broadcast data but couldn't parse angles from {len(angle_bytes)} bytes")
             return None
 
         except Exception as e:
