@@ -478,6 +478,8 @@ class BaseFollower(ABC):
             return tracker_data.position_3d is not None
         elif data_type == TrackerDataType.ANGULAR:
             return tracker_data.angular is not None
+        elif data_type == TrackerDataType.GIMBAL_ANGLES:
+            return tracker_data.angular is not None
         elif data_type == TrackerDataType.BBOX_CONFIDENCE:
             return (tracker_data.bbox is not None or 
                    tracker_data.normalized_bbox is not None)

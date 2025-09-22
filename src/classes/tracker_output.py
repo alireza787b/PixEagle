@@ -49,7 +49,8 @@ class TrackerDataType(Enum):
     """
     POSITION_2D = "POSITION_2D"           # Standard 2D position tracking
     POSITION_3D = "POSITION_3D"           # 3D position with depth
-    ANGULAR = "ANGULAR"                   # Bearing/elevation angles  
+    ANGULAR = "ANGULAR"                   # Bearing/elevation angles
+    GIMBAL_ANGLES = "GIMBAL_ANGLES"       # Gimbal yaw, pitch, roll angles
     BBOX_CONFIDENCE = "BBOX_CONFIDENCE"   # Bounding box with confidence
     VELOCITY_AWARE = "VELOCITY_AWARE"     # Position + velocity estimates
     EXTERNAL = "EXTERNAL"                 # External data source (e.g., radar)
@@ -82,7 +83,7 @@ class TrackerOutput:
         # Position Data (various formats)
         position_2d (Optional[Tuple[float, float]]): Normalized 2D position
         position_3d (Optional[Tuple[float, float, float]]): 3D position with depth
-        angular (Optional[Tuple[float, float]]): Bearing/elevation angles in degrees
+        angular (Optional[Tuple[float, ...]]): Angular data - 2D for bearing/elevation, 3D for gimbal (yaw, pitch, roll)
         
         # Bounding Box Data
         bbox (Optional[Tuple[int, int, int, int]]): Pixel coordinates (x, y, w, h)
@@ -114,7 +115,7 @@ class TrackerOutput:
     # Position data (mutually exclusive based on data_type)
     position_2d: Optional[Tuple[float, float]] = None
     position_3d: Optional[Tuple[float, float, float]] = None  
-    angular: Optional[Tuple[float, float]] = None
+    angular: Optional[Tuple[float, ...]] = None  # Flexible tuple for 2D angles or 3D gimbal angles
     
     # Bounding box data
     bbox: Optional[Tuple[int, int, int, int]] = None

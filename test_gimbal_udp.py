@@ -47,6 +47,79 @@ def send_command(sock: socket.socket, command: str) -> bool:
         print(f"❌ Send failed: {e}")
         return False
 
+def parse_angles(response: str):
+    """Parse angle data from gimbal response"""
+    try:
+        # Determine coordinate system and find angle data
+        if "GAC" in response:  # Gimbal body (magnetic) coordinates
+            coord_sys = "GIMBAL_BODY"
+            data_start = response.find("GAC") + 3
+        elif "GIC" in response:  # Spatial fixed (gyroscope) coordinates
+            coord_sys = "SPATIAL_FIXED"
+            data_start = response.find("GIC") + 3
+        else:
+            return None, None
+
+        # Extract 12-character angle data: YYYYPPPPRRRR
+        angle_data = response[data_start:data_start + 12]
+        if len(angle_data) != 12:
+            return None, None
+
+        # Parse hex values (4 chars each, signed 16-bit, 0.01° units)
+        yaw_hex = angle_data[0:4]
+        pitch_hex = angle_data[4:8]
+        roll_hex = angle_data[8:12]
+
+        # Convert to signed integers
+        yaw_raw = int(yaw_hex, 16)
+        pitch_raw = int(pitch_hex, 16)
+        roll_raw = int(roll_hex, 16)
+
+        # Handle 16-bit signed values
+        if yaw_raw > 32767: yaw_raw -= 65536
+        if pitch_raw > 32767: pitch_raw -= 65536
+        if roll_raw > 32767: roll_raw -= 65536
+
+        # Convert to degrees (protocol uses 0.01° resolution)
+        angles = {
+            'yaw': yaw_raw / 100.0,
+            'pitch': pitch_raw / 100.0,
+            'roll': roll_raw / 100.0,
+            'coordinate_system': coord_sys
+        }
+
+        return angles, coord_sys
+
+    except Exception as e:
+        print(f"   ❌ Angle parse error: {e}")
+        return None, None
+
+def parse_tracking_status(response: str):
+    """Parse tracking status from gimbal response"""
+    try:
+        if "TRC" not in response:
+            return None
+
+        # Find tracking data after TRC identifier
+        trc_pos = response.find("TRC") + 3
+        if trc_pos + 2 > len(response):
+            return None
+
+        # Extract tracking state (2 characters)
+        state_data = response[trc_pos:trc_pos + 2]
+
+        # Parse state value
+        try:
+            state_val = int(state_data[1])  # Second character is the state
+            state_names = {0: "DISABLED", 1: "TARGET_SELECTION", 2: "TRACKING_ACTIVE", 3: "TARGET_LOST"}
+            return state_names.get(state_val, f"UNKNOWN({state_val})")
+        except (ValueError, IndexError):
+            return f"PARSE_ERROR({state_data})"
+
+    except Exception as e:
+        print(f"   ❌ Tracking parse error: {e}")
+        return None
+
 def listen_for_responses(listen_sock: socket.socket):
     """Listen for gimbal responses"""
     print("🔄 Starting response listener...")
@@ -60,11 +133,15 @@ def listen_for_responses(listen_sock: socket.socket):
                 timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
                 print(f"📥 [{timestamp}] From {addr}: {response}")
 
-                # Parse response type
-                if "GAC" in response or "GIC" in response:
-                    print(f"   └─ ✅ ANGLE DATA RECEIVED")
-                elif "TRC" in response:
-                    print(f"   └─ 🎯 TRACKING STATUS RECEIVED")
+                # Parse angle data
+                angles, coord_sys = parse_angles(response)
+                if angles:
+                    print(f"   └─ ✅ ANGLES: YAW={angles['yaw']:+7.2f}° PITCH={angles['pitch']:+7.2f}° ROLL={angles['roll']:+7.2f}° ({coord_sys})")
+
+                # Parse tracking status
+                tracking_status = parse_tracking_status(response)
+                if tracking_status:
+                    print(f"   └─ 🎯 TRACKING: {tracking_status}")
 
         except socket.timeout:
             continue

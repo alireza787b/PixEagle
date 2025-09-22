@@ -266,20 +266,20 @@ class GimbalTracker(BaseTracker):
             # Check tracking status and handle state changes
             tracking_active = self._handle_tracking_state_changes(gimbal_data)
 
-            if tracking_active and gimbal_data.angles:
-                # Gimbal is actively tracking and we have angle data
+            # Always process angles when available, regardless of tracking status
+            if gimbal_data.angles:
+                # We have angle data - always process and return it
                 success, tracker_output = self._process_active_tracking(gimbal_data)
 
                 if success:
-                    logger.debug(f"Gimbal tracking active - Angles: {gimbal_data.angles.to_tuple()}")
+                    logger.debug(f"Gimbal angles available - YAW: {gimbal_data.angles.yaw:.2f}° PITCH: {gimbal_data.angles.pitch:.2f}° ROLL: {gimbal_data.angles.roll:.2f}° (Tracking: {'Active' if tracking_active else 'Inactive'})")
                     return True, tracker_output
                 else:
-                    logger.warning("Failed to process gimbal tracking data")
+                    logger.warning("Failed to process gimbal angle data")
                     return False, self._create_inactive_output("processing_error")
             else:
-                # Gimbal not actively tracking or no angle data
-                reason = "not_tracking" if not tracking_active else "no_angle_data"
-                return False, self._create_inactive_output(reason)
+                # No angle data available
+                return False, self._create_inactive_output("no_angle_data")
 
         except Exception as e:
             logger.error(f"Error in gimbal tracker update: {e}")
@@ -369,9 +369,9 @@ class GimbalTracker(BaseTracker):
             # Get aircraft attitude if available
             aircraft_attitude = self._get_aircraft_attitude()
 
-            # Create TrackerOutput with ANGULAR data type
+            # Create TrackerOutput with GIMBAL_ANGLES data type
             tracker_output = TrackerOutput(
-                data_type=TrackerDataType.ANGULAR,
+                data_type=TrackerDataType.GIMBAL_ANGLES,
                 timestamp=time.time(),
                 tracking_active=True,
                 tracker_id=f"GimbalTracker_{id(self)}",
