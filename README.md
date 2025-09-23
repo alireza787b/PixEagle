@@ -398,6 +398,60 @@ bash run_pixeagle.sh [-m] [-d] [-p] [-k]
 
 ---
 
+## 🔧 Service Management (Auto-Start)
+
+**For Production/Raspberry Pi:** Enable PixEagle to start automatically on boot with professional service management:
+
+### 📦 Installation
+
+```bash
+# Install service management system
+sudo bash install_service.sh
+```
+
+### 🚀 Service Commands
+
+```bash
+pixeagle-service start      # Start PixEagle immediately
+pixeagle-service stop       # Stop PixEagle gracefully
+pixeagle-service status     # Show detailed status & health
+pixeagle-service restart    # Clean restart with reporting
+
+# Auto-start setup (requires sudo)
+sudo pixeagle-service enable    # Enable auto-start on boot
+sudo pixeagle-service disable   # Disable auto-start
+
+# Monitoring & Access
+pixeagle-service logs       # Show service logs
+pixeagle-service logs -f    # Follow logs in real-time
+pixeagle-service attach     # Access tmux session
+pixeagle-service help       # Detailed help
+```
+
+### ✨ Service Features
+
+- **Automatic startup** on system boot (Raspberry Pi/Linux)
+- **Intelligent user detection** - works with any user
+- **Professional status reporting** with component health checks
+- **Seamless tmux integration** - attach/detach without interruption
+- **Robust error handling** and graceful shutdown
+- **Performance monitoring** and comprehensive logging
+
+**Quick Setup:**
+```bash
+# 1. Install service management
+sudo bash install_service.sh
+
+# 2. Test functionality
+pixeagle-service status
+pixeagle-service start
+
+# 3. Enable auto-start
+sudo pixeagle-service enable
+```
+
+---
+
 ### 🔗 Accessing the Web Dashboard
 
 Once running, open in your browser:

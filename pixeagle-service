@@ -1,0 +1,412 @@
+#!/bin/bash
+
+#########################################
+# PixEagle Service Management Tool
+#
+# Project: PixEagle
+# Repository: https://github.com/alireza787b/PixEagle
+#
+# This is the main command-line interface for managing PixEagle
+# as a system service. It provides easy-to-use commands for
+# starting, stopping, monitoring, and configuring PixEagle
+# with auto-start capabilities on Raspberry Pi and Linux systems.
+#
+# Usage: pixeagle-service <command> [options]
+#
+# Commands:
+#   start     - Start PixEagle immediately
+#   stop      - Stop PixEagle and all components
+#   restart   - Restart PixEagle with clean shutdown
+#   status    - Show detailed status and health information
+#   enable    - Enable auto-start on boot (install service)
+#   disable   - Disable auto-start (remove service)
+#   logs      - Show service logs with optional live tail
+#   attach    - Attach to running tmux session
+#   help      - Display detailed help information
+#
+# Features:
+# - Automatic user detection and flexible configuration
+# - Comprehensive status reporting with health checks
+# - Robust error handling and user guidance
+# - Seamless tmux session management
+# - Professional service integration with systemd
+#
+#########################################
+
+# Determine script location and load utilities
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Try to find service_utils.sh in multiple locations
+UTILS_LOCATIONS=(
+    "$SCRIPT_DIR/src/tools/service_utils.sh"
+    "$SCRIPT_DIR/../PixEagle/src/tools/service_utils.sh"
+    "/home/*/PixEagle/src/tools/service_utils.sh"
+    "./src/tools/service_utils.sh"
+)
+
+SERVICE_UTILS=""
+for location in "${UTILS_LOCATIONS[@]}"; do
+    if [ -f "$location" ]; then
+        SERVICE_UTILS="$location"
+        break
+    fi
+    # Handle wildcard expansion
+    for expanded in $location; do
+        if [ -f "$expanded" ]; then
+            SERVICE_UTILS="$expanded"
+            break 2
+        fi
+    done
+done
+
+if [ -z "$SERVICE_UTILS" ]; then
+    echo "❌ Error: service_utils.sh not found. Please run from PixEagle directory."
+    exit 1
+fi
+
+# Load service utilities
+source "$SERVICE_UTILS"
+
+# Service configuration
+COMMAND="$1"
+SERVICE_NAME="pixeagle"
+
+# Function to display help
+show_help() {
+    cat << 'EOF'
+┌─────────────────────────────────────────────────────────────────┐
+│                    PixEagle Service Manager                     │
+│                                                                 │
+│ Professional service management for PixEagle UAV tracking      │
+│ and control system with auto-start capabilities.               │
+└─────────────────────────────────────────────────────────────────┘
+
+📋 USAGE:
+   pixeagle-service <command> [options]
+
+🚀 COMMANDS:
+
+   start       Start PixEagle immediately
+               Creates tmux session and launches all components
+
+   stop        Stop PixEagle and all components
+               Gracefully shuts down tmux session and services
+
+   restart     Restart PixEagle with clean shutdown
+               Equivalent to stop + start with status reporting
+
+   status      Show detailed status and health information
+               Displays service state, tmux sessions, and component health
+
+   enable      Enable auto-start on boot
+               Installs and enables systemd service for automatic startup
+
+   disable     Disable auto-start on boot
+               Removes systemd service and disables automatic startup
+
+   logs        Show service logs
+               Options: -f (follow), -n <lines> (number of lines)
+
+   attach      Attach to running tmux session
+               Provides direct access to PixEagle tmux interface
+
+   help        Display this help information
+
+🛠️  EXAMPLES:
+
+   Basic Operations:
+   pixeagle-service start          # Start PixEagle now
+   pixeagle-service status         # Check current status
+   pixeagle-service stop           # Stop PixEagle
+
+   Auto-start Setup:
+   sudo pixeagle-service enable    # Enable auto-start on boot
+   sudo pixeagle-service disable   # Disable auto-start
+
+   Monitoring:
+   pixeagle-service logs           # Show recent logs
+   pixeagle-service logs -f        # Follow logs in real-time
+   pixeagle-service attach         # Access tmux session
+
+📱 ACCESS INFORMATION:
+
+   Dashboard:      http://localhost:3000
+   Tmux Session:   pixeagle-service attach
+   Service Logs:   pixeagle-service logs
+
+🔧 SYSTEM REQUIREMENTS:
+
+   - Linux/Raspberry Pi OS with systemd
+   - tmux (terminal multiplexer)
+   - PixEagle installed in user's home directory
+   - Network connectivity for dashboard access
+
+📚 MORE INFORMATION:
+
+   Repository:     https://github.com/alireza787b/PixEagle
+   Documentation: Check README.md for detailed setup instructions
+
+EOF
+}
+
+# Function to start PixEagle service
+start_pixeagle() {
+    print_status "process" "Starting PixEagle service..."
+
+    # Check prerequisites
+    if ! check_prerequisites; then
+        print_status "error" "Prerequisites check failed"
+        return 1
+    fi
+
+    # Detect user and paths
+    if ! detect_service_user; then
+        return 1
+    fi
+
+    # Check if already running
+    if is_tmux_session_active; then
+        print_status "warning" "PixEagle is already running"
+        print_status "info" "Use 'pixeagle-service attach' to access the session"
+        return 0
+    fi
+
+    # Start using the service launcher
+    local launcher_script="$USER_PIXEAGLE_DIR/run_pixeagle_service.sh"
+    if [ -f "$launcher_script" ]; then
+        print_status "process" "Launching PixEagle components..."
+        if sudo -u "$SERVICE_USER" bash "$launcher_script"; then
+            sleep 3  # Give components time to start
+            print_status "success" "PixEagle started successfully"
+            print_status "info" "Dashboard available at: http://localhost:3000"
+            print_status "info" "Use 'pixeagle-service attach' to access tmux session"
+            return 0
+        else
+            print_status "error" "Failed to start PixEagle"
+            return 1
+        fi
+    else
+        # Fallback to original launcher
+        local original_launcher="$USER_PIXEAGLE_DIR/run_pixeagle.sh"
+        if [ -f "$original_launcher" ]; then
+            print_status "process" "Using original launcher..."
+            cd "$USER_PIXEAGLE_DIR" || return 1
+            sudo -u "$SERVICE_USER" bash "$original_launcher" &
+            sleep 3
+            print_status "success" "PixEagle started successfully"
+            return 0
+        else
+            print_status "error" "PixEagle launcher script not found"
+            return 1
+        fi
+    fi
+}
+
+# Function to stop PixEagle service
+stop_pixeagle() {
+    print_status "process" "Stopping PixEagle service..."
+
+    if ! detect_service_user; then
+        return 1
+    fi
+
+    # Check if tmux session exists
+    if ! is_tmux_session_active; then
+        print_status "warning" "PixEagle tmux session is not running"
+
+        # Check for running processes on known ports
+        local processes_found=false
+        for port in 8088 5077 3000; do
+            if lsof -i ":$port" &>/dev/null; then
+                processes_found=true
+                local pid=$(lsof -t -i ":$port" 2>/dev/null)
+                if [ -n "$pid" ]; then
+                    print_status "process" "Stopping process on port $port (PID: $pid)"
+                    kill -TERM "$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null
+                fi
+            fi
+        done
+
+        if [ "$processes_found" = "false" ]; then
+            print_status "info" "No PixEagle processes found"
+        else
+            print_status "success" "Stopped remaining PixEagle processes"
+        fi
+        return 0
+    fi
+
+    # Gracefully stop tmux session
+    print_status "process" "Stopping tmux session..."
+    sudo -u "$SERVICE_USER" tmux send-keys -t "$TMUX_SESSION_NAME" C-c 2>/dev/null || true
+    sleep 2
+
+    # Kill tmux session if still active
+    if is_tmux_session_active; then
+        sudo -u "$SERVICE_USER" tmux kill-session -t "$TMUX_SESSION_NAME" 2>/dev/null || true
+        sleep 1
+    fi
+
+    # Verify shutdown
+    if is_tmux_session_active; then
+        print_status "warning" "Tmux session still active, forcing shutdown..."
+        sudo -u "$SERVICE_USER" tmux kill-server 2>/dev/null || true
+    fi
+
+    print_status "success" "PixEagle stopped successfully"
+    return 0
+}
+
+# Function to restart PixEagle service
+restart_pixeagle() {
+    print_status "process" "Restarting PixEagle service..."
+
+    if stop_pixeagle; then
+        sleep 2
+        start_pixeagle
+    else
+        print_status "error" "Failed to stop PixEagle, restart aborted"
+        return 1
+    fi
+}
+
+# Function to enable service
+enable_service() {
+    print_status "process" "Enabling PixEagle auto-start service..."
+
+    # Check if running as root
+    if [ "$EUID" -ne 0 ]; then
+        print_status "error" "Please run with sudo: sudo pixeagle-service enable"
+        return 1
+    fi
+
+    # Check prerequisites
+    if ! check_prerequisites; then
+        return 1
+    fi
+
+    # Create service-optimized launcher if it doesn't exist
+    if ! detect_service_user; then
+        return 1
+    fi
+
+    local service_launcher="$USER_PIXEAGLE_DIR/run_pixeagle_service.sh"
+    if [ ! -f "$service_launcher" ]; then
+        print_status "process" "Creating service-optimized launcher..."
+        # Create a basic service launcher that calls the original script
+        cat > "$service_launcher" << EOF
+#!/bin/bash
+cd "$USER_PIXEAGLE_DIR"
+exec bash run_pixeagle.sh
+EOF
+        chmod +x "$service_launcher"
+        chown "$SERVICE_USER:$SERVICE_USER" "$service_launcher"
+    fi
+
+    # Create stop script
+    local stop_script="$USER_PIXEAGLE_DIR/src/tools/stop_pixeagle_service.sh"
+    mkdir -p "$(dirname "$stop_script")"
+    cat > "$stop_script" << EOF
+#!/bin/bash
+source "$SERVICE_UTILS"
+detect_service_user
+if is_tmux_session_active; then
+    tmux kill-session -t "$TMUX_SESSION_NAME" 2>/dev/null || true
+fi
+EOF
+    chmod +x "$stop_script"
+    chown "$SERVICE_USER:$SERVICE_USER" "$stop_script"
+
+    # Create and install service
+    if create_service_file; then
+        systemctl daemon-reload
+
+        if systemctl enable "${SERVICE_NAME}.service"; then
+            print_status "success" "PixEagle auto-start enabled successfully"
+            print_status "info" "PixEagle will now start automatically on boot"
+            print_status "note" "Use 'sudo pixeagle-service disable' to turn off auto-start"
+            return 0
+        else
+            print_status "error" "Failed to enable service"
+            return 1
+        fi
+    else
+        return 1
+    fi
+}
+
+# Function to disable service
+disable_service() {
+    print_status "process" "Disabling PixEagle auto-start service..."
+
+    # Check if running as root
+    if [ "$EUID" -ne 0 ]; then
+        print_status "error" "Please run with sudo: sudo pixeagle-service disable"
+        return 1
+    fi
+
+    remove_service
+}
+
+# Function to show logs
+show_logs() {
+    local follow=false
+    local lines=50
+
+    # Parse options
+    shift # Remove 'logs' command
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -f|--follow)
+                follow=true
+                shift
+                ;;
+            -n|--lines)
+                lines="$2"
+                shift 2
+                ;;
+            *)
+                print_status "warning" "Unknown option: $1"
+                shift
+                ;;
+        esac
+    done
+
+    show_service_logs "$lines" "$follow"
+}
+
+# Main command processing
+case "$COMMAND" in
+    "start")
+        start_pixeagle
+        ;;
+    "stop")
+        stop_pixeagle
+        ;;
+    "restart")
+        restart_pixeagle
+        ;;
+    "status")
+        get_service_status
+        ;;
+    "enable")
+        enable_service
+        ;;
+    "disable")
+        disable_service
+        ;;
+    "logs")
+        show_logs "$@"
+        ;;
+    "attach")
+        attach_to_session
+        ;;
+    "help"|"--help"|"-h"|"")
+        show_help
+        ;;
+    *)
+        print_status "error" "Unknown command: $COMMAND"
+        echo
+        print_status "info" "Use 'pixeagle-service help' for usage information"
+        exit 1
+        ;;
+esac
