@@ -112,6 +112,7 @@ class GimbalTracker(BaseTracker):
         super().__init__(video_handler, detector, app_controller)
 
         self.tracker_name = "GimbalTracker"
+        self.is_external_tracker = True  # Flag for AppController to handle differently
 
         # Initialize gimbal interface with SIP protocol support
         listen_port = getattr(Parameters, 'GIMBAL_LISTEN_PORT', 9004)
@@ -557,15 +558,21 @@ class GimbalTracker(BaseTracker):
         Returns:
             TrackerOutput: Current tracking data
         """
+        logger.debug(f"GimbalTracker.get_output() called - monitoring_active: {self.monitoring_active}")
+
         if not self.monitoring_active:
+            logger.debug("Monitoring not active, returning inactive output")
             return self._create_inactive_output("monitoring_not_active")
 
         # Try to get current data
         success, output = self.update(None)  # Frame not needed for gimbal tracker
+        logger.debug(f"GimbalTracker.update() returned - success: {success}, output: {output is not None}")
 
         if success and output:
+            logger.debug(f"Returning valid output - data_type: {output.data_type}, tracking_active: {output.tracking_active}")
             return output
         else:
+            logger.debug("No valid tracking data available")
             return self._create_inactive_output("no_active_tracking")
 
     def get_capabilities(self) -> Dict[str, Any]:

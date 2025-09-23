@@ -922,24 +922,45 @@ class AppController:
                     logging.warning("Smart tracker doesn't have get_output method")
                     return None
                     
-            elif self.tracking_started and self.tracker:
-                # Classic tracker (CSRT, etc.) is active  
-                if hasattr(self.tracker, 'get_output'):
-                    tracker_output = self.tracker.get_output()
-                    # Log status periodically with minimal, informative output
-                    if tracker_output and tracker_output.tracking_active and (time.time() % 10 < 0.1):
-                        tracker_name = self.tracker.__class__.__name__.replace("Tracker", "")  # CSRT, Particle, etc.
-                        conf_info = f"Conf:{tracker_output.confidence:.2f}" if tracker_output.confidence else "NoConf"
-                        logging.info(f"CLASSIC TRACKER ({tracker_name}): {tracker_output.data_type.value} | {conf_info}")
-                    return tracker_output
+            elif self.tracker:
+                # Check if this is an external tracker that doesn't need manual start
+                is_external_tracker = getattr(self.tracker, 'is_external_tracker', False)
+                tracker_class = self.tracker.__class__.__name__
+
+                logging.debug(f"AppController.get_tracker_output() - tracker: {tracker_class}, is_external: {is_external_tracker}, tracking_started: {self.tracking_started}")
+
+                # For external trackers, always try to get output regardless of tracking_started
+                # For classic trackers, require tracking_started to be True
+                if is_external_tracker or self.tracking_started:
+                    if hasattr(self.tracker, 'get_output'):
+                        tracker_output = self.tracker.get_output()
+                        # Log status periodically with minimal, informative output
+                        if tracker_output and tracker_output.tracking_active and (time.time() % 10 < 0.1):
+                            tracker_name = self.tracker.__class__.__name__.replace("Tracker", "")
+                            if is_external_tracker:
+                                # Enhanced logging for external trackers
+                                status_info = "MONITORING" if hasattr(self.tracker, 'monitoring_active') and self.tracker.monitoring_active else "STANDBY"
+                                logging.info(f"EXTERNAL TRACKER ({tracker_name}): {tracker_output.data_type.value} | Status: {status_info}")
+                            else:
+                                # Classic tracker logging
+                                conf_info = f"Conf:{tracker_output.confidence:.2f}" if tracker_output.confidence else "NoConf"
+                                logging.info(f"CLASSIC TRACKER ({tracker_name}): {tracker_output.data_type.value} | {conf_info}")
+                        return tracker_output
+                    else:
+                        # Fallback for legacy trackers
+                        if not is_external_tracker:
+                            logging.debug("Using legacy tracker compatibility mode")
+                            return self._create_legacy_tracker_output()
+                        return None
                 else:
-                    # Fallback for legacy trackers
-                    logging.debug("Using legacy tracker compatibility mode")
-                    return self._create_legacy_tracker_output()
+                    # Classic tracker not started - log this only occasionally
+                    if time.time() % 30 < 0.1:  # Every 30 seconds
+                        logging.info("CLASSIC TRACKER: Waiting for manual tracking to start")
+                    return None
             else:
-                # No active tracking - log this only occasionally
+                # No tracker available - log this only occasionally
                 if time.time() % 30 < 0.1:  # Every 30 seconds
-                    logging.info("NO TRACKER ACTIVE: Waiting for tracking to start")
+                    logging.info("NO TRACKER AVAILABLE: Tracker not initialized")
                 return None
                 
         except Exception as e:
