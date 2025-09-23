@@ -212,6 +212,23 @@ const TrackerStatusCard = () => {
             </Box>
           )}
 
+          {/* Debug: Show what raw_data contains */}
+          {isActive && dataType === 'GIMBAL_ANGLES' && (
+            <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
+                Debug Info:
+              </Typography>
+              <Typography variant="caption" fontFamily="monospace" sx={{ fontSize: '0.6rem' }}>
+                raw_data available: {currentStatus?.raw_data ? 'YES' : 'NO'}
+              </Typography>
+              {currentStatus?.raw_data && (
+                <Typography variant="caption" fontFamily="monospace" sx={{ fontSize: '0.6rem', display: 'block' }}>
+                  Keys: {Object.keys(currentStatus.raw_data).join(', ')}
+                </Typography>
+              )}
+            </Box>
+          )}
+
           {/* Gimbal-specific Status - Only for GIMBAL_ANGLES data type */}
           {isActive && dataType === 'GIMBAL_ANGLES' && currentStatus?.raw_data && (
             <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>

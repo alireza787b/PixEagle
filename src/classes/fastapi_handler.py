@@ -1177,6 +1177,7 @@ class FastAPIHandler:
                 'tracker_type': tracker_class,
                 'data_type': data_type,
                 'fields': available_fields,
+                'raw_data': tracker_output.raw_data,  # Include raw_data for gimbal status
                 'smart_mode': getattr(self.app_controller, 'smart_mode_active', False),
                 'timestamp': time.time()
             })
