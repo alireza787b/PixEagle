@@ -12,7 +12,8 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(.venv/Scripts/python:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(findstr:*)"
     ],
     "deny": [],
     "ask": []

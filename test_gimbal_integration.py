@@ -54,17 +54,17 @@ def test_gimbal_interface():
         # Start interface
         success = interface.start_listening()
         if not success:
-            print("❌ Failed to start gimbal interface")
+            print("Failed to start gimbal interface")
             return False
 
-        print("✅ Gimbal interface started")
+        print("Gimbal interface started")
 
         # Monitor for data
         print("Monitoring for gimbal data for 10 seconds...")
         for i in range(10):
             data = interface.get_current_data()
             if data:
-                print(f"📊 Received data: {data}")
+                print(f"Received data: {data}")
                 if data.angles:
                     print(f"   Angles: YAW={data.angles.yaw:.2f}° PITCH={data.angles.pitch:.2f}° ROLL={data.angles.roll:.2f}°")
                 if data.tracking_status:
@@ -77,7 +77,7 @@ def test_gimbal_interface():
 
     finally:
         interface.stop_listening()
-        print("🔌 Interface stopped")
+        print("Interface stopped")
 
 def test_gimbal_tracker():
     """Test GimbalTracker (full integration)"""
@@ -98,10 +98,10 @@ def test_gimbal_tracker():
         print("Starting gimbal tracker...")
         success, output = tracker.start_tracking(frame=None, bbox=None)
         if not success:
-            print("❌ Failed to start tracker")
+            print("Failed to start tracker")
             return False
 
-        print("✅ Gimbal tracker started")
+        print("Gimbal tracker started")
 
         # Monitor tracker output
         print("Monitoring tracker output for 10 seconds...")
@@ -109,7 +109,7 @@ def test_gimbal_tracker():
             success, tracker_output = tracker.update(frame=None)
 
             if success and tracker_output:
-                print(f"📊 Tracker output received:")
+                print(f"Tracker output received:")
                 print(f"   Data type: {tracker_output.data_type}")
                 print(f"   Tracking active: {tracker_output.tracking_active}")
                 print(f"   Angular data: {tracker_output.angular}")
@@ -124,11 +124,11 @@ def test_gimbal_tracker():
 
     finally:
         tracker.stop_tracking()
-        print("🔌 Tracker stopped")
+        print("Tracker stopped")
 
 def main():
     """Run integration tests"""
-    print("🎥 GIMBAL INTEGRATION TEST")
+    print("GIMBAL INTEGRATION TEST")
     print("=" * 50)
 
     try:
@@ -140,19 +140,19 @@ def main():
 
         # Summary
         print("\n" + "=" * 50)
-        print("📋 TEST RESULTS:")
-        print(f"   GimbalInterface: {'✅ PASS' if interface_ok else '❌ FAIL'}")
-        print(f"   GimbalTracker:   {'✅ PASS' if tracker_ok else '❌ FAIL'}")
+        print("TEST RESULTS:")
+        print(f"   GimbalInterface: {'PASS' if interface_ok else 'FAIL'}")
+        print(f"   GimbalTracker:   {'PASS' if tracker_ok else 'FAIL'}")
 
         if interface_ok and tracker_ok:
-            print("\n🎉 All tests passed! Gimbal integration is working.")
+            print("\nAll tests passed! Gimbal integration is working.")
         else:
-            print("\n⚠️  Some tests failed. Check the logs above.")
+            print("\nSome tests failed. Check the logs above.")
 
     except KeyboardInterrupt:
-        print("\n⏹️ Tests interrupted by user")
+        print("\nTests interrupted by user")
     except Exception as e:
-        print(f"\n❌ Test error: {e}")
+        print(f"\nTest error: {e}")
         import traceback
         traceback.print_exc()
 

@@ -41,10 +41,10 @@ def send_command(sock: socket.socket, command: str) -> bool:
     """Send command to gimbal"""
     try:
         sock.sendto(command.encode('ascii'), (GIMBAL_IP, CONTROL_PORT))
-        print(f"📤 Sent: {command}")
+        print(f"Sent: {command}")
         return True
     except Exception as e:
-        print(f"❌ Send failed: {e}")
+        print(f"Send failed: {e}")
         return False
 
 def parse_angles(response: str):
@@ -91,7 +91,7 @@ def parse_angles(response: str):
         return angles, coord_sys
 
     except Exception as e:
-        print(f"   ❌ Angle parse error: {e}")
+        print(f"   Angle parse error: {e}")
         return None, None
 
 def parse_tracking_status(response: str):
@@ -117,12 +117,12 @@ def parse_tracking_status(response: str):
             return f"PARSE_ERROR({state_data})"
 
     except Exception as e:
-        print(f"   ❌ Tracking parse error: {e}")
+        print(f"   Tracking parse error: {e}")
         return None
 
 def listen_for_responses(listen_sock: socket.socket):
     """Listen for gimbal responses"""
-    print("🔄 Starting response listener...")
+    print("Starting response listener...")
 
     while True:
         try:
@@ -131,26 +131,26 @@ def listen_for_responses(listen_sock: socket.socket):
 
             if response:
                 timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
-                print(f"📥 [{timestamp}] From {addr}: {response}")
+                print(f"[{timestamp}] From {addr}: {response}")
 
                 # Parse angle data
                 angles, coord_sys = parse_angles(response)
                 if angles:
-                    print(f"   └─ ✅ ANGLES: YAW={angles['yaw']:+7.2f}° PITCH={angles['pitch']:+7.2f}° ROLL={angles['roll']:+7.2f}° ({coord_sys})")
+                    print(f"   ANGLES: YAW={angles['yaw']:+7.2f}° PITCH={angles['pitch']:+7.2f}° ROLL={angles['roll']:+7.2f}° ({coord_sys})")
 
                 # Parse tracking status
                 tracking_status = parse_tracking_status(response)
                 if tracking_status:
-                    print(f"   └─ 🎯 TRACKING: {tracking_status}")
+                    print(f"   TRACKING: {tracking_status}")
 
         except socket.timeout:
             continue
         except Exception as e:
-            print(f"⚠️ Listen error: {e}")
+            print(f"Listen error: {e}")
 
 def main():
     print("=" * 60)
-    print("🎥 GIMBAL UDP COMMUNICATION TEST")
+    print("GIMBAL UDP COMMUNICATION TEST")
     print("=" * 60)
     print(f"Gimbal IP: {GIMBAL_IP}")
     print(f"Control Port: {CONTROL_PORT}")
@@ -168,17 +168,17 @@ def main():
         listen_sock.bind(('0.0.0.0', LISTEN_PORT))
         listen_sock.settimeout(0.1)
 
-        print("✅ Sockets created successfully")
+        print("Sockets created successfully")
 
     except Exception as e:
-        print(f"❌ Socket setup failed: {e}")
+        print(f"Socket setup failed: {e}")
         return
 
     # Start response listener in background
     listener_thread = threading.Thread(target=listen_for_responses, args=(listen_sock,), daemon=True)
     listener_thread.start()
 
-    print("\n🚀 Starting gimbal communication test...")
+    print("\nStarting gimbal communication test...")
     print("Press Ctrl+C to stop\n")
 
     try:
@@ -188,37 +188,37 @@ def main():
             print(f"\n--- Test Iteration {iteration} ---")
 
             # Test 1: Query spatial fixed angles (absolute coordinates)
-            print("1️⃣ Querying spatial fixed angles (GIC)...")
+            print("1. Querying spatial fixed angles (GIC)...")
             cmd = build_command("G", "r", "GIC", "00")
             send_command(control_sock, cmd)
             time.sleep(1)
 
             # Test 2: Query tracking status
-            print("2️⃣ Querying tracking status (TRC)...")
+            print("2. Querying tracking status (TRC)...")
             cmd = build_command("D", "r", "TRC", "00")
             send_command(control_sock, cmd)
             time.sleep(1)
 
             # Test 3: Query gimbal body angles (relative coordinates)
-            print("3️⃣ Querying gimbal body angles (GAC)...")
+            print("3. Querying gimbal body angles (GAC)...")
             cmd = build_command("G", "r", "GAC", "00")
             send_command(control_sock, cmd)
             time.sleep(1)
 
-            print("⏳ Waiting for responses...")
+            print("Waiting for responses...")
             time.sleep(2)
 
     except KeyboardInterrupt:
-        print("\n\n⏹️ Test stopped by user")
+        print("\n\nTest stopped by user")
     except Exception as e:
-        print(f"\n❌ Test error: {e}")
+        print(f"\nTest error: {e}")
     finally:
         try:
             control_sock.close()
             listen_sock.close()
         except:
             pass
-        print("👋 Test completed")
+        print("Test completed")
 
 if __name__ == "__main__":
     main()
