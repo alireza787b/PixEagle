@@ -118,7 +118,20 @@ class TelemetryHandler:
                 'bearing': tracker_output.angular[0] if tracker_output.angular else None,
                 'elevation': tracker_output.angular[1] if tracker_output.angular else None
             })
-            
+
+        elif tracker_output.data_type == TrackerDataType.GIMBAL_ANGLES:
+            data['tracker_data'].update({
+                'angular': tracker_output.angular,
+                'gimbal_angles': tracker_output.angular,
+                'yaw': tracker_output.angular[0] if tracker_output.angular else None,
+                'pitch': tracker_output.angular[1] if tracker_output.angular else None,
+                'roll': tracker_output.angular[2] if tracker_output.angular else None,
+                'coordinate_system': tracker_output.raw_data.get('coordinate_system') if tracker_output.raw_data else None,
+                'gimbal_tracking_active': tracker_output.raw_data.get('gimbal_tracking_active') if tracker_output.raw_data else False,
+                'tracking_status': tracker_output.raw_data.get('tracking_status') if tracker_output.raw_data else 'UNKNOWN',
+                'connection_status': tracker_output.raw_data.get('connection_status') if tracker_output.raw_data else 'UNKNOWN'
+            })
+
         elif tracker_output.data_type == TrackerDataType.MULTI_TARGET:
             data['tracker_data'].update({
                 'targets': tracker_output.targets,

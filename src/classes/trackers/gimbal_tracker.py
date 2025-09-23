@@ -233,10 +233,10 @@ class GimbalTracker(BaseTracker):
 
     def update(self, frame: np.ndarray) -> Tuple[bool, Optional[TrackerOutput]]:
         """
-        Update tracker by checking gimbal status and providing data when tracking is active.
+        Update tracker by checking gimbal status and providing data when available.
 
-        This method passively monitors gimbal status and automatically activates/deactivates
-        tracking based on the gimbal's reported tracking state.
+        Modified to always return angle data when available, regardless of tracking state.
+        This ensures continuous angle display while maintaining follower state control.
 
         Args:
             frame (np.ndarray): Video frame (not used by gimbal tracker)
@@ -263,16 +263,16 @@ class GimbalTracker(BaseTracker):
             # Store the data for analysis
             self.last_gimbal_data = gimbal_data
 
-            # Check tracking status and handle state changes
+            # Check tracking status and handle state changes (for follower control)
             tracking_active = self._handle_tracking_state_changes(gimbal_data)
 
-            # Always process angles when available, regardless of tracking status
+            # ALWAYS process angles when available (continuous display mode)
             if gimbal_data.angles:
                 # We have angle data - always process and return it
-                success, tracker_output = self._process_active_tracking(gimbal_data)
+                success, tracker_output = self._process_gimbal_data(gimbal_data, tracking_active)
 
                 if success:
-                    logger.debug(f"Gimbal angles available - YAW: {gimbal_data.angles.yaw:.2f}° PITCH: {gimbal_data.angles.pitch:.2f}° ROLL: {gimbal_data.angles.roll:.2f}° (Tracking: {'Active' if tracking_active else 'Inactive'})")
+                    logger.debug(f"Gimbal angles - YAW: {gimbal_data.angles.yaw:.2f}° PITCH: {gimbal_data.angles.pitch:.2f}° ROLL: {gimbal_data.angles.roll:.2f}° | Connection: {'Active' if tracking_active else 'Monitoring'}")
                     return True, tracker_output
                 else:
                     logger.warning("Failed to process gimbal angle data")
@@ -331,12 +331,16 @@ class GimbalTracker(BaseTracker):
             logger.error(f"Error handling tracking state changes: {e}")
             return False
 
-    def _process_active_tracking(self, gimbal_data: GimbalData) -> Tuple[bool, Optional[TrackerOutput]]:
+    def _process_gimbal_data(self, gimbal_data: GimbalData, tracking_active: bool = False) -> Tuple[bool, Optional[TrackerOutput]]:
         """
-        Process gimbal data when tracking is active and create TrackerOutput.
+        Process gimbal data and create TrackerOutput with angle information.
+
+        Modified to always process gimbal data when available, regardless of tracking state.
+        Tracking state is used for follower control but angles are always displayed.
 
         Args:
             gimbal_data (GimbalData): Current gimbal data with angles
+            tracking_active (bool): Whether gimbal reports active tracking (for follower control)
 
         Returns:
             Tuple[bool, Optional[TrackerOutput]]: Success flag and tracker output
@@ -370,10 +374,11 @@ class GimbalTracker(BaseTracker):
             aircraft_attitude = self._get_aircraft_attitude()
 
             # Create TrackerOutput with GIMBAL_ANGLES data type
+            # Always show as "active" when angle data is available (continuous display mode)
             tracker_output = TrackerOutput(
                 data_type=TrackerDataType.GIMBAL_ANGLES,
                 timestamp=time.time(),
-                tracking_active=True,
+                tracking_active=True,  # Always True when angle data available
                 tracker_id=f"GimbalTracker_{id(self)}",
 
                 # Primary data - angular information (3-tuple for gimbal)
@@ -390,16 +395,18 @@ class GimbalTracker(BaseTracker):
                     'gimbal_angles': (yaw, pitch, roll),
                     'target_vector_body': target_vector_body.tolist(),
                     'coordinate_system': angles.coordinate_system.value,
-                    'tracking_status': gimbal_data.tracking_status.state.name,
+                    'gimbal_tracking_active': tracking_active,  # Actual gimbal tracking state
+                    'tracking_status': gimbal_data.tracking_status.state.name if gimbal_data.tracking_status else 'UNKNOWN',
                     'aircraft_attitude': aircraft_attitude,
-                    'tracking_duration': (
-                        time.time() - self.tracking_activation_time
-                        if self.tracking_activation_time else 0.0
+                    'monitoring_duration': (
+                        time.time() - self.last_update_time
+                        if hasattr(self, 'last_update_time') and self.last_update_time else 0.0
                     ),
                     'gimbal_data_age': (
                         (time.time() - gimbal_data.timestamp.timestamp())
                         if gimbal_data.timestamp else 0.0
-                    )
+                    ),
+                    'connection_status': self.gimbal_interface.get_connection_status()
                 },
 
                 metadata={
@@ -410,8 +417,9 @@ class GimbalTracker(BaseTracker):
                     'suppressed_components': ['detector', 'predictor'],
                     'data_source': 'external_gimbal',
                     'real_time': True,
-                    'status_driven': True,
-                    'external_control': True
+                    'continuous_display': True,  # New flag for always-on display
+                    'external_control': True,
+                    'always_active_when_data_available': True
                 }
             )
 

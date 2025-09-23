@@ -1289,12 +1289,20 @@ class FastAPIHandler:
                     'suitable_for': ['Single target', 'Stable tracking', 'Classical computer vision']
                 },
                 'ParticleFilter': {
-                    'name': 'ParticleFilter', 
+                    'name': 'ParticleFilter',
                     'display_name': 'Particle Filter',
                     'description': 'Particle Filter Tracker - Probabilistic tracking',
                     'data_type': 'POSITION_2D',
                     'smart_mode': False,
                     'suitable_for': ['Complex movements', 'Occlusions', 'Probabilistic tracking']
+                },
+                'Gimbal': {
+                    'name': 'Gimbal',
+                    'display_name': 'Gimbal Tracker',
+                    'description': 'External gimbal UDP angle tracker - Real-time gimbal angle data',
+                    'data_type': 'GIMBAL_ANGLES',
+                    'smart_mode': False,
+                    'suitable_for': ['External gimbal', 'Real-time angles', 'High precision tracking']
                 },
                 'SmartTracker': {
                     'name': 'SmartTracker',
@@ -1336,7 +1344,7 @@ class FastAPIHandler:
                 raise HTTPException(status_code=400, detail="tracker_type is required")
             
             # Validate tracker type
-            valid_types = ['CSRT', 'ParticleFilter', 'SmartTracker']
+            valid_types = ['CSRT', 'ParticleFilter', 'Gimbal', 'SmartTracker']
             if tracker_type not in valid_types:
                 raise HTTPException(
                     status_code=400,
