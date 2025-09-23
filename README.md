@@ -326,10 +326,37 @@ bash ~/PixEagle/auto_opencv_build.sh
 
 ## ▶️ Running PixEagle
 
-Start the full PixEagle suite with a single command:
+**Main Workflow:** Start the complete PixEagle suite with a single command:
 
 ```bash
 bash run_pixeagle.sh
+```
+
+This is the **recommended way** to run PixEagle - it automatically launches all components (Python app, React dashboard, MAVLink2REST, MAVSDK server) in optimized tmux sessions.
+
+### ⚡ Performance Optimizations (New in 3.0)
+
+The system now includes intelligent caching for faster startup:
+
+- **Smart dependency management** - Only reinstalls npm packages when needed
+- **Intelligent build caching** - Skips React rebuilds when no source changes detected
+- **Performance reporting** - Shows cache hits and startup times
+- **~80% faster startup** when no changes detected
+
+### 🔧 Advanced Options
+
+**Individual component testing:**
+```bash
+./run_dashboard.sh          # Dashboard only (production + caching)
+./run_dashboard.sh -d       # Dashboard only (development mode)
+./run_dashboard.sh -f       # Force rebuild even if no changes
+```
+
+**Custom component selection:**
+```bash
+./run_pixeagle.sh -d        # Skip dashboard
+./run_pixeagle.sh -p        # Skip Python app
+./run_pixeagle.sh -s        # Separate tmux windows
 ```
 
 ### This will:

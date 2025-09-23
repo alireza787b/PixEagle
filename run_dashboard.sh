@@ -37,19 +37,25 @@ MIN_NPM_VERSION=6
 DEFAULT_PORT=3000
 DEFAULT_DASHBOARD_DIR="$HOME/PixEagle/dashboard"
 
+# Cache and optimization settings
+CACHE_DIR=".pixeagle_cache"
+FORCE_REBUILD=false
+
 # Resolve script directory to support execution from any location
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Initialize variables
 MODE="production"
 POSITIONAL_ARGS=()
+START_TIME=$(date +%s)
 
 # Function to display usage instructions
 display_usage() {
-  echo "Usage: $0 [-d] [PORT] [DASHBOARD_DIR]"
+  echo "Usage: $0 [-d] [-f] [PORT] [DASHBOARD_DIR]"
   echo ""
   echo "Flags:"
   echo "  -d, --development : Run in development mode (default is production mode)"
+  echo "  -f, --force       : Force rebuild even if no changes detected"
   echo "  -h, --help        : Display this help message"
   echo ""
   echo "Positional Arguments:"
@@ -61,6 +67,7 @@ display_usage() {
   echo "  $0 -d         # Runs in development mode on default port"
   echo "  $0 4000       # Runs in production mode on port 4000"
   echo "  $0 -d 4000    # Runs in development mode on port 4000"
+  echo "  $0 -f         # Force rebuild in production mode"
 }
 
 # Parse options
@@ -68,6 +75,10 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     -d|--development)
       MODE="development"
+      shift # Remove argument from processing
+      ;;
+    -f|--force)
+      FORCE_REBUILD=true
       shift # Remove argument from processing
       ;;
     -h|--help)
@@ -103,6 +114,111 @@ function header_message() {
 # Function to compare semantic version numbers
 version_ge() {
   printf '%s\n%s' "$2" "$1" | sort -V -C
+}
+
+# Function to calculate file hash for change detection
+calculate_hash() {
+  local file="$1"
+  if [ -f "$file" ]; then
+    # Use different hash commands based on availability
+    if command -v sha256sum &> /dev/null; then
+      sha256sum "$file" | cut -d' ' -f1
+    elif command -v shasum &> /dev/null; then
+      shasum -a 256 "$file" | cut -d' ' -f1
+    else
+      # Fallback to modification time
+      stat -c %Y "$file" 2>/dev/null || stat -f %m "$file" 2>/dev/null
+    fi
+  else
+    echo "missing"
+  fi
+}
+
+# Function to check if dependencies need reinstallation
+needs_dependency_install() {
+  local cache_file="$CACHE_DIR/deps_hash"
+
+  # Create cache directory if it doesn't exist
+  mkdir -p "$CACHE_DIR"
+
+  # Calculate current hashes
+  local package_hash=$(calculate_hash "package.json")
+  local lock_hash=$(calculate_hash "package-lock.json")
+  local current_hash="${package_hash}_${lock_hash}"
+
+  # Check if node_modules exists
+  if [ ! -d "node_modules" ]; then
+    echo "true"
+    return
+  fi
+
+  # Check cached hash
+  if [ -f "$cache_file" ]; then
+    local cached_hash=$(cat "$cache_file")
+    if [ "$cached_hash" = "$current_hash" ]; then
+      echo "false"
+      return
+    fi
+  fi
+
+  echo "true"
+}
+
+# Function to save dependency hash
+save_dependency_hash() {
+  local cache_file="$CACHE_DIR/deps_hash"
+  local package_hash=$(calculate_hash "package.json")
+  local lock_hash=$(calculate_hash "package-lock.json")
+  echo "${package_hash}_${lock_hash}" > "$cache_file"
+}
+
+# Function to check if build is needed
+needs_build() {
+  if [ "$FORCE_REBUILD" = "true" ]; then
+    echo "true"
+    return
+  fi
+
+  local cache_file="$CACHE_DIR/build_hash"
+  local build_dir="build"
+
+  # If build directory doesn't exist, need to build
+  if [ ! -d "$build_dir" ]; then
+    echo "true"
+    return
+  fi
+
+  # Calculate hash of source files
+  local src_hash=""
+  if [ -d "src" ]; then
+    src_hash=$(find src public -type f \( -name "*.js" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" -o -name "*.css" -o -name "*.html" -o -name "*.json" \) -exec stat -c %Y {} \; 2>/dev/null | sort | sha256sum 2>/dev/null | cut -d' ' -f1 || echo "fallback")
+  fi
+  local package_hash=$(calculate_hash "package.json")
+  local current_hash="${src_hash}_${package_hash}"
+
+  # Check cached hash
+  if [ -f "$cache_file" ]; then
+    local cached_hash=$(cat "$cache_file")
+    if [ "$cached_hash" = "$current_hash" ]; then
+      echo "false"
+      return
+    fi
+  fi
+
+  echo "true"
+}
+
+# Function to save build hash
+save_build_hash() {
+  local cache_file="$CACHE_DIR/build_hash"
+  mkdir -p "$CACHE_DIR"
+
+  local src_hash=""
+  if [ -d "src" ]; then
+    src_hash=$(find src public -type f \( -name "*.js" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" -o -name "*.css" -o -name "*.html" -o -name "*.json" \) -exec stat -c %Y {} \; 2>/dev/null | sort | sha256sum 2>/dev/null | cut -d' ' -f1 || echo "fallback")
+  fi
+  local package_hash=$(calculate_hash "package.json")
+  echo "${src_hash}_${package_hash}" > "$cache_file"
 }
 
 # 1. Display initial information
@@ -163,21 +279,12 @@ fi
 echo ""
 
 # 4. Install required npm packages if necessary
-header_message "Installing npm packages"
+header_message "Checking npm dependencies"
 
-# Check if node_modules exists
-if [ -d "node_modules" ]; then
-  echo "🔍 node_modules directory exists. Ensuring dependencies are up to date..."
-  # Instead of using 'npm outdated', we'll run 'npm install' which updates dependencies as needed
-  npm install
-  if [ $? -eq 0 ]; then
-    echo "✅ npm packages are up to date."
-  else
-    echo "❌ Failed to update npm packages. Please check the error messages above."
-    exit 1
-  fi
-else
-  echo "📁 node_modules directory not found. Installing packages..."
+# Smart dependency management with change detection
+if [ "$(needs_dependency_install)" = "true" ]; then
+  echo "📦 Dependencies need installation or update..."
+
   # Use npm ci if package-lock.json exists for a clean and consistent installation
   if [ -f "package-lock.json" ]; then
     echo "🔒 package-lock.json found. Running 'npm ci' for a clean installation..."
@@ -186,12 +293,16 @@ else
     echo "🔍 package-lock.json not found. Running 'npm install'..."
     npm install
   fi
+
   if [ $? -eq 0 ]; then
     echo "✅ npm packages installed successfully."
+    save_dependency_hash
   else
     echo "❌ Failed to install npm packages. Please check the error messages above."
     exit 1
   fi
+else
+  echo "✅ Dependencies are up to date (cache hit)."
 fi
 echo ""
 
@@ -227,32 +338,29 @@ if [ "$MODE" = "development" ]; then
     exit 1
   fi
 else
-  # Build the app
-  header_message "Building the app for production"
-  npm run build
-  if [ $? -ne 0 ]; then
-    echo "❌ Build failed. Please check the error messages above."
-    exit 1
-  else
-    echo "✅ Build completed successfully."
-  fi
+  # Smart build with caching
+  header_message "Preparing production build"
 
-  # Check if 'serve' is installed
-  if ! npx --no-install serve --version &> /dev/null; then
-    echo "📦 'serve' package is not installed. Installing locally..."
-    npm install --save-dev serve
+  if [ "$(needs_build)" = "true" ]; then
+    echo "🔨 Building the app for production..."
+    BUILD_START=$(date +%s)
+    npm run build
     if [ $? -ne 0 ]; then
-      echo "❌ Failed to install 'serve'. Please install it manually."
+      echo "❌ Build failed. Please check the error messages above."
       exit 1
     else
-      echo "✅ 'serve' installed successfully."
+      BUILD_END=$(date +%s)
+      BUILD_TIME=$((BUILD_END - BUILD_START))
+      echo "✅ Build completed successfully in ${BUILD_TIME}s."
+      save_build_hash
     fi
   else
-    echo "✅ 'serve' is already installed."
+    echo "✅ Using cached build (no changes detected)."
   fi
 
-  # Start the server using 'serve'
+  # Start the server using 'serve' (now available as devDependency)
   header_message "Serving the production build on port $PORT"
+  echo "🚀 Starting production server..."
   npx serve -s build -l $PORT
   if [ $? -eq 0 ]; then
     echo "✅ Production server started successfully on port $PORT."
@@ -275,7 +383,27 @@ echo "🌐 To access it from another device on the network, replace 'localhost' 
 echo "ℹ️  This dashboard provides a web interface for interacting with PixEagle, a system designed for UAV/UGV control and monitoring."
 echo ""
 
-# 8. End message
+# 8. Performance summary and end message
+END_TIME=$(date +%s)
+TOTAL_TIME=$((END_TIME - START_TIME))
+
 header_message "Dashboard Server Running"
 echo "🎉 The server is now running and can be accessed via your browser."
 echo "👉 Press Ctrl+C to stop the server at any time."
+echo ""
+echo "⚡ Performance Summary:"
+echo "   Total startup time: ${TOTAL_TIME}s"
+if [ "$MODE" = "production" ]; then
+  if [ "$(needs_dependency_install)" = "false" ]; then
+    echo "   Dependencies: ✅ Cache hit"
+  else
+    echo "   Dependencies: 🔄 Reinstalled"
+  fi
+  if [ "$FORCE_REBUILD" = "true" ]; then
+    echo "   Build: 🔄 Force rebuild"
+  elif [ "$(needs_build)" = "false" ]; then
+    echo "   Build: ✅ Cache hit"
+  else
+    echo "   Build: 🔄 Rebuilt"
+  fi
+fi
