@@ -464,11 +464,15 @@ class GimbalInterface:
             try:
                 # Query tracking status more frequently (gimbal responds to this)
                 self.query_tracking_status()
-                time.sleep(2.0)
+                time.sleep(1.0)  # Increased frequency for better responsiveness
 
-                # Query angles less frequently since gimbal may be broadcasting
+                # Query angles more frequently for smooth tracking
                 self.query_spatial_fixed_angles()
-                time.sleep(5.0)
+                time.sleep(1.5)  # Increased frequency for smoother updates
+
+                # Also query gimbal body angles for backup
+                self.query_gimbal_body_angles()
+                time.sleep(1.5)
 
             except Exception as e:
                 logger.debug(f"Query loop error: {e}")

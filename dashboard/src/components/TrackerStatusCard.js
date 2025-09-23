@@ -219,6 +219,29 @@ const TrackerStatusCard = () => {
                 Gimbal Status:
               </Typography>
 
+              {/* Connection Health Indicator */}
+              {(currentStatus.raw_data.data_is_stale || currentStatus.raw_data.connection_health) && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                  <Warning fontSize="small" color={
+                    currentStatus.raw_data.data_is_stale ? 'warning' : 'success'
+                  } />
+                  <Typography variant="caption" sx={{ minWidth: 60 }}>
+                    health:
+                  </Typography>
+                  <Chip
+                    size="small"
+                    label={currentStatus.raw_data.data_is_stale ?
+                      `STALE (${currentStatus.raw_data.data_age_seconds?.toFixed(1)}s)` :
+                      (currentStatus.raw_data.connection_health?.toUpperCase() || 'GOOD')
+                    }
+                    color={currentStatus.raw_data.data_is_stale ? 'warning' :
+                           currentStatus.raw_data.connection_health === 'poor' ? 'error' :
+                           currentStatus.raw_data.connection_health === 'degraded' ? 'warning' : 'success'}
+                    sx={{ height: 16, fontSize: '0.6rem' }}
+                  />
+                </Box>
+              )}
+
               {/* Gimbal Tracking State */}
               {currentStatus.raw_data.tracking_status && (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
@@ -226,7 +249,7 @@ const TrackerStatusCard = () => {
                     currentStatus.raw_data.gimbal_tracking_active ? 'success' : 'warning'
                   } />
                   <Typography variant="caption" sx={{ minWidth: 60 }}>
-                    tracking:
+                    mode:
                   </Typography>
                   <Chip
                     size="small"
@@ -244,7 +267,7 @@ const TrackerStatusCard = () => {
                     currentStatus.raw_data.connection_status === 'RECEIVING' ? 'success' : 'warning'
                   } />
                   <Typography variant="caption" sx={{ minWidth: 60 }}>
-                    connection:
+                    UDP:
                   </Typography>
                   <Typography variant="caption" fontFamily="monospace" color={
                     currentStatus.raw_data.connection_status === 'RECEIVING' ? 'success.main' : 'warning.main'
@@ -263,6 +286,16 @@ const TrackerStatusCard = () => {
                   </Typography>
                   <Typography variant="caption" fontFamily="monospace" color="info.main">
                     {currentStatus.raw_data.coordinate_system}
+                  </Typography>
+                </Box>
+              )}
+
+              {/* Failure Counter (when there are consecutive failures) */}
+              {currentStatus.raw_data.consecutive_failures > 0 && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                  <Warning fontSize="small" color="warning" />
+                  <Typography variant="caption" sx={{ fontSize: '0.65rem' }} color="warning.main">
+                    {currentStatus.raw_data.consecutive_failures} consecutive failures
                   </Typography>
                 </Box>
               )}

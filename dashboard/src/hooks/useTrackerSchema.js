@@ -53,7 +53,7 @@ export const useTrackerSchema = (refreshInterval = 10000) => {
  * Hook for real-time tracker status and field data
  * Provides current tracker information with schema-driven field display
  */
-export const useCurrentTrackerStatus = (refreshInterval = 2000) => {
+export const useCurrentTrackerStatus = (refreshInterval = 1000) => {
   const [currentStatus, setCurrentStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -161,7 +161,7 @@ export const useTrackerDataTypes = (schema, currentStatus) => {
  * Hook for tracker output data with real-time updates
  * Provides structured tracker output for plotting and analysis
  */
-export const useTrackerOutput = (refreshInterval = 1000) => {
+export const useTrackerOutput = (refreshInterval = 500) => {
   const [output, setOutput] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

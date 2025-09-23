@@ -137,6 +137,13 @@ class GimbalTracker(BaseTracker):
         self.tracking_activation_time: Optional[float] = None
         self.last_tracking_state = TrackingState.DISABLED
 
+        # Enhanced caching for robust operation
+        self.last_valid_output: Optional[TrackerOutput] = None
+        self.last_valid_data_time: Optional[float] = None
+        self.data_timeout_seconds = 5.0  # Show stale data for up to 5 seconds
+        self.consecutive_failures = 0
+        self.max_consecutive_failures = 10  # Warning threshold
+
         # Configuration
         self.preferred_coordinate_system = getattr(Parameters, 'GIMBAL_COORDINATE_SYSTEM', 'GIMBAL_BODY')
 
@@ -258,8 +265,8 @@ class GimbalTracker(BaseTracker):
             gimbal_data = self.gimbal_interface.get_current_data()
 
             if gimbal_data is None:
-                # No recent data from gimbal
-                return False, self._create_inactive_output("no_gimbal_data")
+                # No recent data from gimbal - check if we can use cached data
+                return self._handle_no_current_data()
 
             # Store the data for analysis
             self.last_gimbal_data = gimbal_data
@@ -269,22 +276,116 @@ class GimbalTracker(BaseTracker):
 
             # ALWAYS process angles when available (continuous display mode)
             if gimbal_data.angles:
-                # We have angle data - always process and return it
+                # We have angle data - process and cache it
                 success, tracker_output = self._process_gimbal_data(gimbal_data, tracking_active)
 
                 if success:
+                    # Cache the successful result
+                    self.last_valid_output = tracker_output
+                    self.last_valid_data_time = time.time()
+                    self.consecutive_failures = 0  # Reset failure counter
+
                     logger.debug(f"Gimbal angles - YAW: {gimbal_data.angles.yaw:.2f}° PITCH: {gimbal_data.angles.pitch:.2f}° ROLL: {gimbal_data.angles.roll:.2f}° | Connection: {'Active' if tracking_active else 'Monitoring'}")
                     return True, tracker_output
                 else:
                     logger.warning("Failed to process gimbal angle data")
-                    return False, self._create_inactive_output("processing_error")
+                    self.consecutive_failures += 1
+                    return self._handle_processing_failure()
             else:
                 # No angle data available
-                return False, self._create_inactive_output("no_angle_data")
+                self.consecutive_failures += 1
+                return self._handle_no_angle_data()
 
         except Exception as e:
             logger.error(f"Error in gimbal tracker update: {e}")
-            return False, self._create_inactive_output("update_error")
+            self.consecutive_failures += 1
+            return self._handle_exception_failure(str(e))
+
+    def _handle_no_current_data(self) -> Tuple[bool, Optional[TrackerOutput]]:
+        """Handle case when no current gimbal data is available."""
+        self.consecutive_failures += 1
+
+        # Check if we have recent cached data we can use
+        if (self.last_valid_output and self.last_valid_data_time and
+            (time.time() - self.last_valid_data_time) < self.data_timeout_seconds):
+
+            # Return cached data with staleness indicator
+            cached_output = self._create_stale_data_output(self.last_valid_output)
+            logger.debug(f"Using cached gimbal data (age: {time.time() - self.last_valid_data_time:.1f}s)")
+            return True, cached_output
+
+        # No usable cached data
+        return False, self._create_inactive_output("no_gimbal_data")
+
+    def _handle_processing_failure(self) -> Tuple[bool, Optional[TrackerOutput]]:
+        """Handle gimbal data processing failure."""
+        # Try to return cached data if available and recent
+        if (self.last_valid_output and self.last_valid_data_time and
+            (time.time() - self.last_valid_data_time) < self.data_timeout_seconds):
+
+            cached_output = self._create_stale_data_output(self.last_valid_output)
+            logger.debug(f"Processing failed, using cached data (age: {time.time() - self.last_valid_data_time:.1f}s)")
+            return True, cached_output
+
+        return False, self._create_inactive_output("processing_error")
+
+    def _handle_no_angle_data(self) -> Tuple[bool, Optional[TrackerOutput]]:
+        """Handle case when gimbal data exists but no angle information."""
+        # Try to return cached data if available and recent
+        if (self.last_valid_output and self.last_valid_data_time and
+            (time.time() - self.last_valid_data_time) < self.data_timeout_seconds):
+
+            cached_output = self._create_stale_data_output(self.last_valid_output)
+            logger.debug(f"No angle data, using cached data (age: {time.time() - self.last_valid_data_time:.1f}s)")
+            return True, cached_output
+
+        return False, self._create_inactive_output("no_angle_data")
+
+    def _handle_exception_failure(self, error_msg: str) -> Tuple[bool, Optional[TrackerOutput]]:
+        """Handle exception during update."""
+        # Try to return cached data if available and recent
+        if (self.last_valid_output and self.last_valid_data_time and
+            (time.time() - self.last_valid_data_time) < self.data_timeout_seconds):
+
+            cached_output = self._create_stale_data_output(self.last_valid_output)
+            logger.debug(f"Exception occurred, using cached data (age: {time.time() - self.last_valid_data_time:.1f}s)")
+            return True, cached_output
+
+        return False, self._create_inactive_output(f"update_error: {error_msg}")
+
+    def _create_stale_data_output(self, original_output: TrackerOutput) -> TrackerOutput:
+        """Create a TrackerOutput based on cached data with staleness indicators."""
+        current_time = time.time()
+        data_age = current_time - self.last_valid_data_time if self.last_valid_data_time else 0
+
+        # Create new output based on cached data
+        stale_output = TrackerOutput(
+            data_type=original_output.data_type,
+            timestamp=current_time,  # Current timestamp
+            tracking_active=True,  # Keep showing as active for UI
+            tracker_id=original_output.tracker_id,
+            angular=original_output.angular,  # Keep last known angles
+            position_2d=original_output.position_2d,
+            confidence=max(0.1, original_output.confidence * 0.7) if original_output.confidence else 0.1,  # Reduced confidence
+
+            raw_data={
+                **original_output.raw_data,
+                'data_is_stale': True,
+                'data_age_seconds': data_age,
+                'consecutive_failures': self.consecutive_failures,
+                'last_valid_time': self.last_valid_data_time,
+                'connection_health': 'degraded' if self.consecutive_failures < self.max_consecutive_failures else 'poor'
+            },
+
+            metadata={
+                **original_output.metadata,
+                'stale_data': True,
+                'cache_mode': True,
+                'data_freshness': 'stale'
+            }
+        )
+
+        return stale_output
 
     def _handle_tracking_state_changes(self, gimbal_data: GimbalData) -> bool:
         """
