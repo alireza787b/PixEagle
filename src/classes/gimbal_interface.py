@@ -708,34 +708,38 @@ class GimbalInterface:
             return None
 
     def _parse_tracking_response(self, response: str) -> Optional[TrackingStatus]:
-        """Parse tracking status from gimbal response (NEW FUNCTIONALITY)."""
+        """Parse tracking status from gimbal response using exact logic from test script."""
         try:
             response = response.strip()
+            logger.debug(f"Parsing tracking status from: {response}")
 
             if "TRC" not in response:
+                logger.debug("No TRC identifier found in response")
                 return None
 
             # Find tracking data after TRC identifier
             trc_pos = response.find("TRC") + 3
             if trc_pos + 2 > len(response):
+                logger.debug(f"Not enough data after TRC, response length: {len(response)}, trc_pos: {trc_pos}")
                 return None
 
             # Extract tracking state (2 characters)
             state_data = response[trc_pos:trc_pos + 2]
+            logger.debug(f"Extracted state_data: '{state_data}' from position {trc_pos}")
 
-            # Parse state value from protocol
+            # Parse state value - exact logic from test_gimbal_udp.py
             try:
-                # The demo code shows states as single digit in second character
-                state_val = int(state_data[1])
+                state_val = int(state_data[1])  # Second character is the state
+                state_names = {0: "DISABLED", 1: "TARGET_SELECTION", 2: "TRACKING_ACTIVE", 3: "TARGET_LOST"}
+                state_name = state_names.get(state_val, f"UNKNOWN({state_val})")
+
+                # Map to TrackingState enum
                 state = TrackingState(state_val)
-            except (ValueError, IndexError):
-                # Fallback parsing if format is different
-                try:
-                    state_val = int(state_data)
-                    state = TrackingState(state_val)
-                except (ValueError, IndexError):
-                    logger.debug(f"Could not parse tracking state from: {state_data}")
-                    return None
+                logger.debug(f"Successfully parsed tracking state: {state_name} (value: {state_val})")
+
+            except (ValueError, IndexError) as e:
+                logger.debug(f"Could not parse tracking state from: '{state_data}', error: {e}")
+                return None
 
             return TrackingStatus(
                 state=state,

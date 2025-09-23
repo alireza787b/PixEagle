@@ -82,6 +82,15 @@ const TrackerStatusCard = () => {
 
   // Get key field values for compact display
   const getKeyFieldValue = (fieldName, fieldData) => {
+    // Handle special fields from raw_data for gimbal
+    if (fieldName === 'coordinate_system' && currentStatus?.raw_data?.coordinate_system) {
+      return currentStatus.raw_data.coordinate_system.toUpperCase();
+    }
+
+    if (fieldName === 'tracking_status' && currentStatus?.raw_data?.tracking_status) {
+      return currentStatus.raw_data.tracking_status;
+    }
+
     const value = fieldData?.value;
     if (value === null || value === undefined) return null;
 
@@ -109,7 +118,8 @@ const TrackerStatusCard = () => {
 
   // Prioritize gimbal-specific fields for GIMBAL_ANGLES data type
   const keyFields = dataType === 'GIMBAL_ANGLES'
-    ? ['angular', 'confidence', 'position_2d'].filter(field => fields[field])
+    ? ['angular', 'coordinate_system', 'tracking_status', 'confidence'].filter(field =>
+        fields[field] || (currentStatus?.raw_data && (currentStatus.raw_data.coordinate_system || currentStatus.raw_data.tracking_status)))
     : ['position_2d', 'confidence', 'bbox'].filter(field => fields[field]);
 
   return (
@@ -187,135 +197,58 @@ const TrackerStatusCard = () => {
               <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
                 Live Data:
               </Typography>
-              {keyFields.slice(0, 2).map(fieldName => {
+              {keyFields.slice(0, 4).map(fieldName => {
                 const fieldData = fields[fieldName];
                 const value = getKeyFieldValue(fieldName, fieldData);
-                const icon = fieldName.includes('position') ? <GpsFixed fontSize="small" /> :
-                           fieldName.includes('confidence') ? <Visibility fontSize="small" /> :
-                           fieldName === 'angular' ? <TrackChanges fontSize="small" /> :
-                           <Speed fontSize="small" />;
 
-                return value ? (
+                // Skip if no value available
+                if (!value) return null;
+
+                // Get appropriate icon and label
+                const getFieldInfo = (field) => {
+                  switch (field) {
+                    case 'angular':
+                      return { icon: <TrackChanges fontSize="small" />, label: 'angles' };
+                    case 'coordinate_system':
+                      return { icon: <GpsFixed fontSize="small" />, label: 'coords' };
+                    case 'tracking_status':
+                      return { icon: <TrackChanges fontSize="small" />, label: 'mode' };
+                    case 'confidence':
+                      return { icon: <Visibility fontSize="small" />, label: 'confidence' };
+                    default:
+                      return { icon: <Speed fontSize="small" />, label: field.replace('_', ' ') };
+                  }
+                };
+
+                const { icon, label } = getFieldInfo(fieldName);
+
+                return (
                   <Box key={fieldName} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
                     {icon}
                     <Typography variant="caption" sx={{ minWidth: 60 }}>
-                      {fieldName === 'angular' && dataType === 'GIMBAL_ANGLES' ? 'angles' : fieldName.replace('_', ' ')}:
+                      {label}:
                     </Typography>
-                    <Tooltip title={`Type: ${fieldData?.type}`}>
-                      <Typography variant="caption" fontFamily="monospace" color="primary">
-                        {value}
-                      </Typography>
-                    </Tooltip>
+                    <Typography variant="caption" fontFamily="monospace" color="primary">
+                      {value}
+                    </Typography>
                   </Box>
-                ) : null;
+                );
               })}
             </Box>
           )}
 
-          {/* Debug: Show what raw_data contains */}
-          {isActive && dataType === 'GIMBAL_ANGLES' && (
+          {/* Connection Health - Only show when degraded/stale */}
+          {isActive && dataType === 'GIMBAL_ANGLES' && currentStatus?.raw_data &&
+           (currentStatus.raw_data.data_is_stale || currentStatus.raw_data.connection_health === 'degraded' || currentStatus.raw_data.connection_health === 'poor') && (
             <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
-              <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
-                Debug Info:
-              </Typography>
-              <Typography variant="caption" fontFamily="monospace" sx={{ fontSize: '0.6rem' }}>
-                raw_data available: {currentStatus?.raw_data ? 'YES' : 'NO'}
-              </Typography>
-              {currentStatus?.raw_data && (
-                <Typography variant="caption" fontFamily="monospace" sx={{ fontSize: '0.6rem', display: 'block' }}>
-                  Keys: {Object.keys(currentStatus.raw_data).join(', ')}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Warning fontSize="small" color="warning" />
+                <Typography variant="caption" color="warning.main">
+                  {currentStatus.raw_data.data_is_stale
+                    ? `Data stale (${currentStatus.raw_data.data_age_seconds?.toFixed(1)}s)`
+                    : `Connection ${currentStatus.raw_data.connection_health}`}
                 </Typography>
-              )}
-            </Box>
-          )}
-
-          {/* Gimbal-specific Status - Only for GIMBAL_ANGLES data type */}
-          {isActive && dataType === 'GIMBAL_ANGLES' && currentStatus?.raw_data && (
-            <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
-              <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
-                Gimbal Status:
-              </Typography>
-
-              {/* Connection Health Indicator */}
-              {(currentStatus.raw_data.data_is_stale || currentStatus.raw_data.connection_health) && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
-                  <Warning fontSize="small" color={
-                    currentStatus.raw_data.data_is_stale ? 'warning' : 'success'
-                  } />
-                  <Typography variant="caption" sx={{ minWidth: 60 }}>
-                    health:
-                  </Typography>
-                  <Chip
-                    size="small"
-                    label={currentStatus.raw_data.data_is_stale ?
-                      `STALE (${currentStatus.raw_data.data_age_seconds?.toFixed(1)}s)` :
-                      (currentStatus.raw_data.connection_health?.toUpperCase() || 'GOOD')
-                    }
-                    color={currentStatus.raw_data.data_is_stale ? 'warning' :
-                           currentStatus.raw_data.connection_health === 'poor' ? 'error' :
-                           currentStatus.raw_data.connection_health === 'degraded' ? 'warning' : 'success'}
-                    sx={{ height: 16, fontSize: '0.6rem' }}
-                  />
-                </Box>
-              )}
-
-              {/* Gimbal Tracking State */}
-              {currentStatus.raw_data.tracking_status && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
-                  <TrackChanges fontSize="small" color={
-                    currentStatus.raw_data.gimbal_tracking_active ? 'success' : 'warning'
-                  } />
-                  <Typography variant="caption" sx={{ minWidth: 60 }}>
-                    mode:
-                  </Typography>
-                  <Chip
-                    size="small"
-                    label={currentStatus.raw_data.tracking_status}
-                    color={currentStatus.raw_data.gimbal_tracking_active ? 'success' : 'warning'}
-                    sx={{ height: 16, fontSize: '0.6rem' }}
-                  />
-                </Box>
-              )}
-
-              {/* Connection Status */}
-              {currentStatus.raw_data.connection_status && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
-                  <CheckCircle fontSize="small" color={
-                    currentStatus.raw_data.connection_status === 'RECEIVING' ? 'success' : 'warning'
-                  } />
-                  <Typography variant="caption" sx={{ minWidth: 60 }}>
-                    UDP:
-                  </Typography>
-                  <Typography variant="caption" fontFamily="monospace" color={
-                    currentStatus.raw_data.connection_status === 'RECEIVING' ? 'success.main' : 'warning.main'
-                  }>
-                    {currentStatus.raw_data.connection_status}
-                  </Typography>
-                </Box>
-              )}
-
-              {/* Coordinate System */}
-              {currentStatus.raw_data.coordinate_system && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <GpsFixed fontSize="small" color="info" />
-                  <Typography variant="caption" sx={{ minWidth: 60 }}>
-                    coords:
-                  </Typography>
-                  <Typography variant="caption" fontFamily="monospace" color="info.main">
-                    {currentStatus.raw_data.coordinate_system}
-                  </Typography>
-                </Box>
-              )}
-
-              {/* Failure Counter (when there are consecutive failures) */}
-              {currentStatus.raw_data.consecutive_failures > 0 && (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
-                  <Warning fontSize="small" color="warning" />
-                  <Typography variant="caption" sx={{ fontSize: '0.65rem' }} color="warning.main">
-                    {currentStatus.raw_data.consecutive_failures} consecutive failures
-                  </Typography>
-                </Box>
-              )}
+              </Box>
             </Box>
           )}
 
