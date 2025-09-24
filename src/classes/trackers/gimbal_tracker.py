@@ -264,6 +264,17 @@ class GimbalTracker(BaseTracker):
             # Get current gimbal data (includes status and angles)
             gimbal_data = self.gimbal_interface.get_current_data()
 
+            # Temporary debug logging
+            if gimbal_data:
+                has_angles = gimbal_data.angles is not None
+                logger.info(f"[DEBUG] GimbalTracker got data: has_angles={has_angles}, tracking_status={gimbal_data.tracking_status.state.name if gimbal_data.tracking_status else 'None'}")
+                if has_angles:
+                    logger.info(f"[DEBUG] Received angles: yaw={gimbal_data.angles.yaw:.2f}°, pitch={gimbal_data.angles.pitch:.2f}°, roll={gimbal_data.angles.roll:.2f}°")
+                else:
+                    logger.warning(f"[DEBUG] GimbalTracker: No angles in gimbal_data, raw_packet: {gimbal_data.raw_packet[:100] if gimbal_data.raw_packet else 'None'}")
+            else:
+                logger.warning(f"[DEBUG] GimbalTracker: gimbal_interface returned None")
+
             if gimbal_data is None:
                 # No recent data from gimbal - check if we can use cached data
                 return self._handle_no_current_data()
@@ -624,7 +635,7 @@ class GimbalTracker(BaseTracker):
             tracking_state = gimbal_data.tracking_status.state.name
 
         return TrackerOutput(
-            data_type=TrackerDataType.ANGULAR,
+            data_type=TrackerDataType.GIMBAL_ANGLES,
             timestamp=time.time(),
             tracking_active=False,
             tracker_id=f"GimbalTracker_{id(self)}",

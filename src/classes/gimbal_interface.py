@@ -296,7 +296,14 @@ class GimbalInterface:
         """
         with self.lock:
             if self.current_data and self._is_data_fresh():
+                # Temporary debug logging
+                has_angles = self.current_data.angles is not None
+                logger.debug(f"[DEBUG] Returning gimbal data: has_angles={has_angles}, fresh={self._is_data_fresh()}")
+                if has_angles:
+                    logger.debug(f"[DEBUG] Angle data: yaw={self.current_data.angles.yaw:.2f}°, pitch={self.current_data.angles.pitch:.2f}°, roll={self.current_data.angles.roll:.2f}°")
                 return self.current_data
+            else:
+                logger.debug(f"[DEBUG] No current data or not fresh: has_data={self.current_data is not None}, fresh={self._is_data_fresh() if self.current_data else False}")
             return None
 
     def get_current_angles(self) -> Optional[Tuple[float, float, float]]:
@@ -513,11 +520,15 @@ class GimbalInterface:
                 raw_packet=packet
             )
 
-            # Parse angle data
+            # Parse angle data with enhanced debugging
+            logger.info(f"[DEBUG] Attempting to parse packet: {packet[:50]}...")  # Temporary debug
             angles = self._parse_angle_response(packet)
             if angles:
                 gimbal_data.angles = angles
                 gimbal_data.coordinate_system = angles.coordinate_system
+                logger.info(f"[DEBUG] Successfully parsed angles: yaw={angles.yaw:.2f}°, pitch={angles.pitch:.2f}°, roll={angles.roll:.2f}°")  # Temporary debug
+            else:
+                logger.warning(f"[DEBUG] Failed to parse angles from packet: {packet[:100]}...")  # Temporary debug
 
             # Parse tracking status
             tracking_status = self._parse_tracking_response(packet)
