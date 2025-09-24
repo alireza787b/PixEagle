@@ -40,7 +40,7 @@ except ImportError:
 
 # Configuration (replace with your actual config)
 GIMBAL_CONFIG = {
-    'camera_ip': '192.168.144.108',  # Default from demo
+    'camera_ip': '192.168.0.108',  # Default from demo
     'control_port': 9003,
     'listen_port': 9004
 }
