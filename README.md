@@ -343,7 +343,14 @@ The system now includes intelligent caching for faster startup:
 - **Performance reporting** - Shows cache hits and startup times
 - **~80% faster startup** when no changes detected
 
-### 🔧 Advanced Options
+### 🔧 Development & Advanced Options
+
+**Development Mode:**
+```bash
+./run_pixeagle.sh --dev     # Development mode with hot-reload
+./run_pixeagle.sh --rebuild # Force rebuild all components
+./run_pixeagle.sh --dev --rebuild # Dev mode + force rebuild
+```
 
 **Individual component testing:**
 ```bash
@@ -357,7 +364,14 @@ The system now includes intelligent caching for faster startup:
 ./run_pixeagle.sh -d        # Skip dashboard
 ./run_pixeagle.sh -p        # Skip Python app
 ./run_pixeagle.sh -s        # Separate tmux windows
+./run_pixeagle.sh --help    # Show all available options
 ```
+
+**Development Mode Features:**
+- **Dashboard**: Hot-reload with live changes (npm start)
+- **Backend**: Development environment variables and debug mode
+- **Enhanced logging**: Unbuffered output and detailed error messages
+- **Force rebuild**: Clean npm cache and fresh builds when needed
 
 ### This will:
 

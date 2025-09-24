@@ -19,7 +19,8 @@
       "WebSearch",
       "Bash(./pixeagle-service help)",
       "Bash(./pixeagle-service:*)",
-      "Bash(./install_service.sh:*)"
+      "Bash(./install_service.sh:*)",
+      "Bash(bash:*)"
     ],
     "deny": [],
     "ask": []

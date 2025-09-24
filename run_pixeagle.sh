@@ -41,6 +41,10 @@ RUN_MAIN_APP=true
 RUN_MAVSDK_SERVER=true
 COMBINED_VIEW=true  # Default is combined view
 
+# Development and build flags
+DEVELOPMENT_MODE=false
+FORCE_REBUILD=false
+
 # Tmux session name
 SESSION_NAME="PixEagle"
 
@@ -59,15 +63,36 @@ MAVSDK_SERVER_DOWNLOAD_SCRIPT="$BASE_DIR/src/tools/download_mavsdk_server.sh"
 
 # Function to display usage instructions
 display_usage() {
-    echo "Usage: $0 [-m|-d|-p|-k|-s|-h]"
-    echo "Flags:"
-    echo "  -m : Do NOT run MAVLink2REST (default: enabled)"
-    echo "  -d : Do NOT run Dashboard (default: enabled)"
-    echo "  -p : Do NOT run Main Python Application (default: enabled)"
-    echo "  -k : Do NOT run MAVSDK Server (default: enabled)"
-    echo "  -s : Run components in Separate windows (default: Combined view)"
-    echo "  -h : Display this help message"
-    echo "Example: $0 -p -s (Runs MAVLink2REST, Dashboard, and MAVSDK Server in separate windows, skips the main Python application)"
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "🚀 MAIN OPTIONS:"
+    echo "  --dev              Run in development mode (dashboard dev server + backend reload)"
+    echo "  --rebuild          Force rebuild of all components (dashboard + backend)"
+    echo ""
+    echo "🔧 COMPONENT CONTROL:"
+    echo "  -m                 Do NOT run MAVLink2REST (default: enabled)"
+    echo "  -d                 Do NOT run Dashboard (default: enabled)"
+    echo "  -p                 Do NOT run Main Python Application (default: enabled)"
+    echo "  -k                 Do NOT run MAVSDK Server (default: enabled)"
+    echo "  -s                 Run components in Separate tmux windows (default: Combined view)"
+    echo "  -h, --help         Display this help message"
+    echo ""
+    echo "📖 EXAMPLES:"
+    echo "  $0                 # Standard production mode"
+    echo "  $0 --dev           # Development mode with hot-reload"
+    echo "  $0 --rebuild       # Force rebuild everything in production mode"
+    echo "  $0 --dev --rebuild # Development mode with force rebuild"
+    echo "  $0 -p -s           # Skip Python app, separate windows"
+    echo ""
+    echo "💡 Development mode provides:"
+    echo "   • Dashboard hot-reload with live changes"
+    echo "   • Backend auto-restart on file changes (if supported)"
+    echo "   • Enhanced debugging and error reporting"
+    echo ""
+    echo "🔨 Rebuild mode forces:"
+    echo "   • Complete npm rebuild for dashboard"
+    echo "   • Fresh dependency installation"
+    echo "   • Clean build artifacts"
 }
 
 display_banner() {
@@ -92,20 +117,44 @@ EOF
 }
 
 
-# Parse command-line options
-while getopts "mdpksh" opt; do
-  case ${opt} in
-    m) RUN_MAVLINK2REST=false ;;
-    d) RUN_DASHBOARD=false ;;
-    p) RUN_MAIN_APP=false ;;
-    k) RUN_MAVSDK_SERVER=false ;;
-    s) COMBINED_VIEW=false ;;
-    h)
+# Parse command-line options (support both short and long options)
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --dev)
+      DEVELOPMENT_MODE=true
+      shift
+      ;;
+    --rebuild)
+      FORCE_REBUILD=true
+      shift
+      ;;
+    -m)
+      RUN_MAVLINK2REST=false
+      shift
+      ;;
+    -d)
+      RUN_DASHBOARD=false
+      shift
+      ;;
+    -p)
+      RUN_MAIN_APP=false
+      shift
+      ;;
+    -k)
+      RUN_MAVSDK_SERVER=false
+      shift
+      ;;
+    -s)
+      COMBINED_VIEW=false
+      shift
+      ;;
+    -h|--help)
       display_usage
       exit 0
       ;;
     *)
-      display_banner
+      echo "❌ Unknown option: $1"
+      echo ""
       display_usage
       exit 1
       ;;
@@ -320,9 +369,14 @@ start_services_in_tmux() {
     declare -A components
     local index=0
 
-    # Add components to the components array
+    # Add components to the components array with development/rebuild flags
     if [ "$RUN_MAIN_APP" = true ]; then
-        components["MainApp"]="bash $MAIN_APP_SCRIPT; bash"
+        local main_cmd="bash $MAIN_APP_SCRIPT"
+        # Add development mode flag for Python backend if supported
+        if [ "$DEVELOPMENT_MODE" = true ]; then
+            main_cmd="bash $MAIN_APP_SCRIPT --dev"
+        fi
+        components["MainApp"]="$main_cmd; bash"
         index=$((index + 1))
     fi
 
@@ -332,7 +386,19 @@ start_services_in_tmux() {
     fi
 
     if [ "$RUN_DASHBOARD" = true ]; then
-        components["Dashboard"]="bash $DASHBOARD_SCRIPT; bash"
+        local dashboard_cmd="bash $DASHBOARD_SCRIPT"
+
+        # Add development mode flag
+        if [ "$DEVELOPMENT_MODE" = true ]; then
+            dashboard_cmd="$dashboard_cmd -d"
+        fi
+
+        # Add force rebuild flag
+        if [ "$FORCE_REBUILD" = true ]; then
+            dashboard_cmd="$dashboard_cmd -f"
+        fi
+
+        components["Dashboard"]="$dashboard_cmd; bash"
         index=$((index + 1))
     fi
 
