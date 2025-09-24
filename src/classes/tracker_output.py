@@ -136,6 +136,9 @@ class TrackerOutput:
     # Raw/custom data
     raw_data: Dict[str, Any] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    # Schema-specific fields (handled as optional kwargs)
+    gimbal_metadata: Optional[Dict[str, Any]] = None
     
     def __post_init__(self):
         """Validate the tracker output after initialization."""
