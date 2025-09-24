@@ -82,7 +82,15 @@ const TrackerStatusCard = () => {
 
   // Get key field values for compact display
   const getKeyFieldValue = (fieldName, fieldData) => {
-    // Handle special fields from raw_data for gimbal
+    // Handle special fields from raw_data (dynamic, schema-based)
+    if (fieldName === 'system' && currentStatus?.raw_data?.system) {
+      return currentStatus.raw_data.system;
+    }
+
+    if (fieldName === 'tracking' && currentStatus?.raw_data?.tracking) {
+      return currentStatus.raw_data.tracking;
+    }
+
     if (fieldName === 'coordinate_system' && currentStatus?.raw_data?.coordinate_system) {
       return currentStatus.raw_data.coordinate_system.toUpperCase();
     }
@@ -116,11 +124,25 @@ const TrackerStatusCard = () => {
     return value.toString();
   };
 
-  // Prioritize gimbal-specific fields for GIMBAL_ANGLES data type
-  const keyFields = dataType === 'GIMBAL_ANGLES'
-    ? ['angular', 'coordinate_system', 'tracking_status', 'confidence'].filter(field =>
-        fields[field] || (currentStatus?.raw_data && (currentStatus.raw_data.coordinate_system || currentStatus.raw_data.tracking_status)))
-    : ['position_2d', 'confidence', 'bbox'].filter(field => fields[field]);
+  // Schema-based field selection - dynamic based on data type and available raw_data
+  const getAvailableFields = () => {
+    if (dataType === 'GIMBAL_ANGLES') {
+      // For gimbal trackers, prioritize gimbal-specific fields
+      const gimbalFields = ['angular', 'tracking', 'system', 'confidence'];
+      return gimbalFields.filter(field => {
+        // Check if field exists in fields object or raw_data
+        return fields[field] ||
+               (currentStatus?.raw_data &&
+                (currentStatus.raw_data[field] !== undefined &&
+                 currentStatus.raw_data[field] !== null));
+      });
+    } else {
+      // For standard trackers, use position-based fields
+      return ['position_2d', 'confidence', 'bbox'].filter(field => fields[field]);
+    }
+  };
+
+  const keyFields = getAvailableFields();
 
   return (
     <Card>
@@ -204,17 +226,25 @@ const TrackerStatusCard = () => {
                 // Skip if no value available
                 if (!value) return null;
 
-                // Get appropriate icon and label
+                // Get appropriate icon and label - schema-aware
                 const getFieldInfo = (field) => {
                   switch (field) {
                     case 'angular':
                       return { icon: <TrackChanges fontSize="small" />, label: 'angles' };
+                    case 'tracking':
+                      return { icon: <CheckCircle fontSize="small" />, label: 'status' };
+                    case 'system':
+                      return { icon: <GpsFixed fontSize="small" />, label: 'system' };
                     case 'coordinate_system':
                       return { icon: <GpsFixed fontSize="small" />, label: 'coords' };
                     case 'tracking_status':
                       return { icon: <TrackChanges fontSize="small" />, label: 'mode' };
                     case 'confidence':
                       return { icon: <Visibility fontSize="small" />, label: 'confidence' };
+                    case 'position_2d':
+                      return { icon: <GpsFixed fontSize="small" />, label: 'position' };
+                    case 'bbox':
+                      return { icon: <Speed fontSize="small" />, label: 'bbox' };
                     default:
                       return { icon: <Speed fontSize="small" />, label: field.replace('_', ' ') };
                   }
