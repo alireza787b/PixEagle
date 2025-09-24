@@ -69,6 +69,8 @@ tracker_data_types:
     name: "Gimbal Angle Tracking"
     description: "Real-time gimbal yaw, pitch, roll angles from external gimbal system"
     category: "angular"
+    always_reporting: true  # Always provides data when available, no manual start needed
+    is_gimbal_tracker: true  # Special gimbal tracker identifier for UI
     required_fields:
       - angular
     optional_fields:

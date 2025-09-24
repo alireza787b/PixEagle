@@ -475,53 +475,42 @@ class GimbalTracker(BaseTracker):
             # Get aircraft attitude if available
             aircraft_attitude = self._get_aircraft_attitude()
 
-            # Create TrackerOutput with GIMBAL_ANGLES data type
-            # Always show as "active" when angle data is available (continuous display mode)
+            # Create TrackerOutput matching demo format exactly
+            # Fields: yaw, pitch, roll, system, tracking, timestamp
+            gimbal_tracking_status = gimbal_data.tracking_status.state.name if gimbal_data.tracking_status else 'UNKNOWN'
+            gimbal_system = angles.coordinate_system.value.lower()  # gimbal_body, spatial_fixed
+            current_timestamp = time.time()
+
             tracker_output = TrackerOutput(
                 data_type=TrackerDataType.GIMBAL_ANGLES,
-                timestamp=time.time(),
-                tracking_active=True,  # Always True when angle data available
-                tracker_id=f"GimbalTracker_{id(self)}",
+                timestamp=current_timestamp,
+                tracking_active=True,  # Always True when angle data available (continuous display)
+                tracker_id="GimbalTracker",
 
-                # Primary data - angular information (3-tuple for gimbal)
+                # Primary gimbal angle data
                 angular=(yaw, pitch, roll),
 
-                # Secondary data - normalized position for follower compatibility
+                # Essential for follower compatibility
                 position_2d=normalized_coords,
-
-                # Confidence and quality metrics
                 confidence=confidence,
 
-                # Additional data
+                # Exact fields matching demo output
                 raw_data={
-                    'gimbal_angles': (yaw, pitch, roll),
-                    'target_vector_body': target_vector_body.tolist(),
-                    'coordinate_system': angles.coordinate_system.value,
-                    'gimbal_tracking_active': tracking_active,  # Actual gimbal tracking state
-                    'tracking_status': gimbal_data.tracking_status.state.name if gimbal_data.tracking_status else 'UNKNOWN',
-                    'aircraft_attitude': aircraft_attitude,
-                    'monitoring_duration': (
-                        time.time() - self.last_update_time
-                        if hasattr(self, 'last_update_time') and self.last_update_time else 0.0
-                    ),
-                    'gimbal_data_age': (
-                        (time.time() - gimbal_data.timestamp.timestamp())
-                        if gimbal_data.timestamp else 0.0
-                    ),
-                    'connection_status': self.gimbal_interface.get_connection_status()
+                    'yaw': round(yaw, 2),      # -5.44
+                    'pitch': round(pitch, 2),  # +101.60
+                    'roll': round(roll, 2),    # +18.39
+                    'system': gimbal_system,   # gimbal_body
+                    'tracking': gimbal_tracking_status,  # TRACKING_ACTIVE
+                    'timestamp': current_timestamp
                 },
 
+                # Enhanced metadata with schema properties
                 metadata={
-                    'tracker_class': self.__class__.__name__,
-                    'tracker_algorithm': 'Gimbal UDP Passive',
-                    'coordinate_transformer': 'CoordinateTransformer',
-                    'gimbal_interface': 'Passive UDP Listener',
-                    'suppressed_components': ['detector', 'predictor'],
-                    'data_source': 'external_gimbal',
-                    'real_time': True,
-                    'continuous_display': True,  # New flag for always-on display
-                    'external_control': True,
-                    'always_active_when_data_available': True
+                    'tracker_type': 'external_gimbal',
+                    'always_reporting': True,  # Schema property: always provides data when available
+                    'is_gimbal_tracker': True,  # Schema property: identifies as gimbal tracker
+                    'requires_manual_start': False,  # No manual tracking initiation needed
+                    'continuous_display': True  # Always display when data available
                 }
             )
 

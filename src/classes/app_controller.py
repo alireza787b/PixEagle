@@ -386,12 +386,34 @@ class AppController:
             if self.smart_tracker:
                 frame = self.smart_tracker.track_and_draw(frame)
 
+            # Always-Reporting Trackers (schema-based) - Process when available regardless of manual start
+            is_always_reporting = self._is_always_reporting_tracker()
+            if is_always_reporting and self.tracker:
+                try:
+                    # Always-reporting trackers update regardless of manual tracking state
+                    success, tracker_output = self.tracker.update(frame)
+                    if success and tracker_output:
+                        # Draw tracking overlay for always-reporting trackers
+                        frame = self.tracker.draw_tracking(frame, tracking_successful=True)
+
+                        # Handle following if following is active
+                        if self.following_active:
+                            await self.follow_target()
+                            await self.check_failsafe()
+
+                        logging.debug(f"Always-reporting tracker ({self.tracker.__class__.__name__}) updated successfully")
+                    else:
+                        logging.debug(f"Always-reporting tracker ({self.tracker.__class__.__name__}) update failed or no data")
+                except Exception as e:
+                    logging.error(f"Error updating always-reporting tracker: {e}")
+
             # Classic Tracker (normal tracking or smart override)
             classic_active = (
             (self.tracking_started and not self.smart_mode_active) or
             self.is_smart_override_active()
             )
-            if classic_active:
+            # Only process classic trackers if not always-reporting tracker
+            if classic_active and not is_always_reporting:
                 success = False
                 if self.tracking_failure_start_time is None:
                     success, _ = self.tracker.update(frame)
@@ -1170,3 +1192,27 @@ class AppController:
                 logger.error(f"Error in system summary loop: {e}")
                 
         logger.debug("System summary thread stopped")
+
+    def _is_always_reporting_tracker(self) -> bool:
+        """
+        Check if the current tracker is an always-reporting tracker based on schema properties.
+
+        Returns:
+            bool: True if tracker always reports data regardless of manual start
+        """
+        if not self.tracker:
+            return False
+
+        try:
+            # Check tracker output metadata for always_reporting flag
+            tracker_output = self.get_tracker_output()
+            if tracker_output and tracker_output.metadata:
+                return tracker_output.metadata.get('always_reporting', False)
+
+            # Fallback: check legacy is_external_tracker attribute
+            return getattr(self.tracker, 'is_external_tracker', False)
+
+        except Exception as e:
+            logging.debug(f"Error checking always_reporting status: {e}")
+            # Fallback to legacy check
+            return getattr(self.tracker, 'is_external_tracker', False)
