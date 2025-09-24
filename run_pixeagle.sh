@@ -128,21 +128,44 @@ check_command_installed() {
 # Function to check if a port is in use and kill the process using it
 check_and_kill_port() {
     local port="$1"
+    local service_name="${2:-Service}"
+
     # Ensure lsof is installed
     check_command_installed "lsof" "lsof"
+
     # Find the process ID (PID) using the port
-    pid=$(lsof -t -i :"$port")
+    pid=$(lsof -t -i :"$port" 2>/dev/null)
+
     if [ -n "$pid" ]; then
-        echo "⚠️  Port $port is in use by process $pid."
-        # Get the process name
-        process_name=$(ps -p "$pid" -o comm=)
-        echo "Process using port $port: $process_name (PID: $pid)"
-        # Kill the process
-        echo "Killing process $pid..."
-        kill -9 "$pid"
-        echo "✅ Process $pid killed."
+        # Get the process name and command
+        process_name=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
+        process_cmd=$(ps -p "$pid" -o args= 2>/dev/null | head -c 50 || echo "unknown command")
+
+        echo "⚠️  Port $port is occupied by $service_name"
+        echo "   Process: $process_name (PID: $pid)"
+        echo "   Command: $process_cmd"
+
+        # Try graceful termination first
+        echo "🔄 Attempting graceful shutdown..."
+        kill -TERM "$pid" 2>/dev/null
+        sleep 2
+
+        # Check if process is still running
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "🔄 Process still running, force killing..."
+            kill -9 "$pid" 2>/dev/null
+            sleep 1
+        fi
+
+        # Verify the process was killed
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "❌ Failed to kill process $pid on port $port"
+            echo "⚠️  Manual intervention may be required"
+        else
+            echo "✅ $service_name on port $port stopped successfully"
+        fi
     else
-        echo "✅ Port $port is free."
+        echo "✅ Port $port is free for $service_name"
     fi
 }
 
@@ -204,14 +227,90 @@ prepare_mavsdk_server() {
     fi
 }
 
+# Function to perform comprehensive cleanup before starting
+perform_comprehensive_cleanup() {
+    echo ""
+    echo "==============================================="
+    echo "🧹 Performing Comprehensive System Cleanup"
+    echo "==============================================="
+
+    # 1. Check for any PixEagle-related processes
+    echo "🔍 Scanning for running PixEagle processes..."
+    local pixeagle_processes=$(ps aux | grep -i pixeagle | grep -v grep | wc -l)
+    if [ "$pixeagle_processes" -gt 0 ]; then
+        echo "⚠️  Found $pixeagle_processes PixEagle-related process(es)"
+        ps aux | grep -i pixeagle | grep -v grep | head -5
+        echo "🔄 These will be cleaned up by port and session cleanup"
+    else
+        echo "✅ No stray PixEagle processes detected"
+    fi
+
+    # 2. Check for Python processes on our ports (more targeted)
+    echo ""
+    echo "🔍 Checking for Python processes on PixEagle ports..."
+    local python_on_ports=0
+    for port in $MAVLINK2REST_PORT $BACKEND_PORT $DASHBOARD_PORT; do
+        if lsof -i ":$port" 2>/dev/null | grep -q python; then
+            python_on_ports=$((python_on_ports + 1))
+        fi
+    done
+
+    if [ "$python_on_ports" -gt 0 ]; then
+        echo "⚠️  Found Python processes on $python_on_ports PixEagle port(s)"
+    else
+        echo "✅ No Python processes blocking PixEagle ports"
+    fi
+
+    # 3. Check for any orphaned tmux servers
+    echo ""
+    echo "🔍 Checking tmux server status..."
+    if tmux list-sessions 2>/dev/null | grep -q .; then
+        local session_count=$(tmux list-sessions 2>/dev/null | wc -l)
+        echo "ℹ️  Found $session_count existing tmux session(s)"
+        tmux list-sessions 2>/dev/null | head -3
+    else
+        echo "✅ No existing tmux sessions found"
+    fi
+
+    echo ""
+    echo "✅ System cleanup scan completed"
+    echo "==============================================="
+}
+
 # Function to start services in tmux
 start_services_in_tmux() {
     local session="$SESSION_NAME"
 
-    # Kill existing session if it exists
+    # Enhanced tmux session cleanup
     if tmux has-session -t "$session" 2>/dev/null; then
-        echo "⚠️  Killing existing tmux session '$session'..."
-        tmux kill-session -t "$session"
+        echo "⚠️  Existing PixEagle tmux session found"
+        echo "🔄 Performing clean shutdown of previous session..."
+
+        # Get session info before killing
+        local session_windows=$(tmux list-windows -t "$session" 2>/dev/null | wc -l)
+        echo "   Previous session had $session_windows window(s)"
+
+        # Send interrupt to all panes first (graceful)
+        tmux list-panes -t "$session" -F "#{session_name}:#{window_index}.#{pane_index}" 2>/dev/null | \
+        while read pane; do
+            tmux send-keys -t "$pane" C-c 2>/dev/null || true
+        done
+
+        # Wait a moment for graceful shutdown
+        sleep 2
+
+        # Kill the session
+        tmux kill-session -t "$session" 2>/dev/null
+        sleep 1
+
+        # Verify session was killed
+        if tmux has-session -t "$session" 2>/dev/null; then
+            echo "⚠️  Session still exists, forcing tmux server restart..."
+            tmux kill-server 2>/dev/null || true
+            sleep 2
+        fi
+
+        echo "✅ Previous PixEagle session cleaned up successfully"
     fi
 
     echo "Creating tmux session '$session'..."
@@ -303,21 +402,53 @@ if [ "$RUN_MAVSDK_SERVER" = true ]; then
     prepare_mavsdk_server
 fi
 
+# Perform comprehensive system cleanup
+perform_comprehensive_cleanup
+
 # Check and kill processes using default ports
+echo ""
 echo "-----------------------------------------------"
-echo "Checking and freeing up default ports..."
+echo "🔧 Cleaning up ports and processes..."
 echo "-----------------------------------------------"
 if [ "$RUN_MAVLINK2REST" = true ]; then
-    check_and_kill_port "$MAVLINK2REST_PORT"
+    check_and_kill_port "$MAVLINK2REST_PORT" "MAVLink2REST"
 fi
 
 if [ "$RUN_MAIN_APP" = true ]; then
-    check_and_kill_port "$BACKEND_PORT"
+    check_and_kill_port "$BACKEND_PORT" "Main Python App"
 fi
 
 if [ "$RUN_DASHBOARD" = true ]; then
-    check_and_kill_port "$DASHBOARD_PORT"
+    check_and_kill_port "$DASHBOARD_PORT" "Dashboard"
 fi
+
+# Final verification that system is clean
+echo ""
+echo "🔍 Final cleanup verification..."
+local cleanup_issues=0
+
+# Check if any PixEagle tmux sessions still exist
+if tmux list-sessions 2>/dev/null | grep -q "$SESSION_NAME"; then
+    echo "⚠️  PixEagle tmux session still exists after cleanup"
+    cleanup_issues=$((cleanup_issues + 1))
+fi
+
+# Check if any processes are still on our ports
+for port in $MAVLINK2REST_PORT $BACKEND_PORT $DASHBOARD_PORT; do
+    if lsof -i ":$port" 2>/dev/null | grep -q .; then
+        echo "⚠️  Port $port still occupied after cleanup"
+        cleanup_issues=$((cleanup_issues + 1))
+    fi
+done
+
+if [ "$cleanup_issues" -eq 0 ]; then
+    echo "✅ System is clean and ready for PixEagle startup"
+else
+    echo "⚠️  $cleanup_issues issue(s) detected but proceeding with startup"
+    echo "💡 If startup fails, try running the script again or reboot the system"
+fi
+
+echo "==============================================="
 
 # Function to run the PixEagle components
 run_pixeagle_components() {
