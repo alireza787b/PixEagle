@@ -155,7 +155,7 @@ class GimbalTracker(BaseTracker):
         self.tracking_activations = 0
         self.tracking_deactivations = 0
 
-        logger.info(f"GimbalTracker initialized for passive monitoring on port {listen_port}")
+        logger.info(f"GimbalTracker initialized for optimized continuous monitoring on port {listen_port}")
         logger.debug(f"Expected gimbal IP: {gimbal_ip}")
 
     def _suppress_image_processing(self) -> None:
@@ -285,7 +285,9 @@ class GimbalTracker(BaseTracker):
                     self.last_valid_data_time = time.time()
                     self.consecutive_failures = 0  # Reset failure counter
 
-                    logger.debug(f"Gimbal angles - YAW: {gimbal_data.angles.yaw:.2f}° PITCH: {gimbal_data.angles.pitch:.2f}° ROLL: {gimbal_data.angles.roll:.2f}° | Connection: {'Active' if tracking_active else 'Monitoring'}")
+                    # Log gimbal data periodically for monitoring
+                    if self.total_updates % 50 == 0 or self.total_updates <= 3:
+                        logger.info(f"Gimbal angles - YAW: {gimbal_data.angles.yaw:.2f}° PITCH: {gimbal_data.angles.pitch:.2f}° ROLL: {gimbal_data.angles.roll:.2f}° | System: {gimbal_data.angles.coordinate_system.value} | Updates: #{self.total_updates}")
                     return True, tracker_output
                 else:
                     logger.warning("Failed to process gimbal angle data")
@@ -510,11 +512,15 @@ class GimbalTracker(BaseTracker):
                     'always_reporting': True,  # Schema property: always provides data when available
                     'is_gimbal_tracker': True,  # Schema property: identifies as gimbal tracker
                     'requires_manual_start': False,  # No manual tracking initiation needed
-                    'continuous_display': True  # Always display when data available
+                    'continuous_display': True,  # Always display when data available
+                    'real_time_updates': True,  # Real-time continuous data stream
+                    'external_control': True  # Controlled by external gimbal system
                 }
             )
 
-            logger.debug(f"Created active TrackerOutput - Angular: {(yaw, pitch, roll)}, Position: {normalized_coords}")
+            # Log tracker output creation periodically
+            if hasattr(self, 'total_updates') and (self.total_updates % 50 == 0 or self.total_updates <= 3):
+                logger.info(f"TrackerOutput created - Angular: {(yaw, pitch, roll)}, Position: {normalized_coords}, System: {gimbal_system}")
             return True, tracker_output
 
         except Exception as e:
