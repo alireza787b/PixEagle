@@ -13,7 +13,13 @@
       "Bash(git commit:*)",
       "Bash(.venv/Scripts/python:*)",
       "Bash(git push:*)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(chmod:*)",
+      "Bash(./run_dashboard.sh:*)",
+      "WebSearch",
+      "Bash(./pixeagle-service help)",
+      "Bash(./pixeagle-service:*)",
+      "Bash(./install_service.sh:*)"
     ],
     "deny": [],
     "ask": []
