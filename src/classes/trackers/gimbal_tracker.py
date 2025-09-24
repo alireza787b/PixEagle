@@ -264,16 +264,13 @@ class GimbalTracker(BaseTracker):
             # Get current gimbal data (includes status and angles)
             gimbal_data = self.gimbal_interface.get_current_data()
 
-            # Temporary debug logging
-            if gimbal_data:
+            # Log data reception status periodically
+            if gimbal_data and self.total_updates % 100 == 0:
                 has_angles = gimbal_data.angles is not None
-                logger.info(f"[DEBUG] GimbalTracker got data: has_angles={has_angles}, tracking_status={gimbal_data.tracking_status.state.name if gimbal_data.tracking_status else 'None'}")
                 if has_angles:
-                    logger.info(f"[DEBUG] Received angles: yaw={gimbal_data.angles.yaw:.2f}°, pitch={gimbal_data.angles.pitch:.2f}°, roll={gimbal_data.angles.roll:.2f}°")
+                    logger.info(f"Gimbal data flowing: angles available, tracking_status={gimbal_data.tracking_status.state.name if gimbal_data.tracking_status else 'Unknown'}")
                 else:
-                    logger.warning(f"[DEBUG] GimbalTracker: No angles in gimbal_data, raw_packet: {gimbal_data.raw_packet[:100] if gimbal_data.raw_packet else 'None'}")
-            else:
-                logger.warning(f"[DEBUG] GimbalTracker: gimbal_interface returned None")
+                    logger.info(f"Gimbal data received but no angles parsed, packet: {gimbal_data.raw_packet[:50] if gimbal_data.raw_packet else 'None'}...")
 
             if gimbal_data is None:
                 # No recent data from gimbal - check if we can use cached data
@@ -297,7 +294,7 @@ class GimbalTracker(BaseTracker):
                     self.consecutive_failures = 0  # Reset failure counter
 
                     # Log gimbal data periodically for monitoring
-                    if self.total_updates % 50 == 0 or self.total_updates <= 3:
+                    if self.total_updates % 100 == 0 or self.total_updates <= 5:
                         logger.info(f"Gimbal angles - YAW: {gimbal_data.angles.yaw:.2f}° PITCH: {gimbal_data.angles.pitch:.2f}° ROLL: {gimbal_data.angles.roll:.2f}° | System: {gimbal_data.angles.coordinate_system.value} | Updates: #{self.total_updates}")
                     return True, tracker_output
                 else:
@@ -530,7 +527,7 @@ class GimbalTracker(BaseTracker):
             )
 
             # Log tracker output creation periodically
-            if hasattr(self, 'total_updates') and (self.total_updates % 50 == 0 or self.total_updates <= 3):
+            if hasattr(self, 'total_updates') and (self.total_updates % 100 == 0 or self.total_updates <= 5):
                 logger.info(f"TrackerOutput created - Angular: {(yaw, pitch, roll)}, Position: {normalized_coords}, System: {gimbal_system}")
             return True, tracker_output
 
