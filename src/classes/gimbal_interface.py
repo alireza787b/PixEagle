@@ -165,6 +165,11 @@ class GimbalInterface:
         self.connection_status = ConnectionStatus.DISCONNECTED
         self.last_data_time: Optional[float] = None
 
+        # Separate tracking status state (persisted across packets)
+        self.current_tracking_status: Optional[TrackingStatus] = None
+        self.last_tracking_update_time: Optional[float] = None
+        self.last_tracking_state = TrackingState.DISABLED  # For change detection
+
         # Statistics
         self.total_packets_received = 0
         self.invalid_packets_received = 0
@@ -298,6 +303,9 @@ class GimbalInterface:
         with self.lock:
             self.connection_status = ConnectionStatus.DISCONNECTED
             self.current_data = None
+            self.current_tracking_status = None
+            self.last_tracking_update_time = None
+            self.last_tracking_state = TrackingState.DISABLED
 
         logger.info("Gimbal listener stopped")
 
@@ -534,9 +542,25 @@ class GimbalInterface:
                 gimbal_data.angles = angles
                 gimbal_data.coordinate_system = angles.coordinate_system
 
-            # Parse tracking status from TRC packets
+            # Parse tracking status from TRC packets (update persistent state)
             tracking_status = self._parse_tracking_response(packet)
             if tracking_status:
+                with self.lock:
+                    self.current_tracking_status = tracking_status
+                    self.last_tracking_update_time = time.time()
+                logger.debug(f"Updated tracking status: {tracking_status.state.name}")
+
+            # If we have angles, always include the current tracking status (if available and recent)
+            if gimbal_data.angles:
+                with self.lock:
+                    if (self.current_tracking_status and self.last_tracking_update_time and
+                        (time.time() - self.last_tracking_update_time) < 10.0):  # 10 second timeout
+                        gimbal_data.tracking_status = self.current_tracking_status
+                    else:
+                        gimbal_data.tracking_status = None
+
+            # If this is a tracking status packet only, still return it
+            elif tracking_status:
                 gimbal_data.tracking_status = tracking_status
 
             # Return data if we have at least one valid component
@@ -834,9 +858,12 @@ class GimbalInterface:
                 # Map to TrackingState enum
                 state = TrackingState(state_val)
 
-                # Log tracking state changes only
+                # Log tracking state changes and update state tracker
                 if state != self.last_tracking_state:
-                    logger.info(f"Tracking state: {state_name}")
+                    logger.info(f"Tracking state changed: {self.last_tracking_state.name} → {state_name}")
+                    self.last_tracking_state = state
+                else:
+                    logger.debug(f"Tracking state (unchanged): {state_name}")
 
             except (ValueError, IndexError) as e:
                 logger.debug(f"Could not parse tracking state from: '{state_data}', error: {e}")
@@ -862,11 +889,15 @@ class GimbalInterface:
         current_time = time.time()
         if current_time - self.last_status_log_time > 30.0:  # Every 30 seconds
             stats = self.get_statistics()
+            # Include persistent tracking status in status log
+            with self.lock:
+                persistent_status = self.current_tracking_status.state.name if self.current_tracking_status else 'None'
+                status_age = (current_time - self.last_tracking_update_time) if self.last_tracking_update_time else float('inf')
+
             logger.info(
-                f"Gimbal Listener Status: {stats['connection_status']} | "
-                f"Packets: {stats['total_packets_received']} "
-                f"(Invalid: {stats['invalid_packets_received']}) | "
-                f"Tracking: {stats['current_tracking_state']} | "
-                f"Data Age: {stats['data_age_seconds']:.1f}s"
+                f"Gimbal Status: {stats['connection_status']} | "
+                f"Packets: {stats['total_packets_received']} (Invalid: {stats['invalid_packets_received']}) | "
+                f"Tracking: {stats['current_tracking_state']} | Persistent: {persistent_status} | "
+                f"Data Age: {stats['data_age_seconds']:.1f}s | Status Age: {status_age:.1f}s"
             )
             self.last_status_log_time = current_time

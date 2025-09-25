@@ -290,6 +290,14 @@ class GimbalTracker(BaseTracker):
             # Check tracking status and handle state changes (for follower control)
             tracking_active = self._handle_tracking_state_changes(gimbal_data)
 
+            # Additional debug for tracking status flow
+            if self.total_updates % 30 == 0:
+                logger.info(f"Gimbal data debug: has_angles={gimbal_data.angles is not None}, has_tracking={gimbal_data.tracking_status is not None}, tracking_active={tracking_active}")
+                if gimbal_data.tracking_status:
+                    logger.info(f"  Tracking status object: state={gimbal_data.tracking_status.state.name}, timestamp={gimbal_data.tracking_status.timestamp}")
+                else:
+                    logger.info(f"  No tracking status in gimbal_data")
+
             # ALWAYS process angles when available (continuous display mode)
             if gimbal_data.angles:
                 # We have angle data - process and cache it
@@ -500,8 +508,14 @@ class GimbalTracker(BaseTracker):
             current_timestamp = time.time()
 
             # Debug: Log tracking status for troubleshooting UI
-            if self.total_updates % 50 == 0 or gimbal_tracking_status != 'UNKNOWN':
-                logger.info(f"TrackerOutput: tracking_status='{gimbal_tracking_status}', has_tracking_data={gimbal_data.tracking_status is not None}")
+            has_tracking_data = gimbal_data.tracking_status is not None
+            if self.total_updates % 30 == 0 or gimbal_tracking_status != 'UNKNOWN' or has_tracking_data:
+                raw_packet_info = gimbal_data.raw_packet[:30] if gimbal_data.raw_packet else 'No packet'
+                logger.info(f"TrackerOutput DEBUG: status='{gimbal_tracking_status}', has_data={has_tracking_data}, packet='{raw_packet_info}...'")
+                if has_tracking_data:
+                    logger.info(f"  ✓ Tracking data found: {gimbal_data.tracking_status.state.name} at {gimbal_data.tracking_status.timestamp}")
+                else:
+                    logger.info(f"  ✗ No tracking data in gimbal_data object")
 
             tracker_output = TrackerOutput(
                 data_type=TrackerDataType.GIMBAL_ANGLES,
