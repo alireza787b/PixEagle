@@ -172,36 +172,19 @@ class GimbalInterface:
         self.last_tracking_state = TrackingState.DISABLED
         self.last_status_log_time = 0.0
 
-        logger.info(f"GimbalInterface initialized with optimized SIP protocol on port {listen_port}")
-        logger.info(f"Expected gimbal source: {gimbal_ip}:{control_port} -> listening on port {listen_port}")
+        # Configuration constants
+        self.DATA_FRESHNESS_TIMEOUT = 2.0  # seconds
+        self.SOCKET_TIMEOUT = 0.05         # seconds
+        self.QUERY_INTERVALS = {
+            'tracking_status': 6,  # Every 6th cycle
+            'spatial_angles': 2,   # Every 2nd cycle
+            'gimbal_angles': 4,    # Every 4th cycle
+            'base_interval': 0.3   # seconds between cycles
+        }
 
-    def _build_command(self, address_dest: str, control: str, command: str, data: str = "00") -> str:
-        """Build SIP protocol command according to specification"""
-        frame = "#TP"  # Fixed length command
-        src = "P"       # Network source address
-        length = "2"    # Fixed length
+        logger.info(f"GimbalInterface initialized with SIP protocol - port {listen_port}")
+        logger.info(f"Gimbal source: {gimbal_ip}:{control_port}")
 
-        # Build command string
-        cmd = f"{frame}{src}{address_dest}{length}{control}{command}{data}"
-
-        # Calculate CRC (sum of all bytes mod 256)
-        crc = sum(cmd.encode('ascii')) & 0xFF
-        cmd += f"{crc:02X}"
-
-        return cmd
-
-    def _send_command(self, command: str) -> bool:
-        """Send UDP command to gimbal"""
-        try:
-            if self.control_socket:
-                self.control_socket.sendto(command.encode('ascii'),
-                                         (self.gimbal_ip, self.control_port))
-                logger.debug(f"Sent gimbal command: {command}")
-                return True
-            return False
-        except Exception as e:
-            logger.error(f"Failed to send gimbal command: {e}")
-            return False
 
     def query_spatial_fixed_angles(self) -> bool:
         """Query camera angles in absolute spatial coordinates (Gyroscope mode)"""
@@ -219,25 +202,24 @@ class GimbalInterface:
         return self._send_command(command)
 
     def _build_command(self, address_dest: str, control: str, command: str, data: str = "00") -> str:
-        """Build protocol command according to SIP specification (from working demo)"""
-        frame = "#TP"  # Fixed length command
-        src = "P"      # Network source address
-        length = "2"   # Fixed length
+        """Build SIP protocol command according to specification."""
+        frame = "#TP"  # Fixed length command frame identifier
+        src = "P"      # Network source address identifier
+        length = "2"   # Fixed length field
 
-        # Build command string
+        # Build command string following SIP protocol format
         cmd = f"{frame}{src}{address_dest}{length}{control}{command}{data}"
 
-        # Calculate CRC (sum of all bytes mod 256)
+        # Calculate CRC checksum (sum of all bytes mod 256)
         crc = sum(cmd.encode('ascii')) & 0xFF
         cmd += f"{crc:02X}"
 
         return cmd
 
     def _send_command(self, command: str) -> bool:
-        """Send UDP command to gimbal"""
+        """Send UDP command to gimbal with automatic socket creation if needed."""
         try:
             if not hasattr(self, 'control_socket') or self.control_socket is None:
-                # Create control socket if it doesn't exist
                 self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
             self.control_socket.sendto(command.encode('ascii'), (self.gimbal_ip, self.control_port))
@@ -247,77 +229,8 @@ class GimbalInterface:
             logger.error(f"Failed to send gimbal command: {e}")
             return False
 
-    def _cleanup_socket(self) -> None:
-        """Clean up both control and listen sockets"""
-        try:
-            if hasattr(self, 'listen_socket') and self.listen_socket:
-                self.listen_socket.close()
-                self.listen_socket = None
-        except Exception as e:
-            logger.debug(f"Error closing listen socket: {e}")
 
-        try:
-            if hasattr(self, 'control_socket') and self.control_socket:
-                self.control_socket.close()
-                self.control_socket = None
-        except Exception as e:
-            logger.debug(f"Error closing control socket: {e}")
 
-    def _parse_gimbal_packet(self, packet: str) -> Optional['GimbalData']:
-        """Parse complete gimbal packet to extract angles and tracking status"""
-        try:
-            # Initialize default values
-            angles = None
-            tracking_status = None
-
-            # Parse angles from GAC/GIC responses (from our active queries)
-            if 'GAC' in packet or 'GIC' in packet:
-                angles = self._parse_query_response(packet)
-
-            # Parse angles from broadcast packets (OFT format)
-            elif 'OFT' in packet:
-                angles = self._parse_broadcast_format(packet)
-
-            # Parse tracking status from TRC packets (temporary debug)
-            if 'TRC' in packet:
-                logger.info(f"Parsing TRC packet: {packet}")
-                tracking_status = self._parse_tracking_response(packet)
-                if tracking_status:
-                    logger.info(f"TRC parsed successfully: {tracking_status.state.name}")
-                else:
-                    logger.info(f"TRC parsing failed for packet: {packet}")
-
-            # Return gimbal data if we have either angles or tracking status
-            if angles or tracking_status:
-                return GimbalData(
-                    angles=angles,
-                    tracking_status=tracking_status,
-                    raw_packet=packet,
-                    timestamp=datetime.now()
-                )
-
-            return None
-
-        except Exception as e:
-            logger.error(f"Error parsing gimbal packet: {e}")
-            return None
-
-    def _init_listening_socket(self) -> bool:
-        """Initialize UDP socket for listening to gimbal responses."""
-        try:
-            # Create UDP socket for listening to gimbal responses
-            self.listen_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self.listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            self.listen_socket.bind(('0.0.0.0', self.listen_port))
-            self.listen_socket.settimeout(0.1)  # 100ms timeout for responsive shutdown
-
-            logger.info(f"Gimbal socket initialized - Listening: 0.0.0.0:{self.listen_port}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to initialize listen socket: {e}")
-            self._cleanup_socket()
-            return False
 
     def start_listening(self) -> bool:
         """
@@ -482,7 +395,7 @@ class GimbalInterface:
             self.listen_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self.listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.listen_socket.bind(('0.0.0.0', self.listen_port))
-            self.listen_socket.settimeout(0.05)  # Optimized timeout for real-time data
+            self.listen_socket.settimeout(self.SOCKET_TIMEOUT)  # Configurable timeout
 
             # Create UDP socket for sending commands to gimbal
             self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -496,16 +409,20 @@ class GimbalInterface:
             return False
 
     def _cleanup_socket(self) -> None:
-        """Clean up socket resources."""
+        """Clean up socket resources safely."""
         try:
-            if self.listen_socket:
+            if hasattr(self, 'listen_socket') and self.listen_socket:
                 self.listen_socket.close()
                 self.listen_socket = None
-            if self.control_socket:
+        except Exception as e:
+            logger.debug(f"Error closing listen socket: {e}")
+
+        try:
+            if hasattr(self, 'control_socket') and self.control_socket:
                 self.control_socket.close()
                 self.control_socket = None
         except Exception as e:
-            logger.debug(f"Socket cleanup error (expected): {e}")
+            logger.debug(f"Error closing control socket: {e}")
 
     def _listener_loop(self) -> None:
         """Background thread to receive gimbal data packets."""
@@ -524,11 +441,9 @@ class GimbalInterface:
                 if not packet:
                     continue
 
-                # Only log packet details in high verbosity debug mode
-                if logger.isEnabledFor(logging.DEBUG) and self.total_packets_received % 100 == 0:
-                    logger.debug(f"Received gimbal packet #{self.total_packets_received} from {addr}: {packet[:50]}...")
-                elif logger.isEnabledFor(logging.DEBUG) and self.total_packets_received <= 5:
-                    logger.debug(f"Received gimbal packet from {addr}: {packet}")
+                # Log packet details only for debugging when needed
+                if logger.isEnabledFor(logging.DEBUG) and self.total_packets_received <= 3:
+                    logger.debug(f"Received gimbal packet from {addr}: {packet[:60]}...")
 
                 # Update statistics
                 with self.lock:
@@ -551,13 +466,11 @@ class GimbalInterface:
                             self.last_tracking_state = new_state
                             logger.info(f"Gimbal tracking state changed: {old_state.name} → {new_state.name}")
 
-                    # Log successful parsing periodically or on state changes
-                    if (self.total_packets_received % 50 == 0 or
-                        (gimbal_data.tracking_status and
-                         gimbal_data.tracking_status.state != self.last_tracking_state)):
-                        angles_info = f"yaw={gimbal_data.angles.yaw:.1f}° pitch={gimbal_data.angles.pitch:.1f}° roll={gimbal_data.angles.roll:.1f}°" if gimbal_data.angles else "No angles"
-                        tracking_info = gimbal_data.tracking_status.state.name if gimbal_data.tracking_status else "No tracking"
-                        logger.info(f"Gimbal data update #{self.total_packets_received}: {angles_info} | Tracking: {tracking_info}")
+                    # Log data updates periodically for monitoring
+                    if self.total_packets_received % 100 == 0:
+                        angles_info = f"yaw={gimbal_data.angles.yaw:.1f}° pitch={gimbal_data.angles.pitch:.1f}° roll={gimbal_data.angles.roll:.1f}°" if gimbal_data.angles else "angles=N/A"
+                        tracking_info = gimbal_data.tracking_status.state.name if gimbal_data.tracking_status else "tracking=N/A"
+                        logger.info(f"Gimbal status: {angles_info} | {tracking_info}")
                 else:
                     with self.lock:
                         self.invalid_packets_received += 1
@@ -578,23 +491,20 @@ class GimbalInterface:
             try:
                 query_counter += 1
 
-                # Enable active querying to supplement broadcast data
-                # This provides a fallback if broadcast parsing fails
+                # Active querying to supplement broadcast data
+                intervals = self.QUERY_INTERVALS
 
-                if query_counter % 6 == 0:
-                    # Query tracking status less frequently
+                if query_counter % intervals['tracking_status'] == 0:
                     self.query_tracking_status()
                     time.sleep(0.2)
-                elif query_counter % 6 == 2:
-                    # Query gyro angles (GIC format) - should work like test script
+                elif query_counter % intervals['spatial_angles'] == 0:
                     self.query_spatial_fixed_angles()
                     time.sleep(0.2)
-                elif query_counter % 6 == 4:
-                    # Query magnetic angles (GAC format) - should work like test script
+                elif query_counter % intervals['gimbal_angles'] == 0:
                     self.query_gimbal_body_angles()
                     time.sleep(0.2)
                 else:
-                    time.sleep(0.3)  # Just wait if no query needed
+                    time.sleep(intervals['base_interval'])
 
             except Exception as e:
                 logger.debug(f"Query loop error: {e}")
@@ -618,18 +528,18 @@ class GimbalInterface:
                 raw_packet=packet
             )
 
-            # Parse angle data
+            # Parse angle data from various formats
             angles = self._parse_angle_response(packet)
             if angles:
                 gimbal_data.angles = angles
                 gimbal_data.coordinate_system = angles.coordinate_system
 
-            # Parse tracking status
+            # Parse tracking status from TRC packets
             tracking_status = self._parse_tracking_response(packet)
             if tracking_status:
                 gimbal_data.tracking_status = tracking_status
 
-            # Return data if we got at least one valid component
+            # Return data if we have at least one valid component
             if gimbal_data.angles or gimbal_data.tracking_status:
                 return gimbal_data
 
@@ -697,7 +607,7 @@ class GimbalInterface:
             angle_data = response[angle_start:angle_start + 12]
 
             if len(angle_data) != 12:
-                logger.warning(f"Invalid angle data length: {len(angle_data)} (expected 12)")
+                logger.debug(f"Invalid angle data length: {len(angle_data)} (expected 12)")
                 return None
 
             return self._parse_hex_angles_direct(angle_data, coord_sys)
@@ -725,19 +635,16 @@ class GimbalInterface:
             # Expected format: #tpDP9wOFT64025910 (8 hex chars = 3 angles × 2 bytes + 2 extra)
             result = self._parse_broadcast_hex_strategy(raw_data)
             if result:
-                logger.info(f"Gimbal angles: yaw={result.yaw:.1f}° pitch={result.pitch:.1f}° roll={result.roll:.1f}°")
                 return result
 
             # Strategy 2: Parse as binary data (if hex fails)
             result = self._parse_broadcast_binary_strategy(raw_data)
             if result:
-                logger.info(f"Gimbal angles: yaw={result.yaw:.1f}° pitch={result.pitch:.1f}° roll={result.roll:.1f}°")
                 return result
 
             # Strategy 3: Try to extract embedded hex patterns
             result = self._parse_broadcast_embedded_hex(raw_data)
             if result:
-                logger.info(f"Gimbal angles: yaw={result.yaw:.1f}° pitch={result.pitch:.1f}° roll={result.roll:.1f}°")
                 return result
             return None
 
@@ -892,7 +799,6 @@ class GimbalInterface:
                 logger.debug(f"Hex angles out of valid range: yaw={yaw:.2f}°, pitch={pitch:.2f}°, roll={roll:.2f}°")
                 return None
 
-            logger.info(f"Successfully parsed hex angles: yaw={yaw:.2f}°, pitch={pitch:.2f}°, roll={roll:.2f}°")
             return angles
 
         except ValueError as e:
@@ -902,32 +808,6 @@ class GimbalInterface:
             logger.error(f"Error parsing hex angles: {e}")
             return None
 
-    def _parse_hex_angles(self, angle_data: str, coord_sys: CoordinateSystem) -> Optional[GimbalAngles]:
-        """Parse hex-encoded angle data - legacy method, kept for compatibility."""
-        # This method is now redundant since _parse_angle_response handles everything,
-        # but kept to avoid breaking existing code paths
-        logger.debug(f"_parse_hex_angles called with data: {angle_data} (redirecting to main parser)")
-
-        # Construct a minimal response format for the main parser
-        identifier = "GAC" if coord_sys == CoordinateSystem.GIMBAL_BODY else "GIC"
-        fake_response = f"#tp{identifier}{angle_data}"
-        return self._parse_angle_response(fake_response)
-
-    def _parse_broadcast_angles(self, angle_data: str, coord_sys: CoordinateSystem) -> Optional[GimbalAngles]:
-        """Parse broadcast angle data - simplified to use main parser."""
-        # Broadcast format is not used by the current gimbal, so we redirect to main parser
-        logger.debug(f"Broadcast format detected, data: {angle_data} - redirecting to main parser")
-
-        # Try to construct a standard format for the main parser
-        identifier = "GAC" if coord_sys == CoordinateSystem.GIMBAL_BODY else "GIC"
-
-        # If angle_data looks like hex, try to use it directly
-        if len(angle_data) >= 12 and all(c in '0123456789ABCDEFabcdef' for c in angle_data[:12]):
-            fake_response = f"#tp{identifier}{angle_data[:12]}"
-            return self._parse_angle_response(fake_response)
-
-        logger.debug(f"Broadcast data format not recognized: {angle_data}")
-        return None
 
     def _parse_tracking_response(self, response: str) -> Optional[TrackingStatus]:
         """Parse tracking status from gimbal response using exact logic from test script."""
@@ -954,8 +834,9 @@ class GimbalInterface:
                 # Map to TrackingState enum
                 state = TrackingState(state_val)
 
-                # Log successful parsing with info level (temporarily for debugging)
-                logger.info(f"TRC parsing success: '{response}' → {state_name} (value: {state_val})")
+                # Log tracking state changes only
+                if state != self.last_tracking_state:
+                    logger.info(f"Tracking state: {state_name}")
 
             except (ValueError, IndexError) as e:
                 logger.debug(f"Could not parse tracking state from: '{state_data}', error: {e}")
@@ -974,7 +855,7 @@ class GimbalInterface:
         """Check if current data is fresh (within reasonable timeout)."""
         if not self.last_data_time:
             return False
-        return (time.time() - self.last_data_time) < 2.0  # Optimized 2 second timeout for real-time data
+        return (time.time() - self.last_data_time) < self.DATA_FRESHNESS_TIMEOUT
 
     def _log_status_periodically(self) -> None:
         """Log status periodically for monitoring."""

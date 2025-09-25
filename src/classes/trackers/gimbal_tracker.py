@@ -114,18 +114,19 @@ class GimbalTracker(BaseTracker):
         self.tracker_name = "GimbalTracker"
         self.is_external_tracker = True  # Flag for AppController to handle differently
 
-        # Initialize gimbal interface with SIP protocol support
-        listen_port = getattr(Parameters, 'GIMBAL_LISTEN_PORT', 9004)
-        gimbal_ip = getattr(Parameters, 'GIMBAL_UDP_HOST', '192.168.0.108')
-
-        # Get control port from GimbalTracker config or default
-        gimbal_config = getattr(Parameters, 'GimbalTracker', {})
-        control_port = gimbal_config.get('UDP_PORT', 9003)
+        # Initialize gimbal interface with configurable parameters
+        self.CONFIG = {
+            'listen_port': getattr(Parameters, 'GIMBAL_LISTEN_PORT', 9004),
+            'gimbal_ip': getattr(Parameters, 'GIMBAL_UDP_HOST', '192.168.0.108'),
+            'control_port': getattr(Parameters, 'GimbalTracker', {}).get('UDP_PORT', 9003),
+            'coordinate_system': getattr(Parameters, 'GIMBAL_COORDINATE_SYSTEM', 'GIMBAL_BODY'),
+            'disable_estimator': getattr(Parameters, 'GIMBAL_DISABLE_ESTIMATOR', True)
+        }
 
         self.gimbal_interface = GimbalInterface(
-            listen_port=listen_port,
-            gimbal_ip=gimbal_ip,
-            control_port=control_port
+            listen_port=self.CONFIG['listen_port'],
+            gimbal_ip=self.CONFIG['gimbal_ip'],
+            control_port=self.CONFIG['control_port']
         )
 
         # Initialize coordinate transformer
@@ -140,12 +141,20 @@ class GimbalTracker(BaseTracker):
         # Enhanced caching for robust operation
         self.last_valid_output: Optional[TrackerOutput] = None
         self.last_valid_data_time: Optional[float] = None
-        self.data_timeout_seconds = 5.0  # Show stale data for up to 5 seconds
         self.consecutive_failures = 0
-        self.max_consecutive_failures = 10  # Warning threshold
+
+        # Configuration constants
+        self.DATA_TIMEOUT_SECONDS = 5.0    # Show stale data for up to 5 seconds
+        self.MAX_CONSECUTIVE_FAILURES = 10  # Warning threshold
+        self.LOG_INTERVALS = {
+            'data_status': 200,     # Log data status every 200 updates
+            'angles_display': 200,  # Log angle values every 200 updates
+            'tracker_output': 500,  # Log TrackerOutput creation every 500 updates
+            'initial_updates': 3    # Log first 3 updates
+        }
 
         # Configuration
-        self.preferred_coordinate_system = getattr(Parameters, 'GIMBAL_COORDINATE_SYSTEM', 'GIMBAL_BODY')
+        self.preferred_coordinate_system = self.CONFIG['coordinate_system']
 
         # Suppress detector and predictor since we don't need image processing
         self._suppress_image_processing()
@@ -155,8 +164,8 @@ class GimbalTracker(BaseTracker):
         self.tracking_activations = 0
         self.tracking_deactivations = 0
 
-        logger.info(f"GimbalTracker initialized for optimized continuous monitoring on port {listen_port}")
-        logger.debug(f"Expected gimbal IP: {gimbal_ip}")
+        logger.info(f"GimbalTracker initialized - monitoring port {self.CONFIG['listen_port']}")
+        logger.debug(f"Gimbal IP: {self.CONFIG['gimbal_ip']}, Control port: {self.CONFIG['control_port']}")
 
     def _suppress_image_processing(self) -> None:
         """Suppress detector and predictor since gimbal tracker doesn't use images."""
@@ -166,8 +175,7 @@ class GimbalTracker(BaseTracker):
             self.suppress_predictor = True
 
             # Disable estimator if not needed (gimbal provides direct position data)
-            disable_estimator = getattr(Parameters, 'GIMBAL_DISABLE_ESTIMATOR', True)
-            if disable_estimator:
+            if self.CONFIG['disable_estimator']:
                 self.estimator_enabled = False
                 self.position_estimator = None
 
@@ -265,12 +273,12 @@ class GimbalTracker(BaseTracker):
             gimbal_data = self.gimbal_interface.get_current_data()
 
             # Log data reception status periodically
-            if gimbal_data and self.total_updates % 100 == 0:
+            if gimbal_data and self.total_updates % 200 == 0:
                 has_angles = gimbal_data.angles is not None
                 if has_angles:
-                    logger.info(f"Gimbal data flowing: angles available, tracking_status={gimbal_data.tracking_status.state.name if gimbal_data.tracking_status else 'Unknown'}")
+                    logger.info(f"Gimbal data: angles available, status={gimbal_data.tracking_status.state.name if gimbal_data.tracking_status else 'Unknown'}")
                 else:
-                    logger.info(f"Gimbal data received but no angles parsed, packet: {gimbal_data.raw_packet[:50] if gimbal_data.raw_packet else 'None'}...")
+                    logger.debug(f"Gimbal data received but no angles parsed: {gimbal_data.raw_packet[:50] if gimbal_data.raw_packet else 'N/A'}...")
 
             if gimbal_data is None:
                 # No recent data from gimbal - check if we can use cached data
@@ -294,11 +302,11 @@ class GimbalTracker(BaseTracker):
                     self.consecutive_failures = 0  # Reset failure counter
 
                     # Log gimbal data periodically for monitoring
-                    if self.total_updates % 100 == 0 or self.total_updates <= 5:
-                        logger.info(f"Gimbal angles - YAW: {gimbal_data.angles.yaw:.2f}° PITCH: {gimbal_data.angles.pitch:.2f}° ROLL: {gimbal_data.angles.roll:.2f}° | System: {gimbal_data.angles.coordinate_system.value} | Updates: #{self.total_updates}")
+                    if self.total_updates % 200 == 0 or self.total_updates <= 3:
+                        logger.info(f"Gimbal angles: Y={gimbal_data.angles.yaw:.1f}° P={gimbal_data.angles.pitch:.1f}° R={gimbal_data.angles.roll:.1f}° | {gimbal_data.angles.coordinate_system.value}")
                     return True, tracker_output
                 else:
-                    logger.warning("Failed to process gimbal angle data")
+                    logger.debug("Failed to process gimbal angle data")
                     self.consecutive_failures += 1
                     return self._handle_processing_failure()
             else:
@@ -307,7 +315,7 @@ class GimbalTracker(BaseTracker):
                 return self._handle_no_angle_data()
 
         except Exception as e:
-            logger.error(f"Error in gimbal tracker update: {e}")
+            logger.error(f"Gimbal tracker update error: {e}")
             self.consecutive_failures += 1
             return self._handle_exception_failure(str(e))
 
@@ -317,7 +325,7 @@ class GimbalTracker(BaseTracker):
 
         # Check if we have recent cached data we can use
         if (self.last_valid_output and self.last_valid_data_time and
-            (time.time() - self.last_valid_data_time) < self.data_timeout_seconds):
+            (time.time() - self.last_valid_data_time) < self.DATA_TIMEOUT_SECONDS):
 
             # Return cached data with staleness indicator
             cached_output = self._create_stale_data_output(self.last_valid_output)
@@ -331,7 +339,7 @@ class GimbalTracker(BaseTracker):
         """Handle gimbal data processing failure."""
         # Try to return cached data if available and recent
         if (self.last_valid_output and self.last_valid_data_time and
-            (time.time() - self.last_valid_data_time) < self.data_timeout_seconds):
+            (time.time() - self.last_valid_data_time) < self.DATA_TIMEOUT_SECONDS):
 
             cached_output = self._create_stale_data_output(self.last_valid_output)
             logger.debug(f"Processing failed, using cached data (age: {time.time() - self.last_valid_data_time:.1f}s)")
@@ -343,7 +351,7 @@ class GimbalTracker(BaseTracker):
         """Handle case when gimbal data exists but no angle information."""
         # Try to return cached data if available and recent
         if (self.last_valid_output and self.last_valid_data_time and
-            (time.time() - self.last_valid_data_time) < self.data_timeout_seconds):
+            (time.time() - self.last_valid_data_time) < self.DATA_TIMEOUT_SECONDS):
 
             cached_output = self._create_stale_data_output(self.last_valid_output)
             logger.debug(f"No angle data, using cached data (age: {time.time() - self.last_valid_data_time:.1f}s)")
@@ -355,7 +363,7 @@ class GimbalTracker(BaseTracker):
         """Handle exception during update."""
         # Try to return cached data if available and recent
         if (self.last_valid_output and self.last_valid_data_time and
-            (time.time() - self.last_valid_data_time) < self.data_timeout_seconds):
+            (time.time() - self.last_valid_data_time) < self.DATA_TIMEOUT_SECONDS):
 
             cached_output = self._create_stale_data_output(self.last_valid_output)
             logger.debug(f"Exception occurred, using cached data (age: {time.time() - self.last_valid_data_time:.1f}s)")
@@ -384,7 +392,7 @@ class GimbalTracker(BaseTracker):
                 'data_age_seconds': data_age,
                 'consecutive_failures': self.consecutive_failures,
                 'last_valid_time': self.last_valid_data_time,
-                'connection_health': 'degraded' if self.consecutive_failures < self.max_consecutive_failures else 'poor'
+                'connection_health': 'degraded' if self.consecutive_failures < self.MAX_CONSECUTIVE_FAILURES else 'poor'
             },
 
             metadata={
@@ -528,8 +536,8 @@ class GimbalTracker(BaseTracker):
             )
 
             # Log tracker output creation periodically
-            if hasattr(self, 'total_updates') and (self.total_updates % 100 == 0 or self.total_updates <= 5):
-                logger.info(f"TrackerOutput created - Angular: {(yaw, pitch, roll)}, Position: {normalized_coords}, System: {gimbal_system}")
+            if hasattr(self, 'total_updates') and (self.total_updates % 500 == 0 or self.total_updates <= 3):
+                logger.info(f"TrackerOutput: Angular=({yaw:.1f}, {pitch:.1f}, {roll:.1f}), Position={normalized_coords}, System={gimbal_system}")
             return True, tracker_output
 
         except Exception as e:
@@ -610,7 +618,7 @@ class GimbalTracker(BaseTracker):
                     }
 
         except Exception as e:
-            logger.debug(f"Could not get aircraft attitude: {e}")
+            logger.debug(f"Aircraft attitude unavailable: {e}")
 
         return None
 

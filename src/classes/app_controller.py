@@ -68,14 +68,16 @@ class AppController:
         self.tracker = create_tracker(Parameters.DEFAULT_TRACKING_ALGORITHM,
                                       self.video_handler, self.detector, self)
 
-        # Auto-start monitoring for GimbalTracker (external control)
-        if hasattr(self.tracker, '__class__') and self.tracker.__class__.__name__ == 'GimbalTracker':
+        # Auto-start monitoring for external trackers
+        if getattr(self.tracker, 'is_external_tracker', False):
             try:
-                # Start background monitoring without manual control
+                # Start background monitoring for external trackers
                 self.tracker.start_tracking(None, (0, 0, 0, 0))  # Dummy parameters for monitoring
-                logging.info("GimbalTracker auto-started for background monitoring")
+                tracker_name = self.tracker.__class__.__name__
+                logging.info(f"{tracker_name} auto-started for background monitoring")
             except Exception as e:
-                logging.error(f"Failed to auto-start GimbalTracker monitoring: {e}")
+                tracker_name = self.tracker.__class__.__name__
+                logging.error(f"Failed to auto-start {tracker_name} monitoring: {e}")
 
         self.segmentor = Segmentor(algorithm=Parameters.DEFAULT_SEGMENTATION_ALGORITHM)
                     
@@ -232,13 +234,14 @@ class AppController:
         """
         Starts tracking with the provided bounding box.
 
-        Note: For GimbalTracker, manual tracking initiation is not supported.
-        GimbalTracker uses external control and monitors automatically.
+        Note: For external trackers, manual tracking initiation is not supported.
+        External trackers use external control and monitor automatically.
         """
-        # Check if we're using GimbalTracker (externally controlled)
-        if hasattr(self.tracker, '__class__') and self.tracker.__class__.__name__ == 'GimbalTracker':
-            logging.warning("Manual tracking control not supported for GimbalTracker")
-            logging.info("GimbalTracker requires external control from camera UI application")
+        # Check if we're using an external tracker
+        if getattr(self.tracker, 'is_external_tracker', False):
+            tracker_name = self.tracker.__class__.__name__
+            logging.warning(f"Manual tracking control not supported for {tracker_name}")
+            logging.info(f"{tracker_name} requires external control from camera UI application")
             logging.info("Tracker is monitoring automatically - no manual start needed")
             return
 
@@ -256,13 +259,14 @@ class AppController:
         """
         Stops tracking if active.
 
-        Note: For GimbalTracker, manual tracking stop is not supported.
-        GimbalTracker stops automatically when external system stops tracking.
+        Note: For external trackers, manual tracking stop is not supported.
+        External trackers stop automatically when external system stops tracking.
         """
-        # Check if we're using GimbalTracker (externally controlled)
-        if hasattr(self.tracker, '__class__') and self.tracker.__class__.__name__ == 'GimbalTracker':
-            logging.warning("Manual tracking control not supported for GimbalTracker")
-            logging.info("GimbalTracker stops automatically when external tracking ends")
+        # Check if we're using an external tracker
+        if getattr(self.tracker, 'is_external_tracker', False):
+            tracker_name = self.tracker.__class__.__name__
+            logging.warning(f"Manual tracking control not supported for {tracker_name}")
+            logging.info(f"{tracker_name} stops automatically when external tracking ends")
             logging.info("Control tracking from camera UI application")
             return
 
@@ -276,18 +280,19 @@ class AppController:
         """
         Cancels tracking, segmentation, and smart mode activities.
 
-        Note: GimbalTracker continues monitoring even when activities are canceled
-        since it operates independently via external control.
+        Note: External trackers continue monitoring even when activities are canceled
+        since they operate independently via external control.
         """
         self.tracking_started = False
         self.segmentation_active = False
         # self.smart_mode_active = False
         self.selected_bbox = None
 
-        # Reset tracker state (except for GimbalTracker which should keep monitoring)
+        # Reset tracker state (except for external trackers which should keep monitoring)
         if self.tracker and hasattr(self.tracker, 'stop_tracking'):
-            if hasattr(self.tracker, '__class__') and self.tracker.__class__.__name__ == 'GimbalTracker':
-                logging.info("GimbalTracker continues monitoring - use external control to stop")
+            if getattr(self.tracker, 'is_external_tracker', False):
+                tracker_name = self.tracker.__class__.__name__
+                logging.info(f"{tracker_name} continues monitoring - use external control to stop")
             else:
                 self.tracker.stop_tracking()
 
@@ -1211,7 +1216,9 @@ class AppController:
 
             # Secondary check: tracker class name
             tracker_class_name = self.tracker.__class__.__name__
-            always_reporting_trackers = {'GimbalTracker', 'ExternalTracker'}
+            # This is a fallback - prefer using is_external_tracker attribute
+            external_tracker_classes = {'GimbalTracker', 'ExternalTracker'}
+            always_reporting_trackers = external_tracker_classes
             return tracker_class_name in always_reporting_trackers
 
         except Exception as e:
