@@ -53,6 +53,10 @@ const TrackerDataDisplay = ({
       angular: <RotateIcon fontSize="small" />,
       angular_3d: <RotateIcon fontSize="small" />,
       gimbal_angles: <RotateIcon fontSize="small" />,
+      tracking: <VisibilityIcon fontSize="small" />,
+      tracking_status: <VisibilityIcon fontSize="small" />,
+      system: <GpsIcon fontSize="small" />,
+      coordinate_system: <GpsIcon fontSize="small" />,
 
       // Generic type-based mapping
       tuple_2d: <RulerIcon fontSize="small" />,
@@ -138,6 +142,12 @@ const TrackerDataDisplay = ({
       case 'string':
         return value;
 
+      case 'tracking_status':
+        return value;
+
+      case 'coordinate_system':
+        return value.toUpperCase();
+
       default:
         if (Array.isArray(value)) {
           return `[${value.map(v => typeof v === 'number' ? v.toFixed(3) : v).join(', ')}]`;
@@ -150,12 +160,23 @@ const TrackerDataDisplay = ({
     return value;
   };
 
-  // Get field display color based on importance
-  const getFieldColor = (fieldName, required = false) => {
+  // Get field display color based on importance and status
+  const getFieldColor = (fieldName, fieldData, required = false) => {
     if (required) return 'primary';
     if (fieldName.includes('confidence')) return 'success';
     if (fieldName.includes('position')) return 'info';
     if (fieldName.includes('velocity')) return 'warning';
+
+    // Special color coding for tracking status
+    if (fieldName === 'tracking' || fieldName === 'tracking_status') {
+      const value = fieldData?.value || '';
+      if (value.includes('ACTIVE')) return 'success';
+      if (value.includes('SELECTION')) return 'warning';
+      if (value.includes('LOST')) return 'error';
+      if (value.includes('DISABLED')) return 'default';
+      return 'warning'; // For UNKNOWN or other states
+    }
+
     return 'default';
   };
 
@@ -292,12 +313,21 @@ const TrackerDataDisplay = ({
                         {displayName}
                       </Typography>
                       {isRequired && (
-                        <Chip 
-                          label="Required" 
-                          size="small" 
-                          color={getFieldColor(fieldName, isRequired)}
+                        <Chip
+                          label="Required"
+                          size="small"
+                          color={getFieldColor(fieldName, fieldData, isRequired)}
                           variant="outlined"
                           sx={{ height: 16, fontSize: '0.7rem' }}
+                        />
+                      )}
+                      {(fieldName === 'tracking' || fieldName === 'tracking_status') && (
+                        <Chip
+                          label={formattedValue}
+                          size="small"
+                          color={getFieldColor(fieldName, fieldData, false)}
+                          variant="filled"
+                          sx={{ height: 16, fontSize: '0.7rem', ml: 0.5 }}
                         />
                       )}
                     </Box>

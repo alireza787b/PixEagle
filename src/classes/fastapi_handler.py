@@ -1167,6 +1167,14 @@ class FastAPIHandler:
                     # Enhanced field processing with specific gimbal angle handling
                     field_info = self._get_enhanced_field_info(key, value, data_type)
                     available_fields[key] = field_info
+
+            # Also include important raw_data fields for display (especially for gimbal trackers)
+            if tracker_output.raw_data:
+                important_raw_fields = ['tracking', 'tracking_status', 'system', 'yaw', 'pitch', 'roll']
+                for raw_field in important_raw_fields:
+                    if raw_field in tracker_output.raw_data and tracker_output.raw_data[raw_field] is not None:
+                        field_info = self._get_enhanced_field_info(raw_field, tracker_output.raw_data[raw_field], data_type)
+                        available_fields[raw_field] = field_info
             
             tracker_class = self.app_controller.tracker.__class__.__name__ if self.app_controller.tracker else 'Unknown'
             
@@ -1267,6 +1275,27 @@ class FastAPIHandler:
                 'description': f'{len(value)}-dimensional {field_name} data',
                 'format': f'{base_type}_{len(value)}d',
                 'components': [f'component_{i}' for i in range(len(value))]
+            }
+
+        # Tracking status handling for gimbal trackers
+        elif field_name in ['tracking', 'tracking_status'] and isinstance(value, str):
+            return {
+                'value': value,
+                'type': 'tracking_status',
+                'display_name': 'Tracking Status',
+                'description': 'Current gimbal tracking state',
+                'format': 'status_string',
+                'status_color': 'success' if 'ACTIVE' in value.upper() else 'warning' if 'SELECTION' in value.upper() else 'error'
+            }
+
+        # Gimbal system/coordinate system handling
+        elif field_name == 'system' and isinstance(value, str):
+            return {
+                'value': value,
+                'type': 'coordinate_system',
+                'display_name': 'Coordinate System',
+                'description': 'Gimbal coordinate reference system',
+                'format': 'system_string'
             }
 
         # Default handling for other types

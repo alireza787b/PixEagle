@@ -499,6 +499,10 @@ class GimbalTracker(BaseTracker):
             gimbal_system = angles.coordinate_system.value.lower()  # gimbal_body, spatial_fixed
             current_timestamp = time.time()
 
+            # Debug: Log tracking status for troubleshooting UI
+            if self.total_updates % 50 == 0 or gimbal_tracking_status != 'UNKNOWN':
+                logger.info(f"TrackerOutput: tracking_status='{gimbal_tracking_status}', has_tracking_data={gimbal_data.tracking_status is not None}")
+
             tracker_output = TrackerOutput(
                 data_type=TrackerDataType.GIMBAL_ANGLES,
                 timestamp=current_timestamp,
@@ -519,6 +523,7 @@ class GimbalTracker(BaseTracker):
                     'roll': round(roll, 2),    # +18.39
                     'system': gimbal_system,   # gimbal_body
                     'tracking': gimbal_tracking_status,  # TRACKING_ACTIVE
+                    'tracking_status': gimbal_tracking_status,  # Also add as tracking_status for UI compatibility
                     'connection_status': self.gimbal_interface.get_connection_status(),
                     'timestamp': current_timestamp
                 },
