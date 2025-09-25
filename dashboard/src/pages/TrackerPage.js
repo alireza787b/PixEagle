@@ -22,7 +22,6 @@ const TrackerPage = () => {
   const { schema, loading: schemaLoading, error: schemaError } = useTrackerSchema();
   const { currentStatus, loading: statusLoading, error: statusError } = useCurrentTrackerStatus();
   const { output, loading: outputLoading, error: outputError } = useTrackerOutput();
-  const trackerDataTypes = useTrackerDataTypes(schema, currentStatus);
 
   const fetchTrackerData = async () => {
     try {

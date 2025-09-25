@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Container, Typography, CircularProgress, Box, Grid, Snackbar, Alert,
-  FormControl, InputLabel, Select, MenuItem, Divider, Card, CardContent,
+  FormControl, InputLabel, Select, MenuItem, Card, CardContent,
   Chip, Button
 } from '@mui/material';
 import { 
@@ -10,14 +10,12 @@ import {
   FlightTakeoff, 
   LiveTv,
   Speed,
-  Rotate90DegreesCcw,
   Warning,
   CheckCircle
 } from '@mui/icons-material';
 
 import ActionButtons from '../components/ActionButtons';
 import BoundingBoxDrawer from '../components/BoundingBoxDrawer';
-import StatusIndicator from '../components/StatusIndicator';
 import FollowerStatusCard from '../components/FollowerStatusCard';
 import TrackerStatusCard from '../components/TrackerStatusCard';
 import FollowerQuickControl from '../components/FollowerQuickControl';

@@ -5,7 +5,7 @@ import { Line } from 'react-chartjs-2';
 const StaticPlot = ({ title, data, dataKey }) => {
   useEffect(() => {
     console.log(`${title} - Data updated:`, data);
-  }, [data]);
+  }, [data, title]);
 
   // Check if data is valid for different data keys
   const isTrackerDataValid = (dataKey === 'center.0' || dataKey === 'center.1') &&

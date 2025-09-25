@@ -6,7 +6,6 @@ import {
   Typography,
   Box,
   Chip,
-  Grid,
   LinearProgress,
   IconButton,
   Tooltip,
@@ -18,37 +17,12 @@ import {
   Speed,
   Rotate90DegreesCcw,
   Warning,
-  CheckCircle,
   Settings,
   PowerSettingsNew,
   PowerOff
 } from '@mui/icons-material';
 import { useCurrentFollowerProfile } from '../hooks/useFollowerSchema';
 
-const FieldQuickView = memo(({ fieldName, value, unit, color, icon }) => {
-  const formatValue = (val) => {
-    if (typeof val === 'number') {
-      return Math.abs(val) < 0.001 ? '0.000' : val.toFixed(3);
-    }
-    return val || '0.000';
-  };
-
-  return (
-    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-      <Box sx={{ mr: 1, color: color }}>
-        {icon}
-      </Box>
-      <Box sx={{ flexGrow: 1 }}>
-        <Typography variant="caption" color="textSecondary">
-          {fieldName.replace('_', ' ').toUpperCase()}
-        </Typography>
-        <Typography variant="body2" fontWeight="bold">
-          {formatValue(value)} {unit}
-        </Typography>
-      </Box>
-    </Box>
-  );
-});
 
 const LoadingSkeleton = () => (
   <Card>
@@ -161,7 +135,7 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
     );
   }
 
-  const { status, isEngaged, isConfigured, fields, controlType, isValid, displayName, description, message, mode } = memoizedData;
+  const { isEngaged, isConfigured, fields, controlType, isValid, displayName, description, message } = memoizedData;
 
   // Status icon and color
   const getStatusIcon = () => {

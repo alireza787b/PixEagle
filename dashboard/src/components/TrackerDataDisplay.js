@@ -20,7 +20,7 @@ import {
   RotateRight as RotateIcon,
   CameraAlt as CameraIcon,
   Straighten as RulerIcon,
-  WifiIcon,
+  Wifi as WifiIcon,
   SignalWifiOffIcon
 } from '@mui/icons-material';
 

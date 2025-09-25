@@ -20,9 +20,9 @@ import {
 import { useTrackerSchema, useCurrentTrackerStatus, useTrackerSelection } from '../hooks/useTrackerSchema';
 
 const TrackerStatusCard = () => {
-  const { schema, loading: schemaLoading, error: schemaError } = useTrackerSchema();
+  const { loading: schemaLoading, error: schemaError } = useTrackerSchema();
   const { currentStatus, loading: statusLoading, error: statusError } = useCurrentTrackerStatus();
-  const { availableTrackers, currentConfig, loading: configLoading, isChanging, changeTrackerType } = useTrackerSelection();
+  const { availableTrackers, currentConfig, loading: configLoading } = useTrackerSelection();
 
   const loading = schemaLoading || statusLoading || configLoading;
   const error = schemaError || statusError;

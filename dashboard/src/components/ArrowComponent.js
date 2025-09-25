@@ -1,4 +1,3 @@
-import React from 'react';
 
 const ArrowComponent = ({ ctx, startX, startY, endX, endY, color }) => {
   // Calculate the velocity components in the video frame coordinate system
