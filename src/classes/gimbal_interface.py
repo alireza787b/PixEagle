@@ -278,9 +278,14 @@ class GimbalInterface:
             elif 'OFT' in packet:
                 angles = self._parse_broadcast_format(packet)
 
-            # Parse tracking status from TRC packets
+            # Parse tracking status from TRC packets (temporary debug)
             if 'TRC' in packet:
+                logger.info(f"Parsing TRC packet: {packet}")
                 tracking_status = self._parse_tracking_response(packet)
+                if tracking_status:
+                    logger.info(f"TRC parsed successfully: {tracking_status.state.name}")
+                else:
+                    logger.info(f"TRC parsing failed for packet: {packet}")
 
             # Return gimbal data if we have either angles or tracking status
             if angles or tracking_status:
@@ -294,7 +299,7 @@ class GimbalInterface:
             return None
 
         except Exception as e:
-            logger.debug(f"Error parsing gimbal packet: {e}")
+            logger.error(f"Error parsing gimbal packet: {e}")
             return None
 
     def _init_listening_socket(self) -> bool:
@@ -928,23 +933,19 @@ class GimbalInterface:
         """Parse tracking status from gimbal response using exact logic from test script."""
         try:
             response = response.strip()
-            logger.debug(f"Parsing tracking status from: {response}")
 
             if "TRC" not in response:
-                logger.debug("No TRC identifier found in response")
                 return None
 
             # Find tracking data after TRC identifier
             trc_pos = response.find("TRC") + 3
             if trc_pos + 2 > len(response):
-                logger.debug(f"Not enough data after TRC, response length: {len(response)}, trc_pos: {trc_pos}")
                 return None
 
             # Extract tracking state (2 characters)
             state_data = response[trc_pos:trc_pos + 2]
-            logger.debug(f"Extracted state_data: '{state_data}' from position {trc_pos}")
 
-            # Parse state value - exact logic from test_gimbal_udp.py
+            # Parse state value - exact logic from working demo
             try:
                 state_val = int(state_data[1])  # Second character is the state
                 state_names = {0: "DISABLED", 1: "TARGET_SELECTION", 2: "TRACKING_ACTIVE", 3: "TARGET_LOST"}
@@ -952,7 +953,9 @@ class GimbalInterface:
 
                 # Map to TrackingState enum
                 state = TrackingState(state_val)
-                logger.debug(f"Successfully parsed tracking state: {state_name} (value: {state_val})")
+
+                # Log successful parsing with info level (temporarily for debugging)
+                logger.info(f"TRC parsing success: '{response}' → {state_name} (value: {state_val})")
 
             except (ValueError, IndexError) as e:
                 logger.debug(f"Could not parse tracking state from: '{state_data}', error: {e}")
