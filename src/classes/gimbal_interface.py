@@ -218,6 +218,68 @@ class GimbalInterface:
         command = self._build_command("D", "r", "TRC", "00")
         return self._send_command(command)
 
+    def _build_command(self, address_dest: str, control: str, command: str, data: str = "00") -> str:
+        """Build protocol command according to SIP specification (from working demo)"""
+        frame = "#TP"  # Fixed length command
+        src = "P"      # Network source address
+        length = "2"   # Fixed length
+
+        # Build command string
+        cmd = f"{frame}{src}{address_dest}{length}{control}{command}{data}"
+
+        # Calculate CRC (sum of all bytes mod 256)
+        crc = sum(cmd.encode('ascii')) & 0xFF
+        cmd += f"{crc:02X}"
+
+        return cmd
+
+    def _send_command(self, command: str) -> bool:
+        """Send UDP command to gimbal"""
+        try:
+            if not hasattr(self, 'control_socket') or self.control_socket is None:
+                # Create control socket if it doesn't exist
+                self.control_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+            self.control_socket.sendto(command.encode('ascii'), (self.gimbal_ip, self.control_port))
+            logger.debug(f"Sent gimbal command: {command}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send gimbal command: {e}")
+            return False
+
+    def _cleanup_socket(self) -> None:
+        """Clean up both control and listen sockets"""
+        try:
+            if hasattr(self, 'listen_socket') and self.listen_socket:
+                self.listen_socket.close()
+                self.listen_socket = None
+        except Exception as e:
+            logger.debug(f"Error closing listen socket: {e}")
+
+        try:
+            if hasattr(self, 'control_socket') and self.control_socket:
+                self.control_socket.close()
+                self.control_socket = None
+        except Exception as e:
+            logger.debug(f"Error closing control socket: {e}")
+
+    def _init_listening_socket(self) -> bool:
+        """Initialize UDP socket for listening to gimbal responses."""
+        try:
+            # Create UDP socket for listening to gimbal responses
+            self.listen_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.listen_socket.bind(('0.0.0.0', self.listen_port))
+            self.listen_socket.settimeout(0.1)  # 100ms timeout for responsive shutdown
+
+            logger.info(f"Gimbal socket initialized - Listening: 0.0.0.0:{self.listen_port}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to initialize listen socket: {e}")
+            self._cleanup_socket()
+            return False
+
     def start_listening(self) -> bool:
         """
         Start passive UDP listening for gimbal data.
