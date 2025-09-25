@@ -263,6 +263,40 @@ class GimbalInterface:
         except Exception as e:
             logger.debug(f"Error closing control socket: {e}")
 
+    def _parse_gimbal_packet(self, packet: str) -> Optional['GimbalData']:
+        """Parse complete gimbal packet to extract angles and tracking status"""
+        try:
+            # Initialize default values
+            angles = None
+            tracking_status = None
+
+            # Parse angles from GAC/GIC responses (from our active queries)
+            if 'GAC' in packet or 'GIC' in packet:
+                angles = self._parse_query_response(packet)
+
+            # Parse angles from broadcast packets (OFT format)
+            elif 'OFT' in packet:
+                angles = self._parse_broadcast_format(packet)
+
+            # Parse tracking status from TRC packets
+            if 'TRC' in packet:
+                tracking_status = self._parse_tracking_response(packet)
+
+            # Return gimbal data if we have either angles or tracking status
+            if angles or tracking_status:
+                return GimbalData(
+                    angles=angles,
+                    tracking_status=tracking_status,
+                    raw_packet=packet,
+                    timestamp=datetime.now()
+                )
+
+            return None
+
+        except Exception as e:
+            logger.debug(f"Error parsing gimbal packet: {e}")
+            return None
+
     def _init_listening_socket(self) -> bool:
         """Initialize UDP socket for listening to gimbal responses."""
         try:
