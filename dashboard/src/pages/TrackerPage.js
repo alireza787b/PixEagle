@@ -6,7 +6,7 @@ import StaticPlot from '../components/StaticPlot';
 import RawDataLog from '../components/RawDataLog';
 import PollingStatusIndicator from '../components/PollingStatusIndicator';
 import TrackerDataDisplay from '../components/TrackerDataDisplay';
-import { useTrackerSchema, useCurrentTrackerStatus, useTrackerDataTypes, useTrackerOutput } from '../hooks/useTrackerSchema';
+import { useTrackerSchema, useCurrentTrackerStatus, useTrackerOutput } from '../hooks/useTrackerSchema';
 import axios from 'axios';
 
 const POLLING_RATE = parseInt(process.env.REACT_APP_POLLING_RATE, 10);

@@ -21,7 +21,7 @@ import {
   CameraAlt as CameraIcon,
   Straighten as RulerIcon,
   Wifi as WifiIcon,
-  SignalWifiOffIcon
+  SignalWifiOff as SignalWifiOffIcon
 } from '@mui/icons-material';
 
 /**
