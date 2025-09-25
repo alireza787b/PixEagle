@@ -1196,6 +1196,7 @@ class AppController:
     def _is_always_reporting_tracker(self) -> bool:
         """
         Check if the current tracker is an always-reporting tracker based on schema properties.
+        Uses direct attribute check to avoid circular dependency.
 
         Returns:
             bool: True if tracker always reports data regardless of manual start
@@ -1204,15 +1205,15 @@ class AppController:
             return False
 
         try:
-            # Check tracker output metadata for always_reporting flag
-            tracker_output = self.get_tracker_output()
-            if tracker_output and tracker_output.metadata:
-                return tracker_output.metadata.get('always_reporting', False)
+            # Primary check: direct is_external_tracker attribute (avoids circular call)
+            if hasattr(self.tracker, 'is_external_tracker'):
+                return getattr(self.tracker, 'is_external_tracker', False)
 
-            # Fallback: check legacy is_external_tracker attribute
-            return getattr(self.tracker, 'is_external_tracker', False)
+            # Secondary check: tracker class name
+            tracker_class_name = self.tracker.__class__.__name__
+            always_reporting_trackers = {'GimbalTracker', 'ExternalTracker'}
+            return tracker_class_name in always_reporting_trackers
 
         except Exception as e:
-            logging.debug(f"Error checking always_reporting status: {e}")
-            # Fallback to legacy check
-            return getattr(self.tracker, 'is_external_tracker', False)
+            logging.warning(f"Error checking always_reporting status: {e}")
+            return False

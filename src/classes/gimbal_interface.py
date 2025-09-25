@@ -137,7 +137,7 @@ class GimbalInterface:
     - Provide real-time gimbal data to PixEagle tracking system
     """
 
-    def __init__(self, listen_port: int = 9004, gimbal_ip: str = "192.168.144.108", control_port: int = 9003):
+    def __init__(self, listen_port: int = 9004, gimbal_ip: str = "192.168.0.108", control_port: int = 9003):
         """
         Initialize gimbal interface with SIP protocol support.
 
@@ -477,20 +477,23 @@ class GimbalInterface:
             try:
                 query_counter += 1
 
-                # Query tracking status every 3rd iteration (less frequent)
-                if query_counter % 3 == 0:
+                # Enable active querying to supplement broadcast data
+                # This provides a fallback if broadcast parsing fails
+
+                if query_counter % 6 == 0:
+                    # Query tracking status less frequently
                     self.query_tracking_status()
-                    time.sleep(0.5)
-
-                # Query angles to supplement broadcast data
-                # This ensures we get data even if broadcast fails
-                if query_counter % 4 == 0:
-                    self.query_spatial_fixed_angles()  # GIC - gyro mode
-                elif query_counter % 4 == 2:
-                    self.query_gimbal_body_angles()    # GAC - magnetic mode
-
-                # Longer sleep since we're getting broadcast data continuously
-                time.sleep(0.5)  # Balance between queries and broadcast reception
+                    time.sleep(0.2)
+                elif query_counter % 6 == 2:
+                    # Query gyro angles (GIC format) - should work like test script
+                    self.query_spatial_fixed_angles()
+                    time.sleep(0.2)
+                elif query_counter % 6 == 4:
+                    # Query magnetic angles (GAC format) - should work like test script
+                    self.query_gimbal_body_angles()
+                    time.sleep(0.2)
+                else:
+                    time.sleep(0.3)  # Just wait if no query needed
 
             except Exception as e:
                 logger.debug(f"Query loop error: {e}")
@@ -603,7 +606,7 @@ class GimbalInterface:
             return None
 
     def _parse_broadcast_format(self, response: str) -> Optional[GimbalAngles]:
-        """Parse broadcast format: #tpDP9wOFT<binary_angle_data>"""
+        """Parse broadcast format: #tpDP9wOFT<hex_angle_data> (multi-strategy approach)"""
         try:
             # Find OFT marker
             oft_pos = response.find('OFT')
@@ -612,71 +615,140 @@ class GimbalInterface:
 
             # Extract data after OFT marker
             angle_start = oft_pos + 3
-            angle_data = response[angle_start:]
+            raw_data = response[angle_start:]
 
-            logger.debug(f"Broadcast angle data length: {len(angle_data)}, first 10 chars: {repr(angle_data[:10])}")
+            if not raw_data:
+                return None
 
-            # The broadcast data contains binary angle values
-            # Try to extract 6 bytes (3 angles × 2 bytes each) from the data
-            if len(angle_data) >= 6:
-                # Convert to bytes for proper binary handling
-                try:
-                    # Handle as binary data
-                    angle_bytes = angle_data.encode('latin1')[:6]  # Preserve binary values
+            # Strategy 1: Parse as hex string (most common format from debug_gimbal_packets.py)
+            # Expected format: #tpDP9wOFT64025910 (8 hex chars = 3 angles × 2 bytes + 2 extra)
+            result = self._parse_broadcast_hex_strategy(raw_data)
+            if result:
+                logger.info(f"Gimbal angles: yaw={result.yaw:.1f}° pitch={result.pitch:.1f}° roll={result.roll:.1f}°")
+                return result
 
-                    # Parse as 3 × 16-bit signed integers (big-endian)
-                    yaw_raw = int.from_bytes(angle_bytes[0:2], byteorder='big', signed=True)
-                    pitch_raw = int.from_bytes(angle_bytes[2:4], byteorder='big', signed=True)
-                    roll_raw = int.from_bytes(angle_bytes[4:6], byteorder='big', signed=True)
+            # Strategy 2: Parse as binary data (if hex fails)
+            result = self._parse_broadcast_binary_strategy(raw_data)
+            if result:
+                logger.info(f"Gimbal angles: yaw={result.yaw:.1f}° pitch={result.pitch:.1f}° roll={result.roll:.1f}°")
+                return result
 
-                    logger.debug(f"Binary angle values: yaw_raw={yaw_raw}, pitch_raw={pitch_raw}, roll_raw={roll_raw}")
-
-                    # Convert to degrees (0.01° units)
-                    yaw = yaw_raw / 100.0
-                    pitch = pitch_raw / 100.0
-                    roll = roll_raw / 100.0
-
-                    # Create angles object (assume spatial_fixed for broadcast)
-                    angles = GimbalAngles(
-                        yaw=yaw,
-                        pitch=pitch,
-                        roll=roll,
-                        coordinate_system=CoordinateSystem.SPATIAL_FIXED,
-                        timestamp=datetime.now()
-                    )
-
-                    # Validate ranges
-                    if angles.is_valid():
-                        logger.info(f"Successfully parsed broadcast angles: yaw={yaw:.2f}°, pitch={pitch:.2f}°, roll={roll:.2f}°")
-                        return angles
-                    else:
-                        logger.debug(f"Broadcast angles out of range: yaw={yaw:.2f}°, pitch={pitch:.2f}°, roll={roll:.2f}°")
-
-                except Exception as e:
-                    logger.debug(f"Binary parsing failed: {e}")
-
-            # Fallback: try to find hex patterns in the broadcast data
-            return self._parse_broadcast_hex_fallback(angle_data)
+            # Strategy 3: Try to extract embedded hex patterns
+            result = self._parse_broadcast_embedded_hex(raw_data)
+            if result:
+                logger.info(f"Gimbal angles: yaw={result.yaw:.1f}° pitch={result.pitch:.1f}° roll={result.roll:.1f}°")
+                return result
+            return None
 
         except Exception as e:
             logger.error(f"Error parsing broadcast format: {e}")
             return None
 
-    def _parse_broadcast_hex_fallback(self, angle_data: str) -> Optional[GimbalAngles]:
-        """Fallback: try to extract hex angle data from broadcast."""
+    def _parse_broadcast_hex_strategy(self, raw_data: str) -> Optional[GimbalAngles]:
+        """Strategy 1: Parse broadcast data as hex string (primary method)"""
         try:
-            # Look for hex patterns in the data
-            hex_chars = ''.join(c for c in angle_data if c in '0123456789ABCDEFabcdef')
+            # Clean hex data (remove any non-hex characters)
+            hex_chars = ''.join(c for c in raw_data if c in '0123456789ABCDEFabcdef')
+
+            # From debug_gimbal_packets.py format: #tpDP9wOFT64025910
+            # This suggests 8 hex chars after OFT, but we need 12 for 3 angles
+            # Try both 12-char (standard) and other lengths
 
             if len(hex_chars) >= 12:
-                # Try to parse as hex angles
+                # Standard 12-char format: YYYYPPPPRRRRR
                 return self._parse_hex_angles_direct(hex_chars[:12], CoordinateSystem.SPATIAL_FIXED)
 
-            logger.debug(f"Not enough hex data in broadcast: {len(hex_chars)} chars")
+            elif len(hex_chars) >= 8:
+                # 8-char format might be compressed or different encoding
+                # Try parsing as 4 chars per angle with different interpretation
+                if len(hex_chars) >= 8:
+                    # Split into chunks and try to parse
+                    chunk_size = len(hex_chars) // 3
+                    if chunk_size >= 2:
+                        yaw_hex = hex_chars[0:chunk_size]
+                        pitch_hex = hex_chars[chunk_size:chunk_size*2]
+                        roll_hex = hex_chars[chunk_size*2:chunk_size*3]
+
+                        # Pad to 4 chars if needed
+                        yaw_hex = yaw_hex.ljust(4, '0')
+                        pitch_hex = pitch_hex.ljust(4, '0')
+                        roll_hex = roll_hex.ljust(4, '0')
+
+                        combined_hex = yaw_hex + pitch_hex + roll_hex
+                        return self._parse_hex_angles_direct(combined_hex, CoordinateSystem.SPATIAL_FIXED)
+
+            elif len(hex_chars) >= 6:
+                # 6-char format: 2 chars per angle
+                yaw_hex = hex_chars[0:2] + '00'  # Pad to 4 chars
+                pitch_hex = hex_chars[2:4] + '00'
+                roll_hex = hex_chars[4:6] + '00'
+
+                combined_hex = yaw_hex + pitch_hex + roll_hex
+                return self._parse_hex_angles_direct(combined_hex, CoordinateSystem.SPATIAL_FIXED)
+
+            # Insufficient hex data
             return None
 
         except Exception as e:
-            logger.debug(f"Hex fallback failed: {e}")
+            logger.debug(f"Hex parsing failed: {e}")
+            return None
+
+    def _parse_broadcast_binary_strategy(self, raw_data: str) -> Optional[GimbalAngles]:
+        """Strategy 2: Parse broadcast data as binary values"""
+        try:
+            # Convert string to bytes preserving binary values
+            if len(raw_data) >= 6:
+                angle_bytes = raw_data.encode('latin1')[:6]
+
+                # Parse as 3 × 16-bit signed integers (big-endian)
+                yaw_raw = int.from_bytes(angle_bytes[0:2], byteorder='big', signed=True)
+                pitch_raw = int.from_bytes(angle_bytes[2:4], byteorder='big', signed=True)
+                roll_raw = int.from_bytes(angle_bytes[4:6], byteorder='big', signed=True)
+
+                # Convert to degrees (0.01° units)
+                yaw = yaw_raw / 100.0
+                pitch = pitch_raw / 100.0
+                roll = roll_raw / 100.0
+
+                # Create and validate angles
+                angles = GimbalAngles(
+                    yaw=yaw, pitch=pitch, roll=roll,
+                    coordinate_system=CoordinateSystem.SPATIAL_FIXED,
+                    timestamp=datetime.now()
+                )
+
+                if angles.is_valid():
+                    return angles
+
+            return None
+
+        except Exception as e:
+            logger.debug(f"Binary parsing failed: {e}")
+            return None
+
+    def _parse_broadcast_embedded_hex(self, raw_data: str) -> Optional[GimbalAngles]:
+        """Strategy 3: Extract embedded hex patterns from mixed data"""
+        try:
+            # Look for consecutive hex sequences
+            import re
+            hex_matches = re.findall(r'[0-9A-Fa-f]+', raw_data)
+
+            for match in hex_matches:
+                if len(match) >= 6:  # Minimum viable hex data
+                    # Try to use this hex sequence
+                    if len(match) >= 12:
+                        return self._parse_hex_angles_direct(match[:12], CoordinateSystem.SPATIAL_FIXED)
+                    else:
+                        # Pad or repeat the pattern
+                        padded = (match * 3)[:12]
+                        result = self._parse_hex_angles_direct(padded, CoordinateSystem.SPATIAL_FIXED)
+                        if result and result.is_valid():
+                            return result
+
+            return None
+
+        except Exception as e:
+            logger.debug(f"Embedded hex parsing failed: {e}")
             return None
 
     def _parse_hex_angles_direct(self, angle_data: str, coord_sys: CoordinateSystem) -> Optional[GimbalAngles]:

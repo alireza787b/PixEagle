@@ -27,16 +27,17 @@ const TrackerPage = () => {
   const fetchTrackerData = async () => {
     try {
       setPollingStatus('idle');
-      const response = await axios.get(`${API_URL}/telemetry/tracker_data`);
+      // Use schema-driven endpoint instead of legacy telemetry endpoint
+      const response = await axios.get(`${API_URL}/api/tracker/output`);
       if (response.status === 200) {
-        console.log('Fetched Tracker Data:', response.data);
+        console.log('Fetched Schema-Driven Tracker Data:', response.data);
         setTrackerData((prevData) => [...prevData, response.data]);
-        setRawData((prevData) => [...prevData, { type: 'tracker', data: response.data }]);
+        setRawData((prevData) => [...prevData, { type: 'tracker_output', data: response.data }]);
         setPollingStatus('success');
       }
     } catch (error) {
       setPollingStatus('error');
-      console.error('Error fetching tracker data:', error);
+      console.error('Error fetching schema-driven tracker data:', error);
     }
   };
 

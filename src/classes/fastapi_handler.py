@@ -1156,19 +1156,17 @@ class FastAPIHandler:
             # Get schema information for current data type
             data_type = tracker_output.data_type.value
             
-            # Extract available fields dynamically
+            # Extract available fields dynamically with enhanced type detection
             available_fields = {}
             output_dict = tracker_output.to_dict()
-            
+
             # Filter out None values and system fields
             system_fields = {'timestamp', 'tracking_active', 'tracker_id', 'data_type', 'metadata'}
             for key, value in output_dict.items():
                 if key not in system_fields and value is not None:
-                    available_fields[key] = {
-                        'value': value,
-                        'type': type(value).__name__,
-                        'display_name': key.replace('_', ' ').title()
-                    }
+                    # Enhanced field processing with specific gimbal angle handling
+                    field_info = self._get_enhanced_field_info(key, value, data_type)
+                    available_fields[key] = field_info
             
             tracker_class = self.app_controller.tracker.__class__.__name__ if self.app_controller.tracker else 'Unknown'
             
@@ -1185,6 +1183,101 @@ class FastAPIHandler:
         except Exception as e:
             self.logger.error(f"Error getting current tracker status: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+    def _get_enhanced_field_info(self, field_name: str, value: any, data_type: str) -> dict:
+        """
+        Get enhanced field information with proper type detection for React display.
+
+        Args:
+            field_name: Name of the field
+            value: Field value
+            data_type: Tracker data type
+
+        Returns:
+            dict: Enhanced field information
+        """
+        base_type = type(value).__name__
+
+        # Special handling for gimbal angular data (yaw, pitch, roll)
+        if field_name == 'angular' and isinstance(value, (tuple, list)) and len(value) == 3:
+            return {
+                'value': value,
+                'type': 'angular_3d',
+                'display_name': 'Gimbal Angles (Y, P, R)',
+                'description': 'Gimbal yaw, pitch, roll angles in degrees',
+                'units': '°',
+                'format': 'tuple_3d',
+                'components': ['yaw', 'pitch', 'roll']
+            }
+
+        # Enhanced 2D position handling
+        elif field_name in ['position_2d', 'normalized_position'] and isinstance(value, (tuple, list)) and len(value) == 2:
+            return {
+                'value': value,
+                'type': 'position_2d',
+                'display_name': 'Target Position (X, Y)',
+                'description': 'Normalized 2D position coordinates',
+                'units': 'normalized',
+                'format': 'tuple_2d',
+                'components': ['x', 'y']
+            }
+
+        # Bounding box handling
+        elif field_name in ['bbox', 'normalized_bbox'] and isinstance(value, (tuple, list)) and len(value) == 4:
+            return {
+                'value': value,
+                'type': 'bbox',
+                'display_name': 'Bounding Box',
+                'description': 'Target bounding box coordinates',
+                'units': 'pixels' if 'normalized' not in field_name else 'normalized',
+                'format': 'bbox',
+                'components': ['x', 'y', 'width', 'height']
+            }
+
+        # Confidence score handling
+        elif field_name == 'confidence':
+            return {
+                'value': value,
+                'type': 'confidence',
+                'display_name': 'Tracking Confidence',
+                'description': 'Tracker confidence score',
+                'units': '%' if isinstance(value, (int, float)) else '',
+                'format': 'percentage',
+                'range': [0.0, 1.0] if isinstance(value, (int, float)) else None
+            }
+
+        # Velocity handling
+        elif field_name == 'velocity' and isinstance(value, (tuple, list)):
+            return {
+                'value': value,
+                'type': 'velocity',
+                'display_name': 'Target Velocity',
+                'description': 'Target velocity vector',
+                'units': 'px/s' if len(value) == 2 else 'units/s',
+                'format': f'tuple_{len(value)}d',
+                'components': ['vx', 'vy'] if len(value) == 2 else ['vx', 'vy', 'vz']
+            }
+
+        # Generic tuple/list handling
+        elif isinstance(value, (tuple, list)):
+            return {
+                'value': value,
+                'type': f'{base_type}_{len(value)}d',
+                'display_name': field_name.replace('_', ' ').title(),
+                'description': f'{len(value)}-dimensional {field_name} data',
+                'format': f'{base_type}_{len(value)}d',
+                'components': [f'component_{i}' for i in range(len(value))]
+            }
+
+        # Default handling for other types
+        else:
+            return {
+                'value': value,
+                'type': base_type.lower(),
+                'display_name': field_name.replace('_', ' ').title(),
+                'description': f'{field_name} field data',
+                'format': base_type.lower()
+            }
 
     async def get_compatibility_report(self):
         """

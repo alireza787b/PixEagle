@@ -11,12 +11,17 @@ import {
   Divider,
   Tooltip
 } from '@mui/material';
-import { 
+import {
   Timeline as TimelineIcon,
   Visibility as VisibilityIcon,
   GpsFixed as GpsIcon,
   Speed as SpeedIcon,
-  RadioButtonChecked as RadioIcon
+  RadioButtonChecked as RadioIcon,
+  RotateRight as RotateIcon,
+  CameraAlt as CameraIcon,
+  Straighten as RulerIcon,
+  WifiIcon,
+  SignalWifiOffIcon
 } from '@mui/icons-material';
 
 /**
@@ -32,46 +37,111 @@ const TrackerDataDisplay = ({
   showSchema = true,
   compact = false
 }) => {
-  // Field type to icon mapping
+  // Enhanced field type to icon mapping with gimbal support
   const getFieldIcon = (fieldName, fieldType) => {
     const iconMap = {
+      // Position and tracking icons
       position_2d: <GpsIcon fontSize="small" />,
       position_3d: <GpsIcon fontSize="small" />,
-      bbox: <RadioIcon fontSize="small" />,
-      normalized_bbox: <RadioIcon fontSize="small" />,
+      bbox: <CameraIcon fontSize="small" />,
+      normalized_bbox: <CameraIcon fontSize="small" />,
       confidence: <VisibilityIcon fontSize="small" />,
       velocity: <SpeedIcon fontSize="small" />,
-      timestamp: <TimelineIcon fontSize="small" />
+      timestamp: <TimelineIcon fontSize="small" />,
+
+      // Gimbal-specific icons
+      angular: <RotateIcon fontSize="small" />,
+      angular_3d: <RotateIcon fontSize="small" />,
+      gimbal_angles: <RotateIcon fontSize="small" />,
+
+      // Generic type-based mapping
+      tuple_2d: <RulerIcon fontSize="small" />,
+      tuple_3d: <RotateIcon fontSize="small" />,
+      percentage: <VisibilityIcon fontSize="small" />
     };
-    
+
     return iconMap[fieldName] || iconMap[fieldType] || <RadioIcon fontSize="small" />;
   };
 
-  // Field value formatter
+  // Enhanced field value formatter with gimbal angle support
   const formatFieldValue = (value, fieldType, fieldName) => {
     if (value === null || value === undefined) return 'N/A';
-    
+
+    // Special formatting for gimbal angles (3D angular data)
+    if (fieldName === 'angular' && Array.isArray(value) && value.length === 3) {
+      return `Y:${value[0].toFixed(1)}° P:${value[1].toFixed(1)}° R:${value[2].toFixed(1)}°`;
+    }
+
+    // Enhanced type-based formatting
     switch (fieldType) {
+      case 'angular_3d':
+        if (Array.isArray(value) && value.length === 3) {
+          return `Y:${value[0].toFixed(1)}° P:${value[1].toFixed(1)}° R:${value[2].toFixed(1)}°`;
+        }
+        break;
+
+      case 'position_2d':
+      case 'tuple_2d':
+        if (Array.isArray(value) && value.length === 2) {
+          return `(${value[0].toFixed(3)}, ${value[1].toFixed(3)})`;
+        }
+        break;
+
+      case 'bbox':
+        if (Array.isArray(value) && value.length === 4) {
+          return `[${value[0]}, ${value[1]}, ${value[2]}, ${value[3]}]`;
+        }
+        break;
+
+      case 'velocity':
+        if (Array.isArray(value)) {
+          const components = value.map(v => typeof v === 'number' ? v.toFixed(2) : v);
+          return value.length === 2 ? `(${components[0]}, ${components[1]})` : `[${components.join(', ')}]`;
+        }
+        break;
+
+      case 'confidence':
+      case 'percentage':
+        if (typeof value === 'number') {
+          return `${(value * 100).toFixed(1)}%`;
+        }
+        break;
+
+      // Legacy tuple/list handling
       case 'tuple':
       case 'list':
         if (Array.isArray(value)) {
+          // Gimbal angles (3 components)
+          if (value.length === 3 && fieldName.includes('angl')) {
+            return `Y:${value[0].toFixed(1)}° P:${value[1].toFixed(1)}° R:${value[2].toFixed(1)}°`;
+          }
+          // Position (2 components)
           if (fieldName.includes('position') && value.length === 2) {
             return `(${value[0].toFixed(3)}, ${value[1].toFixed(3)})`;
           }
+          // Bounding box (4 components)
           if (fieldName === 'bbox' && value.length === 4) {
             return `[${value[0]}, ${value[1]}, ${value[2]}, ${value[3]}]`;
           }
+          // Generic array formatting
           return `[${value.map(v => typeof v === 'number' ? v.toFixed(3) : v).join(', ')}]`;
         }
         break;
+
       case 'float':
         return typeof value === 'number' ? value.toFixed(4) : value;
+
       case 'int':
         return value.toString();
+
       case 'str':
       case 'string':
         return value;
+
       default:
+        if (Array.isArray(value)) {
+          return `[${value.map(v => typeof v === 'number' ? v.toFixed(3) : v).join(', ')}]`;
+        }
         if (typeof value === 'object') {
           return JSON.stringify(value, null, 2);
         }
@@ -146,10 +216,28 @@ const TrackerDataDisplay = ({
               variant="outlined"
             />
             {currentStatus.smart_mode && (
-              <Chip 
-                label="Smart Mode" 
-                size="small" 
+              <Chip
+                label="Smart Mode"
+                size="small"
                 color="secondary"
+                variant="filled"
+              />
+            )}
+            {/* Connection Status for External Trackers */}
+            {currentStatus.raw_data?.connection_status && (
+              <Chip
+                icon={
+                  currentStatus.raw_data.connection_status === 'receiving'
+                    ? <WifiIcon fontSize="small" />
+                    : <SignalWifiOffIcon fontSize="small" />
+                }
+                label={currentStatus.raw_data.connection_status.toUpperCase()}
+                size="small"
+                color={
+                  currentStatus.raw_data.connection_status === 'receiving'
+                    ? 'success'
+                    : 'warning'
+                }
                 variant="filled"
               />
             )}

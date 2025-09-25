@@ -128,8 +128,9 @@ export const useTrackerDataTypes = (schema, currentStatus) => {
     const currentDataType = currentStatus.data_type;
     const availableFields = currentStatus.fields || {};
     
-    // Get schema definition for current data type
-    const currentTypeSchema = dataTypes[currentDataType?.toUpperCase()] || {};
+    // Get schema definition for current data type (handle both cases)
+    const dataTypeKey = currentDataType?.toUpperCase() || '';
+    const currentTypeSchema = dataTypes[dataTypeKey] || dataTypes[currentDataType] || {};
     
     // Enhanced field information with schema metadata
     const enhancedFields = {};
@@ -161,7 +162,7 @@ export const useTrackerDataTypes = (schema, currentStatus) => {
  * Hook for tracker output data with real-time updates
  * Provides structured tracker output for plotting and analysis
  */
-export const useTrackerOutput = (refreshInterval = 500) => {
+export const useTrackerOutput = (refreshInterval = 1000) => {
   const [output, setOutput] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
