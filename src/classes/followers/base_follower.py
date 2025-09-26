@@ -15,6 +15,14 @@ except ImportError:
     logger.warning("Schema manager not available for follower compatibility checks")
     SCHEMA_MANAGER_AVAILABLE = False
 
+# Import circuit breaker for event logging
+try:
+    from classes.circuit_breaker import FollowerCircuitBreaker
+    CIRCUIT_BREAKER_AVAILABLE = True
+except ImportError:
+    CIRCUIT_BREAKER_AVAILABLE = False
+
+
 logger = logging.getLogger(__name__)
 
 class BaseFollower(ABC):
@@ -150,19 +158,19 @@ class BaseFollower(ABC):
     def set_command_field(self, field_name: str, value: float) -> bool:
         """
         Sets a command field value with validation and error handling.
-        
+
         Args:
             field_name (str): The name of the field to set.
             value (float): The value to assign to the field.
-            
+
         Returns:
             bool: True if successful, False otherwise.
         """
         try:
             self.setpoint_handler.set_field(field_name, value)
-            logger.debug(f"Successfully set {field_name} = {value} for {self.get_display_name()}")
+            logger.debug(f"Successfully set {field_name} = {value:.3f} for {self.get_display_name()}")
             return True
-            
+
         except ValueError as e:
             logger.warning(f"Failed to set field {field_name}: {e}")
             return False
@@ -326,7 +334,41 @@ class BaseFollower(ABC):
             logger.debug(f"Updated telemetry metadata: {key} = {value}")
         except Exception as e:
             logger.error(f"Error updating telemetry metadata: {e}")
-    
+
+    # ==================== Circuit Breaker Integration ====================
+
+    def log_follower_event(self, event_type: str, **event_data) -> None:
+        """
+        Log follower events for debugging and testing.
+
+        When circuit breaker is active, this provides visibility into follower
+        behavior and decision-making without executing actual commands.
+
+        Args:
+            event_type (str): Type of event (e.g., "target_acquired", "safety_stop")
+            **event_data: Event-specific data as keyword arguments
+        """
+        if CIRCUIT_BREAKER_AVAILABLE:
+            follower_name = self.__class__.__name__
+            FollowerCircuitBreaker.log_follower_event(
+                event_type=event_type,
+                follower_name=follower_name,
+                **event_data
+            )
+        else:
+            # Fallback logging when circuit breaker not available
+            event_str = ", ".join([f"{k}={v}" for k, v in event_data.items()])
+            logger.debug(f"{self.__class__.__name__} EVENT: {event_type} - {event_str}")
+
+    def is_circuit_breaker_active(self) -> bool:
+        """
+        Check if circuit breaker is currently active.
+
+        Returns:
+            bool: True if in testing mode (commands logged, not executed)
+        """
+        return CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active()
+
     # ==================== Backward Compatibility ====================
     
     @property
@@ -437,12 +479,9 @@ class BaseFollower(ABC):
                 
                 compatibility = schema_manager.check_follower_compatibility(follower_class_name, data_type)
                 
-                if compatibility == 'required' or compatibility == 'preferred':
+                if compatibility in ['required', 'preferred', 'compatible', 'optional']:
                     logger.debug(f"Schema manager: {follower_class_name} has {compatibility} compatibility with {data_type}")
                     return True
-                elif compatibility == 'optional':
-                    logger.debug(f"Schema manager: {follower_class_name} has optional compatibility with {data_type}")
-                    return True  # Still compatible
                 else:
                     logger.warning(f"Schema manager: {follower_class_name} incompatible with {data_type}")
                     return False

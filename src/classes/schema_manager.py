@@ -241,20 +241,22 @@ class SchemaManager:
     def check_follower_compatibility(self, follower_name: str, schema_type: str) -> str:
         """
         Check follower compatibility with a schema type.
-        
+
         Args:
             follower_name (str): Name of the follower
             schema_type (str): Schema type to check
-            
+
         Returns:
-            str: 'required', 'preferred', 'optional', or 'incompatible'
+            str: 'required', 'preferred', 'optional', 'compatible', or 'incompatible'
         """
         compatibility_info = self.compatibility.get('followers', {}).get(follower_name, {})
-        
+
         if schema_type in compatibility_info.get('required_schemas', []):
             return 'required'
         elif schema_type in compatibility_info.get('preferred_schemas', []):
             return 'preferred'
+        elif schema_type in compatibility_info.get('compatible_schemas', []):
+            return 'compatible'
         elif schema_type in compatibility_info.get('optional_schemas', []):
             return 'optional'
         else:

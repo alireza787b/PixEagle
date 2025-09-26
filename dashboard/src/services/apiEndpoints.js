@@ -16,6 +16,11 @@ export const endpoints = {
   status: `http://${apiHost}:${apiPort}/status`,
   toggleSmartMode: `http://${apiHost}:${apiPort}/commands/toggle_smart_mode`,
   smartClick: `http://${apiHost}:${apiPort}/commands/smart_click`,
+
+  // Circuit breaker endpoints
+  circuitBreakerStatus: `http://${apiHost}:${apiPort}/api/circuit-breaker/status`,
+  toggleCircuitBreaker: `http://${apiHost}:${apiPort}/api/circuit-breaker/toggle`,
+  circuitBreakerStats: `http://${apiHost}:${apiPort}/api/circuit-breaker/statistics`,
 };
 
 export const videoFeed = `http://${apiHost}:${apiPort}/video_feed`;

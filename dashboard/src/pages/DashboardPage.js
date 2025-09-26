@@ -5,13 +5,14 @@ import {
   FormControl, InputLabel, Select, MenuItem, Card, CardContent,
   Chip, Button
 } from '@mui/material';
-import { 
-  TrackChanges, 
-  FlightTakeoff, 
+import {
+  TrackChanges,
+  FlightTakeoff,
   LiveTv,
   Speed,
   Warning,
-  CheckCircle
+  CheckCircle,
+  Security
 } from '@mui/icons-material';
 
 import ActionButtons from '../components/ActionButtons';
@@ -20,6 +21,7 @@ import FollowerStatusCard from '../components/FollowerStatusCard';
 import TrackerStatusCard from '../components/TrackerStatusCard';
 import FollowerQuickControl from '../components/FollowerQuickControl';
 import StreamingStats from '../components/StreamingStats';
+import CircuitBreakerStatusCard from '../components/CircuitBreakerStatusCard';
 
 
 import { videoFeed, endpoints } from '../services/apiEndpoints';
@@ -34,8 +36,9 @@ import axios from 'axios';
 
 const API_URL = `http://${process.env.REACT_APP_API_HOST}:${process.env.REACT_APP_API_PORT}`;
 
-const SystemHealthCard = ({ trackerStatus, isFollowing, smartModeActive }) => {
+const SystemHealthCard = ({ trackerStatus, isFollowing, smartModeActive, circuitBreakerActive }) => {
   const getSystemStatus = () => {
+    if (circuitBreakerActive) return { label: 'Testing Mode', color: 'warning', icon: <Security /> };
     if (trackerStatus && isFollowing) return { label: 'Fully Active', color: 'success', icon: <CheckCircle /> };
     if (trackerStatus || isFollowing) return { label: 'Partially Active', color: 'warning', icon: <Warning /> };
     return { label: 'Standby', color: 'default', icon: <Warning /> };
@@ -87,13 +90,29 @@ const SystemHealthCard = ({ trackerStatus, isFollowing, smartModeActive }) => {
           <Typography variant="body2" color="textSecondary">
             Connection:
           </Typography>
-          <Chip 
+          <Chip
             label="Online"
             color="success"
             size="small"
             variant="outlined"
           />
         </Box>
+
+        {/* Circuit Breaker Status */}
+        {circuitBreakerActive !== undefined && (
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+            <Typography variant="body2" color="textSecondary">
+              Safety Mode:
+            </Typography>
+            <Chip
+              label={circuitBreakerActive ? 'Testing' : 'Live'}
+              color={circuitBreakerActive ? 'warning' : 'success'}
+              size="small"
+              variant={circuitBreakerActive ? 'filled' : 'outlined'}
+              icon={circuitBreakerActive ? <Security /> : <CheckCircle />}
+            />
+          </Box>
+        )}
       </CardContent>
     </Card>
   );
@@ -109,6 +128,7 @@ const DashboardPage = () => {
   const [smartModeActive, setSmartModeActive] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [followerData, setFollowerData] = useState({});
+  const [circuitBreakerActive, setCircuitBreakerActive] = useState(undefined);
 
   const checkInterval = 2000;
 
@@ -121,22 +141,32 @@ const DashboardPage = () => {
     setSmartModeActive(smartModeStatus);
   }, [smartModeStatus]);
 
-  // Fetch follower telemetry data
+  // Unified data fetching for better performance
   useEffect(() => {
-    const fetchFollowerData = async () => {
+    const fetchAllData = async () => {
       try {
-        const response = await axios.get(`${API_URL}/telemetry/follower_data`);
-        setFollowerData(response.data);
+        // Fetch all data in parallel
+        const [followerResponse, circuitBreakerResponse] = await Promise.all([
+          axios.get(`${API_URL}/telemetry/follower_data`).catch(() => ({ data: {} })),
+          axios.get(endpoints.circuitBreakerStatus).catch(() => ({ data: { available: false } }))
+        ]);
+
+        setFollowerData(followerResponse.data);
+        setCircuitBreakerActive(
+          circuitBreakerResponse.data.available
+            ? circuitBreakerResponse.data.active
+            : undefined
+        );
       } catch (error) {
-        console.error('Error fetching follower data:', error);
+        console.error('Error in unified data fetch:', error);
       }
     };
 
     // Initial fetch
-    fetchFollowerData();
-    
-    // Set up polling
-    const interval = setInterval(fetchFollowerData, 2000);
+    fetchAllData();
+
+    // Set up unified polling interval
+    const interval = setInterval(fetchAllData, 2000);
     return () => clearInterval(interval);
   }, []);
 
@@ -339,22 +369,28 @@ const DashboardPage = () => {
           {/* SECONDARY: System Status Cards Row - Below Video */}
           <Grid item xs={12}>
             <Grid container spacing={3} sx={{ minHeight: 200 }}>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
                 <Box sx={{ height: '100%' }}>
                   <TrackerStatusCard />
                 </Box>
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
                 <Box sx={{ height: '100%' }}>
                   <FollowerStatusCard followerData={followerData} />
                 </Box>
               </Grid>
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={3}>
                 <Box sx={{ height: '100%' }}>
-                  <SystemHealthCard 
+                  <CircuitBreakerStatusCard />
+                </Box>
+              </Grid>
+              <Grid item xs={12} md={3}>
+                <Box sx={{ height: '100%' }}>
+                  <SystemHealthCard
                     trackerStatus={trackerStatus}
                     isFollowing={isFollowing}
                     smartModeActive={smartModeActive}
+                    circuitBreakerActive={circuitBreakerActive}
                   />
                 </Box>
               </Grid>

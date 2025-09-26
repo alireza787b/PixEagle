@@ -19,7 +19,14 @@ import {
   Warning,
   Settings,
   PowerSettingsNew,
-  PowerOff
+  PowerOff,
+  Security,
+  LocationOn,
+  Info,
+  CheckCircle,
+  Error,
+  Pause,
+  PlayArrow
 } from '@mui/icons-material';
 import { useCurrentFollowerProfile } from '../hooks/useFollowerSchema';
 
@@ -67,6 +74,29 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
       mode: currentProfile.mode
     };
   }, [currentProfile, followerData]);
+
+  // Memoize expensive target loss state calculations
+  const targetLossInfo = useMemo(() => {
+    if (!followerData.target_loss_handler) return null;
+
+    const state = followerData.target_loss_handler.state;
+    const getStateInfo = (state) => {
+      switch (state) {
+        case 'ACTIVE':
+          return { icon: <CheckCircle fontSize="small" />, color: 'success.main', label: 'Active' };
+        case 'LOST':
+          return { icon: <Warning fontSize="small" />, color: 'warning.main', label: 'Target Lost' };
+        case 'TIMEOUT':
+          return { icon: <Error fontSize="small" />, color: 'error.main', label: 'Timeout' };
+        case 'RECOVERING':
+          return { icon: <PlayArrow fontSize="small" />, color: 'info.main', label: 'Recovering' };
+        default:
+          return { icon: <Info fontSize="small" />, color: 'textSecondary', label: state || 'Unknown' };
+      }
+    };
+
+    return getStateInfo(state);
+  }, [followerData.target_loss_handler]);
 
   // Get key fields to display based on control type
   const keyFields = useMemo(() => {
@@ -250,6 +280,121 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
             {!isEngaged && isConfigured && (
               <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5, display: 'block' }}>
                 Control: {controlType?.replace('_', ' ').toUpperCase()}
+              </Typography>
+            )}
+          </Box>
+        )}
+
+        {/* Target Loss and Safety Status - Enhanced for gimbal followers */}
+        {isEngaged && followerData.target_loss_handler && (
+          <Box sx={{ mt: 2, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+            <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
+              Target Loss & Safety:
+            </Typography>
+
+            {/* Target Loss State */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+              {(() => {
+                const state = followerData.target_loss_handler.state;
+                const getStateInfo = (state) => {
+                  switch (state) {
+                    case 'ACTIVE':
+                      return { icon: <CheckCircle fontSize="small" />, color: 'success.main', label: 'Active' };
+                    case 'LOST':
+                      return { icon: <Warning fontSize="small" />, color: 'warning.main', label: 'Target Lost' };
+                    case 'TIMEOUT':
+                      return { icon: <Error fontSize="small" />, color: 'error.main', label: 'Timeout' };
+                    case 'RECOVERING':
+                      return { icon: <PlayArrow fontSize="small" />, color: 'info.main', label: 'Recovering' };
+                    default:
+                      return { icon: <Info fontSize="small" />, color: 'textSecondary', label: state || 'Unknown' };
+                  }
+                };
+                const { icon, color, label } = getStateInfo(state);
+                return (
+                  <>
+                    <Box sx={{ color }}>{icon}</Box>
+                    <Typography variant="caption" sx={{ minWidth: 60 }}>
+                      Target:
+                    </Typography>
+                    <Typography variant="caption" fontFamily="monospace" color={color} fontWeight="bold">
+                      {label}
+                    </Typography>
+                  </>
+                );
+              })()}
+            </Box>
+
+            {/* Velocity Continuation */}
+            {followerData.target_loss_handler.velocity_continuation_active && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                <Pause fontSize="small" color="warning" />
+                <Typography variant="caption" sx={{ minWidth: 60 }}>
+                  Continue:
+                </Typography>
+                <Typography variant="caption" fontFamily="monospace" color="warning.main">
+                  {followerData.target_loss_handler.timeout_remaining?.toFixed(1) || '0.0'}s
+                </Typography>
+              </Box>
+            )}
+
+            {/* Safety Systems Status */}
+            {followerData.safety_systems && (
+              <>
+                {(followerData.safety_systems.emergency_stop_active ||
+                  followerData.safety_systems.rtl_triggered ||
+                  followerData.safety_systems.altitude_safety_active ||
+                  followerData.safety_systems.safety_violations_count > 0) && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                    <Security fontSize="small" color="warning" />
+                    <Typography variant="caption" sx={{ minWidth: 60 }}>
+                      Safety:
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                      {followerData.safety_systems.emergency_stop_active && (
+                        <Chip size="small" label="E-STOP" color="error" sx={{ height: 16, fontSize: '0.6rem' }} />
+                      )}
+                      {followerData.safety_systems.rtl_triggered && (
+                        <Chip size="small" label="RTL" color="warning" sx={{ height: 16, fontSize: '0.6rem' }} />
+                      )}
+                      {followerData.safety_systems.altitude_safety_active && (
+                        <Chip size="small" label="ALT" color="info" sx={{ height: 16, fontSize: '0.6rem' }} />
+                      )}
+                      {followerData.safety_systems.safety_violations_count > 0 && (
+                        <Chip
+                          size="small"
+                          label={`${followerData.safety_systems.safety_violations_count} violations`}
+                          color="warning"
+                          sx={{ height: 16, fontSize: '0.6rem' }}
+                        />
+                      )}
+                    </Box>
+                  </Box>
+                )}
+              </>
+            )}
+
+            {/* Circuit Breaker Status */}
+            {followerData.circuit_breaker_active && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                <Security fontSize="small" color="warning" />
+                <Typography variant="caption" sx={{ minWidth: 60 }}>
+                  Mode:
+                </Typography>
+                <Chip
+                  size="small"
+                  label="TESTING"
+                  color="warning"
+                  sx={{ height: 16, fontSize: '0.6rem', fontWeight: 'bold' }}
+                />
+              </Box>
+            )}
+
+            {/* Performance Info */}
+            {followerData.performance && (
+              <Typography variant="caption" color="textSecondary" sx={{ mt: 0.5, display: 'block' }}>
+                Success: {followerData.performance.success_rate_percent?.toFixed(1) || '0.0'}%
+                ({followerData.performance.successful_transformations || 0}/{followerData.performance.total_follow_calls || 0})
               </Typography>
             )}
           </Box>
