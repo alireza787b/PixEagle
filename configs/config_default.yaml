@@ -359,11 +359,12 @@ GimbalFollower:
   MAX_FORWARD_VELOCITY: 5.0                # Maximum forward velocity (m/s)
   FORWARD_ACCELERATION: 2.0                # Forward velocity acceleration (m/s²)
 
-  # === Down Velocity & Yaw Rate Gains ===
-  DOWN_VELOCITY_GAIN: 0.1                  # Gain for down velocity from pitch angle
+  # === Lateral Guidance Mode ===
+  LATERAL_GUIDANCE_MODE: "coordinated_turn" # Options: "coordinated_turn", "sideslip"
+  ENABLE_AUTO_MODE_SWITCHING: false        # Auto-switch based on forward velocity
+  GUIDANCE_MODE_SWITCH_VELOCITY: 3.0       # Switch velocity threshold (m/s)
 
   # === Yaw Control ===
-  YAW_RATE_GAIN: 0.5                      # Gain for yaw rate from roll angle
   MAX_YAW_RATE: 45.0                      # Maximum yaw rate (degrees/second)
 
   # === Target Loss Handling ===

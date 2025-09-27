@@ -31,6 +31,7 @@ from typing import Tuple, Optional, Dict, Any
 from classes.followers.base_follower import BaseFollower
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.parameters import Parameters
+from classes.controllers.pid_controller import CustomPID
 
 # Initialize logger before imports that might fail
 logger = logging.getLogger(__name__)
@@ -151,20 +152,155 @@ class GimbalFollower(BaseFollower):
         self.target_loss_events = 0
         self.safety_interventions = 0
 
-        # Velocity ramping state (like body_velocity_chase_follower)
+        # === Velocity ramping state (like body_velocity_chase_follower) ===
         self.current_forward_velocity = 0.0
         self.max_forward_velocity = self.config.get('MAX_FORWARD_VELOCITY', 5.0)
         self.forward_acceleration = self.config.get('FORWARD_ACCELERATION', 2.0)
         self.last_ramp_update_time = time.time()
 
-        # PID-like control for down velocity and yaw rate (simplified)
-        self.down_velocity_gain = self.config.get('DOWN_VELOCITY_GAIN', 0.1)
-        self.yaw_rate_gain = self.config.get('YAW_RATE_GAIN', 0.5)
+        # === Lateral guidance configuration ===
+        self.lateral_guidance_mode = self.config.get('LATERAL_GUIDANCE_MODE', 'coordinated_turn')
+        self.enable_auto_mode_switching = self.config.get('ENABLE_AUTO_MODE_SWITCHING', False)
+        self.guidance_mode_switch_velocity = self.config.get('GUIDANCE_MODE_SWITCH_VELOCITY', 3.0)
+        self.active_lateral_mode = self.lateral_guidance_mode
+
+        # === PID Controllers (initialized after mode determination) ===
+        self.pid_right = None      # For sideslip mode (lateral velocity)
+        self.pid_yaw_speed = None  # For coordinated turn mode (yaw rate)
+        self.pid_down = None       # For vertical velocity (both modes)
+
+        # Initialize PID controllers based on mount configuration and mode
+        self._initialize_pid_controllers()
 
         logger.info(f"GimbalFollower initialized successfully")
         logger.info(f"  Mount: {self.mount_type}, Control: {self.control_mode}")
         logger.info(f"  Max velocity: {self.max_velocity} m/s, Max yaw rate: {self.max_yaw_rate}°/s")
         logger.info(f"  Safety: Emergency stop {'enabled' if self.emergency_stop_enabled else 'disabled'}")
+        logger.info(f"  Lateral guidance: {self.active_lateral_mode} mode")
+
+    def _initialize_pid_controllers(self):
+        """Initialize PID controllers based on lateral guidance mode and configuration."""
+        try:
+            # Get initial setpoint (center of frame for gimbal following)
+            setpoint_x = 0.0  # Center for gimbal following
+            setpoint_y = 0.0  # Center for vertical control
+
+            # Determine active lateral guidance mode
+            self.active_lateral_mode = self._get_active_lateral_mode()
+
+            # Initialize vertical PID controller (used in both modes)
+            self.pid_down = CustomPID(
+                *self._get_pid_gains('vel_body_down'),
+                setpoint=setpoint_y,
+                output_limits=(-2.0, 2.0)  # Limit vertical velocity
+            )
+
+            if self.active_lateral_mode == 'sideslip':
+                # Sideslip Mode: Direct lateral velocity control
+                self.pid_right = CustomPID(
+                    *self._get_pid_gains('vel_body_right'),
+                    setpoint=setpoint_x,
+                    output_limits=(-3.0, 3.0)  # Limit lateral velocity
+                )
+                logger.debug(f"Sideslip mode PID initialized with gains {self._get_pid_gains('vel_body_right')}")
+
+            elif self.active_lateral_mode == 'coordinated_turn':
+                # Coordinated Turn Mode: Yaw rate control
+                self.pid_yaw_speed = CustomPID(
+                    *self._get_pid_gains('yawspeed_deg_s'),
+                    setpoint=setpoint_x,
+                    output_limits=(-45.0, 45.0)  # Limit yaw rate
+                )
+                logger.debug(f"Coordinated turn mode PID initialized with gains {self._get_pid_gains('yawspeed_deg_s')}")
+
+            logger.info(f"PID controllers initialized for {self.active_lateral_mode} mode")
+
+        except Exception as e:
+            logger.error(f"Error initializing PID controllers: {e}")
+            raise
+
+    def _get_pid_gains(self, control_field: str) -> Tuple[float, float, float]:
+        """Get PID gains for a specific control field from global PID configuration."""
+        try:
+            # Get PID gains from the global PID section (same as other followers)
+            pid_config = getattr(Parameters, 'PID', {})
+            pid_gains = pid_config.get('PID_GAINS', {})
+            gains = pid_gains.get(control_field, {'p': 1.0, 'i': 0.0, 'd': 0.1})
+
+            # Handle both uppercase and lowercase key formats
+            p_gain = gains.get('p', gains.get('P', 1.0))
+            i_gain = gains.get('i', gains.get('I', 0.0))
+            d_gain = gains.get('d', gains.get('D', 0.1))
+
+            return p_gain, i_gain, d_gain
+        except Exception as e:
+            logger.error(f"Error getting PID gains for {control_field}: {e}")
+            return 1.0, 0.0, 0.1  # Safe defaults
+
+    def _get_active_lateral_mode(self) -> str:
+        """
+        Determines the active lateral guidance mode based on configuration and flight state.
+
+        Returns:
+            str: 'sideslip' or 'coordinated_turn'
+        """
+        try:
+            # Get configured mode
+            configured_mode = self.lateral_guidance_mode
+
+            # Check for auto-switching based on forward velocity
+            if self.enable_auto_mode_switching:
+                switch_velocity = self.guidance_mode_switch_velocity
+
+                if self.current_forward_velocity >= switch_velocity:
+                    return 'coordinated_turn'  # High speed: use coordinated turns
+                else:
+                    return 'sideslip'  # Low speed: use sideslip
+
+            # Use configured mode
+            return configured_mode
+
+        except Exception as e:
+            logger.error(f"Error determining lateral mode: {e}")
+            return 'coordinated_turn'  # Safe default
+
+    def _switch_lateral_mode(self, new_mode: str) -> None:
+        """
+        Switches between lateral guidance modes dynamically.
+
+        Args:
+            new_mode (str): New lateral guidance mode ('sideslip' or 'coordinated_turn')
+        """
+        try:
+            if new_mode == self.active_lateral_mode:
+                return  # Already in the requested mode
+
+            logger.info(f"Switching lateral guidance mode: {self.active_lateral_mode} → {new_mode}")
+            self.active_lateral_mode = new_mode
+
+            # Initialize PID controllers for the new mode
+            setpoint_x = 0.0  # Center for gimbal following
+
+            if new_mode == 'sideslip' and self.pid_right is None:
+                # Initialize sideslip PID controller
+                self.pid_right = CustomPID(
+                    *self._get_pid_gains('vel_body_right'),
+                    setpoint=setpoint_x,
+                    output_limits=(-3.0, 3.0)
+                )
+                logger.debug("Sideslip PID controller initialized during mode switch")
+
+            elif new_mode == 'coordinated_turn' and self.pid_yaw_speed is None:
+                # Initialize coordinated turn PID controller
+                self.pid_yaw_speed = CustomPID(
+                    *self._get_pid_gains('yawspeed_deg_s'),
+                    setpoint=setpoint_x,
+                    output_limits=(-45.0, 45.0)
+                )
+                logger.debug("Coordinated turn PID controller initialized during mode switch")
+
+        except Exception as e:
+            logger.error(f"Error switching lateral mode to {new_mode}: {e}")
 
     def _register_target_loss_callbacks(self):
         """Register callbacks for target loss response actions."""
@@ -277,14 +413,14 @@ class GimbalFollower(BaseFollower):
 
                 logger.info(f"🎯 Processing gimbal angles: Y={yaw_deg:.1f}° P={pitch_deg:.1f}° R={roll_deg:.1f}°")
 
-                # === FORWARD VELOCITY CALCULATION (with ramping) ===
+                # === FORWARD VELOCITY CALCULATION (with ramping like body_velocity_chase) ===
                 # For VERTICAL mount: pitch > 90° means target is ahead, < 90° means behind
                 pitch_error = pitch_deg - 90.0  # 90° is the neutral "forward" position
 
-                # Update forward velocity with ramping (like body_velocity_chase)
+                # Update forward velocity with ramping
                 if abs(pitch_error) > 2.0:  # Dead zone to prevent jitter
-                    # Target detected - ramp up forward velocity
-                    target_velocity = min(abs(pitch_error) * 0.1, self.max_forward_velocity)  # Scale pitch to velocity
+                    # Target detected - calculate target velocity based on pitch error
+                    target_velocity = min(abs(pitch_error) * 0.1, self.max_forward_velocity)
                     velocity_change = self.forward_acceleration * dt
 
                     if self.current_forward_velocity < target_velocity:
@@ -306,37 +442,59 @@ class GimbalFollower(BaseFollower):
 
                 forward_velocity = self.current_forward_velocity
 
-                # === RIGHT VELOCITY CALCULATION ===
-                # For VERTICAL mount: roll controls lateral movement
-                # Positive roll = target on right = move right (positive velocity)
-                # Negative roll = target on left = move left (negative velocity)
-                right_velocity = roll_deg * 0.1  # Scale factor for lateral movement
+                # === COORDINATE TRANSFORMATION FOR VERTICAL MOUNT ===
+                # Convert gimbal angles to normalized errors for PID control
+                # Roll controls lateral movement (X-axis in image frame)
+                # Pitch controls vertical movement (Y-axis in image frame)
 
-                # === DOWN VELOCITY CALCULATION ===
-                # For VERTICAL mount: pitch controls elevation
-                # pitch > 90° = target ahead and below = positive down velocity
-                # pitch < 90° = target ahead and above = negative down velocity
-                down_velocity = pitch_error * self.down_velocity_gain
+                # For VERTICAL mount gimbal coordinate transformation:
+                # Gimbal Roll → Drone Body Right velocity or Yaw rate (depending on mode)
+                # Gimbal Pitch → Drone Body Down velocity (elevation control)
 
-                # === YAW RATE CALCULATION ===
-                # For tracking: we want to turn TOWARD the target
-                # Positive roll = target on right = turn right = positive yaw rate
-                # Negative roll = target on left = turn left = negative yaw rate
-                yaw_rate = roll_deg * self.yaw_rate_gain
+                # Normalize roll angle to error signal (positive roll = target right of center)
+                lateral_error = roll_deg / 90.0  # Normalize to ±1.0 range
 
-                # Apply limits and safety
-                right_velocity = max(-3.0, min(3.0, right_velocity))  # Limit lateral velocity
-                down_velocity = max(-2.0, min(2.0, down_velocity))    # Limit vertical velocity
-                yaw_rate = max(-45.0, min(45.0, yaw_rate))           # Limit yaw rate
+                # Normalize pitch error for vertical control
+                vertical_error = pitch_error / 90.0  # Normalize to ±1.0 range
+
+                # === LATERAL CONTROL (MODE-DEPENDENT) ===
+                # Check if mode switching is needed
+                new_mode = self._get_active_lateral_mode()
+                if new_mode != self.active_lateral_mode:
+                    self._switch_lateral_mode(new_mode)
+
+                # Calculate lateral guidance commands based on active mode
+                right_velocity = 0.0
+                yaw_speed = 0.0
+
+                if self.active_lateral_mode == 'sideslip':
+                    # Sideslip Mode: Direct lateral velocity, no yaw
+                    right_velocity = self.pid_right(lateral_error) if self.pid_right else 0.0
+                    yaw_speed = 0.0
+
+                elif self.active_lateral_mode == 'coordinated_turn':
+                    # Coordinated Turn Mode: Yaw to track, no sideslip
+                    right_velocity = 0.0
+                    yaw_speed = self.pid_yaw_speed(lateral_error) if self.pid_yaw_speed else 0.0
+
+                # === VERTICAL CONTROL ===
+                # Calculate vertical command (same for both modes)
+                down_velocity = self.pid_down(vertical_error) if self.pid_down else 0.0
 
                 # DEBUG: Log the calculated velocity commands
-                logger.info(f"🎯 Gimbal→Velocity: fwd={forward_velocity:.3f} (ramped), right={right_velocity:.3f}, down={down_velocity:.3f}, yaw_rate={yaw_rate:.3f}")
+                logger.info(f"🎯 Gimbal→Velocity [{self.active_lateral_mode}]: fwd={forward_velocity:.3f} (ramped), right={right_velocity:.3f}, down={down_velocity:.3f}, yaw_speed={yaw_speed:.3f}")
 
                 # Apply velocity commands via setpoint handler
                 self.setpoint_handler.set_field("vel_body_fwd", forward_velocity)
                 self.setpoint_handler.set_field("vel_body_right", right_velocity)
                 self.setpoint_handler.set_field("vel_body_down", down_velocity)
-                self.setpoint_handler.set_field("yawspeed_deg_s", yaw_rate)
+                self.setpoint_handler.set_field("yawspeed_deg_s", yaw_speed)
+
+                # DEBUG: Log available fields and current values for UI troubleshooting
+                available_fields = list(self.setpoint_handler.get_fields().keys())
+                current_values = self.setpoint_handler.get_fields()
+                logger.info(f"🔧 Available fields: {available_fields}")
+                logger.info(f"🔧 Current setpoint values: {current_values}")
 
                 logger.debug(f"✅ Applied gimbal→velocity transformation successfully")
 
