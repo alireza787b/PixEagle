@@ -834,7 +834,11 @@ class AppController:
         """
         Enhanced target following with flexible tracker schema and proper async command dispatch.
         """
+        # DEBUG: Always log when follow_target is called
+        logging.info(f"🚀 FOLLOW_TARGET CALLED - tracking_started={self.tracking_started}, following_active={self.following_active}")
+
         if not (self.tracking_started and self.following_active):
+            logging.warning(f"🚨 FOLLOW_TARGET EARLY EXIT: tracking_started={self.tracking_started}, following_active={self.following_active}")
             return False
             
         try:
@@ -851,7 +855,15 @@ class AppController:
             
             # SYNCHRONOUS: Calculate and set commands using structured data (no await needed)
             try:
+                logging.info(f"🎯 CALLING follower.follow_target() with tracker_output: data_type={tracker_output.data_type}, tracking_active={tracker_output.tracking_active}")
                 follow_result = self.follower.follow_target(tracker_output)
+                logging.info(f"🎯 FOLLOWER RESULT: follow_target returned {follow_result}")
+
+                # DEBUG: Check current setpoint values after follower processing
+                if hasattr(self.follower, 'setpoint_handler'):
+                    setpoints = self.follower.setpoint_handler.get_fields()
+                    logging.info(f"🎯 SETPOINTS AFTER FOLLOWER: {setpoints}")
+
                 if follow_result is False:
                     logging.warning("Follower follow_target returned False")
                     return False

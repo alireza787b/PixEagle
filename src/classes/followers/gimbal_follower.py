@@ -287,8 +287,8 @@ class GimbalFollower(BaseFollower):
 
                 # Apply yaw rate if available (optional field in gimbal_unified profile)
                 if hasattr(velocity_cmd, 'yaw_rate') and velocity_cmd.yaw_rate is not None:
-                    # Use yaw_speed_deg_s field as per gimbal_unified profile
-                    self.setpoint_handler.set_field("yaw_speed_deg_s", velocity_cmd.yaw_rate)
+                    # Use yawspeed_deg_s field as per gimbal_unified profile
+                    self.setpoint_handler.set_field("yawspeed_deg_s", velocity_cmd.yaw_rate)
                     logger.debug(f"Applied yaw rate: {velocity_cmd.yaw_rate:.3f} deg/s")
 
                 logger.debug(f"Applied gimbal angles: yaw={yaw_deg:.2f}°, pitch={pitch_deg:.2f}°, roll={roll_deg:.2f}° "
@@ -591,7 +591,7 @@ class GimbalFollower(BaseFollower):
                 self.setpoint_handler.set_field('vel_body_fwd', velocity_command.forward)
                 self.setpoint_handler.set_field('vel_body_right', velocity_command.right)
                 self.setpoint_handler.set_field('vel_body_down', velocity_command.down)
-                self.setpoint_handler.set_field('yaw_speed_deg_s', velocity_command.yaw_rate)
+                self.setpoint_handler.set_field('yawspeed_deg_s', velocity_command.yaw_rate)
             elif self.control_mode == "NED":
                 # NED frame control mode
                 self.setpoint_handler.set_field('vel_x', velocity_command.forward)
