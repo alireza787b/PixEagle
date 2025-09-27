@@ -245,6 +245,9 @@ class GimbalFollower(BaseFollower):
             ValueError: If tracker data is invalid or incompatible
             RuntimeError: If transformation or command application fails
         """
+        # DEBUG: Always log when this method is called
+        logger.info(f"🔧 GimbalFollower.calculate_control_commands() called - data_type: {tracker_data.data_type}, tracking_active: {tracker_data.tracking_active}")
+
         try:
             # Extract and transform gimbal data
             if tracker_data.data_type == TrackerDataType.GIMBAL_ANGLES:
@@ -274,10 +277,19 @@ class GimbalFollower(BaseFollower):
                 if not transform_success:
                     raise RuntimeError("Gimbal angle transformation failed")
 
+                # DEBUG: Log the calculated velocity commands
+                logger.info(f"🎯 Calculated velocity commands: fwd={velocity_cmd.forward:.3f}, right={velocity_cmd.right:.3f}, down={velocity_cmd.down:.3f}, yaw_rate={velocity_cmd.yaw_rate:.3f}")
+
                 # Apply velocity commands via setpoint handler
                 self.setpoint_handler.set_field("vel_body_fwd", velocity_cmd.forward)
                 self.setpoint_handler.set_field("vel_body_right", velocity_cmd.right)
                 self.setpoint_handler.set_field("vel_body_down", velocity_cmd.down)
+
+                # Apply yaw rate if available (optional field in gimbal_unified profile)
+                if hasattr(velocity_cmd, 'yaw_rate') and velocity_cmd.yaw_rate is not None:
+                    # Use yaw_speed_deg_s field as per gimbal_unified profile
+                    self.setpoint_handler.set_field("yaw_speed_deg_s", velocity_cmd.yaw_rate)
+                    logger.debug(f"Applied yaw rate: {velocity_cmd.yaw_rate:.3f} deg/s")
 
                 logger.debug(f"Applied gimbal angles: yaw={yaw_deg:.2f}°, pitch={pitch_deg:.2f}°, roll={roll_deg:.2f}° "
                            f"-> velocity: forward={velocity_cmd.forward:.2f}, right={velocity_cmd.right:.2f}")
@@ -322,6 +334,9 @@ class GimbalFollower(BaseFollower):
         """
         self.total_follow_calls += 1
         current_time = time.time()
+
+        # DEBUG: Log every follow_target call
+        logger.info(f"🎯 GimbalFollower.follow_target() called #{self.total_follow_calls} - tracker_output.tracking_active: {tracker_output.tracking_active}")
 
         try:
             # Comprehensive Safety Checks (PHASE 3.3)
@@ -379,6 +394,9 @@ class GimbalFollower(BaseFollower):
             bool: True if processing was successful
         """
         try:
+            # DEBUG: Log normal tracking processing
+            logger.info(f"🔄 Processing normal tracking - data_type: {tracker_output.data_type}, angular: {tracker_output.angular}")
+
             # Use the standard calculate_control_commands method
             self.calculate_control_commands(tracker_output)
 

@@ -28,6 +28,37 @@ class SetpointSender(threading.Thread):
         
         logger.info(f"SetpointSender initialized for profile: {setpoint_handler.get_display_name()}")
 
+    def validate_configuration(self) -> bool:
+        """
+        Validate that the setpoint sender is properly configured.
+
+        Returns:
+            bool: True if configuration is valid
+        """
+        try:
+            # Check if we have a valid control type
+            if not hasattr(self.setpoint_handler, 'get_control_type'):
+                logger.error("SetpointHandler missing get_control_type method")
+                return False
+
+            control_type = self.setpoint_handler.get_control_type()
+            if not control_type:
+                logger.error("Invalid control type from setpoint handler")
+                return False
+
+            # Check if we have required fields
+            fields = self.setpoint_handler.get_fields()
+            if not fields:
+                logger.error("No fields available from setpoint handler")
+                return False
+
+            logger.info(f"SetpointSender validation passed: {control_type} with {len(fields)} fields")
+            return True
+
+        except Exception as e:
+            logger.error(f"SetpointSender validation failed: {e}")
+            return False
+
     def run(self):
         """
         Main thread loop that sends commands at the configured rate.
