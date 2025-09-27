@@ -56,7 +56,15 @@ class FlowController:
             while not self.controller.shutdown_flag:
                 frame = self.controller.video_handler.get_frame()
                 if frame is None:
+                    logging.warning("📹 FlowController: No frame from video_handler - breaking loop")
                     break
+
+                # DEBUG: Log every 200th frame to verify flow controller is running
+                if not hasattr(self, '_flow_frame_count'):
+                    self._flow_frame_count = 0
+                self._flow_frame_count += 1
+                if self._flow_frame_count % 200 == 0:
+                    logging.info(f"📹 FLOW_CONTROLLER RUNNING: Processing frame #{self._flow_frame_count}")
 
                 # Run the update loop within the persistent event loop
                 frame = loop.run_until_complete(self.controller.update_loop(frame))

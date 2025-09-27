@@ -364,6 +364,13 @@ class AppController:
         In classic mode, runs the usual tracker and estimator logic.
         In smart mode, runs YOLO detection and draws bounding boxes.
         """
+        # DEBUG: Log every 100th frame to verify update_loop is running
+        if not hasattr(self, '_frame_count_debug'):
+            self._frame_count_debug = 0
+        self._frame_count_debug += 1
+        if self._frame_count_debug % 100 == 0:
+            logging.info(f"🎬 UPDATE_LOOP RUNNING: Frame #{self._frame_count_debug}")
+
         try:
             # Periodic system status update
             current_time = time.time()
@@ -393,24 +400,38 @@ class AppController:
 
             # Always-Reporting Trackers (schema-based) - Process when available regardless of manual start
             is_always_reporting = self._is_always_reporting_tracker()
+
+            # DEBUG: Log control flow decisions
+            logging.info(f"🔍 CONTROL LOOP DEBUG: is_always_reporting={is_always_reporting}, has_tracker={self.tracker is not None}, following_active={self.following_active}")
+            if self.tracker:
+                logging.info(f"🔍 TRACKER DEBUG: class={self.tracker.__class__.__name__}, is_external={getattr(self.tracker, 'is_external_tracker', 'NOT_SET')}")
+
             if is_always_reporting and self.tracker:
+                logging.info(f"🎯 ALWAYS-REPORTING PATH: Entering always-reporting tracker logic")
                 try:
                     # Always-reporting trackers update regardless of manual tracking state
                     success, tracker_output = self.tracker.update(frame)
+                    logging.info(f"🎯 TRACKER UPDATE: success={success}, has_output={tracker_output is not None}")
+
                     if success and tracker_output:
                         # Draw tracking overlay for always-reporting trackers
                         frame = self.tracker.draw_tracking(frame, tracking_successful=True)
 
                         # Handle following if following is active
                         if self.following_active:
+                            logging.info(f"🎯 CALLING follow_target() - This should trigger GimbalFollower!")
                             await self.follow_target()
                             await self.check_failsafe()
+                        else:
+                            logging.warning(f"🚨 Following not active - follow_target() not called")
 
                         logging.debug(f"Always-reporting tracker ({self.tracker.__class__.__name__}) updated successfully")
                     else:
-                        logging.debug(f"Always-reporting tracker ({self.tracker.__class__.__name__}) update failed or no data")
+                        logging.warning(f"🚨 Always-reporting tracker update failed or no data: success={success}, output={tracker_output}")
                 except Exception as e:
                     logging.error(f"Error updating always-reporting tracker: {e}")
+            else:
+                logging.info(f"🚨 NOT TAKING ALWAYS-REPORTING PATH: is_always_reporting={is_always_reporting}, has_tracker={self.tracker is not None}")
 
             # Classic Tracker (normal tracking or smart override)
             classic_active = (
@@ -1207,12 +1228,15 @@ class AppController:
             bool: True if tracker always reports data regardless of manual start
         """
         if not self.tracker:
+            logging.info("🔍 _is_always_reporting_tracker: No tracker available")
             return False
 
         try:
             # Primary check: direct is_external_tracker attribute (avoids circular call)
             if hasattr(self.tracker, 'is_external_tracker'):
-                return getattr(self.tracker, 'is_external_tracker', False)
+                result = getattr(self.tracker, 'is_external_tracker', False)
+                logging.info(f"🔍 _is_always_reporting_tracker: Found is_external_tracker={result} on {self.tracker.__class__.__name__}")
+                return result
 
             # Secondary check: tracker class name
             tracker_class_name = self.tracker.__class__.__name__
