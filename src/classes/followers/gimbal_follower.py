@@ -31,7 +31,7 @@ from typing import Tuple, Optional, Dict, Any
 from classes.followers.base_follower import BaseFollower
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.parameters import Parameters
-from classes.controllers.pid_controller import CustomPID
+from classes.followers.custom_pid import CustomPID
 
 # Initialize logger before imports that might fail
 logger = logging.getLogger(__name__)
