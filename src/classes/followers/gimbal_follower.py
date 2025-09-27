@@ -755,9 +755,8 @@ class GimbalFollower(BaseFollower):
     def _check_altitude_safety(self) -> Dict[str, Any]:
         """Check if drone altitude is within safe operating range."""
         try:
-            # Get current drone status
-            drone_status = self.px4_controller.get_drone_status()
-            current_altitude = drone_status.get('altitude', 0.0)
+            # Get current altitude using same pattern as other followers
+            current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)
 
             # Check altitude bounds
             if current_altitude < self.min_altitude_safety:
