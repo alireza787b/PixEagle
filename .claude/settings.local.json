@@ -21,7 +21,8 @@
       "Bash(./pixeagle-service:*)",
       "Bash(./install_service.sh:*)",
       "Bash(bash:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(/dev/null)"
     ],
     "deny": [],
     "ask": []
