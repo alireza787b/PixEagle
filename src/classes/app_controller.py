@@ -862,12 +862,17 @@ class AppController:
             # ASYNCHRONOUS: Send the actual commands to PX4
             try:
                 control_type = self.follower.get_control_type()
+                logging.info(f"🚀 COMMAND DISPATCH: control_type={control_type}, sending via PX4Interface...")
+
                 if control_type == 'attitude_rate':
                     await self.px4_interface.send_attitude_rate_commands()
+                    logging.info(f"🚀 SENT: attitude_rate commands")
                 elif control_type == 'velocity_body':
                     await self.px4_interface.send_body_velocity_commands()
+                    logging.info(f"🚀 SENT: velocity_body commands")
                 elif control_type == 'velocity_body_offboard':
                     await self.px4_interface.send_velocity_body_offboard_commands()
+                    logging.info(f"🚀 SENT: velocity_body_offboard commands")
                 else:
                     logging.warning(f"Unknown control type: {control_type}")
                     return False

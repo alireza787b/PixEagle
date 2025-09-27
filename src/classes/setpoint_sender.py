@@ -67,11 +67,18 @@ class SetpointSender(threading.Thread):
         logger.info("SetpointSender thread started")
         
         try:
+            loop_count = 0
             while self.running:
                 try:
+                    loop_count += 1
+
+                    # DEBUG: Log every 20 loops (about every 4 seconds at 0.2s rate)
+                    if loop_count % 20 == 0:
+                        logger.info(f"⚙️ SetpointSender loop #{loop_count} - thread running normally")
+
                     # Update control type periodically
                     self._update_control_type()
-                    
+
                     # Send appropriate commands based on control type (SYNCHRONOUS)
                     success = self._send_commands_sync()
                     
@@ -132,10 +139,19 @@ class SetpointSender(threading.Thread):
             # in the main async control loop via app_controller.follow_target()
             
             setpoint = self.setpoint_handler.get_fields()
-            
+
+            # DEBUG: Log setpoint values periodically
+            if hasattr(self, '_setpoint_debug_count'):
+                self._setpoint_debug_count += 1
+            else:
+                self._setpoint_debug_count = 1
+
+            if self._setpoint_debug_count % 20 == 0:  # Every 20 calls (about 4 seconds)
+                logger.info(f"⚙️ SetpointSender current values: {control_type} -> {setpoint}")
+
             if Parameters.ENABLE_SETPOINT_DEBUGGING:
                 logger.debug(f"SetpointSender ready to send {control_type}: {setpoint}")
-            
+
             return True
             
         except Exception as e:
