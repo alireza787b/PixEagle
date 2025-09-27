@@ -837,9 +837,19 @@ class AppController:
         # DEBUG: Always log when follow_target is called
         logging.info(f"🚀 FOLLOW_TARGET CALLED - tracking_started={self.tracking_started}, following_active={self.following_active}")
 
-        if not (self.tracking_started and self.following_active):
-            logging.warning(f"🚨 FOLLOW_TARGET EARLY EXIT: tracking_started={self.tracking_started}, following_active={self.following_active}")
-            return False
+        # For always-reporting trackers, only check following_active (not tracking_started)
+        is_always_reporting = self._is_always_reporting_tracker()
+        if is_always_reporting:
+            if not self.following_active:
+                logging.warning(f"🚨 FOLLOW_TARGET EARLY EXIT (always-reporting): following_active={self.following_active}")
+                return False
+            else:
+                logging.info(f"✅ ALWAYS-REPORTING TRACKER: Proceeding with follow_target (tracking_started not required)")
+        else:
+            # Classic trackers require both tracking_started AND following_active
+            if not (self.tracking_started and self.following_active):
+                logging.warning(f"🚨 FOLLOW_TARGET EARLY EXIT (classic): tracking_started={self.tracking_started}, following_active={self.following_active}")
+                return False
             
         try:
             # Get structured tracker output
