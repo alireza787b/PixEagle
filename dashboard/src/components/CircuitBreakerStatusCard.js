@@ -6,21 +6,21 @@ import {
   Typography,
   Box,
   Chip,
-  IconButton,
-  Tooltip,
   Alert,
   Skeleton,
   Switch,
-  FormControlLabel
+  FormControlLabel,
+  Collapse,
+  Button
 } from '@mui/material';
 import {
   Security,
-  PowerSettingsNew,
-  PowerOff,
   Warning,
   Info,
   CheckCircle,
-  Block
+  Block,
+  ExpandMore,
+  ExpandLess
 } from '@mui/icons-material';
 import { endpoints } from '../services/apiEndpoints';
 import axios from 'axios';
@@ -31,6 +31,7 @@ const CircuitBreakerStatusCard = React.memo(() => {
   const [status, setStatus] = useState(null);
   const [statistics, setStatistics] = useState(null);
   const [toggling, setToggling] = useState(false);
+  const [showStatistics, setShowStatistics] = useState(false);
 
   const fetchStatus = async () => {
     try {
@@ -75,16 +76,25 @@ const CircuitBreakerStatusCard = React.memo(() => {
 
   useEffect(() => {
     fetchStatus();
-    fetchStatistics();
 
-    // Poll for updates every 3 seconds
-    const interval = setInterval(() => {
-      fetchStatus();
+    // Only fetch statistics initially if user wants to see them
+    if (showStatistics) {
       fetchStatistics();
-    }, 3000);
+    }
 
-    return () => clearInterval(interval);
-  }, []);
+    // Optimized polling: status every 2 seconds, statistics only if shown and less frequently
+    const statusInterval = setInterval(fetchStatus, 2000);
+
+    let statisticsInterval = null;
+    if (showStatistics) {
+      statisticsInterval = setInterval(fetchStatistics, 5000); // Less frequent for statistics
+    }
+
+    return () => {
+      clearInterval(statusInterval);
+      if (statisticsInterval) clearInterval(statisticsInterval);
+    };
+  }, [showStatistics]); // Re-run when showStatistics changes
 
   if (loading) {
     return (
@@ -186,12 +196,30 @@ const CircuitBreakerStatusCard = React.memo(() => {
             </Alert>
           )}
 
-          {/* Statistics */}
-          {stats && (
-            <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
-              <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
-                Session Statistics:
-              </Typography>
+          {/* Statistics Toggle Button */}
+          <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
+            <Button
+              size="small"
+              onClick={() => {
+                setShowStatistics(!showStatistics);
+                if (!showStatistics && !statistics) {
+                  fetchStatistics(); // Fetch statistics when first opened
+                }
+              }}
+              startIcon={showStatistics ? <ExpandLess /> : <ExpandMore />}
+              sx={{ textTransform: 'none', fontSize: '0.75rem' }}
+            >
+              {showStatistics ? 'Hide' : 'Show'} Statistics
+            </Button>
+          </Box>
+
+          {/* Collapsible Statistics */}
+          <Collapse in={showStatistics}>
+            {statistics?.circuit_breaker && (
+              <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+                <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
+                  Session Statistics:
+                </Typography>
 
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
                 <Block fontSize="small" color="warning" />
@@ -230,8 +258,9 @@ const CircuitBreakerStatusCard = React.memo(() => {
                   Session: {new Date(stats.session_start_time * 1000).toLocaleTimeString()}
                 </Typography>
               )}
-            </Box>
-          )}
+              </Box>
+            )}
+          </Collapse>
         </Box>
       </CardContent>
     </Card>

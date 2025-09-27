@@ -82,8 +82,11 @@ class FollowerCircuitBreaker:
 
         # Command logging state
         self._command_count = 0
+        self._commands_blocked = 0  # Commands blocked (when CB active)
+        self._commands_allowed = 0  # Commands allowed (when CB inactive)
         self._start_time = time.time()
         self._last_command_time = None
+        self._last_blocked_command = None
 
         # Statistics for debugging
         self._command_types = {}
@@ -134,6 +137,7 @@ class FollowerCircuitBreaker:
 
         # Update statistics
         instance._command_count += 1
+        instance._commands_blocked += 1  # This method is only called when CB is active (blocking)
         instance._last_command_time = current_time
         instance._followers_tested.add(follower_name)
 
@@ -144,6 +148,9 @@ class FollowerCircuitBreaker:
         # Format command data for logging
         command_str = ", ".join([f"{k}={v:.3f}" if isinstance(v, float) else f"{k}={v}"
                                 for k, v in command_data.items()])
+
+        # Store last blocked command for UI display
+        instance._last_blocked_command = f"{command_type}({command_str})"
 
         # Log the intercepted command
         logger.info(f"[CIRCUIT BREAKER] {follower_name} → {command_type}: {command_str}")
@@ -156,6 +163,33 @@ class FollowerCircuitBreaker:
                        f"Rate: {rate:.1f} Hz, Types: {list(instance._command_types.keys())}")
 
         return True
+
+    @classmethod
+    def log_command_allowed(cls, command_type: str, follower_name: str = "Unknown", **command_data) -> None:
+        """
+        Log that a command was allowed to execute (when circuit breaker is inactive).
+
+        Args:
+            command_type (str): Type of command being allowed
+            follower_name (str): Name of the follower executing the command
+            **command_data: Command parameters for tracking
+        """
+        instance = cls.get_instance()
+        current_time = time.time()
+
+        # Update allowed command statistics
+        instance._commands_allowed += 1
+        instance._last_command_time = current_time
+        instance._followers_tested.add(follower_name)
+
+        # Track command types
+        if command_type not in instance._command_types:
+            instance._command_types[command_type] = 0
+        instance._command_types[command_type] += 1
+
+        # Log occasionally for monitoring (less verbose than blocked commands)
+        if instance._commands_allowed % 100 == 0:
+            logger.debug(f"[CIRCUIT BREAKER] Allowed {instance._commands_allowed} commands from {follower_name}")
 
     @classmethod
     def get_statistics(cls) -> Dict[str, Any]:
@@ -172,11 +206,15 @@ class FollowerCircuitBreaker:
         return {
             'circuit_breaker_active': cls.is_active(),
             'total_commands': instance._command_count,
+            'total_commands_blocked': instance._commands_blocked,
+            'total_commands_allowed': instance._commands_allowed,
+            'last_blocked_command': getattr(instance, '_last_blocked_command', None),
             'command_types': dict(instance._command_types),
             'followers_tested': list(instance._followers_tested),
             'elapsed_time_seconds': elapsed_time,
             'command_rate_hz': instance._command_count / max(elapsed_time, 1),
             'last_command_time': instance._last_command_time,
+            'session_start_time': instance._start_time,
             'system_status': 'testing' if cls.is_active() else 'operational'
         }
 
@@ -185,8 +223,11 @@ class FollowerCircuitBreaker:
         """Reset circuit breaker statistics."""
         instance = cls.get_instance()
         instance._command_count = 0
+        instance._commands_blocked = 0
+        instance._commands_allowed = 0
         instance._start_time = time.time()
         instance._last_command_time = None
+        instance._last_blocked_command = None
         instance._command_types.clear()
         instance._followers_tested.clear()
 

@@ -55,7 +55,12 @@ def _should_block_px4_command(command_type: str, **params) -> bool:
         )
         return True
 
-    # Circuit breaker explicitly disabled - allow command
+    # Circuit breaker explicitly disabled - allow command and track it
+    FollowerCircuitBreaker.log_command_allowed(
+        command_type=command_type,
+        follower_name="PX4Interface",
+        **params
+    )
     return False
 
 class PX4InterfaceManager:
@@ -270,6 +275,14 @@ class PX4InterfaceManager:
                 )
                 return
 
+            # Track allowed command when circuit breaker is inactive
+            if CIRCUIT_BREAKER_AVAILABLE:
+                FollowerCircuitBreaker.log_command_allowed(
+                    command_type="velocity_body",
+                    follower_name="PX4Interface",
+                    vx=vx, vy=vy, vz=vz, yaw_rate=yaw_rate
+                )
+
             # Send the velocity commands to the drone
             next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_rate)
             await self._safe_mavsdk_call(
@@ -314,6 +327,14 @@ class PX4InterfaceManager:
                     roll_rate=roll_rate, pitch_rate=pitch_rate, yaw_rate=yaw_rate, thrust=thrust
                 )
                 return
+
+            # Track allowed command when circuit breaker is inactive
+            if CIRCUIT_BREAKER_AVAILABLE:
+                FollowerCircuitBreaker.log_command_allowed(
+                    command_type="attitude_rate",
+                    follower_name="PX4Interface",
+                    roll_rate=roll_rate, pitch_rate=pitch_rate, yaw_rate=yaw_rate, thrust=thrust
+                )
 
             # Send the attitude rate commands to the drone
             next_setpoint = AttitudeRate(roll_rate, pitch_rate, yaw_rate, thrust)
