@@ -420,8 +420,12 @@ class GimbalFollower(BaseFollower):
                 # Update forward velocity with ramping
                 if abs(pitch_error) > 2.0:  # Dead zone to prevent jitter
                     # Target detected - calculate target velocity based on pitch error
-                    target_velocity = min(abs(pitch_error) * 0.1, self.max_forward_velocity)
+                    # Use a more aggressive scaling factor: 0.15 instead of 0.1
+                    target_velocity = min(abs(pitch_error) * 0.15, self.max_forward_velocity)
                     velocity_change = self.forward_acceleration * dt
+
+                    # DEBUG: Log ramping details
+                    logger.debug(f"🚀 Forward ramping: pitch_error={pitch_error:.1f}°, target_vel={target_velocity:.3f}, current_vel={self.current_forward_velocity:.3f}, dt={dt:.3f}")
 
                     if self.current_forward_velocity < target_velocity:
                         self.current_forward_velocity = min(

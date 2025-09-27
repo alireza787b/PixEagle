@@ -22,7 +22,8 @@
       "Bash(./install_service.sh:*)",
       "Bash(bash:*)",
       "Bash(npm run build:*)",
-      "Bash(/dev/null)"
+      "Bash(/dev/null)",
+      "Bash(timeout 5 python:*)"
     ],
     "deny": [],
     "ask": []

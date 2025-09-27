@@ -117,7 +117,8 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
         { name: 'vel_body_fwd', icon: <Speed fontSize="small" />, color: '#2196F3', unit: 'm/s' },
         { name: 'vel_body_right', icon: <Speed fontSize="small" />, color: '#4CAF50', unit: 'm/s' },
         { name: 'vel_body_down', icon: <FlightTakeoff fontSize="small" />, color: '#FF9800', unit: 'm/s' },
-        { name: 'yawspeed_deg_s', icon: <Rotate90DegreesCcw fontSize="small" />, color: '#9C27B0', unit: '°/s' }
+        { name: 'yawspeed_deg_s', icon: <Rotate90DegreesCcw fontSize="small" />, color: '#9C27B0', unit: '°/s' },
+        { name: 'yaw_angle_deg', icon: <Rotate90DegreesCcw fontSize="small" />, color: '#9C27B0', unit: '°' }
       ];
     } else if (controlType === 'attitude_rate') {
       fieldDefinitions = [
@@ -250,7 +251,7 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
             <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
               {isEngaged ? 'Live Setpoints:' : 'Expected Fields:'}
             </Typography>
-            {keyFields.slice(0, 3).map((field) => {
+            {keyFields.map((field) => {
               const currentValue = isEngaged ? fields[field.name] : null;
               const displayValue = currentValue !== null && currentValue !== undefined 
                 ? (typeof currentValue === 'number' ? currentValue.toFixed(3) : currentValue.toString())
