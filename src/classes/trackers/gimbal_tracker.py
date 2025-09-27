@@ -96,7 +96,11 @@ class GimbalTracker(BaseTracker):
     - monitoring_active (bool): Whether background monitoring is active
     - last_gimbal_data (Optional[GimbalData]): Last received gimbal data
     - tracking_activation_time (Optional[float]): When tracking became active
+    - is_external_tracker (bool): Always True - enables continuous follow_target() calls
     """
+
+    # CRITICAL: Mark as external tracker for automatic follow_target() calls
+    is_external_tracker = True
 
     def __init__(self, video_handler: Optional[object] = None,
                  detector: Optional[object] = None,
