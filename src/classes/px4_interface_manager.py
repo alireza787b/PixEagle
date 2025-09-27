@@ -378,7 +378,11 @@ class PX4InterfaceManager:
             # yawspeed_rad = math.radians(yawspeed)
 
             logger.debug(f"Sending VELOCITY_BODY_OFFBOARD: Fwd={vel_fwd:.3f}, Right={vel_right:.3f}, Down={vel_down:.3f}, YawSpeed={yawspeed:.1f}°/s")
-            
+
+            # Circuit breaker check - log instead of executing when testing
+            if _should_block_px4_command("velocity_body_offboard", vel_fwd=vel_fwd, vel_right=vel_right, vel_down=vel_down, yawspeed=yawspeed):
+                return
+
             # Send the velocity commands to the drone using MAVSDK VelocityBodyYawspeed
             # Note: VelocityBodyYawspeed expects (forward, right, down, yawspeed_deg_s)
             next_setpoint = VelocityBodyYawspeed(vel_fwd, vel_right, vel_down, yawspeed)
@@ -650,9 +654,16 @@ class PX4InterfaceManager:
                 
             # Get control type directly from setpoint handler schema
             control_type = self.setpoint_handler.get_control_type()
-            
+
             logger.info(f"Sending initial {control_type} setpoint (all zeros)")
-            
+
+            # Check circuit breaker before attempting any PX4 commands
+            if CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active():
+                logger.info(f"[CIRCUIT BREAKER] Initial setpoint send blocked (testing mode) - control_type: {control_type}")
+                # Still reset setpoints for consistency, but don't send to drone
+                self.setpoint_handler.reset_setpoints()
+                return
+
             # Reset all fields to defaults before sending
             self.setpoint_handler.reset_setpoints()
             
