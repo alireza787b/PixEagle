@@ -335,6 +335,7 @@ Follower:
 # SAFETY FIRST: Global circuit breaker for follower testing without drone commands
 # Default: true (SAFE) - Only set to false when you explicitly want to send real commands
 FOLLOWER_CIRCUIT_BREAKER: true            # true = SAFE (log only), false = LIVE (send commands)
+CIRCUIT_BREAKER_DISABLE_SAFETY: true      # true = Skip safety checks in CB mode, false = Run all checks
 
 
 # ==============================================================================

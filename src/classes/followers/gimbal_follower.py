@@ -701,6 +701,20 @@ class GimbalFollower(BaseFollower):
         Returns:
             Dict with 'safe_to_proceed' boolean and 'reason' for any failures
         """
+        # CIRCUIT BREAKER: Skip all safety checks when testing mode is enabled
+        try:
+            from classes.circuit_breaker import FollowerCircuitBreaker
+            if (hasattr(Parameters, 'CIRCUIT_BREAKER_DISABLE_SAFETY') and
+                Parameters.CIRCUIT_BREAKER_DISABLE_SAFETY and
+                FollowerCircuitBreaker.is_active()):
+                logger.debug("Circuit breaker mode: Skipping all safety checks for testing")
+                return {
+                    'safe_to_proceed': True,
+                    'reason': 'circuit_breaker_testing_mode'
+                }
+        except ImportError:
+            pass  # Circuit breaker not available
+
         # 1. Emergency stop check
         if self.emergency_stop_active:
             return {
