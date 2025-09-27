@@ -151,6 +151,16 @@ class GimbalFollower(BaseFollower):
         self.target_loss_events = 0
         self.safety_interventions = 0
 
+        # Velocity ramping state (like body_velocity_chase_follower)
+        self.current_forward_velocity = 0.0
+        self.max_forward_velocity = self.config.get('MAX_FORWARD_VELOCITY', 5.0)
+        self.forward_acceleration = self.config.get('FORWARD_ACCELERATION', 2.0)
+        self.last_ramp_update_time = time.time()
+
+        # PID-like control for down velocity and yaw rate (simplified)
+        self.down_velocity_gain = self.config.get('DOWN_VELOCITY_GAIN', 0.1)
+        self.yaw_rate_gain = self.config.get('YAW_RATE_GAIN', 0.5)
+
         logger.info(f"GimbalFollower initialized successfully")
         logger.info(f"  Mount: {self.mount_type}, Control: {self.control_mode}")
         logger.info(f"  Max velocity: {self.max_velocity} m/s, Max yaw rate: {self.max_yaw_rate}°/s")
@@ -249,50 +259,86 @@ class GimbalFollower(BaseFollower):
         logger.info(f"🔧 GimbalFollower.calculate_control_commands() called - data_type: {tracker_data.data_type}, tracking_active: {tracker_data.tracking_active}")
 
         try:
-            # Extract and transform gimbal data
+            current_time = time.time()
+            dt = current_time - self.last_ramp_update_time
+            self.last_ramp_update_time = current_time
+
+            # Extract and process gimbal data
             if tracker_data.data_type == TrackerDataType.GIMBAL_ANGLES:
                 # Process gimbal angles (yaw, pitch, roll in degrees)
                 gimbal_angles = tracker_data.angular
                 if gimbal_angles is None:
                     raise ValueError("GIMBAL_ANGLES tracker data missing angular field")
 
-                # For gimbal angles, expect (yaw, pitch, roll) tuple
                 if len(gimbal_angles) < 3:
                     raise ValueError(f"GIMBAL_ANGLES expects 3 values (yaw, pitch, roll), got {len(gimbal_angles)}")
 
                 yaw_deg, pitch_deg, roll_deg = gimbal_angles[0], gimbal_angles[1], gimbal_angles[2]
 
-                # Create GimbalAngles object for transformation engine
-                from classes.gimbal_transforms import GimbalAngles
-                angles_obj = GimbalAngles(
-                    roll=roll_deg,
-                    pitch=pitch_deg,
-                    yaw=yaw_deg,
-                    timestamp=tracker_data.timestamp
-                )
+                logger.info(f"🎯 Processing gimbal angles: Y={yaw_deg:.1f}° P={pitch_deg:.1f}° R={roll_deg:.1f}°")
 
-                # Transform to velocity commands
-                velocity_cmd, transform_success = self.transformation_engine.transform_angles_to_velocity(angles_obj)
+                # === FORWARD VELOCITY CALCULATION (with ramping) ===
+                # For VERTICAL mount: pitch > 90° means target is ahead, < 90° means behind
+                pitch_error = pitch_deg - 90.0  # 90° is the neutral "forward" position
 
-                if not transform_success:
-                    raise RuntimeError("Gimbal angle transformation failed")
+                # Update forward velocity with ramping (like body_velocity_chase)
+                if abs(pitch_error) > 2.0:  # Dead zone to prevent jitter
+                    # Target detected - ramp up forward velocity
+                    target_velocity = min(abs(pitch_error) * 0.1, self.max_forward_velocity)  # Scale pitch to velocity
+                    velocity_change = self.forward_acceleration * dt
+
+                    if self.current_forward_velocity < target_velocity:
+                        self.current_forward_velocity = min(
+                            self.current_forward_velocity + velocity_change,
+                            target_velocity
+                        )
+                    else:
+                        self.current_forward_velocity = max(
+                            self.current_forward_velocity - velocity_change,
+                            target_velocity
+                        )
+                else:
+                    # No significant pitch error - gradually slow down
+                    self.current_forward_velocity = max(
+                        self.current_forward_velocity - self.forward_acceleration * dt,
+                        0.0
+                    )
+
+                forward_velocity = self.current_forward_velocity
+
+                # === RIGHT VELOCITY CALCULATION ===
+                # For VERTICAL mount: roll controls lateral movement
+                # Positive roll = target on right = move right (positive velocity)
+                # Negative roll = target on left = move left (negative velocity)
+                right_velocity = roll_deg * 0.1  # Scale factor for lateral movement
+
+                # === DOWN VELOCITY CALCULATION ===
+                # For VERTICAL mount: pitch controls elevation
+                # pitch > 90° = target ahead and below = positive down velocity
+                # pitch < 90° = target ahead and above = negative down velocity
+                down_velocity = pitch_error * self.down_velocity_gain
+
+                # === YAW RATE CALCULATION ===
+                # For tracking: we want to turn TOWARD the target
+                # Positive roll = target on right = turn right = positive yaw rate
+                # Negative roll = target on left = turn left = negative yaw rate
+                yaw_rate = roll_deg * self.yaw_rate_gain
+
+                # Apply limits and safety
+                right_velocity = max(-3.0, min(3.0, right_velocity))  # Limit lateral velocity
+                down_velocity = max(-2.0, min(2.0, down_velocity))    # Limit vertical velocity
+                yaw_rate = max(-45.0, min(45.0, yaw_rate))           # Limit yaw rate
 
                 # DEBUG: Log the calculated velocity commands
-                logger.info(f"🎯 Calculated velocity commands: fwd={velocity_cmd.forward:.3f}, right={velocity_cmd.right:.3f}, down={velocity_cmd.down:.3f}, yaw_rate={velocity_cmd.yaw_rate:.3f}")
+                logger.info(f"🎯 Gimbal→Velocity: fwd={forward_velocity:.3f} (ramped), right={right_velocity:.3f}, down={down_velocity:.3f}, yaw_rate={yaw_rate:.3f}")
 
                 # Apply velocity commands via setpoint handler
-                self.setpoint_handler.set_field("vel_body_fwd", velocity_cmd.forward)
-                self.setpoint_handler.set_field("vel_body_right", velocity_cmd.right)
-                self.setpoint_handler.set_field("vel_body_down", velocity_cmd.down)
+                self.setpoint_handler.set_field("vel_body_fwd", forward_velocity)
+                self.setpoint_handler.set_field("vel_body_right", right_velocity)
+                self.setpoint_handler.set_field("vel_body_down", down_velocity)
+                self.setpoint_handler.set_field("yawspeed_deg_s", yaw_rate)
 
-                # Apply yaw rate if available (optional field in gimbal_unified profile)
-                if hasattr(velocity_cmd, 'yaw_rate') and velocity_cmd.yaw_rate is not None:
-                    # Use yawspeed_deg_s field as per gimbal_unified profile
-                    self.setpoint_handler.set_field("yawspeed_deg_s", velocity_cmd.yaw_rate)
-                    logger.debug(f"Applied yaw rate: {velocity_cmd.yaw_rate:.3f} deg/s")
-
-                logger.debug(f"Applied gimbal angles: yaw={yaw_deg:.2f}°, pitch={pitch_deg:.2f}°, roll={roll_deg:.2f}° "
-                           f"-> velocity: forward={velocity_cmd.forward:.2f}, right={velocity_cmd.right:.2f}")
+                logger.debug(f"✅ Applied gimbal→velocity transformation successfully")
 
             elif tracker_data.data_type == TrackerDataType.ANGULAR:
                 # Process angular rate data (pitch_rate, yaw_rate in rad/s)

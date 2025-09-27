@@ -355,8 +355,15 @@ GimbalFollower:
   VELOCITY_RAMP_RATE: 1.0                  # Acceleration rate (m/s²)
   VELOCITY_FILTER_ALPHA: 0.7               # Velocity smoothing filter coefficient (0-1)
 
+  # === Forward Velocity Ramping (like body_velocity_chase) ===
+  MAX_FORWARD_VELOCITY: 5.0                # Maximum forward velocity (m/s)
+  FORWARD_ACCELERATION: 2.0                # Forward velocity acceleration (m/s²)
+
+  # === Down Velocity & Yaw Rate Gains ===
+  DOWN_VELOCITY_GAIN: 0.1                  # Gain for down velocity from pitch angle
+
   # === Yaw Control ===
-  YAW_RATE_GAIN: 0.5                      # Proportional gain for yaw rate control
+  YAW_RATE_GAIN: 0.5                      # Gain for yaw rate from roll angle
   MAX_YAW_RATE: 45.0                      # Maximum yaw rate (degrees/second)
 
   # === Target Loss Handling ===
