@@ -14,7 +14,7 @@
 # ==============================================================================
 VideoSource:
   # Primary video source selection
-  # Options: VIDEO_FILE, USB_CAMERA, RTSP_OPENCV, RTSP_GSTREAMER, UDP_STREAM, HTTP_STREAM, CSI_CAMERA, CUSTOM_GSTREAMER
+  # Options: VIDEO_FILE, USB_CAMERA, RTSP_OPENCV, RTSP_STREAM, UDP_STREAM, HTTP_STREAM, CSI_CAMERA, CUSTOM_GSTREAMER
   VIDEO_SOURCE_TYPE: USB_CAMERA
   
   # === Universal Capture Parameters (Applied to ALL sources) ===
