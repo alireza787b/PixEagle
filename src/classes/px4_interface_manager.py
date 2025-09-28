@@ -6,8 +6,62 @@ from classes.parameters import Parameters
 from mavsdk.offboard import OffboardError, VelocityNedYaw, VelocityBodyYawspeed, AttitudeRate
 from classes.setpoint_handler import SetpointHandler
 
+# Import circuit breaker for testing support
+try:
+    from classes.circuit_breaker import FollowerCircuitBreaker
+    CIRCUIT_BREAKER_AVAILABLE = True
+except ImportError:
+    CIRCUIT_BREAKER_AVAILABLE = False
+
 # Configure logging
 logger = logging.getLogger(__name__)
+
+def _should_block_px4_command(command_type: str, **params) -> bool:
+    """
+    SAFETY FIRST: Determine if PX4 COMMAND should be blocked.
+
+    BLOCKS (Commands TO drone):
+    - start/stop offboard mode
+    - velocity commands (set_velocity_body)
+    - attitude commands (set_attitude_rate)
+    - action commands (RTL, hold, land, takeoff)
+    - Any command that changes drone behavior
+
+    ALLOWS (Data FROM drone):
+    - telemetry reading (position, attitude, velocity)
+    - MAVLink2REST data fetching
+    - status queries
+    - flight mode reading
+
+    Safety Philosophy:
+    - Default to BLOCKING (fail-safe)
+    - Only allow commands if circuit breaker is explicitly disabled
+    - If circuit breaker system unavailable, DEFAULT TO SAFE (block all)
+
+    Returns:
+        bool: True if command should be blocked (safe default)
+    """
+    # FAIL SAFE: If circuit breaker system not available, block everything
+    if not CIRCUIT_BREAKER_AVAILABLE:
+        logger.warning(f"Circuit breaker unavailable - blocking {command_type} for safety")
+        return True
+
+    # Check circuit breaker status - only allow if explicitly disabled
+    if FollowerCircuitBreaker.is_active():
+        FollowerCircuitBreaker.log_command_instead_of_execute(
+            command_type=command_type,
+            follower_name="PX4Interface",
+            **params
+        )
+        return True
+
+    # Circuit breaker explicitly disabled - allow command and track it
+    FollowerCircuitBreaker.log_command_allowed(
+        command_type=command_type,
+        follower_name="PX4Interface",
+        **params
+    )
+    return False
 
 class PX4InterfaceManager:
 
@@ -63,13 +117,25 @@ class PX4InterfaceManager:
     async def _safe_mavsdk_call(self, coro):
         """
         Safely execute MAVSDK coroutine calls with proper error handling.
-        
+
+        NOTE: This is used for COMMAND calls only (offboard.set_*).
+        Data retrieval calls (telemetry.*) should NOT use this wrapper.
+
         Args:
             coro: Coroutine to execute safely
-            
+
         Returns:
             bool: True if successful, False otherwise
         """
+        # Circuit breaker check - block COMMAND operations when testing
+        if CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active():
+            FollowerCircuitBreaker.log_command_instead_of_execute(
+                command_type="mavsdk_command",
+                follower_name="PX4Interface",
+                blocked_call=str(coro)[:100]  # Limit string length
+            )
+            return True  # Return success without executing
+
         try:
             await coro
             return True
@@ -94,6 +160,12 @@ class PX4InterfaceManager:
         Connects to the drone using MAVSDK and starts telemetry updates.
         Even when using MAVLink2Rest for telemetry, MAVSDK is still used for offboard control.
         """
+        # SAFETY FIRST: Block if circuit breaker active or unavailable
+        if _should_block_px4_command("connect", system_address=Parameters.SYSTEM_ADDRESS):
+            self.active_mode = True  # Set mock active state for testing
+            logger.info("Drone connection blocked by circuit breaker (SAFETY)")
+            return
+
         await self.drone.connect(system_address=Parameters.SYSTEM_ADDRESS)
         self.active_mode = True
         logger.info("Connected to the drone.")
@@ -142,6 +214,8 @@ class PX4InterfaceManager:
             logger.error(f"Error updating telemetry via MAVLink2Rest: {e}")
 
     async def _update_telemetry_via_mavsdk(self):
+        # NOTE: Circuit breaker does NOT block telemetry reading - only commands
+        # Telemetry is data FROM drone, not commands TO drone
         try:
             async for position in self.drone.telemetry.position():
                 self.current_altitude = position.relative_altitude_m
@@ -191,7 +265,24 @@ class PX4InterfaceManager:
                 yaw_rate = float(setpoint['yaw_rate'])
 
             logger.debug(f"Setting VELOCITY_BODY setpoint: Vx={vx}, Vy={vy}, Vz={vz}, Yaw rate={yaw_rate}")
-            
+
+            # Circuit breaker check - log instead of executing when testing
+            if CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active():
+                FollowerCircuitBreaker.log_command_instead_of_execute(
+                    command_type="velocity_body",
+                    follower_name="PX4Interface",
+                    vx=vx, vy=vy, vz=vz, yaw_rate=yaw_rate
+                )
+                return
+
+            # Track allowed command when circuit breaker is inactive
+            if CIRCUIT_BREAKER_AVAILABLE:
+                FollowerCircuitBreaker.log_command_allowed(
+                    command_type="velocity_body",
+                    follower_name="PX4Interface",
+                    vx=vx, vy=vy, vz=vz, yaw_rate=yaw_rate
+                )
+
             # Send the velocity commands to the drone
             next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_rate)
             await self._safe_mavsdk_call(
@@ -227,7 +318,24 @@ class PX4InterfaceManager:
             thrust = float(setpoint.get('thrust', self.hover_throttle))
 
             logger.debug(f"Setting ATTITUDE_RATE setpoint: Roll Rate={roll_rate}, Pitch Rate={pitch_rate}, Yaw Rate={yaw_rate}, Thrust={thrust}")
-            
+
+            # Circuit breaker check - log instead of executing when testing
+            if CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active():
+                FollowerCircuitBreaker.log_command_instead_of_execute(
+                    command_type="attitude_rate",
+                    follower_name="PX4Interface",
+                    roll_rate=roll_rate, pitch_rate=pitch_rate, yaw_rate=yaw_rate, thrust=thrust
+                )
+                return
+
+            # Track allowed command when circuit breaker is inactive
+            if CIRCUIT_BREAKER_AVAILABLE:
+                FollowerCircuitBreaker.log_command_allowed(
+                    command_type="attitude_rate",
+                    follower_name="PX4Interface",
+                    roll_rate=roll_rate, pitch_rate=pitch_rate, yaw_rate=yaw_rate, thrust=thrust
+                )
+
             # Send the attitude rate commands to the drone
             next_setpoint = AttitudeRate(roll_rate, pitch_rate, yaw_rate, thrust)
             await self.drone.offboard.set_attitude_rate(next_setpoint)
@@ -270,7 +378,11 @@ class PX4InterfaceManager:
             # yawspeed_rad = math.radians(yawspeed)
 
             logger.debug(f"Sending VELOCITY_BODY_OFFBOARD: Fwd={vel_fwd:.3f}, Right={vel_right:.3f}, Down={vel_down:.3f}, YawSpeed={yawspeed:.1f}°/s")
-            
+
+            # Circuit breaker check - log instead of executing when testing
+            if _should_block_px4_command("velocity_body_offboard", vel_fwd=vel_fwd, vel_right=vel_right, vel_down=vel_down, yawspeed=yawspeed):
+                return
+
             # Send the velocity commands to the drone using MAVSDK VelocityBodyYawspeed
             # Note: VelocityBodyYawspeed expects (forward, right, down, yawspeed_deg_s)
             next_setpoint = VelocityBodyYawspeed(vel_fwd, vel_right, vel_down, yawspeed)
@@ -299,6 +411,17 @@ class PX4InterfaceManager:
         Attempts to start offboard mode on the drone using MAVSDK.
         """
         result = {"steps": [], "errors": []}
+
+        # Circuit breaker check - block ALL PX4 commands when testing
+        if CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active():
+            FollowerCircuitBreaker.log_command_instead_of_execute(
+                command_type="start_offboard_mode",
+                follower_name="PX4Interface",
+                action="start_offboard"
+            )
+            result["steps"].append("Offboard mode start intercepted by circuit breaker")
+            return result  # Return success without actually starting offboard
+
         try:
             await self.drone.offboard.start()
             result["steps"].append("Offboard mode started.")
@@ -312,6 +435,16 @@ class PX4InterfaceManager:
         """
         Stops offboard mode on the drone using MAVSDK.
         """
+        # Circuit breaker check - block ALL PX4 commands when testing
+        if CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active():
+            FollowerCircuitBreaker.log_command_instead_of_execute(
+                command_type="stop_offboard_mode",
+                follower_name="PX4Interface",
+                action="stop_offboard"
+            )
+            logger.info("Stop offboard mode intercepted by circuit breaker")
+            return
+
         logger.info("Stopping offboard mode...")
         await self.drone.offboard.stop()
 
@@ -369,6 +502,16 @@ class PX4InterfaceManager:
         """
         Send Return to Launch as a failsafe action
         """
+        # Circuit breaker check - block ALL MAVSDK operations when testing
+        if CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active():
+            FollowerCircuitBreaker.log_command_instead_of_execute(
+                command_type="return_to_launch",
+                follower_name="PX4Interface",
+                action="RTL"
+            )
+            logger.info("Return to Launch intercepted by circuit breaker")
+            return
+
         await self.drone.action.return_to_launch()
         logger.info("Initiating RTL.")
 
@@ -437,7 +580,11 @@ class PX4InterfaceManager:
             yaw_rate = float(setpoint.get('yaw_rate', 0.0))
 
             logger.debug(f"Sending VELOCITY_BODY: Vx={vx:.3f}, Vy={vy:.3f}, Vz={vz:.3f}, Yaw_rate={yaw_rate:.3f}")
-            
+
+            # Circuit breaker check - log instead of executing when testing
+            if _should_block_px4_command("velocity_body", vx=vx, vy=vy, vz=vz, yaw_rate=yaw_rate):
+                return
+
             # Send the velocity commands to the drone
             from mavsdk.offboard import VelocityBodyYawspeed, OffboardError
             next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_rate)
@@ -478,7 +625,11 @@ class PX4InterfaceManager:
             thrust = float(setpoint.get('thrust', getattr(self, 'hover_throttle', 0.5)))
 
             logger.debug(f"Sending ATTITUDE_RATE: Roll={roll_rate:.3f}, Pitch={pitch_rate:.3f}, Yaw={yaw_rate:.3f}, Thrust={thrust:.3f}")
-            
+
+            # Circuit breaker check - log instead of executing when testing
+            if _should_block_px4_command("attitude_rate", roll_rate=roll_rate, pitch_rate=pitch_rate, yaw_rate=yaw_rate, thrust=thrust):
+                return
+
             # Send the attitude rate commands to the drone
             from mavsdk.offboard import AttitudeRate, OffboardError
             next_setpoint = AttitudeRate(roll_rate, pitch_rate, yaw_rate, thrust)
@@ -503,9 +654,16 @@ class PX4InterfaceManager:
                 
             # Get control type directly from setpoint handler schema
             control_type = self.setpoint_handler.get_control_type()
-            
+
             logger.info(f"Sending initial {control_type} setpoint (all zeros)")
-            
+
+            # Check circuit breaker before attempting any PX4 commands
+            if CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active():
+                logger.info(f"[CIRCUIT BREAKER] Initial setpoint send blocked (testing mode) - control_type: {control_type}")
+                # Still reset setpoints for consistency, but don't send to drone
+                self.setpoint_handler.reset_setpoints()
+                return
+
             # Reset all fields to defaults before sending
             self.setpoint_handler.reset_setpoints()
             

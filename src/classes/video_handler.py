@@ -558,7 +558,12 @@ class VideoHandler:
             Frame as numpy array, cached frame if available, or None
         """
         if not self.cap:
-            logger.error("Video capture not initialized")
+            # Log error only once, then use debug level to avoid spam
+            if not hasattr(self, '_capture_error_logged'):
+                logger.error("Video capture not initialized")
+                self._capture_error_logged = True
+            else:
+                logger.debug("Video capture not initialized (repeated)")
             return self._get_cached_frame()
         
         try:

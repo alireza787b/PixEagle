@@ -364,6 +364,13 @@ class AppController:
         In classic mode, runs the usual tracker and estimator logic.
         In smart mode, runs YOLO detection and draws bounding boxes.
         """
+        # DEBUG: Log every 100th frame to verify update_loop is running
+        if not hasattr(self, '_frame_count_debug'):
+            self._frame_count_debug = 0
+        self._frame_count_debug += 1
+        if self._frame_count_debug % 100 == 0:
+            logging.info(f"🎬 UPDATE_LOOP RUNNING: Frame #{self._frame_count_debug}")
+
         try:
             # Periodic system status update
             current_time = time.time()
@@ -393,10 +400,20 @@ class AppController:
 
             # Always-Reporting Trackers (schema-based) - Process when available regardless of manual start
             is_always_reporting = self._is_always_reporting_tracker()
+
+            # DEBUG: Log control flow decisions (only when debug enabled)
+            if logging.getLogger().isEnabledFor(logging.DEBUG):
+                logging.debug(f"🔍 Control loop: always_reporting={is_always_reporting}, has_tracker={self.tracker is not None}, following_active={self.following_active}")
+            # Check tracker type for appropriate handling
+            if self.tracker and logging.getLogger().isEnabledFor(logging.DEBUG):
+                logging.debug(f"🔍 Tracker: {self.tracker.__class__.__name__}, external={getattr(self.tracker, 'is_external_tracker', False)}")
+
             if is_always_reporting and self.tracker:
+                # Handle always-reporting trackers (e.g., GimbalTracker)
                 try:
                     # Always-reporting trackers update regardless of manual tracking state
                     success, tracker_output = self.tracker.update(frame)
+
                     if success and tracker_output:
                         # Draw tracking overlay for always-reporting trackers
                         frame = self.tracker.draw_tracking(frame, tracking_successful=True)
@@ -405,12 +422,13 @@ class AppController:
                         if self.following_active:
                             await self.follow_target()
                             await self.check_failsafe()
-
-                        logging.debug(f"Always-reporting tracker ({self.tracker.__class__.__name__}) updated successfully")
                     else:
-                        logging.debug(f"Always-reporting tracker ({self.tracker.__class__.__name__}) update failed or no data")
+                        logging.warning(f"🚨 Always-reporting tracker update failed or no data: success={success}, output={tracker_output}")
                 except Exception as e:
                     logging.error(f"Error updating always-reporting tracker: {e}")
+            else:
+                # Only log this decision when debugging tracker selection
+                logging.debug(f"Taking classic tracker path: is_always_reporting={is_always_reporting}, has_tracker={self.tracker is not None}")
 
             # Classic Tracker (normal tracking or smart override)
             classic_active = (
@@ -813,8 +831,22 @@ class AppController:
         """
         Enhanced target following with flexible tracker schema and proper async command dispatch.
         """
-        if not (self.tracking_started and self.following_active):
-            return False
+        # DEBUG: Always log when follow_target is called
+        logging.info(f"🚀 FOLLOW_TARGET CALLED - tracking_started={self.tracking_started}, following_active={self.following_active}")
+
+        # For always-reporting trackers, only check following_active (not tracking_started)
+        is_always_reporting = self._is_always_reporting_tracker()
+        if is_always_reporting:
+            if not self.following_active:
+                logging.warning(f"🚨 FOLLOW_TARGET EARLY EXIT (always-reporting): following_active={self.following_active}")
+                return False
+            else:
+                logging.info(f"✅ ALWAYS-REPORTING TRACKER: Proceeding with follow_target (tracking_started not required)")
+        else:
+            # Classic trackers require both tracking_started AND following_active
+            if not (self.tracking_started and self.following_active):
+                logging.warning(f"🚨 FOLLOW_TARGET EARLY EXIT (classic): tracking_started={self.tracking_started}, following_active={self.following_active}")
+                return False
             
         try:
             # Get structured tracker output
@@ -830,7 +862,15 @@ class AppController:
             
             # SYNCHRONOUS: Calculate and set commands using structured data (no await needed)
             try:
+                logging.info(f"🎯 CALLING follower.follow_target() with tracker_output: data_type={tracker_output.data_type}, tracking_active={tracker_output.tracking_active}")
                 follow_result = self.follower.follow_target(tracker_output)
+                logging.info(f"🎯 FOLLOWER RESULT: follow_target returned {follow_result}")
+
+                # DEBUG: Check current setpoint values after follower processing
+                if hasattr(self.follower, 'setpoint_handler'):
+                    setpoints = self.follower.setpoint_handler.get_fields()
+                    logging.info(f"🎯 SETPOINTS AFTER FOLLOWER: {setpoints}")
+
                 if follow_result is False:
                     logging.warning("Follower follow_target returned False")
                     return False
@@ -841,12 +881,17 @@ class AppController:
             # ASYNCHRONOUS: Send the actual commands to PX4
             try:
                 control_type = self.follower.get_control_type()
+                logging.info(f"🚀 COMMAND DISPATCH: control_type={control_type}, sending via PX4Interface...")
+
                 if control_type == 'attitude_rate':
                     await self.px4_interface.send_attitude_rate_commands()
+                    logging.info(f"🚀 SENT: attitude_rate commands")
                 elif control_type == 'velocity_body':
                     await self.px4_interface.send_body_velocity_commands()
+                    logging.info(f"🚀 SENT: velocity_body commands")
                 elif control_type == 'velocity_body_offboard':
                     await self.px4_interface.send_velocity_body_offboard_commands()
+                    logging.info(f"🚀 SENT: velocity_body_offboard commands")
                 else:
                     logging.warning(f"Unknown control type: {control_type}")
                     return False
@@ -904,11 +949,20 @@ class AppController:
                 # Clear follower reference
                 if hasattr(self, 'follower'):
                     self.follower = None
-                
-                # Clear setpoint sender reference
-                if hasattr(self, 'setpoint_sender'):
-                    self.setpoint_sender = None
-                    
+
+                # Stop and clear setpoint sender (ensure it's stopped even if not following)
+                if hasattr(self, 'setpoint_sender') and self.setpoint_sender:
+                    try:
+                        logging.info("🛑 Stopping SetpointSender during shutdown...")
+                        self.setpoint_sender.stop()
+                        self.setpoint_sender.join(timeout=3.0)  # Wait for thread to finish
+                        result["steps"].append("SetpointSender stopped during shutdown")
+                    except Exception as e:
+                        logging.error(f"Error stopping SetpointSender during shutdown: {e}")
+                        result["errors"].append(f"SetpointSender stop error: {e}")
+                    finally:
+                        self.setpoint_sender = None
+
                 result["steps"].append("Component references cleared")
                 
             except Exception as e:
@@ -1212,7 +1266,8 @@ class AppController:
         try:
             # Primary check: direct is_external_tracker attribute (avoids circular call)
             if hasattr(self.tracker, 'is_external_tracker'):
-                return getattr(self.tracker, 'is_external_tracker', False)
+                result = getattr(self.tracker, 'is_external_tracker', False)
+                return result
 
             # Secondary check: tracker class name
             tracker_class_name = self.tracker.__class__.__name__

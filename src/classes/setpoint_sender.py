@@ -28,6 +28,37 @@ class SetpointSender(threading.Thread):
         
         logger.info(f"SetpointSender initialized for profile: {setpoint_handler.get_display_name()}")
 
+    def validate_configuration(self) -> bool:
+        """
+        Validate that the setpoint sender is properly configured.
+
+        Returns:
+            bool: True if configuration is valid
+        """
+        try:
+            # Check if we have a valid control type
+            if not hasattr(self.setpoint_handler, 'get_control_type'):
+                logger.error("SetpointHandler missing get_control_type method")
+                return False
+
+            control_type = self.setpoint_handler.get_control_type()
+            if not control_type:
+                logger.error("Invalid control type from setpoint handler")
+                return False
+
+            # Check if we have required fields
+            fields = self.setpoint_handler.get_fields()
+            if not fields:
+                logger.error("No fields available from setpoint handler")
+                return False
+
+            logger.info(f"SetpointSender validation passed: {control_type} with {len(fields)} fields")
+            return True
+
+        except Exception as e:
+            logger.error(f"SetpointSender validation failed: {e}")
+            return False
+
     def run(self):
         """
         Main thread loop that sends commands at the configured rate.
@@ -36,11 +67,18 @@ class SetpointSender(threading.Thread):
         logger.info("SetpointSender thread started")
         
         try:
+            loop_count = 0
             while self.running:
                 try:
+                    loop_count += 1
+
+                    # DEBUG: Log every 20 loops (about every 4 seconds at 0.2s rate)
+                    if loop_count % 20 == 0:
+                        logger.info(f"⚙️ SetpointSender loop #{loop_count} - thread running normally")
+
                     # Update control type periodically
                     self._update_control_type()
-                    
+
                     # Send appropriate commands based on control type (SYNCHRONOUS)
                     success = self._send_commands_sync()
                     
@@ -101,10 +139,19 @@ class SetpointSender(threading.Thread):
             # in the main async control loop via app_controller.follow_target()
             
             setpoint = self.setpoint_handler.get_fields()
-            
+
+            # DEBUG: Log setpoint values periodically
+            if hasattr(self, '_setpoint_debug_count'):
+                self._setpoint_debug_count += 1
+            else:
+                self._setpoint_debug_count = 1
+
+            if self._setpoint_debug_count % 20 == 0:  # Every 20 calls (about 4 seconds)
+                logger.info(f"⚙️ SetpointSender current values: {control_type} -> {setpoint}")
+
             if Parameters.ENABLE_SETPOINT_DEBUGGING:
                 logger.debug(f"SetpointSender ready to send {control_type}: {setpoint}")
-            
+
             return True
             
         except Exception as e:

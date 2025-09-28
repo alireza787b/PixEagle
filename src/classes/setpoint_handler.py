@@ -209,12 +209,53 @@ class SetpointHandler:
     def get_fields(self) -> Dict[str, float]:
         """
         Returns the current fields of the setpoint.
-        
+
         Returns:
             Dict[str, float]: The current fields of the setpoint.
         """
         logger.debug(f"Retrieving setpoint fields: {self.fields}")
         return self.fields.copy()
+
+    def get_fields_with_status(self) -> Dict[str, Any]:
+        """
+        Returns the current fields with circuit breaker status information.
+
+        Returns:
+            Dict[str, Any]: Setpoint fields plus circuit breaker metadata
+        """
+        # Import circuit breaker to check status
+        try:
+            from classes.circuit_breaker import FollowerCircuitBreaker
+            circuit_breaker_active = FollowerCircuitBreaker.is_active()
+            cb_stats = FollowerCircuitBreaker.get_statistics()
+        except ImportError:
+            circuit_breaker_active = True  # FAIL SAFE default
+            cb_stats = {"error": "Circuit breaker unavailable"}
+
+        result = {
+            # Setpoint data
+            "setpoints": self.fields.copy(),
+            "profile": self.profile_name,
+
+            # Circuit breaker status
+            "circuit_breaker": {
+                "active": circuit_breaker_active,
+                "status": "SAFE_MODE" if circuit_breaker_active else "LIVE_MODE",
+                "commands_sent_to_px4": not circuit_breaker_active,
+                "commands_logged_only": circuit_breaker_active
+            },
+
+            # Metadata
+            "timestamp": datetime.now().isoformat(),
+            "control_type": self.get_control_type()
+        }
+
+        # Add circuit breaker statistics if active
+        if circuit_breaker_active:
+            result["circuit_breaker"]["statistics"] = cb_stats
+
+        logger.debug(f"Setpoints with CB status: CB={circuit_breaker_active}, Fields={len(self.fields)}")
+        return result
     
     def get_control_type(self) -> str:
         """

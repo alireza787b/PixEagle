@@ -97,6 +97,41 @@ tracker_data_types:
           - connection_status
           - target_vector_body
           - aircraft_attitude
+          - mount_configuration
+    # Mount configuration support for coordinate transformations
+    mount_configurations:
+      HORIZONTAL:
+        name: "Horizontal Mount"
+        description: "Gimbal mounted horizontally, 1:1 mapping with aircraft body frame"
+        coordinate_mapping:
+          yaw: "yaw"      # Direct mapping to aircraft yaw
+          pitch: "pitch"  # Direct mapping to aircraft pitch
+          roll: "roll"    # Direct mapping to aircraft roll
+        startup_angles:
+          yaw: 0.0       # Forward facing at startup
+          pitch: 0.0     # Level at startup
+          roll: 0.0      # No roll at startup
+        transformation_type: "DIRECT"
+        notes: "Direct 1:1 mapping to aircraft body frame coordinates"
+      VERTICAL:
+        name: "Vertical Mount (90° Rotated)"
+        description: "Gimbal mounted vertically, requires 90° rotation transformation"
+        coordinate_mapping:
+          yaw: "roll"     # Gimbal yaw -> aircraft roll (azimuth)
+          pitch: "pitch-90"  # Gimbal pitch-90° -> aircraft pitch (elevation)
+          roll: "yaw"     # Gimbal roll -> aircraft yaw (typically unused in active tracking)
+        startup_angles:
+          yaw: 0.0       # Points forward when rolled to 0°
+          pitch: 90.0    # Points down when pitched to 90°
+          roll: 0.0      # No additional rotation
+        transformation_type: "ROTATIONAL_90"
+        notes: "Requires 90° coordinate rotation: roll->azimuth, pitch-90°->elevation"
+    # Default mount configuration metadata
+    default_mount: "VERTICAL"  # Default to vertical for easier testing
+    coordinate_systems:
+      source: "GIMBAL_BODY"    # Gimbal's local body frame
+      intermediate: "AIRCRAFT_BODY"  # Aircraft body frame (FRD)
+      target: "NED"            # North-East-Down world frame
         
   BBOX_CONFIDENCE:
     name: "Bounding Box with Confidence"
@@ -278,6 +313,7 @@ compatibility:
         - POSITION_2D
       compatible_schemas:
         - POSITION_3D  # Works because 3D includes 2D projection
+        - VELOCITY_AWARE  # Works because VELOCITY_AWARE includes position_2d
       optional_schemas:
         - ANGULAR
         - BBOX_CONFIDENCE
@@ -286,15 +322,18 @@ compatibility:
         - POSITION_2D
       compatible_schemas:
         - POSITION_3D  # Works because 3D includes 2D projection (and adds depth info)
+        - VELOCITY_AWARE  # Works because VELOCITY_AWARE includes position_2d
+      optional_schemas:
+        - BBOX_CONFIDENCE
+        - ANGULAR
       preferred_schemas:
         - POSITION_3D  # Actually prefers 3D for distance calculations
-      optional_schemas:
-        - ANGULAR
     GroundTargetFollower:
       required_schemas:
         - POSITION_2D
       compatible_schemas:
         - POSITION_3D  # Works because 3D includes 2D projection
+        - VELOCITY_AWARE  # Works because VELOCITY_AWARE includes position_2d
       preferred_schemas:
         - ANGULAR
         - POSITION_3D  # 3D helps with ground projection

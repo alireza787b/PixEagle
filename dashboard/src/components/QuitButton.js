@@ -23,7 +23,7 @@ const QuitButton = ({ fullWidth = false, sx = {} }) => {
   };
 
   return (
-    <Tooltip title="Quit application">
+    <Tooltip title="Safely shutdown PixEagle application and all services">
       <Button
         variant="contained"
         color="error"
@@ -32,7 +32,7 @@ const QuitButton = ({ fullWidth = false, sx = {} }) => {
         fullWidth={fullWidth}
         sx={sx}
       >
-        Quit
+        ⚡ Quit App
       </Button>
     </Tooltip>
   );

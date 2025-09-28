@@ -21,6 +21,13 @@ from classes.setpoint_handler import SetpointHandler
 from classes.follower import FollowerFactory
 from classes.tracker_output import TrackerOutput, TrackerDataType
 
+# Import circuit breaker with error handling
+try:
+    from classes.circuit_breaker import FollowerCircuitBreaker
+    CIRCUIT_BREAKER_AVAILABLE = True
+except ImportError:
+    CIRCUIT_BREAKER_AVAILABLE = False
+
 # Performance monitoring
 from contextlib import asynccontextmanager
 import threading
@@ -256,7 +263,14 @@ class FastAPIHandler:
         self.app.get("/api/follower/profiles")(self.get_follower_profiles)
         self.app.get("/api/follower/current-profile")(self.get_current_follower_profile)
         self.app.get("/api/follower/configured-mode")(self.get_configured_follower_mode)
+        self.app.get("/api/follower/setpoints-status")(self.get_follower_setpoints_with_status)
         self.app.post("/api/follower/switch-profile")(self.switch_follower_profile)
+
+        # Circuit breaker API endpoints
+        self.app.get("/api/circuit-breaker/status")(self.get_circuit_breaker_status)
+        self.app.post("/api/circuit-breaker/toggle")(self.toggle_circuit_breaker)
+        self.app.get("/api/circuit-breaker/statistics")(self.get_circuit_breaker_statistics)
+        self.app.post("/api/circuit-breaker/reset-statistics")(self.reset_circuit_breaker_statistics)
     
     async def video_feed(self):
         """Optimized HTTP MJPEG streaming with adaptive quality."""
@@ -754,13 +768,22 @@ class FastAPIHandler:
             dict: Status of the operation and details of the process.
         """
         try:
-            self.logger.info("Received request to quit the application.")
+            self.logger.info("🛑 Received request to quit the application.")
+
+            # Set shutdown flag to stop main loop
+            self.app_controller.shutdown_flag = True
+
+            # Trigger shutdown sequence
             asyncio.create_task(self.app_controller.shutdown())
+
+            # Stop FastAPI server
             if self.server:
                 self.server.should_exit = True
+
+            self.logger.info("✅ Shutdown initiated successfully")
             return {"status": "success", "details": "Application is shutting down."}
         except Exception as e:
-            self.logger.error(f"Error in quit: {e}")
+            self.logger.error(f"❌ Error in quit: {e}")
             return {"status": "failure", "error": str(e)}
 
     async def _start_background_tasks(self):
@@ -1618,4 +1641,241 @@ class FastAPIHandler:
 
         except Exception as e:
             self.logger.error(f"Error getting coordinate mapping info: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_follower_setpoints_with_status(self):
+        """
+        Get current follower setpoints with circuit breaker status.
+
+        This endpoint provides complete visibility into:
+        - Current setpoint values
+        - Circuit breaker status (SAFE_MODE vs LIVE_MODE)
+        - Whether commands are being sent to PX4 or just logged
+        - Circuit breaker statistics when active
+
+        Returns:
+            dict: Comprehensive follower status with circuit breaker info
+        """
+        try:
+            # Check if follower is actively engaged
+            has_active_follower = (
+                hasattr(self.app_controller, 'follower') and
+                self.app_controller.follower is not None and
+                self.app_controller.following_active
+            )
+
+            if not has_active_follower:
+                # Import circuit breaker to check status even when not following
+                try:
+                    from classes.circuit_breaker import FollowerCircuitBreaker
+                    circuit_breaker_active = FollowerCircuitBreaker.is_active()
+                except ImportError:
+                    circuit_breaker_active = True  # FAIL SAFE
+
+                return JSONResponse(content={
+                    'follower_active': False,
+                    'message': 'No active follower',
+                    'configured_mode': Parameters.FOLLOWER_MODE,
+                    'circuit_breaker': {
+                        'active': circuit_breaker_active,
+                        'status': 'SAFE_MODE' if circuit_breaker_active else 'LIVE_MODE'
+                    },
+                    'timestamp': time.time()
+                })
+
+            # Get follower setpoints with circuit breaker status
+            follower = self.app_controller.follower
+            if hasattr(follower, 'setpoint_handler') and follower.setpoint_handler:
+                setpoint_data = follower.setpoint_handler.get_fields_with_status()
+
+                # Add follower-specific information
+                setpoint_data.update({
+                    'follower_active': True,
+                    'follower_type': follower.__class__.__name__,
+                    'configured_mode': Parameters.FOLLOWER_MODE,
+                    'following_engaged': self.app_controller.following_active
+                })
+
+                return JSONResponse(content=setpoint_data)
+            else:
+                return JSONResponse(content={
+                    'follower_active': True,
+                    'follower_type': follower.__class__.__name__,
+                    'error': 'Follower has no setpoint handler',
+                    'timestamp': time.time()
+                })
+
+        except Exception as e:
+            self.logger.error(f"Error getting follower setpoints with status: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # ==================== Circuit Breaker API Endpoints ====================
+
+    async def get_circuit_breaker_status(self):
+        """
+        Get current circuit breaker status and configuration.
+
+        Returns:
+            dict: Circuit breaker status, availability and statistics
+        """
+        try:
+            if not CIRCUIT_BREAKER_AVAILABLE:
+                return JSONResponse(content={
+                    'available': False,
+                    'error': 'Circuit breaker system not available',
+                    'message': 'FollowerCircuitBreaker module could not be imported'
+                })
+
+            is_active = FollowerCircuitBreaker.is_active()
+            statistics = FollowerCircuitBreaker.get_statistics()
+
+            return JSONResponse(content={
+                'available': True,
+                'active': is_active,
+                'status': 'testing' if is_active else 'operational',
+                'configuration': {
+                    'parameter_name': 'FOLLOWER_CIRCUIT_BREAKER',
+                    'current_value': is_active,
+                    'description': 'Global circuit breaker for follower testing'
+                },
+                'statistics': statistics,
+                'message': 'Circuit breaker active - commands logged not executed' if is_active else 'Circuit breaker disabled - normal operation',
+                'timestamp': time.time()
+            })
+
+        except Exception as e:
+            self.logger.error(f"Error getting circuit breaker status: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def toggle_circuit_breaker(self):
+        """
+        Toggle circuit breaker on/off.
+
+        Returns:
+            dict: New circuit breaker status
+        """
+        try:
+            if not CIRCUIT_BREAKER_AVAILABLE:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Circuit breaker system not available"
+                )
+
+            # Get current state
+            old_state = FollowerCircuitBreaker.is_active()
+
+            # Toggle the parameter
+            Parameters.FOLLOWER_CIRCUIT_BREAKER = not old_state
+            new_state = FollowerCircuitBreaker.is_active()
+
+            # Reset statistics when enabling
+            if new_state and not old_state:
+                FollowerCircuitBreaker.reset_statistics()
+                self.logger.info("Circuit breaker ENABLED - Follower commands will be logged instead of executed")
+            elif not new_state and old_state:
+                self.logger.info("Circuit breaker DISABLED - Normal follower operation resumed")
+
+            return JSONResponse(content={
+                'status': 'success',
+                'action': 'enabled' if new_state else 'disabled',
+                'active': new_state,
+                'old_state': old_state,
+                'new_state': new_state,
+                'message': f'Circuit breaker {"enabled" if new_state else "disabled"}',
+                'statistics_reset': new_state and not old_state,
+                'timestamp': time.time()
+            })
+
+        except Exception as e:
+            self.logger.error(f"Error toggling circuit breaker: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_circuit_breaker_statistics(self):
+        """
+        Get detailed circuit breaker statistics and telemetry.
+
+        Returns:
+            dict: Comprehensive circuit breaker statistics
+        """
+        try:
+            if not CIRCUIT_BREAKER_AVAILABLE:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Circuit breaker system not available"
+                )
+
+            statistics = FollowerCircuitBreaker.get_statistics()
+
+            # Add additional API metadata
+            response_data = {
+                'circuit_breaker': statistics,
+                'api_info': {
+                    'endpoint': '/api/circuit-breaker/statistics',
+                    'api_version': '2.0',
+                    'timestamp': time.time(),
+                    'data_freshness': 'real-time'
+                },
+                'usage_summary': {
+                    'testing_mode': statistics['circuit_breaker_active'],
+                    'total_intercepted_commands': statistics['total_commands'],
+                    'unique_followers_tested': len(statistics['followers_tested']),
+                    'command_diversity': len(statistics['command_types'])
+                }
+            }
+
+            # Add performance metrics if active
+            if statistics['circuit_breaker_active']:
+                if statistics['command_rate_hz'] > 0:
+                    response_data['performance'] = {
+                        'commands_per_second': statistics['command_rate_hz'],
+                        'testing_efficiency': 'high' if statistics['command_rate_hz'] > 5 else 'medium' if statistics['command_rate_hz'] > 1 else 'low',
+                        'last_activity': statistics['last_command_time']
+                    }
+
+            return JSONResponse(content=response_data)
+
+        except Exception as e:
+            self.logger.error(f"Error getting circuit breaker statistics: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def reset_circuit_breaker_statistics(self):
+        """
+        Reset circuit breaker statistics and counters.
+
+        Returns:
+            dict: Reset operation status
+        """
+        try:
+            if not CIRCUIT_BREAKER_AVAILABLE:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Circuit breaker system not available"
+                )
+
+            # Get current statistics before reset
+            old_stats = FollowerCircuitBreaker.get_statistics()
+
+            # Reset statistics
+            FollowerCircuitBreaker.reset_statistics()
+
+            # Get new statistics after reset
+            new_stats = FollowerCircuitBreaker.get_statistics()
+
+            self.logger.info("Circuit breaker statistics reset")
+
+            return JSONResponse(content={
+                'status': 'success',
+                'action': 'statistics_reset',
+                'message': 'Circuit breaker statistics have been reset',
+                'old_statistics': {
+                    'total_commands': old_stats['total_commands'],
+                    'followers_tested': len(old_stats['followers_tested']),
+                    'elapsed_time': old_stats['elapsed_time_seconds']
+                },
+                'new_statistics': new_stats,
+                'reset_timestamp': time.time()
+            })
+
+        except Exception as e:
+            self.logger.error(f"Error resetting circuit breaker statistics: {e}")
             raise HTTPException(status_code=500, detail=str(e))

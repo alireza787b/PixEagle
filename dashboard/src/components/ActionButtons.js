@@ -33,26 +33,28 @@ const ActionButtons = ({
       <Grid container spacing={2} sx={{ mb: 2 }}>
         {/* Smart Tracker Toggle */}
         <Grid item xs={12}>
-          <Typography variant="h6" gutterBottom>Tracker Mode</Typography>
+          <Typography variant="h6" gutterBottom>🎯 Tracker Mode</Typography>
           <Box display="flex" justifyContent="center" alignItems="center">
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={smartModeActive}
-                  onChange={handleSmartModeSwitch}
-                  disabled={switchLoading}
-                  color="success"
-                />
-              }
-              label={smartModeActive ? 'Smart Tracker' : 'Classic Tracker'}
-            />
+            <Tooltip title={smartModeActive ? "AI-powered YOLO detection - Click video to track" : "Classic CSRT tracker - Draw bounding box to track"}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={smartModeActive}
+                    onChange={handleSmartModeSwitch}
+                    disabled={switchLoading}
+                    color="success"
+                  />
+                }
+                label={smartModeActive ? '🧠 Smart Tracker (AI)' : '🎯 Classic Tracker (CSRT)'}
+              />
+            </Tooltip>
           </Box>
         </Grid>
 
         {/* Tracking Controls */}
         <Grid item xs={12}>
-          <Typography variant="h6" gutterBottom>Tracking Controls</Typography>
-          <Tooltip title="Start or stop classic tracking">
+          <Typography variant="h6" gutterBottom>📹 Tracking Controls</Typography>
+          <Tooltip title={smartModeActive ? "Tracking is automatic in Smart Mode - just click on the video" : "Start or stop classic tracking"}>
             <span>
               <Button
                 variant="contained"
@@ -61,12 +63,12 @@ const ActionButtons = ({
                 fullWidth
                 disabled={smartModeActive}
               >
-                {isTracking ? "Stop Tracking" : "Start Tracking"}
+                {isTracking ? "⏹️ Stop Tracking" : "▶️ Start Tracking"}
               </Button>
             </span>
           </Tooltip>
 
-          <Tooltip title="Re-detect object (Classic only)">
+          <Tooltip title="Re-detect object (Classic tracker only)">
             <span>
               <Button
                 variant="contained"
@@ -76,12 +78,12 @@ const ActionButtons = ({
                 sx={{ mt: 1 }}
                 disabled={smartModeActive}
               >
-                Re-Detect
+                🔍 Re-Detect
               </Button>
             </span>
           </Tooltip>
 
-          <Tooltip title="Cancel all tracking activities">
+          <Tooltip title="Cancel all tracking activities and reset">
             <Button
               variant="contained"
               color="warning"
@@ -89,48 +91,48 @@ const ActionButtons = ({
               fullWidth
               sx={{ mt: 1 }}
             >
-              Cancel Tracker
+              ❌ Cancel Tracker
             </Button>
           </Tooltip>
         </Grid>
 
         {/* Segmentation Controls */}
         <Grid item xs={12}>
-          <Typography variant="h6" gutterBottom>Segmentation Controls</Typography>
-          <Tooltip title="Toggle YOLO segmentation overlay">
+          <Typography variant="h6" gutterBottom>🎨 Segmentation Controls</Typography>
+          <Tooltip title="Toggle YOLO segmentation overlay for object detection visualization">
             <Button
               variant="contained"
               color="secondary"
               onClick={() => handleButtonClick(endpoints.toggleSegmentation)}
               fullWidth
             >
-              Toggle Segmentation
+              🎭 Toggle Segmentation
             </Button>
           </Tooltip>
         </Grid>
 
         {/* PX4 Offboard Controls */}
         <Grid item xs={12}>
-          <Typography variant="h6" gutterBottom>Offboard Controls</Typography>
-          <Tooltip title="Start following in offboard mode">
+          <Typography variant="h6" gutterBottom>🚁 Drone Control</Typography>
+          <Tooltip title="Engage offboard mode and start autonomous following">
             <Button
               variant="contained"
               color="success"
               onClick={() => handleButtonClick(endpoints.startOffboardMode)}
               fullWidth
             >
-              Start Following
+              🚀 Start Following
             </Button>
           </Tooltip>
-          <Tooltip title="Stop following in offboard mode">
+          <Tooltip title="Disengage offboard mode and stop following">
             <Button
               variant="contained"
-              color="success"
+              color="error"
               onClick={() => handleButtonClick(endpoints.stopOffboardMode)}
               fullWidth
               sx={{ mt: 1 }}
             >
-              Stop Following
+              🛑 Stop Following
             </Button>
           </Tooltip>
         </Grid>

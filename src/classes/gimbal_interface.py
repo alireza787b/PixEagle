@@ -181,10 +181,10 @@ class GimbalInterface:
         self.DATA_FRESHNESS_TIMEOUT = 2.0  # seconds
         self.SOCKET_TIMEOUT = 0.05         # seconds
         self.QUERY_INTERVALS = {
-            'tracking_status': 6,  # Every 6th cycle
-            'spatial_angles': 2,   # Every 2nd cycle
-            'gimbal_angles': 4,    # Every 4th cycle
-            'base_interval': 0.3   # seconds between cycles
+            'tracking_status': 5,  # Every 5th cycle (more frequent)
+            'spatial_angles': 1,   # Every cycle (continuous like camera UI)
+            'gimbal_angles': 3,    # Every 3rd cycle
+            'base_interval': 0.1   # Faster cycles (like camera UI)
         }
 
         logger.info(f"GimbalInterface initialized with SIP protocol - port {listen_port}")
@@ -474,11 +474,11 @@ class GimbalInterface:
                             self.last_tracking_state = new_state
                             logger.info(f"Gimbal tracking state changed: {old_state.name} → {new_state.name}")
 
-                    # Log data updates periodically for monitoring
-                    if self.total_packets_received % 100 == 0:
+                    # Log data updates much less frequently to reduce log noise
+                    if self.total_packets_received % 1000 == 0:  # Every 1000 packets instead of 100
                         angles_info = f"yaw={gimbal_data.angles.yaw:.1f}° pitch={gimbal_data.angles.pitch:.1f}° roll={gimbal_data.angles.roll:.1f}°" if gimbal_data.angles else "angles=N/A"
                         tracking_info = gimbal_data.tracking_status.state.name if gimbal_data.tracking_status else "tracking=N/A"
-                        logger.info(f"Gimbal status: {angles_info} | {tracking_info}")
+                        logger.info(f"📡 Gimbal heartbeat: {angles_info} | {tracking_info} (packet #{self.total_packets_received})")
                 else:
                     with self.lock:
                         self.invalid_packets_received += 1
@@ -503,14 +503,17 @@ class GimbalInterface:
                 intervals = self.QUERY_INTERVALS
 
                 if query_counter % intervals['tracking_status'] == 0:
+                    logger.debug("🔍 Querying tracking status...")
                     self.query_tracking_status()
-                    time.sleep(0.2)
+                    time.sleep(0.1)
                 elif query_counter % intervals['spatial_angles'] == 0:
+                    logger.debug("📐 Querying spatial angles...")
                     self.query_spatial_fixed_angles()
-                    time.sleep(0.2)
+                    time.sleep(0.1)
                 elif query_counter % intervals['gimbal_angles'] == 0:
+                    logger.debug("🎯 Querying gimbal angles...")
                     self.query_gimbal_body_angles()
-                    time.sleep(0.2)
+                    time.sleep(0.1)
                 else:
                     time.sleep(intervals['base_interval'])
 

@@ -14,7 +14,7 @@
 # ==============================================================================
 VideoSource:
   # Primary video source selection
-  # Options: VIDEO_FILE, USB_CAMERA, RTSP_OPENCV, RTSP_GSTREAMER, UDP_STREAM, HTTP_STREAM, CSI_CAMERA, CUSTOM_GSTREAMER
+  # Options: VIDEO_FILE, USB_CAMERA, RTSP_OPENCV, RTSP_STREAM, UDP_STREAM, HTTP_STREAM, CSI_CAMERA, CUSTOM_GSTREAMER
   VIDEO_SOURCE_TYPE: USB_CAMERA
   
   # === Universal Capture Parameters (Applied to ALL sources) ===
@@ -309,13 +309,13 @@ Follower:
   # === Interface Settings ===
   USE_MAVLINK2REST: true                    # Use REST API for MAVLink
   FOLLOWER_DATA_REFRESH_RATE: 5             # Hz
-  
+
   # === Target Selection ===
   ROI_SELECTION_MODE: MANUAL                # MANUAL or AUTO
   TARGET_POSITION_MODE: center              # center, top, bottom
-  
+
   # === Following Mode ===
-  # Options: ground_view, constant_distance, constant_position, chase_follower, body_velocity_chase
+  # Options: ground_view, constant_distance, constant_position, chase_follower, body_velocity_chase, gimbal_unified
   FOLLOWER_MODE: constant_position
   
   # === Visualization ===
@@ -331,27 +331,96 @@ Follower:
   BBOX_CORNER_ARM_LENGTH: 20
   OVERLAY_OPACITY: 128
 
+# === Circuit Breaker (Safety & Testing) ===
+# SAFETY FIRST: Global circuit breaker for follower testing without drone commands
+# Default: true (SAFE) - Only set to false when you explicitly want to send real commands
+FOLLOWER_CIRCUIT_BREAKER: true            # true = SAFE (log only), false = LIVE (send commands)
+CIRCUIT_BREAKER_DISABLE_SAFETY: true      # true = Skip safety checks in CB mode, false = Run all checks
 
 
+# ==============================================================================
+# GIMBAL FOLLOWER CONFIGURATION
+# ==============================================================================
 GimbalFollower:
-  # Control mode selection
-  CONTROL_MODE: "BODY"          # Options: "NED", "BODY"
+  # === Mount Configuration ===
+  MOUNT_TYPE: "VERTICAL"                    # Options: "HORIZONTAL", "VERTICAL"
+  CONTROL_MODE: "BODY"                      # Options: "NED", "BODY"
 
-  # Velocity parameters
-  BASE_VELOCITY: 2.0            # Base following velocity (m/s)
-  MAX_VELOCITY: 8.0             # Maximum velocity limit (m/s)
-  VELOCITY_RAMP_RATE: 1.0       # Acceleration rate (m/s²)
+  # === Required Tracker Fields ===
+  REQUIRED_TRACKER_FIELDS: ["angular"]     # Must have angular data from gimbal
 
-  # Safety parameters
-  MIN_ALTITUDE_SAFETY: 3.0      # Minimum safe altitude (meters)
-  SAFETY_RETURN_SPEED: 3.0      # Velocity when returning to safe altitude (m/s)
+  # === Velocity Control ===
+  BASE_VELOCITY: 2.0                       # Base following velocity (m/s)
+  MAX_VELOCITY: 8.0                        # Maximum velocity limit (m/s)
+  VELOCITY_RAMP_RATE: 1.0                  # Acceleration rate (m/s²)
+  VELOCITY_FILTER_ALPHA: 0.7               # Velocity smoothing filter coefficient (0-1)
 
-  # Control tuning
-  YAW_RATE_GAIN: 0.5           # Proportional gain for yaw rate control
-  MAX_YAW_RATE: 45.0           # Maximum yaw rate (degrees/second)
+  # === Forward Velocity Control System ===
+  # Based on 2024 guidance control research for reliable target interception
+  FORWARD_VELOCITY_MODE: "CONSTANT"        # Options: "CONSTANT", "PITCH_BASED", "PROPORTIONAL_NAV" (future)
+  BASE_FORWARD_SPEED: 2.0                  # Constant forward speed (m/s)
+  MAX_FORWARD_VELOCITY: 5.0                # Maximum forward velocity limit (m/s)
+  FORWARD_ACCELERATION: 2.0                # Ramp rate from current to target speed (m/s²)
 
-  # Filtering and smoothing
-  VELOCITY_FILTER_ALPHA: 0.7    # Velocity smoothing filter coefficient (0-1)
+  # === Lateral Guidance Mode ===
+  LATERAL_GUIDANCE_MODE: "coordinated_turn" # Options: "coordinated_turn", "sideslip"
+  ENABLE_AUTO_MODE_SWITCHING: false        # Auto-switch based on forward velocity
+  GUIDANCE_MODE_SWITCH_VELOCITY: 3.0       # Switch velocity threshold (m/s)
+
+  # === Yaw Control ===
+  MAX_YAW_RATE: 45.0                      # Maximum yaw rate (degrees/second)
+
+  # === Target Loss Handling ===
+  TARGET_LOSS_HANDLING:
+    CONTINUE_VELOCITY_TIMEOUT: 3.0         # Continue last velocity for N seconds
+    ENABLE_RTL_ON_TIMEOUT: true            # Trigger RTL after timeout
+    RTL_ALTITUDE: 50.0                     # RTL altitude (meters)
+
+    # === Enhanced Timeout Behaviors (PHASE 3.2) ===
+    ENABLE_ADAPTIVE_TIMEOUT: true          # Adjust timeout based on target movement/confidence
+    ADAPTIVE_TIMEOUT_FACTOR: 1.5           # Multiplier for fast-moving targets
+    ENABLE_PREDICTIVE_VELOCITY: true       # Use movement prediction during loss
+    PREDICTION_HISTORY_SIZE: 5             # Number of samples for prediction
+    CONFIDENCE_TIMEOUT_ADJUSTMENT: true    # Adjust timeout based on tracking confidence
+    HIGH_CONFIDENCE_THRESHOLD: 0.8         # High confidence threshold
+    LOW_CONFIDENCE_THRESHOLD: 0.3          # Low confidence threshold
+
+  # === Safety Parameters ===
+  MIN_ALTITUDE_SAFETY: 3.0                # Minimum safe altitude (meters)
+  MAX_ALTITUDE_SAFETY: 120.0              # Maximum safe altitude (meters)
+  MAX_SAFETY_VIOLATIONS: 5                # Maximum allowed safety violations before blocking
+  SAFETY_RETURN_SPEED: 3.0                # Velocity when returning to safe altitude (m/s)
+  EMERGENCY_STOP_ENABLED: true            # Enable emergency velocity zeroing
+
+  # === Circuit Breaker Safety Override ===
+  CIRCUIT_BREAKER_DISABLE_SAFETY: true    # Disable safety checks when circuit breaker is active (testing mode)
+
+  # === Coordinate Transformation ===
+  ANGLE_DEADZONE: 2.0                     # Ignore gimbal movements below this (degrees)
+  TRANSFORMATION_VALIDATION: true         # Validate coordinate transformations
+
+  # === Enhanced Transformation Parameters ===
+  # NOTE: NEUTRAL_PITCH_ANGLE is now handled automatically based on MOUNT_TYPE
+  # VERTICAL mount: neutral = 90° (level), HORIZONTAL mount: uses configured value
+  NEUTRAL_PITCH_ANGLE: 0.0                # Neutral pitch for HORIZONTAL mount only (degrees)
+  PITCH_VELOCITY_SCALING: 0.15            # Pitch error to velocity scaling factor
+  PITCH_DEADZONE_DEGREES: 2.0             # Pitch deadzone to prevent jitter (degrees)
+  MAX_ROLL_ANGLE: 90.0                    # Maximum expected roll range (degrees)
+  MAX_PITCH_ANGLE: 90.0                   # Maximum expected pitch range (degrees)
+  INVERT_LATERAL_CONTROL: false           # Invert lateral control for different gimbal orientations
+  INVERT_VERTICAL_CONTROL: true          # Invert vertical control for different gimbal orientations
+
+  # === Gimbal Direction Conventions ===
+  # Configure these based on your specific gimbal's angle reporting convention
+  ROLL_RIGHT_SIGN: "POSITIVE"             # "POSITIVE" if look_right=positive_roll, "NEGATIVE" if look_right=negative_roll
+
+  # === Default Values for Optional Features ===
+  DEFAULT_THRUST: 0.5                     # Default thrust for attitude rate control mode
+
+  # === Performance ===
+  UPDATE_RATE: 20.0                       # Control loop frequency (Hz)
+  COMMAND_SMOOTHING_ENABLED: true         # Enable velocity command smoothing
+  SMOOTHING_FACTOR: 0.8                   # Smoothing coefficient (0-1)
 
 BODY_VELOCITY_CHASE:
   # === Forward Velocity Ramping ===

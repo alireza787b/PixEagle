@@ -217,16 +217,16 @@ follower_profiles:
   gimbal_unified:
     display_name: "Gimbal Follower"
     description: "Configurable NED/Body velocity control from gimbal angles"
-    control_type: "dynamic"  # Set at runtime based on GIMBAL_CONTROL_MODE
-    required_fields: []      # Set dynamically based on control mode
-    optional_fields: []      # Set dynamically based on control mode
+    control_type: "velocity_body_offboard"  # Use body velocity offboard for body frame commands
+    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down"]
+    optional_fields: ["yawspeed_deg_s"]
     ui_category: "gimbal"
     # Schema-driven tracker data requirements
     required_tracker_data: ["GIMBAL_ANGLES"]
     optional_tracker_data: ["ANGULAR", "POSITION_2D"]
     # Dynamic field configuration based on control mode
     ned_mode_fields: ["vel_x", "vel_y", "vel_z", "yaw_angle_deg"]
-    body_mode_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yaw_speed_deg_s"]
+    body_mode_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
 
 # ==============================================================================
 # Control Type Definitions
