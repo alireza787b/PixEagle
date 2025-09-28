@@ -181,10 +181,10 @@ class GimbalInterface:
         self.DATA_FRESHNESS_TIMEOUT = 2.0  # seconds
         self.SOCKET_TIMEOUT = 0.05         # seconds
         self.QUERY_INTERVALS = {
-            'tracking_status': 6,  # Every 6th cycle
-            'spatial_angles': 2,   # Every 2nd cycle
-            'gimbal_angles': 4,    # Every 4th cycle
-            'base_interval': 0.3   # seconds between cycles
+            'tracking_status': 5,  # Every 5th cycle (more frequent)
+            'spatial_angles': 1,   # Every cycle (continuous like camera UI)
+            'gimbal_angles': 3,    # Every 3rd cycle
+            'base_interval': 0.1   # Faster cycles (like camera UI)
         }
 
         logger.info(f"GimbalInterface initialized with SIP protocol - port {listen_port}")
@@ -503,14 +503,17 @@ class GimbalInterface:
                 intervals = self.QUERY_INTERVALS
 
                 if query_counter % intervals['tracking_status'] == 0:
+                    logger.debug("🔍 Querying tracking status...")
                     self.query_tracking_status()
-                    time.sleep(0.2)
+                    time.sleep(0.1)
                 elif query_counter % intervals['spatial_angles'] == 0:
+                    logger.debug("📐 Querying spatial angles...")
                     self.query_spatial_fixed_angles()
-                    time.sleep(0.2)
+                    time.sleep(0.1)
                 elif query_counter % intervals['gimbal_angles'] == 0:
+                    logger.debug("🎯 Querying gimbal angles...")
                     self.query_gimbal_body_angles()
-                    time.sleep(0.2)
+                    time.sleep(0.1)
                 else:
                     time.sleep(intervals['base_interval'])
 

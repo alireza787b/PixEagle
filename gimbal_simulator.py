@@ -398,12 +398,13 @@ class GimbalSimulator:
         return None
 
     def _build_angle_response(self, command_type: str) -> str:
-        """Build SIP angle response"""
+        """Build SIP angle response following exact real gimbal protocol"""
         with self.lock:
             yaw_hex = self._angle_to_hex(self.current_yaw)
             pitch_hex = self._angle_to_hex(self.current_pitch)
             roll_hex = self._angle_to_hex(self.current_roll)
 
+        # Real gimbal protocol: #tpUG2r[GAC/GIC][YYYYPPPPRRRR][checksum]
         response_base = f"#tpUG2r{command_type}{yaw_hex}{pitch_hex}{roll_hex}"
         checksum = sum(response_base.encode('ascii')) & 0xFF
         return f"{response_base}{checksum:02X}"
