@@ -20,7 +20,8 @@
       "Bash(./pixeagle-service help)",
       "Bash(./pixeagle-service:*)",
       "Bash(./install_service.sh:*)",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(git merge:*)"
     ],
     "deny": [],
     "ask": []
