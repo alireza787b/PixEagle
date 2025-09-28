@@ -397,7 +397,9 @@ GimbalFollower:
   TRANSFORMATION_VALIDATION: true         # Validate coordinate transformations
 
   # === Enhanced Transformation Parameters ===
-  NEUTRAL_PITCH_ANGLE: 0.0                # Neutral pitch for horizontal forward (degrees)
+  # NOTE: NEUTRAL_PITCH_ANGLE is now handled automatically based on MOUNT_TYPE
+  # VERTICAL mount: neutral = 90° (level), HORIZONTAL mount: uses configured value
+  NEUTRAL_PITCH_ANGLE: 0.0                # Neutral pitch for HORIZONTAL mount only (degrees)
   PITCH_VELOCITY_SCALING: 0.15            # Pitch error to velocity scaling factor
   PITCH_DEADZONE_DEGREES: 2.0             # Pitch deadzone to prevent jitter (degrees)
   MAX_ROLL_ANGLE: 90.0                    # Maximum expected roll range (degrees)

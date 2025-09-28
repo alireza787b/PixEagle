@@ -266,6 +266,182 @@ class GimbalFollower(BaseFollower):
             logger.error(f"Error getting PID gains for {control_field}: {e}")
             return 1.0, 0.0, 0.1  # Safe defaults
 
+    # === MOUNT-AWARE COORDINATE TRANSFORMATION FUNCTIONS ===
+    #
+    # COORDINATE SYSTEM DOCUMENTATION:
+    #
+    # This implementation provides mount-aware coordinate transformations that handle
+    # the fundamental differences between VERTICAL and HORIZONTAL gimbal mounts.
+    #
+    # VERTICAL MOUNT (typical for inspection/surveillance drones):
+    # - Camera points down when gimbal is in neutral position
+    # - Level/neutral: pitch=90°, roll=0°, yaw=0°
+    # - Look up (ascend): pitch < 90° → negative vel_body_down
+    # - Look down (descend): pitch > 90° → positive vel_body_down
+    # - Look right: roll < 0° → lateral control (configurable direction)
+    #
+    # HORIZONTAL MOUNT (typical for racing/FPV drones):
+    # - Camera points forward when gimbal is in neutral position
+    # - Level/neutral: pitch=0°, roll=0°, yaw=0°
+    # - Pitch up (ascend): pitch > 0° → negative vel_body_down
+    # - Pitch down (descend): pitch < 0° → positive vel_body_down
+    # - Roll right: roll > 0° → positive lateral control
+    #
+    # OUTPUT COORDINATE FRAME (NED/Body Frame):
+    # - vel_body_fwd: Forward velocity (positive = forward)
+    # - vel_body_right: Right velocity (positive = right)
+    # - vel_body_down: Down velocity (positive = down, negative = up)
+    # - yawspeed_deg_s: Yaw rate (positive = clockwise)
+
+    def _transform_gimbal_to_control_frame(self, yaw_deg: float, pitch_deg: float, roll_deg: float) -> Tuple[float, float]:
+        """
+        Transform gimbal angles to normalized control errors based on mount type.
+
+        This function implements mount-aware coordinate transformations that handle
+        the fundamental differences between VERTICAL and HORIZONTAL gimbal mounts:
+
+        VERTICAL Mount (pitch 90° = level):
+        - Neutral/level: pitch=90°, roll=0°, yaw=0°
+        - Look up: pitch < 90° → should ascend (negative vel_body_down)
+        - Look down: pitch > 90° → should descend (positive vel_body_down)
+        - Look right: roll < 0° → lateral control
+
+        HORIZONTAL Mount (pitch 0° = level):
+        - Standard drone conventions apply
+        - Forward pitch positive → forward motion
+        - Right roll positive → right motion
+
+        Args:
+            yaw_deg: Gimbal yaw angle in degrees
+            pitch_deg: Gimbal pitch angle in degrees
+            roll_deg: Gimbal roll angle in degrees
+
+        Returns:
+            Tuple[float, float]: (lateral_error, vertical_error) normalized to ±1.0 range
+        """
+        try:
+            if self.mount_type == 'VERTICAL':
+                return self._transform_vertical_mount(yaw_deg, pitch_deg, roll_deg)
+            elif self.mount_type == 'HORIZONTAL':
+                return self._transform_horizontal_mount(yaw_deg, pitch_deg, roll_deg)
+            else:
+                logger.error(f"Unknown mount type: {self.mount_type}. Defaulting to VERTICAL.")
+                return self._transform_vertical_mount(yaw_deg, pitch_deg, roll_deg)
+
+        except Exception as e:
+            logger.error(f"Error in coordinate transformation: {e}")
+            return 0.0, 0.0  # Safe neutral values
+
+    def _transform_vertical_mount(self, yaw_deg: float, pitch_deg: float, roll_deg: float) -> Tuple[float, float]:
+        """
+        Transform gimbal angles for VERTICAL mount configuration.
+
+        VERTICAL mount coordinate system:
+        - Level/neutral: pitch = 90°, roll = 0°, yaw = 0°
+        - Look up (ascend): pitch < 90° → negative vel_body_down
+        - Look down (descend): pitch > 90° → positive vel_body_down
+        - Look right: roll < 0° → negative lateral control
+        - Look left: roll > 0° → positive lateral control
+
+        Args:
+            yaw_deg: Gimbal yaw angle in degrees
+            pitch_deg: Gimbal pitch angle in degrees
+            roll_deg: Gimbal roll angle in degrees
+
+        Returns:
+            Tuple[float, float]: (lateral_error, vertical_error) normalized to ±1.0
+        """
+        # VERTICAL mount neutral position
+        neutral_pitch_vertical = 90.0  # Level = 90° for vertical mount
+        neutral_roll = 0.0
+
+        # Calculate angular errors from neutral position
+        pitch_error = pitch_deg - neutral_pitch_vertical  # >0 = looking down, <0 = looking up
+        roll_error = roll_deg - neutral_roll  # >0 = looking left, <0 = looking right
+
+        # Normalize errors to ±1.0 range
+        vertical_error = pitch_error / self.max_pitch_angle  # Positive = descend, Negative = ascend
+        lateral_error = -roll_error / self.max_roll_angle   # Negative roll (right) = negative lateral
+
+        # Apply configuration-based inversions if needed
+        if self.vertical_invert:
+            vertical_error = -vertical_error
+        if self.lateral_invert:
+            lateral_error = -lateral_error
+
+        # Clamp to safe range
+        lateral_error = max(-1.0, min(1.0, lateral_error))
+        vertical_error = max(-1.0, min(1.0, vertical_error))
+
+        if self.debug_logging_enabled:
+            logger.debug(f"🏔️ VERTICAL transform: P={pitch_deg:.1f}°(err={pitch_error:.1f}°) R={roll_deg:.1f}°(err={roll_error:.1f}°) → lat={lateral_error:.3f} vert={vertical_error:.3f}")
+
+        return lateral_error, vertical_error
+
+    def _transform_horizontal_mount(self, yaw_deg: float, pitch_deg: float, roll_deg: float) -> Tuple[float, float]:
+        """
+        Transform gimbal angles for HORIZONTAL mount configuration.
+
+        HORIZONTAL mount coordinate system (standard drone conventions):
+        - Level/neutral: pitch = 0°, roll = 0°, yaw = 0°
+        - Pitch up: pitch > 0° → ascend (negative vel_body_down)
+        - Pitch down: pitch < 0° → descend (positive vel_body_down)
+        - Roll right: roll > 0° → right lateral control
+        - Roll left: roll < 0° → left lateral control
+
+        Args:
+            yaw_deg: Gimbal yaw angle in degrees
+            pitch_deg: Gimbal pitch angle in degrees
+            roll_deg: Gimbal roll angle in degrees
+
+        Returns:
+            Tuple[float, float]: (lateral_error, vertical_error) normalized to ±1.0
+        """
+        # HORIZONTAL mount neutral position (standard drone conventions)
+        neutral_pitch_horizontal = self.neutral_pitch  # From config (typically 0°)
+        neutral_roll = 0.0
+
+        # Calculate angular errors from neutral position
+        pitch_error = pitch_deg - neutral_pitch_horizontal  # >0 = pitch up, <0 = pitch down
+        roll_error = roll_deg - neutral_roll  # >0 = roll right, <0 = roll left
+
+        # Normalize errors to ±1.0 range
+        # Note: For horizontal mount, positive pitch = ascend, so we invert for vel_body_down
+        vertical_error = -pitch_error / self.max_pitch_angle  # Positive pitch = negative vel_body_down (ascend)
+        lateral_error = roll_error / self.max_roll_angle      # Positive roll = positive lateral (right)
+
+        # Apply configuration-based inversions if needed
+        if self.vertical_invert:
+            vertical_error = -vertical_error
+        if self.lateral_invert:
+            lateral_error = -lateral_error
+
+        # Clamp to safe range
+        lateral_error = max(-1.0, min(1.0, lateral_error))
+        vertical_error = max(-1.0, min(1.0, vertical_error))
+
+        if self.debug_logging_enabled:
+            logger.debug(f"📐 HORIZONTAL transform: P={pitch_deg:.1f}°(err={pitch_error:.1f}°) R={roll_deg:.1f}°(err={roll_error:.1f}°) → lat={lateral_error:.3f} vert={vertical_error:.3f}")
+
+        return lateral_error, vertical_error
+
+    def _get_forward_pitch_error(self, pitch_deg: float) -> float:
+        """
+        Calculate pitch error for forward velocity control based on mount type.
+
+        Args:
+            pitch_deg: Current gimbal pitch angle in degrees
+
+        Returns:
+            float: Pitch error in degrees for forward velocity calculation
+        """
+        if self.mount_type == 'VERTICAL':
+            # For vertical mount, forward motion is based on deviation from level (90°)
+            return pitch_deg - 90.0
+        else:
+            # For horizontal mount, use configured neutral pitch
+            return pitch_deg - self.neutral_pitch
+
     def _get_active_lateral_mode(self) -> str:
         """
         Determines the active lateral guidance mode based on configuration and flight state.
@@ -449,8 +625,8 @@ class GimbalFollower(BaseFollower):
                     logger.debug(f"🎯 Processing gimbal angles: Y={yaw_deg:.1f}° P={pitch_deg:.1f}° R={roll_deg:.1f}°")
 
                 # === FORWARD VELOCITY CALCULATION (with ramping like body_velocity_chase) ===
-                # Use cached configuration parameters for performance
-                pitch_error = pitch_deg - self.neutral_pitch
+                # Calculate mount-aware pitch error for forward velocity control
+                pitch_error = self._get_forward_pitch_error(pitch_deg)
 
                 # Update forward velocity with ramping
                 if abs(pitch_error) > self.pitch_deadzone:  # Dead zone to prevent jitter
@@ -481,21 +657,11 @@ class GimbalFollower(BaseFollower):
 
                 forward_velocity = self.current_forward_velocity
 
-                # === COORDINATE TRANSFORMATION (MOUNT-AWARE) ===
-                # Use cached parameters for performance optimization
-                # Convert gimbal angles to normalized errors for PID control
-                lateral_error = roll_deg / self.max_roll_angle  # Normalize to ±1.0 range
-                if self.lateral_invert:
-                    lateral_error = -lateral_error
-
-                # Normalize pitch error for vertical control
-                vertical_error = pitch_error / self.max_pitch_angle  # Normalize to ±1.0 range
-                if self.vertical_invert:
-                    vertical_error = -vertical_error
-
-                # Clamp normalized errors to prevent extreme values
-                lateral_error = max(-1.0, min(1.0, lateral_error))
-                vertical_error = max(-1.0, min(1.0, vertical_error))
+                # === MOUNT-AWARE COORDINATE TRANSFORMATION ===
+                # Transform gimbal angles to control errors based on mount type
+                lateral_error, vertical_error = self._transform_gimbal_to_control_frame(
+                    yaw_deg, pitch_deg, roll_deg
+                )
 
                 # === LATERAL CONTROL (MODE-DEPENDENT) ===
                 # Check if mode switching is needed
@@ -518,7 +684,9 @@ class GimbalFollower(BaseFollower):
                     yaw_speed = self.pid_yaw_speed(lateral_error) if self.pid_yaw_speed else 0.0
 
                 # === VERTICAL CONTROL ===
-                # Calculate vertical command (same for both modes)
+                # Calculate vertical command using mount-aware transformed error
+                # vertical_error is normalized: positive = descend, negative = ascend
+                # vel_body_down: positive = down, negative = up (NED/body frame convention)
                 down_velocity = self.pid_down(vertical_error) if self.pid_down else 0.0
 
                 # Apply velocity commands via setpoint handler
