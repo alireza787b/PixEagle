@@ -355,9 +355,12 @@ GimbalFollower:
   VELOCITY_RAMP_RATE: 1.0                  # Acceleration rate (m/s²)
   VELOCITY_FILTER_ALPHA: 0.7               # Velocity smoothing filter coefficient (0-1)
 
-  # === Forward Velocity Ramping (like body_velocity_chase) ===
-  MAX_FORWARD_VELOCITY: 5.0                # Maximum forward velocity (m/s)
-  FORWARD_ACCELERATION: 2.0                # Forward velocity acceleration (m/s²)
+  # === Forward Velocity Control System ===
+  # Based on 2024 guidance control research for reliable target interception
+  FORWARD_VELOCITY_MODE: "CONSTANT"        # Options: "CONSTANT", "PITCH_BASED", "PROPORTIONAL_NAV" (future)
+  BASE_FORWARD_SPEED: 2.0                  # Constant forward speed (m/s)
+  MAX_FORWARD_VELOCITY: 5.0                # Maximum forward velocity limit (m/s)
+  FORWARD_ACCELERATION: 2.0                # Ramp rate from current to target speed (m/s²)
 
   # === Lateral Guidance Mode ===
   LATERAL_GUIDANCE_MODE: "coordinated_turn" # Options: "coordinated_turn", "sideslip"
@@ -405,12 +408,11 @@ GimbalFollower:
   MAX_ROLL_ANGLE: 90.0                    # Maximum expected roll range (degrees)
   MAX_PITCH_ANGLE: 90.0                   # Maximum expected pitch range (degrees)
   INVERT_LATERAL_CONTROL: false           # Invert lateral control for different gimbal orientations
-  INVERT_VERTICAL_CONTROL: false          # Invert vertical control for different gimbal orientations (set to true if needed)
+  INVERT_VERTICAL_CONTROL: false          # Invert vertical control for different gimbal orientations
 
   # === Gimbal Direction Conventions ===
   # Configure these based on your specific gimbal's angle reporting convention
   ROLL_RIGHT_SIGN: "POSITIVE"             # "POSITIVE" if look_right=positive_roll, "NEGATIVE" if look_right=negative_roll
-  # NOTE: For SIP protocol gimbals, you may need INVERT_VERTICAL_CONTROL: true
 
   # === Default Values for Optional Features ===
   DEFAULT_THRUST: 0.5                     # Default thrust for attitude rate control mode

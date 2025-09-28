@@ -149,7 +149,10 @@ class GimbalFollower(BaseFollower):
         self.target_loss_events = 0
         self.safety_interventions = 0
 
-        # === Velocity ramping state (like body_velocity_chase_follower) ===
+        # === Forward Velocity Control System ===
+        # Based on 2024 guidance control research for reliable target interception
+        self.forward_velocity_mode = self.config.get('FORWARD_VELOCITY_MODE', 'CONSTANT')
+        self.base_forward_speed = self.config.get('BASE_FORWARD_SPEED', 2.0)
         self.current_forward_velocity = 0.0
         self.max_forward_velocity = self.config.get('MAX_FORWARD_VELOCITY', 5.0)
         self.forward_acceleration = self.config.get('FORWARD_ACCELERATION', 2.0)
@@ -459,9 +462,141 @@ class GimbalFollower(BaseFollower):
             # We want: negative error → positive yaw_speed (right turn)
             return -1.0
 
+    def _calculate_forward_velocity(self, pitch_deg: float, dt: float) -> float:
+        """
+        Calculate forward velocity using research-based guidance control methods.
+
+        This function implements multiple forward velocity control modes based on
+        2024 guidance control research for reliable target interception.
+
+        RESEARCH BACKGROUND:
+        - Pitch-based speed control FAILS at target interception (speed→0 when aligned)
+        - Constant speed ensures reliable target approach and interception
+        - Proportional Navigation (PN) is industry standard for optimal guidance
+        - Hybrid approaches provide best performance across scenarios
+
+        CURRENT IMPLEMENTATION:
+        - CONSTANT mode: Fixed forward speed with smooth ramping
+        - Ensures drone always approaches target (never stops when aligned)
+        - Foundation for future Proportional Navigation upgrade
+
+        FUTURE MODES (ready for implementation):
+        - PROPORTIONAL_NAV: speed = base_speed + K × line_of_sight_rate
+        - HYBRID: Distance-based mode switching for optimal performance
+
+        Args:
+            pitch_deg: Current gimbal pitch angle in degrees
+            dt: Time delta for ramping calculations
+
+        Returns:
+            float: Forward velocity in m/s
+        """
+        try:
+            if self.forward_velocity_mode == 'CONSTANT':
+                # CONSTANT SPEED MODE (Current Implementation)
+                # Research-proven approach for reliable target interception
+                target_velocity = min(self.base_forward_speed, self.max_forward_velocity)
+
+                # Smooth ramping from current speed to target (prevents sudden jumps)
+                velocity_change = self.forward_acceleration * dt
+
+                if self.current_forward_velocity < target_velocity:
+                    self.current_forward_velocity = min(
+                        self.current_forward_velocity + velocity_change,
+                        target_velocity
+                    )
+                elif self.current_forward_velocity > target_velocity:
+                    self.current_forward_velocity = max(
+                        self.current_forward_velocity - velocity_change,
+                        target_velocity
+                    )
+
+                if self.debug_logging_enabled:
+                    logger.debug(f"🚀 CONSTANT speed: target={target_velocity:.2f}, current={self.current_forward_velocity:.2f}, ramp_rate={velocity_change:.3f}")
+
+                return self.current_forward_velocity
+
+            elif self.forward_velocity_mode == 'PITCH_BASED':
+                # LEGACY MODE (Problematic - kept for backward compatibility)
+                # WARNING: This mode has the "stops at target" problem
+                pitch_error = self._get_forward_pitch_error(pitch_deg)
+
+                if abs(pitch_error) > self.pitch_deadzone:
+                    target_velocity = min(abs(pitch_error) * self.pitch_scaling_factor, self.max_forward_velocity)
+                    velocity_change = self.forward_acceleration * dt
+
+                    if self.current_forward_velocity < target_velocity:
+                        self.current_forward_velocity = min(
+                            self.current_forward_velocity + velocity_change,
+                            target_velocity
+                        )
+                    else:
+                        self.current_forward_velocity = max(
+                            self.current_forward_velocity - velocity_change,
+                            target_velocity
+                        )
+                else:
+                    # WARNING: This causes the "stops at target" problem!
+                    self.current_forward_velocity = max(
+                        self.current_forward_velocity - self.forward_acceleration * dt,
+                        0.0
+                    )
+
+                if self.debug_logging_enabled:
+                    logger.debug(f"⚠️ PITCH_BASED: pitch_error={pitch_error:.1f}°, speed={self.current_forward_velocity:.2f} (legacy mode)")
+
+                return self.current_forward_velocity
+
+            elif self.forward_velocity_mode == 'PROPORTIONAL_NAV':
+                # FUTURE IMPLEMENTATION: Proportional Navigation Guidance Law
+                # Based on missile guidance research - optimal for moving targets
+                #
+                # IMPLEMENTATION NOTES:
+                # 1. Calculate line-of-sight (LOS) rate from gimbal angle changes
+                # 2. Apply PN law: speed = base_speed + navigation_gain × |LOS_rate|
+                # 3. Ensures optimal interception paths and collision courses
+                # 4. Handles moving targets better than constant speed
+                #
+                # FORMULA: V = V_base + N × |λ̇|
+                # Where: N = navigation constant (typically 3-5)
+                #        λ̇ = line-of-sight rate (rad/s)
+                #
+                # TODO: Implement when LOS rate calculation is available
+                logger.warning("PROPORTIONAL_NAV mode not yet implemented - falling back to CONSTANT")
+                return self._calculate_forward_velocity_constant_mode(dt)
+
+            else:
+                logger.error(f"Unknown forward velocity mode: {self.forward_velocity_mode} - using CONSTANT")
+                return self._calculate_forward_velocity_constant_mode(dt)
+
+        except Exception as e:
+            logger.error(f"Error calculating forward velocity: {e}")
+            return 0.0  # Safe fallback
+
+    def _calculate_forward_velocity_constant_mode(self, dt: float) -> float:
+        """Helper method for constant speed mode (used by fallbacks)."""
+        target_velocity = min(self.base_forward_speed, self.max_forward_velocity)
+        velocity_change = self.forward_acceleration * dt
+
+        if self.current_forward_velocity < target_velocity:
+            self.current_forward_velocity = min(
+                self.current_forward_velocity + velocity_change,
+                target_velocity
+            )
+        elif self.current_forward_velocity > target_velocity:
+            self.current_forward_velocity = max(
+                self.current_forward_velocity - velocity_change,
+                target_velocity
+            )
+
+        return self.current_forward_velocity
+
     def _get_forward_pitch_error(self, pitch_deg: float) -> float:
         """
-        Calculate pitch error for forward velocity control based on mount type.
+        Calculate pitch error for legacy pitch-based forward velocity control.
+
+        NOTE: This method is kept for backward compatibility with PITCH_BASED mode.
+        The PITCH_BASED mode has known issues and is not recommended for production use.
 
         Args:
             pitch_deg: Current gimbal pitch angle in degrees
@@ -658,38 +793,19 @@ class GimbalFollower(BaseFollower):
                 if self.debug_logging_enabled:
                     logger.debug(f"🎯 Processing gimbal angles: Y={yaw_deg:.1f}° P={pitch_deg:.1f}° R={roll_deg:.1f}°")
 
-                # === FORWARD VELOCITY CALCULATION (with ramping like body_velocity_chase) ===
-                # Calculate mount-aware pitch error for forward velocity control
-                pitch_error = self._get_forward_pitch_error(pitch_deg)
-
-                # Update forward velocity with ramping
-                if abs(pitch_error) > self.pitch_deadzone:  # Dead zone to prevent jitter
-                    # Target detected - calculate target velocity based on pitch error
-                    target_velocity = min(abs(pitch_error) * self.pitch_scaling_factor, self.max_forward_velocity)
-                    velocity_change = self.forward_acceleration * dt
-
-                    # DEBUG: Log ramping details (only if debug logging enabled)
-                    if self.debug_logging_enabled:
-                        logger.debug(f"🚀 Forward ramping: pitch_error={pitch_error:.1f}°, target_vel={target_velocity:.3f}, current_vel={self.current_forward_velocity:.3f}, dt={dt:.3f}")
-
-                    if self.current_forward_velocity < target_velocity:
-                        self.current_forward_velocity = min(
-                            self.current_forward_velocity + velocity_change,
-                            target_velocity
-                        )
-                    else:
-                        self.current_forward_velocity = max(
-                            self.current_forward_velocity - velocity_change,
-                            target_velocity
-                        )
-                else:
-                    # No significant pitch error - gradually slow down
-                    self.current_forward_velocity = max(
-                        self.current_forward_velocity - self.forward_acceleration * dt,
-                        0.0
-                    )
-
-                forward_velocity = self.current_forward_velocity
+                # === FORWARD VELOCITY CONTROL SYSTEM ===
+                # Based on 2024 guidance control research for reliable target interception
+                #
+                # RESEARCH INSIGHTS:
+                # - Current pitch-based method FAILS at target interception (speed→0 when aligned)
+                # - Industry standard: Proportional Navigation (PN) with constant base speed
+                # - Best practice: Constant speed ensures reliable target approach
+                #
+                # FUTURE UPGRADE PATH:
+                # 1. CONSTANT speed (current) - reliable interception
+                # 2. PROPORTIONAL_NAV - optimal guidance law (speed = base + K×LOS_rate)
+                # 3. HYBRID - distance-based switching between modes
+                forward_velocity = self._calculate_forward_velocity(pitch_deg, dt)
 
                 # === MOUNT-AWARE COORDINATE TRANSFORMATION ===
                 # Transform gimbal angles to control errors based on mount type
@@ -723,16 +839,18 @@ class GimbalFollower(BaseFollower):
                 # vel_body_down: positive = down, negative = up (NED/body frame convention)
                 down_velocity = self.pid_down(vertical_error) if self.pid_down else 0.0
 
-                # Apply velocity commands via setpoint handler
-                # These fields correspond to the "gimbal_unified" profile in follower_commands.yaml:
-                # - vel_body_fwd: Forward velocity in body frame (m/s)
-                # - vel_body_right: Right velocity in body frame (m/s)
-                # - vel_body_down: Down velocity in body frame (m/s)
-                # - yawspeed_deg_s: Yaw rate in degrees per second
-                self.setpoint_handler.set_field("vel_body_fwd", forward_velocity)
-                self.setpoint_handler.set_field("vel_body_right", right_velocity)
-                self.setpoint_handler.set_field("vel_body_down", down_velocity)
-                self.setpoint_handler.set_field("yawspeed_deg_s", yaw_speed)
+                # Apply velocity commands using coordinate frame-aware methods
+                # These commands work correctly in both BODY and NED modes:
+                # - BODY mode: Commands applied directly to body frame
+                # - NED mode: Commands converted using drone attitude from MAVLink (like body_velocity_chase)
+                # - Forward velocity: Body frame forward direction
+                # - Right velocity: Body frame right direction
+                # - Down velocity: Body frame down direction (NED convention)
+                # - Yaw speed: Angular rate in degrees per second
+                self.set_command_field("vel_body_fwd", forward_velocity)
+                self.set_command_field("vel_body_right", right_velocity)
+                self.set_command_field("vel_body_down", down_velocity)
+                self.set_command_field("yawspeed_deg_s", yaw_speed)
 
                 # Event-based logging: only log significant velocity or mode changes
                 self._log_velocity_changes(forward_velocity, right_velocity, down_velocity, yaw_speed)
@@ -749,11 +867,12 @@ class GimbalFollower(BaseFollower):
 
                 pitch_rate, yaw_rate = angular_data[0], angular_data[1]
 
-                # Apply angular rates via setpoint handler
-                self.setpoint_handler.set_field("roll_rate", 0.0)  # No roll for gimbal following
-                self.setpoint_handler.set_field("pitch_rate", pitch_rate)
-                self.setpoint_handler.set_field("yaw_rate", yaw_rate)
-                self.setpoint_handler.set_field("thrust", self.config.get('DEFAULT_THRUST', 0.5))
+                # Apply angular rates using coordinate frame-aware methods
+                # Angular rates work the same in both BODY and NED modes
+                self.set_command_field("roll_rate", 0.0)  # No roll for gimbal following
+                self.set_command_field("pitch_rate", pitch_rate)
+                self.set_command_field("yaw_rate", yaw_rate)
+                self.set_command_field("thrust", self.config.get('DEFAULT_THRUST', 0.5))
 
                 logger.debug(f"Applied angular rates: pitch_rate={pitch_rate:.2f}, yaw_rate={yaw_rate:.2f}")
 
@@ -872,7 +991,7 @@ class GimbalFollower(BaseFollower):
         Apply velocity command to the drone.
 
         NOTE: This method is primarily used by target loss handler callbacks.
-        Normal gimbal control uses setpoint_handler.set_field() directly for better performance.
+        Normal gimbal control uses set_command_field() for coordinate frame-aware control.
 
         Args:
             velocity_command: Velocity command to apply
@@ -972,22 +1091,22 @@ class GimbalFollower(BaseFollower):
         )
 
     def _update_setpoint_fields(self, velocity_command: VelocityCommand):
-        """Update setpoint handler fields based on control mode."""
+        """
+        Update setpoint handler fields using coordinate frame-aware methods.
+
+        This method uses set_command_field() to ensure proper coordinate frame handling:
+        - BODY mode: Commands applied directly to body frame
+        - NED mode: Commands converted using drone attitude from MAVLink (like body_velocity_chase)
+        """
         try:
-            if self.control_mode == "BODY":
-                # Body frame control mode
-                self.setpoint_handler.set_field('vel_body_fwd', velocity_command.forward)
-                self.setpoint_handler.set_field('vel_body_right', velocity_command.right)
-                self.setpoint_handler.set_field('vel_body_down', velocity_command.down)
-                self.setpoint_handler.set_field('yawspeed_deg_s', velocity_command.yaw_rate)
-            elif self.control_mode == "NED":
-                # NED frame control mode
-                self.setpoint_handler.set_field('vel_x', velocity_command.forward)
-                self.setpoint_handler.set_field('vel_y', velocity_command.right)
-                self.setpoint_handler.set_field('vel_z', velocity_command.down)
-                self.setpoint_handler.set_field('yaw_angle_deg', velocity_command.yaw_rate)  # Note: this would need integration for angle
-            else:
-                logger.error(f"Unknown control mode: {self.control_mode}")
+            # Use coordinate frame-aware command setting (works for both BODY and NED modes)
+            # These commands automatically handle coordinate frame conversion:
+            # - BODY mode: Applied directly to body frame
+            # - NED mode: Converted using drone attitude from MAVLink
+            self.set_command_field("vel_body_fwd", velocity_command.forward)
+            self.set_command_field("vel_body_right", velocity_command.right)
+            self.set_command_field("vel_body_down", velocity_command.down)
+            self.set_command_field("yawspeed_deg_s", velocity_command.yaw_rate)
 
         except Exception as e:
             logger.error(f"Error updating setpoint fields: {e}")
@@ -1064,12 +1183,12 @@ class GimbalFollower(BaseFollower):
         self.emergency_stop_active = True
         self.following_active = False
 
-        # Send zero velocity commands directly via setpoint handler
+        # Send zero velocity commands using coordinate frame-aware methods
         try:
-            self.setpoint_handler.set_field("vel_body_fwd", 0.0)
-            self.setpoint_handler.set_field("vel_body_right", 0.0)
-            self.setpoint_handler.set_field("vel_body_down", 0.0)
-            self.setpoint_handler.set_field("yawspeed_deg_s", 0.0)
+            self.set_command_field("vel_body_fwd", 0.0)
+            self.set_command_field("vel_body_right", 0.0)
+            self.set_command_field("vel_body_down", 0.0)
+            self.set_command_field("yawspeed_deg_s", 0.0)
         except Exception as e:
             logger.error(f"Failed to set emergency zero velocities: {e}")
 
@@ -1207,11 +1326,11 @@ class GimbalFollower(BaseFollower):
         self.velocity_continuation_active = False
         self.altitude_recovery_in_progress = False
 
-        # Zero all velocity commands immediately
+        # Zero all velocity commands immediately using coordinate frame-aware methods
         try:
-            self.setpoint_handler.set_field("vel_body_fwd", 0.0)
-            self.setpoint_handler.set_field("vel_body_right", 0.0)
-            self.setpoint_handler.set_field("vel_body_down", 0.0)
+            self.set_command_field("vel_body_fwd", 0.0)
+            self.set_command_field("vel_body_right", 0.0)
+            self.set_command_field("vel_body_down", 0.0)
             logger.info("Emergency velocity zero commands applied")
         except Exception as e:
             logger.error(f"Failed to apply emergency velocity commands: {e}")

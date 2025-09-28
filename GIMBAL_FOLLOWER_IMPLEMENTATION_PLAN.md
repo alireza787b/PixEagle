@@ -34,6 +34,23 @@ The GimbalFollower implementation is now complete and fully operational with sys
 - **PID Control Integration**: Mount-aware setpoint generation
 - **Safety Systems**: Circuit breaker and target loss handling
 
+### **Coordinate Frame Handling** ✅
+- **Multi-Mode Support**: Works seamlessly in both BODY and NED control modes
+- **Automatic Conversion**: Uses `set_command_field()` for coordinate frame-aware commands
+- **MAVLink Integration**: NED mode converts body velocities using drone attitude from MAVLink
+- **Consistent Interface**: Same control logic works across different coordinate frames
+
+**Technical Implementation**:
+```python
+# Body frame commands automatically converted for coordinate frame:
+# - BODY mode: Applied directly to body frame
+# - NED mode: Converted using drone attitude from MAVLink (like body_velocity_chase)
+self.set_command_field("vel_body_fwd", forward_velocity)    # Forward direction
+self.set_command_field("vel_body_right", right_velocity)   # Right direction
+self.set_command_field("vel_body_down", down_velocity)     # Down direction (NED convention)
+self.set_command_field("yawspeed_deg_s", yaw_speed)        # Angular rate
+```
+
 ### **Configuration Architecture** ✅
 ```yaml
 GimbalFollower:
