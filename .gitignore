@@ -205,3 +205,6 @@ dashboard/package.json
 dashboard/package-lock.json  
 # Interceptor reports
 reports/
+
+# Claude Code settings (keep local, exclude from repo)
+.claude/
