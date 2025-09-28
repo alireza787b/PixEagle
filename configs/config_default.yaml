@@ -407,6 +407,10 @@ GimbalFollower:
   INVERT_LATERAL_CONTROL: false           # Invert lateral control for different gimbal orientations
   INVERT_VERTICAL_CONTROL: false          # Invert vertical control for different gimbal orientations
 
+  # === Gimbal Direction Conventions ===
+  # Configure these based on your specific gimbal's angle reporting convention
+  ROLL_RIGHT_SIGN: "POSITIVE"             # "POSITIVE" if look_right=positive_roll, "NEGATIVE" if look_right=negative_roll
+
   # === Default Values for Optional Features ===
   DEFAULT_THRUST: 0.5                     # Default thrust for attitude rate control mode
 

@@ -359,9 +359,12 @@ class GimbalFollower(BaseFollower):
         pitch_error = pitch_deg - neutral_pitch_vertical  # >0 = looking down, <0 = looking up
         roll_error = roll_deg - neutral_roll  # >0 = looking left, <0 = looking right
 
-        # Normalize errors to ±1.0 range
+        # Normalize errors to ±1.0 range with systematic direction handling
         vertical_error = pitch_error / self.max_pitch_angle  # Positive = descend, Negative = ascend
-        lateral_error = -roll_error / self.max_roll_angle   # Negative roll (right) = negative lateral
+
+        # Apply systematic roll direction convention handling
+        roll_direction_multiplier = self._get_roll_direction_multiplier()
+        lateral_error = (roll_error * roll_direction_multiplier) / self.max_roll_angle
 
         # Apply configuration-based inversions if needed
         if self.vertical_invert:
@@ -374,7 +377,7 @@ class GimbalFollower(BaseFollower):
         vertical_error = max(-1.0, min(1.0, vertical_error))
 
         if self.debug_logging_enabled:
-            logger.debug(f"🏔️ VERTICAL transform: P={pitch_deg:.1f}°(err={pitch_error:.1f}°) R={roll_deg:.1f}°(err={roll_error:.1f}°) → lat={lateral_error:.3f} vert={vertical_error:.3f}")
+            logger.debug(f"🏔️ VERTICAL transform: P={pitch_deg:.1f}°(err={pitch_error:.1f}°) R={roll_deg:.1f}°(err={roll_error:.1f}°×{roll_direction_multiplier}) → lat={lateral_error:.3f} vert={vertical_error:.3f}")
 
         return lateral_error, vertical_error
 
@@ -405,10 +408,13 @@ class GimbalFollower(BaseFollower):
         pitch_error = pitch_deg - neutral_pitch_horizontal  # >0 = pitch up, <0 = pitch down
         roll_error = roll_deg - neutral_roll  # >0 = roll right, <0 = roll left
 
-        # Normalize errors to ±1.0 range
+        # Normalize errors to ±1.0 range with systematic direction handling
         # Note: For horizontal mount, positive pitch = ascend, so we invert for vel_body_down
         vertical_error = -pitch_error / self.max_pitch_angle  # Positive pitch = negative vel_body_down (ascend)
-        lateral_error = roll_error / self.max_roll_angle      # Positive roll = positive lateral (right)
+
+        # Apply systematic roll direction convention handling (same as vertical mount)
+        roll_direction_multiplier = self._get_roll_direction_multiplier()
+        lateral_error = (roll_error * roll_direction_multiplier) / self.max_roll_angle
 
         # Apply configuration-based inversions if needed
         if self.vertical_invert:
@@ -421,9 +427,37 @@ class GimbalFollower(BaseFollower):
         vertical_error = max(-1.0, min(1.0, vertical_error))
 
         if self.debug_logging_enabled:
-            logger.debug(f"📐 HORIZONTAL transform: P={pitch_deg:.1f}°(err={pitch_error:.1f}°) R={roll_deg:.1f}°(err={roll_error:.1f}°) → lat={lateral_error:.3f} vert={vertical_error:.3f}")
+            logger.debug(f"📐 HORIZONTAL transform: P={pitch_deg:.1f}°(err={pitch_error:.1f}°) R={roll_deg:.1f}°(err={roll_error:.1f}°×{roll_direction_multiplier}) → lat={lateral_error:.3f} vert={vertical_error:.3f}")
 
         return lateral_error, vertical_error
+
+    def _get_roll_direction_multiplier(self) -> float:
+        """
+        Get the systematic direction multiplier for roll-to-yaw mapping.
+
+        This handles different gimbal roll conventions robustly:
+        - POSITIVE: Look right = positive roll → need +1.0 multiplier
+        - NEGATIVE: Look right = negative roll → need -1.0 multiplier
+
+        The multiplier ensures:
+        - Look right → positive yaw_speed (turn right)
+        - Look left → negative yaw_speed (turn left)
+
+        Returns:
+            float: Direction multiplier (+1.0 or -1.0)
+        """
+        roll_right_sign = self.config.get('ROLL_RIGHT_SIGN', 'NEGATIVE')
+
+        if roll_right_sign == 'POSITIVE':
+            # Gimbal convention: Look right = positive roll
+            # Raw error: roll - 0, so right = positive error
+            # We want: positive error → positive yaw_speed (right turn)
+            return +1.0
+        else:
+            # Gimbal convention: Look right = negative roll (default/legacy)
+            # Raw error: roll - 0, so right = negative error
+            # We want: negative error → positive yaw_speed (right turn)
+            return -1.0
 
     def _get_forward_pitch_error(self, pitch_deg: float) -> float:
         """
