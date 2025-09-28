@@ -51,12 +51,13 @@ const SystemHealthCard = ({ trackerStatus, isFollowing, smartModeActive, circuit
       <CardContent>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
           <Speed color="action" />
-          <Typography variant="h6">System Health</Typography>
-          <Chip 
+          <Typography variant="h6">🏥 System Health</Typography>
+          <Chip
             label={systemStatus.label}
             color={systemStatus.color}
             size="small"
             icon={systemStatus.icon}
+            sx={{ fontWeight: 'bold' }}
           />
         </Box>
         
@@ -251,14 +252,15 @@ const DashboardPage = () => {
 
   return (
     <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
-      <Box sx={{ 
-        mb: 3, 
+      <Box sx={{
+        mb: 3,
         py: 2,
         borderBottom: '1px solid',
-        borderColor: 'divider'
+        borderColor: 'divider',
+        borderRadius: 1
       }}>
         <Typography variant="h4" gutterBottom sx={{ fontWeight: 500, color: 'text.primary' }}>
-          PixEagle Dashboard
+          🦅 PixEagle Dashboard
         </Typography>
         <Typography variant="subtitle1" color="text.secondary">
           Professional Drone Control & Tracking System

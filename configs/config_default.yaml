@@ -389,9 +389,24 @@ GimbalFollower:
   SAFETY_RETURN_SPEED: 3.0                # Velocity when returning to safe altitude (m/s)
   EMERGENCY_STOP_ENABLED: true            # Enable emergency velocity zeroing
 
+  # === Circuit Breaker Safety Override ===
+  CIRCUIT_BREAKER_DISABLE_SAFETY: true    # Disable safety checks when circuit breaker is active (testing mode)
+
   # === Coordinate Transformation ===
   ANGLE_DEADZONE: 2.0                     # Ignore gimbal movements below this (degrees)
   TRANSFORMATION_VALIDATION: true         # Validate coordinate transformations
+
+  # === Enhanced Transformation Parameters ===
+  NEUTRAL_PITCH_ANGLE: 0.0                # Neutral pitch for horizontal forward (degrees)
+  PITCH_VELOCITY_SCALING: 0.15            # Pitch error to velocity scaling factor
+  PITCH_DEADZONE_DEGREES: 2.0             # Pitch deadzone to prevent jitter (degrees)
+  MAX_ROLL_ANGLE: 90.0                    # Maximum expected roll range (degrees)
+  MAX_PITCH_ANGLE: 90.0                   # Maximum expected pitch range (degrees)
+  INVERT_LATERAL_CONTROL: false           # Invert lateral control for different gimbal orientations
+  INVERT_VERTICAL_CONTROL: false          # Invert vertical control for different gimbal orientations
+
+  # === Default Values for Optional Features ===
+  DEFAULT_THRUST: 0.5                     # Default thrust for attitude rate control mode
 
   # === Performance ===
   UPDATE_RATE: 20.0                       # Control loop frequency (Hz)

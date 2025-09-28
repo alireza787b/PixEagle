@@ -768,13 +768,22 @@ class FastAPIHandler:
             dict: Status of the operation and details of the process.
         """
         try:
-            self.logger.info("Received request to quit the application.")
+            self.logger.info("🛑 Received request to quit the application.")
+
+            # Set shutdown flag to stop main loop
+            self.app_controller.shutdown_flag = True
+
+            # Trigger shutdown sequence
             asyncio.create_task(self.app_controller.shutdown())
+
+            # Stop FastAPI server
             if self.server:
                 self.server.should_exit = True
+
+            self.logger.info("✅ Shutdown initiated successfully")
             return {"status": "success", "details": "Application is shutting down."}
         except Exception as e:
-            self.logger.error(f"Error in quit: {e}")
+            self.logger.error(f"❌ Error in quit: {e}")
             return {"status": "failure", "error": str(e)}
 
     async def _start_background_tasks(self):

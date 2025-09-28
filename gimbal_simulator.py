@@ -225,7 +225,8 @@ class GimbalSimulator:
         """Set auto tracking pattern"""
         with self.lock:
             self.auto_pattern = pattern
-            self.manual_target_mode = False
+            # Only disable manual mode if we're explicitly switching to auto mode
+            # This method is called both from mode changes and pattern changes
 
     def get_state(self) -> Dict[str, Any]:
         """Get current state"""
@@ -262,7 +263,8 @@ class GimbalSimulator:
                 logger.debug(f"Command error: {e}")
 
     def _broadcast_loop(self):
-        """Broadcast gimbal data"""
+        """Broadcast gimbal data following real gimbal protocol"""
+        broadcast_counter = 0
         while self.running:
             try:
                 # Build angle data
@@ -271,13 +273,22 @@ class GimbalSimulator:
                     pitch_hex = self._angle_to_hex(self.current_pitch)
                     roll_hex = self._angle_to_hex(self.current_roll)
 
-                # Broadcast format
-                broadcast = f"#tpDP9wOFT{yaw_hex}{pitch_hex}{roll_hex}"
-
+                # Always broadcast angle data (primary data stream)
+                angle_broadcast = f"#tpDP9wOFT{yaw_hex}{pitch_hex}{roll_hex}"
                 self.broadcast_socket.sendto(
-                    broadcast.encode('ascii'),
+                    angle_broadcast.encode('ascii'),
                     (self.config.broadcast_host, self.config.broadcast_port)
                 )
+
+                # Send tracking status every 10th broadcast (like real gimbal)
+                broadcast_counter += 1
+                if broadcast_counter % 10 == 0:
+                    time.sleep(0.05)  # Small delay between packets
+                    status_broadcast = self._build_tracking_response()
+                    self.broadcast_socket.sendto(
+                        status_broadcast.encode('ascii'),
+                        (self.config.broadcast_host, self.config.broadcast_port)
+                    )
 
                 with self.lock:
                     self.broadcasts_sent += 1
@@ -634,23 +645,30 @@ class GimbalSimulatorGUI:
             pitch = self.target_pitch_var.get()
             self.simulator.set_manual_target(yaw, pitch)
         else:
+            # Switch to auto mode - disable manual and set auto pattern
             pattern = self.auto_pattern_var.get()
-            self.simulator.set_auto_pattern(pattern)
+            with self.simulator.lock:
+                self.simulator.manual_target_mode = False
+                self.simulator.auto_pattern = pattern
 
     def on_pattern_change(self, event):
         """Handle pattern change"""
         pattern = self.auto_pattern_var.get()
-        self.simulator.set_auto_pattern(pattern)
+        # Only update pattern, don't affect manual mode
+        with self.simulator.lock:
+            self.simulator.auto_pattern = pattern
 
     def on_target_yaw_change(self, value):
         """Handle target yaw change"""
         if self.target_mode_var.get() == "manual":
             self.simulator.set_manual_target(float(value), self.target_pitch_var.get())
+            logger.debug(f"Manual yaw changed to: {value}")
 
     def on_target_pitch_change(self, value):
         """Handle target pitch change"""
         if self.target_mode_var.get() == "manual":
             self.simulator.set_manual_target(self.target_yaw_var.get(), float(value))
+            logger.debug(f"Manual pitch changed to: {value}")
 
     def draw_topdown_view(self, yaw_deg):
         """Draw top-down view showing yaw rotation"""

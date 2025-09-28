@@ -279,8 +279,7 @@ class BaseTracker(ABC):
         current_time = time.monotonic()
         dt = current_time - self.last_update_time
         if dt <= 0:
-            logging.warning(f"Non-positive dt encountered: {dt}. Setting dt to minimal positive value.")
-            dt = 1e-6  # Set a minimal positive dt
+            dt = 1e-3  # Set a reasonable minimal dt (1ms) to avoid log spam
         self.last_update_time = current_time
         return dt
 

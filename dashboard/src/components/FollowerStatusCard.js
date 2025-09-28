@@ -248,9 +248,11 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
         {/* Key Setpoint Values - Similar to Tracker Key Fields */}
         {keyFields.length > 0 && (
           <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
-            <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
-              {isEngaged ? 'Live Setpoints:' : 'Expected Fields:'}
-            </Typography>
+            <Tooltip title={isEngaged ? "Real-time velocity commands being sent to drone" : "Fields that will be used when following starts"}>
+              <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block', cursor: 'help' }}>
+                {isEngaged ? '🚁 Live Setpoints:' : '📋 Expected Fields:'}
+              </Typography>
+            </Tooltip>
             {keyFields.map((field) => {
               const currentValue = isEngaged ? fields[field.name] : null;
               const displayValue = currentValue !== null && currentValue !== undefined 
@@ -290,7 +292,7 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
         {isEngaged && followerData.target_loss_handler && (
           <Box sx={{ mt: 2, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
             <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
-              Target Loss & Safety:
+              🛡️ Target Loss & Safety:
             </Typography>
 
             {/* Target Loss State */}

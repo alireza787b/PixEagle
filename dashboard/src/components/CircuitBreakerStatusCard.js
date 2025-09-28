@@ -102,7 +102,7 @@ const CircuitBreakerStatusCard = React.memo(() => {
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
             <Security color="action" />
-            <Typography variant="h6">Circuit Breaker</Typography>
+            <Typography variant="h6">🛡️ Circuit Breaker</Typography>
           </Box>
           <Skeleton variant="text" width="80%" height={24} />
           <Skeleton variant="text" width="60%" height={20} sx={{ mt: 1 }} />
@@ -117,7 +117,7 @@ const CircuitBreakerStatusCard = React.memo(() => {
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
             <Warning color="error" />
-            <Typography variant="h6">Circuit Breaker</Typography>
+            <Typography variant="h6">🛡️ Circuit Breaker</Typography>
           </Box>
           <Alert severity="error" size="small">
             {error}
@@ -133,7 +133,7 @@ const CircuitBreakerStatusCard = React.memo(() => {
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
             <Block color="disabled" />
-            <Typography variant="h6">Circuit Breaker</Typography>
+            <Typography variant="h6">🛡️ Circuit Breaker</Typography>
           </Box>
           <Alert severity="warning" size="small">
             Circuit breaker system not available
@@ -152,7 +152,7 @@ const CircuitBreakerStatusCard = React.memo(() => {
         {/* Header */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
           <Security color={isActive ? 'warning' : 'success'} />
-          <Typography variant="h6">Circuit Breaker</Typography>
+          <Typography variant="h6">🛡️ Circuit Breaker</Typography>
           <Chip
             label={isActive ? 'ACTIVE' : 'INACTIVE'}
             color={isActive ? 'warning' : 'success'}
@@ -185,13 +185,13 @@ const CircuitBreakerStatusCard = React.memo(() => {
           {isActive ? (
             <Alert severity="warning" size="small" sx={{ mb: 1 }}>
               <Typography variant="caption">
-                Drone commands are BLOCKED for safety testing
+                🚫 Drone commands are BLOCKED for safety testing
               </Typography>
             </Alert>
           ) : (
             <Alert severity="success" size="small" sx={{ mb: 1 }}>
               <Typography variant="caption">
-                Live mode - commands sent to drone
+                ✅ Live mode - commands sent to drone
               </Typography>
             </Alert>
           )}

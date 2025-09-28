@@ -107,8 +107,8 @@ const TrackerStatusCard = () => {
         return `(${value[0].toFixed(2)}, ${value[1].toFixed(2)})`;
       }
       if (fieldName === 'angular' && value.length === 3) {
-        // Format gimbal angles: yaw, pitch, roll
-        return `Y:${value[0].toFixed(1)}° P:${value[1].toFixed(1)}° R:${value[2].toFixed(1)}°`;
+        // Format gimbal angles: yaw, pitch, roll with clear labels
+        return `🎯 Y:${value[0].toFixed(1)}° P:${value[1].toFixed(1)}° R:${value[2].toFixed(1)}°`;
       }
       if (fieldName === 'angular' && value.length === 2) {
         // Format angular bearing/elevation

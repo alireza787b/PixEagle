@@ -16,18 +16,32 @@ class CustomPID(PID):
 
     def __call__(self, input_, dt=None):
         # Apply Proportional on Measurement if enabled
-        if Parameters.PROPORTIONAL_ON_MEASUREMENT:
-            # Adjust the proportional error calculation to be based on the measurement
-            self.proportional = self.Kp * (self.setpoint - input_)
-        
-        output = super().__call__(input_, dt)
+        if getattr(Parameters, 'PROPORTIONAL_ON_MEASUREMENT', False):
+            # Store original setpoint and temporarily modify it
+            original_setpoint = self.setpoint
+            # For PoM, we want proportional term to be based on measurement change
+            # This prevents derivative kick on setpoint changes
+            if hasattr(self, '_last_input'):
+                # Calculate proportional term based on input change instead of error
+                self.setpoint = self._last_input
+            self._last_input = input_
+
+            output = super().__call__(input_, dt)
+
+            # Restore original setpoint
+            self.setpoint = original_setpoint
+        else:
+            output = super().__call__(input_, dt)
 
         # Apply anti-windup correction if enabled
-        if Parameters.ENABLE_ANTI_WINDUP:
-            if output != self.last_output and (output >= self.output_limits[1] or output <= self.output_limits[0]):
+        if getattr(Parameters, 'ENABLE_ANTI_WINDUP', False):
+            if (output != self.last_output and
+                self.output_limits and
+                (output >= self.output_limits[1] or output <= self.output_limits[0])):
                 # Back-calculate to adjust the integral term
                 diff = output - self.last_output
-                self._integral -= diff * Parameters.ANTI_WINDUP_BACK_CALC_COEFF
+                back_calc_coeff = getattr(Parameters, 'ANTI_WINDUP_BACK_CALC_COEFF', 0.1)
+                self._integral -= diff * back_calc_coeff
 
         self.last_output = output  # Update last output
         return output

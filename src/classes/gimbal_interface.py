@@ -474,11 +474,11 @@ class GimbalInterface:
                             self.last_tracking_state = new_state
                             logger.info(f"Gimbal tracking state changed: {old_state.name} → {new_state.name}")
 
-                    # Log data updates periodically for monitoring
-                    if self.total_packets_received % 100 == 0:
+                    # Log data updates much less frequently to reduce log noise
+                    if self.total_packets_received % 1000 == 0:  # Every 1000 packets instead of 100
                         angles_info = f"yaw={gimbal_data.angles.yaw:.1f}° pitch={gimbal_data.angles.pitch:.1f}° roll={gimbal_data.angles.roll:.1f}°" if gimbal_data.angles else "angles=N/A"
                         tracking_info = gimbal_data.tracking_status.state.name if gimbal_data.tracking_status else "tracking=N/A"
-                        logger.info(f"Gimbal status: {angles_info} | {tracking_info}")
+                        logger.info(f"📡 Gimbal heartbeat: {angles_info} | {tracking_info} (packet #{self.total_packets_received})")
                 else:
                     with self.lock:
                         self.invalid_packets_received += 1

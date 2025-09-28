@@ -401,17 +401,18 @@ class AppController:
             # Always-Reporting Trackers (schema-based) - Process when available regardless of manual start
             is_always_reporting = self._is_always_reporting_tracker()
 
-            # DEBUG: Log control flow decisions
-            logging.info(f"🔍 CONTROL LOOP DEBUG: is_always_reporting={is_always_reporting}, has_tracker={self.tracker is not None}, following_active={self.following_active}")
-            if self.tracker:
-                logging.info(f"🔍 TRACKER DEBUG: class={self.tracker.__class__.__name__}, is_external={getattr(self.tracker, 'is_external_tracker', 'NOT_SET')}")
+            # DEBUG: Log control flow decisions (only when debug enabled)
+            if logging.getLogger().isEnabledFor(logging.DEBUG):
+                logging.debug(f"🔍 Control loop: always_reporting={is_always_reporting}, has_tracker={self.tracker is not None}, following_active={self.following_active}")
+            # Check tracker type for appropriate handling
+            if self.tracker and logging.getLogger().isEnabledFor(logging.DEBUG):
+                logging.debug(f"🔍 Tracker: {self.tracker.__class__.__name__}, external={getattr(self.tracker, 'is_external_tracker', False)}")
 
             if is_always_reporting and self.tracker:
-                logging.info(f"🎯 ALWAYS-REPORTING PATH: Entering always-reporting tracker logic")
+                # Handle always-reporting trackers (e.g., GimbalTracker)
                 try:
                     # Always-reporting trackers update regardless of manual tracking state
                     success, tracker_output = self.tracker.update(frame)
-                    logging.info(f"🎯 TRACKER UPDATE: success={success}, has_output={tracker_output is not None}")
 
                     if success and tracker_output:
                         # Draw tracking overlay for always-reporting trackers
@@ -419,19 +420,15 @@ class AppController:
 
                         # Handle following if following is active
                         if self.following_active:
-                            logging.info(f"🎯 CALLING follow_target() - This should trigger GimbalFollower!")
                             await self.follow_target()
                             await self.check_failsafe()
-                        else:
-                            logging.warning(f"🚨 Following not active - follow_target() not called")
-
-                        logging.debug(f"Always-reporting tracker ({self.tracker.__class__.__name__}) updated successfully")
                     else:
                         logging.warning(f"🚨 Always-reporting tracker update failed or no data: success={success}, output={tracker_output}")
                 except Exception as e:
                     logging.error(f"Error updating always-reporting tracker: {e}")
             else:
-                logging.info(f"🚨 NOT TAKING ALWAYS-REPORTING PATH: is_always_reporting={is_always_reporting}, has_tracker={self.tracker is not None}")
+                # Only log this decision when debugging tracker selection
+                logging.debug(f"Taking classic tracker path: is_always_reporting={is_always_reporting}, has_tracker={self.tracker is not None}")
 
             # Classic Tracker (normal tracking or smart override)
             classic_active = (
@@ -952,11 +949,20 @@ class AppController:
                 # Clear follower reference
                 if hasattr(self, 'follower'):
                     self.follower = None
-                
-                # Clear setpoint sender reference
-                if hasattr(self, 'setpoint_sender'):
-                    self.setpoint_sender = None
-                    
+
+                # Stop and clear setpoint sender (ensure it's stopped even if not following)
+                if hasattr(self, 'setpoint_sender') and self.setpoint_sender:
+                    try:
+                        logging.info("🛑 Stopping SetpointSender during shutdown...")
+                        self.setpoint_sender.stop()
+                        self.setpoint_sender.join(timeout=3.0)  # Wait for thread to finish
+                        result["steps"].append("SetpointSender stopped during shutdown")
+                    except Exception as e:
+                        logging.error(f"Error stopping SetpointSender during shutdown: {e}")
+                        result["errors"].append(f"SetpointSender stop error: {e}")
+                    finally:
+                        self.setpoint_sender = None
+
                 result["steps"].append("Component references cleared")
                 
             except Exception as e:
@@ -1255,14 +1261,12 @@ class AppController:
             bool: True if tracker always reports data regardless of manual start
         """
         if not self.tracker:
-            logging.info("🔍 _is_always_reporting_tracker: No tracker available")
             return False
 
         try:
             # Primary check: direct is_external_tracker attribute (avoids circular call)
             if hasattr(self.tracker, 'is_external_tracker'):
                 result = getattr(self.tracker, 'is_external_tracker', False)
-                logging.info(f"🔍 _is_always_reporting_tracker: Found is_external_tracker={result} on {self.tracker.__class__.__name__}")
                 return result
 
             # Secondary check: tracker class name

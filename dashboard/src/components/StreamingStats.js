@@ -30,7 +30,7 @@ const StreamingStats = () => {
       <Card>
         <CardContent>
           <Typography variant="h6" gutterBottom>
-            Stream Performance
+            📊 Stream Performance
           </Typography>
           <Typography variant="body2" color="textSecondary">
             Loading...
@@ -51,14 +51,14 @@ const StreamingStats = () => {
     <Card>
       <CardContent>
         <Typography variant="h6" gutterBottom>
-          Stream Performance
+          📊 Stream Performance
         </Typography>
         
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
           {/* Connection Status */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="body2">Clients:</Typography>
-            <Chip 
+            <Typography variant="body2">🌐 Clients:</Typography>
+            <Chip
               icon={<CloudQueue />}
               label={`${stats.http_connections + stats.websocket_connections}`}
               size="small"
@@ -68,7 +68,7 @@ const StreamingStats = () => {
 
           {/* Frame Stats */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="body2">Frames:</Typography>
+            <Typography variant="body2">🎥 Frames:</Typography>
             <Typography variant="body2" color="textSecondary">
               {stats.frames_sent.toLocaleString()}
             </Typography>
@@ -77,16 +77,16 @@ const StreamingStats = () => {
           {/* Drop Rate */}
           <Box>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-              <Typography variant="body2">Quality:</Typography>
-              <Chip 
+              <Typography variant="body2">🎯 Quality:</Typography>
+              <Chip
                 label={`${dropRate}% dropped`}
                 size="small"
                 color={qualityColor}
                 icon={dropRate > 5 ? <Warning /> : <Speed />}
               />
             </Box>
-            <LinearProgress 
-              variant="determinate" 
+            <LinearProgress
+              variant="determinate"
               value={100 - parseFloat(dropRate)}
               color={qualityColor}
               sx={{ height: 4, borderRadius: 2 }}
@@ -95,7 +95,7 @@ const StreamingStats = () => {
 
           {/* Bandwidth */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography variant="body2">Bandwidth:</Typography>
+            <Typography variant="body2">📊 Bandwidth:</Typography>
             <Typography variant="body2" color="textSecondary">
               {(stats.total_bandwidth_mb || 0).toFixed(1)} MB
             </Typography>
@@ -104,8 +104,8 @@ const StreamingStats = () => {
           {/* Cache Status (if enabled) */}
           {stats.cache_size > 0 && (
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Typography variant="body2">Cache:</Typography>
-              <Chip 
+              <Typography variant="body2">🗂️ Cache:</Typography>
+              <Chip
                 label={`${stats.cache_size} frames`}
                 size="small"
                 variant="outlined"

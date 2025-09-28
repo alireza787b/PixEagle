@@ -36,25 +36,32 @@ from classes.followers.custom_pid import CustomPID
 # Initialize logger before imports that might fail
 logger = logging.getLogger(__name__)
 
-# Import our new architecture components
-try:
-    from classes.gimbal_transforms import (
-        create_gimbal_transformer, GimbalAngles, VelocityCommand,
-        GimbalTransformationEngine
-    )
-    GIMBAL_TRANSFORMS_AVAILABLE = True
-except ImportError as e:
-    logger.error(f"Failed to import gimbal transforms: {e}")
-    GIMBAL_TRANSFORMS_AVAILABLE = False
-
+# NOTE: Advanced gimbal transformation and target loss handling modules are optional
+# The gimbal follower uses simplified, integrated coordinate transformation
+# and target loss handling rather than separate architecture components
 try:
     from classes.target_loss_handler import (
         create_target_loss_handler, TargetLossHandler, ResponseAction
     )
     TARGET_LOSS_HANDLER_AVAILABLE = True
 except ImportError as e:
-    logger.error(f"Failed to import target loss handler: {e}")
+    logger.warning(f"Advanced target loss handler not available: {e}")
     TARGET_LOSS_HANDLER_AVAILABLE = False
+
+# Import VelocityCommand for legacy callback methods
+try:
+    from classes.gimbal_transforms import VelocityCommand
+except ImportError:
+    # Create a simple local VelocityCommand if not available
+    from dataclasses import dataclass
+
+    @dataclass
+    class VelocityCommand:
+        """Simple velocity command container for backward compatibility."""
+        forward: float = 0.0
+        right: float = 0.0
+        down: float = 0.0
+        yaw_rate: float = 0.0
 
 # Import circuit breaker for integration
 try:
@@ -95,27 +102,17 @@ class GimbalFollower(BaseFollower):
         # Initialize base follower with gimbal_unified setpoint profile
         super().__init__(px4_controller, self.setpoint_profile)
 
-        # Initialize transformation engine
-        if not GIMBAL_TRANSFORMS_AVAILABLE:
-            raise ImportError("GimbalFollower requires gimbal_transforms module - check installation")
-        try:
-            self.transformation_engine = create_gimbal_transformer(self.config)
-            logger.info(f"Transformation engine initialized: {self.config.get('MOUNT_TYPE')} mount, {self.config.get('CONTROL_MODE')} control")
-        except Exception as e:
-            logger.error(f"Failed to initialize transformation engine: {e}")
-            raise
-
-        # Initialize target loss handler
-        if not TARGET_LOSS_HANDLER_AVAILABLE:
-            raise ImportError("GimbalFollower requires target_loss_handler module - check installation")
-        target_loss_config = self.config.get('TARGET_LOSS_HANDLING', {})
-        try:
-            self.target_loss_handler = create_target_loss_handler(target_loss_config, self.follower_name)
-            self._register_target_loss_callbacks()
-            logger.info(f"Target loss handler initialized with {target_loss_config.get('CONTINUE_VELOCITY_TIMEOUT', 3.0)}s timeout")
-        except Exception as e:
-            logger.error(f"Failed to initialize target loss handler: {e}")
-            raise
+        # Initialize target loss handler (optional advanced feature)
+        self.target_loss_handler = None
+        if TARGET_LOSS_HANDLER_AVAILABLE:
+            target_loss_config = self.config.get('TARGET_LOSS_HANDLING', {})
+            try:
+                self.target_loss_handler = create_target_loss_handler(target_loss_config, self.follower_name)
+                self._register_target_loss_callbacks()
+                logger.info(f"Target loss handler initialized with {target_loss_config.get('CONTINUE_VELOCITY_TIMEOUT', 3.0)}s timeout")
+            except Exception as e:
+                logger.warning(f"Failed to initialize target loss handler: {e} - using basic target loss logic")
+                self.target_loss_handler = None
 
         # Control parameters
         self.max_velocity = self.config.get('MAX_VELOCITY', 8.0)
@@ -169,14 +166,32 @@ class GimbalFollower(BaseFollower):
         self.pid_yaw_speed = None  # For coordinated turn mode (yaw rate)
         self.pid_down = None       # For vertical velocity (both modes)
 
+        # Cache frequently accessed configuration parameters for performance
+        self._cache_config_parameters()
+
         # Initialize PID controllers based on mount configuration and mode
         self._initialize_pid_controllers()
 
-        logger.info(f"GimbalFollower initialized successfully")
-        logger.info(f"  Mount: {self.mount_type}, Control: {self.control_mode}")
-        logger.info(f"  Max velocity: {self.max_velocity} m/s, Max yaw rate: {self.max_yaw_rate}°/s")
-        logger.info(f"  Safety: Emergency stop {'enabled' if self.emergency_stop_enabled else 'disabled'}")
-        logger.info(f"  Lateral guidance: {self.active_lateral_mode} mode")
+        logger.info(f"GimbalFollower initialized: {self.mount_type} mount, {self.control_mode} control, {self.active_lateral_mode} guidance")
+
+    def _cache_config_parameters(self):
+        """Cache frequently accessed configuration parameters for performance optimization."""
+        # Coordinate transformation parameters (accessed in every control loop)
+        self.neutral_pitch = self.config.get('NEUTRAL_PITCH_ANGLE', 0.0)
+        self.pitch_scaling_factor = self.config.get('PITCH_VELOCITY_SCALING', 0.15)
+        self.pitch_deadzone = self.config.get('PITCH_DEADZONE_DEGREES', 2.0)
+        self.max_roll_angle = self.config.get('MAX_ROLL_ANGLE', 90.0)
+        self.max_pitch_angle = self.config.get('MAX_PITCH_ANGLE', 90.0)
+        self.lateral_invert = self.config.get('INVERT_LATERAL_CONTROL', False)
+        self.vertical_invert = self.config.get('INVERT_VERTICAL_CONTROL', False)
+
+        # Performance optimization flags
+        self.debug_logging_enabled = logger.isEnabledFor(logging.DEBUG)
+
+        # Event-based logging state
+        self.last_logged_mode = None
+        self.last_logged_velocity = None
+        self.significant_velocity_change_threshold = 0.5  # m/s
 
     def _initialize_pid_controllers(self):
         """Initialize PID controllers based on lateral guidance mode and configuration."""
@@ -213,7 +228,8 @@ class GimbalFollower(BaseFollower):
                 )
                 logger.debug(f"Coordinated turn mode PID initialized with gains {self._get_pid_gains('yawspeed_deg_s')}")
 
-            logger.info(f"PID controllers initialized for {self.active_lateral_mode} mode")
+            if self.debug_logging_enabled:
+                logger.debug(f"PID controllers initialized for {self.active_lateral_mode} mode")
 
         except Exception as e:
             logger.error(f"Error initializing PID controllers: {e}")
@@ -223,16 +239,29 @@ class GimbalFollower(BaseFollower):
         """Get PID gains for a specific control field from global PID configuration."""
         try:
             # Get PID gains from the global PID section (same as other followers)
-            pid_config = getattr(Parameters, 'PID', {})
+            pid_config = getattr(Parameters, 'PID', None)
+            if not pid_config:
+                logger.warning("PID configuration not found in Parameters - using defaults")
+                return 1.0, 0.0, 0.1
+
             pid_gains = pid_config.get('PID_GAINS', {})
-            gains = pid_gains.get(control_field, {'p': 1.0, 'i': 0.0, 'd': 0.1})
+            if not pid_gains:
+                logger.warning("PID_GAINS section not found in PID configuration - using defaults")
+                return 1.0, 0.0, 0.1
+
+            gains = pid_gains.get(control_field)
+            if not gains:
+                logger.warning(f"PID gains for {control_field} not found - using defaults")
+                return 1.0, 0.0, 0.1
 
             # Handle both uppercase and lowercase key formats
             p_gain = gains.get('p', gains.get('P', 1.0))
             i_gain = gains.get('i', gains.get('I', 0.0))
             d_gain = gains.get('d', gains.get('D', 0.1))
 
+            logger.debug(f"PID gains for {control_field}: P={p_gain}, I={i_gain}, D={d_gain}")
             return p_gain, i_gain, d_gain
+
         except Exception as e:
             logger.error(f"Error getting PID gains for {control_field}: {e}")
             return 1.0, 0.0, 0.1  # Safe defaults
@@ -275,7 +304,10 @@ class GimbalFollower(BaseFollower):
             if new_mode == self.active_lateral_mode:
                 return  # Already in the requested mode
 
-            logger.info(f"Switching lateral guidance mode: {self.active_lateral_mode} → {new_mode}")
+            if self.debug_logging_enabled:
+                logger.debug(f"Switching lateral guidance mode: {self.active_lateral_mode} → {new_mode}")
+            else:
+                logger.info(f"📐 Guidance mode: {new_mode}")
             self.active_lateral_mode = new_mode
 
             # Initialize PID controllers for the new mode
@@ -391,8 +423,9 @@ class GimbalFollower(BaseFollower):
             ValueError: If tracker data is invalid or incompatible
             RuntimeError: If transformation or command application fails
         """
-        # DEBUG: Always log when this method is called
-        logger.info(f"🔧 GimbalFollower.calculate_control_commands() called - data_type: {tracker_data.data_type}, tracking_active: {tracker_data.tracking_active}")
+        # DEBUG: Log only when debug is enabled for performance
+        if self.debug_logging_enabled:
+            logger.debug(f"🔧 calculate_control_commands() called - data_type: {tracker_data.data_type}, tracking_active: {tracker_data.tracking_active}")
 
         try:
             current_time = time.time()
@@ -411,21 +444,23 @@ class GimbalFollower(BaseFollower):
 
                 yaw_deg, pitch_deg, roll_deg = gimbal_angles[0], gimbal_angles[1], gimbal_angles[2]
 
-                logger.info(f"🎯 Processing gimbal angles: Y={yaw_deg:.1f}° P={pitch_deg:.1f}° R={roll_deg:.1f}°")
+                # Event-based logging: only log significant angle changes
+                if self.debug_logging_enabled:
+                    logger.debug(f"🎯 Processing gimbal angles: Y={yaw_deg:.1f}° P={pitch_deg:.1f}° R={roll_deg:.1f}°")
 
                 # === FORWARD VELOCITY CALCULATION (with ramping like body_velocity_chase) ===
-                # For VERTICAL mount: pitch > 90° means target is ahead, < 90° means behind
-                pitch_error = pitch_deg - 90.0  # 90° is the neutral "forward" position
+                # Use cached configuration parameters for performance
+                pitch_error = pitch_deg - self.neutral_pitch
 
                 # Update forward velocity with ramping
-                if abs(pitch_error) > 2.0:  # Dead zone to prevent jitter
+                if abs(pitch_error) > self.pitch_deadzone:  # Dead zone to prevent jitter
                     # Target detected - calculate target velocity based on pitch error
-                    # Use a more aggressive scaling factor: 0.15 instead of 0.1
-                    target_velocity = min(abs(pitch_error) * 0.15, self.max_forward_velocity)
+                    target_velocity = min(abs(pitch_error) * self.pitch_scaling_factor, self.max_forward_velocity)
                     velocity_change = self.forward_acceleration * dt
 
-                    # DEBUG: Log ramping details
-                    logger.debug(f"🚀 Forward ramping: pitch_error={pitch_error:.1f}°, target_vel={target_velocity:.3f}, current_vel={self.current_forward_velocity:.3f}, dt={dt:.3f}")
+                    # DEBUG: Log ramping details (only if debug logging enabled)
+                    if self.debug_logging_enabled:
+                        logger.debug(f"🚀 Forward ramping: pitch_error={pitch_error:.1f}°, target_vel={target_velocity:.3f}, current_vel={self.current_forward_velocity:.3f}, dt={dt:.3f}")
 
                     if self.current_forward_velocity < target_velocity:
                         self.current_forward_velocity = min(
@@ -446,20 +481,21 @@ class GimbalFollower(BaseFollower):
 
                 forward_velocity = self.current_forward_velocity
 
-                # === COORDINATE TRANSFORMATION FOR VERTICAL MOUNT ===
+                # === COORDINATE TRANSFORMATION (MOUNT-AWARE) ===
+                # Use cached parameters for performance optimization
                 # Convert gimbal angles to normalized errors for PID control
-                # Roll controls lateral movement (X-axis in image frame)
-                # Pitch controls vertical movement (Y-axis in image frame)
-
-                # For VERTICAL mount gimbal coordinate transformation:
-                # Gimbal Roll → Drone Body Right velocity or Yaw rate (depending on mode)
-                # Gimbal Pitch → Drone Body Down velocity (elevation control)
-
-                # Normalize roll angle to error signal (positive roll = target right of center)
-                lateral_error = roll_deg / 90.0  # Normalize to ±1.0 range
+                lateral_error = roll_deg / self.max_roll_angle  # Normalize to ±1.0 range
+                if self.lateral_invert:
+                    lateral_error = -lateral_error
 
                 # Normalize pitch error for vertical control
-                vertical_error = pitch_error / 90.0  # Normalize to ±1.0 range
+                vertical_error = pitch_error / self.max_pitch_angle  # Normalize to ±1.0 range
+                if self.vertical_invert:
+                    vertical_error = -vertical_error
+
+                # Clamp normalized errors to prevent extreme values
+                lateral_error = max(-1.0, min(1.0, lateral_error))
+                vertical_error = max(-1.0, min(1.0, vertical_error))
 
                 # === LATERAL CONTROL (MODE-DEPENDENT) ===
                 # Check if mode switching is needed
@@ -485,22 +521,19 @@ class GimbalFollower(BaseFollower):
                 # Calculate vertical command (same for both modes)
                 down_velocity = self.pid_down(vertical_error) if self.pid_down else 0.0
 
-                # DEBUG: Log the calculated velocity commands
-                logger.info(f"🎯 Gimbal→Velocity [{self.active_lateral_mode}]: fwd={forward_velocity:.3f} (ramped), right={right_velocity:.3f}, down={down_velocity:.3f}, yaw_speed={yaw_speed:.3f}")
-
                 # Apply velocity commands via setpoint handler
+                # These fields correspond to the "gimbal_unified" profile in follower_commands.yaml:
+                # - vel_body_fwd: Forward velocity in body frame (m/s)
+                # - vel_body_right: Right velocity in body frame (m/s)
+                # - vel_body_down: Down velocity in body frame (m/s)
+                # - yawspeed_deg_s: Yaw rate in degrees per second
                 self.setpoint_handler.set_field("vel_body_fwd", forward_velocity)
                 self.setpoint_handler.set_field("vel_body_right", right_velocity)
                 self.setpoint_handler.set_field("vel_body_down", down_velocity)
                 self.setpoint_handler.set_field("yawspeed_deg_s", yaw_speed)
 
-                # DEBUG: Log available fields and current values for UI troubleshooting
-                available_fields = list(self.setpoint_handler.get_fields().keys())
-                current_values = self.setpoint_handler.get_fields()
-                logger.info(f"🔧 Available fields: {available_fields}")
-                logger.info(f"🔧 Current setpoint values: {current_values}")
-
-                logger.debug(f"✅ Applied gimbal→velocity transformation successfully")
+                # Event-based logging: only log significant velocity or mode changes
+                self._log_velocity_changes(forward_velocity, right_velocity, down_velocity, yaw_speed)
 
             elif tracker_data.data_type == TrackerDataType.ANGULAR:
                 # Process angular rate data (pitch_rate, yaw_rate in rad/s)
@@ -543,8 +576,9 @@ class GimbalFollower(BaseFollower):
         self.total_follow_calls += 1
         current_time = time.time()
 
-        # DEBUG: Log every follow_target call
-        logger.info(f"🎯 GimbalFollower.follow_target() called #{self.total_follow_calls} - tracker_output.tracking_active: {tracker_output.tracking_active}")
+        # DEBUG: Log follow_target calls only when debug enabled (performance optimization)
+        if self.debug_logging_enabled:
+            logger.debug(f"🎯 follow_target() called #{self.total_follow_calls} - tracking_active: {tracker_output.tracking_active}")
 
         try:
             # Comprehensive Safety Checks (PHASE 3.3)
@@ -555,30 +589,38 @@ class GimbalFollower(BaseFollower):
                 self.log_follower_event("safety_intervention", **safety_status)
                 return False
 
-            # Update target loss handler with current tracker status
-            loss_response = self.target_loss_handler.update_tracker_status(tracker_output)
+            # Handle target loss logic (with or without advanced handler)
+            tracking_active = tracker_output.tracking_active
 
-            # Log state changes
-            if loss_response.get('state_changed', False):
-                self.log_follower_event(
-                    "target_state_change",
-                    new_state=loss_response['target_state'],
-                    tracking_active=loss_response['tracking_active'],
-                    recommended_actions=loss_response.get('recommended_actions', [])
-                )
+            if self.target_loss_handler:
+                # Use advanced target loss handler if available
+                loss_response = self.target_loss_handler.update_tracker_status(tracker_output)
+                tracking_active = loss_response['tracking_active']
+
+                # Log state changes
+                if loss_response.get('state_changed', False):
+                    self.log_follower_event(
+                        "target_state_change",
+                        new_state=loss_response['target_state'],
+                        tracking_active=tracking_active,
+                        recommended_actions=loss_response.get('recommended_actions', [])
+                    )
 
             # Check if we should continue with normal following
-            if loss_response['tracking_active']:
+            if tracking_active:
                 # Normal tracking - extract gimbal angles and transform
                 success = self._process_normal_tracking(tracker_output, current_time)
                 if success:
                     self.successful_transformations += 1
                 return success
             else:
-                # Target lost - target loss handler will manage response
-                logger.debug(f"Target lost - state: {loss_response['target_state']}, actions: {loss_response.get('recommended_actions', [])}")
+                # Target lost - use basic or advanced target loss handling
+                if self.target_loss_handler:
+                    logger.debug(f"Target lost - state: {loss_response.get('target_state', 'LOST')}, actions: {loss_response.get('recommended_actions', [])}")
+                else:
+                    logger.debug("Target lost - using basic target loss handling")
 
-                # Target loss handler callbacks are automatically executed
+                # Target loss handler callbacks are automatically executed (if available)
                 # Just return False to indicate tracking is not active
                 return False
 
@@ -602,8 +644,9 @@ class GimbalFollower(BaseFollower):
             bool: True if processing was successful
         """
         try:
-            # DEBUG: Log normal tracking processing
-            logger.info(f"🔄 Processing normal tracking - data_type: {tracker_output.data_type}, angular: {tracker_output.angular}")
+            # DEBUG: Log normal tracking processing (only when debug enabled)
+            if self.debug_logging_enabled:
+                logger.debug(f"🔄 Processing normal tracking - data_type: {tracker_output.data_type}, angular: {tracker_output.angular}")
 
             # Use the standard calculate_control_commands method
             self.calculate_control_commands(tracker_output)
@@ -619,80 +662,15 @@ class GimbalFollower(BaseFollower):
             logger.error(f"Error in normal tracking processing: {e}")
             return False
 
-    def _extract_gimbal_angles(self, tracker_output: TrackerOutput) -> Optional[GimbalAngles]:
-        """
-        Extract gimbal angles from tracker output.
-
-        Args:
-            tracker_output: Tracker output containing angular data
-
-        Returns:
-            GimbalAngles object or None if extraction fails
-        """
-        try:
-            # Check if this is gimbal angle data
-            if tracker_output.data_type == TrackerDataType.GIMBAL_ANGLES:
-                if not tracker_output.angular:
-                    logger.warning("GIMBAL_ANGLES data is None or empty")
-                    return None
-
-                if len(tracker_output.angular) < 3:
-                    logger.warning(f"GIMBAL_ANGLES data incomplete: expected 3 values, got {len(tracker_output.angular)}")
-                    return None
-
-                try:
-                    # GIMBAL_ANGLES format: (yaw, pitch, roll)
-                    yaw = float(tracker_output.angular[0])
-                    pitch = float(tracker_output.angular[1])
-                    roll = float(tracker_output.angular[2])
-
-                    return GimbalAngles(
-                        roll=roll,
-                        pitch=pitch,
-                        yaw=yaw,
-                        timestamp=tracker_output.timestamp
-                    )
-                except (ValueError, TypeError, IndexError) as e:
-                    logger.warning(f"GIMBAL_ANGLES data conversion error: {e}")
-                    return None
-
-            elif tracker_output.data_type == TrackerDataType.ANGULAR:
-                # Backward compatibility with ANGULAR data type
-                if not tracker_output.angular:
-                    logger.warning("ANGULAR data is None or empty")
-                    return None
-
-                if len(tracker_output.angular) < 2:
-                    logger.warning(f"ANGULAR data incomplete: expected 2+ values, got {len(tracker_output.angular)}")
-                    return None
-
-                try:
-                    # ANGULAR format: typically (bearing, elevation) -> map to (yaw, pitch)
-                    bearing = float(tracker_output.angular[0])
-                    elevation = float(tracker_output.angular[1])
-                    roll = float(tracker_output.angular[2]) if len(tracker_output.angular) > 2 else 0.0
-
-                    return GimbalAngles(
-                        roll=roll,
-                        pitch=elevation,
-                        yaw=bearing,
-                        timestamp=tracker_output.timestamp
-                    )
-                except (ValueError, TypeError, IndexError) as e:
-                    logger.warning(f"ANGULAR data conversion error: {e}")
-                    return None
-
-            else:
-                logger.warning(f"Tracker output type {tracker_output.data_type} not supported by GimbalFollower")
-                return None
-
-        except Exception as e:
-            logger.error(f"Error extracting gimbal angles: {e}")
-            return None
+    # NOTE: Gimbal angle extraction is handled directly in calculate_control_commands()
+    # This eliminates redundant processing and improves performance
 
     def _apply_velocity_command(self, velocity_command: VelocityCommand, source: str):
         """
         Apply velocity command to the drone.
+
+        NOTE: This method is primarily used by target loss handler callbacks.
+        Normal gimbal control uses setpoint_handler.set_field() directly for better performance.
 
         Args:
             velocity_command: Velocity command to apply
@@ -879,24 +857,29 @@ class GimbalFollower(BaseFollower):
 
     def emergency_stop(self):
         """Trigger emergency stop - immediately stop all movement."""
-        logger.warning("Emergency stop triggered for GimbalFollower")
+        logger.warning("⚠️ Emergency stop triggered")
 
         self.emergency_stop_active = True
         self.following_active = False
 
-        # Send zero velocity command
-        zero_command = VelocityCommand(0.0, 0.0, 0.0, 0.0)
-        self._apply_velocity_command(zero_command, "emergency_stop")
+        # Send zero velocity commands directly via setpoint handler
+        try:
+            self.setpoint_handler.set_field("vel_body_fwd", 0.0)
+            self.setpoint_handler.set_field("vel_body_right", 0.0)
+            self.setpoint_handler.set_field("vel_body_down", 0.0)
+            self.setpoint_handler.set_field("yawspeed_deg_s", 0.0)
+        except Exception as e:
+            logger.error(f"Failed to set emergency zero velocities: {e}")
 
-        # Reset transformation and target loss states
-        self.transformation_engine.reset_state()
-        self.target_loss_handler.reset_state()
+        # Reset target loss handler state if available
+        if self.target_loss_handler:
+            self.target_loss_handler.reset_state()
 
         self.log_follower_event("emergency_stop_triggered")
 
     def reset_emergency_stop(self) -> None:
         """Reset emergency stop state."""
-        logger.info("Emergency stop reset for GimbalFollower")
+        logger.info("✅ Emergency stop reset")
         self.emergency_stop_active = False
         self.log_follower_event("emergency_stop_reset")
 
@@ -912,13 +895,13 @@ class GimbalFollower(BaseFollower):
         # CIRCUIT BREAKER: Skip all safety checks when testing mode is enabled
         try:
             from classes.circuit_breaker import FollowerCircuitBreaker
-            if (hasattr(Parameters, 'CIRCUIT_BREAKER_DISABLE_SAFETY') and
-                Parameters.CIRCUIT_BREAKER_DISABLE_SAFETY and
-                FollowerCircuitBreaker.is_active()):
+            disable_safety = getattr(Parameters, 'CIRCUIT_BREAKER_DISABLE_SAFETY', False)
+            if disable_safety and FollowerCircuitBreaker.is_active():
                 logger.debug("Circuit breaker mode: Skipping all safety checks for testing")
                 return {
                     'safe_to_proceed': True,
-                    'reason': 'circuit_breaker_testing_mode'
+                    'reason': 'circuit_breaker_testing_mode',
+                    'circuit_breaker_active': True
                 }
         except ImportError:
             pass  # Circuit breaker not available
@@ -959,12 +942,14 @@ class GimbalFollower(BaseFollower):
                 'violation_count': self.safety_violations_count
             }
 
-        # 5. Command rate limiting check
-        if current_time - self.last_safety_check_time < (1.0 / self.update_rate):
+        # 5. Command rate limiting check (more lenient - only block if too frequent)
+        min_interval = 1.0 / (self.update_rate * 2)  # Allow 2x the configured rate for safety checks
+        if current_time - self.last_safety_check_time < min_interval:
             return {
                 'safe_to_proceed': False,
                 'reason': 'rate_limited',
-                'severity': 'low'
+                'severity': 'low',
+                'min_interval': min_interval
             }
 
         # All safety checks passed
@@ -1013,7 +998,7 @@ class GimbalFollower(BaseFollower):
 
     def trigger_emergency_stop(self, reason: str = "manual_trigger"):
         """Enhanced emergency stop with comprehensive state reset."""
-        logger.critical(f"EMERGENCY STOP TRIGGERED: {reason}")
+        logger.critical(f"🚨 EMERGENCY STOP: {reason}")
 
         self.emergency_stop_active = True
         self.following_active = False
@@ -1044,7 +1029,7 @@ class GimbalFollower(BaseFollower):
 
         rtl_altitude = altitude or self.config.get('TARGET_LOSS_HANDLING', {}).get('RTL_ALTITUDE', 50.0)
 
-        logger.warning(f"RETURN TO LAUNCH TRIGGERED: {reason} (altitude: {rtl_altitude}m)")
+        logger.warning(f"🏠 RTL triggered: {reason} (alt: {rtl_altitude}m)")
 
         # Circuit breaker check
         try:
@@ -1087,6 +1072,31 @@ class GimbalFollower(BaseFollower):
 
         self.log_follower_event("safety_state_reset", timestamp=time.time())
 
+    def _log_velocity_changes(self, forward: float, right: float, down: float, yaw_speed: float) -> None:
+        """Log velocity commands only when they change significantly (event-based)."""
+        try:
+            current_velocity = (round(forward, 2), round(right, 2), round(down, 2), round(yaw_speed, 1))
+
+            # Check for significant changes or mode changes
+            velocity_changed = (
+                self.last_logged_velocity is None or
+                abs(current_velocity[0] - self.last_logged_velocity[0]) > self.significant_velocity_change_threshold or
+                abs(current_velocity[1] - self.last_logged_velocity[1]) > self.significant_velocity_change_threshold or
+                abs(current_velocity[2] - self.last_logged_velocity[2]) > self.significant_velocity_change_threshold or
+                abs(current_velocity[3] - self.last_logged_velocity[3]) > 10.0  # 10°/s yaw change
+            )
+
+            mode_changed = self.last_logged_mode != self.active_lateral_mode
+
+            if velocity_changed or mode_changed:
+                logger.info(f"🚁 Gimbal→Velocity [{self.active_lateral_mode}]: fwd={current_velocity[0]} right={current_velocity[1]} down={current_velocity[2]} yaw={current_velocity[3]}°/s")
+                self.last_logged_velocity = current_velocity
+                self.last_logged_mode = self.active_lateral_mode
+
+        except Exception as e:
+            if self.debug_logging_enabled:
+                logger.debug(f"Error logging velocity changes: {e}")
+
     def get_display_name(self) -> str:
         """Get display name for UI."""
         return f"Gimbal Follower ({self.mount_type} mount, {self.control_mode} control)"
@@ -1104,7 +1114,11 @@ class GimbalFollower(BaseFollower):
                 'max_velocity': self.max_velocity,
                 'max_yaw_rate': self.max_yaw_rate
             },
-            'transformation_engine': self.transformation_engine.get_configuration_summary(),
+            'coordinate_transformation': {
+                'mount_type': self.mount_type,
+                'control_mode': self.control_mode,
+                'lateral_guidance_mode': self.active_lateral_mode
+            },
             'target_loss_handler': self.target_loss_handler.get_statistics(),
             'statistics': {
                 'total_follow_calls': self.total_follow_calls,
@@ -1176,7 +1190,7 @@ class GimbalFollower(BaseFollower):
             'enhanced_status': {
                 'display_name': self.get_display_name(),
                 'last_command_timestamp': time.time() if self.last_velocity_command else None,
-                'transformation_engine_ready': hasattr(self, 'transformation_engine') and self.transformation_engine is not None
+                'coordinate_transformation_ready': True  # Always ready since it's integrated
             }
         })
 

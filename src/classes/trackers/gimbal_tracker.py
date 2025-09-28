@@ -150,12 +150,11 @@ class GimbalTracker(BaseTracker):
         # Configuration constants
         self.DATA_TIMEOUT_SECONDS = 5.0    # Show stale data for up to 5 seconds
         self.MAX_CONSECUTIVE_FAILURES = 10  # Warning threshold
-        self.LOG_INTERVALS = {
-            'data_status': 200,     # Log data status every 200 updates
-            'angles_display': 200,  # Log angle values every 200 updates
-            'tracker_output': 500,  # Log TrackerOutput creation every 500 updates
-            'initial_updates': 3    # Log first 3 updates
-        }
+
+        # Event-based logging state
+        self.last_logged_state = None
+        self.last_logged_angles = None
+        self.debug_logging_enabled = logger.isEnabledFor(logging.DEBUG)
 
         # Configuration
         self.preferred_coordinate_system = self.CONFIG['coordinate_system']
@@ -168,8 +167,10 @@ class GimbalTracker(BaseTracker):
         self.tracking_activations = 0
         self.tracking_deactivations = 0
 
-        logger.info(f"GimbalTracker initialized - monitoring port {self.CONFIG['listen_port']}")
-        logger.debug(f"Gimbal IP: {self.CONFIG['gimbal_ip']}, Control port: {self.CONFIG['control_port']}")
+        logger.info(f"🎯 GimbalTracker initialized - monitoring port {self.CONFIG['listen_port']}")
+        logger.info(f"🔧 Gimbal config: IP={self.CONFIG['gimbal_ip']}, Listen={self.CONFIG['listen_port']}, Control={self.CONFIG['control_port']}")
+        if self.debug_logging_enabled:
+            logger.debug(f"Debug logging enabled for GimbalTracker")
 
     def _suppress_image_processing(self) -> None:
         """Suppress detector and predictor since gimbal tracker doesn't use images."""
@@ -200,13 +201,14 @@ class GimbalTracker(BaseTracker):
             bbox (Tuple[int, int, int, int]): Bounding box (ignored - not used for gimbal)
         """
         try:
-            logger.info("Starting gimbal background monitoring...")
+            logger.info("🚀 Starting gimbal background monitoring...")
 
             # Start passive UDP listening
             if self.gimbal_interface.start_listening():
                 self.monitoring_active = True
                 self.tracking_started = False  # Will be set when gimbal reports active tracking
                 self.last_update_time = time.time()
+                logger.info(f"✅ Gimbal interface listening on {self.CONFIG['gimbal_ip']}:{self.CONFIG['listen_port']}")
 
                 # Reset state
                 self.last_gimbal_data = None
@@ -215,11 +217,10 @@ class GimbalTracker(BaseTracker):
                 self.tracking_activations = 0
                 self.tracking_deactivations = 0
 
-                logger.info("Gimbal background monitoring started successfully")
+                logger.info("🎯 Gimbal background monitoring started successfully")
                 logger.info("⚠️  NOTE: Tracking control must be initiated from external camera UI application")
-
             else:
-                logger.error("Failed to start gimbal interface")
+                logger.error(f"❌ Failed to start gimbal interface listener on port {self.CONFIG['listen_port']}")
                 self.monitoring_active = False
 
         except Exception as e:
@@ -276,16 +277,11 @@ class GimbalTracker(BaseTracker):
             # Get current gimbal data (includes status and angles)
             gimbal_data = self.gimbal_interface.get_current_data()
 
-            # Log data reception status periodically
-            if gimbal_data and self.total_updates % 200 == 0:
-                has_angles = gimbal_data.angles is not None
-                if has_angles:
-                    logger.info(f"Gimbal data: angles available, status={gimbal_data.tracking_status.state.name if gimbal_data.tracking_status else 'Unknown'}")
-                else:
-                    logger.debug(f"Gimbal data received but no angles parsed: {gimbal_data.raw_packet[:50] if gimbal_data.raw_packet else 'N/A'}...")
-
             if gimbal_data is None:
                 # No recent data from gimbal - check if we can use cached data
+                # Log data status periodically for debugging
+                if self.total_updates % 1000 == 0:  # Every 1000 updates
+                    logger.info(f"🔍 Gimbal data status: No current data received (total updates: {self.total_updates})")
                 return self._handle_no_current_data()
 
             # Store the data for analysis
@@ -293,14 +289,6 @@ class GimbalTracker(BaseTracker):
 
             # Check tracking status and handle state changes (for follower control)
             tracking_active = self._handle_tracking_state_changes(gimbal_data)
-
-            # Additional debug for tracking status flow
-            if self.total_updates % 30 == 0:
-                logger.info(f"Gimbal data debug: has_angles={gimbal_data.angles is not None}, has_tracking={gimbal_data.tracking_status is not None}, tracking_active={tracking_active}")
-                if gimbal_data.tracking_status:
-                    logger.info(f"  Tracking status object: state={gimbal_data.tracking_status.state.name}, timestamp={gimbal_data.tracking_status.timestamp}")
-                else:
-                    logger.info(f"  No tracking status in gimbal_data")
 
             # ALWAYS process angles when available (continuous display mode)
             if gimbal_data.angles:
@@ -313,9 +301,8 @@ class GimbalTracker(BaseTracker):
                     self.last_valid_data_time = time.time()
                     self.consecutive_failures = 0  # Reset failure counter
 
-                    # Log gimbal data periodically for monitoring
-                    if self.total_updates % 200 == 0 or self.total_updates <= 3:
-                        logger.info(f"Gimbal angles: Y={gimbal_data.angles.yaw:.1f}° P={gimbal_data.angles.pitch:.1f}° R={gimbal_data.angles.roll:.1f}° | {gimbal_data.angles.coordinate_system.value}")
+                    # Event-based logging: only log significant angle changes
+                    self._log_angle_changes(gimbal_data.angles)
                     return True, tracker_output
                 else:
                     logger.debug("Failed to process gimbal angle data")
@@ -511,15 +498,9 @@ class GimbalTracker(BaseTracker):
             gimbal_system = angles.coordinate_system.value.lower()  # gimbal_body, spatial_fixed
             current_timestamp = time.time()
 
-            # Debug: Log tracking status for troubleshooting UI
+            # Event-based logging: only log when tracking status changes
             has_tracking_data = gimbal_data.tracking_status is not None
-            if self.total_updates % 30 == 0 or gimbal_tracking_status != 'UNKNOWN' or has_tracking_data:
-                raw_packet_info = gimbal_data.raw_packet[:30] if gimbal_data.raw_packet else 'No packet'
-                logger.info(f"TrackerOutput DEBUG: status='{gimbal_tracking_status}', has_data={has_tracking_data}, packet='{raw_packet_info}...'")
-                if has_tracking_data:
-                    logger.info(f"  ✓ Tracking data found: {gimbal_data.tracking_status.state.name} at {gimbal_data.tracking_status.timestamp}")
-                else:
-                    logger.info(f"  ✗ No tracking data in gimbal_data object")
+            self._log_tracking_status_changes(gimbal_tracking_status, has_tracking_data)
 
             tracker_output = TrackerOutput(
                 data_type=TrackerDataType.GIMBAL_ANGLES,
@@ -558,9 +539,6 @@ class GimbalTracker(BaseTracker):
                 }
             )
 
-            # Log tracker output creation periodically
-            if hasattr(self, 'total_updates') and (self.total_updates % 500 == 0 or self.total_updates <= 3):
-                logger.info(f"TrackerOutput: Angular=({yaw:.1f}, {pitch:.1f}, {roll:.1f}), Position={normalized_coords}, System={gimbal_system}")
             return True, tracker_output
 
         except Exception as e:
@@ -615,6 +593,63 @@ class GimbalTracker(BaseTracker):
         except Exception as e:
             logger.error(f"Error calculating confidence: {e}")
             return 0.5  # Default moderate confidence
+
+    def _log_angle_changes(self, angles) -> None:
+        """Log gimbal angles only when they change significantly (event-based)."""
+        try:
+            current_angles = (round(angles.yaw, 1), round(angles.pitch, 1), round(angles.roll, 1))
+
+            # Only log if angles changed significantly or if it's the first time
+            if (self.last_logged_angles is None or
+                abs(current_angles[0] - self.last_logged_angles[0]) > 5.0 or  # 5° yaw change
+                abs(current_angles[1] - self.last_logged_angles[1]) > 5.0 or  # 5° pitch change
+                abs(current_angles[2] - self.last_logged_angles[2]) > 5.0):   # 5° roll change
+
+                # Unified tracker reporting - uses schema-based field formatting
+                self._log_tracker_data_changes(current_angles, angles.coordinate_system.value)
+                self.last_logged_angles = current_angles
+
+        except Exception as e:
+            if self.debug_logging_enabled:
+                logger.debug(f"Error logging angle changes: {e}")
+
+    def _log_tracker_data_changes(self, angles: tuple, coordinate_system: str) -> None:
+        """Unified tracker data logging - formats based on tracker's primary data type."""
+        try:
+            # Format based on this tracker's capabilities
+            capabilities = self.get_capabilities()
+            primary_data_type = capabilities.get('data_types', ['UNKNOWN'])[0]
+
+            if primary_data_type == 'ANGULAR':
+                # For angular data, log as angles
+                logger.info(f"📍 Gimbal: Y={angles[0]}° P={angles[1]}° R={angles[2]}° | {coordinate_system}")
+            else:
+                # Fallback format
+                logger.info(f"📍 {self.__class__.__name__}: {angles} | {coordinate_system}")
+
+        except Exception as e:
+            # Fallback to simple logging
+            logger.info(f"📍 Gimbal: Y={angles[0]}° P={angles[1]}° R={angles[2]}° | {coordinate_system}")
+
+    def _log_tracking_status_changes(self, status: str, has_data: bool) -> None:
+        """Log tracking status only when it changes (event-based)."""
+        try:
+            current_state = (status, has_data)
+
+            # Only log when status changes or when debug is enabled for first few updates
+            if (self.last_logged_state != current_state or
+                (self.debug_logging_enabled and self.total_updates <= 5)):
+
+                if has_data:
+                    logger.info(f"📡 Gimbal tracking status: {status}")
+                elif self.debug_logging_enabled:
+                    logger.debug(f"📡 No tracking data in gimbal packet")
+
+                self.last_logged_state = current_state
+
+        except Exception as e:
+            if self.debug_logging_enabled:
+                logger.debug(f"Error logging status changes: {e}")
 
     def _get_aircraft_attitude(self) -> Optional[Dict[str, float]]:
         """
