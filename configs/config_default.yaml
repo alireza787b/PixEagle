@@ -405,11 +405,12 @@ GimbalFollower:
   MAX_ROLL_ANGLE: 90.0                    # Maximum expected roll range (degrees)
   MAX_PITCH_ANGLE: 90.0                   # Maximum expected pitch range (degrees)
   INVERT_LATERAL_CONTROL: false           # Invert lateral control for different gimbal orientations
-  INVERT_VERTICAL_CONTROL: false          # Invert vertical control for different gimbal orientations
+  INVERT_VERTICAL_CONTROL: false          # Invert vertical control for different gimbal orientations (set to true if needed)
 
   # === Gimbal Direction Conventions ===
   # Configure these based on your specific gimbal's angle reporting convention
   ROLL_RIGHT_SIGN: "POSITIVE"             # "POSITIVE" if look_right=positive_roll, "NEGATIVE" if look_right=negative_roll
+  # NOTE: For SIP protocol gimbals, you may need INVERT_VERTICAL_CONTROL: true
 
   # === Default Values for Optional Features ===
   DEFAULT_THRUST: 0.5                     # Default thrust for attitude rate control mode
