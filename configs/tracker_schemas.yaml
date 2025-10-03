@@ -241,6 +241,27 @@ tracker_types:
     performance:
       accuracy: "high"
       speed: "medium"
+
+  KCFKalmanTracker:
+    name: "KCF + Kalman Filter Tracker"
+    description: "Production-ready correlation filter with internal Kalman state estimation (30-50 FPS CPU)"
+    supported_schemas:
+      - BBOX_CONFIDENCE
+      - POSITION_2D
+      - VELOCITY_AWARE  # Via internal Kalman filter
+    capabilities:
+      - fast_correlation_filter
+      - internal_kalman_filter
+      - occlusion_handling
+      - real_time_cpu
+      - velocity_estimation
+      - bbox_stability_confidence
+    performance:
+      accuracy: "high"
+      speed: "very_fast"
+      latency: "minimal"
+      cpu_usage: "low"
+      recommended_for: "embedded_systems"
       
   SmartTracker:
     name: "YOLO-based Smart Tracker"

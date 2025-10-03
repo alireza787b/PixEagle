@@ -43,7 +43,7 @@ Notes:
 """
 
 from classes.trackers.csrt_tracker import CSRTTracker
-from classes.trackers.particle_filter_tracker import ParticleFilterTracker
+from classes.trackers.kcf_kalman_tracker import KCFKalmanTracker
 from classes.trackers.gimbal_tracker import GimbalTracker
 # Import other trackers as necessary
 
@@ -52,7 +52,7 @@ def create_tracker(algorithm: str, video_handler=None, detector=None, app_contro
     Factory function to create tracker instances based on the specified algorithm.
 
     Args:
-        algorithm (str): The name of the tracking algorithm (e.g., "CSRT").
+        algorithm (str): The name of the tracking algorithm (e.g., "CSRT", "KCF").
         video_handler (Optional[object]): Video handler instance.
         detector (Optional[object]): Detector instance.
         app_controller (Optional[object]): AppController instance.
@@ -66,12 +66,13 @@ def create_tracker(algorithm: str, video_handler=None, detector=None, app_contro
     Example:
         ```python
         tracker = create_tracker("CSRT", video_handler, detector, app_controller)
+        tracker = create_tracker("KCF", video_handler, detector, app_controller)
         ```
     """
     if algorithm == "CSRT":
         return CSRTTracker(video_handler, detector, app_controller)
-    elif algorithm == "ParticleFilter":
-        return ParticleFilterTracker(video_handler, detector, app_controller)
+    elif algorithm == "KCF":
+        return KCFKalmanTracker(video_handler, detector, app_controller)
     elif algorithm == "Gimbal":
         return GimbalTracker(video_handler, detector, app_controller)
     # Add other algorithms here

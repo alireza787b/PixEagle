@@ -188,34 +188,32 @@ Streaming:
   H264_PRESET: ultrafast         # Encoding preset
 
 # ==============================================================================
-# TRACKING MODE CONFIGURATION
+# 🎯 TRACKING MODE CONFIGURATION
 # ==============================================================================
 Tracking:
-  # 🎯 Classic tracker algorithm selection
-  # Options: CSRT (accurate), KCF (fast), MOSSE (fastest), ParticleFilter (robust), Gimbal (External Gimbal Tracker)
+  # === Algorithm Selection ===
+  # Options: CSRT (recommended for rotation), KCF (fast), Gimbal (external)
+  # CSRT: Best for drone circling, rotation, perspective changes (15-20 FPS, 85% accuracy)
+  # KCF:  Fast alternative for high-speed scenarios (25-30 FPS, 75% accuracy)
   DEFAULT_TRACKING_ALGORITHM: CSRT
-  
-  # === Visualization ===
+
+  # === Global Visualization ===
   TRACKING_RECTANGLE_COLOR: [255, 0, 0]    # BGR: Blue
   CENTER_CIRCLE_COLOR: [0, 255, 0]         # BGR: Green
   CENTER_HISTORY_LENGTH: 10                # Trail length
-  
-  # === Tracking Quality Control ===
+
+  # === Global Tracking Limits ===
   MAX_DISPLACEMENT_THRESHOLD: 0.25         # Max jump as fraction of frame
   TRACKING_FAILURE_TIMEOUT: 5.0            # Seconds before re-detection
-  CONFIDENCE_THRESHOLD: 0.6                # Min confidence to accept result
-  
-  # === CSRT Parameters ===
-  CSRT_APPEARANCE_LEARNING_RATE: 0.05      # Adaptation speed
-  
-  # === Appearance Model ===
-  APPEARANCE_THRESHOLD: 0.3                # Similarity threshold (0-1)
-  APPEARANCE_CONFIDENCE_THRESHOLD: 0.5     
-  MOTION_CONFIDENCE_WEIGHT: 0.5            # Balance motion vs appearance
+  REDETECTION_ATTEMPTS: 5                  # Max re-detection attempts
+
+  # === Legacy Appearance Model (Deprecated - use tracker-specific configs) ===
+  CONFIDENCE_THRESHOLD: 0.6                # ⚠️ Deprecated: Use tracker-specific
+  APPEARANCE_THRESHOLD: 0.3
+  APPEARANCE_CONFIDENCE_THRESHOLD: 0.5
+  MOTION_CONFIDENCE_WEIGHT: 0.5
   APPEARANCE_CONFIDENCE_WEIGHT: 0.5
-  
-  # === Re-detection ===
-  REDETECTION_ATTEMPTS: 5                  # Max attempts before giving up
+  CSRT_APPEARANCE_LEARNING_RATE: 0.05      # ⚠️ Deprecated: See CSRT_Tracker section
   
   # === Particle Filter Parameters (if using) ===
   PF_NUM_PARTICLES: 500                    # More = accurate but slower
@@ -231,8 +229,98 @@ Tracking:
   PF_EDGE_WEIGHT: 0.3
   PF_CANNY_THRESHOLD1: 50                 # Edge detection params
   PF_CANNY_THRESHOLD2: 150
-  PF_EFFECTIVE_PARTICLE_NUM_THRESHOLD: 0.5 
+  PF_EFFECTIVE_PARTICLE_NUM_THRESHOLD: 0.5
   PF_RANDOM_PARTICLE_RATIO: 0.1           # Random resampling ratio
+
+# ==============================================================================
+# 🎯 KCF TRACKER CONFIGURATION (Kernelized Correlation Filter + Kalman)
+# ==============================================================================
+# Best for: High-speed tracking, CPU-limited systems, fast targets
+# Performance: 25-30 FPS, ~75% success rate
+# Limitations: Poor rotation invariance, moderate scale changes only
+#
+# Tuning Guide:
+# - Target lost easily? → ↓ confidence_threshold, ↑ failure_threshold
+# - Tracker too slow? → ↓ appearance_learning_rate
+# - Rotation issues? → ↑ appearance_learning_rate, ↑ max_scale_change
+# - Jittery tracking? → ↓ confidence_smoothing (more smoothing)
+# ==============================================================================
+KCF_Tracker:
+  # === Robustness Parameters ===
+  confidence_threshold: 0.2              # Min confidence to accept (0.0-1.0)
+                                         # Lower = more tolerant, higher = stricter
+
+  failure_threshold: 5                   # Consecutive failures before declaring lost
+                                         # Higher = more robust, lower = faster re-detection
+
+  confidence_smoothing: 0.7              # EMA alpha (0.0-1.0)
+                                         # Higher = more responsive, lower = more stable
+
+  # === Validation Limits ===
+  max_scale_change_per_frame: 0.5        # Max size change per frame (0.0-1.0)
+                                         # 0.5 = 50% scale change allowed
+
+  max_motion_per_frame: 0.6              # Max motion as fraction of frame diagonal
+                                         # Higher = allows faster movement
+
+  # === Appearance Adaptation ===
+  appearance_learning_rate: 0.15         # Adaptive learning speed (0.0-1.0)
+                                         # Higher = faster adaptation (good for rotation)
+                                         # Lower = more stable (good for static targets)
+
+  # === Performance Tuning Presets ===
+  # Conservative (high accuracy, slow adaptation):
+  #   confidence_threshold: 0.3, failure_threshold: 3, appearance_learning_rate: 0.05
+  # Balanced (recommended):
+  #   confidence_threshold: 0.2, failure_threshold: 5, appearance_learning_rate: 0.15
+  # Aggressive (maximum robustness, rotation-tolerant):
+  #   confidence_threshold: 0.15, failure_threshold: 7, appearance_learning_rate: 0.20
+
+# ==============================================================================
+# 🎯 CSRT TRACKER CONFIGURATION (Channel and Spatial Reliability Tracker)
+# ==============================================================================
+# Best for: Rotation, perspective changes, drone circling targets
+# Performance: 15-20 FPS, ~85% success rate
+# Strengths: Rotation-invariant, excellent scale adaptation, occlusion handling
+#
+# Tuning Guide:
+# - Target lost easily? → ↓ confidence_threshold, ↑ failure_threshold
+# - Too many false positives? → ↑ confidence_threshold
+# - Rotation issues? → ↑ appearance_learning_rate (max 0.15)
+# - Need more accuracy? → ↓ appearance_learning_rate (down to 0.03)
+# - Fast target? → ↑ max_motion_per_frame, ↑ failure_threshold
+# ==============================================================================
+CSRT_Tracker:
+  # === Robustness Parameters ===
+  confidence_threshold: 0.3              # Min confidence to accept (0.0-1.0)
+                                         # Lower = more tolerant, higher = stricter
+
+  failure_threshold: 5                   # Consecutive failures before declaring lost
+                                         # Higher = more robust during occlusions
+
+  confidence_smoothing: 0.7              # EMA alpha (0.0-1.0)
+                                         # Higher = more responsive, lower = more stable
+
+  # === Validation Limits ===
+  max_scale_change_per_frame: 0.4        # Max size change per frame (0.0-1.0)
+                                         # 0.4 = 40% scale change allowed
+
+  max_motion_per_frame: 0.5              # Max motion as fraction of frame diagonal
+                                         # Higher = allows faster movement
+
+  # === Appearance Adaptation ===
+  appearance_learning_rate: 0.08         # Adaptive learning speed (0.0-1.0)
+                                         # Balance between speed and accuracy
+                                         # For rotation: 0.10-0.15
+                                         # For accuracy: 0.03-0.05
+
+  # === Performance Tuning Presets ===
+  # Maximum Accuracy (slow targets, stable view):
+  #   confidence_threshold: 0.4, failure_threshold: 3, appearance_learning_rate: 0.03
+  # Balanced (recommended for drones):
+  #   confidence_threshold: 0.3, failure_threshold: 5, appearance_learning_rate: 0.08
+  # Rotation-Tolerant (circling, perspective changes):
+  #   confidence_threshold: 0.25, failure_threshold: 7, appearance_learning_rate: 0.12
 
 # ==============================================================================
 # SMART TRACKER (YOLO-based AI Tracking)
@@ -592,13 +680,21 @@ Detector:
   USE_DETECTOR: true
   DETECTION_ALGORITHM: TemplateMatching     # or FeatureMatching, YOLO
   
-  # === Template Matching ===
+  # ==============================================================================
+  # 🔍 TEMPLATE MATCHING (Re-detection for all trackers)
+  # ==============================================================================
+  # Used when tracker loses target - attempts to re-detect using template matching
+  # Multi-scale search allows finding target at different sizes (zoom in/out)
+  # ==============================================================================
   TEMPLATE_MATCHING_METHOD: TM_CCOEFF_NORMED
-  TEMPLATE_UPDATE_INTERVAL: 10              # Frames between updates
-  TEMPLATE_APPEARANCE_LEARNING_RATE: 0.002
-  TEMPLATE_MATCHING_SCALES: [0.95, 1.0, 1.05]  # Multi-scale search
-  TEMPLATE_MATCHING_THRESHOLD: 0.8
-  APPEARANCE_CONFIDENCE_THRESHOLD: 0.7
+  TEMPLATE_UPDATE_INTERVAL: 10              # Frames between template updates
+  TEMPLATE_APPEARANCE_LEARNING_RATE: 0.002  # Template adaptation speed
+
+  # Multi-scale search (0.5x to 2x target size for drone scenarios)
+  TEMPLATE_MATCHING_SCALES: [0.5, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.5, 2.0]
+  TEMPLATE_MATCHING_THRESHOLD: 0.7          # Match confidence threshold
+
+  APPEARANCE_CONFIDENCE_THRESHOLD: 0.7      # Re-detection validation
   TRACKER_CONFIDENCE_THRESHOLD_FOR_TEMPLATE_UPDATE: 0.8
   
   # === Feature Matching ===
