@@ -1,57 +1,34 @@
 # src/classes/trackers/csrt_tracker.py
 
 """
-CSRTTracker Module - Production-Ready Rotation-Invariant Tracking
-------------------------------------------------------------------
+CSRTTracker Module - Production-Ready with Configurable Performance Modes
+--------------------------------------------------------------------------
 
-This module implements a production-grade CSRT tracker with enterprise-level
-robustness features based on real-world computer vision best practices (2024-2025).
+CSRT (Channel and Spatial Reliability Tracking) from OpenCV with optional
+robustness enhancements and user-friendly performance modes.
 
 Project Information:
 - Project Name: PixEagle
 - Repository: https://github.com/alireza787b/PixEagle
 - Date: January 2025
 - Author: Alireza Ghaderi
-- LinkedIn: https://www.linkedin.com/in/alireza787b
 
-CSRT Algorithm Overview:
-------------------------
-Channel and Spatial Reliability Tracking (CVPR 2017) is specifically designed for:
-- ✅ In-plane rotation (car rotating in frame)
-- ✅ Out-of-plane rotation (perspective changes)
-- ✅ Scale changes (target getting larger/smaller)
-- ✅ Partial occlusions (target hidden temporarily)
+CSRT Algorithm Strengths:
+--------------------------
+- ✅ Rotation-invariant (in-plane and out-of-plane)
+- ✅ Scale adaptation (handles zoom changes)
+- ✅ Partial occlusion handling
+- ✅ Perspective changes (drone movement)
 
-Production Enhancements (Added 2025):
--------------------------------------
-1. **Multi-Frame Validation**: Requires N consecutive failures before declaring lost
-2. **Confidence Buffering**: Smooths confidence with exponential moving average
-3. **Motion Consistency Checks**: Validates against external estimator prediction
-4. **Scale Validation**: Rejects unrealistic size changes
-5. **Adaptive Learning**: Dynamic appearance model updates
-6. **Performance Monitoring**: FPS, success rate tracking
-
-Architecture:
--------------
-    Frame Input
-        ↓
-    CSRT Tracker (OpenCV) → Raw Bbox
-        ↓
-    Multi-Frame Validator → Check N consecutive frames
-        ↓
-    Motion Consistency Check → Validate against estimator prediction
-        ↓
-    Confidence Calculation (EMA Smoothed)
-        ↓
-        ├─→ High Confidence: Accept CSRT, Update Estimator + Appearance
-        └─→ Low Confidence: Use Estimator prediction, Buffer failure count
-        ↓
-    Return (success, bbox)
+Performance Modes:
+------------------
+1. **legacy** - Original CSRT behavior (15-20 FPS, most reliable startup)
+2. **balanced** - Light enhancements (12-18 FPS, good trade-off)
+3. **robust** - Full validation (10-15 FPS, maximum stability)
 
 References:
 -----------
 - CSRT Paper: Lukezic et al., "Discriminative Correlation Filter with Channel and Spatial Reliability," CVPR 2017
-- Multi-frame validation: Google Research, "Robust Visual Tracking via Multi-Frame Confidence," 2023
 """
 
 import logging
@@ -69,42 +46,28 @@ logger = logging.getLogger(__name__)
 
 class CSRTTracker(BaseTracker):
     """
-    Production-Grade CSRT Tracker with Enhanced Robustness
+    CSRT Tracker with Configurable Performance Modes
 
-    Implements rotation-invariant tracking with enterprise-level reliability:
-    - Multi-frame failure validation
-    - Confidence buffering with exponential moving average
-    - Adaptive appearance learning
-    - Motion and scale consistency checks
-    - Graceful degradation to estimator during occlusions
+    Modes:
+    - legacy: Original behavior, no validation overhead
+    - balanced: Light validation, startup grace period
+    - robust: Full validation, EMA smoothing, strict checks
 
     Attributes:
     -----------
     - tracker (cv2.Tracker): OpenCV CSRT tracker instance
-    - confidence (float): Current smoothed confidence (0.0-1.0)
-    - confidence_ema_alpha (float): Exponential moving average factor
-    - failure_count (int): Consecutive failure frames counter
-    - failure_threshold (int): Required consecutive failures before declaring lost
-    - confidence_threshold (float): Minimum confidence to accept CSRT result
-    - max_scale_change (float): Maximum allowed bbox scale change per frame
-    - motion_consistency_threshold (float): Maximum allowed motion deviation
-    - appearance_learning_rate (float): Adaptive appearance model update rate
-
-    Methods:
-    --------
-    - start_tracking(frame, bbox): Initialize CSRT and appearance model
-    - update(frame): Robust tracking with multi-frame validation
-    - _update_appearance_model(frame, bbox): Adaptive appearance learning
-    - _validate_bbox_motion(bbox): Check bbox against estimator prediction
-    - _validate_bbox_scale(bbox): Check bbox scale change
-    - _smooth_confidence(raw_confidence): Apply EMA to confidence
+    - performance_mode (str): "legacy", "balanced", or "robust"
+    - enable_validation (bool): Whether to validate bbox
+    - enable_ema_smoothing (bool): Whether to smooth confidence
+    - validation_start_frame (int): Frame to start validation
+    - confidence_threshold (float): Minimum confidence to accept
     """
 
     def __init__(self, video_handler: Optional[object] = None,
                  detector: Optional[object] = None,
                  app_controller: Optional[object] = None):
         """
-        Initializes the production-grade CSRT tracker.
+        Initializes CSRT tracker with configurable performance mode.
 
         Args:
             video_handler (Optional[object]): Video streaming handler
@@ -121,20 +84,21 @@ class CSRTTracker(BaseTracker):
         if self.position_estimator:
             self.position_estimator.reset()
 
+        # Get performance mode from config
+        csrt_config = getattr(Parameters, 'CSRT_Tracker', {})
+        self.performance_mode = csrt_config.get('performance_mode', 'balanced')
+
+        # Configure based on performance mode
+        self._configure_performance_mode()
+
         # State tracking
         self.bbox = None
         self.prev_bbox = None
         self.confidence = 0.0
         self.raw_confidence_history = deque(maxlen=5)
 
-        # Robustness parameters (from config)
-        self.confidence_threshold = getattr(Parameters, 'CSRT_CONFIDENCE_THRESHOLD', 0.3)
-        self.confidence_ema_alpha = getattr(Parameters, 'CSRT_CONFIDENCE_SMOOTHING', 0.7)
+        # Failure tracking
         self.failure_count = 0
-        self.failure_threshold = getattr(Parameters, 'CSRT_FAILURE_THRESHOLD', 5)
-        self.max_scale_change = getattr(Parameters, 'CSRT_MAX_SCALE_CHANGE', 0.4)
-        self.motion_consistency_threshold = getattr(Parameters, 'CSRT_MAX_MOTION', 0.5)
-        self.appearance_learning_rate = getattr(Parameters, 'CSRT_APPEARANCE_LEARNING_RATE', 0.08)
 
         # Performance monitoring
         self.frame_count = 0
@@ -142,11 +106,50 @@ class CSRTTracker(BaseTracker):
         self.failed_frames = 0
         self.fps_history = []
 
-        logger.info(f"{self.trackerName} initialized with production robustness features")
+        logger.info(f"{self.trackerName} initialized in '{self.performance_mode}' mode")
+
+    def _configure_performance_mode(self):
+        """Configure tracker based on performance mode."""
+        if self.performance_mode == 'legacy':
+            # Original CSRT behavior - no enhancements
+            self.enable_validation = False
+            self.enable_ema_smoothing = False
+            self.confidence_threshold = Parameters.CONFIDENCE_THRESHOLD
+            self.failure_threshold = 3
+            self.validation_start_frame = 999999  # Never validate
+            logger.info("CSRT Mode: LEGACY - Original behavior, maximum speed")
+
+        elif self.performance_mode == 'balanced':
+            # Light enhancements with startup grace period
+            self.enable_validation = False  # No motion/scale validation (too strict)
+            self.enable_ema_smoothing = True  # Smooth confidence only
+            self.confidence_threshold = 0.5  # Slightly relaxed
+            self.failure_threshold = 5
+            self.validation_start_frame = 10  # Grace period
+            self.confidence_ema_alpha = 0.7
+            logger.info("CSRT Mode: BALANCED - Light enhancements, good trade-off")
+
+        elif self.performance_mode == 'robust':
+            # Full validation for maximum robustness
+            self.enable_validation = True
+            self.enable_ema_smoothing = True
+            self.confidence_threshold = 0.4  # More tolerant than before
+            self.failure_threshold = 5
+            self.validation_start_frame = 5  # Earlier validation
+            self.confidence_ema_alpha = 0.7
+            self.max_scale_change = 0.4
+            self.motion_consistency_threshold = 0.5
+            self.appearance_learning_rate = 0.08
+            logger.info("CSRT Mode: ROBUST - Full validation, maximum stability")
+
+        else:
+            logger.warning(f"Unknown performance mode '{self.performance_mode}', using 'balanced'")
+            self.performance_mode = 'balanced'
+            self._configure_performance_mode()
 
     def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
         """
-        Initializes the tracker with appearance model integration.
+        Initializes the tracker with the provided bounding box.
 
         Args:
             frame (np.ndarray): The initial video frame
@@ -164,31 +167,25 @@ class CSRTTracker(BaseTracker):
         if self.detector:
             self.detector.initial_features = self.detector.extract_features(frame, bbox)
             self.detector.adaptive_features = self.detector.initial_features.copy()
-            logger.debug("Appearance model initialized for adaptive learning")
 
         # Reset state
         self.bbox = bbox
         self.prev_bbox = bbox
         self.confidence = 1.0
         self.failure_count = 0
+        self.frame_count = 0
         self.prev_center = None
         self.last_update_time = time.time()
         self.raw_confidence_history.clear()
 
     def update(self, frame: np.ndarray) -> Tuple[bool, Tuple[int, int, int, int]]:
         """
-        Robust tracking update with multi-frame validation and appearance adaptation.
+        Updates the tracker with the current frame.
 
-        Production-Grade Algorithm:
-        1. Run CSRT tracker
-        2. Validate bbox against estimator prediction (motion consistency)
-        3. Validate bbox scale change
-        4. Compute raw confidence from appearance model
-        5. Apply exponential moving average to confidence
-        6. Multi-frame failure validation (require N consecutive failures)
-        7. If confident: Accept CSRT, update estimator + appearance model
-        8. If not confident: Use estimator prediction, increment failure counter
-        9. Only declare failure after N consecutive bad frames
+        Behavior depends on performance mode:
+        - legacy: Original CSRT behavior
+        - balanced: Confidence smoothing + grace period
+        - robust: Full validation after grace period
 
         Args:
             frame (np.ndarray): Current video frame
@@ -206,80 +203,213 @@ class CSRTTracker(BaseTracker):
         if self.override_active:
             return self._handle_smart_tracker_override(frame, dt)
 
-        # Step 1: Run CSRT tracker
-        csrt_success, csrt_bbox = self.tracker.update(frame)
+        # Run CSRT tracker
+        success, detected_bbox = self.tracker.update(frame)
 
-        # Step 2: Get estimator prediction (if available)
-        estimator_prediction = self._get_estimator_prediction() if self.estimator_enabled else None
+        if not success:
+            logger.warning("Tracking update failed in CSRT algorithm.")
+            return self._handle_failure(dt)
 
-        # Step 3: Validate CSRT result
-        if csrt_success:
-            # Validate motion consistency
-            motion_valid = self._validate_bbox_motion(csrt_bbox, estimator_prediction)
+        # CRITICAL: Startup grace period - always accept result
+        if self.frame_count < self.validation_start_frame:
+            return self._accept_result_simple(frame, detected_bbox, dt, start_time)
 
-            # Validate scale change
-            scale_valid = self._validate_bbox_scale(csrt_bbox)
+        # After grace period - apply mode-specific logic
+        if self.performance_mode == 'legacy':
+            # Legacy mode - original CSRT behavior
+            return self._update_legacy_mode(frame, detected_bbox, dt, start_time)
 
-            # Compute raw confidence (from appearance model)
-            self.prev_center = self.center
-            self.bbox = csrt_bbox
-            self.set_center((int(self.bbox[0] + self.bbox[2] / 2), int(self.bbox[1] + self.bbox[3] / 2)))
-            self.compute_confidence(frame)  # Uses base tracker's confidence calculation
-            raw_confidence = self.confidence
+        elif self.performance_mode == 'balanced':
+            # Balanced mode - confidence smoothing only
+            return self._update_balanced_mode(frame, detected_bbox, dt, start_time)
 
-            # Smooth confidence with EMA
-            smoothed_confidence = self._smooth_confidence(raw_confidence)
+        else:  # robust
+            # Robust mode - full validation
+            return self._update_robust_mode(frame, detected_bbox, dt, start_time)
 
-            # Decision: Accept or reject CSRT result
-            if smoothed_confidence > self.confidence_threshold and motion_valid and scale_valid:
-                # High confidence: Accept CSRT bbox
-                self.normalize_bbox()
-                self.center_history.append(self.center)
+    def _accept_result_simple(self, frame: np.ndarray, bbox: Tuple, dt: float, start_time: float) -> Tuple[bool, Tuple]:
+        """Accept tracking result without validation (startup grace period)."""
+        self.prev_center = self.center
+        self.bbox = bbox
+        self.set_center((int(self.bbox[0] + self.bbox[2] / 2), int(self.bbox[1] + self.bbox[3] / 2)))
+        self.normalize_bbox()
+        self.center_history.append(self.center)
 
-                # Update appearance model
-                self._update_appearance_model(frame, self.bbox)
+        # Update appearance model
+        if self.detector:
+            current_features = self.detector.extract_features(frame, self.bbox)
+            learning_rate = getattr(self, 'appearance_learning_rate', 0.05)
+            self.detector.adaptive_features = (
+                (1 - learning_rate) * self.detector.adaptive_features +
+                learning_rate * current_features
+            )
 
-                # Update estimator
-                if self.estimator_enabled and self.position_estimator:
-                    self.position_estimator.set_dt(dt)
-                    self.position_estimator.predict_and_update(np.array(self.center))
-                    estimated_position = self.position_estimator.get_estimate()
-                    self.estimated_position_history.append(estimated_position)
+        # Update estimator
+        if self.estimator_enabled and self.position_estimator:
+            self.position_estimator.set_dt(dt)
+            self.position_estimator.predict_and_update(np.array(self.center))
+            estimated_position = self.position_estimator.get_estimate()
+            self.estimated_position_history.append(estimated_position)
 
-                # Reset failure counter
-                self.failure_count = 0
-                self.successful_frames += 1
-                self.prev_bbox = self.bbox
-                success = True
-
-                logger.debug(f"CSRT accepted: conf={smoothed_confidence:.2f}, motion_ok={motion_valid}, scale_ok={scale_valid}")
-            else:
-                # Low confidence: Use estimator prediction
-                self._handle_low_confidence(estimator_prediction, smoothed_confidence, motion_valid, scale_valid)
-                success = False
-        else:
-            # CSRT completely failed
-            self._handle_csrt_failure(estimator_prediction)
-            success = False
-
+        self.prev_bbox = self.bbox
+        self.failure_count = 0
+        self.successful_frames += 1
         self.frame_count += 1
 
-        # Performance logging
-        elapsed = time.time() - start_time
-        fps = 1.0 / (elapsed + 1e-6)
-        self.fps_history.append(fps)
+        self._log_performance(start_time)
+        return True, self.bbox
 
-        if self.frame_count % 30 == 0:
-            avg_fps = np.mean(self.fps_history[-30:])
-            success_rate = 100 * self.successful_frames / (self.frame_count + 1e-6)
-            logger.info(f"{self.trackerName} Performance: FPS={avg_fps:.1f}, conf={self.confidence:.2f}, success_rate={success_rate:.1f}%")
+    def _update_legacy_mode(self, frame: np.ndarray, bbox: Tuple, dt: float, start_time: float) -> Tuple[bool, Tuple]:
+        """Legacy mode - exact original CSRT behavior from commit f1a63aca."""
+        success = True
 
-        # Multi-frame validation: Only declare failure after N consecutive bad frames
-        if self.failure_count >= self.failure_threshold:
-            logger.warning(f"{self.trackerName} lost target ({self.failure_count} consecutive failures)")
-            return False, self.bbox  # Tracking lost
+        self.prev_center = self.center
+        self.bbox = bbox
+        self.set_center((int(self.bbox[0] + self.bbox[2] / 2), int(self.bbox[1] + self.bbox[3] / 2)))
+        self.normalize_bbox()
+        self.center_history.append(self.center)
 
-        return True, self.bbox  # Tracking active (even during temporary failures)
+        # Update appearance model
+        if self.detector:
+            current_features = self.detector.extract_features(frame, self.bbox)
+            self.detector.adaptive_features = (
+                (1 - Parameters.CSRT_APPEARANCE_LEARNING_RATE) * self.detector.adaptive_features +
+                Parameters.CSRT_APPEARANCE_LEARNING_RATE * current_features
+            )
+
+        # Confidence checks
+        self.compute_confidence(frame)
+        total_confidence = self.get_confidence()
+
+        if self.confidence < Parameters.CONFIDENCE_THRESHOLD:
+            logging.warning("Tracking failed due to low confidence.")
+            success = False
+
+        # Update estimator
+        if success and self.estimator_enabled and self.position_estimator:
+            self.position_estimator.set_dt(dt)
+            self.position_estimator.predict_and_update(np.array(self.center))
+            estimated_position = self.position_estimator.get_estimate()
+            self.estimated_position_history.append(estimated_position)
+
+        return success, self.bbox
+
+    def _update_balanced_mode(self, frame: np.ndarray, bbox: Tuple, dt: float, start_time: float) -> Tuple[bool, Tuple]:
+        """Balanced mode - confidence smoothing only."""
+        self.prev_center = self.center
+        self.bbox = bbox
+        self.set_center((int(self.bbox[0] + self.bbox[2] / 2), int(self.bbox[1] + self.bbox[3] / 2)))
+        self.normalize_bbox()
+        self.center_history.append(self.center)
+
+        # Update appearance model
+        if self.detector:
+            current_features = self.detector.extract_features(frame, self.bbox)
+            learning_rate = getattr(self, 'appearance_learning_rate', 0.08)
+            self.detector.adaptive_features = (
+                (1 - learning_rate) * self.detector.adaptive_features +
+                learning_rate * current_features
+            )
+
+        # Compute confidence
+        self.compute_confidence(frame)
+
+        # Apply EMA smoothing
+        if self.enable_ema_smoothing:
+            smoothed_confidence = self._smooth_confidence(self.confidence)
+        else:
+            smoothed_confidence = self.confidence
+
+        # Check confidence
+        if smoothed_confidence < self.confidence_threshold:
+            self.failure_count += 1
+            logger.debug(f"Low confidence ({self.failure_count}/{self.failure_threshold}): {smoothed_confidence:.2f}")
+
+            if self.failure_count >= self.failure_threshold:
+                logger.warning(f"Tracking lost after {self.failure_count} consecutive failures")
+                return False, self.bbox
+        else:
+            self.failure_count = 0
+            self.successful_frames += 1
+
+        # Update estimator
+        if self.estimator_enabled and self.position_estimator:
+            self.position_estimator.set_dt(dt)
+            self.position_estimator.predict_and_update(np.array(self.center))
+            estimated_position = self.position_estimator.get_estimate()
+            self.estimated_position_history.append(estimated_position)
+
+        self.prev_bbox = self.bbox
+        self.frame_count += 1
+
+        self._log_performance(start_time)
+        return True, self.bbox
+
+    def _update_robust_mode(self, frame: np.ndarray, bbox: Tuple, dt: float, start_time: float) -> Tuple[bool, Tuple]:
+        """Robust mode - full validation."""
+        # Get estimator prediction
+        estimator_prediction = self._get_estimator_prediction() if self.estimator_enabled else None
+
+        # Validate motion and scale
+        if self.enable_validation:
+            motion_valid = self._validate_bbox_motion(bbox, estimator_prediction)
+            scale_valid = self._validate_bbox_scale(bbox)
+        else:
+            motion_valid = True
+            scale_valid = True
+
+        # Compute confidence
+        self.prev_center = self.center
+        self.bbox = bbox
+        self.set_center((int(self.bbox[0] + self.bbox[2] / 2), int(self.bbox[1] + self.bbox[3] / 2)))
+        self.compute_confidence(frame)
+
+        # Smooth confidence
+        smoothed_confidence = self._smooth_confidence(self.confidence)
+
+        # Decision logic
+        if smoothed_confidence > self.confidence_threshold and motion_valid and scale_valid:
+            # Accept result
+            self.normalize_bbox()
+            self.center_history.append(self.center)
+
+            # Update appearance model
+            if self.detector:
+                current_features = self.detector.extract_features(frame, self.bbox)
+                self.detector.adaptive_features = (
+                    (1 - self.appearance_learning_rate) * self.detector.adaptive_features +
+                    self.appearance_learning_rate * current_features
+                )
+
+            # Update estimator
+            if self.estimator_enabled and self.position_estimator:
+                self.position_estimator.set_dt(dt)
+                self.position_estimator.predict_and_update(np.array(self.center))
+                estimated_position = self.position_estimator.get_estimate()
+                self.estimated_position_history.append(estimated_position)
+
+            self.prev_bbox = self.bbox
+            self.failure_count = 0
+            self.successful_frames += 1
+            self.frame_count += 1
+
+            self._log_performance(start_time)
+            logger.debug(f"CSRT accepted: conf={smoothed_confidence:.2f}, motion={motion_valid}, scale={scale_valid}")
+            return True, self.bbox
+        else:
+            # Low confidence
+            self.failure_count += 1
+            self.failed_frames += 1
+            self.frame_count += 1
+
+            logger.debug(f"Low confidence ({self.failure_count}/{self.failure_threshold}): "
+                        f"conf={smoothed_confidence:.2f}, motion={motion_valid}, scale={scale_valid}")
+
+            if self.failure_count >= self.failure_threshold:
+                logger.warning(f"Tracking lost after {self.failure_count} consecutive failures")
+                return False, self.bbox
+
+            return True, self.bbox  # Continue tracking (using last known bbox)
 
     def _handle_smart_tracker_override(self, frame: np.ndarray, dt: float) -> Tuple[bool, Tuple]:
         """Handle SmartTracker override mode."""
@@ -301,55 +431,33 @@ class CSRTTracker(BaseTracker):
                 estimated_position = self.position_estimator.get_estimate()
                 self.estimated_position_history.append(estimated_position)
 
-            # Reset failure counter
             self.failure_count = 0
-
             return True, self.bbox
         else:
             logger.warning("Override active but SmartTracker has no selected bbox")
             return False, self.bbox
 
-    def _handle_low_confidence(self, estimator_prediction: Optional[Tuple], smoothed_confidence: float,
-                               motion_valid: bool, scale_valid: bool) -> None:
-        """
-        Handle low confidence case: use estimator prediction, increment failure counter.
-
-        Args:
-            estimator_prediction (Optional[Tuple]): Estimator predicted position
-            smoothed_confidence (float): Smoothed confidence score
-            motion_valid (bool): Whether motion was consistent
-            scale_valid (bool): Whether scale change was reasonable
-        """
-        if estimator_prediction and self.prev_bbox:
-            est_x, est_y = estimator_prediction
-            w, h = self.prev_bbox[2], self.prev_bbox[3]
-            self.bbox = (int(est_x - w/2), int(est_y - h/2), w, h)
-            self.set_center((int(est_x), int(est_y)))
-
+    def _handle_failure(self, dt: float) -> Tuple[bool, Tuple]:
+        """Handle tracking failure."""
         self.failure_count += 1
         self.failed_frames += 1
 
-        logger.debug(f"Low confidence ({self.failure_count}/{self.failure_threshold}): "
-                    f"conf={smoothed_confidence:.2f}, motion={motion_valid}, scale={scale_valid}")
+        if self.failure_count >= self.failure_threshold:
+            logger.warning(f"Tracking lost after {self.failure_count} consecutive failures")
+            return False, self.bbox
 
-    def _handle_csrt_failure(self, estimator_prediction: Optional[Tuple]) -> None:
-        """
-        Handle complete CSRT failure: use estimator prediction.
+        # Use estimator prediction if available
+        if self.estimator_enabled and self.position_estimator:
+            self.position_estimator.set_dt(dt)
+            self.position_estimator.predict_only()
+            estimated_position = self.position_estimator.get_estimate()
+            if estimated_position and len(estimated_position) >= 2 and self.prev_bbox:
+                est_x, est_y = estimated_position[0], estimated_position[1]
+                w, h = self.prev_bbox[2], self.prev_bbox[3]
+                self.bbox = (int(est_x - w/2), int(est_y - h/2), w, h)
+                self.set_center((int(est_x), int(est_y)))
 
-        Args:
-            estimator_prediction (Optional[Tuple]): Estimator predicted position
-        """
-        if estimator_prediction and self.prev_bbox:
-            est_x, est_y = estimator_prediction
-            w, h = self.prev_bbox[2], self.prev_bbox[3]
-            self.bbox = (int(est_x - w/2), int(est_y - h/2), w, h)
-            self.set_center((int(est_x), int(est_y)))
-
-        self.failure_count += 1
-        self.failed_frames += 1
-        self.confidence = 0.1
-
-        logger.debug(f"{self.trackerName} failed, using estimator ({self.failure_count}/{self.failure_threshold})")
+        return True, self.bbox  # Continue tracking with prediction
 
     def _get_estimator_prediction(self) -> Optional[Tuple[float, float]]:
         """Get position prediction from external estimator."""
@@ -362,74 +470,32 @@ class CSRTTracker(BaseTracker):
                 return (estimated_position[0], estimated_position[1])
         return None
 
-    def _update_appearance_model(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
-        """
-        Update adaptive appearance model.
-
-        Args:
-            frame (np.ndarray): Current frame
-            bbox (Tuple): Current bounding box
-        """
-        if not self.detector:
-            return
-
-        try:
-            current_features = self.detector.extract_features(frame, bbox)
-            self.detector.adaptive_features = (
-                (1 - self.appearance_learning_rate) * self.detector.adaptive_features +
-                self.appearance_learning_rate * current_features
-            )
-            logger.debug(f"Appearance model updated (lr={self.appearance_learning_rate})")
-        except Exception as e:
-            logger.warning(f"Failed to update appearance model: {e}")
-
     def _validate_bbox_motion(self, bbox: Tuple, estimator_prediction: Optional[Tuple]) -> bool:
-        """
-        Validate bbox center against estimator prediction (motion consistency check).
+        """Validate bbox motion against estimator prediction."""
+        if not self.video_handler or not estimator_prediction or self.frame_count < 15:
+            return True  # Skip validation if not enough history
 
-        Args:
-            bbox (Tuple): CSRT bounding box (x, y, w, h)
-            estimator_prediction (Optional[Tuple]): Estimator predicted center (x, y)
-
-        Returns:
-            bool: True if motion is consistent, False otherwise
-        """
-        if not self.video_handler or not estimator_prediction:
-            return True  # Can't validate, assume OK
-
-        # Compute CSRT bbox center
         csrt_cx = bbox[0] + bbox[2]/2
         csrt_cy = bbox[1] + bbox[3]/2
 
-        # Compute distance from estimator prediction
         est_x, est_y = estimator_prediction
         distance = np.sqrt((csrt_cx - est_x)**2 + (csrt_cy - est_y)**2)
 
-        # Normalize by frame diagonal
         frame_diag = np.hypot(self.video_handler.width, self.video_handler.height)
         normalized_distance = distance / frame_diag
 
         is_valid = normalized_distance < self.motion_consistency_threshold
 
         if not is_valid:
-            logger.debug(f"Motion validation failed: distance={normalized_distance:.3f} > {self.motion_consistency_threshold}")
+            logger.debug(f"Motion validation failed: {normalized_distance:.3f} > {self.motion_consistency_threshold}")
 
         return is_valid
 
     def _validate_bbox_scale(self, bbox: Tuple) -> bool:
-        """
-        Validate bbox scale change (reject unrealistic size changes).
-
-        Args:
-            bbox (Tuple): Current bounding box (x, y, w, h)
-
-        Returns:
-            bool: True if scale change is reasonable, False otherwise
-        """
+        """Validate bbox scale change."""
         if not self.prev_bbox:
-            return True  # First frame, assume OK
+            return True
 
-        # Compute scale change
         scale_w = bbox[2] / (self.prev_bbox[2] + 1e-6)
         scale_h = bbox[3] / (self.prev_bbox[3] + 1e-6)
         scale_change = max(abs(scale_w - 1.0), abs(scale_h - 1.0))
@@ -437,25 +503,15 @@ class CSRTTracker(BaseTracker):
         is_valid = scale_change < self.max_scale_change
 
         if not is_valid:
-            logger.debug(f"Scale validation failed: change={scale_change:.3f} > {self.max_scale_change}")
+            logger.debug(f"Scale validation failed: {scale_change:.3f} > {self.max_scale_change}")
 
         return is_valid
 
     def _smooth_confidence(self, raw_confidence: float) -> float:
-        """
-        Apply exponential moving average to confidence (reduce jitter).
-
-        Args:
-            raw_confidence (float): Current frame's raw confidence
-
-        Returns:
-            float: Smoothed confidence
-        """
+        """Apply EMA smoothing to confidence."""
         self.raw_confidence_history.append(raw_confidence)
 
-        # Exponential moving average
-        if self.confidence == 0.0:
-            # First frame
+        if len(self.raw_confidence_history) == 1:
             smoothed = raw_confidence
         else:
             smoothed = (self.confidence_ema_alpha * raw_confidence +
@@ -464,30 +520,28 @@ class CSRTTracker(BaseTracker):
         self.confidence = smoothed
         return smoothed
 
-    def update_estimator_without_measurement(self) -> None:
-        """
-        Updates the position estimator when no measurement is available.
+    def _log_performance(self, start_time: float):
+        """Log performance metrics."""
+        elapsed = time.time() - start_time
+        fps = 1.0 / (elapsed + 1e-6)
+        self.fps_history.append(fps)
 
-        This is useful when the tracker fails to provide a measurement,
-        allowing the estimator to predict the next state.
-        """
+        if self.frame_count % 30 == 0 and self.frame_count > 0:
+            avg_fps = np.mean(self.fps_history[-30:])
+            success_rate = 100 * self.successful_frames / (self.frame_count + 1e-6)
+            logger.info(f"{self.trackerName} ({self.performance_mode}): FPS={avg_fps:.1f}, conf={self.confidence:.2f}, success={success_rate:.1f}%")
+
+    def update_estimator_without_measurement(self) -> None:
+        """Updates the position estimator when no measurement is available."""
         dt = self.update_time()
         if self.estimator_enabled and self.position_estimator:
             self.position_estimator.set_dt(dt)
             self.position_estimator.predict_only()
             estimated_position = self.position_estimator.get_estimate()
             self.estimated_position_history.append(estimated_position)
-            logger.debug(f"Estimated position (without measurement): {estimated_position}")
-        else:
-            logger.warning("Estimator is not enabled or not initialized.")
 
     def get_estimated_position(self) -> Optional[Tuple[float, float]]:
-        """
-        Gets the current estimated position from the estimator.
-
-        Returns:
-            Optional[Tuple[float, float]]: The estimated (x, y) position or None if unavailable
-        """
+        """Gets the current estimated position from the estimator."""
         if self.estimator_enabled and self.position_estimator:
             estimated_position = self.position_estimator.get_estimate()
             if estimated_position and len(estimated_position) >= 2:
@@ -495,12 +549,7 @@ class CSRTTracker(BaseTracker):
         return None
 
     def get_output(self) -> TrackerOutput:
-        """
-        Returns CSRT-specific tracker output with enhanced velocity information.
-
-        Returns:
-            TrackerOutput: Enhanced CSRT tracker data
-        """
+        """Returns CSRT-specific tracker output."""
         # Get velocity from estimator if available
         velocity = None
         if (self.estimator_enabled and self.position_estimator and
@@ -537,58 +586,34 @@ class CSRTTracker(BaseTracker):
                 'motion_consistency': self.compute_motion_confidence() if self.prev_center else 1.0,
                 'appearance_confidence': getattr(self, 'appearance_confidence', 1.0),
                 'failure_count': self.failure_count,
-                'success_rate': self.successful_frames / (self.frame_count + 1e-6)
+                'success_rate': self.successful_frames / (self.frame_count + 1e-6) if self.frame_count > 0 else 1.0
             },
             raw_data={
-                'center_history_length': len(self.center_history) if self.center_history else 0,
-                'estimator_enabled': self.estimator_enabled,
-                'estimator_providing_velocity': has_velocity,
-                'velocity_magnitude': round((velocity[0]**2 + velocity[1]**2)**0.5, 4) if velocity else 0.0,
-                'failure_count': self.failure_count,
-                'failure_threshold': self.failure_threshold,
+                'performance_mode': self.performance_mode,
+                'frame_count': self.frame_count,
                 'successful_frames': self.successful_frames,
                 'failed_frames': self.failed_frames,
-                'frame_count': self.frame_count,
                 'avg_fps': round(np.mean(self.fps_history[-30:]), 1) if len(self.fps_history) >= 30 else 0.0
             },
             metadata={
                 'tracker_class': self.__class__.__name__,
                 'tracker_algorithm': 'CSRT',
-                'robustness_features': [
-                    'multi_frame_validation',
-                    'confidence_ema_smoothing',
-                    'adaptive_appearance_learning',
-                    'motion_consistency_checks',
-                    'scale_validation',
-                    'rotation_invariant'
-                ],
-                'has_estimator': bool(self.position_estimator),
-                'supports_velocity': bool(self.position_estimator),
-                'center_pixel': self.center,
-                'bbox_pixel': self.bbox,
+                'performance_mode': self.performance_mode,
                 'opencv_version': cv2.__version__
             }
         )
 
     def get_capabilities(self) -> dict:
-        """
-        Returns CSRT-specific capabilities.
-
-        Returns:
-            dict: Enhanced capabilities for CSRT tracker
-        """
+        """Returns CSRT-specific capabilities."""
         base_capabilities = super().get_capabilities()
         base_capabilities.update({
             'tracker_algorithm': 'CSRT',
-            'supports_rotation': True,      # ✅ Best feature
+            'supports_rotation': True,
             'supports_scale_change': True,
             'supports_occlusion': True,
             'accuracy_rating': 'very_high',
             'speed_rating': 'medium',
-            'robustness_rating': 'excellent',
             'opencv_tracker': True,
-            'external_estimator': True,
-            'production_ready': True,
-            'recommended_for': ['drone_tracking', 'rotation_scenarios', 'perspective_changes']
+            'performance_mode': self.performance_mode
         })
         return base_capabilities

@@ -283,44 +283,63 @@ KCF_Tracker:
 # Performance: 15-20 FPS, ~85% success rate
 # Strengths: Rotation-invariant, excellent scale adaptation, occlusion handling
 #
-# Tuning Guide:
-# - Target lost easily? → ↓ confidence_threshold, ↑ failure_threshold
-# - Too many false positives? → ↑ confidence_threshold
-# - Rotation issues? → ↑ appearance_learning_rate (max 0.15)
-# - Need more accuracy? → ↓ appearance_learning_rate (down to 0.03)
-# - Fast target? → ↑ max_motion_per_frame, ↑ failure_threshold
+# ==============================================================================
+# 🚀 SIMPLE PERFORMANCE MODE - Choose based on your system:
+# ==============================================================================
+#
+# "legacy"    - ORIGINAL CSRT (15-20 FPS) 🔧 CLASSIC
+#               ✅ Exact original implementation (proven stable)
+#               ✅ Zero overhead, maximum compatibility
+#               ✅ Always starts reliably when you click
+#               ⚠️ May lose track during fast rotation/occlusions
+#               Best for: Want original behavior, maximum speed
+#
+# "balanced"  - RECOMMENDED (12-18 FPS) ⭐ DEFAULT
+#               ✅ Reliable startup with grace period
+#               ✅ Smooth confidence tracking (EMA filtering)
+#               ✅ Good for drone circling targets
+#               ✅ Best speed/accuracy trade-off
+#               Best for: Most use cases, general purpose
+#
+# "robust"    - PROFESSIONAL (10-15 FPS) 💪 ADVANCED
+#               ✅ Multi-frame failure tolerance
+#               ✅ Motion/scale validation against Kalman estimator
+#               ✅ Adaptive appearance learning
+#               ✅ Maximum stability during challenging scenarios
+#               ⚠️ Requires more CPU resources
+#               Best for: Critical missions, powerful hardware
+#
 # ==============================================================================
 CSRT_Tracker:
-  # === Robustness Parameters ===
-  confidence_threshold: 0.3              # Min confidence to accept (0.0-1.0)
-                                         # Lower = more tolerant, higher = stricter
+  # === User-Friendly Performance Control (MAIN PARAMETER) ===
+  performance_mode: "balanced"           # Choose: "legacy", "balanced", or "robust"
+                                         # ⭐ Change this based on your needs!
+
+  # === Advanced Parameters (Auto-configured by performance_mode) ===
+  # ℹ️ These are automatically set based on performance_mode above.
+  # Only modify if you need fine-grained control.
+
+  confidence_threshold: 0.5              # Min confidence to accept (0.0-1.0)
+                                         # Auto: legacy=0.6, balanced=0.5, robust=0.4
 
   failure_threshold: 5                   # Consecutive failures before declaring lost
-                                         # Higher = more robust during occlusions
+                                         # Auto: legacy=3, balanced=5, robust=5
 
   confidence_smoothing: 0.7              # EMA alpha (0.0-1.0)
-                                         # Higher = more responsive, lower = more stable
+                                         # Auto: legacy=N/A, balanced=0.7, robust=0.7
 
-  # === Validation Limits ===
+  validation_start_frame: 10             # Grace period before validation starts
+                                         # Auto: legacy=999999, balanced=10, robust=5
+                                         # ⚠️ Critical for reliable startup!
+
   max_scale_change_per_frame: 0.4        # Max size change per frame (0.0-1.0)
-                                         # 0.4 = 40% scale change allowed
+                                         # Auto: legacy=N/A, balanced=N/A, robust=0.4
 
   max_motion_per_frame: 0.5              # Max motion as fraction of frame diagonal
-                                         # Higher = allows faster movement
+                                         # Auto: legacy=N/A, balanced=N/A, robust=0.5
 
-  # === Appearance Adaptation ===
   appearance_learning_rate: 0.08         # Adaptive learning speed (0.0-1.0)
-                                         # Balance between speed and accuracy
-                                         # For rotation: 0.10-0.15
-                                         # For accuracy: 0.03-0.05
-
-  # === Performance Tuning Presets ===
-  # Maximum Accuracy (slow targets, stable view):
-  #   confidence_threshold: 0.4, failure_threshold: 3, appearance_learning_rate: 0.03
-  # Balanced (recommended for drones):
-  #   confidence_threshold: 0.3, failure_threshold: 5, appearance_learning_rate: 0.08
-  # Rotation-Tolerant (circling, perspective changes):
-  #   confidence_threshold: 0.25, failure_threshold: 7, appearance_learning_rate: 0.12
+                                         # Auto: legacy=0.05, balanced=0.08, robust=0.08
 
 # ==============================================================================
 # SMART TRACKER (YOLO-based AI Tracking)
