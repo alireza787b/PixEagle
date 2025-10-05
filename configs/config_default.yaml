@@ -888,7 +888,7 @@ PID:
     thrust: {p: 0.1, i: 3, d: 1}
     vel_body_right: {p: 3.0, i: 0.1, d: 0.4}
     vel_body_down: {p: 4.0, i: 0.5, d: 0.3}
-    yawspeed_deg_s: {p: 1.5, i: 0.05, d: 0.2}  # Yaw rate (coordinated turn mode)
+    yawspeed_deg_s: {p: 0.4, i: 0.01, d: 0.4}  # Yaw rate (coordinated turn mode)
   # === Advanced PID Features ===
   PROPORTIONAL_ON_MEASUREMENT: false        # Avoid derivative kick
   ENABLE_ANTI_WINDUP: true                  # Prevent integral windup
@@ -906,7 +906,7 @@ VelocityDescent:
     vel_body_fwd: 15.0
     vel_body_right: 8.0  
     vel_body_down: 5.0
-    yawspeed_deg_s: 180.0
+    yawspeed_deg_s: 10.0
   
   # === Altitude Control ===
   ENABLE_DESCEND_TO_TARGET: false          # Follow target down
