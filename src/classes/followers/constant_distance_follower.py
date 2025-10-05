@@ -98,7 +98,9 @@ class ConstantDistanceFollower(BaseFollower):
         self.max_climb_height = config.get('MAX_CLIMB_HEIGHT', 120.0)
         self.max_vertical_velocity = config.get('MAX_VERTICAL_VELOCITY', 5.0)
         self.max_lateral_velocity = config.get('MAX_LATERAL_VELOCITY', 10.0)
-        self.max_yaw_rate = config.get('MAX_YAW_RATE', 10.0)
+        from math import radians
+        # Internal rad/s; convert deg/s config to rad/s default
+        self.max_yaw_rate = config.get('MAX_YAW_RATE', radians(45.0))
         self.yaw_control_threshold = config.get('YAW_CONTROL_THRESHOLD', 0.3)
         self.target_lost_timeout = config.get('TARGET_LOST_TIMEOUT', 3.0)
         self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
@@ -155,7 +157,7 @@ class ConstantDistanceFollower(BaseFollower):
                 output_limits=(-self.max_vertical_velocity, self.max_vertical_velocity)
             )
             
-            # Initialize yaw PID controller if enabled
+            # Initialize yaw PID controller if enabled (internal rad/s)
             if self.yaw_enabled:
                 self.pid_yaw_rate = CustomPID(
                     *self._get_pid_gains('yaw_rate'),
@@ -359,13 +361,19 @@ class ConstantDistanceFollower(BaseFollower):
             vel_x = 0.0  # Fixed at zero for constant distance
             vel_y = self.pid_y(error_x)  # Lateral movement
             vel_z = self._control_altitude_bidirectional(error_y)  # Altitude control
-            yaw_rate = self._calculate_yaw_control(error_x)  # Optional yaw control
+            yaw_rate = self._calculate_yaw_control(error_x)  # Optional yaw control (rad/s internal)
             
-            # Update command fields using schema-aware interface
-            success_x = self.set_command_field('vel_x', vel_x)
-            success_y = self.set_command_field('vel_y', vel_y)
-            success_z = self.set_command_field('vel_z', vel_z)
-            success_yaw = self.set_command_field('yaw_rate', yaw_rate)
+            # Update command fields using schema-aware interface (body offboard with deg/s yaw)
+            from math import degrees
+            vel_body_fwd = 0.0
+            vel_body_right = vel_y
+            vel_body_down = -vel_z  # body down positive
+            yawspeed_deg_s = degrees(yaw_rate)
+
+            success_x = self.set_command_field('vel_body_fwd', vel_body_fwd)
+            success_y = self.set_command_field('vel_body_right', vel_body_right)
+            success_z = self.set_command_field('vel_body_down', vel_body_down)
+            success_yaw = self.set_command_field('yawspeed_deg_s', yawspeed_deg_s)
             
             # Validate command updates
             if not all([success_x, success_y, success_z, success_yaw]):
@@ -375,8 +383,8 @@ class ConstantDistanceFollower(BaseFollower):
             logger.debug(f"Control commands calculated - "
                         f"Target: {target_coords}, "
                         f"Errors: ({error_x:.3f}, {error_y:.3f}), "
-                        f"Commands: vel_x={vel_x:.3f}, vel_y={vel_y:.3f}, "
-                        f"vel_z={vel_z:.3f}, yaw_rate={yaw_rate:.3f}")
+                        f"Commands: fwd={vel_body_fwd:.3f}, right={vel_body_right:.3f}, "
+                        f"down={vel_body_down:.3f}, yaw_deg_s={yawspeed_deg_s:.1f}")
             
             # Update telemetry metadata
             self.update_telemetry_metadata('last_control_update', datetime.utcnow().isoformat())

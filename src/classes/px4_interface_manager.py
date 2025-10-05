@@ -240,61 +240,7 @@ class PX4InterfaceManager:
         return self.current_ground_speed
 
 
-    async def send_body_velocity_commands(self):
-        """
-        Sends body frame velocity commands to the drone in offboard mode, based on the active profile.
-        This operation uses MAVSDK.
-        """
-        setpoint = self.setpoint_handler.get_fields()
-        try:
-            if setpoint is None:
-                logger.error("Setpoint is None, cannot send commands.")
-                return
-
-            # Initialize variables to zero for the fields that might not be present
-            vx, vy, vz, yaw_rate = 0.0, 0.0, 0.0, 0.0
-            
-            # Update values only if they are present in the current profile's setpoints
-            if 'vel_x' in setpoint:
-                vx = float(setpoint['vel_x'])
-            if 'vel_y' in setpoint:
-                vy = float(setpoint['vel_y'])
-            if 'vel_z' in setpoint:
-                vz = float(setpoint['vel_z'])
-            if 'yaw_rate' in setpoint:
-                yaw_rate = float(setpoint['yaw_rate'])
-
-            logger.debug(f"Setting VELOCITY_BODY setpoint: Vx={vx}, Vy={vy}, Vz={vz}, Yaw rate={yaw_rate}")
-
-            # Circuit breaker check - log instead of executing when testing
-            if CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active():
-                FollowerCircuitBreaker.log_command_instead_of_execute(
-                    command_type="velocity_body",
-                    follower_name="PX4Interface",
-                    vx=vx, vy=vy, vz=vz, yaw_rate=yaw_rate
-                )
-                return
-
-            # Track allowed command when circuit breaker is inactive
-            if CIRCUIT_BREAKER_AVAILABLE:
-                FollowerCircuitBreaker.log_command_allowed(
-                    command_type="velocity_body",
-                    follower_name="PX4Interface",
-                    vx=vx, vy=vy, vz=vz, yaw_rate=yaw_rate
-                )
-
-            # Send the velocity commands to the drone
-            next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_rate)
-            await self._safe_mavsdk_call(
-                self.drone.offboard.set_velocity_body(next_setpoint)
-            )
-
-        except OffboardError as e:
-            logger.error(f"Failed to send offboard velocity command: {e}")
-        except ValueError as ve:
-            logger.error(f"ValueError: An error occurred while processing setpoint: {ve}")
-        except Exception as ex:
-            logger.error(f"An unexpected error occurred: {ex}")
+    # Removed legacy send_body_velocity_commands; using enhanced version below
             
     async def send_attitude_rate_commands(self):
         """
@@ -336,8 +282,13 @@ class PX4InterfaceManager:
                     roll_rate=roll_rate, pitch_rate=pitch_rate, yaw_rate=yaw_rate, thrust=thrust
                 )
 
+            # Convert internal rad/s to MAVSDK degrees/s
+            roll_deg_s = math.degrees(roll_rate)
+            pitch_deg_s = math.degrees(pitch_rate)
+            yaw_deg_s = math.degrees(yaw_rate)
+
             # Send the attitude rate commands to the drone
-            next_setpoint = AttitudeRate(roll_rate, pitch_rate, yaw_rate, thrust)
+            next_setpoint = AttitudeRate(roll_deg_s, pitch_deg_s, yaw_deg_s, thrust)
             await self.drone.offboard.set_attitude_rate(next_setpoint)
 
         except OffboardError as e:
@@ -578,6 +529,8 @@ class PX4InterfaceManager:
             vy = float(setpoint.get('vel_y', 0.0))
             vz = float(setpoint.get('vel_z', 0.0))
             yaw_rate = float(setpoint.get('yaw_rate', 0.0))
+            # Convert internal rad/s to degrees/s for MAVSDK
+            yaw_for_mavsdk = math.degrees(yaw_rate)
 
             logger.debug(f"Sending VELOCITY_BODY: Vx={vx:.3f}, Vy={vy:.3f}, Vz={vz:.3f}, Yaw_rate={yaw_rate:.3f}")
 
@@ -587,7 +540,7 @@ class PX4InterfaceManager:
 
             # Send the velocity commands to the drone
             from mavsdk.offboard import VelocityBodyYawspeed, OffboardError
-            next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_rate)
+            next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_for_mavsdk)
             await self._safe_mavsdk_call(
                 self.drone.offboard.set_velocity_body(next_setpoint)
             )

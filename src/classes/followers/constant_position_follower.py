@@ -117,7 +117,9 @@ class ConstantPositionFollower(BaseFollower):
         self.min_descent_height = config.get('MIN_DESCENT_HEIGHT', 3.0)
         self.max_climb_height = config.get('MAX_CLIMB_HEIGHT', 120.0)
         self.max_vertical_velocity = config.get('MAX_VERTICAL_VELOCITY', 3.0)
-        self.max_yaw_rate = config.get('MAX_YAW_RATE', 45.0)
+        # Internal unit is rad/s; assume config value is in deg/s if not specified and convert
+        from math import radians
+        self.max_yaw_rate = config.get('MAX_YAW_RATE', radians(45.0))
         self.yaw_control_threshold = config.get('YAW_CONTROL_THRESHOLD', 0.05)
         self.target_lost_timeout = config.get('TARGET_LOST_TIMEOUT', 3.0)
         self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
@@ -299,13 +301,17 @@ class ConstantPositionFollower(BaseFollower):
                 logger.debug("Altitude control disabled, vel_z = 0")
             
             # === APPLY COMMANDS USING SCHEMA-AWARE METHODS ===
-            # Set altitude command
-            if not self.set_command_field('vel_z', vel_z_command):
-                raise RuntimeError("Failed to set vel_z command")
-            
-            # Set yaw rate command  
-            if not self.set_command_field('yaw_rate', yaw_rate_command):
-                raise RuntimeError("Failed to set yaw_rate command")
+            # Schema now uses velocity_body_offboard with yawspeed_deg_s and vel_body_down
+            # Convert internal commands to schema fields
+            from math import degrees
+            yawspeed_deg_s = degrees(yaw_rate_command)
+            vel_body_down = -vel_z_command  # schema/body frame uses positive down
+
+            if not self.set_command_field('vel_body_down', vel_body_down):
+                raise RuntimeError("Failed to set vel_body_down command")
+
+            if not self.set_command_field('yawspeed_deg_s', yawspeed_deg_s):
+                raise RuntimeError("Failed to set yawspeed_deg_s command")
             
             # Update statistics
             self._control_statistics['pid_updates'] += 1
@@ -485,11 +491,15 @@ class ConstantPositionFollower(BaseFollower):
         """
         try:
             fields = self.get_all_command_fields()
-            vel_z = fields.get('vel_z', 0.0)
-            yaw_rate = fields.get('yaw_rate', 0.0)
+            # Translate body-offboard fields to a readable summary
+            vel_body_down = fields.get('vel_body_down', 0.0)
+            yawspeed_deg_s = fields.get('yawspeed_deg_s', 0.0)
+            # Derive conventional signs/units for display
+            vel_z = -vel_body_down
+            yaw_rate = yawspeed_deg_s
             
             status = f"ConstantPosition: "
-            status += f"Yaw={yaw_rate:.3f}rad/s, "
+            status += f"Yaw={yaw_rate:.1f}deg/s, "
             status += f"Alt={'EN' if self.altitude_control_enabled else 'DIS'}"
             if self.altitude_control_enabled:
                 status += f"({vel_z:.3f}m/s)"

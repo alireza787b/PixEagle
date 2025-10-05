@@ -112,8 +112,8 @@ command_fields:
     unit: "deg/s"
     description: "Yaw angular rate in degrees per second (Body offboard mode)"
     limits:
-      min: -90.0
-      max: 90.0
+      min: -10.0
+      max: 10.0
     clamp: true
   
   # === Attitude Rate Control Fields ===
@@ -178,8 +178,9 @@ follower_profiles:
   constant_distance:
     display_name: "Constant Distance"
     description: "Maintains constant distance while following target"
-    control_type: "velocity_body"
-    required_fields: ["vel_x", "vel_y", "vel_z", "yaw_rate"]
+    control_type: "velocity_body_offboard"
+    # Use MAVSDK-native body velocity fields and degrees/sec for yaw
+    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     optional_fields: []
     ui_category: "velocity"
     
@@ -187,8 +188,10 @@ follower_profiles:
   constant_position:
     display_name: "Constant Position"
     description: "Maintains position, only yaw and altitude control"
-    control_type: "velocity_body"
-    required_fields: ["vel_z", "yaw_rate"]
+    control_type: "velocity_body_offboard"
+    # Use MAVSDK-native body velocity fields and degrees/sec for yaw
+    # vel_body_down is positive down; follower must negate its up-positive command
+    required_fields: ["vel_body_down", "yawspeed_deg_s"]
     optional_fields: []
     ui_category: "velocity"
     
