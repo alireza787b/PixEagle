@@ -163,7 +163,7 @@ class ConstantPositionFollower(BaseFollower):
             self.pid_yaw_rate = CustomPID(
                 *yaw_gains,
                 setpoint=setpoint_x,
-                output_limits=(-self.max_yaw_rate, self.    )
+                output_limits=(-self.max_yaw_rate, self.max_yaw_rate)
             )
             logger.debug(f"Yaw rate PID initialized with gains {yaw_gains}, setpoint {setpoint_x}")
             
@@ -299,7 +299,7 @@ class ConstantPositionFollower(BaseFollower):
                 logger.debug(f"Altitude control: error={altitude_error:.3f}, command={vel_z_command:.3f}")
             else:
                 logger.debug("Altitude control disabled, vel_z = 0")
-            # Temporary Fix untill currect unified yaw_rate and velocity_body yawspeed_deg_s
+            
             # === APPLY COMMANDS USING SCHEMA-AWARE METHODS ===
             # Schema now uses velocity_body_offboard with yawspeed_deg_s and vel_body_down
             # Convert internal commands to schema fields
