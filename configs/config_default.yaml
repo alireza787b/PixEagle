@@ -584,11 +584,11 @@ CONSTANT_POSITION:
   MAX_VERTICAL_VELOCITY: 3.0              # Max vertical velocity (m/s)
 
   # === Yaw Control ===
-  MAX_YAW_RATE: 45.0                      # Max yaw rate (deg/s)
+  MAX_YAW_RATE: 10.0                      # Max yaw rate (deg/s)
   YAW_CONTROL_THRESHOLD: 0.02             # Dead zone threshold (normalized)
 
   # === Safety & Performance ===
-  TARGET_LOST_TIMEOUT: 3.0                # Target loss timeout (seconds)
+  TARGET_LOST_TIMEOUT: 2.0                # Target loss timeout (seconds)
   CONTROL_UPDATE_RATE: 20.0               # Control loop frequency (Hz)
   COMMAND_SMOOTHING_ENABLED: true         # Enable velocity smoothing
   SMOOTHING_FACTOR: 0.8                   # Smoothing coefficient (0-1)
@@ -884,7 +884,7 @@ PID:
     z: {p: 2, i: 0.03, d: 0.05}            # Vertical
     roll_rate: {p: 1, i: 0.05, d: 0.2}
     pitch_rate: {p: 20, i: 0.1, d: 0.4}
-    yaw_rate: {p: 2.7, i: 0.1, d: 0.01}
+    yaw_rate: {p: 1.0, i: 0.05, d: 0.1}
     thrust: {p: 0.1, i: 3, d: 1}
     vel_body_right: {p: 3.0, i: 0.1, d: 0.4}
     vel_body_down: {p: 4.0, i: 0.5, d: 0.3}
