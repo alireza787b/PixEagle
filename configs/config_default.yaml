@@ -142,7 +142,7 @@ Streaming:
   # === Stream Quality Settings ===
   STREAM_WIDTH: 640               # Output resolution
   STREAM_HEIGHT: 480              
-  STREAM_FPS: 10                  # Target FPS (actual may vary)
+  STREAM_FPS: 15                  # Target FPS (actual may vary)
   STREAM_QUALITY: 50              # Default JPEG quality (0-100)
   STREAM_PROCESSED_OSD: true      # Include overlays
   
