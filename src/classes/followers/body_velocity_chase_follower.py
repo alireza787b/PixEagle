@@ -119,7 +119,6 @@ class BodyVelocityChaseFollower(BaseFollower):
         self.ramp_down_on_target_loss = config.get('RAMP_DOWN_ON_TARGET_LOSS', True)
         self.target_loss_timeout = config.get('TARGET_LOSS_TIMEOUT', 2.0)
         self.enable_altitude_control = config.get('ENABLE_ALTITUDE_CONTROL', True)
-        self.enable_yaw_integration = config.get('ENABLE_YAW_INTEGRATION', False)
         self.lateral_guidance_mode = config.get('LATERAL_GUIDANCE_MODE', 'coordinated_turn')
         self.guidance_mode_switch_velocity = config.get('GUIDANCE_MODE_SWITCH_VELOCITY', 3.0)
         self.enable_auto_mode_switching = config.get('ENABLE_AUTO_MODE_SWITCHING', False)

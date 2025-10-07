@@ -532,14 +532,13 @@ GimbalFollower:
 BODY_VELOCITY_CHASE:
   # === Forward Velocity Ramping ===
   INITIAL_FORWARD_VELOCITY: 0.0           # m/s - starting velocity
-  MAX_FORWARD_VELOCITY: 8.0               # m/s - maximum chase speed
-  FORWARD_RAMP_RATE: 2.0                  # m/s² - acceleration rate
+  MAX_FORWARD_VELOCITY: 0.5               # m/s - maximum chase speed
+  FORWARD_RAMP_RATE: 0.5                 # m/s² - acceleration rate
   RAMP_DOWN_ON_TARGET_LOSS: true          # Decelerate when target lost
   TARGET_LOSS_TIMEOUT: 2.0                # seconds before ramp down starts
   
   # === Control Enablement ===
-  ENABLE_ALTITUDE_CONTROL: true           # Enable down velocity control
-  ENABLE_YAW_INTEGRATION: false           # Future: combine yaw with lateral
+  ENABLE_ALTITUDE_CONTROL: false           # Enable down velocity control
   
   # === 🧭 LATERAL GUIDANCE MODES ===
   # Two guidance strategies for lateral target tracking:
@@ -553,8 +552,8 @@ BODY_VELOCITY_CHASE:
   
   # === 🛡️ ALTITUDE SAFETY (Body Velocity Chase Specific) ===
   ALTITUDE_SAFETY_ENABLED: false          # Enable altitude monitoring  
-  MIN_ALTITUDE_LIMIT: 10.0               # meters - trigger RTL below this
-  MAX_ALTITUDE_LIMIT: 120.0              # meters - trigger RTL above this
+  MIN_ALTITUDE_LIMIT: 5.0               # meters - trigger RTL below this
+  MAX_ALTITUDE_LIMIT: 50.0              # meters - trigger RTL above this
   ALTITUDE_CHECK_INTERVAL: 1.0           # seconds - check frequency
   RTL_ON_ALTITUDE_VIOLATION: true        # Trigger RTL on violation
   ALTITUDE_WARNING_BUFFER: 2.0           # meters - warning zone before limits
@@ -566,7 +565,7 @@ BODY_VELOCITY_CHASE:
   SMOOTHING_FACTOR: 0.8                  # Smoothing coefficient (0-1)
   
   # === Performance Tuning ===
-  MIN_FORWARD_VELOCITY_THRESHOLD: 0.5    # m/s - minimum velocity to maintain
+  MIN_FORWARD_VELOCITY_THRESHOLD: 0.2    # m/s - minimum velocity to maintain (important if using a fixedwing or VTOL)
   RAMP_UPDATE_RATE: 10.0                 # Hz - forward velocity update frequency
   PID_UPDATE_RATE: 20.0                  # Hz - tracking PID update frequency
 
