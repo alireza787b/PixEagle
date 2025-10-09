@@ -59,6 +59,7 @@ pytest_debug.log
 
 #configs
 configs/config.yaml
+configs/smarttracker_bytetrack.yaml  # Auto-generated SmartTracker ByteTrack config
 dashboard/.env
 
 mavsdk_server_bin

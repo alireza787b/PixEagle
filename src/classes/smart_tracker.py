@@ -3,9 +3,13 @@ import cv2
 import numpy as np
 import time
 import logging
+import yaml
+import os
 from ultralytics import YOLO
 from classes.parameters import Parameters
 from classes.tracker_output import TrackerOutput, TrackerDataType
+from classes.tracking_state_manager import TrackingStateManager
+from classes.motion_predictor import MotionPredictor
 
 
 class SmartTracker:
@@ -15,36 +19,35 @@ class SmartTracker:
         Model path is selected based on config flags.
         """
         self.app_controller = app_controller
-        use_gpu = Parameters.SMART_TRACKER_USE_GPU
-        fallback_enabled = Parameters.SMART_TRACKER_FALLBACK_TO_CPU
+        use_gpu = Parameters.SmartTracker.get('SMART_TRACKER_USE_GPU', True)
+        fallback_enabled = Parameters.SmartTracker.get('SMART_TRACKER_FALLBACK_TO_CPU', True)
+
+        # Load SmartTracker configuration
+        self.config = Parameters.SmartTracker
 
         try:
             if use_gpu:
-                model_path = Parameters.SMART_TRACKER_GPU_MODEL_PATH
+                model_path = self.config.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo11n.pt')
                 logging.info(f"[SmartTracker] Attempting to load YOLO model with GPU: {model_path}")
-                # self.model = YOLO(model_path, task="detect").to('cuda')
 
             else:
-                model_path = Parameters.SMART_TRACKER_CPU_MODEL_PATH
+                model_path = self.config.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo11n_ncnn_model')
                 logging.info(f"[SmartTracker] Loading YOLO model with CPU: {model_path}")
-                
-                
+
             self.model = YOLO(model_path, task="detect")
 
-            
             if use_gpu:
                 self.model.to('cuda')
-                
+
             logging.info(f"[SmartTracker] YOLO model loaded on device: {self.model.device}")
 
-                
         except Exception as e:
             if use_gpu and fallback_enabled:
                 logging.warning(f"[SmartTracker] GPU load failed: {e}")
                 logging.info("[SmartTracker] Falling back to CPU model...")
 
                 try:
-                    model_path = Parameters.SMART_TRACKER_CPU_MODEL_PATH
+                    model_path = self.config.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo11n_ncnn_model')
                     self.model = YOLO(model_path, task="detect")
                     logging.info(f"[SmartTracker] CPU model loaded successfully: {self.model.device}")
                 except Exception as cpu_error:
@@ -56,17 +59,19 @@ class SmartTracker:
                 raise RuntimeError("YOLO model loading failed.")
 
         # === Tracker Parameters
-        self.conf_threshold = Parameters.SMART_TRACKER_CONFIDENCE_THRESHOLD
-        self.iou_threshold = Parameters.SMART_TRACKER_IOU_THRESHOLD
-        self.max_det = Parameters.SMART_TRACKER_MAX_DETECTIONS
-        self.tracker_type = Parameters.SMART_TRACKER_TRACKER_TYPE
+        self.conf_threshold = self.config.get('SMART_TRACKER_CONFIDENCE_THRESHOLD', 0.3)
+        self.iou_threshold = self.config.get('SMART_TRACKER_IOU_THRESHOLD', 0.3)
+        self.max_det = self.config.get('SMART_TRACKER_MAX_DETECTIONS', 20)
+        self.show_fps = self.config.get('SMART_TRACKER_SHOW_FPS', False)
+        self.draw_color = tuple(self.config.get('SMART_TRACKER_COLOR', [0, 255, 255]))
+
+        # Generate ByteTrack config from parameters
+        self.tracker_config_path = self._generate_bytetrack_config()
         self.tracker_args = {"persist": True, "verbose": False}
-        self.show_fps = Parameters.SMART_TRACKER_SHOW_FPS
-        self.draw_color = tuple(Parameters.SMART_TRACKER_COLOR)
 
         self.labels = self.model.names if hasattr(self.model, 'names') else {}
 
-        # === Tracking state
+        # === Tracking state (maintained for backward compatibility and output)
         self.selected_object_id = None
         self.selected_class_id = None
         self.selected_bbox = None
@@ -74,9 +79,71 @@ class SmartTracker:
         self.last_results = None
         self.object_colors = {}
 
+        # === Motion Predictor (for occlusion handling)
+        # Predicts object position during brief detection loss
+        prediction_enabled = self.config.get('ENABLE_PREDICTION_BUFFER', True)
+        self.motion_predictor = MotionPredictor(
+            history_size=self.config.get('ID_LOSS_TOLERANCE_FRAMES', 5),
+            velocity_alpha=0.7  # Balanced responsiveness
+        ) if prediction_enabled else None
+
+        # === Robust Tracking State Manager
+        # Handles ID matching, spatial fallback, and motion prediction
+        self.tracking_manager = TrackingStateManager(
+            config=self.config,
+            motion_predictor=self.motion_predictor
+        )
+
         self.fps_counter, self.fps_timer, self.fps_display = 0, time.time(), 0
 
         logging.info("[SmartTracker] Initialization complete.")
+        logging.info(f"[SmartTracker] Using tracker config: {self.tracker_config_path}")
+        logging.info(f"[SmartTracker] Tracking strategy: {self.config.get('TRACKING_STRATEGY', 'hybrid')}")
+        logging.info(f"[SmartTracker] Motion prediction: {'enabled' if self.motion_predictor else 'disabled'}")
+
+    def _generate_bytetrack_config(self):
+        """
+        Generates ByteTrack configuration for SmartTracker from config_default.yaml parameters.
+        All tuning is done through the SmartTracker section in config_default.yaml.
+
+        Returns:
+            str: Path to the generated ByteTrack YAML config file
+        """
+        try:
+            # Build ByteTrack config from SmartTracker parameters
+            config_data = {
+                'tracker_type': 'bytetrack',
+                'track_high_thresh': self.config.get('BYTETRACK_TRACK_HIGH_THRESH', 0.25),
+                'track_low_thresh': self.config.get('BYTETRACK_TRACK_LOW_THRESH', 0.1),
+                'new_track_thresh': self.config.get('BYTETRACK_NEW_TRACK_THRESH', 0.20),
+                'track_buffer': self.config.get('BYTETRACK_TRACK_BUFFER', 50),
+                'match_thresh': self.config.get('BYTETRACK_MATCH_THRESH', 0.8),
+                'fuse_score': self.config.get('BYTETRACK_FUSE_SCORE', True),
+            }
+
+            # Write SmartTracker-specific ByteTrack runtime config
+            runtime_config_path = "configs/smarttracker_bytetrack.yaml"
+            os.makedirs(os.path.dirname(runtime_config_path), exist_ok=True)
+
+            with open(runtime_config_path, 'w') as f:
+                f.write("# ==============================================================================\n")
+                f.write("# SmartTracker ByteTrack Configuration (Auto-Generated)\n")
+                f.write("# ==============================================================================\n")
+                f.write("# This file is automatically generated from config_default.yaml SmartTracker section.\n")
+                f.write("# DO NOT EDIT THIS FILE - Changes will be overwritten on startup.\n")
+                f.write("# To configure ByteTrack parameters, edit config_default.yaml SmartTracker section.\n")
+                f.write("# ==============================================================================\n\n")
+                yaml.dump(config_data, f, default_flow_style=False)
+
+            logging.info(f"[SmartTracker] Generated ByteTrack config from config_default.yaml SmartTracker section")
+            logging.info(f"[SmartTracker] ByteTrack config: track_buffer={config_data['track_buffer']}, "
+                        f"match_thresh={config_data['match_thresh']}, "
+                        f"new_track_thresh={config_data['new_track_thresh']}")
+            return runtime_config_path
+
+        except Exception as e:
+            logging.warning(f"[SmartTracker] Failed to generate ByteTrack config: {e}, using Ultralytics default")
+            return "bytetrack.yaml"  # Fallback to Ultralytics default
 
 
 
@@ -122,15 +189,19 @@ class SmartTracker:
         cv2.line(frame, mid_right, self.extend_line_from_edge(*mid_right, "right", frame.shape), color, 2)
 
     def select_object_by_click(self, x, y):
-        """User selects an object by clicking on it."""
+        """
+        User selects an object by clicking on it.
+        Initializes tracking_manager with the selected object.
+        """
         if self.last_results is None:
-            logging.warning("No YOLO results yet, click ignored.")
+            logging.warning("[SmartTracker] No YOLO results yet, click ignored.")
             return
 
         detections = self.last_results[0].boxes.data if self.last_results[0].boxes is not None else []
         min_area = float('inf')
         best_match = None
 
+        # Find the smallest object containing the click point
         for track in detections:
             track = track.tolist()
             if len(track) >= 6:
@@ -140,36 +211,61 @@ class SmartTracker:
                     if area < min_area:
                         class_id = int(track[6]) if len(track) >= 7 else int(track[5])
                         track_id = int(track[4]) if len(track) >= 7 else -1
+                        confidence = float(track[5])
                         min_area = area
-                        best_match = (track_id, class_id, (x1, y1, x2, y2))
+                        best_match = (track_id, class_id, (x1, y1, x2, y2), confidence)
 
         if best_match:
-            self.selected_object_id, self.selected_class_id, self.selected_bbox = best_match
-            self.selected_center = self.get_center(*self.selected_bbox)
-            label = self.labels.get(self.selected_class_id, str(self.selected_class_id))
-            logging.info(f"TRACKING STARTED: {label} (ID {self.selected_object_id})")
+            track_id, class_id, bbox, confidence = best_match
+            center = self.get_center(*bbox)
+
+            # Update local state (for backward compatibility)
+            self.selected_object_id = track_id
+            self.selected_class_id = class_id
+            self.selected_bbox = bbox
+            self.selected_center = center
+
+            # Initialize tracking manager with robust tracking
+            self.tracking_manager.start_tracking(
+                track_id=track_id,
+                class_id=class_id,
+                bbox=bbox,
+                confidence=confidence,
+                center=center
+            )
+
+            label = self.labels.get(class_id, str(class_id))
+            logging.info(f"[SmartTracker] TRACKING STARTED: {label} (ID {track_id}, Conf={confidence:.3f})")
         else:
-            logging.info("No object matched click location.")
+            logging.info("[SmartTracker] No object matched click location.")
 
     def clear_selection(self):
-        """Clears the currently selected object for tracking."""
+        """
+        Clears the currently selected object for tracking.
+        Also clears tracking_manager state.
+        """
         self.selected_object_id = None
         self.selected_class_id = None
         self.selected_bbox = None
         self.selected_center = None
 
+        # Clear tracking manager state
+        self.tracking_manager.clear()
+
+        logging.info("[SmartTracker] Tracking cleared")
+
     def track_and_draw(self, frame):
         """
         Runs YOLO detection + tracking, draws overlays, and returns the annotated frame.
-        Updates tracking state based on selection and draws active/detected object boxes.
+        Uses TrackingStateManager for robust ID tracking with spatial fallback.
         """
-        # Run YOLO tracking on the frame
+        # Run YOLO tracking on the frame with custom ByteTrack config
         results = self.model.track(
             frame,
             conf=self.conf_threshold,
             iou=self.iou_threshold,
             max_det=self.max_det,
-            tracker=self.tracker_type,
+            tracker=self.tracker_config_path,
             **self.tracker_args
         )
         self.last_results = results
@@ -177,14 +273,22 @@ class SmartTracker:
         detections = results[0].boxes.data if results[0].boxes is not None else []
         frame_overlay = frame.copy()
 
-        selected_this_frame = False  # Track if the selected object is detected in this frame
-
+        # === Use TrackingStateManager for robust tracking ===
+        # Converts detections to list format expected by tracking_manager
+        detections_list = []
         for track in detections:
             track = track.tolist()
-            if len(track) < 6:
-                continue
+            if len(track) >= 6:
+                detections_list.append(track)
 
-            # Unpack box and metadata
+        # Update tracking state using TrackingStateManager (handles ID + spatial matching)
+        is_tracking_active, selected_detection = self.tracking_manager.update_tracking(
+            detections_list,
+            self.compute_iou
+        )
+
+        # Draw all detections
+        for track in detections_list:
             x1, y1, x2, y2 = map(int, track[:4])
             conf = float(track[5])
             class_id = int(track[6]) if len(track) >= 7 else int(track[5])
@@ -193,22 +297,28 @@ class SmartTracker:
             color = self.object_colors.setdefault(track_id, self.get_yolo_color(track_id))
             label = f"{label_name} ID {track_id} ({conf:.2f})"
 
-            # Check if this is the selected object (by class and IoU)
-            is_selected = False
-            if self.selected_class_id == class_id and self.selected_bbox:
-                iou = self.compute_iou((x1, y1, x2, y2), self.selected_bbox)
-                if iou > 0.3:
-                    is_selected = True
+            # Check if this is the actively tracked object
+            is_selected = (selected_detection is not None and
+                          track_id == selected_detection['track_id'])
 
             if is_selected:
-                # Update selected box and draw thick tracking box
+                # Update local state (for backward compatibility)
+                self.selected_object_id = track_id
+                self.selected_class_id = class_id
                 self.selected_bbox = (x1, y1, x2, y2)
                 self.selected_center = self.get_center(x1, y1, x2, y2)
+
+                # Draw thick tracking box with scope lines
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 4)
                 self.draw_tracking_scope(frame, (x1, y1, x2, y2), color)
                 cv2.circle(frame, self.selected_center, 6, color, -1)
-                label = f"*ACTIVE* {label}"
-                selected_this_frame = True
+
+                # Add status indicator to label
+                if selected_detection.get('iou_match', False):
+                    match_info = f"IoU={selected_detection['match_iou']:.2f}"
+                    label = f"*ACTIVE* {label} [{match_info}]"
+                else:
+                    label = f"*ACTIVE* {label}"
             else:
                 # Dashed overlay box for unselected objects
                 for i in range(x1, x2, 10):
@@ -221,8 +331,16 @@ class SmartTracker:
             # Draw label text on the frame
             cv2.putText(frame, label, (x1 + 5, y1 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-        # Update app controller tracking status after processing all detections
-        self.app_controller.tracking_started = selected_this_frame
+        # Update app controller tracking status
+        self.app_controller.tracking_started = is_tracking_active
+
+        # If tracking is lost, clear local state
+        if not is_tracking_active and (self.selected_object_id is not None):
+            logging.info(f"[SmartTracker] Tracking lost for ID {self.selected_object_id}")
+            self.selected_object_id = None
+            self.selected_class_id = None
+            self.selected_bbox = None
+            self.selected_center = None
 
         # FPS Counter
         if self.show_fps:
@@ -236,12 +354,6 @@ class SmartTracker:
 
         # Final blended result
         blended_frame = cv2.addWeighted(frame_overlay, 0.5, frame, 0.5, 0)
-        
-        
-        if not selected_this_frame:
-            self.clear_selection()
-
-
         return blended_frame
 
     def get_output(self) -> TrackerOutput:

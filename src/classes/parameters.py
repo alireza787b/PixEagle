@@ -24,7 +24,7 @@ class Parameters:
             if params:  # Check if params is not None
                 # Check if this section should be kept as a group (follower configs and tracker configs)
                 if section in ['CONSTANT_POSITION', 'CONSTANT_DISTANCE', 'CHASE_FOLLOWER', 'GROUND_VIEW', 'BODY_VELOCITY_CHASE',
-                              'GimbalFollower', 'GimbalTracker', 'GimbalTrackerSettings', 'CSRT_Tracker', 'KCF_Tracker']:
+                              'GimbalFollower', 'GimbalTracker', 'GimbalTrackerSettings', 'CSRT_Tracker', 'KCF_Tracker', 'SmartTracker']:
                     # Keep as grouped section for new followers and trackers
                     setattr(cls, section, params)
                 elif isinstance(params, dict):

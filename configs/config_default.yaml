@@ -347,25 +347,106 @@ CSRT_Tracker:
 SmartTracker:
   # 🤖 Enable AI-powered object tracking
   SMART_TRACKER_ENABLED: true
-  
+
   # === Hardware Selection ===
   SMART_TRACKER_USE_GPU: true              # Try GPU first (CUDA)
   SMART_TRACKER_FALLBACK_TO_CPU: true      # Fall back if GPU fails
-  
+
   # === Model Paths ===
   # 📁 Use add_yolo_model.py to download/convert models
+  # Simply replace these paths with your custom-trained YOLO model
   SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo11n.pt"          # PyTorch model
   SMART_TRACKER_CPU_MODEL_PATH: "yolo/yolo11n_ncnn_model"  # Optimized for ARM
-  
+
   # === Detection Parameters ===
-  SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.3   # Min detection confidence
-  SMART_TRACKER_IOU_THRESHOLD: 0.3          # Overlap threshold
+  SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.3   # Min detection confidence (0.0-1.0)
+  SMART_TRACKER_IOU_THRESHOLD: 0.3          # Overlap threshold for NMS (0.0-1.0)
   SMART_TRACKER_MAX_DETECTIONS: 20          # Max objects per frame
-  
+
   # === Tracker Settings ===
-  SMART_TRACKER_TRACKER_TYPE: "bytetrack.yaml"
+  SMART_TRACKER_TRACKER_TYPE: "bytetrack.yaml"  # ByteTrack or custom config
   SMART_TRACKER_COLOR: [0, 255, 255]        # BGR: Yellow
   SMART_TRACKER_SHOW_FPS: false
+
+  # ==============================================================================
+  # 🎯 ID TRACKING ROBUSTNESS (NEW - Prevents target loss during occlusions)
+  # ==============================================================================
+  # These parameters make tracking more robust when objects temporarily disappear
+  # or when YOLO assigns new IDs to the same object
+
+  # === Tracking Strategy ===
+  # How to match tracked object across frames when ID changes
+  # - "id_only": Strict ID matching (fastest, but loses track on ID change)
+  # - "spatial_only": Position-based matching using IoU (works without IDs)
+  # - "hybrid": ID first, falls back to spatial matching (RECOMMENDED)
+  TRACKING_STRATEGY: "hybrid"
+
+  # === ID Loss Tolerance ===
+  # Number of frames to maintain tracking after losing track ID
+  # Useful when object is briefly occluded or detector misses 1-2 frames
+  # Higher = more forgiving, Lower = stricter (re-select needed sooner)
+  # Recommended: 5-10 frames for drone tracking
+  ID_LOSS_TOLERANCE_FRAMES: 5
+
+  # === Spatial Matching ===
+  # IoU threshold for matching by position when ID is lost
+  # Higher = stricter matching (less false positives)
+  # Lower = more lenient (might match wrong object)
+  # Range: 0.0-1.0, Recommended: 0.3-0.5
+  SPATIAL_IOU_THRESHOLD: 0.35
+
+  # === Motion Prediction ===
+  # Use velocity-based prediction to estimate object location during occlusion
+  # Helps find object even if it moves while temporarily invisible
+  # true = more robust to occlusions, false = simpler/faster
+  ENABLE_PREDICTION_BUFFER: true
+
+  # === Confidence Smoothing ===
+  # Apply exponential moving average to detection confidence
+  # Reduces jitter from frame-to-frame confidence variations
+  # Higher = more smoothing, Lower = more responsive
+  # Range: 0.0-1.0, Recommended: 0.7-0.9
+  CONFIDENCE_SMOOTHING_ALPHA: 0.8
+
+  # ==============================================================================
+  # 🔧 BYTETRACK ADVANCED TUNING
+  # ==============================================================================
+  # These parameters control ByteTrack's internal tracking behavior
+  # Normally you don't need to change these, but they're here for fine-tuning
+
+  # === Track Persistence ===
+  # Number of frames to keep track alive after losing detection
+  # Higher = tracks survive longer occlusions
+  # Lower = faster cleanup of lost tracks
+  # Default: 30, Recommended for robust tracking: 50
+  BYTETRACK_TRACK_BUFFER: 50
+
+  # === Track Matching ===
+  # IoU threshold for matching detections to existing tracks
+  # Higher = stricter matching (less ID switches)
+  # Lower = more lenient (may cause ID switches)
+  # Range: 0.0-1.0, Recommended: 0.8
+  BYTETRACK_MATCH_THRESH: 0.8
+
+  # === New Track Creation ===
+  # Confidence threshold for creating new tracks from detections
+  # Lower = easier to start tracking new objects (good for re-acquisition)
+  # Higher = only track high-confidence detections (fewer false positives)
+  # Range: 0.0-1.0, Recommended: 0.20-0.25
+  BYTETRACK_NEW_TRACK_THRESH: 0.20
+
+  # === High/Low Confidence Thresholds ===
+  # ByteTrack uses two-stage association (high conf → low conf)
+  # High threshold: First association pass (confident detections)
+  # Low threshold: Second association pass (recover lost tracks)
+  BYTETRACK_TRACK_HIGH_THRESH: 0.25
+  BYTETRACK_TRACK_LOW_THRESH: 0.1
+
+  # === Score Fusion ===
+  # Combine detection confidence with IoU distance during matching
+  # true = better handling of similar objects
+  # false = pure geometric matching
+  BYTETRACK_FUSE_SCORE: true
 
 
 # ==============================================================================
