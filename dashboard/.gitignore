@@ -72,6 +72,12 @@ Thumbs.db
 # Output of 'npm pack'
 *.tgz
 
+# Package lockfile backups (created by run_dashboard.sh recovery)
+package-lock.json.backup
+
+# PixEagle cache directory
+.pixeagle_cache/
+
 # React Native
 .expo/
 

@@ -281,28 +281,158 @@ echo ""
 # 4. Install required npm packages if necessary
 header_message "Checking npm dependencies"
 
-# Smart dependency management with change detection
-if [ "$(needs_dependency_install)" = "true" ]; then
-  echo "📦 Dependencies need installation or update..."
-
-  # Use npm ci if package-lock.json exists for a clean and consistent installation
-  if [ -f "package-lock.json" ]; then
-    echo "🔒 package-lock.json found. Running 'npm ci' for a clean installation..."
-    npm ci
-  else
-    echo "🔍 package-lock.json not found. Running 'npm install'..."
-    npm install
+# Function to validate package-lock.json integrity
+validate_lockfile() {
+  if [ ! -f "package-lock.json" ]; then
+    echo "⚠️  package-lock.json not found"
+    return 1
   fi
 
-  if [ $? -eq 0 ]; then
-    echo "✅ npm packages installed successfully."
+  if [ ! -d "node_modules" ]; then
+    echo "ℹ️  node_modules not found (first-time install)"
+    return 0
+  fi
+
+  # Check if lockfile is valid JSON
+  if ! python3 -c "import json; json.load(open('package-lock.json'))" 2>/dev/null; then
+    echo "⚠️  package-lock.json is corrupted (invalid JSON)"
+    return 1
+  fi
+
+  return 0
+}
+
+# Function to perform npm install with robust error handling
+install_npm_dependencies() {
+  local install_success=false
+  local attempt=1
+  local max_attempts=3
+
+  echo "📦 Installing npm dependencies..."
+
+  # Strategy 1: Try npm ci first (fastest, most reliable if lockfile is good)
+  if [ -f "package-lock.json" ] && validate_lockfile; then
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "📋 Attempt $attempt: Using 'npm ci' (clean install from lockfile)"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    if npm ci 2>&1 | tee /tmp/npm_ci.log; then
+      if [ ${PIPESTATUS[0]} -eq 0 ]; then
+        echo "✅ npm ci completed successfully"
+        install_success=true
+        return 0
+      fi
+    fi
+
+    echo "⚠️  npm ci failed. Analyzing error..."
+
+    # Check for common npm ci failure patterns
+    if grep -q "lock file's .* does not match" /tmp/npm_ci.log || \
+       grep -q "Missing:" /tmp/npm_ci.log || \
+       grep -q "lockfile" /tmp/npm_ci.log; then
+      echo "🔍 Detected lockfile integrity issue"
+      echo "💡 This usually happens when:"
+      echo "   • package-lock.json is out of sync with package.json"
+      echo "   • Different npm versions were used"
+      echo "   • Cross-platform development (Windows ↔ Linux)"
+    fi
+  fi
+
+  # Strategy 2: Remove node_modules and try npm ci again
+  if [ ! "$install_success" = true ]; then
+    attempt=$((attempt + 1))
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "🔄 Attempt $attempt: Removing node_modules and retrying npm ci"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    if [ -d "node_modules" ]; then
+      echo "🗑️  Removing existing node_modules..."
+      rm -rf node_modules
+      echo "✅ node_modules removed"
+    fi
+
+    if [ -f "package-lock.json" ]; then
+      echo "🔄 Retrying npm ci with clean slate..."
+      if npm ci 2>&1 | tee /tmp/npm_ci_retry.log; then
+        if [ ${PIPESTATUS[0]} -eq 0 ]; then
+          echo "✅ npm ci completed successfully after cleanup"
+          install_success=true
+          return 0
+        fi
+      fi
+    fi
+  fi
+
+  # Strategy 3: Regenerate package-lock.json with npm install
+  if [ ! "$install_success" = true ]; then
+    attempt=$((attempt + 1))
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "🔧 Attempt $attempt: Regenerating lockfile with 'npm install'"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "⚠️  This will regenerate package-lock.json"
+
+    # Backup existing lockfile
+    if [ -f "package-lock.json" ]; then
+      echo "💾 Backing up existing package-lock.json..."
+      cp package-lock.json package-lock.json.backup
+      echo "✅ Backup saved as package-lock.json.backup"
+    fi
+
+    # Remove lockfile to force regeneration
+    rm -f package-lock.json
+
+    echo "🔄 Running 'npm install' to regenerate lockfile..."
+    if npm install 2>&1 | tee /tmp/npm_install.log; then
+      if [ ${PIPESTATUS[0]} -eq 0 ]; then
+        echo "✅ npm install completed successfully"
+        echo "✅ New package-lock.json generated"
+        install_success=true
+        return 0
+      fi
+    fi
+  fi
+
+  # All strategies failed
+  if [ ! "$install_success" = true ]; then
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "❌ All npm install strategies failed"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "📋 Troubleshooting steps:"
+    echo "   1. Check npm version: npm -v (should be >= $MIN_NPM_VERSION)"
+    echo "   2. Check Node.js version: node -v (should be >= $MIN_NODE_VERSION)"
+    echo "   3. Clear npm cache: npm cache clean --force"
+    echo "   4. Check disk space: df -h"
+    echo "   5. Check permissions: ls -la node_modules"
+    echo ""
+    echo "📝 Error logs saved to:"
+    echo "   • /tmp/npm_ci.log"
+    echo "   • /tmp/npm_ci_retry.log"
+    echo "   • /tmp/npm_install.log"
+    echo ""
+    return 1
+  fi
+}
+
+# Smart dependency management with change detection
+if [ "$(needs_dependency_install)" = "true" ]; then
+  if install_npm_dependencies; then
+    echo ""
+    echo "✅ npm packages installed successfully"
     save_dependency_hash
   else
-    echo "❌ Failed to install npm packages. Please check the error messages above."
+    echo ""
+    echo "❌ Failed to install npm packages after all attempts"
+    echo "💡 Please review the error logs above and try manual installation"
     exit 1
   fi
 else
-  echo "✅ Dependencies are up to date (cache hit)."
+  echo "✅ Dependencies are up to date (cache hit)"
+  echo "ℹ️  Skipping npm install based on dependency hash check"
 fi
 echo ""
 
