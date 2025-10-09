@@ -451,6 +451,12 @@ class BodyVelocityChaseFollower(BaseFollower):
                 right_velocity = 0.0
                 yaw_speed = self.pid_yaw_speed(error_x) if self.pid_yaw_speed else 0.0
             
+            
+            # === APPLY COMMANDS USING SCHEMA-AWARE METHODS ===
+            # Schema now uses velocity_body_offboard with yawspeed_deg_s and vel_body_down
+            # Convert internal commands to schema fields
+            from math import degrees
+            yaw_speed = degrees(yaw_speed)
             # Calculate vertical command (same for both modes)
             down_velocity = self.pid_down(error_y) if self.pid_down else 0.0
             
