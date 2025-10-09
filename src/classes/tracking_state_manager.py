@@ -91,7 +91,7 @@ class TrackingStateManager:
         # Add to history
         self._add_to_history(track_id, class_id, bbox, confidence, center)
 
-        logging.info(f"[TrackingStateManager] Started tracking: ID={track_id}, Class={class_id}, Confidence={confidence:.3f}")
+        logging.debug(f"[TRACKING] Started: ID:{track_id} class:{class_id} conf={confidence:.2f}")
 
     def update_tracking(self, detections: List[List], compute_iou_func) -> Tuple[bool, Optional[Dict]]:
         """
@@ -131,7 +131,9 @@ class TrackingStateManager:
 
             # Check if we've exceeded tolerance
             if self.frames_since_detection > self.max_history:
-                logging.info(f"[TrackingStateManager] Lost track (exceeded {self.max_history} frame tolerance)")
+                # Only log ONCE when first exceeding tolerance (not every subsequent frame)
+                if self.frames_since_detection == self.max_history + 1:
+                    logging.info(f"[TRACKING] Lost: exceeded {self.max_history} frame tolerance")
                 return False, None
             else:
                 # Still within tolerance, maintain tracking
@@ -214,7 +216,7 @@ class TrackingStateManager:
             old_id = self.selected_track_id
             new_id = detection['track_id']
             if old_id != new_id:
-                logging.info(f"[TrackingStateManager] ID switch detected: {old_id}→{new_id} (IoU={detection['match_iou']:.3f})")
+                logging.info(f"[TRACKING] ID switch: {old_id}→{new_id} (IoU={detection['match_iou']:.2f})")
                 self.selected_track_id = new_id
 
         # Update state

@@ -469,26 +469,35 @@ class BaseTracker(ABC):
 
     def set_external_override(self, bbox: Tuple[int, int, int, int], center: Tuple[int, int]) -> None:
         """
-        Enables override mode and sets the tracker’s bounding box and center manually.
+        Enables override mode and sets the tracker's bounding box and center manually.
         Used by SmartTracker to inject detections directly.
 
         Args:
             bbox (Tuple[int, int, int, int]): The bounding box (x, y, x2, y2).
             center (Tuple[int, int]): The (x, y) center of the selected target.
         """
+        # Only log on first override activation (state change)
+        was_active = self.override_active
+
         self.override_active = True
         self.bbox = (bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1])  # Convert x1,y1,x2,y2 to x,y,w,h
         self.set_center(center)
         self.center_history.append(center)
         self.normalize_bbox()
-        logging.info(f"[OVERRIDE] Classic tracker is now overridden with SmartTracker bbox: {self.bbox}, center: {self.center}")
+
+        # Log only when override is first activated (not every frame update)
+        if not was_active:
+            logging.info(f"[OVERRIDE] SmartTracker override activated")
 
     def clear_external_override(self) -> None:
         """
         Disables external override (used when cancelling SmartTracker mode).
         """
-        self.override_active = False
-        logging.info("[OVERRIDE] Classic tracker override cleared.")
+        if self.override_active:  # Only log if actually clearing
+            self.override_active = False
+            self.bbox = None
+            self.center = None
+            logging.info("[OVERRIDE] SmartTracker override cleared")
 
 
     def get_effective_bbox(self) -> Optional[Tuple[int, int, int, int]]:

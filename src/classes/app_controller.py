@@ -431,15 +431,23 @@ class AppController:
                 logging.debug(f"Taking classic tracker path: is_always_reporting={is_always_reporting}, has_tracker={self.tracker is not None}")
 
             # Classic Tracker (normal tracking or smart override)
-            classic_active = (
-            (self.tracking_started and not self.smart_mode_active) or
-            self.is_smart_override_active()
-            )
+            # Smart override mode: SmartTracker controls the classic tracker via external override
+            is_smart_override = self.is_smart_override_active()
+            classic_active = (self.tracking_started and not self.smart_mode_active)
+
             # Only process classic trackers if not always-reporting tracker
-            if classic_active and not is_always_reporting:
+            if (classic_active or is_smart_override) and not is_always_reporting:
                 success = False
-                if self.tracking_failure_start_time is None:
+
+                # When smart override is active, skip tracker.update() and always treat as success
+                if is_smart_override:
+                    # SmartTracker is providing the bbox/center via override, no need to call tracker.update()
+                    success = True
+                    logging.debug("Smart override active: using SmartTracker-provided tracking data")
+                elif self.tracking_failure_start_time is None:
+                    # Classic tracker: perform normal update
                     success, _ = self.tracker.update(frame)
+
                 if success:
                     self.tracking_failure_start_time = None
                     frame = self.tracker.draw_tracking(frame, tracking_successful=True)
@@ -462,6 +470,7 @@ class AppController:
                                 logging.debug(f"TEMPLATE: Updated (Conf: {tracker_confidence:.2f}, Frame: {self.frame_counter})")
 
                 else:
+                    # Only handle failure for classic tracking (not smart override)
                     self.frame_counter = 0
                     if self.tracking_failure_start_time is None:
                         self.tracking_failure_start_time = time.time()

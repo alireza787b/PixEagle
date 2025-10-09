@@ -56,8 +56,8 @@ reset()  # Clear prediction state
 - **Changes:**
   - Replaced buggy CLASS + IoU matching with TrackingStateManager
   - Integrated MotionPredictor for occlusion handling
-  - All ByteTrack configuration from `config_default.yaml`
-  - Auto-generates SmartTracker-specific ByteTrack config on startup
+  - Uses Ultralytics default ByteTrack configuration
+  - All SmartTracker tuning parameters in `config_default.yaml`
 
 ---
 
@@ -328,8 +328,8 @@ src/classes/
 └── tracker_output.py              # TrackerOutput schema (unchanged)
 
 configs/
-├── config_default.yaml            # Main config (SmartTracker section added)
-└── smarttracker_bytetrack.yaml    # Auto-generated (DO NOT EDIT)
+└── config_default.yaml            # Main config (SmartTracker section added)
+                                   # Users copy to config.yaml for local changes
 ```
 
 ### Key Design Principles
