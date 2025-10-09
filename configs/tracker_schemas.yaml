@@ -320,11 +320,13 @@ compatibility:
         - POSITION_3D  # Works because 3D includes 2D projection
         - BBOX_CONFIDENCE
         - VELOCITY_AWARE
+        - MULTI_TARGET  # SmartTracker provides position_2d for selected target
     BodyVelocityChaseFollower:
       required_schemas:
         - POSITION_2D
       compatible_schemas:
         - POSITION_3D  # Works because 3D includes 2D projection
+        - MULTI_TARGET  # SmartTracker provides position_2d for selected target
       preferred_schemas:
         - VELOCITY_AWARE
       optional_schemas:
@@ -335,6 +337,7 @@ compatibility:
       compatible_schemas:
         - POSITION_3D  # Works because 3D includes 2D projection
         - VELOCITY_AWARE  # Works because VELOCITY_AWARE includes position_2d
+        - MULTI_TARGET  # SmartTracker provides position_2d for selected target
       optional_schemas:
         - ANGULAR
         - BBOX_CONFIDENCE
@@ -344,6 +347,7 @@ compatibility:
       compatible_schemas:
         - POSITION_3D  # Works because 3D includes 2D projection (and adds depth info)
         - VELOCITY_AWARE  # Works because VELOCITY_AWARE includes position_2d
+        - MULTI_TARGET  # SmartTracker provides position_2d for selected target
       optional_schemas:
         - BBOX_CONFIDENCE
         - ANGULAR
@@ -355,6 +359,7 @@ compatibility:
       compatible_schemas:
         - POSITION_3D  # Works because 3D includes 2D projection
         - VELOCITY_AWARE  # Works because VELOCITY_AWARE includes position_2d
+        - MULTI_TARGET  # SmartTracker provides position_2d for selected target
       preferred_schemas:
         - ANGULAR
         - POSITION_3D  # 3D helps with ground projection
