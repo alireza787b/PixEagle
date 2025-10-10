@@ -21,6 +21,12 @@ export const endpoints = {
   circuitBreakerStatus: `http://${apiHost}:${apiPort}/api/circuit-breaker/status`,
   toggleCircuitBreaker: `http://${apiHost}:${apiPort}/api/circuit-breaker/toggle`,
   circuitBreakerStats: `http://${apiHost}:${apiPort}/api/circuit-breaker/statistics`,
+
+  // OSD endpoints
+  osdStatus: `http://${apiHost}:${apiPort}/api/osd/status`,
+  toggleOsd: `http://${apiHost}:${apiPort}/api/osd/toggle`,
+  osdPresets: `http://${apiHost}:${apiPort}/api/osd/presets`,
+  loadOsdPreset: (presetName) => `http://${apiHost}:${apiPort}/api/osd/preset/${presetName}`,
 };
 
 export const videoFeed = `http://${apiHost}:${apiPort}/video_feed`;

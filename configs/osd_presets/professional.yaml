@@ -1,0 +1,185 @@
+# ==============================================================================
+# PixEagle OSD Preset - PROFESSIONAL (DEFAULT)
+# ==============================================================================
+# Aviation-grade HUD layout following professional drone OSD best practices
+# Based on real-world aerial systems (DJI, Autel, Skydio, ArduPilot, PX4)
+#
+# Design Principles:
+# - Critical data at edges (eyes naturally scan periphery)
+# - Symmetric left/right balance
+# - Larger fonts for critical info (altitude, battery)
+# - Safe zones: 8% margins (aviation standard)
+# - Minimal center obstruction
+# - High contrast with outlines for all lighting conditions
+# ==============================================================================
+
+GLOBAL_SETTINGS:
+  base_font_scale: 1.0           # Professional 1/20th formula (24px @ 480p)
+  text_style: "outlined"         # Professional outlined text for all conditions
+  outline_thickness: 2           # Clear visibility
+  shadow_offset: [2, 2]
+  shadow_opacity: 0.6
+  background_opacity: 0.75
+  safe_zone_margin: 5.0          # 5% margins (closer to edges for better use of space)
+
+ELEMENTS:
+  # ===========================================================================
+  # TOP LEFT - System Identifier
+  # ===========================================================================
+  name:
+    enabled: true
+    text: "PixEagle"
+    anchor: "top-left"
+    offset: [10, 10]
+    font_scale: 1.0                # Slightly larger for branding
+    color: [200, 200, 200]
+    style: "outlined"
+
+  # ===========================================================================
+  # TOP RIGHT - Timestamp
+  # ===========================================================================
+  datetime:
+    enabled: true
+    anchor: "top-right"
+    offset: [0, 10]                # Anchor handles right alignment automatically
+    font_scale: 0.5                # Slightly larger, more readable
+    color: [200, 200, 200]
+    style: "outlined"
+
+  # ===========================================================================
+  # CENTER - Minimal Crosshair + Compact Attitude Indicator
+  # ===========================================================================
+  crosshair:
+    enabled: true
+    color: [0, 255, 0]             # Green
+    thickness: 1                   # Thin and subtle
+    length: 8                      # Short
+
+  attitude_indicator:
+    enabled: true
+    position: [48, 50]             # Slightly left of center
+    size: [8, 8]                   # MUCH smaller (8% not 60%!)
+    horizon_color: [255, 255, 255]
+    grid_color: [160, 160, 160]
+    thickness: 1                   # Thin lines
+
+  # ===========================================================================
+  # MAVLINK TELEMETRY DATA - All fields consolidated
+  # ===========================================================================
+  mavlink_data:
+    enabled: true
+    fields:
+      # === TOP CENTER - Flight Mode (Most Critical) ===
+      flight_mode:
+        anchor: "top-center"
+        offset: [0, 10]
+        font_scale: 0.7            # Prominent
+        color: [100, 200, 255]     # Sky blue
+        style: "plate"
+        alignment: "center"
+
+      # === LEFT COLUMN - Navigation & Flight Data ===
+      heading:
+        anchor: "center-left"
+        offset: [10, -90]
+        font_scale: 0.6
+        color: [220, 220, 220]
+        style: "outlined"
+
+      airspeed:
+        anchor: "center-left"
+        offset: [10, -55]
+        font_scale: 0.55
+        color: [220, 220, 220]
+        style: "outlined"
+
+      groundspeed:
+        anchor: "center-left"
+        offset: [10, -25]
+        font_scale: 0.55
+        color: [220, 220, 220]
+        style: "outlined"
+
+      throttle:
+        anchor: "center-left"
+        offset: [10, 10]
+        font_scale: 0.5
+        color: [220, 220, 220]
+        style: "outlined"
+
+      # === RIGHT COLUMN - Altitude Cluster (CRITICAL) ===
+      altitude_agl:
+        anchor: "center-right"
+        offset: [-10, -90]
+        font_scale: 0.8              # Larger - most critical
+        color: [50, 255, 50]         # Bright green
+        style: "plate"
+
+      altitude_msl:
+        anchor: "center-right"
+        offset: [-10, -50]
+        font_scale: 0.5
+        color: [220, 220, 220]
+        style: "outlined"
+
+      climb:
+        anchor: "center-right"
+        offset: [-10, -20]
+        font_scale: 0.55
+        color: [220, 220, 220]
+        style: "outlined"
+
+      # === BOTTOM LEFT - GPS & Battery ===
+      satellites_visible:
+        anchor: "bottom-left"
+        offset: [10, -90]
+        font_scale: 0.5
+        color: [220, 220, 220]
+        style: "outlined"
+
+      hdop:
+        anchor: "bottom-left"
+        offset: [10, -65]
+        font_scale: 0.45
+        color: [220, 220, 220]
+        style: "outlined"
+
+      latitude:
+        anchor: "bottom-left"
+        offset: [10, -45]
+        font_scale: 0.4
+        color: [180, 180, 180]
+        style: "outlined"
+
+      longitude:
+        anchor: "bottom-left"
+        offset: [10, -25]
+        font_scale: 0.4
+        color: [180, 180, 180]
+        style: "outlined"
+
+      voltage:
+        anchor: "bottom-left"
+        offset: [10, -5]
+        font_scale: 0.7              # Larger - critical
+        color: [255, 200, 50]        # Yellow-orange
+        style: "plate"
+
+  # ===========================================================================
+  # BOTTOM RIGHT - System Status
+  # ===========================================================================
+  tracker_status:
+    enabled: true
+    anchor: "bottom-right"
+    offset: [-10, -30]
+    font_scale: 0.5
+    color: [255, 255, 0]             # Yellow (changes to green when active)
+    style: "outlined"
+
+  follower_status:
+    enabled: true
+    anchor: "bottom-right"
+    offset: [-10, -5]
+    font_scale: 0.5
+    color: [255, 255, 0]             # Yellow (changes to green when active)
+    style: "outlined"

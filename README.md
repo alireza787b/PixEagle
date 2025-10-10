@@ -4,7 +4,7 @@
 
 **PixEagle** is a powerful, modular image-processing and tracking suite for drones running the **PX4 autopilot** — with optional support for ArduPilot and integration-ready for custom systems. It combines **MAVSDK Python**, **OpenCV**, and **YOLO** object detection to deliver high-performance visual tracking and autonomous following.
 
-With **PixEagle 3.1**, we've enhanced the SmartTracker with multiple tracking modes, professional-grade re-identification, and comprehensive documentation. PixEagle is now more intelligent, flexible, and field-ready than ever before.
+With **PixEagle 3.2**, we've introduced a professional-grade OSD system with aviation-standard layouts, enhanced font rendering, and real-time preset switching. PixEagle is now more intelligent, flexible, and field-ready than ever before.
 
 > Whether you're using a Raspberry Pi, Jetson, or x86 companion computer — PixEagle is built for real-time, on-board vision-based autonomy.
 
@@ -23,9 +23,9 @@ Your Drone Can Now Think — Smart Tracking with YOLO + PX4
 
 ---
 
-### ✨ What's New in PixEagle 3.1
+### ✨ What's New in PixEagle 3.2
 
-**Version 3.1 (October 2025)** - SmartTracker Enhanced with advanced multi-tracker support and professional re-identification capabilities.
+**Version 3.2 (October 2025)** - Professional OSD System with aviation-grade layouts, TrueType font rendering, and real-time API control.
 
 📖 **[Full Changelog →](CHANGELOG.md)**
 
@@ -62,6 +62,28 @@ SmartTracker:
   SMART_TRACKER_USE_GPU: true
   SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo11n.pt"
   TRACKER_TYPE: "botsort_reid"  # or: bytetrack, botsort, custom_reid
+```
+
+#### 📺 Professional OSD System (New in 3.2)
+
+PixEagle 3.2 introduces a completely redesigned **On-Screen Display (OSD)** system with professional-grade rendering and aviation-standard layouts.
+
+**Key Features:**
+- 🎨 **Aviation-Grade Layouts** - Following DJI/ArduPilot/PX4 professional standards
+- ✍️ **TrueType Font Rendering** - High-quality text (4-8x better than OpenCV)
+- 📐 **Resolution Independent** - Automatic scaling (1/20th frame height - aviation standard)
+- 🎯 **Professional Presets** - Minimal, Professional, Full Telemetry
+- 🔄 **Real-Time Preset Switching** - Instant API control without restart
+- 📊 **Complete MAVLink Integration** - Altitude, GPS, speed, battery, attitude, and more
+
+📖 **[Complete OSD Guide & Setup Instructions →](docs/OSD_GUIDE.md)**
+
+**Quick Start:**
+```yaml
+# config.yaml
+OSD:
+  ENABLED: true
+  PRESET: "professional"  # minimal | professional | full_telemetry
 ```
 
 #### ⚡ CUDA / GPU Acceleration (New)

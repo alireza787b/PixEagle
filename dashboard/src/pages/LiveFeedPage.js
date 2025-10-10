@@ -11,6 +11,7 @@ import {
   MenuItem,
 } from '@mui/material';
 import WebRTCStream from '../components/WebRTCStream';
+import OSDToggle from '../components/OSDToggle';
 import { videoFeed } from '../services/apiEndpoints';
 
 const LiveFeedPage = () => {
@@ -63,6 +64,11 @@ const LiveFeedPage = () => {
           <MenuItem value="http">HTTP</MenuItem>
         </Select>
       </FormControl>
+
+      {/* OSD Toggle Control */}
+      <Box sx={{ mt: 2, mb: 2 }}>
+        <OSDToggle />
+      </Box>
 
       {loading ? (
         <Box

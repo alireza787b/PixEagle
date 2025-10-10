@@ -1,0 +1,211 @@
+# ==============================================================================
+# PixEagle OSD Preset - FULL TELEMETRY
+# ==============================================================================
+# Maximum information display for testing, debugging, and data logging
+# Shows all available telemetry fields
+# WARNING: May be cluttered - use for analysis/debugging only
+#
+# Design Principles:
+# - Maximum data density
+# - Smaller fonts to fit all fields (0.35x to 0.5x)
+# - Tighter margins (3%) for extra space
+# - Uses professional 1/20th font sizing formula
+# - Two-column layout (navigation left, altitude/speed right)
+# ==============================================================================
+
+GLOBAL_SETTINGS:
+  base_font_scale: 0.85          # Smaller fonts to fit more data (uses 1/20th formula)
+  text_style: "outlined"
+  outline_thickness: 1           # Thinner outlines to reduce clutter
+  shadow_offset: [1, 1]
+  shadow_opacity: 0.4
+  background_opacity: 0.65
+  safe_zone_margin: 3.0          # Tighter margins for max space (debugging mode)
+
+ELEMENTS:
+  # System info
+  name:
+    enabled: true
+    text: "PixEagle - FULL TELEMETRY"
+    anchor: "top-left"
+    offset: [5, 5]
+    font_scale: 1.0
+    color: [220, 220, 220]
+    style: "outlined"
+
+  datetime:
+    enabled: true
+    anchor: "top-right"
+    offset: [-5, 5]
+    font_scale: 0.45
+    color: [220, 220, 220]
+    style: "outlined"
+    alignment: "right"
+
+  crosshair:
+    enabled: true
+    color: [0, 255, 0]
+    thickness: 1
+    length: 10
+
+  attitude_indicator:
+    enabled: true
+    position: [50, 50]
+    size: [10, 10]          # Small to save space (10% not 50%!)
+    horizon_color: [255, 255, 255]
+    grid_color: [160, 160, 160]
+    thickness: 1
+
+  # ===========================================================================
+  # MAVLINK TELEMETRY DATA
+  # ===========================================================================
+  # All MAVLink fields consolidated into a single element with multiple fields
+
+  mavlink_data:
+    enabled: true
+    fields:
+      # === LEFT COLUMN - Navigation & Position ===
+      # Flight mode
+      flight_mode:
+        anchor: "top-left"
+        offset: [5, 30]
+        font_scale: 0.4
+        color: [100, 150, 255]
+        style: "outlined"
+
+      # Attitude
+      roll:
+        anchor: "center-left"
+        offset: [5, -140]
+        font_scale: 0.4
+        color: [220, 220, 220]
+        style: "outlined"
+
+      pitch:
+        anchor: "center-left"
+        offset: [5, -120]
+        font_scale: 0.4
+        color: [220, 220, 220]
+        style: "outlined"
+
+      heading:
+        anchor: "center-left"
+        offset: [5, -100]
+        font_scale: 0.4
+        color: [220, 220, 220]
+        style: "outlined"
+
+      # GPS & Navigation
+      satellites_visible:
+        anchor: "center-left"
+        offset: [5, -70]
+        font_scale: 0.4
+        color: [220, 220, 220]
+        style: "outlined"
+
+      hdop:
+        anchor: "center-left"
+        offset: [5, -50]
+        font_scale: 0.4
+        color: [220, 220, 220]
+        style: "outlined"
+
+      vdop:
+        anchor: "center-left"
+        offset: [5, -30]
+        font_scale: 0.4
+        color: [220, 220, 220]
+        style: "outlined"
+
+      latitude:
+        anchor: "bottom-left"
+        offset: [5, -90]
+        font_scale: 0.35
+        color: [200, 200, 200]
+        style: "outlined"
+
+      longitude:
+        anchor: "bottom-left"
+        offset: [5, -70]
+        font_scale: 0.35
+        color: [200, 200, 200]
+        style: "outlined"
+
+      # Power
+      voltage:
+        anchor: "bottom-left"
+        offset: [5, -45]
+        font_scale: 0.45
+        color: [255, 200, 50]
+        style: "plate"
+
+      throttle:
+        anchor: "bottom-left"
+        offset: [5, -20]
+        font_scale: 0.4
+        color: [220, 220, 220]
+        style: "outlined"
+
+      # === RIGHT COLUMN - Altitude & Speed ===
+      altitude_agl:
+        anchor: "center-right"
+        offset: [-5, -140]
+        font_scale: 0.5
+        color: [50, 255, 120]
+        style: "plate"
+
+      altitude_msl:
+        anchor: "center-right"
+        offset: [-5, -115]
+        font_scale: 0.4
+        color: [220, 220, 220]
+        style: "outlined"
+
+      # Speed data
+      airspeed:
+        anchor: "center-right"
+        offset: [-5, -85]
+        font_scale: 0.4
+        color: [220, 220, 220]
+        style: "outlined"
+
+      groundspeed:
+        anchor: "center-right"
+        offset: [-5, -65]
+        font_scale: 0.4
+        color: [220, 220, 220]
+        style: "outlined"
+
+      climb:
+        anchor: "center-right"
+        offset: [-5, -45]
+        font_scale: 0.4
+        color: [220, 220, 220]
+        style: "outlined"
+
+      flight_path_angle:
+        anchor: "center-right"
+        offset: [-5, -25]
+        font_scale: 0.4
+        color: [220, 220, 220]
+        style: "outlined"
+
+  # ===========================================================================
+  # BOTTOM ROW - System Status
+  # ===========================================================================
+
+  tracker_status:
+    enabled: true
+    anchor: "bottom-right"
+    offset: [-5, -45]
+    font_scale: 0.45
+    color: [255, 255, 0]
+    style: "outlined"
+
+  follower_status:
+    enabled: true
+    anchor: "bottom-right"
+    offset: [-5, -20]
+    font_scale: 0.45
+    color: [255, 255, 0]
+    style: "outlined"

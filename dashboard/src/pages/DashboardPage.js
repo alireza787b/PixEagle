@@ -22,6 +22,7 @@ import TrackerStatusCard from '../components/TrackerStatusCard';
 import FollowerQuickControl from '../components/FollowerQuickControl';
 import StreamingStats from '../components/StreamingStats';
 import CircuitBreakerStatusCard from '../components/CircuitBreakerStatusCard';
+import OSDToggle from '../components/OSDToggle';
 
 
 import { videoFeed, endpoints } from '../services/apiEndpoints';
@@ -318,6 +319,9 @@ const DashboardPage = () => {
                               <MenuItem value="http">HTTP</MenuItem>
                             </Select>
                           </FormControl>
+
+                          {/* OSD Toggle Control */}
+                          <OSDToggle />
                         </CardContent>
                       </Card>
 

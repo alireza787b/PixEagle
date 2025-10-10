@@ -11,6 +11,9 @@ ultralytics
 ncnn
 lap
 
+# Professional OSD rendering with high-quality TrueType fonts
+Pillow >= 10.0.0  # PIL fork for professional text rendering on video frames
+
 # Flask for web API and interaction
 Flask
 Flask-RESTful

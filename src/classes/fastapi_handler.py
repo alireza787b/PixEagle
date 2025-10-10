@@ -271,6 +271,12 @@ class FastAPIHandler:
         self.app.post("/api/circuit-breaker/toggle")(self.toggle_circuit_breaker)
         self.app.get("/api/circuit-breaker/statistics")(self.get_circuit_breaker_statistics)
         self.app.post("/api/circuit-breaker/reset-statistics")(self.reset_circuit_breaker_statistics)
+
+        # OSD Control API endpoints
+        self.app.get("/api/osd/status")(self.get_osd_status)
+        self.app.post("/api/osd/toggle")(self.toggle_osd)
+        self.app.get("/api/osd/presets")(self.get_osd_presets)
+        self.app.post("/api/osd/preset/{preset_name}")(self.load_osd_preset)
     
     async def video_feed(self):
         """Optimized HTTP MJPEG streaming with adaptive quality."""
@@ -1878,4 +1884,209 @@ class FastAPIHandler:
 
         except Exception as e:
             self.logger.error(f"Error resetting circuit breaker statistics: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # ==================== OSD Control API Endpoints ====================
+
+    async def get_osd_status(self):
+        """
+        Get current OSD status and configuration.
+
+        Returns:
+            dict: OSD status, configuration, and performance metrics
+        """
+        try:
+            if not hasattr(self.app_controller, 'osd_handler'):
+                return JSONResponse(content={
+                    'available': False,
+                    'error': 'OSD system not available'
+                })
+
+            osd_handler = self.app_controller.osd_handler
+
+            # Get OSD enabled status
+            is_enabled = osd_handler.is_enabled() if hasattr(osd_handler, 'is_enabled') else Parameters.OSD_ENABLED
+
+            # Get performance stats if available
+            perf_stats = {}
+            if hasattr(osd_handler, 'get_performance_stats'):
+                perf_stats = osd_handler.get_performance_stats()
+
+            # Get preset name
+            current_preset = getattr(Parameters, 'OSD_PRESET', 'professional')
+
+            return JSONResponse(content={
+                'available': True,
+                'enabled': is_enabled,
+                'status': 'active' if is_enabled else 'disabled',
+                'configuration': {
+                    'enabled_parameter': Parameters.OSD_ENABLED,
+                    'current_preset': current_preset,
+                    'presets_location': 'configs/osd_presets/'
+                },
+                'performance': perf_stats,
+                'message': 'OSD overlay active on video feed' if is_enabled else 'OSD overlay disabled',
+                'timestamp': time.time()
+            })
+
+        except Exception as e:
+            self.logger.error(f"Error getting OSD status: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def toggle_osd(self):
+        """
+        Toggle OSD on/off.
+
+        Returns:
+            dict: New OSD status
+        """
+        try:
+            if not hasattr(self.app_controller, 'osd_handler'):
+                raise HTTPException(
+                    status_code=503,
+                    detail="OSD system not available"
+                )
+
+            osd_handler = self.app_controller.osd_handler
+
+            # Get current state
+            old_state = osd_handler.is_enabled() if hasattr(osd_handler, 'is_enabled') else Parameters.OSD_ENABLED
+
+            # Toggle the state
+            new_state = not old_state
+            if hasattr(osd_handler, 'set_enabled'):
+                osd_handler.set_enabled(new_state)
+
+            # Update parameter
+            Parameters.OSD_ENABLED = new_state
+
+            self.logger.info(f"OSD {'enabled' if new_state else 'disabled'} via API")
+
+            return JSONResponse(content={
+                'status': 'success',
+                'action': 'enabled' if new_state else 'disabled',
+                'enabled': new_state,
+                'old_state': old_state,
+                'new_state': new_state,
+                'message': f'OSD overlay {"enabled" if new_state else 'disabled'}',
+                'timestamp': time.time()
+            })
+
+        except Exception as e:
+            self.logger.error(f"Error toggling OSD: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_osd_presets(self):
+        """
+        Get available OSD presets.
+
+        Returns:
+            dict: Available preset information
+        """
+        try:
+            import os
+            from pathlib import Path
+
+            presets_dir = Path("configs/osd_presets")
+
+            if not presets_dir.exists():
+                return JSONResponse(content={
+                    'available': False,
+                    'error': 'OSD presets directory not found',
+                    'presets': []
+                })
+
+            # Scan for preset files - return just the names as strings
+            presets = []
+            for preset_file in presets_dir.glob("*.yaml"):
+                if preset_file.name.lower() != 'readme.md':
+                    preset_name = preset_file.stem
+                    presets.append(preset_name)
+
+            # Sort presets (put professional first as default)
+            presets.sort(key=lambda x: (x != 'professional', x))
+
+            # Get current preset from Parameters
+            current_preset = getattr(Parameters, 'OSD_PRESET', 'professional') if hasattr(Parameters, 'OSD_PRESET') else 'professional'
+
+            return JSONResponse(content={
+                'available': True,
+                'presets': presets,
+                'current': current_preset,
+                'presets_directory': str(presets_dir),
+                'total_presets': len(presets),
+                'timestamp': time.time()
+            })
+
+        except Exception as e:
+            self.logger.error(f"Error getting OSD presets: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def load_osd_preset(self, preset_name: str):
+        """
+        Load an OSD preset configuration.
+
+        Args:
+            preset_name: Name of the preset to load (e.g., 'minimal', 'professional', 'full_telemetry')
+
+        Returns:
+            dict: Load operation result
+        """
+        try:
+            import yaml
+            from pathlib import Path
+
+            # Validate preset name (security)
+            allowed_chars = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-')
+            if not all(c in allowed_chars for c in preset_name):
+                raise HTTPException(status_code=400, detail="Invalid preset name")
+
+            preset_path = Path(f"configs/osd_presets/{preset_name}.yaml")
+
+            if not preset_path.exists():
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Preset '{preset_name}' not found"
+                )
+
+            # Load preset configuration to validate it exists and is valid YAML
+            with open(preset_path, 'r') as f:
+                preset_config = yaml.safe_load(f)
+
+            # Count elements in preset
+            element_count = len(preset_config.get('ELEMENTS', {}))
+
+            # Update Parameters.OSD_PRESET to switch to this preset
+            old_preset = getattr(Parameters, 'OSD_PRESET', 'professional')
+            Parameters.OSD_PRESET = preset_name
+
+            # Reinitialize OSD renderer to load new preset IMMEDIATELY
+            if hasattr(self.app_controller, 'osd_handler'):
+                try:
+                    from classes.osd_renderer import OSDRenderer
+                    # Destroy old renderer and create new one with new preset
+                    self.app_controller.osd_handler.renderer = OSDRenderer(self.app_controller)
+                    self.logger.info(f"OSD renderer reinitialized with preset '{preset_name}'")
+                except Exception as e:
+                    self.logger.error(f"Failed to reinitialize OSD renderer: {e}")
+
+            self.logger.info(f"OSD preset switched: '{old_preset}' → '{preset_name}'")
+
+            return JSONResponse(content={
+                'status': 'success',
+                'action': 'preset_loaded',
+                'old_preset': old_preset,
+                'new_preset': preset_name,
+                'preset_file': str(preset_path),
+                'configuration_updated': True,
+                'element_count': element_count,
+                'message': f'OSD preset switched to "{preset_name}". Restart app for changes to take effect.',
+                'requires_restart': True,
+                'timestamp': time.time()
+            })
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error loading OSD preset: {e}")
             raise HTTPException(status_code=500, detail=str(e))

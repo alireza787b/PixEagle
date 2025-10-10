@@ -1,0 +1,86 @@
+# ==============================================================================
+# PixEagle OSD Preset - MINIMAL
+# ==============================================================================
+# Clean, uncluttered OSD for racing/FPV applications
+# Only essential information displayed - perfect for FPV/racing focus
+#
+# Design Principles:
+# - Only critical data (altitude, battery)
+# - Maximum screen clarity (no attitude indicator)
+# - Subtle, non-intrusive text
+# - Uses professional 1/20th font sizing formula
+# ==============================================================================
+
+GLOBAL_SETTINGS:
+  base_font_scale: 0.9           # Slightly smaller for minimalism (uses 1/20th formula)
+  text_style: "outlined"         # Clear outlines for readability
+  outline_thickness: 2
+  shadow_offset: [2, 2]
+  shadow_opacity: 0.5
+  background_opacity: 0.6
+  safe_zone_margin: 5.0          # 5% margins for clean racing/FPV view
+
+ELEMENTS:
+  # System watermark
+  name:
+    enabled: true
+    text: "PixEagle"
+    anchor: "top-left"
+    offset: [10, 10]
+    font_scale: 0.7           # Small and subtle
+    color: [200, 200, 200]    # Subtle grey
+    style: "outlined"
+
+  # Timestamp
+  datetime:
+    enabled: true
+    anchor: "top-right"
+    offset: [-10, 10]
+    font_scale: 0.4           # Small and subtle
+    color: [200, 200, 200]
+    style: "outlined"
+    alignment: "right"
+
+  # Center crosshair
+  crosshair:
+    enabled: true
+    color: [0, 255, 0]      # Green
+    thickness: 2
+    length: 12
+
+  # Critical flight data only
+  mavlink_data:
+    enabled: true
+    fields:
+      # Altitude (most important for drones)
+      altitude_agl:
+        anchor: "center-right"
+        offset: [-10, -30]
+        font_scale: 0.75      # Large for critical info
+        color: [50, 255, 120] # Bright green
+        style: "plate"        # Background plate for visibility
+
+      # Battery voltage (critical safety)
+      voltage:
+        anchor: "bottom-left"
+        offset: [10, -10]
+        font_scale: 0.65      # Large for critical info
+        color: [255, 200, 50] # Yellow/orange
+        style: "plate"
+
+  # Tracker status (minimal)
+  tracker_status:
+    enabled: true
+    anchor: "bottom-right"
+    offset: [-10, -10]
+    font_scale: 0.45
+    color: [255, 255, 0]      # Yellow
+    style: "outlined"
+
+  # Attitude indicator - DISABLED for minimal
+  attitude_indicator:
+    enabled: false
+
+  # Follower status - DISABLED for minimal
+  follower_status:
+    enabled: false

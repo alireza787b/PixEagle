@@ -1274,135 +1274,44 @@ GStreamer:
 # ==============================================================================
 # OSD (ON-SCREEN DISPLAY)
 # ==============================================================================
+# 📺 Professional On-Screen Display System
+#
+# Configuration Philosophy:
+# - This section contains ONLY general OSD settings
+# - All element configurations (what, where, how) are in preset files
+# - Presets are located in: configs/osd_presets/
+#
+# Available Presets:
+# - minimal.yaml: Essential info only (altitude, battery, status)
+# - professional.yaml: Balanced aviation-standard layout (RECOMMENDED)
+# - full_telemetry.yaml: All available data (testing/debugging)
+#
+# Adding Custom Presets:
+# 1. Create new YAML file in configs/osd_presets/
+# 2. Copy structure from existing preset
+# 3. Set OSD_PRESET below to your filename (without .yaml)
+# 4. All MAVLink data points are automatically available
+#
+# Adding New MAVLink Fields to OSD:
+# 1. Ensure field exists in MAVLink.MAVLINK_DATA_POINTS section above
+# 2. Open your chosen preset file (e.g., professional.yaml)
+# 3. Add field to mavlink_data.fields section with positioning/styling
+# 4. Available fields: heading, altitude_agl, altitude_msl, airspeed,
+#    groundspeed, voltage, satellites_visible, hdop, vdop, latitude,
+#    longitude, roll, pitch, throttle, climb, flight_mode, etc.
+#
+# ==============================================================================
 OSD:
-  # 📺 Video overlay configuration
-  OSD_ENABLED: true
-  
-  OSD_CONFIG:
-    # === Title/Watermark ===
-    name:
-      enabled: true
-      text: PixEagle
-      position: [3, 5]                     # % from top-left
-      color: [255, 255, 255]               # BGR: White
-      font_size: 0.7
-    
-    # === Timestamp ===
-    datetime:
-      enabled: true
-      position: [98, 5]                    # % from top-left
-      color: [255, 255, 255]
-      font_size: 0.6
-      alignment: right
-    
-    # === Crosshair ===
-    crosshair:
-      enabled: true
-      color: [0, 255, 0]                   # BGR: Green
-      thickness: 2
-      length: 15
-    
-    # === Attitude Indicator (Artificial Horizon) ===
-    attitude_indicator:
-      enabled: true
-      position: [50, 50]                   # Center position
-      size: [70, 70]                       # Width, height
-      horizon_color: [255, 255, 255]
-      grid_color: [200, 200, 200]
-      thickness: 2
-    
-    # === MAVLink Telemetry Data ===
-    mavlink_data:
-      enabled: true
-      fields:
-        # Navigation data
-        heading:
-          position: [45, 30]
-          font_size: 0.5
-          color: [255, 255, 255]
-        airspeed:
-          position: [10, 45]
-          font_size: 0.4
-          color: [255, 255, 255]
-        groundspeed:
-          position: [10, 55]
-          font_size: 0.4
-          color: [255, 255, 255]
-        throttle:
-          position: [10, 65]
-          font_size: 0.3
-          color: [255, 255, 255]
-        
-        # Altitude data
-        altitude_msl:
-          position: [65, 45]
-          font_size: 0.4
-          color: [255, 255, 255]
-        altitude_agl:
-          position: [65, 55]
-          font_size: 0.4
-          color: [255, 255, 255]
-        flight_path_angle:
-          position: [65, 65]
-          font_size: 0.4
-          color: [255, 255, 255]
-        
-        # Attitude
-        roll:
-          position: [45, 75]
-          font_size: 0.5
-          color: [255, 255, 255]
-        pitch:
-          position: [45, 80]
-          font_size: 0.5
-          color: [255, 255, 255]
-        
-        # GPS data
-        latitude:
-          position: [2, 92]
-          font_size: 0.3
-          color: [255, 255, 255]
-        longitude:
-          position: [2, 96]
-          font_size: 0.3
-          color: [255, 255, 255]
-        satellites_visible:
-          position: [2, 88]
-          font_size: 0.4
-          color: [255, 255, 255]
-        hdop:
-          position: [2, 84]
-          font_size: 0.4
-          color: [255, 255, 255]
-        
-        # System status
-        voltage:
-          position: [2, 12]
-          font_size: 0.4
-          color: [255, 255, 255]
-        arm_status:
-          position: [2, 16]
-          font_size: 0.5
-          color: [255, 255, 255]
-        flight_mode:
-          position: [45, 10]
-          font_size: 0.5
-          color: [0, 0, 255]               # BGR: Blue
-          alignment: center
-    
-    # === Tracker Status ===
-    tracker_status:
-      enabled: true
-      position: [75, 92]
-      font_size: 0.4
-      color: [255, 255, 0]                 # BGR: Cyan
-    
-    # === Follower Status ===
-    follower_status:
-      enabled: true
-      position: [75, 96]
-      font_size: 0.4
-      color: [255, 255, 0]                 # BGR: Cyan
+  # === General Settings ===
+  OSD_ENABLED: true                      # Master enable/disable for OSD
+
+  # === Preset Selection ===
+  OSD_PRESET: "professional"             # Active preset filename (without .yaml)
+                                         # Options: minimal | professional | full_telemetry
+                                         # Or your custom preset name
+
+  # ℹ️ NOTE: All element configurations are loaded from the preset file
+  # ℹ️ See configs/osd_presets/{OSD_PRESET}.yaml for layout and styling
 
 # ==============================================================================
 # DEBUGGING & LOGGING

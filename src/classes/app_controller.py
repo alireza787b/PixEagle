@@ -499,18 +499,20 @@ class AppController:
             if self.telemetry_handler.should_send_telemetry():
                 self.telemetry_handler.send_telemetry()
 
-            # Update current frame for OSD and video handler
+            # Update current frame for app controller
             self.current_frame = frame
-            self.video_handler.current_osd_frame = frame
 
             # Draw OSD elements on frame
             frame = self.osd_handler.draw_osd(frame)
+
+            # Save OSD-rendered frame to video handler (AFTER drawing OSD)
+            self.video_handler.current_osd_frame = frame
 
             # GStreamer streaming if enabled
             if Parameters.ENABLE_GSTREAMER_STREAM and hasattr(self, 'gstreamer_handler'):
                 self.gstreamer_handler.stream_frame(frame)
 
-            # Update resized frames for streaming
+            # Update resized frames for streaming (will now include OSD!)
             self.video_handler.update_resized_frames(
                 Parameters.STREAM_WIDTH, Parameters.STREAM_HEIGHT
             )

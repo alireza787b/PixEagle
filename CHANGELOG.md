@@ -1,5 +1,43 @@
 # PixEagle Changelog
 
+## Version 3.2 (2025-10-10) - Professional OSD System
+
+### 🚀 New Features
+
+- **Aviation-Grade OSD System** - Professional HUD layouts following DJI/ArduPilot/PX4 standards
+- **TrueType Font Rendering** - High-quality PIL/Pillow text rendering (4-8x better than OpenCV)
+- **Resolution-Independent Scaling** - Professional 1/20th frame height sizing formula (aviation standard)
+- **Real-Time Preset Switching** - API endpoint for instant preset changes without restart
+- **Three Professional Presets** - Minimal (racing), Professional (default), Full Telemetry (debug)
+- **RobotoMono Font Integration** - Professional monospaced font with automatic detection
+
+### 🔧 Improvements
+
+- **Improved Font Discovery** - Custom fonts directory checked first with proper name normalization
+- **Better Text Positioning** - 8% safe zones (aviation standard) for critical data visibility
+- **Visual Hierarchy** - Critical data (altitude, battery) displayed larger with plate backgrounds
+- **Smaller Attitude Indicator** - Reduced from 60% to 8% screen size for professional appearance
+- **Symmetric Layout Design** - Balanced left/right data organization
+- **Enhanced OSD Renderer** - Immediate reinitialization when presets change via API
+
+### 📖 Documentation
+
+- Removed duplicate README from fonts directory (consolidated into OSD_GUIDE.md)
+- Updated main README to reference comprehensive OSD documentation
+- All preset files now include aviation design principles and sizing rationale
+
+### 🐛 Bug Fixes
+
+- Fixed custom fonts directory not stripping `-regular` suffix from font names
+- Fixed preset switching requiring app restart
+- Fixed font size being too small (changed from 1/30th to 1/20th of frame height)
+
+### 🔄 Breaking Changes
+
+None - Fully backward compatible with PixEagle 3.1
+
+---
+
 ## Version 3.1 (2025-10-09) - SmartTracker Enhanced
 
 ### 🚀 New Features
