@@ -4,7 +4,7 @@
 
 **PixEagle** is a powerful, modular image-processing and tracking suite for drones running the **PX4 autopilot** — with optional support for ArduPilot and integration-ready for custom systems. It combines **MAVSDK Python**, **OpenCV**, and **YOLO** object detection to deliver high-performance visual tracking and autonomous following.
 
-With **PixEagle 3.0**, we’ve taken things to the next level — introducing a new GPU-accelerated **Smart Tracker**, seamless **YOLO integration**, a redesigned web-based GCS dashboard, and automatic model conversion tools. PixEagle is now more intelligent, flexible, and field-ready than ever before.
+With **PixEagle 3.1**, we've enhanced the SmartTracker with multiple tracking modes, professional-grade re-identification, and comprehensive documentation. PixEagle is now more intelligent, flexible, and field-ready than ever before.
 
 > Whether you're using a Raspberry Pi, Jetson, or x86 companion computer — PixEagle is built for real-time, on-board vision-based autonomy.
 
@@ -17,20 +17,52 @@ With **PixEagle 3.0**, we’ve taken things to the next level — introducing a 
 [![PixEagle 2 Demo Video](https://img.youtube.com/vi/vJn27WEXQJw/0.jpg)](https://www.youtube.com/watch?v=vJn27WEXQJw)
 
 
-🎬 **Watch the PixEagle 3.0 Demo Video: (Soon...) **  
+🎬 **Watch the PixEagle 3.0 Demo Video: (Soon...) **
 Your Drone Can Now Think — Smart Tracking with YOLO + PX4
 
 
 ---
 
-### ✨ What's New in PixEagle 3.0
+### ✨ What's New in PixEagle 3.1
 
-#### 🤖 Smart YOLO Tracker (New)
+**Version 3.1 (October 2025)** - SmartTracker Enhanced with advanced multi-tracker support and professional re-identification capabilities.
 
-- Built-in **YOLO-powered tracking engine**, running in real-time
-- **Supports any custom YOLO model** — auto-detection with bounding box or click-to-track
-- **Works alongside classic trackers** (e.g. CSRT) for hybrid tracking scenarios
-- **User-friendly switching between Classic / Smart modes** via updated Dashboard
+📖 **[Full Changelog →](CHANGELOG.md)**
+
+---
+
+### ✨ PixEagle 3.0+ Features
+
+#### 🤖 SmartTracker - AI-Powered Object Tracking (New)
+
+PixEagle 3.0 introduces **SmartTracker**, an intelligent tracking system powered by YOLO deep learning models with advanced multi-object tracking capabilities.
+
+**Key Features:**
+- 🎯 **Click-to-Track** - Simple user interface for target selection
+- 🤖 **AI Detection** - Real-time object recognition (80+ classes)
+- 🔄 **Multiple Tracker Modes** - ByteTrack, BoT-SORT, or BoT-SORT+ReID
+- 🧠 **Re-Identification** - Automatic recovery after occlusions
+- ⚡ **GPU Accelerated** - CUDA support for 60+ FPS performance
+- 🏕️ **CPU Fallback** - Works on Raspberry Pi and embedded systems
+- 🎨 **Custom Models** - Use any YOLO model (v8, v11, or custom-trained)
+
+**Tracker Modes:**
+- **ByteTrack** - Maximum speed (0% FPS impact)
+- **BoT-SORT** - Better persistence (-3-5% FPS)
+- **BoT-SORT+ReID** - Professional re-identification (-5-8% FPS, Ultralytics native)
+- **Custom ReID** - Lightweight offline mode (-8-12% FPS, embedded-friendly)
+
+📖 **[Complete SmartTracker Guide →](docs/SMART_TRACKER_GUIDE.md)**
+
+**Quick Start:**
+```yaml
+# config.yaml
+SmartTracker:
+  SMART_TRACKER_ENABLED: true
+  SMART_TRACKER_USE_GPU: true
+  SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo11n.pt"
+  TRACKER_TYPE: "botsort_reid"  # or: bytetrack, botsort, custom_reid
+```
 
 #### ⚡ CUDA / GPU Acceleration (New)
 
@@ -316,7 +348,7 @@ Or grab it from the [MAVSDK Releases](https://github.com/mavlink/MAVSDK/releases
 
 ---
 ##  Building Opencv
-If you want to use GStreamer, you need to build opencv manually. You can use the step by step instruction [here](https://github.com/alireza787b/PixEagle/blob/main/opencv_with_gstreamer.md) or use (`auto_opencv_build.sh`) sciprt.
+If you want to use GStreamer, you need to build opencv manually. You can use the step by step instruction [here](https://github.com/alireza787b/PixEagle/blob/main/opencv_with_gstreamer.md) or use (`auto_build_opencv.sh`) sciprt.
 
 ```bash
 bash ~/PixEagle/auto_opencv_build.sh

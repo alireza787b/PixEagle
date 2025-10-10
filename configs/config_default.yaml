@@ -363,13 +363,110 @@ SmartTracker:
   SMART_TRACKER_IOU_THRESHOLD: 0.3          # Overlap threshold for NMS (0.0-1.0)
   SMART_TRACKER_MAX_DETECTIONS: 20          # Max objects per frame
 
-  # === Tracker Settings ===
-  SMART_TRACKER_TRACKER_TYPE: "bytetrack.yaml"  # ByteTrack or custom config
+  # === Visual Settings ===
   SMART_TRACKER_COLOR: [0, 255, 255]        # BGR: Yellow
   SMART_TRACKER_SHOW_FPS: false
 
   # ==============================================================================
-  # 🎯 ID TRACKING ROBUSTNESS (NEW - Prevents target loss during occlusions)
+  # 🎯 TRACKER TYPE SELECTION (Choose Your Tracking Strategy)
+  # ==============================================================================
+  #
+  # 📊 DECISION GUIDE:
+  #
+  # GPU System + Internet Access + Long Occlusions:
+  #   → Use "botsort_reid" (best accuracy, Ultralytics native ReID)
+  #
+  # CPU System / Raspberry Pi + Long Occlusions:
+  #   → Use "custom_reid" (lightweight, works offline, good re-ID on CPU)
+  #
+  # Air-gapped / Offline Drone:
+  #   → Use "custom_reid" (no internet needed, fully offline)
+  #
+  # High FPS Required (>30 FPS):
+  #   → Use "bytetrack" (fastest, disable ReID for maximum speed)
+  #
+  # Balanced Performance + Better Persistence:
+  #   → Use "botsort" (better than ByteTrack, no ReID overhead)
+  #
+  # 📊 PERFORMANCE COMPARISON:
+  #
+  # Tracker Type    | FPS Impact | ReID Quality | Offline | GPU Needed | Ultralytics v8.3.114+
+  # ----------------|------------|--------------|---------|------------|----------------------
+  # bytetrack       | 0%         | None         | ✓       | No         | Any version
+  # botsort         | -3-5%      | Low          | ✓       | No         | Any version
+  # botsort_reid    | -5-8%      | Excellent    | ✗       | Recommended| Required
+  # custom_reid     | -8-12%     | Good         | ✓       | No         | Any version
+  #
+  TRACKER_TYPE: "botsort_reid"
+
+  # Options:
+  # - "bytetrack": Fast, no ReID, geometric matching only
+  # - "botsort": Better persistence, no ReID, geometric + better association
+  # - "botsort_reid": BoT-SORT + Ultralytics native ReID (RECOMMENDED for GPU)
+  # - "custom_reid": Lightweight histogram/HOG ReID (RECOMMENDED for CPU/offline)
+
+  # ==============================================================================
+  # 🤖 BOT-SORT RE-IDENTIFICATION (Ultralytics Native ReID)
+  # ==============================================================================
+  # Only used when TRACKER_TYPE = "botsort_reid"
+  # Requires Ultralytics v8.3.114+ (will auto-fallback to custom_reid if unavailable)
+
+  # ReID embedding model selection
+  # "auto": Uses native YOLO features (fastest, zero overhead, RECOMMENDED)
+  # "yolo11n-cls.pt": Classification model (better accuracy, +2-5ms latency)
+  # Custom path: Your own ReID embedding model
+  BOTSORT_REID_MODEL: "auto"
+
+  # Appearance similarity threshold for ReID matching
+  # Lower = stricter matching (fewer false positives, may miss correct matches)
+  # Higher = more lenient (more false positives, better recall)
+  # ⚠️ NOTE: Opposite direction from APPEARANCE_MATCH_THRESHOLD!
+  # Recommended: 0.20-0.30
+  BOTSORT_APPEARANCE_THRESH: 0.25
+
+  # IoU (geometric proximity) threshold for matching
+  # Works alongside appearance threshold
+  # Recommended: 0.4-0.6
+  BOTSORT_PROXIMITY_THRESH: 0.5
+
+  # Number of frames to remember lost tracks (for re-identification)
+  # Higher = can recover after longer occlusions (uses more memory)
+  # Recommended: 30-120 frames
+  # 30 ≈ 1 second, 60 ≈ 2 seconds, 120 ≈ 4 seconds at 30 FPS
+  BOTSORT_TRACK_BUFFER: 60
+
+  # IoU threshold for matching detections to existing tracks
+  # Higher = stricter (fewer ID switches)
+  # Lower = more lenient (better recovery)
+  # Recommended: 0.7-0.9
+  BOTSORT_MATCH_THRESH: 0.8
+
+  # High confidence detection threshold (first association pass)
+  # Recommended: 0.20-0.30
+  BOTSORT_TRACK_HIGH_THRESH: 0.25
+
+  # Low confidence detection threshold (recovery pass)
+  # Recommended: 0.05-0.15
+  BOTSORT_TRACK_LOW_THRESH: 0.1
+
+  # Minimum confidence for creating new tracks
+  # Lower = easier to start tracking
+  # Higher = only track high-confidence objects
+  # Recommended: 0.20-0.30
+  BOTSORT_NEW_TRACK_THRESH: 0.25
+
+  # Fuse detection confidence with IoU during matching
+  # true = better discrimination (recommended)
+  # false = pure geometric matching
+  BOTSORT_FUSE_SCORE: true
+
+  # Camera motion compensation method
+  # "sparseOptFlow": Optical flow-based (recommended)
+  # "none": Disable (use if camera is stationary)
+  BOTSORT_CMC_METHOD: "sparseOptFlow"
+
+  # ==============================================================================
+  # 🎯 ID TRACKING ROBUSTNESS (Hybrid Strategy - Works with All Tracker Types)
   # ==============================================================================
   # These parameters make tracking more robust when objects temporarily disappear
   # or when YOLO assigns new IDs to the same object
@@ -447,6 +544,91 @@ SmartTracker:
   # true = better handling of similar objects
   # false = pure geometric matching
   BYTETRACK_FUSE_SCORE: true
+
+  # ==============================================================================
+  # 🎨 APPEARANCE-BASED RE-IDENTIFICATION (Advanced Feature)
+  # ==============================================================================
+  # Enables object re-identification after long occlusions using visual appearance
+  # Useful when object disappears for >5 frames and returns with different ID
+  # Maintains original track ID even after long disappearances
+
+  # === Feature Toggle ===
+  # Set to false on low-performance boards (Raspberry Pi Zero, older ARM)
+  # Adds ~5-10ms per frame overhead on modern hardware
+  ENABLE_APPEARANCE_MODEL: true
+
+  # === Similarity Threshold ===
+  # How similar appearances must be to consider a match (0.0-1.0)
+  # Higher = stricter matching (fewer false positives, may miss correct matches)
+  # Lower = more lenient (more false positives, better recall)
+  # Recommended values:
+  #   - 0.8-0.9: Very strict (use when objects look very similar)
+  #   - 0.6-0.7: Balanced (recommended for most scenarios)
+  #   - 0.4-0.5: Lenient (use when lighting/angle changes dramatically)
+  APPEARANCE_MATCH_THRESHOLD: 0.7
+
+  # === Feature Extraction Method ===
+  # Determines what visual features are used for matching
+  # "histogram": Fast, color-based matching
+  #   - Best for: Objects with distinct colors
+  #   - Speed: Fastest (~2-3ms per object)
+  #   - Accuracy: Good for color-distinct objects
+  #   - Recommended for: Embedded systems, colored targets
+  #
+  # "hog": Shape/texture-based matching (Histogram of Oriented Gradients)
+  #   - Best for: Similar colors but different shapes
+  #   - Speed: Moderate (~5-7ms per object)
+  #   - Accuracy: Better for shape discrimination
+  #   - Recommended for: Monochrome or similar-colored objects
+  #
+  # "hybrid": Combines histogram + HOG features
+  #   - Best for: Maximum accuracy in challenging scenarios
+  #   - Speed: Slower (~8-10ms per object)
+  #   - Accuracy: Highest overall
+  #   - Recommended for: Powerful hardware, critical applications
+  APPEARANCE_FEATURE_TYPE: "histogram"
+
+  # === Memory Window ===
+  # How long to remember lost objects (in frames)
+  # Object features are stored for this duration after losing track
+  # Higher = can re-identify after longer occlusions (uses more memory ~1KB per object)
+  # Lower = faster cleanup, less memory usage
+  # Recommended values:
+  #   - 30 frames: ~1 second at 30 FPS (good for brief occlusions)
+  #   - 60 frames: ~2 seconds (balanced)
+  #   - 150 frames: ~5 seconds (long occlusions, uses more memory)
+  MAX_REIDENTIFICATION_FRAMES: 30
+
+  # === Adaptive Learning ===
+  # Update appearance model during successful tracking
+  # Helps adapt to gradual changes in lighting, viewing angle, or object appearance
+  # true = model adapts over time (better for changing conditions)
+  # false = uses initial appearance only (more consistent but rigid)
+  APPEARANCE_ADAPTIVE_LEARNING: true
+
+  # Learning rate for adaptive updates (0.0-1.0)
+  # Higher = faster adaptation to changes (may drift from original appearance)
+  # Lower = slower adaptation (more stable, less responsive to changes)
+  # Recommended: 0.05-0.15
+  APPEARANCE_LEARNING_RATE: 0.1
+
+  # === HOG Feature Parameters ===
+  # Only used when APPEARANCE_FEATURE_TYPE = "hog" or "hybrid"
+  # Histogram of Oriented Gradients configuration for shape-based matching
+  HOG_WIN_SIZE: [64, 64]              # ROI resize dimensions (width, height)
+  HOG_BLOCK_SIZE: [16, 16]            # Block size for normalization
+  HOG_BLOCK_STRIDE: [8, 8]            # Step size for block overlap
+  HOG_CELL_SIZE: [8, 8]               # Cell size within blocks
+  HOG_NBINS: 9                        # Number of orientation bins (1-180 degrees)
+
+  # === Color Histogram Parameters ===
+  # Only used when APPEARANCE_FEATURE_TYPE = "histogram" or "hybrid"
+  HIST_H_BINS: 30                     # Hue channel bins (H in HSV)
+  HIST_S_BINS: 32                     # Saturation channel bins (S in HSV)
+
+  # === Performance Profiling ===
+  # Enable profiling to measure feature extraction and matching performance
+  ENABLE_APPEARANCE_PROFILING: false  # true = log timing metrics to console
 
 
 # ==============================================================================

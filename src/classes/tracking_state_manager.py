@@ -4,10 +4,15 @@ Tracking State Manager for robust object tracking across frames.
 
 This module provides intelligent track ID management with multiple fallback strategies
 to handle common tracking challenges like:
-- ID switches by YOLO/ByteTrack
+- ID switches by YOLO trackers (ByteTrack, BoT-SORT, etc.)
 - Brief occlusions (1-5 frames)
 - Detection failures
 - Re-identification after loss
+
+TRACKER COMPATIBILITY:
+- Works with ANY Ultralytics tracker (ByteTrack, BoT-SORT, BoT-SORT+ReID)
+- Tracker-agnostic design: only requires detection format [x1, y1, x2, y2, track_id, conf, class_id]
+- Adds additional robustness layer on top of built-in tracker capabilities
 
 Author: PixEagle Team
 Date: 2025
@@ -17,6 +22,7 @@ import logging
 import time
 from collections import deque
 from typing import Optional, Tuple, List, Dict
+import numpy as np
 
 
 class TrackingStateManager:
@@ -29,16 +35,18 @@ class TrackingStateManager:
     3. Prediction: Estimate position during brief occlusions
     """
 
-    def __init__(self, config: dict, motion_predictor=None):
+    def __init__(self, config: dict, motion_predictor=None, appearance_model=None):
         """
         Initialize the tracking state manager.
 
         Args:
             config: Dictionary of SmartTracker configuration parameters
             motion_predictor: Optional motion predictor for occlusion handling
+            appearance_model: Optional appearance model for re-identification
         """
         self.config = config
         self.motion_predictor = motion_predictor
+        self.appearance_model = appearance_model
 
         # Core tracking state
         self.selected_track_id: Optional[int] = None
@@ -64,8 +72,13 @@ class TrackingStateManager:
         self.frames_since_detection = 0
         self.total_frames = 0
 
+        # Appearance-based re-identification
+        self.enable_appearance = self.config.get('ENABLE_APPEARANCE_MODEL', True) and appearance_model is not None
+
         logging.info(f"[TrackingStateManager] Initialized with strategy='{self.tracking_strategy}', "
                     f"tolerance={self.max_history} frames, IoU threshold={self.spatial_iou_threshold}")
+        if self.enable_appearance:
+            logging.info(f"[TrackingStateManager] Appearance re-identification: enabled")
 
     def start_tracking(self, track_id: int, class_id: int, bbox: Tuple[int, int, int, int],
                       confidence: float, center: Tuple[int, int]):
@@ -93,18 +106,23 @@ class TrackingStateManager:
 
         logging.debug(f"[TRACKING] Started: ID:{track_id} class:{class_id} conf={confidence:.2f}")
 
-    def update_tracking(self, detections: List[List], compute_iou_func) -> Tuple[bool, Optional[Dict]]:
+    def update_tracking(self, detections: List[List], compute_iou_func, frame: np.ndarray = None) -> Tuple[bool, Optional[Dict]]:
         """
         Update tracking state with new detections.
 
         Args:
             detections: List of YOLO detections (each is [x1, y1, x2, y2, track_id, conf, class_id])
             compute_iou_func: Function to compute IoU between two boxes
+            frame: Current frame (BGR image) - required for appearance matching
 
         Returns:
             Tuple of (is_tracking_active, selected_detection_dict or None)
         """
         self.total_frames += 1
+
+        # Increment appearance model frame counter if available
+        if self.appearance_model:
+            self.appearance_model.increment_frame()
 
         if self.selected_track_id is None:
             return False, None
@@ -117,20 +135,27 @@ class TrackingStateManager:
         elif self.tracking_strategy == "spatial_only":
             best_match = self._match_by_spatial(detections, compute_iou_func)
         elif self.tracking_strategy == "hybrid":
-            # Try ID first, fall back to spatial
+            # Try ID first, fall back to spatial, then appearance
             best_match = self._match_by_id(detections)
             if best_match is None and self.frames_since_detection < self.max_history:
                 best_match = self._match_by_spatial(detections, compute_iou_func)
+            # 3rd fallback: appearance-based matching (after exceeding tolerance)
+            if best_match is None and self.enable_appearance and frame is not None:
+                best_match = self._match_by_appearance(detections, frame)
 
         # Update state based on match result
         if best_match:
-            self._on_detection_found(best_match)
+            self._on_detection_found(best_match, frame)
             return True, best_match
         else:
             self._on_detection_lost()
 
             # Check if we've exceeded tolerance
             if self.frames_since_detection > self.max_history:
+                # Mark as lost in appearance model (starts memory countdown)
+                if self.appearance_model and self.frames_since_detection == self.max_history + 1:
+                    self.appearance_model.mark_as_lost(self.selected_track_id)
+
                 # Only log ONCE when first exceeding tolerance (not every subsequent frame)
                 if self.frames_since_detection == self.max_history + 1:
                     logging.info(f"[TRACKING] Lost: exceeded {self.max_history} frame tolerance")
@@ -191,6 +216,58 @@ class TrackingStateManager:
 
         return best_match
 
+    def _match_by_appearance(self, detections: List[List], frame: np.ndarray) -> Optional[Dict]:
+        """Match detection by visual appearance (3rd fallback for re-identification)."""
+        if not self.appearance_model or self.selected_class_id is None:
+            return None
+
+        # Convert detections to format expected by appearance model
+        detection_dicts = []
+        for detection in detections:
+            if len(detection) < 7:
+                continue
+
+            x1, y1, x2, y2 = map(int, detection[:4])
+            track_id = int(detection[4])
+            class_id = int(detection[6])
+
+            detection_dicts.append({
+                'bbox': (x1, y1, x2, y2),
+                'track_id': track_id,
+                'class_id': class_id
+            })
+
+        # Find best appearance match
+        best_match = self.appearance_model.find_best_match(
+            frame,
+            detection_dicts,
+            self.selected_class_id
+        )
+
+        if best_match:
+            # Convert back to standard detection format
+            parsed = self._parse_detection([
+                best_match['bbox'][0],  # x1
+                best_match['bbox'][1],  # y1
+                best_match['bbox'][2],  # x2
+                best_match['bbox'][3],  # y2
+                best_match['track_id'],
+                0.0,  # placeholder confidence (we don't have it from appearance model)
+                best_match['class_id']
+            ])
+
+            # Mark as appearance match and add similarity info
+            parsed['appearance_match'] = True
+            parsed['appearance_similarity'] = best_match.get('appearance_similarity', 0.0)
+            parsed['recovered_id'] = best_match.get('recovered_id', self.selected_track_id)
+
+            logging.info(f"[TRACKING] Appearance match: ID {self.selected_track_id}→{best_match['track_id']} "
+                        f"(similarity={best_match.get('appearance_similarity', 0.0):.3f})")
+
+            return parsed
+
+        return None
+
     def _parse_detection(self, detection: List) -> Dict:
         """Parse detection list into dictionary."""
         x1, y1, x2, y2 = map(int, detection[:4])
@@ -209,15 +286,24 @@ class TrackingStateManager:
             'match_iou': 1.0
         }
 
-    def _on_detection_found(self, detection: Dict):
+    def _on_detection_found(self, detection: Dict, frame: np.ndarray = None):
         """Update state when detection is found."""
-        # Update track ID if it changed (spatial matching case)
+        # Update track ID if it changed (spatial or appearance matching case)
+        old_id = self.selected_track_id
+
         if detection.get('iou_match', False):
-            old_id = self.selected_track_id
             new_id = detection['track_id']
             if old_id != new_id:
                 logging.info(f"[TRACKING] ID switch: {old_id}→{new_id} (IoU={detection['match_iou']:.2f})")
                 self.selected_track_id = new_id
+        elif detection.get('appearance_match', False):
+            # Appearance-based re-identification
+            recovered_id = detection.get('recovered_id', old_id)
+            new_id = detection['track_id']
+            logging.info(f"[TRACKING] Re-identified: recovered ID:{recovered_id}, new ID:{new_id} "
+                        f"(similarity={detection.get('appearance_similarity', 0.0):.3f})")
+            # Use the recovered ID to maintain tracking continuity
+            self.selected_track_id = recovered_id
 
         # Update state
         self.last_known_bbox = detection['bbox']
@@ -243,6 +329,16 @@ class TrackingStateManager:
         # Update motion predictor if available
         if self.motion_predictor and self.enable_prediction:
             self.motion_predictor.update(detection['bbox'], time.time())
+
+        # Register/update appearance features if available
+        if self.appearance_model and frame is not None:
+            features = self.appearance_model.extract_features(frame, detection['bbox'])
+            if features is not None:
+                self.appearance_model.register_object(
+                    self.selected_track_id,
+                    detection['class_id'],
+                    features
+                )
 
     def _on_detection_lost(self):
         """Update state when detection is not found."""
@@ -282,6 +378,8 @@ class TrackingStateManager:
         self.tracking_history.clear()
         if self.motion_predictor:
             self.motion_predictor.reset()
+        if self.appearance_model:
+            self.appearance_model.clear()
         logging.info("[TrackingStateManager] Tracking cleared")
 
     def is_tracking_active(self) -> bool:

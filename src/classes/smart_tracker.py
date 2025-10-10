@@ -5,11 +5,13 @@ import time
 import logging
 import yaml
 import os
+from typing import Tuple
 from ultralytics import YOLO
 from classes.parameters import Parameters
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.tracking_state_manager import TrackingStateManager
 from classes.motion_predictor import MotionPredictor
+from classes.appearance_model import AppearanceModel
 
 
 class SmartTracker:
@@ -24,6 +26,9 @@ class SmartTracker:
 
         # Load SmartTracker configuration
         self.config = Parameters.SmartTracker
+
+        # === Validate and Select Tracker Type ===
+        self.tracker_type_str, self.use_custom_reid = self._select_tracker_type()
 
         try:
             if use_gpu:
@@ -58,18 +63,15 @@ class SmartTracker:
                 logging.error(f"[SmartTracker] Failed to load YOLO model: {e}")
                 raise RuntimeError("YOLO model loading failed.")
 
-        # === Tracker Parameters
-        self.tracker_type = "bytetrack"  # Tracker type identifier for schema
+        # === Detection Parameters ===
         self.conf_threshold = self.config.get('SMART_TRACKER_CONFIDENCE_THRESHOLD', 0.3)
         self.iou_threshold = self.config.get('SMART_TRACKER_IOU_THRESHOLD', 0.3)
         self.max_det = self.config.get('SMART_TRACKER_MAX_DETECTIONS', 20)
         self.show_fps = self.config.get('SMART_TRACKER_SHOW_FPS', False)
         self.draw_color = tuple(self.config.get('SMART_TRACKER_COLOR', [0, 255, 255]))
 
-        # Use default ByteTrack config (Ultralytics built-in)
-        # All tuning is done through YOLO's track() method parameters
-        self.tracker_type_str = "bytetrack"
-        self.tracker_args = {"persist": True, "verbose": False}
+        # === Build Tracker Arguments Based on Selected Type ===
+        self.tracker_args = self._build_tracker_args()
 
         self.labels = self.model.names if hasattr(self.model, 'names') else {}
 
@@ -89,19 +91,103 @@ class SmartTracker:
             velocity_alpha=0.7  # Balanced responsiveness
         ) if prediction_enabled else None
 
+        # === Appearance Model (for custom re-identification after long occlusions)
+        # Only used when TRACKER_TYPE = "custom_reid"
+        # When using "botsort_reid", Ultralytics handles ReID natively
+        if self.use_custom_reid:
+            appearance_enabled = self.config.get('ENABLE_APPEARANCE_MODEL', True)
+            self.appearance_model = AppearanceModel(
+                config=self.config
+            ) if appearance_enabled else None
+        else:
+            self.appearance_model = None  # Not needed for Ultralytics ReID
+
         # === Robust Tracking State Manager
-        # Handles ID matching, spatial fallback, and motion prediction
+        # Handles ID matching, spatial fallback, motion prediction, and appearance re-identification
         self.tracking_manager = TrackingStateManager(
             config=self.config,
-            motion_predictor=self.motion_predictor
+            motion_predictor=self.motion_predictor,
+            appearance_model=self.appearance_model
         )
 
         self.fps_counter, self.fps_timer, self.fps_display = 0, time.time(), 0
 
         logging.info("[SmartTracker] Initialization complete.")
-        logging.info(f"[SmartTracker] Using ByteTrack with Ultralytics default config")
+        logging.info(f"[SmartTracker] Tracker: {self.tracker_type_str.upper()}")
+        if self.use_custom_reid:
+            logging.info(f"[SmartTracker] Custom ReID: {'enabled' if self.appearance_model else 'disabled'}")
         logging.info(f"[SmartTracker] Tracking strategy: {self.config.get('TRACKING_STRATEGY', 'hybrid')}")
         logging.info(f"[SmartTracker] Motion prediction: {'enabled' if self.motion_predictor else 'disabled'}")
+
+    def _select_tracker_type(self) -> Tuple[str, bool]:
+        """
+        Select and validate tracker type based on config and Ultralytics version.
+
+        Returns:
+            Tuple[str, bool]: (tracker_name_for_ultralytics, use_custom_reid_flag)
+        """
+        requested_type = self.config.get('TRACKER_TYPE', 'botsort_reid')
+
+        # Validate BoT-SORT ReID requirements
+        if requested_type == 'botsort_reid':
+            try:
+                import ultralytics
+                version_str = ultralytics.__version__
+                # Parse version (e.g., "8.3.114" -> (8, 3, 114))
+                version_parts = version_str.split('.')
+                major = int(version_parts[0])
+                minor = int(version_parts[1]) if len(version_parts) > 1 else 0
+                patch = int(version_parts[2]) if len(version_parts) > 2 else 0
+                version_tuple = (major, minor, patch)
+
+                if version_tuple >= (8, 3, 114):
+                    logging.info(f"[SmartTracker] Using BoT-SORT with native ReID (Ultralytics {version_str})")
+                    return "botsort", False  # Use Ultralytics BoT-SORT with ReID
+                else:
+                    logging.warning(f"[SmartTracker] BoT-SORT ReID requires Ultralytics >=8.3.114, "
+                                  f"found {version_str}. Falling back to custom_reid.")
+                    requested_type = 'custom_reid'
+            except Exception as e:
+                logging.warning(f"[SmartTracker] Could not verify Ultralytics version: {e}. "
+                              "Falling back to custom_reid.")
+                requested_type = 'custom_reid'
+
+        # Map tracker types to Ultralytics tracker names
+        if requested_type == 'bytetrack':
+            logging.info("[SmartTracker] Using ByteTrack (fast, no ReID)")
+            return "bytetrack", False
+        elif requested_type == 'botsort':
+            logging.info("[SmartTracker] Using BoT-SORT (better persistence, no ReID)")
+            return "botsort", False
+        elif requested_type == 'custom_reid':
+            logging.info("[SmartTracker] Using ByteTrack + custom lightweight ReID")
+            return "bytetrack", True  # Use ByteTrack as base, add our custom ReID
+        else:
+            logging.warning(f"[SmartTracker] Unknown tracker type '{requested_type}', using bytetrack")
+            return "bytetrack", False
+
+    def _build_tracker_args(self) -> dict:
+        """
+        Build tracker arguments dict based on selected tracker type and config.
+
+        NOTE: Ultralytics does NOT accept tracker parameters directly in model.track()!
+        Tracker params must be in the YAML file. We only pass persist and verbose here.
+
+        Returns:
+            dict: Arguments to pass to model.track() (only persist/verbose allowed)
+        """
+        # ONLY persist and verbose are allowed here
+        # All other tracker params must be in bytetrack.yaml or botsort.yaml
+        args = {
+            "persist": True,
+            "verbose": False
+        }
+
+        logging.debug(f"[SmartTracker] Tracker args: {args}")
+        logging.info(f"[SmartTracker] Using Ultralytics default {self.tracker_type_str}.yaml config")
+        logging.info(f"[SmartTracker] Note: To customize tracker params, edit Ultralytics tracker YAML files")
+
+        return args
 
     def get_yolo_color(self, index):
         """Generate unique color for each object ID using golden ratio."""
@@ -215,13 +301,13 @@ class SmartTracker:
         Runs YOLO detection + tracking, draws overlays, and returns the annotated frame.
         Uses TrackingStateManager for robust ID tracking with spatial fallback.
         """
-        # Run YOLO tracking on the frame with ByteTrack
+        # Run YOLO tracking with selected tracker (ByteTrack or BoT-SORT)
         results = self.model.track(
             frame,
             conf=self.conf_threshold,
             iou=self.iou_threshold,
             max_det=self.max_det,
-            tracker="bytetrack.yaml",  # Use Ultralytics default ByteTrack config
+            tracker=f"{self.tracker_type_str}.yaml",  # bytetrack.yaml or botsort.yaml
             **self.tracker_args
         )
         self.last_results = results
@@ -237,10 +323,11 @@ class SmartTracker:
             if len(track) >= 6:
                 detections_list.append(track)
 
-        # Update tracking state using TrackingStateManager (handles ID + spatial matching)
+        # Update tracking state using TrackingStateManager (handles ID + spatial + appearance matching)
         is_tracking_active, selected_detection = self.tracking_manager.update_tracking(
             detections_list,
-            self.compute_iou
+            self.compute_iou,
+            frame  # Pass frame for appearance matching
         )
 
         # Draw all detections
@@ -386,7 +473,7 @@ class SmartTracker:
             raw_data={
                 'yolo_results': self.last_results[0].boxes.data.tolist() if self.last_results and self.last_results[0].boxes is not None else [],
                 'selected_class_id': self.selected_class_id,
-                'tracker_type': self.tracker_type,
+                'tracker_type': self.tracker_type_str,
                 'device': str(self.model.device) if hasattr(self.model, 'device') else 'unknown'
             },
 
