@@ -155,10 +155,13 @@ class OSDRenderer:
             width: Frame width
             height: Frame height
         """
-        self.text_renderer = OSDTextRenderer(width, height, self.base_font_scale)
+        # Get performance mode from Parameters (defaults to "balanced")
+        performance_mode = getattr(Parameters, 'OSD_PERFORMANCE_MODE', 'balanced')
+
+        self.text_renderer = OSDTextRenderer(width, height, self.base_font_scale, performance_mode)
         self.layout_manager = OSDLayoutManager(width, height, self.safe_zone_margin)
 
-        logger.debug(f"Rendering engines initialized for {width}x{height}")
+        logger.debug(f"Rendering engines initialized for {width}x{height} (performance mode: {performance_mode})")
 
     def _check_frame_size_change(self, frame: np.ndarray) -> bool:
         """
@@ -211,6 +214,9 @@ class OSDRenderer:
         # Performance tracking
         start_time = time.time()
 
+        # Initialize transparent overlay for this frame (optimized compositing)
+        self.text_renderer.initialize_overlay(frame.shape)
+
         # Render each enabled element
         rendered_count = 0
         for element_name, config in self.osd_elements.items():
@@ -232,6 +238,9 @@ class OSDRenderer:
 
         if rendered_count == 0 and self.render_count == 0:
             logger.warning(f"No OSD elements rendered! Loaded {len(self.osd_elements)} elements from preset")
+
+        # Composite overlay onto frame (ONCE per frame - major optimization!)
+        frame = self.text_renderer.composite_overlay(frame)
 
         # Update performance metrics
         self.last_render_time = time.time() - start_time

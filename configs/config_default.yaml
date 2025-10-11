@@ -1310,6 +1310,13 @@ OSD:
                                          # Options: minimal | professional | full_telemetry
                                          # Or your custom preset name
 
+  # === Performance Mode ===
+  # Choose rendering mode based on your hardware:
+  # "fast"     - OpenCV rendering (2-3ms/frame) - For Raspberry Pi, Jetson Nano, low-end systems
+  # "balanced" - PIL with native stroke (5-8ms/frame) - RECOMMENDED for most systems
+  # "quality"  - PIL with manual outline (50-80ms/frame) - For high-end desktops/recording only
+  OSD_PERFORMANCE_MODE: "balanced"
+
   # ℹ️ NOTE: All element configurations are loaded from the preset file
   # ℹ️ See configs/osd_presets/{OSD_PRESET}.yaml for layout and styling
 
