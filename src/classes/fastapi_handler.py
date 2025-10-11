@@ -1968,7 +1968,7 @@ class FastAPIHandler:
                 'enabled': new_state,
                 'old_state': old_state,
                 'new_state': new_state,
-                'message': f'OSD overlay {"enabled" if new_state else 'disabled'}',
+                'message': f'OSD overlay {"enabled" if new_state else "disabled"}',
                 'timestamp': time.time()
             })
 
