@@ -58,6 +58,18 @@ class AppController:
         if Parameters.MAVLINK_ENABLED:
             self.mavlink_data_manager.start_polling()
 
+            # Register callback for automatic follow mode disablement when Offboard exits
+            # This ensures follow mode is automatically disabled when:
+            # - Pilot switches flight modes
+            # - Failsafe triggers (RTL, Land, etc.)
+            # - RC override occurs
+            # - Any transition from Offboard to another mode
+            self.mavlink_data_manager.register_offboard_exit_callback(
+                lambda old_mode, new_mode: asyncio.create_task(
+                    self._handle_offboard_mode_exit(old_mode, new_mode)
+                )
+            )
+
         # Initialize the estimator
         self.estimator = create_estimator(Parameters.ESTIMATOR_TYPE)
 
@@ -548,6 +560,54 @@ class AppController:
 
     async def handle_failsafe(self):
         await self.disconnect_px4()
+
+    async def _handle_offboard_mode_exit(self, old_mode, new_mode):
+        """
+        Automatically disable follow mode when drone exits Offboard mode.
+
+        This method is called by the MAVLink data manager when it detects a flight
+        mode transition from Offboard to any other mode. This ensures that the
+        follow mode state is automatically synchronized with the drone's actual
+        flight mode, regardless of how the mode was changed (pilot, failsafe, etc.).
+
+        Args:
+            old_mode (int): Previous flight mode code (393216 for Offboard)
+            new_mode (int): New flight mode code
+
+        Affected components:
+        - following_active flag → Set to False
+        - OSD scope color → Changes from red (active) to yellow (inactive)
+        - Dashboard UI → Updates to show follow mode disabled
+        - Telemetry → Updates following_active status
+        """
+        if not self.following_active:
+            # Follow mode already inactive, no action needed
+            return
+
+        try:
+            # Get human-readable mode names for logging
+            mode_name = self.px4_interface.get_flight_mode_text(new_mode)
+
+            logging.warning(
+                f"OFFBOARD MODE EXITED: Drone switched to {mode_name} ({new_mode}). "
+                f"Automatically disabling follow mode for safety."
+            )
+
+            # Gracefully stop follow mode using existing disconnect logic
+            # This will:
+            # - Stop the setpoint sender thread
+            # - Stop offboard mode (if still active)
+            # - Clean up follower instance
+            # - Set following_active = False
+            # - Update all UI indicators (OSD scope color, dashboard status, etc.)
+            await self.disconnect_px4()
+
+            logging.info("Follow mode automatically disabled due to Offboard mode exit")
+
+        except Exception as e:
+            logging.error(f"Error handling Offboard mode exit: {e}")
+            # Ensure following_active is set to False even if cleanup fails
+            self.following_active = False
 
     async def handle_key_input_async(self, key: int, frame: np.ndarray):
         """

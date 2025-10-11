@@ -198,7 +198,7 @@ class TelemetryHandler:
                 
                 # Add application-level information
                 telemetry['following_active'] = self.app_controller.following_active
-                
+
                 # Use the new unified interface to get profile name
                 if hasattr(self.follower, 'get_display_name'):
                     telemetry['profile_name'] = self.follower.get_display_name()
@@ -207,7 +207,23 @@ class TelemetryHandler:
                 else:
                     # Fallback for older interface
                     telemetry['profile_name'] = getattr(self.follower, 'mode', 'Unknown')
-                
+
+                # Add flight mode information if MAVLink is enabled
+                if Parameters.MAVLINK_ENABLED and hasattr(self.app_controller, 'mavlink_data_manager'):
+                    try:
+                        flight_mode_code = self.app_controller.mavlink_data_manager.get_data('flight_mode')
+                        if flight_mode_code and flight_mode_code != 'N/A':
+                            telemetry['flight_mode'] = flight_mode_code
+                            # Get human-readable flight mode name
+                            if hasattr(self.app_controller, 'px4_interface'):
+                                telemetry['flight_mode_text'] = self.app_controller.px4_interface.get_flight_mode_text(
+                                    flight_mode_code
+                                )
+                            # Add Offboard status flag for easy UI display
+                            telemetry['is_offboard'] = (flight_mode_code == 393216)
+                    except Exception as e:
+                        logging.debug(f"Could not fetch flight mode for telemetry: {e}")
+
                 return telemetry
                 
             except Exception as e:

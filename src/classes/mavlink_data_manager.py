@@ -39,6 +39,11 @@ class MavlinkDataManager:
         self.connection_error_count = 0
         self.last_status_log = 0  # For throttling status messages
 
+        # Flight mode monitoring for Offboard exit detection
+        self.last_flight_mode = None
+        self.offboard_mode_code = 393216  # PX4 Offboard mode
+        self._offboard_exit_callback = None  # Callback for app_controller
+
         # Setup logging
         self.logger = logging.getLogger(__name__)
 
@@ -124,7 +129,15 @@ class MavlinkDataManager:
                                     self.logger.error(f"Failed to convert {point_name} value to float for division: {e}")
                                     value = "N/A"
                         self.data[point_name] = value
-                        
+
+            # Monitor flight mode transitions for Offboard exit detection
+            if 'flight_mode' in self.data:
+                current_flight_mode = self.data.get('flight_mode')
+                if current_flight_mode != self.last_flight_mode and self.last_flight_mode is not None:
+                    # Flight mode has changed
+                    self._handle_flight_mode_change(self.last_flight_mode, current_flight_mode)
+                self.last_flight_mode = current_flight_mode
+
             # Log status periodically when connected
             current_time = time.time()
             if current_time - self.last_status_log > 30:  # Every 30 seconds
@@ -361,3 +374,58 @@ class MavlinkDataManager:
                 throttle_percent = uint16(50)
             return throttle_percent
         return 0.0
+
+    def _handle_flight_mode_change(self, old_mode, new_mode):
+        """
+        Handle flight mode transitions and detect Offboard exit.
+
+        This method detects when the drone exits Offboard mode (transitions from
+        Offboard to any other flight mode). This can happen due to:
+        - Pilot manual mode switch
+        - RC override
+        - Failsafe trigger (RTL, Land, etc.)
+        - Any other mode change
+
+        Args:
+            old_mode: Previous flight mode code
+            new_mode: Current flight mode code
+        """
+        try:
+            # Check if we exited Offboard mode
+            if old_mode == self.offboard_mode_code and new_mode != self.offboard_mode_code:
+                # Offboard mode was exited - this is critical for follow mode
+                self.logger.warning(f"Flight mode changed: Offboard (393216) → {new_mode}")
+
+                # Notify registered callback (app_controller) about Offboard exit
+                if self._offboard_exit_callback is not None:
+                    try:
+                        # Call the callback asynchronously
+                        self._offboard_exit_callback(old_mode, new_mode)
+                    except Exception as e:
+                        self.logger.error(f"Error in Offboard exit callback: {e}")
+            else:
+                # Log other mode changes at debug level
+                self.logger.debug(f"Flight mode changed: {old_mode} → {new_mode}")
+
+        except Exception as e:
+            self.logger.error(f"Error handling flight mode change: {e}")
+
+    def register_offboard_exit_callback(self, callback):
+        """
+        Register a callback to be notified when the drone exits Offboard mode.
+
+        The callback will be invoked when flight mode transitions from Offboard
+        to any other mode. This allows the app_controller to automatically disable
+        follow mode when Offboard is exited.
+
+        Args:
+            callback: Callable that accepts (old_mode, new_mode) parameters.
+                     Should be async-aware or handle async execution internally.
+
+        Example:
+            mavlink_data_manager.register_offboard_exit_callback(
+                lambda old, new: asyncio.create_task(app_controller._handle_offboard_mode_exit(old, new))
+            )
+        """
+        self._offboard_exit_callback = callback
+        self.logger.info("Offboard exit callback registered - automatic follow mode disablement enabled")
