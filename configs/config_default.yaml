@@ -832,6 +832,74 @@ BODY_VELOCITY_CHASE:
   RAMP_UPDATE_RATE: 10.0                 # Hz - forward velocity update frequency
   PID_UPDATE_RATE: 20.0                  # Hz - tracking PID update frequency
 
+  # === 🎯 ADAPTIVE DIVE/CLIMB CONTROL (Advanced Feature) ===
+  # Vertical-rate-based dive/climb angle adaptation for optimal target intercept
+  # Addresses early descent (far target) and late descent (close target) scenarios
+  # Uses visual feedback to adaptively adjust v_fwd and v_down balance
+  #
+  # When to Enable:
+  # - Target distance varies significantly (near/far scenarios)
+  # - Prefer slant approach trajectories vs early descent
+  # - Have high-confidence, stable tracking (confidence > 0.6)
+  #
+  # When to Disable:
+  # - Noisy visual tracking (causes oscillations)
+  # - Low framerate (<15 FPS) - rate estimation unreliable
+  # - Simple scenarios with consistent target distance
+  #
+  ENABLE_ADAPTIVE_DIVE_CLIMB: false      # Master enable/disable (off by default for stability)
+
+  # === Rate Estimation & Filtering ===
+  ADAPTIVE_SMOOTHING_ALPHA: 0.2          # EMA smoothing factor (0.1-0.5)
+                                         # Lower = more filtering (stable, slower response)
+                                         # Higher = less filtering (responsive, noisier)
+                                         # Recommended: 0.15-0.25 for 20-30 FPS tracking
+
+  ADAPTIVE_WARMUP_FRAMES: 10             # Frames to ignore on startup (5-15)
+                                         # Allows rate estimator to stabilize
+                                         # Higher = safer startup, slower activation
+
+  ADAPTIVE_RATE_THRESHOLD: 5.0           # Pixels/sec error threshold to trigger correction
+                                         # Dead-zone to prevent over-reaction to noise
+                                         # Adjust based on image resolution and framerate
+                                         # Recommended: 3-8 px/s for 640x480 @ 30fps
+
+  # === Correction Authority ===
+  ADAPTIVE_MAX_CORRECTION: 1.0           # Maximum velocity correction (m/s)
+                                         # Limits how much adaptive mode can change v_down/v_fwd
+                                         # Lower = gentler adjustments, higher = more aggressive
+                                         # Recommended: 0.5-1.5 m/s
+
+  ADAPTIVE_CORRECTION_GAIN: 0.3          # Proportional gain on rate error (0.1-0.8)
+                                         # Lower = gentle corrections, higher = aggressive
+                                         # Start conservative (0.2-0.3), increase if response too slow
+
+  ADAPTIVE_MIN_CONFIDENCE: 0.6           # Minimum tracker confidence to activate (0.0-1.0)
+                                         # Higher = only activates with high-quality tracking
+                                         # Recommended: 0.5-0.7
+
+  # === Forward Velocity Coupling (Advanced) ===
+  ADAPTIVE_FWD_COUPLING_ENABLED: false   # Allow v_fwd adjustments (in addition to v_down)
+                                         # true = Adjust both v_fwd and v_down for faster response
+                                         # false = Only adjust v_down (safer, simpler)
+                                         # Recommend: false initially, enable after tuning
+
+  ADAPTIVE_FWD_COUPLING_GAIN: 0.1        # v_fwd adjustment gain (0.05-0.2)
+                                         # Only used if ADAPTIVE_FWD_COUPLING_ENABLED = true
+                                         # Lower values recommended to maintain chase velocity
+
+  # === Calibration ===
+  PIXEL_TO_RATE_CALIBRATION: 0.05        # Calibration factor: meters/sec per pixels/sec
+                                         # Platform-specific, requires field tuning
+                                         # Depends on: camera FOV, altitude, image resolution
+                                         # Start with 0.03-0.08, adjust based on observed behavior
+                                         # Higher = more aggressive response to visual rate changes
+
+  # === Safety & Monitoring ===
+  ADAPTIVE_OSCILLATION_DETECTION: true   # Enable oscillation detection (recommended)
+  ADAPTIVE_MAX_SIGN_CHANGES: 3           # Max sign changes in 2 seconds before disable
+  ADAPTIVE_DIVERGENCE_TIMEOUT: 5.0       # Seconds - disable if error grows despite corrections
+
 # ==============================================================================
 # CONSTANT POSITION FOLLOWER CONFIGURATION
 # ==============================================================================
@@ -1312,9 +1380,9 @@ OSD:
 
   # === Performance Mode ===
   # Choose rendering mode based on your hardware:
-  # "fast"     - OpenCV rendering (2-3ms/frame) - For Raspberry Pi, Jetson Nano, low-end systems
+  # "fast"     - OpenCV rendering (2-3ms/frame) - For Raspberry Pi, Jetson Nano
   # "balanced" - PIL with native stroke (5-8ms/frame) - RECOMMENDED for most systems
-  # "quality"  - PIL with manual outline (50-80ms/frame) - For high-end desktops/recording only
+  # "quality"  - PIL with manual outline (50-80ms/frame) - For high-end desktops/recording
   OSD_PERFORMANCE_MODE: "balanced"
 
   # ℹ️ NOTE: All element configurations are loaded from the preset file

@@ -45,8 +45,9 @@ import logging
 import numpy as np
 import time
 import asyncio
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Tuple, Optional, Dict, Any, List, Deque
 from datetime import datetime
+from collections import deque
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,21 @@ class BodyVelocityChaseFollower(BaseFollower):
         self.ramp_update_rate = config.get('RAMP_UPDATE_RATE', 10.0)
         self.pid_update_rate = config.get('PID_UPDATE_RATE', 20.0)
 
+        # Load adaptive dive/climb parameters
+        self.adaptive_mode_enabled = config.get('ENABLE_ADAPTIVE_DIVE_CLIMB', False)
+        self.adaptive_smoothing_alpha = config.get('ADAPTIVE_SMOOTHING_ALPHA', 0.2)
+        self.adaptive_warmup_frames = config.get('ADAPTIVE_WARMUP_FRAMES', 10)
+        self.adaptive_rate_threshold = config.get('ADAPTIVE_RATE_THRESHOLD', 5.0)
+        self.adaptive_max_correction = config.get('ADAPTIVE_MAX_CORRECTION', 1.0)
+        self.adaptive_correction_gain = config.get('ADAPTIVE_CORRECTION_GAIN', 0.3)
+        self.adaptive_min_confidence = config.get('ADAPTIVE_MIN_CONFIDENCE', 0.6)
+        self.adaptive_fwd_coupling_enabled = config.get('ADAPTIVE_FWD_COUPLING_ENABLED', False)
+        self.adaptive_fwd_coupling_gain = config.get('ADAPTIVE_FWD_COUPLING_GAIN', 0.1)
+        self.pixel_to_rate_calibration = config.get('PIXEL_TO_RATE_CALIBRATION', 0.05)
+        self.adaptive_oscillation_detection = config.get('ADAPTIVE_OSCILLATION_DETECTION', True)
+        self.adaptive_max_sign_changes = config.get('ADAPTIVE_MAX_SIGN_CHANGES', 3)
+        self.adaptive_divergence_timeout = config.get('ADAPTIVE_DIVERGENCE_TIMEOUT', 5.0)
+
         # Initialize forward velocity ramping state
         self.current_forward_velocity = self.initial_forward_velocity
         self.target_forward_velocity = self.max_forward_velocity
@@ -158,7 +174,24 @@ class BodyVelocityChaseFollower(BaseFollower):
         
         # Initialize lateral guidance mode tracking
         self.active_lateral_mode = None  # Will be set by PID initialization
-        
+
+        # Initialize adaptive dive/climb control state
+        self.adaptive_active = False  # Whether adaptive mode is currently active
+        self.target_vertical_history: Deque[Tuple[float, float]] = deque(maxlen=30)  # (timestamp, y_coord) history
+        self.smoothed_vertical_rate = 0.0  # Filtered vertical rate (pixels/sec)
+        self.expected_vertical_rate = 0.0  # Expected rate based on commanded velocities
+        self.vertical_rate_error = 0.0  # Difference between observed and expected
+        self.adaptive_warmup_counter = 0  # Frame counter for warmup period
+        self.last_target_y_coord = None  # Last valid Y coordinate
+        self.last_target_timestamp = None  # Last valid timestamp
+        self.adaptive_correction_down = 0.0  # Current down velocity correction
+        self.adaptive_correction_fwd = 0.0  # Current forward velocity correction
+
+        # Oscillation detection state
+        self.rate_error_sign_history: Deque[Tuple[float, int]] = deque(maxlen=50)  # (timestamp, sign) history
+        self.adaptive_disabled_reason = None  # Reason if adaptive mode was disabled
+        self.adaptive_divergence_start_time = None  # When divergence was first detected
+
         # Initialize PID controllers (includes mode determination)
         self._initialize_pid_controllers()
         
@@ -168,10 +201,12 @@ class BodyVelocityChaseFollower(BaseFollower):
         self.update_telemetry_metadata('lateral_guidance_modes', ['sideslip', 'coordinated_turn'])
         self.update_telemetry_metadata('active_lateral_mode', self.active_lateral_mode)
         self.update_telemetry_metadata('safety_features', [
-            'altitude_monitoring', 'target_loss_handling', 'velocity_ramping', 'emergency_stop', 'dual_mode_guidance'
+            'altitude_monitoring', 'target_loss_handling', 'velocity_ramping', 'emergency_stop', 'dual_mode_guidance',
+            'adaptive_dive_climb' if self.adaptive_mode_enabled else None
         ])
         self.update_telemetry_metadata('forward_ramping_enabled', True)
         self.update_telemetry_metadata('altitude_safety_enabled', self.altitude_safety_enabled)
+        self.update_telemetry_metadata('adaptive_dive_climb_enabled', self.adaptive_mode_enabled)
         
         logger.info(f"BodyVelocityChaseFollower initialized with dual-mode offboard velocity control")
         logger.info(f"Active lateral guidance mode: {self.active_lateral_mode}")
@@ -565,10 +600,314 @@ class BodyVelocityChaseFollower(BaseFollower):
             logger.error(f"Error in target loss handling: {e}")
             return False
 
+    def _calculate_target_vertical_rate(self, target_coords: Tuple[float, float], tracker_data: TrackerOutput) -> Tuple[float, float, float]:
+        """
+        Calculates target vertical rate with filtering and compares to expected rate.
+
+        This is Phase 1 of adaptive dive/climb control. It:
+        1. Records target Y coordinates over time
+        2. Calculates instantaneous vertical rate (pixels/sec)
+        3. Applies exponential moving average (EMA) filtering
+        4. Computes expected vertical rate from commanded velocities
+        5. Returns rate error for use in adaptive corrections
+
+        Args:
+            target_coords (Tuple[float, float]): Current normalized target coordinates (x, y)
+            tracker_data (TrackerOutput): Tracker data with confidence and timestamps
+
+        Returns:
+            Tuple[float, float, float]: (smoothed_rate, expected_rate, rate_error) all in pixels/sec
+
+        Note:
+            - Returns (0.0, 0.0, 0.0) if adaptive mode disabled or during warmup
+            - Returns (0.0, 0.0, 0.0) if insufficient data or low confidence
+        """
+        try:
+            # Check if adaptive mode is enabled
+            if not self.adaptive_mode_enabled:
+                return 0.0, 0.0, 0.0
+
+            # Check minimum confidence threshold
+            if tracker_data.confidence is not None and tracker_data.confidence < self.adaptive_min_confidence:
+                logger.debug(f"Adaptive mode: Confidence too low ({tracker_data.confidence:.2f} < {self.adaptive_min_confidence})")
+                self.adaptive_active = False
+                return 0.0, 0.0, 0.0
+
+            current_time = time.time()
+            target_y = target_coords[1]  # Vertical coordinate (normalized)
+
+            # Store current measurement in history
+            self.target_vertical_history.append((current_time, target_y))
+
+            # Warmup period - accumulate data but don't compute rates yet
+            self.adaptive_warmup_counter += 1
+            if self.adaptive_warmup_counter < self.adaptive_warmup_frames:
+                logger.debug(f"Adaptive mode: Warming up ({self.adaptive_warmup_counter}/{self.adaptive_warmup_frames})")
+                return 0.0, 0.0, 0.0
+
+            # Need at least 2 samples to compute rate
+            if len(self.target_vertical_history) < 2:
+                return 0.0, 0.0, 0.0
+
+            # Calculate instantaneous vertical rate using recent samples
+            # Use last N samples for more robust rate estimation
+            sample_window = min(5, len(self.target_vertical_history))
+            recent_samples = list(self.target_vertical_history)[-sample_window:]
+
+            # Linear regression or simple difference for rate estimation
+            if len(recent_samples) >= 2:
+                # Use first and last sample for rate (more noise-resistant than frame-to-frame)
+                t1, y1 = recent_samples[0]
+                t2, y2 = recent_samples[-1]
+                dt = t2 - t1
+
+                if dt > 0.001:  # Avoid division by zero
+                    # Raw vertical rate in normalized coords per second
+                    raw_rate = (y2 - y1) / dt
+
+                    # Convert to pixels/sec (assume 480p vertical resolution as reference)
+                    # This is normalized coordinate change, needs scaling by image height
+                    # For now, work in normalized space and calibrate the threshold
+                    instantaneous_rate = raw_rate * 480.0  # Scale to pixel-equivalent rate
+
+                    # Apply exponential moving average (EMA) filtering
+                    alpha = self.adaptive_smoothing_alpha
+                    self.smoothed_vertical_rate = (alpha * instantaneous_rate +
+                                                  (1 - alpha) * self.smoothed_vertical_rate)
+                else:
+                    instantaneous_rate = 0.0
+            else:
+                instantaneous_rate = 0.0
+
+            # Calculate expected vertical rate based on commanded velocities
+            # This requires mapping vel_body_down to expected pixel rate
+            # Expected rate depends on: altitude, FOV, forward velocity (perspective)
+            # For initial implementation, use simplified model:
+            # expected_pixel_rate ≈ vel_body_down * calibration_factor / (altitude_estimate)
+
+            # Since we don't have distance/altitude directly, use calibration factor
+            # that user can tune based on their specific scenario
+            expected_rate = self.smoothed_down_velocity * self.pixel_to_rate_calibration * 480.0
+
+            # Note: This is a simplified model. For better accuracy:
+            # - Account for forward velocity (perspective scaling)
+            # - Use altitude from telemetry if available
+            # - Calibrate pixel_to_rate_calibration factor in field
+
+            # Compute rate error
+            rate_error = self.smoothed_vertical_rate - expected_rate
+
+            # Update state
+            self.expected_vertical_rate = expected_rate
+            self.vertical_rate_error = rate_error
+            self.adaptive_active = True
+
+            logger.debug(f"Adaptive rates - Observed: {self.smoothed_vertical_rate:.2f}, "
+                        f"Expected: {expected_rate:.2f}, Error: {rate_error:.2f} px/s")
+
+            return self.smoothed_vertical_rate, expected_rate, rate_error
+
+        except Exception as e:
+            logger.error(f"Error calculating target vertical rate: {e}")
+            self.adaptive_active = False
+            return 0.0, 0.0, 0.0
+
+    def _adapt_dive_climb_velocities(self, rate_error: float, current_v_fwd: float, current_v_down: float) -> Tuple[float, float]:
+        """
+        Adapts forward and down velocities based on vertical rate error.
+
+        This is Phase 2 of adaptive dive/climb control. It:
+        1. Checks if rate error exceeds threshold (dead-zone)
+        2. Computes correction based on proportional gain
+        3. Applies mode-aware authority limits (sideslip vs coordinated turn)
+        4. Clamps corrections to safety limits
+        5. Returns corrected velocities
+
+        Logic:
+        - Positive rate_error: Target descending faster than expected → increase v_down, decrease v_fwd
+        - Negative rate_error: Target ascending relative to expected → decrease v_down, increase v_fwd
+
+        Args:
+            rate_error (float): Vertical rate error in pixels/sec (observed - expected)
+            current_v_fwd (float): Current forward velocity command (m/s)
+            current_v_down (float): Current down velocity command (m/s)
+
+        Returns:
+            Tuple[float, float]: (adjusted_v_fwd, adjusted_v_down) in m/s
+
+        Note:
+            - Returns unchanged velocities if adaptive mode inactive
+            - Respects PX4 velocity limits from Parameters.VELOCITY_LIMITS
+            - Mode-specific authority: sideslip mode gets 50% reduced correction
+        """
+        try:
+            # Check if corrections should be applied
+            if not self.adaptive_active or not self.adaptive_mode_enabled:
+                return current_v_fwd, current_v_down
+
+            # Dead-zone: ignore small errors to prevent over-reaction
+            threshold = self.adaptive_rate_threshold
+            if abs(rate_error) < threshold:
+                # Error within dead-zone, no correction needed
+                self.adaptive_correction_down = 0.0
+                self.adaptive_correction_fwd = 0.0
+                return current_v_fwd, current_v_down
+
+            # Compute correction magnitude (proportional to error beyond threshold)
+            error_magnitude = rate_error - np.sign(rate_error) * threshold  # Remove dead-zone
+            base_correction = error_magnitude * self.adaptive_correction_gain
+
+            # Clamp to maximum correction authority
+            base_correction = np.clip(base_correction, -self.adaptive_max_correction, self.adaptive_max_correction)
+
+            # Mode-specific authority adjustment
+            # Sideslip mode: reduce correction authority for precision operations
+            if self.active_lateral_mode == 'sideslip':
+                authority_factor = 0.5  # 50% authority in sideslip mode
+                logger.debug("Adaptive mode: Reducing correction authority (sideslip mode)")
+            else:
+                authority_factor = 1.0  # Full authority in coordinated turn mode
+
+            base_correction *= authority_factor
+
+            # Apply corrections to velocities
+            # Positive rate_error (target descending too fast): increase v_down, decrease v_fwd
+            # Negative rate_error (target not descending enough): decrease v_down, increase v_fwd
+
+            # Down velocity correction (primary control axis)
+            v_down_correction = base_correction * 0.01  # Scale from pixels/s error to m/s correction
+
+            # Forward velocity correction (optional, controlled by coupling flag)
+            if self.adaptive_fwd_coupling_enabled:
+                # Inverse relationship: if target descending too fast, slow down approach
+                v_fwd_correction = -base_correction * self.adaptive_fwd_coupling_gain * 0.01
+            else:
+                v_fwd_correction = 0.0
+
+            # Store corrections for telemetry
+            self.adaptive_correction_down = v_down_correction
+            self.adaptive_correction_fwd = v_fwd_correction
+
+            # Apply corrections (additive to PID output)
+            adjusted_v_down = current_v_down + v_down_correction
+            adjusted_v_fwd = current_v_fwd + v_fwd_correction
+
+            # Apply absolute velocity limits from Parameters
+            max_v_fwd = Parameters.VELOCITY_LIMITS.get('vel_body_fwd', 15.0)
+            max_v_down = Parameters.VELOCITY_LIMITS.get('vel_body_down', 5.0)
+
+            adjusted_v_fwd = np.clip(adjusted_v_fwd, 0.0, max_v_fwd)  # Never go backward
+            adjusted_v_down = np.clip(adjusted_v_down, -max_v_down, max_v_down)
+
+            # Ensure forward velocity doesn't drop below minimum threshold
+            if adjusted_v_fwd < self.min_forward_velocity_threshold:
+                adjusted_v_fwd = self.min_forward_velocity_threshold
+
+            logger.debug(f"Adaptive corrections - v_down: {v_down_correction:+.2f} m/s, "
+                        f"v_fwd: {v_fwd_correction:+.2f} m/s, "
+                        f"Final: fwd={adjusted_v_fwd:.2f}, down={adjusted_v_down:.2f}")
+
+            return adjusted_v_fwd, adjusted_v_down
+
+        except Exception as e:
+            logger.error(f"Error adapting dive/climb velocities: {e}")
+            # Safe fallback: return original velocities
+            return current_v_fwd, current_v_down
+
+    def _check_adaptive_oscillation(self) -> bool:
+        """
+        Detects oscillations in rate error by monitoring sign changes.
+
+        Oscillation indicates the adaptive system is fighting with PID or over-correcting
+        due to noise. If detected, adaptive mode is automatically disabled for safety.
+
+        Returns:
+            bool: True if oscillation detected, False otherwise
+        """
+        try:
+            if not self.adaptive_oscillation_detection:
+                return False
+
+            # Record current error sign in history
+            current_time = time.time()
+            if abs(self.vertical_rate_error) > 0.1:  # Ignore near-zero errors
+                error_sign = int(np.sign(self.vertical_rate_error))
+                self.rate_error_sign_history.append((current_time, error_sign))
+
+            # Need sufficient history to detect oscillation
+            if len(self.rate_error_sign_history) < 4:
+                return False
+
+            # Count sign changes in recent history (last 2 seconds)
+            recent_window = 2.0  # seconds
+            cutoff_time = current_time - recent_window
+            recent_signs = [(t, sign) for t, sign in self.rate_error_sign_history if t >= cutoff_time]
+
+            if len(recent_signs) < 2:
+                return False
+
+            # Count sign changes
+            sign_changes = 0
+            for i in range(1, len(recent_signs)):
+                if recent_signs[i][1] != recent_signs[i-1][1]:
+                    sign_changes += 1
+
+            # Check if sign changes exceed threshold
+            if sign_changes >= self.adaptive_max_sign_changes:
+                logger.warning(f"Adaptive mode: Oscillation detected! "
+                             f"{sign_changes} sign changes in {recent_window}s - DISABLING")
+                self.adaptive_disabled_reason = "oscillation_detected"
+                self.adaptive_mode_enabled = False
+                return True
+
+            return False
+
+        except Exception as e:
+            logger.error(f"Error checking adaptive oscillation: {e}")
+            return False
+
+    def _check_adaptive_divergence(self) -> bool:
+        """
+        Detects divergence: rate error growing despite corrections.
+
+        If error magnitude consistently increases over timeout period,
+        it indicates corrections are ineffective or counter-productive.
+
+        Returns:
+            bool: True if divergence detected, False otherwise
+        """
+        try:
+            current_time = time.time()
+            error_magnitude = abs(self.vertical_rate_error)
+
+            # Track when large error first appeared
+            if error_magnitude > self.adaptive_rate_threshold * 2.0:  # 2x threshold
+                if self.adaptive_divergence_start_time is None:
+                    self.adaptive_divergence_start_time = current_time
+                    logger.debug("Adaptive mode: Large error detected, monitoring for divergence...")
+                else:
+                    # Check if error has persisted beyond timeout
+                    divergence_duration = current_time - self.adaptive_divergence_start_time
+                    if divergence_duration > self.adaptive_divergence_timeout:
+                        logger.warning(f"Adaptive mode: Divergence detected! "
+                                     f"Error {error_magnitude:.1f} px/s persisted for {divergence_duration:.1f}s - DISABLING")
+                        self.adaptive_disabled_reason = "divergence_detected"
+                        self.adaptive_mode_enabled = False
+                        return True
+            else:
+                # Error returned to reasonable levels, reset divergence tracker
+                self.adaptive_divergence_start_time = None
+
+            return False
+
+        except Exception as e:
+            logger.error(f"Error checking adaptive divergence: {e}")
+            return False
+
     def _check_altitude_safety(self) -> bool:
         """
         Monitors altitude safety bounds and triggers RTL if necessary.
-        
+
         Returns:
             bool: True if altitude is safe, False if violation occurred.
         """
@@ -672,10 +1011,37 @@ class BodyVelocityChaseFollower(BaseFollower):
             
             # Update forward velocity using ramping logic
             forward_velocity = self._update_forward_velocity(dt)
-            
+
             # Calculate tracking commands (includes mode switching logic)
             right_velocity, down_velocity, yaw_speed = self._calculate_tracking_commands(tracking_coords)
-            
+
+            # === ADAPTIVE DIVE/CLIMB CONTROL ===
+            # Calculate vertical rate and apply adaptive corrections if enabled
+            if self.adaptive_mode_enabled and target_valid:
+                try:
+                    # Phase 1: Calculate vertical rate error
+                    smoothed_rate, expected_rate, rate_error = self._calculate_target_vertical_rate(
+                        tracking_coords, tracker_data
+                    )
+
+                    # Phase 2: Apply adaptive corrections to velocities
+                    forward_velocity, down_velocity = self._adapt_dive_climb_velocities(
+                        rate_error, forward_velocity, down_velocity
+                    )
+
+                    # Phase 3: Safety monitoring - check for oscillations and divergence
+                    oscillation_detected = self._check_adaptive_oscillation()
+                    divergence_detected = self._check_adaptive_divergence()
+
+                    if oscillation_detected or divergence_detected:
+                        logger.warning(f"Adaptive mode disabled due to: {self.adaptive_disabled_reason}")
+
+                    logger.debug(f"Adaptive dive/climb active - Rate error: {rate_error:.2f} px/s")
+
+                except Exception as e:
+                    logger.error(f"Adaptive dive/climb failed: {e}")
+                    # Continue with non-adaptive velocities on error
+
             # Apply emergency stop if active
             if self.emergency_stop_active:
                 forward_velocity = 0.0
@@ -696,6 +1062,15 @@ class BodyVelocityChaseFollower(BaseFollower):
             self.update_telemetry_metadata('current_forward_velocity', forward_velocity)
             self.update_telemetry_metadata('active_lateral_mode', self.active_lateral_mode)
             self.update_telemetry_metadata('emergency_stop_active', self.emergency_stop_active)
+
+            # Adaptive mode telemetry
+            if self.adaptive_mode_enabled:
+                self.update_telemetry_metadata('adaptive_active', self.adaptive_active)
+                self.update_telemetry_metadata('adaptive_rate_error', self.vertical_rate_error)
+                self.update_telemetry_metadata('adaptive_correction_down', self.adaptive_correction_down)
+                self.update_telemetry_metadata('adaptive_correction_fwd', self.adaptive_correction_fwd)
+                if self.adaptive_disabled_reason:
+                    self.update_telemetry_metadata('adaptive_disabled_reason', self.adaptive_disabled_reason)
             
             logger.debug(f"Body velocity commands ({self.active_lateral_mode}) - "
                         f"Fwd: {forward_velocity:.2f}, Right: {right_velocity:.2f}, "
@@ -799,6 +1174,20 @@ class BodyVelocityChaseFollower(BaseFollower):
                     'velocity_smoothing_enabled': self.velocity_smoothing_enabled,
                     'smoothing_factor': self.smoothing_factor,
                     'max_tracking_error': self.max_tracking_error
+                },
+
+                # Adaptive Dive/Climb Status
+                'adaptive_mode': {
+                    'enabled': self.adaptive_mode_enabled,
+                    'active': self.adaptive_active,
+                    'warmup_counter': self.adaptive_warmup_counter,
+                    'smoothed_vertical_rate': self.smoothed_vertical_rate,
+                    'expected_vertical_rate': self.expected_vertical_rate,
+                    'vertical_rate_error': self.vertical_rate_error,
+                    'correction_down': self.adaptive_correction_down,
+                    'correction_fwd': self.adaptive_correction_fwd,
+                    'disabled_reason': self.adaptive_disabled_reason,
+                    'fwd_coupling_enabled': self.adaptive_fwd_coupling_enabled
                 }
             }
             
@@ -894,7 +1283,23 @@ class BodyVelocityChaseFollower(BaseFollower):
             
             # Reset lateral guidance mode to configured default
             self.active_lateral_mode = self._get_active_lateral_mode()
-            
+
+            # Reset adaptive dive/climb state
+            self.adaptive_active = False
+            self.target_vertical_history.clear()
+            self.smoothed_vertical_rate = 0.0
+            self.expected_vertical_rate = 0.0
+            self.vertical_rate_error = 0.0
+            self.adaptive_warmup_counter = 0
+            self.last_target_y_coord = None
+            self.last_target_timestamp = None
+            self.adaptive_correction_down = 0.0
+            self.adaptive_correction_fwd = 0.0
+            self.rate_error_sign_history.clear()
+            self.adaptive_divergence_start_time = None
+            # Note: adaptive_disabled_reason and adaptive_mode_enabled are NOT reset
+            # User must manually re-enable if it was auto-disabled
+
             # Reset PID integrators to prevent windup
             if self.pid_right:
                 self.pid_right.reset()
@@ -902,7 +1307,7 @@ class BodyVelocityChaseFollower(BaseFollower):
                 self.pid_down.reset()
             if hasattr(self, 'pid_yaw_speed') and self.pid_yaw_speed:
                 self.pid_yaw_speed.reset()
-            
+
             # Update telemetry
             self.update_telemetry_metadata('chase_state_reset', datetime.utcnow().isoformat())
             self.update_telemetry_metadata('lateral_mode_reset', self.active_lateral_mode)
