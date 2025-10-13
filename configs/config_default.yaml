@@ -900,6 +900,20 @@ BODY_VELOCITY_CHASE:
   ADAPTIVE_MAX_SIGN_CHANGES: 3           # Max sign changes in 2 seconds before disable
   ADAPTIVE_DIVERGENCE_TIMEOUT: 5.0       # Seconds - disable if error grows despite corrections
 
+  # === 🎯 PITCH ANGLE COMPENSATION (Advanced Feature) ===
+  # Compensates for camera pitch-induced vertical image shifts during forward flight
+  # See config.yaml for comprehensive documentation and calibration guide
+  ENABLE_PITCH_COMPENSATION: false       # Master enable/disable (off by default for safety)
+  PITCH_COMPENSATION_MODEL: "linear_velocity"  # linear_velocity | linear_angle | quadratic
+  PITCH_COMPENSATION_GAIN: 0.05          # Calibration factor (0.01-0.15 typical)
+  PITCH_DATA_SMOOTHING_ALPHA: 0.7        # EMA filter (0.6-0.8 recommended)
+  PITCH_DATA_MAX_AGE: 0.5                # Max data age in seconds
+  PITCH_COMPENSATION_MIN_VELOCITY: 1.0   # Min v_fwd to activate (m/s)
+  PITCH_COMPENSATION_DEADBAND: 2.0       # Ignore pitch below this (degrees)
+  PITCH_COMPENSATION_MAX_ANGLE: 45.0     # Safety limit (degrees)
+  PITCH_COMPENSATION_MAX_CORRECTION: 0.3 # Max compensation magnitude (0.0-1.0)
+  PITCH_COMPENSATION_ADAPTIVE_GAIN: false # Future: adaptive gain tuning
+
 # ==============================================================================
 # CONSTANT POSITION FOLLOWER CONFIGURATION
 # ==============================================================================

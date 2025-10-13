@@ -192,6 +192,28 @@ class BodyVelocityChaseFollower(BaseFollower):
         self.adaptive_disabled_reason = None  # Reason if adaptive mode was disabled
         self.adaptive_divergence_start_time = None  # When divergence was first detected
 
+        # === PITCH COMPENSATION CONFIGURATION ===
+        # Load pitch compensation parameters from config
+        self.pitch_compensation_enabled = config.get('ENABLE_PITCH_COMPENSATION', False)
+        self.pitch_compensation_model = config.get('PITCH_COMPENSATION_MODEL', 'linear_velocity')
+        self.pitch_compensation_gain = config.get('PITCH_COMPENSATION_GAIN', 0.05)
+        self.pitch_smoothing_alpha = config.get('PITCH_DATA_SMOOTHING_ALPHA', 0.7)
+        self.pitch_data_max_age = config.get('PITCH_DATA_MAX_AGE', 0.5)
+        self.pitch_min_velocity = config.get('PITCH_COMPENSATION_MIN_VELOCITY', 1.0)
+        self.pitch_deadband = config.get('PITCH_COMPENSATION_DEADBAND', 2.0)
+        self.pitch_max_angle = config.get('PITCH_COMPENSATION_MAX_ANGLE', 45.0)
+        self.pitch_max_correction = config.get('PITCH_COMPENSATION_MAX_CORRECTION', 0.3)
+        self.pitch_adaptive_gain = config.get('PITCH_COMPENSATION_ADAPTIVE_GAIN', False)
+
+        # Initialize pitch compensation runtime state
+        self.current_pitch_angle = 0.0  # Current pitch angle in degrees
+        self.smoothed_pitch_angle = 0.0  # Filtered pitch angle with EMA
+        self.last_pitch_timestamp = None  # Timestamp of last pitch data
+        self.pitch_compensation_active = False  # Whether compensation is currently applied
+        self.pitch_compensation_value = 0.0  # Current compensation value (normalized coordinates)
+        self.pitch_data_valid = False  # Whether pitch data is fresh and valid
+        self.pitch_compensation_history: Deque[Tuple[float, float]] = deque(maxlen=20)  # (timestamp, compensation) history
+
         # Initialize PID controllers (includes mode determination)
         self._initialize_pid_controllers()
         
@@ -202,11 +224,13 @@ class BodyVelocityChaseFollower(BaseFollower):
         self.update_telemetry_metadata('active_lateral_mode', self.active_lateral_mode)
         self.update_telemetry_metadata('safety_features', [
             'altitude_monitoring', 'target_loss_handling', 'velocity_ramping', 'emergency_stop', 'dual_mode_guidance',
-            'adaptive_dive_climb' if self.adaptive_mode_enabled else None
+            'adaptive_dive_climb' if self.adaptive_mode_enabled else None,
+            'pitch_compensation' if self.pitch_compensation_enabled else None
         ])
         self.update_telemetry_metadata('forward_ramping_enabled', True)
         self.update_telemetry_metadata('altitude_safety_enabled', self.altitude_safety_enabled)
         self.update_telemetry_metadata('adaptive_dive_climb_enabled', self.adaptive_mode_enabled)
+        self.update_telemetry_metadata('pitch_compensation_enabled', self.pitch_compensation_enabled)
         
         logger.info(f"BodyVelocityChaseFollower initialized with dual-mode offboard velocity control")
         logger.info(f"Active lateral guidance mode: {self.active_lateral_mode}")
@@ -466,10 +490,37 @@ class BodyVelocityChaseFollower(BaseFollower):
                 self._switch_lateral_mode(new_mode)
             
             # Calculate tracking errors
-            error_x = (self.pid_right.setpoint if self.pid_right else 
+            error_x = (self.pid_right.setpoint if self.pid_right else
                       self.pid_yaw_speed.setpoint) - target_coords[0]  # Horizontal error
             error_y = (self.pid_down.setpoint - target_coords[1]) if self.pid_down else 0.0  # Vertical error
-            
+
+            # === PITCH COMPENSATION ===
+            # Apply pitch angle compensation to vertical error BEFORE PID processing
+            # This removes geometric image shifts caused by forward pitch angles
+            if self.pitch_compensation_enabled:
+                try:
+                    # Get current pitch angle from MAVLink telemetry
+                    pitch_angle, pitch_valid = self._get_current_pitch_angle()
+
+                    if pitch_valid:
+                        # Calculate compensation based on pitch angle and forward velocity
+                        pitch_compensation = self._calculate_pitch_compensation(
+                            pitch_angle,
+                            self.current_forward_velocity
+                        )
+
+                        # Apply compensation to error_y BEFORE PID
+                        # This cancels out the geometric shift, preventing false altitude corrections
+                        error_y += pitch_compensation
+
+                        logger.debug(f"Pitch compensation applied: {pitch_compensation:+.4f} to error_y")
+                    else:
+                        logger.debug("Pitch compensation: Data not valid, skipping")
+
+                except Exception as e:
+                    logger.error(f"Pitch compensation failed: {e}")
+                    # Continue without pitch compensation on error
+
             # Initialize commands
             right_velocity = 0.0
             down_velocity = 0.0
@@ -903,6 +954,218 @@ class BodyVelocityChaseFollower(BaseFollower):
         except Exception as e:
             logger.error(f"Error checking adaptive divergence: {e}")
             return False
+
+    def _get_current_pitch_angle(self) -> Tuple[float, bool]:
+        """
+        Retrieves current pitch angle from MAVLink telemetry with filtering and validation.
+
+        This method:
+        1. Retrieves pitch angle from px4_controller attitude data
+        2. Validates data freshness (age < pitch_data_max_age)
+        3. Applies exponential moving average (EMA) filtering
+        4. Clamps pitch angle to configured maximum
+        5. Updates state variables for pitch compensation
+
+        Returns:
+            Tuple[float, bool]: (pitch_angle_deg, data_valid)
+                - pitch_angle_deg: Smoothed pitch angle in degrees (positive = nose up)
+                - data_valid: True if data is fresh and valid, False otherwise
+
+        Note:
+            - Returns (0.0, False) if pitch compensation disabled
+            - Returns (0.0, False) if MAVLink data unavailable or stale
+            - Pitch angle convention: positive = nose up, negative = nose down
+        """
+        try:
+            # Check if pitch compensation is enabled
+            if not self.pitch_compensation_enabled:
+                return 0.0, False
+
+            current_time = time.time()
+
+            # Retrieve pitch angle from PX4 controller telemetry
+            # The px4_controller should have attitude data from MAVLink
+            # Typical attribute: px4_controller.attitude or px4_controller.current_pitch
+            pitch_rad = getattr(self.px4_controller, 'current_pitch', None)
+
+            if pitch_rad is None:
+                # Try alternate attribute names
+                attitude = getattr(self.px4_controller, 'attitude', None)
+                if attitude is not None and hasattr(attitude, 'pitch'):
+                    pitch_rad = attitude.pitch
+                else:
+                    logger.debug("Pitch compensation: No pitch data available from MAVLink")
+                    self.pitch_data_valid = False
+                    self.pitch_compensation_active = False
+                    return 0.0, False
+
+            # Convert radians to degrees
+            pitch_deg = np.degrees(pitch_rad)
+
+            # Check data freshness (timestamp validation)
+            # If px4_controller provides timestamp, validate it
+            pitch_timestamp = getattr(self.px4_controller, 'attitude_timestamp', current_time)
+            data_age = current_time - pitch_timestamp
+
+            if data_age > self.pitch_data_max_age:
+                logger.debug(f"Pitch compensation: Data too old ({data_age:.2f}s > {self.pitch_data_max_age}s)")
+                self.pitch_data_valid = False
+                self.pitch_compensation_active = False
+                return 0.0, False
+
+            # Update timestamp
+            self.last_pitch_timestamp = pitch_timestamp
+
+            # Apply maximum angle clamping for safety
+            if abs(pitch_deg) > self.pitch_max_angle:
+                logger.warning(f"Pitch compensation: Angle {pitch_deg:.1f}° exceeds max {self.pitch_max_angle}°, clamping")
+                pitch_deg = np.clip(pitch_deg, -self.pitch_max_angle, self.pitch_max_angle)
+
+            # Apply exponential moving average (EMA) filtering
+            # First update: initialize smoothed value
+            if self.smoothed_pitch_angle == 0.0 and self.current_pitch_angle == 0.0:
+                self.smoothed_pitch_angle = pitch_deg  # Initialize without filtering
+            else:
+                alpha = self.pitch_smoothing_alpha
+                self.smoothed_pitch_angle = (alpha * pitch_deg +
+                                            (1 - alpha) * self.smoothed_pitch_angle)
+
+            # Update current pitch angle
+            self.current_pitch_angle = pitch_deg
+
+            # Mark data as valid
+            self.pitch_data_valid = True
+
+            logger.debug(f"Pitch compensation: Raw={pitch_deg:.2f}°, Smoothed={self.smoothed_pitch_angle:.2f}°, Age={data_age:.3f}s")
+
+            return self.smoothed_pitch_angle, True
+
+        except Exception as e:
+            logger.error(f"Error retrieving pitch angle: {e}")
+            self.pitch_data_valid = False
+            self.pitch_compensation_active = False
+            return 0.0, False
+
+    def _calculate_pitch_compensation(self, pitch_angle: float, forward_velocity: float) -> float:
+        """
+        Calculates vertical coordinate compensation based on pitch angle and velocity.
+
+        This method implements the core pitch compensation algorithm to remove geometric
+        image shifts caused by forward pitch during acceleration/deceleration.
+
+        Physical Principle:
+        -------------------
+        When drone pitches forward (θ > 0):
+        - Camera optical axis rotates downward by angle θ
+        - Target appears to shift DOWN in image (positive Δy in normalized coords)
+        - Without compensation, PID interprets this as "target below center"
+        - PID commands v_down (descent), causing unwanted altitude loss
+
+        Solution:
+        - Add compensation_value to error_y BEFORE PID processing
+        - This cancels the geometric shift, preventing false altitude corrections
+
+        Compensation Models:
+        --------------------
+        1. linear_velocity: Δy = K * θ * v_fwd
+           - Compensation scales with both pitch angle and forward velocity
+           - Best for dynamic flight with varying speeds
+           - Recommended default model
+
+        2. linear_angle: Δy = K * θ
+           - Compensation depends only on pitch angle
+           - Simpler model for constant-speed scenarios
+           - Good for aggressive tuning without velocity coupling
+
+        3. quadratic: Δy = K * θ² * sign(θ)
+           - Non-linear model for extreme pitch angles (>20°)
+           - Accounts for increased geometric distortion at high angles
+           - Use when linear models under-compensate
+
+        Args:
+            pitch_angle (float): Smoothed pitch angle in degrees (positive = nose up)
+            forward_velocity (float): Current forward velocity in m/s
+
+        Returns:
+            float: Compensation value in normalized coordinates [-pitch_max_correction, +pitch_max_correction]
+                   - Positive compensation: counteracts downward image shift (nose-up pitch)
+                   - Negative compensation: counteracts upward image shift (nose-down pitch)
+
+        Note:
+            - Returns 0.0 if pitch angle within deadband
+            - Returns 0.0 if forward velocity below minimum threshold
+            - Compensation is additive to error_y in PID calculation
+            - Stored in self.pitch_compensation_value for telemetry
+        """
+        try:
+            # Apply deadband: ignore small pitch angles to prevent over-reaction
+            if abs(pitch_angle) < self.pitch_deadband:
+                self.pitch_compensation_value = 0.0
+                self.pitch_compensation_active = False
+                return 0.0
+
+            # Check minimum forward velocity threshold
+            # Pitch compensation is most critical during forward flight
+            if forward_velocity < self.pitch_min_velocity:
+                logger.debug(f"Pitch compensation: Forward velocity {forward_velocity:.2f} m/s below threshold {self.pitch_min_velocity} m/s")
+                self.pitch_compensation_value = 0.0
+                self.pitch_compensation_active = False
+                return 0.0
+
+            # Select compensation model
+            model = self.pitch_compensation_model
+            gain = self.pitch_compensation_gain
+
+            # Adaptive gain adjustment (optional)
+            if self.pitch_adaptive_gain:
+                # Increase gain at higher forward velocities
+                # Rationale: Higher speed = more pronounced pitch angles = stronger geometric effect
+                velocity_factor = min(forward_velocity / 10.0, 2.0)  # Cap at 2x gain
+                gain *= velocity_factor
+                logger.debug(f"Pitch compensation: Adaptive gain {gain:.4f} (velocity_factor={velocity_factor:.2f})")
+
+            # Calculate base compensation based on selected model
+            if model == "linear_velocity":
+                # Compensation = K * θ * v_fwd
+                # This model captures the fact that geometric shift increases with both pitch and speed
+                compensation = gain * pitch_angle * forward_velocity
+
+            elif model == "linear_angle":
+                # Compensation = K * θ
+                # Simpler model ignoring velocity, useful for constant-speed operations
+                compensation = gain * pitch_angle * 10.0  # Scale factor for normalization
+
+            elif model == "quadratic":
+                # Compensation = K * θ² * sign(θ)
+                # Non-linear model for extreme angles where distortion is non-linear
+                compensation = gain * (pitch_angle ** 2) * np.sign(pitch_angle) * forward_velocity * 0.1
+
+            else:
+                logger.warning(f"Pitch compensation: Unknown model '{model}', using linear_velocity")
+                compensation = gain * pitch_angle * forward_velocity
+
+            # Clamp compensation to maximum authority for safety
+            max_correction = self.pitch_max_correction
+            compensation = np.clip(compensation, -max_correction, max_correction)
+
+            # Store compensation value for telemetry and debugging
+            self.pitch_compensation_value = compensation
+            self.pitch_compensation_active = True
+
+            # Record in history for analysis
+            current_time = time.time()
+            self.pitch_compensation_history.append((current_time, compensation))
+
+            logger.debug(f"Pitch compensation: Model={model}, Angle={pitch_angle:.2f}°, "
+                        f"v_fwd={forward_velocity:.2f} m/s, Compensation={compensation:+.4f}")
+
+            return compensation
+
+        except Exception as e:
+            logger.error(f"Error calculating pitch compensation: {e}")
+            self.pitch_compensation_value = 0.0
+            self.pitch_compensation_active = False
+            return 0.0
 
     def _check_altitude_safety(self) -> bool:
         """
