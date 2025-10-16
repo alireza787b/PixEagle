@@ -15,7 +15,7 @@
 VideoSource:
   # Primary video source selection
   # Options: VIDEO_FILE, USB_CAMERA, RTSP_OPENCV, RTSP_STREAM, UDP_STREAM, HTTP_STREAM, CSI_CAMERA, CUSTOM_GSTREAMER
-  VIDEO_SOURCE_TYPE: USB_CAMERA
+  VIDEO_SOURCE_TYPE: VIDEO_FILE
   
   # === Universal Capture Parameters (Applied to ALL sources) ===
   # 🔧 These ensure consistent processing regardless of input type
@@ -382,7 +382,7 @@ CSRT_Tracker:
 # ==============================================================================
 DLIB_Tracker:
   # === User-Friendly Performance Control (MAIN PARAMETER) ===
-  performance_mode: "balanced"           # Choose: "fast", "balanced", or "robust"
+  performance_mode: "robust"           # Choose: "fast", "balanced", or "robust"
                                          # ⭐ Change this based on your needs!
 
   # === PSR-Based Confidence System ===
@@ -394,7 +394,7 @@ DLIB_Tracker:
   #   PSR 7-20: Good tracking (reliable)
   #   PSR > 20: Excellent tracking
 
-  psr_confidence_threshold: 7.0          # Min PSR for reliable tracking
+  psr_confidence_threshold: 8.0          # Min PSR for reliable tracking
                                          # Lower = more tolerant (may accept false tracks)
                                          # Higher = stricter (may reject valid tracks)
                                          # Recommended: 5.0-8.0 for aerial tracking

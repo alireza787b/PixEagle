@@ -88,7 +88,8 @@ class DlibTracker(BaseTracker):
 
         super().__init__(video_handler, detector, app_controller)
 
-        # dlib Correlation Tracker
+        # Override the OpenCV tracker created by BaseTracker with dlib tracker
+        # This must be done AFTER super().__init__() to override the cv2.TrackerCSRT
         self.tracker = dlib.correlation_tracker()
         self.trackerName: str = "dlib"
 
