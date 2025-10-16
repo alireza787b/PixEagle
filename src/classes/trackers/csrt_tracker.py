@@ -147,6 +147,15 @@ class CSRTTracker(BaseTracker):
             self.performance_mode = 'balanced'
             self._configure_performance_mode()
 
+    def _create_tracker(self):
+        """
+        Creates and returns a new CSRT tracker instance.
+
+        Returns:
+            cv2.Tracker: OpenCV CSRT tracker instance
+        """
+        return cv2.TrackerCSRT_create()
+
     def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
         """
         Initializes the tracker with the provided bounding box.

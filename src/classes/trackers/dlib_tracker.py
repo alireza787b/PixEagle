@@ -88,9 +88,7 @@ class DlibTracker(BaseTracker):
 
         super().__init__(video_handler, detector, app_controller)
 
-        # Override the OpenCV tracker created by BaseTracker with dlib tracker
-        # This must be done AFTER super().__init__() to override the cv2.TrackerCSRT
-        self.tracker = dlib.correlation_tracker()
+        # Set tracker name for dlib
         self.trackerName: str = "dlib"
 
         # Reset external estimator if exists
@@ -168,6 +166,15 @@ class DlibTracker(BaseTracker):
             logger.warning(f"Unknown performance mode '{self.performance_mode}', using 'balanced'")
             self.performance_mode = 'balanced'
             self._configure_performance_mode()
+
+    def _create_tracker(self):
+        """
+        Creates and returns a new dlib correlation tracker instance.
+
+        Returns:
+            dlib.correlation_tracker: dlib tracker instance
+        """
+        return dlib.correlation_tracker()
 
     def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
         """

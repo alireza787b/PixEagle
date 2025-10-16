@@ -541,6 +541,18 @@ class BaseTracker(ABC):
         return (norm_x, norm_y, norm_w, norm_h)
     
 
+    def _create_tracker(self):
+        """
+        Creates and returns a new tracker instance.
+
+        This method should be overridden by subclasses to return their specific tracker type.
+        BaseTracker returns None since it's abstract and doesn't have a specific tracker.
+
+        Returns:
+            Tracker instance or None for abstract base class
+        """
+        return None
+
     def reset(self):
         self.bbox = None
         self.center = None
@@ -553,8 +565,8 @@ class BaseTracker(ABC):
         self.last_update_time = time.time()
         if self.position_estimator:
             self.position_estimator.reset()
-        # Re-instantiate the OpenCV tracker to ensure clean state
-        self.tracker = cv2.TrackerCSRT_create()
+        # Re-instantiate the tracker using polymorphic method
+        self.tracker = self._create_tracker()
         logging.info("Tracker fully reset.")
 
     def get_output(self) -> TrackerOutput:
