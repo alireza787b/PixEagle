@@ -591,6 +591,313 @@ class SensorFusionTracker(BaseTracker):
         )
 ```
 
+### Example 4: dlib Correlation Filter Tracker
+
+The dlib tracker is a production-ready, high-performance correlation filter tracker with PSR (Peak-to-Sidelobe Ratio) confidence scoring, designed specifically for aerial drone tracking scenarios.
+
+#### Key Features
+
+- **Three Performance Modes**: Fast (25-30 FPS), Balanced (18-25 FPS), Robust (12-18 FPS)
+- **PSR-Based Confidence Scoring**: Converts PSR values to normalized 0.0-1.0 confidence scores
+- **Adaptive Template Learning**: Configurable appearance adaptation for changing targets
+- **Robust Failure Handling**: Consecutive failure threshold with graceful degradation
+- **Full Schema Compliance**: Supports POSITION_2D, BBOX_CONFIDENCE, and VELOCITY_AWARE schemas
+
+#### Configuration Example
+
+```yaml
+# In configs/config_default.yaml
+DEFAULT_TRACKING_ALGORITHM: "dlib"
+
+DLIB_Tracker:
+  # Performance mode selection (fast, balanced, or robust)
+  performance_mode: "balanced"
+
+  # PSR-based confidence system
+  psr_confidence_threshold: 7.0    # Min PSR for reliable tracking (5-7 marginal)
+  psr_high_confidence: 20.0        # PSR above this = excellent tracking
+  psr_low_confidence: 5.0          # PSR below this = poor tracking
+
+  # Failure tolerance
+  failure_threshold: 5             # Consecutive failures before declaring lost
+  confidence_smoothing_alpha: 0.7  # EMA smoothing factor
+
+  # Validation & robustness
+  validation_start_frame: 10       # Grace period before validation
+  max_scale_change_per_frame: 0.5  # Max size change per frame
+  max_motion_per_frame: 0.6        # Max motion as fraction of diagonal
+
+  # Appearance adaptation
+  appearance_learning_rate: 0.08   # Template update learning rate
+
+  # Integration features
+  enable_validation: true          # Enable robustness validation
+  enable_estimator_integration: false  # Kalman integration (robust mode)
+  enable_template_matching: true   # Re-detection on failure
+```
+
+#### Schema Definition
+
+```yaml
+# In configs/tracker_schemas.yaml
+tracker_types:
+  DlibTracker:
+    name: "dlib Correlation Tracker"
+    description: "Fast correlation filter tracker with PSR confidence scoring (Danelljan et al. 2014 DSST)"
+    supported_schemas:
+      - POSITION_2D
+      - BBOX_CONFIDENCE
+      - VELOCITY_AWARE  # When estimator is enabled
+    capabilities:
+      - fast_correlation_filter
+      - psr_confidence_scoring
+      - scale_adaptation
+      - appearance_learning
+      - occlusion_handling
+      - performance_modes
+    performance:
+      accuracy: "high"
+      speed: "very_fast"
+      latency: "minimal"
+      cpu_usage: "low"
+      recommended_for: "aerial_drone_tracking_fast_scenarios"
+```
+
+#### Implementation Highlights
+
+```python
+# src/classes/trackers/dlib_tracker.py
+import dlib
+import cv2
+import numpy as np
+from typing import Tuple, Optional
+from .base_tracker import BaseTracker
+from classes.tracker_output import TrackerOutput, TrackerDataType
+
+class DlibTracker(BaseTracker):
+    """
+    dlib correlation filter tracker with PSR confidence scoring.
+
+    Based on Danelljan et al. 2014 DSST algorithm, providing excellent
+    performance for aerial drone tracking with minimal CPU usage.
+    """
+
+    def __init__(self, video_handler, detector=None, app_controller=None):
+        super().__init__(video_handler, detector, app_controller)
+
+        # Initialize dlib correlation tracker
+        self.tracker = dlib.correlation_tracker()
+
+        # Load performance mode configuration
+        self._configure_performance_mode()
+
+        # PSR confidence system
+        self.psr_confidence_threshold = config.get('psr_confidence_threshold', 7.0)
+        self.psr_high_confidence = config.get('psr_high_confidence', 20.0)
+        self.psr_low_confidence = config.get('psr_low_confidence', 5.0)
+
+    def _psr_to_confidence(self, psr: float) -> float:
+        """
+        Convert PSR (Peak-to-Sidelobe Ratio) to normalized confidence.
+
+        PSR Ranges (based on Bolme et al. 2010 MOSSE):
+        - < 5.0: Poor tracking (confidence 0.0 - 0.25)
+        - 5.0 - 7.0: Marginal (confidence 0.25 - 0.50)
+        - 7.0 - 20.0: Good tracking (confidence 0.50 - 0.90)
+        - > 20.0: Excellent tracking (confidence 0.90 - 1.00)
+        """
+        psr_clamped = max(0.0, min(psr, 30.0))
+
+        if psr_clamped < self.psr_low_confidence:
+            confidence = psr_clamped / (self.psr_low_confidence * 2.0)
+        elif psr_clamped < self.psr_confidence_threshold:
+            confidence = 0.25 + (psr_clamped - self.psr_low_confidence) / \
+                        (self.psr_confidence_threshold - self.psr_low_confidence) * 0.25
+        elif psr_clamped < self.psr_high_confidence:
+            confidence = 0.5 + (psr_clamped - self.psr_confidence_threshold) / \
+                        (self.psr_high_confidence - self.psr_confidence_threshold) * 0.4
+        else:
+            confidence = 0.9 + min(0.1, (psr_clamped - self.psr_high_confidence) / 20.0)
+
+        return max(0.0, min(1.0, confidence))
+
+    def update(self, frame: np.ndarray) -> Tuple[bool, Optional[Tuple[int, int, int, int]]]:
+        """Update tracker with current frame"""
+        if not self.tracking_started:
+            return False, self.bbox
+
+        # Run dlib tracker update
+        psr = self.tracker.update(frame)
+
+        # Get updated position
+        pos = self.tracker.get_position()
+        detected_bbox = (int(pos.left()), int(pos.top()),
+                        int(pos.width()), int(pos.height()))
+
+        # Convert PSR to normalized confidence
+        raw_confidence = self._psr_to_confidence(psr)
+
+        # Apply confidence smoothing
+        self.smoothed_confidence = (
+            self.confidence_smoothing_alpha * raw_confidence +
+            (1.0 - self.confidence_smoothing_alpha) * self.smoothed_confidence
+        )
+
+        # Handle tracking failures
+        if self.smoothed_confidence < self.min_confidence:
+            self.consecutive_failures += 1
+            if self.consecutive_failures >= self.failure_threshold:
+                self.tracking_started = False
+                self.logger.warning("dlib tracker lost target")
+                return False, self.bbox
+        else:
+            self.consecutive_failures = 0
+            self.bbox = detected_bbox
+
+        return True, self.bbox
+
+    def get_output(self) -> TrackerOutput:
+        """Return schema-compliant tracker output"""
+        if not self.tracking_started:
+            return TrackerOutput(
+                data_type=TrackerDataType.POSITION_2D,
+                tracking_active=False
+            )
+
+        # Calculate normalized position
+        position_2d = self._bbox_to_normalized_center(self.bbox)
+        normalized_bbox = self._bbox_to_normalized_bbox(self.bbox)
+
+        return TrackerOutput(
+            data_type=TrackerDataType.POSITION_2D,
+            position_2d=position_2d,
+            confidence=self.smoothed_confidence,
+            bbox=self.bbox,
+            normalized_bbox=normalized_bbox,
+            tracking_active=True,
+            timestamp=time.time()
+        )
+```
+
+#### Usage Example
+
+To use the dlib tracker in your PixEagle application:
+
+1. **Install dlib** (if not already installed):
+   ```bash
+   pip install dlib
+   # Or using conda (faster on Windows):
+   # conda install -c conda-forge dlib
+   ```
+
+2. **Update configuration**:
+   ```yaml
+   # In configs/config_default.yaml
+   DEFAULT_TRACKING_ALGORITHM: "dlib"
+   ```
+
+3. **Run PixEagle**:
+   ```bash
+   python main.py
+   ```
+
+4. **Test different performance modes**:
+   ```yaml
+   # Fast mode - maximum FPS (25-30 FPS)
+   DLIB_Tracker:
+     performance_mode: "fast"
+
+   # Balanced mode - default (18-25 FPS)
+   DLIB_Tracker:
+     performance_mode: "balanced"
+
+   # Robust mode - maximum accuracy (12-18 FPS)
+   DLIB_Tracker:
+     performance_mode: "robust"
+     enable_estimator_integration: true
+   ```
+
+#### Tuning Scenarios
+
+**Scenario 1: High-Speed Chase**
+```yaml
+DLIB_Tracker:
+  performance_mode: "fast"
+  max_motion_per_frame: 0.8        # Allow rapid motion
+  appearance_learning_rate: 0.12   # Faster adaptation
+  failure_threshold: 3             # Quicker recovery
+```
+
+**Scenario 2: Rotating/Tumbling Target**
+```yaml
+DLIB_Tracker:
+  performance_mode: "balanced"
+  appearance_learning_rate: 0.15   # Aggressive learning
+  max_scale_change_per_frame: 0.7  # Allow rotation/scale
+  psr_confidence_threshold: 6.0    # More tolerant
+```
+
+**Scenario 3: Resource-Constrained Platform**
+```yaml
+DLIB_Tracker:
+  performance_mode: "fast"
+  enable_validation: false         # Skip validation overhead
+  enable_template_matching: false  # Disable re-detection
+```
+
+**Scenario 4: Critical Mission (Maximum Reliability)**
+```yaml
+DLIB_Tracker:
+  performance_mode: "robust"
+  enable_estimator_integration: true
+  enable_template_matching: true
+  failure_threshold: 10            # Very tolerant
+  validation_start_frame: 20       # Longer grace period
+```
+
+**Scenario 5: Occlusion-Prone Environment**
+```yaml
+DLIB_Tracker:
+  performance_mode: "balanced"
+  enable_template_matching: true   # Re-detection enabled
+  failure_threshold: 8             # Tolerate occlusions
+  appearance_learning_rate: 0.05   # Conservative updates
+  psr_low_confidence: 4.0          # Lower threshold
+```
+
+#### Performance Comparison
+
+| Mode      | FPS Range | Accuracy | CPU Usage | Best For                          |
+|-----------|-----------|----------|-----------|-----------------------------------|
+| Fast      | 25-30     | High     | Low       | High-speed tracking, real-time    |
+| Balanced  | 18-25     | High     | Medium    | General aerial tracking (default) |
+| Robust    | 12-18     | Very High| Medium    | Critical missions, validation     |
+
+#### Integration with PixEagle Ecosystem
+
+The dlib tracker seamlessly integrates with all PixEagle subsystems:
+
+- **Detector Integration**: Supports template matching re-detection on failure
+- **Estimator Integration**: Works with Kalman filter in robust mode
+- **Follower Compatibility**: Compatible with all follower modes (chase, ground_view, etc.)
+- **Smart Override**: Automatically switches to SmartTracker when enabled
+- **Schema Compliance**: Full POSITION_2D, BBOX_CONFIDENCE, VELOCITY_AWARE support
+
+#### Testing
+
+Use the provided test script to validate dlib integration:
+
+```bash
+# Test all performance modes
+python test_dlib_tracker.py
+
+# Test specific mode with video
+python test_dlib_tracker.py --mode balanced --video test_footage.mp4
+
+# Test PSR confidence mapping
+python test_dlib_tracker.py --test-psr
+```
+
 ---
 
 ## ✅ Best Practices

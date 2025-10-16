@@ -7,6 +7,7 @@ protobuf
 # OpenCV for computer vision and tracking
 opencv-python == 4.9.0.80
 opencv-contrib-python == 4.9.0.80 # For extra features including tracking algorithms
+dlib  # Fast correlation filter tracker with PSR confidence scoring
 ultralytics
 ncnn
 lap

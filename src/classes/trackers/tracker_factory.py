@@ -31,7 +31,8 @@ tracker = create_tracker("CSRT", video_handler, detector, app_controller)
 Supported Algorithms:
 ---------------------
 - "CSRT": Channel and Spatial Reliability Tracker
-- "ParticleFilter": Particle Filter Tracker
+- "KCF": KCF + Kalman Filter Tracker
+- "dlib": dlib Correlation Filter Tracker (fast, PSR-based confidence)
 - "Gimbal": Gimbal-based UDP Angle Tracker
 - Additional trackers can be added by implementing their classes and updating the factory.
 
@@ -45,6 +46,7 @@ Notes:
 from classes.trackers.csrt_tracker import CSRTTracker
 from classes.trackers.kcf_kalman_tracker import KCFKalmanTracker
 from classes.trackers.gimbal_tracker import GimbalTracker
+from classes.trackers.dlib_tracker import DlibTracker
 # Import other trackers as necessary
 
 def create_tracker(algorithm: str, video_handler=None, detector=None, app_controller=None):
@@ -73,6 +75,8 @@ def create_tracker(algorithm: str, video_handler=None, detector=None, app_contro
         return CSRTTracker(video_handler, detector, app_controller)
     elif algorithm == "KCF":
         return KCFKalmanTracker(video_handler, detector, app_controller)
+    elif algorithm == "dlib":
+        return DlibTracker(video_handler, detector, app_controller)
     elif algorithm == "Gimbal":
         return GimbalTracker(video_handler, detector, app_controller)
     # Add other algorithms here

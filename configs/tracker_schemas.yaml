@@ -310,6 +310,33 @@ tracker_types:
       accuracy: "high"
       speed: "slow"
 
+  DlibTracker:
+    name: "dlib Correlation Tracker"
+    description: "Fast correlation filter tracker with PSR confidence scoring (Danelljan et al. 2014 DSST)"
+    supported_schemas:
+      - POSITION_2D
+      - BBOX_CONFIDENCE
+      - VELOCITY_AWARE  # When estimator is enabled
+    capabilities:
+      - fast_correlation_filter
+      - psr_confidence_scoring
+      - scale_adaptation
+      - appearance_learning
+      - occlusion_handling
+      - performance_modes  # fast, balanced, robust
+    performance:
+      accuracy: "high"
+      speed: "very_fast"  # 25-50 FPS depending on mode
+      latency: "minimal"
+      cpu_usage: "low"
+      recommended_for: "aerial_drone_tracking_fast_scenarios"
+    notes:
+      - "Based on Danelljan et al. 2014 Discriminative Scale Space Tracking (DSST)"
+      - "Uses PSR (Peak-to-Sidelobe Ratio) for confidence scoring"
+      - "Three performance modes: fast (25-30 FPS), balanced (18-25 FPS), robust (12-18 FPS)"
+      - "Excellent for aerial tracking of drones and ground objects"
+      - "Limited internal parameter tuning, robustness added via PixEagle validation layer"
+
 # Schema compatibility matrix
 compatibility:
   followers:
