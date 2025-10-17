@@ -234,11 +234,24 @@ from classes.tracker_output import TrackerOutput, TrackerDataType
 
 class DepthTracker(BaseTracker):
     """Custom depth-aware tracking implementation"""
-    
+
     def __init__(self, video_handler, detector=None, app_controller=None):
         super().__init__(video_handler, detector, app_controller)
         self.depth_estimator = None  # Initialize your depth estimation model
-        
+        self.trackerName = "DepthTracker"
+
+    def _create_tracker(self):
+        """
+        Creates and returns a new tracker instance.
+
+        This polymorphic method is called by BaseTracker during __init__() and reset().
+        Override this to return your specific tracker type (OpenCV, dlib, custom, etc.).
+
+        Returns:
+            Your tracker instance (e.g., cv2 tracker, dlib tracker, custom object)
+        """
+        return YourCustomTrackerClass()  # Replace with your tracker initialization
+
     def update(self, frame: np.ndarray) -> Tuple[bool, Optional[TrackerOutput]]:
         """Main tracking update method"""
         if not self.tracking_started:
