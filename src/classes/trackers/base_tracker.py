@@ -174,6 +174,10 @@ class BaseTracker(ABC):
         self.suppress_detector = False
         self.suppress_predictor = False
 
+        # Initialize tracker instance using polymorphic method
+        # Subclasses override _create_tracker() to return their specific tracker type
+        self.tracker = self._create_tracker()
+
     @abstractmethod
     def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
         """

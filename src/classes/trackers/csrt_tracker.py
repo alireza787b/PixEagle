@@ -76,8 +76,7 @@ class CSRTTracker(BaseTracker):
         """
         super().__init__(video_handler, detector, app_controller)
 
-        # OpenCV CSRT Tracker
-        self.tracker = cv2.TrackerCSRT_create()
+        # Set tracker name for CSRT
         self.trackerName: str = "CSRT"
 
         # Reset external estimator if exists
