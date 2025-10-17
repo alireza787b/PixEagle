@@ -298,3 +298,176 @@ export const useTrackerSelection = () => {
     refetch: () => Promise.all([fetchAvailableTrackers(), fetchCurrentConfig()])
   }), [availableTrackers, currentConfig, loading, error, isChanging, changeTrackerType, fetchAvailableTrackers, fetchCurrentConfig]);
 };
+
+/**
+ * Hook to fetch available UI-selectable trackers (NEW - mirrors follower pattern)
+ * Uses /api/tracker/available endpoint
+ * @param {number} refreshInterval - Polling interval in milliseconds (default: 10000)
+ * @returns {Object} { trackers, loading, error, refetch }
+ */
+export const useAvailableTrackers = (refreshInterval = 10000) => {
+  const [trackers, setTrackers] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const lastSuccessfulTrackers = useRef(null);
+
+  const fetchTrackers = useCallback(async () => {
+    try {
+      const response = await axios.get(`${API_URL}/api/tracker/available`);
+      // Only update if data actually changed
+      if (JSON.stringify(response.data) !== JSON.stringify(lastSuccessfulTrackers.current)) {
+        setTrackers(response.data);
+        lastSuccessfulTrackers.current = response.data;
+      }
+      setError(null);
+      setLoading(false);
+    } catch (err) {
+      console.error('Error fetching available trackers:', err);
+      setError(err.message);
+      // Keep previous successful data on error
+      if (lastSuccessfulTrackers.current) {
+        setTrackers(lastSuccessfulTrackers.current);
+      }
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTrackers();
+
+    const interval = setInterval(fetchTrackers, refreshInterval);
+    return () => clearInterval(interval);
+  }, [fetchTrackers, refreshInterval]);
+
+  return useMemo(
+    () => ({
+      trackers,
+      loading,
+      error,
+      refetch: fetchTrackers
+    }),
+    [trackers, loading, error, fetchTrackers]
+  );
+};
+
+/**
+ * Hook to fetch current tracker status and configuration (NEW - mirrors follower pattern)
+ * Uses /api/tracker/current endpoint
+ * @param {number} refreshInterval - Polling interval in milliseconds (default: 2000)
+ * @returns {Object} { currentTracker, loading, error, refetch }
+ */
+export const useCurrentTracker = (refreshInterval = 2000) => {
+  const [currentTracker, setCurrentTracker] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const lastSuccessfulTracker = useRef(null);
+  const abortControllerRef = useRef(null);
+
+  const fetchCurrentTracker = useCallback(async () => {
+    // Cancel previous request if still pending
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    abortControllerRef.current = new AbortController();
+
+    try {
+      const response = await axios.get(`${API_URL}/api/tracker/current`, {
+        signal: abortControllerRef.current.signal
+      });
+
+      // Only update if data actually changed
+      if (JSON.stringify(response.data) !== JSON.stringify(lastSuccessfulTracker.current)) {
+        setCurrentTracker(response.data);
+        lastSuccessfulTracker.current = response.data;
+      }
+
+      setError(null);
+      setLoading(false);
+    } catch (err) {
+      if (err.name !== 'CanceledError') {
+        console.error('Error fetching current tracker:', err);
+        setError(err.message);
+        // Keep previous successful data on error
+        if (lastSuccessfulTracker.current) {
+          setCurrentTracker(lastSuccessfulTracker.current);
+        }
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCurrentTracker();
+
+    const interval = setInterval(fetchCurrentTracker, refreshInterval);
+    return () => {
+      clearInterval(interval);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [fetchCurrentTracker, refreshInterval]);
+
+  return useMemo(
+    () => ({
+      currentTracker,
+      loading,
+      error,
+      refetch: fetchCurrentTracker
+    }),
+    [currentTracker, loading, error, fetchCurrentTracker]
+  );
+};
+
+/**
+ * Hook to switch between different tracker types (NEW - mirrors follower pattern)
+ * Uses /api/tracker/switch endpoint
+ * @returns {Object} { switchTracker, switching, switchError }
+ */
+export const useSwitchTracker = () => {
+  const [switching, setSwitching] = useState(false);
+  const [switchError, setSwitchError] = useState(null);
+
+  const switchTracker = useCallback(async (trackerType) => {
+    setSwitching(true);
+    setSwitchError(null);
+
+    try {
+      const response = await axios.post(`${API_URL}/api/tracker/switch`, {
+        tracker_type: trackerType
+      });
+
+      if (response.data.status === 'success') {
+        // Show info message if tracking needs to be restarted
+        if (response.data.requires_restart) {
+          setSwitchError(
+            `Tracker switched to ${trackerType}. Stop tracking and restart to activate the new tracker.`
+          );
+        }
+
+        setSwitching(false);
+        return true;
+      } else {
+        setSwitchError(response.data.error || 'Failed to switch tracker');
+        setSwitching(false);
+        return false;
+      }
+    } catch (err) {
+      console.error('Error switching tracker:', err);
+      const errorMsg = err.response?.data?.detail || err.message || 'Failed to switch tracker';
+      setSwitchError(errorMsg);
+      setSwitching(false);
+      return false;
+    }
+  }, []);
+
+  return useMemo(
+    () => ({
+      switchTracker,
+      switching,
+      switchError
+    }),
+    [switchTracker, switching, switchError]
+  );
+};

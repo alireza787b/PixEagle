@@ -241,6 +241,23 @@ tracker_types:
     performance:
       accuracy: "high"
       speed: "medium"
+    # UI Configuration for dashboard tracker selector
+    ui_metadata:
+      display_name: "CSRT"
+      short_description: "Best for rotation & occlusions"
+      icon: "🎯"
+      factory_key: "CSRT"  # Key used in tracker_factory.py create_tracker()
+      exclude_from_ui: false  # Show in UI selector
+      performance_category: "medium_speed_high_accuracy"
+      suitable_for:
+        - "Rotation-invariant tracking"
+        - "Perspective changes"
+        - "Drone circling targets"
+        - "Occlusion handling"
+      recommended_scenarios:
+        - "Aerial tracking of ground vehicles"
+        - "Stable, high-accuracy tracking"
+        - "Complex camera movements"
 
   KCFKalmanTracker:
     name: "KCF + Kalman Filter Tracker"
@@ -262,6 +279,23 @@ tracker_types:
       latency: "minimal"
       cpu_usage: "low"
       recommended_for: "embedded_systems"
+    # UI Configuration for dashboard tracker selector
+    ui_metadata:
+      display_name: "KCF + Kalman"
+      short_description: "Fast tracking with state estimation"
+      icon: "⚡"
+      factory_key: "KCF"  # Key used in tracker_factory.py create_tracker()
+      exclude_from_ui: false  # Show in UI selector
+      performance_category: "very_fast_high_accuracy"
+      suitable_for:
+        - "High-speed tracking (30-50 FPS)"
+        - "Embedded systems (Raspberry Pi, Jetson)"
+        - "Real-time CPU tracking"
+        - "Fast-moving targets"
+      recommended_scenarios:
+        - "High-speed race car tracking"
+        - "Drone-to-drone tracking"
+        - "CPU-limited systems"
       
   SmartTracker:
     name: "YOLO-based Smart Tracker"
@@ -277,6 +311,15 @@ tracker_types:
     performance:
       accuracy: "very_high"
       speed: "fast"
+    # UI Configuration for dashboard tracker selector
+    ui_metadata:
+      display_name: "Smart Tracker (YOLO)"
+      short_description: "AI-powered multi-target tracking"
+      icon: "🤖"
+      factory_key: null  # Not created via factory - always-on toggle
+      exclude_from_ui: true  # Excluded - controlled via Smart Mode toggle
+      performance_category: "ai_powered"
+      note: "Controlled via Smart Mode toggle button, not tracker selector"
 
   GimbalTracker:
     name: "Gimbal Angle Tracker"
@@ -294,7 +337,24 @@ tracker_types:
       accuracy: "very_high"  # Direct gimbal data
       speed: "very_fast"     # No image processing
       latency: "minimal"     # UDP direct connection
-      
+    # UI Configuration for dashboard tracker selector
+    ui_metadata:
+      display_name: "Gimbal Tracker"
+      short_description: "External gimbal angle tracker"
+      icon: "📡"
+      factory_key: "Gimbal"  # Key used in tracker_factory.py create_tracker()
+      exclude_from_ui: false  # Show in UI selector for gimbal users
+      performance_category: "external_data"
+      suitable_for:
+        - "External gimbal system integration"
+        - "Real-time UDP angle data"
+        - "No image processing overhead"
+        - "High-precision gimbal control"
+      recommended_scenarios:
+        - "Integration with external gimbal hardware"
+        - "Camera gimbal angle-based tracking"
+        - "Systems with dedicated gimbal control"
+
   ParticleFilterTracker:
     name: "Particle Filter Tracker"
     description: "Probabilistic particle filter tracking"
@@ -309,6 +369,23 @@ tracker_types:
     performance:
       accuracy: "high"
       speed: "slow"
+    # UI Configuration for dashboard tracker selector
+    ui_metadata:
+      display_name: "Particle Filter"
+      short_description: "Probabilistic multi-hypothesis tracking"
+      icon: "🔬"
+      factory_key: "ParticleFilter"  # Note: Need to add to factory if not exists
+      exclude_from_ui: false  # Show in UI selector
+      performance_category: "slow_very_robust"
+      suitable_for:
+        - "Non-linear motion patterns"
+        - "Uncertainty estimation"
+        - "Complex occlusion scenarios"
+        - "Multiple hypothesis tracking"
+      recommended_scenarios:
+        - "Research and experimental tracking"
+        - "Non-linear target motion"
+        - "Scenarios requiring uncertainty quantification"
 
   DlibTracker:
     name: "dlib Correlation Tracker"
@@ -336,6 +413,23 @@ tracker_types:
       - "Three performance modes: fast (25-30 FPS), balanced (18-25 FPS), robust (12-18 FPS)"
       - "Excellent for aerial tracking of drones and ground objects"
       - "Limited internal parameter tuning, robustness added via PixEagle validation layer"
+    # UI Configuration for dashboard tracker selector
+    ui_metadata:
+      display_name: "dlib Correlation"
+      short_description: "Ultra-fast PSR-based tracker"
+      icon: "🚀"
+      factory_key: "dlib"  # Key used in tracker_factory.py create_tracker()
+      exclude_from_ui: false  # Show in UI selector
+      performance_category: "ultra_fast"
+      suitable_for:
+        - "Ultra-fast tracking (25-50 FPS)"
+        - "Speed-critical applications"
+        - "Low CPU overhead"
+        - "Fast-moving aerial targets"
+      recommended_scenarios:
+        - "Drone-to-drone high-speed tracking"
+        - "Resource-constrained systems"
+        - "Real-time performance requirements"
 
 # Schema compatibility matrix
 compatibility:

@@ -19,6 +19,7 @@ import ActionButtons from '../components/ActionButtons';
 import BoundingBoxDrawer from '../components/BoundingBoxDrawer';
 import FollowerStatusCard from '../components/FollowerStatusCard';
 import TrackerStatusCard from '../components/TrackerStatusCard';
+import TrackerSelector from '../components/TrackerSelector';
 import FollowerQuickControl from '../components/FollowerQuickControl';
 import StreamingStats from '../components/StreamingStats';
 import CircuitBreakerStatusCard from '../components/CircuitBreakerStatusCard';
@@ -406,32 +407,37 @@ const DashboardPage = () => {
           {/* TERTIARY: Quick Controls & Stats Row - Bottom */}
           <Grid item xs={12}>
             <Grid container spacing={2} sx={{ minHeight: 150 }}>
-              <Grid item xs={12} sm={6} md={4}>
+              <Grid item xs={12} sm={6} md={3}>
                 <Box sx={{ height: '100%' }}>
                   <StreamingStats />
                 </Box>
               </Grid>
-              <Grid item xs={12} sm={6} md={4}>
+              <Grid item xs={12} sm={6} md={3}>
                 <Box sx={{ height: '100%' }}>
                   <FollowerQuickControl />
                 </Box>
               </Grid>
-              <Grid item xs={12} sm={6} md={4}>
+              <Grid item xs={12} sm={6} md={3}>
+                <Box sx={{ height: '100%' }}>
+                  <TrackerSelector />
+                </Box>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
                 <Card sx={{ height: '100%' }}>
                   <CardContent>
                     <Typography variant="h6" gutterBottom>
                       System Navigation
                     </Typography>
                     <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                      <Button 
-                        variant="outlined" 
+                      <Button
+                        variant="outlined"
                         onClick={() => window.location.href = '/tracker'}
                         startIcon={<TrackChanges />}
                         size="small"
                       >
                         Tracker
                       </Button>
-                      <Button 
+                      <Button
                         variant="outlined"
                         onClick={() => window.location.href = '/follower'}
                         startIcon={<FlightTakeoff />}
@@ -439,7 +445,7 @@ const DashboardPage = () => {
                       >
                         Follower
                       </Button>
-                      <Button 
+                      <Button
                         variant="outlined"
                         onClick={() => window.location.href = '/live-feed'}
                         startIcon={<LiveTv />}

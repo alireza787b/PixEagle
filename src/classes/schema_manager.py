@@ -124,14 +124,99 @@ class SchemaManager:
     def get_tracker_info(self, tracker_name: str) -> Optional[Dict[str, Any]]:
         """
         Get information about a specific tracker type.
-        
+
         Args:
             tracker_name (str): Name of the tracker
-            
+
         Returns:
             Optional[Dict[str, Any]]: Tracker information or None
         """
         return self.tracker_types.get(tracker_name)
+
+    def get_available_classic_trackers(self) -> Dict[str, Any]:
+        """
+        Get all UI-selectable classic trackers (excludes SmartTracker and always-on trackers).
+
+        Returns:
+            Dict[str, Any]: Dictionary of classic trackers with their metadata
+        """
+        classic_trackers = {}
+
+        for tracker_name, tracker_info in self.tracker_types.items():
+            ui_metadata = tracker_info.get('ui_metadata', {})
+
+            # Only include trackers that are not excluded from UI
+            if not ui_metadata.get('exclude_from_ui', False):
+                # Include if factory_key exists (can be instantiated)
+                if ui_metadata.get('factory_key'):
+                    classic_trackers[tracker_name] = {
+                        'name': tracker_info.get('name', tracker_name),
+                        'description': tracker_info.get('description', ''),
+                        'ui_metadata': ui_metadata,
+                        'supported_schemas': tracker_info.get('supported_schemas', []),
+                        'capabilities': tracker_info.get('capabilities', []),
+                        'performance': tracker_info.get('performance', {})
+                    }
+
+        return classic_trackers
+
+    def get_tracker_ui_metadata(self, tracker_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get UI-specific metadata for a tracker.
+
+        Args:
+            tracker_name (str): Name of the tracker
+
+        Returns:
+            Optional[Dict[str, Any]]: UI metadata or None
+        """
+        tracker_info = self.get_tracker_info(tracker_name)
+        if tracker_info:
+            return tracker_info.get('ui_metadata', {})
+        return None
+
+    def get_tracker_by_factory_key(self, factory_key: str) -> Optional[str]:
+        """
+        Get tracker name by its factory key.
+
+        Args:
+            factory_key (str): Factory key used in tracker_factory.py
+
+        Returns:
+            Optional[str]: Tracker name or None
+        """
+        for tracker_name, tracker_info in self.tracker_types.items():
+            ui_metadata = tracker_info.get('ui_metadata', {})
+            if ui_metadata.get('factory_key') == factory_key:
+                return tracker_name
+        return None
+
+    def validate_tracker_for_ui(self, tracker_name: str) -> Tuple[bool, str]:
+        """
+        Validate if a tracker can be used via UI selection.
+
+        Args:
+            tracker_name (str): Name of the tracker to validate
+
+        Returns:
+            Tuple[bool, str]: (is_valid, error_message)
+        """
+        tracker_info = self.get_tracker_info(tracker_name)
+
+        if not tracker_info:
+            return False, f"Unknown tracker: {tracker_name}"
+
+        ui_metadata = tracker_info.get('ui_metadata', {})
+
+        if ui_metadata.get('exclude_from_ui', False):
+            note = ui_metadata.get('note', 'This tracker is not selectable via UI')
+            return False, note
+
+        factory_key = ui_metadata.get('factory_key')
+        if not factory_key:
+            return False, "Tracker has no factory key - cannot be instantiated"
+
+        return True, ""
     
     def validate_tracker_output(self, data_type: str, data: Dict[str, Any], 
                               tracking_active: bool = True) -> Tuple[bool, List[str]]:

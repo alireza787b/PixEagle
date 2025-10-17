@@ -266,6 +266,11 @@ class FastAPIHandler:
         self.app.get("/api/follower/setpoints-status")(self.get_follower_setpoints_with_status)
         self.app.post("/api/follower/switch-profile")(self.switch_follower_profile)
 
+        # Tracker Selector API (mirroring follower API pattern)
+        self.app.get("/api/tracker/available")(self.get_available_trackers)
+        self.app.get("/api/tracker/current")(self.get_current_tracker)
+        self.app.post("/api/tracker/switch")(self.switch_tracker)
+
         # Circuit breaker API endpoints
         self.app.get("/api/circuit-breaker/status")(self.get_circuit_breaker_status)
         self.app.post("/api/circuit-breaker/toggle")(self.toggle_circuit_breaker)
@@ -1066,6 +1071,175 @@ class FastAPIHandler:
                 
         except Exception as e:
             self.logger.error(f"Error getting configured follower mode: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # ==================== Tracker Selector API Endpoints ====================
+
+    async def get_available_trackers(self):
+        """
+        Endpoint to get available UI-selectable classic trackers.
+        Mirrors get_follower_profiles() pattern.
+
+        Returns:
+            dict: Available classic trackers with detailed metadata from schema.
+        """
+        try:
+            from classes.schema_manager import get_schema_manager
+            schema_manager = get_schema_manager()
+
+            # Get UI-selectable classic trackers from schema
+            classic_trackers = schema_manager.get_available_classic_trackers()
+
+            # Get current configured tracker type
+            current_tracker_type = getattr(self.app_controller, 'current_tracker_type',
+                                          Parameters.DEFAULT_TRACKING_ALGORITHM)
+
+            # Check if tracking is active
+            tracking_active = (
+                hasattr(self.app_controller, 'tracking_started') and
+                self.app_controller.tracking_started
+            )
+
+            return JSONResponse(content={
+                'available_trackers': classic_trackers,
+                'current_configured': current_tracker_type,
+                'tracking_active': tracking_active,
+                'smart_mode_active': getattr(self.app_controller, 'smart_mode_active', False),
+                'total_trackers': len(classic_trackers),
+                'timestamp': time.time()
+            })
+
+        except Exception as e:
+            self.logger.error(f"Error getting available trackers: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_current_tracker(self):
+        """
+        Endpoint to get current tracker information and status.
+        Mirrors get_current_follower_profile() pattern.
+
+        Returns:
+            dict: Current tracker details, status, and metadata.
+        """
+        try:
+            from classes.schema_manager import get_schema_manager
+            schema_manager = get_schema_manager()
+
+            # Get current configured tracker type
+            current_tracker_type = getattr(self.app_controller, 'current_tracker_type',
+                                          Parameters.DEFAULT_TRACKING_ALGORITHM)
+
+            # Check if tracker is actively tracking
+            tracking_active = (
+                hasattr(self.app_controller, 'tracking_started') and
+                self.app_controller.tracking_started
+            )
+
+            # Get tracker info from schema
+            tracker_info = schema_manager.get_tracker_info(current_tracker_type)
+
+            if tracker_info:
+                ui_metadata = tracker_info.get('ui_metadata', {})
+                tracker_details = {
+                    'status': 'tracking' if tracking_active else 'configured',
+                    'active': tracking_active,
+                    'tracker_type': current_tracker_type,
+                    'display_name': ui_metadata.get('display_name', current_tracker_type),
+                    'description': tracker_info.get('description', ''),
+                    'short_description': ui_metadata.get('short_description', ''),
+                    'icon': ui_metadata.get('icon', '🎯'),
+                    'performance_category': ui_metadata.get('performance_category', 'unknown'),
+                    'supported_schemas': tracker_info.get('supported_schemas', []),
+                    'capabilities': tracker_info.get('capabilities', []),
+                    'performance': tracker_info.get('performance', {}),
+                    'suitable_for': ui_metadata.get('suitable_for', []),
+                    'message': 'Tracker actively tracking target' if tracking_active else 'Tracker configured. Start tracking to activate.'
+                }
+            else:
+                # Fallback for unknown tracker
+                tracker_details = {
+                    'status': 'unknown',
+                    'active': tracking_active,
+                    'tracker_type': current_tracker_type,
+                    'display_name': current_tracker_type,
+                    'description': 'Unknown tracker type',
+                    'error': f'Tracker type "{current_tracker_type}" not found in schema'
+                }
+
+            # Add smart mode status
+            tracker_details['smart_mode_active'] = getattr(self.app_controller, 'smart_mode_active', False)
+            tracker_details['following_active'] = getattr(self.app_controller, 'following_active', False)
+            tracker_details['timestamp'] = time.time()
+
+            return JSONResponse(content=tracker_details)
+
+        except Exception as e:
+            self.logger.error(f"Error getting current tracker: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def switch_tracker(self, request: Request):
+        """
+        Endpoint to switch tracker type dynamically.
+        Mirrors switch_follower_profile() pattern.
+
+        Args:
+            request: Should contain {'tracker_type': 'new_tracker_name'}
+
+        Returns:
+            dict: Switch operation result with status and messages.
+        """
+        try:
+            data = await request.json()
+            new_tracker_type = data.get('tracker_type')
+
+            if not new_tracker_type:
+                raise HTTPException(status_code=400, detail="tracker_type is required")
+
+            # Validate tracker exists and is UI-selectable using schema manager
+            from classes.schema_manager import get_schema_manager
+            schema_manager = get_schema_manager()
+
+            is_valid, error_msg = schema_manager.validate_tracker_for_ui(new_tracker_type)
+            if not is_valid:
+                raise HTTPException(status_code=400, detail=error_msg)
+
+            # Get old tracker type for logging
+            old_tracker_type = getattr(self.app_controller, 'current_tracker_type',
+                                      Parameters.DEFAULT_TRACKING_ALGORITHM)
+
+            # Call app_controller's switch_tracker_type method
+            result = await self.app_controller.switch_tracker_type(new_tracker_type)
+
+            if result['success']:
+                self.logger.info(f"Tracker switched via API: {old_tracker_type} → {new_tracker_type}")
+
+                return JSONResponse(content={
+                    'status': 'success',
+                    'action': 'tracker_switched',
+                    'old_tracker': old_tracker_type,
+                    'new_tracker': new_tracker_type,
+                    'message': result.get('message', f'Tracker switched to {new_tracker_type}'),
+                    'requires_restart': result.get('requires_restart', False),
+                    'details': result
+                })
+            else:
+                # Switch failed - return error
+                error_detail = result.get('error', 'Unknown error during tracker switch')
+                self.logger.error(f"Tracker switch failed: {error_detail}")
+
+                return JSONResponse(content={
+                    'status': 'error',
+                    'action': 'switch_failed',
+                    'old_tracker': old_tracker_type,
+                    'requested_tracker': new_tracker_type,
+                    'error': error_detail,
+                    'details': result
+                }, status_code=500)
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error switching tracker: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     # ==================== Enhanced Tracker Schema API Endpoints ====================

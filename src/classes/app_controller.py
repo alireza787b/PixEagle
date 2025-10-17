@@ -898,6 +898,175 @@ class AppController:
             
         return result
 
+    async def switch_tracker_type(self, new_tracker_type: str) -> Dict[str, Any]:
+        """
+        Switch to a different classic tracker type dynamically.
+
+        This method provides a clean, user-friendly way to change trackers from the UI
+        without editing configuration files. It handles all necessary cleanup and
+        initialization to ensure a smooth transition.
+
+        Args:
+            new_tracker_type (str): The tracker type name (e.g., "CSRTTracker", "DlibTracker")
+
+        Returns:
+            Dict[str, Any]: Result dictionary with keys:
+                - success (bool): Whether the switch was successful
+                - old_tracker (str): Previous tracker type
+                - new_tracker (str): New tracker type
+                - was_tracking (bool): Whether tracking was active before switch
+                - message (str): Human-readable status message
+                - requires_restart (bool): Whether user needs to restart tracking manually
+                - error (str, optional): Error message if switch failed
+
+        Example:
+            >>> result = await app_controller.switch_tracker_type("DlibTracker")
+            >>> if result['success']:
+            ...     print(f"Switched to {result['new_tracker']}")
+        """
+        from classes.schema_manager import get_schema_manager
+
+        try:
+            schema_manager = get_schema_manager()
+
+            # 1. Validate new tracker exists and is UI-selectable
+            is_valid, error_msg = schema_manager.validate_tracker_for_ui(new_tracker_type)
+            if not is_valid:
+                logging.warning(f"Invalid tracker selection: {new_tracker_type} - {error_msg}")
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "old_tracker": self.current_tracker_type,
+                    "new_tracker": new_tracker_type
+                }
+
+            # 2. Get factory key for creating new tracker
+            tracker_info = schema_manager.get_tracker_info(new_tracker_type)
+            factory_key = tracker_info.get('ui_metadata', {}).get('factory_key')
+
+            if not factory_key:
+                error_msg = f"Tracker {new_tracker_type} has no factory key"
+                logging.error(error_msg)
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "old_tracker": self.current_tracker_type,
+                    "new_tracker": new_tracker_type
+                }
+
+            # 3. Check if following is active (block switch for safety)
+            if self.following_active:
+                error_msg = "Cannot switch tracker while following is active. Please disconnect PX4 first."
+                logging.warning(error_msg)
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "old_tracker": self.current_tracker_type,
+                    "new_tracker": new_tracker_type,
+                    "requires_disconnect": True
+                }
+
+            # 4. Record current state
+            was_tracking = self.tracking_started
+            old_tracker_type = self.current_tracker_type
+            old_tracker_class = self.tracker.__class__.__name__ if self.tracker else "None"
+
+            logging.info(f"TRACKER SWITCH: Changing from {old_tracker_type} → {new_tracker_type}")
+            logging.info(f"  Previous tracker: {old_tracker_class}")
+            logging.info(f"  Tracking was active: {was_tracking}")
+
+            # 5. Stop tracking and cleanup current tracker
+            if was_tracking:
+                logging.info("  Stopping active tracking...")
+                self.cancel_activities()
+
+            # 6. Destroy old tracker instance
+            if self.tracker:
+                logging.info(f"  Cleaning up old tracker: {self.tracker.__class__.__name__}")
+                try:
+                    if hasattr(self.tracker, 'stop_tracking'):
+                        self.tracker.stop_tracking()
+                    if hasattr(self.tracker, 'reset'):
+                        self.tracker.reset()
+                except Exception as e:
+                    logging.warning(f"  Error during tracker cleanup: {e}")
+                finally:
+                    self.tracker = None
+
+            # 7. Create new tracker instance
+            try:
+                logging.info(f"  Creating new tracker: {factory_key}")
+                self.tracker = create_tracker(
+                    factory_key,
+                    self.video_handler,
+                    self.detector,
+                    self
+                )
+
+                # 8. Update application state
+                self.current_tracker_type = new_tracker_type
+                Parameters.DEFAULT_TRACKING_ALGORITHM = factory_key
+
+                logging.info(f"✅ TRACKER SWITCH SUCCESSFUL")
+                logging.info(f"  New tracker: {self.tracker.__class__.__name__}")
+                logging.info(f"  Factory key: {factory_key}")
+
+                # 9. Determine user action message
+                if was_tracking:
+                    message = f"Switched to {tracker_info.get('ui_metadata', {}).get('display_name', new_tracker_type)}. Please select a new ROI to resume tracking."
+                    requires_restart = True
+                else:
+                    message = f"Switched to {tracker_info.get('ui_metadata', {}).get('display_name', new_tracker_type)}. Ready for tracking."
+                    requires_restart = False
+
+                return {
+                    "success": True,
+                    "old_tracker": old_tracker_type,
+                    "new_tracker": new_tracker_type,
+                    "new_tracker_display_name": tracker_info.get('ui_metadata', {}).get('display_name', new_tracker_type),
+                    "factory_key": factory_key,
+                    "was_tracking": was_tracking,
+                    "requires_restart": requires_restart,
+                    "message": message
+                }
+
+            except Exception as e:
+                error_msg = f"Failed to create new tracker: {str(e)}"
+                logging.error(f"❌ TRACKER SWITCH FAILED: {error_msg}")
+
+                # Try to restore old tracker if possible
+                logging.warning("  Attempting to restore previous tracker...")
+                try:
+                    old_factory_key = schema_manager.get_tracker_info(old_tracker_type).get('ui_metadata', {}).get('factory_key')
+                    if old_factory_key:
+                        self.tracker = create_tracker(
+                            old_factory_key,
+                            self.video_handler,
+                            self.detector,
+                            self
+                        )
+                        logging.info("  ✓ Previous tracker restored")
+                except Exception as restore_error:
+                    logging.error(f"  ✗ Failed to restore previous tracker: {restore_error}")
+
+                return {
+                    "success": False,
+                    "error": error_msg,
+                    "old_tracker": old_tracker_type,
+                    "new_tracker": new_tracker_type,
+                    "was_tracking": was_tracking
+                }
+
+        except Exception as e:
+            error_msg = f"Unexpected error during tracker switch: {str(e)}"
+            logging.error(f"❌ TRACKER SWITCH EXCEPTION: {error_msg}")
+            return {
+                "success": False,
+                "error": error_msg,
+                "old_tracker": getattr(self, 'current_tracker_type', 'Unknown'),
+                "new_tracker": new_tracker_type
+            }
+
     async def follow_target(self):
         """
         Enhanced target following with flexible tracker schema and proper async command dispatch.
