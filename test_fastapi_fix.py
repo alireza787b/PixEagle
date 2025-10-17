@@ -32,3 +32,4 @@ if __name__ == "__main__":
     success = test_fastapi_handler_init()
     sys.exit(0 if success else 1)
 
+
