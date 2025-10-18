@@ -212,6 +212,11 @@ generate_dashboard_env
 echo -e "\n🎉 Initialization complete."
 echo -e "🚀 You can now start using PixEagle. Happy flying!\n"
 
+echo -e "📦 Optional: dlib Tracker Installation"
+echo -e "👉 For fast correlation filter tracking (25-30 FPS), install dlib:"
+echo -e "   ${GREEN}bash scripts/install_dlib.sh${NC}"
+echo -e "   (Auto-detects system and handles installation)\n"
+
 echo -e "📢 Note:"
 echo -e "👉 You might need to install Node.js and npm if they are not already installed."
 echo -e "   Using 'apt install' may install an outdated version."

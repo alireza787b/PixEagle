@@ -167,13 +167,61 @@ bash init_pixeagle.sh
 
 This script will:
 
-- Create a Python virtual environment  
-- Install all required Python packages  
-- Generate `config.yaml` and `.env` files if missing  
-- Download the required `mavsdk_server_bin` if not present  
-- Provide guidance for installing Node.js if not already installed  
+- Create a Python virtual environment
+- Install all required Python packages
+- Generate `config.yaml` and `.env` files if missing
+- Download the required `mavsdk_server_bin` if not present
+- Provide guidance for installing Node.js if not already installed
 
 > 🧠 **Manual setup available** if preferred — just activate the `venv`, install requirements, and create configs manually.
+
+---
+
+### 📦 Optional: dlib Tracker Installation (Recommended for Performance)
+
+PixEagle supports the **dlib correlation tracker** for fast tracking performance (25-30 FPS) with excellent accuracy.
+
+#### 🐧 Linux (Recommended Method)
+
+**Automated installation with auto-detection:**
+
+```bash
+bash scripts/install_dlib.sh
+```
+
+
+#### 🪟 Windows / Manual Installation
+
+If you're on Windows or prefer manual installation:
+
+```bash
+# Activate virtual environment
+source venv/bin/activate  # Linux/Mac
+# or
+venv\Scripts\activate  # Windows
+
+# Install dlib (requires C++ compiler)
+pip install dlib
+```
+
+> ⚠️ **Windows:** dlib requires Visual Studio C++ compiler or CMake. See [dlib installation docs](http://dlib.net/compile.html) for details.
+
+#### 📝 Manual Requirements Installation
+
+If installing from `requirements.txt` manually, note that dlib is commented out. After running:
+
+```bash
+pip install -r requirements.txt
+```
+
+You'll need to run the dlib installation script separately:
+
+```bash
+bash scripts/install_dlib.sh  # Linux (auto-detects and handles installation)
+# or
+pip install dlib  # Windows/manual
+```
+
 
 ---
 

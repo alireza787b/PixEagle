@@ -398,4 +398,4 @@ const TrackerSelector = memo(() => {
   );
 });
 
-export default TrackerSelector;
+export default TracerSelector;
