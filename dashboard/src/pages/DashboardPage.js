@@ -130,6 +130,8 @@ const DashboardPage = () => {
   const [streamingProtocol, setStreamingProtocol] = useState('websocket');
   const [smartModeActive, setSmartModeActive] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState('info');
   const [followerData, setFollowerData] = useState({});
   const [circuitBreakerActive, setCircuitBreakerActive] = useState(undefined);
 
@@ -210,6 +212,33 @@ const DashboardPage = () => {
       const data = await response.json();
       console.log(`Response from ${endpoint}:`, data);
 
+      // Check if auto-stop happened when starting follower
+      if (endpoint === endpoints.startOffboardMode && data.details?.auto_stopped) {
+        setSnackbarMessage('Follower was active - automatically restarted');
+        setSnackbarSeverity('info');
+        setSnackbarOpen(true);
+      }
+
+      // Show success feedback for follower operations
+      if (endpoint === endpoints.startOffboardMode && data.status === 'success') {
+        if (!data.details?.auto_stopped) {
+          setSnackbarMessage('Follower started successfully');
+          setSnackbarSeverity('success');
+          setSnackbarOpen(true);
+        }
+      } else if (endpoint === endpoints.stopOffboardMode && data.status === 'success') {
+        setSnackbarMessage('Follower stopped successfully');
+        setSnackbarSeverity('success');
+        setSnackbarOpen(true);
+      }
+
+      // Show error feedback if operation failed
+      if (data.status === 'failure') {
+        setSnackbarMessage(`Operation failed: ${data.error || 'Unknown error'}`);
+        setSnackbarSeverity('error');
+        setSnackbarOpen(true);
+      }
+
       if (endpoint === endpoints.quit) {
         window.location.reload();
       }
@@ -219,7 +248,9 @@ const DashboardPage = () => {
       }
     } catch (error) {
       console.error(`Error from ${endpoint}:`, error);
-      alert(`Operation failed for endpoint ${endpoint}. Check console for details.`);
+      setSnackbarMessage(`Operation failed. Check console for details.`);
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
     }
   };
 
@@ -229,10 +260,16 @@ const DashboardPage = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
-      setSmartModeActive((prev) => !prev);
+      const newMode = !smartModeActive;
+      setSmartModeActive(newMode);
+      setSnackbarMessage(`Switched to ${newMode ? 'Smart Tracker (YOLO)' : 'Classic Tracker (CSRT)'}`);
+      setSnackbarSeverity('info');
       setSnackbarOpen(true);
     } catch (err) {
       console.error('Failed to toggle smart mode:', err);
+      setSnackbarMessage('Failed to toggle smart mode');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
     }
   };
 
@@ -469,10 +506,10 @@ const DashboardPage = () => {
         onClose={handleSnackbarClose}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
-        <Alert onClose={handleSnackbarClose} severity="info" sx={{ width: '100%' }}>
+        <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: '100%' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography variant="body2">
-              Switched to {smartModeActive ? 'Smart Tracker (YOLO)' : 'Classic Tracker (CSRT)'}
+              {snackbarMessage || `Switched to ${smartModeActive ? 'Smart Tracker (YOLO)' : 'Classic Tracker (CSRT)'}`}
             </Typography>
           </Box>
         </Alert>

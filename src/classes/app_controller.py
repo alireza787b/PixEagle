@@ -127,6 +127,10 @@ class AppController:
         self.follower = None
         self.setpoint_sender = None
 
+        # Thread safety lock for follower state management
+        # Prevents race conditions when multiple API calls modify follower state
+        self._follower_state_lock = asyncio.Lock()
+
         # Initialize telemetry handler with tracker and follower
         self.telemetry_handler = TelemetryHandler(self, lambda: self.tracking_started)
 
@@ -717,47 +721,68 @@ class AppController:
     async def connect_px4(self) -> Dict[str, any]:
         """
         Enhanced PX4 connection with unified command protocol support.
+        Automatically stops existing follower if active before starting a new one.
+
+        Returns:
+            Dict with status information including steps taken and any errors
         """
-        result = {"steps": [], "errors": []}
-        if not self.following_active:
+        result = {"steps": [], "errors": [], "auto_stopped": False}
+
+        # Use lock to prevent race conditions during state changes
+        async with self._follower_state_lock:
+            # Auto-stop if follower is already active (user-friendly feature)
+            if self.following_active:
+                logging.info("Follower already active - automatically stopping before restart...")
+                result["steps"].append("Auto-stopping active follower for restart")
+                result["auto_stopped"] = True
+
+                # Call internal stop without acquiring lock again
+                stop_result = await self._disconnect_px4_internal()
+                result["steps"].extend([f"[Auto-stop] {step}" for step in stop_result["steps"]])
+
+                if stop_result["errors"]:
+                    result["errors"].extend([f"[Auto-stop] {err}" for err in stop_result["errors"]])
+                    logging.warning("Auto-stop encountered errors, but continuing with start...")
+
+            # Now proceed with starting follower
             try:
                 logging.info("Activating Follow Mode to PX4!")
-                
+
                 # Connect to PX4
                 await self.px4_interface.connect()
                 logging.info("Connected to PX4 Drone!")
-                
+
                 # Determine initial target coordinates
                 initial_target_coords = (
                     tuple(self.tracker.normalized_center)
                     if Parameters.TARGET_POSITION_MODE == 'initial'
                     else tuple(Parameters.DESIRE_AIM)
                 )
-                
+
                 # Create follower using enhanced factory
                 try:
                     self.follower = Follower(self.px4_interface, initial_target_coords)
-                    
+
                     # Update telemetry handler
                     self.telemetry_handler.follower = self.follower
-                    
+
                     # Log follower information
                     logging.info(f"Follower initialized: {self.follower.get_display_name()}")
                     logging.info(f"Control type: {self.follower.get_control_type()}")
                     logging.info(f"Available fields: {self.follower.get_available_fields()}")
-                    
+
                     # Validate follower configuration
                     if not self.follower.validate_current_mode():
                         logging.warning("Follower mode validation failed, but continuing...")
-                    
+
                     result["steps"].append(f"Follower created: {self.follower.get_display_name()}")
-                    
+
                 except Exception as e:
                     error_msg = f"Failed to create follower: {e}"
                     logging.error(error_msg)
                     result["errors"].append(error_msg)
                     raise
-                
+
                 # Set hover throttle for attitude rate control modes
                 try:
                     await self.px4_interface.set_hover_throttle()
@@ -765,7 +790,7 @@ class AppController:
                 except Exception as e:
                     logging.warning(f"Failed to set hover throttle: {e}")
                     # Continue anyway, not critical for velocity modes
-                
+
                 # Send initial setpoint using schema-aware method
                 try:
                     await self.px4_interface.send_initial_setpoint()
@@ -775,7 +800,7 @@ class AppController:
                     logging.error(error_msg)
                     result["errors"].append(error_msg)
                     raise
-                
+
                 # Start offboard mode
                 try:
                     await self.px4_interface.start_offboard_mode()
@@ -785,15 +810,15 @@ class AppController:
                     logging.error(error_msg)
                     result["errors"].append(error_msg)
                     raise
-                
+
                 # Create and start enhanced setpoint sender
                 try:
                     from classes.setpoint_sender import SetpointSender
                     self.setpoint_sender = SetpointSender(
-                        self.px4_interface, 
+                        self.px4_interface,
                         self.follower.follower.setpoint_handler
                     )
-                    
+
                     # Validate configuration before starting
                     if self.setpoint_sender.validate_configuration():
                         self.setpoint_sender.start()
@@ -803,100 +828,119 @@ class AppController:
                         error_msg = "SetpointSender configuration validation failed"
                         logging.error(error_msg)
                         result["errors"].append(error_msg)
-                        
+
                 except Exception as e:
                     error_msg = f"Failed to start setpoint sender: {e}"
                     logging.error(error_msg)
                     result["errors"].append(error_msg)
                     # Continue without setpoint sender if needed
-                
+
                 # Mark as active
                 self.following_active = True
-                
+
                 # Log final status
                 logging.info("Follow mode activation completed successfully!")
                 if hasattr(self.follower, 'get_status_report'):
                     logging.debug(self.follower.get_status_report())
-                    
+
             except Exception as e:
                 error_msg = f"Failed to connect/start offboard mode: {e}"
                 logging.error(error_msg)
                 result["errors"].append(error_msg)
-                
-                # Cleanup on failure
+
+                # Cleanup on failure - call internal method to avoid deadlock
                 try:
                     if hasattr(self, 'setpoint_sender') and self.setpoint_sender:
                         self.setpoint_sender.stop()
+                        self.setpoint_sender = None
                     await self.px4_interface.stop_offboard_mode()
-                except:
-                    pass  # Best effort cleanup
-                    
-        else:
-            result["steps"].append("Follow mode already active.")
-            
+                    if hasattr(self, 'follower') and self.follower:
+                        self.follower = None
+                    self.following_active = False
+                except Exception as cleanup_error:
+                    logging.error(f"Error during cleanup: {cleanup_error}")
+
+        return result
+
+    async def _disconnect_px4_internal(self) -> Dict[str, any]:
+        """
+        Internal method for PX4 disconnection without acquiring lock.
+        Used by connect_px4 for auto-stop functionality to avoid deadlock.
+
+        Returns:
+            Dict with status information
+        """
+        result = {"steps": [], "errors": []}
+
+        if not self.following_active:
+            result["steps"].append("Follow mode is not active.")
+            return result
+
+        try:
+            logging.info("Deactivating Follow Mode...")
+
+            # Stop setpoint sender first
+            if hasattr(self, 'setpoint_sender') and self.setpoint_sender:
+                try:
+                    # Get status before stopping
+                    sender_status = self.setpoint_sender.get_status()
+                    logging.debug(f"SetpointSender status before stop: {sender_status}")
+
+                    self.setpoint_sender.stop()
+                    result["steps"].append("Enhanced setpoint sender stopped")
+                    logging.info("SetpointSender stopped successfully")
+                except Exception as e:
+                    error_msg = f"Error stopping setpoint sender: {e}"
+                    logging.error(error_msg)
+                    result["errors"].append(error_msg)
+                finally:
+                    self.setpoint_sender = None
+
+            # Stop offboard mode
+            try:
+                await self.px4_interface.stop_offboard_mode()
+                result["steps"].append("Offboard mode stopped")
+            except Exception as e:
+                error_msg = f"Failed to stop offboard mode: {e}"
+                logging.error(error_msg)
+                result["errors"].append(error_msg)
+
+            # Reset follower
+            if hasattr(self, 'follower') and self.follower:
+                try:
+                    # Log final follower status
+                    if hasattr(self.follower, 'get_status_report'):
+                        logging.debug("Final follower status:")
+                        logging.debug(self.follower.get_status_report())
+
+                    self.follower = None
+                    result["steps"].append("Follower instance cleaned up")
+                except Exception as e:
+                    logging.warning(f"Error during follower cleanup: {e}")
+
+            # Mark as inactive
+            self.following_active = False
+
+            logging.info("Follow mode deactivated successfully!")
+
+        except Exception as e:
+            error_msg = f"Error during PX4 disconnection: {e}"
+            logging.error(error_msg)
+            result["errors"].append(error_msg)
+
         return result
 
     async def disconnect_px4(self) -> Dict[str, any]:
         """
         Enhanced PX4 disconnection with proper cleanup of unified protocol components.
+        Thread-safe wrapper that acquires lock before calling internal disconnect.
+
+        Returns:
+            Dict with status information
         """
-        result = {"steps": [], "errors": []}
-        if self.following_active:
-            try:
-                logging.info("Deactivating Follow Mode...")
-                
-                # Stop setpoint sender first
-                if hasattr(self, 'setpoint_sender') and self.setpoint_sender:
-                    try:
-                        # Get status before stopping
-                        sender_status = self.setpoint_sender.get_status()
-                        logging.debug(f"SetpointSender status before stop: {sender_status}")
-                        
-                        self.setpoint_sender.stop()
-                        result["steps"].append("Enhanced setpoint sender stopped")
-                        logging.info("SetpointSender stopped successfully")
-                    except Exception as e:
-                        error_msg = f"Error stopping setpoint sender: {e}"
-                        logging.error(error_msg)
-                        result["errors"].append(error_msg)
-                    finally:
-                        self.setpoint_sender = None
-                
-                # Stop offboard mode
-                try:
-                    await self.px4_interface.stop_offboard_mode()
-                    result["steps"].append("Offboard mode stopped")
-                except Exception as e:
-                    error_msg = f"Failed to stop offboard mode: {e}"
-                    logging.error(error_msg)
-                    result["errors"].append(error_msg)
-                
-                # Reset follower
-                if hasattr(self, 'follower') and self.follower:
-                    try:
-                        # Log final follower status
-                        if hasattr(self.follower, 'get_status_report'):
-                            logging.debug("Final follower status:")
-                            logging.debug(self.follower.get_status_report())
-                        
-                        self.follower = None
-                        result["steps"].append("Follower instance cleaned up")
-                    except Exception as e:
-                        logging.warning(f"Error during follower cleanup: {e}")
-                
-                # Mark as inactive
-                self.following_active = False
-                
-                logging.info("Follow mode deactivated successfully!")
-                
-            except Exception as e:
-                error_msg = f"Error during PX4 disconnection: {e}"
-                logging.error(error_msg)
-                result["errors"].append(error_msg)
-        else:
-            result["steps"].append("Follow mode is not active.")
-            
-        return result
+        # Use lock to prevent race conditions during state changes
+        async with self._follower_state_lock:
+            return await self._disconnect_px4_internal()
 
     async def switch_tracker_type(self, new_tracker_type: str) -> Dict[str, Any]:
         """

@@ -265,6 +265,7 @@ class FastAPIHandler:
         self.app.get("/api/follower/configured-mode")(self.get_configured_follower_mode)
         self.app.get("/api/follower/setpoints-status")(self.get_follower_setpoints_with_status)
         self.app.post("/api/follower/switch-profile")(self.switch_follower_profile)
+        self.app.get("/api/follower/health")(self.get_follower_health)
 
         # Tracker Selector API (mirroring follower API pattern)
         self.app.get("/api/tracker/available")(self.get_available_trackers)
@@ -745,31 +746,288 @@ class FastAPIHandler:
 
     async def start_offboard_mode(self):
         """
-        Endpoint to start the offboard mode for PX4.
+        Robust endpoint to start the offboard mode for PX4.
+
+        Features:
+        - Automatic state validation
+        - Auto-restart if already active
+        - Comprehensive error handling
+        - Detailed operation logging
+        - Thread-safe execution
+
+        This endpoint can be called from:
+        - UI buttons
+        - Direct API calls
+        - External scripts
+        - Automation systems
 
         Returns:
-            dict: Status of the operation and details of the process.
+            dict: Status of the operation with detailed steps and any errors
+                {
+                    "status": "success" | "failure",
+                    "details": {
+                        "steps": [...],
+                        "errors": [...],
+                        "auto_stopped": bool,
+                        "initial_state": str,
+                        "final_state": str,
+                        "execution_time_ms": float
+                    },
+                    "error": str (only if status is "failure")
+                }
         """
+        import time
+        start_time = time.time()
+
         try:
+            # Log initial state for debugging
+            initial_state = "active" if self.app_controller.following_active else "inactive"
+            self.logger.info(f"📥 API: Start offboard mode requested (current state: {initial_state})")
+
+            # Pre-flight validation checks
+            validation_errors = []
+
+            # Check if PX4 interface is initialized
+            if not hasattr(self.app_controller, 'px4_interface'):
+                validation_errors.append("PX4 interface not initialized")
+
+            # Check if tracker is available
+            if not hasattr(self.app_controller, 'tracker'):
+                validation_errors.append("Tracker not initialized")
+
+            # Check if video handler is available
+            if not hasattr(self.app_controller, 'video_handler'):
+                validation_errors.append("Video handler not initialized")
+
+            if validation_errors:
+                error_msg = f"Pre-flight validation failed: {', '.join(validation_errors)}"
+                self.logger.error(f"❌ {error_msg}")
+                return {
+                    "status": "failure",
+                    "error": error_msg,
+                    "details": {
+                        "steps": [],
+                        "errors": validation_errors,
+                        "auto_stopped": False,
+                        "initial_state": initial_state,
+                        "final_state": initial_state
+                    }
+                }
+
+            # Call the controller's connect_px4 method
+            # This method handles:
+            # - Thread-safe state transitions
+            # - Auto-stop if already active
+            # - Follower creation and initialization
+            # - Offboard mode activation
+            # - Error recovery and cleanup
             result = await self.app_controller.connect_px4()
+
+            # Determine final state
+            final_state = "active" if self.app_controller.following_active else "inactive"
+            execution_time_ms = (time.time() - start_time) * 1000
+
+            # Enhance result with additional metadata
+            result["initial_state"] = initial_state
+            result["final_state"] = final_state
+            result["execution_time_ms"] = round(execution_time_ms, 2)
+
+            # Log success with details
+            if result.get("auto_stopped", False):
+                self.logger.info(
+                    f"✅ API: Offboard mode restarted successfully "
+                    f"({initial_state} → {final_state}, {execution_time_ms:.0f}ms)"
+                )
+            else:
+                self.logger.info(
+                    f"✅ API: Offboard mode started successfully "
+                    f"({initial_state} → {final_state}, {execution_time_ms:.0f}ms)"
+                )
+
+            # Log any warnings if errors occurred but operation succeeded
+            if result.get("errors"):
+                self.logger.warning(f"⚠️ Operation succeeded with {len(result['errors'])} warnings")
+
             return {"status": "success", "details": result}
+
         except Exception as e:
-            self.logger.error(f"Error in start_offboard_mode: {e}")
-            return {"status": "failure", "error": str(e)}
+            execution_time_ms = (time.time() - start_time) * 1000
+            error_msg = str(e)
+
+            self.logger.error(f"❌ API: Error in start_offboard_mode: {error_msg}")
+            self.logger.error(f"Exception type: {type(e).__name__}")
+
+            # Log stack trace for debugging
+            import traceback
+            self.logger.debug(f"Stack trace:\n{traceback.format_exc()}")
+
+            # Attempt to determine final state even after error
+            try:
+                final_state = "active" if self.app_controller.following_active else "inactive"
+            except:
+                final_state = "unknown"
+
+            return {
+                "status": "failure",
+                "error": error_msg,
+                "details": {
+                    "steps": [],
+                    "errors": [error_msg],
+                    "auto_stopped": False,
+                    "initial_state": initial_state if 'initial_state' in locals() else "unknown",
+                    "final_state": final_state,
+                    "execution_time_ms": round(execution_time_ms, 2),
+                    "exception_type": type(e).__name__
+                }
+            }
 
     async def stop_offboard_mode(self):
         """
-        Endpoint to stop the offboard mode for PX4.
+        Robust endpoint to stop the offboard mode for PX4.
+
+        Features:
+        - Idempotent operation (safe to call multiple times)
+        - Comprehensive cleanup
+        - Thread-safe execution
+        - Detailed operation logging
+        - Graceful error handling
+
+        This endpoint can be called from:
+        - UI buttons
+        - Direct API calls
+        - External scripts
+        - Automation systems
+        - Emergency shutdown procedures
 
         Returns:
-            dict: Status of the operation and details of the process.
+            dict: Status of the operation with detailed steps and any errors
+                {
+                    "status": "success" | "failure",
+                    "details": {
+                        "steps": [...],
+                        "errors": [...],
+                        "initial_state": str,
+                        "final_state": str,
+                        "execution_time_ms": float,
+                        "was_active": bool
+                    },
+                    "error": str (only if status is "failure")
+                }
         """
+        import time
+        start_time = time.time()
+
         try:
+            # Log initial state
+            initial_state = "active" if self.app_controller.following_active else "inactive"
+            was_active = self.app_controller.following_active
+
+            self.logger.info(f"📥 API: Stop offboard mode requested (current state: {initial_state})")
+
+            # Idempotency check - it's OK to stop when already stopped
+            if not was_active:
+                self.logger.info("ℹ️ API: Follower already inactive, nothing to stop")
+                return {
+                    "status": "success",
+                    "details": {
+                        "steps": ["Follower was already inactive"],
+                        "errors": [],
+                        "initial_state": initial_state,
+                        "final_state": "inactive",
+                        "execution_time_ms": round((time.time() - start_time) * 1000, 2),
+                        "was_active": False
+                    }
+                }
+
+            # Call the controller's disconnect_px4 method
+            # This method handles:
+            # - Thread-safe state transitions
+            # - SetpointSender thread cleanup
+            # - Offboard mode deactivation
+            # - Follower instance cleanup
+            # - State reset
             result = await self.app_controller.disconnect_px4()
+
+            # Determine final state
+            final_state = "active" if self.app_controller.following_active else "inactive"
+            execution_time_ms = (time.time() - start_time) * 1000
+
+            # Enhance result with additional metadata
+            result["initial_state"] = initial_state
+            result["final_state"] = final_state
+            result["execution_time_ms"] = round(execution_time_ms, 2)
+            result["was_active"] = was_active
+
+            # Log success
+            self.logger.info(
+                f"✅ API: Offboard mode stopped successfully "
+                f"({initial_state} → {final_state}, {execution_time_ms:.0f}ms)"
+            )
+
+            # Verify cleanup was successful
+            if self.app_controller.following_active:
+                self.logger.warning(
+                    "⚠️ Warning: following_active flag is still True after disconnect. "
+                    "This may indicate incomplete cleanup."
+                )
+
+            # Log any warnings if errors occurred during cleanup
+            if result.get("errors"):
+                self.logger.warning(
+                    f"⚠️ Disconnect completed with {len(result['errors'])} warnings. "
+                    f"Follower state may need verification."
+                )
+
             return {"status": "success", "details": result}
+
         except Exception as e:
-            self.logger.error(f"Error in stop_offboard_mode: {e}")
-            return {"status": "failure", "error": str(e)}
+            execution_time_ms = (time.time() - start_time) * 1000
+            error_msg = str(e)
+
+            self.logger.error(f"❌ API: Error in stop_offboard_mode: {error_msg}")
+            self.logger.error(f"Exception type: {type(e).__name__}")
+
+            # Log stack trace for debugging
+            import traceback
+            self.logger.debug(f"Stack trace:\n{traceback.format_exc()}")
+
+            # Attempt emergency cleanup even after error
+            try:
+                if hasattr(self.app_controller, 'setpoint_sender') and self.app_controller.setpoint_sender:
+                    self.logger.warning("⚠️ Attempting emergency cleanup of setpoint sender...")
+                    self.app_controller.setpoint_sender.stop()
+                    self.app_controller.setpoint_sender = None
+
+                if hasattr(self.app_controller, 'follower') and self.app_controller.follower:
+                    self.logger.warning("⚠️ Attempting emergency cleanup of follower...")
+                    self.app_controller.follower = None
+
+                # Force state to inactive as last resort
+                self.app_controller.following_active = False
+                self.logger.warning("⚠️ Emergency cleanup completed, state forced to inactive")
+
+            except Exception as cleanup_error:
+                self.logger.error(f"❌ Emergency cleanup failed: {cleanup_error}")
+
+            # Determine final state
+            try:
+                final_state = "active" if self.app_controller.following_active else "inactive"
+            except:
+                final_state = "unknown"
+
+            return {
+                "status": "failure",
+                "error": error_msg,
+                "details": {
+                    "steps": [],
+                    "errors": [error_msg],
+                    "initial_state": initial_state if 'initial_state' in locals() else "unknown",
+                    "final_state": final_state,
+                    "execution_time_ms": round(execution_time_ms, 2),
+                    "was_active": was_active if 'was_active' in locals() else False,
+                    "exception_type": type(e).__name__
+                }
+            }
 
     async def quit(self):
         """
@@ -1044,16 +1302,189 @@ class FastAPIHandler:
             self.logger.error(f"Error switching follower profile: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+    async def get_follower_health(self):
+        """
+        Comprehensive health check endpoint for follower system.
+
+        This endpoint provides detailed health status that can be used for:
+        - Monitoring and alerting
+        - Diagnostics and troubleshooting
+        - State verification after operations
+        - External integrations
+
+        Returns:
+            dict: Detailed health status including:
+                - Overall health status (healthy, degraded, unhealthy)
+                - Component states (follower, threads, connections)
+                - Configuration validation
+                - Performance metrics
+                - Error conditions
+        """
+        import time
+
+        try:
+            health_status = {
+                "timestamp": time.time(),
+                "overall_status": "healthy",
+                "components": {},
+                "metrics": {},
+                "issues": []
+            }
+
+            # Check follower state
+            follower_component = {
+                "active": self.app_controller.following_active,
+                "status": "active" if self.app_controller.following_active else "inactive"
+            }
+
+            if self.app_controller.following_active:
+                # Check follower instance
+                if hasattr(self.app_controller, 'follower') and self.app_controller.follower:
+                    follower = self.app_controller.follower
+                    follower_component["has_instance"] = True
+                    follower_component["type"] = follower.get_display_name() if hasattr(follower, 'get_display_name') else "unknown"
+                    follower_component["control_type"] = follower.get_control_type() if hasattr(follower, 'get_control_type') else "unknown"
+                    follower_component["mode_valid"] = follower.validate_current_mode() if hasattr(follower, 'validate_current_mode') else False
+                else:
+                    follower_component["has_instance"] = False
+                    health_status["issues"].append("Follower marked active but instance is None")
+                    health_status["overall_status"] = "degraded"
+
+                # Check setpoint sender thread
+                if hasattr(self.app_controller, 'setpoint_sender') and self.app_controller.setpoint_sender:
+                    sender = self.app_controller.setpoint_sender
+                    follower_component["setpoint_sender"] = {
+                        "exists": True,
+                        "running": sender.is_alive() if hasattr(sender, 'is_alive') else False
+                    }
+
+                    if hasattr(sender, 'is_alive') and not sender.is_alive():
+                        health_status["issues"].append("SetpointSender thread is not running")
+                        health_status["overall_status"] = "unhealthy"
+                else:
+                    follower_component["setpoint_sender"] = {"exists": False}
+                    health_status["issues"].append("Follower active but SetpointSender is None")
+                    health_status["overall_status"] = "unhealthy"
+            else:
+                follower_component["has_instance"] = bool(hasattr(self.app_controller, 'follower') and self.app_controller.follower)
+                follower_component["setpoint_sender"] = {"exists": bool(hasattr(self.app_controller, 'setpoint_sender') and self.app_controller.setpoint_sender)}
+
+                # Check for cleanup issues
+                if follower_component["has_instance"] or follower_component["setpoint_sender"]["exists"]:
+                    health_status["issues"].append("Follower inactive but resources not cleaned up")
+                    health_status["overall_status"] = "degraded"
+
+            health_status["components"]["follower"] = follower_component
+
+            # Check PX4 interface
+            px4_component = {
+                "initialized": hasattr(self.app_controller, 'px4_interface'),
+                "status": "unknown"
+            }
+
+            if px4_component["initialized"]:
+                px4_interface = self.app_controller.px4_interface
+                # Check if connected (if method exists)
+                if hasattr(px4_interface, 'is_connected'):
+                    px4_component["connected"] = px4_interface.is_connected()
+                    px4_component["status"] = "connected" if px4_component["connected"] else "disconnected"
+                elif hasattr(px4_interface, 'connection'):
+                    px4_component["has_connection"] = px4_interface.connection is not None
+                    px4_component["status"] = "ready" if px4_component["has_connection"] else "not_ready"
+
+            health_status["components"]["px4_interface"] = px4_component
+
+            # Check tracker
+            tracker_component = {
+                "initialized": hasattr(self.app_controller, 'tracker'),
+                "tracking_active": getattr(self.app_controller, 'tracking_started', False)
+            }
+
+            if tracker_component["initialized"]:
+                tracker = self.app_controller.tracker
+                tracker_component["type"] = tracker.__class__.__name__ if tracker else "None"
+
+            health_status["components"]["tracker"] = tracker_component
+
+            # Check state lock
+            lock_component = {
+                "initialized": hasattr(self.app_controller, '_follower_state_lock'),
+                "type": type(self.app_controller._follower_state_lock).__name__ if hasattr(self.app_controller, '_follower_state_lock') else "None"
+            }
+            health_status["components"]["state_lock"] = lock_component
+
+            if not lock_component["initialized"]:
+                health_status["issues"].append("State lock not initialized - thread safety compromised")
+                health_status["overall_status"] = "unhealthy"
+
+            # Configuration validation
+            config_component = {
+                "follower_mode": Parameters.FOLLOWER_MODE,
+                "valid": False
+            }
+
+            try:
+                available_profiles = SetpointHandler.get_available_profiles()
+                config_component["valid"] = Parameters.FOLLOWER_MODE in available_profiles
+                config_component["available_profiles"] = available_profiles
+
+                if not config_component["valid"]:
+                    health_status["issues"].append(f"Invalid follower mode: {Parameters.FOLLOWER_MODE}")
+                    if health_status["overall_status"] == "healthy":
+                        health_status["overall_status"] = "degraded"
+
+            except Exception as e:
+                config_component["error"] = str(e)
+                health_status["issues"].append(f"Configuration validation error: {e}")
+
+            health_status["components"]["configuration"] = config_component
+
+            # Performance metrics
+            metrics = {}
+
+            # Add uptime if tracking
+            if hasattr(self.app_controller, 'following_active') and self.app_controller.following_active:
+                if hasattr(self.app_controller, '_following_start_time'):
+                    uptime = time.time() - self.app_controller._following_start_time
+                    metrics["follower_uptime_seconds"] = round(uptime, 2)
+
+            health_status["metrics"] = metrics
+
+            # Summary
+            health_status["summary"] = {
+                "components_checked": len(health_status["components"]),
+                "issues_found": len(health_status["issues"]),
+                "follower_operational": (
+                    self.app_controller.following_active and
+                    follower_component.get("has_instance", False) and
+                    follower_component.get("setpoint_sender", {}).get("exists", False)
+                ) if self.app_controller.following_active else True  # If inactive, consider operational
+            }
+
+            return JSONResponse(content=health_status)
+
+        except Exception as e:
+            self.logger.error(f"Error in follower health check: {e}")
+            return JSONResponse(
+                content={
+                    "timestamp": time.time(),
+                    "overall_status": "error",
+                    "error": str(e),
+                    "exception_type": type(e).__name__
+                },
+                status_code=500
+            )
+
     async def get_configured_follower_mode(self):
         """
         Endpoint to get the currently configured follower mode from Parameters.
-        
+
         Returns:
             dict: Configured mode information.
         """
         try:
             configured_mode = Parameters.FOLLOWER_MODE
-            
+
             try:
                 profile_config = SetpointHandler.get_profile_info(configured_mode)
                 return JSONResponse(content={
