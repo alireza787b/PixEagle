@@ -355,38 +355,6 @@ tracker_types:
         - "Camera gimbal angle-based tracking"
         - "Systems with dedicated gimbal control"
 
-  ParticleFilterTracker:
-    name: "Particle Filter Tracker"
-    description: "Probabilistic particle filter tracking"
-    supported_schemas:
-      - POSITION_2D
-      - VELOCITY_AWARE
-      - BBOX_CONFIDENCE
-    capabilities:
-      - uncertainty_estimation
-      - non_linear_motion
-      - multiple_hypotheses
-    performance:
-      accuracy: "high"
-      speed: "slow"
-    # UI Configuration for dashboard tracker selector
-    ui_metadata:
-      display_name: "Particle Filter"
-      short_description: "Probabilistic multi-hypothesis tracking"
-      icon: "🔬"
-      factory_key: "ParticleFilter"  # Note: Need to add to factory if not exists
-      exclude_from_ui: false  # Show in UI selector
-      performance_category: "slow_very_robust"
-      suitable_for:
-        - "Non-linear motion patterns"
-        - "Uncertainty estimation"
-        - "Complex occlusion scenarios"
-        - "Multiple hypothesis tracking"
-      recommended_scenarios:
-        - "Research and experimental tracking"
-        - "Non-linear target motion"
-        - "Scenarios requiring uncertainty quantification"
-
   DlibTracker:
     name: "dlib Correlation Tracker"
     description: "Fast correlation filter tracker with PSR confidence scoring (Danelljan et al. 2014 DSST)"
