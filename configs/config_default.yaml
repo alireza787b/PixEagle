@@ -332,7 +332,7 @@ KCF_Tracker:
 # ==============================================================================
 CSRT_Tracker:
   # === User-Friendly Performance Control (MAIN PARAMETER) ===
-  performance_mode: "balanced"           # Choose: "legacy", "balanced", or "robust"
+  performance_mode: "robust"           # Choose: "legacy", "balanced", or "robust"
                                          # ⭐ OPTIMIZED FOR: Aerial drone tracking race cars
 
   # === Advanced Parameters (Research-Optimized for Aerial Tracking) ===
@@ -410,7 +410,7 @@ CSRT_Tracker:
 # ==============================================================================
 DLIB_Tracker:
   # === User-Friendly Performance Control (MAIN PARAMETER) ===
-  performance_mode: "balanced"           # Choose: "fast", "balanced", or "robust"
+  performance_mode: "robust"           # Choose: "fast", "balanced", or "robust"
                                          # ⭐ OPTIMIZED FOR: Aerial drone tracking (race cars & drones)
 
   # === PSR-Based Confidence System (Research-Optimized) ===
