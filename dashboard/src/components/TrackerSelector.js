@@ -82,12 +82,12 @@ const TrackerSelector = memo(() => {
   const [selectedTracker, setSelectedTracker] = useState('');
   const [showDetails, setShowDetails] = useState(false);
 
-  // Update selected tracker when current tracker changes
+  // Update selected tracker when current tracker changes (pre-select current active tracker)
   React.useEffect(() => {
-    if (currentTracker && !selectedTracker) {
+    if (currentTracker && currentTracker.tracker_type) {
       setSelectedTracker(currentTracker.tracker_type);
     }
-  }, [currentTracker, selectedTracker]);
+  }, [currentTracker]);
 
   // Memoized tracker list for dropdown
   const trackerOptions = useMemo(() => {

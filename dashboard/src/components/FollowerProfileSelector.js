@@ -22,11 +22,18 @@ import { useFollowerProfiles, useCurrentFollowerProfile } from '../hooks/useFoll
 const FollowerProfileSelector = () => {
   const { profiles, loading: profilesLoading } = useFollowerProfiles();
   const { currentProfile, switchProfile, loading: currentLoading } = useCurrentFollowerProfile();
-  
+
   const [selectedProfile, setSelectedProfile] = useState('');
   const [switching, setSwitching] = useState(false);
   const [switchResult, setSwitchResult] = useState(null);
   const [confirmDialog, setConfirmDialog] = useState(false);
+
+  // Pre-select current active profile in dropdown
+  React.useEffect(() => {
+    if (currentProfile && currentProfile.mode && !switching) {
+      setSelectedProfile(currentProfile.mode);
+    }
+  }, [currentProfile, switching]);
 
   const handleProfileChange = (event) => {
     setSelectedProfile(event.target.value);
@@ -46,10 +53,8 @@ const FollowerProfileSelector = () => {
     try {
       const result = await switchProfile(selectedProfile);
       setSwitchResult(result);
-      
-      if (result.success) {
-        setSelectedProfile(''); // Reset selection
-      }
+
+      // Don't reset selection - the useEffect will update it to current profile automatically
     } catch (error) {
       setSwitchResult({
         success: false,
@@ -80,7 +85,10 @@ const FollowerProfileSelector = () => {
   return (
     <Box sx={{ mb: 3 }}>
       <Typography variant="h6" gutterBottom>
-        Follower Profile Management
+        Follower Control Profile Selector
+      </Typography>
+      <Typography variant="caption" color="textSecondary" display="block" sx={{ mb: 2 }}>
+        Switch between different control modes (velocity, attitude, position)
       </Typography>
 
       {/* Current Profile Display */}
