@@ -189,6 +189,135 @@ class SmartTracker:
 
         return args
 
+    def switch_model(self, new_model_path: str, device: str = "auto") -> dict:
+        """
+        Hot-swap YOLO model without restarting SmartTracker.
+
+        This method allows dynamic model switching at runtime, useful for:
+        - Switching between different YOLO versions (e.g., yolo11n -> yolov8s)
+        - Changing between GPU (.pt) and CPU (NCNN) models
+        - Switching to custom-trained models with different classes
+
+        Args:
+            new_model_path (str): Path to the new model file (e.g., "yolo/yolo11n.pt" or "yolo/custom_model.pt")
+            device (str): Device preference - "auto" (default), "gpu", or "cpu"
+
+        Returns:
+            dict: {
+                "success": bool,
+                "message": str,
+                "model_info": {
+                    "path": str,
+                    "device": str,
+                    "num_classes": int,
+                    "class_names": dict
+                }
+            }
+        """
+        import torch
+
+        try:
+            logging.info(f"[SmartTracker] Switching model to: {new_model_path} (device={device})")
+
+            # 1. Backup current tracking state
+            backup_state = {
+                "was_tracking": self.selected_object_id is not None,
+                "object_id": self.selected_object_id,
+                "class_id": self.selected_class_id,
+                "bbox": self.selected_bbox,
+                "center": self.selected_center
+            }
+
+            # 2. Clear current tracking state (will attempt restore later if compatible)
+            self.clear_selection()
+
+            # 3. Unload old model and clear GPU cache
+            old_device = str(self.model.device) if hasattr(self.model, 'device') else 'unknown'
+            del self.model
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                logging.info("[SmartTracker] GPU cache cleared")
+
+            # 4. Load new model
+            self.model = YOLO(new_model_path, task="detect")
+
+            # 5. Set device based on preference
+            target_device = "cpu"  # Default to CPU
+
+            if device == "auto":
+                # Auto-detect: use GPU if available and model is .pt file
+                if torch.cuda.is_available() and new_model_path.endswith('.pt'):
+                    self.model.to('cuda')
+                    target_device = "cuda"
+            elif device == "gpu":
+                if not torch.cuda.is_available():
+                    logging.warning("[SmartTracker] GPU requested but not available, using CPU")
+                else:
+                    self.model.to('cuda')
+                    target_device = "cuda"
+            # device == "cpu" remains on CPU (default)
+
+            # 6. Update labels
+            self.labels = self.model.names if hasattr(self.model, 'names') else {}
+            num_classes = len(self.labels)
+
+            # 7. Attempt to restore tracking if classes are compatible
+            restore_info = ""
+            if backup_state["was_tracking"]:
+                # Check if the class ID is valid in the new model
+                if backup_state["class_id"] is not None and backup_state["class_id"] < num_classes:
+                    # Restore tracking state (tracking manager will re-acquire on next frame)
+                    self.selected_object_id = backup_state["object_id"]
+                    self.selected_class_id = backup_state["class_id"]
+                    self.selected_bbox = backup_state["bbox"]
+                    self.selected_center = backup_state["center"]
+
+                    # Reinitialize tracking manager with backed up state
+                    if self.selected_bbox and self.selected_center:
+                        self.tracking_manager.start_tracking(
+                            track_id=self.selected_object_id,
+                            class_id=self.selected_class_id,
+                            bbox=self.selected_bbox,
+                            confidence=0.5,  # Placeholder confidence
+                            center=self.selected_center
+                        )
+
+                    old_class_name = self.labels.get(backup_state["class_id"], "Unknown")
+                    restore_info = f" Tracking restored for class '{old_class_name}'."
+                    logging.info(f"[SmartTracker] Tracking state restored (class {backup_state['class_id']})")
+                else:
+                    restore_info = f" Previous tracking cleared (class ID {backup_state['class_id']} not in new model with {num_classes} classes)."
+                    logging.warning(f"[SmartTracker] Cannot restore tracking - class mismatch")
+
+            # 8. Log success
+            logging.info(f"[SmartTracker] ✅ Model switched successfully!")
+            logging.info(f"[SmartTracker] Device: {old_device} → {str(self.model.device)}")
+            logging.info(f"[SmartTracker] Classes: {num_classes}")
+
+            return {
+                "success": True,
+                "message": f"Model switched successfully to {new_model_path} on {target_device}.{restore_info}",
+                "model_info": {
+                    "path": new_model_path,
+                    "device": str(self.model.device),
+                    "num_classes": num_classes,
+                    "class_names": self.labels,
+                    "tracking_restored": backup_state["was_tracking"] and backup_state["class_id"] < num_classes
+                }
+            }
+
+        except FileNotFoundError:
+            error_msg = f"Model file not found: {new_model_path}"
+            logging.error(f"[SmartTracker] {error_msg}")
+            return {"success": False, "message": error_msg, "model_info": None}
+
+        except Exception as e:
+            error_msg = f"Failed to switch model: {str(e)}"
+            logging.error(f"[SmartTracker] {error_msg}")
+            logging.exception(e)
+            return {"success": False, "message": error_msg, "model_info": None}
+
     def get_yolo_color(self, index):
         """Generate unique color for each object ID using golden ratio."""
         hue = (index * 0.61803398875) % 1.0

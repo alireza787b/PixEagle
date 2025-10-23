@@ -27,6 +27,12 @@ export const endpoints = {
   toggleOsd: `http://${apiHost}:${apiPort}/api/osd/toggle`,
   osdPresets: `http://${apiHost}:${apiPort}/api/osd/presets`,
   loadOsdPreset: (presetName) => `http://${apiHost}:${apiPort}/api/osd/preset/${presetName}`,
+
+  // YOLO Model Management endpoints
+  yoloModels: `http://${apiHost}:${apiPort}/api/yolo/models`,
+  yoloSwitchModel: `http://${apiHost}:${apiPort}/api/yolo/switch-model`,
+  yoloUpload: `http://${apiHost}:${apiPort}/api/yolo/upload`,
+  yoloDelete: (modelId) => `http://${apiHost}:${apiPort}/api/yolo/delete/${modelId}`,
 };
 
 export const videoFeed = `http://${apiHost}:${apiPort}/video_feed`;

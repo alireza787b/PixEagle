@@ -100,9 +100,12 @@ OSD:
 
 #### 📦 Easy YOLO Model Management
 
-- New `add_yolo_model.py` utility to:
+- **Web Dashboard UI**: Upload, switch, and manage YOLO models via intuitive web interface
+- **Hot-Swap Models**: Change models in real-time without restarting SmartTracker
+- **CLI Utility** (`add_yolo_model.py`):
   - Download YOLO models from Ultralytics
-  - Auto-convert and register them for GPU/CPU usage
+  - Auto-convert to NCNN for CPU optimization
+  - Support for custom-trained models
 
 #### 🏗️ Schema-Aware Architecture (New)
 
@@ -255,7 +258,29 @@ pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https
 
 ### 🧰 YOLO Model Setup (For Smart Tracker)
 
-PixEagle 3.0 includes `add_yolo_model.py`, a utility to download and prepare YOLO models for use in the Smart Tracker (GPU or CPU compatible).
+PixEagle provides **two ways** to manage YOLO models for Smart Tracker:
+
+#### 🌐 **Option 1: Web Dashboard (Recommended)**
+
+The easiest way to manage YOLO models is through the **web dashboard**:
+
+1. Navigate to the **Dashboard** page
+2. Find the **YOLO Model Selector** card (in the bottom row)
+3. **Upload** new models (.pt files) via the upload button
+4. **Switch** between models in real-time (no restart required!)
+5. **Delete** models you no longer need
+
+**Features:**
+- ✅ Drag-and-drop model upload
+- ✅ Automatic NCNN export for CPU optimization
+- ✅ Hot-swap models without restarting SmartTracker
+- ✅ Custom model detection (shows "Custom" badge)
+- ✅ Device selection (Auto/GPU/CPU)
+- ✅ Real-time model switching
+
+#### 💻 **Option 2: CLI Tool**
+
+For advanced users or automation, use the `add_yolo_model.py` CLI utility:
 
 ```bash
 source venv/bin/activate
@@ -265,11 +290,26 @@ python add_yolo_model.py
 This will:
 
 - Download a model (e.g. `yolo11s.pt`) from Ultralytics
-- Export to ONNX
-- Optionally optimize for GPU inference
-- Register the model in `configs/config.yaml`
+- Export to NCNN format for CPU optimization
+- Validate model integrity
+- Detect custom-trained models
 
-> 💡 Supports custom or fine-tuned YOLO models too!
+**Examples:**
+```bash
+# Interactive mode
+python add_yolo_model.py
+
+# Direct mode with model name
+python add_yolo_model.py --model_name yolo11n.pt
+
+# Skip NCNN export (GPU-only usage)
+python add_yolo_model.py --model_name yolov8s.pt --skip_export
+
+# Custom download URL
+python add_yolo_model.py --model_name custom_model.pt --download_url https://example.com/model.pt
+```
+
+> 💡 **Supports custom-trained YOLO models!** The system automatically detects custom models by analyzing class names and counts.
 
 ---
 

@@ -20,6 +20,7 @@ from classes.webrtc_manager import WebRTCManager
 from classes.setpoint_handler import SetpointHandler
 from classes.follower import FollowerFactory
 from classes.tracker_output import TrackerOutput, TrackerDataType
+from classes.yolo_model_manager import YOLOModelManager
 
 # Import circuit breaker with error handling
 try:
@@ -157,7 +158,10 @@ class FastAPIHandler:
         
         # WebRTC Manager
         self.webrtc_manager = WebRTCManager(self.video_handler)
-        
+
+        # YOLO Model Manager
+        self.yolo_model_manager = YOLOModelManager()
+
         # FastAPI app
         self.app = FastAPI(title="PixEagle API", version="2.0")
         self._setup_middleware()
@@ -271,6 +275,12 @@ class FastAPIHandler:
         self.app.get("/api/tracker/available")(self.get_available_trackers)
         self.app.get("/api/tracker/current")(self.get_current_tracker)
         self.app.post("/api/tracker/switch")(self.switch_tracker)
+
+        # YOLO Model Management API
+        self.app.get("/api/yolo/models")(self.get_yolo_models)
+        self.app.post("/api/yolo/switch-model")(self.switch_yolo_model)
+        self.app.post("/api/yolo/upload")(self.upload_yolo_model)
+        self.app.post("/api/yolo/delete/{model_id}")(self.delete_yolo_model)
 
         # Circuit breaker API endpoints
         self.app.get("/api/circuit-breaker/status")(self.get_circuit_breaker_status)
@@ -1671,6 +1681,233 @@ class FastAPIHandler:
             raise
         except Exception as e:
             self.logger.error(f"Error switching tracker: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # ==================== YOLO Model Management API Endpoints ====================
+
+    async def get_yolo_models(self):
+        """
+        Get list of available YOLO models in yolo/ folder.
+
+        Returns:
+            JSONResponse: {
+                "models": {
+                    "model_id": {
+                        "name": "YOLO11n",
+                        "path": "yolo/yolo11n.pt",
+                        "type": "gpu",
+                        "num_classes": 80,
+                        "is_custom": false,
+                        "has_ncnn": true,
+                        ...
+                    }
+                },
+                "current_model": "yolo11n.pt" (if SmartTracker is active)
+            }
+        """
+        try:
+            # Discover models using YOLOModelManager
+            models = self.yolo_model_manager.discover_models(force_rescan=False)
+
+            # Get current model if SmartTracker is active
+            current_model = None
+            if (hasattr(self.app_controller, 'smart_tracker') and
+                self.app_controller.smart_tracker is not None):
+                smart_tracker = self.app_controller.smart_tracker
+                if hasattr(smart_tracker, 'model'):
+                    # Try to extract current model path
+                    try:
+                        model_file = getattr(smart_tracker.model, 'ckpt_path', None)
+                        if model_file:
+                            from pathlib import Path
+                            current_model = Path(model_file).name
+                    except Exception as e:
+                        self.logger.debug(f"Could not determine current model: {e}")
+
+            return JSONResponse(content={
+                'status': 'success',
+                'models': models,
+                'current_model': current_model,
+                'total_count': len(models)
+            })
+
+        except Exception as e:
+            self.logger.error(f"Error getting YOLO models: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def switch_yolo_model(self, request: Request):
+        """
+        Switch YOLO model in SmartTracker without restart.
+
+        Args:
+            request: Should contain {
+                'model_path': 'yolo/yolo11n.pt',
+                'device': 'auto' | 'gpu' | 'cpu'  (optional, default='auto')
+            }
+
+        Returns:
+            JSONResponse: Switch operation result
+        """
+        try:
+            data = await request.json()
+            model_path = data.get('model_path')
+            device = data.get('device', 'auto')
+
+            if not model_path:
+                raise HTTPException(status_code=400, detail="model_path is required")
+
+            # Validate device parameter
+            if device not in ['auto', 'gpu', 'cpu']:
+                raise HTTPException(status_code=400, detail="device must be 'auto', 'gpu', or 'cpu'")
+
+            # Check if SmartTracker is available
+            if not hasattr(self.app_controller, 'smart_tracker') or self.app_controller.smart_tracker is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="SmartTracker is not initialized. Enable Smart Mode first."
+                )
+
+            # Validate model file exists
+            from pathlib import Path
+            full_path = Path(model_path)
+            if not full_path.exists():
+                raise HTTPException(status_code=404, detail=f"Model file not found: {model_path}")
+
+            # Call SmartTracker's switch_model method
+            smart_tracker = self.app_controller.smart_tracker
+            result = smart_tracker.switch_model(str(full_path), device=device)
+
+            if result['success']:
+                self.logger.info(f"YOLO model switched via API: {model_path} (device={device})")
+
+                return JSONResponse(content={
+                    'status': 'success',
+                    'action': 'model_switched',
+                    'model_path': model_path,
+                    'device': device,
+                    'message': result['message'],
+                    'model_info': result.get('model_info')
+                })
+            else:
+                # Switch failed
+                error_msg = result.get('message', 'Unknown error during model switch')
+                self.logger.error(f"YOLO model switch failed: {error_msg}")
+
+                return JSONResponse(content={
+                    'status': 'error',
+                    'action': 'switch_failed',
+                    'requested_model': model_path,
+                    'error': error_msg
+                }, status_code=500)
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error switching YOLO model: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def upload_yolo_model(self, request: Request):
+        """
+        Upload a new YOLO model file (.pt).
+
+        Args:
+            request: Multipart form with file field
+
+        Returns:
+            JSONResponse: Upload result with model metadata
+        """
+        try:
+            from fastapi import UploadFile, File, Form
+            import io
+
+            # Parse multipart form data
+            form = await request.form()
+            file = form.get('file')
+
+            if not file or not hasattr(file, 'filename'):
+                raise HTTPException(status_code=400, detail="No file provided")
+
+            filename = file.filename
+            if not filename.endswith('.pt'):
+                raise HTTPException(status_code=400, detail="Only .pt files are allowed")
+
+            # Read file data
+            file_data = await file.read()
+
+            # Auto-export NCNN by default (can be made configurable)
+            auto_export = form.get('auto_export_ncnn', 'true').lower() == 'true'
+
+            # Upload via YOLOModelManager
+            result = await self.yolo_model_manager.upload_model(
+                file_data=file_data,
+                filename=filename,
+                auto_export_ncnn=auto_export
+            )
+
+            if result['success']:
+                self.logger.info(f"YOLO model uploaded via API: {filename}")
+
+                return JSONResponse(content={
+                    'status': 'success',
+                    'action': 'model_uploaded',
+                    'filename': filename,
+                    'message': result.get('message', 'Model uploaded successfully'),
+                    'model_info': result.get('model_info'),
+                    'ncnn_exported': result.get('ncnn_exported', False)
+                })
+            else:
+                error_msg = result.get('error', 'Unknown error during upload')
+                self.logger.error(f"YOLO model upload failed: {error_msg}")
+
+                return JSONResponse(content={
+                    'status': 'error',
+                    'action': 'upload_failed',
+                    'filename': filename,
+                    'error': error_msg
+                }, status_code=500)
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error uploading YOLO model: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def delete_yolo_model(self, model_id: str):
+        """
+        Delete a YOLO model file.
+
+        Args:
+            model_id: Model identifier (filename without extension or full filename)
+
+        Returns:
+            JSONResponse: Deletion result
+        """
+        try:
+            # Delete via YOLOModelManager
+            result = self.yolo_model_manager.delete_model(model_id, delete_ncnn=True)
+
+            if result['success']:
+                self.logger.info(f"YOLO model deleted via API: {model_id}")
+
+                return JSONResponse(content={
+                    'status': 'success',
+                    'action': 'model_deleted',
+                    'model_id': model_id,
+                    'message': result.get('message', 'Model deleted successfully')
+                })
+            else:
+                error_msg = result.get('error', 'Unknown error during deletion')
+                self.logger.error(f"YOLO model deletion failed: {error_msg}")
+
+                return JSONResponse(content={
+                    'status': 'error',
+                    'action': 'deletion_failed',
+                    'model_id': model_id,
+                    'error': error_msg
+                }, status_code=404 if 'not found' in error_msg.lower() else 500)
+
+        except Exception as e:
+            self.logger.error(f"Error deleting YOLO model: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     # ==================== Enhanced Tracker Schema API Endpoints ====================

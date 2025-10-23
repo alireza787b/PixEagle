@@ -20,6 +20,7 @@ import BoundingBoxDrawer from '../components/BoundingBoxDrawer';
 import FollowerStatusCard from '../components/FollowerStatusCard';
 import TrackerStatusCard from '../components/TrackerStatusCard';
 import TrackerSelector from '../components/TrackerSelector';
+import YOLOModelSelector from '../components/YOLOModelSelector';
 import FollowerQuickControl from '../components/FollowerQuickControl';
 import StreamingStats from '../components/StreamingStats';
 import CircuitBreakerStatusCard from '../components/CircuitBreakerStatusCard';
@@ -460,41 +461,48 @@ const DashboardPage = () => {
                 </Box>
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
-                <Card sx={{ height: '100%' }}>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
-                      System Navigation
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                      <Button
-                        variant="outlined"
-                        onClick={() => window.location.href = '/tracker'}
-                        startIcon={<TrackChanges />}
-                        size="small"
-                      >
-                        Tracker
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        onClick={() => window.location.href = '/follower'}
-                        startIcon={<FlightTakeoff />}
-                        size="small"
-                      >
-                        Follower
-                      </Button>
-                      <Button
-                        variant="outlined"
-                        onClick={() => window.location.href = '/live-feed'}
-                        startIcon={<LiveTv />}
-                        size="small"
-                      >
-                        Live Feed
-                      </Button>
-                    </Box>
-                  </CardContent>
-                </Card>
+                <Box sx={{ height: '100%' }}>
+                  <YOLOModelSelector />
+                </Box>
               </Grid>
             </Grid>
+          </Grid>
+
+          {/* QUATERNARY: System Navigation Row */}
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  System Navigation
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                  <Button
+                    variant="outlined"
+                    onClick={() => window.location.href = '/tracker'}
+                    startIcon={<TrackChanges />}
+                    size="small"
+                  >
+                    Tracker
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    onClick={() => window.location.href = '/follower'}
+                    startIcon={<FlightTakeoff />}
+                    size="small"
+                  >
+                    Follower
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    onClick={() => window.location.href = '/live-feed'}
+                    startIcon={<LiveTv />}
+                    size="small"
+                  >
+                    Live Feed
+                  </Button>
+                </Box>
+              </CardContent>
+            </Card>
           </Grid>
         </Grid>
       )}
