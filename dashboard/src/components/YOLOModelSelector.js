@@ -43,16 +43,11 @@ import {
   DialogContent,
   DialogActions,
   LinearProgress,
-  FormControlLabel,
-  Radio,
-  RadioGroup
+  FormControlLabel
 } from '@mui/material';
 import {
-  Memory,
   SwapHoriz,
   CheckCircle,
-  Warning,
-  Info,
   CloudUpload,
   Delete,
   Speed,
@@ -100,18 +95,25 @@ const YOLOModelSelector = memo(() => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [autoExportNcnn, setAutoExportNcnn] = useState(true);
 
-  // Update selected model when current model changes
+  // Update selected model when current model changes (always sync with active model)
   React.useEffect(() => {
-    if (currentModel && !selectedModel && models) {
+    if (currentModel && models) {
       // Find the model_id that matches the current model filename
       const currentModelEntry = Object.entries(models).find(
         ([, modelData]) => modelData.path?.endsWith(currentModel)
       );
       if (currentModelEntry) {
-        setSelectedModel(currentModelEntry[0]);
+        // Only update if different to avoid unnecessary re-renders
+        const currentModelId = currentModelEntry[0];
+        if (selectedModel !== currentModelId) {
+          setSelectedModel(currentModelId);
+        }
       }
+    } else if (!currentModel && selectedModel) {
+      // Clear selection if no current model
+      setSelectedModel('');
     }
-  }, [currentModel, selectedModel, models]);
+  }, [currentModel, models, selectedModel]);
 
   // Memoized model list for dropdown
   const modelOptions = useMemo(() => {
@@ -255,18 +257,11 @@ const YOLOModelSelector = memo(() => {
             <Typography variant="h6">
               YOLO Model Selector
             </Typography>
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Tooltip title="Upload new model">
-                <IconButton size="small" onClick={() => setUploadDialogOpen(true)}>
-                  <CloudUpload />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Manage YOLO models">
-                <IconButton size="small">
-                  <Memory />
-                </IconButton>
-              </Tooltip>
-            </Box>
+            <Tooltip title="Upload new model">
+              <IconButton size="small" onClick={() => setUploadDialogOpen(true)}>
+                <CloudUpload />
+              </IconButton>
+            </Tooltip>
           </Box>
 
           {/* Current Model Status */}
