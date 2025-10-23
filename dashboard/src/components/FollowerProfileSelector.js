@@ -29,11 +29,15 @@ const FollowerProfileSelector = () => {
   const [confirmDialog, setConfirmDialog] = useState(false);
 
   // Pre-select current active profile in dropdown
+  // Always keep dropdown in sync with configured/active profile
   React.useEffect(() => {
     if (currentProfile && currentProfile.mode && !switching) {
-      setSelectedProfile(currentProfile.mode);
+      // Only update if different to avoid unnecessary re-renders
+      if (selectedProfile !== currentProfile.mode) {
+        setSelectedProfile(currentProfile.mode);
+      }
     }
-  }, [currentProfile, switching]);
+  }, [currentProfile, switching, selectedProfile]);
 
   const handleProfileChange = (event) => {
     setSelectedProfile(event.target.value);

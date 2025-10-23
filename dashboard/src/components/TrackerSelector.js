@@ -45,9 +45,7 @@ import {
   ExpandMore,
   ExpandLess,
   Info,
-  Speed,
-  Visibility,
-  FlightTakeoff
+  Speed
 } from '@mui/icons-material';
 import {
   useAvailableTrackers,
@@ -72,6 +70,42 @@ const LoadingSkeleton = () => (
   </Card>
 );
 
+/**
+ * Utility function to find matching tracker key from available trackers.
+ * Handles various naming conventions (exact, case-insensitive, with/without suffix, prefix matching).
+ *
+ * @param {string} trackerType - The tracker type to match (e.g., "dlib", "CSRT")
+ * @param {string[]} availableKeys - Array of available tracker keys (e.g., ["DlibTracker", "CSRTTracker"])
+ * @returns {string|null} - Matching key or null if not found
+ */
+const findMatchingTrackerKey = (trackerType, availableKeys) => {
+  if (!trackerType || !availableKeys || availableKeys.length === 0) {
+    return null;
+  }
+
+  const normalizedType = trackerType.toLowerCase();
+
+  // Strategy 1: Exact match
+  if (availableKeys.includes(trackerType)) {
+    return trackerType;
+  }
+
+  // Strategy 2: Case-insensitive exact match
+  let match = availableKeys.find(key => key.toLowerCase() === normalizedType);
+  if (match) return match;
+
+  // Strategy 3: Match with "Tracker" suffix (e.g., "dlib" -> "DlibTracker")
+  match = availableKeys.find(key => key.toLowerCase() === `${normalizedType}tracker`);
+  if (match) return match;
+
+  // Strategy 4: Key starts with tracker type (e.g., "csrt" -> "CSRTTracker", "kcf" -> "KCFKalmanTracker")
+  match = availableKeys.find(key => key.toLowerCase().startsWith(normalizedType));
+  if (match) return match;
+
+  // No match found
+  return null;
+};
+
 const TrackerSelector = memo(() => {
   // Custom hooks for tracker data
   const { trackers, loading: loadingTrackers, error: trackersError } = useAvailableTrackers();
@@ -83,11 +117,24 @@ const TrackerSelector = memo(() => {
   const [showDetails, setShowDetails] = useState(false);
 
   // Update selected tracker when current tracker changes (pre-select current active tracker)
+  // Always keep dropdown in sync with configured/active tracker
   React.useEffect(() => {
-    if (currentTracker && currentTracker.tracker_type) {
-      setSelectedTracker(currentTracker.tracker_type);
+    if (currentTracker && currentTracker.tracker_type && trackers?.available_trackers) {
+      const trackerType = currentTracker.tracker_type;
+      const availableKeys = Object.keys(trackers.available_trackers);
+
+      const matchingKey = findMatchingTrackerKey(trackerType, availableKeys);
+
+      if (matchingKey) {
+        setSelectedTracker(matchingKey);
+      } else {
+        console.warn(
+          `TrackerSelector: Current tracker "${trackerType}" not found in available trackers.`,
+          'Available:', availableKeys
+        );
+      }
     }
-  }, [currentTracker]);
+  }, [currentTracker, trackers]);
 
   // Memoized tracker list for dropdown
   const trackerOptions = useMemo(() => {
@@ -184,7 +231,7 @@ const TrackerSelector = memo(() => {
       <Card>
         <CardContent>
           <Typography variant="h6" gutterBottom>
-            Tracker Selector
+            Classic Tracker
           </Typography>
           <Alert severity="error" size="small">
             {trackersError || currentError || 'Failed to load tracker data'}
@@ -202,9 +249,9 @@ const TrackerSelector = memo(() => {
         {/* Header */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="h6">
-            Tracker Selector
+            Classic Tracker
           </Typography>
-          <Tooltip title="Select different tracking algorithm">
+          <Tooltip title="Select tracking algorithm">
             <IconButton size="small">
               <TrackChanges />
             </IconButton>
@@ -225,7 +272,7 @@ const TrackerSelector = memo(() => {
               color="primary"
               size="small"
             />
-            {currentTrackerInfo.performanceCategory && (
+            {currentTrackerInfo.performanceCategory && currentTrackerInfo.performanceCategory !== 'unknown' && (
               <Chip
                 label={currentTrackerInfo.performanceCategory.replace(/_/g, ' ')}
                 size="small"
@@ -241,12 +288,12 @@ const TrackerSelector = memo(() => {
 
         {/* Tracker Selection Dropdown */}
         <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-          <InputLabel id="tracker-select-label">Select Tracker</InputLabel>
+          <InputLabel id="tracker-select-label">Tracker Algorithm</InputLabel>
           <Select
             labelId="tracker-select-label"
             value={selectedTracker}
             onChange={handleTrackerChange}
-            label="Select Tracker"
+            label="Tracker Algorithm"
             disabled={switching || loadingTrackers}
           >
             {trackerOptions.map((option) => (
@@ -385,14 +432,14 @@ const TrackerSelector = memo(() => {
           </>
         )}
 
-        {/* Status Message */}
-        {currentTracker?.message && !currentTracker.active && (
-          <Alert severity="info" size="small" sx={{ mt: 2 }}>
-            <Typography variant="caption">
-              {currentTracker.message}
-            </Typography>
-          </Alert>
-        )}
+        {/* Info Message */}
+        <Alert severity="info" size="small" sx={{ mt: 2 }}>
+          <Typography variant="caption">
+            {currentTrackerInfo?.isTracking
+              ? "Tracker is actively tracking. Switch to change algorithm instantly."
+              : "Configured tracker will be used when tracking starts. Switch trackers anytime."}
+          </Typography>
+        </Alert>
       </CardContent>
     </Card>
   );

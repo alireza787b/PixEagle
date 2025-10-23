@@ -51,6 +51,7 @@ import {
   CloudUpload,
   Delete,
   Speed,
+  Memory,
   Autorenew,
   Star,
   CloudDownload
@@ -81,7 +82,7 @@ const LoadingSkeleton = () => (
 
 const YOLOModelSelector = memo(() => {
   // Custom hooks for YOLO model management
-  const { models, currentModel, loading: loadingModels, error: modelsError, refetch } = useYOLOModels();
+  const { models, currentModel, configuredModel, loading: loadingModels, error: modelsError, refetch } = useYOLOModels();
   const { switchModel, switching, switchError } = useSwitchYOLOModel();
   const { uploadModel, uploading, uploadError, uploadProgress, resetUpload } = useUploadYOLOModel();
   const { deleteModel, deleting, deleteError } = useDeleteYOLOModel();
@@ -95,25 +96,31 @@ const YOLOModelSelector = memo(() => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [autoExportNcnn, setAutoExportNcnn] = useState(true);
 
-  // Update selected model when current model changes (always sync with active model)
+  // Update selected model when current/configured model changes
+  // Priority: currentModel (if SmartTracker active) > configuredModel (from config.yaml) > empty
   React.useEffect(() => {
-    if (currentModel && models) {
-      // Find the model_id that matches the current model filename
-      const currentModelEntry = Object.entries(models).find(
-        ([, modelData]) => modelData.path?.endsWith(currentModel)
+    if (!models) return;
+
+    // Use currentModel if SmartTracker is active, otherwise use configuredModel
+    const modelToSelect = currentModel || configuredModel;
+
+    if (modelToSelect) {
+      // Find the model_id that matches the model filename
+      const modelEntry = Object.entries(models).find(
+        ([, modelData]) => modelData.path?.endsWith(modelToSelect)
       );
-      if (currentModelEntry) {
+      if (modelEntry) {
         // Only update if different to avoid unnecessary re-renders
-        const currentModelId = currentModelEntry[0];
-        if (selectedModel !== currentModelId) {
-          setSelectedModel(currentModelId);
+        const modelId = modelEntry[0];
+        if (selectedModel !== modelId) {
+          setSelectedModel(modelId);
         }
       }
-    } else if (!currentModel && selectedModel) {
-      // Clear selection if no current model
+    } else if (!modelToSelect && selectedModel) {
+      // Clear selection if no model is configured
       setSelectedModel('');
     }
-  }, [currentModel, models, selectedModel]);
+  }, [currentModel, configuredModel, models, selectedModel]);
 
   // Memoized model list for dropdown
   const modelOptions = useMemo(() => {
@@ -264,22 +271,22 @@ const YOLOModelSelector = memo(() => {
             </Tooltip>
           </Box>
 
-          {/* Current Model Status */}
-          {currentModel && (
+          {/* Model Status - Show Active or Configured */}
+          {(currentModel || configuredModel) && (
             <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
               <Chip
-                label="Active"
-                color="success"
+                label={currentModel ? "Active" : "Configured"}
+                color={currentModel ? "success" : "default"}
                 size="small"
                 icon={<CheckCircle />}
               />
               <Chip
-                label={currentModel}
+                label={currentModel || configuredModel}
                 color="primary"
                 size="small"
                 icon={<Star />}
               />
-              {models && Object.values(models).find(m => m.path?.endsWith(currentModel))?.is_custom && (
+              {models && Object.values(models).find(m => m.path?.endsWith(currentModel || configuredModel))?.is_custom && (
                 <Chip
                   label="Custom Model"
                   size="small"
@@ -400,7 +407,9 @@ const YOLOModelSelector = memo(() => {
           {/* Info Message */}
           <Alert severity="info" size="small">
             <Typography variant="caption">
-              Models are loaded from yolo/ folder. Upload .pt files or use add_yolo_model.py CLI.
+              {currentModel
+                ? "SmartTracker is running with the active model. Switch to change instantly."
+                : "Configured model will be used when Smart Mode is enabled. Upload .pt files or switch models anytime."}
             </Typography>
           </Alert>
         </CardContent>

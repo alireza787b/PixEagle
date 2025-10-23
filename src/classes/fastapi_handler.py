@@ -1706,6 +1706,8 @@ class FastAPIHandler:
             }
         """
         try:
+            from pathlib import Path
+
             # Discover models using YOLOModelManager
             models = self.yolo_model_manager.discover_models(force_rescan=False)
 
@@ -1719,15 +1721,31 @@ class FastAPIHandler:
                     try:
                         model_file = getattr(smart_tracker.model, 'ckpt_path', None)
                         if model_file:
-                            from pathlib import Path
                             current_model = Path(model_file).name
                     except Exception as e:
                         self.logger.debug(f"Could not determine current model: {e}")
 
+            # If SmartTracker is not active, get configured model from config
+            configured_model = None
+            try:
+                from classes.parameters import Parameters
+                # Get GPU model path from config (primary) or CPU model as fallback
+                use_gpu = Parameters.SmartTracker.get('SMART_TRACKER_USE_GPU', True)
+                if use_gpu:
+                    model_path = Parameters.SmartTracker.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo11n.pt')
+                else:
+                    model_path = Parameters.SmartTracker.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo11n_ncnn_model')
+
+                # Extract just the filename
+                configured_model = Path(model_path).name
+            except Exception as e:
+                self.logger.debug(f"Could not determine configured model: {e}")
+
             return JSONResponse(content={
                 'status': 'success',
                 'models': models,
-                'current_model': current_model,
+                'current_model': current_model,  # Currently active model (if SmartTracker is running)
+                'configured_model': configured_model,  # Configured model from config.yaml
                 'total_count': len(models)
             })
 

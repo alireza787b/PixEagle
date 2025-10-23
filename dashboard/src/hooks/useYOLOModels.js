@@ -24,11 +24,12 @@ const API_URL = `http://${process.env.REACT_APP_API_HOST}:${process.env.REACT_AP
 /**
  * Hook to fetch available YOLO models
  * @param {number} refreshInterval - Polling interval in milliseconds (default: 10000)
- * @returns {Object} { models, currentModel, loading, error, refetch }
+ * @returns {Object} { models, currentModel, configuredModel, loading, error, refetch }
  */
 export const useYOLOModels = (refreshInterval = 10000) => {
   const [models, setModels] = useState(null);
   const [currentModel, setCurrentModel] = useState(null);
+  const [configuredModel, setConfiguredModel] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const lastSuccessfulData = useRef(null);
@@ -42,6 +43,7 @@ export const useYOLOModels = (refreshInterval = 10000) => {
       if (dataString !== JSON.stringify(lastSuccessfulData.current)) {
         setModels(response.data.models || {});
         setCurrentModel(response.data.current_model || null);
+        setConfiguredModel(response.data.configured_model || null);
         lastSuccessfulData.current = response.data;
       }
 
@@ -55,6 +57,7 @@ export const useYOLOModels = (refreshInterval = 10000) => {
       if (lastSuccessfulData.current) {
         setModels(lastSuccessfulData.current.models || {});
         setCurrentModel(lastSuccessfulData.current.current_model || null);
+        setConfiguredModel(lastSuccessfulData.current.configured_model || null);
       }
 
       setLoading(false);
@@ -72,11 +75,12 @@ export const useYOLOModels = (refreshInterval = 10000) => {
     () => ({
       models,
       currentModel,
+      configuredModel,
       loading,
       error,
       refetch: fetchModels
     }),
-    [models, currentModel, loading, error, fetchModels]
+    [models, currentModel, configuredModel, loading, error, fetchModels]
   );
 };
 

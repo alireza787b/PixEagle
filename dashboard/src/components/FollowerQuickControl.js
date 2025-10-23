@@ -23,6 +23,13 @@ const FollowerQuickControl = () => {
   const [selectedProfile, setSelectedProfile] = useState('');
   const [switchResult, setSwitchResult] = useState(null);
 
+  // Pre-select current active profile in dropdown (always keep in sync)
+  React.useEffect(() => {
+    if (currentProfile && currentProfile.mode) {
+      setSelectedProfile(currentProfile.mode);
+    }
+  }, [currentProfile]);
+
   const handleQuickSwitch = async () => {
     if (!selectedProfile) return;
 
@@ -57,8 +64,9 @@ const FollowerQuickControl = () => {
     );
   }
 
+  // Include ALL available profiles (don't filter out current one)
   const availableProfiles = Object.entries(profiles).filter(
-    ([key, profile]) => profile.implementation_available && currentProfile?.mode !== key
+    ([key, profile]) => profile.implementation_available
   );
 
   const getProfileIcon = (controlType) => {
@@ -76,24 +84,29 @@ const FollowerQuickControl = () => {
     <Card>
       <CardContent>
         <Typography variant="h6" gutterBottom>
-          Quick Profile {switchAction}
+          Follower Profile
         </Typography>
 
-        {/* Current Profile */}
+        {/* Current Profile Status */}
         {currentProfile && (
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="caption" color="textSecondary">
-              Current {isEngaged ? '(Active)' : '(Configured)'}:
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-              {getStatusIcon(currentProfile.status)}
-              {getProfileIcon(currentProfile.control_type)}
-              <Chip 
-                label={currentProfile.display_name || 'Unknown'}
-                color={isEngaged ? 'success' : 'warning'}
-                size="small"
-              />
-            </Box>
+          <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+            <Chip
+              label={isEngaged ? "Active" : "Configured"}
+              color={isEngaged ? "success" : "default"}
+              size="small"
+              icon={getStatusIcon(currentProfile.status)}
+            />
+            <Chip
+              label={currentProfile.display_name || 'Unknown'}
+              color="primary"
+              size="small"
+              icon={getProfileIcon(currentProfile.control_type)}
+            />
+            <Chip
+              label={currentProfile.control_type}
+              size="small"
+              variant="outlined"
+            />
           </Box>
         )}
 
@@ -103,12 +116,8 @@ const FollowerQuickControl = () => {
             <Select
               value={selectedProfile}
               onChange={(e) => setSelectedProfile(e.target.value)}
-              displayEmpty
               disabled={isTransitioning || availableProfiles.length === 0}
             >
-              <MenuItem value="" disabled>
-                <em>{switchAction} to...</em>
-              </MenuItem>
               {availableProfiles.map(([key, profile]) => (
                 <MenuItem key={key} value={key}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -148,9 +157,9 @@ const FollowerQuickControl = () => {
 
         {/* Help Text */}
         <Typography variant="caption" color="textSecondary">
-          {isEngaged 
-            ? `${availableProfiles.length} profile${availableProfiles.length !== 1 ? 's' : ''} available for switching`
-            : `Configure profile for when offboard mode starts. ${availableProfiles.length} option${availableProfiles.length !== 1 ? 's' : ''} available.`
+          {isEngaged
+            ? `Follower is active with current profile. Switch to change control mode instantly.`
+            : `Configured profile will be used when offboard mode starts. ${availableProfiles.length} profile${availableProfiles.length !== 1 ? 's' : ''} available.`
           }
         </Typography>
       </CardContent>
