@@ -34,6 +34,7 @@ class FollowerFactory:
             from classes.followers.chase_follower import ChaseFollower
             from classes.followers.body_velocity_chase_follower import BodyVelocityChaseFollower
             from classes.followers.gimbal_follower import GimbalFollower
+            from classes.followers.gimbal_vector_body_follower import GimbalVectorBodyFollower
 
             # Register followers with their schema profile names
             cls._follower_registry = {
@@ -42,7 +43,8 @@ class FollowerFactory:
                 'constant_position': ConstantPositionFollower,
                 'chase_follower': ChaseFollower,
                 'body_velocity_chase': BodyVelocityChaseFollower,
-                'gimbal_unified': GimbalFollower
+                'gimbal_unified': GimbalFollower,
+                'gimbal_vector_body': GimbalVectorBodyFollower
             }
             
             cls._registry_initialized = True

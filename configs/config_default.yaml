@@ -938,9 +938,6 @@ GimbalFollower:
   SAFETY_RETURN_SPEED: 3.0                # Velocity when returning to safe altitude (m/s)
   EMERGENCY_STOP_ENABLED: true            # Enable emergency velocity zeroing
 
-  # === Circuit Breaker Safety Override ===
-  CIRCUIT_BREAKER_DISABLE_SAFETY: true    # Disable safety checks when circuit breaker is active (testing mode)
-
   # === Coordinate Transformation ===
   ANGLE_DEADZONE: 2.0                     # Ignore gimbal movements below this (degrees)
   TRANSFORMATION_VALIDATION: true         # Validate coordinate transformations
@@ -967,6 +964,71 @@ GimbalFollower:
   UPDATE_RATE: 20.0                       # Control loop frequency (Hz)
   COMMAND_SMOOTHING_ENABLED: true         # Enable velocity command smoothing
   SMOOTHING_FACTOR: 0.8                   # Smoothing coefficient (0-1)
+
+# ==============================================================================
+# GIMBAL VECTOR BODY FOLLOWER CONFIGURATION
+# ==============================================================================
+# Direct vector pursuit using gimbal angles transformed to body-frame velocity
+# No PID tuning required - deterministic geometric control
+GIMBAL_VECTOR_BODY:
+  # === Mount Configuration ===
+  # Defines how the gimbal is physically mounted relative to the drone body frame
+  # VERTICAL: Camera points down when gimbal is level (neutral pitch=90°)
+  #           Common for inspection drones, mapping, surveillance
+  # HORIZONTAL: Camera points forward when gimbal is level (neutral pitch=0°)
+  #             Common for racing drones, standard FPV setups
+  # TILTED_45: Camera angled 45° down (FPV racing style)
+  MOUNT_TYPE: "HORIZONTAL"                  # Options: "VERTICAL", "HORIZONTAL", "TILTED_45"
+
+  # === Velocity Scaling (Linear Ramp) ===
+  # Direct vector pursuit: gimbal angle → unit vector → scaled velocity
+  MIN_VELOCITY: 0.0                      # m/s - minimum pursuit speed (prevents stalling)
+  MAX_VELOCITY: 0.5                       # m/s - maximum pursuit speed (safety limit)
+  RAMP_ACCELERATION: 0.25                  # m/s² - velocity ramp rate (smooth acceleration)
+  INITIAL_VELOCITY: 0.0                   # m/s - starting velocity (0 = smooth start)
+
+  # === Control Enablement ===
+  # Altitude control uses gimbal pitch to compute vertical velocity
+  # When disabled, only horizontal pursuit (vel_down = 0, safer default)
+  ENABLE_ALTITUDE_CONTROL: false          # true = 3D vector pursuit, false = horizontal only
+  ENABLE_YAW_CONTROL: false               # Optional: yaw drone toward target
+  YAW_RATE_GAIN: 0.5                      # Yaw rate proportional gain (if enabled)
+
+  # === Gimbal Angle Filtering ===
+  # Real-world gimbals have jitter and noise - filtering provides smooth control
+  ANGLE_DEADZONE_DEG: 2.0                 # Ignore gimbal movements below this threshold (degrees)
+  ANGLE_SMOOTHING_ALPHA: 0.7              # EMA filter coefficient (0-1, higher = smoother)
+                                          # Recommended: 0.6-0.8 for typical gimbals
+
+  # === Safety Parameters ===
+  MIN_ALTITUDE_SAFETY: 3.0                # m - minimum safe altitude (enforced)
+  MAX_ALTITUDE_SAFETY: 120.0              # m - maximum safe altitude (enforced)
+  EMERGENCY_STOP_ENABLED: true            # Enable emergency velocity zeroing
+  MAX_SAFETY_VIOLATIONS: 5                # Max consecutive safety violations before halt
+
+  # === Target Loss Handling ===
+  # When gimbal tracking is lost, coast on last velocity vector with decay
+  TARGET_LOSS_TIMEOUT: 3.0                # seconds - coast duration before stopping
+  ENABLE_VELOCITY_DECAY: true             # Gradually reduce velocity during loss
+  VELOCITY_DECAY_RATE: 0.5                # m/s² - deceleration rate during target loss
+
+  # === Performance ===
+  UPDATE_RATE: 20.0                       # Hz - control loop frequency
+  COMMAND_SMOOTHING_ENABLED: true         # Smooth velocity command transitions
+  SMOOTHING_FACTOR: 0.8                   # Smoothing coefficient (0-1)
+
+  # === Advanced: Mount Calibration Overrides (Expert Users Only) ===
+  # Leave at 0.0 to use preset transformations from MOUNT_TYPE
+  # Only adjust if gimbal is mounted at non-standard angles
+  MOUNT_ROLL_OFFSET_DEG: 0.0              # Manual roll offset (degrees)
+  MOUNT_PITCH_OFFSET_DEG: 0.0             # Manual pitch offset (degrees)
+  MOUNT_YAW_OFFSET_DEG: 0.0               # Manual yaw offset (degrees)
+
+  # === Advanced: Gimbal Direction Inversions ===
+  # Use if gimbal reports angles with opposite sign convention
+  INVERT_GIMBAL_ROLL: false               # Invert roll axis
+  INVERT_GIMBAL_PITCH: false              # Invert pitch axis
+  INVERT_GIMBAL_YAW: false                # Invert yaw axis
 
 BODY_VELOCITY_CHASE:
   # === Forward Velocity Ramping ===
