@@ -251,9 +251,24 @@ class GimbalVectorBodyFollower(BaseFollower):
             # Scale unit vector by current velocity magnitude
             velocity_vector = unit_vector.scale(self.current_velocity_magnitude)
 
+            # Log velocity calculation (INFO level for visibility in CB mode)
+            logger.info(f"Vector pursuit: angles=[{yaw_deg:.1f}, {pitch_deg:.1f}, {roll_deg:.1f}]°, "
+                       f"vel=[{velocity_vector.x:.3f}, {velocity_vector.y:.3f}, {velocity_vector.z:.3f}] m/s, "
+                       f"mag={self.current_velocity_magnitude:.3f}/{self.max_velocity:.1f} m/s")
+
             # Apply altitude control flag
             if not self.enable_altitude_control:
                 velocity_vector.z = 0.0  # Zero vertical velocity (horizontal-only)
+
+            # Apply minimum velocity threshold (prevent stalling)
+            # If total velocity magnitude is below min_velocity, scale up to min_velocity
+            if self.min_velocity > 0.0:
+                actual_magnitude = velocity_vector.magnitude()
+                if 0.0 < actual_magnitude < self.min_velocity:
+                    scale_factor = self.min_velocity / actual_magnitude
+                    velocity_vector.x *= scale_factor
+                    velocity_vector.y *= scale_factor
+                    velocity_vector.z *= scale_factor
 
             # Apply command smoothing
             if self.command_smoothing_enabled and self.last_command_vector is not None:
@@ -274,9 +289,6 @@ class GimbalVectorBodyFollower(BaseFollower):
                 self.set_command_field("yawspeed_deg_s", yaw_rate)
             else:
                 self.set_command_field("yawspeed_deg_s", 0.0)
-
-            logger.debug(f"Vector pursuit: vel=[{velocity_vector.x:.2f}, {velocity_vector.y:.2f}, {velocity_vector.z:.2f}] m/s, "
-                        f"mag={self.current_velocity_magnitude:.2f} m/s, angles=[{yaw_deg:.1f}, {pitch_deg:.1f}, {roll_deg:.1f}]°")
 
         except Exception as e:
             logger.error(f"Error in calculate_control_commands: {e}")
@@ -414,32 +426,38 @@ class GimbalVectorBodyFollower(BaseFollower):
         """
         Update current velocity magnitude using linear ramping.
 
+        Ramps from current velocity to max_velocity with acceleration limits.
+        Consistent with BODY_VELOCITY_CHASE pattern.
+
         Args:
             dt: Time delta since last update (seconds)
         """
-        # Target velocity (starts at min, ramps to max)
-        target_velocity = min(self.max_velocity, max(self.min_velocity, self.current_velocity_magnitude))
+        # Target velocity is always max (ramp up from wherever we are)
+        target_velocity = self.max_velocity
 
-        # If currently below min, ramp up
-        if self.current_velocity_magnitude < self.min_velocity:
-            target_velocity = self.min_velocity
+        # Calculate velocity error (how far from target)
+        velocity_error = target_velocity - self.current_velocity_magnitude
 
-        # Compute velocity change with acceleration limit
-        velocity_change = self.ramp_acceleration * dt
+        # If close enough, snap to target
+        if abs(velocity_error) < 0.01:
+            self.current_velocity_magnitude = target_velocity
+            return
 
-        if self.current_velocity_magnitude < target_velocity:
-            self.current_velocity_magnitude = min(
-                self.current_velocity_magnitude + velocity_change,
-                target_velocity
-            )
-        elif self.current_velocity_magnitude > target_velocity:
-            self.current_velocity_magnitude = max(
-                self.current_velocity_magnitude - velocity_change,
-                target_velocity
-            )
+        # Apply ramping with acceleration limit
+        max_velocity_change = self.ramp_acceleration * dt
 
-        # Clamp to limits
-        self.current_velocity_magnitude = max(self.min_velocity, min(self.max_velocity, self.current_velocity_magnitude))
+        # Clip velocity change to acceleration limits
+        if velocity_error > 0:  # Need to accelerate
+            velocity_change = min(velocity_error, max_velocity_change)
+        else:  # Need to decelerate
+            velocity_change = max(velocity_error, -max_velocity_change)
+
+        # Update velocity
+        self.current_velocity_magnitude += velocity_change
+
+        # Clamp to absolute limits [0, max_velocity]
+        # Note: min_velocity is only used as a lower threshold check, not clamp
+        self.current_velocity_magnitude = max(0.0, min(self.max_velocity, self.current_velocity_magnitude))
 
     # ==================== Filtering & Smoothing ====================
 
