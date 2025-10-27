@@ -861,7 +861,7 @@ Follower:
   TARGET_POSITION_MODE: center              # center, top, bottom
 
   # === Following Mode ===
-  # Options: ground_view, constant_distance, constant_position, chase_follower, body_velocity_chase, gimbal_unified
+  # Options: ground_view, constant_distance, constant_position, chase_follower, body_velocity_chase, gimbal_unified, gimbal_vector_body
   FOLLOWER_MODE: constant_position
   
   # === Visualization ===
