@@ -1000,9 +1000,16 @@ GIMBAL_VECTOR_BODY:
   ANGLE_SMOOTHING_ALPHA: 0.7              # EMA filter coefficient (0-1, higher = smoother)
                                           # Recommended: 0.6-0.8 for typical gimbals
 
-  # === Safety Parameters ===
-  MIN_ALTITUDE_SAFETY: 3.0                # m - minimum safe altitude (enforced)
-  MAX_ALTITUDE_SAFETY: 120.0              # m - maximum safe altitude (enforced)
+  # === Altitude Safety (Optional Enforcement) ===
+  # Enable altitude monitoring and enforcement (similar to BODY_VELOCITY_CHASE)
+  ALTITUDE_SAFETY_ENABLED: false          # Enable altitude boundary enforcement
+  MIN_ALTITUDE_SAFETY: 3.0                # m - minimum safe altitude (if enabled)
+  MAX_ALTITUDE_SAFETY: 120.0              # m - maximum safe altitude (if enabled)
+  ALTITUDE_CHECK_INTERVAL: 1.0            # seconds - altitude check frequency
+  RTL_ON_ALTITUDE_VIOLATION: false        # Trigger RTL on altitude violation (conservative default)
+  ALTITUDE_WARNING_BUFFER: 2.0            # m - warning zone before limits
+
+  # === General Safety Parameters ===
   EMERGENCY_STOP_ENABLED: true            # Enable emergency velocity zeroing
   MAX_SAFETY_VIOLATIONS: 5                # Max consecutive safety violations before halt
 

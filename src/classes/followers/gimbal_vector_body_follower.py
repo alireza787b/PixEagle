@@ -128,11 +128,14 @@ class GimbalVectorBodyFollower(BaseFollower):
         if not self.config:
             raise ValueError("GIMBAL_VECTOR_BODY configuration not found in Parameters")
 
-        # Initialize base follower
+        # === Mount Configuration ===
+        # IMPORTANT: Set mount_type BEFORE super().__init__() because BaseFollower.__init__()
+        # calls get_display_name() which needs self.mount_type to be available
+        self.mount_type = self.config.get('MOUNT_TYPE', 'VERTICAL')
+
+        # Initialize base follower (safe to call now that mount_type is set)
         super().__init__(px4_controller, self.setpoint_profile)
 
-        # === Mount Configuration ===
-        self.mount_type = self.config.get('MOUNT_TYPE', 'VERTICAL')
         logger.info(f"Gimbal mount type: {self.mount_type}")
 
         # === Velocity Control ===
@@ -151,9 +154,18 @@ class GimbalVectorBodyFollower(BaseFollower):
         self.angle_smoothing_alpha = self.config.get('ANGLE_SMOOTHING_ALPHA', 0.7)
         self.filtered_angles = None  # (yaw, pitch, roll) in degrees
 
-        # === Safety ===
+        # === Altitude Safety (Optional Enforcement) ===
+        # Consistent with BODY_VELOCITY_CHASE pattern
+        self.altitude_safety_enabled = self.config.get('ALTITUDE_SAFETY_ENABLED', False)
         self.min_altitude_safety = self.config.get('MIN_ALTITUDE_SAFETY', 3.0)
         self.max_altitude_safety = self.config.get('MAX_ALTITUDE_SAFETY', 120.0)
+        self.altitude_check_interval = self.config.get('ALTITUDE_CHECK_INTERVAL', 1.0)
+        self.rtl_on_altitude_violation = self.config.get('RTL_ON_ALTITUDE_VIOLATION', False)
+        self.altitude_warning_buffer = self.config.get('ALTITUDE_WARNING_BUFFER', 2.0)
+        self.altitude_violation_count = 0
+        self.last_altitude_check_time = 0.0
+
+        # === General Safety ===
         self.emergency_stop_enabled = self.config.get('EMERGENCY_STOP_ENABLED', True)
         self.max_safety_violations = self.config.get('MAX_SAFETY_VIOLATIONS', 5)
         self.safety_violations_count = 0
@@ -610,25 +622,54 @@ class GimbalVectorBodyFollower(BaseFollower):
         return {'safe_to_proceed': True, 'reason': 'all_checks_passed'}
 
     def _check_altitude_safety(self) -> Dict[str, Any]:
-        """Check if drone altitude is within safe operating range."""
+        """
+        Check if drone altitude is within safe operating range (if enabled).
+
+        Consistent with BODY_VELOCITY_CHASE pattern - altitude safety is optional.
+
+        Returns:
+            Dict with 'safe' status and additional info
+        """
+        # Skip check if altitude safety is disabled
+        if not self.altitude_safety_enabled:
+            return {'safe': True, 'reason': 'altitude_safety_disabled'}
+
         try:
+            current_time = time.time()
+
+            # Only check at specified intervals to avoid excessive processing
+            if (current_time - self.last_altitude_check_time) < self.altitude_check_interval:
+                return {'safe': True, 'reason': 'check_interval_not_reached'}
+
+            self.last_altitude_check_time = current_time
             current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)
 
+            # Check for violations
             if current_altitude < self.min_altitude_safety:
+                self.altitude_violation_count += 1
+                logger.warning(f"Altitude safety violation: {current_altitude:.1f}m < {self.min_altitude_safety:.1f}m "
+                             f"(violation #{self.altitude_violation_count})")
                 return {
                     'safe': False,
                     'violation_type': 'too_low',
                     'current_altitude': current_altitude,
-                    'threshold': self.min_altitude_safety
+                    'threshold': self.min_altitude_safety,
+                    'violation_count': self.altitude_violation_count
                 }
             elif current_altitude > self.max_altitude_safety:
+                self.altitude_violation_count += 1
+                logger.warning(f"Altitude safety violation: {current_altitude:.1f}m > {self.max_altitude_safety:.1f}m "
+                             f"(violation #{self.altitude_violation_count})")
                 return {
                     'safe': False,
                     'violation_type': 'too_high',
                     'current_altitude': current_altitude,
-                    'threshold': self.max_altitude_safety
+                    'threshold': self.max_altitude_safety,
+                    'violation_count': self.altitude_violation_count
                 }
             else:
+                # Within safe bounds - reset violation counter
+                self.altitude_violation_count = 0
                 return {'safe': True, 'current_altitude': current_altitude}
 
         except Exception as e:
