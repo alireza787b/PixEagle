@@ -118,7 +118,49 @@ class DlibTracker(BaseTracker):
         self.failed_frames = 0
         self.fps_history = []
 
+        # === Enhanced Features (Student's Research Improvements) ===
+
+        # Adaptive PSR system
+        adaptive_config = dlib_config.get('adaptive', {})
+        self.adaptive_enabled = adaptive_config.get('enable', True)
+        self.psr_dynamic_scaling = adaptive_config.get('psr_dynamic_scaling', True)
+        self.adapt_rate = adaptive_config.get('adapt_rate', 0.15)
+        self.psr_margin = adaptive_config.get('psr_margin', 1.5)
+        self.adaptive_psr_threshold = self.psr_confidence_threshold  # Initialize with static value
+
+        # Appearance model enhancements
+        appearance_config = dlib_config.get('appearance', {})
+        self.use_adaptive_learning = appearance_config.get('use_adaptive_learning', True)
+        self.adaptive_learning_bounds = appearance_config.get('adaptive_learning_bounds', [0.05, 0.15])
+        self.freeze_on_low_confidence = appearance_config.get('freeze_on_low_confidence', True)
+        self.reference_update_interval = appearance_config.get('reference_update_interval', 30)
+        self.reference_template = None  # Store initial template
+        self.frames_since_reference_update = 0
+
+        # Motion model enhancements
+        motion_config = dlib_config.get('motion', {})
+        self.velocity_limit = motion_config.get('velocity_limit', 25.0)
+        self.stabilization_alpha = motion_config.get('stabilization_alpha', 0.3)
+        self.smoothed_bbox = None  # For motion stabilization
+
+        # Validation enhancements
+        validation_config = dlib_config.get('validation', {})
+        self.reinit_on_loss = validation_config.get('reinit_on_loss', True)
+        self.cooldown_after_reinit = validation_config.get('cooldown_after_reinit', 5)
+        self.reinit_cooldown_counter = 0
+
+        # Debug features
+        debug_config = dlib_config.get('debug', {})
+        self.enable_visual_feedback = debug_config.get('enable_visual_feedback', True)
+        self.show_motion_vectors = debug_config.get('show_motion_vectors', False)
+
         logger.info(f"{self.trackerName} initialized in '{self.performance_mode}' mode")
+        if self.adaptive_enabled:
+            logger.info(f"  - Adaptive PSR system: ENABLED")
+        if self.use_adaptive_learning:
+            logger.info(f"  - Adaptive learning rate: {self.adaptive_learning_bounds}")
+        if self.freeze_on_low_confidence:
+            logger.info(f"  - Template freeze on low confidence: ENABLED")
 
     def _configure_performance_mode(self):
         """Configure tracker based on performance mode."""
@@ -212,6 +254,13 @@ class DlibTracker(BaseTracker):
         self.raw_confidence_history.clear()
         self.psr_history.clear()
 
+        # Enhanced features reset
+        self.reference_template = self.detector.initial_features.copy() if self.detector else None
+        self.frames_since_reference_update = 0
+        self.smoothed_bbox = bbox
+        self.adaptive_psr_threshold = self.psr_confidence_threshold
+        self.reinit_cooldown_counter = 0
+
     def update(self, frame: np.ndarray) -> Tuple[bool, Tuple[int, int, int, int]]:
         """
         Updates the tracker with the current frame.
@@ -252,11 +301,27 @@ class DlibTracker(BaseTracker):
         # Store PSR for debugging
         self.psr_history.append(psr)
 
+        # Update adaptive PSR threshold based on recent history
+        self._update_adaptive_psr_threshold(psr)
+
         # Convert PSR to normalized confidence (0.0-1.0)
         raw_confidence = self._psr_to_confidence(psr)
 
+        # Apply motion stabilization to reduce jitter
+        detected_bbox = self._apply_motion_stabilization(detected_bbox)
+
+        # Validate velocity if enabled
+        velocity_valid = self._validate_velocity(detected_bbox)
+        if not velocity_valid and self.frame_count >= self.validation_start_frame:
+            logger.debug(f"Velocity validation failed - using previous bbox")
+            detected_bbox = self.bbox  # Use previous bbox if velocity is unrealistic
+
+        # Decrement reinit cooldown counter if active
+        if self.reinit_cooldown_counter > 0:
+            self.reinit_cooldown_counter -= 1
+
         # CRITICAL: Startup grace period - always accept result
-        if self.frame_count < self.validation_start_frame:
+        if self.frame_count < self.validation_start_frame or self.reinit_cooldown_counter > 0:
             return self._accept_result_simple(frame, detected_bbox, raw_confidence, dt, start_time)
 
         # After grace period - apply mode-specific logic
@@ -311,6 +376,169 @@ class DlibTracker(BaseTracker):
 
         return max(0.0, min(1.0, confidence))
 
+    # ==============================================================================
+    # Enhanced Features: Helper Methods (Student's Research Improvements)
+    # ==============================================================================
+
+    def _update_adaptive_psr_threshold(self, current_psr: float) -> None:
+        """
+        Dynamically adjust PSR confidence threshold based on recent tracking history.
+
+        Research: Adaptive thresholding improves robustness in varying conditions.
+        Reference: Zhang et al. "Adaptive Correlation Filters" IJCV 2018
+
+        Args:
+            current_psr (float): Current PSR value from tracker
+        """
+        if not self.adaptive_enabled or not self.psr_dynamic_scaling:
+            return
+
+        # Calculate moving average of recent PSR values
+        if len(self.psr_history) >= 3:
+            recent_psr_avg = np.mean(list(self.psr_history)[-5:])
+
+            # Adapt threshold towards recent PSR average
+            target_threshold = recent_psr_avg * 0.7  # 70% of recent average
+            target_threshold = max(self.psr_low_confidence, min(target_threshold, self.psr_high_confidence * 0.5))
+
+            # Apply EMA smoothing to threshold adaptation
+            self.adaptive_psr_threshold = (
+                (1 - self.adapt_rate) * self.adaptive_psr_threshold +
+                self.adapt_rate * target_threshold
+            )
+
+            # Apply safety margin
+            self.adaptive_psr_threshold = max(
+                self.psr_low_confidence,
+                min(self.adaptive_psr_threshold * self.psr_margin, self.psr_confidence_threshold * 1.2)
+            )
+
+    def _get_adaptive_learning_rate(self, psr: float) -> float:
+        """
+        Calculate adaptive learning rate based on current confidence/PSR.
+
+        Research: High confidence = faster learning, Low confidence = conservative updates.
+
+        Args:
+            psr (float): Current PSR value
+
+        Returns:
+            float: Adaptive learning rate
+        """
+        if not self.use_adaptive_learning:
+            return self.appearance_learning_rate
+
+        min_lr, max_lr = self.adaptive_learning_bounds
+
+        # Map PSR to learning rate
+        # Low PSR → min learning rate
+        # High PSR → max learning rate
+        if psr < self.psr_low_confidence:
+            return min_lr
+        elif psr > self.psr_high_confidence:
+            return max_lr
+        else:
+            # Linear interpolation between min and max
+            psr_range = self.psr_high_confidence - self.psr_low_confidence
+            psr_normalized = (psr - self.psr_low_confidence) / psr_range
+            return min_lr + psr_normalized * (max_lr - min_lr)
+
+    def _should_freeze_template(self, psr: float) -> bool:
+        """
+        Determine if template should be frozen based on confidence.
+
+        Research: Prevents template corruption during occlusions/low-confidence periods.
+
+        Args:
+            psr (float): Current PSR value
+
+        Returns:
+            bool: True if template should be frozen (not updated)
+        """
+        if not self.freeze_on_low_confidence:
+            return False
+
+        # Freeze if PSR below low confidence threshold
+        return psr < self.psr_low_confidence
+
+    def _update_reference_template(self, frame: np.ndarray, psr: float) -> None:
+        """
+        Periodically refresh reference template to prevent long-term drift.
+
+        Research: Periodic template refresh maintains tracking quality over time.
+
+        Args:
+            frame (np.ndarray): Current frame
+            psr (float): Current PSR value
+        """
+        if not self.detector or self.reference_update_interval <= 0:
+            return
+
+        self.frames_since_reference_update += 1
+
+        # Refresh reference template if interval reached and confidence is high
+        if (self.frames_since_reference_update >= self.reference_update_interval and
+            psr > self.psr_high_confidence):
+            current_features = self.detector.extract_features(frame, self.bbox)
+            if current_features is not None:
+                self.reference_template = current_features.copy()
+                self.frames_since_reference_update = 0
+                logger.debug(f"Reference template refreshed at frame {self.frame_count}")
+
+    def _apply_motion_stabilization(self, bbox: Tuple) -> Tuple:
+        """
+        Apply EMA smoothing to bbox position to reduce jitter.
+
+        Research: Temporal smoothing improves tracking stability.
+
+        Args:
+            bbox (Tuple): Raw bounding box (x, y, w, h)
+
+        Returns:
+            Tuple: Smoothed bounding box
+        """
+        if self.smoothed_bbox is None:
+            self.smoothed_bbox = bbox
+            return bbox
+
+        # Apply EMA filter to each bbox component
+        alpha = self.stabilization_alpha
+        smoothed = tuple(
+            alpha * new + (1 - alpha) * old
+            for new, old in zip(bbox, self.smoothed_bbox)
+        )
+
+        self.smoothed_bbox = smoothed
+        return smoothed
+
+    def _validate_velocity(self, bbox: Tuple) -> bool:
+        """
+        Validate that velocity doesn't exceed realistic limits.
+
+        Args:
+            bbox (Tuple): Current bounding box
+
+        Returns:
+            bool: True if velocity is valid
+        """
+        if not self.prev_bbox or self.frame_count < 3:
+            return True
+
+        # Calculate center displacement
+        prev_cx = self.prev_bbox[0] + self.prev_bbox[2] / 2
+        prev_cy = self.prev_bbox[1] + self.prev_bbox[3] / 2
+        curr_cx = bbox[0] + bbox[2] / 2
+        curr_cy = bbox[1] + bbox[3] / 2
+
+        velocity_magnitude = np.sqrt((curr_cx - prev_cx)**2 + (curr_cy - prev_cy)**2)
+
+        is_valid = velocity_magnitude < self.velocity_limit
+
+        if not is_valid:
+            logger.debug(f"Velocity validation failed: {velocity_magnitude:.1f} > {self.velocity_limit}")
+
+        return is_valid
+
     def _accept_result_simple(self, frame: np.ndarray, bbox: Tuple, confidence: float,
                               dt: float, start_time: float) -> Tuple[bool, Tuple]:
         """Accept tracking result without validation (startup grace period)."""
@@ -321,14 +549,25 @@ class DlibTracker(BaseTracker):
         self.center_history.append(self.center)
         self.confidence = confidence
 
-        # Update appearance model
+        # Update appearance model with enhanced features
         if self.detector:
-            current_features = self.detector.extract_features(frame, self.bbox)
-            learning_rate = getattr(self, 'appearance_learning_rate', 0.08)
-            self.detector.adaptive_features = (
-                (1 - learning_rate) * self.detector.adaptive_features +
-                learning_rate * current_features
-            )
+            # Get current PSR for adaptive features
+            current_psr = list(self.psr_history)[-1] if self.psr_history else self.psr_confidence_threshold
+
+            # Check if template should be frozen
+            if not self._should_freeze_template(current_psr):
+                current_features = self.detector.extract_features(frame, self.bbox)
+
+                # Get adaptive learning rate based on confidence
+                learning_rate = self._get_adaptive_learning_rate(current_psr)
+
+                self.detector.adaptive_features = (
+                    (1 - learning_rate) * self.detector.adaptive_features +
+                    learning_rate * current_features
+                )
+
+                # Update reference template periodically
+                self._update_reference_template(frame, current_psr)
 
         # Update estimator
         if self.estimator_enabled and self.position_estimator:
@@ -364,14 +603,25 @@ class DlibTracker(BaseTracker):
         self.center_history.append(self.center)
         self.confidence = confidence
 
-        # Update appearance model
+        # Update appearance model with enhanced features
         if self.detector:
-            current_features = self.detector.extract_features(frame, self.bbox)
-            learning_rate = getattr(self, 'appearance_learning_rate', 0.08)
-            self.detector.adaptive_features = (
-                (1 - learning_rate) * self.detector.adaptive_features +
-                learning_rate * current_features
-            )
+            # Get current PSR for adaptive features
+            current_psr = list(self.psr_history)[-1] if self.psr_history else self.psr_confidence_threshold
+
+            # Check if template should be frozen
+            if not self._should_freeze_template(current_psr):
+                current_features = self.detector.extract_features(frame, self.bbox)
+
+                # Get adaptive learning rate based on confidence
+                learning_rate = self._get_adaptive_learning_rate(current_psr)
+
+                self.detector.adaptive_features = (
+                    (1 - learning_rate) * self.detector.adaptive_features +
+                    learning_rate * current_features
+                )
+
+                # Update reference template periodically
+                self._update_reference_template(frame, current_psr)
 
         # Update estimator
         if self.estimator_enabled and self.position_estimator:
@@ -416,14 +666,25 @@ class DlibTracker(BaseTracker):
             self.failure_count = 0
             self.successful_frames += 1
 
-        # Update appearance model
+        # Update appearance model with enhanced features
         if self.detector:
-            current_features = self.detector.extract_features(frame, self.bbox)
-            learning_rate = getattr(self, 'appearance_learning_rate', 0.08)
-            self.detector.adaptive_features = (
-                (1 - learning_rate) * self.detector.adaptive_features +
-                learning_rate * current_features
-            )
+            # Get current PSR for adaptive features
+            current_psr = list(self.psr_history)[-1] if self.psr_history else self.psr_confidence_threshold
+
+            # Check if template should be frozen
+            if not self._should_freeze_template(current_psr):
+                current_features = self.detector.extract_features(frame, self.bbox)
+
+                # Get adaptive learning rate based on confidence
+                learning_rate = self._get_adaptive_learning_rate(current_psr)
+
+                self.detector.adaptive_features = (
+                    (1 - learning_rate) * self.detector.adaptive_features +
+                    learning_rate * current_features
+                )
+
+                # Update reference template periodically
+                self._update_reference_template(frame, current_psr)
 
         # Update estimator
         if self.estimator_enabled and self.position_estimator:
@@ -466,13 +727,25 @@ class DlibTracker(BaseTracker):
             self.normalize_bbox()
             self.center_history.append(self.center)
 
-            # Update appearance model
+            # Update appearance model with enhanced features
             if self.detector:
-                current_features = self.detector.extract_features(frame, self.bbox)
-                self.detector.adaptive_features = (
-                    (1 - self.appearance_learning_rate) * self.detector.adaptive_features +
-                    self.appearance_learning_rate * current_features
-                )
+                # Get current PSR for adaptive features
+                current_psr = list(self.psr_history)[-1] if self.psr_history else self.psr_confidence_threshold
+
+                # Check if template should be frozen
+                if not self._should_freeze_template(current_psr):
+                    current_features = self.detector.extract_features(frame, self.bbox)
+
+                    # Get adaptive learning rate based on confidence
+                    learning_rate = self._get_adaptive_learning_rate(current_psr)
+
+                    self.detector.adaptive_features = (
+                        (1 - learning_rate) * self.detector.adaptive_features +
+                        learning_rate * current_features
+                    )
+
+                    # Update reference template periodically
+                    self._update_reference_template(frame, current_psr)
 
             # Update estimator
             if self.estimator_enabled and self.position_estimator:
