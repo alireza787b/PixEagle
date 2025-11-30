@@ -172,15 +172,32 @@ class YOLOModelManager:
     def _check_ncnn_exists(self, pt_file: Path) -> bool:
         """Check if NCNN export exists for this .pt file"""
         ncnn_folder = self._get_ncnn_path(pt_file)
-        if not ncnn_folder.exists():
+        return self._verify_ncnn_files(ncnn_folder)
+    
+    def _verify_ncnn_files(self, ncnn_folder: Path) -> bool:
+        """Verify that NCNN folder contains required files"""
+        if not ncnn_folder or not ncnn_folder.exists() or not ncnn_folder.is_dir():
             return False
 
-        # Verify required files exist
+        # Check for required files with various possible names
+        # Standard names: model.bin and model.param
+        # Alternative: might be named after the model (e.g., yolo11n.bin, yolo11n.param)
+        bin_files = list(ncnn_folder.glob("*.bin"))
+        param_files = list(ncnn_folder.glob("*.param"))
+        
+        # Must have at least one .bin and one .param file
+        if len(bin_files) > 0 and len(param_files) > 0:
+            return True
+        
+        # Also check for model.bin and model.param specifically (most common)
         required_files = [
             ncnn_folder / "model.bin",
             ncnn_folder / "model.param"
         ]
-        return all(f.exists() for f in required_files)
+        if all(f.exists() and f.is_file() for f in required_files):
+            return True
+        
+        return False
 
     def _get_ncnn_path(self, pt_file: Path) -> Path:
         """Get NCNN folder path for a .pt file"""
@@ -413,15 +430,77 @@ class YOLOModelManager:
             # Load model (torch.load is already patched in __init__)
             model = YOLO(str(pt_file))
 
-            # Export to NCNN
+            # Export to NCNN - returns the path to exported model
             export_result = model.export(format="ncnn")
+            
+            # Small delay to ensure files are fully written
+            time.sleep(0.5)
 
-            # Verify export success
-            ncnn_folder = self._get_ncnn_path(pt_file)
-            if self._check_ncnn_exists(pt_file):
+            # The export_result can be a string path or Path object
+            # Ultralytics exports to a folder relative to the model file location
+            # Try multiple possible locations
+            possible_ncnn_paths = []
+            
+            # 1. Use the path returned by export (if it's a path)
+            if export_result:
+                if isinstance(export_result, (str, Path)):
+                    export_path = Path(export_result)
+                    # Resolve relative paths
+                    if not export_path.is_absolute():
+                        # Try relative to model file location
+                        possible_ncnn_paths.append(pt_file.parent / export_path)
+                        # Try relative to current working directory
+                        possible_ncnn_paths.append(Path.cwd() / export_path)
+                        # Try as-is (might be relative to yolo folder)
+                        possible_ncnn_paths.append(self.yolo_folder / export_path)
+                    else:
+                        possible_ncnn_paths.append(export_path)
+                elif hasattr(export_result, 'path'):
+                    export_path = Path(export_result.path)
+                    if not export_path.is_absolute():
+                        possible_ncnn_paths.append(pt_file.parent / export_path)
+                        possible_ncnn_paths.append(Path.cwd() / export_path)
+                        possible_ncnn_paths.append(self.yolo_folder / export_path)
+                    else:
+                        possible_ncnn_paths.append(export_path)
+            
+            # 2. Expected location: same directory as .pt file
+            expected_ncnn_folder = self._get_ncnn_path(pt_file)
+            possible_ncnn_paths.append(expected_ncnn_folder)
+            
+            # 3. Check if export saved relative to current working directory
+            model_stem = pt_file.stem
+            possible_ncnn_paths.append(Path(f"{model_stem}_ncnn_model"))
+            possible_ncnn_paths.append(Path.cwd() / f"{model_stem}_ncnn_model")
+            
+            # 4. Check in the yolo folder (if pt_file is elsewhere)
+            if pt_file.parent != self.yolo_folder:
+                possible_ncnn_paths.append(self.yolo_folder / f"{model_stem}_ncnn_model")
+            
+            # Find the actual NCNN export location
+            ncnn_folder = None
+            for path in possible_ncnn_paths:
+                if path and path.exists() and path.is_dir():
+                    # Verify it has the required files
+                    if self._verify_ncnn_files(path):
+                        ncnn_folder = path
+                        break
+            
+            # If found, verify it's in the right location and move if needed
+            if ncnn_folder and ncnn_folder != expected_ncnn_folder:
+                # Export was saved to a different location - move it to expected location
+                if not expected_ncnn_folder.exists():
+                    try:
+                        shutil.move(str(ncnn_folder), str(expected_ncnn_folder))
+                        ncnn_folder = expected_ncnn_folder
+                        self.logger.info(f"Moved NCNN export to expected location: {expected_ncnn_folder}")
+                    except Exception as e:
+                        self.logger.warning(f"Could not move NCNN export: {e}, using original location")
+            
+            # Final verification
+            if ncnn_folder and self._verify_ncnn_files(ncnn_folder):
                 export_time = time.time() - start_time
-
-                self.logger.info(f"✅ NCNN export successful ({export_time:.2f}s)")
+                self.logger.info(f"✅ NCNN export successful ({export_time:.2f}s) at {ncnn_folder}")
 
                 return {
                     "success": True,
@@ -429,9 +508,18 @@ class YOLOModelManager:
                     "export_time": export_time
                 }
             else:
+                # Log what we found for debugging
+                self.logger.warning(f"NCNN export verification failed. Checked paths: {possible_ncnn_paths}")
+                
+                # Check if any of the paths exist but don't have the right files
+                for path in possible_ncnn_paths:
+                    if path and path.exists() and path.is_dir():
+                        files_in_dir = list(path.iterdir())
+                        self.logger.warning(f"Found directory {path} with files: {[f.name for f in files_in_dir]}")
+                
                 return {
                     "success": False,
-                    "error": "NCNN folder not created after export"
+                    "error": f"NCNN folder not found after export. Export may have succeeded but files not in expected location. Checked: {[str(p) for p in possible_ncnn_paths if p]}"
                 }
 
         except Exception as e:
