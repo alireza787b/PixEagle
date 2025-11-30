@@ -25,6 +25,7 @@ import logging
 import asyncio
 import requests
 import torch
+import re
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List
 from datetime import datetime
@@ -449,41 +450,92 @@ class YOLOModelManager:
 
     def download_model(self, model_name: str, download_url: Optional[str] = None) -> Dict:
         """
-        Download YOLO model from URL or Ultralytics hub
-        (Refactored from add_yolo_model.py download functions)
+        Download YOLO model with robust fallback chain:
+        1. Use provided URL if available
+        2. Try automatic download via Ultralytics (YOLOv5, YOLO8, YOLO11)
+        3. Try known GitHub release URLs
+        4. Return suggested URLs if all automatic methods fail
 
         Args:
             model_name: Model filename (e.g., "yolo11n.pt")
-            download_url: Optional custom URL (if None, tries Ultralytics hub for yolov5)
+            download_url: Optional custom URL (takes priority if provided)
 
         Returns:
             {
                 "success": bool,
                 "path": str,
-                "error": Optional[str]
+                "error": Optional[str],
+                "suggested_urls": Optional[List[str]]  # URLs to try if auto-download fails
             }
         """
         destination = self.yolo_folder / model_name
 
-        try:
-            # If model is yolov5*, use torch.hub downloader
-            if model_name.lower().startswith("yolov5"):
-                return self._download_from_ultralytics(model_name, destination)
+        # Check if model already exists locally
+        if destination.exists():
+            return {
+                "success": True,
+                "path": str(destination),
+                "message": "Model already exists locally"
+            }
 
-            # Otherwise, use custom URL download
+        try:
+            # Priority 1: Use provided URL if available
             if download_url:
-                return self._download_from_url(download_url, destination)
-            else:
-                return {
-                    "success": False,
-                    "error": "No download URL provided. For non-YOLOv5 models, please provide a URL."
-                }
+                self.logger.info(f"Using provided URL: {download_url}")
+                result = self._download_from_url(download_url, destination)
+                if result['success']:
+                    return result
+                # If URL download fails, continue to fallback methods
+
+            # Priority 2: Try automatic download methods
+            model_name_lower = model_name.lower()
+            
+            # For YOLOv5: use torch.hub
+            if model_name_lower.startswith("yolov5"):
+                result = self._download_from_ultralytics(model_name, destination)
+                if result['success']:
+                    return result
+
+            # For YOLO8/YOLO11 and future versions: use Ultralytics YOLO class (auto-downloads)
+            # This handles yolo8, yolo11, yolo12, yolo13, etc. (future-proof)
+            # Check for known YOLO versions first
+            known_yolo_patterns = [
+                'yolo8', 'yolo-8', 'yolov8', 'yolo-v8',
+                'yolo11', 'yolo-11',
+            ]
+            
+            if any(prefix in model_name_lower for prefix in known_yolo_patterns):
+                result = self._download_via_yolo_class(model_name, destination)
+                if result['success']:
+                    return result
+            
+            # Future-proof: Try YOLO class for any model matching "yolo[number]" pattern
+            # This will catch yolo12, yolo13, yolo16, etc. automatically
+            if re.match(r'^yolo-?\d+', model_name_lower) and not model_name_lower.startswith('yolov5'):
+                result = self._download_via_yolo_class(model_name, destination)
+                if result['success']:
+                    return result
+
+            # Priority 3: Try known GitHub release URLs
+            result = self._download_from_known_urls(model_name, destination)
+            if result['success']:
+                return result
+
+            # All automatic methods failed - return suggested URLs
+            suggested_urls = self._get_suggested_urls(model_name)
+            return {
+                "success": False,
+                "error": "Automatic download failed. Please provide a download URL.",
+                "suggested_urls": suggested_urls
+            }
 
         except Exception as e:
             self.logger.error(f"Download failed: {e}")
+            suggested_urls = self._get_suggested_urls(model_name)
             return {
                 "success": False,
-                "error": str(e)
+                "error": str(e),
+                "suggested_urls": suggested_urls
             }
 
     def _download_from_url(self, url: str, destination: Path) -> Dict:
@@ -545,6 +597,175 @@ class YOLOModelManager:
                 "success": False,
                 "error": str(e)
             }
+
+    def _download_via_yolo_class(self, model_name: str, destination: Path) -> Dict:
+        """
+        Download YOLO8/YOLO11 model via Ultralytics YOLO class (auto-downloads)
+        The YOLO() class automatically downloads models from Ultralytics hub
+        """
+        if not ULTRALYTICS_AVAILABLE:
+            return {
+                "success": False,
+                "error": "Ultralytics not installed"
+            }
+
+        try:
+            self.logger.info(f"Downloading {model_name} via Ultralytics YOLO class...")
+            
+            # Remove .pt extension for model name (YOLO class expects "yolo11n", not "yolo11n.pt")
+            model_id = os.path.splitext(model_name)[0]
+            
+            # YOLO class will auto-download if model not in cache
+            model = YOLO(model_id)
+            
+            # Try multiple methods to find the downloaded model file
+            possible_paths = []
+            
+            # Method 1: Check model.ckpt_path (most reliable)
+            if hasattr(model, 'ckpt_path') and model.ckpt_path:
+                possible_paths.append(Path(model.ckpt_path))
+            
+            # Method 2: Check model.weights attribute
+            if hasattr(model, 'weights') and model.weights:
+                if isinstance(model.weights, str):
+                    possible_paths.append(Path(model.weights))
+                elif isinstance(model.weights, Path):
+                    possible_paths.append(model.weights)
+            
+            # Method 3: Check Ultralytics cache directories
+            try:
+                from ultralytics.utils import SETTINGS
+                weights_dir = Path(SETTINGS.get('weights_dir', Path.home() / '.ultralytics' / 'weights'))
+                possible_paths.append(weights_dir / model_name)
+            except:
+                pass
+            
+            # Method 4: Common cache locations
+            possible_paths.extend([
+                Path.home() / '.ultralytics' / 'weights' / model_name,
+                Path.home() / '.cache' / 'ultralytics' / model_name,
+                Path.home() / '.cache' / 'torch' / 'hub' / 'checkpoints' / model_name,
+            ])
+            
+            # Method 5: Check if model was downloaded to current directory
+            possible_paths.append(Path(model_name))
+            
+            # Try to find and copy the model
+            for cache_path in possible_paths:
+                if cache_path and cache_path.exists() and cache_path.is_file():
+                    try:
+                        shutil.copy(cache_path, destination)
+                        self.logger.info(f"✅ Model downloaded from {cache_path} to {destination}")
+                        return {
+                            "success": True,
+                            "path": str(destination)
+                        }
+                    except Exception as e:
+                        self.logger.debug(f"Failed to copy from {cache_path}: {e}")
+                        continue
+            
+            # If model was loaded but file not found, try to get it from model's internal state
+            # Some YOLO versions store the path differently
+            if hasattr(model, 'model') and hasattr(model.model, 'yaml_file'):
+                yaml_dir = Path(model.model.yaml_file).parent if model.model.yaml_file else None
+                if yaml_dir:
+                    possible_paths.append(yaml_dir / model_name)
+                    if (yaml_dir / model_name).exists():
+                        shutil.copy(yaml_dir / model_name, destination)
+                        return {
+                            "success": True,
+                            "path": str(destination)
+                        }
+            
+            return {
+                "success": False,
+                "error": f"Model loaded but file not found in expected cache locations. Model may be in-memory only."
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def _download_from_known_urls(self, model_name: str, destination: Path) -> Dict:
+        """
+        Try downloading from known GitHub release URLs for common YOLO models
+        """
+        known_urls = self._get_suggested_urls(model_name)
+        
+        for url in known_urls:
+            self.logger.info(f"Trying known URL: {url}")
+            result = self._download_from_url(url, destination)
+            if result['success']:
+                return result
+        
+        return {
+            "success": False,
+            "error": "All known URLs failed"
+        }
+
+    def _get_suggested_urls(self, model_name: str) -> List[str]:
+        """
+        Generate suggested download URLs for common YOLO models
+        Returns list of URLs user can try (future-proof for new YOLO versions)
+        """
+        model_name_lower = model_name.lower()
+        suggested = []
+        model_id = os.path.splitext(model_name)[0]  # e.g., "yolo11n"
+        
+        # Extract YOLO version number if possible (for future versions)
+        version_match = re.search(r'yolo-?(\d+)', model_name_lower)
+        version_num = int(version_match.group(1)) if version_match else None
+        
+        # YOLO11 models (latest stable)
+        if 'yolo11' in model_name_lower or 'yolo-11' in model_name_lower:
+            suggested.extend([
+                f"https://github.com/ultralytics/assets/releases/download/v8.3.0/{model_name}",
+                f"https://github.com/ultralytics/ultralytics/releases/download/v8.3.0/{model_name}",
+                f"https://github.com/ultralytics/assets/releases/download/v0.0.0/{model_name}",
+            ])
+        
+        # YOLO8 models
+        elif 'yolo8' in model_name_lower or 'yolov8' in model_name_lower or 'yolo-8' in model_name_lower:
+            suggested.extend([
+                f"https://github.com/ultralytics/assets/releases/download/v8.2.0/{model_name}",
+                f"https://github.com/ultralytics/ultralytics/releases/download/v8.2.0/{model_name}",
+                f"https://github.com/ultralytics/assets/releases/download/v0.0.0/{model_name}",
+            ])
+        
+        # YOLOv5 models
+        elif 'yolov5' in model_name_lower or 'yolo5' in model_name_lower:
+            suggested.extend([
+                f"https://github.com/ultralytics/yolov5/releases/download/v7.0/{model_name}",
+                f"https://github.com/ultralytics/yolov5/releases/download/v6.2/{model_name}",
+                f"https://github.com/ultralytics/yolov5/releases/download/v7.1/{model_name}",
+            ])
+        
+        # Future YOLO versions (yolo12, yolo13, etc.) - generic pattern
+        elif version_num and version_num >= 12:
+            # For future versions, try latest assets and ultralytics releases
+            suggested.extend([
+                f"https://github.com/ultralytics/assets/releases/download/v0.0.0/{model_name}",
+                f"https://github.com/ultralytics/ultralytics/releases/download/v0.0.0/{model_name}",
+                f"https://github.com/ultralytics/assets/releases/latest/download/{model_name}",
+            ])
+            # Add helpful message in comments (not in URL list)
+            self.logger.info(f"Future YOLO version detected (v{version_num}). Trying latest releases...")
+        
+        # Generic fallback for any YOLO model
+        suggested.extend([
+            f"https://github.com/ultralytics/assets/releases/download/v0.0.0/{model_name}",
+            f"https://github.com/ultralytics/ultralytics/releases/download/v0.0.0/{model_name}",
+        ])
+        
+        # Add PyTorch Hub as last resort (works for many models)
+        if not model_name_lower.startswith('yolov5'):
+            suggested.append(
+                f"Try: python -c \"from ultralytics import YOLO; YOLO('{model_id}')\""
+            )
+        
+        return suggested
 
     # ==================== MODEL DELETION ====================
 
