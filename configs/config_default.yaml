@@ -37,7 +37,23 @@ VideoSource:
   
   # Network streams
   RTSP_URL: rtsp://192.168.0.108:554/stream=0
-  RTSP_LATENCY: 0           # Buffer in ms (0=minimum latency, 200=stable)
+
+  # RTSP Protocol Settings
+  # -----------------------
+  # RTSP_PROTOCOL: Transport protocol for RTSP stream
+  #   - tcp: More reliable, prevents packet loss (RECOMMENDED for most setups)
+  #   - udp: Lower latency but may have packet loss on congested networks
+  #   - auto: Let GStreamer choose (may fall back to UDP which can cause issues)
+  # If you see "Invalid input packet" or "no frame!" errors, switch to tcp
+  RTSP_PROTOCOL: tcp
+
+  # RTSP_LATENCY: Buffer time in milliseconds
+  #   - 200: Recommended for stable streaming (good balance)
+  #   - 100: Lower latency, may drop frames on slow networks
+  #   - 500: More stable for unreliable connections
+  #   - 0: Minimum latency (may cause decoding errors, not recommended)
+  RTSP_LATENCY: 200
+
   UDP_URL: udp://172.21.144.1:5000
   HTTP_URL: http://172.21.144.1:8100
   

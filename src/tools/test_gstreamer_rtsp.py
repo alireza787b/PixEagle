@@ -1,8 +1,10 @@
 import cv2
 
 # Define the GStreamer pipeline for RTSP streaming
+# Note: protocols=tcp and latency=200 are required for reliable streaming
+# UDP may cause "Invalid input packet" errors due to packet loss
 rtsp_url = "rtsp://192.168.0.108:554/stream=0"
-gst_pipeline = f"rtspsrc location={rtsp_url} latency=0 ! decodebin ! videoconvert ! video/x-raw,format=BGR ! appsink"
+gst_pipeline = f"rtspsrc location={rtsp_url} protocols=tcp latency=200 ! decodebin ! videoconvert ! video/x-raw,format=BGR ! appsink"
 
 # Initialize the VideoCapture object with the GStreamer pipeline
 cap = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)

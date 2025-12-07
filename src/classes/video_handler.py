@@ -349,18 +349,30 @@ class VideoHandler:
         target_width = Parameters.CAPTURE_WIDTH
         target_height = Parameters.CAPTURE_HEIGHT
 
-        # Ultra-low latency pipeline with smart scaling for coordinate consistency
+        # Get RTSP settings from config (with safe defaults)
+        rtsp_protocol = getattr(Parameters, 'RTSP_PROTOCOL', 'tcp').lower()
+        rtsp_latency = getattr(Parameters, 'RTSP_LATENCY', 200)
+
+        # Validate protocol
+        if rtsp_protocol not in ['tcp', 'udp', 'auto']:
+            logger.warning(f"Invalid RTSP_PROTOCOL '{rtsp_protocol}', defaulting to 'tcp'")
+            rtsp_protocol = 'tcp'
+
+        # Build protocol string (empty for auto)
+        protocol_str = f"protocols={rtsp_protocol} " if rtsp_protocol != 'auto' else ""
+
+        # Low latency pipeline with smart scaling for coordinate consistency
         pipeline = (
             f"rtspsrc location={rtsp_url} "
-            f"protocols=tcp "                    # Force TCP for reliability
-            f"latency=0 "                       # Zero latency buffering
-            f"buffer-mode=0 "                   # No jitter buffer
+            f"{protocol_str}"                   # Protocol from config (tcp recommended)
+            f"latency={rtsp_latency} "          # Latency from config (200ms recommended)
+            f"buffer-mode=auto "                # Auto buffer mode
             f"drop-on-latency=true "            # Drop frames immediately if late
             f"do-rtcp=false "                   # Disable RTCP overhead
             f"do-retransmission=false "         # No retransmission delays
             f"ntp-sync=false "                  # Disable NTP sync overhead
             f"! rtpjitterbuffer "               # Minimal jitter buffer
-            f"latency=0 "                       # Zero jitter buffer
+            f"latency={rtsp_latency} "          # Match rtspsrc latency
             f"drop-on-latency=true "
             f"! rtph264depay "                  # RTP H.264 depayloader
             f"! h264parse "                     # Parse H.264 stream
@@ -395,11 +407,16 @@ class VideoHandler:
         target_width = Parameters.CAPTURE_WIDTH
         target_height = Parameters.CAPTURE_HEIGHT
 
+        # Get RTSP settings from config (with safe defaults)
+        rtsp_protocol = getattr(Parameters, 'RTSP_PROTOCOL', 'tcp').lower()
+        rtsp_latency = getattr(Parameters, 'RTSP_LATENCY', 200)
+        protocol_str = f"protocols={rtsp_protocol} " if rtsp_protocol != 'auto' else ""
+
         fallback_pipelines = [
-            # Fallback 1: Auto-detect with both TCP/UDP + smart scaling
+            # Fallback 1: Config protocol with decodebin + smart scaling (simpler than primary)
             (
                 f"rtspsrc location={rtsp_url} "
-                f"latency=0 drop-on-latency=true do-rtcp=false "
+                f"{protocol_str}latency={rtsp_latency} drop-on-latency=true do-rtcp=false "
                 f"! queue max-size-buffers=1 leaky=downstream "
                 f"! decodebin ! videoconvert ! video/x-raw,format=BGR "
                 f"! videoscale method=0 "          # Fastest scaling method
@@ -407,20 +424,20 @@ class VideoHandler:
                 f"! appsink drop=true max-buffers=1 sync=false"
             ),
 
-            # Fallback 2: Force UDP + smart scaling (some cameras prefer this)
+            # Fallback 2: Higher latency for unstable connections
             (
                 f"rtspsrc location={rtsp_url} "
-                f"protocols=udp latency=0 drop-on-latency=true "
-                f"! queue max-size-buffers=1 leaky=downstream "
+                f"{protocol_str}latency={rtsp_latency + 300} drop-on-latency=true "
+                f"! queue max-size-buffers=2 leaky=downstream "
                 f"! decodebin ! videoconvert ! video/x-raw,format=BGR "
                 f"! videoscale method=0 "          # Fastest scaling method
                 f"! video/x-raw,width={target_width},height={target_height} "
                 f"! appsink drop=true max-buffers=1 sync=false"
             ),
 
-            # Fallback 3: Simple pipeline with scaling (maximum compatibility)
+            # Fallback 3: Auto-detect protocol with scaling (for cameras that require UDP)
             (
-                f"rtspsrc location={rtsp_url} latency=0 "
+                f"rtspsrc location={rtsp_url} latency={rtsp_latency} "
                 f"! decodebin ! videoconvert ! video/x-raw,format=BGR "
                 f"! videoscale method=0 "          # Fastest scaling method
                 f"! video/x-raw,width={target_width},height={target_height} "
@@ -429,7 +446,7 @@ class VideoHandler:
 
             # Fallback 4: No scaling (emergency fallback - may have coord issues)
             (
-                f"rtspsrc location={rtsp_url} latency=0 "
+                f"rtspsrc location={rtsp_url} {protocol_str}latency={rtsp_latency} "
                 f"! decodebin ! videoconvert ! video/x-raw,format=BGR "
                 f"! appsink sync=false"
             )

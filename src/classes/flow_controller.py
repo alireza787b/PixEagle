@@ -3,6 +3,7 @@ import asyncio
 import logging
 import threading
 import signal
+import time
 import cv2
 from classes.app_controller import AppController
 from classes.parameters import Parameters
@@ -71,13 +72,24 @@ class FlowController:
                 frame = loop.run_until_complete(self.controller.update_loop(frame))
                 self.controller.show_current_frame()
 
-                key = cv2.waitKey(self.controller.video_handler.delay_frame) & 0xFF
-                if key == ord('q'):
-                    logging.info("⚡ Quit requested via 'q' key...")
-                    self.controller.shutdown_flag = True
+                # Handle frame timing and keyboard input
+                # In headless mode (SHOW_VIDEO_WINDOW=false), cv2.waitKey() fails without GUI backend
+                # Use time.sleep() for frame timing instead
+                if Parameters.SHOW_VIDEO_WINDOW:
+                    # GUI mode: use cv2.waitKey for timing and keyboard input
+                    key = cv2.waitKey(self.controller.video_handler.delay_frame) & 0xFF
+                    if key == ord('q'):
+                        logging.info("⚡ Quit requested via 'q' key...")
+                        self.controller.shutdown_flag = True
+                    else:
+                        # Handle key input within the persistent event loop
+                        loop.run_until_complete(self.controller.handle_key_input_async(key, frame))
                 else:
-                    # Handle key input within the persistent event loop
-                    loop.run_until_complete(self.controller.handle_key_input_async(key, frame))
+                    # Headless mode: use time.sleep for frame timing (convert ms to seconds)
+                    # Keyboard input not available - use API or signals to control
+                    delay_seconds = self.controller.video_handler.delay_frame / 1000.0
+                    if delay_seconds > 0:
+                        time.sleep(delay_seconds)
 
         except KeyboardInterrupt:
             logging.info("⚡ Keyboard interrupt received - shutting down gracefully...")
