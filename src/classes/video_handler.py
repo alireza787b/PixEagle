@@ -362,6 +362,7 @@ class VideoHandler:
         protocol_str = f"protocols={rtsp_protocol} " if rtsp_protocol != 'auto' else ""
 
         # Low latency pipeline with smart scaling for coordinate consistency
+        # Uses decodebin for maximum compatibility (auto-detects codec)
         pipeline = (
             f"rtspsrc location={rtsp_url} "
             f"{protocol_str}"                   # Protocol from config (tcp recommended)
@@ -369,18 +370,8 @@ class VideoHandler:
             f"buffer-mode=auto "                # Auto buffer mode
             f"drop-on-latency=true "            # Drop frames immediately if late
             f"do-rtcp=false "                   # Disable RTCP overhead
-            f"do-retransmission=false "         # No retransmission delays
-            f"ntp-sync=false "                  # Disable NTP sync overhead
-            f"! rtpjitterbuffer "               # Minimal jitter buffer
-            f"latency={rtsp_latency} "          # Match rtspsrc latency
-            f"drop-on-latency=true "
-            f"! rtph264depay "                  # RTP H.264 depayloader
-            f"! h264parse "                     # Parse H.264 stream
-            f"! avdec_h264 "                    # Hardware decoder
-            f"max-threads=1 "                   # Single thread for lowest latency
-            f"skip-frame=1 "                    # Skip non-reference frames
-            f"! videoconvert "                  # Fast color conversion
-            f"n-threads=1 "                     # Single thread conversion
+            f"! decodebin "                     # Auto-detect and decode (more compatible than explicit h264)
+            f"! videoconvert "
             f"! videoscale "                    # Smart scaling for coordinate consistency
             f"method=0 "                        # Nearest neighbor (fastest scaling)
             f"! video/x-raw,format=BGR,width={target_width},height={target_height} "  # Target dimensions

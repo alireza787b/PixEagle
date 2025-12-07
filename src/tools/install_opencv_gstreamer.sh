@@ -195,7 +195,6 @@ sudo apt-get install -y \
     libdc1394-dev \
     libtbb-dev \
     libeigen3-dev \
-    libatlas-base-dev \
     liblapack-dev \
     libopenblas-dev
 check_error "GUI and image libraries installation"
