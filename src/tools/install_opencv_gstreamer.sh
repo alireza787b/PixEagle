@@ -133,7 +133,7 @@ print_success "Build tools installed"
 # Step 5: Install GStreamer (Full Stack for RTSP)
 # =============================================================================
 echo ""
-echo "Step 5/10: Installing GStreamer with RTSP support..."
+echo "Step 5/10: Installing GStreamer with full streaming support..."
 
 sudo apt-get install -y \
     libgstreamer1.0-dev \
@@ -147,15 +147,22 @@ sudo apt-get install -y \
     gstreamer1.0-gl \
     gstreamer1.0-gtk3 \
     gstreamer1.0-rtsp \
+    gstreamer1.0-v4l2 \
     libgstrtspserver-1.0-dev
 check_error "GStreamer installation"
 print_success "GStreamer installed"
 
-# Verify GStreamer RTSP plugin
+# Verify GStreamer plugins
 if gst-inspect-1.0 rtspsrc > /dev/null 2>&1; then
-    print_success "GStreamer rtspsrc plugin verified"
+    print_success "GStreamer rtspsrc plugin verified (RTSP)"
 else
     print_warning "GStreamer rtspsrc not found - RTSP may not work"
+fi
+
+if gst-inspect-1.0 v4l2src > /dev/null 2>&1; then
+    print_success "GStreamer v4l2src plugin verified (USB cameras)"
+else
+    print_warning "GStreamer v4l2src not found - USB cameras via GStreamer may not work"
 fi
 
 # =============================================================================
