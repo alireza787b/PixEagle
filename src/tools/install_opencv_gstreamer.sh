@@ -3,19 +3,41 @@
 # Professional OpenCV build script with full GStreamer, FFMPEG, and GTK support
 # for Raspberry Pi virtual environment installation.
 #
-# Features enabled:
+# ============================================================================
+# FEATURES ENABLED:
+# ============================================================================
 #   - GStreamer (RTSP streaming, hardware acceleration)
 #   - FFMPEG (codec fallback, broad format support)
 #   - GTK3 (GUI support for non-headless systems)
-#   - V4L2 (USB camera support)
+#   - V4L2 (USB camera support via OpenCV and GStreamer)
 #   - OpenGL (GPU acceleration)
 #   - Python3 bindings (installed to venv)
 #
-# Usage:
+# ============================================================================
+# USAGE:
+# ============================================================================
 #   1. Activate your virtual environment:
 #      source ~/PixEagle/venv/bin/activate
-#   2. Run this script:
+#
+#   2. Run this script (normal mode - reuses existing source if present):
 #      bash ~/PixEagle/src/tools/install_opencv_gstreamer.sh
+#
+#   3. OR run with --clean flag (removes everything and rebuilds from scratch):
+#      bash ~/PixEagle/src/tools/install_opencv_gstreamer.sh --clean
+#
+# ============================================================================
+# WHEN TO USE --clean FLAG:
+# ============================================================================
+#   Use --clean if:
+#   - Previous build failed or was interrupted
+#   - OpenCV was built with missing features (no GStreamer, no FFMPEG)
+#   - You want to upgrade to a different OpenCV version
+#   - You're experiencing strange issues with video capture
+#
+#   Normal mode (no flag):
+#   - Reuses existing opencv/opencv_contrib source directories
+#   - Still creates fresh build directory each time
+#   - Faster if sources already downloaded
 #
 # Author: Alireza Ghaderi
 # Date: Feb 2025
@@ -23,17 +45,58 @@
 
 set -e  # Exit on error
 
+# =============================================================================
+# Parse Command Line Arguments
+# =============================================================================
+CLEAN_BUILD=false
+
+show_help() {
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  --clean    Remove all existing OpenCV sources and installed files,"
+    echo "             then rebuild everything from scratch"
+    echo "  --help     Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $0              # Normal build (reuses existing sources)"
+    echo "  $0 --clean      # Clean rebuild from scratch"
+}
+
+for arg in "$@"; do
+    case $arg in
+        --clean)
+            CLEAN_BUILD=true
+            shift
+            ;;
+        --help|-h)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $arg"
+            show_help
+            exit 1
+            ;;
+    esac
+done
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 print_header() {
     echo -e "${BLUE}==================================================${NC}"
     echo -e "${BLUE}$1${NC}"
     echo -e "${BLUE}==================================================${NC}"
+}
+
+print_step() {
+    echo -e "${CYAN}>>> $1${NC}"
 }
 
 print_success() {
@@ -63,6 +126,26 @@ OPENCV_CONTRIB_DIR="$BASE_DIR/opencv_contrib"
 
 print_header "OpenCV $OPENCV_VERSION Installation with Full Video Support"
 
+# Show build mode
+echo ""
+if [ "$CLEAN_BUILD" = true ]; then
+    print_warning "CLEAN BUILD MODE: Will remove all existing OpenCV files and rebuild from scratch"
+    echo "  This will delete:"
+    echo "    - $OPENCV_DIR"
+    echo "    - $OPENCV_CONTRIB_DIR"
+    echo "    - Existing cv2 installation in venv"
+    echo ""
+    read -p "Are you sure you want to continue? (y/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Aborted."
+        exit 0
+    fi
+else
+    echo "Normal build mode (reusing existing sources if present)"
+    echo "  Tip: Use --clean flag to rebuild everything from scratch"
+fi
+
 # =============================================================================
 # Step 1: Verify Virtual Environment
 # =============================================================================
@@ -77,6 +160,34 @@ if [ -z "$VIRTUAL_ENV" ]; then
 fi
 
 print_success "Virtual environment: $VIRTUAL_ENV"
+
+# =============================================================================
+# Clean Build: Remove existing installations if --clean flag is set
+# =============================================================================
+if [ "$CLEAN_BUILD" = true ]; then
+    echo ""
+    print_step "Performing clean build - removing existing installations..."
+
+    # Remove existing cv2 from venv
+    if [ -d "$VIRTUAL_ENV/lib" ]; then
+        echo "  Removing existing cv2 from venv..."
+        find "$VIRTUAL_ENV/lib" -name "cv2*" -type f -delete 2>/dev/null || true
+        find "$VIRTUAL_ENV/lib" -name "cv2*" -type d -exec rm -rf {} + 2>/dev/null || true
+    fi
+
+    # Remove OpenCV source directories
+    if [ -d "$OPENCV_DIR" ]; then
+        echo "  Removing $OPENCV_DIR..."
+        rm -rf "$OPENCV_DIR"
+    fi
+
+    if [ -d "$OPENCV_CONTRIB_DIR" ]; then
+        echo "  Removing $OPENCV_CONTRIB_DIR..."
+        rm -rf "$OPENCV_CONTRIB_DIR"
+    fi
+
+    print_success "Clean build: All existing OpenCV files removed"
+fi
 
 # =============================================================================
 # Step 2: Determine Python Configuration
