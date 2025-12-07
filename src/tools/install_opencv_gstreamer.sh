@@ -250,8 +250,8 @@ sudo apt-get install -y \
     gstreamer1.0-gl \
     gstreamer1.0-gtk3 \
     gstreamer1.0-rtsp \
-    gstreamer1.0-v4l2 \
     libgstrtspserver-1.0-dev
+# Note: v4l2src is included in gstreamer1.0-plugins-good on Debian Trixie
 check_error "GStreamer installation"
 print_success "GStreamer installed"
 
