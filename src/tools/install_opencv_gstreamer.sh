@@ -19,25 +19,24 @@
 #   1. Activate your virtual environment:
 #      source ~/PixEagle/venv/bin/activate
 #
-#   2. Run this script (normal mode - reuses existing source if present):
+#   2. Run this script (default: clean build from scratch):
 #      bash ~/PixEagle/src/tools/install_opencv_gstreamer.sh
 #
-#   3. OR run with --clean flag (removes everything and rebuilds from scratch):
-#      bash ~/PixEagle/src/tools/install_opencv_gstreamer.sh --clean
+#   3. OR run with --keep-sources to reuse existing source directories:
+#      bash ~/PixEagle/src/tools/install_opencv_gstreamer.sh --keep-sources
 #
 # ============================================================================
-# WHEN TO USE --clean FLAG:
+# DEFAULT BEHAVIOR (CLEAN BUILD):
 # ============================================================================
-#   Use --clean if:
-#   - Previous build failed or was interrupted
-#   - OpenCV was built with missing features (no GStreamer, no FFMPEG)
-#   - You want to upgrade to a different OpenCV version
-#   - You're experiencing strange issues with video capture
+#   The script always performs a clean build by default:
+#   - Removes existing opencv/ and opencv_contrib/ directories
+#   - Removes existing cv2 installation from venv
+#   - Clones fresh sources and builds from scratch
+#   - Ensures no conflicts from previous installations
 #
-#   Normal mode (no flag):
-#   - Reuses existing opencv/opencv_contrib source directories
-#   - Still creates fresh build directory each time
-#   - Faster if sources already downloaded
+#   Use --keep-sources only if:
+#   - You already have correct sources and want to save download time
+#   - You're debugging the build process
 #
 # Author: Alireza Ghaderi
 # Date: Feb 2025
@@ -48,25 +47,30 @@ set -e  # Exit on error
 # =============================================================================
 # Parse Command Line Arguments
 # =============================================================================
-CLEAN_BUILD=false
+SKIP_CLEAN=false
 
 show_help() {
     echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  --clean    Remove all existing OpenCV sources and installed files,"
-    echo "             then rebuild everything from scratch"
-    echo "  --help     Show this help message"
+    echo "  --keep-sources   Keep existing opencv/opencv_contrib directories"
+    echo "                   (default behavior removes them for clean build)"
+    echo "  --help           Show this help message"
+    echo ""
+    echo "Default behavior:"
+    echo "  - Removes existing opencv and opencv_contrib directories"
+    echo "  - Removes existing cv2 installation from venv"
+    echo "  - Clones fresh sources and builds from scratch"
     echo ""
     echo "Examples:"
-    echo "  $0              # Normal build (reuses existing sources)"
-    echo "  $0 --clean      # Clean rebuild from scratch"
+    echo "  $0                    # Clean build (default)"
+    echo "  $0 --keep-sources     # Reuse existing sources"
 }
 
 for arg in "$@"; do
     case $arg in
-        --clean)
-            CLEAN_BUILD=true
+        --keep-sources|--keep)
+            SKIP_CLEAN=true
             shift
             ;;
         --help|-h)
@@ -128,22 +132,10 @@ print_header "OpenCV $OPENCV_VERSION Installation with Full Video Support"
 
 # Show build mode
 echo ""
-if [ "$CLEAN_BUILD" = true ]; then
-    print_warning "CLEAN BUILD MODE: Will remove all existing OpenCV files and rebuild from scratch"
-    echo "  This will delete:"
-    echo "    - $OPENCV_DIR"
-    echo "    - $OPENCV_CONTRIB_DIR"
-    echo "    - Existing cv2 installation in venv"
-    echo ""
-    read -p "Are you sure you want to continue? (y/N) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Aborted."
-        exit 0
-    fi
+if [ "$SKIP_CLEAN" = true ]; then
+    echo "Keep-sources mode: Reusing existing opencv/opencv_contrib if present"
 else
-    echo "Normal build mode (reusing existing sources if present)"
-    echo "  Tip: Use --clean flag to rebuild everything from scratch"
+    echo "Clean build mode (default): Will remove and rebuild from scratch"
 fi
 
 # =============================================================================
@@ -162,9 +154,9 @@ fi
 print_success "Virtual environment: $VIRTUAL_ENV"
 
 # =============================================================================
-# Clean Build: Remove existing installations if --clean flag is set
+# Clean Build: Remove existing installations (default behavior)
 # =============================================================================
-if [ "$CLEAN_BUILD" = true ]; then
+if [ "$SKIP_CLEAN" = false ]; then
     echo ""
     print_step "Performing clean build - removing existing installations..."
 
