@@ -100,8 +100,9 @@ class ChaseFollower(BaseFollower):
         self.min_thrust = config.get('MIN_THRUST', 0.3)
         self.max_thrust = config.get('MAX_THRUST', 1.0)
         self.yaw_error_threshold = config.get('YAW_ERROR_THRESHOLD', 20.0)
-        self.min_descent_height = config.get('MIN_DESCENT_HEIGHT', 40.0)
-        self.max_climb_height = config.get('MAX_CLIMB_HEIGHT', 10000.0)
+        # Use unified limit access (follower-specific overrides global SafetyLimits)
+        self.min_descent_height = Parameters.get_effective_limit('MIN_ALTITUDE', 'CHASE_FOLLOWER')
+        self.max_climb_height = Parameters.get_effective_limit('MAX_ALTITUDE', 'CHASE_FOLLOWER')
         self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
         self.coordinate_turn_enabled = config.get('COORDINATE_TURN_ENABLED', True)
         self.aggressive_mode = config.get('AGGRESSIVE_MODE', True)
@@ -125,36 +126,38 @@ class ChaseFollower(BaseFollower):
     def _initialize_pid_controllers(self) -> None:
         """
         Initializes all PID controllers for attitude rate control with proper configuration.
-        
+
         Creates four PID controllers:
         - Pitch Rate: Vertical target tracking
-        - Yaw Rate: Horizontal target tracking  
+        - Yaw Rate: Horizontal target tracking
         - Roll Rate: Coordinated turn control
         - Thrust: Speed management
-        
+
+        All angular rate PID gains use deg/s naming convention (MAVSDK standard).
+
         Raises:
             ValueError: If PID gain configuration is invalid.
         """
         try:
             setpoint_x, setpoint_y = self.initial_target_coords
-            
-            # Pitch Rate Controller - Vertical Control
+
+            # Pitch Rate Controller - Vertical Control (deg/s)
             self.pid_pitch_rate = CustomPID(
-                *self._get_pid_gains('pitch_rate'),
+                *self._get_pid_gains('pitchspeed_deg_s'),
                 setpoint=setpoint_y,
                 output_limits=(-self.max_pitch_rate, self.max_pitch_rate)
             )
 
-            # Yaw Rate Controller - Horizontal Control
+            # Yaw Rate Controller - Horizontal Control (deg/s)
             self.pid_yaw_rate = CustomPID(
-                *self._get_pid_gains('yaw_rate'),
+                *self._get_pid_gains('yawspeed_deg_s'),
                 setpoint=setpoint_x,
                 output_limits=(-self.max_yaw_rate, self.max_yaw_rate)
             )
 
-            # Roll Rate Controller - Coordinated Turn Control (setpoint updated dynamically)
+            # Roll Rate Controller - Coordinated Turn Control (deg/s, setpoint updated dynamically)
             self.pid_roll_rate = CustomPID(
-                *self._get_pid_gains('roll_rate'),
+                *self._get_pid_gains('rollspeed_deg_s'),
                 setpoint=0.0,  # Updated based on bank angle calculations
                 output_limits=(-self.max_roll_rate, self.max_roll_rate)
             )
@@ -180,11 +183,11 @@ class ChaseFollower(BaseFollower):
         Retrieves PID gains for the specified control axis.
 
         Args:
-            axis (str): Control axis name ('pitch_rate', 'yaw_rate', 'roll_rate', 'thrust').
+            axis (str): Control axis name ('pitchspeed_deg_s', 'yawspeed_deg_s', 'rollspeed_deg_s', 'thrust').
 
         Returns:
             Tuple[float, float, float]: (P, I, D) gains for the specified axis.
-            
+
         Raises:
             KeyError: If the specified axis is not configured.
         """
@@ -198,18 +201,19 @@ class ChaseFollower(BaseFollower):
     def _update_pid_gains(self) -> None:
         """
         Updates all PID controller gains from current parameter configuration.
-        
+
         This method should be called when parameters are updated during runtime
         to ensure controllers use the latest gain values.
         """
         try:
-            self.pid_pitch_rate.tunings = self._get_pid_gains('pitch_rate')
-            self.pid_yaw_rate.tunings = self._get_pid_gains('yaw_rate')
-            self.pid_roll_rate.tunings = self._get_pid_gains('roll_rate')
+            # All angular rate gains use deg/s naming convention
+            self.pid_pitch_rate.tunings = self._get_pid_gains('pitchspeed_deg_s')
+            self.pid_yaw_rate.tunings = self._get_pid_gains('yawspeed_deg_s')
+            self.pid_roll_rate.tunings = self._get_pid_gains('rollspeed_deg_s')
             self.pid_thrust.tunings = self._get_pid_gains('thrust')
-            
+
             logger.debug("PID gains updated for all ChaseFollower controllers")
-            
+
         except Exception as e:
             logger.error(f"Failed to update PID gains: {e}")
 
@@ -267,9 +271,9 @@ class ChaseFollower(BaseFollower):
         # Calculate coordinated turn dynamics
         roll_rate = self._calculate_coordinated_roll_rate(yaw_rate, current_speed, current_roll)
         
-        # Update setpoint handler using schema-aware methods
-        self.set_command_field('roll_rate', roll_rate)
-        self.set_command_field('yaw_rate', yaw_rate)
+        # Update setpoint handler using schema-aware methods (deg/s field names)
+        self.set_command_field('rollspeed_deg_s', roll_rate)
+        self.set_command_field('yawspeed_deg_s', yaw_rate)
         
         # Store last commands for telemetry
         self.last_bank_angle = self._calculate_target_bank_angle(yaw_rate, current_speed)
@@ -351,8 +355,8 @@ class ChaseFollower(BaseFollower):
             thrust_command (float): Calculated thrust command.
         """
         if not self.yaw_error_check_enabled:
-            # If gating disabled, apply commands directly
-            self.set_command_field('pitch_rate', pitch_command)
+            # If gating disabled, apply commands directly (deg/s field names)
+            self.set_command_field('pitchspeed_deg_s', pitch_command)
             self.set_command_field('thrust', thrust_command)
             self.dive_started = True
             logger.debug("Yaw error gating disabled - applying all commands directly")
@@ -360,8 +364,8 @@ class ChaseFollower(BaseFollower):
 
         # Check if already in dive mode or yaw error is acceptable
         if self.dive_started or abs(yaw_error) < self.yaw_error_threshold:
-            # Apply full control commands
-            self.set_command_field('pitch_rate', pitch_command)
+            # Apply full control commands (deg/s field names)
+            self.set_command_field('pitchspeed_deg_s', pitch_command)
             self.set_command_field('thrust', thrust_command)
             
             if not self.dive_started:
@@ -373,7 +377,7 @@ class ChaseFollower(BaseFollower):
         else:
             # Hold hover throttle until yaw alignment improves
             hover_throttle = getattr(self.px4_controller, 'hover_throttle', 0.5)
-            self.set_command_field('pitch_rate', 0.0)  # No pitch until aligned
+            self.set_command_field('pitchspeed_deg_s', 0.0)  # No pitch until aligned
             self.set_command_field('thrust', hover_throttle)
             
             logger.debug(f"Yaw error {abs(yaw_error):.1f}° exceeds threshold {self.yaw_error_threshold}° - "

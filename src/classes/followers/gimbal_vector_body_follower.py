@@ -155,13 +155,13 @@ class GimbalVectorBodyFollower(BaseFollower):
         self.filtered_angles = None  # (yaw, pitch, roll) in degrees
 
         # === Altitude Safety (Optional Enforcement) ===
-        # Consistent with BODY_VELOCITY_CHASE pattern
+        # Use unified limit access (follower-specific overrides global SafetyLimits)
         self.altitude_safety_enabled = self.config.get('ALTITUDE_SAFETY_ENABLED', False)
-        self.min_altitude_safety = self.config.get('MIN_ALTITUDE_SAFETY', 3.0)
-        self.max_altitude_safety = self.config.get('MAX_ALTITUDE_SAFETY', 120.0)
+        self.min_altitude_safety = Parameters.get_effective_limit('MIN_ALTITUDE', 'GIMBAL_VECTOR_BODY')
+        self.max_altitude_safety = Parameters.get_effective_limit('MAX_ALTITUDE', 'GIMBAL_VECTOR_BODY')
         self.altitude_check_interval = self.config.get('ALTITUDE_CHECK_INTERVAL', 1.0)
         self.rtl_on_altitude_violation = self.config.get('RTL_ON_ALTITUDE_VIOLATION', False)
-        self.altitude_warning_buffer = self.config.get('ALTITUDE_WARNING_BUFFER', 2.0)
+        self.altitude_warning_buffer = Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', 'GIMBAL_VECTOR_BODY')
         self.altitude_violation_count = 0
         self.last_altitude_check_time = 0.0
 

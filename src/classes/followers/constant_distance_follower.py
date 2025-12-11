@@ -93,14 +93,14 @@ class ConstantDistanceFollower(BaseFollower):
         self.altitude_control_enabled = config.get('ENABLE_ALTITUDE_CONTROL', True)
         self.initial_target_coords = initial_target_coords
 
-        # Load other parameters from config
-        self.min_descent_height = config.get('MIN_DESCENT_HEIGHT', 3.0)
-        self.max_climb_height = config.get('MAX_CLIMB_HEIGHT', 120.0)
+        # Load altitude limits using unified limit access (follower-specific overrides global SafetyLimits)
+        self.min_descent_height = Parameters.get_effective_limit('MIN_ALTITUDE', 'CONSTANT_DISTANCE')
+        self.max_climb_height = Parameters.get_effective_limit('MAX_ALTITUDE', 'CONSTANT_DISTANCE')
         self.max_vertical_velocity = config.get('MAX_VERTICAL_VELOCITY', 5.0)
         self.max_lateral_velocity = config.get('MAX_LATERAL_VELOCITY', 10.0)
         from math import radians
-        # Internal rad/s; convert deg/s config to rad/s default
-        self.max_yaw_rate = config.get('MAX_YAW_RATE', radians(45.0))
+        # Internal rad/s; get MAX_YAW_RATE from SafetyLimits (in deg/s) and convert
+        self.max_yaw_rate = radians(Parameters.get_effective_limit('MAX_YAW_RATE', 'CONSTANT_DISTANCE'))
         self.yaw_control_threshold = config.get('YAW_CONTROL_THRESHOLD', 0.3)
         self.target_lost_timeout = config.get('TARGET_LOST_TIMEOUT', 3.0)
         self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
@@ -158,9 +158,10 @@ class ConstantDistanceFollower(BaseFollower):
             )
             
             # Initialize yaw PID controller if enabled (internal rad/s)
+            # Uses yawspeed_deg_s gains (deg/s MAVSDK standard)
             if self.yaw_enabled:
                 self.pid_yaw_rate = CustomPID(
-                    *self._get_pid_gains('yaw_rate'),
+                    *self._get_pid_gains('yawspeed_deg_s'),
                     setpoint=setpoint_x,  # X coordinate controls yaw
                     output_limits=(-self.max_yaw_rate, self.max_yaw_rate)
                 )
@@ -181,12 +182,12 @@ class ConstantDistanceFollower(BaseFollower):
     def _get_pid_gains(self, axis: str) -> Tuple[float, float, float]:
         """
         Retrieve PID gains for specified axis from parameters.
-        
+
         This method retrieves the standard PID gains without gain scheduling
         as ConstantDistanceFollower uses simpler control logic.
-        
+
         Args:
-            axis (str): Control axis identifier ('y', 'z', or 'yaw_rate')
+            axis (str): Control axis identifier ('y', 'z', or 'yawspeed_deg_s')
             
         Returns:
             Tuple[float, float, float]: PID gains as (P, I, D) tuple
@@ -227,7 +228,7 @@ class ConstantDistanceFollower(BaseFollower):
             self.pid_z.tunings = self._get_pid_gains('z')
             
             if self.yaw_enabled and self.pid_yaw_rate is not None:
-                self.pid_yaw_rate.tunings = self._get_pid_gains('yaw_rate')
+                self.pid_yaw_rate.tunings = self._get_pid_gains('yawspeed_deg_s')
             
             logger.debug("PID gains updated successfully for ConstantDistanceFollower")
             

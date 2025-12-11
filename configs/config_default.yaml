@@ -2,7 +2,7 @@
 # PixEagle Configuration File - v2.0
 # ==============================================================================
 # 📋 Priority parameters are at the top for quick access
-# 🔧 All legacy parameters preserved (deprecated ones marked in comments)
+# 🔧 Clean unified configuration - no legacy or deprecated sections
 # 📘 Enhanced documentation for each parameter
 # ==============================================================================
 
@@ -248,6 +248,9 @@ Tracking:
   PF_CANNY_THRESHOLD2: 150
   PF_EFFECTIVE_PARTICLE_NUM_THRESHOLD: 0.5
   PF_RANDOM_PARTICLE_RATIO: 0.1           # Random resampling ratio
+
+  # === Target Aim Point ===
+  DESIRE_AIM: [0, 0]                       # Desired aim point in frame [x, y] (normalized)
 
 # ==============================================================================
 # 🎯 KCF TRACKER CONFIGURATION (Kernelized Correlation Filter + Kalman)
@@ -1047,9 +1050,11 @@ GimbalFollower:
     HIGH_CONFIDENCE_THRESHOLD: 0.8         # High confidence threshold
     LOW_CONFIDENCE_THRESHOLD: 0.3          # Low confidence threshold
 
-  # === Safety Parameters ===
-  MIN_ALTITUDE_SAFETY: 3.0                # Minimum safe altitude (meters)
-  MAX_ALTITUDE_SAFETY: 120.0              # Maximum safe altitude (meters)
+  # === Safety Parameters (Override global SafetyLimits if needed) ===
+  # These use unified naming: MIN_ALTITUDE, MAX_ALTITUDE
+  # If not specified, values inherit from SafetyLimits section
+  # MIN_ALTITUDE: 3.0                     # Override global minimum altitude (meters)
+  # MAX_ALTITUDE: 120.0                   # Override global maximum altitude (meters)
   MAX_SAFETY_VIOLATIONS: 5                # Maximum allowed safety violations before blocking
   SAFETY_RETURN_SPEED: 3.0                # Velocity when returning to safe altitude (m/s)
   EMERGENCY_STOP_ENABLED: true            # Enable emergency velocity zeroing
@@ -1118,12 +1123,12 @@ GIMBAL_VECTOR_BODY:
 
   # === Altitude Safety (Optional Enforcement) ===
   # Enable altitude monitoring and enforcement (similar to BODY_VELOCITY_CHASE)
+  # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE (overrides global SafetyLimits if set)
   ALTITUDE_SAFETY_ENABLED: false          # Enable altitude boundary enforcement
-  MIN_ALTITUDE_SAFETY: 3.0                # m - minimum safe altitude (if enabled)
-  MAX_ALTITUDE_SAFETY: 120.0              # m - maximum safe altitude (if enabled)
+  # MIN_ALTITUDE: 3.0                     # Override global minimum altitude (meters)
+  # MAX_ALTITUDE: 120.0                   # Override global maximum altitude (meters)
   ALTITUDE_CHECK_INTERVAL: 1.0            # seconds - altitude check frequency
   RTL_ON_ALTITUDE_VIOLATION: false        # Trigger RTL on altitude violation (conservative default)
-  ALTITUDE_WARNING_BUFFER: 2.0            # m - warning zone before limits
 
   # === General Safety Parameters ===
   EMERGENCY_STOP_ENABLED: true            # Enable emergency velocity zeroing
@@ -1174,13 +1179,13 @@ BODY_VELOCITY_CHASE:
   GUIDANCE_MODE_SWITCH_VELOCITY: 3.0          # m/s - auto-switch threshold
   ENABLE_AUTO_MODE_SWITCHING: false          # Auto-switch based on forward velocity
   
-  # === 🛡️ ALTITUDE SAFETY (Body Velocity Chase Specific) ===
-  ALTITUDE_SAFETY_ENABLED: false          # Enable altitude monitoring  
-  MIN_ALTITUDE_LIMIT: 5.0               # meters - trigger RTL below this
-  MAX_ALTITUDE_LIMIT: 50.0              # meters - trigger RTL above this
-  ALTITUDE_CHECK_INTERVAL: 1.0           # seconds - check frequency
-  RTL_ON_ALTITUDE_VIOLATION: true        # Trigger RTL on violation
-  ALTITUDE_WARNING_BUFFER: 2.0           # meters - warning zone before limits
+  # === 🛡️ ALTITUDE SAFETY (Overrides global SafetyLimits) ===
+  # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE
+  ALTITUDE_SAFETY_ENABLED: false          # Enable altitude monitoring
+  MIN_ALTITUDE: 5.0                       # Override: stricter minimum altitude (meters)
+  MAX_ALTITUDE: 50.0                      # Override: stricter maximum altitude (meters)
+  ALTITUDE_CHECK_INTERVAL: 1.0            # seconds - check frequency
+  RTL_ON_ALTITUDE_VIOLATION: true         # Trigger RTL on violation
   
   # === Safety Limits (Additional to Schema Limits) ===
   EMERGENCY_STOP_ENABLED: true            # Enable emergency velocity zeroing
@@ -1283,9 +1288,9 @@ CONSTANT_POSITION:
   ENABLE_ALTITUDE_CONTROL: false           # Enable vel_z control
   ENABLE_YAW_CONTROL: true                # Always enabled for this mode
 
-  # === Altitude Parameters ===
-  MIN_DESCENT_HEIGHT: 3.0                 # Minimum safe altitude (meters)
-  MAX_CLIMB_HEIGHT: 120.0                 # Maximum altitude (meters)
+  # === Altitude Parameters (Uses unified naming, inherits from SafetyLimits) ===
+  # MIN_ALTITUDE: 3.0                     # Override global minimum altitude (meters)
+  # MAX_ALTITUDE: 120.0                   # Override global maximum altitude (meters)
   MAX_VERTICAL_VELOCITY: 3.0              # Max vertical velocity (m/s)
 
   # === Yaw Control ===
@@ -1306,9 +1311,9 @@ CONSTANT_DISTANCE:
   ENABLE_YAW_CONTROL: false              # Enable yaw rate control for target centering
   ENABLE_ALTITUDE_CONTROL: false          # Enable bidirectional altitude control
 
-  # === Altitude Parameters ===
-  MIN_DESCENT_HEIGHT: 3.0                # Minimum safe altitude (meters)
-  MAX_CLIMB_HEIGHT: 120.0                # Maximum altitude (meters)
+  # === Altitude Parameters (Uses unified naming, inherits from SafetyLimits) ===
+  # MIN_ALTITUDE: 3.0                    # Override global minimum altitude (meters)
+  # MAX_ALTITUDE: 120.0                  # Override global maximum altitude (meters)
   MAX_VERTICAL_VELOCITY: 5.0             # Max vertical velocity (m/s)
 
   # === Lateral Control ===
@@ -1354,9 +1359,10 @@ CHASE_FOLLOWER:
   # === Safety Thresholds ===
   YAW_ERROR_THRESHOLD: 20.0             # Yaw error threshold for dive activation (deg)
 
-  # === Altitude Limits (when failsafe enabled) ===
-  MIN_DESCENT_HEIGHT: 40.0              # Minimum safe altitude (meters)
-  MAX_CLIMB_HEIGHT: 10000.0             # Maximum altitude (meters)
+  # === Altitude Limits (Overrides global SafetyLimits when failsafe enabled) ===
+  # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE
+  MIN_ALTITUDE: 40.0                    # Override: higher minimum for chase mode (meters)
+  MAX_ALTITUDE: 10000.0                 # Override: no practical max for chase mode (meters)
 
   # === Performance Tuning ===
   CONTROL_UPDATE_RATE: 20.0             # Control loop frequency (Hz)
@@ -1375,9 +1381,10 @@ GROUND_VIEW:
   MAX_VELOCITY_Y: 10.0                  # Max longitudinal velocity (m/s)
   MAX_RATE_OF_DESCENT: 2.0              # Max descent rate (m/s)
 
-  # === Descent Control ===
+  # === Descent Control (Overrides global SafetyLimits) ===
+  # Uses unified naming: MIN_ALTITUDE
   ENABLE_DESCEND_TO_TARGET: false       # Enable automatic descent to target
-  MIN_DESCENT_HEIGHT: 40.0              # Minimum safe descent altitude (meters)
+  MIN_ALTITUDE: 40.0                    # Override: higher minimum for ground view mode (meters)
 
   # === Gimbal Corrections ===
   IS_CAMERA_GIMBALED: false             # Camera stabilization status
@@ -1583,53 +1590,56 @@ ChaseFollower:
 # ==============================================================================
 PID:
   # ⚙️ PID gains for each control axis
+  # All angular rates in deg/s (MAVSDK standard)
+  # One PID gain set per physical axis - no duplicates
   PID_GAINS:
-    x: {p: 4.5, i: 0.1, d: 1.5}            # Lateral
-    y: {p: 4.5, i: 0.1, d: 1.5}            # Longitudinal  
-    z: {p: 2, i: 0.03, d: 0.05}            # Vertical
-    roll_rate: {p: 1, i: 0.05, d: 0.2}
-    pitch_rate: {p: 20, i: 0.1, d: 0.4}
-    yaw_rate: {p: 0.5, i: 0.05, d: 0.1}
+    x: {p: 4.5, i: 0.1, d: 1.5}            # Lateral position
+    y: {p: 4.5, i: 0.1, d: 1.5}            # Longitudinal position
+    z: {p: 2, i: 0.03, d: 0.05}            # Vertical position
+    rollspeed_deg_s: {p: 1, i: 0.05, d: 0.2}     # Roll rate (deg/s)
+    pitchspeed_deg_s: {p: 20, i: 0.1, d: 0.4}    # Pitch rate (deg/s)
+    yawspeed_deg_s: {p: 0.9, i: 0.05, d: 0.1}    # Yaw rate (deg/s)
     thrust: {p: 0.1, i: 3, d: 1}
     vel_body_right: {p: 1.0, i: 0.02, d: 0.1}
     vel_body_down: {p: 0.75, i: 0.05, d: 0.1}
-    yawspeed_deg_s: {p: 0.9, i: 0.05, d: 0.1}  # Yaw rate (coordinated turn mode)
   # === Advanced PID Features ===
   PROPORTIONAL_ON_MEASUREMENT: false        # Avoid derivative kick
   ENABLE_ANTI_WINDUP: true                  # Prevent integral windup
   ANTI_WINDUP_BACK_CALC_COEFF: 0.1         # Back-calculation coefficient
 
 # ==============================================================================
-# VELOCITY & SAFETY LIMITS
+# SAFETY LIMITS - GLOBAL DEFAULTS
 # ==============================================================================
-VelocityDescent:
-  # 🛡️ Safety limits and control parameters
-  VELOCITY_LIMITS:
-    x: 10.0                                 # Max lateral velocity (m/s)
-    y: 10.0                                 # Max longitudinal velocity (m/s)
-    z: 5.0                                  # Max vertical velocity (m/s)
-    vel_body_fwd: 15.0
-    vel_body_right: 8.0  
-    vel_body_down: 5.0
-    yawspeed_deg_s: 10.0
-  
-  # === Altitude Control ===
-  ENABLE_DESCEND_TO_TARGET: false          # Follow target down
-  MIN_DESCENT_HEIGHT: 40                   # Min altitude (m)
-  MAX_CLIMB_HEIGHT: 10000                  # Max altitude (m)
-  MAX_RATE_OF_DESCENT: 2                   # m/s
-  
-  # === Yaw Control ===
-  MAX_YAW_RATE: 10                         # deg/s
-  
-  # === Camera Aiming ===
-  DESIRE_AIM: [0, 0]                       # Desired aim point in frame
-  IS_CAMERA_GIMBALED: false                # Fixed vs gimbal camera
-  
-  # === Control Scaling ===
-  BASE_ADJUSTMENT_FACTOR_X: 0.1
-  BASE_ADJUSTMENT_FACTOR_Y: 0.1
-  ALTITUDE_FACTOR: 0.005                   # Scale with altitude
+# System-wide safety limits that apply to ALL followers by default.
+# Individual followers can override these in their own sections if needed.
+# Priority: Follower-specific override > Global SafetyLimits > Hardcoded fallback
+#
+# Naming Convention (unified across all followers):
+#   - MIN_ALTITUDE: Minimum safe operating altitude (meters)
+#   - MAX_ALTITUDE: Maximum safe operating altitude (meters)
+#   - MAX_VELOCITY_FORWARD: Maximum forward velocity (m/s)
+#   - MAX_VELOCITY_LATERAL: Maximum lateral/sideways velocity (m/s)
+#   - MAX_VELOCITY_VERTICAL: Maximum vertical velocity (m/s)
+#   - MAX_YAW_RATE: Maximum yaw rotation rate (deg/s)
+# ==============================================================================
+SafetyLimits:
+  # === Altitude Boundaries ===
+  MIN_ALTITUDE: 3.0                    # meters - Absolute minimum safe altitude
+  MAX_ALTITUDE: 120.0                  # meters - Maximum altitude (regulatory compliance)
+
+  # === Velocity Limits ===
+  MAX_VELOCITY_FORWARD: 15.0           # m/s - Maximum forward velocity
+  MAX_VELOCITY_LATERAL: 10.0           # m/s - Maximum lateral velocity
+  MAX_VELOCITY_VERTICAL: 5.0           # m/s - Maximum vertical velocity (up/down)
+
+  # === Rotation Limits ===
+  MAX_YAW_RATE: 45.0                   # deg/s - Maximum yaw rotation rate
+
+  # === Safety Behavior ===
+  ALTITUDE_WARNING_BUFFER: 2.0         # meters - Warning zone before hard limits
+  EMERGENCY_STOP_ENABLED: true         # Enable emergency velocity zeroing globally
+  RTL_ON_VIOLATION: true               # Return to launch on limit violations
+  MAX_SAFETY_VIOLATIONS: 5             # Max violations before emergency action
 
 # ==============================================================================
 # GAIN SCHEDULING

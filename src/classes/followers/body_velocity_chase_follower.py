@@ -124,11 +124,12 @@ class BodyVelocityChaseFollower(BaseFollower):
         self.guidance_mode_switch_velocity = config.get('GUIDANCE_MODE_SWITCH_VELOCITY', 3.0)
         self.enable_auto_mode_switching = config.get('ENABLE_AUTO_MODE_SWITCHING', False)
         self.altitude_safety_enabled = config.get('ALTITUDE_SAFETY_ENABLED', False)
-        self.min_altitude_limit = config.get('MIN_ALTITUDE_LIMIT', 10.0)
-        self.max_altitude_limit = config.get('MAX_ALTITUDE_LIMIT', 120.0)
+        # Use unified limit access (follower-specific overrides global SafetyLimits)
+        self.min_altitude_limit = Parameters.get_effective_limit('MIN_ALTITUDE', 'BODY_VELOCITY_CHASE')
+        self.max_altitude_limit = Parameters.get_effective_limit('MAX_ALTITUDE', 'BODY_VELOCITY_CHASE')
         self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 1.0)
         self.rtl_on_altitude_violation = config.get('RTL_ON_ALTITUDE_VIOLATION', True)
-        self.altitude_warning_buffer = config.get('ALTITUDE_WARNING_BUFFER', 2.0)
+        self.altitude_warning_buffer = Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', 'BODY_VELOCITY_CHASE')
         self.emergency_stop_enabled = config.get('EMERGENCY_STOP_ENABLED', True)
         self.max_tracking_error = config.get('MAX_TRACKING_ERROR', 1.5)
         self.velocity_smoothing_enabled = config.get('VELOCITY_SMOOTHING_ENABLED', True)
@@ -263,32 +264,32 @@ class BodyVelocityChaseFollower(BaseFollower):
             
             if self.active_lateral_mode == 'sideslip':
                 # Sideslip Mode: Direct lateral velocity control
+                max_lateral = Parameters.get_effective_limit('MAX_VELOCITY_LATERAL', 'BODY_VELOCITY_CHASE')
                 self.pid_right = CustomPID(
                     *self._get_pid_gains('vel_body_right'),
                     setpoint=setpoint_x,
-                    output_limits=(-Parameters.VELOCITY_LIMITS['vel_body_right'], 
-                                  Parameters.VELOCITY_LIMITS['vel_body_right'])
+                    output_limits=(-max_lateral, max_lateral)
                 )
                 logger.debug(f"Sideslip mode PID initialized with gains {self._get_pid_gains('vel_body_right')}")
-                
+
             elif self.active_lateral_mode == 'coordinated_turn':
                 # Coordinated Turn Mode: Yaw rate control
+                max_yaw = Parameters.get_effective_limit('MAX_YAW_RATE', 'BODY_VELOCITY_CHASE')
                 self.pid_yaw_speed = CustomPID(
                     *self._get_pid_gains('yawspeed_deg_s'),
                     setpoint=setpoint_x,
-                    output_limits=(-Parameters.VELOCITY_LIMITS['yawspeed_deg_s'], 
-                                  Parameters.VELOCITY_LIMITS['yawspeed_deg_s'])
+                    output_limits=(-max_yaw, max_yaw)
                 )
                 logger.debug(f"Coordinated turn mode PID initialized with gains {self._get_pid_gains('yawspeed_deg_s')}")
-            
+
             # Down Velocity Controller - Vertical Control (if enabled)
             self.pid_down = None
             if self.enable_altitude_control:
+                max_vertical = Parameters.get_effective_limit('MAX_VELOCITY_VERTICAL', 'BODY_VELOCITY_CHASE')
                 self.pid_down = CustomPID(
                     *self._get_pid_gains('vel_body_down'),
                     setpoint=setpoint_y,
-                    output_limits=(-Parameters.VELOCITY_LIMITS['vel_body_down'], 
-                                  Parameters.VELOCITY_LIMITS['vel_body_down'])
+                    output_limits=(-max_vertical, max_vertical)
                 )
                 logger.debug(f"Down velocity PID initialized with gains {self._get_pid_gains('vel_body_down')}")
             else:
@@ -348,21 +349,21 @@ class BodyVelocityChaseFollower(BaseFollower):
             
             if new_mode == 'sideslip' and self.pid_right is None:
                 # Initialize sideslip PID controller
+                max_lateral = Parameters.get_effective_limit('MAX_VELOCITY_LATERAL', 'BODY_VELOCITY_CHASE')
                 self.pid_right = CustomPID(
                     *self._get_pid_gains('vel_body_right'),
                     setpoint=setpoint_x,
-                    output_limits=(-Parameters.VELOCITY_LIMITS['vel_body_right'], 
-                                  Parameters.VELOCITY_LIMITS['vel_body_right'])
+                    output_limits=(-max_lateral, max_lateral)
                 )
                 logger.debug("Sideslip PID controller initialized during mode switch")
-                
+
             elif new_mode == 'coordinated_turn' and self.pid_yaw_speed is None:
                 # Initialize coordinated turn PID controller
+                max_yaw = Parameters.get_effective_limit('MAX_YAW_RATE', 'BODY_VELOCITY_CHASE')
                 self.pid_yaw_speed = CustomPID(
                     *self._get_pid_gains('yawspeed_deg_s'),
                     setpoint=setpoint_x,
-                    output_limits=(-Parameters.VELOCITY_LIMITS['yawspeed_deg_s'], 
-                                  Parameters.VELOCITY_LIMITS['yawspeed_deg_s'])
+                    output_limits=(-max_yaw, max_yaw)
                 )
                 logger.debug("Coordinated turn PID controller initialized during mode switch")
             
@@ -788,7 +789,7 @@ class BodyVelocityChaseFollower(BaseFollower):
 
         Note:
             - Returns unchanged velocities if adaptive mode inactive
-            - Respects PX4 velocity limits from Parameters.VELOCITY_LIMITS
+            - Respects PX4 velocity limits from SafetyLimits configuration
             - Mode-specific authority: sideslip mode gets 50% reduced correction
         """
         try:
@@ -843,9 +844,9 @@ class BodyVelocityChaseFollower(BaseFollower):
             adjusted_v_down = current_v_down + v_down_correction
             adjusted_v_fwd = current_v_fwd + v_fwd_correction
 
-            # Apply absolute velocity limits from Parameters
-            max_v_fwd = Parameters.VELOCITY_LIMITS.get('vel_body_fwd', 15.0)
-            max_v_down = Parameters.VELOCITY_LIMITS.get('vel_body_down', 5.0)
+            # Apply absolute velocity limits from SafetyLimits
+            max_v_fwd = Parameters.get_effective_limit('MAX_VELOCITY_FORWARD', 'BODY_VELOCITY_CHASE')
+            max_v_down = Parameters.get_effective_limit('MAX_VELOCITY_VERTICAL', 'BODY_VELOCITY_CHASE')
 
             adjusted_v_fwd = np.clip(adjusted_v_fwd, 0.0, max_v_fwd)  # Never go backward
             adjusted_v_down = np.clip(adjusted_v_down, -max_v_down, max_v_down)

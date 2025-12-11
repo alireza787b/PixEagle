@@ -116,12 +116,13 @@ class GimbalFollower(BaseFollower):
 
         # Control parameters
         self.max_velocity = self.config.get('MAX_VELOCITY', 8.0)
-        self.max_yaw_rate = self.config.get('MAX_YAW_RATE', 45.0)
+        # Use unified limit access (follower-specific overrides global SafetyLimits)
+        self.max_yaw_rate = Parameters.get_effective_limit('MAX_YAW_RATE', 'GimbalFollower')
 
-        # Safety parameters
+        # Safety parameters using unified limit access
         self.emergency_stop_enabled = self.config.get('EMERGENCY_STOP_ENABLED', True)
-        self.min_altitude_safety = self.config.get('MIN_ALTITUDE_SAFETY', 3.0)
-        self.max_altitude_safety = self.config.get('MAX_ALTITUDE_SAFETY', 120.0)
+        self.min_altitude_safety = Parameters.get_effective_limit('MIN_ALTITUDE', 'GimbalFollower')
+        self.max_altitude_safety = Parameters.get_effective_limit('MAX_ALTITUDE', 'GimbalFollower')
         self.max_safety_violations = self.config.get('MAX_SAFETY_VIOLATIONS', 5)
 
         # Performance parameters
@@ -856,25 +857,30 @@ class GimbalFollower(BaseFollower):
                 self._log_velocity_changes(forward_velocity, right_velocity, down_velocity, yaw_speed)
 
             elif tracker_data.data_type == TrackerDataType.ANGULAR:
-                # Process angular rate data (pitch_rate, yaw_rate in rad/s)
+                # Process angular rate data (input is rad/s, convert to deg/s for MAVSDK)
                 angular_data = tracker_data.angular
                 if angular_data is None:
                     raise ValueError("ANGULAR tracker data missing angular field")
 
-                # For angular rates, expect (pitch_rate, yaw_rate) tuple
+                # For angular rates, expect (pitch_rate, yaw_rate) tuple in rad/s
                 if len(angular_data) < 2:
                     raise ValueError(f"ANGULAR expects at least 2 values, got {len(angular_data)}")
 
-                pitch_rate, yaw_rate = angular_data[0], angular_data[1]
+                pitch_rate_rad, yaw_rate_rad = angular_data[0], angular_data[1]
 
-                # Apply angular rates using coordinate frame-aware methods
+                # Convert rad/s to deg/s (MAVSDK standard)
+                import math
+                pitch_deg_s = math.degrees(pitch_rate_rad)
+                yaw_deg_s = math.degrees(yaw_rate_rad)
+
+                # Apply angular rates using deg/s field names (MAVSDK standard)
                 # Angular rates work the same in both BODY and NED modes
-                self.set_command_field("roll_rate", 0.0)  # No roll for gimbal following
-                self.set_command_field("pitch_rate", pitch_rate)
-                self.set_command_field("yaw_rate", yaw_rate)
+                self.set_command_field("rollspeed_deg_s", 0.0)  # No roll for gimbal following
+                self.set_command_field("pitchspeed_deg_s", pitch_deg_s)
+                self.set_command_field("yawspeed_deg_s", yaw_deg_s)
                 self.set_command_field("thrust", self.config.get('DEFAULT_THRUST', 0.5))
 
-                logger.debug(f"Applied angular rates: pitch_rate={pitch_rate:.2f}, yaw_rate={yaw_rate:.2f}")
+                logger.debug(f"Applied angular rates (deg/s): pitch={pitch_deg_s:.2f}, yaw={yaw_deg_s:.2f}")
 
             else:
                 # Unsupported tracker data type

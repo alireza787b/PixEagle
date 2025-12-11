@@ -113,13 +113,13 @@ class ConstantPositionFollower(BaseFollower):
         self.yaw_control_enabled = config.get('ENABLE_YAW_CONTROL', True)  # Always enabled for this mode
         self.altitude_control_enabled = config.get('ENABLE_ALTITUDE_CONTROL', True)
 
-        # Load other parameters from config
-        self.min_descent_height = config.get('MIN_DESCENT_HEIGHT', 3.0)
-        self.max_climb_height = config.get('MAX_CLIMB_HEIGHT', 120.0)
+        # Load altitude limits using unified limit access (follower-specific overrides global SafetyLimits)
+        self.min_descent_height = Parameters.get_effective_limit('MIN_ALTITUDE', 'CONSTANT_POSITION')
+        self.max_climb_height = Parameters.get_effective_limit('MAX_ALTITUDE', 'CONSTANT_POSITION')
         self.max_vertical_velocity = config.get('MAX_VERTICAL_VELOCITY', 3.0)
-        # Internal unit is rad/s; assume config value is in deg/s if not specified and convert
+        # Internal unit is rad/s; get MAX_YAW_RATE from SafetyLimits (in deg/s) and convert
         from math import radians
-        self.max_yaw_rate = config.get('MAX_YAW_RATE', radians(45.0))
+        self.max_yaw_rate = radians(Parameters.get_effective_limit('MAX_YAW_RATE', 'CONSTANT_POSITION'))
         self.yaw_control_threshold = config.get('YAW_CONTROL_THRESHOLD', 0.05)
         self.target_lost_timeout = config.get('TARGET_LOST_TIMEOUT', 3.0)
         self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
@@ -151,15 +151,16 @@ class ConstantPositionFollower(BaseFollower):
     def _initialize_pid_controllers(self) -> None:
         """
         Initializes PID controllers for yaw rate and optional altitude control.
-        
+
         Raises:
             RuntimeError: If PID controller creation fails.
         """
         setpoint_x, setpoint_y = self.initial_target_coords
-        
+
         try:
             # Initialize yaw rate PID controller (always enabled)
-            yaw_gains = self._get_pid_gains('yaw_rate')
+            # Uses yawspeed_deg_s gains (deg/s MAVSDK standard)
+            yaw_gains = self._get_pid_gains('yawspeed_deg_s')
             self.pid_yaw_rate = CustomPID(
                 *yaw_gains,
                 setpoint=setpoint_x,
@@ -189,11 +190,11 @@ class ConstantPositionFollower(BaseFollower):
         Retrieves PID gains for the specified control axis with validation.
 
         Args:
-            axis (str): Control axis ('yaw_rate', 'z').
+            axis (str): Control axis ('yawspeed_deg_s', 'z').
 
         Returns:
             Tuple[float, float, float]: (P, I, D) gains for the specified axis.
-            
+
         Raises:
             ValueError: If axis is not supported or gains are invalid.
         """
@@ -223,13 +224,13 @@ class ConstantPositionFollower(BaseFollower):
     def _update_pid_gains(self) -> bool:
         """
         Updates all PID controller gains with current parameter values.
-        
+
         Returns:
             bool: True if update successful, False otherwise.
         """
         try:
-            # Update yaw rate PID gains
-            yaw_gains = self._get_pid_gains('yaw_rate')
+            # Update yaw rate PID gains (using deg/s naming convention)
+            yaw_gains = self._get_pid_gains('yawspeed_deg_s')
             self.pid_yaw_rate.tunings = yaw_gains
             
             # Update altitude PID gains if controller exists

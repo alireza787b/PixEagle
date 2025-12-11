@@ -174,36 +174,83 @@ class SetpointHandler:
         self.fields[field_name] = clamped_value
         logger.debug(f"Setpoint updated: {field_name} = {clamped_value}")
     
+    # Mapping from field names to SafetyLimits parameter names
+    # All angular rate fields use deg/s (MAVSDK standard)
+    _FIELD_TO_LIMIT_NAME = {
+        'vel_x': 'MAX_VELOCITY_FORWARD',
+        'vel_y': 'MAX_VELOCITY_LATERAL',
+        'vel_z': 'MAX_VELOCITY_VERTICAL',
+        'vel_body_fwd': 'MAX_VELOCITY_FORWARD',
+        'vel_body_right': 'MAX_VELOCITY_LATERAL',
+        'vel_body_down': 'MAX_VELOCITY_VERTICAL',
+        # Angular rate fields (deg/s - MAVSDK standard)
+        'yawspeed_deg_s': 'MAX_YAW_RATE',
+        'pitchspeed_deg_s': 'MAX_YAW_RATE',  # Using same limit for simplicity
+        'rollspeed_deg_s': 'MAX_YAW_RATE',   # Using same limit for simplicity
+        # Deprecated fields (kept for backward compatibility)
+        'yaw_rate': 'MAX_YAW_RATE',  # DEPRECATED: rad/s, needs conversion
+        'yaw_speed_deg_s': 'MAX_YAW_RATE',  # DEPRECATED: typo variant
+    }
+
     def _validate_field_limits(self, field_name: str, value: float) -> float:
         """
-        Validates and clamps the field value according to limits and clamp config.
+        Validates and clamps the field value according to limits from config.
+
+        Limit source priority:
+        1. Config-based limits from Parameters.SafetyLimits (for velocity/yaw fields)
+        2. Schema-based limits (for special fields like thrust)
+
         If clamp is enabled (default), clamps to min/max and logs a warning.
         If clamp is disabled, raises ValueError if out of bounds.
         Returns the (possibly clamped) value.
         """
+        from classes.parameters import Parameters
+        import math
+
         schema = SetpointHandler._schema_cache
         field_definitions = schema.get('command_fields', {})
-        if field_name in field_definitions:
-            field_def = field_definitions[field_name]
+
+        if field_name not in field_definitions:
+            return value
+
+        field_def = field_definitions[field_name]
+        clamp = field_def.get('clamp', True)  # Default to True if not specified
+
+        # Get limits - prefer config-based limits, fallback to schema limits
+        min_val = None
+        max_val = None
+
+        if field_name in self._FIELD_TO_LIMIT_NAME:
+            # Get limit from Parameters (config-based)
+            limit_name = self._FIELD_TO_LIMIT_NAME[field_name]
+            max_limit = Parameters.get_effective_limit(limit_name)
+
+            # Handle unit conversion for yaw_rate (rad/s) vs MAX_YAW_RATE (deg/s)
+            if field_name == 'yaw_rate':
+                max_limit = math.radians(max_limit)  # Convert deg/s to rad/s
+
+            min_val = -max_limit
+            max_val = max_limit
+        else:
+            # Fallback to schema limits (for fields like thrust)
             limits = field_def.get('limits', {})
-            clamp = field_def.get('clamp', True)  # Default to True if not specified
             min_val = limits.get('min', None)
             max_val = limits.get('max', None)
-            original_value = value
-            # Clamp logic
-            if min_val is not None and value < min_val:
-                if clamp:
-                    logger.warning(f"Value {value} for field '{field_name}' below min {min_val}; clamped to {min_val}.")
-                    value = min_val
-                else:
-                    raise ValueError(f"Value {value} for field '{field_name}' is below minimum limit {min_val}")
-            if max_val is not None and value > max_val:
-                if clamp:
-                    logger.warning(f"Value {value} for field '{field_name}' above max {max_val}; clamped to {max_val}.")
-                    value = max_val
-                else:
-                    raise ValueError(f"Value {value} for field '{field_name}' is above maximum limit {max_val}")
-            return value
+
+        # Apply clamping/validation logic
+        if min_val is not None and value < min_val:
+            if clamp:
+                logger.warning(f"Value {value} for field '{field_name}' below min {min_val}; clamped to {min_val}.")
+                value = min_val
+            else:
+                raise ValueError(f"Value {value} for field '{field_name}' is below minimum limit {min_val}")
+        if max_val is not None and value > max_val:
+            if clamp:
+                logger.warning(f"Value {value} for field '{field_name}' above max {max_val}; clamped to {max_val}.")
+                value = max_val
+            else:
+                raise ValueError(f"Value {value} for field '{field_name}' is above maximum limit {max_val}")
+
         return value
     
     def get_fields(self) -> Dict[str, float]:

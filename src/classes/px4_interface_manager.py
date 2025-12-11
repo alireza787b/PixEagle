@@ -242,10 +242,11 @@ class PX4InterfaceManager:
 
     # Removed legacy send_body_velocity_commands; using enhanced version below
             
-    async def send_attitude_rate_commands(self):
+    async def send_attitude_rate_commands_legacy(self):
         """
-        Sends attitude rate commands to the drone in offboard mode.
-        This operation uses MAVSDK.
+        [LEGACY] Sends attitude rate commands to the drone in offboard mode.
+        This method uses the old field names (roll_rate, pitch_rate, yaw_rate) in rad/s.
+        Prefer the new method which uses deg/s fields directly.
         """
         setpoint = self.setpoint_handler.get_fields()
 
@@ -263,12 +264,12 @@ class PX4InterfaceManager:
             yaw_rate = float(setpoint.get('yaw_rate', 0.0))
             thrust = float(setpoint.get('thrust', self.hover_throttle))
 
-            logger.debug(f"Setting ATTITUDE_RATE setpoint: Roll Rate={roll_rate}, Pitch Rate={pitch_rate}, Yaw Rate={yaw_rate}, Thrust={thrust}")
+            logger.debug(f"[LEGACY] Setting ATTITUDE_RATE setpoint: Roll Rate={roll_rate}, Pitch Rate={pitch_rate}, Yaw Rate={yaw_rate}, Thrust={thrust}")
 
             # Circuit breaker check - log instead of executing when testing
             if CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active():
                 FollowerCircuitBreaker.log_command_instead_of_execute(
-                    command_type="attitude_rate",
+                    command_type="attitude_rate_legacy",
                     follower_name="PX4Interface",
                     roll_rate=roll_rate, pitch_rate=pitch_rate, yaw_rate=yaw_rate, thrust=thrust
                 )
@@ -277,7 +278,7 @@ class PX4InterfaceManager:
             # Track allowed command when circuit breaker is inactive
             if CIRCUIT_BREAKER_AVAILABLE:
                 FollowerCircuitBreaker.log_command_allowed(
-                    command_type="attitude_rate",
+                    command_type="attitude_rate_legacy",
                     follower_name="PX4Interface",
                     roll_rate=roll_rate, pitch_rate=pitch_rate, yaw_rate=yaw_rate, thrust=thrust
                 )
@@ -509,16 +510,20 @@ class PX4InterfaceManager:
         """
         Enhanced schema-aware body velocity command sender.
         Only sends velocity commands if the current profile supports them.
+
+        DEPRECATED: This method uses legacy field names (yaw_rate in rad/s).
+        Prefer using send_unified_commands() with velocity_body profiles that use
+        yawspeed_deg_s directly.
         """
         try:
             if not hasattr(self, 'setpoint_handler') or self.setpoint_handler is None:
                 logger.error("Setpoint handler not initialized")
                 return
-                
+
             # Verify this is the correct control type
             if self.setpoint_handler.get_control_type() != 'velocity_body':
                 logger.warning(f"Attempting to send velocity commands but control type is: {self.setpoint_handler.get_control_type()}")
-                
+
             setpoint = self.setpoint_handler.get_fields()
             if not setpoint:
                 logger.error("No setpoint data available")
@@ -528,14 +533,19 @@ class PX4InterfaceManager:
             vx = float(setpoint.get('vel_x', 0.0))
             vy = float(setpoint.get('vel_y', 0.0))
             vz = float(setpoint.get('vel_z', 0.0))
-            yaw_rate = float(setpoint.get('yaw_rate', 0.0))
-            # Convert internal rad/s to degrees/s for MAVSDK
-            yaw_for_mavsdk = math.degrees(yaw_rate)
 
-            logger.debug(f"Sending VELOCITY_BODY: Vx={vx:.3f}, Vy={vy:.3f}, Vz={vz:.3f}, Yaw_rate={yaw_rate:.3f}")
+            # Prefer new deg/s field, fall back to deprecated rad/s field
+            if 'yawspeed_deg_s' in setpoint:
+                yaw_for_mavsdk = float(setpoint.get('yawspeed_deg_s', 0.0))
+            else:
+                # DEPRECATED: yaw_rate is in rad/s, needs conversion
+                yaw_rate = float(setpoint.get('yaw_rate', 0.0))
+                yaw_for_mavsdk = math.degrees(yaw_rate)
+
+            logger.debug(f"Sending VELOCITY_BODY: Vx={vx:.3f}, Vy={vy:.3f}, Vz={vz:.3f}, Yaw_deg_s={yaw_for_mavsdk:.3f}")
 
             # Circuit breaker check - log instead of executing when testing
-            if _should_block_px4_command("velocity_body", vx=vx, vy=vy, vz=vz, yaw_rate=yaw_rate):
+            if _should_block_px4_command("velocity_body", vx=vx, vy=vy, vz=vz, yaw_deg_s=yaw_for_mavsdk):
                 return
 
             # Send the velocity commands to the drone
@@ -556,36 +566,41 @@ class PX4InterfaceManager:
         """
         Enhanced schema-aware attitude rate command sender.
         Only sends attitude rate commands if the current profile supports them.
+
+        Uses deg/s field names directly (MAVSDK standard):
+        - rollspeed_deg_s, pitchspeed_deg_s, yawspeed_deg_s
+        Values are already in deg/s - no conversion needed.
         """
         try:
             if not hasattr(self, 'setpoint_handler') or self.setpoint_handler is None:
                 logger.error("Setpoint handler not initialized")
                 return
-                
+
             # Verify this is the correct control type
             if self.setpoint_handler.get_control_type() != 'attitude_rate':
                 logger.warning(f"Attempting to send attitude rate commands but control type is: {self.setpoint_handler.get_control_type()}")
-                
+
             setpoint = self.setpoint_handler.get_fields()
             if not setpoint:
                 logger.error("No setpoint data available")
                 return
 
-            # Extract attitude rate fields with safe defaults
-            roll_rate = float(setpoint.get('roll_rate', 0.0))
-            pitch_rate = float(setpoint.get('pitch_rate', 0.0))
-            yaw_rate = float(setpoint.get('yaw_rate', 0.0))
+            # Extract attitude rate fields with deg/s naming convention (MAVSDK standard)
+            # Values are already in deg/s - no conversion needed
+            roll_deg_s = float(setpoint.get('rollspeed_deg_s', 0.0))
+            pitch_deg_s = float(setpoint.get('pitchspeed_deg_s', 0.0))
+            yaw_deg_s = float(setpoint.get('yawspeed_deg_s', 0.0))
             thrust = float(setpoint.get('thrust', getattr(self, 'hover_throttle', 0.5)))
 
-            logger.debug(f"Sending ATTITUDE_RATE: Roll={roll_rate:.3f}, Pitch={pitch_rate:.3f}, Yaw={yaw_rate:.3f}, Thrust={thrust:.3f}")
+            logger.debug(f"Sending ATTITUDE_RATE (deg/s): Roll={roll_deg_s:.3f}, Pitch={pitch_deg_s:.3f}, Yaw={yaw_deg_s:.3f}, Thrust={thrust:.3f}")
 
             # Circuit breaker check - log instead of executing when testing
-            if _should_block_px4_command("attitude_rate", roll_rate=roll_rate, pitch_rate=pitch_rate, yaw_rate=yaw_rate, thrust=thrust):
+            if _should_block_px4_command("attitude_rate", roll_deg_s=roll_deg_s, pitch_deg_s=pitch_deg_s, yaw_deg_s=yaw_deg_s, thrust=thrust):
                 return
 
-            # Send the attitude rate commands to the drone
+            # Send the attitude rate commands to the drone (values already in deg/s)
             from mavsdk.offboard import AttitudeRate, OffboardError
-            next_setpoint = AttitudeRate(roll_rate, pitch_rate, yaw_rate, thrust)
+            next_setpoint = AttitudeRate(roll_deg_s, pitch_deg_s, yaw_deg_s, thrust)
             await self.drone.offboard.set_attitude_rate(next_setpoint)
 
         except OffboardError as e:

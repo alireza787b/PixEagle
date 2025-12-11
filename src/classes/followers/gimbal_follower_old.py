@@ -128,8 +128,8 @@ class GimbalFollower(BaseFollower):
         self.last_update_time = time.time()
         self.last_target_vector: Optional[np.ndarray] = None
 
-        # Safety parameters
-        self.min_altitude_safety = getattr(Parameters, 'GIMBAL_MIN_ALTITUDE_SAFETY', 3.0)
+        # Safety parameters - use unified SafetyLimits access
+        self.min_altitude_safety = Parameters.get_effective_limit('MIN_ALTITUDE', 'GimbalFollower')
         self.safety_return_speed = getattr(Parameters, 'GIMBAL_SAFETY_RETURN_SPEED', 3.0)
         self.emergency_stop_active = False
 

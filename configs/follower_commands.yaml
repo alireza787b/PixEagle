@@ -12,6 +12,9 @@ schema_version: "1.0.0"
 # Command Field Definitions
 # ==============================================================================
 # All possible command fields that can be used by any follower mode
+# NOTE: Velocity/altitude limits are now defined in config_default.yaml SafetyLimits section
+# This schema only defines field types, units, and descriptions.
+# Clamping behavior is still defined here (clamp: true/false).
 command_fields:
   # === Velocity Control Fields ===
   vel_x:
@@ -19,39 +22,34 @@ command_fields:
     default: 0.0
     unit: "m/s"
     description: "Body frame X velocity (forward/backward)"
-    limits:
-      min: -10.0
-      max: 10.0
-    clamp: true  # Clamp values to min/max if out of range (recommended)
-    
+    # Limits defined in config_default.yaml SafetyLimits.MAX_VELOCITY_FORWARD
+    clamp: true
+
   vel_y:
     type: float
     default: 0.0
-    unit: "m/s" 
+    unit: "m/s"
     description: "Body frame Y velocity (left/right)"
-    limits:
-      min: -10.0
-      max: 10.0
+    # Limits defined in config_default.yaml SafetyLimits.MAX_VELOCITY_LATERAL
     clamp: true
-    
+
   vel_z:
     type: float
     default: 0.0
     unit: "m/s"
     description: "Body frame Z velocity (up/down)"
-    limits:
-      min: -5.0
-      max: 5.0
+    # Limits defined in config_default.yaml SafetyLimits.MAX_VELOCITY_VERTICAL
     clamp: true
-    
+
+  # DEPRECATED: Use yawspeed_deg_s instead (deg/s standard)
+  # Kept temporarily for backward compatibility - will be removed
   yaw_rate:
     type: float
     default: 0.0
     unit: "rad/s"
-    description: "Yaw rate (rotation around Z-axis)"
-    limits:
-      min: -1.57
-      max: 1.57
+    description: "[DEPRECATED] Use yawspeed_deg_s instead"
+    deprecated: true
+    replacement: "yawspeed_deg_s"
     clamp: true
 
   # === Body Velocity Fields for Quadcopter Offboard Control ===
@@ -60,9 +58,7 @@ command_fields:
     default: 0.0
     unit: "m/s"
     description: "Body frame forward velocity (positive = forward)"
-    limits:
-      min: -15.0
-      max: 15.0
+    # Limits defined in config_default.yaml SafetyLimits.MAX_VELOCITY_FORWARD
     clamp: true
 
   vel_body_right:
@@ -70,9 +66,7 @@ command_fields:
     default: 0.0
     unit: "m/s"
     description: "Body frame right velocity (positive = right)"
-    limits:
-      min: -8.0
-      max: 8.0
+    # Limits defined in config_default.yaml SafetyLimits.MAX_VELOCITY_LATERAL
     clamp: true
 
   vel_body_down:
@@ -80,9 +74,7 @@ command_fields:
     default: 0.0
     unit: "m/s"
     description: "Body frame down velocity (positive = down)"
-    limits:
-      min: -5.0
-      max: 5.0
+    # Limits defined in config_default.yaml SafetyLimits.MAX_VELOCITY_VERTICAL
     clamp: true
 
   yawspeed_deg_s:
@@ -90,9 +82,7 @@ command_fields:
     default: 0.0
     unit: "deg/s"
     description: "Yaw angular rate in degrees/second (positive = clockwise)"
-    limits:
-      min: -180.0
-      max: 180.0
+    # Limits defined in config_default.yaml SafetyLimits.MAX_YAW_RATE
     clamp: true
 
   # === Gimbal-specific Command Fields ===
@@ -101,47 +91,42 @@ command_fields:
     default: 0.0
     unit: "deg"
     description: "Target yaw angle in degrees (NED offboard mode)"
-    limits:
-      min: -180.0
-      max: 180.0
+    # Angle limits: -180 to 180 (full rotation)
     clamp: true
 
+  # DEPRECATED: Use yawspeed_deg_s instead (typo variant)
   yaw_speed_deg_s:
     type: float
     default: 0.0
     unit: "deg/s"
-    description: "Yaw angular rate in degrees per second (Body offboard mode)"
-    limits:
-      min: -10.0
-      max: 10.0
+    description: "[DEPRECATED] Use yawspeed_deg_s instead (this was a typo variant)"
+    deprecated: true
+    replacement: "yawspeed_deg_s"
     clamp: true
-  
-  # === Attitude Rate Control Fields ===
-  roll_rate:
+
+  # === Attitude Rate Control Fields (all in deg/s - MAVSDK standard) ===
+  rollspeed_deg_s:
     type: float
     default: 0.0
-    unit: "rad/s"
-    description: "Roll rate (rotation around X-axis)"
-    limits:
-      min: -3.14
-      max: 3.14
+    unit: "deg/s"
+    description: "Roll angular rate in degrees/second"
+    # Limits defined in config_default.yaml SafetyLimits
     clamp: true
-  
-  pitch_rate:
+
+  pitchspeed_deg_s:
     type: float
     default: 0.0
-    unit: "rad/s"
-    description: "Pitch rate (rotation around Y-axis)"
-    limits:
-      min: -3.14
-      max: 3.14
+    unit: "deg/s"
+    description: "Pitch angular rate in degrees/second"
+    # Limits defined in config_default.yaml SafetyLimits
     clamp: true
-  
+
   thrust:
     type: float
     default: 0.5
     unit: "normalized"
     description: "Thrust command (0.0 to 1.0)"
+    # Thrust is always 0.0 to 1.0 (normalized)
     limits:
       min: 0.0
       max: 1.0
@@ -200,7 +185,8 @@ follower_profiles:
     display_name: "Chase Follower"
     description: "Aggressive following using attitude rate control"
     control_type: "attitude_rate"
-    required_fields: ["roll_rate", "pitch_rate", "yaw_rate", "thrust"]
+    # All angular rates in deg/s (MAVSDK standard)
+    required_fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"]
     optional_fields: []
     ui_category: "attitude"
 
@@ -273,27 +259,29 @@ control_types:
 # ==============================================================================
 # Configuration for dashboard auto-discovery and display
 ui_config:
-  field_display_order: ["vel_x", "vel_y", "vel_z", "yaw_rate", "vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s", "yaw_angle_deg", "yaw_speed_deg_s", "roll_rate", "pitch_rate", "thrust"]
-  
+  # All angular rates use deg/s naming convention
+  field_display_order: ["vel_x", "vel_y", "vel_z", "vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s", "yaw_angle_deg", "rollspeed_deg_s", "pitchspeed_deg_s", "thrust"]
+
   field_groups:
     velocity:
       name: "Velocity Control"
-      fields: ["vel_x", "vel_y", "vel_z", "yaw_rate"]
+      fields: ["vel_x", "vel_y", "vel_z"]
       color: "#2196F3"
 
     body_velocity:
       name: "Body Velocity Offboard"
       fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
       color: "#4CAF50"
-      
+
     attitude:
       name: "Attitude Rate Control"
-      fields: ["roll_rate", "pitch_rate", "yaw_rate", "thrust"]
+      # All angular rates in deg/s (MAVSDK standard)
+      fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"]
       color: "#FF5722"
 
     gimbal:
       name: "Gimbal Control"
-      fields: ["yaw_angle_deg", "yaw_speed_deg_s"]
+      fields: ["yaw_angle_deg", "yawspeed_deg_s"]
       color: "#9C27B0"
 
   profile_display_order: ["ground_view", "constant_distance", "constant_position", "chase_follower", "body_velocity_chase", "gimbal_unified", "gimbal_vector_body"]
@@ -302,14 +290,16 @@ ui_config:
 # Validation Rules
 # ==============================================================================
 # Additional validation rules beyond basic field limits
+# All angular rate fields use deg/s (MAVSDK standard)
 validation_rules:
   # Ensure attitude rate fields are only used with attitude control
   attitude_rate_exclusive:
     description: "Attitude rate fields can only be used with attitude_rate control type"
-    fields: ["roll_rate", "pitch_rate", "thrust"]
+    # All angular rates in deg/s naming convention
+    fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "thrust"]
     allowed_control_types: ["attitude_rate"]
-    
-  # Ensure velocity fields are not mixed with attitude rate inappropriately  
+
+  # Ensure velocity fields are not mixed with attitude rate inappropriately
   velocity_exclusive:
     description: "Velocity fields should primarily be used with velocity_body control"
     fields: ["vel_x", "vel_y", "vel_z"]

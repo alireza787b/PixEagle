@@ -7,6 +7,9 @@ import logging
 import time
 from datetime import datetime
 
+# Initialize logger early (before any try/except blocks that might use it)
+logger = logging.getLogger(__name__)
+
 # Import schema manager for compatibility checking
 try:
     from classes.schema_manager import get_schema_manager
@@ -21,9 +24,6 @@ try:
     CIRCUIT_BREAKER_AVAILABLE = True
 except ImportError:
     CIRCUIT_BREAKER_AVAILABLE = False
-
-
-logger = logging.getLogger(__name__)
 
 class BaseFollower(ABC):
     """

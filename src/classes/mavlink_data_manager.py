@@ -316,22 +316,25 @@ class MavlinkDataManager:
 
         These values are specifically for follower usage and are independent of OSD data.
         If USE_MAVLINK2REST = True is enabled in parameters, these values are required.
-        In case REST requests send invalid data, the altitude_relative will fall back to Parameters.MIN_DESCENT_HEIGHT.
+        In case REST requests send invalid data, the altitude_relative will fall back to MIN_ALTITUDE from SafetyLimits.
 
         Returns:
             dict: A dictionary with relative and AMSL altitudes.
         """
+        # Use unified SafetyLimits access for default altitude
+        default_altitude = Parameters.get_effective_limit('MIN_ALTITUDE')
+
         altitude_data = await self.fetch_data_from_uri("/v1/mavlink/vehicles/1/components/1/messages/ALTITUDE")
         if altitude_data:
             message = altitude_data.get("message", {})
             try:
-                altitude_relative = float(message.get("altitude_relative", Parameters.MIN_DESCENT_HEIGHT))
-                altitude_amsl = float(message.get("altitude_amsl", Parameters.MIN_DESCENT_HEIGHT))
+                altitude_relative = float(message.get("altitude_relative", default_altitude))
+                altitude_amsl = float(message.get("altitude_amsl", default_altitude))
             except (ValueError, TypeError):
-                self.logger.warning("Invalid altitude data received, falling back to default values (Parameters.MIN_DESCENT_HEIGHT).")
-                altitude_relative, altitude_amsl = Parameters.MIN_DESCENT_HEIGHT, Parameters.MIN_DESCENT_HEIGHT
+                self.logger.warning("Invalid altitude data received, falling back to SafetyLimits.MIN_ALTITUDE.")
+                altitude_relative, altitude_amsl = default_altitude, default_altitude
             return {"altitude_relative": altitude_relative, "altitude_amsl": altitude_amsl}
-        return {"altitude_relative": Parameters.MIN_DESCENT_HEIGHT, "altitude_amsl": Parameters.MIN_DESCENT_HEIGHT}
+        return {"altitude_relative": default_altitude, "altitude_amsl": default_altitude}
 
     async def fetch_ground_speed(self):
         """
