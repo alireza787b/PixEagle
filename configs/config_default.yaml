@@ -1161,11 +1161,15 @@ GIMBAL_VECTOR_BODY:
 BODY_VELOCITY_CHASE:
   # === Forward Velocity Ramping ===
   INITIAL_FORWARD_VELOCITY: 0.0           # m/s - starting velocity
-  MAX_FORWARD_VELOCITY: 0.5               # m/s - maximum chase speed
+  MAX_FORWARD_VELOCITY: 0.5               # m/s - maximum chase speed (demo safe)
   FORWARD_RAMP_RATE: 0.5                 # m/s² - acceleration rate
   RAMP_DOWN_ON_TARGET_LOSS: true          # Decelerate when target lost
   TARGET_LOSS_TIMEOUT: 2.0                # seconds before ramp down starts
-  
+  # Target loss stop velocity: ramp to this when target lost (0.0 = full stop)
+  TARGET_LOSS_STOP_VELOCITY: 0.0          # m/s - velocity on target loss (0.0 = stop)
+  # Coordinate threshold for detecting lost target (values > this indicate lost)
+  TARGET_LOSS_COORDINATE_THRESHOLD: 990   # Configurable threshold for lost target detection
+
   # === Control Enablement ===
   ENABLE_ALTITUDE_CONTROL: false           # Enable down velocity control
   
@@ -1181,10 +1185,10 @@ BODY_VELOCITY_CHASE:
   
   # === 🛡️ ALTITUDE SAFETY (Overrides global SafetyLimits) ===
   # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE
-  ALTITUDE_SAFETY_ENABLED: false          # Enable altitude monitoring
+  ALTITUDE_SAFETY_ENABLED: true           # Enable altitude monitoring (recommended for demo)
   MIN_ALTITUDE: 5.0                       # Override: stricter minimum altitude (meters)
   MAX_ALTITUDE: 50.0                      # Override: stricter maximum altitude (meters)
-  ALTITUDE_CHECK_INTERVAL: 1.0            # seconds - check frequency
+  ALTITUDE_CHECK_INTERVAL: 0.1            # seconds - 100ms check frequency (fast safety checks)
   RTL_ON_ALTITUDE_VIOLATION: true         # Trigger RTL on violation
   
   # === Safety Limits (Additional to Schema Limits) ===

@@ -127,7 +127,7 @@ class BodyVelocityChaseFollower(BaseFollower):
         # Use unified limit access (follower-specific overrides global SafetyLimits)
         self.min_altitude_limit = Parameters.get_effective_limit('MIN_ALTITUDE', 'BODY_VELOCITY_CHASE')
         self.max_altitude_limit = Parameters.get_effective_limit('MAX_ALTITUDE', 'BODY_VELOCITY_CHASE')
-        self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 1.0)
+        self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 0.1)  # 100ms for safety
         self.rtl_on_altitude_violation = config.get('RTL_ON_ALTITUDE_VIOLATION', True)
         self.altitude_warning_buffer = Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', 'BODY_VELOCITY_CHASE')
         self.emergency_stop_enabled = config.get('EMERGENCY_STOP_ENABLED', True)
@@ -135,6 +135,10 @@ class BodyVelocityChaseFollower(BaseFollower):
         self.velocity_smoothing_enabled = config.get('VELOCITY_SMOOTHING_ENABLED', True)
         self.smoothing_factor = config.get('SMOOTHING_FACTOR', 0.8)
         self.min_forward_velocity_threshold = config.get('MIN_FORWARD_VELOCITY_THRESHOLD', 0.5)
+        # Target loss stop velocity: velocity to ramp to when target is lost (0.0 = full stop)
+        self.target_loss_stop_velocity = config.get('TARGET_LOSS_STOP_VELOCITY', 0.0)
+        # Coordinate threshold for detecting lost target (abs value > this = lost)
+        self.target_loss_coord_threshold = config.get('TARGET_LOSS_COORDINATE_THRESHOLD', 990)
         self.ramp_update_rate = config.get('RAMP_UPDATE_RATE', 10.0)
         self.pid_update_rate = config.get('PID_UPDATE_RATE', 20.0)
 
@@ -253,8 +257,11 @@ class BodyVelocityChaseFollower(BaseFollower):
             RuntimeError: If PID initialization fails.
         """
         try:
-            setpoint_x, setpoint_y = self.initial_target_coords
-            
+            # Use center (0.0, 0.0) as setpoints for proper center-tracking behavior
+            # This ensures target is tracked to the center of the frame
+            # regardless of where initial_target_coords was set
+            setpoint_x, setpoint_y = 0.0, 0.0
+
             # Initialize lateral guidance PIDs based on mode
             self.pid_right = None
             self.pid_yaw_speed = None
@@ -439,7 +446,8 @@ class BodyVelocityChaseFollower(BaseFollower):
             if self.emergency_stop_active:
                 target_velocity = 0.0
             elif self.target_lost and self.ramp_down_on_target_loss:
-                target_velocity = self.min_forward_velocity_threshold
+                # Use configurable stop velocity (default 0.0 = full stop on target loss)
+                target_velocity = self.target_loss_stop_velocity
             else:
                 target_velocity = self.max_forward_velocity
 
@@ -541,9 +549,7 @@ class BodyVelocityChaseFollower(BaseFollower):
             
             # === APPLY COMMANDS USING SCHEMA-AWARE METHODS ===
             # Schema now uses velocity_body_offboard with yawspeed_deg_s and vel_body_down
-            # Convert internal commands to schema fields
-            from math import degrees
-            yaw_speed = degrees(yaw_speed)
+            # PID output is already in deg/s (configured with yawspeed_deg_s gains)
             # Calculate vertical command (same for both modes)
             down_velocity = self.pid_down(error_y) if self.pid_down else 0.0
             
@@ -617,10 +623,11 @@ class BodyVelocityChaseFollower(BaseFollower):
             # Check if target coordinates indicate a lost target
             # (This depends on your vision system's lost target indication)
             # Assuming invalid coordinates like (-999, -999) or (nan, nan) indicate lost target
+            threshold = self.target_loss_coord_threshold
             is_valid_target = (
                 self.validate_target_coordinates(target_coords) and
                 not (np.isnan(target_coords[0]) or np.isnan(target_coords[1])) and
-                not (abs(target_coords[0]) > 990 or abs(target_coords[1]) > 990)
+                not (abs(target_coords[0]) > threshold or abs(target_coords[1]) > threshold)
             )
             
             if is_valid_target:
@@ -1211,9 +1218,18 @@ class BodyVelocityChaseFollower(BaseFollower):
                 if self.rtl_on_altitude_violation:
                     logger.critical("Triggering Return to Launch due to altitude violation")
                     try:
-                        # Schedule RTL safely without event loop conflicts
-                        logger.critical("Emergency stop activated due to altitude violation")
-                        # Note: RTL will be handled by the main control loop
+                        # Actually trigger RTL via PX4 controller
+                        if self.px4_controller and hasattr(self.px4_controller, 'trigger_return_to_launch'):
+                            import asyncio
+                            try:
+                                loop = asyncio.get_running_loop()
+                                asyncio.create_task(self.px4_controller.trigger_return_to_launch())
+                            except RuntimeError:
+                                # No running loop - create new one
+                                asyncio.run(self.px4_controller.trigger_return_to_launch())
+                            logger.critical("RTL command issued successfully")
+                        else:
+                            logger.error("PX4 controller not available for RTL - emergency stop only")
                     except Exception as rtl_error:
                         logger.error(f"Failed to trigger RTL: {rtl_error}")
                 

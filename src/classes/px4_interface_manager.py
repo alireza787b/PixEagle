@@ -41,10 +41,11 @@ def _should_block_px4_command(command_type: str, **params) -> bool:
     Returns:
         bool: True if command should be blocked (safe default)
     """
-    # FAIL SAFE: If circuit breaker system not available, block everything
+    # If circuit breaker system not available, allow normal operation
+    # (blocking would prevent all drone commands if import fails)
     if not CIRCUIT_BREAKER_AVAILABLE:
-        logger.warning(f"Circuit breaker unavailable - blocking {command_type} for safety")
-        return True
+        logger.debug(f"Circuit breaker unavailable - allowing {command_type}")
+        return False
 
     # Check circuit breaker status - only allow if explicitly disabled
     if FollowerCircuitBreaker.is_active():
