@@ -1,0 +1,270 @@
+# ==============================================================================
+# PixEagle Demo Configuration - 2D Camera + Body Velocity Chase
+# ==============================================================================
+# Singapore Government Demo - USB Camera with CSRT Tracker
+# Uses visual tracking with PID control for chase behavior
+# ==============================================================================
+
+# ==============================================================================
+# PRIMARY VIDEO INPUT CONFIGURATION
+# ==============================================================================
+VideoSource:
+  VIDEO_SOURCE_TYPE: USB_CAMERA
+
+  CAPTURE_WIDTH: 640
+  CAPTURE_HEIGHT: 480
+  CAPTURE_FPS: 30
+  DEFAULT_FPS: 30
+
+  USE_GSTREAMER: false
+
+  CAMERA_INDEX: 0
+
+  STORE_LAST_FRAMES: 5
+
+# ==============================================================================
+# USB CAMERA OPTIMIZATION
+# ==============================================================================
+USBCamera:
+  DEVICE_PATH: /dev/video0
+  PIXEL_FORMAT: MJPG
+  USE_V4L2_BACKEND: true
+  OPENCV_BUFFER_SIZE: 1
+  OPENCV_FOURCC: ""
+
+# ==============================================================================
+# NETWORK CONFIGURATION
+# ==============================================================================
+PX4:
+  EXTERNAL_MAVSDK_SERVER: true
+  SYSTEM_ADDRESS: udp://127.0.0.1:14540
+
+MAVLink:
+  MAVLINK_ENABLED: true
+  MAVLINK_HOST: 127.0.0.1
+  MAVLINK_PORT: 8088
+  MAVLINK_POLLING_INTERVAL: 0.5
+
+  MAVLINK_DATA_POINTS:
+    latitude: /vehicles/1/components/1/messages/GLOBAL_POSITION_INT/message/lat
+    longitude: /vehicles/1/components/1/messages/GLOBAL_POSITION_INT/message/lon
+    altitude_msl: /vehicles/1/components/1/messages/ALTITUDE/message/altitude_amsl
+    altitude_agl: /vehicles/1/components/1/messages/ALTITUDE/message/altitude_relative
+    voltage: /vehicles/1/components/1/messages/SYS_STATUS/message/voltage_battery
+    airspeed: /vehicles/1/components/1/messages/VFR_HUD/message/airspeed
+    throttle: /vehicles/1/components/1/messages/VFR_HUD/message/throttle
+    groundspeed: /vehicles/1/components/1/messages/VFR_HUD/message/groundspeed
+    climb: /vehicles/1/components/1/messages/VFR_HUD/message/climb
+    vn: /vehicles/1/components/1/messages/LOCAL_POSITION_NED/message/vx
+    ve: /vehicles/1/components/1/messages/LOCAL_POSITION_NED/message/vy
+    vd: /vehicles/1/components/1/messages/LOCAL_POSITION_NED/message/vz
+    flight_path_angle: null
+    roll: /vehicles/1/components/1/messages/ATTITUDE/message/roll
+    pitch: /vehicles/1/components/1/messages/ATTITUDE/message/pitch
+    heading: /vehicles/1/components/1/messages/VFR_HUD/message/heading
+    vdop: /vehicles/1/components/1/messages/GPS_RAW_INT/message/vdop
+    hdop: /vehicles/1/components/1/messages/GPS_RAW_INT/message/hdop
+    satellites_visible: /vehicles/1/components/1/messages/GPS_RAW_INT/message/satellites_visible
+    flight_mode: /vehicles/1/components/1/messages/HEARTBEAT/message/custom_mode
+    arm_status: /vehicles/1/components/1/messages/HEARTBEAT/message/base_mode
+
+# ==============================================================================
+# VIDEO STREAMING OUTPUT
+# ==============================================================================
+Streaming:
+  ENABLE_STREAMING: true
+  HTTP_STREAM_HOST: 0.0.0.0
+  HTTP_STREAM_PORT: 5077
+  STREAM_WIDTH: 640
+  STREAM_HEIGHT: 480
+  STREAM_FPS: 10
+  STREAM_QUALITY: 50
+  STREAM_PROCESSED_OSD: true
+  ENABLE_FRAME_CACHE: true
+  CACHE_TTL_MS: 100
+  MAX_FRAME_QUEUE: 3
+  WS_MAX_CONNECTIONS: 10
+  WS_ENABLE_COMPRESSION: false
+  ENABLE_ADAPTIVE_QUALITY: true
+  MIN_QUALITY: 30
+  MAX_QUALITY: 85
+  QUALITY_STEP: 10
+  HTTP_MAX_CONNECTIONS: 20
+  HTTP_CHUNK_SIZE: 65536
+  ENCODING_THREADS: 2
+  ENABLE_HARDWARE_ENCODING: false
+  SKIP_IDENTICAL_FRAMES: true
+  FRAME_DIFFERENCE_THRESHOLD: 5
+  ENABLE_H264_STREAM: false
+
+# ==============================================================================
+# TRACKING MODE CONFIGURATION
+# ==============================================================================
+Tracking:
+  DEFAULT_TRACKING_ALGORITHM: CSRT
+  TRACKING_RECTANGLE_COLOR: [255, 0, 0]
+  CENTER_CIRCLE_COLOR: [0, 255, 0]
+  CENTER_HISTORY_LENGTH: 10
+  MAX_DISPLACEMENT_THRESHOLD: 0.25
+  TRACKING_FAILURE_TIMEOUT: 5.0
+  REDETECTION_ATTEMPTS: 5
+  DESIRE_AIM: [0, 0]
+
+# ==============================================================================
+# CSRT TRACKER CONFIGURATION (Optimized for Demo)
+# ==============================================================================
+CSRT_Tracker:
+  performance_mode: "robust"
+  confidence_threshold: 0.45
+  failure_threshold: 5
+  confidence_smoothing: 0.7
+  validation_start_frame: 10
+  max_scale_change_per_frame: 0.5
+  max_motion_per_frame: 0.6
+  appearance_learning_rate: 0.10
+
+# ==============================================================================
+# FOLLOWER MODE CONFIGURATION
+# ==============================================================================
+Follower:
+  USE_MAVLINK2REST: true
+  FOLLOWER_DATA_REFRESH_RATE: 5
+  ROI_SELECTION_MODE: MANUAL
+  TARGET_POSITION_MODE: center
+  FOLLOWER_MODE: body_velocity_chase
+
+  SHOW_TRACKING_WINDOW: false
+  DISPLAY_DEVIATIONS: false
+  TRACKED_BBOX_STYLE: fancy
+  FOLLOWER_ACTIVE_COLOR: [0, 0, 255]
+  FOLLOWER_INACTIVE_COLOR: [0, 255, 255]
+  BBOX_LINE_THICKNESS: 2
+  EXTENDED_LINE_THICKNESS: 2
+  CORNER_DOT_RADIUS: 4
+  CROSSHAIR_ARM_LENGTH: 20
+  BBOX_CORNER_ARM_LENGTH: 20
+  OVERLAY_OPACITY: 128
+
+# === Circuit Breaker (Safety & Testing) ===
+FOLLOWER_CIRCUIT_BREAKER: true
+CIRCUIT_BREAKER_DISABLE_SAFETY: true
+
+# ==============================================================================
+# BODY VELOCITY CHASE FOLLOWER (Demo-Safe Configuration)
+# ==============================================================================
+BODY_VELOCITY_CHASE:
+  # === Forward Velocity Ramping (DEMO SAFE) ===
+  INITIAL_FORWARD_VELOCITY: 0.0
+  MAX_FORWARD_VELOCITY: 0.5
+  FORWARD_RAMP_RATE: 0.5
+  RAMP_DOWN_ON_TARGET_LOSS: true
+  TARGET_LOSS_TIMEOUT: 2.0
+  TARGET_LOSS_STOP_VELOCITY: 0.0
+  TARGET_LOSS_COORDINATE_THRESHOLD: 990
+
+  # === Control Enablement ===
+  ENABLE_ALTITUDE_CONTROL: false
+
+  # === Lateral Guidance Mode ===
+  LATERAL_GUIDANCE_MODE: coordinated_turn
+  GUIDANCE_MODE_SWITCH_VELOCITY: 3.0
+  ENABLE_AUTO_MODE_SWITCHING: false
+
+  # === Altitude Safety (DEMO ENABLED) ===
+  ALTITUDE_SAFETY_ENABLED: true
+  MIN_ALTITUDE: 5.0
+  MAX_ALTITUDE: 50.0
+  ALTITUDE_CHECK_INTERVAL: 0.1
+  RTL_ON_ALTITUDE_VIOLATION: true
+
+  # === Safety Limits ===
+  EMERGENCY_STOP_ENABLED: true
+  MAX_TRACKING_ERROR: 1.5
+  VELOCITY_SMOOTHING_ENABLED: true
+  SMOOTHING_FACTOR: 0.8
+
+  # === Performance Tuning ===
+  MIN_FORWARD_VELOCITY_THRESHOLD: 0.0
+  RAMP_UPDATE_RATE: 10.0
+  PID_UPDATE_RATE: 20.0
+
+  # === Advanced Features (DISABLED for Demo Stability) ===
+  ENABLE_ADAPTIVE_DIVE_CLIMB: false
+  ENABLE_PITCH_COMPENSATION: false
+
+# ==============================================================================
+# PID GAINS (Tuned for Body Velocity Chase)
+# ==============================================================================
+PID_GAINS:
+  vel_body_fwd:
+    p: 5.5
+    i: 0.2
+    d: 0.4
+  vel_body_right:
+    p: 1.0
+    i: 0.02
+    d: 0.1
+  vel_body_down:
+    p: 0.75
+    i: 0.05
+    d: 0.1
+  yawspeed_deg_s:
+    p: 0.9
+    i: 0.05
+    d: 0.1
+
+# ==============================================================================
+# SAFETY LIMITS
+# ==============================================================================
+SafetyLimits:
+  MIN_ALTITUDE: 3.0
+  MAX_ALTITUDE: 120.0
+  MAX_VELOCITY_FORWARD: 10.0
+  MAX_VELOCITY_LATERAL: 5.0
+  MAX_VELOCITY_VERTICAL: 3.0
+  MAX_YAW_RATE: 45.0
+  ALTITUDE_WARNING_BUFFER: 5.0
+
+# ==============================================================================
+# POSITION ESTIMATOR
+# ==============================================================================
+PositionEstimator:
+  USE_ESTIMATOR: true
+  ESTIMATOR_TYPE: kalman
+  ENABLE_VELOCITY_ESTIMATION: true
+  ENABLE_ACCELERATION_ESTIMATION: false
+  PROCESS_NOISE:
+    position: 2.0
+    velocity: 5.0
+    acceleration: 1.0
+  MEASUREMENT_NOISE:
+    position: 5.0
+    velocity: 10.0
+    acceleration: 5.0
+  INITIAL_STATE_COVARIANCE:
+    position: 100.0
+    velocity: 10.0
+    acceleration: 1.0
+  PREDICTION_TIME_HORIZON: 0.1
+  ENABLE_OUTLIER_REJECTION: true
+  OUTLIER_THRESHOLD: 3.0
+
+# ==============================================================================
+# DISPLAY SETTINGS
+# ==============================================================================
+Display:
+  FULLSCREEN: false
+  WINDOW_POSITION:
+    X: 100
+    Y: 100
+  WINDOW_SIZE:
+    WIDTH: 800
+    HEIGHT: 600
+  TARGET_BOX_COLOR: [0, 255, 0]
+  TEXT_COLOR: [255, 255, 255]
+  TEXT_SCALE: 0.5
+  TEXT_THICKNESS: 1
+
+# ==============================================================================
+# END OF CONFIG - Singapore 2D Camera Demo
+# ==============================================================================
