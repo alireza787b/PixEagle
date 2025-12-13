@@ -251,10 +251,10 @@ class GimbalVectorBodyFollower(BaseFollower):
             # Scale unit vector by current velocity magnitude
             velocity_vector = unit_vector.scale(self.current_velocity_magnitude)
 
-            # Log velocity calculation (INFO level for visibility in CB mode)
-            logger.info(f"Vector pursuit: angles=[{yaw_deg:.1f}, {pitch_deg:.1f}, {roll_deg:.1f}]°, "
-                       f"vel=[{velocity_vector.x:.3f}, {velocity_vector.y:.3f}, {velocity_vector.z:.3f}] m/s, "
-                       f"mag={self.current_velocity_magnitude:.3f}/{self.max_velocity:.1f} m/s")
+            # Log velocity calculation (DEBUG level - runs at 20Hz)
+            logger.debug(f"Vector pursuit: angles=[{yaw_deg:.1f}, {pitch_deg:.1f}, {roll_deg:.1f}]°, "
+                        f"vel=[{velocity_vector.x:.3f}, {velocity_vector.y:.3f}, {velocity_vector.z:.3f}] m/s, "
+                        f"mag={self.current_velocity_magnitude:.3f}/{self.max_velocity:.1f} m/s")
 
             # Apply altitude control flag
             if not self.enable_altitude_control:
@@ -547,8 +547,8 @@ class GimbalVectorBodyFollower(BaseFollower):
         # Proportional control: yaw rate proportional to yaw error
         yaw_rate = yaw_deg * self.yaw_rate_gain
 
-        # Clamp to reasonable limits
-        max_yaw_rate = 45.0  # degrees/sec
+        # Clamp to SafetyLimits (deg/s)
+        max_yaw_rate = Parameters.get_effective_limit('MAX_YAW_RATE', 'GIMBAL_VECTOR_BODY')
         yaw_rate = max(-max_yaw_rate, min(max_yaw_rate, yaw_rate))
 
         return yaw_rate
@@ -570,8 +570,10 @@ class GimbalVectorBodyFollower(BaseFollower):
         if time_since_loss < self.target_loss_timeout:
             # Still within timeout - coast on last velocity
             if self.enable_velocity_decay and self.last_velocity_vector is not None:
-                # Decay velocity
-                decay_amount = self.velocity_decay_rate * (current_time - self.last_update_time)
+                # Decay velocity - compute dt and update last_update_time for linear decay
+                dt = current_time - self.last_update_time
+                self.last_update_time = current_time
+                decay_amount = self.velocity_decay_rate * dt
                 self.current_velocity_magnitude = max(0.0, self.current_velocity_magnitude - decay_amount)
 
                 # Apply decayed velocity
