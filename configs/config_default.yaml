@@ -1482,6 +1482,81 @@ FIXED_WING_FOLLOWER:
   SMOOTHING_FACTOR: 0.85          # EMA coefficient (0-1, higher = more smooth)
 
 # ==============================================================================
+# MULTICOPTER FOLLOWER CONFIGURATION
+# ==============================================================================
+# Professional multicopter target following with dual-mode lateral guidance.
+# Supports: YAW_TO_TARGET (fixed-wing style) and CRAB_STRAFE (strafing)
+# Control type: velocity_body_offboard (most stable for multicopters)
+#
+# Key Advantages over Fixed-Wing:
+# - Can HOVER on target loss (instead of orbit)
+# - Can strafe laterally (CRAB_STRAFE mode)
+# - Zero forward velocity is acceptable
+# - Uses stable velocity_body_offboard control
+# ==============================================================================
+MULTICOPTER_FOLLOWER:
+  # === LATERAL GUIDANCE MODE ===
+  # yaw_to_target: Rotate to face target, fly forward (like fixed-wing)
+  # crab_strafe: Maintain heading, strafe laterally (multicopter advantage)
+  LATERAL_GUIDANCE_MODE: yaw_to_target       # yaw_to_target | crab_strafe
+  ENABLE_AUTO_MODE_SWITCHING: false          # Auto-switch based on LOS rate/distance
+  AUTO_SWITCH_DISTANCE_THRESHOLD: 20.0       # meters - close = crab_strafe
+
+  # === FORWARD VELOCITY MODE ===
+  # constant: Simple ramp to maximum velocity
+  # pn: Proportional Navigation - velocity scales with LOS rate (military standard)
+  # los: Line-of-Sight - velocity proportional to target offset
+  FORWARD_VELOCITY_MODE: constant            # constant | pn | los
+
+  # === FORWARD VELOCITY PARAMETERS ===
+  INITIAL_FORWARD_VELOCITY: 0.0              # m/s - starting velocity
+  MAX_FORWARD_VELOCITY: 8.0                  # m/s - maximum chase speed
+  FORWARD_RAMP_RATE: 2.0                     # m/s^2 - acceleration rate
+
+  # === PROPORTIONAL NAVIGATION PARAMETERS ===
+  # PN Law: V = V_base * (1 + N * |LOS_rate|)
+  PN_NAVIGATION_CONSTANT: 4.0                # N (3-5 typical for intercept)
+  PN_BASE_VELOCITY: 4.0                      # m/s - base velocity for PN mode
+  PN_LOS_SMOOTHING_ALPHA: 0.3                # EMA filter for LOS rate
+  PN_MAX_VELOCITY_SCALE: 2.0                 # Maximum velocity multiplier
+
+  # === LINE-OF-SIGHT PARAMETERS ===
+  LOS_DISTANCE_GAIN: 0.5                     # Velocity gain for distance
+  LOS_MAX_VELOCITY: 10.0                     # m/s - max LOS velocity
+
+  # === TARGET LOSS HANDLING (MULTICOPTER: HOVER) ===
+  # Unlike fixed-wing (orbit), multicopters can HOVER in place
+  TARGET_LOSS_TIMEOUT: 2.0                   # seconds - before executing action
+  TARGET_LOSS_ACTION: hover                  # hover | rtl | slow_forward
+  TARGET_LOSS_COORDINATE_THRESHOLD: 990      # Threshold for lost target detection
+  RAMP_DOWN_ON_TARGET_LOSS: true             # Decelerate on target loss
+  SLOW_FORWARD_VELOCITY: 1.0                 # m/s - velocity for slow_forward action
+
+  # === ALTITUDE SAFETY (Overrides global SafetyLimits) ===
+  ENABLE_ALTITUDE_SAFETY: true               # Enable altitude monitoring
+  MIN_ALTITUDE: 5.0                          # meters - minimum safe altitude
+  MAX_ALTITUDE: 100.0                        # meters - maximum altitude
+  ALTITUDE_CHECK_INTERVAL: 0.1               # seconds - 100ms safety checks
+  RTL_ON_ALTITUDE_VIOLATION: true            # Trigger RTL on violation
+
+  # === VELOCITY SATURATION PROTECTION ===
+  # Prevents motor saturation by limiting total velocity magnitude
+  ENABLE_VELOCITY_MAGNITUDE_LIMIT: true      # Enable magnitude limiting
+  MAX_VELOCITY_MAGNITUDE: 12.0               # m/s - total vector magnitude limit
+
+  # === COMMAND SMOOTHING ===
+  VELOCITY_SMOOTHING_ENABLED: true           # Enable velocity command smoothing
+  SMOOTHING_FACTOR: 0.8                      # EMA coefficient (0-1)
+
+  # === SAFETY ===
+  EMERGENCY_STOP_ENABLED: true               # Enable emergency velocity zeroing
+  MAX_TRACKING_ERROR: 1.5                    # Max normalized error before limiting
+
+  # === CONTROL CONFIGURATION ===
+  ENABLE_ALTITUDE_CONTROL: true              # Enable vertical velocity control
+  CONTROL_UPDATE_RATE: 20.0                  # Hz - control loop frequency
+
+# ==============================================================================
 # GROUND VIEW FOLLOWER CONFIGURATION
 # ==============================================================================
 GROUND_VIEW:
@@ -1720,6 +1795,10 @@ PID:
     fw_yaw_rate: {p: 0.5, i: 0.05, d: 0.02}       # Yaw rate (L1 output)
     fw_throttle: {p: 0.4, i: 0.2, d: 0.1}         # Throttle (TECS energy)
     fw_bank_angle: {p: 2.0, i: 0.3, d: 0.2}       # Bank angle outer loop
+    # Multicopter specific PID gains (dual-mode follower)
+    mc_yawspeed_deg_s: {p: 15.0, i: 0.5, d: 2.0}  # Yaw rate for YAW_TO_TARGET mode
+    mc_vel_body_right: {p: 8.0, i: 0.2, d: 1.0}   # Lateral velocity for CRAB_STRAFE mode
+    mc_vel_body_down: {p: 5.0, i: 0.3, d: 0.8}    # Vertical velocity control
   # === Advanced PID Features ===
   PROPORTIONAL_ON_MEASUREMENT: false        # Avoid derivative kick
   ENABLE_ANTI_WINDUP: true                  # Prevent integral windup

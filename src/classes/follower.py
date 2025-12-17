@@ -36,6 +36,7 @@ class FollowerFactory:
             from classes.followers.gimbal_follower import GimbalFollower
             from classes.followers.gimbal_vector_body_follower import GimbalVectorBodyFollower
             from classes.followers.fixed_wing_follower import FixedWingFollower
+            from classes.followers.multicopter_follower import MulticopterFollower
 
             # Register followers with their schema profile names
             # Note: 'attitude_rate' is the new name, 'chase_follower' kept for backward compatibility
@@ -48,7 +49,8 @@ class FollowerFactory:
                 'body_velocity_chase': BodyVelocityChaseFollower,
                 'gimbal_unified': GimbalFollower,
                 'gimbal_vector_body': GimbalVectorBodyFollower,
-                'fixed_wing': FixedWingFollower          # Professional fixed-wing with L1/TECS
+                'fixed_wing': FixedWingFollower,         # Professional fixed-wing with L1/TECS
+                'multicopter': MulticopterFollower       # Professional multicopter with dual-mode guidance
             }
             
             cls._registry_initialized = True
