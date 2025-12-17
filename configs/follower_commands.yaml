@@ -180,12 +180,22 @@ follower_profiles:
     optional_fields: []
     ui_category: "velocity"
     
-  # Chase Follower - Full attitude rate control for aggressive following
+  # Chase Follower / Attitude Rate Follower - Full attitude rate control for aggressive following
+  # Note: 'attitude_rate' is the new preferred name, 'chase_follower' kept for backward compatibility
   chase_follower:
-    display_name: "Chase Follower"
-    description: "Aggressive following using attitude rate control"
+    display_name: "Attitude Rate Follower"
+    description: "Aggressive following using attitude rate control (formerly Chase Follower)"
     control_type: "attitude_rate"
     # All angular rates in deg/s (MAVSDK standard)
+    required_fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"]
+    optional_fields: []
+    ui_category: "attitude"
+
+  # Alias for attitude_rate -> chase_follower (new preferred name)
+  attitude_rate:
+    display_name: "Attitude Rate Follower"
+    description: "Aggressive following using attitude rate control"
+    control_type: "attitude_rate"
     required_fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"]
     optional_fields: []
     ui_category: "attitude"
@@ -284,7 +294,7 @@ ui_config:
       fields: ["yaw_angle_deg", "yawspeed_deg_s"]
       color: "#9C27B0"
 
-  profile_display_order: ["ground_view", "constant_distance", "constant_position", "chase_follower", "body_velocity_chase", "gimbal_unified", "gimbal_vector_body"]
+  profile_display_order: ["ground_view", "constant_distance", "constant_position", "attitude_rate", "chase_follower", "body_velocity_chase", "gimbal_unified", "gimbal_vector_body"]
 
 # ==============================================================================
 # Validation Rules

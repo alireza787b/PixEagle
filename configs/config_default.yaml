@@ -980,7 +980,8 @@ Follower:
   TARGET_POSITION_MODE: center              # center, top, bottom
 
   # === Following Mode ===
-  # Options: ground_view, constant_distance, constant_position, chase_follower, body_velocity_chase, gimbal_unified, gimbal_vector_body
+  # Options: ground_view, constant_distance, constant_position, chase_follower, attitude_rate, body_velocity_chase, gimbal_unified, gimbal_vector_body
+  # Note: 'attitude_rate' is the new name for 'chase_follower' (both work)
   FOLLOWER_MODE: constant_position
   
   # === Visualization ===
@@ -1341,9 +1342,13 @@ CONSTANT_DISTANCE:
 # CHASE FOLLOWER CONFIGURATION
 # ==============================================================================
 CHASE_FOLLOWER:
-  # === Control Enablement ===
-  YAW_ERROR_CHECK_ENABLED: true         # Enable yaw error gating for safety
-  ALTITUDE_FAILSAFE_ENABLED: false      # Enable altitude safety monitoring
+  # === Control Enablement (Use ENABLE_ prefix for consistency) ===
+  ENABLE_YAW_ERROR_CHECK: true          # Enable yaw error gating for safety
+  ENABLE_ALTITUDE_SAFETY: true          # Enable altitude safety monitoring (recommended)
+  ENABLE_COORDINATED_TURN: true         # Enable coordinated turn dynamics
+  ENABLE_AGGRESSIVE_MODE: true          # Enable aggressive chase behavior
+  ENABLE_EMERGENCY_STOP: true           # Enable emergency stop capability
+  ENABLE_VELOCITY_SMOOTHING: true       # Enable EMA smoothing on rate commands
 
   # === Rate Limits ===
   MAX_PITCH_RATE: 10.0                  # Max pitch rate (deg/s)
@@ -1363,15 +1368,30 @@ CHASE_FOLLOWER:
   # === Safety Thresholds ===
   YAW_ERROR_THRESHOLD: 20.0             # Yaw error threshold for dive activation (deg)
 
-  # === Altitude Limits (Overrides global SafetyLimits when failsafe enabled) ===
+  # === Altitude Safety (Consistent with body_velocity_chase) ===
   # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE
   MIN_ALTITUDE: 40.0                    # Override: higher minimum for chase mode (meters)
   MAX_ALTITUDE: 10000.0                 # Override: no practical max for chase mode (meters)
+  ALTITUDE_CHECK_INTERVAL: 0.1          # Check interval in seconds (100ms for fast response)
+  RTL_ON_ALTITUDE_VIOLATION: true       # Trigger RTL on altitude violation
+
+  # === Target Loss Handling (Consistent with body_velocity_chase) ===
+  TARGET_LOSS_TIMEOUT: 2.0              # Seconds before considering target lost
+  RAMP_DOWN_ON_TARGET_LOSS: true        # Zero rates when target lost
+  TARGET_LOSS_COORDINATE_THRESHOLD: 990 # Coordinate threshold for lost target detection
+
+  # === Velocity Smoothing ===
+  SMOOTHING_FACTOR: 0.8                 # EMA smoothing coefficient (0-1, higher = more smoothing)
 
   # === Performance Tuning ===
   CONTROL_UPDATE_RATE: 20.0             # Control loop frequency (Hz)
-  COORDINATE_TURN_ENABLED: true         # Enable coordinated turn dynamics
-  AGGRESSIVE_MODE: true                 # Enable aggressive chase behavior
+
+  # === Legacy Parameter Names (kept for backward compatibility) ===
+  # These map to the new ENABLE_ prefix versions above
+  YAW_ERROR_CHECK_ENABLED: true
+  ALTITUDE_FAILSAFE_ENABLED: true
+  COORDINATE_TURN_ENABLED: true
+  AGGRESSIVE_MODE: true
 
 # ==============================================================================
 # GROUND VIEW FOLLOWER CONFIGURATION

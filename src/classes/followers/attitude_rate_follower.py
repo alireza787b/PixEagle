@@ -1,11 +1,14 @@
-# src/classes/followers/chase_follower.py
+# src/classes/followers/attitude_rate_follower.py
 """
-Chase Follower Module
-=====================
+Attitude Rate Follower Module
+=============================
 
-This module implements the ChaseFollower class for aggressive target following using
-attitude rate control. It provides dynamic chase capabilities with coordinated turn
-control, thrust management, and safety monitoring.
+This module implements the AttitudeRateFollower class (formerly ChaseFollower) for
+aggressive target following using attitude rate control. It provides dynamic chase
+capabilities with coordinated turn control, thrust management, and safety monitoring.
+
+Note: This follower was renamed from ChaseFollower to AttitudeRateFollower to better
+describe its control method. The old class name is kept as an alias for backward compatibility.
 
 Project Information:
 - Project Name: PixEagle  
@@ -28,37 +31,46 @@ from classes.parameters import Parameters
 from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
 import numpy as np
+import time
 from typing import Tuple, Optional, Dict, Any
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-class ChaseFollower(BaseFollower):
+class AttitudeRateFollower(BaseFollower):
     """
-    Advanced chase follower implementing aggressive target following using attitude rate control.
-    
+    Advanced attitude rate follower implementing aggressive target following.
+
+    Formerly known as ChaseFollower. Renamed to better describe its control method:
+    attitude rate control (roll, pitch, yaw rates + thrust).
+
     This follower uses roll, pitch, yaw rates, and thrust commands to achieve dynamic chase
     behavior with coordinated turn control. It's designed for scenarios requiring rapid
     response and aggressive following capabilities.
-    
+
     Control Strategy:
     ================
     - **Yaw Rate Control**: Horizontal target tracking
     - **Pitch Rate Control**: Vertical target tracking (with yaw error gating)
     - **Roll Rate Control**: Coordinated turns based on bank angle calculations
     - **Thrust Control**: Adaptive speed management
-    
+
     Features:
     =========
     - Coordinated turn dynamics with proper bank angle calculations
     - Yaw error threshold checking to prevent premature diving
     - Adaptive thrust control based on current ground speed
-    - Altitude safety monitoring with failsafe capability
+    - Altitude safety monitoring with RTL capability
+    - Target loss detection and handling
+    - Emergency stop capability
+    - Velocity smoothing for smooth rate commands
     - Schema-aware field validation and management
-    
+
     Safety Features:
     ===============
-    - Altitude bounds checking with automatic failsafe
+    - Altitude bounds checking with RTL trigger
+    - Target loss detection with safe hover behavior
+    - Emergency stop mode for immediate rate zeroing
     - Yaw error gating to ensure proper heading before aggressive maneuvers
     - PID output limiting to prevent excessive control surface deflection
     - Ground speed normalization for consistent thrust response
@@ -66,17 +78,18 @@ class ChaseFollower(BaseFollower):
     
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
-        Initializes the ChaseFollower with schema-aware attitude rate control.
+        Initializes the AttitudeRateFollower with schema-aware attitude rate control.
 
         Args:
             px4_controller: Instance of PX4Controller to control the drone.
             initial_target_coords (Tuple[float, float]): Initial target coordinates for setpoint initialization.
-            
+
         Raises:
             ValueError: If initial coordinates are invalid or schema initialization fails.
         """
-        # Initialize with Chase Follower profile for attitude rate control
-        super().__init__(px4_controller, "Chase Follower")
+        # Initialize with Attitude Rate Follower profile for attitude rate control
+        # Uses chase_follower profile name for backward compatibility with schema
+        super().__init__(px4_controller, "chase_follower")
         
         # Validate and store initial target coordinates
         if not self.validate_target_coordinates(initial_target_coords):
@@ -88,8 +101,9 @@ class ChaseFollower(BaseFollower):
         config = getattr(Parameters, 'CHASE_FOLLOWER', {})
 
         # Load chase-specific parameters from config
-        self.yaw_error_check_enabled = config.get('YAW_ERROR_CHECK_ENABLED', True)
-        self.altitude_failsafe_enabled = config.get('ALTITUDE_FAILSAFE_ENABLED', False)
+        # Use ENABLE_ prefix for consistency with other followers
+        self.yaw_error_check_enabled = config.get('ENABLE_YAW_ERROR_CHECK', config.get('YAW_ERROR_CHECK_ENABLED', True))
+        self.altitude_safety_enabled = config.get('ENABLE_ALTITUDE_SAFETY', config.get('ALTITUDE_FAILSAFE_ENABLED', True))
         self.max_pitch_rate = config.get('MAX_PITCH_RATE', 10.0)
         self.max_yaw_rate = config.get('MAX_YAW_RATE', 10.0)
         self.max_roll_rate = config.get('MAX_ROLL_RATE', 20.0)
@@ -101,16 +115,47 @@ class ChaseFollower(BaseFollower):
         self.max_thrust = config.get('MAX_THRUST', 1.0)
         self.yaw_error_threshold = config.get('YAW_ERROR_THRESHOLD', 20.0)
         # Use unified limit access (follower-specific overrides global SafetyLimits)
-        self.min_descent_height = Parameters.get_effective_limit('MIN_ALTITUDE', 'CHASE_FOLLOWER')
-        self.max_climb_height = Parameters.get_effective_limit('MAX_ALTITUDE', 'CHASE_FOLLOWER')
+        self.min_altitude_limit = Parameters.get_effective_limit('MIN_ALTITUDE', 'CHASE_FOLLOWER')
+        self.max_altitude_limit = Parameters.get_effective_limit('MAX_ALTITUDE', 'CHASE_FOLLOWER')
+        self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 0.1)  # 100ms for safety
+        self.rtl_on_altitude_violation = config.get('RTL_ON_ALTITUDE_VIOLATION', True)
         self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
-        self.coordinate_turn_enabled = config.get('COORDINATE_TURN_ENABLED', True)
-        self.aggressive_mode = config.get('AGGRESSIVE_MODE', True)
+        self.coordinate_turn_enabled = config.get('ENABLE_COORDINATED_TURN', config.get('COORDINATE_TURN_ENABLED', True))
+        self.aggressive_mode = config.get('ENABLE_AGGRESSIVE_MODE', config.get('AGGRESSIVE_MODE', True))
+
+        # Target loss handling parameters (consistent with body_velocity_chase)
+        self.target_loss_timeout = config.get('TARGET_LOSS_TIMEOUT', 2.0)
+        self.ramp_down_on_target_loss = config.get('RAMP_DOWN_ON_TARGET_LOSS', True)
+        self.target_loss_coord_threshold = config.get('TARGET_LOSS_COORDINATE_THRESHOLD', 990)
+
+        # Emergency stop parameters
+        self.emergency_stop_enabled = config.get('ENABLE_EMERGENCY_STOP', True)
+
+        # Velocity smoothing parameters
+        self.velocity_smoothing_enabled = config.get('ENABLE_VELOCITY_SMOOTHING', True)
+        self.smoothing_factor = config.get('SMOOTHING_FACTOR', 0.8)
 
         # Initialize chase-specific state
         self.dive_started = False
         self.last_bank_angle = 0.0
         self.last_thrust_command = 0.5
+
+        # Target loss state
+        self.target_lost = False
+        self.target_loss_start_time = None
+        self.last_valid_target_coords = None
+
+        # Emergency stop state
+        self.emergency_stop_active = False
+
+        # Altitude monitoring state
+        self.last_altitude_check_time = 0.0
+        self.altitude_violation_count = 0
+
+        # Smoothed commands for velocity smoothing
+        self.smoothed_pitch_rate = 0.0
+        self.smoothed_yaw_rate = 0.0
+        self.smoothed_roll_rate = 0.0
         
         # Initialize PID controllers
         self._initialize_pid_controllers()
@@ -118,10 +163,14 @@ class ChaseFollower(BaseFollower):
         # Update telemetry metadata
         self.update_telemetry_metadata('controller_type', 'attitude_rate')
         self.update_telemetry_metadata('chase_mode', 'aggressive')
-        self.update_telemetry_metadata('safety_features', ['altitude_failsafe', 'yaw_error_gating'])
-        
-        logger.info(f"ChaseFollower initialized with attitude rate control")
+        self.update_telemetry_metadata('safety_features', ['altitude_safety', 'yaw_error_gating', 'target_loss_handling', 'emergency_stop'])
+
+        logger.info(f"AttitudeRateFollower initialized with attitude rate control")
+        logger.info(f"Safety features - Altitude: {self.altitude_safety_enabled}, RTL: {self.rtl_on_altitude_violation}, "
+                   f"EmergencyStop: {self.emergency_stop_enabled}")
         logger.debug(f"Initial target coordinates: {initial_target_coords}")
+        logger.debug(f"Rate limits - Pitch: {self.max_pitch_rate}°/s, Yaw: {self.max_yaw_rate}°/s, "
+                    f"Roll: {self.max_roll_rate}°/s, Bank: {self.max_bank_angle}°")
 
     def _initialize_pid_controllers(self) -> None:
         """
@@ -170,7 +219,7 @@ class ChaseFollower(BaseFollower):
                 output_limits=(self.min_thrust, self.max_thrust)
             )
             
-            logger.info("All PID controllers initialized successfully for ChaseFollower")
+            logger.info("All PID controllers initialized successfully for AttitudeRateFollower")
             logger.debug(f"PID setpoints - Pitch: {setpoint_y}, Yaw: {setpoint_x}, "
                         f"Roll: 0.0, Thrust: {target_speed_normalized:.3f}")
             
@@ -212,7 +261,7 @@ class ChaseFollower(BaseFollower):
             self.pid_roll_rate.tunings = self._get_pid_gains('rollspeed_deg_s')
             self.pid_thrust.tunings = self._get_pid_gains('thrust')
 
-            logger.debug("PID gains updated for all ChaseFollower controllers")
+            logger.debug("PID gains updated for all AttitudeRateFollower controllers")
 
         except Exception as e:
             logger.error(f"Failed to update PID gains: {e}")
@@ -444,79 +493,241 @@ class ChaseFollower(BaseFollower):
     def _check_altitude_safety(self) -> bool:
         """
         Monitors altitude safety bounds and triggers failsafe if necessary.
-        
+
+        Uses time-based interval checking (like body_velocity_chase) for consistent
+        monitoring without overwhelming the system.
+
         Returns:
             bool: True if altitude is safe, False if failsafe triggered.
         """
-        if not self.altitude_failsafe_enabled:
+        if not self.altitude_safety_enabled:
             return True
 
         try:
+            current_time = time.time()
+
+            # Only check at configured interval
+            if current_time - self.last_altitude_check_time < self.altitude_check_interval:
+                return True
+            self.last_altitude_check_time = current_time
+
             current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)
-            min_altitude = self.min_descent_height
-            max_altitude = self.max_climb_height
-            
+            min_altitude = self.min_altitude_limit
+            max_altitude = self.max_altitude_limit
+
             # Check altitude bounds
             if current_altitude < min_altitude or current_altitude > max_altitude:
+                self.altitude_violation_count += 1
                 logger.critical(f"ALTITUDE SAFETY VIOLATION! Current: {current_altitude:.1f}m, "
-                              f"Limits: [{min_altitude}-{max_altitude}]m")
-                
-                # Trigger emergency disconnection
-                if hasattr(self.px4_controller, 'app_controller'):
-                    self.px4_controller.app_controller.disconnect_px4()
-                    
+                              f"Limits: [{min_altitude}-{max_altitude}]m, "
+                              f"Violation count: {self.altitude_violation_count}")
+
+                # Trigger RTL if enabled (consistent with body_velocity_chase)
+                if self.rtl_on_altitude_violation:
+                    logger.critical("Triggering Return to Launch due to altitude violation")
+                    try:
+                        # Actually trigger RTL via PX4 controller
+                        if self.px4_controller and hasattr(self.px4_controller, 'trigger_return_to_launch'):
+                            import asyncio
+                            try:
+                                loop = asyncio.get_running_loop()
+                                asyncio.create_task(self.px4_controller.trigger_return_to_launch())
+                            except RuntimeError:
+                                # No running loop - create new one
+                                asyncio.run(self.px4_controller.trigger_return_to_launch())
+                            logger.critical("RTL command issued successfully")
+                        else:
+                            logger.error("PX4 controller not available for RTL - emergency stop only")
+                    except Exception as rtl_error:
+                        logger.error(f"Failed to trigger RTL: {rtl_error}")
+
+                # Activate emergency stop
+                self.emergency_stop_active = True
                 self.update_telemetry_metadata('safety_violation', 'altitude_bounds')
                 return False
-            
+
             return True
-            
+
         except Exception as e:
             logger.error(f"Altitude safety check failed: {e}")
             return True  # Fail safe - allow operation if check fails
 
+    def _handle_target_loss(self, target_coords: Tuple[float, float]) -> bool:
+        """
+        Handles target loss detection and recovery logic.
+
+        Consistent with body_velocity_chase implementation for unified behavior.
+
+        Args:
+            target_coords (Tuple[float, float]): Current target coordinates.
+
+        Returns:
+            bool: True if target is valid, False if target is lost.
+        """
+        try:
+            current_time = time.time()
+
+            # Check if target coordinates indicate a lost target
+            threshold = self.target_loss_coord_threshold
+            is_valid_target = (
+                self.validate_target_coordinates(target_coords) and
+                not (np.isnan(target_coords[0]) or np.isnan(target_coords[1])) and
+                not (abs(target_coords[0]) > threshold or abs(target_coords[1]) > threshold)
+            )
+
+            if is_valid_target:
+                # Target is valid - reset loss tracking
+                if self.target_lost:
+                    logger.info("Target recovered after loss")
+                self.target_lost = False
+                self.target_loss_start_time = None
+                self.last_valid_target_coords = target_coords
+                return True
+            else:
+                # Target appears to be lost
+                if not self.target_lost:
+                    # Just lost the target
+                    self.target_lost = True
+                    self.target_loss_start_time = current_time
+                    logger.warning(f"Target lost at coordinates: {target_coords}")
+                else:
+                    # Target has been lost for some time
+                    loss_duration = current_time - self.target_loss_start_time
+                    timeout = self.target_loss_timeout
+
+                    if loss_duration > timeout:
+                        logger.debug(f"Target lost for {loss_duration:.1f}s (timeout: {timeout}s)")
+
+                return False
+
+        except Exception as e:
+            logger.error(f"Error in target loss handling: {e}")
+            return False
+
+    def activate_emergency_stop(self) -> None:
+        """
+        Activates emergency stop mode, zeroing all control commands.
+
+        When activated, all attitude rate commands are set to zero until
+        explicitly deactivated. Provides consistent behavior with other followers.
+        """
+        if not self.emergency_stop_enabled:
+            logger.warning("Emergency stop requested but not enabled in config")
+            return
+
+        self.emergency_stop_active = True
+
+        # Zero all commands
+        self.set_command_field('pitchspeed_deg_s', 0.0)
+        self.set_command_field('yawspeed_deg_s', 0.0)
+        self.set_command_field('rollspeed_deg_s', 0.0)
+        # Hold current thrust (hover)
+        hover_throttle = getattr(self.px4_controller, 'hover_throttle', 0.5)
+        self.set_command_field('thrust', hover_throttle)
+
+        self.update_telemetry_metadata('emergency_stop_active', True)
+        logger.critical("EMERGENCY STOP ACTIVATED - All attitude rates zeroed")
+
+    def deactivate_emergency_stop(self) -> None:
+        """
+        Deactivates emergency stop mode, allowing normal control to resume.
+
+        Resets the emergency stop flag and clears violation counts.
+        """
+        if self.emergency_stop_active:
+            self.emergency_stop_active = False
+            self.altitude_violation_count = 0
+
+            self.update_telemetry_metadata('emergency_stop_active', False)
+            logger.info("Emergency stop deactivated - Normal control resumed")
+
+    def _apply_velocity_smoothing(self, pitch_rate: float, yaw_rate: float, roll_rate: float) -> Tuple[float, float, float]:
+        """
+        Applies exponential moving average smoothing to rate commands.
+
+        Args:
+            pitch_rate (float): Raw pitch rate command (deg/s).
+            yaw_rate (float): Raw yaw rate command (deg/s).
+            roll_rate (float): Raw roll rate command (deg/s).
+
+        Returns:
+            Tuple[float, float, float]: Smoothed (pitch, yaw, roll) rates.
+        """
+        if not self.velocity_smoothing_enabled:
+            return pitch_rate, yaw_rate, roll_rate
+
+        alpha = self.smoothing_factor
+
+        self.smoothed_pitch_rate = alpha * self.smoothed_pitch_rate + (1 - alpha) * pitch_rate
+        self.smoothed_yaw_rate = alpha * self.smoothed_yaw_rate + (1 - alpha) * yaw_rate
+        self.smoothed_roll_rate = alpha * self.smoothed_roll_rate + (1 - alpha) * roll_rate
+
+        return self.smoothed_pitch_rate, self.smoothed_yaw_rate, self.smoothed_roll_rate
+
     def follow_target(self, tracker_data: TrackerOutput) -> bool:
         """
         Executes target following with chase control logic using enhanced tracker schema.
-        
+
         This is the main entry point for chase following behavior. It performs
-        compatibility validation, safety checks, and calculates control commands.
-        
+        compatibility validation, safety checks, target loss handling, and calculates
+        control commands.
+
         Args:
             tracker_data (TrackerOutput): Structured tracker data with position and metadata.
-            
+
         Returns:
             bool: True if following executed successfully, False otherwise.
         """
         try:
+            # Check emergency stop first
+            if self.emergency_stop_active:
+                logger.debug("Emergency stop active - skipping control update")
+                return False
+
             # Validate tracker compatibility
             if not self.validate_tracker_compatibility(tracker_data):
-                logger.error("Tracker data incompatible with ChaseFollower")
+                logger.error("Tracker data incompatible with AttitudeRateFollower")
                 return False
-            
+
             # Extract target coordinates
             target_coords = self.extract_target_coordinates(tracker_data)
             if not target_coords:
                 logger.warning("No valid target coordinates found in tracker data")
                 return False
-            
+
+            # Handle target loss detection
+            if not self._handle_target_loss(target_coords):
+                # Target is lost - apply safe behavior
+                if self.ramp_down_on_target_loss:
+                    # Zero rates and hold hover throttle
+                    self.set_command_field('pitchspeed_deg_s', 0.0)
+                    self.set_command_field('yawspeed_deg_s', 0.0)
+                    self.set_command_field('rollspeed_deg_s', 0.0)
+                    hover_throttle = getattr(self.px4_controller, 'hover_throttle', 0.5)
+                    self.set_command_field('thrust', hover_throttle)
+                    logger.debug("Target lost - holding hover position")
+                return False
+
             # Validate target coordinates
             if not self.validate_target_coordinates(target_coords):
                 logger.warning(f"Invalid target coordinates for chase following: {target_coords}")
                 return False
-            
+
             # Perform altitude safety check
             if not self._check_altitude_safety():
                 logger.error("Altitude safety check failed - aborting chase following")
                 return False
-            
+
             # Calculate and apply control commands using structured data
             self.calculate_control_commands(tracker_data)
-            
+
             # Update telemetry metadata
             self.update_telemetry_metadata('last_target_coords', target_coords)
             self.update_telemetry_metadata('dive_mode_active', self.dive_started)
             self.update_telemetry_metadata('last_bank_angle', self.last_bank_angle)
-            
+            self.update_telemetry_metadata('target_lost', self.target_lost)
+            self.update_telemetry_metadata('emergency_stop_active', self.emergency_stop_active)
+
             logger.debug(f"Chase following executed for target: {target_coords}")
             return True
             
@@ -544,12 +755,20 @@ class ChaseFollower(BaseFollower):
                 'last_bank_angle': self.last_bank_angle,
                 'last_thrust_command': self.last_thrust_command,
                 'normalized_speed': self._normalize_speed(current_speed),
-                
+
                 # Flight State
                 'current_ground_speed': current_speed,
                 'current_roll_angle': current_roll,
                 'current_altitude': current_altitude,
-                
+
+                # Target Loss State
+                'target_lost': self.target_lost,
+                'target_loss_duration': (time.time() - self.target_loss_start_time) if self.target_loss_start_time else 0.0,
+
+                # Emergency Stop State
+                'emergency_stop_active': self.emergency_stop_active,
+                'altitude_violation_count': self.altitude_violation_count,
+
                 # PID States
                 'pid_states': {
                     'pitch_rate_setpoint': self.pid_pitch_rate.setpoint,
@@ -557,21 +776,25 @@ class ChaseFollower(BaseFollower):
                     'roll_rate_setpoint': self.pid_roll_rate.setpoint,
                     'thrust_setpoint': self.pid_thrust.setpoint,
                 },
-                
+
                 # Safety Status
-                'altitude_safety_enabled': self.altitude_failsafe_enabled,
+                'altitude_safety_enabled': self.altitude_safety_enabled,
                 'yaw_error_gating_enabled': self.yaw_error_check_enabled,
+                'rtl_on_altitude_violation': self.rtl_on_altitude_violation,
                 'safety_thresholds': {
                     'yaw_error_threshold': self.yaw_error_threshold,
                     'max_bank_angle': self.max_bank_angle,
                     'min_thrust': self.min_thrust,
                     'max_thrust': self.max_thrust,
+                    'min_altitude': self.min_altitude_limit,
+                    'max_altitude': self.max_altitude_limit,
                 },
                 'configuration': {
                     'target_speed': self.target_speed,
                     'coordinate_turn_enabled': self.coordinate_turn_enabled,
                     'aggressive_mode': self.aggressive_mode,
-                    'control_update_rate': self.control_update_rate
+                    'control_update_rate': self.control_update_rate,
+                    'velocity_smoothing_enabled': self.velocity_smoothing_enabled,
                 }
             }
             
@@ -602,9 +825,20 @@ class ChaseFollower(BaseFollower):
             chase_report += f"Ground Speed: {chase_status.get('current_ground_speed', 0.0):.1f} m/s\n"
             chase_report += f"Normalized Speed: {chase_status.get('normalized_speed', 0.0):.3f}\n"
             
+            # Target loss status
+            chase_report += f"\nTarget Status:\n"
+            chase_report += f"  Target Lost: {'✓' if chase_status.get('target_lost', False) else '✗'}\n"
+            chase_report += f"  Loss Duration: {chase_status.get('target_loss_duration', 0.0):.1f}s\n"
+
+            # Emergency stop status
+            chase_report += f"\nEmergency Status:\n"
+            chase_report += f"  Emergency Stop: {'ACTIVE' if chase_status.get('emergency_stop_active', False) else 'Inactive'}\n"
+            chase_report += f"  Altitude Violations: {chase_status.get('altitude_violation_count', 0)}\n"
+
             # Safety status
             chase_report += f"\nSafety Features:\n"
-            chase_report += f"  Altitude Failsafe: {'✓' if chase_status.get('altitude_safety_enabled', False) else '✗'}\n"
+            chase_report += f"  Altitude Safety: {'✓' if chase_status.get('altitude_safety_enabled', False) else '✗'}\n"
+            chase_report += f"  RTL on Violation: {'✓' if chase_status.get('rtl_on_altitude_violation', False) else '✗'}\n"
             chase_report += f"  Yaw Error Gating: {'✓' if chase_status.get('yaw_error_gating_enabled', False) else '✗'}\n"
             
             # PID setpoints
@@ -623,25 +857,41 @@ class ChaseFollower(BaseFollower):
     def reset_chase_state(self) -> None:
         """
         Resets chase-specific state variables to initial conditions.
-        
+
         Useful for reinitializing after mode switches or error recovery.
         """
         try:
+            # Reset control state
             self.dive_started = False
             self.last_bank_angle = 0.0
             self.last_thrust_command = 0.5
-            
+
+            # Reset target loss state
+            self.target_lost = False
+            self.target_loss_start_time = None
+            self.last_valid_target_coords = None
+
+            # Reset emergency stop state
+            self.emergency_stop_active = False
+            self.altitude_violation_count = 0
+            self.last_altitude_check_time = 0.0
+
+            # Reset smoothed commands
+            self.smoothed_pitch_rate = 0.0
+            self.smoothed_yaw_rate = 0.0
+            self.smoothed_roll_rate = 0.0
+
             # Reset PID integrators to prevent windup
             self.pid_pitch_rate.reset()
             self.pid_yaw_rate.reset()
             self.pid_roll_rate.reset()
             self.pid_thrust.reset()
-            
+
             # Update telemetry
             self.update_telemetry_metadata('chase_state_reset', datetime.utcnow().isoformat())
-            
+
             logger.info("Chase follower state reset to initial conditions")
-            
+
         except Exception as e:
             logger.error(f"Error resetting chase state: {e}")
 
@@ -683,3 +933,8 @@ class ChaseFollower(BaseFollower):
         """Backward compatibility wrapper for altitude safety."""
         logger.warning("check_altitude_safety() is deprecated, use _check_altitude_safety()")
         self._check_altitude_safety()
+
+
+# Backward compatibility alias - ChaseFollower maps to AttitudeRateFollower
+# This allows existing code using ChaseFollower to continue working
+ChaseFollower = AttitudeRateFollower

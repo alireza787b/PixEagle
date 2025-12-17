@@ -31,17 +31,19 @@ class FollowerFactory:
             from classes.followers.ground_target_follower import GroundTargetFollower
             from classes.followers.constant_distance_follower import ConstantDistanceFollower
             from classes.followers.constant_position_follower import ConstantPositionFollower
-            from classes.followers.chase_follower import ChaseFollower
+            from classes.followers.attitude_rate_follower import AttitudeRateFollower, ChaseFollower
             from classes.followers.body_velocity_chase_follower import BodyVelocityChaseFollower
             from classes.followers.gimbal_follower import GimbalFollower
             from classes.followers.gimbal_vector_body_follower import GimbalVectorBodyFollower
 
             # Register followers with their schema profile names
+            # Note: 'attitude_rate' is the new name, 'chase_follower' kept for backward compatibility
             cls._follower_registry = {
                 'ground_view': GroundTargetFollower,
                 'constant_distance': ConstantDistanceFollower,
                 'constant_position': ConstantPositionFollower,
-                'chase_follower': ChaseFollower,
+                'chase_follower': AttitudeRateFollower,  # Backward compatible name
+                'attitude_rate': AttitudeRateFollower,   # New preferred name
                 'body_velocity_chase': BodyVelocityChaseFollower,
                 'gimbal_unified': GimbalFollower,
                 'gimbal_vector_body': GimbalVectorBodyFollower
