@@ -239,6 +239,20 @@ follower_profiles:
     required_tracker_data: ["GIMBAL_ANGLES"]
     optional_tracker_data: ["ANGULAR", "POSITION_2D"]
 
+  # Fixed-Wing Follower - Professional L1 navigation with TECS energy management
+  # CRITICAL: PX4 fixed-wing IGNORES velocity commands - must use attitude_rate!
+  fixed_wing:
+    display_name: "Fixed-Wing Follower"
+    description: "Professional fixed-wing target following with L1 navigation and TECS"
+    control_type: "attitude_rate"
+    # Uses attitude rate commands (the ONLY offboard mode PX4 supports for fixed-wing)
+    required_fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"]
+    optional_fields: []
+    ui_category: "attitude"
+    # Schema-driven tracker data requirements
+    required_tracker_data: ["POSITION_2D"]
+    optional_tracker_data: ["GIMBAL_ANGLES", "BBOX_CONFIDENCE"]
+
 # ==============================================================================
 # Control Type Definitions
 # ==============================================================================
@@ -294,7 +308,7 @@ ui_config:
       fields: ["yaw_angle_deg", "yawspeed_deg_s"]
       color: "#9C27B0"
 
-  profile_display_order: ["ground_view", "constant_distance", "constant_position", "attitude_rate", "chase_follower", "body_velocity_chase", "gimbal_unified", "gimbal_vector_body"]
+  profile_display_order: ["ground_view", "constant_distance", "constant_position", "attitude_rate", "chase_follower", "body_velocity_chase", "gimbal_unified", "gimbal_vector_body", "fixed_wing"]
 
 # ==============================================================================
 # Validation Rules

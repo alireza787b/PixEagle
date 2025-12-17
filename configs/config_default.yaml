@@ -1394,6 +1394,94 @@ CHASE_FOLLOWER:
   AGGRESSIVE_MODE: true
 
 # ==============================================================================
+# FIXED-WING FOLLOWER CONFIGURATION
+# ==============================================================================
+# Professional fixed-wing target following with L1 navigation and TECS energy management
+# Uses attitude rate commands (the ONLY offboard mode supported by PX4 for fixed-wing)
+#
+# Control Architecture:
+# - L1 Navigation: Lateral guidance (cross-track error → yaw rate)
+# - TECS: Longitudinal control (altitude/speed errors → pitch rate, throttle)
+# - Coordinated Turn: Bank angle calculation from yaw rate
+#
+# CRITICAL: PX4 fixed-wing IGNORES velocity body commands in offboard mode!
+# This follower MUST use attitude_rate control type.
+# ==============================================================================
+FIXED_WING_FOLLOWER:
+  # === FLIGHT ENVELOPE ===
+  MIN_AIRSPEED: 12.0              # m/s - stall speed + safety margin
+  CRUISE_AIRSPEED: 18.0           # m/s - optimal efficiency airspeed
+  MAX_AIRSPEED: 30.0              # m/s - structural/performance limit
+  STALL_MARGIN_BUFFER: 3.0        # m/s - safety buffer above stall speed
+
+  # === STRUCTURAL LIMITS ===
+  MAX_BANK_ANGLE: 35.0            # degrees - coordinated turn limit
+  MAX_LOAD_FACTOR: 2.5            # g - structural load factor limit
+  MAX_PITCH_ANGLE: 25.0           # degrees - pitch up limit
+  MIN_PITCH_ANGLE: -20.0          # degrees - pitch down limit
+
+  # === RATE LIMITS (deg/s) ===
+  MAX_ROLL_RATE: 45.0             # deg/s - roll rate limit
+  MAX_PITCH_RATE: 20.0            # deg/s - pitch rate limit
+  MAX_YAW_RATE: 25.0              # deg/s - yaw rate limit (turn rate)
+
+  # === L1 NAVIGATION (Lateral Guidance) ===
+  # L1 provides smooth, stable lateral guidance using a lookahead distance
+  # Larger L1 = smoother but slower response; Smaller L1 = faster but more aggressive
+  L1_DISTANCE: 50.0               # m - lookahead distance
+  L1_DAMPING: 0.75                # damping ratio (0.7-1.0 recommended)
+  ENABLE_L1_ADAPTIVE: false       # Adapt L1 distance to current airspeed
+  L1_MIN_DISTANCE: 20.0           # m - minimum L1 for low speed
+  L1_MAX_DISTANCE: 100.0          # m - maximum L1 for high speed
+
+  # === TECS (Total Energy Control System - Longitudinal Control) ===
+  # TECS coordinates pitch and throttle for optimal energy management:
+  # - Throttle controls TOTAL energy (altitude + speed)
+  # - Pitch controls ENERGY BALANCE (trade altitude for speed or vice versa)
+  ENABLE_TECS: true               # Use TECS energy management (recommended)
+  TECS_TIME_CONST: 5.0            # seconds - energy response time constant
+  TECS_PITCH_DAMPING: 1.0         # pitch axis damping factor
+  TECS_THROTTLE_DAMPING: 0.5      # throttle axis damping factor
+  TECS_SPE_WEIGHT: 1.0            # altitude vs speed priority (>1 = altitude priority)
+
+  # === THRUST CONTROL ===
+  MIN_THRUST: 0.2                 # minimum throttle (idle - never below for fixed-wing!)
+  MAX_THRUST: 1.0                 # maximum throttle
+  CRUISE_THRUST: 0.6              # typical cruise throttle
+  THRUST_SLEW_RATE: 0.5           # max throttle change per second (smooth transitions)
+
+  # === COORDINATED TURN ===
+  # Ensures proper bank angle for zero-sideslip turns
+  ENABLE_COORDINATED_TURN: true   # Calculate bank from yaw rate (recommended)
+  TURN_COORDINATION_GAIN: 1.0     # Fine-tune turn coordination (1.0 = standard)
+  SLIP_ANGLE_LIMIT: 5.0           # degrees - max sideslip allowed
+
+  # === ALTITUDE SAFETY ===
+  ENABLE_ALTITUDE_SAFETY: true    # Monitor altitude bounds
+  MIN_ALTITUDE: 30.0              # m AGL - terrain clearance
+  MAX_ALTITUDE: 400.0             # m AGL - airspace limit
+  ALTITUDE_CHECK_INTERVAL: 0.1    # seconds between checks
+  RTL_ON_ALTITUDE_VIOLATION: true # Trigger RTL on altitude violation
+
+  # === STALL PROTECTION ===
+  # Critical for fixed-wing safety - monitors airspeed and initiates recovery
+  ENABLE_STALL_PROTECTION: true   # Monitor airspeed for stall conditions
+  STALL_RECOVERY_PITCH: -5.0      # degrees - nose down for recovery
+  STALL_RECOVERY_THROTTLE: 1.0    # full throttle for energy recovery
+
+  # === TARGET LOSS HANDLING ===
+  # Fixed-wing cannot hover - must orbit or RTL when target is lost
+  TARGET_LOSS_TIMEOUT: 3.0        # seconds before taking action
+  TARGET_LOSS_ACTION: orbit       # Options: orbit, rtl, continue_last
+  ORBIT_RADIUS: 100.0             # m - loiter radius on target loss
+  TARGET_LOSS_COORDINATE_THRESHOLD: 990  # Threshold for lost target detection
+
+  # === PERFORMANCE TUNING ===
+  CONTROL_UPDATE_RATE: 20.0       # Hz - control loop frequency
+  ENABLE_COMMAND_SMOOTHING: true  # Apply EMA smoothing to commands
+  SMOOTHING_FACTOR: 0.85          # EMA coefficient (0-1, higher = more smooth)
+
+# ==============================================================================
 # GROUND VIEW FOLLOWER CONFIGURATION
 # ==============================================================================
 GROUND_VIEW:
@@ -1626,6 +1714,12 @@ PID:
     thrust: {p: 0.1, i: 3, d: 1}
     vel_body_right: {p: 1.0, i: 0.02, d: 0.1}
     vel_body_down: {p: 0.75, i: 0.05, d: 0.1}
+    # Fixed-wing specific PID gains (L1/TECS follower)
+    fw_roll_rate: {p: 0.8, i: 0.1, d: 0.05}       # Roll rate inner loop
+    fw_pitch_rate: {p: 0.6, i: 0.15, d: 0.03}     # Pitch rate (TECS output)
+    fw_yaw_rate: {p: 0.5, i: 0.05, d: 0.02}       # Yaw rate (L1 output)
+    fw_throttle: {p: 0.4, i: 0.2, d: 0.1}         # Throttle (TECS energy)
+    fw_bank_angle: {p: 2.0, i: 0.3, d: 0.2}       # Bank angle outer loop
   # === Advanced PID Features ===
   PROPORTIONAL_ON_MEASUREMENT: false        # Avoid derivative kick
   ENABLE_ANTI_WINDUP: true                  # Prevent integral windup
