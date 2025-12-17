@@ -1,9 +1,9 @@
 # ==============================================================================
-# PixEagle Configuration File - v2.0
+# PixEagle Configuration File - v2.0 (GIMBAL CAMERA PRESET)
 # ==============================================================================
-# 📋 Priority parameters are at the top for quick access
-# 🔧 Clean unified configuration - no legacy or deprecated sections
-# 📘 Enhanced documentation for each parameter
+# 📋 GIMBAL PRESET: RTSP stream from gimbal camera, Gimbal tracker
+# 🔧 This preset is identical to config_default.yaml except for camera/tracker
+# 📘 Changes: VIDEO_SOURCE_TYPE, USE_GSTREAMER, RTSP_URL, TRACKING, FOLLOWER_MODE
 # ==============================================================================
 
 
@@ -26,7 +26,7 @@ VideoSource:
   
   # === Performance Optimization ===
   # 🚀 Enable for Raspberry Pi, Jetson, or low-power systems
-  USE_GSTREAMER: true       # true = Use GStreamer pipelines (better for embedded)
+  USE_GSTREAMER: true        # true = Use GStreamer pipelines (better for embedded)
   
   # === Source-Specific Parameters ===
   # Video file source
@@ -934,12 +934,12 @@ GimbalTracker:
   ENABLED: true
 
   # Network configuration for gimbal UDP communication
-  UDP_HOST: "192.168.144.110"      # Gimbal IP address
+  UDP_HOST: "192.168.0.108"      # Gimbal IP address
   UDP_PORT: 9003                # Gimbal UDP port
   CONNECTION_TIMEOUT: 5.0       # Connection timeout in seconds
 
 # Global gimbal parameters (accessed by GimbalTracker and GimbalInterface)
-GIMBAL_UDP_HOST: "192.168.144.110"      # Gimbal IP address
+GIMBAL_UDP_HOST: "192.168.0.108"      # Gimbal IP address
 GIMBAL_LISTEN_PORT: 9004               # Port for listening to gimbal data
 GIMBAL_COORDINATE_SYSTEM: "GIMBAL_BODY"  # Coordinate system preference
 GIMBAL_DISABLE_ESTIMATOR: true         # Disable Kalman estimator for gimbal
@@ -980,7 +980,8 @@ Follower:
   TARGET_POSITION_MODE: center              # center, top, bottom
 
   # === Following Mode ===
-  # Options: ground_view, constant_distance, constant_position, chase_follower, body_velocity_chase, gimbal_unified, gimbal_vector_body
+  # Options: ground_view, constant_distance, constant_position, chase_follower, attitude_rate, body_velocity_chase, gimbal_unified, gimbal_vector_body
+  # Note: 'attitude_rate' is the new name for 'chase_follower' (both work)
   FOLLOWER_MODE: gimbal_vector_body
   
   # === Visualization ===
@@ -1008,16 +1009,16 @@ CIRCUIT_BREAKER_DISABLE_SAFETY: true      # true = Skip safety checks in CB mode
 # ==============================================================================
 GimbalFollower:
   # === Mount Configuration ===
-  MOUNT_TYPE: "HORIZONTAL"                    # Options: "HORIZONTAL", "VERTICAL"
+  MOUNT_TYPE: "VERTICAL"                    # Options: "HORIZONTAL", "VERTICAL"
   CONTROL_MODE: "BODY"                      # Options: "NED", "BODY"
 
   # === Required Tracker Fields ===
   REQUIRED_TRACKER_FIELDS: ["angular"]     # Must have angular data from gimbal
 
   # === Velocity Control ===
-  BASE_VELOCITY: 1.0                       # Base following velocity (m/s)
-  MAX_VELOCITY: 2.0                        # Maximum velocity limit (m/s)
-  VELOCITY_RAMP_RATE: 0.5                  # Acceleration rate (m/s²)
+  BASE_VELOCITY: 2.0                       # Base following velocity (m/s)
+  MAX_VELOCITY: 8.0                        # Maximum velocity limit (m/s)
+  VELOCITY_RAMP_RATE: 1.0                  # Acceleration rate (m/s²)
   VELOCITY_FILTER_ALPHA: 0.7               # Velocity smoothing filter coefficient (0-1)
 
   # === Forward Velocity Control System ===
@@ -1111,7 +1112,7 @@ GIMBAL_VECTOR_BODY:
   # === Control Enablement ===
   # Altitude control uses gimbal pitch to compute vertical velocity
   # When disabled, only horizontal pursuit (vel_down = 0, safer default)
-  ENABLE_ALTITUDE_CONTROL: true          # true = 3D vector pursuit, false = horizontal only
+  ENABLE_ALTITUDE_CONTROL: false          # true = 3D vector pursuit, false = horizontal only
   ENABLE_YAW_CONTROL: false               # Optional: yaw drone toward target
   YAW_RATE_GAIN: 0.5                      # Yaw rate proportional gain (if enabled)
 
@@ -1124,11 +1125,11 @@ GIMBAL_VECTOR_BODY:
   # === Altitude Safety (Optional Enforcement) ===
   # Enable altitude monitoring and enforcement (similar to BODY_VELOCITY_CHASE)
   # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE (overrides global SafetyLimits if set)
-  ALTITUDE_SAFETY_ENABLED: true           # Enable altitude boundary enforcement (DEMO)
-  MIN_ALTITUDE: 5.0                       # Override global minimum altitude (meters)
-  MAX_ALTITUDE: 50.0                      # Override global maximum altitude (meters)
-  ALTITUDE_CHECK_INTERVAL: 0.1            # seconds - 100ms altitude check frequency (DEMO)
-  RTL_ON_ALTITUDE_VIOLATION: true         # Trigger RTL on altitude violation (DEMO)
+  ALTITUDE_SAFETY_ENABLED: false          # Enable altitude boundary enforcement
+  # MIN_ALTITUDE: 3.0                     # Override global minimum altitude (meters)
+  # MAX_ALTITUDE: 120.0                   # Override global maximum altitude (meters)
+  ALTITUDE_CHECK_INTERVAL: 1.0            # seconds - altitude check frequency
+  RTL_ON_ALTITUDE_VIOLATION: false        # Trigger RTL on altitude violation (conservative default)
 
   # === General Safety Parameters ===
   EMERGENCY_STOP_ENABLED: true            # Enable emergency velocity zeroing
@@ -1161,11 +1162,15 @@ GIMBAL_VECTOR_BODY:
 BODY_VELOCITY_CHASE:
   # === Forward Velocity Ramping ===
   INITIAL_FORWARD_VELOCITY: 0.0           # m/s - starting velocity
-  MAX_FORWARD_VELOCITY: 0.5               # m/s - maximum chase speed
+  MAX_FORWARD_VELOCITY: 0.5               # m/s - maximum chase speed (demo safe)
   FORWARD_RAMP_RATE: 0.5                 # m/s² - acceleration rate
   RAMP_DOWN_ON_TARGET_LOSS: true          # Decelerate when target lost
   TARGET_LOSS_TIMEOUT: 2.0                # seconds before ramp down starts
-  
+  # Target loss stop velocity: ramp to this when target lost (0.0 = full stop)
+  TARGET_LOSS_STOP_VELOCITY: 0.0          # m/s - velocity on target loss (0.0 = stop)
+  # Coordinate threshold for detecting lost target (values > this indicate lost)
+  TARGET_LOSS_COORDINATE_THRESHOLD: 990   # Configurable threshold for lost target detection
+
   # === Control Enablement ===
   ENABLE_ALTITUDE_CONTROL: false           # Enable down velocity control
   
@@ -1181,10 +1186,10 @@ BODY_VELOCITY_CHASE:
   
   # === 🛡️ ALTITUDE SAFETY (Overrides global SafetyLimits) ===
   # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE
-  ALTITUDE_SAFETY_ENABLED: false          # Enable altitude monitoring
+  ALTITUDE_SAFETY_ENABLED: true           # Enable altitude monitoring (recommended for demo)
   MIN_ALTITUDE: 5.0                       # Override: stricter minimum altitude (meters)
   MAX_ALTITUDE: 50.0                      # Override: stricter maximum altitude (meters)
-  ALTITUDE_CHECK_INTERVAL: 1.0            # seconds - check frequency
+  ALTITUDE_CHECK_INTERVAL: 0.1            # seconds - 100ms check frequency (fast safety checks)
   RTL_ON_ALTITUDE_VIOLATION: true         # Trigger RTL on violation
   
   # === Safety Limits (Additional to Schema Limits) ===
@@ -1337,9 +1342,13 @@ CONSTANT_DISTANCE:
 # CHASE FOLLOWER CONFIGURATION
 # ==============================================================================
 CHASE_FOLLOWER:
-  # === Control Enablement ===
-  YAW_ERROR_CHECK_ENABLED: true         # Enable yaw error gating for safety
-  ALTITUDE_FAILSAFE_ENABLED: false      # Enable altitude safety monitoring
+  # === Control Enablement (Use ENABLE_ prefix for consistency) ===
+  ENABLE_YAW_ERROR_CHECK: true          # Enable yaw error gating for safety
+  ENABLE_ALTITUDE_SAFETY: true          # Enable altitude safety monitoring (recommended)
+  ENABLE_COORDINATED_TURN: true         # Enable coordinated turn dynamics
+  ENABLE_AGGRESSIVE_MODE: true          # Enable aggressive chase behavior
+  ENABLE_EMERGENCY_STOP: true           # Enable emergency stop capability
+  ENABLE_VELOCITY_SMOOTHING: true       # Enable EMA smoothing on rate commands
 
   # === Rate Limits ===
   MAX_PITCH_RATE: 10.0                  # Max pitch rate (deg/s)
@@ -1359,15 +1368,292 @@ CHASE_FOLLOWER:
   # === Safety Thresholds ===
   YAW_ERROR_THRESHOLD: 20.0             # Yaw error threshold for dive activation (deg)
 
-  # === Altitude Limits (Overrides global SafetyLimits when failsafe enabled) ===
+  # === Altitude Safety (Consistent with body_velocity_chase) ===
   # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE
   MIN_ALTITUDE: 40.0                    # Override: higher minimum for chase mode (meters)
   MAX_ALTITUDE: 10000.0                 # Override: no practical max for chase mode (meters)
+  ALTITUDE_CHECK_INTERVAL: 0.1          # Check interval in seconds (100ms for fast response)
+  RTL_ON_ALTITUDE_VIOLATION: true       # Trigger RTL on altitude violation
+
+  # === Target Loss Handling (Consistent with body_velocity_chase) ===
+  TARGET_LOSS_TIMEOUT: 2.0              # Seconds before considering target lost
+  RAMP_DOWN_ON_TARGET_LOSS: true        # Zero rates when target lost
+  TARGET_LOSS_COORDINATE_THRESHOLD: 990 # Coordinate threshold for lost target detection
+
+  # === Velocity Smoothing ===
+  SMOOTHING_FACTOR: 0.8                 # EMA smoothing coefficient (0-1, higher = more smoothing)
 
   # === Performance Tuning ===
   CONTROL_UPDATE_RATE: 20.0             # Control loop frequency (Hz)
-  COORDINATE_TURN_ENABLED: true         # Enable coordinated turn dynamics
-  AGGRESSIVE_MODE: true                 # Enable aggressive chase behavior
+
+  # === Legacy Parameter Names (kept for backward compatibility) ===
+  # These map to the new ENABLE_ prefix versions above
+  YAW_ERROR_CHECK_ENABLED: true
+  ALTITUDE_FAILSAFE_ENABLED: true
+  COORDINATE_TURN_ENABLED: true
+  AGGRESSIVE_MODE: true
+
+# ==============================================================================
+# FIXED-WING FOLLOWER CONFIGURATION
+# ==============================================================================
+# Professional fixed-wing target following with L1 navigation and TECS energy management
+# Uses attitude rate commands (the ONLY offboard mode supported by PX4 for fixed-wing)
+#
+# Control Architecture:
+# - L1 Navigation: Lateral guidance (cross-track error → yaw rate)
+# - TECS: Longitudinal control (altitude/speed errors → pitch rate, throttle)
+# - Coordinated Turn: Bank angle calculation from yaw rate
+#
+# CRITICAL: PX4 fixed-wing IGNORES velocity body commands in offboard mode!
+# This follower MUST use attitude_rate control type.
+# ==============================================================================
+FIXED_WING_FOLLOWER:
+  # === FLIGHT ENVELOPE ===
+  MIN_AIRSPEED: 12.0              # m/s - stall speed + safety margin
+  CRUISE_AIRSPEED: 18.0           # m/s - optimal efficiency airspeed
+  MAX_AIRSPEED: 30.0              # m/s - structural/performance limit
+  STALL_MARGIN_BUFFER: 3.0        # m/s - safety buffer above stall speed
+
+  # === STRUCTURAL LIMITS ===
+  MAX_BANK_ANGLE: 35.0            # degrees - coordinated turn limit
+  MAX_LOAD_FACTOR: 2.5            # g - structural load factor limit
+  MAX_PITCH_ANGLE: 25.0           # degrees - pitch up limit
+  MIN_PITCH_ANGLE: -20.0          # degrees - pitch down limit
+
+  # === RATE LIMITS (deg/s) ===
+  MAX_ROLL_RATE: 45.0             # deg/s - roll rate limit
+  MAX_PITCH_RATE: 20.0            # deg/s - pitch rate limit
+  MAX_YAW_RATE: 25.0              # deg/s - yaw rate limit (turn rate)
+
+  # === L1 NAVIGATION (Lateral Guidance) ===
+  # L1 provides smooth, stable lateral guidance using a lookahead distance
+  # Larger L1 = smoother but slower response; Smaller L1 = faster but more aggressive
+  L1_DISTANCE: 50.0               # m - lookahead distance
+  L1_DAMPING: 0.75                # damping ratio (0.7-1.0 recommended)
+  ENABLE_L1_ADAPTIVE: false       # Adapt L1 distance to current airspeed
+  L1_MIN_DISTANCE: 20.0           # m - minimum L1 for low speed
+  L1_MAX_DISTANCE: 100.0          # m - maximum L1 for high speed
+
+  # === TECS (Total Energy Control System - Longitudinal Control) ===
+  # TECS coordinates pitch and throttle for optimal energy management:
+  # - Throttle controls TOTAL energy (altitude + speed)
+  # - Pitch controls ENERGY BALANCE (trade altitude for speed or vice versa)
+  ENABLE_TECS: true               # Use TECS energy management (recommended)
+  TECS_TIME_CONST: 5.0            # seconds - energy response time constant
+  TECS_PITCH_DAMPING: 1.0         # pitch axis damping factor
+  TECS_THROTTLE_DAMPING: 0.5      # throttle axis damping factor
+  TECS_SPE_WEIGHT: 1.0            # altitude vs speed priority (>1 = altitude priority)
+
+  # === THRUST CONTROL ===
+  MIN_THRUST: 0.2                 # minimum throttle (idle - never below for fixed-wing!)
+  MAX_THRUST: 1.0                 # maximum throttle
+  CRUISE_THRUST: 0.6              # typical cruise throttle
+  THRUST_SLEW_RATE: 0.5           # max throttle change per second (smooth transitions)
+
+  # === COORDINATED TURN ===
+  # Ensures proper bank angle for zero-sideslip turns
+  ENABLE_COORDINATED_TURN: true   # Calculate bank from yaw rate (recommended)
+  TURN_COORDINATION_GAIN: 1.0     # Fine-tune turn coordination (1.0 = standard)
+  SLIP_ANGLE_LIMIT: 5.0           # degrees - max sideslip allowed
+
+  # === ALTITUDE SAFETY ===
+  ENABLE_ALTITUDE_SAFETY: true    # Monitor altitude bounds
+  MIN_ALTITUDE: 30.0              # m AGL - terrain clearance
+  MAX_ALTITUDE: 400.0             # m AGL - airspace limit
+  ALTITUDE_CHECK_INTERVAL: 0.1    # seconds between checks
+  RTL_ON_ALTITUDE_VIOLATION: true # Trigger RTL on altitude violation
+
+  # === STALL PROTECTION ===
+  # Critical for fixed-wing safety - monitors airspeed and initiates recovery
+  ENABLE_STALL_PROTECTION: true   # Monitor airspeed for stall conditions
+  STALL_RECOVERY_PITCH: -5.0      # degrees - nose down for recovery
+  STALL_RECOVERY_THROTTLE: 1.0    # full throttle for energy recovery
+
+  # === TARGET LOSS HANDLING ===
+  # Fixed-wing cannot hover - must orbit or RTL when target is lost
+  TARGET_LOSS_TIMEOUT: 3.0        # seconds before taking action
+  TARGET_LOSS_ACTION: orbit       # Options: orbit, rtl, continue_last
+  ORBIT_RADIUS: 100.0             # m - loiter radius on target loss
+  TARGET_LOSS_COORDINATE_THRESHOLD: 990  # Threshold for lost target detection
+
+  # === PERFORMANCE TUNING ===
+  CONTROL_UPDATE_RATE: 20.0       # Hz - control loop frequency
+  ENABLE_COMMAND_SMOOTHING: true  # Apply EMA smoothing to commands
+  SMOOTHING_FACTOR: 0.85          # EMA coefficient (0-1, higher = more smooth)
+
+# ==============================================================================
+# MULTICOPTER FOLLOWER CONFIGURATION
+# ==============================================================================
+# Professional multicopter target following with dual-mode lateral guidance.
+# Supports: YAW_TO_TARGET (fixed-wing style) and CRAB_STRAFE (strafing)
+# Control type: velocity_body_offboard (most stable for multicopters)
+#
+# Key Advantages over Fixed-Wing:
+# - Can HOVER on target loss (instead of orbit)
+# - Can strafe laterally (CRAB_STRAFE mode)
+# - Zero forward velocity is acceptable
+# - Uses stable velocity_body_offboard control
+# ==============================================================================
+MULTICOPTER_FOLLOWER:
+  # === LATERAL GUIDANCE MODE ===
+  # yaw_to_target: Rotate to face target, fly forward (like fixed-wing)
+  # crab_strafe: Maintain heading, strafe laterally (multicopter advantage)
+  LATERAL_GUIDANCE_MODE: yaw_to_target       # yaw_to_target | crab_strafe
+  ENABLE_AUTO_MODE_SWITCHING: false          # Auto-switch based on LOS rate/distance
+  AUTO_SWITCH_DISTANCE_THRESHOLD: 20.0       # meters - close = crab_strafe
+
+  # === FORWARD VELOCITY MODE ===
+  # constant: Simple ramp to maximum velocity
+  # pn: Proportional Navigation - velocity scales with LOS rate (military standard)
+  # los: Line-of-Sight - velocity proportional to target offset
+  FORWARD_VELOCITY_MODE: constant            # constant | pn | los
+
+  # === FORWARD VELOCITY PARAMETERS ===
+  INITIAL_FORWARD_VELOCITY: 0.0              # m/s - starting velocity
+  MAX_FORWARD_VELOCITY: 8.0                  # m/s - maximum chase speed
+  FORWARD_RAMP_RATE: 2.0                     # m/s^2 - acceleration rate
+
+  # === PROPORTIONAL NAVIGATION PARAMETERS ===
+  # PN Law: V = V_base * (1 + N * |LOS_rate|)
+  PN_NAVIGATION_CONSTANT: 4.0                # N (3-5 typical for intercept)
+  PN_BASE_VELOCITY: 4.0                      # m/s - base velocity for PN mode
+  PN_LOS_SMOOTHING_ALPHA: 0.3                # EMA filter for LOS rate
+  PN_MAX_VELOCITY_SCALE: 2.0                 # Maximum velocity multiplier
+
+  # === LINE-OF-SIGHT PARAMETERS ===
+  LOS_DISTANCE_GAIN: 0.5                     # Velocity gain for distance
+  LOS_MAX_VELOCITY: 10.0                     # m/s - max LOS velocity
+
+  # === TARGET LOSS HANDLING (MULTICOPTER: HOVER) ===
+  # Unlike fixed-wing (orbit), multicopters can HOVER in place
+  TARGET_LOSS_TIMEOUT: 2.0                   # seconds - before executing action
+  TARGET_LOSS_ACTION: hover                  # hover | rtl | slow_forward
+  TARGET_LOSS_COORDINATE_THRESHOLD: 990      # Threshold for lost target detection
+  RAMP_DOWN_ON_TARGET_LOSS: true             # Decelerate on target loss
+  SLOW_FORWARD_VELOCITY: 1.0                 # m/s - velocity for slow_forward action
+
+  # === ALTITUDE SAFETY (Overrides global SafetyLimits) ===
+  ENABLE_ALTITUDE_SAFETY: true               # Enable altitude monitoring
+  MIN_ALTITUDE: 5.0                          # meters - minimum safe altitude
+  MAX_ALTITUDE: 100.0                        # meters - maximum altitude
+  ALTITUDE_CHECK_INTERVAL: 0.1               # seconds - 100ms safety checks
+  RTL_ON_ALTITUDE_VIOLATION: true            # Trigger RTL on violation
+
+  # === VELOCITY SATURATION PROTECTION ===
+  # Prevents motor saturation by limiting total velocity magnitude
+  ENABLE_VELOCITY_MAGNITUDE_LIMIT: true      # Enable magnitude limiting
+  MAX_VELOCITY_MAGNITUDE: 12.0               # m/s - total vector magnitude limit
+
+  # === COMMAND SMOOTHING ===
+  VELOCITY_SMOOTHING_ENABLED: true           # Enable velocity command smoothing
+  SMOOTHING_FACTOR: 0.8                      # EMA coefficient (0-1)
+
+  # === SAFETY ===
+  EMERGENCY_STOP_ENABLED: true               # Enable emergency velocity zeroing
+  MAX_TRACKING_ERROR: 1.5                    # Max normalized error before limiting
+
+  # === CONTROL CONFIGURATION ===
+  ENABLE_ALTITUDE_CONTROL: true              # Enable vertical velocity control
+  CONTROL_UPDATE_RATE: 20.0                  # Hz - control loop frequency
+
+# ==============================================================================
+# MULTICOPTER ATTITUDE RATE FOLLOWER CONFIGURATION
+# ==============================================================================
+# Professional multicopter target follower using pure attitude rate control.
+# Unlike velocity-based control, this provides direct attitude rate commands
+# (roll rate, pitch rate, yaw rate, thrust) for aggressive, responsive tracking.
+#
+# Key Characteristics:
+# - Uses set_attitude_rate() offboard command (rollspeed, pitchspeed, yawspeed, thrust)
+# - Requires explicit thrust management (no automatic altitude hold)
+# - Faster response than velocity cascade (direct rate control)
+# - GPS-independent operation possible
+# - Compatible with PNG/IBVS guidance laws
+# - Target loss action: HOVER (rates=0, hover thrust)
+#
+# When to Use:
+# - Aggressive target interception
+# - GPS-denied environments
+# - High-bandwidth tracking maneuvers
+# - Vision-based servoing (IBVS)
+# ==============================================================================
+MULTICOPTER_ATTITUDE_RATE:
+  # === GUIDANCE MODE ===
+  # direct_rate: PID-based error → rate commands (stable, predictable)
+  # png: Proportional Navigation Guidance - military standard intercept law
+  GUIDANCE_MODE: direct_rate                 # direct_rate | png
+
+  # === RATE LIMITS (deg/s) ===
+  # Maximum angular rates for safety and stability
+  MAX_PITCH_RATE: 45.0                       # deg/s - pitch rate limit
+  MAX_ROLL_RATE: 45.0                        # deg/s - roll rate limit
+  MAX_YAW_RATE: 60.0                         # deg/s - yaw rate limit
+
+  # === ANGLE LIMITS (safety) ===
+  # Prevents excessive attitude angles that could cause instability
+  MAX_PITCH_ANGLE: 35.0                      # degrees - max pitch (nose down)
+  MAX_ROLL_ANGLE: 35.0                       # degrees - max roll (bank)
+  MAX_BANK_ANGLE: 30.0                       # degrees - max bank for coordinated turns
+
+  # === THRUST MANAGEMENT ===
+  # Critical: attitude_rate control requires explicit thrust management
+  # Unlike velocity control, there is NO automatic altitude hold
+  HOVER_THRUST: 0.5                          # Baseline hover thrust (0.0-1.0)
+  MIN_THRUST: 0.1                            # Minimum thrust (safety floor)
+  MAX_THRUST: 0.9                            # Maximum thrust (motor protection)
+  ENABLE_PITCH_THRUST_COMPENSATION: true     # Compensate for thrust loss at pitch angles
+  PITCH_COMPENSATION_GAIN: 0.5               # Compensation aggressiveness (0.0-1.0)
+
+  # === ALTITUDE CONTROL ===
+  # Explicit altitude hold using thrust PID
+  ENABLE_ALTITUDE_HOLD: true                 # Enable altitude PID for hover
+  TARGET_ALTITUDE: 15.0                      # meters - default target altitude
+  ALTITUDE_TOLERANCE: 1.0                    # meters - acceptable altitude error
+
+  # === PROPORTIONAL NAVIGATION PARAMETERS ===
+  # PNG Law: a_cmd = N * V_c * LOS_rate
+  # Used when GUIDANCE_MODE: png
+  PN_NAVIGATION_CONSTANT: 4.0                # N (3-5 typical for intercept)
+  PN_LOS_SMOOTHING_ALPHA: 0.3                # EMA filter for LOS rate noise
+  PN_CLOSING_VELOCITY: 5.0                   # m/s - assumed closing velocity
+  PN_MIN_ACCELERATION: 0.5                   # m/s² - minimum command
+  PN_MAX_ACCELERATION: 15.0                  # m/s² - maximum command
+
+  # === YAW ERROR GATING ===
+  # Safety: Don't pitch down until yaw is aligned with target
+  # Prevents diving when target is to the side
+  ENABLE_YAW_ERROR_GATING: true              # Enable yaw alignment check
+  YAW_ERROR_THRESHOLD: 0.3                   # Normalized error threshold (0.0-1.0)
+  YAW_GATING_PITCH_SCALE: 0.3                # Pitch scaling when yaw misaligned
+
+  # === COORDINATED TURNS ===
+  # Generate roll rate from yaw rate for smooth turns
+  ENABLE_COORDINATED_TURNS: true             # Enable roll-yaw coordination
+  TURN_COORDINATION_GAIN: 1.0                # Coordination aggressiveness
+
+  # === TARGET LOSS HANDLING ===
+  # Key advantage: multicopters can HOVER (unlike fixed-wing orbit)
+  TARGET_LOSS_TIMEOUT: 2.0                   # seconds - before executing action
+  TARGET_LOSS_ACTION: hover                  # hover | rtl
+  TARGET_LOSS_COORDINATE_THRESHOLD: 990      # Lost target detection threshold
+  RAMP_DOWN_ON_TARGET_LOSS: true             # Gradually reduce rates on loss
+
+  # === ALTITUDE SAFETY ===
+  ENABLE_ALTITUDE_SAFETY: true               # Enable altitude monitoring
+  MIN_ALTITUDE: 5.0                          # meters - minimum safe altitude
+  MAX_ALTITUDE: 100.0                        # meters - maximum altitude
+  RTL_ON_ALTITUDE_VIOLATION: true            # Trigger RTL on violation
+
+  # === COMMAND SMOOTHING ===
+  RATE_SMOOTHING_ENABLED: true               # Enable rate command smoothing
+  SMOOTHING_FACTOR: 0.85                     # EMA coefficient (0-1, higher=smoother)
+
+  # === SAFETY ===
+  EMERGENCY_STOP_ENABLED: true               # Enable emergency rate zeroing
+  MAX_TRACKING_ERROR: 1.5                    # Max normalized error before limiting
+
+  # === CONTROL CONFIGURATION ===
+  CONTROL_UPDATE_RATE: 50.0                  # Hz - higher for attitude rate control
 
 # ==============================================================================
 # GROUND VIEW FOLLOWER CONFIGURATION
@@ -1602,6 +1888,22 @@ PID:
     thrust: {p: 0.1, i: 3, d: 1}
     vel_body_right: {p: 1.0, i: 0.02, d: 0.1}
     vel_body_down: {p: 0.75, i: 0.05, d: 0.1}
+    # Fixed-wing specific PID gains (L1/TECS follower)
+    fw_roll_rate: {p: 0.8, i: 0.1, d: 0.05}       # Roll rate inner loop
+    fw_pitch_rate: {p: 0.6, i: 0.15, d: 0.03}     # Pitch rate (TECS output)
+    fw_yaw_rate: {p: 0.5, i: 0.05, d: 0.02}       # Yaw rate (L1 output)
+    fw_throttle: {p: 0.4, i: 0.2, d: 0.1}         # Throttle (TECS energy)
+    fw_bank_angle: {p: 2.0, i: 0.3, d: 0.2}       # Bank angle outer loop
+    # Multicopter specific PID gains (dual-mode follower)
+    mc_yawspeed_deg_s: {p: 15.0, i: 0.5, d: 2.0}  # Yaw rate for YAW_TO_TARGET mode
+    mc_vel_body_right: {p: 8.0, i: 0.2, d: 1.0}   # Lateral velocity for CRAB_STRAFE mode
+    mc_vel_body_down: {p: 5.0, i: 0.3, d: 0.8}    # Vertical velocity control
+    # Multicopter attitude rate specific PID gains (aggressive tracking)
+    mcar_pitchspeed_deg_s: {p: 18.0, i: 0.15, d: 0.4}  # Pitch rate (aggressive response)
+    mcar_yawspeed_deg_s: {p: 12.0, i: 0.1, d: 0.3}     # Yaw rate (turn to target)
+    mcar_rollspeed_deg_s: {p: 1.5, i: 0.08, d: 0.25}   # Roll rate (coordinated turns)
+    mcar_thrust: {p: 0.15, i: 0.5, d: 0.2}             # Thrust (altitude hold)
+    mcar_altitude: {p: 2.0, i: 0.3, d: 0.5}            # Altitude (explicit control)
   # === Advanced PID Features ===
   PROPORTIONAL_ON_MEASUREMENT: false        # Avoid derivative kick
   ENABLE_ANTI_WINDUP: true                  # Prevent integral windup
