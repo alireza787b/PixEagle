@@ -268,6 +268,25 @@ follower_profiles:
     required_tracker_data: ["POSITION_2D"]
     optional_tracker_data: ["BBOX_CONFIDENCE", "VELOCITY_AWARE"]
 
+  # Multicopter Attitude Rate Follower - Aggressive tracking with direct attitude rate control
+  # Uses pure attitude_rate commands (roll/pitch/yaw rates + thrust) for responsive tracking.
+  # Key differences from velocity-based multicopter:
+  # - Faster response (bypasses velocity cascade)
+  # - Requires explicit thrust management (no automatic altitude hold)
+  # - GPS-independent operation possible
+  # - Compatible with PNG guidance laws
+  multicopter_attitude_rate:
+    display_name: "Multicopter Attitude Rate"
+    description: "Aggressive attitude rate control for multicopter target tracking"
+    control_type: "attitude_rate"
+    # Uses set_attitude_rate() - direct angular rate commands + thrust
+    required_fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"]
+    optional_fields: []
+    ui_category: "attitude"
+    # Schema-driven tracker data requirements
+    required_tracker_data: ["POSITION_2D"]
+    optional_tracker_data: ["BBOX_CONFIDENCE", "VELOCITY_AWARE", "GIMBAL_ANGLES"]
+
 # ==============================================================================
 # Control Type Definitions
 # ==============================================================================
@@ -323,7 +342,7 @@ ui_config:
       fields: ["yaw_angle_deg", "yawspeed_deg_s"]
       color: "#9C27B0"
 
-  profile_display_order: ["ground_view", "constant_distance", "constant_position", "attitude_rate", "chase_follower", "body_velocity_chase", "multicopter", "gimbal_unified", "gimbal_vector_body", "fixed_wing"]
+  profile_display_order: ["ground_view", "constant_distance", "constant_position", "attitude_rate", "chase_follower", "body_velocity_chase", "multicopter", "multicopter_attitude_rate", "gimbal_unified", "gimbal_vector_body", "fixed_wing"]
 
 # ==============================================================================
 # Validation Rules

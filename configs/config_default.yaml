@@ -1557,6 +1557,105 @@ MULTICOPTER_FOLLOWER:
   CONTROL_UPDATE_RATE: 20.0                  # Hz - control loop frequency
 
 # ==============================================================================
+# MULTICOPTER ATTITUDE RATE FOLLOWER CONFIGURATION
+# ==============================================================================
+# Professional multicopter target follower using pure attitude rate control.
+# Unlike velocity-based control, this provides direct attitude rate commands
+# (roll rate, pitch rate, yaw rate, thrust) for aggressive, responsive tracking.
+#
+# Key Characteristics:
+# - Uses set_attitude_rate() offboard command (rollspeed, pitchspeed, yawspeed, thrust)
+# - Requires explicit thrust management (no automatic altitude hold)
+# - Faster response than velocity cascade (direct rate control)
+# - GPS-independent operation possible
+# - Compatible with PNG/IBVS guidance laws
+# - Target loss action: HOVER (rates=0, hover thrust)
+#
+# When to Use:
+# - Aggressive target interception
+# - GPS-denied environments
+# - High-bandwidth tracking maneuvers
+# - Vision-based servoing (IBVS)
+# ==============================================================================
+MULTICOPTER_ATTITUDE_RATE:
+  # === GUIDANCE MODE ===
+  # direct_rate: PID-based error → rate commands (stable, predictable)
+  # png: Proportional Navigation Guidance - military standard intercept law
+  GUIDANCE_MODE: direct_rate                 # direct_rate | png
+
+  # === RATE LIMITS (deg/s) ===
+  # Maximum angular rates for safety and stability
+  MAX_PITCH_RATE: 45.0                       # deg/s - pitch rate limit
+  MAX_ROLL_RATE: 45.0                        # deg/s - roll rate limit
+  MAX_YAW_RATE: 60.0                         # deg/s - yaw rate limit
+
+  # === ANGLE LIMITS (safety) ===
+  # Prevents excessive attitude angles that could cause instability
+  MAX_PITCH_ANGLE: 35.0                      # degrees - max pitch (nose down)
+  MAX_ROLL_ANGLE: 35.0                       # degrees - max roll (bank)
+  MAX_BANK_ANGLE: 30.0                       # degrees - max bank for coordinated turns
+
+  # === THRUST MANAGEMENT ===
+  # Critical: attitude_rate control requires explicit thrust management
+  # Unlike velocity control, there is NO automatic altitude hold
+  HOVER_THRUST: 0.5                          # Baseline hover thrust (0.0-1.0)
+  MIN_THRUST: 0.1                            # Minimum thrust (safety floor)
+  MAX_THRUST: 0.9                            # Maximum thrust (motor protection)
+  ENABLE_PITCH_THRUST_COMPENSATION: true     # Compensate for thrust loss at pitch angles
+  PITCH_COMPENSATION_GAIN: 0.5               # Compensation aggressiveness (0.0-1.0)
+
+  # === ALTITUDE CONTROL ===
+  # Explicit altitude hold using thrust PID
+  ENABLE_ALTITUDE_HOLD: true                 # Enable altitude PID for hover
+  TARGET_ALTITUDE: 15.0                      # meters - default target altitude
+  ALTITUDE_TOLERANCE: 1.0                    # meters - acceptable altitude error
+
+  # === PROPORTIONAL NAVIGATION PARAMETERS ===
+  # PNG Law: a_cmd = N * V_c * LOS_rate
+  # Used when GUIDANCE_MODE: png
+  PN_NAVIGATION_CONSTANT: 4.0                # N (3-5 typical for intercept)
+  PN_LOS_SMOOTHING_ALPHA: 0.3                # EMA filter for LOS rate noise
+  PN_CLOSING_VELOCITY: 5.0                   # m/s - assumed closing velocity
+  PN_MIN_ACCELERATION: 0.5                   # m/s² - minimum command
+  PN_MAX_ACCELERATION: 15.0                  # m/s² - maximum command
+
+  # === YAW ERROR GATING ===
+  # Safety: Don't pitch down until yaw is aligned with target
+  # Prevents diving when target is to the side
+  ENABLE_YAW_ERROR_GATING: true              # Enable yaw alignment check
+  YAW_ERROR_THRESHOLD: 0.3                   # Normalized error threshold (0.0-1.0)
+  YAW_GATING_PITCH_SCALE: 0.3                # Pitch scaling when yaw misaligned
+
+  # === COORDINATED TURNS ===
+  # Generate roll rate from yaw rate for smooth turns
+  ENABLE_COORDINATED_TURNS: true             # Enable roll-yaw coordination
+  TURN_COORDINATION_GAIN: 1.0                # Coordination aggressiveness
+
+  # === TARGET LOSS HANDLING ===
+  # Key advantage: multicopters can HOVER (unlike fixed-wing orbit)
+  TARGET_LOSS_TIMEOUT: 2.0                   # seconds - before executing action
+  TARGET_LOSS_ACTION: hover                  # hover | rtl
+  TARGET_LOSS_COORDINATE_THRESHOLD: 990      # Lost target detection threshold
+  RAMP_DOWN_ON_TARGET_LOSS: true             # Gradually reduce rates on loss
+
+  # === ALTITUDE SAFETY ===
+  ENABLE_ALTITUDE_SAFETY: true               # Enable altitude monitoring
+  MIN_ALTITUDE: 5.0                          # meters - minimum safe altitude
+  MAX_ALTITUDE: 100.0                        # meters - maximum altitude
+  RTL_ON_ALTITUDE_VIOLATION: true            # Trigger RTL on violation
+
+  # === COMMAND SMOOTHING ===
+  RATE_SMOOTHING_ENABLED: true               # Enable rate command smoothing
+  SMOOTHING_FACTOR: 0.85                     # EMA coefficient (0-1, higher=smoother)
+
+  # === SAFETY ===
+  EMERGENCY_STOP_ENABLED: true               # Enable emergency rate zeroing
+  MAX_TRACKING_ERROR: 1.5                    # Max normalized error before limiting
+
+  # === CONTROL CONFIGURATION ===
+  CONTROL_UPDATE_RATE: 50.0                  # Hz - higher for attitude rate control
+
+# ==============================================================================
 # GROUND VIEW FOLLOWER CONFIGURATION
 # ==============================================================================
 GROUND_VIEW:
@@ -1799,6 +1898,12 @@ PID:
     mc_yawspeed_deg_s: {p: 15.0, i: 0.5, d: 2.0}  # Yaw rate for YAW_TO_TARGET mode
     mc_vel_body_right: {p: 8.0, i: 0.2, d: 1.0}   # Lateral velocity for CRAB_STRAFE mode
     mc_vel_body_down: {p: 5.0, i: 0.3, d: 0.8}    # Vertical velocity control
+    # Multicopter attitude rate specific PID gains (aggressive tracking)
+    mcar_pitchspeed_deg_s: {p: 18.0, i: 0.15, d: 0.4}  # Pitch rate (aggressive response)
+    mcar_yawspeed_deg_s: {p: 12.0, i: 0.1, d: 0.3}     # Yaw rate (turn to target)
+    mcar_rollspeed_deg_s: {p: 1.5, i: 0.08, d: 0.25}   # Roll rate (coordinated turns)
+    mcar_thrust: {p: 0.15, i: 0.5, d: 0.2}             # Thrust (altitude hold)
+    mcar_altitude: {p: 2.0, i: 0.3, d: 0.5}            # Altitude (explicit control)
   # === Advanced PID Features ===
   PROPORTIONAL_ON_MEASUREMENT: false        # Avoid derivative kick
   ENABLE_ANTI_WINDUP: true                  # Prevent integral windup
