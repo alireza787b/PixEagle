@@ -1,41 +1,37 @@
 #!/bin/bash
 
-#########################################
-# PixEagle Complete System Launcher with Tmux Windows and Split Panes
+# ============================================================================
+# run_pixeagle.sh - PixEagle System Launcher
+# ============================================================================
+# The main entry point for running the PixEagle system.
+#
+# Features:
+#   - Combined tmux view (4-pane grid) as default
+#   - Comprehensive pre-flight checks
+#   - Service health monitoring with port readiness
+#   - Clear progress steps with status indicators
+#   - Graceful cleanup on interrupt (SIGINT/SIGTERM)
+#
+# Components:
+#   - MAVLink2REST: MAVLink to REST API bridge
+#   - Dashboard: React-based web interface
+#   - Main App: Python computer vision backend
+#   - MAVSDK Server: MAVLink communication server
+#
+# Usage: bash run_pixeagle.sh [OPTIONS]
 #
 # Project: PixEagle
 # Author: Alireza Ghaderi
-# Date: August 2024
-#
-# This script manages the execution of the entire PixEagle system,
-# including MAVLink2REST, the React Dashboard, the main Python
-# application, and the MAVSDK Server. Components are run either in
-# separate tmux windows or combined in a single window with split panes,
-# based on user preference.
-#
-# Usage:
-#   ./run_pixeagle.sh [-m|-d|-p|-k|-s|-h]
-#   Flags:
-#     -m : Do NOT run MAVLink2REST (default: enabled)
-#     -d : Do NOT run Dashboard (default: enabled)
-#     -p : Do NOT run Main Python Application (default: enabled)
-#     -k : Do NOT run MAVSDK Server (default: enabled)
-#     -s : Run components in Separate windows (default: Combined view)
-#     -h : Display help
-#
-# Example:
-#   ./run_pixeagle.sh -p -s
-#   (Runs MAVLink2REST, Dashboard, and MAVSDK Server in separate windows, skips the main Python application)
-#
-# Note:
-#   This script assumes all configurations and initializations are complete.
-#   If not, please refer to the GitHub repository and documentation:
-#   https://github.com/alireza787b/PixEagle
-#
-#########################################
+# Repository: https://github.com/alireza787b/PixEagle
+# ============================================================================
 
-# Get script directory for sourcing common functions
+set -o pipefail
+
+# ============================================================================
+# Configuration
+# ============================================================================
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+TOTAL_STEPS=6
 
 # Source shared functions (colors, logging, banner)
 source "$SCRIPT_DIR/scripts/common.sh"
@@ -45,523 +41,585 @@ RUN_MAVLINK2REST=true
 RUN_DASHBOARD=true
 RUN_MAIN_APP=true
 RUN_MAVSDK_SERVER=true
-COMBINED_VIEW=true  # Default is combined view
+COMBINED_VIEW=true
+NO_ATTACH=false
 
 # Development and build flags
 DEVELOPMENT_MODE=false
 FORCE_REBUILD=false
 
 # Tmux session name
-SESSION_NAME="PixEagle"
+SESSION_NAME="pixeagle"
 
 # Default ports used by the components
 MAVLINK2REST_PORT=8088
 BACKEND_PORT=5077
 DASHBOARD_PORT=3000
+WEBSOCKET_PORT=5551
 
-# Paths to component scripts (modify these paths if your directory structure is different)
-BASE_DIR="$HOME/PixEagle"
+# Paths to component scripts
+BASE_DIR="$SCRIPT_DIR"
+VENV_DIR="$BASE_DIR/venv"
+CONFIG_FILE="$BASE_DIR/configs/config.yaml"
 MAVLINK2REST_SCRIPT="$BASE_DIR/src/tools/mavlink2rest/run_mavlink2rest.sh"
 DASHBOARD_SCRIPT="$BASE_DIR/run_dashboard.sh"
 MAIN_APP_SCRIPT="$BASE_DIR/run_main.sh"
 MAVSDK_SERVER_BINARY="$BASE_DIR/mavsdk_server_bin"
 MAVSDK_SERVER_DOWNLOAD_SCRIPT="$BASE_DIR/src/tools/download_mavsdk_server.sh"
 
-# Function to display usage instructions
-display_usage() {
-    echo "Usage: $0 [OPTIONS]"
-    echo ""
-    echo "🚀 MAIN OPTIONS:"
-    echo "  --dev              Run in development mode (dashboard dev server + backend reload)"
-    echo "  --rebuild          Force rebuild of all components (dashboard + backend)"
-    echo ""
-    echo "🔧 COMPONENT CONTROL:"
-    echo "  -m                 Do NOT run MAVLink2REST (default: enabled)"
-    echo "  -d                 Do NOT run Dashboard (default: enabled)"
-    echo "  -p                 Do NOT run Main Python Application (default: enabled)"
-    echo "  -k                 Do NOT run MAVSDK Server (default: enabled)"
-    echo "  -s                 Run components in Separate tmux windows (default: Combined view)"
-    echo "  -h, --help         Display this help message"
-    echo ""
-    echo "📖 EXAMPLES:"
-    echo "  $0                 # Standard production mode"
-    echo "  $0 --dev           # Development mode with hot-reload"
-    echo "  $0 --rebuild       # Force rebuild everything in production mode"
-    echo "  $0 --dev --rebuild # Development mode with force rebuild"
-    echo "  $0 -p -s           # Skip Python app, separate windows"
-    echo ""
-    echo "💡 Development mode provides:"
-    echo "   • Dashboard hot-reload with live changes"
-    echo "   • Backend auto-restart on file changes (if supported)"
-    echo "   • Enhanced debugging and error reporting"
-    echo ""
-    echo "🔨 Rebuild mode forces:"
-    echo "   • Complete npm rebuild for dashboard"
-    echo "   • Fresh dependency installation"
-    echo "   • Clean build artifacts"
-}
+# Tracking variables
+CLEANUP_IN_PROGRESS=false
 
-display_banner() {
-    display_pixeagle_banner "${ROCKET} PixEagle System Launcher" \
-        "For documentation: https://github.com/alireza787b/PixEagle"
-    sleep 1  # Wait for 1 second
-}
+# ============================================================================
+# SIGINT/SIGTERM Handler
+# ============================================================================
+cleanup_on_interrupt() {
+    # Prevent multiple cleanup calls
+    if [[ "$CLEANUP_IN_PROGRESS" == "true" ]]; then
+        return
+    fi
+    CLEANUP_IN_PROGRESS=true
 
+    echo ""
+    log_warn "Interrupt received"
+    echo -en "        Stop all services? [Y/n]: "
+    read -r -t 5 REPLY || REPLY="y"
+    echo ""
 
-# Parse command-line options (support both short and long options)
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    --dev)
-      DEVELOPMENT_MODE=true
-      shift
-      ;;
-    --rebuild)
-      FORCE_REBUILD=true
-      shift
-      ;;
-    -m)
-      RUN_MAVLINK2REST=false
-      shift
-      ;;
-    -d)
-      RUN_DASHBOARD=false
-      shift
-      ;;
-    -p)
-      RUN_MAIN_APP=false
-      shift
-      ;;
-    -k)
-      RUN_MAVSDK_SERVER=false
-      shift
-      ;;
-    -s)
-      COMBINED_VIEW=false
-      shift
-      ;;
-    -h|--help)
-      display_usage
-      exit 0
-      ;;
-    *)
-      echo "❌ Unknown option: $1"
-      echo ""
-      display_usage
-      exit 1
-      ;;
-  esac
-done
-
-# Function to check if a command is installed and install it if not
-check_command_installed() {
-    local cmd="$1"
-    local pkg="$2"
-    if ! command -v "$cmd" &> /dev/null; then
-        echo "⚠️  $cmd could not be found. Installing $pkg..."
-        sudo apt-get update
-        sudo apt-get install -y "$pkg"
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        log_info "Stopping services..."
+        tmux kill-session -t "$SESSION_NAME" 2>/dev/null || true
+        cleanup_ports_silent
+        log_success "All services stopped"
     else
-        echo "✅ $cmd is already installed."
+        log_info "Services left running in background"
+        log_detail "Re-attach with: tmux attach -t $SESSION_NAME"
+    fi
+
+    exit 0
+}
+
+trap cleanup_on_interrupt SIGINT SIGTERM
+
+# ============================================================================
+# Help Display
+# ============================================================================
+show_help() {
+    display_pixeagle_banner "Help" "Usage information for run_pixeagle.sh"
+
+    echo ""
+    echo -e "   ${BOLD}USAGE:${NC}"
+    echo -e "      bash run_pixeagle.sh [OPTIONS]"
+    echo ""
+    echo -e "   ${BOLD}OPTIONS:${NC}"
+    echo -e "      ${GREEN}--dev, -d${NC}"
+    echo -e "          Development mode with hot-reload and auto-restart"
+    echo ""
+    echo -e "      ${GREEN}--rebuild, -r${NC}"
+    echo -e "          Force rebuild of dashboard before starting (npm build)"
+    echo ""
+    echo -e "      ${GREEN}--separate, -s${NC}"
+    echo -e "          Use separate tmux windows instead of combined grid"
+    echo ""
+    echo -e "      ${GREEN}--no-attach, -n${NC}"
+    echo -e "          Start services without attaching to tmux"
+    echo ""
+    echo -e "      ${GREEN}-m${NC}  Do NOT run MAVLink2REST"
+    echo -e "      ${GREEN}-p${NC}  Do NOT run Main Python Application"
+    echo -e "      ${GREEN}-k${NC}  Do NOT run MAVSDK Server"
+    echo ""
+    echo -e "      ${GREEN}--help, -h${NC}"
+    echo -e "          Show this help message"
+    echo ""
+    echo -e "   ${BOLD}EXAMPLES:${NC}"
+    echo -e "      ${DIM}bash run_pixeagle.sh${NC}"
+    echo -e "          Start normally with combined 4-pane view"
+    echo ""
+    echo -e "      ${DIM}bash run_pixeagle.sh --dev${NC}"
+    echo -e "          Start in development mode with hot-reload"
+    echo ""
+    echo -e "      ${DIM}bash run_pixeagle.sh --dev --rebuild${NC}"
+    echo -e "          Rebuild dashboard and start in development mode"
+    echo ""
+    echo -e "      ${DIM}bash run_pixeagle.sh --no-attach${NC}"
+    echo -e "          Start services in background (don't attach to tmux)"
+    echo ""
+    echo -e "   ${BOLD}TMUX SHORTCUTS:${NC}"
+    echo -e "      ${GREEN}Ctrl+B z${NC}       Toggle full-screen on current pane"
+    echo -e "      ${GREEN}Ctrl+B arrows${NC}  Navigate between panes"
+    echo -e "      ${GREEN}Ctrl+B d${NC}       Detach from session (keeps running)"
+    echo -e "      ${GREEN}Ctrl+B x${NC}       Close current pane"
+    echo ""
+    exit 0
+}
+
+# ============================================================================
+# Banner with Version Info
+# ============================================================================
+display_startup_banner() {
+    display_pixeagle_banner "System Launcher" "Starting all PixEagle components"
+
+    # Version info from git
+    local branch commit_short commit_date
+    branch=$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+    commit_short=$(git -C "$SCRIPT_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    commit_date=$(git -C "$SCRIPT_DIR" log -1 --format="%cr" 2>/dev/null || echo "unknown")
+
+    echo ""
+    echo -e "   ${DIM}Branch: ${NC}${CYAN}${branch}${NC}  ${DIM}Commit: ${NC}${commit_short}${DIM} (${commit_date})${NC}"
+
+    if [[ "$DEVELOPMENT_MODE" == "true" ]]; then
+        echo -e "   ${YELLOW}${BOLD}Development Mode${NC}${DIM} - Hot-reload enabled${NC}"
+    fi
+    echo ""
+}
+
+# ============================================================================
+# Step 1: Pre-flight Checks
+# ============================================================================
+preflight_checks() {
+    log_step 1 $TOTAL_STEPS "Pre-flight Checks"
+
+    # 1. Virtual environment
+    if [[ ! -d "$VENV_DIR" ]]; then
+        log_error "Virtual environment not found"
+        log_detail "Run: bash init_pixeagle.sh"
+        exit 1
+    fi
+    log_success "Virtual environment found"
+
+    # 2. Configuration file
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        log_error "Configuration file not found: $CONFIG_FILE"
+        log_detail "Run: bash init_pixeagle.sh"
+        exit 1
+    fi
+    log_success "Configuration file found"
+
+    # 3. Core Python dependencies (quick sanity check)
+    if ! "$VENV_DIR/bin/python" -c "import cv2, numpy" 2>/dev/null; then
+        log_warn "Some Python dependencies may be missing"
+        log_detail "Run: bash init_pixeagle.sh to reinstall"
+    else
+        log_success "Core Python dependencies available"
+    fi
+
+    # 4. tmux availability
+    if ! command -v tmux &>/dev/null; then
+        log_error "tmux is not installed"
+        log_detail "Install with: sudo apt install tmux"
+        exit 1
+    fi
+    log_success "tmux available"
+
+    # 5. lsof availability (needed for port checking)
+    if ! command -v lsof &>/dev/null; then
+        log_warn "lsof not installed (needed for port cleanup)"
+        log_detail "Install with: sudo apt install lsof"
+    fi
+
+    # 6. Check MAVSDK Server if needed
+    if [[ "$RUN_MAVSDK_SERVER" == "true" ]]; then
+        if [[ ! -f "$MAVSDK_SERVER_BINARY" ]]; then
+            log_warn "MAVSDK Server binary not found"
+            log_detail "Will attempt to download during startup"
+        else
+            log_success "MAVSDK Server binary found"
+        fi
     fi
 }
 
-# Function to check if a port is in use and kill the process using it
+# ============================================================================
+# Step 2: Cleanup Previous Sessions
+# ============================================================================
+cleanup_ports_silent() {
+    # Silent port cleanup for interrupt handler
+    for port in $MAVLINK2REST_PORT $BACKEND_PORT $DASHBOARD_PORT $WEBSOCKET_PORT; do
+        local pid
+        pid=$(lsof -t -i :"$port" 2>/dev/null)
+        if [[ -n "$pid" ]]; then
+            kill -TERM "$pid" 2>/dev/null || true
+            sleep 1
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+    done
+}
+
 check_and_kill_port() {
     local port="$1"
     local service_name="${2:-Service}"
 
-    # Ensure lsof is installed
-    check_command_installed "lsof" "lsof"
-
-    # Find the process ID (PID) using the port
+    local pid
     pid=$(lsof -t -i :"$port" 2>/dev/null)
 
-    if [ -n "$pid" ]; then
-        # Get the process name and command
+    if [[ -n "$pid" ]]; then
+        local process_name
         process_name=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
-        process_cmd=$(ps -p "$pid" -o args= 2>/dev/null | head -c 50 || echo "unknown command")
-
-        echo "⚠️  Port $port is occupied by $service_name"
-        echo "   Process: $process_name (PID: $pid)"
-        echo "   Command: $process_cmd"
 
         # Try graceful termination first
-        echo "🔄 Attempting graceful shutdown..."
         kill -TERM "$pid" 2>/dev/null
-        sleep 2
+        sleep 1
 
         # Check if process is still running
         if kill -0 "$pid" 2>/dev/null; then
-            echo "🔄 Process still running, force killing..."
             kill -9 "$pid" 2>/dev/null
-            sleep 1
+            sleep 0.5
         fi
 
         # Verify the process was killed
-        if kill -0 "$pid" 2>/dev/null; then
-            echo "❌ Failed to kill process $pid on port $port"
-            echo "⚠️  Manual intervention may be required"
+        if ! kill -0 "$pid" 2>/dev/null; then
+            log_success "Killed $process_name on port $port ($service_name)"
         else
-            echo "✅ $service_name on port $port stopped successfully"
+            log_warn "Could not kill process on port $port"
         fi
     else
-        echo "✅ Port $port is free for $service_name"
+        log_success "Port $port already free ($service_name)"
     fi
 }
 
-# Function to check if tmux is installed and install it if not
-check_tmux_installed() {
-    check_command_installed "tmux" "tmux"
-}
+cleanup_previous_sessions() {
+    log_step 2 $TOTAL_STEPS "Cleaning Up Previous Sessions"
 
-# Function to display tmux instructions
-show_tmux_instructions() {
-    echo ""
-    echo "==============================================="
-    echo "  Quick tmux Guide:"
-    echo "==============================================="
-    echo "Prefix key (Ctrl+B), then:"
-    if [ "$COMBINED_VIEW" = true ]; then
-        echo "  - Switch between panes: Arrow keys (e.g., Ctrl+B, then →)"
-        echo "  - Resize panes: Hold Ctrl+B, then press and hold an arrow key"
-    else
-        echo "  - Switch between windows: Number keys (e.g., Ctrl+B, then 1, 2, 3)"
-    fi
-    echo "  - Detach from session: Ctrl+B, then D"
-    echo "  - Reattach to session: tmux attach -t $SESSION_NAME"
-    echo "  - Close pane/window: Type 'exit' or press Ctrl+D"
-    echo "==============================================="
-    echo ""
-}
-
-# Function to check and prepare the MAVSDK Server binary
-prepare_mavsdk_server() {
-    if [ -f "$MAVSDK_SERVER_BINARY" ]; then
-        echo "✅ MAVSDK Server binary found."
-    else
-        echo "⚠️  MAVSDK Server binary not found at '$MAVSDK_SERVER_BINARY'."
-        echo ""
-        echo "You can:"
-        echo "1. Manually download the MAVSDK Server binary from:"
-        echo "   👉 https://github.com/mavlink/MAVSDK/releases/"
-        echo "   Then rename it to 'mavsdk_server_bin' and place it in the project root directory."
-        echo "2. Automatically download it using the provided script."
-        echo ""
-        read -p "Press Enter to automatically download or Ctrl+C to cancel and download manually..."
-
-        # Check if the download script exists
-        if [ -f "$MAVSDK_SERVER_DOWNLOAD_SCRIPT" ]; then
-            echo "Downloading MAVSDK Server binary..."
-            bash "$MAVSDK_SERVER_DOWNLOAD_SCRIPT"
-            if [ -f "$MAVSDK_SERVER_BINARY" ]; then
-                echo "✅ MAVSDK Server binary downloaded successfully."
-                chmod +x "$MAVSDK_SERVER_BINARY"
-            else
-                echo "❌ Failed to download MAVSDK Server binary. Please download it manually."
-                exit 1
-            fi
-        else
-            echo "❌ Download script not found at '$MAVSDK_SERVER_DOWNLOAD_SCRIPT'. Please download the binary manually."
-            exit 1
-        fi
-    fi
-}
-
-# Function to perform comprehensive cleanup before starting
-perform_comprehensive_cleanup() {
-    echo ""
-    echo "==============================================="
-    echo "🧹 Performing Comprehensive System Cleanup"
-    echo "==============================================="
-
-    # 1. Check for any PixEagle-related processes
-    echo "🔍 Scanning for running PixEagle processes..."
-    local pixeagle_processes=$(ps aux | grep -i pixeagle | grep -v grep | wc -l)
-    if [ "$pixeagle_processes" -gt 0 ]; then
-        echo "⚠️  Found $pixeagle_processes PixEagle-related process(es)"
-        ps aux | grep -i pixeagle | grep -v grep | head -5
-        echo "🔄 These will be cleaned up by port and session cleanup"
-    else
-        echo "✅ No stray PixEagle processes detected"
-    fi
-
-    # 2. Check for Python processes on our ports (more targeted)
-    echo ""
-    echo "🔍 Checking for Python processes on PixEagle ports..."
-    local python_on_ports=0
-    for port in $MAVLINK2REST_PORT $BACKEND_PORT $DASHBOARD_PORT; do
-        if lsof -i ":$port" 2>/dev/null | grep -q python; then
-            python_on_ports=$((python_on_ports + 1))
-        fi
-    done
-
-    if [ "$python_on_ports" -gt 0 ]; then
-        echo "⚠️  Found Python processes on $python_on_ports PixEagle port(s)"
-    else
-        echo "✅ No Python processes blocking PixEagle ports"
-    fi
-
-    # 3. Check for any orphaned tmux servers
-    echo ""
-    echo "🔍 Checking tmux server status..."
-    if tmux list-sessions 2>/dev/null | grep -q .; then
-        local session_count=$(tmux list-sessions 2>/dev/null | wc -l)
-        echo "ℹ️  Found $session_count existing tmux session(s)"
-        tmux list-sessions 2>/dev/null | head -3
-    else
-        echo "✅ No existing tmux sessions found"
-    fi
-
-    echo ""
-    echo "✅ System cleanup scan completed"
-    echo "==============================================="
-}
-
-# Function to start services in tmux
-start_services_in_tmux() {
-    local session="$SESSION_NAME"
-
-    # Enhanced tmux session cleanup
-    if tmux has-session -t "$session" 2>/dev/null; then
-        echo "⚠️  Existing PixEagle tmux session found"
-        echo "🔄 Performing clean shutdown of previous session..."
-
-        # Get session info before killing
-        local session_windows=$(tmux list-windows -t "$session" 2>/dev/null | wc -l)
-        echo "   Previous session had $session_windows window(s)"
-
+    # Kill existing tmux session
+    if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
         # Send interrupt to all panes first (graceful)
-        tmux list-panes -t "$session" -F "#{session_name}:#{window_index}.#{pane_index}" 2>/dev/null | \
-        while read pane; do
+        tmux list-panes -t "$SESSION_NAME" -F "#{session_name}:#{window_index}.#{pane_index}" 2>/dev/null | \
+        while read -r pane; do
             tmux send-keys -t "$pane" C-c 2>/dev/null || true
         done
-
-        # Wait a moment for graceful shutdown
-        sleep 2
-
-        # Kill the session
-        tmux kill-session -t "$session" 2>/dev/null
         sleep 1
 
-        # Verify session was killed
-        if tmux has-session -t "$session" 2>/dev/null; then
-            echo "⚠️  Session still exists, forcing tmux server restart..."
-            tmux kill-server 2>/dev/null || true
-            sleep 2
-        fi
-
-        echo "✅ Previous PixEagle session cleaned up successfully"
+        tmux kill-session -t "$SESSION_NAME" 2>/dev/null
+        log_success "Terminated existing tmux session"
+    else
+        log_success "No existing tmux session"
     fi
 
-    echo "Creating tmux session '$session'..."
-    tmux new-session -d -s "$session"
+    # Clean up ports
+    if [[ "$RUN_MAVLINK2REST" == "true" ]]; then
+        check_and_kill_port "$MAVLINK2REST_PORT" "MAVLink2REST"
+    fi
 
-    # Create an associative array to hold enabled components
+    if [[ "$RUN_MAIN_APP" == "true" ]]; then
+        check_and_kill_port "$BACKEND_PORT" "Backend"
+        check_and_kill_port "$WEBSOCKET_PORT" "WebSocket"
+    fi
+
+    if [[ "$RUN_DASHBOARD" == "true" ]]; then
+        check_and_kill_port "$DASHBOARD_PORT" "Dashboard"
+    fi
+}
+
+# ============================================================================
+# Step 3: Load Configuration
+# ============================================================================
+load_configuration() {
+    log_step 3 $TOTAL_STEPS "Loading Configuration"
+
+    # Display configured ports
+    log_info "MAVLink2REST: http://localhost:${MAVLINK2REST_PORT}"
+    log_info "Backend API:  http://localhost:${BACKEND_PORT}"
+    log_info "Dashboard:    http://localhost:${DASHBOARD_PORT}"
+    log_info "WebSocket:    ws://localhost:${WEBSOCKET_PORT}"
+
+    # Check component scripts exist
+    if [[ "$RUN_MAIN_APP" == "true" ]] && [[ ! -f "$MAIN_APP_SCRIPT" ]]; then
+        log_error "Main app script not found: $MAIN_APP_SCRIPT"
+        exit 1
+    fi
+
+    if [[ "$RUN_DASHBOARD" == "true" ]] && [[ ! -f "$DASHBOARD_SCRIPT" ]]; then
+        log_error "Dashboard script not found: $DASHBOARD_SCRIPT"
+        exit 1
+    fi
+
+    if [[ "$RUN_MAVLINK2REST" == "true" ]] && [[ ! -f "$MAVLINK2REST_SCRIPT" ]]; then
+        log_error "MAVLink2REST script not found: $MAVLINK2REST_SCRIPT"
+        exit 1
+    fi
+}
+
+# ============================================================================
+# Step 4: Start Services
+# ============================================================================
+prepare_mavsdk_server() {
+    if [[ -f "$MAVSDK_SERVER_BINARY" ]]; then
+        return 0
+    fi
+
+    log_info "MAVSDK Server binary not found, downloading..."
+
+    if [[ -f "$MAVSDK_SERVER_DOWNLOAD_SCRIPT" ]]; then
+        bash "$MAVSDK_SERVER_DOWNLOAD_SCRIPT"
+        if [[ -f "$MAVSDK_SERVER_BINARY" ]]; then
+            chmod +x "$MAVSDK_SERVER_BINARY"
+            log_success "MAVSDK Server downloaded"
+            return 0
+        fi
+    fi
+
+    log_warn "Could not download MAVSDK Server"
+    log_detail "Download manually from: https://github.com/mavlink/MAVSDK/releases/"
+    return 1
+}
+
+start_services() {
+    log_step 4 $TOTAL_STEPS "Starting Services"
+
+    # Prepare MAVSDK Server if needed
+    if [[ "$RUN_MAVSDK_SERVER" == "true" ]]; then
+        prepare_mavsdk_server
+    fi
+
+    # Create new tmux session
+    tmux new-session -d -s "$SESSION_NAME"
+
+    # Build component array
     declare -A components
-    local index=0
+    local component_count=0
 
-    # Add components to the components array with development/rebuild flags
-    if [ "$RUN_MAIN_APP" = true ]; then
+    if [[ "$RUN_MAIN_APP" == "true" ]]; then
         local main_cmd="bash $MAIN_APP_SCRIPT"
-        # Add development mode flag for Python backend if supported
-        if [ "$DEVELOPMENT_MODE" = true ]; then
+        if [[ "$DEVELOPMENT_MODE" == "true" ]]; then
             main_cmd="bash $MAIN_APP_SCRIPT --dev"
         fi
         components["MainApp"]="$main_cmd; bash"
-        index=$((index + 1))
+        ((component_count++))
+        printf "\r        ${DIM}-> Starting Main App... (%d/4)${NC}" $component_count
     fi
 
-    if [ "$RUN_MAVLINK2REST" = true ]; then
+    if [[ "$RUN_MAVLINK2REST" == "true" ]]; then
         components["MAVLink2REST"]="bash $MAVLINK2REST_SCRIPT; bash"
-        index=$((index + 1))
+        ((component_count++))
+        printf "\r        ${DIM}-> Starting MAVLink2REST... (%d/4)${NC}" $component_count
     fi
 
-    if [ "$RUN_DASHBOARD" = true ]; then
+    if [[ "$RUN_DASHBOARD" == "true" ]]; then
         local dashboard_cmd="bash $DASHBOARD_SCRIPT"
-
-        # Add development mode flag
-        if [ "$DEVELOPMENT_MODE" = true ]; then
+        if [[ "$DEVELOPMENT_MODE" == "true" ]]; then
             dashboard_cmd="$dashboard_cmd -d"
         fi
-
-        # Add force rebuild flag
-        if [ "$FORCE_REBUILD" = true ]; then
+        if [[ "$FORCE_REBUILD" == "true" ]]; then
             dashboard_cmd="$dashboard_cmd -f"
         fi
-
         components["Dashboard"]="$dashboard_cmd; bash"
-        index=$((index + 1))
+        ((component_count++))
+        printf "\r        ${DIM}-> Starting Dashboard... (%d/4)${NC}" $component_count
     fi
 
-    if [ "$RUN_MAVSDK_SERVER" = true ]; then
+    if [[ "$RUN_MAVSDK_SERVER" == "true" ]] && [[ -f "$MAVSDK_SERVER_BINARY" ]]; then
         components["MAVSDKServer"]="cd $BASE_DIR; ./mavsdk_server_bin; bash"
-        index=$((index + 1))
+        ((component_count++))
+        printf "\r        ${DIM}-> Starting MAVSDK Server... (%d/4)${NC}" $component_count
     fi
 
-    if [ "$COMBINED_VIEW" = true ]; then
-        # Create a window with split panes for a combined view
-        tmux rename-window -t "$session:0" "CombinedView"
+    echo ""
+
+    # Create tmux layout
+    if [[ "$COMBINED_VIEW" == "true" ]]; then
+        # Combined view with split panes
+        tmux rename-window -t "$SESSION_NAME:0" "CombinedView"
         local pane_index=0
+
         for component_name in "${!components[@]}"; do
-            if [ $pane_index -eq 0 ]; then
-                tmux send-keys -t "$session:CombinedView.$pane_index" "clear; ${components[$component_name]}" C-m
+            if [[ $pane_index -eq 0 ]]; then
+                tmux send-keys -t "$SESSION_NAME:CombinedView.$pane_index" "clear; ${components[$component_name]}" C-m
             else
-                tmux split-window -t "$session:CombinedView" -h
-                tmux select-pane -t "$session:CombinedView.$pane_index"
-                tmux send-keys -t "$session:CombinedView.$pane_index" "clear; ${components[$component_name]}" C-m
+                tmux split-window -t "$SESSION_NAME:CombinedView" -h
+                tmux select-pane -t "$SESSION_NAME:CombinedView.$pane_index"
+                tmux send-keys -t "$SESSION_NAME:CombinedView.$pane_index" "clear; ${components[$component_name]}" C-m
             fi
-            pane_index=$((pane_index + 1))
+            ((pane_index++))
         done
 
-        if [ $pane_index -gt 1 ]; then
-            tmux select-layout -t "$session:CombinedView" tiled
+        if [[ $pane_index -gt 1 ]]; then
+            tmux select-layout -t "$SESSION_NAME:CombinedView" tiled
         fi
     else
-        # Start components in separate windows
+        # Separate windows
         local window_index=0
         for component_name in "${!components[@]}"; do
-            if [ $window_index -eq 0 ]; then
-                # Rename the first window (created by default)
-                tmux rename-window -t "$session:0" "$component_name"
-                tmux send-keys -t "$session:$component_name" "clear; ${components[$component_name]}" C-m
+            if [[ $window_index -eq 0 ]]; then
+                tmux rename-window -t "$SESSION_NAME:0" "$component_name"
+                tmux send-keys -t "$SESSION_NAME:$component_name" "clear; ${components[$component_name]}" C-m
             else
-                tmux new-window -t "$session" -n "$component_name"
-                tmux send-keys -t "$session:$component_name" "clear; ${components[$component_name]}" C-m
+                tmux new-window -t "$SESSION_NAME" -n "$component_name"
+                tmux send-keys -t "$SESSION_NAME:$component_name" "clear; ${components[$component_name]}" C-m
             fi
-            window_index=$((window_index + 1))
+            ((window_index++))
         done
     fi
 
-    # Display tmux instructions before attaching
-    show_tmux_instructions
-
-    # Attach to the tmux session
-    tmux attach-session -t "$session"
+    log_success "All services started ($component_count components)"
 }
 
-# Main execution sequence
+# ============================================================================
+# Step 5: Wait for Services
+# ============================================================================
+check_port_ready() {
+    local port=$1
+    nc -z localhost "$port" 2>/dev/null
+    return $?
+}
 
-echo "==============================================="
-echo "  Initializing PixEagle System..."
-echo "==============================================="
-echo ""
-echo "Note: This script assumes all configurations and initializations are complete."
-echo "If not, please refer to the GitHub repository and documentation:"
-echo "👉 https://github.com/alireza787b/PixEagle"
-echo ""
+wait_for_services() {
+    log_step 5 $TOTAL_STEPS "Waiting for Services"
 
-# Check if required commands are installed
-check_tmux_installed
-check_command_installed "lsof" "lsof"
+    local services=()
 
-# Prepare MAVSDK Server if it's going to be run
-if [ "$RUN_MAVSDK_SERVER" = true ]; then
-    prepare_mavsdk_server
-fi
-
-# Perform comprehensive system cleanup
-perform_comprehensive_cleanup
-
-# Check and kill processes using default ports
-echo ""
-echo "-----------------------------------------------"
-echo "🔧 Cleaning up ports and processes..."
-echo "-----------------------------------------------"
-if [ "$RUN_MAVLINK2REST" = true ]; then
-    check_and_kill_port "$MAVLINK2REST_PORT" "MAVLink2REST"
-fi
-
-if [ "$RUN_MAIN_APP" = true ]; then
-    check_and_kill_port "$BACKEND_PORT" "Main Python App"
-fi
-
-if [ "$RUN_DASHBOARD" = true ]; then
-    check_and_kill_port "$DASHBOARD_PORT" "Dashboard"
-fi
-
-# Final verification that system is clean
-echo ""
-echo "🔍 Final cleanup verification..."
-local cleanup_issues=0
-
-# Check if any PixEagle tmux sessions still exist
-if tmux list-sessions 2>/dev/null | grep -q "$SESSION_NAME"; then
-    echo "⚠️  PixEagle tmux session still exists after cleanup"
-    cleanup_issues=$((cleanup_issues + 1))
-fi
-
-# Check if any processes are still on our ports
-for port in $MAVLINK2REST_PORT $BACKEND_PORT $DASHBOARD_PORT; do
-    if lsof -i ":$port" 2>/dev/null | grep -q .; then
-        echo "⚠️  Port $port still occupied after cleanup"
-        cleanup_issues=$((cleanup_issues + 1))
+    if [[ "$RUN_MAVLINK2REST" == "true" ]]; then
+        services+=("MAVLink2REST:$MAVLINK2REST_PORT")
     fi
-done
 
-if [ "$cleanup_issues" -eq 0 ]; then
-    echo "✅ System is clean and ready for PixEagle startup"
-else
-    echo "⚠️  $cleanup_issues issue(s) detected but proceeding with startup"
-    echo "💡 If startup fails, try running the script again or reboot the system"
-fi
+    if [[ "$RUN_MAIN_APP" == "true" ]]; then
+        services+=("Backend:$BACKEND_PORT")
+    fi
 
-echo "==============================================="
+    if [[ "$RUN_DASHBOARD" == "true" ]]; then
+        services+=("Dashboard:$DASHBOARD_PORT")
+    fi
 
-# Function to run the PixEagle components
-run_pixeagle_components() {
+    for service_info in "${services[@]}"; do
+        local name="${service_info%%:*}"
+        local port="${service_info##*:}"
+        local retries=15
+        local ready=false
+
+        printf "        ${DIM}-> Waiting for ${name} (port ${port})...${NC}"
+
+        for ((i=1; i<=retries; i++)); do
+            if check_port_ready "$port"; then
+                ready=true
+                break
+            fi
+            sleep 1
+        done
+
+        if $ready; then
+            printf "\r        ${GREEN}${CHECK}${NC} ${name} ready (port ${port})                    \n"
+        else
+            printf "\r        ${YELLOW}${WARN}${NC}  ${name} may not be ready (port ${port})        \n"
+        fi
+    done
+}
+
+# ============================================================================
+# Step 6: Launch Tmux Interface
+# ============================================================================
+launch_tmux_interface() {
+    log_step 6 $TOTAL_STEPS "Launching Tmux Interface"
+
+    log_success "Tmux session '$SESSION_NAME' created"
+
+    if [[ "$NO_ATTACH" == "true" ]]; then
+        log_info "Running in background (--no-attach)"
+        log_detail "Attach with: tmux attach -t $SESSION_NAME"
+    else
+        log_info "Attaching to combined view..."
+    fi
+}
+
+# ============================================================================
+# Final Summary
+# ============================================================================
+show_final_summary() {
     echo ""
-    echo "-----------------------------------------------"
-    echo "Starting PixEagle components in tmux..."
-    echo "-----------------------------------------------"
-
-    if [ "$RUN_MAVLINK2REST" = true ]; then
-        echo "✅ MAVLink2REST will be started."
-    else
-        echo "❌ MAVLink2REST is disabled."
-    fi
-
-    if [ "$RUN_DASHBOARD" = true ]; then
-        echo "✅ Dashboard will be started."
-    else
-        echo "❌ Dashboard is disabled."
-    fi
-
-    if [ "$RUN_MAIN_APP" = true ]; then
-        echo "✅ Main Python Application will be started."
-    else
-        echo "❌ Main Python Application is disabled."
-    fi
-
-    if [ "$RUN_MAVSDK_SERVER" = true ]; then
-        echo "✅ MAVSDK Server will be started."
-    else
-        echo "❌ MAVSDK Server is disabled."
-    fi
-
-    if [ "$COMBINED_VIEW" = true ]; then
-        echo "Components will be started in a combined view (split panes)."
-    else
-        echo "Components will be started in separate tmux windows."
-    fi
-
-    start_services_in_tmux
+    echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${NC}"
+    echo -e "                          ${PARTY} ${BOLD}PixEagle Running!${NC} ${PARTY}"
+    echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    echo -e "   ${BOLD}Service URLs:${NC}"
+    echo -e "      Dashboard:     ${CYAN}http://localhost:${DASHBOARD_PORT}${NC}"
+    echo -e "      Backend API:   ${CYAN}http://localhost:${BACKEND_PORT}${NC}"
+    echo -e "      MAVLink2REST:  ${CYAN}http://localhost:${MAVLINK2REST_PORT}${NC}"
+    echo ""
+    echo -e "   ${BOLD}Tmux Keyboard Shortcuts:${NC}"
+    echo -e "      ${GREEN}Ctrl+B z${NC}       Toggle full-screen on current pane"
+    echo -e "      ${GREEN}Ctrl+B arrows${NC}  Navigate between panes"
+    echo -e "      ${GREEN}Ctrl+B d${NC}       Detach from session (keeps running)"
+    echo -e "      ${GREEN}Ctrl+B x${NC}       Close current pane"
+    echo ""
+    echo -e "   ${BOLD}Management Commands:${NC}"
+    echo -e "      ${DIM}tmux attach -t $SESSION_NAME${NC}       Re-attach to session"
+    echo -e "      ${DIM}tmux kill-session -t $SESSION_NAME${NC}  Stop all services"
+    echo -e "      ${DIM}bash run_pixeagle.sh --help${NC}      Show all options"
+    echo ""
+    echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${NC}"
+    echo ""
 }
 
-# Run the components
-run_pixeagle_components
+# ============================================================================
+# Argument Parsing
+# ============================================================================
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --dev|-d)
+                DEVELOPMENT_MODE=true
+                shift
+                ;;
+            --rebuild|-r)
+                FORCE_REBUILD=true
+                shift
+                ;;
+            -m)
+                RUN_MAVLINK2REST=false
+                shift
+                ;;
+            -p)
+                RUN_MAIN_APP=false
+                shift
+                ;;
+            -k)
+                RUN_MAVSDK_SERVER=false
+                shift
+                ;;
+            --separate|-s)
+                COMBINED_VIEW=false
+                shift
+                ;;
+            --no-attach|-n)
+                NO_ATTACH=true
+                shift
+                ;;
+            -h|--help)
+                show_help
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                echo ""
+                echo "Use --help to see available options"
+                exit 1
+                ;;
+        esac
+    done
+}
 
-echo ""
-echo "==============================================="
-echo "  PixEagle System Startup Complete!"
-echo "==============================================="
-echo ""
-echo "All selected components are now running in tmux."
-echo "You can detach from the session without stopping the services."
-echo "Use 'tmux attach -t $SESSION_NAME' to reattach to the session."
-echo ""
-echo "To kill the tmux session and stop all components, run:"
-echo "👉 tmux kill-session -t $SESSION_NAME"
-echo ""
-echo "To kill all tmux sessions (caution: this will kill all tmux sessions on the system), run:"
-echo "👉 tmux kill-server"
-echo ""
+# ============================================================================
+# Main Execution
+# ============================================================================
+main() {
+    # Parse command line arguments
+    parse_arguments "$@"
+
+    # Display banner
+    display_startup_banner
+
+    # Execute startup sequence
+    preflight_checks
+    cleanup_previous_sessions
+    load_configuration
+    start_services
+    wait_for_services
+    launch_tmux_interface
+
+    # Show summary
+    show_final_summary
+
+    # Attach to tmux session (unless --no-attach)
+    if [[ "$NO_ATTACH" != "true" ]]; then
+        tmux attach-session -t "$SESSION_NAME"
+    fi
+}
+
+main "$@"

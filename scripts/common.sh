@@ -19,6 +19,7 @@
 #   log_error <message>
 #   log_warn <message>
 #   log_info <message>
+#   log_detail <message>                # Dimmed sub-detail text
 # ============================================================================
 
 # Prevent multiple sourcing
@@ -134,6 +135,10 @@ log_warn() {
 
 log_info() {
     echo -e "        ${BLUE}${INFO}${NC}  $1"
+}
+
+log_detail() {
+    echo -e "           ${DIM}$1${NC}"
 }
 
 # Simple logging without indentation
