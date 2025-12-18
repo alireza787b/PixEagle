@@ -650,8 +650,11 @@ show_summary() {
     echo -e "      2. Run: ${BOLD}bash run_pixeagle.sh${NC}"
     echo ""
     echo -e "   ${YELLOW}${BOLD}⚡ Optional (better performance):${NC}"
-    echo -e "      • ${BOLD}bash scripts/install_dlib.sh${NC}     (faster tracking)"
-    echo -e "      • ${BOLD}bash setup_pytorch.sh${NC}            (GPU acceleration)"
+    echo -e "      • ${BOLD}bash scripts/install_dlib.sh${NC}       (faster tracking)"
+    echo -e "      • ${BOLD}bash setup_pytorch.sh${NC}              (GPU acceleration)"
+    echo -e "      • ${BOLD}bash auto_build_opencv.sh${NC}          (GStreamer support)"
+    echo -e "      • ${BOLD}source venv/bin/activate${NC}"
+    echo -e "        ${BOLD}python add_yolo_model.py${NC}           (add YOLO models)"
     echo ""
     if [[ "$node_version" == "not installed" ]]; then
         echo -e "   ${RED}${BOLD}⚠️  Node.js Installation:${NC}"
