@@ -136,10 +136,10 @@ Make sure your system meets the following requirements before installing PixEagl
   - Windows (🟡 Supported only for simulation/SITL testing via X-Plane + WSL)  
     → [X-Plane SITL Guide](https://github.com/alireza787b/PixEagle/blob/smart-param/Follow_Mode_Xplane_Guide.md)
 
-- **Python:** 3.9 or higher  
-- **Virtual Environment Tool:** `venv`  
-- **Python Packages:** Listed in `requirements.txt`  
-- **Node.js & npm:** Required for the Dashboard UI. (Install from: https://nodejs.org/en/download)  
+- **Python:** 3.9 or higher
+- **Virtual Environment Tool:** `venv` (auto-installed by init script)
+- **Python Packages:** Listed in `requirements.txt`
+- **Node.js & npm:** Required for Dashboard UI (auto-installed via nvm by init script)
 - **Other Tools:** `tmux`, `lsof`, `curl` (for automatic setups)
 
 #### 📦 Install Prerequisites (Linux)
@@ -163,20 +163,37 @@ cd PixEagle
 
 2. **Initialize the Project (Recommended):**
 
-Make sure you have all the prerequisites installed before running this script. (Nodejs, npm, python, etc.)
 ```bash
 bash init_pixeagle.sh
 ```
 
-This script will:
+The init script features a professional 7-step automated setup with progress indicators:
 
-- Create a Python virtual environment
-- Install all required Python packages
-- Generate `config.yaml` and `.env` files if missing
-- Download the required `mavsdk_server_bin` if not present
-- Provide guidance for installing Node.js if not already installed
+```
+╔══════════════════════════════════════════════════════════════════════════╗
+║                         🦅 PixEagle Setup                                ║
+╚══════════════════════════════════════════════════════════════════════════╝
 
-> 🧠 **Manual setup available** if preferred — just activate the `venv`, install requirements, and create configs manually.
+[1/7] Checking system requirements...                              ✅
+[2/7] Installing system packages...                                ✅
+[3/7] Creating Python virtual environment...                       ✅
+[4/7] Installing Python dependencies...                            ✅
+[5/7] Setting up Node.js via nvm...                                ✅
+[6/7] Installing dashboard dependencies...                         ✅
+[7/7] Generating configuration files...                            ✅
+```
+
+**What it does:**
+- ✅ Checks Python version (3.9+ required) and disk space
+- ✅ Auto-detects and installs missing system packages (`python3-venv`, `libgl1`, `curl`) with Y/n confirmation
+- ✅ Creates Python virtual environment with validation
+- ✅ Installs all Python dependencies from `requirements.txt`
+- ✅ Installs Node.js via nvm (Node Version Manager) - the most reliable method
+- ✅ Runs `npm install` for the React dashboard
+- ✅ Generates `config.yaml` and `.env` files from defaults
+- ✅ Downloads `mavsdk_server_bin` if not present
+
+> 🧠 **Manual setup available** if preferred — just activate the `venv`, install requirements, and create configs manually. The old init script is preserved as `init_pixeagle_old.sh`.
 
 ---
 
@@ -333,31 +350,37 @@ Edit values such as:
 
 #### 2. **Follower Mode Configuration**
 
-PixEagle 3.0 features unified follower configurations for easy customization:
+PixEagle 3.0 features unified follower configurations with standardized naming:
 
 ```yaml
 # Example follower configurations in config_default.yaml
+# Naming convention: {vehicle}_{control}_{behavior}
+# - mc_ = multicopter, fw_ = fixed-wing, gm_ = gimbal
 
-CONSTANT_POSITION:
+MC_VELOCITY_POSITION:
   ENABLE_ALTITUDE_CONTROL: true
   MIN_DESCENT_HEIGHT: 3.0
   MAX_CLIMB_HEIGHT: 120.0
   CONTROL_UPDATE_RATE: 20.0
 
-BODY_VELOCITY_CHASE:
+MC_VELOCITY_CHASE:
   MAX_FORWARD_VELOCITY: 8.0
   LATERAL_GUIDANCE_MODE: coordinated_turn
   ALTITUDE_SAFETY_ENABLED: false
 ```
 
 **Available Follower Modes:**
-- **CONSTANT_POSITION** (11 params) - Position hold with altitude control
-- **CONSTANT_DISTANCE** (14 params) - Fixed distance tracking
-- **CHASE_FOLLOWER** (17 params) - High-speed pursuit with coordinated turns
-- **GROUND_VIEW** (15 params) - Ground target tracking with gimbal compensation
-- **BODY_VELOCITY_CHASE** (23 params) - Body velocity control with dual guidance modes
+- **mc_velocity_position** - Position hold with altitude control
+- **mc_velocity_distance** - Fixed distance tracking
+- **mc_velocity_chase** - Body velocity control with dual guidance modes
+- **mc_velocity_ground** - Ground target tracking with gimbal compensation
+- **mc_velocity** - Professional multicopter with dual-mode lateral guidance
+- **mc_attitude_rate** - Aggressive attitude rate control for fast tracking
+- **fw_attitude_rate** - Professional fixed-wing with L1 navigation and TECS
+- **gm_velocity_unified** - Configurable NED/Body control from gimbal angles
+- **gm_velocity_vector** - Direct vector pursuit using gimbal angles
 
-Each follower mode has dedicated parameters for control enablement, safety limits, performance tuning, and mode-specific features. All parameters include sensible defaults and comprehensive documentation.
+Each follower mode has dedicated parameters for control enablement, safety limits, performance tuning, and mode-specific features. All parameters include sensible defaults and comprehensive documentation. Old names (e.g., `constant_position`, `body_velocity_chase`) remain functional via deprecated aliases with warnings.
 
 #### 3. **Dashboard Environment**
 
