@@ -1,10 +1,10 @@
 # src/classes/followers/gimbal_follower.py
 
 """
-GimbalFollower Module - Clean Architecture Implementation
+GMVelocityUnifiedFollower Module - Clean Architecture Implementation
 ========================================================
 
-Modern, clean implementation of GimbalFollower using the new transformation
+Modern, clean implementation of GMVelocityUnifiedFollower using the new transformation
 and target loss handling architecture. Designed for maintainability,
 testability, and full integration with PixEagle safety systems.
 
@@ -70,9 +70,9 @@ try:
 except ImportError:
     CIRCUIT_BREAKER_AVAILABLE = False
 
-class GimbalFollower(BaseFollower):
+class GMVelocityUnifiedFollower(BaseFollower):
     """
-    Modern GimbalFollower implementation using clean architecture.
+    Modern GMVelocityUnifiedFollower implementation using clean architecture.
 
     Integrates mount-aware transformations, unified target loss handling,
     and comprehensive safety systems for professional drone control.
@@ -80,20 +80,20 @@ class GimbalFollower(BaseFollower):
 
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
-        Initialize GimbalFollower with new architecture.
+        Initialize GMVelocityUnifiedFollower with new architecture.
 
         Args:
             px4_controller: PX4 interface for drone control
             initial_target_coords: Initial target coordinates (required by factory interface)
         """
-        self.setpoint_profile = "gimbal_unified"  # GimbalFollower always uses gimbal_unified profile
-        self.follower_name = "GimbalFollower"
+        self.setpoint_profile = "gimbal_unified"  # GMVelocityUnifiedFollower always uses gimbal_unified profile
+        self.follower_name = "GMVelocityUnifiedFollower"
         self.initial_target_coords = initial_target_coords
 
         # Load configuration from Parameters (needed for display name)
-        self.config = getattr(Parameters, 'GimbalFollower', {})
+        self.config = getattr(Parameters, 'GMVelocityUnifiedFollower', {})
         if not self.config:
-            raise ValueError("GimbalFollower configuration not found in Parameters")
+            raise ValueError("GMVelocityUnifiedFollower configuration not found in Parameters")
 
         # Set basic attributes needed for display name
         self.mount_type = self.config.get('MOUNT_TYPE', 'VERTICAL')
@@ -117,12 +117,12 @@ class GimbalFollower(BaseFollower):
         # Control parameters
         self.max_velocity = self.config.get('MAX_VELOCITY', 8.0)
         # Use unified limit access (follower-specific overrides global SafetyLimits)
-        self.max_yaw_rate = Parameters.get_effective_limit('MAX_YAW_RATE', 'GimbalFollower')
+        self.max_yaw_rate = Parameters.get_effective_limit('MAX_YAW_RATE', 'GMVelocityUnifiedFollower')
 
         # Safety parameters using unified limit access
         self.emergency_stop_enabled = self.config.get('EMERGENCY_STOP_ENABLED', True)
-        self.min_altitude_safety = Parameters.get_effective_limit('MIN_ALTITUDE', 'GimbalFollower')
-        self.max_altitude_safety = Parameters.get_effective_limit('MAX_ALTITUDE', 'GimbalFollower')
+        self.min_altitude_safety = Parameters.get_effective_limit('MIN_ALTITUDE', 'GMVelocityUnifiedFollower')
+        self.max_altitude_safety = Parameters.get_effective_limit('MAX_ALTITUDE', 'GMVelocityUnifiedFollower')
         self.max_safety_violations = self.config.get('MAX_SAFETY_VIOLATIONS', 5)
 
         # Performance parameters
@@ -176,7 +176,7 @@ class GimbalFollower(BaseFollower):
         # Initialize PID controllers based on mount configuration and mode
         self._initialize_pid_controllers()
 
-        logger.info(f"GimbalFollower initialized: {self.mount_type} mount, {self.control_mode} control, {self.active_lateral_mode} guidance")
+        logger.info(f"GMVelocityUnifiedFollower initialized: {self.mount_type} mount, {self.control_mode} control, {self.active_lateral_mode} guidance")
 
     def _cache_config_parameters(self):
         """Cache frequently accessed configuration parameters for performance optimization."""
@@ -1389,7 +1389,7 @@ class GimbalFollower(BaseFollower):
 
     def reset_safety_state(self) -> None:
         """Reset all safety-related state variables."""
-        logger.info("Resetting safety state for GimbalFollower")
+        logger.info("Resetting safety state for GMVelocityUnifiedFollower")
 
         self.emergency_stop_active = False
         self.altitude_safety_active = False
@@ -1431,7 +1431,7 @@ class GimbalFollower(BaseFollower):
     def get_status_info(self) -> Dict[str, Any]:
         """Get comprehensive status information."""
         return {
-            'follower_type': 'GimbalFollower',
+            'follower_type': 'GMVelocityUnifiedFollower',
             'display_name': self.get_display_name(),
             'following_active': self.following_active,
             'emergency_stop_active': self.emergency_stop_active,
@@ -1525,4 +1525,4 @@ class GimbalFollower(BaseFollower):
 
     def __str__(self) -> str:
         """String representation for debugging."""
-        return f"GimbalFollower(mount={self.mount_type}, control={self.control_mode}, active={self.following_active})"
+        return f"GMVelocityUnifiedFollower(mount={self.mount_type}, control={self.control_mode}, active={self.following_active})"

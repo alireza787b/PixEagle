@@ -3,7 +3,7 @@
 Multicopter Attitude Rate Follower Module
 ==========================================
 
-This module implements the MulticopterAttitudeRateFollower class for aggressive
+This module implements the MCAttitudeRateFollower class for aggressive
 multicopter target following using pure attitude rate control. It provides a more
 responsive alternative to velocity-based control with explicit thrust management.
 
@@ -66,7 +66,7 @@ class TargetLossAction(Enum):
     RTL = "rtl"                            # Return to launch
 
 
-class MulticopterAttitudeRateFollower(BaseFollower):
+class MCAttitudeRateFollower(BaseFollower):
     """
     Professional multicopter attitude rate follower for aggressive target tracking.
 
@@ -99,7 +99,7 @@ class MulticopterAttitudeRateFollower(BaseFollower):
 
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
-        Initializes the MulticopterAttitudeRateFollower with schema-aware attitude rate control.
+        Initializes the MCAttitudeRateFollower with schema-aware attitude rate control.
 
         Args:
             px4_controller: Instance of PX4Controller to control the drone.
@@ -119,7 +119,7 @@ class MulticopterAttitudeRateFollower(BaseFollower):
         self.initial_target_coords = initial_target_coords
 
         # Get configuration section
-        config = getattr(Parameters, 'MULTICOPTER_ATTITUDE_RATE', {})
+        config = getattr(Parameters, 'MC_ATTITUDE_RATE', {})
 
         # === GUIDANCE MODE ===
         guidance_mode_str = config.get('GUIDANCE_MODE', 'direct_rate')
@@ -168,8 +168,8 @@ class MulticopterAttitudeRateFollower(BaseFollower):
 
         # === ALTITUDE SAFETY ===
         self.enable_altitude_safety = config.get('ENABLE_ALTITUDE_SAFETY', True)
-        self.min_altitude_limit = Parameters.get_effective_limit('MIN_ALTITUDE', 'MULTICOPTER_ATTITUDE_RATE')
-        self.max_altitude_limit = Parameters.get_effective_limit('MAX_ALTITUDE', 'MULTICOPTER_ATTITUDE_RATE')
+        self.min_altitude_limit = Parameters.get_effective_limit('MIN_ALTITUDE', 'MC_ATTITUDE_RATE')
+        self.max_altitude_limit = Parameters.get_effective_limit('MAX_ALTITUDE', 'MC_ATTITUDE_RATE')
         self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 0.1)
         self.rtl_on_altitude_violation = config.get('RTL_ON_ALTITUDE_VIOLATION', True)
 
@@ -228,7 +228,7 @@ class MulticopterAttitudeRateFollower(BaseFollower):
             'pitch_thrust_compensation', 'emergency_stop'
         ])
 
-        logger.info(f"MulticopterAttitudeRateFollower initialized with attitude rate control")
+        logger.info(f"MCAttitudeRateFollower initialized with attitude rate control")
         logger.info(f"Guidance mode: {self.guidance_mode.value}")
         logger.info(f"Target loss action: {self.target_loss_action.value}")
         logger.debug(f"Rate limits - Pitch: {self.max_pitch_rate}°/s, Yaw: {self.max_yaw_rate}°/s, "
@@ -308,7 +308,7 @@ class MulticopterAttitudeRateFollower(BaseFollower):
                 )
                 logger.debug(f"Altitude PID initialized with gains {self._get_pid_gains('mcar_altitude')}")
 
-            logger.info("All PID controllers initialized for MulticopterAttitudeRateFollower")
+            logger.info("All PID controllers initialized for MCAttitudeRateFollower")
 
         except Exception as e:
             logger.error(f"Failed to initialize PID controllers: {e}")
@@ -354,7 +354,7 @@ class MulticopterAttitudeRateFollower(BaseFollower):
             self.pid_roll_rate.tunings = self._get_pid_gains('mcar_rollspeed_deg_s')
             if self.pid_altitude:
                 self.pid_altitude.tunings = self._get_pid_gains('mcar_altitude')
-            logger.debug("PID gains updated for MulticopterAttitudeRateFollower")
+            logger.debug("PID gains updated for MCAttitudeRateFollower")
         except Exception as e:
             logger.error(f"Failed to update PID gains: {e}")
 
@@ -854,7 +854,7 @@ class MulticopterAttitudeRateFollower(BaseFollower):
             status = self.get_follower_status()
 
             report = f"\n{'='*60}\n"
-            report += f"MulticopterAttitudeRateFollower Status Report\n"
+            report += f"MCAttitudeRateFollower Status Report\n"
             report += f"{'='*60}\n"
             report += f"Guidance Mode: {status.get('guidance_mode', 'unknown').upper()}\n"
             report += f"Dive Started: {'YES' if status.get('dive_started', False) else 'NO'}\n"
@@ -913,7 +913,7 @@ class MulticopterAttitudeRateFollower(BaseFollower):
         if self.pid_altitude:
             self.pid_altitude.reset()
 
-        logger.info("MulticopterAttitudeRateFollower state reset")
+        logger.info("MCAttitudeRateFollower state reset")
 
     def set_guidance_mode(self, mode: str) -> bool:
         """Sets guidance mode dynamically."""

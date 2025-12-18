@@ -147,9 +147,9 @@ command_fields:
 # Each profile defines which fields are used by that follower mode
 follower_profiles:
   
-  # Ground View Follower - Full velocity control for ground target tracking
-  ground_view:
-    display_name: "Ground View"
+  # MC Velocity Ground Follower - Full velocity control for ground target tracking
+  mc_velocity_ground:
+    display_name: "MC Velocity Ground"
     description: "Full velocity control for tracking ground targets"
     control_type: "velocity_body"
     required_fields: ["vel_x", "vel_y", "vel_z"]
@@ -159,19 +159,19 @@ follower_profiles:
     required_tracker_data: ["POSITION_2D"]
     optional_tracker_data: ["BBOX_CONFIDENCE", "VELOCITY_AWARE"]
     
-  # Constant Distance Follower - Enhanced velocity control with yaw
-  constant_distance:
-    display_name: "Constant Distance"
+  # MC Velocity Distance Follower - Enhanced velocity control with yaw
+  mc_velocity_distance:
+    display_name: "MC Velocity Distance"
     description: "Maintains constant distance while following target"
     control_type: "velocity_body_offboard"
     # Use MAVSDK-native body velocity fields and degrees/sec for yaw
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     optional_fields: []
     ui_category: "velocity"
-    
-  # Constant Position Follower - Limited movement, yaw and altitude only
-  constant_position:
-    display_name: "Constant Position"
+
+  # MC Velocity Position Follower - Limited movement, yaw and altitude only
+  mc_velocity_position:
+    display_name: "MC Velocity Position"
     description: "Maintains position, only yaw and altitude control"
     control_type: "velocity_body_offboard"
     # Use MAVSDK-native body velocity fields and degrees/sec for yaw
@@ -180,29 +180,9 @@ follower_profiles:
     optional_fields: []
     ui_category: "velocity"
     
-  # Chase Follower / Attitude Rate Follower - Full attitude rate control for aggressive following
-  # Note: 'attitude_rate' is the new preferred name, 'chase_follower' kept for backward compatibility
-  chase_follower:
-    display_name: "Attitude Rate Follower"
-    description: "Aggressive following using attitude rate control (formerly Chase Follower)"
-    control_type: "attitude_rate"
-    # All angular rates in deg/s (MAVSDK standard)
-    required_fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"]
-    optional_fields: []
-    ui_category: "attitude"
-
-  # Alias for attitude_rate -> chase_follower (new preferred name)
-  attitude_rate:
-    display_name: "Attitude Rate Follower"
-    description: "Aggressive following using attitude rate control"
-    control_type: "attitude_rate"
-    required_fields: ["rollspeed_deg_s", "pitchspeed_deg_s", "yawspeed_deg_s", "thrust"]
-    optional_fields: []
-    ui_category: "attitude"
-
-  # Body Velocity Chase Follower - Quadcopter offboard velocity control
-  body_velocity_chase:
-    display_name: "Body Velocity Chase"
+  # MC Velocity Chase Follower - Quadcopter offboard velocity control
+  mc_velocity_chase:
+    display_name: "MC Velocity Chase"
     description: "Quadcopter chase using body velocity with forward ramp-up"
     control_type: "velocity_body_offboard"
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down"]
@@ -212,9 +192,9 @@ follower_profiles:
     required_tracker_data: ["POSITION_2D"]
     optional_tracker_data: ["BBOX_CONFIDENCE", "VELOCITY_AWARE", "MULTI_TARGET"]
 
-  # Gimbal Follower - Unified NED/Body control from gimbal angles
-  gimbal_unified:
-    display_name: "Gimbal Follower"
+  # GM Velocity Unified Follower - Unified NED/Body control from gimbal angles
+  gm_velocity_unified:
+    display_name: "GM Velocity Unified"
     description: "Configurable NED/Body velocity control from gimbal angles"
     control_type: "velocity_body_offboard"  # Use body velocity offboard for body frame commands
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down"]
@@ -227,9 +207,9 @@ follower_profiles:
     ned_mode_fields: ["vel_x", "vel_y", "vel_z", "yaw_angle_deg"]
     body_mode_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
 
-  # Gimbal Vector Body Follower - Direct vector pursuit using gimbal angles
-  gimbal_vector_body:
-    display_name: "Gimbal Vector (Body)"
+  # GM Velocity Vector Follower - Direct vector pursuit using gimbal angles
+  gm_velocity_vector:
+    display_name: "GM Velocity Vector"
     description: "Direct vector pursuit using gimbal angles and body frame velocity"
     control_type: "velocity_body_offboard"
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down"]
@@ -239,10 +219,10 @@ follower_profiles:
     required_tracker_data: ["GIMBAL_ANGLES"]
     optional_tracker_data: ["ANGULAR", "POSITION_2D"]
 
-  # Fixed-Wing Follower - Professional L1 navigation with TECS energy management
+  # FW Attitude Rate Follower - Professional L1 navigation with TECS energy management
   # CRITICAL: PX4 fixed-wing IGNORES velocity commands - must use attitude_rate!
-  fixed_wing:
-    display_name: "Fixed-Wing Follower"
+  fw_attitude_rate:
+    display_name: "FW Attitude Rate"
     description: "Professional fixed-wing target following with L1 navigation and TECS"
     control_type: "attitude_rate"
     # Uses attitude rate commands (the ONLY offboard mode PX4 supports for fixed-wing)
@@ -253,11 +233,11 @@ follower_profiles:
     required_tracker_data: ["POSITION_2D"]
     optional_tracker_data: ["GIMBAL_ANGLES", "BBOX_CONFIDENCE"]
 
-  # Multicopter Follower - Professional dual-mode lateral guidance
+  # MC Velocity Follower - Professional dual-mode lateral guidance
   # Supports: YAW_TO_TARGET (turn to face) and CRAB_STRAFE (lateral strafe)
   # Key advantage: Can HOVER on target loss (unlike fixed-wing orbit)
-  multicopter:
-    display_name: "Multicopter Follower"
+  mc_velocity:
+    display_name: "MC Velocity"
     description: "Professional multicopter following with dual-mode lateral guidance"
     control_type: "velocity_body_offboard"
     # Uses body velocity offboard - most stable for multicopters
@@ -268,15 +248,15 @@ follower_profiles:
     required_tracker_data: ["POSITION_2D"]
     optional_tracker_data: ["BBOX_CONFIDENCE", "VELOCITY_AWARE"]
 
-  # Multicopter Attitude Rate Follower - Aggressive tracking with direct attitude rate control
+  # MC Attitude Rate Follower - Aggressive tracking with direct attitude rate control
   # Uses pure attitude_rate commands (roll/pitch/yaw rates + thrust) for responsive tracking.
   # Key differences from velocity-based multicopter:
   # - Faster response (bypasses velocity cascade)
   # - Requires explicit thrust management (no automatic altitude hold)
   # - GPS-independent operation possible
   # - Compatible with PNG guidance laws
-  multicopter_attitude_rate:
-    display_name: "Multicopter Attitude Rate"
+  mc_attitude_rate:
+    display_name: "MC Attitude Rate"
     description: "Aggressive attitude rate control for multicopter target tracking"
     control_type: "attitude_rate"
     # Uses set_attitude_rate() - direct angular rate commands + thrust
@@ -286,6 +266,24 @@ follower_profiles:
     # Schema-driven tracker data requirements
     required_tracker_data: ["POSITION_2D"]
     optional_tracker_data: ["BBOX_CONFIDENCE", "VELOCITY_AWARE", "GIMBAL_ANGLES"]
+
+# ==============================================================================
+# Deprecated Profile Aliases (for backward compatibility)
+# ==============================================================================
+# Old profile names that map to new names. These will be removed in future versions.
+# Use the new names in new code/configs.
+deprecated_profile_aliases:
+  ground_view: mc_velocity_ground
+  constant_distance: mc_velocity_distance
+  constant_position: mc_velocity_position
+  attitude_rate: mc_attitude_rate
+  chase_follower: mc_attitude_rate
+  body_velocity_chase: mc_velocity_chase
+  gimbal_unified: gm_velocity_unified
+  gimbal_vector_body: gm_velocity_vector
+  fixed_wing: fw_attitude_rate
+  multicopter: mc_velocity
+  multicopter_attitude_rate: mc_attitude_rate
 
 # ==============================================================================
 # Control Type Definitions
@@ -342,7 +340,7 @@ ui_config:
       fields: ["yaw_angle_deg", "yawspeed_deg_s"]
       color: "#9C27B0"
 
-  profile_display_order: ["ground_view", "constant_distance", "constant_position", "attitude_rate", "chase_follower", "body_velocity_chase", "multicopter", "multicopter_attitude_rate", "gimbal_unified", "gimbal_vector_body", "fixed_wing"]
+  profile_display_order: ["mc_velocity_ground", "mc_velocity_distance", "mc_velocity_position", "mc_velocity_chase", "mc_velocity", "mc_attitude_rate", "gm_velocity_unified", "gm_velocity_vector", "fw_attitude_rate"]
 
 # ==============================================================================
 # Validation Rules

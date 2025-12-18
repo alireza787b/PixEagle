@@ -3,7 +3,7 @@
 Body Velocity Chase Follower Module - Dual-Mode Lateral Guidance
 ================================================================
 
-This module implements the BodyVelocityChaseFollower class for quadcopter target following
+This module implements the MCVelocityChaseFollower class for quadcopter target following
 using offboard body velocity control with dual-mode lateral guidance capabilities.
 
 Project Information:
@@ -51,7 +51,7 @@ from collections import deque
 
 logger = logging.getLogger(__name__)
 
-class BodyVelocityChaseFollower(BaseFollower):
+class MCVelocityChaseFollower(BaseFollower):
     """
     Advanced body velocity chase follower with dual-mode lateral guidance for quadcopter target following.
     
@@ -91,7 +91,7 @@ class BodyVelocityChaseFollower(BaseFollower):
     
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
-        Initializes the BodyVelocityChaseFollower with schema-aware dual-mode offboard control.
+        Initializes the MCVelocityChaseFollower with schema-aware dual-mode offboard control.
 
         Args:
             px4_controller: Instance of PX4Controller to control the drone.
@@ -110,8 +110,8 @@ class BodyVelocityChaseFollower(BaseFollower):
         
         self.initial_target_coords = initial_target_coords
 
-        # Get configuration section (like other followers do)
-        config = getattr(Parameters, 'BODY_VELOCITY_CHASE', {})
+        # Get configuration section
+        config = getattr(Parameters, 'MC_VELOCITY_CHASE', {})
 
         # Load body velocity chase specific parameters from config
         self.initial_forward_velocity = config.get('INITIAL_FORWARD_VELOCITY', 0.0)
@@ -125,11 +125,11 @@ class BodyVelocityChaseFollower(BaseFollower):
         self.enable_auto_mode_switching = config.get('ENABLE_AUTO_MODE_SWITCHING', False)
         self.altitude_safety_enabled = config.get('ALTITUDE_SAFETY_ENABLED', False)
         # Use unified limit access (follower-specific overrides global SafetyLimits)
-        self.min_altitude_limit = Parameters.get_effective_limit('MIN_ALTITUDE', 'BODY_VELOCITY_CHASE')
-        self.max_altitude_limit = Parameters.get_effective_limit('MAX_ALTITUDE', 'BODY_VELOCITY_CHASE')
+        self.min_altitude_limit = Parameters.get_effective_limit('MIN_ALTITUDE', 'MC_VELOCITY_CHASE')
+        self.max_altitude_limit = Parameters.get_effective_limit('MAX_ALTITUDE', 'MC_VELOCITY_CHASE')
         self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 0.1)  # 100ms for safety
         self.rtl_on_altitude_violation = config.get('RTL_ON_ALTITUDE_VIOLATION', True)
-        self.altitude_warning_buffer = Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', 'BODY_VELOCITY_CHASE')
+        self.altitude_warning_buffer = Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', 'MC_VELOCITY_CHASE')
         self.emergency_stop_enabled = config.get('EMERGENCY_STOP_ENABLED', True)
         self.max_tracking_error = config.get('MAX_TRACKING_ERROR', 1.5)
         self.velocity_smoothing_enabled = config.get('VELOCITY_SMOOTHING_ENABLED', True)
@@ -237,7 +237,7 @@ class BodyVelocityChaseFollower(BaseFollower):
         self.update_telemetry_metadata('adaptive_dive_climb_enabled', self.adaptive_mode_enabled)
         self.update_telemetry_metadata('pitch_compensation_enabled', self.pitch_compensation_enabled)
         
-        logger.info(f"BodyVelocityChaseFollower initialized with dual-mode offboard velocity control")
+        logger.info(f"MCVelocityChaseFollower initialized with dual-mode offboard velocity control")
         logger.info(f"Active lateral guidance mode: {self.active_lateral_mode}")
         logger.debug(f"Initial target coordinates: {initial_target_coords}")
         logger.debug(f"Max forward velocity: {self.target_forward_velocity:.1f} m/s")
@@ -271,7 +271,7 @@ class BodyVelocityChaseFollower(BaseFollower):
             
             if self.active_lateral_mode == 'sideslip':
                 # Sideslip Mode: Direct lateral velocity control
-                max_lateral = Parameters.get_effective_limit('MAX_VELOCITY_LATERAL', 'BODY_VELOCITY_CHASE')
+                max_lateral = Parameters.get_effective_limit('MAX_VELOCITY_LATERAL', 'MC_VELOCITY_CHASE')
                 self.pid_right = CustomPID(
                     *self._get_pid_gains('vel_body_right'),
                     setpoint=setpoint_x,
@@ -281,7 +281,7 @@ class BodyVelocityChaseFollower(BaseFollower):
 
             elif self.active_lateral_mode == 'coordinated_turn':
                 # Coordinated Turn Mode: Yaw rate control
-                max_yaw = Parameters.get_effective_limit('MAX_YAW_RATE', 'BODY_VELOCITY_CHASE')
+                max_yaw = Parameters.get_effective_limit('MAX_YAW_RATE', 'MC_VELOCITY_CHASE')
                 self.pid_yaw_speed = CustomPID(
                     *self._get_pid_gains('yawspeed_deg_s'),
                     setpoint=setpoint_x,
@@ -292,7 +292,7 @@ class BodyVelocityChaseFollower(BaseFollower):
             # Down Velocity Controller - Vertical Control (if enabled)
             self.pid_down = None
             if self.enable_altitude_control:
-                max_vertical = Parameters.get_effective_limit('MAX_VELOCITY_VERTICAL', 'BODY_VELOCITY_CHASE')
+                max_vertical = Parameters.get_effective_limit('MAX_VELOCITY_VERTICAL', 'MC_VELOCITY_CHASE')
                 self.pid_down = CustomPID(
                     *self._get_pid_gains('vel_body_down'),
                     setpoint=setpoint_y,
@@ -302,7 +302,7 @@ class BodyVelocityChaseFollower(BaseFollower):
             else:
                 logger.debug("Altitude control disabled - no down velocity PID controller created")
             
-            logger.info(f"PID controllers initialized for BodyVelocityChaseFollower - Mode: {self.active_lateral_mode}")
+            logger.info(f"PID controllers initialized for MCVelocityChaseFollower - Mode: {self.active_lateral_mode}")
             logger.debug(f"PID setpoints - Lateral: {setpoint_x}, Down: {setpoint_y if self.pid_down else 'N/A'}")
             
         except Exception as e:
@@ -356,7 +356,7 @@ class BodyVelocityChaseFollower(BaseFollower):
             
             if new_mode == 'sideslip' and self.pid_right is None:
                 # Initialize sideslip PID controller
-                max_lateral = Parameters.get_effective_limit('MAX_VELOCITY_LATERAL', 'BODY_VELOCITY_CHASE')
+                max_lateral = Parameters.get_effective_limit('MAX_VELOCITY_LATERAL', 'MC_VELOCITY_CHASE')
                 self.pid_right = CustomPID(
                     *self._get_pid_gains('vel_body_right'),
                     setpoint=setpoint_x,
@@ -366,7 +366,7 @@ class BodyVelocityChaseFollower(BaseFollower):
 
             elif new_mode == 'coordinated_turn' and self.pid_yaw_speed is None:
                 # Initialize coordinated turn PID controller
-                max_yaw = Parameters.get_effective_limit('MAX_YAW_RATE', 'BODY_VELOCITY_CHASE')
+                max_yaw = Parameters.get_effective_limit('MAX_YAW_RATE', 'MC_VELOCITY_CHASE')
                 self.pid_yaw_speed = CustomPID(
                     *self._get_pid_gains('yawspeed_deg_s'),
                     setpoint=setpoint_x,
@@ -426,7 +426,7 @@ class BodyVelocityChaseFollower(BaseFollower):
             if self.pid_down is not None:
                 self.pid_down.tunings = self._get_pid_gains('vel_body_down')
             
-            logger.debug(f"PID gains updated for BodyVelocityChaseFollower - Mode: {self.active_lateral_mode}")
+            logger.debug(f"PID gains updated for MCVelocityChaseFollower - Mode: {self.active_lateral_mode}")
             
         except Exception as e:
             logger.error(f"Failed to update PID gains: {e}")
@@ -852,8 +852,8 @@ class BodyVelocityChaseFollower(BaseFollower):
             adjusted_v_fwd = current_v_fwd + v_fwd_correction
 
             # Apply absolute velocity limits from SafetyLimits
-            max_v_fwd = Parameters.get_effective_limit('MAX_VELOCITY_FORWARD', 'BODY_VELOCITY_CHASE')
-            max_v_down = Parameters.get_effective_limit('MAX_VELOCITY_VERTICAL', 'BODY_VELOCITY_CHASE')
+            max_v_fwd = Parameters.get_effective_limit('MAX_VELOCITY_FORWARD', 'MC_VELOCITY_CHASE')
+            max_v_down = Parameters.get_effective_limit('MAX_VELOCITY_VERTICAL', 'MC_VELOCITY_CHASE')
 
             adjusted_v_fwd = np.clip(adjusted_v_fwd, 0.0, max_v_fwd)  # Never go backward
             adjusted_v_down = np.clip(adjusted_v_down, -max_v_down, max_v_down)
@@ -1380,7 +1380,7 @@ class BodyVelocityChaseFollower(BaseFollower):
         try:
             # Validate tracker compatibility
             if not self.validate_tracker_compatibility(tracker_data):
-                logger.error("Tracker data incompatible with BodyVelocityChaseFollower")
+                logger.error("Tracker data incompatible with MCVelocityChaseFollower")
                 return False
             
             # Perform altitude safety check

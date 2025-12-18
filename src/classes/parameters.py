@@ -19,9 +19,13 @@ class Parameters:
 
     # Grouped sections that should NOT be flattened
     _GROUPED_SECTIONS = [
-        'SafetyLimits',  # NEW: Global safety limits
-        'CONSTANT_POSITION', 'CONSTANT_DISTANCE', 'CHASE_FOLLOWER',
-        'GROUND_VIEW', 'BODY_VELOCITY_CHASE', 'GIMBAL_VECTOR_BODY',
+        'SafetyLimits',  # Global safety limits
+        # Follower sections (new naming convention: {vehicle}_{control}_{behavior})
+        'MC_VELOCITY_POSITION', 'MC_VELOCITY_DISTANCE', 'MC_VELOCITY_GROUND',
+        'MC_VELOCITY_CHASE', 'MC_VELOCITY', 'MC_ATTITUDE_RATE',
+        'GM_VELOCITY_VECTOR', 'GM_VELOCITY_UNIFIED',
+        'FW_ATTITUDE_RATE',
+        # Tracker sections
         'GimbalFollower', 'GimbalTracker', 'GimbalTrackerSettings',
         'CSRT_Tracker', 'KCF_Tracker', 'SmartTracker'
     ]
@@ -89,7 +93,7 @@ class Parameters:
         Get all parameters in a section as a dictionary.
 
         Args:
-            section_name: Name of the section (e.g., 'SafetyLimits', 'BODY_VELOCITY_CHASE')
+            section_name: Name of the section (e.g., 'SafetyLimits', 'MC_VELOCITY_CHASE')
 
         Returns:
             dict: The section parameters, or empty dict if not found
@@ -108,13 +112,13 @@ class Parameters:
 
         Args:
             limit_name: Name of the limit (e.g., 'MIN_ALTITUDE', 'MAX_VELOCITY_FORWARD')
-            follower_name: Optional follower section name (e.g., 'BODY_VELOCITY_CHASE')
+            follower_name: Optional follower section name (e.g., 'MC_VELOCITY_CHASE')
 
         Returns:
             float: The effective limit value
 
         Example:
-            >>> Parameters.get_effective_limit('MIN_ALTITUDE', 'BODY_VELOCITY_CHASE')
+            >>> Parameters.get_effective_limit('MIN_ALTITUDE', 'MC_VELOCITY_CHASE')
             5.0  # Returns follower override if exists, else global
 
             >>> Parameters.get_effective_limit('MIN_ALTITUDE')
@@ -150,7 +154,7 @@ class Parameters:
             float: The velocity limit for the specified axis
 
         Example:
-            >>> Parameters.get_velocity_limit('forward', 'BODY_VELOCITY_CHASE')
+            >>> Parameters.get_velocity_limit('forward', 'MC_VELOCITY_CHASE')
             15.0
 
             >>> Parameters.get_velocity_limit('vel_body_right')
@@ -171,7 +175,7 @@ class Parameters:
             tuple: (min_altitude, max_altitude) in meters
 
         Example:
-            >>> Parameters.get_altitude_limits('BODY_VELOCITY_CHASE')
+            >>> Parameters.get_altitude_limits('MC_VELOCITY_CHASE')
             (5.0, 50.0)
         """
         min_alt = cls.get_effective_limit('MIN_ALTITUDE', follower_name)

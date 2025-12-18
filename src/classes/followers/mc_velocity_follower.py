@@ -3,7 +3,7 @@
 Multicopter Target Follower Module - Professional Dual-Mode Guidance
 ====================================================================
 
-This module implements the MulticopterFollower class for professional multicopter
+This module implements the MCVelocityFollower class for professional multicopter
 target following with dual lateral guidance modes and optional Proportional Navigation.
 
 Project Information:
@@ -82,7 +82,7 @@ class TargetLossAction(Enum):
     SLOW_FORWARD = "slow_forward"       # Continue at reduced velocity
 
 
-class MulticopterFollower(BaseFollower):
+class MCVelocityFollower(BaseFollower):
     """
     Professional multicopter target follower with dual-mode lateral guidance.
 
@@ -116,7 +116,7 @@ class MulticopterFollower(BaseFollower):
 
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
-        Initializes the MulticopterFollower with schema-aware dual-mode guidance.
+        Initializes the MCVelocityFollower with schema-aware dual-mode guidance.
 
         Args:
             px4_controller: Instance of PX4Controller to control the drone.
@@ -136,7 +136,7 @@ class MulticopterFollower(BaseFollower):
         self.initial_target_coords = initial_target_coords
 
         # Get configuration section
-        config = getattr(Parameters, 'MULTICOPTER_FOLLOWER', {})
+        config = getattr(Parameters, 'MC_VELOCITY', {})
 
         # === LATERAL GUIDANCE MODE ===
         lateral_mode_str = config.get('LATERAL_GUIDANCE_MODE', 'yaw_to_target')
@@ -173,11 +173,11 @@ class MulticopterFollower(BaseFollower):
 
         # === ALTITUDE SAFETY ===
         self.enable_altitude_safety = config.get('ENABLE_ALTITUDE_SAFETY', True)
-        self.min_altitude_limit = Parameters.get_effective_limit('MIN_ALTITUDE', 'MULTICOPTER_FOLLOWER')
-        self.max_altitude_limit = Parameters.get_effective_limit('MAX_ALTITUDE', 'MULTICOPTER_FOLLOWER')
+        self.min_altitude_limit = Parameters.get_effective_limit('MIN_ALTITUDE', 'MC_VELOCITY')
+        self.max_altitude_limit = Parameters.get_effective_limit('MAX_ALTITUDE', 'MC_VELOCITY')
         self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 0.1)
         self.rtl_on_altitude_violation = config.get('RTL_ON_ALTITUDE_VIOLATION', True)
-        self.altitude_warning_buffer = Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', 'MULTICOPTER_FOLLOWER')
+        self.altitude_warning_buffer = Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', 'MC_VELOCITY')
 
         # === VELOCITY SATURATION PROTECTION ===
         self.enable_velocity_magnitude_limit = config.get('ENABLE_VELOCITY_MAGNITUDE_LIMIT', True)
@@ -248,7 +248,7 @@ class MulticopterFollower(BaseFollower):
             'emergency_stop', 'dual_mode_guidance'
         ])
 
-        logger.info(f"MulticopterFollower initialized with dual-mode offboard velocity control")
+        logger.info(f"MCVelocityFollower initialized with dual-mode offboard velocity control")
         logger.info(f"Lateral guidance mode: {self.active_lateral_mode.value}")
         logger.info(f"Forward velocity mode: {self.forward_velocity_mode.value}")
         logger.info(f"Target loss action: {self.target_loss_action.value}")
@@ -311,7 +311,7 @@ class MulticopterFollower(BaseFollower):
             self.pid_right = None
 
             # YAW_TO_TARGET: Yaw rate control
-            max_yaw = Parameters.get_effective_limit('MAX_YAW_RATE', 'MULTICOPTER_FOLLOWER')
+            max_yaw = Parameters.get_effective_limit('MAX_YAW_RATE', 'MC_VELOCITY')
             self.pid_yaw_speed = CustomPID(
                 *self._get_pid_gains('mc_yawspeed_deg_s'),
                 setpoint=setpoint_x,
@@ -320,7 +320,7 @@ class MulticopterFollower(BaseFollower):
             logger.debug(f"Yaw speed PID initialized with gains {self._get_pid_gains('mc_yawspeed_deg_s')}")
 
             # CRAB_STRAFE: Lateral velocity control
-            max_lateral = Parameters.get_effective_limit('MAX_VELOCITY_LATERAL', 'MULTICOPTER_FOLLOWER')
+            max_lateral = Parameters.get_effective_limit('MAX_VELOCITY_LATERAL', 'MC_VELOCITY')
             self.pid_right = CustomPID(
                 *self._get_pid_gains('mc_vel_body_right'),
                 setpoint=setpoint_x,
@@ -331,7 +331,7 @@ class MulticopterFollower(BaseFollower):
             # Down Velocity Controller - Vertical Control
             self.pid_down = None
             if self.enable_altitude_control:
-                max_vertical = Parameters.get_effective_limit('MAX_VELOCITY_VERTICAL', 'MULTICOPTER_FOLLOWER')
+                max_vertical = Parameters.get_effective_limit('MAX_VELOCITY_VERTICAL', 'MC_VELOCITY')
                 self.pid_down = CustomPID(
                     *self._get_pid_gains('mc_vel_body_down'),
                     setpoint=setpoint_y,
@@ -341,7 +341,7 @@ class MulticopterFollower(BaseFollower):
             else:
                 logger.debug("Altitude control disabled - no down velocity PID controller created")
 
-            logger.info(f"PID controllers initialized for MulticopterFollower")
+            logger.info(f"PID controllers initialized for MCVelocityFollower")
 
         except Exception as e:
             logger.error(f"Failed to initialize PID controllers: {e}")
@@ -388,7 +388,7 @@ class MulticopterFollower(BaseFollower):
             if self.pid_down is not None:
                 self.pid_down.tunings = self._get_pid_gains('mc_vel_body_down')
 
-            logger.debug(f"PID gains updated for MulticopterFollower")
+            logger.debug(f"PID gains updated for MCVelocityFollower")
 
         except Exception as e:
             logger.error(f"Failed to update PID gains: {e}")
@@ -925,7 +925,7 @@ class MulticopterFollower(BaseFollower):
             self.update_telemetry_metadata('emergency_stop_active', self.emergency_stop_active)
             self.update_telemetry_metadata('target_lost', self.target_lost)
 
-            logger.debug(f"MulticopterFollower commands ({self.active_lateral_mode.value}) - "
+            logger.debug(f"MCVelocityFollower commands ({self.active_lateral_mode.value}) - "
                         f"Fwd: {forward_velocity:.2f}, Right: {right_velocity:.2f}, "
                         f"Down: {down_velocity:.2f} m/s, Yaw: {yaw_speed:.2f} deg/s")
 
@@ -968,7 +968,7 @@ class MulticopterFollower(BaseFollower):
         try:
             # Validate tracker compatibility
             if not self.validate_tracker_compatibility(tracker_data):
-                logger.error("Tracker data incompatible with MulticopterFollower")
+                logger.error("Tracker data incompatible with MCVelocityFollower")
                 return False
 
             # Perform altitude safety check
@@ -979,11 +979,11 @@ class MulticopterFollower(BaseFollower):
             # Calculate and apply control commands
             self.calculate_control_commands(tracker_data)
 
-            logger.debug(f"MulticopterFollower executed for tracker: {tracker_data.tracker_id}")
+            logger.debug(f"MCVelocityFollower executed for tracker: {tracker_data.tracker_id}")
             return True
 
         except Exception as e:
-            logger.error(f"MulticopterFollower failed: {e}")
+            logger.error(f"MCVelocityFollower failed: {e}")
             return False
 
     # ==================== Status and Telemetry ====================
@@ -1059,7 +1059,7 @@ class MulticopterFollower(BaseFollower):
             status = self.get_follower_status()
 
             report = f"\n{'='*60}\n"
-            report += f"MulticopterFollower Status Report\n"
+            report += f"MCVelocityFollower Status Report\n"
             report += f"{'='*60}\n"
 
             # Velocity Status
@@ -1162,7 +1162,7 @@ class MulticopterFollower(BaseFollower):
                 self.pid_down.reset()
 
             self.update_telemetry_metadata('state_reset', datetime.utcnow().isoformat())
-            logger.info(f"MulticopterFollower state reset - Mode: {self.active_lateral_mode.value}")
+            logger.info(f"MCVelocityFollower state reset - Mode: {self.active_lateral_mode.value}")
 
         except Exception as e:
             logger.error(f"Error resetting follower state: {e}")

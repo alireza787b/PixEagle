@@ -17,47 +17,78 @@ class FollowerFactory:
     _follower_registry: Dict[str, Type] = {}
     _registry_initialized = False
     
+    # Deprecated alias mapping (old name -> new name)
+    # These will log warnings when used
+    _deprecated_aliases = {
+        'ground_view': 'mc_velocity_ground',
+        'constant_distance': 'mc_velocity_distance',
+        'constant_position': 'mc_velocity_position',
+        'attitude_rate': 'mc_attitude_rate',
+        'chase_follower': 'mc_attitude_rate',
+        'body_velocity_chase': 'mc_velocity_chase',
+        'gimbal_unified': 'gm_velocity_unified',
+        'gimbal_vector_body': 'gm_velocity_vector',
+        'fixed_wing': 'fw_attitude_rate',
+        'multicopter': 'mc_velocity',
+        'multicopter_attitude_rate': 'mc_attitude_rate',
+    }
+
     @classmethod
     def _initialize_registry(cls):
         """
         Initializes the follower registry with available implementations.
         Uses lazy loading to avoid circular imports.
+
+        Naming Convention: {vehicle}_{control}_{behavior}
+        - vehicle: mc_ (multicopter), fw_ (fixed-wing), gm_ (gimbal)
+        - control: velocity, attitude_rate
+        - behavior: optional descriptor (chase, ground, distance, position, vector, unified)
         """
         if cls._registry_initialized:
             return
-            
-        try:
-            # Import follower implementations lazily
-            from classes.followers.ground_target_follower import GroundTargetFollower
-            from classes.followers.constant_distance_follower import ConstantDistanceFollower
-            from classes.followers.constant_position_follower import ConstantPositionFollower
-            from classes.followers.attitude_rate_follower import AttitudeRateFollower, ChaseFollower
-            from classes.followers.body_velocity_chase_follower import BodyVelocityChaseFollower
-            from classes.followers.gimbal_follower import GimbalFollower
-            from classes.followers.gimbal_vector_body_follower import GimbalVectorBodyFollower
-            from classes.followers.fixed_wing_follower import FixedWingFollower
-            from classes.followers.multicopter_follower import MulticopterFollower
-            from classes.followers.multicopter_attitude_rate_follower import MulticopterAttitudeRateFollower
 
-            # Register followers with their schema profile names
-            # Note: 'attitude_rate' is the new name, 'chase_follower' kept for backward compatibility
+        try:
+            # Import follower implementations with new naming convention
+            from classes.followers.mc_velocity_ground_follower import MCVelocityGroundFollower
+            from classes.followers.mc_velocity_distance_follower import MCVelocityDistanceFollower
+            from classes.followers.mc_velocity_position_follower import MCVelocityPositionFollower
+            from classes.followers.mc_velocity_chase_follower import MCVelocityChaseFollower
+            from classes.followers.mc_velocity_follower import MCVelocityFollower
+            from classes.followers.mc_attitude_rate_follower import MCAttitudeRateFollower
+            from classes.followers.gm_velocity_unified_follower import GMVelocityUnifiedFollower
+            from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
+            from classes.followers.fw_attitude_rate_follower import FWAttitudeRateFollower
+
+            # Primary registry with new naming convention
             cls._follower_registry = {
-                'ground_view': GroundTargetFollower,
-                'constant_distance': ConstantDistanceFollower,
-                'constant_position': ConstantPositionFollower,
-                'chase_follower': AttitudeRateFollower,  # Backward compatible name
-                'attitude_rate': AttitudeRateFollower,   # New preferred name
-                'body_velocity_chase': BodyVelocityChaseFollower,
-                'gimbal_unified': GimbalFollower,
-                'gimbal_vector_body': GimbalVectorBodyFollower,
-                'fixed_wing': FixedWingFollower,         # Professional fixed-wing with L1/TECS
-                'multicopter': MulticopterFollower,      # Professional multicopter with dual-mode guidance
-                'multicopter_attitude_rate': MulticopterAttitudeRateFollower  # Aggressive multicopter with attitude rate
+                # Multicopter - Velocity Control
+                'mc_velocity': MCVelocityFollower,
+                'mc_velocity_chase': MCVelocityChaseFollower,
+                'mc_velocity_ground': MCVelocityGroundFollower,
+                'mc_velocity_distance': MCVelocityDistanceFollower,
+                'mc_velocity_position': MCVelocityPositionFollower,
+
+                # Multicopter - Attitude Rate Control
+                'mc_attitude_rate': MCAttitudeRateFollower,
+
+                # Fixed-Wing - Attitude Rate Control (L1/TECS)
+                'fw_attitude_rate': FWAttitudeRateFollower,
+
+                # Gimbal - Velocity Control
+                'gm_velocity_unified': GMVelocityUnifiedFollower,
+                'gm_velocity_vector': GMVelocityVectorFollower,
             }
-            
+
+            # Add deprecated aliases for backward compatibility
+            # These map old names to the new implementations
+            for old_name, new_name in cls._deprecated_aliases.items():
+                if new_name in cls._follower_registry:
+                    cls._follower_registry[old_name] = cls._follower_registry[new_name]
+
             cls._registry_initialized = True
-            logger.info(f"Follower registry initialized with {len(cls._follower_registry)} implementations")
-            
+            logger.info(f"Follower registry initialized with {len(cls._follower_registry)} entries "
+                       f"(10 implementations + {len(cls._deprecated_aliases)} deprecated aliases)")
+
         except ImportError as e:
             logger.error(f"Failed to import follower implementations: {e}")
             raise
@@ -143,22 +174,28 @@ class FollowerFactory:
     def create_follower(cls, profile_name: str, px4_controller, initial_target_coords: Tuple[float, float]):
         """
         Creates and returns a follower instance for the specified profile.
-        
+
         Args:
             profile_name (str): The follower profile name.
             px4_controller: The PX4 controller instance.
             initial_target_coords (Tuple[float, float]): Initial target coordinates.
-            
+
         Returns:
             BaseFollower: An instance of the appropriate follower class.
-            
+
         Raises:
             ValueError: If the profile is invalid or implementation not found.
         """
         cls._initialize_registry()
-        
+
         # Normalize profile name
         normalized_name = SetpointHandler.normalize_profile_name(profile_name)
+
+        # Check for deprecated names and log warning
+        if normalized_name in cls._deprecated_aliases:
+            new_name = cls._deprecated_aliases[normalized_name]
+            logger.warning(f"DEPRECATED: Follower mode '{normalized_name}' is deprecated. "
+                          f"Please update to '{new_name}'. Old names will be removed in a future version.")
         
         # Check if profile exists in schema
         available_profiles = SetpointHandler.get_available_profiles()

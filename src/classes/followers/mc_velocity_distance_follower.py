@@ -3,7 +3,7 @@
 Constant Distance Follower Module
 ================================
 
-This module implements the ConstantDistanceFollower class for maintaining a
+This module implements the MCVelocityDistanceFollower class for maintaining a
 constant distance from targets while allowing lateral and vertical adjustments.
 
 Project Information:
@@ -13,7 +13,7 @@ Project Information:
     - LinkedIn: https://www.linkedin.com/in/alireza787b
 
 Overview:
-    The ConstantDistanceFollower provides selective 4-axis control for maintaining
+    The MCVelocityDistanceFollower provides selective 4-axis control for maintaining
     a constant distance from targets. It implements controlled Y/Z movement with
     optional yaw control while keeping the X-axis (forward/backward) fixed.
 
@@ -43,7 +43,7 @@ from datetime import datetime
 # Configure module logger
 logger = logging.getLogger(__name__)
 
-class ConstantDistanceFollower(BaseFollower):
+class MCVelocityDistanceFollower(BaseFollower):
     """
     Advanced constant distance follower with selective axis control.
     
@@ -66,7 +66,7 @@ class ConstantDistanceFollower(BaseFollower):
     
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
-        Initialize the ConstantDistanceFollower with selective axis control.
+        Initialize the MCVelocityDistanceFollower with selective axis control.
         
         Args:
             px4_controller: PX4 controller instance for drone communication
@@ -85,8 +85,8 @@ class ConstantDistanceFollower(BaseFollower):
         # Initialize with Constant Distance profile for enhanced velocity control
         super().__init__(px4_controller, "Constant Distance")
         
-        # Get configuration section (like body velocity chase does)
-        config = getattr(Parameters, 'CONSTANT_DISTANCE', {})
+        # Get configuration section
+        config = getattr(Parameters, 'MC_VELOCITY_DISTANCE', {})
 
         # Store configuration parameters
         self.yaw_enabled = config.get('ENABLE_YAW_CONTROL', False)
@@ -94,13 +94,13 @@ class ConstantDistanceFollower(BaseFollower):
         self.initial_target_coords = initial_target_coords
 
         # Load altitude limits using unified limit access (follower-specific overrides global SafetyLimits)
-        self.min_descent_height = Parameters.get_effective_limit('MIN_ALTITUDE', 'CONSTANT_DISTANCE')
-        self.max_climb_height = Parameters.get_effective_limit('MAX_ALTITUDE', 'CONSTANT_DISTANCE')
+        self.min_descent_height = Parameters.get_effective_limit('MIN_ALTITUDE', 'MC_VELOCITY_DISTANCE')
+        self.max_climb_height = Parameters.get_effective_limit('MAX_ALTITUDE', 'MC_VELOCITY_DISTANCE')
         self.max_vertical_velocity = config.get('MAX_VERTICAL_VELOCITY', 5.0)
         self.max_lateral_velocity = config.get('MAX_LATERAL_VELOCITY', 10.0)
         from math import radians
         # Internal rad/s; get MAX_YAW_RATE from SafetyLimits (in deg/s) and convert
-        self.max_yaw_rate = radians(Parameters.get_effective_limit('MAX_YAW_RATE', 'CONSTANT_DISTANCE'))
+        self.max_yaw_rate = radians(Parameters.get_effective_limit('MAX_YAW_RATE', 'MC_VELOCITY_DISTANCE'))
         self.yaw_control_threshold = config.get('YAW_CONTROL_THRESHOLD', 0.3)
         self.target_lost_timeout = config.get('TARGET_LOST_TIMEOUT', 3.0)
         self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
@@ -118,7 +118,7 @@ class ConstantDistanceFollower(BaseFollower):
         self.update_telemetry_metadata('yaw_control_enabled', self.yaw_enabled)
         self.update_telemetry_metadata('x_axis_behavior', 'fixed_zero')
         
-        logger.info(f"ConstantDistanceFollower initialized successfully - "
+        logger.info(f"MCVelocityDistanceFollower initialized successfully - "
                    f"Yaw control: {'enabled' if self.yaw_enabled else 'disabled'}, "
                    f"Target: {self.initial_target_coords}")
     
@@ -171,7 +171,7 @@ class ConstantDistanceFollower(BaseFollower):
                 logger.debug("Yaw control disabled - no yaw PID controller")
             
             # Log successful initialization
-            logger.info("PID controllers initialized successfully for ConstantDistanceFollower")
+            logger.info("PID controllers initialized successfully for MCVelocityDistanceFollower")
             logger.debug(f"PID setpoints - Y: {setpoint_x}, Z: {setpoint_y}, "
                         f"Yaw enabled: {self.yaw_enabled}")
             
@@ -184,7 +184,7 @@ class ConstantDistanceFollower(BaseFollower):
         Retrieve PID gains for specified axis from parameters.
 
         This method retrieves the standard PID gains without gain scheduling
-        as ConstantDistanceFollower uses simpler control logic.
+        as MCVelocityDistanceFollower uses simpler control logic.
 
         Args:
             axis (str): Control axis identifier ('y', 'z', or 'yawspeed_deg_s')
@@ -230,7 +230,7 @@ class ConstantDistanceFollower(BaseFollower):
             if self.yaw_enabled and self.pid_yaw_rate is not None:
                 self.pid_yaw_rate.tunings = self._get_pid_gains('yawspeed_deg_s')
             
-            logger.debug("PID gains updated successfully for ConstantDistanceFollower")
+            logger.debug("PID gains updated successfully for MCVelocityDistanceFollower")
             
         except Exception as e:
             logger.error(f"Failed to update PID gains: {e}")

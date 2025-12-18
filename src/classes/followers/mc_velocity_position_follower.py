@@ -4,7 +4,7 @@
 Constant Position Follower Module
 ---------------------------------
 
-This module implements the ConstantPositionFollower class for drone control in aerial target tracking.
+This module implements the MCVelocityPositionFollower class for drone control in aerial target tracking.
 
 Project Information:
 - Project Name: PixEagle
@@ -15,7 +15,7 @@ Project Information:
 
 Overview:
 ---------
-The ConstantPositionFollower is designed to maintain the drone's horizontal position while allowing
+The MCVelocityPositionFollower is designed to maintain the drone's horizontal position while allowing
 only yaw rotation and optional altitude adjustments to keep the target in the camera's field of view.
 This mode is ideal for maintaining a stationary observation point while tracking moving targets.
 
@@ -38,7 +38,7 @@ Key Features:
 Usage Example:
 --------------
 ```python
-follower = ConstantPositionFollower(px4_controller, (0.0, 0.0))
+follower = MCVelocityPositionFollower(px4_controller, (0.0, 0.0))
 await follower.follow_target((0.1, -0.05))  # Small target deviation
 ```
 
@@ -60,7 +60,7 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-class ConstantPositionFollower(BaseFollower):
+class MCVelocityPositionFollower(BaseFollower):
     """
     Advanced constant position follower for drone control with schema-aware field management.
     
@@ -83,7 +83,7 @@ class ConstantPositionFollower(BaseFollower):
     
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
-        Initializes the ConstantPositionFollower with schema-aware configuration.
+        Initializes the MCVelocityPositionFollower with schema-aware configuration.
 
         Args:
             px4_controller: Instance of PX4Controller for drone control interface.
@@ -106,20 +106,20 @@ class ConstantPositionFollower(BaseFollower):
         
         self.initial_target_coords = initial_target_coords
         
-        # Get configuration section (like body velocity chase does)
-        config = getattr(Parameters, 'CONSTANT_POSITION', {})
+        # Get configuration section
+        config = getattr(Parameters, 'MC_VELOCITY_POSITION', {})
 
         # Control configuration
         self.yaw_control_enabled = config.get('ENABLE_YAW_CONTROL', True)  # Always enabled for this mode
         self.altitude_control_enabled = config.get('ENABLE_ALTITUDE_CONTROL', True)
 
         # Load altitude limits using unified limit access (follower-specific overrides global SafetyLimits)
-        self.min_descent_height = Parameters.get_effective_limit('MIN_ALTITUDE', 'CONSTANT_POSITION')
-        self.max_climb_height = Parameters.get_effective_limit('MAX_ALTITUDE', 'CONSTANT_POSITION')
+        self.min_descent_height = Parameters.get_effective_limit('MIN_ALTITUDE', 'MC_VELOCITY_POSITION')
+        self.max_climb_height = Parameters.get_effective_limit('MAX_ALTITUDE', 'MC_VELOCITY_POSITION')
         self.max_vertical_velocity = config.get('MAX_VERTICAL_VELOCITY', 3.0)
         # Internal unit is rad/s; get MAX_YAW_RATE from SafetyLimits (in deg/s) and convert
         from math import radians
-        self.max_yaw_rate = radians(Parameters.get_effective_limit('MAX_YAW_RATE', 'CONSTANT_POSITION'))
+        self.max_yaw_rate = radians(Parameters.get_effective_limit('MAX_YAW_RATE', 'MC_VELOCITY_POSITION'))
         self.yaw_control_threshold = config.get('YAW_CONTROL_THRESHOLD', 0.05)
         self.target_lost_timeout = config.get('TARGET_LOST_TIMEOUT', 3.0)
         self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
@@ -141,11 +141,11 @@ class ConstantPositionFollower(BaseFollower):
             self.update_telemetry_metadata('yaw_enabled', self.yaw_control_enabled)
             self.update_telemetry_metadata('altitude_enabled', self.altitude_control_enabled)
             
-            logger.info(f"ConstantPositionFollower initialized successfully. "
+            logger.info(f"MCVelocityPositionFollower initialized successfully. "
                        f"Yaw: enabled, Altitude: {'enabled' if self.altitude_control_enabled else 'disabled'}")
                        
         except Exception as e:
-            logger.error(f"Failed to initialize ConstantPositionFollower: {e}")
+            logger.error(f"Failed to initialize MCVelocityPositionFollower: {e}")
             raise RuntimeError(f"PID controller initialization failed: {e}")
     
     def _initialize_pid_controllers(self) -> None:
@@ -238,7 +238,7 @@ class ConstantPositionFollower(BaseFollower):
                 z_gains = self._get_pid_gains('z')
                 self.pid_z.tunings = z_gains
             
-            logger.debug("PID gains updated successfully for ConstantPositionFollower")
+            logger.debug("PID gains updated successfully for MCVelocityPositionFollower")
             return True
             
         except Exception as e:
@@ -379,7 +379,7 @@ class ConstantPositionFollower(BaseFollower):
         try:
             # Validate tracker compatibility
             if not self.validate_tracker_compatibility(tracker_data):
-                logger.error("Tracker data incompatible with ConstantPositionFollower")
+                logger.error("Tracker data incompatible with MCVelocityPositionFollower")
                 return False
             
             # Extract target coordinates

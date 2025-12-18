@@ -3,7 +3,7 @@
 Ground Target Follower Module
 ============================
 
-This module implements the GroundTargetFollower class for tracking ground-based targets
+This module implements the MCVelocityGroundFollower class for tracking ground-based targets
 using velocity body control with advanced PID features.
 
 Project Information:
@@ -13,7 +13,7 @@ Project Information:
     - LinkedIn: https://www.linkedin.com/in/alireza787b
 
 Overview:
-    The GroundTargetFollower provides comprehensive 3-axis velocity control for tracking
+    The MCVelocityGroundFollower provides comprehensive 3-axis velocity control for tracking
     ground targets. It implements advanced PID control with optional gain scheduling,
     gimbal corrections, and altitude-based adjustments.
 
@@ -43,7 +43,7 @@ from datetime import datetime
 # Configure module logger
 logger = logging.getLogger(__name__)
 
-class GroundTargetFollower(BaseFollower):
+class MCVelocityGroundFollower(BaseFollower):
     """
     Advanced ground target follower with 3-axis velocity control.
     
@@ -66,7 +66,7 @@ class GroundTargetFollower(BaseFollower):
     
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
-        Initialize the GroundTargetFollower with advanced PID control configuration.
+        Initialize the MCVelocityGroundFollower with advanced PID control configuration.
         
         Args:
             px4_controller: PX4 controller instance for drone communication
@@ -86,8 +86,8 @@ class GroundTargetFollower(BaseFollower):
         # Initialize with Ground View profile for full velocity control
         super().__init__(px4_controller, "Ground View")
         
-        # Get configuration section (like other followers do)
-        config = getattr(Parameters, 'GROUND_VIEW', {})
+        # Get configuration section
+        config = getattr(Parameters, 'MC_VELOCITY_GROUND', {})
 
         # Store configuration parameters
         self.target_position_mode = config.get('TARGET_POSITION_MODE', 'center')
@@ -102,7 +102,7 @@ class GroundTargetFollower(BaseFollower):
         self.max_rate_of_descent = config.get('MAX_RATE_OF_DESCENT', 2.0)
         self.enable_descend_to_target = config.get('ENABLE_DESCEND_TO_TARGET', False)
         # Use unified limit access (follower-specific overrides global SafetyLimits)
-        self.min_descent_height = Parameters.get_effective_limit('MIN_ALTITUDE', 'GROUND_VIEW')
+        self.min_descent_height = Parameters.get_effective_limit('MIN_ALTITUDE', 'MC_VELOCITY_GROUND')
         self.is_camera_gimbaled = config.get('IS_CAMERA_GIMBALED', False)
         self.base_adjustment_factor_x = config.get('BASE_ADJUSTMENT_FACTOR_X', 0.1)
         self.base_adjustment_factor_y = config.get('BASE_ADJUSTMENT_FACTOR_Y', 0.1)
@@ -121,7 +121,7 @@ class GroundTargetFollower(BaseFollower):
         self.update_telemetry_metadata('coordinate_system', 'body_frame_velocity')
         self.update_telemetry_metadata('target_position_mode', self.target_position_mode)
         
-        logger.info(f"GroundTargetFollower initialized successfully - "
+        logger.info(f"MCVelocityGroundFollower initialized successfully - "
                    f"Mode: {self.target_position_mode}, "
                    f"Target: {self.initial_target_coords}")
     
@@ -168,7 +168,7 @@ class GroundTargetFollower(BaseFollower):
             )
             
             # Log successful initialization
-            logger.info("PID controllers initialized successfully for GroundTargetFollower")
+            logger.info("PID controllers initialized successfully for MCVelocityGroundFollower")
             logger.debug(f"PID setpoints - X: {setpoint_x}, Y: {setpoint_y}, "
                         f"Z: {self.min_descent_height}")
             
@@ -254,7 +254,7 @@ class GroundTargetFollower(BaseFollower):
             self.pid_y.tunings = self._get_pid_gains('y')
             self.pid_z.tunings = self._get_pid_gains('z')
             
-            logger.debug("PID gains updated successfully for GroundTargetFollower")
+            logger.debug("PID gains updated successfully for MCVelocityGroundFollower")
             
         except Exception as e:
             logger.error(f"Failed to update PID gains: {e}")

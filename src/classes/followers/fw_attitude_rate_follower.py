@@ -66,7 +66,7 @@ class TargetLossAction(Enum):
     CONTINUE_LAST = "continue_last"
 
 
-class FixedWingFollower(BaseFollower):
+class FWAttitudeRateFollower(BaseFollower):
     """
     Professional fixed-wing target following with L1 navigation and TECS.
 
@@ -105,7 +105,7 @@ class FixedWingFollower(BaseFollower):
 
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
-        Initializes the FixedWingFollower with L1 navigation and TECS.
+        Initializes the FWAttitudeRateFollower with L1 navigation and TECS.
 
         Args:
             px4_controller: Instance of PX4Controller to control the drone.
@@ -124,7 +124,7 @@ class FixedWingFollower(BaseFollower):
         self.initial_target_coords = initial_target_coords
 
         # Get configuration section
-        config = getattr(Parameters, 'FIXED_WING_FOLLOWER', {})
+        config = getattr(Parameters, 'FW_ATTITUDE_RATE', {})
 
         # === Flight Envelope ===
         self.min_airspeed = config.get('MIN_AIRSPEED', 12.0)
@@ -170,8 +170,8 @@ class FixedWingFollower(BaseFollower):
 
         # === Altitude Safety ===
         self.altitude_safety_enabled = config.get('ENABLE_ALTITUDE_SAFETY', True)
-        self.min_altitude_limit = Parameters.get_effective_limit('MIN_ALTITUDE', 'FIXED_WING_FOLLOWER')
-        self.max_altitude_limit = Parameters.get_effective_limit('MAX_ALTITUDE', 'FIXED_WING_FOLLOWER')
+        self.min_altitude_limit = Parameters.get_effective_limit('MIN_ALTITUDE', 'FW_ATTITUDE_RATE')
+        self.max_altitude_limit = Parameters.get_effective_limit('MAX_ALTITUDE', 'FW_ATTITUDE_RATE')
         self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 0.1)
         self.rtl_on_altitude_violation = config.get('RTL_ON_ALTITUDE_VIOLATION', True)
 
@@ -210,7 +210,7 @@ class FixedWingFollower(BaseFollower):
             'target_loss_orbit', 'thrust_slew_limiting'
         ])
 
-        logger.info(f"FixedWingFollower initialized with L1 navigation and TECS")
+        logger.info(f"FWAttitudeRateFollower initialized with L1 navigation and TECS")
         logger.info(f"Flight envelope - Airspeed: [{self.min_airspeed}-{self.max_airspeed}] m/s, "
                    f"Bank: {self.max_bank_angle}°, Load factor: {self.max_load_factor}g")
         logger.info(f"L1 params - Distance: {self.l1_distance}m, Damping: {self.l1_damping}")
@@ -319,7 +319,7 @@ class FixedWingFollower(BaseFollower):
                 output_limits=(self.min_thrust, self.max_thrust)
             )
 
-            logger.info("All PID controllers initialized for FixedWingFollower")
+            logger.info("All PID controllers initialized for FWAttitudeRateFollower")
             logger.debug(f"Rate limits - Roll: {self.max_roll_rate}°/s, "
                         f"Pitch: {self.max_pitch_rate}°/s, Yaw: {self.max_yaw_rate}°/s")
 
@@ -974,7 +974,7 @@ class FixedWingFollower(BaseFollower):
         try:
             # Validate tracker compatibility
             if not self.validate_tracker_compatibility(tracker_data):
-                logger.error("Tracker data incompatible with FixedWingFollower")
+                logger.error("Tracker data incompatible with FWAttitudeRateFollower")
                 return False
 
             # Extract target coordinates
@@ -1134,7 +1134,7 @@ class FixedWingFollower(BaseFollower):
             self.pid_throttle.reset()
 
             self.update_telemetry_metadata('state_reset', datetime.utcnow().isoformat())
-            logger.info("FixedWingFollower state reset to initial conditions")
+            logger.info("FWAttitudeRateFollower state reset to initial conditions")
 
         except Exception as e:
             logger.error(f"Error resetting state: {e}")

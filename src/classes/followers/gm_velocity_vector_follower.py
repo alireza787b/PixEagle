@@ -1,7 +1,7 @@
 # src/classes/followers/gimbal_vector_body_follower.py
 
 """
-GimbalVectorBodyFollower - Direct Vector Pursuit Control
+GMVelocityVectorFollower - Direct Vector Pursuit Control
 =========================================================
 
 Modern gimbal-based follower using direct geometric transformation from
@@ -49,10 +49,10 @@ Body Frame (FRD - Forward-Right-Down):
 Usage Example:
 --------------
 ```python
-from classes.followers.gimbal_vector_body_follower import GimbalVectorBodyFollower
+from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
 
 # Initialize with PX4 controller
-follower = GimbalVectorBodyFollower(px4_controller, initial_coords=(0.5, 0.5))
+follower = GMVelocityVectorFollower(px4_controller, initial_coords=(0.5, 0.5))
 
 # Process gimbal tracker data
 success = follower.follow_target(gimbal_tracker_output)
@@ -64,7 +64,7 @@ print(f"Current velocity magnitude: {status['velocity_magnitude']:.2f} m/s")
 
 Configuration:
 --------------
-All parameters are in configs/config_default.yaml under GIMBAL_VECTOR_BODY section.
+All parameters are in configs/config_default.yaml under GM_VELOCITY_VECTOR section.
 """
 
 import time
@@ -103,7 +103,7 @@ class Vector3D:
         return Vector3D(self.x * scalar, self.y * scalar, self.z * scalar)
 
 
-class GimbalVectorBodyFollower(BaseFollower):
+class GMVelocityVectorFollower(BaseFollower):
     """
     Direct vector pursuit follower using gimbal angles.
 
@@ -113,20 +113,20 @@ class GimbalVectorBodyFollower(BaseFollower):
 
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
-        Initialize GimbalVectorBodyFollower.
+        Initialize GMVelocityVectorFollower.
 
         Args:
             px4_controller: PX4 interface for drone control
             initial_target_coords: Initial target coordinates (required by factory interface)
         """
         self.setpoint_profile = "gimbal_vector_body"
-        self.follower_name = "GimbalVectorBodyFollower"
+        self.follower_name = "GMVelocityVectorFollower"
         self.initial_target_coords = initial_target_coords
 
         # Load configuration from Parameters
-        self.config = getattr(Parameters, 'GIMBAL_VECTOR_BODY', {})
+        self.config = getattr(Parameters, 'GM_VELOCITY_VECTOR', {})
         if not self.config:
-            raise ValueError("GIMBAL_VECTOR_BODY configuration not found in Parameters")
+            raise ValueError("GM_VELOCITY_VECTOR configuration not found in Parameters")
 
         # === Mount Configuration ===
         # IMPORTANT: Set mount_type BEFORE super().__init__() because BaseFollower.__init__()
@@ -157,11 +157,11 @@ class GimbalVectorBodyFollower(BaseFollower):
         # === Altitude Safety (Optional Enforcement) ===
         # Use unified limit access (follower-specific overrides global SafetyLimits)
         self.altitude_safety_enabled = self.config.get('ALTITUDE_SAFETY_ENABLED', False)
-        self.min_altitude_safety = Parameters.get_effective_limit('MIN_ALTITUDE', 'GIMBAL_VECTOR_BODY')
-        self.max_altitude_safety = Parameters.get_effective_limit('MAX_ALTITUDE', 'GIMBAL_VECTOR_BODY')
+        self.min_altitude_safety = Parameters.get_effective_limit('MIN_ALTITUDE', 'GM_VELOCITY_VECTOR')
+        self.max_altitude_safety = Parameters.get_effective_limit('MAX_ALTITUDE', 'GM_VELOCITY_VECTOR')
         self.altitude_check_interval = self.config.get('ALTITUDE_CHECK_INTERVAL', 1.0)
         self.rtl_on_altitude_violation = self.config.get('RTL_ON_ALTITUDE_VIOLATION', False)
-        self.altitude_warning_buffer = Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', 'GIMBAL_VECTOR_BODY')
+        self.altitude_warning_buffer = Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', 'GM_VELOCITY_VECTOR')
         self.altitude_violation_count = 0
         self.last_altitude_check_time = 0.0
 
@@ -200,7 +200,7 @@ class GimbalVectorBodyFollower(BaseFollower):
         self.total_follow_calls = 0
         self.successful_updates = 0
 
-        logger.info(f"GimbalVectorBodyFollower initialized: {self.mount_type} mount, "
+        logger.info(f"GMVelocityVectorFollower initialized: {self.mount_type} mount, "
                    f"altitude_control={self.enable_altitude_control}, "
                    f"velocity_range=[{self.min_velocity:.1f}, {self.max_velocity:.1f}] m/s")
 
@@ -548,7 +548,7 @@ class GimbalVectorBodyFollower(BaseFollower):
         yaw_rate = yaw_deg * self.yaw_rate_gain
 
         # Clamp to SafetyLimits (deg/s)
-        max_yaw_rate = Parameters.get_effective_limit('MAX_YAW_RATE', 'GIMBAL_VECTOR_BODY')
+        max_yaw_rate = Parameters.get_effective_limit('MAX_YAW_RATE', 'GM_VELOCITY_VECTOR')
         yaw_rate = max(-max_yaw_rate, min(max_yaw_rate, yaw_rate))
 
         return yaw_rate
@@ -729,7 +729,7 @@ class GimbalVectorBodyFollower(BaseFollower):
     def get_status_info(self) -> Dict[str, Any]:
         """Get comprehensive status information."""
         return {
-            'follower_type': 'GimbalVectorBodyFollower',
+            'follower_type': 'GMVelocityVectorFollower',
             'display_name': self.get_display_name(),
             'following_active': self.following_active,
             'emergency_stop_active': self.emergency_stop_active,
@@ -813,4 +813,4 @@ class GimbalVectorBodyFollower(BaseFollower):
 
     def __str__(self) -> str:
         """String representation for debugging."""
-        return f"GimbalVectorBodyFollower(mount={self.mount_type}, active={self.following_active}, vel_mag={self.current_velocity_magnitude:.2f} m/s)"
+        return f"GMVelocityVectorFollower(mount={self.mount_type}, active={self.following_active}, vel_mag={self.current_velocity_magnitude:.2f} m/s)"
