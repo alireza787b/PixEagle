@@ -38,56 +38,8 @@ REQUIRED_DISK_GB=10
 REQUIRED_RAM_GB=4
 VERSION="2.0.0"
 
-# ============================================================================
-# Colors and Formatting (match init_pixeagle.sh)
-# ============================================================================
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
-BOLD='\033[1m'
-DIM='\033[2m'
-NC='\033[0m'
-
-CHECK="✅"
-CROSS="❌"
-WARN="⚠️"
-INFO="ℹ️"
-VIDEO="🎥"
-PARTY="🎉"
-CLOCK="⏱️"
-
-# ============================================================================
-# Logging Functions
-# ============================================================================
-log_step() {
-    local step=$1
-    local message=$2
-    echo ""
-    echo -e "${CYAN}${BOLD}[${step}/${TOTAL_STEPS}]${NC} ${message}"
-}
-
-log_success() {
-    echo -e "        ${GREEN}${CHECK}${NC} $1"
-}
-
-log_error() {
-    echo -e "        ${RED}${CROSS}${NC} $1" >&2
-}
-
-log_warn() {
-    echo -e "        ${YELLOW}${WARN}${NC}  $1"
-}
-
-log_info() {
-    echo -e "        ${BLUE}${INFO}${NC}  $1"
-}
-
-log_detail() {
-    echo -e "        ${DIM}$1${NC}"
-}
+# Source shared functions (colors, logging, banner)
+source "$SCRIPT_DIR/scripts/common.sh"
 
 # ============================================================================
 # Spinner for Long Operations
@@ -126,15 +78,8 @@ trap cleanup EXIT
 # Banner Display
 # ============================================================================
 display_banner() {
-    echo ""
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}   ${VIDEO} ${BOLD}OpenCV Build with GStreamer - PixEagle${NC}                             ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}      ${DIM}Builds OpenCV ${OPENCV_VERSION} with GStreamer, Qt, and OpenGL support${NC}       ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
+    display_pixeagle_banner "${VIDEO} OpenCV Build with GStreamer" \
+        "Builds OpenCV ${OPENCV_VERSION} with GStreamer, Qt, and OpenGL support"
 
     # Warning about build time
     echo -e "   ${YELLOW}${WARN}${NC}  ${BOLD}This build takes 1-2 hours.${NC} Ensure you have:"

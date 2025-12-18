@@ -34,6 +34,12 @@
 #
 #########################################
 
+# Get script directory for sourcing common functions
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Source shared functions (colors, logging, banner)
+source "$SCRIPT_DIR/scripts/common.sh"
+
 # Default flag values (all components enabled by default)
 RUN_MAVLINK2REST=true
 RUN_DASHBOARD=true
@@ -96,23 +102,8 @@ display_usage() {
 }
 
 display_banner() {
-    cat << "EOF"
-
-  _____ _      ______            _      
- |  __ (_)    |  ____|          | |     
- | |__) |__  _| |__   __ _  __ _| | ___ 
- |  ___/ \ \/ /  __| / _` |/ _` | |/ _ \
- | |   | |>  <| |___| (_| | (_| | |  __/
- |_|   |_/_/\_\______\__,_|\__, |_|\___|
-                            __/ |       
-                           |___/        
-
-Welcome to PixEagle Initialization Script
-
-For more information and the latest documentation, visit:
-👉 GitHub: https://github.com/alireza787b/PixEagle
-
-EOF
+    display_pixeagle_banner "${ROCKET} PixEagle System Launcher" \
+        "For documentation: https://github.com/alireza787b/PixEagle"
     sleep 1  # Wait for 1 second
 }
 

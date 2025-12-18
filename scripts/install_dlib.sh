@@ -11,52 +11,25 @@
 
 set -e  # Exit on error
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# Get script directory for sourcing common functions
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Source shared functions (colors, logging, banner)
+source "$SCRIPT_DIR/common.sh"
 
 # Banner
 display_banner() {
-    cat << "EOF"
-
-  _____ _ _ _       ___           _        _ _
- |  __ \ (_) |     |_ _|         | |      | | |
- | |  | | _| |__    | | _ __  ___| |_ __ _| | | ___ _ __
- | |  | | | '_ \   | || '_ \/ __| __/ _` | | |/ _ \ '__|
- | |__| | | |_) | _| || | | \__ \ || (_| | | |  __/ |
- |_____/|_|_.__/ |___|_| |_|___/\__\__,_|_|_|\___|_|
-
- dlib Installation Script for PixEagle
-
- GitHub: https://github.com/alireza787b/PixEagle
-
-EOF
+    display_pixeagle_banner "${PACKAGE} dlib Installation" \
+        "GitHub: https://github.com/alireza787b/PixEagle"
 }
 
-# Logging functions
+# Script-specific logging (non-indented style)
 log_info() {
-    echo -e "${BLUE}ℹ${NC} $1"
-}
-
-log_success() {
-    echo -e "${GREEN}✅${NC} $1"
+    echo -e "${BLUE}${INFO}${NC} $1"
 }
 
 log_warning() {
-    echo -e "${YELLOW}⚠️${NC} $1"
-}
-
-log_error() {
-    echo -e "${RED}❌${NC} $1"
-}
-
-log_section() {
-    echo -e "\n${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BLUE}$1${NC}"
-    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+    echo -e "${YELLOW}${WARN}${NC} $1"
 }
 
 # Check if venv exists

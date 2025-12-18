@@ -26,58 +26,14 @@ NVM_VERSION="v0.40.3"
 NODE_VERSION="22"  # LTS version for stability
 MIN_PYTHON_VERSION="3.9"
 REQUIRED_DISK_MB=500
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Source shared functions (colors, logging, banner)
+source "$SCRIPT_DIR/scripts/common.sh"
 
 # ============================================================================
-# Colors and Formatting
+# Script-Specific Functions
 # ============================================================================
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
-BOLD='\033[1m'
-DIM='\033[2m'
-NC='\033[0m'  # No Color
-
-# Unicode symbols
-CHECK="✅"
-CROSS="❌"
-WARN="⚠️"
-INFO="ℹ️"
-ROCKET="🚀"
-PACKAGE="📦"
-FOLDER="📁"
-GEAR="⚙️"
-PARTY="🎉"
-EAGLE="🦅"
-
-# ============================================================================
-# Logging Functions
-# ============================================================================
-log_step() {
-    local step=$1
-    local message=$2
-    echo ""
-    echo -e "${CYAN}${BOLD}[${step}/${TOTAL_STEPS}]${NC} ${message}"
-}
-
-log_success() {
-    echo -e "        ${GREEN}${CHECK}${NC} $1"
-}
-
-log_error() {
-    echo -e "        ${RED}${CROSS}${NC} $1"
-}
-
-log_warn() {
-    echo -e "        ${YELLOW}${WARN}${NC}  $1"
-}
-
-log_info() {
-    echo -e "        ${BLUE}${INFO}${NC}  $1"
-}
-
 log_detail() {
     echo -e "        ${DIM}$1${NC}"
 }
@@ -121,43 +77,8 @@ trap cleanup EXIT
 # ============================================================================
 display_banner() {
     clear
-    echo ""
-    echo -e "${CYAN}"
-    cat << 'ASCIIART'
-PPPPPPPPPPPPPPPPP     iiii                      EEEEEEEEEEEEEEEEEEEEEE                                    lllllll
-P::::::::::::::::P   i::::i                     E::::::::::::::::::::E                                    l:::::l
-P::::::PPPPPP:::::P   iiii                      E::::::::::::::::::::E                                    l:::::l
-PP:::::P     P:::::P                            EE::::::EEEEEEEEE::::E                                    l:::::l
-  P::::P     P:::::Piiiiiii xxxxxxx      xxxxxxx  E:::::E       EEEEEE  aaaaaaaaaaaaa     ggggggggg   gggggl::::l     eeeeeeeeeeee
-  P::::P     P:::::Pi:::::i  x:::::x    x:::::x   E:::::E               a::::::::::::a   g:::::::::ggg::::gl::::l   ee::::::::::::ee
-  P::::PPPPPP:::::P  i::::i   x:::::x  x:::::x    E::::::EEEEEEEEEE     aaaaaaaaa:::::a g:::::::::::::::::gl::::l  e::::::eeeee:::::ee
-  P:::::::::::::PP   i::::i    x:::::xx:::::x     E:::::::::::::::E              a::::ag::::::ggggg::::::ggl::::l e::::::e     e:::::e
-  P::::PPPPPPPPP     i::::i     x::::::::::x      E:::::::::::::::E       aaaaaaa:::::ag:::::g     g:::::g l::::l e:::::::eeeee::::::e
-  P::::P             i::::i      x::::::::x       E::::::EEEEEEEEEE     aa::::::::::::ag:::::g     g:::::g l::::l e:::::::::::::::::e
-  P::::P             i::::i      x::::::::x       E:::::E              a::::aaaa::::::ag:::::g     g:::::g l::::l e::::::eeeeeeeeeee
-  P::::P             i::::i     x::::::::::x      E:::::E       EEEEEEa::::a    a:::::ag::::::g    g:::::g l::::l e:::::::e
-PP::::::PP          i::::::i   x:::::xx:::::x   EE::::::EEEEEEEE:::::Ea::::a    a:::::ag:::::::ggggg:::::gl::::::le::::::::e
-P::::::::P          i::::::i  x:::::x  x:::::x  E::::::::::::::::::::Ea:::::aaaa::::::a g::::::::::::::::gl::::::l e::::::::eeeeeeee
-P::::::::P          i::::::i x:::::x    x:::::x E::::::::::::::::::::E a::::::::::aa:::a gg::::::::::::::gl::::::l  ee:::::::::::::e
-PPPPPPPPPP          iiiiiiiixxxxxxx      xxxxxxxEEEEEEEEEEEEEEEEEEEEEE  aaaaaaaaaa  aaaa   gggggggg::::::gllllllll    eeeeeeeeeeeeee
-                                                                                                   g:::::g
-                                                                                       gggggg      g:::::g
-                                                                                       g:::::gg   gg:::::g
-                                                                                        g::::::ggg:::::::g
-                                                                                         gg:::::::::::::g
-                                                                                           ggg::::::ggg
-                                                                                              gggggg
-ASCIIART
-    echo -e "${NC}"
-
-    # Get version and commit info
-    local version="3.2"
-    local commit_hash
-    commit_hash=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-    local commit_date
-    commit_date=$(git log -1 --format=%cd --date=short 2>/dev/null || echo "unknown")
-
-    echo -e "  ${BOLD}Version:${NC} ${version}  ${DIM}|${NC}  ${BOLD}Commit:${NC} ${commit_hash} (${commit_date})"
+    display_pixeagle_banner
+    get_version_info "3.2"
     echo -e "  ${DIM}Professional Vision-Based Drone Tracking System${NC}"
     echo -e "  ${DIM}GitHub: https://github.com/alireza787b/PixEagle${NC}"
     echo ""

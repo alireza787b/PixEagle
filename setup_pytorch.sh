@@ -30,74 +30,20 @@ TOTAL_STEPS=5
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV_DIR="$SCRIPT_DIR/venv"
 
+# Source shared functions (colors, logging, banner)
+source "$SCRIPT_DIR/scripts/common.sh"
+
 # PyTorch versions (updated December 2025)
 PYTORCH_VERSION="2.5.1"
 TORCHVISION_VERSION="0.20.1"
 TORCHAUDIO_VERSION="2.5.1"
 
 # ============================================================================
-# Colors and Formatting (match init_pixeagle.sh)
-# ============================================================================
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-MAGENTA='\033[0;35m'
-BOLD='\033[1m'
-DIM='\033[2m'
-NC='\033[0m'
-
-CHECK="✅"
-CROSS="❌"
-WARN="⚠️"
-INFO="ℹ️"
-FIRE="🔥"
-PARTY="🎉"
-
-# ============================================================================
-# Logging Functions
-# ============================================================================
-log_step() {
-    local step=$1
-    local message=$2
-    echo ""
-    echo -e "${CYAN}${BOLD}[${step}/${TOTAL_STEPS}]${NC} ${message}"
-}
-
-log_success() {
-    echo -e "        ${GREEN}${CHECK}${NC} $1"
-}
-
-log_error() {
-    echo -e "        ${RED}${CROSS}${NC} $1"
-}
-
-log_warn() {
-    echo -e "        ${YELLOW}${WARN}${NC}  $1"
-}
-
-log_info() {
-    echo -e "        ${BLUE}${INFO}${NC}  $1"
-}
-
-log_detail() {
-    echo -e "        ${DIM}$1${NC}"
-}
-
-# ============================================================================
 # Banner Display
 # ============================================================================
 display_banner() {
-    echo ""
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}   ${FIRE} ${BOLD}PyTorch Setup - GPU Acceleration for PixEagle${NC}                       ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}      ${DIM}Supports CUDA 12.4, 12.1, 11.8, Apple Silicon MPS, and CPU${NC}        ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
+    display_pixeagle_banner "${FIRE} PyTorch Setup - GPU Acceleration" \
+        "Supports CUDA 12.4, 12.1, 11.8, Apple Silicon MPS, and CPU"
 }
 
 # ============================================================================
