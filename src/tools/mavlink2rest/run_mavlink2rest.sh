@@ -1,11 +1,11 @@
 #!/bin/bash
 
 # =============================================================================
-# MAVLink2REST Setup and Run Script (Using Precompiled Binary)
+# MAVLink2REST Run Script
 # =============================================================================
 #
-# This script checks for the installation of mavlink2rest (precompiled binary),
-# installs it if needed, and runs it with specified or default settings.
+# This script runs the mavlink2rest binary with specified or default settings.
+# The binary should be downloaded using: bash src/tools/download_mavlink2rest.sh
 #
 # Usage:
 #   ./run_mavlink2rest.sh [MAVLINK_SRC] [SERVER_IP_PORT]
@@ -16,101 +16,74 @@
 # If parameters are not provided, default values will be used.
 #
 # Author: Alireza Ghaderi
-# Date: February 2025
+# Project: PixEagle
+# Repository: https://github.com/alireza787b/PixEagle
 # =============================================================================
 
-# Default Configuration
-DEFAULT_MAVLINK_SRC="udpin:127.0.0.1:14569"  # Default MAVLink source
-DEFAULT_SERVER_IP_PORT="0.0.0.0:8088"        # Default server IP:port
+# Get base directory
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BASE_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
-# Precompiled Binary URL
-BINARY_URL="https://github.com/mavlink/mavlink2rest/releases/download/t0.11.23/mavlink2rest-armv7-unknown-linux-musleabihf"
-BINARY_NAME="mavlink2rest"
-INSTALL_DIR="/usr/local/bin"
+# Default Configuration
+DEFAULT_MAVLINK_SRC="udpin:127.0.0.1:14569"  # Default MAVLink source (from MAVSDK)
+DEFAULT_SERVER_BIND="0.0.0.0:8088"           # Default server bind address
+
+# Binary location
+MAVLINK2REST_BIN="$BASE_DIR/mavlink2rest"
 
 # =============================================================================
 # Function Definitions
 # =============================================================================
 
-# Function to display usage instructions
 display_usage() {
-    echo "Usage: $0 [MAVLINK_SRC] [SERVER_IP_PORT]"
-    echo "Example: $0 \"udpin:0.0.0.0:14550\" \"0.0.0.0:8088\""
-    echo "If no arguments are provided, default values will be used."
-}
-
-# Function to check if mavlink2rest is already installed
-check_mavlink2rest_installed() {
-    if command -v $BINARY_NAME >/dev/null 2>&1; then
-        echo "mavlink2rest is already installed."
-        return 0
-    else
-        echo "mavlink2rest is not installed."
-        return 1
-    fi
-}
-
-# Function to download and install the precompiled binary
-install_mavlink2rest_binary() {
-    echo "Downloading mavlink2rest binary from $BINARY_URL..."
-    wget -q "$BINARY_URL" -O "$BINARY_NAME"
-    
-    if [ $? -ne 0 ]; then
-        echo "Error downloading mavlink2rest binary. Please check the URL."
-        exit 1
-    fi
-
-    echo "Making the binary executable..."
-    chmod +x "$BINARY_NAME"
-
-    echo "Moving the binary to $INSTALL_DIR..."
-    sudo mv "$BINARY_NAME" "$INSTALL_DIR/"
-
-    echo "mavlink2rest installation complete."
-}
-
-# Function to run mavlink2rest with specified settings
-run_mavlink2rest() {
-    echo "Running mavlink2rest with MAVLink source: $MAVLINK_SRC and Server IP:Port: $SERVER_IP_PORT..."
-    $BINARY_NAME -c "$MAVLINK_SRC" -s "$SERVER_IP_PORT"
+    echo "Usage: $0 [MAVLINK_SRC] [SERVER_BIND]"
+    echo ""
+    echo "Arguments:"
+    echo "  MAVLINK_SRC    MAVLink source connection string (default: $DEFAULT_MAVLINK_SRC)"
+    echo "  SERVER_BIND    Server bind address (default: $DEFAULT_SERVER_BIND)"
+    echo ""
+    echo "Examples:"
+    echo "  $0 \"udpin:0.0.0.0:14550\" \"0.0.0.0:8088\""
+    echo "  $0 \"serial:/dev/ttyUSB0:115200\" \"127.0.0.1:8088\""
+    echo ""
+    echo "Installation:"
+    echo "  If binary not found, download with:"
+    echo "  bash $BASE_DIR/src/tools/download_mavlink2rest.sh"
 }
 
 # =============================================================================
 # Main Script Logic
 # =============================================================================
 
-# Welcome message
-echo "Welcome to the MAVLink2REST Setup and Run Script"
-echo "This script will help you install and run mavlink2rest on your system."
-echo "------------------------------------------------------------------------------"
-
 # Check if help is requested
-if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+if [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
     display_usage
     exit 0
 fi
 
-# Parse command-line arguments or use default values
-MAVLINK_SRC="${1:-$DEFAULT_MAVLINK_SRC}"
-SERVER_IP_PORT="${2:-$DEFAULT_SERVER_IP_PORT}"
+# Parse command-line arguments or use defaults
+MAVLINK_SOURCE="${1:-$DEFAULT_MAVLINK_SRC}"
+SERVER_BIND="${2:-$DEFAULT_SERVER_BIND}"
 
-# Inform user of the configuration being used
-echo "MAVLink source: $MAVLINK_SRC"
-echo "Server IP:Port: $SERVER_IP_PORT"
-echo "------------------------------------------------------------------------------"
-
-# Check if mavlink2rest is installed; install it if not
-if ! check_mavlink2rest_installed; then
-    install_mavlink2rest_binary
+# Check if binary exists
+if [[ ! -f "$MAVLINK2REST_BIN" ]] || [[ ! -x "$MAVLINK2REST_BIN" ]]; then
+    echo "❌ mavlink2rest binary not found at: $MAVLINK2REST_BIN"
+    echo ""
+    echo "   Download it using:"
+    echo "   bash $BASE_DIR/src/tools/download_mavlink2rest.sh"
+    echo ""
+    exit 1
 fi
 
-# Run mavlink2rest with the specified settings
-run_mavlink2rest
+# Display configuration
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  MAVLink2REST Server"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  MAVLink Source:  $MAVLINK_SOURCE"
+echo "  Server Bind:     $SERVER_BIND"
+echo "  Binary:          $MAVLINK2REST_BIN"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
 
-echo "------------------------------------------------------------------------------"
-echo "mavlink2rest is now running. Press Ctrl+C to stop."
-echo "------------------------------------------------------------------------------"
-
-# =============================================================================
-# End of Script
-# =============================================================================
+# Run mavlink2rest
+exec "$MAVLINK2REST_BIN" -c "$MAVLINK_SOURCE" -s "$SERVER_BIND"

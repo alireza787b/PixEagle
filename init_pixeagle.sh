@@ -21,7 +21,7 @@ set -o pipefail  # Catch pipe failures
 # ============================================================================
 # Configuration
 # ============================================================================
-TOTAL_STEPS=8  # Updated to include MAVSDK Server setup
+TOTAL_STEPS=9  # Updated to include MAVSDK Server setup
 NVM_VERSION="v0.40.3"
 NODE_VERSION="22"  # LTS version for stability
 MIN_PYTHON_VERSION="3.9"
@@ -591,6 +591,52 @@ setup_mavsdk_server() {
 }
 
 # ============================================================================
+# MAVLink2REST Server Setup (Step 9)
+# ============================================================================
+setup_mavlink2rest() {
+    log_step 9 $TOTAL_STEPS "Setting Up MAVLink2REST Server"
+
+    local mavlink2rest_binary="$SCRIPT_DIR/mavlink2rest"
+    local download_script="$SCRIPT_DIR/src/tools/download_mavlink2rest.sh"
+
+    # Check if binary already exists
+    if [[ -f "$mavlink2rest_binary" ]] && [[ -x "$mavlink2rest_binary" ]]; then
+        log_success "MAVLink2REST Server binary already installed"
+        return 0
+    fi
+
+    # Check if download script exists
+    if [[ ! -f "$download_script" ]]; then
+        log_warn "MAVLink2REST download script not found"
+        log_detail "Skipping MAVLink2REST Server setup"
+        return 1
+    fi
+
+    # Prompt user
+    echo ""
+    echo -e "        ${BLUE}${INFO}${NC}  MAVLink2REST provides REST API access to MAVLink telemetry"
+    echo -en "        Download MAVLink2REST Server now? [Y/n]: "
+    read -r REPLY
+    echo ""
+
+    if [[ -z "$REPLY" ]] || [[ $REPLY =~ ^[Yy]$ ]]; then
+        # Run download script
+        if bash "$download_script"; then
+            log_success "MAVLink2REST Server installed successfully"
+            return 0
+        else
+            log_warn "MAVLink2REST Server installation failed (non-fatal)"
+            log_detail "Download later: bash src/tools/download_mavlink2rest.sh"
+            return 1
+        fi
+    else
+        log_info "MAVLink2REST Server download skipped"
+        log_detail "Download later: bash src/tools/download_mavlink2rest.sh"
+        return 1
+    fi
+}
+
+# ============================================================================
 # Summary Display
 # ============================================================================
 show_summary() {
@@ -601,6 +647,12 @@ show_summary() {
     local mavsdk_status="${RED}Not installed${NC}"
     if [[ -f "$SCRIPT_DIR/mavsdk_server_bin" ]] && [[ -x "$SCRIPT_DIR/mavsdk_server_bin" ]]; then
         mavsdk_status="${GREEN}Installed${NC}"
+    fi
+
+    # Check MAVLink2REST Server status
+    local mavlink2rest_status="${RED}Not installed${NC}"
+    if [[ -f "$SCRIPT_DIR/mavlink2rest" ]] && [[ -x "$SCRIPT_DIR/mavlink2rest" ]]; then
+        mavlink2rest_status="${GREEN}Installed${NC}"
     fi
 
     echo ""
@@ -617,7 +669,8 @@ show_summary() {
         echo -e "   ${YELLOW}${WARN}${NC}  Node.js needs manual setup"
     fi
     echo -e "   ${GREEN}${CHECK}${NC} Configuration files generated"
-    echo -e "   MAVSDK Server: $mavsdk_status"
+    echo -e "   MAVSDK Server:    $mavsdk_status"
+    echo -e "   MAVLink2REST:     $mavlink2rest_status"
     echo ""
     echo -e "   ${CYAN}${BOLD}📋 Next Steps:${NC}"
     echo -e "      1. Edit ${BOLD}configs/config.yaml${NC} for your setup"
@@ -629,6 +682,9 @@ show_summary() {
     echo -e "      • ${BOLD}bash auto_build_opencv.sh${NC}          (GStreamer support)"
     if [[ "$mavsdk_status" == *"Not installed"* ]]; then
         echo -e "      • ${BOLD}bash src/tools/download_mavsdk_server.sh${NC}  (MAVSDK Server)"
+    fi
+    if [[ "$mavlink2rest_status" == *"Not installed"* ]]; then
+        echo -e "      • ${BOLD}bash src/tools/download_mavlink2rest.sh${NC}   (MAVLink2REST)"
     fi
     echo -e "      • ${BOLD}source venv/bin/activate${NC}"
     echo -e "        ${BOLD}python add_yolo_model.py${NC}           (add YOLO models)"
@@ -661,6 +717,7 @@ main() {
     install_dashboard_deps
     setup_configs
     setup_mavsdk_server
+    setup_mavlink2rest
 
     show_summary
 }

@@ -503,6 +503,56 @@ If missing at runtime, `run_pixeagle.sh` will prompt to download it automaticall
 Advanced users can download directly from [MAVSDK Releases](https://github.com/mavlink/MAVSDK/releases/tag/v3.12.0) and rename to `mavsdk_server_bin` in the PixEagle root directory.
 
 ---
+
+### 🌐 MAVLink2REST Server (Optional)
+
+MAVLink2REST provides REST API access to MAVLink telemetry data.
+
+#### 🖥️ **Supported Platforms**
+
+PixEagle automatically detects your platform and downloads the correct binary:
+
+- **x86_64** - Intel/AMD desktops, laptops, servers
+- **ARM64** - Raspberry Pi 4/5, Jetson Nano/Xavier/Orin
+- **ARMv7** - Raspberry Pi 3, older ARM boards
+- **ARM** - Generic 32-bit ARM systems
+- **macOS** - Intel and Apple Silicon
+
+#### A. **Automatic Installation (Recommended)**
+
+MAVLink2REST is automatically offered during initialization:
+
+```bash
+bash init_pixeagle.sh
+```
+
+The init script (Step 9) will detect your platform and prompt to download the correct binary.
+
+#### B. **Manual Download**
+
+To download or update MAVLink2REST manually:
+
+```bash
+bash src/tools/download_mavlink2rest.sh
+```
+
+The script will:
+- Auto-detect your platform (OS and architecture)
+- Download the latest MAVLink2REST binary (v1.0.0)
+- Validate file integrity and set executable permissions
+- Provide manual instructions if download fails
+
+#### C. **Runtime Installation**
+
+If missing at runtime, `run_pixeagle.sh` will notify you to download it manually.
+
+#### D. **Manual Download from GitHub**
+
+Advanced users can download directly from [MAVLink2REST Releases](https://github.com/mavlink/mavlink2rest/releases/tag/v1.0.0) and save as `mavlink2rest` in the PixEagle root directory.
+
+**Configuration**: Set `USE_MAVLINK2REST: true` in `configs/config_default.yaml`
+
+---
 ##  Building Opencv
 If you want to use GStreamer, you need to build opencv manually. You can use the step by step instruction [here](https://github.com/alireza787b/PixEagle/blob/main/opencv_with_gstreamer.md) or use (`auto_build_opencv.sh`) sciprt.
 
