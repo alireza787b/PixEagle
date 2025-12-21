@@ -1,7 +1,7 @@
-# src/classes/followers/constant_distance_follower.py
+# src/classes/followers/mc_velocity_distance_follower.py
 """
-Constant Distance Follower Module
-================================
+MC Velocity Distance Follower Module
+====================================
 
 This module implements the MCVelocityDistanceFollower class for maintaining a
 constant distance from targets while allowing lateral and vertical adjustments.
@@ -82,8 +82,8 @@ class MCVelocityDistanceFollower(BaseFollower):
             Yaw control is enabled/disabled based on Parameters.ENABLE_YAW_CONTROL.
             The follower automatically configures PID controllers based on enabled features.
         """
-        # Initialize with Constant Distance profile for enhanced velocity control
-        super().__init__(px4_controller, "Constant Distance")
+        # Initialize with mc_velocity_distance profile for enhanced velocity control
+        super().__init__(px4_controller, "mc_velocity_distance")
         
         # Get configuration section
         config = getattr(Parameters, 'MC_VELOCITY_DISTANCE', {})

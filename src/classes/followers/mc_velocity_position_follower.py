@@ -1,8 +1,8 @@
-# src/classes/followers/constant_position_follower.py
+# src/classes/followers/mc_velocity_position_follower.py
 
 """
-Constant Position Follower Module
----------------------------------
+MC Velocity Position Follower Module
+-------------------------------------
 
 This module implements the MCVelocityPositionFollower class for drone control in aerial target tracking.
 
@@ -95,10 +95,10 @@ class MCVelocityPositionFollower(BaseFollower):
             RuntimeError: If PID initialization fails.
             
         Note:
-            Uses "Constant Position" profile which provides vel_z and yaw_rate fields only.
+            Uses "mc_velocity_position" profile which provides vel_z and yaw_rate fields only.
         """
         # Initialize with schema-aware base class
-        super().__init__(px4_controller, "Constant Position")
+        super().__init__(px4_controller, "mc_velocity_position")
         
         # Validate and store initial coordinates
         if not self.validate_target_coordinates(initial_target_coords):

@@ -1,7 +1,7 @@
-# src/classes/followers/body_velocity_chase_follower.py
+# src/classes/followers/mc_velocity_chase_follower.py
 """
-Body Velocity Chase Follower Module - Dual-Mode Lateral Guidance
-================================================================
+MC Velocity Chase Follower Module - Dual-Mode Lateral Guidance
+===============================================================
 
 This module implements the MCVelocityChaseFollower class for quadcopter target following
 using offboard body velocity control with dual-mode lateral guidance capabilities.
@@ -101,8 +101,8 @@ class MCVelocityChaseFollower(BaseFollower):
             ValueError: If initial coordinates are invalid or schema initialization fails.
             RuntimeError: If PID controller initialization fails.
         """
-        # Initialize with Body Velocity Chase profile for offboard control
-        super().__init__(px4_controller, "Body Velocity Chase")
+        # Initialize with mc_velocity_chase profile for offboard control
+        super().__init__(px4_controller, "mc_velocity_chase")
         
         # Validate and store initial target coordinates
         if not self.validate_target_coordinates(initial_target_coords):
