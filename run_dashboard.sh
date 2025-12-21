@@ -491,7 +491,12 @@ else
   # Start the server using 'serve' (now available as devDependency)
   header_message "Serving the production build on port $PORT"
   echo "🚀 Starting production server..."
-  NO_UPDATE_NOTIFIER=1 npx serve -s build -l $PORT --no-clipboard
+  echo "📡 Server URL: http://localhost:$PORT"
+  echo ""
+  NO_UPDATE_NOTIFIER=1 npx serve -s build -l $PORT --no-clipboard 2>&1 | \
+    stdbuf -oL sed 's/[┌┐└┘─│]//g' | \
+    stdbuf -oL sed '/^[[:space:]]*$/d' | \
+    stdbuf -oL sed 's/Serving!/Dashboard serving on port '$PORT'/'
   if [ $? -eq 0 ]; then
     echo "✅ Production server started successfully on port $PORT."
   else
