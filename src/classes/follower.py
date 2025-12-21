@@ -133,13 +133,16 @@ class FollowerFactory:
     @classmethod
     def get_available_modes(cls) -> List[str]:
         """
-        Returns a list of all available follower modes.
-        
+        Returns a list of all available follower modes (primary names only).
+        Excludes deprecated aliases to avoid confusion in API responses.
+
         Returns:
-            List[str]: List of available follower mode names.
+            List[str]: List of available follower mode names (new naming convention).
         """
         cls._initialize_registry()
-        return list(cls._follower_registry.keys())
+        # Filter out deprecated aliases - only return primary profile names
+        return [name for name in cls._follower_registry.keys()
+                if name not in cls._deprecated_aliases]
     
     @classmethod
     def get_follower_info(cls, profile_name: str) -> Dict[str, Any]:
