@@ -1156,7 +1156,8 @@ class AppController:
                     logging.info(f"🎯 SETPOINTS AFTER FOLLOWER: {setpoints}")
 
                 if follow_result is False:
-                    logging.warning("Follower follow_target returned False")
+                    # Follower already logged specific error with rate limiting
+                    logging.debug("Follower follow_target returned False")
                     return False
             except Exception as e:
                 logging.error(f"Error in follower.follow_target: {e}")

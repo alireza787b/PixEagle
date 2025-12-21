@@ -25,6 +25,98 @@ try:
 except ImportError:
     CIRCUIT_BREAKER_AVAILABLE = False
 
+# Import collections for rate limiting
+from collections import defaultdict
+
+class RateLimitedLogger:
+    """
+    Rate-limited logger to prevent log spam in high-frequency control loops.
+
+    Ensures the same error message is logged at most once per interval,
+    preventing log flooding when errors occur at 20Hz or higher rates.
+    """
+
+    def __init__(self, interval: float = 5.0):
+        """
+        Initialize the rate-limited logger.
+
+        Args:
+            interval (float): Minimum seconds between logging the same message key.
+                            Default is 5.0 seconds.
+        """
+        self.last_log_time: Dict[str, float] = defaultdict(float)
+        self.interval = interval
+
+    def log_rate_limited(self, logger_instance, level: str, key: str, message: str) -> bool:
+        """
+        Log message only if interval has passed since last log with same key.
+
+        Args:
+            logger_instance: Logger instance to use for logging
+            level (str): Log level ('debug', 'info', 'warning', 'error', 'critical')
+            key (str): Unique key for this message type (for rate limiting)
+            message (str): The message to log
+
+        Returns:
+            bool: True if message was logged, False if rate-limited
+        """
+        current_time = time.time()
+        if current_time - self.last_log_time[key] >= self.interval:
+            getattr(logger_instance, level)(message)
+            self.last_log_time[key] = current_time
+            return True
+        return False
+
+
+class ErrorAggregator:
+    """
+    Aggregate errors and report summary periodically.
+
+    Instead of logging individual errors at high frequency, this class
+    tracks error counts and reports summaries at regular intervals.
+    """
+
+    def __init__(self, report_interval: float = 10.0):
+        """
+        Initialize the error aggregator.
+
+        Args:
+            report_interval (float): Seconds between summary reports. Default is 10.0.
+        """
+        self.error_counts: Dict[str, int] = defaultdict(int)
+        self.last_report_time = time.time()
+        self.report_interval = report_interval
+
+    def record_error(self, error_key: str, logger_instance=None) -> None:
+        """
+        Record an error occurrence.
+
+        Args:
+            error_key (str): Unique identifier for this error type
+            logger_instance: Optional logger to use for reporting summaries
+        """
+        self.error_counts[error_key] += 1
+
+        # Report summary if interval elapsed
+        current_time = time.time()
+        if logger_instance and current_time - self.last_report_time >= self.report_interval:
+            self._report_summary(logger_instance)
+
+    def _report_summary(self, logger_instance) -> None:
+        """
+        Report error summary and reset counters.
+
+        Args:
+            logger_instance: Logger to use for reporting
+        """
+        if self.error_counts:
+            logger_instance.warning(f"Error summary (last {self.report_interval:.0f}s):")
+            for error_key, count in sorted(self.error_counts.items()):
+                logger_instance.warning(f"  {error_key}: {count} occurrences")
+            self.error_counts.clear()
+        self.last_report_time = time.time()
+
+
 class BaseFollower(ABC):
     """
     Enhanced abstract base class for different follower modes.
@@ -72,7 +164,11 @@ class BaseFollower(ABC):
             'profile_name': self.get_display_name(),
             'control_type': self.get_control_type()
         }
-        
+
+        # Initialize logging utilities to prevent log spam in high-frequency control loops
+        self._rate_limiter = RateLimitedLogger(interval=5.0)  # Log same error max once per 5 seconds
+        self._error_aggregator = ErrorAggregator(report_interval=10.0)  # Report summary every 10 seconds
+
         logger.info(f"BaseFollower initialized with profile: {self.get_display_name()} "
                    f"(control type: {self.get_control_type()})")
     
@@ -478,12 +574,19 @@ class BaseFollower(ABC):
                 data_type = tracker_data.data_type.value.upper()
                 
                 compatibility = schema_manager.check_follower_compatibility(follower_class_name, data_type)
-                
+
                 if compatibility in ['required', 'preferred', 'compatible', 'optional']:
                     logger.debug(f"Schema manager: {follower_class_name} has {compatibility} compatibility with {data_type}")
                     return True
                 else:
-                    logger.warning(f"Schema manager: {follower_class_name} incompatible with {data_type}")
+                    # Use rate-limited logging to prevent log spam at 20Hz
+                    error_key = f"incompatible_{follower_class_name}_{data_type}"
+                    error_msg = (
+                        f"Tracker data incompatible: {follower_class_name} cannot use {data_type} tracker. "
+                        f"Check tracker configuration or switch to a compatible tracker type."
+                    )
+                    self._rate_limiter.log_rate_limited(logger, 'error', error_key, error_msg)
+                    self._error_aggregator.record_error(error_key, logger)
                     return False
                     
             except Exception as e:
@@ -494,7 +597,14 @@ class BaseFollower(ABC):
         required_types = self.get_required_tracker_data_types()
         for required_type in required_types:
             if not self._has_required_data(tracker_data, required_type):
-                logger.warning(f"Tracker missing required data type: {required_type.value}")
+                # Use rate-limited logging for legacy validation as well
+                error_key = f"missing_data_{self.__class__.__name__}_{required_type.value}"
+                error_msg = (
+                    f"Tracker missing required data: {self.__class__.__name__} requires "
+                    f"{required_type.value} but tracker does not provide it."
+                )
+                self._rate_limiter.log_rate_limited(logger, 'warning', error_key, error_msg)
+                self._error_aggregator.record_error(error_key, logger)
                 return False
         
         logger.debug(f"Tracker data is compatible with {self.get_display_name()}")

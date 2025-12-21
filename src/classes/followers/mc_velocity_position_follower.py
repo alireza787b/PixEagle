@@ -377,9 +377,8 @@ class MCVelocityPositionFollower(BaseFollower):
             RuntimeError: If control execution fails.
         """
         try:
-            # Validate tracker compatibility
+            # Validate tracker compatibility (errors are logged by base class with rate limiting)
             if not self.validate_tracker_compatibility(tracker_data):
-                logger.error("Tracker data incompatible with MCVelocityPositionFollower")
                 return False
             
             # Extract target coordinates
