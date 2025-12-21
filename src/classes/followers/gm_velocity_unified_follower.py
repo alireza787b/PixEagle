@@ -1288,6 +1288,15 @@ class GMVelocityUnifiedFollower(BaseFollower):
 
     def _check_altitude_safety(self) -> Dict[str, Any]:
         """Check if drone altitude is within safe operating range."""
+        # Skip safety checks in circuit breaker test mode
+        try:
+            from classes.circuit_breaker import FollowerCircuitBreaker
+            if FollowerCircuitBreaker.should_skip_safety_checks():
+                logger.debug("Altitude safety check skipped (circuit breaker test mode)")
+                return {'safe': True, 'current_altitude': 0.0}
+        except ImportError:
+            pass  # Circuit breaker not available, continue with normal safety checks
+
         try:
             # Get current altitude using same pattern as other followers
             current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)

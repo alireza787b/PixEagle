@@ -650,6 +650,15 @@ class GMVelocityVectorFollower(BaseFollower):
         Returns:
             Dict with 'safe' status and additional info
         """
+        # Skip safety checks in circuit breaker test mode
+        try:
+            from classes.circuit_breaker import FollowerCircuitBreaker
+            if FollowerCircuitBreaker.should_skip_safety_checks():
+                logger.debug("Altitude safety check skipped (circuit breaker test mode)")
+                return {'safe': True, 'reason': 'circuit_breaker_test_mode'}
+        except ImportError:
+            pass  # Circuit breaker not available, continue with normal safety checks
+
         # Skip check if altitude safety is disabled
         if not self.altitude_safety_enabled:
             return {'safe': True, 'reason': 'altitude_safety_disabled'}

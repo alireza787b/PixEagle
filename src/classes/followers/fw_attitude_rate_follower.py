@@ -714,6 +714,15 @@ class FWAttitudeRateFollower(BaseFollower):
         Returns:
             bool: True if altitude is safe, False if RTL triggered.
         """
+        # Skip safety checks in circuit breaker test mode
+        try:
+            from classes.circuit_breaker import FollowerCircuitBreaker
+            if FollowerCircuitBreaker.should_skip_safety_checks():
+                logger.debug("Altitude safety check skipped (circuit breaker test mode)")
+                return True
+        except ImportError:
+            pass  # Circuit breaker not available, continue with normal safety checks
+
         if not self.altitude_safety_enabled:
             return True
 
