@@ -178,7 +178,7 @@ display_startup_banner() {
 # Step 1: Pre-flight Checks
 # ============================================================================
 preflight_checks() {
-    log_step 1 $TOTAL_STEPS "Pre-flight Checks"
+    log_step 1 "Pre-flight Checks"
 
     # 1. Virtual environment
     if [[ ! -d "$VENV_DIR" ]]; then
@@ -278,7 +278,7 @@ check_and_kill_port() {
 }
 
 cleanup_previous_sessions() {
-    log_step 2 $TOTAL_STEPS "Cleaning Up Previous Sessions"
+    log_step 2 "Cleaning Up Previous Sessions"
 
     # Kill existing tmux session
     if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
@@ -314,7 +314,7 @@ cleanup_previous_sessions() {
 # Step 3: Load Configuration
 # ============================================================================
 load_configuration() {
-    log_step 3 $TOTAL_STEPS "Loading Configuration"
+    log_step 3 "Loading Configuration"
 
     # Display configured ports
     log_info "MAVLink2REST: http://localhost:${MAVLINK2REST_PORT}"
@@ -378,7 +378,7 @@ prepare_mavsdk_server() {
 }
 
 start_services() {
-    log_step 4 $TOTAL_STEPS "Starting Services"
+    log_step 4 "Starting Services"
 
     # Prepare MAVSDK Server if needed
     if [[ "$RUN_MAVSDK_SERVER" == "true" ]]; then
@@ -477,7 +477,7 @@ check_port_ready() {
 }
 
 wait_for_services() {
-    log_step 5 $TOTAL_STEPS "Waiting for Services"
+    log_step 5 "Waiting for Services"
 
     local services=()
 
@@ -521,7 +521,7 @@ wait_for_services() {
 # Step 6: Launch Tmux Interface
 # ============================================================================
 launch_tmux_interface() {
-    log_step 6 $TOTAL_STEPS "Launching Tmux Interface"
+    log_step 6 "Launching Tmux Interface"
 
     log_success "Tmux session '$SESSION_NAME' created"
 
