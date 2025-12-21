@@ -61,7 +61,11 @@ pytest_debug.log
 configs/config.yaml
 dashboard/.env
 
+# Downloaded binaries (auto-downloaded by init_pixeagle.sh)
 mavsdk_server_bin
+mavsdk_server_bin.*
+mavlink2rest
+mavlink2rest.*
 
 # Translations
 *.mo

@@ -32,7 +32,7 @@ set -o pipefail
 # Configuration
 # ============================================================================
 TOTAL_STEPS=4
-MAVLINK2REST_VERSION="v1.0.0"  # Latest release (October 20, 2025)
+MAVLINK2REST_VERSION="1.0.0"  # Latest release (October 20, 2024)
 GITHUB_REPO="mavlink/mavlink2rest"
 GITHUB_BASE_URL="https://github.com/${GITHUB_REPO}/releases/download"
 
