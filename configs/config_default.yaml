@@ -1001,7 +1001,7 @@ Follower:
 # SAFETY FIRST: Global circuit breaker for follower testing without drone commands
 # Default: true (SAFE) - Only set to false when you explicitly want to send real commands
 FOLLOWER_CIRCUIT_BREAKER: true            # true = SAFE (log only), false = LIVE (send commands)
-CIRCUIT_BREAKER_DISABLE_SAFETY: true      # true = Skip safety checks in CB mode, false = Run all checks
+CIRCUIT_BREAKER_DISABLE_SAFETY: true      # ⚠️ Skip ALL safety checks in CB test mode (allows ground testing)
 
 
 # ==============================================================================
@@ -1186,14 +1186,14 @@ MC_VELOCITY_CHASE:
   
   # === 🛡️ ALTITUDE SAFETY (Overrides global SafetyLimits) ===
   # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE
-  ALTITUDE_SAFETY_ENABLED: true           # Enable altitude monitoring (recommended for demo)
+  ALTITUDE_SAFETY_ENABLED: false          # ⚠️ Disabled by default for ground testing (enable for flights)
   MIN_ALTITUDE: 5.0                       # Override: stricter minimum altitude (meters)
   MAX_ALTITUDE: 50.0                      # Override: stricter maximum altitude (meters)
   ALTITUDE_CHECK_INTERVAL: 0.1            # seconds - 100ms check frequency (fast safety checks)
-  RTL_ON_ALTITUDE_VIOLATION: true         # Trigger RTL on violation
-  
+  RTL_ON_ALTITUDE_VIOLATION: false        # ⚠️ Disabled by default for ground testing (enable for flights)
+
   # === Safety Limits (Additional to Schema Limits) ===
-  EMERGENCY_STOP_ENABLED: true            # Enable emergency velocity zeroing
+  EMERGENCY_STOP_ENABLED: false           # ⚠️ Disabled by default for ground testing (enable for flights)
   MAX_TRACKING_ERROR: 1.5                 # Max normalized error before limiting
   VELOCITY_SMOOTHING_ENABLED: true       # Enable velocity command smoothing
   SMOOTHING_FACTOR: 0.8                  # Smoothing coefficient (0-1)
@@ -1884,8 +1884,8 @@ SafetyLimits:
 
   # === Safety Behavior ===
   ALTITUDE_WARNING_BUFFER: 2.0         # meters - Warning zone before hard limits
-  EMERGENCY_STOP_ENABLED: true         # Enable emergency velocity zeroing globally
-  RTL_ON_VIOLATION: true               # Return to launch on limit violations
+  EMERGENCY_STOP_ENABLED: false        # ⚠️ Disabled by default for ground testing (enable for flights)
+  RTL_ON_VIOLATION: false              # ⚠️ Disabled by default for ground testing (enable for flights)
   MAX_SAFETY_VIOLATIONS: 5             # Max violations before emergency action
 
 # ==============================================================================

@@ -219,6 +219,27 @@ class FollowerCircuitBreaker:
         }
 
     @classmethod
+    def should_skip_safety_checks(cls) -> bool:
+        """
+        Check if safety checks should be skipped in test mode.
+
+        Safety checks (altitude limits, velocity limits, etc.) are skipped ONLY when:
+        1. Circuit breaker is active (test mode - commands are logged, not sent)
+        2. AND the explicit safety disable flag is set in config
+
+        This allows ground testing of followers without triggering altitude violations,
+        while maintaining safety checks in production mode.
+
+        Returns:
+            bool: True if circuit breaker is active AND safety disable flag is set
+        """
+        from classes.parameters import Parameters
+
+        # Safety checks are skipped ONLY if both conditions are met
+        return (cls.is_active() and
+                Parameters.get_parameter("CIRCUIT_BREAKER_DISABLE_SAFETY", False))
+
+    @classmethod
     def reset_statistics(cls) -> None:
         """Reset circuit breaker statistics."""
         instance = cls.get_instance()

@@ -1115,21 +1115,21 @@ class AppController:
         """
         Enhanced target following with flexible tracker schema and proper async command dispatch.
         """
-        # DEBUG: Always log when follow_target is called
-        logging.info(f"🚀 FOLLOW_TARGET CALLED - tracking_started={self.tracking_started}, following_active={self.following_active}")
+        # DEBUG: Log when follow_target is called
+        logging.debug(f"Follow target called - tracking_started={self.tracking_started}, following_active={self.following_active}")
 
         # For always-reporting trackers, only check following_active (not tracking_started)
         is_always_reporting = self._is_always_reporting_tracker()
         if is_always_reporting:
             if not self.following_active:
-                logging.warning(f"🚨 FOLLOW_TARGET EARLY EXIT (always-reporting): following_active={self.following_active}")
+                logging.debug(f"Follow target early exit (always-reporting): following_active={self.following_active}")
                 return False
             else:
-                logging.info(f"✅ ALWAYS-REPORTING TRACKER: Proceeding with follow_target (tracking_started not required)")
+                logging.debug(f"Always-reporting tracker: Proceeding with follow_target (tracking_started not required)")
         else:
             # Classic trackers require both tracking_started AND following_active
             if not (self.tracking_started and self.following_active):
-                logging.warning(f"🚨 FOLLOW_TARGET EARLY EXIT (classic): tracking_started={self.tracking_started}, following_active={self.following_active}")
+                logging.debug(f"Follow target early exit (classic): tracking_started={self.tracking_started}, following_active={self.following_active}")
                 return False
             
         try:
@@ -1146,14 +1146,14 @@ class AppController:
             
             # SYNCHRONOUS: Calculate and set commands using structured data (no await needed)
             try:
-                logging.info(f"🎯 CALLING follower.follow_target() with tracker_output: data_type={tracker_output.data_type}, tracking_active={tracker_output.tracking_active}")
+                logging.debug(f"Calling follower.follow_target() with tracker_output: data_type={tracker_output.data_type}, tracking_active={tracker_output.tracking_active}")
                 follow_result = self.follower.follow_target(tracker_output)
-                logging.info(f"🎯 FOLLOWER RESULT: follow_target returned {follow_result}")
+                logging.debug(f"Follower result: follow_target returned {follow_result}")
 
                 # DEBUG: Check current setpoint values after follower processing
                 if hasattr(self.follower, 'setpoint_handler'):
                     setpoints = self.follower.setpoint_handler.get_fields()
-                    logging.info(f"🎯 SETPOINTS AFTER FOLLOWER: {setpoints}")
+                    logging.debug(f"Setpoints after follower: {setpoints}")
 
                 if follow_result is False:
                     # Follower already logged specific error with rate limiting
@@ -1166,17 +1166,17 @@ class AppController:
             # ASYNCHRONOUS: Send the actual commands to PX4
             try:
                 control_type = self.follower.get_control_type()
-                logging.info(f"🚀 COMMAND DISPATCH: control_type={control_type}, sending via PX4Interface...")
+                logging.debug(f"Command dispatch: control_type={control_type}, sending via PX4Interface")
 
                 if control_type == 'attitude_rate':
                     await self.px4_interface.send_attitude_rate_commands()
-                    logging.info(f"🚀 SENT: attitude_rate commands")
+                    logging.debug(f"Sent: attitude_rate commands")
                 elif control_type == 'velocity_body':
                     await self.px4_interface.send_body_velocity_commands()
-                    logging.info(f"🚀 SENT: velocity_body commands")
+                    logging.debug(f"Sent: velocity_body commands")
                 elif control_type == 'velocity_body_offboard':
                     await self.px4_interface.send_velocity_body_offboard_commands()
-                    logging.info(f"🚀 SENT: velocity_body_offboard commands")
+                    logging.debug(f"Sent: velocity_body_offboard commands")
                 else:
                     logging.warning(f"Unknown control type: {control_type}")
                     return False

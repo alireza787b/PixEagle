@@ -25,6 +25,14 @@ try:
 except ImportError:
     CIRCUIT_BREAKER_AVAILABLE = False
 
+# Import follower logger for unified logging
+try:
+    from classes.follower_logger import FollowerLogger
+    FOLLOWER_LOGGER_AVAILABLE = True
+except ImportError:
+    logger.warning("FollowerLogger not available, using standard logging")
+    FOLLOWER_LOGGER_AVAILABLE = False
+
 # Import collections for rate limiting
 from collections import defaultdict
 
@@ -168,6 +176,18 @@ class BaseFollower(ABC):
         # Initialize logging utilities to prevent log spam in high-frequency control loops
         self._rate_limiter = RateLimitedLogger(interval=5.0)  # Log same error max once per 5 seconds
         self._error_aggregator = ErrorAggregator(report_interval=10.0)  # Report summary every 10 seconds
+
+        # Initialize unified follower logger for consistent, spam-reduced logging
+        if FOLLOWER_LOGGER_AVAILABLE:
+            self.follower_logger = FollowerLogger(
+                follower_name=self.__class__.__name__,
+                logger=logger,
+                spam_cooldown=5.0,
+                summary_interval=30.0
+            )
+        else:
+            # Fallback if FollowerLogger not available
+            self.follower_logger = None
 
         logger.info(f"BaseFollower initialized with profile: {self.get_display_name()} "
                    f"(control type: {self.get_control_type()})")
