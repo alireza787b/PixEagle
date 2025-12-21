@@ -76,8 +76,8 @@ detect_platform() {
             ;;
         Darwin)
             log_success "OS: macOS"
-            BINARY_URL="${GITHUB_BASE_URL}/${MAVSDK_VERSION}/mavsdk_server_macos"
-            log_info "Binary: mavsdk_server_macos (Universal)"
+            BINARY_URL="${GITHUB_BASE_URL}/${MAVSDK_VERSION}/mavsdk_server_macos_x64"
+            log_info "Binary: mavsdk_server_macos_x64 (Intel x86_64)"
             return 0
             ;;
         *)
@@ -91,9 +91,9 @@ detect_platform() {
     # Architecture-specific binary selection (Linux only)
     case "$arch" in
         x86_64)
-            BINARY_URL="${GITHUB_BASE_URL}/${MAVSDK_VERSION}/mavsdk_server_linux-x86_64"
+            BINARY_URL="${GITHUB_BASE_URL}/${MAVSDK_VERSION}/mavsdk_server_musl_x86_64"
             log_success "Architecture: x86_64 (Intel/AMD)"
-            log_info "Binary: mavsdk_server_linux-x86_64"
+            log_info "Binary: mavsdk_server_musl_x86_64"
             ;;
         aarch64|arm64)
             BINARY_URL="${GITHUB_BASE_URL}/${MAVSDK_VERSION}/mavsdk_server_linux-arm64-musl"
@@ -309,11 +309,11 @@ show_manual_instructions() {
     echo -e "      ${DIM}chmod +x $BINARY_PATH${NC}"
     echo ""
     echo -e "   ${BOLD}Supported Binaries:${NC}"
-    echo -e "      ${DIM}mavsdk_server_linux-x86_64${NC}        (Intel/AMD Linux)"
+    echo -e "      ${DIM}mavsdk_server_musl_x86_64${NC}         (Intel/AMD Linux)"
     echo -e "      ${DIM}mavsdk_server_linux-arm64-musl${NC}    (ARM64: RPi 4/5, Jetson)"
     echo -e "      ${DIM}mavsdk_server_linux-armv7l-musl${NC}   (ARMv7: RPi 3)"
     echo -e "      ${DIM}mavsdk_server_linux-armv6l-musl${NC}   (ARMv6: RPi Zero)"
-    echo -e "      ${DIM}mavsdk_server_macos${NC}               (macOS Universal)"
+    echo -e "      ${DIM}mavsdk_server_macos_x64${NC}           (macOS Intel x86_64)"
     echo ""
     echo -e "${YELLOW}═══════════════════════════════════════════════════════════════════════${NC}"
     echo ""
