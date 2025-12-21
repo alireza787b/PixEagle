@@ -491,7 +491,7 @@ else
   # Start the server using 'serve' (now available as devDependency)
   header_message "Serving the production build on port $PORT"
   echo "🚀 Starting production server..."
-  NO_UPDATE_NOTIFIER=1 FORCE_COLOR=0 npx serve -s build -l $PORT --no-clipboard 2>&1 | grep -v "UPDATE AVAILABLE" | grep -v "npm install"
+  NO_UPDATE_NOTIFIER=1 npx serve -s build -l $PORT --no-clipboard
   if [ $? -eq 0 ]; then
     echo "✅ Production server started successfully on port $PORT."
   else
