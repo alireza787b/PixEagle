@@ -492,9 +492,23 @@ else
   header_message "Serving the production build on port $PORT"
   echo "🚀 Starting production server..."
   echo ""
+
+  # Get network IPs for display
+  LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "N/A")
+
+  # Display server URLs (production-level format)
+  echo "📡 Dashboard URLs:"
+  echo "   • Local:   http://localhost:$PORT"
+  if [[ "$LOCAL_IP" != "N/A" && "$LOCAL_IP" != "" ]]; then
+    echo "   • Network: http://$LOCAL_IP:$PORT"
+  fi
+  echo ""
+
+  # Start server and filter output
   NO_UPDATE_NOTIFIER=1 npx serve -s build -l $PORT --no-clipboard 2>&1 | \
     stdbuf -oL sed 's/[┌┐└┘─│]//g' | \
-    stdbuf -oL sed '/^[[:space:]]*$/d'
+    stdbuf -oL sed '/^[[:space:]]*$/d' | \
+    stdbuf -oL grep -v "Accepting connections"
   if [ $? -eq 0 ]; then
     echo "✅ Production server started successfully on port $PORT."
   else
