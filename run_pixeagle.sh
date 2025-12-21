@@ -347,20 +347,34 @@ prepare_mavsdk_server() {
         return 0
     fi
 
-    log_info "MAVSDK Server binary not found, downloading..."
+    log_warn "MAVSDK Server binary not found"
+    log_detail "Location: $MAVSDK_SERVER_BINARY"
+    echo ""
+    echo -en "        Download now? [Y/n]: "
+    read -r REPLY
+    echo ""
 
-    if [[ -f "$MAVSDK_SERVER_DOWNLOAD_SCRIPT" ]]; then
-        bash "$MAVSDK_SERVER_DOWNLOAD_SCRIPT"
-        if [[ -f "$MAVSDK_SERVER_BINARY" ]]; then
-            chmod +x "$MAVSDK_SERVER_BINARY"
-            log_success "MAVSDK Server downloaded"
-            return 0
+    if [[ -z "$REPLY" ]] || [[ $REPLY =~ ^[Yy]$ ]]; then
+        if [[ -f "$MAVSDK_SERVER_DOWNLOAD_SCRIPT" ]]; then
+            log_info "Running download script..."
+            if bash "$MAVSDK_SERVER_DOWNLOAD_SCRIPT"; then
+                log_success "MAVSDK Server installed"
+                return 0
+            else
+                log_error "MAVSDK Server download failed"
+                log_detail "Try manually: bash $MAVSDK_SERVER_DOWNLOAD_SCRIPT"
+                return 1
+            fi
+        else
+            log_error "Download script not found: $MAVSDK_SERVER_DOWNLOAD_SCRIPT"
+            log_detail "Manual download: https://github.com/mavlink/MAVSDK/releases/"
+            return 1
         fi
+    else
+        log_warn "MAVSDK Server download skipped"
+        log_detail "MAVSDK Server will not be started"
+        return 1
     fi
-
-    log_warn "Could not download MAVSDK Server"
-    log_detail "Download manually from: https://github.com/mavlink/MAVSDK/releases/"
-    return 1
 }
 
 start_services() {

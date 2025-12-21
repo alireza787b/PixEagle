@@ -21,7 +21,7 @@ set -o pipefail  # Catch pipe failures
 # ============================================================================
 # Configuration
 # ============================================================================
-TOTAL_STEPS=7
+TOTAL_STEPS=8  # Updated to include MAVSDK Server setup
 NVM_VERSION="v0.40.3"
 NODE_VERSION="22"  # LTS version for stability
 MIN_PYTHON_VERSION="3.9"
@@ -545,11 +545,63 @@ setup_configs() {
 }
 
 # ============================================================================
+# MAVSDK Server Setup (Step 8)
+# ============================================================================
+setup_mavsdk_server() {
+    log_step 8 $TOTAL_STEPS "Setting Up MAVSDK Server"
+
+    local mavsdk_binary="$SCRIPT_DIR/mavsdk_server_bin"
+    local download_script="$SCRIPT_DIR/src/tools/download_mavsdk_server.sh"
+
+    # Check if binary already exists
+    if [[ -f "$mavsdk_binary" ]] && [[ -x "$mavsdk_binary" ]]; then
+        log_success "MAVSDK Server binary already installed"
+        return 0
+    fi
+
+    # Check if download script exists
+    if [[ ! -f "$download_script" ]]; then
+        log_warn "MAVSDK download script not found"
+        log_detail "Skipping MAVSDK Server setup"
+        return 1
+    fi
+
+    # Prompt user
+    echo ""
+    echo -e "        ${BLUE}${INFO}${NC}  MAVSDK Server is required for drone communication"
+    echo -en "        Download MAVSDK Server now? [Y/n]: "
+    read -r REPLY
+    echo ""
+
+    if [[ -z "$REPLY" ]] || [[ $REPLY =~ ^[Yy]$ ]]; then
+        # Run download script
+        if bash "$download_script"; then
+            log_success "MAVSDK Server installed successfully"
+            return 0
+        else
+            log_warn "MAVSDK Server installation failed (non-fatal)"
+            log_detail "Download later: bash src/tools/download_mavsdk_server.sh"
+            return 1
+        fi
+    else
+        log_info "MAVSDK Server download skipped"
+        log_detail "Download later: bash src/tools/download_mavsdk_server.sh"
+        return 1
+    fi
+}
+
+# ============================================================================
 # Summary Display
 # ============================================================================
 show_summary() {
     local node_version
     node_version=$(node -v 2>/dev/null || echo "not installed")
+
+    # Check MAVSDK Server status
+    local mavsdk_status="${RED}Not installed${NC}"
+    if [[ -f "$SCRIPT_DIR/mavsdk_server_bin" ]] && [[ -x "$SCRIPT_DIR/mavsdk_server_bin" ]]; then
+        mavsdk_status="${GREEN}Installed${NC}"
+    fi
 
     echo ""
     echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${NC}"
@@ -565,6 +617,7 @@ show_summary() {
         echo -e "   ${YELLOW}${WARN}${NC}  Node.js needs manual setup"
     fi
     echo -e "   ${GREEN}${CHECK}${NC} Configuration files generated"
+    echo -e "   MAVSDK Server: $mavsdk_status"
     echo ""
     echo -e "   ${CYAN}${BOLD}📋 Next Steps:${NC}"
     echo -e "      1. Edit ${BOLD}configs/config.yaml${NC} for your setup"
@@ -574,6 +627,9 @@ show_summary() {
     echo -e "      • ${BOLD}bash scripts/install_dlib.sh${NC}       (faster tracking)"
     echo -e "      • ${BOLD}bash setup_pytorch.sh${NC}              (GPU acceleration)"
     echo -e "      • ${BOLD}bash auto_build_opencv.sh${NC}          (GStreamer support)"
+    if [[ "$mavsdk_status" == *"Not installed"* ]]; then
+        echo -e "      • ${BOLD}bash src/tools/download_mavsdk_server.sh${NC}  (MAVSDK Server)"
+    fi
     echo -e "      • ${BOLD}source venv/bin/activate${NC}"
     echo -e "        ${BOLD}python add_yolo_model.py${NC}           (add YOLO models)"
     echo ""
@@ -604,6 +660,7 @@ main() {
     setup_nodejs
     install_dashboard_deps
     setup_configs
+    setup_mavsdk_server
 
     show_summary
 }

@@ -458,26 +458,49 @@ bash ~/PixEagle/src/tools/mavlink2rest/run_mavlink2rest.sh
 
 ### 🧠 MAVSDK Server Binary (Required)
 
-PixEagle uses `mavsdk_server_bin` for all MAVSDK functionality.
+PixEagle uses `mavsdk_server_bin` for all MAVSDK functionality with automatic multi-platform support.
 
-#### A. **Check for Binary:**
+#### 🖥️ **Supported Platforms**
 
-Make sure it's in the root directory:  
+PixEagle automatically detects your platform and downloads the correct MAVSDK binary:
+
+- **x86_64** - Intel/AMD desktops, laptops, servers
+- **ARM64** - Raspberry Pi 4/5, Jetson Nano/Xavier/Orin
+- **ARMv7** - Raspberry Pi 3, older ARM boards
+- **ARMv6** - Raspberry Pi Zero
+- **macOS** - Intel and Apple Silicon
+
+#### A. **Automatic Installation (Recommended)**
+
+MAVSDK Server is automatically offered during initialization:
+
 ```bash
-~/PixEagle/mavsdk_server_bin
+bash init_pixeagle.sh
 ```
 
-#### B. **Install Automatically:**
+The init script (Step 8) will detect your platform and prompt to download the correct binary.
 
-The main startup script (`run_pixeagle.sh`) will prompt to install it if missing.
+#### B. **Manual Download**
 
-#### C. **Or Download Manually:**
+To download or update MAVSDK Server manually:
 
 ```bash
-bash ~/PixEagle/src/tools/download_mavsdk_server.sh
+bash src/tools/download_mavsdk_server.sh
 ```
 
-Or grab it from the [MAVSDK Releases](https://github.com/mavlink/MAVSDK/releases) page and rename it to `mavsdk_server_bin`.
+The script will:
+- Auto-detect your platform (OS and architecture)
+- Download the latest MAVSDK Server binary (v3.12.0)
+- Validate file integrity and set executable permissions
+- Provide manual instructions if download fails
+
+#### C. **Runtime Installation**
+
+If missing at runtime, `run_pixeagle.sh` will prompt to download it automatically.
+
+#### D. **Manual Download from GitHub**
+
+Advanced users can download directly from [MAVSDK Releases](https://github.com/mavlink/MAVSDK/releases/tag/v3.12.0) and rename to `mavsdk_server_bin` in the PixEagle root directory.
 
 ---
 ##  Building Opencv
