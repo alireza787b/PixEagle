@@ -148,7 +148,38 @@ preflight_checks() {
         log_success "Build dependencies available (cmake, g++, make)"
     fi
 
-    # 4. Check if /tmp is tmpfs (RAM-based)
+    # 4. Check Python development headers
+    echo -e "${DIM}Checking Python development headers...${NC}"
+
+    # Detect Python version
+    local python_version
+    python_version=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
+
+    # Try to find Python.h
+    if ! find /usr/include -name "Python.h" 2>/dev/null | grep -q .; then
+        log_warning "Python development headers not found (Python.h missing)"
+        log_info "Installing python3-dev package..."
+
+        if command -v apt >/dev/null 2>&1; then
+            # Try version-specific first, fallback to generic
+            if ! sudo apt install -y "python${python_version}-dev" 2>/dev/null; then
+                sudo apt update -qq && sudo apt install -y python3-dev || {
+                    log_error "Failed to install Python development headers"
+                    log_info "Please install manually: sudo apt install python3-dev"
+                    exit 1
+                }
+            fi
+            log_success "Python development headers installed"
+        else
+            log_error "Cannot auto-install python3-dev (apt not found)"
+            log_info "Please install manually: python3-dev or python${python_version}-dev"
+            exit 1
+        fi
+    else
+        log_success "Python development headers available (Python.h found)"
+    fi
+
+    # 5. Check if /tmp is tmpfs (RAM-based)
     echo -e "${DIM}Checking filesystem configuration...${NC}"
     if mount | grep -q "tmpfs on /tmp"; then
         log_warning "/tmp is RAM-based (tmpfs), will use /var for manual swap"
@@ -156,7 +187,7 @@ preflight_checks() {
         log_success "Filesystem configuration OK"
     fi
 
-    # 5. Check virtual environment
+    # 6. Check virtual environment
     echo -e "${DIM}Checking Python virtual environment...${NC}"
     if [[ ! -d "$PIXEAGLE_DIR/venv" ]]; then
         log_error "Virtual environment not found!"
@@ -578,19 +609,27 @@ install_dlib() {
     echo ""
 
     # Install dlib with verbose output, filtering for progress
-    if pip install dlib --verbose 2>&1 | while IFS= read -r line; do
-        # Show compilation progress
+    pip install dlib --verbose 2>&1 | while IFS= read -r line; do
+        # Show compilation progress and errors
         if [[ "$line" == *"Building"* ]] || [[ "$line" == *"%"* ]] || [[ "$line" == *"Collecting"* ]] || [[ "$line" == *"Installing"* ]]; then
             echo -e "    ${DIM}${line:0:100}${NC}"
+        elif [[ "$line" == *"error:"* ]] || [[ "$line" == *"fatal error:"* ]] || [[ "$line" == *"ERROR:"* ]]; then
+            echo -e "    ${RED}${line}${NC}"
         fi
-    done; then
+    done
+
+    # Check pip exit status using PIPESTATUS (index 0 is pip command)
+    if [[ ${PIPESTATUS[0]} -eq 0 ]]; then
         echo ""
         log_success "dlib installation completed successfully"
     else
         echo ""
         log_error "dlib installation failed"
-        log_info "Check if you have sufficient memory/swap space"
-        log_info "Try running with USB swap option (option 2)"
+        log_info "Common causes:"
+        log_info "  - Missing Python development headers (install: sudo apt install python3-dev)"
+        log_info "  - Insufficient memory/swap space"
+        log_info "  - Missing build dependencies"
+        log_info "Run with --verbose flag or check output above for specific error"
         deactivate
         exit 1
     fi
