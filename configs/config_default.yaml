@@ -1,6 +1,12 @@
 # ==============================================================================
-# PixEagle Configuration File - v2.0
+# PixEagle Configuration File - v2.0 (Beginner-Safe Template)
 # ==============================================================================
+# 🛡️ CONSERVATIVE DEFAULTS - Safe for first-time testing and demos
+#    - Video: Local file (no network dependencies)
+#    - Tracker: CSRT (reliable, rotation-invariant)
+#    - Follower: mc_velocity_position (stationary, yaw-only)
+#    - Velocities: Max 2 m/s (safe acceleration: 0.5 m/s²)
+#
 # 📋 Priority parameters are at the top for quick access
 # 🔧 Clean unified configuration - no legacy or deprecated sections
 # 📘 Enhanced documentation for each parameter
@@ -1017,16 +1023,16 @@ GimbalFollower:
 
   # === Velocity Control ===
   BASE_VELOCITY: 2.0                       # Base following velocity (m/s)
-  MAX_VELOCITY: 8.0                        # Maximum velocity limit (m/s)
-  VELOCITY_RAMP_RATE: 1.0                  # Acceleration rate (m/s²)
+  MAX_VELOCITY: 2.0                        # Maximum velocity limit (m/s) - conservative default
+  VELOCITY_RAMP_RATE: 0.5                  # Acceleration rate (m/s²) - smooth ramp
   VELOCITY_FILTER_ALPHA: 0.7               # Velocity smoothing filter coefficient (0-1)
 
   # === Forward Velocity Control System ===
   # Based on 2024 guidance control research for reliable target interception
   FORWARD_VELOCITY_MODE: "CONSTANT"        # Options: "CONSTANT", "PITCH_BASED", "PROPORTIONAL_NAV" (future)
   BASE_FORWARD_SPEED: 2.0                  # Constant forward speed (m/s)
-  MAX_FORWARD_VELOCITY: 5.0                # Maximum forward velocity limit (m/s)
-  FORWARD_ACCELERATION: 2.0                # Ramp rate from current to target speed (m/s²)
+  MAX_FORWARD_VELOCITY: 2.0                # Maximum forward velocity limit (m/s) - conservative default
+  FORWARD_ACCELERATION: 0.5                # Ramp rate from current to target speed (m/s²) - smooth 4s ramp
 
   # === Lateral Guidance Mode ===
   LATERAL_GUIDANCE_MODE: "coordinated_turn" # Options: "coordinated_turn", "sideslip"
@@ -1507,19 +1513,19 @@ MC_VELOCITY:
 
   # === FORWARD VELOCITY PARAMETERS ===
   INITIAL_FORWARD_VELOCITY: 0.0              # m/s - starting velocity
-  MAX_FORWARD_VELOCITY: 8.0                  # m/s - maximum chase speed
-  FORWARD_RAMP_RATE: 2.0                     # m/s^2 - acceleration rate
+  MAX_FORWARD_VELOCITY: 2.0                  # m/s - maximum chase speed (conservative default)
+  FORWARD_RAMP_RATE: 0.5                     # m/s^2 - acceleration rate (smooth 4s ramp)
 
   # === PROPORTIONAL NAVIGATION PARAMETERS ===
   # PN Law: V = V_base * (1 + N * |LOS_rate|)
   PN_NAVIGATION_CONSTANT: 4.0                # N (3-5 typical for intercept)
-  PN_BASE_VELOCITY: 4.0                      # m/s - base velocity for PN mode
+  PN_BASE_VELOCITY: 2.0                      # m/s - base velocity for PN mode (conservative)
   PN_LOS_SMOOTHING_ALPHA: 0.3                # EMA filter for LOS rate
   PN_MAX_VELOCITY_SCALE: 2.0                 # Maximum velocity multiplier
 
   # === LINE-OF-SIGHT PARAMETERS ===
   LOS_DISTANCE_GAIN: 0.5                     # Velocity gain for distance
-  LOS_MAX_VELOCITY: 10.0                     # m/s - max LOS velocity
+  LOS_MAX_VELOCITY: 2.0                      # m/s - max LOS velocity (conservative default)
 
   # === TARGET LOSS HANDLING (MULTICOPTER: HOVER) ===
   # Unlike fixed-wing (orbit), multicopters can HOVER in place
@@ -1539,7 +1545,7 @@ MC_VELOCITY:
   # === VELOCITY SATURATION PROTECTION ===
   # Prevents motor saturation by limiting total velocity magnitude
   ENABLE_VELOCITY_MAGNITUDE_LIMIT: true      # Enable magnitude limiting
-  MAX_VELOCITY_MAGNITUDE: 12.0               # m/s - total vector magnitude limit
+  MAX_VELOCITY_MAGNITUDE: 3.0                # m/s - total vector magnitude limit (conservative)
 
   # === COMMAND SMOOTHING ===
   VELOCITY_SMOOTHING_ENABLED: true           # Enable velocity command smoothing
@@ -1659,10 +1665,10 @@ MC_VELOCITY_GROUND:
   # === Target Position Mode ===
   TARGET_POSITION_MODE: center          # Target positioning: "center", "initial"
 
-  # === Velocity Limits ===
-  MAX_VELOCITY_X: 10.0                  # Max lateral velocity (m/s)
-  MAX_VELOCITY_Y: 10.0                  # Max longitudinal velocity (m/s)
-  MAX_RATE_OF_DESCENT: 2.0              # Max descent rate (m/s)
+  # === Velocity Limits (Conservative defaults) ===
+  MAX_VELOCITY_X: 2.0                   # Max lateral velocity (m/s) - conservative
+  MAX_VELOCITY_Y: 2.0                   # Max longitudinal velocity (m/s) - conservative
+  MAX_RATE_OF_DESCENT: 1.0              # Max descent rate (m/s) - conservative
 
   # === Descent Control (Overrides global SafetyLimits) ===
   # Uses unified naming: MIN_ALTITUDE
@@ -1926,13 +1932,13 @@ SafetyLimits:
   MIN_ALTITUDE: 3.0                    # meters - Absolute minimum safe altitude
   MAX_ALTITUDE: 120.0                  # meters - Maximum altitude (regulatory compliance)
 
-  # === Velocity Limits ===
-  MAX_VELOCITY_FORWARD: 15.0           # m/s - Maximum forward velocity
-  MAX_VELOCITY_LATERAL: 10.0           # m/s - Maximum lateral velocity
-  MAX_VELOCITY_VERTICAL: 5.0           # m/s - Maximum vertical velocity (up/down)
+  # === Velocity Limits (Conservative defaults for beginners) ===
+  MAX_VELOCITY_FORWARD: 2.0            # m/s - Maximum forward velocity (conservative)
+  MAX_VELOCITY_LATERAL: 2.0            # m/s - Maximum lateral velocity (conservative)
+  MAX_VELOCITY_VERTICAL: 1.0           # m/s - Maximum vertical velocity (conservative)
 
   # === Rotation Limits ===
-  MAX_YAW_RATE: 45.0                   # deg/s - Maximum yaw rotation rate
+  MAX_YAW_RATE: 30.0                   # deg/s - Maximum yaw rotation rate (conservative)
 
   # === Safety Behavior ===
   ALTITUDE_WARNING_BUFFER: 2.0         # meters - Warning zone before hard limits
