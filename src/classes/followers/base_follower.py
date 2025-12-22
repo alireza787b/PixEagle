@@ -340,7 +340,59 @@ class BaseFollower(ABC):
         except Exception as e:
             logger.error(f"Error resetting command fields: {e}")
             return False
-    
+
+    # ==================== PID Utility Methods ====================
+
+    def _update_pid_gains_from_config(self, pid_controller, axis: str, profile_name: str) -> None:
+        """
+        Update PID controller gains from Parameters configuration.
+
+        This is a common pattern across followers - extracted to base class for DRY principle.
+        Eliminates code duplication in mc_velocity_position, mc_velocity_distance, mc_velocity_chase.
+
+        Args:
+            pid_controller: CustomPID instance to update (must have Kp, Ki, Kd attributes)
+            axis: PID axis name (e.g., 'yawspeed_deg_s', 'vel_body_down', 'z', 'y')
+            profile_name: Follower profile name for logging (e.g., 'MC Velocity Position')
+
+        Raises:
+            ValueError: If axis not found in Parameters.PID_GAINS or gains are invalid
+
+        Example:
+            self._update_pid_gains_from_config(self.pid_yaw_rate, 'yawspeed_deg_s', 'MC Velocity Chase')
+        """
+        try:
+            from classes.parameters import Parameters
+
+            # Validate axis exists
+            if axis not in Parameters.PID_GAINS:
+                available = list(Parameters.PID_GAINS.keys())
+                raise ValueError(f"Unsupported PID axis '{axis}'. Available: {available}")
+
+            # Get gains
+            gains = Parameters.PID_GAINS[axis]
+            p_gain = gains['p']
+            i_gain = gains['i']
+            d_gain = gains['d']
+
+            # Validate gain values
+            if any(not isinstance(g, (int, float)) or g < 0 for g in [p_gain, i_gain, d_gain]):
+                raise ValueError(f"Invalid PID gains for axis '{axis}': p={p_gain}, i={i_gain}, d={d_gain}")
+
+            # Update controller
+            pid_controller.Kp = p_gain
+            pid_controller.Ki = i_gain
+            pid_controller.Kd = d_gain
+
+            logger.debug(f"[{profile_name}] Updated {axis} PID gains: P={p_gain}, I={i_gain}, D={d_gain}")
+
+        except KeyError as e:
+            logger.error(f"[{profile_name}] PID gains not found for axis '{axis}': {e}")
+            raise
+        except Exception as e:
+            logger.error(f"[{profile_name}] Error updating PID gains for axis '{axis}': {e}")
+            raise
+
     # ==================== Validation Methods ====================
     
     def validate_target_coordinates(self, target_data) -> bool:

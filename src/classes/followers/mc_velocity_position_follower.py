@@ -229,22 +229,21 @@ class MCVelocityPositionFollower(BaseFollower):
         """
         Updates all PID controller gains with current parameter values.
 
+        Uses base class _update_pid_gains_from_config() method to eliminate code duplication.
+
         Returns:
             bool: True if update successful, False otherwise.
         """
         try:
-            # Update yaw rate PID gains (using deg/s naming convention)
-            yaw_gains = self._get_pid_gains('yawspeed_deg_s')
-            self.pid_yaw_rate.tunings = yaw_gains
-            
-            # Update altitude PID gains if controller exists
+            # Use base class method for consistent PID gain updates
+            self._update_pid_gains_from_config(self.pid_yaw_rate, 'yawspeed_deg_s', 'MC Velocity Position')
+
             if self.pid_z is not None:
-                z_gains = self._get_pid_gains('z')
-                self.pid_z.tunings = z_gains
-            
+                self._update_pid_gains_from_config(self.pid_z, 'z', 'MC Velocity Position')
+
             logger.debug("PID gains updated successfully for MCVelocityPositionFollower")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to update PID gains: {e}")
             return False
@@ -415,29 +414,45 @@ class MCVelocityPositionFollower(BaseFollower):
             # Validate tracker compatibility (errors are logged by base class with rate limiting)
             if not self.validate_tracker_compatibility(tracker_data):
                 return False
-            
+
             # Extract target coordinates
             target_coords = self.extract_target_coordinates(tracker_data)
             if not target_coords:
                 logger.warning("No valid target coordinates found in tracker data")
                 return False
-            
+
             # Calculate and apply control commands using structured data
             self.calculate_control_commands(tracker_data)
-            
+
             # Update execution statistics
             self._control_statistics['commands_sent'] += 1
-            
+
             # Update telemetry metadata
             self.update_telemetry_metadata('last_target_coords', target_coords)
             self.update_telemetry_metadata('control_active', True)
-            
+
             logger.debug(f"Following target at coordinates: {target_coords}")
             return True
-            
+
+        except ValueError as e:
+            # Validation errors - these indicate bad configuration or state
+            logger.error(f"Validation error in {self.__class__.__name__}: {e}")
+            self.update_telemetry_metadata('control_active', False)
+            self.update_telemetry_metadata('last_error', str(e))
+            raise  # Re-raise validation errors
+
+        except RuntimeError as e:
+            # Command execution errors - these indicate system failures
+            logger.error(f"Runtime error in {self.__class__.__name__}: {e}")
+            self.reset_command_fields()  # Reset to safe state
+            self.update_telemetry_metadata('control_active', False)
+            self.update_telemetry_metadata('last_error', str(e))
+            return False
+
         except Exception as e:
-            logger.error(f"Failed to follow target: {e}")
-            # Update error status in telemetry
+            # Unexpected errors - log and fail safe
+            logger.error(f"Unexpected error in {self.__class__.__name__}.follow_target(): {e}")
+            self.reset_command_fields()
             self.update_telemetry_metadata('control_active', False)
             self.update_telemetry_metadata('last_error', str(e))
             return False

@@ -814,19 +814,34 @@ class MCAttitudeRateFollower(BaseFollower):
                 logger.debug("Emergency stop active")
                 return False
 
+            # Validate tracker compatibility (errors are logged by base class with rate limiting)
             if not self.validate_tracker_compatibility(tracker_data):
-                logger.error("Tracker incompatible")
                 return False
 
+            # Perform altitude safety check
             if not self._check_altitude_safety():
-                logger.error("Altitude safety failed")
+                logger.error("Altitude safety check failed")
                 return False
 
+            # Calculate and apply control commands
             self.calculate_control_commands(tracker_data)
             return True
 
+        except ValueError as e:
+            # Validation errors - these indicate bad configuration or state
+            logger.error(f"Validation error in {self.__class__.__name__}: {e}")
+            raise  # Re-raise validation errors
+
+        except RuntimeError as e:
+            # Command execution errors - these indicate system failures
+            logger.error(f"Runtime error in {self.__class__.__name__}: {e}")
+            self.reset_command_fields()  # Reset to safe state
+            return False
+
         except Exception as e:
-            logger.error(f"Follow target failed: {e}")
+            # Unexpected errors - log and fail safe
+            logger.error(f"Unexpected error in {self.__class__.__name__}.follow_target(): {e}")
+            self.reset_command_fields()
             return False
 
     # ==================== Status and Telemetry ====================

@@ -1018,8 +1018,21 @@ class FWAttitudeRateFollower(BaseFollower):
             logger.debug(f"Fixed-wing following executed for target: {target_coords}")
             return True
 
+        except ValueError as e:
+            # Validation errors - these indicate bad configuration or state
+            logger.error(f"Validation error in {self.__class__.__name__}: {e}")
+            raise  # Re-raise validation errors
+
+        except RuntimeError as e:
+            # Command execution errors - these indicate system failures
+            logger.error(f"Runtime error in {self.__class__.__name__}: {e}")
+            self.reset_command_fields()  # Reset to safe state
+            return False
+
         except Exception as e:
-            logger.error(f"Fixed-wing following failed: {e}")
+            # Unexpected errors - log and fail safe
+            logger.error(f"Unexpected error in {self.__class__.__name__}.follow_target(): {e}")
+            self.reset_command_fields()
             return False
 
     # ==================== Telemetry and Status ====================

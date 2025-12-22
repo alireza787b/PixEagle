@@ -215,23 +215,20 @@ class MCVelocityDistanceFollower(BaseFollower):
     def _update_pid_gains(self) -> None:
         """
         Update PID controller gains based on current configuration.
-        
-        This method refreshes the tuning parameters for all active PID controllers.
-        Should be called regularly during operation to maintain optimal performance.
-        
-        Note:
-            Updates are performed smoothly to avoid control discontinuities.
-            The method includes error handling to ensure system stability.
+
+        Uses base class _update_pid_gains_from_config() method to eliminate code duplication.
+        Updates are performed smoothly to avoid control discontinuities.
         """
         try:
-            self.pid_y.tunings = self._get_pid_gains('y')
-            self.pid_z.tunings = self._get_pid_gains('z')
-            
+            # Use base class method for consistent PID gain updates
+            self._update_pid_gains_from_config(self.pid_y, 'y', 'MC Velocity Distance')
+            self._update_pid_gains_from_config(self.pid_z, 'z', 'MC Velocity Distance')
+
             if self.yaw_enabled and self.pid_yaw_rate is not None:
-                self.pid_yaw_rate.tunings = self._get_pid_gains('yawspeed_deg_s')
-            
+                self._update_pid_gains_from_config(self.pid_yaw_rate, 'yawspeed_deg_s', 'MC Velocity Distance')
+
             logger.debug("PID gains updated successfully for MCVelocityDistanceFollower")
-            
+
         except Exception as e:
             logger.error(f"Failed to update PID gains: {e}")
             # Continue operation with existing gains rather than failing
@@ -424,31 +421,43 @@ class MCVelocityDistanceFollower(BaseFollower):
             - Concurrent safety monitoring
         """
         try:
-            # Validate tracker data
-            if not tracker_data or not hasattr(tracker_data, 'data_type'):
-                logger.error("Invalid tracker data provided")
+            # Validate tracker compatibility (errors are logged by base class with rate limiting)
+            if not self.validate_tracker_compatibility(tracker_data):
                 return False
-            
+
             # Extract target coordinates from tracker data
             target_coords = self.extract_target_coordinates(tracker_data)
             if not target_coords:
                 logger.warning("Could not extract target coordinates from tracker data")
                 return False
-            
+
             logger.debug(f"Following target at coordinates: {target_coords}")
-            
+
             # Calculate and apply control commands using structured data
             self.calculate_control_commands(tracker_data)
-            
+
             # Update telemetry metadata
             self.update_telemetry_metadata('last_follow_update', datetime.utcnow().isoformat())
             self.update_telemetry_metadata('current_target', target_coords)
-            
-            logger.info(f"Successfully following target at: {target_coords}")
+
+            logger.debug(f"Successfully following target at: {target_coords}")
             return True
-            
+
+        except ValueError as e:
+            # Validation errors - these indicate bad configuration or state
+            logger.error(f"Validation error in {self.__class__.__name__}: {e}")
+            raise  # Re-raise validation errors
+
+        except RuntimeError as e:
+            # Command execution errors - these indicate system failures
+            logger.error(f"Runtime error in {self.__class__.__name__}: {e}")
+            self.reset_command_fields()  # Reset to safe state
+            return False
+
         except Exception as e:
-            logger.error(f"Failed to follow target: {e}")
+            # Unexpected errors - log and fail safe
+            logger.error(f"Unexpected error in {self.__class__.__name__}.follow_target(): {e}")
+            self.reset_command_fields()
             return False
     
     # ==================== Enhanced Status and Debug Methods ====================

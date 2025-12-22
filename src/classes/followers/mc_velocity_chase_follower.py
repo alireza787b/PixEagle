@@ -409,25 +409,23 @@ class MCVelocityChaseFollower(BaseFollower):
     def _update_pid_gains(self) -> None:
         """
         Updates all PID controller gains from current parameter configuration.
+
+        Uses base class _update_pid_gains_from_config() method to eliminate code duplication.
         Handles both lateral guidance modes dynamically.
-        
-        This method should be called when parameters are updated during runtime
-        to ensure controllers use the latest gain values.
         """
         try:
-            # Update lateral guidance PIDs based on active mode
+            # Use base class method for consistent PID gain updates
             if self.pid_right is not None:
-                self.pid_right.tunings = self._get_pid_gains('vel_body_right')
-                
+                self._update_pid_gains_from_config(self.pid_right, 'vel_body_right', 'MC Velocity Chase')
+
             if self.pid_yaw_speed is not None:
-                self.pid_yaw_speed.tunings = self._get_pid_gains('yawspeed_deg_s')
-            
-            # Update vertical PID
+                self._update_pid_gains_from_config(self.pid_yaw_speed, 'yawspeed_deg_s', 'MC Velocity Chase')
+
             if self.pid_down is not None:
-                self.pid_down.tunings = self._get_pid_gains('vel_body_down')
-            
+                self._update_pid_gains_from_config(self.pid_down, 'vel_body_down', 'MC Velocity Chase')
+
             logger.debug(f"PID gains updated for MCVelocityChaseFollower - Mode: {self.active_lateral_mode}")
-            
+
         except Exception as e:
             logger.error(f"Failed to update PID gains: {e}")
 
@@ -1264,7 +1262,7 @@ class MCVelocityChaseFollower(BaseFollower):
     def calculate_control_commands(self, tracker_data: TrackerOutput) -> None:
         """
         Calculates and sets body velocity control commands with dual-mode lateral guidance.
-        
+
         This method implements the core body velocity chase logic with support for both
         sideslip and coordinated turn lateral guidance modes:
         1. Extracts target coordinates from structured tracker data
@@ -1273,10 +1271,20 @@ class MCVelocityChaseFollower(BaseFollower):
         4. Calculates lateral and vertical tracking commands with mode switching
         5. Applies safety checks and emergency stops
         6. Updates setpoint handler with commands
-        
+
+        Altitude Sign Convention (NED/Body Frame):
+        - vel_body_down > 0 = DESCENDING (moving down)
+        - vel_body_down < 0 = ASCENDING (moving up)
+        - PID output is directly in NED convention (positive=down, negative=up)
+        - No sign reversal needed when setting vel_body_down
+
+        Test Values for Verification:
+        - Target above drone (top of image): error > 0 → vel_body_down > 0 (descend to reach target)
+        - Target below drone (bottom of image): error < 0 → vel_body_down < 0 (climb to reach target)
+
         Args:
             tracker_data (TrackerOutput): Structured tracker data with position, confidence, etc.
-            
+
         Note:
             This method updates the setpoint handler directly and does not return values.
             Control commands are applied via the schema-aware setpoint management system.
@@ -1391,20 +1399,33 @@ class MCVelocityChaseFollower(BaseFollower):
             # Validate tracker compatibility (errors are logged by base class with rate limiting)
             if not self.validate_tracker_compatibility(tracker_data):
                 return False
-            
+
             # Perform altitude safety check
             if not self._check_altitude_safety():
                 logger.error("Altitude safety check failed - aborting body velocity following")
                 return False
-            
+
             # Calculate and apply control commands using structured data
             self.calculate_control_commands(tracker_data)
-            
+
             logger.debug(f"Body velocity following executed for tracker: {tracker_data.tracker_id}")
             return True
-            
+
+        except ValueError as e:
+            # Validation errors - these indicate bad configuration or state
+            logger.error(f"Validation error in {self.__class__.__name__}: {e}")
+            raise  # Re-raise validation errors
+
+        except RuntimeError as e:
+            # Command execution errors - these indicate system failures
+            logger.error(f"Runtime error in {self.__class__.__name__}: {e}")
+            self.reset_command_fields()  # Reset to safe state
+            return False
+
         except Exception as e:
-            logger.error(f"Body velocity following failed: {e}")
+            # Unexpected errors - log and fail safe
+            logger.error(f"Unexpected error in {self.__class__.__name__}.follow_target(): {e}")
+            self.reset_command_fields()
             return False
 
     # ==================== Enhanced Telemetry and Status ====================
