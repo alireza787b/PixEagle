@@ -237,7 +237,7 @@ class FollowerCircuitBreaker:
 
         # Safety checks are skipped ONLY if both conditions are met
         return (cls.is_active() and
-                Parameters.get_parameter("CIRCUIT_BREAKER_DISABLE_SAFETY", False))
+                getattr(Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False))
 
     @classmethod
     def reset_statistics(cls) -> None:
