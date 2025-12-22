@@ -115,30 +115,37 @@ class PX4InterfaceManager:
             self.drone = System()
             
             
-    async def _safe_mavsdk_call(self, coro):
+    async def _safe_mavsdk_call(self, coro_func, *args, **kwargs):
         """
-        Safely execute MAVSDK coroutine calls with proper error handling.
+        Safely execute MAVSDK coroutine-creating function with proper error handling.
 
         NOTE: This is used for COMMAND calls only (offboard.set_*).
         Data retrieval calls (telemetry.*) should NOT use this wrapper.
 
         Args:
-            coro: Coroutine to execute safely
+            coro_func: Callable that creates a coroutine when invoked
+            *args, **kwargs: Arguments to pass to coro_func
 
         Returns:
             bool: True if successful, False otherwise
+
+        Example:
+            await self._safe_mavsdk_call(
+                self.drone.offboard.set_velocity_body,
+                velocity_setpoint
+            )
         """
         # Circuit breaker check - block COMMAND operations when testing
         if CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active():
             FollowerCircuitBreaker.log_command_instead_of_execute(
                 command_type="mavsdk_command",
                 follower_name="PX4Interface",
-                blocked_call=str(coro)[:100]  # Limit string length
+                blocked_call=f"{coro_func.__name__}({args}, {kwargs})"[:100]
             )
             return True  # Return success without executing
 
         try:
-            await coro
+            await coro_func(*args, **kwargs)  # Create new coroutine
             return True
         except Exception as e:
             # Check if it's the specific async loop error
@@ -147,7 +154,7 @@ class PX4InterfaceManager:
                 # Try once more after a brief delay
                 try:
                     await asyncio.sleep(0.001)  # 1ms delay
-                    await coro
+                    await coro_func(*args, **kwargs)  # Create NEW coroutine for retry
                     return True
                 except Exception as retry_error:
                     logger.warning(f"MAVSDK call failed after retry: {retry_error}")
@@ -340,7 +347,8 @@ class PX4InterfaceManager:
             # Note: VelocityBodyYawspeed expects (forward, right, down, yawspeed_deg_s)
             next_setpoint = VelocityBodyYawspeed(vel_fwd, vel_right, vel_down, yawspeed)
             await self._safe_mavsdk_call(
-                self.drone.offboard.set_velocity_body(next_setpoint)
+                self.drone.offboard.set_velocity_body,
+                next_setpoint
             )
 
         except OffboardError as e:
@@ -553,7 +561,8 @@ class PX4InterfaceManager:
             from mavsdk.offboard import VelocityBodyYawspeed, OffboardError
             next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_for_mavsdk)
             await self._safe_mavsdk_call(
-                self.drone.offboard.set_velocity_body(next_setpoint)
+                self.drone.offboard.set_velocity_body,
+                next_setpoint
             )
 
         except OffboardError as e:
@@ -602,7 +611,10 @@ class PX4InterfaceManager:
             # Send the attitude rate commands to the drone (values already in deg/s)
             from mavsdk.offboard import AttitudeRate, OffboardError
             next_setpoint = AttitudeRate(roll_deg_s, pitch_deg_s, yaw_deg_s, thrust)
-            await self.drone.offboard.set_attitude_rate(next_setpoint)
+            await self._safe_mavsdk_call(
+                self.drone.offboard.set_attitude_rate,
+                next_setpoint
+            )
 
         except OffboardError as e:
             logger.error(f"MAVSDK offboard attitude rate command failed: {e}")

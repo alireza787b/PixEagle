@@ -125,7 +125,11 @@ class MCVelocityPositionFollower(BaseFollower):
         self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
         self.command_smoothing_enabled = config.get('COMMAND_SMOOTHING_ENABLED', True)
         self.smoothing_factor = config.get('SMOOTHING_FACTOR', 0.8)
-        
+
+        # Command smoothing state
+        self._last_yaw_command = 0.0
+        self._last_vel_z_command = 0.0
+
         # Performance tracking
         self._control_statistics = {
             'pid_updates': 0,
@@ -286,19 +290,40 @@ class MCVelocityPositionFollower(BaseFollower):
             
             # Apply yaw control with dead zone to prevent unnecessary oscillation
             if abs(yaw_error) > self.yaw_control_threshold:
-                yaw_rate_command = self.pid_yaw_rate(yaw_error)
+                yaw_rate_raw = self.pid_yaw_rate(yaw_error)
+
+                # Apply smoothing if enabled
+                if self.command_smoothing_enabled:
+                    yaw_rate_command = (self.smoothing_factor * self._last_yaw_command +
+                                       (1 - self.smoothing_factor) * yaw_rate_raw)
+                else:
+                    yaw_rate_command = yaw_rate_raw
+
+                self._last_yaw_command = yaw_rate_command
                 logger.debug(f"Yaw control active: error={yaw_error:.3f}, command={yaw_rate_command:.3f}")
             else:
                 yaw_rate_command = 0.0
+                self._last_yaw_command = 0.0
                 logger.debug(f"Yaw within dead zone: error={yaw_error:.3f}, no command sent")
             
             # === ALTITUDE CONTROL CALCULATION ===
             vel_z_command = 0.0
             if self.altitude_control_enabled and self.pid_z is not None:
                 altitude_error = self.pid_z.setpoint - target_y
-                vel_z_command = self._calculate_altitude_command(altitude_error)
+                vel_z_raw = self._calculate_altitude_command(altitude_error)
+
+                # Apply smoothing if enabled
+                if self.command_smoothing_enabled:
+                    vel_z_command = (self.smoothing_factor * self._last_vel_z_command +
+                                    (1 - self.smoothing_factor) * vel_z_raw)
+                else:
+                    vel_z_command = vel_z_raw
+
+                self._last_vel_z_command = vel_z_command
                 logger.debug(f"Altitude control: error={altitude_error:.3f}, command={vel_z_command:.3f}")
             else:
+                vel_z_command = 0.0
+                self._last_vel_z_command = 0.0
                 logger.debug("Altitude control disabled, vel_z = 0")
             
             # === APPLY COMMANDS USING SCHEMA-AWARE METHODS ===
@@ -341,12 +366,22 @@ class MCVelocityPositionFollower(BaseFollower):
         try:
             # Get current altitude for safety checks
             current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)
-            
+
+            # Safety check: Ensure altitude data is available
+            if current_altitude is None:
+                logger.warning("Unable to get current altitude - halting altitude control for safety")
+                return 0.0
+
             # Check minimum altitude safety limit
             if (current_altitude <= self.min_descent_height and altitude_error < 0):
                 logger.warning(f"Altitude safety limit reached: {current_altitude:.1f}m <= {self.min_descent_height:.1f}m")
                 return 0.0  # Stop descent
-            
+
+            # Check maximum altitude safety limit
+            if (current_altitude >= self.max_climb_height and altitude_error > 0):
+                logger.warning(f"Altitude safety: Current {current_altitude:.1f}m at maximum, preventing climb")
+                return 0.0  # Stop climb
+
             # Calculate PID output
             vel_z_raw = self.pid_z(altitude_error)
             

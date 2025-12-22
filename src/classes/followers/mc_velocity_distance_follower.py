@@ -368,7 +368,9 @@ class MCVelocityDistanceFollower(BaseFollower):
             from math import degrees
             vel_body_fwd = 0.0
             vel_body_right = vel_y
-            vel_body_down = -vel_z  # body down positive
+            # Altitude sign convention: _control_altitude_bidirectional() returns positive=down, negative=up
+            # This matches NED/body frame convention directly - no negation needed
+            vel_body_down = vel_z
             yawspeed_deg_s = degrees(yaw_rate)
 
             success_x = self.set_command_field('vel_body_fwd', vel_body_fwd)

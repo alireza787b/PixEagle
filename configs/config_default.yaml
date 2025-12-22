@@ -1172,8 +1172,20 @@ MC_VELOCITY_CHASE:
   TARGET_LOSS_COORDINATE_THRESHOLD: 990   # Configurable threshold for lost target detection
 
   # === Control Enablement ===
-  ENABLE_ALTITUDE_CONTROL: false           # Enable down velocity control
-  
+  #
+  # ⚠️ ALTITUDE CONTROL BEHAVIOR:
+  # - ENABLE_ALTITUDE_CONTROL: Controls whether follower CALCULATES altitude commands
+  #   * true: Actively tracks target in 3D space (follows target up/down)
+  #   * false: Altitude commands remain 0, drone maintains current altitude
+  #
+  # For SITL/Flight Testing:
+  #   Set ENABLE_ALTITUDE_CONTROL: true (to chase target in 3D)
+  #
+  # For Ground Testing:
+  #   ENABLE_ALTITUDE_CONTROL: false (keeps altitude at 0 - safe for ground)
+  #
+  ENABLE_ALTITUDE_CONTROL: false           # Disabled by default for ground testing
+
   # === 🧭 LATERAL GUIDANCE MODES ===
   # Two guidance strategies for lateral target tracking:
   # - sideslip: Direct lateral velocity (v_right ≠ 0, yaw_rate = 0)
@@ -1185,6 +1197,22 @@ MC_VELOCITY_CHASE:
   ENABLE_AUTO_MODE_SWITCHING: false          # Auto-switch based on forward velocity
   
   # === 🛡️ ALTITUDE SAFETY (Overrides global SafetyLimits) ===
+  #
+  # ⚠️ IMPORTANT - Two Different Altitude Flags:
+  #
+  # 1. ENABLE_ALTITUDE_CONTROL (above) - Controls altitude COMMAND generation
+  #    - false: Follower never sends altitude commands (vel_down = 0 always)
+  #    - true: Follower calculates and sends altitude commands
+  #
+  # 2. ALTITUDE_SAFETY_ENABLED (below) - Controls altitude LIMIT enforcement
+  #    - false: No altitude boundary checks (useful for ground testing)
+  #    - true: Enforces MIN_ALTITUDE/MAX_ALTITUDE bounds, triggers RTL on violation
+  #
+  # Typical Configurations:
+  # - Ground Testing: ENABLE_ALTITUDE_CONTROL=false, ALTITUDE_SAFETY_ENABLED=false
+  # - SITL Testing: ENABLE_ALTITUDE_CONTROL=true, ALTITUDE_SAFETY_ENABLED=true
+  # - Flight Testing: ENABLE_ALTITUDE_CONTROL=true, ALTITUDE_SAFETY_ENABLED=true
+  #
   # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE
   ALTITUDE_SAFETY_ENABLED: false          # ⚠️ Disabled by default for ground testing (enable for flights)
   MIN_ALTITUDE: 5.0                       # Override: stricter minimum altitude (meters)
@@ -1290,7 +1318,19 @@ MC_VELOCITY_CHASE:
 # ==============================================================================
 MC_VELOCITY_POSITION:
   # === Control Enablement ===
-  ENABLE_ALTITUDE_CONTROL: false           # Enable vel_z control
+  #
+  # ⚠️ ALTITUDE CONTROL BEHAVIOR:
+  # - ENABLE_ALTITUDE_CONTROL: Controls whether follower CALCULATES altitude commands
+  #   * true: Actively maintains target altitude during tracking (tracks initial Z position)
+  #   * false: Altitude commands remain 0, drone maintains current altitude
+  #
+  # For SITL/Flight Testing:
+  #   Set ENABLE_ALTITUDE_CONTROL: true (to actively follow target altitude)
+  #
+  # For Ground Testing:
+  #   ENABLE_ALTITUDE_CONTROL: false (keeps altitude at 0 - safe for ground)
+  #
+  ENABLE_ALTITUDE_CONTROL: false           # Disabled by default for ground testing
   ENABLE_YAW_CONTROL: true                # Always enabled for this mode
 
   # === Altitude Parameters (Uses unified naming, inherits from SafetyLimits) ===
@@ -1313,8 +1353,20 @@ MC_VELOCITY_POSITION:
 # ==============================================================================
 MC_VELOCITY_DISTANCE:
   # === Control Enablement ===
+  #
+  # ⚠️ ALTITUDE CONTROL BEHAVIOR:
+  # - ENABLE_ALTITUDE_CONTROL: Controls whether follower CALCULATES altitude commands
+  #   * true: Actively maintains constant vertical distance from target
+  #   * false: Altitude commands remain 0, drone maintains current altitude
+  #
+  # For SITL/Flight Testing:
+  #   Set ENABLE_ALTITUDE_CONTROL: true (to maintain vertical distance)
+  #
+  # For Ground Testing:
+  #   ENABLE_ALTITUDE_CONTROL: false (keeps altitude at 0 - safe for ground)
+  #
   ENABLE_YAW_CONTROL: false              # Enable yaw rate control for target centering
-  ENABLE_ALTITUDE_CONTROL: false          # Enable bidirectional altitude control
+  ENABLE_ALTITUDE_CONTROL: false          # Disabled by default for ground testing
 
   # === Altitude Parameters (Uses unified naming, inherits from SafetyLimits) ===
   # MIN_ALTITUDE: 3.0                    # Override global minimum altitude (meters)
