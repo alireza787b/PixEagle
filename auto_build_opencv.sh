@@ -36,7 +36,7 @@ VENV_DIR="$SCRIPT_DIR/venv"
 OPENCV_VERSION="4.9.0"
 REQUIRED_DISK_GB=10
 REQUIRED_RAM_GB=4
-VERSION="2.0.0"
+VERSION="2.1.0"
 
 # Source shared functions (colors, logging, banner)
 source "$SCRIPT_DIR/scripts/common.sh"
@@ -129,6 +129,7 @@ parse_args() {
 }
 
 SKIP_CONFIRM=false
+LOW_RAM_MODE=false
 
 # ============================================================================
 # Sudo Password Prompt
@@ -184,11 +185,30 @@ check_prerequisites() {
     # Check RAM
     local total_ram_gb
     total_ram_gb=$(free -g 2>/dev/null | awk '/^Mem:/ {print $2}')
+    local total_ram_mb
+    total_ram_mb=$(free -m 2>/dev/null | awk '/^Mem:/ {print $2}')
+
+    # Check swap
+    local swap_mb
+    swap_mb=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')
+
     if [[ -n "$total_ram_gb" ]] && [[ "$total_ram_gb" -lt "$REQUIRED_RAM_GB" ]]; then
-        log_warn "Low RAM: ${total_ram_gb}GB (${REQUIRED_RAM_GB}GB+ recommended)"
-        log_detail "Build may be slow or fail. Consider using -j1 for make."
+        log_warn "Low RAM: ${total_ram_mb}MB (${REQUIRED_RAM_GB}GB+ recommended)"
+        LOW_RAM_MODE=true
+
+        # Check if we have enough swap
+        local total_memory_mb=$((total_ram_mb + swap_mb))
+        if [[ $total_memory_mb -lt 3000 ]]; then
+            log_warn "Total memory (RAM+Swap): ${total_memory_mb}MB"
+            log_detail "Will use single-threaded build (-j1) to prevent OOM"
+            log_detail "Consider adding swap: sudo dphys-swapfile swapoff && sudo sed -i 's/CONF_SWAPSIZE=.*/CONF_SWAPSIZE=2048/' /etc/dphys-swapfile && sudo dphys-swapfile setup && sudo dphys-swapfile swapon"
+        else
+            log_info "Swap available: ${swap_mb}MB (total: ${total_memory_mb}MB)"
+            log_detail "Will use limited parallelism (-j2) for build"
+        fi
     else
         log_success "RAM: ${total_ram_gb}GB available"
+        LOW_RAM_MODE=false
     fi
 
     # Check PixEagle venv
@@ -257,45 +277,102 @@ install_dependencies() {
         log_warn "apt update had warnings (continuing)"
     fi
 
-    local packages=(
+    # Core build packages (always needed)
+    local core_packages=(
         build-essential
         cmake
         git
         pkg-config
-        libgtk2.0-dev
+        python3-dev
+    )
+
+    # GStreamer packages
+    local gstreamer_packages=(
         libgstreamer1.0-dev
         libgstreamer-plugins-base1.0-dev
         gstreamer1.0-tools
         gstreamer1.0-libav
-        gstreamer1.0-gl
-        gstreamer1.0-gtk3
         gstreamer1.0-plugins-good
         gstreamer1.0-plugins-bad
         gstreamer1.0-plugins-ugly
+    )
+
+    # Optional GStreamer packages (may not exist on all distros)
+    local optional_gstreamer=(
+        gstreamer1.0-gl
+        gstreamer1.0-gtk3
+    )
+
+    # Video/Image libraries
+    local media_packages=(
         libavcodec-dev
         libavformat-dev
         libswscale-dev
         libv4l-dev
-        libxvidcore-dev
-        libx264-dev
         libjpeg-dev
         libpng-dev
         libtiff-dev
-        libatlas-base-dev
-        gfortran
-        python3-dev
     )
 
-    start_spinner "Installing ${#packages[@]} packages..."
-    if sudo apt-get install -y "${packages[@]}" >/dev/null 2>&1; then
-        stop_spinner
-        log_success "${#packages[@]} packages installed"
-    else
-        stop_spinner
-        log_error "Package installation failed"
-        log_detail "Try: sudo apt-get install ${packages[*]}"
+    # Optional media packages (may not exist on all distros)
+    local optional_media=(
+        libxvidcore-dev
+        libx264-dev
+    )
+
+    # GUI packages
+    local gui_packages=(
+        libgtk2.0-dev
+    )
+
+    # Math packages
+    local math_packages=(
+        libatlas-base-dev
+        gfortran
+    )
+
+    # Install core packages first (required)
+    log_info "Installing core build packages..."
+    if ! sudo apt-get install -y "${core_packages[@]}" 2>&1 | tail -5; then
+        log_error "Failed to install core packages"
         exit 1
     fi
+    log_success "Core packages installed"
+
+    # Install GStreamer packages (required for our use case)
+    log_info "Installing GStreamer packages..."
+    if ! sudo apt-get install -y "${gstreamer_packages[@]}" 2>&1 | tail -5; then
+        log_error "Failed to install GStreamer packages"
+        exit 1
+    fi
+    log_success "GStreamer packages installed"
+
+    # Install optional GStreamer (ignore errors)
+    log_info "Installing optional GStreamer packages..."
+    for pkg in "${optional_gstreamer[@]}"; do
+        sudo apt-get install -y "$pkg" >/dev/null 2>&1 || log_warn "Optional package $pkg not available (OK)"
+    done
+
+    # Install media packages
+    log_info "Installing media/video packages..."
+    if ! sudo apt-get install -y "${media_packages[@]}" 2>&1 | tail -5; then
+        log_warn "Some media packages failed (continuing)"
+    fi
+
+    # Install optional media (ignore errors)
+    for pkg in "${optional_media[@]}"; do
+        sudo apt-get install -y "$pkg" >/dev/null 2>&1 || log_warn "Optional package $pkg not available (OK)"
+    done
+
+    # Install GUI packages
+    log_info "Installing GUI packages..."
+    sudo apt-get install -y "${gui_packages[@]}" >/dev/null 2>&1 || log_warn "GUI packages may be missing"
+
+    # Install math packages
+    log_info "Installing math packages..."
+    sudo apt-get install -y "${math_packages[@]}" >/dev/null 2>&1 || log_warn "Math packages may be missing"
+
+    log_success "System dependencies installed"
 }
 
 # ============================================================================
@@ -383,11 +460,24 @@ setup_python_env() {
     source "$VENV_DIR/bin/activate"
     log_success "Activated PixEagle virtual environment"
 
-    # Uninstall pip opencv packages to avoid conflicts
-    start_spinner "Removing pip OpenCV packages..."
+    # Uninstall ALL pip opencv packages to avoid conflicts
+    log_info "Removing any existing OpenCV installations..."
     "$VENV_DIR/bin/pip" uninstall -y opencv-python opencv-contrib-python opencv-python-headless 2>/dev/null || true
-    stop_spinner
-    log_success "Removed conflicting pip packages"
+
+    # Remove any leftover cv2 directories in site-packages (thorough cleanup)
+    local site_packages
+    site_packages=$("$VENV_DIR/bin/python" -c "import site; print(site.getsitepackages()[0])" 2>/dev/null || echo "$VENV_DIR/lib/python3/site-packages")
+
+    if [[ -d "$site_packages/cv2" ]]; then
+        log_info "Removing leftover cv2 directory..."
+        rm -rf "$site_packages/cv2"
+    fi
+
+    # Also check for opencv*.dist-info directories
+    rm -rf "$site_packages"/opencv*.dist-info 2>/dev/null || true
+    rm -rf "$site_packages"/opencv*.egg-info 2>/dev/null || true
+
+    log_success "Cleaned up old OpenCV installations"
 
     # Install numpy if needed
     if ! "$VENV_DIR/bin/python" -c "import numpy" 2>/dev/null; then
@@ -395,6 +485,8 @@ setup_python_env() {
         "$VENV_DIR/bin/pip" install numpy -q
         stop_spinner
         log_success "Installed numpy"
+    else
+        log_success "numpy already installed"
     fi
 }
 
@@ -473,7 +565,28 @@ compile_opencv() {
     local cpu_cores
     cpu_cores=$(nproc 2>/dev/null || echo "1")
 
-    log_info "Using ${cpu_cores} CPU cores for parallel build"
+    # Adjust parallelism for low RAM systems
+    local make_jobs
+    if [[ "$LOW_RAM_MODE" == true ]]; then
+        local total_ram_mb
+        total_ram_mb=$(free -m 2>/dev/null | awk '/^Mem:/ {print $2}')
+        local swap_mb
+        swap_mb=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')
+        local total_memory_mb=$((total_ram_mb + swap_mb))
+
+        if [[ $total_memory_mb -lt 3000 ]]; then
+            make_jobs=1
+            log_warn "Using single-threaded build (-j1) due to low memory"
+            log_info "This will be SLOW but should complete without OOM errors"
+        else
+            make_jobs=2
+            log_info "Using limited parallelism (-j2) for low RAM system"
+        fi
+    else
+        make_jobs="$cpu_cores"
+        log_info "Using ${make_jobs} CPU cores for parallel build"
+    fi
+
     log_info "Go grab a coffee... ${VIDEO}"
     echo ""
 
@@ -483,8 +596,8 @@ compile_opencv() {
 
     echo -e "        ${CYAN}Build progress:${NC}"
 
-    # Compile
-    if make -j"$cpu_cores" 2>&1 | while IFS= read -r line; do
+    # Compile with appropriate parallelism
+    if make -j"$make_jobs" 2>&1 | while IFS= read -r line; do
         # Parse make output for progress
         if [[ "$line" =~ ^\[\ *([0-9]+)%\] ]]; then
             local percent="${BASH_REMATCH[1]}"
@@ -497,6 +610,7 @@ compile_opencv() {
         echo ""
         log_error "Compilation failed"
         log_detail "Check build output for errors"
+        log_detail "If OOM killed, try adding more swap or use -j1"
         exit 1
     fi
 
