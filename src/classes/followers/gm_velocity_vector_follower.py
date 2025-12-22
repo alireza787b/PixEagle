@@ -119,7 +119,7 @@ class GMVelocityVectorFollower(BaseFollower):
             px4_controller: PX4 interface for drone control
             initial_target_coords: Initial target coordinates (required by factory interface)
         """
-        self.setpoint_profile = "gimbal_vector_body"
+        self.setpoint_profile = "gm_velocity_vector"
         self.follower_name = "GMVelocityVectorFollower"
         self.initial_target_coords = initial_target_coords
 
