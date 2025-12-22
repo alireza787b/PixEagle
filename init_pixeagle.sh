@@ -271,6 +271,15 @@ create_venv() {
 # ============================================================================
 # Python Dependencies (Step 4)
 # ============================================================================
+
+# Check if OpenCV has GStreamer support (custom build)
+check_opencv_gstreamer() {
+    if venv/bin/python -c "import cv2; print(cv2.getBuildInformation())" 2>/dev/null | grep -q "GStreamer:.*YES"; then
+        return 0  # Has GStreamer
+    fi
+    return 1  # No GStreamer or no cv2
+}
+
 install_python_deps() {
     log_step 4 "Installing Python dependencies..."
 
@@ -285,6 +294,25 @@ install_python_deps() {
     log_warn "Large packages (ultralytics, torch, opencv) may take several minutes"
     echo ""
 
+    # Check for existing custom OpenCV with GStreamer before pip install
+    local SKIP_OPENCV=false
+    if check_opencv_gstreamer; then
+        echo ""
+        log_warn "Custom OpenCV with GStreamer support detected!"
+        log_detail "pip install will OVERWRITE this with standard opencv-python (no GStreamer)"
+        log_detail "You'll lose RTSP/GStreamer camera support if you proceed"
+        echo ""
+        echo -en "        ${YELLOW}Overwrite custom OpenCV? [y/N]:${NC} "
+        read -r REPLY
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log_info "Preserving custom OpenCV build (skipping opencv packages)"
+            SKIP_OPENCV=true
+        else
+            log_info "Will install pip opencv (GStreamer support will be lost)"
+        fi
+        echo ""
+    fi
+
     # Upgrade pip first
     echo -e "        ${DIM}Upgrading pip...${NC}"
     venv/bin/pip install --upgrade pip -q 2>&1 || true
@@ -293,8 +321,17 @@ install_python_deps() {
     echo -e "        ${CYAN}Installing packages:${NC}"
     local install_failed=0
 
+    # Prepare requirements file (optionally excluding opencv)
+    local req_file="requirements.txt"
+    if [[ "$SKIP_OPENCV" == true ]]; then
+        # Create temp file without opencv packages
+        req_file=$(mktemp)
+        grep -v -i "opencv" requirements.txt > "$req_file"
+        log_info "Installing without opencv packages"
+    fi
+
     # Run pip and parse output line by line
-    venv/bin/pip install -r requirements.txt 2>&1 | while IFS= read -r line; do
+    venv/bin/pip install -r "$req_file" 2>&1 | while IFS= read -r line; do
         # Parse pip output for package names
         if [[ "$line" =~ ^Collecting\ (.+) ]]; then
             local pkg="${BASH_REMATCH[1]}"
@@ -312,6 +349,11 @@ install_python_deps() {
         fi
     done
 
+    # Clean up temp file if created
+    if [[ "$SKIP_OPENCV" == true ]] && [[ "$req_file" != "requirements.txt" ]]; then
+        rm -f "$req_file"
+    fi
+
     # Check if pip succeeded
     # Re-run pip in check mode to verify installation
     if ! venv/bin/pip check >/dev/null 2>&1; then
@@ -321,10 +363,19 @@ install_python_deps() {
 
     # Verify key packages are installed
     if venv/bin/python -c "import cv2; import numpy" 2>/dev/null; then
-        log_success "${total_packages} packages installed successfully"
+        if [[ "$SKIP_OPENCV" == true ]]; then
+            log_success "Packages installed (preserved custom OpenCV with GStreamer)"
+        else
+            log_success "${total_packages} packages installed successfully"
+        fi
     else
-        log_error "Core packages (opencv, numpy) not installed correctly"
-        log_detail "Try manually: source venv/bin/activate && pip install -r requirements.txt"
+        if [[ "$SKIP_OPENCV" == true ]]; then
+            log_error "numpy not installed correctly"
+            log_detail "Custom OpenCV should still be available"
+        else
+            log_error "Core packages (opencv, numpy) not installed correctly"
+            log_detail "Try manually: source venv/bin/activate && pip install -r requirements.txt"
+        fi
         deactivate
         exit 1
     fi
