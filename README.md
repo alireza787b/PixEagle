@@ -134,7 +134,7 @@ Make sure your system meets the following requirements before installing PixEagl
 - **Operating System:**  
   - Linux (🟢 Recommended for all use cases)  
   - Windows (🟡 Supported only for simulation/SITL testing via X-Plane + WSL)  
-    → [X-Plane SITL Guide](https://github.com/alireza787b/PixEagle/blob/smart-param/Follow_Mode_Xplane_Guide.md)
+    → [X-Plane SITL Guide](https://github.com/alireza787b/PixEagle/blob/main/Follow_Mode_Xplane_Guide.md)
 
 - **Python:** 3.9 or higher
 - **Virtual Environment Tool:** `venv` (auto-installed by init script)
@@ -826,8 +826,8 @@ To run on Windows, use **WSL** (Windows Subsystem for Linux) or adapt the comman
 - **📁 PixEagle GitHub Repository:**  
   [https://github.com/alireza787b/PixEagle](https://github.com/alireza787b/PixEagle)
   
-- **📄 X-Plane SITL Instructions:**  
-  [Follow Mode Xplane Guide](https://github.com/alireza787b/PixEagle/blob/smart-param/Follow_Mode_Xplane_Guide.md)
+- **📄 X-Plane SITL Instructions:**
+  [Follow Mode Xplane Guide](https://github.com/alireza787b/PixEagle/blob/main/Follow_Mode_Xplane_Guide.md)
   
 - **📂 PX4Xplane Repository:**  
   [https://github.com/alireza787b/px4xplane](https://github.com/alireza787b/px4xplane)

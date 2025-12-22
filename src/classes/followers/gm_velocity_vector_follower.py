@@ -1,4 +1,4 @@
-# src/classes/followers/gimbal_vector_body_follower.py
+# src/classes/followers/gm_velocity_vector_follower.py
 
 """
 GMVelocityVectorFollower - Direct Vector Pursuit Control

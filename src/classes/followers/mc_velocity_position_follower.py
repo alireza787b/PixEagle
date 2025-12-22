@@ -141,7 +141,7 @@ class MCVelocityPositionFollower(BaseFollower):
         # Initialize PID controllers
         try:
             self._initialize_pid_controllers()
-            self.update_telemetry_metadata('control_mode', 'constant_position')
+            self.update_telemetry_metadata('control_mode', 'mc_velocity_position')
             self.update_telemetry_metadata('yaw_enabled', self.yaw_control_enabled)
             self.update_telemetry_metadata('altitude_enabled', self.altitude_control_enabled)
             

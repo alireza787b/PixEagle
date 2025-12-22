@@ -27,6 +27,7 @@ numpy == 1.26.4
 pandas
 scipy # Includes modules for optimization, linear algebra, integration, and more
 scikit-learn
+scikit-image
 
 # For implementing PID controllers
 simple-pid
@@ -43,15 +44,8 @@ ipython
 pytest # For testing
 
 
-scikit-image
-
-
 fastapi
 uvicorn
 aiortc
 pyyaml
-
-scikit-image
-
-
 pymap3d

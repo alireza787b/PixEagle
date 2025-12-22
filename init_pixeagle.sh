@@ -599,7 +599,7 @@ setup_configs() {
 # MAVSDK Server Setup (Step 8)
 # ============================================================================
 setup_mavsdk_server() {
-    log_step 8 $TOTAL_STEPS "Setting Up MAVSDK Server"
+    log_step 8 "Setting up MAVSDK Server..."
 
     local mavsdk_binary="$SCRIPT_DIR/mavsdk_server_bin"
     local download_script="$SCRIPT_DIR/src/tools/download_mavsdk_server.sh"
@@ -645,7 +645,7 @@ setup_mavsdk_server() {
 # MAVLink2REST Server Setup (Step 9)
 # ============================================================================
 setup_mavlink2rest() {
-    log_step 9 $TOTAL_STEPS "Setting Up MAVLink2REST Server"
+    log_step 9 "Setting up MAVLink2REST Server..."
 
     local mavlink2rest_binary="$SCRIPT_DIR/mavlink2rest"
     local download_script="$SCRIPT_DIR/src/tools/download_mavlink2rest.sh"

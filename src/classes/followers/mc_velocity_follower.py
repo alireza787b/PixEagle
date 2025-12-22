@@ -1,4 +1,4 @@
-# src/classes/followers/multicopter_follower.py
+# src/classes/followers/mc_velocity_follower.py
 """
 Multicopter Target Follower Module - Professional Dual-Mode Guidance
 ====================================================================
@@ -126,8 +126,8 @@ class MCVelocityFollower(BaseFollower):
             ValueError: If initial coordinates are invalid or schema initialization fails.
             RuntimeError: If PID controller initialization fails.
         """
-        # Initialize with Multicopter profile for offboard velocity control
-        super().__init__(px4_controller, "Multicopter Follower")
+        # Initialize with mc_velocity profile for offboard velocity control
+        super().__init__(px4_controller, "mc_velocity")
 
         # Validate and store initial target coordinates
         if not self.validate_target_coordinates(initial_target_coords):

@@ -1,4 +1,4 @@
-# src/classes/followers/multicopter_attitude_rate_follower.py
+# src/classes/followers/mc_attitude_rate_follower.py
 """
 Multicopter Attitude Rate Follower Module
 ==========================================
@@ -109,8 +109,8 @@ class MCAttitudeRateFollower(BaseFollower):
             ValueError: If initial coordinates are invalid or initialization fails.
             RuntimeError: If PID controller initialization fails.
         """
-        # Initialize with attitude_rate profile
-        super().__init__(px4_controller, "multicopter_attitude_rate")
+        # Initialize with mc_attitude_rate profile
+        super().__init__(px4_controller, "mc_attitude_rate")
 
         # Validate and store initial target coordinates
         if not self.validate_target_coordinates(initial_target_coords):

@@ -1,4 +1,4 @@
-# src/classes/followers/fixed_wing_follower.py
+# src/classes/followers/fw_attitude_rate_follower.py
 """
 Fixed-Wing Follower Module
 ==========================
@@ -114,8 +114,8 @@ class FWAttitudeRateFollower(BaseFollower):
         Raises:
             ValueError: If initial coordinates are invalid or configuration fails.
         """
-        # Initialize with fixed_wing profile for attitude rate control
-        super().__init__(px4_controller, "fixed_wing")
+        # Initialize with fw_attitude_rate profile for attitude rate control
+        super().__init__(px4_controller, "fw_attitude_rate")
 
         # Validate and store initial target coordinates
         if not self.validate_target_coordinates(initial_target_coords):

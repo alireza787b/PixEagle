@@ -1,4 +1,4 @@
-# src/classes/followers/gimbal_follower.py
+# src/classes/followers/gm_velocity_unified_follower.py
 
 """
 GMVelocityUnifiedFollower Module - Clean Architecture Implementation
@@ -86,7 +86,7 @@ class GMVelocityUnifiedFollower(BaseFollower):
             px4_controller: PX4 interface for drone control
             initial_target_coords: Initial target coordinates (required by factory interface)
         """
-        self.setpoint_profile = "gimbal_unified"  # GMVelocityUnifiedFollower always uses gimbal_unified profile
+        self.setpoint_profile = "gm_velocity_unified"  # GMVelocityUnifiedFollower always uses gm_velocity_unified profile
         self.follower_name = "GMVelocityUnifiedFollower"
         self.initial_target_coords = initial_target_coords
 

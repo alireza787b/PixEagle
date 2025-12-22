@@ -224,7 +224,7 @@ class MCVelocityChaseFollower(BaseFollower):
         
         # Update telemetry metadata
         self.update_telemetry_metadata('controller_type', 'velocity_body_offboard')
-        self.update_telemetry_metadata('control_strategy', 'body_velocity_chase_dual_mode')
+        self.update_telemetry_metadata('control_strategy', 'mc_velocity_chase')
         self.update_telemetry_metadata('lateral_guidance_modes', ['sideslip', 'coordinated_turn'])
         self.update_telemetry_metadata('active_lateral_mode', self.active_lateral_mode)
         self.update_telemetry_metadata('safety_features', [

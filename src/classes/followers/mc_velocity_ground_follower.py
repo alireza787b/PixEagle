@@ -1,4 +1,4 @@
-# src/classes/followers/ground_target_follower.py
+# src/classes/followers/mc_velocity_ground_follower.py
 """
 Ground Target Follower Module
 ============================
@@ -83,8 +83,8 @@ class MCVelocityGroundFollower(BaseFollower):
             - 'initial': Uses provided initial_target_coords as setpoints
             - 'center': Uses (0, 0) as setpoints for center tracking
         """
-        # Initialize with Ground View profile for full velocity control
-        super().__init__(px4_controller, "Ground View")
+        # Initialize with mc_velocity_ground profile for full velocity control
+        super().__init__(px4_controller, "mc_velocity_ground")
         
         # Get configuration section
         config = getattr(Parameters, 'MC_VELOCITY_GROUND', {})
