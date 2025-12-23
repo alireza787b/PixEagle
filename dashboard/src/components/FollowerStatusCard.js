@@ -122,9 +122,9 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
       ];
     } else if (controlType === 'attitude_rate') {
       fieldDefinitions = [
-        { name: 'roll_rate', icon: <Rotate90DegreesCcw fontSize="small" />, color: '#F44336', unit: 'rad/s' },
-        { name: 'pitch_rate', icon: <Rotate90DegreesCcw fontSize="small" />, color: '#2196F3', unit: 'rad/s' },
-        { name: 'yaw_rate', icon: <Rotate90DegreesCcw fontSize="small" />, color: '#9C27B0', unit: 'rad/s' },
+        { name: 'rollspeed_deg_s', icon: <Rotate90DegreesCcw fontSize="small" />, color: '#F44336', unit: '°/s' },
+        { name: 'pitchspeed_deg_s', icon: <Rotate90DegreesCcw fontSize="small" />, color: '#2196F3', unit: '°/s' },
+        { name: 'yawspeed_deg_s', icon: <Rotate90DegreesCcw fontSize="small" />, color: '#9C27B0', unit: '°/s' },
         { name: 'thrust', icon: <FlightTakeoff fontSize="small" />, color: '#FF5722', unit: '' }
       ];
     }
