@@ -1,9 +1,15 @@
 # ==============================================================================
-# PixEagle Configuration File - v2.0 (GIMBAL CAMERA PRESET)
+# PixEagle Configuration File - Gimbal Testing Profile
 # ==============================================================================
-# 📋 GIMBAL PRESET: RTSP stream from gimbal camera, Gimbal tracker
-# 🔧 This preset is identical to config_default.yaml except for camera/tracker
-# 📘 Changes: VIDEO_SOURCE_TYPE, USE_GSTREAMER, RTSP_URL, TRACKING, FOLLOWER_MODE
+# GIMBAL TESTING - For SIP gimbal tracker + GM_VELOCITY_VECTOR follower
+#    - Video: RTSP from gimbal camera (192.168.144.110)
+#    - Tracker: Gimbal (external SIP gimbal system)
+#    - Follower: gm_velocity_vector (direct vector pursuit)
+#    - Velocities: Very slow (0.3 m/s max) for safe testing
+#    - Altitude control: ENABLED for 3D pursuit
+#
+# USAGE: Copy this file to config.yaml on the flight device
+# TESTING ORDER: Gimbal tracker -> gm_velocity_unified -> USB + mc_velocity_chase
 # ==============================================================================
 
 
@@ -25,7 +31,7 @@ VideoSource:
   DEFAULT_FPS: 30            # Fallback if source doesn't report FPS
   
   # === Performance Optimization ===
-  # 🚀 Enable for Raspberry Pi, Jetson, or low-power systems
+  # Enable for Raspberry Pi, Jetson, or low-power systems
   USE_GSTREAMER: true        # true = Use GStreamer pipelines (better for embedded)
   
   # === Source-Specific Parameters ===
@@ -35,7 +41,7 @@ VideoSource:
   # USB Camera (webcam)
   CAMERA_INDEX: 0            # 0=first camera, 1=second, etc.
   
-  # Network streams
+  # Network streams - Gimbal camera
   RTSP_URL: rtsp://192.168.144.110:554/stream=0
 
   # RTSP Protocol Settings
@@ -54,8 +60,8 @@ VideoSource:
   #   - 0: Minimum latency (may cause decoding errors, not recommended)
   RTSP_LATENCY: 200
 
-  UDP_URL: udp://172.21.144.1:5000
-  HTTP_URL: http://172.21.144.1:8100
+  UDP_URL: udp://192.168.144.110:5000
+  HTTP_URL: http://192.168.144.110:8100
   
   # CSI Camera (Raspberry Pi/Jetson camera)
   CSI_SENSOR_ID: 0          # Usually 0 for first CSI port
@@ -212,6 +218,7 @@ Tracking:
   # CSRT: Best for drone circling, rotation, perspective changes (15-20 FPS, 85% accuracy)
   # KCF:  Fast alternative for high-speed scenarios (25-30 FPS, 75% accuracy)
   # dlib: Very fast correlation filter with PSR confidence (25-30 FPS, 85% accuracy)
+  # Gimbal: External SIP gimbal system (receives tracking from camera UI)
   DEFAULT_TRACKING_ALGORITHM: Gimbal
 
   # === Global Visualization ===
@@ -230,7 +237,10 @@ Tracking:
   APPEARANCE_CONFIDENCE_THRESHOLD: 0.5
   MOTION_CONFIDENCE_WEIGHT: 0.5
   APPEARANCE_CONFIDENCE_WEIGHT: 0.5
-  CSRT_APPEARANCE_LEARNING_RATE: 0.05      # ⚠️ Deprecated: See CSRT_Tracker section
+  CSRT_APPEARANCE_LEARNING_RATE: 0.05      # Deprecated: See CSRT_Tracker section
+
+  # Motion consistency threshold for base tracker
+  MOTION_CONFIDENCE_THRESHOLD: 0.7         # Minimum confidence from motion consistency check
   
   # === Particle Filter Parameters (if using) ===
   PF_NUM_PARTICLES: 500                    # More = accurate but slower
@@ -251,6 +261,23 @@ Tracking:
 
   # === Target Aim Point ===
   DESIRE_AIM: [0, 0]                       # Desired aim point in frame [x, y] (normalized)
+
+# ==============================================================================
+# TRACKER SAFETY PARAMETERS (Global Settings)
+# ==============================================================================
+# Applied to ALL trackers for edge-case handling and robustness
+TrackerSafety:
+  # Boundary detection margin (pixels from frame edge)
+  # Used to detect when target is near edge (causes filter corruption)
+  BOUNDARY_MARGIN_PIXELS: 15             # Distance threshold for "near boundary" detection
+                                         # Research: 10-20px margin recommended for 640x480
+
+  # Confidence penalty for boundary targets
+  ENABLE_BOUNDARY_PENALTY: true          # Apply confidence penalty near frame edges
+  BOUNDARY_PENALTY_MIN: 0.5              # Minimum confidence multiplier at edge (0.0-1.0)
+
+# Global boundary margin (for backward compatibility)
+BOUNDARY_MARGIN_PIXELS: 15               # Global access for base_tracker.py
 
 # ==============================================================================
 # 🎯 KCF TRACKER CONFIGURATION (Kernelized Correlation Filter + Kalman)
@@ -301,6 +328,32 @@ KCF_Tracker:
                                          # Research: 0.15-0.25 optimal for KCF aerial tracking
                                          # Higher = faster adaptation (compensates for rotation)
                                          # ✅ TUNED: 0.18 (aggressive) for rotation tolerance
+
+  # === Internal Kalman Filter Parameters ===
+  # These control the internal 4D Kalman filter (state: x, y, vx, vy)
+  kalman_process_noise: 0.1              # Process noise (Q matrix multiplier)
+                                         # Lower = trust motion model more, higher = trust measurements
+  kalman_velocity_noise_factor: 0.5      # Velocity noise relative to position noise
+                                         # Lower = smoother velocity estimates
+  kalman_measurement_noise: 5.0          # Measurement noise (R matrix, ~pixels)
+                                         # Typical sensor uncertainty in pixels
+  kalman_initial_covariance: 10.0        # Initial state covariance (P matrix)
+                                         # Higher = less confident in initial state
+
+  # === Motion Consistency Threshold (Research-Optimized) ===
+  motion_consistency_threshold: 0.15     # Max motion as fraction of frame diagonal
+                                         # Research: 0.7 (1541px on 640x480) is 6x too permissive
+                                         # ✅ TUNED: 0.15 (~120px) for accurate frame-to-frame validation
+
+  # === Velocity-Based Occlusion Recovery ===
+  use_velocity_during_occlusion: true    # Use Kalman velocity for position extrapolation
+                                         # Improves recovery accuracy by 15-25%
+  occlusion_velocity_factor: 0.5         # Conservative extrapolation (50% of velocity)
+                                         # Prevents overshooting during occlusion
+
+  # === Asymmetric Kalman Initial Covariance ===
+  kalman_initial_position_covariance: 10.0   # Position: high confidence (known)
+  kalman_initial_velocity_covariance: 100.0  # Velocity: low confidence (unknown at start)
 
   # === Research-Based Tuning Presets ===
   # 🏎️ HIGH-SPEED RACE CARS (Current Config - Optimized):
@@ -388,6 +441,23 @@ CSRT_Tracker:
   appearance_learning_rate: 0.10         # Adaptive learning speed (0.0-1.0)
                                          # Research: 0.08-0.15 optimal for aerial tracking
                                          # ✅ TUNED: 0.10 for gradual appearance adaptation
+
+  # === OpenCV CSRT Advanced Parameters (CVPR 2017 Research-Optimized) ===
+  # These configure the internal OpenCV CSRT algorithm for improved accuracy
+  use_color_names: true                  # ColorNames features (+5-8% accuracy for colored targets)
+  use_hog: true                          # HOG features (essential for shape-based tracking)
+  csrt_learning_rate: 0.02               # Filter learning rate (0.02 faster than default 0.015)
+  number_of_scales: 33                   # Scale pyramid levels (33 for finer scale precision)
+  scale_step: 1.02                       # Scale factor between levels (1.02 for smooth adaptation)
+  use_segmentation: true                 # Foreground/background segmentation
+
+  # === Appearance Model Drift Protection ===
+  appearance_update_min_confidence: 0.55  # Only update appearance when conf > this
+                                         # Prevents template corruption during occlusions
+
+  # === Multi-Frame Validation Consensus ===
+  enable_multiframe_validation: true     # Require N consecutive valid frames
+  validation_consensus_frames: 3         # Frames required for consensus
 
 # ==============================================================================
 # 🎯 DLIB TRACKER CONFIGURATION (dlib Correlation Filter Tracker)
@@ -567,6 +637,11 @@ DLIB_Tracker:
                                          # Should be tuned to expected max target speed
                                          # Research: Resolution-dependent, ~10-50 px/frame
                                          # ✅ TUNED: 25.0 for 640x480 @ 30fps racing scenarios
+
+    # === Velocity Normalization by Target Size ===
+    velocity_normalize_by_size: true     # Normalize velocity limit by target diagonal
+                                         # Makes validation resolution-agnostic
+    max_velocity_target_factor: 2.0      # Max velocity = N * target diagonal per frame
 
     stabilization_alpha: 0.3             # EMA smoothing for bbox position (0.0-1.0)
                                          # Reduces jitter in tracking output
@@ -780,6 +855,20 @@ SmartTracker:
   # Recommended: 5-10 frames for drone tracking
   ID_LOSS_TOLERANCE_FRAMES: 5
 
+  # === Graceful Degradation (Robustness Enhancement) ===
+  # Multi-level fallback strategy when YOLO detection fails
+  ENABLE_GRACEFUL_DEGRADATION: true      # Enable multi-level fallback chain
+  EXTENDED_TOLERANCE_FRAMES: 10          # Additional frames beyond ID_LOSS_TOLERANCE
+                                         # During this period: lenient matching + prediction-only mode
+
+  # === Track Confidence Aging ===
+  TRACK_CONFIDENCE_DECAY_RATE: 0.05      # Decay rate per frame without detection (5%)
+                                         # Old unconfirmed tracks have lower confidence
+
+  # === Appearance Model Memory Cap ===
+  MAX_LOST_OBJECTS_CACHED: 100           # Maximum objects in re-ID memory
+                                         # Prevents unbounded memory growth
+
   # === Spatial Matching ===
   # IoU threshold for matching by position when ID is lost
   # Higher = stricter matching (less false positives)
@@ -934,12 +1023,16 @@ GimbalTracker:
   ENABLED: true
 
   # Network configuration for gimbal UDP communication
-  UDP_HOST: "192.168.0.108"      # Gimbal IP address
+  UDP_HOST: "192.168.144.110"    # Gimbal IP address (camera network)
   UDP_PORT: 9003                # Gimbal UDP port
   CONNECTION_TIMEOUT: 5.0       # Connection timeout in seconds
 
+  # Data quality and recovery parameters
+  data_timeout_seconds: 5.0     # Show cached data for up to N seconds when connection lost
+  max_consecutive_failures: 10  # Warning threshold for consecutive data reception failures
+
 # Global gimbal parameters (accessed by GimbalTracker and GimbalInterface)
-GIMBAL_UDP_HOST: "192.168.0.108"      # Gimbal IP address
+GIMBAL_UDP_HOST: "192.168.144.110"    # Gimbal IP address (camera network)
 GIMBAL_LISTEN_PORT: 9004               # Port for listening to gimbal data
 GIMBAL_COORDINATE_SYSTEM: "GIMBAL_BODY"  # Coordinate system preference
 GIMBAL_DISABLE_ESTIMATOR: true         # Disable Kalman estimator for gimbal
@@ -982,6 +1075,7 @@ Follower:
   # === Following Mode ===
   # Options: mc_velocity_ground, mc_velocity_distance, mc_velocity_position, mc_velocity_chase, mc_velocity, mc_attitude_rate, fw_attitude_rate, gm_velocity_unified, gm_velocity_vector
   # Deprecated (still work): ground_view, constant_distance, constant_position, body_velocity_chase, gimbal_vector_body
+  # For gimbal testing: gm_velocity_vector (direct vector pursuit)
   FOLLOWER_MODE: gm_velocity_vector
   
   # === Visualization ===
@@ -1001,7 +1095,7 @@ Follower:
 # SAFETY FIRST: Global circuit breaker for follower testing without drone commands
 # Default: true (SAFE) - Only set to false when you explicitly want to send real commands
 FOLLOWER_CIRCUIT_BREAKER: true            # true = SAFE (log only), false = LIVE (send commands)
-CIRCUIT_BREAKER_DISABLE_SAFETY: true      # true = Skip safety checks in CB mode, false = Run all checks
+CIRCUIT_BREAKER_DISABLE_SAFETY: false     # Skip ALL safety checks in CB test mode (set true for ground testing only)
 
 
 # ==============================================================================
@@ -1016,17 +1110,18 @@ GimbalFollower:
   REQUIRED_TRACKER_FIELDS: ["angular"]     # Must have angular data from gimbal
 
   # === Velocity Control ===
-  BASE_VELOCITY: 2.0                       # Base following velocity (m/s)
-  MAX_VELOCITY: 8.0                        # Maximum velocity limit (m/s)
-  VELOCITY_RAMP_RATE: 1.0                  # Acceleration rate (m/s²)
+  # SLOW SPEEDS FOR TESTING - increase after validation
+  BASE_VELOCITY: 0.3                       # Base following velocity (m/s) - SLOW for testing
+  MAX_VELOCITY: 0.5                        # Maximum velocity limit (m/s) - SLOW for testing
+  VELOCITY_RAMP_RATE: 0.2                  # Acceleration rate (m/s²) - slow ramp
   VELOCITY_FILTER_ALPHA: 0.7               # Velocity smoothing filter coefficient (0-1)
 
   # === Forward Velocity Control System ===
   # Based on 2024 guidance control research for reliable target interception
   FORWARD_VELOCITY_MODE: "CONSTANT"        # Options: "CONSTANT", "PITCH_BASED", "PROPORTIONAL_NAV" (future)
-  BASE_FORWARD_SPEED: 2.0                  # Constant forward speed (m/s)
-  MAX_FORWARD_VELOCITY: 5.0                # Maximum forward velocity limit (m/s)
-  FORWARD_ACCELERATION: 2.0                # Ramp rate from current to target speed (m/s²)
+  BASE_FORWARD_SPEED: 0.3                  # Constant forward speed (m/s) - SLOW for testing
+  MAX_FORWARD_VELOCITY: 0.5                # Maximum forward velocity limit (m/s) - SLOW for testing
+  FORWARD_ACCELERATION: 0.2                # Ramp rate - slow for testing
 
   # === Lateral Guidance Mode ===
   LATERAL_GUIDANCE_MODE: "coordinated_turn" # Options: "coordinated_turn", "sideslip"
@@ -1039,8 +1134,8 @@ GimbalFollower:
   # === Target Loss Handling ===
   TARGET_LOSS_HANDLING:
     CONTINUE_VELOCITY_TIMEOUT: 3.0         # Continue last velocity for N seconds
-    ENABLE_RTL_ON_TIMEOUT: true            # Trigger RTL after timeout
-    RTL_ALTITUDE: 50.0                     # RTL altitude (meters)
+    ENABLE_RTL_ON_TIMEOUT: false           # Disabled - RC pilot controls, hold position
+    RTL_ALTITUDE: 50.0                     # RTL altitude (meters) - not used when disabled
 
     # === Enhanced Timeout Behaviors (PHASE 3.2) ===
     ENABLE_ADAPTIVE_TIMEOUT: true          # Adjust timeout based on target movement/confidence
@@ -1088,7 +1183,7 @@ GimbalFollower:
   SMOOTHING_FACTOR: 0.8                   # Smoothing coefficient (0-1)
 
 # ==============================================================================
-# GM_VELOCITY_VECTOR FOLLOWER CONFIGURATION
+# GIMBAL VECTOR BODY FOLLOWER CONFIGURATION
 # ==============================================================================
 # Direct vector pursuit using gimbal angles transformed to body-frame velocity
 # No PID tuning required - deterministic geometric control
@@ -1104,15 +1199,16 @@ GM_VELOCITY_VECTOR:
 
   # === Velocity Scaling (Linear Ramp) ===
   # Direct vector pursuit: gimbal angle → unit vector → scaled velocity
+  # VERY SLOW FOR TESTING - increase after validation
   MIN_VELOCITY: 0.0                      # m/s - minimum pursuit speed (prevents stalling)
-  MAX_VELOCITY: 0.5                       # m/s - maximum pursuit speed (safety limit)
-  RAMP_ACCELERATION: 0.25                  # m/s² - velocity ramp rate (smooth acceleration)
+  MAX_VELOCITY: 0.3                       # m/s - SLOW for testing (increase for production)
+  RAMP_ACCELERATION: 0.15                 # m/s² - slow acceleration for testing
   INITIAL_VELOCITY: 0.0                   # m/s - starting velocity (0 = smooth start)
 
   # === Control Enablement ===
   # Altitude control uses gimbal pitch to compute vertical velocity
   # When disabled, only horizontal pursuit (vel_down = 0, safer default)
-  ENABLE_ALTITUDE_CONTROL: false          # true = 3D vector pursuit, false = horizontal only
+  ENABLE_ALTITUDE_CONTROL: true           # ENABLED for 3D vector pursuit testing
   ENABLE_YAW_CONTROL: false               # Optional: yaw drone toward target
   YAW_RATE_GAIN: 0.5                      # Yaw rate proportional gain (if enabled)
 
@@ -1125,11 +1221,11 @@ GM_VELOCITY_VECTOR:
   # === Altitude Safety (Optional Enforcement) ===
   # Enable altitude monitoring and enforcement (similar to BODY_VELOCITY_CHASE)
   # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE (overrides global SafetyLimits if set)
-  ALTITUDE_SAFETY_ENABLED: false          # Enable altitude boundary enforcement
-  # MIN_ALTITUDE: 3.0                     # Override global minimum altitude (meters)
-  # MAX_ALTITUDE: 120.0                   # Override global maximum altitude (meters)
-  ALTITUDE_CHECK_INTERVAL: 1.0            # seconds - altitude check frequency
-  RTL_ON_ALTITUDE_VIOLATION: false        # Trigger RTL on altitude violation (conservative default)
+  ALTITUDE_SAFETY_ENABLED: false          # Disabled - RC pilot is in control
+  MIN_ALTITUDE: 5.0                       # Override global minimum altitude (meters)
+  MAX_ALTITUDE: 50.0                      # Override global maximum altitude (meters)
+  ALTITUDE_CHECK_INTERVAL: 0.5            # seconds - altitude check frequency
+  RTL_ON_ALTITUDE_VIOLATION: false        # Disabled - hold position, RC pilot controls
 
   # === General Safety Parameters ===
   EMERGENCY_STOP_ENABLED: true            # Enable emergency velocity zeroing
@@ -1161,9 +1257,10 @@ GM_VELOCITY_VECTOR:
 
 MC_VELOCITY_CHASE:
   # === Forward Velocity Ramping ===
+  # SLOW SPEEDS FOR TESTING - ready for USB camera testing
   INITIAL_FORWARD_VELOCITY: 0.0           # m/s - starting velocity
-  MAX_FORWARD_VELOCITY: 0.5               # m/s - maximum chase speed (demo safe)
-  FORWARD_RAMP_RATE: 0.5                 # m/s² - acceleration rate
+  MAX_FORWARD_VELOCITY: 0.5               # m/s - SLOW for testing (increase after validation)
+  FORWARD_RAMP_RATE: 0.25                 # m/s² - slow acceleration for testing
   RAMP_DOWN_ON_TARGET_LOSS: true          # Decelerate when target lost
   TARGET_LOSS_TIMEOUT: 2.0                # seconds before ramp down starts
   # Target loss stop velocity: ramp to this when target lost (0.0 = full stop)
@@ -1172,9 +1269,21 @@ MC_VELOCITY_CHASE:
   TARGET_LOSS_COORDINATE_THRESHOLD: 990   # Configurable threshold for lost target detection
 
   # === Control Enablement ===
-  ENABLE_ALTITUDE_CONTROL: false           # Enable down velocity control
-  
-  # === 🧭 LATERAL GUIDANCE MODES ===
+  #
+  # ⚠️ ALTITUDE CONTROL BEHAVIOR:
+  # - ENABLE_ALTITUDE_CONTROL: Controls whether follower CALCULATES altitude commands
+  #   * true: Actively tracks target in 3D space (follows target up/down)
+  #   * false: Altitude commands remain 0, drone maintains current altitude
+  #
+  # For SITL/Flight Testing:
+  #   Set ENABLE_ALTITUDE_CONTROL: true (to chase target in 3D)
+  #
+  # For Ground Testing:
+  #   ENABLE_ALTITUDE_CONTROL: false (keeps altitude at 0 - safe for ground)
+  #
+  ENABLE_ALTITUDE_CONTROL: true            # ENABLED for flight testing
+
+  # === LATERAL GUIDANCE MODES ===
   # Two guidance strategies for lateral target tracking:
   # - sideslip: Direct lateral velocity (v_right ≠ 0, yaw_rate = 0)
   #   Best for: Precision hovering, close proximity, confined spaces
@@ -1185,15 +1294,31 @@ MC_VELOCITY_CHASE:
   ENABLE_AUTO_MODE_SWITCHING: false          # Auto-switch based on forward velocity
   
   # === 🛡️ ALTITUDE SAFETY (Overrides global SafetyLimits) ===
+  #
+  # ⚠️ IMPORTANT - Two Different Altitude Flags:
+  #
+  # 1. ENABLE_ALTITUDE_CONTROL (above) - Controls altitude COMMAND generation
+  #    - false: Follower never sends altitude commands (vel_down = 0 always)
+  #    - true: Follower calculates and sends altitude commands
+  #
+  # 2. ALTITUDE_SAFETY_ENABLED (below) - Controls altitude LIMIT enforcement
+  #    - false: No altitude boundary checks (useful for ground testing)
+  #    - true: Enforces MIN_ALTITUDE/MAX_ALTITUDE bounds, triggers RTL on violation
+  #
+  # Typical Configurations:
+  # - Ground Testing: ENABLE_ALTITUDE_CONTROL=false, ALTITUDE_SAFETY_ENABLED=false
+  # - SITL Testing: ENABLE_ALTITUDE_CONTROL=true, ALTITUDE_SAFETY_ENABLED=true
+  # - Flight Testing: ENABLE_ALTITUDE_CONTROL=true, ALTITUDE_SAFETY_ENABLED=true
+  #
   # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE
-  ALTITUDE_SAFETY_ENABLED: true           # Enable altitude monitoring (recommended for demo)
+  ALTITUDE_SAFETY_ENABLED: false          # Disabled - RC pilot is in control
   MIN_ALTITUDE: 5.0                       # Override: stricter minimum altitude (meters)
   MAX_ALTITUDE: 50.0                      # Override: stricter maximum altitude (meters)
   ALTITUDE_CHECK_INTERVAL: 0.1            # seconds - 100ms check frequency (fast safety checks)
-  RTL_ON_ALTITUDE_VIOLATION: true         # Trigger RTL on violation
-  
+  RTL_ON_ALTITUDE_VIOLATION: false        # Disabled - hold position, RC pilot controls
+
   # === Safety Limits (Additional to Schema Limits) ===
-  EMERGENCY_STOP_ENABLED: true            # Enable emergency velocity zeroing
+  EMERGENCY_STOP_ENABLED: true            # ENABLED for flight testing
   MAX_TRACKING_ERROR: 1.5                 # Max normalized error before limiting
   VELOCITY_SMOOTHING_ENABLED: true       # Enable velocity command smoothing
   SMOOTHING_FACTOR: 0.8                  # Smoothing coefficient (0-1)
@@ -1286,11 +1411,23 @@ MC_VELOCITY_CHASE:
   PITCH_COMPENSATION_ADAPTIVE_GAIN: false # Future: adaptive gain tuning
 
 # ==============================================================================
-# MC_VELOCITY_POSITION FOLLOWER CONFIGURATION
+# CONSTANT POSITION FOLLOWER CONFIGURATION
 # ==============================================================================
 MC_VELOCITY_POSITION:
   # === Control Enablement ===
-  ENABLE_ALTITUDE_CONTROL: false           # Enable vel_z control
+  #
+  # ⚠️ ALTITUDE CONTROL BEHAVIOR:
+  # - ENABLE_ALTITUDE_CONTROL: Controls whether follower CALCULATES altitude commands
+  #   * true: Actively maintains target altitude during tracking (tracks initial Z position)
+  #   * false: Altitude commands remain 0, drone maintains current altitude
+  #
+  # For SITL/Flight Testing:
+  #   Set ENABLE_ALTITUDE_CONTROL: true (to actively follow target altitude)
+  #
+  # For Ground Testing:
+  #   ENABLE_ALTITUDE_CONTROL: false (keeps altitude at 0 - safe for ground)
+  #
+  ENABLE_ALTITUDE_CONTROL: false           # Disabled by default for ground testing
   ENABLE_YAW_CONTROL: true                # Always enabled for this mode
 
   # === Altitude Parameters (Uses unified naming, inherits from SafetyLimits) ===
@@ -1309,12 +1446,24 @@ MC_VELOCITY_POSITION:
   SMOOTHING_FACTOR: 0.8                   # Smoothing coefficient (0-1)
 
 # ==============================================================================
-# MC_VELOCITY_DISTANCE FOLLOWER CONFIGURATION
+# CONSTANT DISTANCE FOLLOWER CONFIGURATION
 # ==============================================================================
 MC_VELOCITY_DISTANCE:
   # === Control Enablement ===
+  #
+  # ⚠️ ALTITUDE CONTROL BEHAVIOR:
+  # - ENABLE_ALTITUDE_CONTROL: Controls whether follower CALCULATES altitude commands
+  #   * true: Actively maintains constant vertical distance from target
+  #   * false: Altitude commands remain 0, drone maintains current altitude
+  #
+  # For SITL/Flight Testing:
+  #   Set ENABLE_ALTITUDE_CONTROL: true (to maintain vertical distance)
+  #
+  # For Ground Testing:
+  #   ENABLE_ALTITUDE_CONTROL: false (keeps altitude at 0 - safe for ground)
+  #
   ENABLE_YAW_CONTROL: false              # Enable yaw rate control for target centering
-  ENABLE_ALTITUDE_CONTROL: false          # Enable bidirectional altitude control
+  ENABLE_ALTITUDE_CONTROL: false          # Disabled by default for ground testing
 
   # === Altitude Parameters (Uses unified naming, inherits from SafetyLimits) ===
   # MIN_ALTITUDE: 3.0                    # Override global minimum altitude (meters)
@@ -1339,7 +1488,7 @@ MC_VELOCITY_DISTANCE:
   DISTANCE_HOLD_TOLERANCE: 0.1           # Distance tolerance (normalized)
 
 # ==============================================================================
-# FW_ATTITUDE_RATE FOLLOWER CONFIGURATION
+# FIXED-WING FOLLOWER CONFIGURATION
 # ==============================================================================
 # Professional fixed-wing target following with L1 navigation and TECS energy management
 # Uses attitude rate commands (the ONLY offboard mode supported by PX4 for fixed-wing)
@@ -1427,7 +1576,7 @@ FW_ATTITUDE_RATE:
   SMOOTHING_FACTOR: 0.85          # EMA coefficient (0-1, higher = more smooth)
 
 # ==============================================================================
-# MC_VELOCITY FOLLOWER CONFIGURATION
+# MULTICOPTER FOLLOWER CONFIGURATION
 # ==============================================================================
 # Professional multicopter target following with dual-mode lateral guidance.
 # Supports: YAW_TO_TARGET (fixed-wing style) and CRAB_STRAFE (strafing)
@@ -1455,19 +1604,19 @@ MC_VELOCITY:
 
   # === FORWARD VELOCITY PARAMETERS ===
   INITIAL_FORWARD_VELOCITY: 0.0              # m/s - starting velocity
-  MAX_FORWARD_VELOCITY: 8.0                  # m/s - maximum chase speed
-  FORWARD_RAMP_RATE: 2.0                     # m/s^2 - acceleration rate
+  MAX_FORWARD_VELOCITY: 2.0                  # m/s - maximum chase speed (conservative default)
+  FORWARD_RAMP_RATE: 0.5                     # m/s^2 - acceleration rate (smooth 4s ramp)
 
   # === PROPORTIONAL NAVIGATION PARAMETERS ===
   # PN Law: V = V_base * (1 + N * |LOS_rate|)
   PN_NAVIGATION_CONSTANT: 4.0                # N (3-5 typical for intercept)
-  PN_BASE_VELOCITY: 4.0                      # m/s - base velocity for PN mode
+  PN_BASE_VELOCITY: 2.0                      # m/s - base velocity for PN mode (conservative)
   PN_LOS_SMOOTHING_ALPHA: 0.3                # EMA filter for LOS rate
   PN_MAX_VELOCITY_SCALE: 2.0                 # Maximum velocity multiplier
 
   # === LINE-OF-SIGHT PARAMETERS ===
   LOS_DISTANCE_GAIN: 0.5                     # Velocity gain for distance
-  LOS_MAX_VELOCITY: 10.0                     # m/s - max LOS velocity
+  LOS_MAX_VELOCITY: 2.0                      # m/s - max LOS velocity (conservative default)
 
   # === TARGET LOSS HANDLING (MULTICOPTER: HOVER) ===
   # Unlike fixed-wing (orbit), multicopters can HOVER in place
@@ -1487,7 +1636,7 @@ MC_VELOCITY:
   # === VELOCITY SATURATION PROTECTION ===
   # Prevents motor saturation by limiting total velocity magnitude
   ENABLE_VELOCITY_MAGNITUDE_LIMIT: true      # Enable magnitude limiting
-  MAX_VELOCITY_MAGNITUDE: 12.0               # m/s - total vector magnitude limit
+  MAX_VELOCITY_MAGNITUDE: 3.0                # m/s - total vector magnitude limit (conservative)
 
   # === COMMAND SMOOTHING ===
   VELOCITY_SMOOTHING_ENABLED: true           # Enable velocity command smoothing
@@ -1502,7 +1651,7 @@ MC_VELOCITY:
   CONTROL_UPDATE_RATE: 20.0                  # Hz - control loop frequency
 
 # ==============================================================================
-# MC_ATTITUDE_RATE FOLLOWER CONFIGURATION
+# MULTICOPTER ATTITUDE RATE FOLLOWER CONFIGURATION
 # ==============================================================================
 # Professional multicopter target follower using pure attitude rate control.
 # Unlike velocity-based control, this provides direct attitude rate commands
@@ -1601,16 +1750,16 @@ MC_ATTITUDE_RATE:
   CONTROL_UPDATE_RATE: 50.0                  # Hz - higher for attitude rate control
 
 # ==============================================================================
-# MC_VELOCITY_GROUND FOLLOWER CONFIGURATION
+# GROUND VIEW FOLLOWER CONFIGURATION
 # ==============================================================================
 MC_VELOCITY_GROUND:
   # === Target Position Mode ===
   TARGET_POSITION_MODE: center          # Target positioning: "center", "initial"
 
-  # === Velocity Limits ===
-  MAX_VELOCITY_X: 10.0                  # Max lateral velocity (m/s)
-  MAX_VELOCITY_Y: 10.0                  # Max longitudinal velocity (m/s)
-  MAX_RATE_OF_DESCENT: 2.0              # Max descent rate (m/s)
+  # === Velocity Limits (Conservative defaults) ===
+  MAX_VELOCITY_X: 2.0                   # Max lateral velocity (m/s) - conservative
+  MAX_VELOCITY_Y: 2.0                   # Max longitudinal velocity (m/s) - conservative
+  MAX_RATE_OF_DESCENT: 1.0              # Max descent rate (m/s) - conservative
 
   # === Descent Control (Overrides global SafetyLimits) ===
   # Uses unified naming: MIN_ALTITUDE
@@ -1874,18 +2023,18 @@ SafetyLimits:
   MIN_ALTITUDE: 3.0                    # meters - Absolute minimum safe altitude
   MAX_ALTITUDE: 120.0                  # meters - Maximum altitude (regulatory compliance)
 
-  # === Velocity Limits ===
-  MAX_VELOCITY_FORWARD: 15.0           # m/s - Maximum forward velocity
-  MAX_VELOCITY_LATERAL: 10.0           # m/s - Maximum lateral velocity
-  MAX_VELOCITY_VERTICAL: 5.0           # m/s - Maximum vertical velocity (up/down)
+  # === Velocity Limits (Conservative defaults for beginners) ===
+  MAX_VELOCITY_FORWARD: 2.0            # m/s - Maximum forward velocity (conservative)
+  MAX_VELOCITY_LATERAL: 2.0            # m/s - Maximum lateral velocity (conservative)
+  MAX_VELOCITY_VERTICAL: 1.0           # m/s - Maximum vertical velocity (conservative)
 
   # === Rotation Limits ===
-  MAX_YAW_RATE: 45.0                   # deg/s - Maximum yaw rotation rate
+  MAX_YAW_RATE: 30.0                   # deg/s - Maximum yaw rotation rate (conservative)
 
   # === Safety Behavior ===
   ALTITUDE_WARNING_BUFFER: 2.0         # meters - Warning zone before hard limits
-  EMERGENCY_STOP_ENABLED: true         # Enable emergency velocity zeroing globally
-  RTL_ON_VIOLATION: true               # Return to launch on limit violations
+  EMERGENCY_STOP_ENABLED: false        # ⚠️ Disabled by default for ground testing (enable for flights)
+  RTL_ON_VIOLATION: false              # ⚠️ Disabled by default for ground testing (enable for flights)
   MAX_SAFETY_VIOLATIONS: 5             # Max violations before emergency action
 
 # ==============================================================================
