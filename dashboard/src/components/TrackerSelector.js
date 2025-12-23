@@ -116,9 +116,19 @@ const TrackerSelector = memo(() => {
   const [selectedTracker, setSelectedTracker] = useState('');
   const [showDetails, setShowDetails] = useState(false);
 
+  // Track pending user selection to prevent polling from overwriting it
+  // This fixes the race condition where 2-second polling would reset user's dropdown choice
+  const hasPendingSelection = React.useRef(false);
+
   // Update selected tracker when current tracker changes (pre-select current active tracker)
-  // Always keep dropdown in sync with configured/active tracker
+  // Only sync with backend when there's no pending user selection
   React.useEffect(() => {
+    // Skip sync if user has a pending selection that hasn't been applied yet
+    // This prevents polling from overwriting the user's dropdown choice
+    if (hasPendingSelection.current) {
+      return;
+    }
+
     if (currentTracker && currentTracker.tracker_type && trackers?.available_trackers) {
       const trackerType = currentTracker.tracker_type;
       const availableKeys = Object.keys(trackers.available_trackers);
@@ -167,8 +177,18 @@ const TrackerSelector = memo(() => {
 
   // Handle tracker selection change
   const handleTrackerChange = useCallback((event) => {
-    setSelectedTracker(event.target.value);
-  }, []);
+    const newValue = event.target.value;
+    setSelectedTracker(newValue);
+
+    // Mark as pending selection if different from current tracker
+    // This prevents polling from overwriting user's choice before they click "Switch"
+    if (newValue !== currentTracker?.tracker_type) {
+      hasPendingSelection.current = true;
+    } else {
+      // User selected current tracker again, no pending change
+      hasPendingSelection.current = false;
+    }
+  }, [currentTracker]);
 
   // Handle switch button click
   const handleSwitch = useCallback(async () => {
@@ -177,6 +197,10 @@ const TrackerSelector = memo(() => {
     }
 
     const success = await switchTracker(selectedTracker);
+
+    // Clear pending selection flag after switch attempt (success or failure)
+    // This allows polling to sync the dropdown with backend state again
+    hasPendingSelection.current = false;
 
     // If switch was successful and tracking was active, show info message
     // (The user will need to restart tracking to use the new tracker)
