@@ -91,9 +91,9 @@ class GMVelocityUnifiedFollower(BaseFollower):
         self.initial_target_coords = initial_target_coords
 
         # Load configuration from Parameters (needed for display name)
-        self.config = getattr(Parameters, 'GMVelocityUnifiedFollower', {})
+        self.config = getattr(Parameters, 'GM_VELOCITY_UNIFIED', {})
         if not self.config:
-            raise ValueError("GMVelocityUnifiedFollower configuration not found in Parameters")
+            raise ValueError("GM_VELOCITY_UNIFIED configuration section not found in Parameters")
 
         # Set basic attributes needed for display name
         self.mount_type = self.config.get('MOUNT_TYPE', 'VERTICAL')
@@ -117,12 +117,12 @@ class GMVelocityUnifiedFollower(BaseFollower):
         # Control parameters
         self.max_velocity = self.config.get('MAX_VELOCITY', 8.0)
         # Use unified limit access (follower-specific overrides global SafetyLimits)
-        self.max_yaw_rate = Parameters.get_effective_limit('MAX_YAW_RATE', 'GMVelocityUnifiedFollower')
+        self.max_yaw_rate = Parameters.get_effective_limit('MAX_YAW_RATE', 'GM_VELOCITY_UNIFIED')
 
         # Safety parameters using unified limit access
         self.emergency_stop_enabled = self.config.get('EMERGENCY_STOP_ENABLED', True)
-        self.min_altitude_safety = Parameters.get_effective_limit('MIN_ALTITUDE', 'GMVelocityUnifiedFollower')
-        self.max_altitude_safety = Parameters.get_effective_limit('MAX_ALTITUDE', 'GMVelocityUnifiedFollower')
+        self.min_altitude_safety = Parameters.get_effective_limit('MIN_ALTITUDE', 'GM_VELOCITY_UNIFIED')
+        self.max_altitude_safety = Parameters.get_effective_limit('MAX_ALTITUDE', 'GM_VELOCITY_UNIFIED')
         self.max_safety_violations = self.config.get('MAX_SAFETY_VIOLATIONS', 5)
 
         # Performance parameters

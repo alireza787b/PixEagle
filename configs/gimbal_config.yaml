@@ -1099,9 +1099,9 @@ CIRCUIT_BREAKER_DISABLE_SAFETY: false     # Skip ALL safety checks in CB test mo
 
 
 # ==============================================================================
-# GIMBAL FOLLOWER CONFIGURATION
+# GIMBAL VELOCITY UNIFIED FOLLOWER CONFIGURATION
 # ==============================================================================
-GimbalFollower:
+GM_VELOCITY_UNIFIED:
   # === Mount Configuration ===
   MOUNT_TYPE: "VERTICAL"                    # Options: "HORIZONTAL", "VERTICAL"
   CONTROL_MODE: "BODY"                      # Options: "NED", "BODY"

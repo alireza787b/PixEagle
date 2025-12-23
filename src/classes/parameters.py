@@ -26,7 +26,7 @@ class Parameters:
         'GM_VELOCITY_VECTOR', 'GM_VELOCITY_UNIFIED',
         'FW_ATTITUDE_RATE',
         # Tracker sections
-        'GimbalFollower', 'GimbalTracker', 'GimbalTrackerSettings',
+        'GimbalTracker', 'GimbalTrackerSettings',
         'CSRT_Tracker', 'KCF_Tracker', 'DLIB_Tracker', 'SmartTracker'
     ]
 
