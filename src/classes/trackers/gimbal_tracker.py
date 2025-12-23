@@ -147,9 +147,10 @@ class GimbalTracker(BaseTracker):
         self.last_valid_data_time: Optional[float] = None
         self.consecutive_failures = 0
 
-        # Configuration constants
-        self.DATA_TIMEOUT_SECONDS = 5.0    # Show stale data for up to 5 seconds
-        self.MAX_CONSECUTIVE_FAILURES = 10  # Warning threshold
+        # Configuration constants - from config with defaults
+        gimbal_config = getattr(Parameters, 'GimbalTracker', {})
+        self.DATA_TIMEOUT_SECONDS = gimbal_config.get('data_timeout_seconds', 5.0)
+        self.MAX_CONSECUTIVE_FAILURES = gimbal_config.get('max_consecutive_failures', 10)
 
         # Event-based logging state
         self.last_logged_state = None
@@ -167,8 +168,8 @@ class GimbalTracker(BaseTracker):
         self.tracking_activations = 0
         self.tracking_deactivations = 0
 
-        logger.info(f"🎯 GimbalTracker initialized - monitoring port {self.CONFIG['listen_port']}")
-        logger.info(f"🔧 Gimbal config: IP={self.CONFIG['gimbal_ip']}, Listen={self.CONFIG['listen_port']}, Control={self.CONFIG['control_port']}")
+        logger.info(f"GimbalTracker initialized - monitoring port {self.CONFIG['listen_port']}")
+        logger.info(f"Gimbal config: IP={self.CONFIG['gimbal_ip']}, Listen={self.CONFIG['listen_port']}, Control={self.CONFIG['control_port']}")
         if self.debug_logging_enabled:
             logger.debug(f"Debug logging enabled for GimbalTracker")
 
@@ -201,14 +202,14 @@ class GimbalTracker(BaseTracker):
             bbox (Tuple[int, int, int, int]): Bounding box (ignored - not used for gimbal)
         """
         try:
-            logger.info("🚀 Starting gimbal background monitoring...")
+            logger.info("Starting gimbal background monitoring...")
 
             # Start passive UDP listening
             if self.gimbal_interface.start_listening():
                 self.monitoring_active = True
                 self.tracking_started = False  # Will be set when gimbal reports active tracking
                 self.last_update_time = time.time()
-                logger.info(f"✅ Gimbal interface listening on {self.CONFIG['gimbal_ip']}:{self.CONFIG['listen_port']}")
+                logger.info(f"Gimbal interface listening on {self.CONFIG['gimbal_ip']}:{self.CONFIG['listen_port']}")
 
                 # Reset state
                 self.last_gimbal_data = None
@@ -217,10 +218,10 @@ class GimbalTracker(BaseTracker):
                 self.tracking_activations = 0
                 self.tracking_deactivations = 0
 
-                logger.info("🎯 Gimbal background monitoring started successfully")
-                logger.info("⚠️  NOTE: Tracking control must be initiated from external camera UI application")
+                logger.info("Gimbal background monitoring started successfully")
+                logger.info("NOTE: Tracking control must be initiated from external camera UI application")
             else:
-                logger.error(f"❌ Failed to start gimbal interface listener on port {self.CONFIG['listen_port']}")
+                logger.error(f"Failed to start gimbal interface listener on port {self.CONFIG['listen_port']}")
                 self.monitoring_active = False
 
         except Exception as e:
@@ -281,7 +282,7 @@ class GimbalTracker(BaseTracker):
                 # No recent data from gimbal - check if we can use cached data
                 # Log data status periodically for debugging
                 if self.total_updates % 1000 == 0:  # Every 1000 updates
-                    logger.info(f"🔍 Gimbal data status: No current data received (total updates: {self.total_updates})")
+                    logger.info(f"Gimbal data status: No current data received (total updates: {self.total_updates})")
                 return self._handle_no_current_data()
 
             # Store the data for analysis
@@ -431,7 +432,7 @@ class GimbalTracker(BaseTracker):
                         self.tracking_started = True
                         self.tracking_activation_time = time.time()
                         self.tracking_activations += 1
-                        logger.info("🎯 Gimbal tracking ACTIVATED - PixEagle following enabled")
+                        logger.info("Gimbal tracking ACTIVATED - PixEagle following enabled")
 
                 elif previous_state == TrackingState.TRACKING_ACTIVE:
                     # Tracking became inactive
@@ -439,7 +440,7 @@ class GimbalTracker(BaseTracker):
                         self.tracking_started = False
                         self.tracking_deactivations += 1
                         active_duration = time.time() - (self.tracking_activation_time or 0)
-                        logger.info(f"⏹️  Gimbal tracking DEACTIVATED - Active for {active_duration:.1f}s")
+                        logger.info(f"Gimbal tracking DEACTIVATED - Active for {active_duration:.1f}s")
 
                 self.last_tracking_state = current_state
 
@@ -622,14 +623,14 @@ class GimbalTracker(BaseTracker):
 
             if primary_data_type == 'ANGULAR':
                 # For angular data, log as angles
-                logger.info(f"📍 Gimbal: Y={angles[0]}° P={angles[1]}° R={angles[2]}° | {coordinate_system}")
+                logger.info(f"Gimbal angles: Y={angles[0]} P={angles[1]} R={angles[2]} | {coordinate_system}")
             else:
                 # Fallback format
-                logger.info(f"📍 {self.__class__.__name__}: {angles} | {coordinate_system}")
+                logger.info(f"{self.__class__.__name__}: {angles} | {coordinate_system}")
 
         except Exception as e:
             # Fallback to simple logging
-            logger.info(f"📍 Gimbal: Y={angles[0]}° P={angles[1]}° R={angles[2]}° | {coordinate_system}")
+            logger.info(f"Gimbal angles: Y={angles[0]} P={angles[1]} R={angles[2]} | {coordinate_system}")
 
     def _log_tracking_status_changes(self, status: str, has_data: bool) -> None:
         """Log tracking status only when it changes (event-based)."""
@@ -641,9 +642,9 @@ class GimbalTracker(BaseTracker):
                 (self.debug_logging_enabled and self.total_updates <= 5)):
 
                 if has_data:
-                    logger.info(f"📡 Gimbal tracking status: {status}")
+                    logger.info(f"Gimbal tracking status: {status}")
                 elif self.debug_logging_enabled:
-                    logger.debug(f"📡 No tracking data in gimbal packet")
+                    logger.debug("No tracking data in gimbal packet")
 
                 self.last_logged_state = current_state
 

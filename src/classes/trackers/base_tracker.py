@@ -87,6 +87,8 @@ from classes.parameters import Parameters
 from classes.tracker_output import TrackerOutput, TrackerDataType, create_legacy_tracker_output
 import logging
 
+logger = logging.getLogger(__name__)
+
 class BaseTracker(ABC):
     """
     Abstract Base Class for Object Trackers
@@ -213,7 +215,7 @@ class BaseTracker(ABC):
         self.normalized_bbox = None
         self.normalized_center = None
         self.confidence = 1.0
-        logging.debug(f"{self.__class__.__name__} tracking stopped and state reset")
+        logger.debug(f"{self.__class__.__name__} tracking stopped and state reset")
 
     def compute_confidence(self, frame: np.ndarray) -> float:
         """
@@ -232,7 +234,7 @@ class BaseTracker(ABC):
             current_features = self.detector.extract_features(frame, self.bbox)
             appearance_confidence = self.detector.compute_appearance_confidence(current_features, self.detector.adaptive_features)
         else:
-            logging.warning("Detector is not available or adaptive features are not set.")
+            logger.warning("Detector is not available or adaptive features are not set.")
 
         # Combine motion and appearance confidence
         self.confidence = (Parameters.MOTION_CONFIDENCE_WEIGHT * motion_confidence +
@@ -310,7 +312,7 @@ class BaseTracker(ABC):
             # logging.debug(f"Normalized Center Coordinates: {self.normalized_center}")
             pass
         else:
-            logging.warning("Normalized center coordinates not calculated or available.")
+            logger.warning("Normalized center coordinates not calculated or available.")
 
     def set_center(self, value: Tuple[int, int]) -> None:
         """
@@ -348,7 +350,7 @@ class BaseTracker(ABC):
 
         This can be used when the tracker loses the target or when manual reinitialization is required.
         """
-        logging.info(f"Reinitializing tracker with bbox: {bbox}")
+        logger.info(f"Reinitializing tracker with bbox: {bbox}")
         self.start_tracking(frame, bbox)
 
     def draw_tracking(self, frame: np.ndarray, tracking_successful: bool = True) -> np.ndarray:
@@ -491,7 +493,7 @@ class BaseTracker(ABC):
 
         # Log only when override is first activated (not every frame update)
         if not was_active:
-            logging.info(f"[OVERRIDE] SmartTracker override activated")
+            logger.info("[OVERRIDE] SmartTracker override activated")
 
     def clear_external_override(self) -> None:
         """
@@ -501,7 +503,7 @@ class BaseTracker(ABC):
             self.override_active = False
             self.bbox = None
             self.center = None
-            logging.info("[OVERRIDE] SmartTracker override cleared")
+            logger.info("[OVERRIDE] SmartTracker override cleared")
 
 
     def get_effective_bbox(self) -> Optional[Tuple[int, int, int, int]]:
@@ -571,7 +573,7 @@ class BaseTracker(ABC):
             self.position_estimator.reset()
         # Re-instantiate the tracker using polymorphic method
         self.tracker = self._create_tracker()
-        logging.info("Tracker fully reset.")
+        logger.info("Tracker fully reset")
 
     def get_output(self) -> TrackerOutput:
         """

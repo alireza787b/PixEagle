@@ -130,7 +130,7 @@ class KCFKalmanTracker(BaseTracker):
 
         # OpenCV KCF Tracker
         self.kcf_tracker = None
-        self.trackerName: str = "KCF+Kalman"
+        self.tracker_name: str = "KCF+Kalman"
 
         # Internal Kalman Filter
         self.kf = None
@@ -156,7 +156,7 @@ class KCFKalmanTracker(BaseTracker):
         self.successful_frames = 0
         self.failed_frames = 0
 
-        logger.info(f"{self.trackerName} initialized with production robustness features")
+        logger.info(f"{self.tracker_name} initialized with production robustness features")
 
     def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
         """
@@ -194,7 +194,7 @@ class KCFKalmanTracker(BaseTracker):
         self.last_update_time = time.time()
         self.raw_confidence_history.clear()
 
-        logger.info(f"{self.trackerName} tracking started: bbox={bbox}")
+        logger.info(f"{self.tracker_name} tracking started: bbox={bbox}")
 
     def _init_kalman(self, bbox: Tuple[int, int, int, int]) -> None:
         """
@@ -227,15 +227,19 @@ class KCFKalmanTracker(BaseTracker):
             [0, 1, 0, 0]
         ])
 
-        # Process noise (trust motion model)
-        self.kf.Q = np.eye(4) * 0.1
-        self.kf.Q[2:, 2:] *= 0.5
+        # Process noise (trust motion model) - from config with defaults
+        process_noise = getattr(Parameters, 'KCF_Tracker', {}).get('kalman_process_noise', 0.1)
+        velocity_noise_factor = getattr(Parameters, 'KCF_Tracker', {}).get('kalman_velocity_noise_factor', 0.5)
+        self.kf.Q = np.eye(4) * process_noise
+        self.kf.Q[2:, 2:] *= velocity_noise_factor
 
-        # Measurement noise (~5 pixels sensor uncertainty)
-        self.kf.R = np.eye(2) * 5.0
+        # Measurement noise (~pixels sensor uncertainty) - from config with default
+        measurement_noise = getattr(Parameters, 'KCF_Tracker', {}).get('kalman_measurement_noise', 5.0)
+        self.kf.R = np.eye(2) * measurement_noise
 
-        # Initial covariance
-        self.kf.P = np.eye(4) * 10.0
+        # Initial covariance - from config with default
+        initial_covariance = getattr(Parameters, 'KCF_Tracker', {}).get('kalman_initial_covariance', 10.0)
+        self.kf.P = np.eye(4) * initial_covariance
 
         # Initial state
         self.kf.x = np.array([cx, cy, 0, 0])
@@ -337,11 +341,11 @@ class KCFKalmanTracker(BaseTracker):
         if self.frame_count % 30 == 0:
             avg_fps = np.mean(self.fps_history[-30:])
             success_rate = 100 * self.successful_frames / (self.frame_count + 1e-6)
-            logger.info(f"{self.trackerName} Performance: FPS={avg_fps:.1f}, conf={self.confidence:.2f}, success_rate={success_rate:.1f}%")
+            logger.info(f"{self.tracker_name} Performance: FPS={avg_fps:.1f}, conf={self.confidence:.2f}, success_rate={success_rate:.1f}%")
 
         # Multi-frame validation: Only declare failure after N consecutive bad frames
         if self.failure_count >= self.failure_threshold:
-            logger.warning(f"{self.trackerName} lost target ({self.failure_count} consecutive failures)")
+            logger.warning(f"{self.tracker_name} lost target ({self.failure_count} consecutive failures)")
             return False, self.bbox  # Tracking lost
 
         return True, self.bbox  # Tracking active (even during temporary failures)
@@ -384,7 +388,7 @@ class KCFKalmanTracker(BaseTracker):
         self.failed_frames += 1
         self.confidence = 0.1
 
-        logger.debug(f"{self.trackerName} KCF failed, using Kalman ({self.failure_count}/{self.failure_threshold})")
+        logger.debug(f"{self.tracker_name} KCF failed, using Kalman ({self.failure_count}/{self.failure_threshold})")
 
     def _update_appearance_model(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
         """
@@ -589,7 +593,7 @@ class KCFKalmanTracker(BaseTracker):
         self.raw_confidence_history.clear()
         self.override_active = False
         self.last_update_time = time.time()
-        logger.info(f"{self.trackerName} fully reset")
+        logger.info(f"{self.tracker_name} fully reset")
 
     def get_output(self) -> TrackerOutput:
         """Returns tracker output with velocity information."""

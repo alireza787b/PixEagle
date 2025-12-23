@@ -89,7 +89,7 @@ class DlibTracker(BaseTracker):
         super().__init__(video_handler, detector, app_controller)
 
         # Set tracker name for dlib
-        self.trackerName: str = "dlib"
+        self.tracker_name: str = "dlib"
 
         # Reset external estimator if exists
         if self.position_estimator:
@@ -154,7 +154,7 @@ class DlibTracker(BaseTracker):
         self.enable_visual_feedback = debug_config.get('enable_visual_feedback', True)
         self.show_motion_vectors = debug_config.get('show_motion_vectors', False)
 
-        logger.info(f"{self.trackerName} initialized in '{self.performance_mode}' mode")
+        logger.info(f"{self.tracker_name} initialized in '{self.performance_mode}' mode")
         if self.adaptive_enabled:
             logger.info(f"  - Adaptive PSR system: ENABLED")
         if self.use_adaptive_learning:
@@ -226,7 +226,7 @@ class DlibTracker(BaseTracker):
             frame (np.ndarray): The initial video frame
             bbox (Tuple[int, int, int, int]): Bounding box (x, y, width, height)
         """
-        logger.info(f"Initializing {self.trackerName} tracker with bbox: {bbox}")
+        logger.info(f"Initializing {self.tracker_name} tracker with bbox: {bbox}")
 
         # Convert bbox to dlib.rectangle format (left, top, right, bottom)
         x, y, w, h = bbox
@@ -874,7 +874,7 @@ class DlibTracker(BaseTracker):
             avg_fps = np.mean(self.fps_history[-30:])
             success_rate = 100 * self.successful_frames / (self.frame_count + 1e-6)
             avg_psr = np.mean(list(self.psr_history)) if self.psr_history else 0.0
-            logger.info(f"{self.trackerName} ({self.performance_mode}): FPS={avg_fps:.1f}, "
+            logger.info(f"{self.tracker_name} ({self.performance_mode}): FPS={avg_fps:.1f}, "
                        f"conf={self.confidence:.2f}, PSR={avg_psr:.1f}, success={success_rate:.1f}%")
 
     def update_estimator_without_measurement(self) -> None:

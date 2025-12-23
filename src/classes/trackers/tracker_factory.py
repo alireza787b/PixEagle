@@ -47,7 +47,16 @@ from classes.trackers.csrt_tracker import CSRTTracker
 from classes.trackers.kcf_kalman_tracker import KCFKalmanTracker
 from classes.trackers.gimbal_tracker import GimbalTracker
 from classes.trackers.dlib_tracker import DlibTracker
-# Import other trackers as necessary
+
+# Tracker registry - maps algorithm names to tracker classes
+# To add a new tracker: 1) Import the class above, 2) Add entry to this registry
+TRACKER_REGISTRY = {
+    "CSRT": CSRTTracker,
+    "KCF": KCFKalmanTracker,
+    "dlib": DlibTracker,
+    "Gimbal": GimbalTracker,
+}
+
 
 def create_tracker(algorithm: str, video_handler=None, detector=None, app_controller=None):
     """
@@ -71,15 +80,11 @@ def create_tracker(algorithm: str, video_handler=None, detector=None, app_contro
         tracker = create_tracker("KCF", video_handler, detector, app_controller)
         ```
     """
-    if algorithm == "CSRT":
-        return CSRTTracker(video_handler, detector, app_controller)
-    elif algorithm == "KCF":
-        return KCFKalmanTracker(video_handler, detector, app_controller)
-    elif algorithm == "dlib":
-        return DlibTracker(video_handler, detector, app_controller)
-    elif algorithm == "Gimbal":
-        return GimbalTracker(video_handler, detector, app_controller)
-    # Add other algorithms here
-    else:
-        raise ValueError(f"Unsupported tracking algorithm: {algorithm}")
+    tracker_class = TRACKER_REGISTRY.get(algorithm)
+
+    if tracker_class is None:
+        supported = ", ".join(sorted(TRACKER_REGISTRY.keys()))
+        raise ValueError(f"Unsupported tracking algorithm: '{algorithm}'. Supported: {supported}")
+
+    return tracker_class(video_handler, detector, app_controller)
 

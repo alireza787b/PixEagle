@@ -308,6 +308,17 @@ KCF_Tracker:
                                          # Higher = faster adaptation (compensates for rotation)
                                          # ✅ TUNED: 0.18 (aggressive) for rotation tolerance
 
+  # === Internal Kalman Filter Parameters ===
+  # These control the internal 4D Kalman filter (state: x, y, vx, vy)
+  kalman_process_noise: 0.1              # Process noise (Q matrix multiplier)
+                                         # Lower = trust motion model more, higher = trust measurements
+  kalman_velocity_noise_factor: 0.5      # Velocity noise relative to position noise
+                                         # Lower = smoother velocity estimates
+  kalman_measurement_noise: 5.0          # Measurement noise (R matrix, ~pixels)
+                                         # Typical sensor uncertainty in pixels
+  kalman_initial_covariance: 10.0        # Initial state covariance (P matrix)
+                                         # Higher = less confident in initial state
+
   # === Research-Based Tuning Presets ===
   # 🏎️ HIGH-SPEED RACE CARS (Current Config - Optimized):
   #   confidence_threshold: 0.15, failure_threshold: 7, appearance_learning_rate: 0.18
@@ -943,6 +954,10 @@ GimbalTracker:
   UDP_HOST: "192.168.0.108"      # Gimbal IP address
   UDP_PORT: 9003                # Gimbal UDP port
   CONNECTION_TIMEOUT: 5.0       # Connection timeout in seconds
+
+  # Data quality and recovery parameters
+  data_timeout_seconds: 5.0     # Show cached data for up to N seconds when connection lost
+  max_consecutive_failures: 10  # Warning threshold for consecutive data reception failures
 
 # Global gimbal parameters (accessed by GimbalTracker and GimbalInterface)
 GIMBAL_UDP_HOST: "192.168.0.108"      # Gimbal IP address

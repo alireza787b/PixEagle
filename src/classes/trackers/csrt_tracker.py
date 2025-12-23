@@ -77,7 +77,7 @@ class CSRTTracker(BaseTracker):
         super().__init__(video_handler, detector, app_controller)
 
         # Set tracker name for CSRT
-        self.trackerName: str = "CSRT"
+        self.tracker_name: str = "CSRT"
 
         # Reset external estimator if exists
         if self.position_estimator:
@@ -105,7 +105,7 @@ class CSRTTracker(BaseTracker):
         self.failed_frames = 0
         self.fps_history = []
 
-        logger.info(f"{self.trackerName} initialized in '{self.performance_mode}' mode")
+        logger.info(f"{self.tracker_name} initialized in '{self.performance_mode}' mode")
 
     def _configure_performance_mode(self):
         """Configure tracker based on performance mode."""
@@ -163,7 +163,7 @@ class CSRTTracker(BaseTracker):
             frame (np.ndarray): The initial video frame
             bbox (Tuple[int, int, int, int]): Bounding box (x, y, width, height)
         """
-        logger.info(f"Initializing {self.trackerName} tracker with bbox: {bbox}")
+        logger.info(f"Initializing {self.tracker_name} tracker with bbox: {bbox}")
 
         # Initialize CSRT tracker
         self.tracker.init(frame, bbox)
@@ -290,7 +290,7 @@ class CSRTTracker(BaseTracker):
         total_confidence = self.get_confidence()
 
         if self.confidence < Parameters.CONFIDENCE_THRESHOLD:
-            logging.warning("Tracking failed due to low confidence.")
+            logger.warning("Tracking failed due to low confidence")
             success = False
 
         # Update estimator
@@ -537,7 +537,7 @@ class CSRTTracker(BaseTracker):
         if self.frame_count % 30 == 0 and self.frame_count > 0:
             avg_fps = np.mean(self.fps_history[-30:])
             success_rate = 100 * self.successful_frames / (self.frame_count + 1e-6)
-            logger.info(f"{self.trackerName} ({self.performance_mode}): FPS={avg_fps:.1f}, conf={self.confidence:.2f}, success={success_rate:.1f}%")
+            logger.info(f"{self.tracker_name} ({self.performance_mode}): FPS={avg_fps:.1f}, conf={self.confidence:.2f}, success={success_rate:.1f}%")
 
     def update_estimator_without_measurement(self) -> None:
         """Updates the position estimator when no measurement is available."""

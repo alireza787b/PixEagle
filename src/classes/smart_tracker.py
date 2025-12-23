@@ -13,6 +13,8 @@ from classes.tracking_state_manager import TrackingStateManager
 from classes.motion_predictor import MotionPredictor
 from classes.appearance_model import AppearanceModel
 
+logger = logging.getLogger(__name__)
+
 
 class SmartTracker:
     def __init__(self, app_controller):
@@ -33,34 +35,34 @@ class SmartTracker:
         try:
             if use_gpu:
                 model_path = self.config.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo11n.pt')
-                logging.info(f"[SmartTracker] Attempting to load YOLO model with GPU: {model_path}")
+                logger.info(f"[SmartTracker] Attempting to load YOLO model with GPU: {model_path}")
 
             else:
                 model_path = self.config.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo11n_ncnn_model')
-                logging.info(f"[SmartTracker] Loading YOLO model with CPU: {model_path}")
+                logger.info(f"[SmartTracker] Loading YOLO model with CPU: {model_path}")
 
             self.model = YOLO(model_path, task="detect")
 
             if use_gpu:
                 self.model.to('cuda')
 
-            logging.info(f"[SmartTracker] YOLO model loaded on device: {self.model.device}")
+            logger.info(f"[SmartTracker] YOLO model loaded on device: {self.model.device}")
 
         except Exception as e:
             if use_gpu and fallback_enabled:
-                logging.warning(f"[SmartTracker] GPU load failed: {e}")
-                logging.info("[SmartTracker] Falling back to CPU model...")
+                logger.warning(f"[SmartTracker] GPU load failed: {e}")
+                logger.info("[SmartTracker] Falling back to CPU model...")
 
                 try:
                     model_path = self.config.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo11n_ncnn_model')
                     self.model = YOLO(model_path, task="detect")
-                    logging.info(f"[SmartTracker] CPU model loaded successfully: {self.model.device}")
+                    logger.info(f"[SmartTracker] CPU model loaded successfully: {self.model.device}")
                 except Exception as cpu_error:
-                    logging.error(f"[SmartTracker] CPU fallback also failed: {cpu_error}")
+                    logger.error(f"[SmartTracker] CPU fallback also failed: {cpu_error}")
                     raise RuntimeError("YOLO model loading failed (both GPU and CPU).")
 
             else:
-                logging.error(f"[SmartTracker] Failed to load YOLO model: {e}")
+                logger.error(f"[SmartTracker] Failed to load YOLO model: {e}")
                 raise RuntimeError("YOLO model loading failed.")
 
         # === Detection Parameters ===
@@ -112,12 +114,12 @@ class SmartTracker:
 
         self.fps_counter, self.fps_timer, self.fps_display = 0, time.time(), 0
 
-        logging.info("[SmartTracker] Initialization complete.")
-        logging.info(f"[SmartTracker] Tracker: {self.tracker_type_str.upper()}")
+        logger.info("[SmartTracker] Initialization complete.")
+        logger.info(f"[SmartTracker] Tracker: {self.tracker_type_str.upper()}")
         if self.use_custom_reid:
-            logging.info(f"[SmartTracker] Custom ReID: {'enabled' if self.appearance_model else 'disabled'}")
-        logging.info(f"[SmartTracker] Tracking strategy: {self.config.get('TRACKING_STRATEGY', 'hybrid')}")
-        logging.info(f"[SmartTracker] Motion prediction: {'enabled' if self.motion_predictor else 'disabled'}")
+            logger.info(f"[SmartTracker] Custom ReID: {'enabled' if self.appearance_model else 'disabled'}")
+        logger.info(f"[SmartTracker] Tracking strategy: {self.config.get('TRACKING_STRATEGY', 'hybrid')}")
+        logger.info(f"[SmartTracker] Motion prediction: {'enabled' if self.motion_predictor else 'disabled'}")
 
     def _select_tracker_type(self) -> Tuple[str, bool]:
         """
@@ -141,29 +143,29 @@ class SmartTracker:
                 version_tuple = (major, minor, patch)
 
                 if version_tuple >= (8, 3, 114):
-                    logging.info(f"[SmartTracker] Using BoT-SORT with native ReID (Ultralytics {version_str})")
+                    logger.info(f"[SmartTracker] Using BoT-SORT with native ReID (Ultralytics {version_str})")
                     return "botsort", False  # Use Ultralytics BoT-SORT with ReID
                 else:
-                    logging.warning(f"[SmartTracker] BoT-SORT ReID requires Ultralytics >=8.3.114, "
+                    logger.warning(f"[SmartTracker] BoT-SORT ReID requires Ultralytics >=8.3.114, "
                                   f"found {version_str}. Falling back to custom_reid.")
                     requested_type = 'custom_reid'
             except Exception as e:
-                logging.warning(f"[SmartTracker] Could not verify Ultralytics version: {e}. "
+                logger.warning(f"[SmartTracker] Could not verify Ultralytics version: {e}. "
                               "Falling back to custom_reid.")
                 requested_type = 'custom_reid'
 
         # Map tracker types to Ultralytics tracker names
         if requested_type == 'bytetrack':
-            logging.info("[SmartTracker] Using ByteTrack (fast, no ReID)")
+            logger.info("[SmartTracker] Using ByteTrack (fast, no ReID)")
             return "bytetrack", False
         elif requested_type == 'botsort':
-            logging.info("[SmartTracker] Using BoT-SORT (better persistence, no ReID)")
+            logger.info("[SmartTracker] Using BoT-SORT (better persistence, no ReID)")
             return "botsort", False
         elif requested_type == 'custom_reid':
-            logging.info("[SmartTracker] Using ByteTrack + custom lightweight ReID")
+            logger.info("[SmartTracker] Using ByteTrack + custom lightweight ReID")
             return "bytetrack", True  # Use ByteTrack as base, add our custom ReID
         else:
-            logging.warning(f"[SmartTracker] Unknown tracker type '{requested_type}', using bytetrack")
+            logger.warning(f"[SmartTracker] Unknown tracker type '{requested_type}', using bytetrack")
             return "bytetrack", False
 
     def _build_tracker_args(self) -> dict:
@@ -183,9 +185,9 @@ class SmartTracker:
             "verbose": False
         }
 
-        logging.debug(f"[SmartTracker] Tracker args: {args}")
-        logging.info(f"[SmartTracker] Using Ultralytics default {self.tracker_type_str}.yaml config")
-        logging.info(f"[SmartTracker] Note: To customize tracker params, edit Ultralytics tracker YAML files")
+        logger.debug(f"[SmartTracker] Tracker args: {args}")
+        logger.info(f"[SmartTracker] Using Ultralytics default {self.tracker_type_str}.yaml config")
+        logger.info(f"[SmartTracker] Note: To customize tracker params, edit Ultralytics tracker YAML files")
 
         return args
 
@@ -217,7 +219,7 @@ class SmartTracker:
         import torch
 
         try:
-            logging.info(f"[SmartTracker] Switching model to: {new_model_path} (device={device})")
+            logger.info(f"[SmartTracker] Switching model to: {new_model_path} (device={device})")
 
             # 1. Backup current tracking state
             backup_state = {
@@ -237,7 +239,7 @@ class SmartTracker:
 
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-                logging.info("[SmartTracker] GPU cache cleared")
+                logger.info("[SmartTracker] GPU cache cleared")
 
             # 4. Load new model
             self.model = YOLO(new_model_path, task="detect")
@@ -252,7 +254,7 @@ class SmartTracker:
                     target_device = "cuda"
             elif device == "gpu":
                 if not torch.cuda.is_available():
-                    logging.warning("[SmartTracker] GPU requested but not available, using CPU")
+                    logger.warning("[SmartTracker] GPU requested but not available, using CPU")
                 else:
                     self.model.to('cuda')
                     target_device = "cuda"
@@ -285,15 +287,15 @@ class SmartTracker:
 
                     old_class_name = self.labels.get(backup_state["class_id"], "Unknown")
                     restore_info = f" Tracking restored for class '{old_class_name}'."
-                    logging.info(f"[SmartTracker] Tracking state restored (class {backup_state['class_id']})")
+                    logger.info(f"[SmartTracker] Tracking state restored (class {backup_state['class_id']})")
                 else:
                     restore_info = f" Previous tracking cleared (class ID {backup_state['class_id']} not in new model with {num_classes} classes)."
-                    logging.warning(f"[SmartTracker] Cannot restore tracking - class mismatch")
+                    logger.warning(f"[SmartTracker] Cannot restore tracking - class mismatch")
 
             # 8. Log success
-            logging.info(f"[SmartTracker] ✅ Model switched successfully!")
-            logging.info(f"[SmartTracker] Device: {old_device} → {str(self.model.device)}")
-            logging.info(f"[SmartTracker] Classes: {num_classes}")
+            logger.info(f"[SmartTracker] ✅ Model switched successfully!")
+            logger.info(f"[SmartTracker] Device: {old_device} → {str(self.model.device)}")
+            logger.info(f"[SmartTracker] Classes: {num_classes}")
 
             return {
                 "success": True,
@@ -309,13 +311,13 @@ class SmartTracker:
 
         except FileNotFoundError:
             error_msg = f"Model file not found: {new_model_path}"
-            logging.error(f"[SmartTracker] {error_msg}")
+            logger.error(f"[SmartTracker] {error_msg}")
             return {"success": False, "message": error_msg, "model_info": None}
 
         except Exception as e:
             error_msg = f"Failed to switch model: {str(e)}"
-            logging.error(f"[SmartTracker] {error_msg}")
-            logging.exception(e)
+            logger.error(f"[SmartTracker] {error_msg}")
+            logger.exception(e)
             return {"success": False, "message": error_msg, "model_info": None}
 
     def get_yolo_color(self, index):
@@ -365,7 +367,7 @@ class SmartTracker:
         Initializes tracking_manager with the selected object.
         """
         if self.last_results is None:
-            logging.warning("[SmartTracker] No YOLO results yet, click ignored.")
+            logger.warning("[SmartTracker] No YOLO results yet, click ignored.")
             return
 
         detections = self.last_results[0].boxes.data if self.last_results[0].boxes is not None else []
@@ -406,9 +408,9 @@ class SmartTracker:
             )
 
             label = self.labels.get(class_id, str(class_id))
-            logging.info(f"[SMART] Tracking started: {label} ID:{track_id} (conf={confidence:.2f})")
+            logger.info(f"[SMART] Tracking started: {label} ID:{track_id} (conf={confidence:.2f})")
         else:
-            logging.info("[SmartTracker] No object matched click location.")
+            logger.info("[SmartTracker] No object matched click location.")
 
     def clear_selection(self):
         """
@@ -423,7 +425,7 @@ class SmartTracker:
         # Clear tracking manager state
         self.tracking_manager.clear()
 
-        logging.info("[SmartTracker] Tracking cleared")
+        logger.info("[SmartTracker] Tracking cleared")
 
     def track_and_draw(self, frame):
         """
@@ -515,7 +517,7 @@ class SmartTracker:
 
         # If tracking is lost, clear local state AND classic tracker override
         if not is_tracking_active and (self.selected_object_id is not None):
-            logging.info(f"[SMART] Track lost: ID:{self.selected_object_id}")
+            logger.info(f"[SMART] Track lost: ID:{self.selected_object_id}")
             self.selected_object_id = None
             self.selected_class_id = None
             self.selected_bbox = None
