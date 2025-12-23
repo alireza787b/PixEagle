@@ -114,18 +114,17 @@ class GMPIDPursuitFollower(BaseFollower):
                 logger.warning(f"Failed to initialize target loss handler: {e} - using basic target loss logic")
                 self.target_loss_handler = None
 
-        # Control parameters - velocity limits for PID controllers
-        self.max_velocity = self.config.get('MAX_VELOCITY', 8.0)
-        self.max_velocity_lateral = self.config.get('MAX_VELOCITY_LATERAL', 3.0)
-        self.max_velocity_vertical = self.config.get('MAX_VELOCITY_VERTICAL', 2.0)
-        # Use unified limit access (follower-specific overrides global SafetyLimits)
-        self.max_yaw_rate = Parameters.get_effective_limit('MAX_YAW_RATE', 'GM_PID_PURSUIT')
+        # Control parameters - velocity limits from base class cached limits (via SafetyManager)
+        self.max_velocity = self.velocity_limits.forward
+        self.max_velocity_lateral = self.velocity_limits.lateral
+        self.max_velocity_vertical = self.velocity_limits.vertical
+        self.max_yaw_rate = self.rate_limits.yaw * 57.2958  # Convert rad/s to deg/s for this follower
 
-        # Safety parameters using unified limit access
+        # Safety parameters from base class cached limits
         self.emergency_stop_enabled = self.config.get('EMERGENCY_STOP_ENABLED', True)
         self.altitude_safety_enabled = self.config.get('ALTITUDE_SAFETY_ENABLED', True)  # Matches vector follower
-        self.min_altitude_safety = Parameters.get_effective_limit('MIN_ALTITUDE', 'GM_PID_PURSUIT')
-        self.max_altitude_safety = Parameters.get_effective_limit('MAX_ALTITUDE', 'GM_PID_PURSUIT')
+        self.min_altitude_safety = self.altitude_limits.min_altitude
+        self.max_altitude_safety = self.altitude_limits.max_altitude
         self.max_safety_violations = self.config.get('MAX_SAFETY_VIOLATIONS', 5)
 
         # Performance parameters

@@ -1,4 +1,24 @@
 # src/classes/followers/base_follower.py
+"""
+Base Follower Module - Abstract Base Class for All Followers
+=============================================================
+
+This module provides the BaseFollower abstract base class that all follower
+implementations inherit from. It provides centralized safety management,
+schema-aware setpoint handling, and common utilities.
+
+Project Information:
+- Project Name: PixEagle
+- Repository: https://github.com/alireza787b/PixEagle
+- Author: Alireza Ghaderi
+
+Safety Integration (v3.5.0+):
+- Centralized SafetyManager for all limit enforcement
+- Automatic limit caching per follower
+- check_safety() method for altitude/velocity validation
+- Validated set_command_field() with automatic clamping
+"""
+
 from abc import ABC, abstractmethod
 from typing import Tuple, Dict, Any, List, Optional, Union
 from classes.setpoint_handler import SetpointHandler
@@ -9,6 +29,18 @@ from datetime import datetime
 
 # Initialize logger early (before any try/except blocks that might use it)
 logger = logging.getLogger(__name__)
+
+# Import SafetyManager for centralized safety limit management
+try:
+    from classes.safety_manager import SafetyManager, get_safety_manager
+    from classes.safety_types import (
+        SafetyStatus, SafetyAction, VelocityLimits,
+        AltitudeLimits, RateLimits, FollowerLimits
+    )
+    SAFETY_MANAGER_AVAILABLE = True
+except ImportError:
+    logger.warning("SafetyManager not available, using legacy limit handling")
+    SAFETY_MANAGER_AVAILABLE = False
 
 # Import schema manager for compatibility checking
 try:
@@ -188,6 +220,32 @@ class BaseFollower(ABC):
         else:
             # Fallback if FollowerLogger not available
             self.follower_logger = None
+
+        # Initialize centralized safety management (v3.5.0+)
+        self._safety_violation_count = 0
+        self._last_safety_check_time = 0.0
+        self._safety_check_interval = 0.05  # 20Hz safety checks
+
+        if SAFETY_MANAGER_AVAILABLE:
+            try:
+                self.safety_manager = get_safety_manager()
+                # Derive follower config name from class (e.g., MCVelocityChaseFollower -> MC_VELOCITY_CHASE)
+                self._follower_config_name = self._derive_follower_config_name()
+
+                # Cache limits at initialization for performance
+                self.velocity_limits = self.safety_manager.get_velocity_limits(self._follower_config_name)
+                self.altitude_limits = self.safety_manager.get_altitude_limits(self._follower_config_name)
+                self.rate_limits = self.safety_manager.get_rate_limits(self._follower_config_name)
+
+                logger.info(f"SafetyManager initialized for {self._follower_config_name}: "
+                           f"vel_limits={self.velocity_limits}, alt_limits={self.altitude_limits}")
+            except Exception as e:
+                logger.warning(f"SafetyManager initialization failed, using legacy limits: {e}")
+                self.safety_manager = None
+                self._init_legacy_limits()
+        else:
+            self.safety_manager = None
+            self._init_legacy_limits()
 
         logger.info(f"BaseFollower initialized with profile: {self.get_display_name()} "
                    f"(control type: {self.get_control_type()})")
@@ -392,6 +450,280 @@ class BaseFollower(ABC):
         except Exception as e:
             logger.error(f"[{profile_name}] Error updating PID gains for axis '{axis}': {e}")
             raise
+
+    # ==================== Safety Management Methods ====================
+
+    def _derive_follower_config_name(self) -> str:
+        """
+        Derive the config section name from the class name.
+
+        Converts class names like 'MCVelocityChaseFollower' to 'MC_VELOCITY_CHASE'
+        for config lookup.
+
+        Returns:
+            str: The config section name (e.g., 'MC_VELOCITY_CHASE')
+        """
+        class_name = self.__class__.__name__
+
+        # Remove 'Follower' suffix if present
+        if class_name.endswith('Follower'):
+            class_name = class_name[:-8]
+
+        # Convert CamelCase to UPPER_SNAKE_CASE
+        # Handle special prefixes (MC, GM, FW)
+        result = []
+        i = 0
+        while i < len(class_name):
+            char = class_name[i]
+
+            # Handle uppercase sequences (like MC, GM, FW)
+            if char.isupper():
+                # Check if this is part of an acronym (consecutive uppercase)
+                acronym = char
+                j = i + 1
+                while j < len(class_name) and class_name[j].isupper():
+                    # If next char after this is lowercase, this uppercase belongs to next word
+                    if j + 1 < len(class_name) and class_name[j + 1].islower():
+                        break
+                    acronym += class_name[j]
+                    j += 1
+
+                if len(acronym) > 1:
+                    # This is an acronym
+                    if result:
+                        result.append('_')
+                    result.append(acronym)
+                    i = j
+                else:
+                    # Single uppercase - start of new word
+                    if result and result[-1] != '_':
+                        result.append('_')
+                    result.append(char)
+                    i += 1
+            else:
+                result.append(char.upper())
+                i += 1
+
+        return ''.join(result)
+
+    def _init_legacy_limits(self) -> None:
+        """
+        Initialize legacy limit structures when SafetyManager is not available.
+
+        Creates fallback VelocityLimits, AltitudeLimits, and RateLimits with
+        default values from Parameters.
+        """
+        from classes.parameters import Parameters
+
+        # Try to get limits from Parameters, fallback to hardcoded values
+        try:
+            self.velocity_limits = type('VelocityLimits', (), {
+                'forward': Parameters.get_effective_limit('MAX_VELOCITY_FORWARD'),
+                'lateral': Parameters.get_effective_limit('MAX_VELOCITY_LATERAL'),
+                'vertical': Parameters.get_effective_limit('MAX_VELOCITY_VERTICAL'),
+                'max_magnitude': 15.0
+            })()
+
+            self.altitude_limits = type('AltitudeLimits', (), {
+                'min_altitude': Parameters.get_effective_limit('MIN_ALTITUDE'),
+                'max_altitude': Parameters.get_effective_limit('MAX_ALTITUDE'),
+                'warning_buffer': Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', 2.0),
+                'safety_enabled': True
+            })()
+
+            self.rate_limits = type('RateLimits', (), {
+                'yaw': Parameters.get_effective_limit('MAX_YAW_RATE') * 0.0174533,  # deg to rad
+                'pitch': Parameters.get_effective_limit('MAX_PITCH_RATE', 45.0) * 0.0174533,
+                'roll': Parameters.get_effective_limit('MAX_ROLL_RATE', 45.0) * 0.0174533
+            })()
+
+        except Exception as e:
+            logger.warning(f"Failed to load legacy limits from Parameters: {e}")
+            # Ultimate fallback with hardcoded safe values
+            self.velocity_limits = type('VelocityLimits', (), {
+                'forward': 8.0, 'lateral': 5.0, 'vertical': 3.0, 'max_magnitude': 15.0
+            })()
+            self.altitude_limits = type('AltitudeLimits', (), {
+                'min_altitude': 3.0, 'max_altitude': 120.0, 'warning_buffer': 2.0, 'safety_enabled': True
+            })()
+            self.rate_limits = type('RateLimits', (), {
+                'yaw': 0.785, 'pitch': 0.785, 'roll': 0.785  # ~45 deg/s in rad/s
+            })()
+
+        self._follower_config_name = self._derive_follower_config_name()
+        logger.info(f"Initialized legacy limits for {self._follower_config_name}")
+
+    def check_safety(self) -> 'SafetyStatus':
+        """
+        Centralized safety check - validates altitude and velocity limits.
+
+        This method should be called by followers before applying commands.
+        It checks:
+        1. Altitude safety (if enabled)
+        2. Velocity magnitude limits
+        3. Violation counting
+
+        Returns:
+            SafetyStatus: Status with safe flag, reason, and recommended action
+        """
+        current_time = time.time()
+
+        # Rate-limit safety checks to avoid overhead
+        if current_time - self._last_safety_check_time < self._safety_check_interval:
+            # Return cached OK status for performance
+            if SAFETY_MANAGER_AVAILABLE:
+                return SafetyStatus.ok()
+            else:
+                return type('SafetyStatus', (), {'safe': True, 'reason': 'ok', 'action': None})()
+
+        self._last_safety_check_time = current_time
+
+        # Use SafetyManager if available
+        if self.safety_manager:
+            try:
+                # Check altitude safety
+                current_alt = getattr(self.px4_controller, 'current_altitude', None)
+                if current_alt is not None:
+                    alt_status = self.safety_manager.check_altitude_safety(
+                        current_alt,
+                        self._follower_config_name
+                    )
+                    if not alt_status.safe:
+                        self._handle_safety_violation(alt_status)
+                        return alt_status
+
+                return SafetyStatus.ok()
+
+            except Exception as e:
+                logger.warning(f"Safety check error: {e}")
+                return SafetyStatus.ok()  # Fail-open for now
+
+        # Legacy safety check
+        return self._check_safety_legacy()
+
+    def _check_safety_legacy(self):
+        """Legacy safety check when SafetyManager is not available."""
+        from classes.parameters import Parameters
+
+        # Check if altitude safety is enabled
+        altitude_safety_enabled = getattr(Parameters, 'ALTITUDE_SAFETY_ENABLED', True)
+        if not altitude_safety_enabled:
+            return type('SafetyStatus', (), {'safe': True, 'reason': 'disabled', 'action': None})()
+
+        # Get current altitude
+        current_alt = getattr(self.px4_controller, 'current_altitude', None)
+        if current_alt is None:
+            return type('SafetyStatus', (), {'safe': True, 'reason': 'no_altitude', 'action': None})()
+
+        # Check bounds
+        min_alt = self.altitude_limits.min_altitude
+        max_alt = self.altitude_limits.max_altitude
+
+        if current_alt < min_alt:
+            return type('SafetyStatus', (), {
+                'safe': False,
+                'reason': f'altitude_low: {current_alt:.1f}m < {min_alt:.1f}m',
+                'action': 'clamp'
+            })()
+
+        if current_alt > max_alt:
+            return type('SafetyStatus', (), {
+                'safe': False,
+                'reason': f'altitude_high: {current_alt:.1f}m > {max_alt:.1f}m',
+                'action': 'clamp'
+            })()
+
+        return type('SafetyStatus', (), {'safe': True, 'reason': 'ok', 'action': None})()
+
+    def _handle_safety_violation(self, status: 'SafetyStatus') -> None:
+        """
+        Handle a safety violation by logging and incrementing violation count.
+
+        Args:
+            status: The SafetyStatus describing the violation
+        """
+        self._safety_violation_count += 1
+
+        # Rate-limited logging
+        self._rate_limiter.log_rate_limited(
+            logger, 'warning',
+            f'safety_violation_{self._follower_config_name}',
+            f"Safety violation #{self._safety_violation_count} in {self._follower_config_name}: {status.reason}"
+        )
+
+        # Log event for circuit breaker integration
+        self.log_follower_event(
+            'safety_violation',
+            reason=status.reason,
+            action=str(status.action) if hasattr(status, 'action') else 'unknown',
+            violation_count=self._safety_violation_count
+        )
+
+    def clamp_velocity(self, vel_fwd: float, vel_right: float, vel_down: float) -> tuple:
+        """
+        Clamp velocity components to configured limits.
+
+        Args:
+            vel_fwd: Forward velocity (m/s)
+            vel_right: Right velocity (m/s)
+            vel_down: Down velocity (m/s)
+
+        Returns:
+            tuple: (clamped_fwd, clamped_right, clamped_down)
+        """
+        import numpy as np
+
+        clamped_fwd = np.clip(vel_fwd, -self.velocity_limits.forward, self.velocity_limits.forward)
+        clamped_right = np.clip(vel_right, -self.velocity_limits.lateral, self.velocity_limits.lateral)
+        clamped_down = np.clip(vel_down, -self.velocity_limits.vertical, self.velocity_limits.vertical)
+
+        return (clamped_fwd, clamped_right, clamped_down)
+
+    def clamp_rate(self, rate_value: float, rate_type: str = 'yaw') -> float:
+        """
+        Clamp a rate value to configured limits.
+
+        Args:
+            rate_value: Rate in rad/s
+            rate_type: One of 'yaw', 'pitch', 'roll'
+
+        Returns:
+            float: Clamped rate in rad/s
+        """
+        import numpy as np
+
+        limit = getattr(self.rate_limits, rate_type, self.rate_limits.yaw)
+        return float(np.clip(rate_value, -limit, limit))
+
+    def is_altitude_safety_enabled(self) -> bool:
+        """
+        Check if altitude safety is enabled for this follower.
+
+        Returns:
+            bool: True if altitude safety checks should be performed
+        """
+        if self.safety_manager:
+            return self.safety_manager.is_altitude_safety_enabled(self._follower_config_name)
+
+        # Legacy check
+        return getattr(self.altitude_limits, 'safety_enabled', True)
+
+    def get_effective_limit(self, limit_name: str) -> float:
+        """
+        Get an effective limit value using SafetyManager with legacy fallback.
+
+        Args:
+            limit_name: The name of the limit (e.g., 'MAX_VELOCITY_FORWARD')
+
+        Returns:
+            float: The limit value
+        """
+        if self.safety_manager:
+            return self.safety_manager.get_limit(limit_name, self._follower_config_name)
+
+        # Legacy fallback
+        from classes.parameters import Parameters
+        return Parameters.get_effective_limit(limit_name, self._follower_config_name)
 
     # ==================== Validation Methods ====================
     

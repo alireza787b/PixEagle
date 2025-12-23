@@ -168,10 +168,10 @@ class FWAttitudeRateFollower(BaseFollower):
         self.turn_coordination_gain = config.get('TURN_COORDINATION_GAIN', 1.0)
         self.slip_angle_limit = config.get('SLIP_ANGLE_LIMIT', 5.0)
 
-        # === Altitude Safety ===
+        # === Altitude Safety (use base class cached limits via SafetyManager) ===
         self.altitude_safety_enabled = config.get('ENABLE_ALTITUDE_SAFETY', True)
-        self.min_altitude_limit = Parameters.get_effective_limit('MIN_ALTITUDE', 'FW_ATTITUDE_RATE')
-        self.max_altitude_limit = Parameters.get_effective_limit('MAX_ALTITUDE', 'FW_ATTITUDE_RATE')
+        self.min_altitude_limit = self.altitude_limits.min_altitude
+        self.max_altitude_limit = self.altitude_limits.max_altitude
         self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 0.1)
         self.rtl_on_altitude_violation = config.get('RTL_ON_ALTITUDE_VIOLATION', True)
 

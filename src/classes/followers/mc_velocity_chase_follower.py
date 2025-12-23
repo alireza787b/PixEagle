@@ -124,12 +124,12 @@ class MCVelocityChaseFollower(BaseFollower):
         self.guidance_mode_switch_velocity = config.get('GUIDANCE_MODE_SWITCH_VELOCITY', 3.0)
         self.enable_auto_mode_switching = config.get('ENABLE_AUTO_MODE_SWITCHING', False)
         self.altitude_safety_enabled = config.get('ALTITUDE_SAFETY_ENABLED', False)
-        # Use unified limit access (follower-specific overrides global SafetyLimits)
-        self.min_altitude_limit = Parameters.get_effective_limit('MIN_ALTITUDE', 'MC_VELOCITY_CHASE')
-        self.max_altitude_limit = Parameters.get_effective_limit('MAX_ALTITUDE', 'MC_VELOCITY_CHASE')
+        # Use base class cached altitude limits (via SafetyManager)
+        self.min_altitude_limit = self.altitude_limits.min_altitude
+        self.max_altitude_limit = self.altitude_limits.max_altitude
         self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 0.1)  # 100ms for safety
         self.rtl_on_altitude_violation = config.get('RTL_ON_ALTITUDE_VIOLATION', True)
-        self.altitude_warning_buffer = Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', 'MC_VELOCITY_CHASE')
+        self.altitude_warning_buffer = self.altitude_limits.warning_buffer
         self.emergency_stop_enabled = config.get('EMERGENCY_STOP_ENABLED', True)
         self.max_tracking_error = config.get('MAX_TRACKING_ERROR', 1.5)
         self.velocity_smoothing_enabled = config.get('VELOCITY_SMOOTHING_ENABLED', True)
@@ -142,9 +142,9 @@ class MCVelocityChaseFollower(BaseFollower):
         self.ramp_update_rate = config.get('RAMP_UPDATE_RATE', 10.0)
         self.pid_update_rate = config.get('PID_UPDATE_RATE', 20.0)
 
-        # Max yaw rate in radians for PID limit (matches position follower pattern)
-        from math import radians, degrees
-        self.max_yaw_rate_rad = radians(Parameters.get_effective_limit('MAX_YAW_RATE', 'MC_VELOCITY_CHASE'))
+        # Max yaw rate in radians for PID limit (from base class cached limits)
+        from math import degrees
+        self.max_yaw_rate_rad = self.rate_limits.yaw  # Already in rad/s from SafetyManager
         self._degrees = degrees  # Store for use in update_control()
 
         # Load adaptive dive/climb parameters
@@ -275,12 +275,11 @@ class MCVelocityChaseFollower(BaseFollower):
             self.active_lateral_mode = self._get_active_lateral_mode()
             
             if self.active_lateral_mode == 'sideslip':
-                # Sideslip Mode: Direct lateral velocity control
-                max_lateral = Parameters.get_effective_limit('MAX_VELOCITY_LATERAL', 'MC_VELOCITY_CHASE')
+                # Sideslip Mode: Direct lateral velocity control (use base class cached limits)
                 self.pid_right = CustomPID(
                     *self._get_pid_gains('vel_body_right'),
                     setpoint=setpoint_x,
-                    output_limits=(-max_lateral, max_lateral)
+                    output_limits=(-self.velocity_limits.lateral, self.velocity_limits.lateral)
                 )
                 logger.debug(f"Sideslip mode PID initialized with gains {self._get_pid_gains('vel_body_right')}")
 
@@ -293,14 +292,13 @@ class MCVelocityChaseFollower(BaseFollower):
                 )
                 logger.debug(f"Coordinated turn mode PID initialized with gains {self._get_pid_gains('yawspeed_deg_s')}")
 
-            # Down Velocity Controller - Vertical Control (if enabled)
+            # Down Velocity Controller - Vertical Control (if enabled, use base class cached limits)
             self.pid_down = None
             if self.enable_altitude_control:
-                max_vertical = Parameters.get_effective_limit('MAX_VELOCITY_VERTICAL', 'MC_VELOCITY_CHASE')
                 self.pid_down = CustomPID(
                     *self._get_pid_gains('vel_body_down'),
                     setpoint=setpoint_y,
-                    output_limits=(-max_vertical, max_vertical)
+                    output_limits=(-self.velocity_limits.vertical, self.velocity_limits.vertical)
                 )
                 logger.debug(f"Down velocity PID initialized with gains {self._get_pid_gains('vel_body_down')}")
             else:
@@ -359,12 +357,11 @@ class MCVelocityChaseFollower(BaseFollower):
             setpoint_x, _ = self.initial_target_coords
             
             if new_mode == 'sideslip' and self.pid_right is None:
-                # Initialize sideslip PID controller
-                max_lateral = Parameters.get_effective_limit('MAX_VELOCITY_LATERAL', 'MC_VELOCITY_CHASE')
+                # Initialize sideslip PID controller (use base class cached limits)
                 self.pid_right = CustomPID(
                     *self._get_pid_gains('vel_body_right'),
                     setpoint=setpoint_x,
-                    output_limits=(-max_lateral, max_lateral)
+                    output_limits=(-self.velocity_limits.lateral, self.velocity_limits.lateral)
                 )
                 logger.debug("Sideslip PID controller initialized during mode switch")
 
@@ -852,12 +849,9 @@ class MCVelocityChaseFollower(BaseFollower):
             adjusted_v_down = current_v_down + v_down_correction
             adjusted_v_fwd = current_v_fwd + v_fwd_correction
 
-            # Apply absolute velocity limits from SafetyLimits
-            max_v_fwd = Parameters.get_effective_limit('MAX_VELOCITY_FORWARD', 'MC_VELOCITY_CHASE')
-            max_v_down = Parameters.get_effective_limit('MAX_VELOCITY_VERTICAL', 'MC_VELOCITY_CHASE')
-
-            adjusted_v_fwd = np.clip(adjusted_v_fwd, 0.0, max_v_fwd)  # Never go backward
-            adjusted_v_down = np.clip(adjusted_v_down, -max_v_down, max_v_down)
+            # Apply absolute velocity limits from base class cached limits
+            adjusted_v_fwd = np.clip(adjusted_v_fwd, 0.0, self.velocity_limits.forward)  # Never go backward
+            adjusted_v_down = np.clip(adjusted_v_down, -self.velocity_limits.vertical, self.velocity_limits.vertical)
 
             # Ensure forward velocity doesn't drop below minimum threshold
             if adjusted_v_fwd < self.min_forward_velocity_threshold:

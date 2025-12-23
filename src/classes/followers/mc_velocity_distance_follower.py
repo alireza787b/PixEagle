@@ -93,14 +93,13 @@ class MCVelocityDistanceFollower(BaseFollower):
         self.altitude_control_enabled = config.get('ENABLE_ALTITUDE_CONTROL', True)
         self.initial_target_coords = initial_target_coords
 
-        # Load altitude limits using unified limit access (follower-specific overrides global SafetyLimits)
-        self.min_descent_height = Parameters.get_effective_limit('MIN_ALTITUDE', 'MC_VELOCITY_DISTANCE')
-        self.max_climb_height = Parameters.get_effective_limit('MAX_ALTITUDE', 'MC_VELOCITY_DISTANCE')
-        self.max_vertical_velocity = config.get('MAX_VERTICAL_VELOCITY', 5.0)
-        self.max_lateral_velocity = config.get('MAX_LATERAL_VELOCITY', 10.0)
-        from math import radians
-        # Internal rad/s; get MAX_YAW_RATE from SafetyLimits (in deg/s) and convert
-        self.max_yaw_rate = radians(Parameters.get_effective_limit('MAX_YAW_RATE', 'MC_VELOCITY_DISTANCE'))
+        # Use base class cached limits (via SafetyManager)
+        self.min_descent_height = self.altitude_limits.min_altitude
+        self.max_climb_height = self.altitude_limits.max_altitude
+        self.max_vertical_velocity = self.velocity_limits.vertical
+        self.max_lateral_velocity = self.velocity_limits.lateral
+        # Internal rad/s; use base class cached rate limits
+        self.max_yaw_rate = self.rate_limits.yaw  # Already in rad/s from SafetyManager
         self.yaw_control_threshold = config.get('YAW_CONTROL_THRESHOLD', 0.3)
         self.target_lost_timeout = config.get('TARGET_LOST_TIMEOUT', 3.0)
         self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)

@@ -171,13 +171,13 @@ class MCVelocityFollower(BaseFollower):
         self.ramp_down_on_target_loss = config.get('RAMP_DOWN_ON_TARGET_LOSS', True)
         self.slow_forward_velocity = config.get('SLOW_FORWARD_VELOCITY', 1.0)
 
-        # === ALTITUDE SAFETY ===
+        # === ALTITUDE SAFETY (use base class cached limits via SafetyManager) ===
         self.enable_altitude_safety = config.get('ENABLE_ALTITUDE_SAFETY', True)
-        self.min_altitude_limit = Parameters.get_effective_limit('MIN_ALTITUDE', 'MC_VELOCITY')
-        self.max_altitude_limit = Parameters.get_effective_limit('MAX_ALTITUDE', 'MC_VELOCITY')
+        self.min_altitude_limit = self.altitude_limits.min_altitude
+        self.max_altitude_limit = self.altitude_limits.max_altitude
         self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 0.1)
         self.rtl_on_altitude_violation = config.get('RTL_ON_ALTITUDE_VIOLATION', True)
-        self.altitude_warning_buffer = Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', 'MC_VELOCITY')
+        self.altitude_warning_buffer = self.altitude_limits.warning_buffer
 
         # === VELOCITY SATURATION PROTECTION ===
         self.enable_velocity_magnitude_limit = config.get('ENABLE_VELOCITY_MAGNITUDE_LIMIT', True)
@@ -191,9 +191,9 @@ class MCVelocityFollower(BaseFollower):
         self.emergency_stop_enabled = config.get('EMERGENCY_STOP_ENABLED', True)
         self.max_tracking_error = config.get('MAX_TRACKING_ERROR', 1.5)
 
-        # === RATE LIMITS (rad/s internally, matches position follower pattern) ===
-        from math import radians, degrees
-        self.max_yaw_rate_rad = radians(Parameters.get_effective_limit('MAX_YAW_RATE', 'MC_VELOCITY'))
+        # === RATE LIMITS (use base class cached limits via SafetyManager) ===
+        from math import degrees
+        self.max_yaw_rate_rad = self.rate_limits.yaw  # Already in rad/s from SafetyManager
         self._degrees = degrees  # Store for use in update_control()
 
         # === PERFORMANCE ===
@@ -323,23 +323,21 @@ class MCVelocityFollower(BaseFollower):
             )
             logger.debug(f"Yaw speed PID initialized with gains {self._get_pid_gains('mc_yawspeed_deg_s')}")
 
-            # CRAB_STRAFE: Lateral velocity control
-            max_lateral = Parameters.get_effective_limit('MAX_VELOCITY_LATERAL', 'MC_VELOCITY')
+            # CRAB_STRAFE: Lateral velocity control (use base class cached limits)
             self.pid_right = CustomPID(
                 *self._get_pid_gains('mc_vel_body_right'),
                 setpoint=setpoint_x,
-                output_limits=(-max_lateral, max_lateral)
+                output_limits=(-self.velocity_limits.lateral, self.velocity_limits.lateral)
             )
             logger.debug(f"Lateral velocity PID initialized with gains {self._get_pid_gains('mc_vel_body_right')}")
 
-            # Down Velocity Controller - Vertical Control
+            # Down Velocity Controller - Vertical Control (use base class cached limits)
             self.pid_down = None
             if self.enable_altitude_control:
-                max_vertical = Parameters.get_effective_limit('MAX_VELOCITY_VERTICAL', 'MC_VELOCITY')
                 self.pid_down = CustomPID(
                     *self._get_pid_gains('mc_vel_body_down'),
                     setpoint=setpoint_y,
-                    output_limits=(-max_vertical, max_vertical)
+                    output_limits=(-self.velocity_limits.vertical, self.velocity_limits.vertical)
                 )
                 logger.debug(f"Down velocity PID initialized with gains {self._get_pid_gains('mc_vel_body_down')}")
             else:

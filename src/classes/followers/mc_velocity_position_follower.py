@@ -113,13 +113,12 @@ class MCVelocityPositionFollower(BaseFollower):
         self.yaw_control_enabled = config.get('ENABLE_YAW_CONTROL', True)  # Always enabled for this mode
         self.altitude_control_enabled = config.get('ENABLE_ALTITUDE_CONTROL', True)
 
-        # Load altitude limits using unified limit access (follower-specific overrides global SafetyLimits)
-        self.min_descent_height = Parameters.get_effective_limit('MIN_ALTITUDE', 'MC_VELOCITY_POSITION')
-        self.max_climb_height = Parameters.get_effective_limit('MAX_ALTITUDE', 'MC_VELOCITY_POSITION')
-        self.max_vertical_velocity = config.get('MAX_VERTICAL_VELOCITY', 3.0)
-        # Internal unit is rad/s; get MAX_YAW_RATE from SafetyLimits (in deg/s) and convert
-        from math import radians
-        self.max_yaw_rate = radians(Parameters.get_effective_limit('MAX_YAW_RATE', 'MC_VELOCITY_POSITION'))
+        # Use base class cached limits (via SafetyManager)
+        self.min_descent_height = self.altitude_limits.min_altitude
+        self.max_climb_height = self.altitude_limits.max_altitude
+        self.max_vertical_velocity = self.velocity_limits.vertical
+        # Internal unit is rad/s; use base class cached rate limits
+        self.max_yaw_rate = self.rate_limits.yaw  # Already in rad/s from SafetyManager
         self.yaw_control_threshold = config.get('YAW_CONTROL_THRESHOLD', 0.05)
         self.target_lost_timeout = config.get('TARGET_LOST_TIMEOUT', 3.0)
         self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)

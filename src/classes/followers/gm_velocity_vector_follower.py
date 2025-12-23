@@ -154,14 +154,13 @@ class GMVelocityVectorFollower(BaseFollower):
         self.angle_smoothing_alpha = self.config.get('ANGLE_SMOOTHING_ALPHA', 0.7)
         self.filtered_angles = None  # (yaw, pitch, roll) in degrees
 
-        # === Altitude Safety (Optional Enforcement) ===
-        # Use unified limit access (follower-specific overrides global SafetyLimits)
+        # === Altitude Safety (use base class cached limits via SafetyManager) ===
         self.altitude_safety_enabled = self.config.get('ALTITUDE_SAFETY_ENABLED', False)
-        self.min_altitude_safety = Parameters.get_effective_limit('MIN_ALTITUDE', 'GM_VELOCITY_VECTOR')
-        self.max_altitude_safety = Parameters.get_effective_limit('MAX_ALTITUDE', 'GM_VELOCITY_VECTOR')
+        self.min_altitude_safety = self.altitude_limits.min_altitude
+        self.max_altitude_safety = self.altitude_limits.max_altitude
         self.altitude_check_interval = self.config.get('ALTITUDE_CHECK_INTERVAL', 1.0)
         self.rtl_on_altitude_violation = self.config.get('RTL_ON_ALTITUDE_VIOLATION', False)
-        self.altitude_warning_buffer = Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', 'GM_VELOCITY_VECTOR')
+        self.altitude_warning_buffer = self.altitude_limits.warning_buffer
         self.altitude_violation_count = 0
         self.last_altitude_check_time = 0.0
 
@@ -547,8 +546,8 @@ class GMVelocityVectorFollower(BaseFollower):
         # Proportional control: yaw rate proportional to yaw error
         yaw_rate = yaw_deg * self.yaw_rate_gain
 
-        # Clamp to SafetyLimits (deg/s)
-        max_yaw_rate = Parameters.get_effective_limit('MAX_YAW_RATE', 'GM_VELOCITY_VECTOR')
+        # Clamp to SafetyLimits (deg/s) - use base class cached limits
+        max_yaw_rate = self.rate_limits.yaw * 57.2958  # Convert rad/s to deg/s
         yaw_rate = max(-max_yaw_rate, min(max_yaw_rate, yaw_rate))
 
         return yaw_rate

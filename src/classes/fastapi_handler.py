@@ -293,7 +293,12 @@ class FastAPIHandler:
         self.app.post("/api/osd/toggle")(self.toggle_osd)
         self.app.get("/api/osd/presets")(self.get_osd_presets)
         self.app.post("/api/osd/preset/{preset_name}")(self.load_osd_preset)
-    
+
+        # Safety configuration API endpoints (v3.5.0+)
+        self.app.get("/api/safety/config")(self.get_safety_config)
+        self.app.get("/api/safety/limits/{follower_name}")(self.get_follower_safety_limits)
+        self.app.get("/api/safety/vehicle-profiles")(self.get_vehicle_profiles)
+
     async def video_feed(self):
         """Optimized HTTP MJPEG streaming with adaptive quality."""
         client_id = f"http_{time.time()}"
@@ -2949,4 +2954,170 @@ class FastAPIHandler:
             raise
         except Exception as e:
             self.logger.error(f"Error loading OSD preset: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # ==================== Safety Configuration API Endpoints (v3.5.0+) ====================
+
+    async def get_safety_config(self):
+        """
+        Get complete safety configuration from SafetyManager.
+
+        Returns:
+            dict: Complete safety configuration including global limits,
+                  vehicle profiles, and follower overrides
+        """
+        try:
+            # Try to import SafetyManager
+            try:
+                from classes.safety_manager import SafetyManager, get_safety_manager
+                safety_manager = get_safety_manager()
+                safety_available = True
+            except ImportError:
+                safety_available = False
+                safety_manager = None
+
+            if not safety_available or safety_manager is None:
+                # Fallback to legacy SafetyLimits from Parameters
+                legacy_limits = getattr(Parameters, 'SafetyLimits', {})
+                return JSONResponse(content={
+                    'available': False,
+                    'legacy_mode': True,
+                    'safety_limits': legacy_limits,
+                    'message': 'SafetyManager not available, using legacy SafetyLimits',
+                    'timestamp': time.time()
+                })
+
+            # Get full configuration from SafetyManager
+            config = {
+                'available': True,
+                'legacy_mode': False,
+                'global_limits': safety_manager._global_limits,
+                'vehicle_profiles': safety_manager._vehicle_profiles,
+                'follower_overrides': safety_manager._follower_overrides,
+                'cache_size': len(safety_manager._cache),
+                'timestamp': time.time()
+            }
+
+            return JSONResponse(content=config)
+
+        except Exception as e:
+            self.logger.error(f"Error getting safety config: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_follower_safety_limits(self, follower_name: str):
+        """
+        Get effective safety limits for a specific follower.
+
+        Args:
+            follower_name: Name of the follower (e.g., 'MC_VELOCITY_CHASE')
+
+        Returns:
+            dict: Effective limits for the specified follower including
+                  velocity, altitude, and rate limits
+        """
+        try:
+            # Try to import SafetyManager
+            try:
+                from classes.safety_manager import SafetyManager, get_safety_manager
+                safety_manager = get_safety_manager()
+                safety_available = True
+            except ImportError:
+                safety_available = False
+                safety_manager = None
+
+            if not safety_available or safety_manager is None:
+                # Fallback to Parameters.get_effective_limit
+                limits = {
+                    'follower_name': follower_name,
+                    'legacy_mode': True,
+                    'velocity_limits': {
+                        'forward': Parameters.get_effective_limit('MAX_VELOCITY_FORWARD', follower_name),
+                        'lateral': Parameters.get_effective_limit('MAX_VELOCITY_LATERAL', follower_name),
+                        'vertical': Parameters.get_effective_limit('MAX_VELOCITY_VERTICAL', follower_name),
+                    },
+                    'altitude_limits': {
+                        'min_altitude': Parameters.get_effective_limit('MIN_ALTITUDE', follower_name),
+                        'max_altitude': Parameters.get_effective_limit('MAX_ALTITUDE', follower_name),
+                        'warning_buffer': Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', follower_name),
+                    },
+                    'rate_limits': {
+                        'max_yaw_rate': Parameters.get_effective_limit('MAX_YAW_RATE', follower_name),
+                    },
+                    'timestamp': time.time()
+                }
+                return JSONResponse(content=limits)
+
+            # Get limits from SafetyManager
+            velocity_limits = safety_manager.get_velocity_limits(follower_name)
+            altitude_limits = safety_manager.get_altitude_limits(follower_name)
+            rate_limits = safety_manager.get_rate_limits(follower_name)
+            vehicle_type = safety_manager._get_vehicle_type(follower_name)
+
+            limits = {
+                'follower_name': follower_name,
+                'vehicle_type': vehicle_type.value if vehicle_type else 'UNKNOWN',
+                'legacy_mode': False,
+                'velocity_limits': {
+                    'forward': velocity_limits.forward,
+                    'lateral': velocity_limits.lateral,
+                    'vertical': velocity_limits.vertical,
+                    'max_magnitude': velocity_limits.max_magnitude,
+                },
+                'altitude_limits': {
+                    'min_altitude': altitude_limits.min_altitude,
+                    'max_altitude': altitude_limits.max_altitude,
+                    'warning_buffer': altitude_limits.warning_buffer,
+                    'safety_enabled': altitude_limits.safety_enabled,
+                },
+                'rate_limits': {
+                    'yaw': rate_limits.yaw,
+                    'yaw_deg_s': rate_limits.yaw * 57.2958,  # Also provide in deg/s
+                    'pitch': rate_limits.pitch,
+                    'roll': rate_limits.roll,
+                },
+                'altitude_safety_enabled': safety_manager.is_altitude_safety_enabled(follower_name),
+                'timestamp': time.time()
+            }
+
+            return JSONResponse(content=limits)
+
+        except Exception as e:
+            self.logger.error(f"Error getting follower safety limits: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_vehicle_profiles(self):
+        """
+        Get all vehicle type profiles (MULTICOPTER, FIXED_WING, GIMBAL).
+
+        Returns:
+            dict: Vehicle profiles with their respective safety limits
+        """
+        try:
+            # Try to import SafetyManager
+            try:
+                from classes.safety_manager import SafetyManager, get_safety_manager
+                safety_manager = get_safety_manager()
+                safety_available = True
+            except ImportError:
+                safety_available = False
+                safety_manager = None
+
+            if not safety_available or safety_manager is None:
+                return JSONResponse(content={
+                    'available': False,
+                    'message': 'SafetyManager not available',
+                    'timestamp': time.time()
+                })
+
+            profiles = {
+                'available': True,
+                'profiles': safety_manager._vehicle_profiles,
+                'supported_types': ['MULTICOPTER', 'FIXED_WING', 'GIMBAL'],
+                'timestamp': time.time()
+            }
+
+            return JSONResponse(content=profiles)
+
+        except Exception as e:
+            self.logger.error(f"Error getting vehicle profiles: {e}")
             raise HTTPException(status_code=500, detail=str(e))
