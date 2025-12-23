@@ -1,8 +1,42 @@
 # src/classes/parameters.py
+"""
+Parameters Module - Central Configuration Management
+=====================================================
+
+This module provides the Parameters class for loading and accessing
+configuration values from YAML files. It integrates with SafetyManager
+for unified safety limit management.
+
+Project Information:
+- Project Name: PixEagle
+- Repository: https://github.com/alireza787b/PixEagle
+- Author: Alireza Ghaderi
+
+Safety Limit Resolution (via SafetyManager):
+    1. Follower-specific override
+    2. Vehicle profile (MULTICOPTER, FIXED_WING, GIMBAL)
+    3. Global limits
+    4. Hardcoded fallback
+"""
 
 import yaml
 import os
-from typing import Optional
+import logging
+from typing import Optional, Dict, Any
+
+logger = logging.getLogger(__name__)
+
+# Lazy import to avoid circular dependency
+_safety_manager = None
+
+def _get_safety_manager():
+    """Lazy load SafetyManager to avoid circular import."""
+    global _safety_manager
+    if _safety_manager is None:
+        from classes.safety_manager import SafetyManager
+        _safety_manager = SafetyManager.get_instance()
+    return _safety_manager
+
 
 class Parameters:
     """
@@ -10,17 +44,23 @@ class Parameters:
     Automatically loads all configuration parameters from the config.yaml file.
     Configurations are set as class variables, maintaining compatibility with existing code.
 
-    Safety Limits Resolution:
-        The get_effective_limit() method resolves limits in this priority order:
-        1. Follower-specific override (if follower_name provided and limit exists in follower section)
-        2. Global SafetyLimits section value
-        3. Hardcoded fallback default (for safety)
+    Safety Limits Resolution (v3.5.0+):
+        Uses SafetyManager for centralized limit resolution:
+        1. FollowerOverrides (if follower_name provided)
+        2. VehicleProfiles (based on follower's vehicle type)
+        3. GlobalLimits
+        4. Hardcoded fallback (for safety)
     """
+
+    # Raw config storage for SafetyManager initialization
+    _raw_config: Dict[str, Any] = {}
 
     # Grouped sections that should NOT be flattened
     _GROUPED_SECTIONS = [
-        'SafetyLimits',  # Global safety limits
-        # Follower sections (new naming convention: {vehicle}_{control}_{behavior})
+        'Safety',        # New unified safety config (v3.5.0+)
+        'SafetyLimits',  # Legacy safety limits (deprecated)
+        'Followers',     # New unified follower configs (v3.5.0+)
+        # Follower sections (legacy - maintained for compatibility)
         'MC_VELOCITY_POSITION', 'MC_VELOCITY_DISTANCE', 'MC_VELOCITY_GROUND',
         'MC_VELOCITY_CHASE', 'MC_VELOCITY', 'MC_ATTITUDE_RATE',
         'GM_VELOCITY_VECTOR', 'GM_PID_PURSUIT',
@@ -64,10 +104,14 @@ class Parameters:
     def load_config(cls, config_file='configs/config.yaml'):
         """
         Class method to load configurations from the config.yaml file and set class variables.
+        Also initializes SafetyManager with the loaded configuration.
         """
         # Fix: Specify UTF-8 encoding to handle special characters
         with open(config_file, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
+
+        # Store raw config for SafetyManager
+        cls._raw_config = config
 
         # Iterate over all top-level keys (sections)
         for section, params in config.items():
@@ -87,6 +131,14 @@ class Parameters:
                     # Simple values (not dict) - set directly
                     setattr(cls, section, params)
 
+        # Initialize SafetyManager with the loaded config
+        try:
+            safety_manager = _get_safety_manager()
+            safety_manager.load_from_config(config)
+            logger.info("SafetyManager initialized with configuration")
+        except Exception as e:
+            logger.warning(f"Could not initialize SafetyManager: {e}")
+
     @classmethod
     def get_section(cls, section_name: str) -> dict:
         """
@@ -105,10 +157,12 @@ class Parameters:
         """
         Get the effective safety limit for a given parameter.
 
-        Resolution order:
-        1. Follower-specific override (if follower_name provided and limit exists)
-        2. Global SafetyLimits value
-        3. Hardcoded fallback (for safety)
+        Resolution order (via SafetyManager):
+        1. Follower-specific override (Safety.FollowerOverrides)
+        2. Vehicle profile (Safety.VehicleProfiles based on follower type)
+        3. Global limits (Safety.GlobalLimits)
+        4. Legacy SafetyLimits (for backward compatibility)
+        5. Hardcoded fallback (for safety)
 
         Args:
             limit_name: Name of the limit (e.g., 'MIN_ALTITUDE', 'MAX_VELOCITY_FORWARD')
@@ -119,18 +173,28 @@ class Parameters:
 
         Example:
             >>> Parameters.get_effective_limit('MIN_ALTITUDE', 'MC_VELOCITY_CHASE')
-            5.0  # Returns follower override if exists, else global
+            5.0  # Returns follower override if exists, else vehicle profile
 
             >>> Parameters.get_effective_limit('MIN_ALTITUDE')
-            3.0  # Returns global SafetyLimits value
+            3.0  # Returns global limit
         """
-        # Step 1: Check follower-specific override
+        try:
+            # Use SafetyManager for centralized resolution
+            safety_manager = _get_safety_manager()
+            value = safety_manager.get_limit(limit_name, follower_name)
+            if value is not None:
+                return float(value)
+        except Exception as e:
+            logger.debug(f"SafetyManager fallback for {limit_name}: {e}")
+
+        # Fallback to legacy resolution if SafetyManager fails
+        # Step 1: Check follower-specific override (legacy)
         if follower_name:
             follower_config = getattr(cls, follower_name, {})
             if isinstance(follower_config, dict) and limit_name in follower_config:
                 return float(follower_config[limit_name])
 
-        # Step 2: Check global SafetyLimits
+        # Step 2: Check global SafetyLimits (legacy)
         safety_limits = getattr(cls, 'SafetyLimits', {})
         if isinstance(safety_limits, dict) and limit_name in safety_limits:
             return float(safety_limits[limit_name])

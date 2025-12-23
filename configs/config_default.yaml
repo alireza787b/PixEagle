@@ -1999,19 +1999,108 @@ PID:
   ANTI_WINDUP_BACK_CALC_COEFF: 0.1         # Back-calculation coefficient
 
 # ==============================================================================
-# SAFETY LIMITS - GLOBAL DEFAULTS
+# SAFETY CONFIGURATION - UNIFIED SYSTEM (v3.5.0+)
 # ==============================================================================
-# System-wide safety limits that apply to ALL followers by default.
-# Individual followers can override these in their own sections if needed.
-# Priority: Follower-specific override > Global SafetyLimits > Hardcoded fallback
+# Centralized safety configuration with vehicle-type profiles.
+# Priority: FollowerOverrides → VehicleProfiles → GlobalLimits → Hardcoded
 #
-# Naming Convention (unified across all followers):
-#   - MIN_ALTITUDE: Minimum safe operating altitude (meters)
-#   - MAX_ALTITUDE: Maximum safe operating altitude (meters)
-#   - MAX_VELOCITY_FORWARD: Maximum forward velocity (m/s)
-#   - MAX_VELOCITY_LATERAL: Maximum lateral/sideways velocity (m/s)
-#   - MAX_VELOCITY_VERTICAL: Maximum vertical velocity (m/s)
-#   - MAX_YAW_RATE: Maximum yaw rotation rate (deg/s)
+# Benefits:
+#   - Single source of truth for all safety limits
+#   - Vehicle-type profiles (MULTICOPTER, FIXED_WING, GIMBAL)
+#   - Optional per-follower overrides
+#   - Cleaner config, no duplication
+# ==============================================================================
+Safety:
+  # --- Global Hard Limits (NEVER exceeded by any follower) ---
+  GlobalLimits:
+    MIN_ALTITUDE: 2.0                    # m - Absolute floor for all vehicles
+    MAX_ALTITUDE: 150.0                  # m - Absolute ceiling for all vehicles
+    MAX_VELOCITY: 15.0                   # m/s - Absolute max velocity any axis
+    MAX_YAW_RATE: 90.0                   # deg/s - Absolute max yaw rate
+    MAX_PITCH_RATE: 60.0                 # deg/s - Absolute max pitch rate
+    MAX_ROLL_RATE: 60.0                  # deg/s - Absolute max roll rate
+
+  # --- Vehicle Type Profiles ---
+  VehicleProfiles:
+    MULTICOPTER:
+      # Altitude
+      MIN_ALTITUDE: 3.0                  # m - Minimum safe altitude
+      MAX_ALTITUDE: 120.0                # m - Maximum operating altitude
+      ALTITUDE_WARNING_BUFFER: 2.0       # m - Warning zone before limits
+      ALTITUDE_SAFETY_ENABLED: true      # Enable altitude enforcement
+      # Velocity (m/s)
+      MAX_VELOCITY_FORWARD: 8.0          # m/s - Max forward velocity
+      MAX_VELOCITY_LATERAL: 5.0          # m/s - Max lateral velocity
+      MAX_VELOCITY_VERTICAL: 3.0         # m/s - Max vertical velocity
+      # Rates (deg/s - converted to rad/s internally)
+      MAX_YAW_RATE: 45.0                 # deg/s
+      MAX_PITCH_RATE: 45.0               # deg/s
+      MAX_ROLL_RATE: 45.0                # deg/s
+      # Behavior
+      EMERGENCY_STOP_ENABLED: true
+      RTL_ON_VIOLATION: true
+      TARGET_LOSS_ACTION: hover
+      MAX_SAFETY_VIOLATIONS: 5
+
+    FIXED_WING:
+      # Altitude (higher limits for fixed-wing)
+      MIN_ALTITUDE: 30.0                 # m - Higher floor for safety
+      MAX_ALTITUDE: 400.0                # m - Higher ceiling allowed
+      ALTITUDE_WARNING_BUFFER: 10.0      # m - Larger buffer for speed
+      ALTITUDE_SAFETY_ENABLED: true
+      # Airspeed (fixed-wing uses airspeed, not ground velocity)
+      MIN_AIRSPEED: 12.0                 # m/s - Stall prevention
+      CRUISE_AIRSPEED: 18.0              # m/s - Normal cruise
+      MAX_AIRSPEED: 30.0                 # m/s - Structural limit
+      # Rates (more conservative for fixed-wing)
+      MAX_YAW_RATE: 25.0                 # deg/s - Coordinated turns only
+      MAX_PITCH_RATE: 20.0               # deg/s - Smooth pitch changes
+      MAX_ROLL_RATE: 45.0                # deg/s - Standard banking
+      # Behavior
+      EMERGENCY_STOP_ENABLED: false      # Cannot stop fixed-wing in air
+      RTL_ON_VIOLATION: true
+      TARGET_LOSS_ACTION: orbit          # Orbit last known position
+      MAX_SAFETY_VIOLATIONS: 3           # More conservative
+
+    GIMBAL:
+      # Altitude (inherits from drone platform)
+      MIN_ALTITUDE: 3.0
+      MAX_ALTITUDE: 120.0
+      ALTITUDE_WARNING_BUFFER: 2.0
+      ALTITUDE_SAFETY_ENABLED: true
+      # Velocity (conservative for gimbal-based following)
+      MAX_VELOCITY: 2.0                  # m/s - Overall velocity limit
+      MAX_VELOCITY_FORWARD: 2.0          # m/s
+      MAX_VELOCITY_LATERAL: 3.0          # m/s
+      MAX_VELOCITY_VERTICAL: 2.0         # m/s
+      # Rates
+      MAX_YAW_RATE: 45.0                 # deg/s
+      # Behavior
+      EMERGENCY_STOP_ENABLED: true
+      RTL_ON_VIOLATION: false            # Zero velocities instead of RTL
+      TARGET_LOSS_ACTION: stop           # Stop all movement
+      MAX_SAFETY_VIOLATIONS: 5
+
+  # --- Optional Per-Follower Overrides ---
+  # These override the vehicle profile values for specific followers.
+  # Only include parameters that differ from the vehicle profile.
+  FollowerOverrides:
+    MC_VELOCITY_CHASE:
+      MAX_FORWARD_VELOCITY: 0.5          # Demo-safe velocity limit
+      ALTITUDE_SAFETY_ENABLED: false     # Disabled for ground testing
+
+    GM_PID_PURSUIT:
+      ALTITUDE_SAFETY_ENABLED: false     # Disabled for ground testing
+
+    GM_VELOCITY_VECTOR:
+      MAX_VELOCITY: 0.5                  # Conservative for safety testing
+
+# ==============================================================================
+# LEGACY SAFETY LIMITS (DEPRECATED - Use Safety section above)
+# ==============================================================================
+# This section is maintained for backward compatibility.
+# New deployments should use the unified Safety section above.
+# Will be removed in v4.0.0
 # ==============================================================================
 SafetyLimits:
   # === Altitude Boundaries ===
