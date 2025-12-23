@@ -1072,7 +1072,7 @@ Follower:
   TARGET_POSITION_MODE: center              # center, top, bottom
 
   # === Following Mode ===
-  # Options: mc_velocity_ground, mc_velocity_distance, mc_velocity_position, mc_velocity_chase, mc_velocity, mc_attitude_rate, fw_attitude_rate, gm_velocity_unified, gm_velocity_vector
+  # Options: mc_velocity_ground, mc_velocity_distance, mc_velocity_position, mc_velocity_chase, mc_velocity, mc_attitude_rate, fw_attitude_rate, gm_pid_pursuit, gm_velocity_vector
   # Deprecated (still work): ground_view, constant_distance, constant_position, body_velocity_chase, gimbal_vector_body
   FOLLOWER_MODE: mc_velocity_position
   
@@ -1097,11 +1097,11 @@ CIRCUIT_BREAKER_DISABLE_SAFETY: false     # Skip ALL safety checks in CB test mo
 
 
 # ==============================================================================
-# GIMBAL VELOCITY UNIFIED FOLLOWER CONFIGURATION
+# GIMBAL PID PURSUIT FOLLOWER CONFIGURATION
 # ==============================================================================
-GM_VELOCITY_UNIFIED:
+GM_PID_PURSUIT:
   # === Mount Configuration ===
-  MOUNT_TYPE: "VERTICAL"                    # Options: "HORIZONTAL", "VERTICAL"
+  MOUNT_TYPE: "HORIZONTAL"                  # Options: "HORIZONTAL", "VERTICAL"
   CONTROL_MODE: "BODY"                      # Options: "NED", "BODY"
 
   # === Required Tracker Fields ===
@@ -1118,7 +1118,7 @@ GM_VELOCITY_UNIFIED:
   FORWARD_VELOCITY_MODE: "CONSTANT"        # Options: "CONSTANT", "PITCH_BASED", "PROPORTIONAL_NAV" (future)
   BASE_FORWARD_SPEED: 2.0                  # Constant forward speed (m/s)
   MAX_FORWARD_VELOCITY: 2.0                # Maximum forward velocity limit (m/s) - conservative default
-  FORWARD_ACCELERATION: 0.5                # Ramp rate from current to target speed (m/s²) - smooth 4s ramp
+  FORWARD_ACCELERATION: 2.0                # Ramp rate from current to target speed (m/s²) - reach 2m/s in ~1s
 
   # === Lateral Guidance Mode ===
   LATERAL_GUIDANCE_MODE: "coordinated_turn" # Options: "coordinated_turn", "sideslip"

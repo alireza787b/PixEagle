@@ -377,7 +377,7 @@ MC_VELOCITY_CHASE:
 - **mc_velocity** - Professional multicopter with dual-mode lateral guidance
 - **mc_attitude_rate** - Aggressive attitude rate control for fast tracking
 - **fw_attitude_rate** - Professional fixed-wing with L1 navigation and TECS
-- **gm_velocity_unified** - Configurable NED/Body control from gimbal angles
+- **gm_pid_pursuit** - PID-based pursuit with coordinated turn guidance from gimbal angles
 - **gm_velocity_vector** - Direct vector pursuit using gimbal angles
 
 Each follower mode has dedicated parameters for control enablement, safety limits, performance tuning, and mode-specific features. All parameters include sensible defaults and comprehensive documentation. Old names (e.g., `constant_position`, `body_velocity_chase`) remain functional via deprecated aliases with warnings.

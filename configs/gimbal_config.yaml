@@ -9,7 +9,7 @@
 #    - Altitude control: ENABLED for 3D pursuit
 #
 # USAGE: Copy this file to config.yaml on the flight device
-# TESTING ORDER: Gimbal tracker -> gm_velocity_unified -> USB + mc_velocity_chase
+# TESTING ORDER: Gimbal tracker -> gm_pid_pursuit -> USB + mc_velocity_chase
 # ==============================================================================
 
 
@@ -1073,7 +1073,7 @@ Follower:
   TARGET_POSITION_MODE: center              # center, top, bottom
 
   # === Following Mode ===
-  # Options: mc_velocity_ground, mc_velocity_distance, mc_velocity_position, mc_velocity_chase, mc_velocity, mc_attitude_rate, fw_attitude_rate, gm_velocity_unified, gm_velocity_vector
+  # Options: mc_velocity_ground, mc_velocity_distance, mc_velocity_position, mc_velocity_chase, mc_velocity, mc_attitude_rate, fw_attitude_rate, gm_pid_pursuit, gm_velocity_vector
   # Deprecated (still work): ground_view, constant_distance, constant_position, body_velocity_chase, gimbal_vector_body
   # For gimbal testing: gm_velocity_vector (direct vector pursuit)
   FOLLOWER_MODE: gm_velocity_vector
@@ -1099,11 +1099,11 @@ CIRCUIT_BREAKER_DISABLE_SAFETY: false     # Skip ALL safety checks in CB test mo
 
 
 # ==============================================================================
-# GIMBAL VELOCITY UNIFIED FOLLOWER CONFIGURATION
+# GIMBAL PID PURSUIT FOLLOWER CONFIGURATION
 # ==============================================================================
-GM_VELOCITY_UNIFIED:
+GM_PID_PURSUIT:
   # === Mount Configuration ===
-  MOUNT_TYPE: "VERTICAL"                    # Options: "HORIZONTAL", "VERTICAL"
+  MOUNT_TYPE: "HORIZONTAL"                  # Options: "HORIZONTAL", "VERTICAL"
   CONTROL_MODE: "BODY"                      # Options: "NED", "BODY"
 
   # === Required Tracker Fields ===

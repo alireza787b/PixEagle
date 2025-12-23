@@ -1,11 +1,11 @@
-# src/classes/followers/gm_velocity_unified_follower.py
+# src/classes/followers/gm_pid_pursuit_follower.py
 
 """
-GMVelocityUnifiedFollower Module - Clean Architecture Implementation
+GMPIDPursuitFollower Module - Clean Architecture Implementation
 ========================================================
 
-Modern, clean implementation of GMVelocityUnifiedFollower using the new transformation
-and target loss handling architecture. Designed for maintainability,
+Modern, clean implementation of GMPIDPursuitFollower using PID-based pursuit control
+with coordinated turn guidance. Designed for maintainability,
 testability, and full integration with PixEagle safety systems.
 
 Project Information:
@@ -70,9 +70,9 @@ try:
 except ImportError:
     CIRCUIT_BREAKER_AVAILABLE = False
 
-class GMVelocityUnifiedFollower(BaseFollower):
+class GMPIDPursuitFollower(BaseFollower):
     """
-    Modern GMVelocityUnifiedFollower implementation using clean architecture.
+    Modern GMPIDPursuitFollower implementation using clean architecture.
 
     Integrates mount-aware transformations, unified target loss handling,
     and comprehensive safety systems for professional drone control.
@@ -80,20 +80,20 @@ class GMVelocityUnifiedFollower(BaseFollower):
 
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
-        Initialize GMVelocityUnifiedFollower with new architecture.
+        Initialize GMPIDPursuitFollower with new architecture.
 
         Args:
             px4_controller: PX4 interface for drone control
             initial_target_coords: Initial target coordinates (required by factory interface)
         """
-        self.setpoint_profile = "gm_velocity_unified"  # GMVelocityUnifiedFollower always uses gm_velocity_unified profile
-        self.follower_name = "GMVelocityUnifiedFollower"
+        self.setpoint_profile = "gm_pid_pursuit"  # GMPIDPursuitFollower always uses gm_pid_pursuit profile
+        self.follower_name = "GMPIDPursuitFollower"
         self.initial_target_coords = initial_target_coords
 
         # Load configuration from Parameters (needed for display name)
-        self.config = getattr(Parameters, 'GM_VELOCITY_UNIFIED', {})
+        self.config = getattr(Parameters, 'GM_PID_PURSUIT', {})
         if not self.config:
-            raise ValueError("GM_VELOCITY_UNIFIED configuration section not found in Parameters")
+            raise ValueError("GM_PID_PURSUIT configuration section not found in Parameters")
 
         # Set basic attributes needed for display name
         self.mount_type = self.config.get('MOUNT_TYPE', 'VERTICAL')
@@ -117,12 +117,12 @@ class GMVelocityUnifiedFollower(BaseFollower):
         # Control parameters
         self.max_velocity = self.config.get('MAX_VELOCITY', 8.0)
         # Use unified limit access (follower-specific overrides global SafetyLimits)
-        self.max_yaw_rate = Parameters.get_effective_limit('MAX_YAW_RATE', 'GM_VELOCITY_UNIFIED')
+        self.max_yaw_rate = Parameters.get_effective_limit('MAX_YAW_RATE', 'GM_PID_PURSUIT')
 
         # Safety parameters using unified limit access
         self.emergency_stop_enabled = self.config.get('EMERGENCY_STOP_ENABLED', True)
-        self.min_altitude_safety = Parameters.get_effective_limit('MIN_ALTITUDE', 'GM_VELOCITY_UNIFIED')
-        self.max_altitude_safety = Parameters.get_effective_limit('MAX_ALTITUDE', 'GM_VELOCITY_UNIFIED')
+        self.min_altitude_safety = Parameters.get_effective_limit('MIN_ALTITUDE', 'GM_PID_PURSUIT')
+        self.max_altitude_safety = Parameters.get_effective_limit('MAX_ALTITUDE', 'GM_PID_PURSUIT')
         self.max_safety_violations = self.config.get('MAX_SAFETY_VIOLATIONS', 5)
 
         # Performance parameters
@@ -176,7 +176,7 @@ class GMVelocityUnifiedFollower(BaseFollower):
         # Initialize PID controllers based on mount configuration and mode
         self._initialize_pid_controllers()
 
-        logger.info(f"GMVelocityUnifiedFollower initialized: {self.mount_type} mount, {self.control_mode} control, {self.active_lateral_mode} guidance")
+        logger.info(f"GMPIDPursuitFollower initialized: {self.mount_type} mount, {self.control_mode} control, {self.active_lateral_mode} guidance")
 
     def _cache_config_parameters(self):
         """Cache frequently accessed configuration parameters for performance optimization."""
@@ -1398,7 +1398,7 @@ class GMVelocityUnifiedFollower(BaseFollower):
 
     def reset_safety_state(self) -> None:
         """Reset all safety-related state variables."""
-        logger.info("Resetting safety state for GMVelocityUnifiedFollower")
+        logger.info("Resetting safety state for GMPIDPursuitFollower")
 
         self.emergency_stop_active = False
         self.altitude_safety_active = False
@@ -1440,7 +1440,7 @@ class GMVelocityUnifiedFollower(BaseFollower):
     def get_status_info(self) -> Dict[str, Any]:
         """Get comprehensive status information."""
         return {
-            'follower_type': 'GMVelocityUnifiedFollower',
+            'follower_type': 'GMPIDPursuitFollower',
             'display_name': self.get_display_name(),
             'following_active': self.following_active,
             'emergency_stop_active': self.emergency_stop_active,
@@ -1534,4 +1534,4 @@ class GMVelocityUnifiedFollower(BaseFollower):
 
     def __str__(self) -> str:
         """String representation for debugging."""
-        return f"GMVelocityUnifiedFollower(mount={self.mount_type}, control={self.control_mode}, active={self.following_active})"
+        return f"GMPIDPursuitFollower(mount={self.mount_type}, control={self.control_mode}, active={self.following_active})"

@@ -192,10 +192,10 @@ follower_profiles:
     required_tracker_data: ["POSITION_2D"]
     optional_tracker_data: ["BBOX_CONFIDENCE", "VELOCITY_AWARE", "MULTI_TARGET"]
 
-  # GM Velocity Unified Follower - Unified NED/Body control from gimbal angles
-  gm_velocity_unified:
-    display_name: "GM Velocity Unified"
-    description: "Configurable NED/Body velocity control from gimbal angles"
+  # GM PID Pursuit Follower - PID-based pursuit with coordinated turn guidance
+  gm_pid_pursuit:
+    display_name: "GM PID Pursuit"
+    description: "PID-based pursuit control with coordinated turn guidance from gimbal angles"
     control_type: "velocity_body_offboard"  # Use body velocity offboard for body frame commands
     required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down"]
     optional_fields: ["yawspeed_deg_s"]
@@ -279,7 +279,7 @@ deprecated_profile_aliases:
   attitude_rate: mc_attitude_rate
   chase_follower: mc_attitude_rate
   body_velocity_chase: mc_velocity_chase
-  gimbal_unified: gm_velocity_unified
+  gimbal_unified: gm_pid_pursuit
   gimbal_vector_body: gm_velocity_vector
   fixed_wing: fw_attitude_rate
   multicopter: mc_velocity
@@ -340,7 +340,7 @@ ui_config:
       fields: ["yaw_angle_deg", "yawspeed_deg_s"]
       color: "#9C27B0"
 
-  profile_display_order: ["mc_velocity_ground", "mc_velocity_distance", "mc_velocity_position", "mc_velocity_chase", "mc_velocity", "mc_attitude_rate", "gm_velocity_unified", "gm_velocity_vector", "fw_attitude_rate"]
+  profile_display_order: ["mc_velocity_ground", "mc_velocity_distance", "mc_velocity_position", "mc_velocity_chase", "mc_velocity", "mc_attitude_rate", "gm_pid_pursuit", "gm_velocity_vector", "fw_attitude_rate"]
 
 # ==============================================================================
 # Validation Rules

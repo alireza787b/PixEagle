@@ -26,7 +26,8 @@ class FollowerFactory:
         'attitude_rate': 'mc_attitude_rate',
         'chase_follower': 'mc_attitude_rate',
         'body_velocity_chase': 'mc_velocity_chase',
-        'gimbal_unified': 'gm_velocity_unified',
+        'gimbal_unified': 'gm_pid_pursuit',
+        'gm_velocity_unified': 'gm_pid_pursuit',  # Renamed from unified to pid_pursuit
         'gimbal_vector_body': 'gm_velocity_vector',
         'fixed_wing': 'fw_attitude_rate',
         'multicopter': 'mc_velocity',
@@ -55,7 +56,7 @@ class FollowerFactory:
             from classes.followers.mc_velocity_chase_follower import MCVelocityChaseFollower
             from classes.followers.mc_velocity_follower import MCVelocityFollower
             from classes.followers.mc_attitude_rate_follower import MCAttitudeRateFollower
-            from classes.followers.gm_velocity_unified_follower import GMVelocityUnifiedFollower
+            from classes.followers.gm_pid_pursuit_follower import GMPIDPursuitFollower
             from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
             from classes.followers.fw_attitude_rate_follower import FWAttitudeRateFollower
 
@@ -75,7 +76,7 @@ class FollowerFactory:
                 'fw_attitude_rate': FWAttitudeRateFollower,
 
                 # Gimbal - Velocity Control
-                'gm_velocity_unified': GMVelocityUnifiedFollower,
+                'gm_pid_pursuit': GMPIDPursuitFollower,
                 'gm_velocity_vector': GMVelocityVectorFollower,
             }
 

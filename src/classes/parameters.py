@@ -23,7 +23,7 @@ class Parameters:
         # Follower sections (new naming convention: {vehicle}_{control}_{behavior})
         'MC_VELOCITY_POSITION', 'MC_VELOCITY_DISTANCE', 'MC_VELOCITY_GROUND',
         'MC_VELOCITY_CHASE', 'MC_VELOCITY', 'MC_ATTITUDE_RATE',
-        'GM_VELOCITY_VECTOR', 'GM_VELOCITY_UNIFIED',
+        'GM_VELOCITY_VECTOR', 'GM_PID_PURSUIT',
         'FW_ATTITUDE_RATE',
         # Tracker sections
         'GimbalTracker', 'GimbalTrackerSettings',

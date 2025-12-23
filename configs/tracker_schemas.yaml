@@ -454,7 +454,7 @@ compatibility:
         - POSITION_3D  # 3D helps with ground projection
       optional_schemas:
         - EXTERNAL
-    GMVelocityUnifiedFollower:
+    GMPIDPursuitFollower:
       required_schemas:
         - GIMBAL_ANGLES
       compatible_schemas:
