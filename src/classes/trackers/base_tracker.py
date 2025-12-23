@@ -275,6 +275,119 @@ class BaseTracker(ABC):
         """
         return self.compute_motion_confidence() >= Parameters.MOTION_CONFIDENCE_THRESHOLD
 
+    def is_near_boundary(self, margin: int = None) -> bool:
+        """
+        Check if the tracked object is near the frame boundary.
+
+        Near-boundary targets cause filter corruption and tracking failures
+        in correlation-based trackers (KCF, CSRT, MOSSE). This detection
+        enables proactive confidence adjustment and failure prevention.
+
+        Args:
+            margin: Pixel margin from edge to consider "near boundary".
+                   Defaults to config value or 15 pixels.
+
+        Returns:
+            bool: True if target bbox is within margin of any frame edge
+        """
+        if not self.bbox or not self.video_handler:
+            return False
+
+        # Get margin from config or use default
+        if margin is None:
+            margin = getattr(Parameters, 'BOUNDARY_MARGIN_PIXELS', 15)
+
+        x, y, w, h = self.bbox
+        frame_width = self.video_handler.width
+        frame_height = self.video_handler.height
+
+        # Check all four boundaries
+        near_left = x < margin
+        near_top = y < margin
+        near_right = (x + w) > (frame_width - margin)
+        near_bottom = (y + h) > (frame_height - margin)
+
+        return near_left or near_top or near_right or near_bottom
+
+    def get_boundary_status(self) -> dict:
+        """
+        Get detailed boundary proximity status.
+
+        Useful for debugging and for trackers that need to apply
+        boundary-specific handling strategies.
+
+        Returns:
+            dict: Boundary status with distances to each edge
+        """
+        if not self.bbox or not self.video_handler:
+            return {
+                'near_boundary': False,
+                'edges': [],
+                'min_distance': float('inf')
+            }
+
+        x, y, w, h = self.bbox
+        frame_width = self.video_handler.width
+        frame_height = self.video_handler.height
+        margin = getattr(Parameters, 'BOUNDARY_MARGIN_PIXELS', 15)
+
+        # Calculate distance to each edge
+        dist_left = x
+        dist_top = y
+        dist_right = frame_width - (x + w)
+        dist_bottom = frame_height - (y + h)
+
+        edges_near = []
+        if dist_left < margin:
+            edges_near.append('left')
+        if dist_top < margin:
+            edges_near.append('top')
+        if dist_right < margin:
+            edges_near.append('right')
+        if dist_bottom < margin:
+            edges_near.append('bottom')
+
+        min_distance = min(dist_left, dist_top, dist_right, dist_bottom)
+
+        return {
+            'near_boundary': len(edges_near) > 0,
+            'edges': edges_near,
+            'min_distance': max(0, min_distance),
+            'distances': {
+                'left': dist_left,
+                'top': dist_top,
+                'right': dist_right,
+                'bottom': dist_bottom
+            },
+            'margin': margin
+        }
+
+    def compute_boundary_confidence_penalty(self) -> float:
+        """
+        Compute confidence penalty based on boundary proximity.
+
+        Returns a multiplier (0.0-1.0) that can be applied to confidence
+        to account for increased uncertainty near frame edges.
+
+        Returns:
+            float: Confidence multiplier (1.0 = no penalty, 0.5 = 50% penalty)
+        """
+        boundary_status = self.get_boundary_status()
+
+        if not boundary_status['near_boundary']:
+            return 1.0  # No penalty
+
+        min_distance = boundary_status['min_distance']
+        margin = boundary_status['margin']
+
+        # Linear penalty: 1.0 at margin distance, 0.5 at edge
+        if min_distance >= margin:
+            return 1.0
+
+        # Scale from 1.0 to 0.5 based on distance
+        penalty = 0.5 + 0.5 * (min_distance / margin)
+        return max(0.5, min(1.0, penalty))
+
     def update_time(self) -> float:
         """
         Updates the time interval (dt) between consecutive frames.

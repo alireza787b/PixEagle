@@ -150,20 +150,8 @@ class TrackingStateManager:
         else:
             self._on_detection_lost()
 
-            # Check if we've exceeded tolerance
-            if self.frames_since_detection > self.max_history:
-                # Mark as lost in appearance model (starts memory countdown)
-                if self.appearance_model and self.frames_since_detection == self.max_history + 1:
-                    self.appearance_model.mark_as_lost(self.selected_track_id)
-
-                # Only log ONCE when first exceeding tolerance (not every subsequent frame)
-                if self.frames_since_detection == self.max_history + 1:
-                    logging.info(f"[TRACKING] Lost: exceeded {self.max_history} frame tolerance")
-                return False, None
-            else:
-                # Still within tolerance, maintain tracking
-                logging.debug(f"[TrackingStateManager] Temporary loss ({self.frames_since_detection}/{self.max_history} frames)")
-                return True, None
+            # Graceful degradation with multi-level fallback
+            return self._handle_detection_loss(detections, compute_iou_func, frame)
 
     def _match_by_id(self, detections: List[List]) -> Optional[Dict]:
         """Match detection by exact track ID."""
@@ -354,6 +342,108 @@ class TrackingStateManager:
                     (predicted_bbox[1] + predicted_bbox[3]) // 2
                 )
                 logging.debug(f"[TrackingStateManager] Using predicted position (frame {self.frames_since_detection})")
+
+    def _handle_detection_loss(self, detections: List[List], compute_iou_func, frame: np.ndarray = None) -> Tuple[bool, Optional[Dict]]:
+        """
+        Graceful degradation with multi-level fallback strategy.
+
+        Fallback Levels:
+        1. Motion prediction (already applied in _on_detection_lost)
+        2. Lenient nearby detection search (lower IoU threshold)
+        3. Prediction-only mode (continue with estimated bbox)
+        4. Signal loss after extended failure
+
+        Args:
+            detections: Current frame detections
+            compute_iou_func: IoU computation function
+            frame: Current frame (optional)
+
+        Returns:
+            Tuple of (is_tracking_active, result_dict or None)
+        """
+        enable_graceful_degradation = self.config.get('ENABLE_GRACEFUL_DEGRADATION', True)
+
+        # Level 1: Within normal tolerance - motion prediction already applied
+        if self.frames_since_detection <= self.max_history:
+            logging.debug(f"[TrackingStateManager] Temporary loss ({self.frames_since_detection}/{self.max_history} frames)")
+            return True, None
+
+        # Beyond normal tolerance - apply graceful degradation
+        if enable_graceful_degradation:
+            extended_tolerance = self.config.get('EXTENDED_TOLERANCE_FRAMES', 10)
+
+            # Level 2: Try lenient spatial matching with lower IoU threshold
+            if self.frames_since_detection <= self.max_history + extended_tolerance:
+                lenient_iou = max(0.15, self.spatial_iou_threshold * 0.5)  # 50% of normal threshold
+                lenient_match = self._match_by_spatial_lenient(detections, compute_iou_func, lenient_iou)
+
+                if lenient_match:
+                    logging.info(f"[TRACKING] Lenient spatial recovery: ID {self.selected_track_id}→{lenient_match['track_id']}")
+                    self._on_detection_found(lenient_match, frame)
+                    return True, lenient_match
+
+            # Level 3: Prediction-only mode - continue tracking with motion prediction
+            if self.frames_since_detection <= self.max_history + extended_tolerance:
+                if self.motion_predictor and self.last_known_bbox:
+                    predicted_bbox = self.motion_predictor.predict_bbox(self.frames_since_detection)
+                    if predicted_bbox:
+                        # Return prediction-only result with degraded confidence
+                        degradation_factor = 1.0 - (self.frames_since_detection - self.max_history) / extended_tolerance
+                        degraded_confidence = max(0.1, self.smoothed_confidence * degradation_factor)
+
+                        prediction_result = {
+                            'track_id': self.selected_track_id,
+                            'class_id': self.selected_class_id,
+                            'bbox': predicted_bbox,
+                            'center': ((predicted_bbox[0] + predicted_bbox[2]) // 2,
+                                      (predicted_bbox[1] + predicted_bbox[3]) // 2),
+                            'confidence': degraded_confidence,
+                            'prediction_only': True,
+                            'frames_predicted': self.frames_since_detection
+                        }
+                        logging.debug(f"[TrackingStateManager] Prediction-only mode (frame {self.frames_since_detection}, conf={degraded_confidence:.2f})")
+                        return True, prediction_result
+
+        # Level 4: Complete loss - need re-selection
+        if self.appearance_model and self.frames_since_detection == self.max_history + 1:
+            self.appearance_model.mark_as_lost(self.selected_track_id)
+
+        if self.frames_since_detection == self.max_history + 1:
+            logging.info(f"[TRACKING] Lost: exceeded {self.max_history} frame tolerance (graceful degradation: {enable_graceful_degradation})")
+
+        return False, {'need_reselection': True, 'frames_lost': self.frames_since_detection}
+
+    def _match_by_spatial_lenient(self, detections: List[List], compute_iou_func, lenient_threshold: float) -> Optional[Dict]:
+        """Match detection with lenient IoU threshold for recovery."""
+        if self.last_known_bbox is None:
+            return None
+
+        best_match = None
+        best_iou = 0.0
+
+        for detection in detections:
+            if len(detection) < 7:
+                continue
+
+            class_id = int(detection[6])
+
+            # Only consider same class
+            if class_id != self.selected_class_id:
+                continue
+
+            x1, y1, x2, y2 = map(int, detection[:4])
+            current_bbox = (x1, y1, x2, y2)
+            iou = compute_iou_func(current_bbox, self.last_known_bbox)
+
+            if iou > best_iou and iou >= lenient_threshold:
+                best_iou = iou
+                best_match = self._parse_detection(detection)
+                best_match['track_id'] = int(detection[4])
+                best_match['iou_match'] = True
+                best_match['match_iou'] = iou
+                best_match['lenient_recovery'] = True
+
+        return best_match
 
     def _add_to_history(self, track_id: int, class_id: int, bbox: Tuple, confidence: float, center: Tuple):
         """Add detection to tracking history."""

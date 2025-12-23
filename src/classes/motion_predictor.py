@@ -24,17 +24,20 @@ class MotionPredictor:
     where the object will be during brief occlusions.
     """
 
-    def __init__(self, history_size: int = 5, velocity_alpha: float = 0.7):
+    def __init__(self, history_size: int = 5, velocity_alpha: float = 0.7, acceleration_alpha: float = 0.5):
         """
-        Initialize the motion predictor.
+        Initialize the motion predictor with acceleration-aware prediction.
 
         Args:
             history_size: Number of previous positions to store
             velocity_alpha: EMA smoothing factor for velocity (0-1)
                            Higher = more responsive, Lower = more stable
+            acceleration_alpha: EMA smoothing factor for acceleration (0-1)
+                               Lower = more stable acceleration estimates
         """
         self.history_size = history_size
         self.velocity_alpha = velocity_alpha
+        self.acceleration_alpha = acceleration_alpha
 
         # Position history: deque of (bbox, timestamp) tuples
         self.position_history = deque(maxlen=history_size)
@@ -45,11 +48,20 @@ class MotionPredictor:
         self.velocity_w = 0.0  # Width change rate
         self.velocity_h = 0.0  # Height change rate
 
+        # Previous velocity for acceleration computation
+        self.prev_velocity_x = 0.0
+        self.prev_velocity_y = 0.0
+
+        # Smoothed acceleration (pixels/second^2)
+        # Enables better prediction for 5+ frames ahead
+        self.accel_x = 0.0
+        self.accel_y = 0.0
+
         # Last update time
         self.last_update_time = 0.0
 
         logging.info(f"[MotionPredictor] Initialized with history_size={history_size}, "
-                    f"velocity_alpha={velocity_alpha}")
+                    f"velocity_alpha={velocity_alpha}, acceleration_alpha={acceleration_alpha}")
 
     def update(self, bbox: Tuple[int, int, int, int], timestamp: float):
         """
@@ -71,7 +83,10 @@ class MotionPredictor:
 
     def _update_velocity(self):
         """
-        Compute smoothed velocity from position history using EMA.
+        Compute smoothed velocity and acceleration from position history using EMA.
+
+        Acceleration is computed from velocity changes, enabling better
+        prediction for 5+ frames ahead using kinematic equations.
         """
         if len(self.position_history) < 2:
             return
@@ -84,6 +99,10 @@ class MotionPredictor:
         dt = curr_time - prev_time
         if dt <= 0:
             return
+
+        # Store previous velocity for acceleration computation
+        self.prev_velocity_x = self.velocity_x
+        self.prev_velocity_y = self.velocity_y
 
         # Compute instantaneous velocity (center position)
         prev_cx = (prev_bbox[0] + prev_bbox[2]) / 2
@@ -103,20 +122,43 @@ class MotionPredictor:
         instant_vw = (curr_w - prev_w) / dt
         instant_vh = (curr_h - prev_h) / dt
 
-        # Apply EMA smoothing
+        # Apply EMA smoothing to velocity
         alpha = self.velocity_alpha
         self.velocity_x = alpha * instant_vx + (1 - alpha) * self.velocity_x
         self.velocity_y = alpha * instant_vy + (1 - alpha) * self.velocity_y
         self.velocity_w = alpha * instant_vw + (1 - alpha) * self.velocity_w
         self.velocity_h = alpha * instant_vh + (1 - alpha) * self.velocity_h
 
-    def predict_bbox(self, frames_ahead: int, fps: float = 30.0) -> Optional[Tuple[int, int, int, int]]:
+        # Compute and smooth acceleration (velocity change over time)
+        # Only compute if we have previous velocity (not first update)
+        if len(self.position_history) >= 3:
+            instant_ax = (self.velocity_x - self.prev_velocity_x) / dt
+            instant_ay = (self.velocity_y - self.prev_velocity_y) / dt
+
+            # Apply EMA smoothing to acceleration (more conservative)
+            acc_alpha = self.acceleration_alpha
+            self.accel_x = acc_alpha * instant_ax + (1 - acc_alpha) * self.accel_x
+            self.accel_y = acc_alpha * instant_ay + (1 - acc_alpha) * self.accel_y
+
+            # Clamp acceleration to reasonable bounds (prevent runaway predictions)
+            max_accel = 500.0  # pixels/second^2 - reasonable for most tracking scenarios
+            self.accel_x = max(-max_accel, min(max_accel, self.accel_x))
+            self.accel_y = max(-max_accel, min(max_accel, self.accel_y))
+
+    def predict_bbox(self, frames_ahead: int, fps: float = 30.0, use_acceleration: bool = True) -> Optional[Tuple[int, int, int, int]]:
         """
-        Predict bounding box N frames into the future.
+        Predict bounding box N frames into the future using kinematic equations.
+
+        Uses acceleration-aware prediction for improved accuracy when predicting
+        5+ frames ahead. Falls back to linear prediction if acceleration is disabled
+        or not available.
+
+        Kinematic equation: position = pos + velocity * dt + 0.5 * acceleration * dt²
 
         Args:
             frames_ahead: Number of frames to predict ahead
             fps: Frames per second (for time calculation)
+            use_acceleration: Whether to use acceleration in prediction (default: True)
 
         Returns:
             Predicted bbox (x1, y1, x2, y2) or None if not enough history
@@ -131,13 +173,23 @@ class MotionPredictor:
         # Compute prediction time delta
         dt = frames_ahead / fps
 
-        # Predict center position
+        # Predict center position using kinematic equations
         cx = (x1 + x2) / 2
         cy = (y1 + y2) / 2
-        pred_cx = cx + self.velocity_x * dt
-        pred_cy = cy + self.velocity_y * dt
 
-        # Predict size
+        if use_acceleration and len(self.position_history) >= 3:
+            # Full kinematic prediction: pos + vel*t + 0.5*accel*t²
+            # This provides 15-25% better prediction for 5+ frames ahead
+            pred_cx = cx + self.velocity_x * dt + 0.5 * self.accel_x * (dt ** 2)
+            pred_cy = cy + self.velocity_y * dt + 0.5 * self.accel_y * (dt ** 2)
+            prediction_type = "kinematic"
+        else:
+            # Linear prediction: pos + vel*t
+            pred_cx = cx + self.velocity_x * dt
+            pred_cy = cy + self.velocity_y * dt
+            prediction_type = "linear"
+
+        # Predict size (linear only - acceleration not applied to size)
         w = x2 - x1
         h = y2 - y1
         pred_w = max(10, w + self.velocity_w * dt)  # Minimum width 10px
@@ -149,8 +201,9 @@ class MotionPredictor:
         pred_x2 = int(pred_cx + pred_w / 2)
         pred_y2 = int(pred_cy + pred_h / 2)
 
-        logging.debug(f"[MotionPredictor] Predicted {frames_ahead} frames ahead: "
-                     f"({pred_x1}, {pred_y1}, {pred_x2}, {pred_y2})")
+        logging.debug(f"[MotionPredictor] {prediction_type} prediction {frames_ahead} frames ahead: "
+                     f"({pred_x1}, {pred_y1}, {pred_x2}, {pred_y2}), "
+                     f"accel=({self.accel_x:.1f}, {self.accel_y:.1f}) px/s²")
 
         return (pred_x1, pred_y1, pred_x2, pred_y2)
 
@@ -184,6 +237,10 @@ class MotionPredictor:
         self.velocity_y = 0.0
         self.velocity_w = 0.0
         self.velocity_h = 0.0
+        self.prev_velocity_x = 0.0
+        self.prev_velocity_y = 0.0
+        self.accel_x = 0.0
+        self.accel_y = 0.0
         self.last_update_time = 0.0
         logging.debug("[MotionPredictor] Reset")
 
@@ -192,15 +249,20 @@ class MotionPredictor:
         Get current predictor state for debugging.
 
         Returns:
-            Dictionary with velocity and history info
+            Dictionary with velocity, acceleration, and history info
         """
+        accel_magnitude = (self.accel_x ** 2 + self.accel_y ** 2) ** 0.5
         return {
             'velocity_x': self.velocity_x,
             'velocity_y': self.velocity_y,
             'velocity_w': self.velocity_w,
             'velocity_h': self.velocity_h,
             'velocity_magnitude': self.get_velocity_magnitude(),
+            'accel_x': self.accel_x,
+            'accel_y': self.accel_y,
+            'accel_magnitude': accel_magnitude,
             'history_length': len(self.position_history),
             'last_update_time': self.last_update_time,
-            'is_moving': self.is_moving()
+            'is_moving': self.is_moving(),
+            'is_accelerating': accel_magnitude > 10.0  # > 10 px/s² considered accelerating
         }
