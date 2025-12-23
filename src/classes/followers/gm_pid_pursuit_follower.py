@@ -114,8 +114,10 @@ class GMPIDPursuitFollower(BaseFollower):
                 logger.warning(f"Failed to initialize target loss handler: {e} - using basic target loss logic")
                 self.target_loss_handler = None
 
-        # Control parameters
+        # Control parameters - velocity limits for PID controllers
         self.max_velocity = self.config.get('MAX_VELOCITY', 8.0)
+        self.max_velocity_lateral = self.config.get('MAX_VELOCITY_LATERAL', 3.0)
+        self.max_velocity_vertical = self.config.get('MAX_VELOCITY_VERTICAL', 2.0)
         # Use unified limit access (follower-specific overrides global SafetyLimits)
         self.max_yaw_rate = Parameters.get_effective_limit('MAX_YAW_RATE', 'GM_PID_PURSUIT')
 
@@ -212,7 +214,7 @@ class GMPIDPursuitFollower(BaseFollower):
             self.pid_down = CustomPID(
                 *self._get_pid_gains('vel_body_down'),
                 setpoint=setpoint_y,
-                output_limits=(-2.0, 2.0)  # Limit vertical velocity
+                output_limits=(-self.max_velocity_vertical, self.max_velocity_vertical)  # From config
             )
 
             if self.active_lateral_mode == 'sideslip':
@@ -220,7 +222,7 @@ class GMPIDPursuitFollower(BaseFollower):
                 self.pid_right = CustomPID(
                     *self._get_pid_gains('vel_body_right'),
                     setpoint=setpoint_x,
-                    output_limits=(-3.0, 3.0)  # Limit lateral velocity
+                    output_limits=(-self.max_velocity_lateral, self.max_velocity_lateral)  # From config
                 )
                 logger.debug(f"Sideslip mode PID initialized with gains {self._get_pid_gains('vel_body_right')}")
 
@@ -229,7 +231,7 @@ class GMPIDPursuitFollower(BaseFollower):
                 self.pid_yaw_speed = CustomPID(
                     *self._get_pid_gains('yawspeed_deg_s'),
                     setpoint=setpoint_x,
-                    output_limits=(-45.0, 45.0)  # Limit yaw rate
+                    output_limits=(-self.max_yaw_rate, self.max_yaw_rate)  # From config
                 )
                 logger.debug(f"Coordinated turn mode PID initialized with gains {self._get_pid_gains('yawspeed_deg_s')}")
 
@@ -665,7 +667,7 @@ class GMPIDPursuitFollower(BaseFollower):
                 self.pid_right = CustomPID(
                     *self._get_pid_gains('vel_body_right'),
                     setpoint=setpoint_x,
-                    output_limits=(-3.0, 3.0)
+                    output_limits=(-self.max_velocity_lateral, self.max_velocity_lateral)  # From config
                 )
                 logger.debug("Sideslip PID controller initialized during mode switch")
 
@@ -674,7 +676,7 @@ class GMPIDPursuitFollower(BaseFollower):
                 self.pid_yaw_speed = CustomPID(
                     *self._get_pid_gains('yawspeed_deg_s'),
                     setpoint=setpoint_x,
-                    output_limits=(-45.0, 45.0)
+                    output_limits=(-self.max_yaw_rate, self.max_yaw_rate)  # From config
                 )
                 logger.debug("Coordinated turn PID controller initialized during mode switch")
 

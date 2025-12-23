@@ -125,10 +125,12 @@ class MCAttitudeRateFollower(BaseFollower):
         guidance_mode_str = config.get('GUIDANCE_MODE', 'direct_rate')
         self.guidance_mode = self._parse_guidance_mode(guidance_mode_str)
 
-        # === RATE LIMITS (deg/s) ===
-        self.max_pitch_rate = config.get('MAX_PITCH_RATE', 45.0)
-        self.max_roll_rate = config.get('MAX_ROLL_RATE', 45.0)
-        self.max_yaw_rate = config.get('MAX_YAW_RATE', 60.0)
+        # === RATE LIMITS (rad/s internally, matches velocity follower pattern) ===
+        from math import radians, degrees
+        self.max_pitch_rate_rad = radians(config.get('MAX_PITCH_RATE', 45.0))
+        self.max_roll_rate_rad = radians(config.get('MAX_ROLL_RATE', 45.0))
+        self.max_yaw_rate_rad = radians(config.get('MAX_YAW_RATE', 60.0))
+        self._degrees = degrees  # Store for use in update_control()
 
         # === ANGLE LIMITS (safety) ===
         self.max_pitch_angle = config.get('MAX_PITCH_ANGLE', 35.0)
@@ -274,27 +276,27 @@ class MCAttitudeRateFollower(BaseFollower):
         try:
             setpoint_x, setpoint_y = self.initial_target_coords
 
-            # Pitch Rate Controller - Vertical Tracking (deg/s)
+            # Pitch Rate Controller - Vertical Tracking (rad/s internally, deg/s on output)
             self.pid_pitch_rate = CustomPID(
                 *self._get_pid_gains('mcar_pitchspeed_deg_s'),
                 setpoint=setpoint_y,
-                output_limits=(-self.max_pitch_rate, self.max_pitch_rate)
+                output_limits=(-self.max_pitch_rate_rad, self.max_pitch_rate_rad)  # rad/s limits
             )
             logger.debug(f"Pitch rate PID initialized with gains {self._get_pid_gains('mcar_pitchspeed_deg_s')}")
 
-            # Yaw Rate Controller - Horizontal Tracking (deg/s)
+            # Yaw Rate Controller - Horizontal Tracking (rad/s internally, deg/s on output)
             self.pid_yaw_rate = CustomPID(
                 *self._get_pid_gains('mcar_yawspeed_deg_s'),
                 setpoint=setpoint_x,
-                output_limits=(-self.max_yaw_rate, self.max_yaw_rate)
+                output_limits=(-self.max_yaw_rate_rad, self.max_yaw_rate_rad)  # rad/s limits
             )
             logger.debug(f"Yaw rate PID initialized with gains {self._get_pid_gains('mcar_yawspeed_deg_s')}")
 
-            # Roll Rate Controller - Coordinated Turns (deg/s)
+            # Roll Rate Controller - Coordinated Turns (rad/s internally, deg/s on output)
             self.pid_roll_rate = CustomPID(
                 *self._get_pid_gains('mcar_rollspeed_deg_s'),
                 setpoint=0.0,  # Updated dynamically based on bank angle
-                output_limits=(-self.max_roll_rate, self.max_roll_rate)
+                output_limits=(-self.max_roll_rate_rad, self.max_roll_rate_rad)  # rad/s limits
             )
             logger.debug(f"Roll rate PID initialized with gains {self._get_pid_gains('mcar_rollspeed_deg_s')}")
 
@@ -772,10 +774,10 @@ class MCAttitudeRateFollower(BaseFollower):
                 roll_rate = 0.0
                 thrust = self.hover_thrust
 
-            # Set commands via schema
-            self.set_command_field('pitchspeed_deg_s', pitch_rate)
-            self.set_command_field('yawspeed_deg_s', yaw_rate)
-            self.set_command_field('rollspeed_deg_s', roll_rate)
+            # Set commands via schema (convert rad/s → deg/s)
+            self.set_command_field('pitchspeed_deg_s', self._degrees(pitch_rate))
+            self.set_command_field('yawspeed_deg_s', self._degrees(yaw_rate))
+            self.set_command_field('rollspeed_deg_s', self._degrees(roll_rate))
             self.set_command_field('thrust', thrust)
 
             self.total_commands_issued += 1
@@ -785,8 +787,9 @@ class MCAttitudeRateFollower(BaseFollower):
             self.update_telemetry_metadata('dive_started', self.dive_started)
             self.update_telemetry_metadata('last_thrust', thrust)
 
-            logger.debug(f"Attitude rate commands - Pitch: {pitch_rate:.2f}, Yaw: {yaw_rate:.2f}, "
-                        f"Roll: {roll_rate:.2f} deg/s, Thrust: {thrust:.3f}")
+            logger.debug(f"Attitude rate commands - Pitch: {self._degrees(pitch_rate):.2f}, "
+                        f"Yaw: {self._degrees(yaw_rate):.2f}, Roll: {self._degrees(roll_rate):.2f} deg/s, "
+                        f"Thrust: {thrust:.3f}")
 
         except Exception as e:
             logger.error(f"Control command calculation error: {e}")

@@ -191,6 +191,11 @@ class MCVelocityFollower(BaseFollower):
         self.emergency_stop_enabled = config.get('EMERGENCY_STOP_ENABLED', True)
         self.max_tracking_error = config.get('MAX_TRACKING_ERROR', 1.5)
 
+        # === RATE LIMITS (rad/s internally, matches position follower pattern) ===
+        from math import radians, degrees
+        self.max_yaw_rate_rad = radians(Parameters.get_effective_limit('MAX_YAW_RATE', 'MC_VELOCITY'))
+        self._degrees = degrees  # Store for use in update_control()
+
         # === PERFORMANCE ===
         self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
         self.enable_altitude_control = config.get('ENABLE_ALTITUDE_CONTROL', True)
@@ -310,12 +315,11 @@ class MCVelocityFollower(BaseFollower):
             self.pid_yaw_speed = None
             self.pid_right = None
 
-            # YAW_TO_TARGET: Yaw rate control
-            max_yaw = Parameters.get_effective_limit('MAX_YAW_RATE', 'MC_VELOCITY')
+            # YAW_TO_TARGET: Yaw rate control (rad/s internally, converted to deg/s on output)
             self.pid_yaw_speed = CustomPID(
                 *self._get_pid_gains('mc_yawspeed_deg_s'),
                 setpoint=setpoint_x,
-                output_limits=(-max_yaw, max_yaw)
+                output_limits=(-self.max_yaw_rate_rad, self.max_yaw_rate_rad)  # rad/s limits
             )
             logger.debug(f"Yaw speed PID initialized with gains {self._get_pid_gains('mc_yawspeed_deg_s')}")
 
@@ -922,7 +926,7 @@ class MCVelocityFollower(BaseFollower):
             self.set_command_field('vel_body_fwd', forward_velocity)
             self.set_command_field('vel_body_right', right_velocity)
             self.set_command_field('vel_body_down', down_velocity)
-            self.set_command_field('yawspeed_deg_s', yaw_speed)
+            self.set_command_field('yawspeed_deg_s', self._degrees(yaw_speed))  # rad/s → deg/s
 
             self.total_commands_issued += 1
 
@@ -936,7 +940,7 @@ class MCVelocityFollower(BaseFollower):
 
             logger.debug(f"MCVelocityFollower commands ({self.active_lateral_mode.value}) - "
                         f"Fwd: {forward_velocity:.2f}, Right: {right_velocity:.2f}, "
-                        f"Down: {down_velocity:.2f} m/s, Yaw: {yaw_speed:.2f} deg/s")
+                        f"Down: {down_velocity:.2f} m/s, Yaw: {self._degrees(yaw_speed):.2f} deg/s")
 
         except Exception as e:
             logger.error(f"Error calculating control commands: {e}")
