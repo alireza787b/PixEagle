@@ -121,6 +121,7 @@ class GMPIDPursuitFollower(BaseFollower):
 
         # Safety parameters using unified limit access
         self.emergency_stop_enabled = self.config.get('EMERGENCY_STOP_ENABLED', True)
+        self.altitude_safety_enabled = self.config.get('ALTITUDE_SAFETY_ENABLED', True)  # Matches vector follower
         self.min_altitude_safety = Parameters.get_effective_limit('MIN_ALTITUDE', 'GM_PID_PURSUIT')
         self.max_altitude_safety = Parameters.get_effective_limit('MAX_ALTITUDE', 'GM_PID_PURSUIT')
         self.max_safety_violations = self.config.get('MAX_SAFETY_VIOLATIONS', 5)
@@ -1296,6 +1297,10 @@ class GMPIDPursuitFollower(BaseFollower):
                 return {'safe': True, 'current_altitude': 0.0}
         except ImportError:
             pass  # Circuit breaker not available, continue with normal safety checks
+
+        # Skip check if altitude safety is disabled in config (matches vector follower)
+        if not self.altitude_safety_enabled:
+            return {'safe': True, 'reason': 'altitude_safety_disabled'}
 
         try:
             # Get current altitude using same pattern as other followers
