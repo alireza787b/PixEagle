@@ -142,6 +142,11 @@ class MCVelocityChaseFollower(BaseFollower):
         self.ramp_update_rate = config.get('RAMP_UPDATE_RATE', 10.0)
         self.pid_update_rate = config.get('PID_UPDATE_RATE', 20.0)
 
+        # Max yaw rate in radians for PID limit (matches position follower pattern)
+        from math import radians, degrees
+        self.max_yaw_rate_rad = radians(Parameters.get_effective_limit('MAX_YAW_RATE', 'MC_VELOCITY_CHASE'))
+        self._degrees = degrees  # Store for use in update_control()
+
         # Load adaptive dive/climb parameters
         self.adaptive_mode_enabled = config.get('ENABLE_ADAPTIVE_DIVE_CLIMB', False)
         self.adaptive_smoothing_alpha = config.get('ADAPTIVE_SMOOTHING_ALPHA', 0.2)
@@ -280,12 +285,11 @@ class MCVelocityChaseFollower(BaseFollower):
                 logger.debug(f"Sideslip mode PID initialized with gains {self._get_pid_gains('vel_body_right')}")
 
             elif self.active_lateral_mode == 'coordinated_turn':
-                # Coordinated Turn Mode: Yaw rate control
-                max_yaw = Parameters.get_effective_limit('MAX_YAW_RATE', 'MC_VELOCITY_CHASE')
+                # Coordinated Turn Mode: Yaw rate control (rad/s internally, converted to deg/s on output)
                 self.pid_yaw_speed = CustomPID(
                     *self._get_pid_gains('yawspeed_deg_s'),
                     setpoint=setpoint_x,
-                    output_limits=(-max_yaw, max_yaw)
+                    output_limits=(-self.max_yaw_rate_rad, self.max_yaw_rate_rad)  # rad/s limits
                 )
                 logger.debug(f"Coordinated turn mode PID initialized with gains {self._get_pid_gains('yawspeed_deg_s')}")
 
@@ -365,12 +369,11 @@ class MCVelocityChaseFollower(BaseFollower):
                 logger.debug("Sideslip PID controller initialized during mode switch")
 
             elif new_mode == 'coordinated_turn' and self.pid_yaw_speed is None:
-                # Initialize coordinated turn PID controller
-                max_yaw = Parameters.get_effective_limit('MAX_YAW_RATE', 'MC_VELOCITY_CHASE')
+                # Initialize coordinated turn PID controller (rad/s internally, converted to deg/s on output)
                 self.pid_yaw_speed = CustomPID(
                     *self._get_pid_gains('yawspeed_deg_s'),
                     setpoint=setpoint_x,
-                    output_limits=(-max_yaw, max_yaw)
+                    output_limits=(-self.max_yaw_rate_rad, self.max_yaw_rate_rad)  # rad/s limits
                 )
                 logger.debug("Coordinated turn PID controller initialized during mode switch")
             
@@ -1352,7 +1355,7 @@ class MCVelocityChaseFollower(BaseFollower):
             self.set_command_field('vel_body_fwd', forward_velocity)
             self.set_command_field('vel_body_right', right_velocity)
             self.set_command_field('vel_body_down', down_velocity)
-            self.set_command_field('yawspeed_deg_s', yaw_speed)
+            self.set_command_field('yawspeed_deg_s', self._degrees(yaw_speed))  # rad/s → deg/s
             
             # Update telemetry metadata
             self.update_telemetry_metadata('last_target_coords', target_coords)
@@ -1372,7 +1375,7 @@ class MCVelocityChaseFollower(BaseFollower):
             
             logger.debug(f"Body velocity commands ({self.active_lateral_mode}) - "
                         f"Fwd: {forward_velocity:.2f}, Right: {right_velocity:.2f}, "
-                        f"Down: {down_velocity:.2f} m/s, Yaw: {yaw_speed:.2f} deg/s")
+                        f"Down: {down_velocity:.2f} m/s, Yaw: {self._degrees(yaw_speed):.2f} deg/s")
             
         except Exception as e:
             logger.error(f"Error calculating control commands: {e}")
