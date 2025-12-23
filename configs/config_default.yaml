@@ -347,6 +347,10 @@ KCF_Tracker:
   occlusion_velocity_factor: 0.5         # Conservative extrapolation (50% of velocity)
                                          # Prevents overshooting during occlusion
 
+  # === Asymmetric Kalman Initial Covariance ===
+  kalman_initial_position_covariance: 10.0   # Position: high confidence (known)
+  kalman_initial_velocity_covariance: 100.0  # Velocity: low confidence (unknown at start)
+
   # === Research-Based Tuning Presets ===
   # 🏎️ HIGH-SPEED RACE CARS (Current Config - Optimized):
   #   confidence_threshold: 0.15, failure_threshold: 7, appearance_learning_rate: 0.18
@@ -442,6 +446,14 @@ CSRT_Tracker:
   number_of_scales: 33                   # Scale pyramid levels (33 for finer scale precision)
   scale_step: 1.02                       # Scale factor between levels (1.02 for smooth adaptation)
   use_segmentation: true                 # Foreground/background segmentation
+
+  # === Appearance Model Drift Protection ===
+  appearance_update_min_confidence: 0.55  # Only update appearance when conf > this
+                                         # Prevents template corruption during occlusions
+
+  # === Multi-Frame Validation Consensus ===
+  enable_multiframe_validation: true     # Require N consecutive valid frames
+  validation_consensus_frames: 3         # Frames required for consensus
 
 # ==============================================================================
 # 🎯 DLIB TRACKER CONFIGURATION (dlib Correlation Filter Tracker)
@@ -621,6 +633,11 @@ DLIB_Tracker:
                                          # Should be tuned to expected max target speed
                                          # Research: Resolution-dependent, ~10-50 px/frame
                                          # ✅ TUNED: 25.0 for 640x480 @ 30fps racing scenarios
+
+    # === Velocity Normalization by Target Size ===
+    velocity_normalize_by_size: true     # Normalize velocity limit by target diagonal
+                                         # Makes validation resolution-agnostic
+    max_velocity_target_factor: 2.0      # Max velocity = N * target diagonal per frame
 
     stabilization_alpha: 0.3             # EMA smoothing for bbox position (0.0-1.0)
                                          # Reduces jitter in tracking output
@@ -839,6 +856,14 @@ SmartTracker:
   ENABLE_GRACEFUL_DEGRADATION: true      # Enable multi-level fallback chain
   EXTENDED_TOLERANCE_FRAMES: 10          # Additional frames beyond ID_LOSS_TOLERANCE
                                          # During this period: lenient matching + prediction-only mode
+
+  # === Track Confidence Aging ===
+  TRACK_CONFIDENCE_DECAY_RATE: 0.05      # Decay rate per frame without detection (5%)
+                                         # Old unconfirmed tracks have lower confidence
+
+  # === Appearance Model Memory Cap ===
+  MAX_LOST_OBJECTS_CACHED: 100           # Maximum objects in re-ID memory
+                                         # Prevents unbounded memory growth
 
   # === Spatial Matching ===
   # IoU threshold for matching by position when ID is lost

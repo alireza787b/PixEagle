@@ -42,6 +42,9 @@ class AppearanceModel:
         self.adaptive_learning = self.config.get('APPEARANCE_ADAPTIVE_LEARNING', True)
         self.learning_rate = self.config.get('APPEARANCE_LEARNING_RATE', 0.1)
 
+        # Memory cap to prevent unbounded growth in long sessions
+        self.max_lost_objects = self.config.get('MAX_LOST_OBJECTS_CACHED', 100)
+
         # Performance profiling
         self.enable_profiling = self.config.get('ENABLE_APPEARANCE_PROFILING', False)
         self.profiling_stats = {
@@ -398,10 +401,16 @@ class AppearanceModel:
 
     def cleanup_old_entries(self):
         """
-        Remove lost objects that exceeded memory window.
+        Remove lost objects that exceeded memory window and enforce memory cap.
         Call this every frame to prevent memory bloat.
+
+        Cleanup Strategy:
+        1. Remove entries older than max_memory_frames
+        2. If still over max_lost_objects cap, remove oldest first
         """
         to_remove = []
+
+        # Step 1: Remove expired entries
         for track_id, data in self.lost_objects.items():
             frames_since_lost = self.current_frame - data.get('frame_lost', data['frame_registered'])
             if frames_since_lost > self.max_memory_frames:
@@ -410,6 +419,24 @@ class AppearanceModel:
         for track_id in to_remove:
             del self.lost_objects[track_id]
             logging.debug(f"[AppearanceModel] Removed expired entry for ID:{track_id}")
+
+        # Step 2: Enforce memory cap by removing oldest entries
+        if len(self.lost_objects) > self.max_lost_objects:
+            # Sort by frame_lost/frame_registered (oldest first)
+            sorted_entries = sorted(
+                self.lost_objects.items(),
+                key=lambda x: x[1].get('frame_lost', x[1]['frame_registered'])
+            )
+
+            # Remove oldest entries until under cap
+            num_to_remove = len(self.lost_objects) - self.max_lost_objects
+            for i in range(num_to_remove):
+                track_id = sorted_entries[i][0]
+                del self.lost_objects[track_id]
+                logging.debug(f"[AppearanceModel] Memory cap: removed oldest entry ID:{track_id}")
+
+            logging.info(f"[AppearanceModel] Memory cap enforced: removed {num_to_remove} oldest entries, "
+                        f"now {len(self.lost_objects)}/{self.max_lost_objects}")
 
     def increment_frame(self):
         """

@@ -515,6 +515,9 @@ class DlibTracker(BaseTracker):
         """
         Validate that velocity doesn't exceed realistic limits.
 
+        Velocity limit is normalized by target size for resolution-agnostic validation.
+        A target moving more than 2x its own size per frame is considered unrealistic.
+
         Args:
             bbox (Tuple): Current bounding box
 
@@ -532,10 +535,27 @@ class DlibTracker(BaseTracker):
 
         velocity_magnitude = np.sqrt((curr_cx - prev_cx)**2 + (curr_cy - prev_cy)**2)
 
-        is_valid = velocity_magnitude < self.velocity_limit
+        # Get config for velocity normalization
+        dlib_config = getattr(Parameters, 'DLIB_Tracker', {})
+        normalize_by_size = dlib_config.get('velocity_normalize_by_size', True)
 
-        if not is_valid:
-            logger.debug(f"Velocity validation failed: {velocity_magnitude:.1f} > {self.velocity_limit}")
+        if normalize_by_size and self.prev_bbox:
+            # Normalize velocity by target size (diagonal)
+            target_diagonal = np.sqrt(self.prev_bbox[2]**2 + self.prev_bbox[3]**2)
+            # Max velocity = 2x target diagonal per frame (configurable)
+            max_velocity_factor = dlib_config.get('max_velocity_target_factor', 2.0)
+            effective_limit = target_diagonal * max_velocity_factor
+            is_valid = velocity_magnitude < effective_limit
+
+            if not is_valid:
+                logger.debug(f"Velocity validation (size-normalized) failed: "
+                           f"{velocity_magnitude:.1f} > {effective_limit:.1f} ({max_velocity_factor}x target size)")
+        else:
+            # Fallback to fixed pixel limit
+            is_valid = velocity_magnitude < self.velocity_limit
+
+            if not is_valid:
+                logger.debug(f"Velocity validation failed: {velocity_magnitude:.1f} > {self.velocity_limit}")
 
         return is_valid
 

@@ -241,9 +241,19 @@ class KCFKalmanTracker(BaseTracker):
         measurement_noise = getattr(Parameters, 'KCF_Tracker', {}).get('kalman_measurement_noise', 5.0)
         self.kf.R = np.eye(2) * measurement_noise
 
-        # Initial covariance - from config with default
-        initial_covariance = getattr(Parameters, 'KCF_Tracker', {}).get('kalman_initial_covariance', 10.0)
-        self.kf.P = np.eye(4) * initial_covariance
+        # Initial covariance - asymmetric (position = high confidence, velocity = low)
+        # Research: Position starts with high confidence (we know where object is)
+        #           Velocity starts with low confidence (unknown initial motion)
+        kcf_config = getattr(Parameters, 'KCF_Tracker', {})
+        initial_position_covariance = kcf_config.get('kalman_initial_position_covariance', 10.0)
+        initial_velocity_covariance = kcf_config.get('kalman_initial_velocity_covariance', 100.0)
+
+        self.kf.P = np.diag([
+            initial_position_covariance,   # x position - high confidence
+            initial_position_covariance,   # y position - high confidence
+            initial_velocity_covariance,   # vx velocity - low confidence (unknown)
+            initial_velocity_covariance    # vy velocity - low confidence (unknown)
+        ])
 
         # Initial state
         self.kf.x = np.array([cx, cy, 0, 0])

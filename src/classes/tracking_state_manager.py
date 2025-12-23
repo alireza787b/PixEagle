@@ -64,9 +64,12 @@ class TrackingStateManager:
         self.spatial_iou_threshold = self.config.get('SPATIAL_IOU_THRESHOLD', 0.35)
         self.enable_prediction = self.config.get('ENABLE_PREDICTION_BUFFER', True)
 
-        # Confidence smoothing
+        # Confidence smoothing and decay
         self.confidence_alpha = self.config.get('CONFIDENCE_SMOOTHING_ALPHA', 0.8)
         self.smoothed_confidence = 0.0
+
+        # Confidence decay for aging tracks (5% per frame without detection)
+        self.confidence_decay_rate = self.config.get('TRACK_CONFIDENCE_DECAY_RATE', 0.05)
 
         # Frame counter
         self.frames_since_detection = 0
@@ -332,6 +335,10 @@ class TrackingStateManager:
         """Update state when detection is not found."""
         self.frames_since_detection += 1
 
+        # Apply confidence decay for aging tracks
+        # Research: Old unconfirmed tracks should have decaying confidence
+        self.smoothed_confidence = max(0.0, self.smoothed_confidence * (1.0 - self.confidence_decay_rate))
+
         # Try motion prediction if enabled and within tolerance
         if self.motion_predictor and self.enable_prediction and self.frames_since_detection <= self.max_history:
             predicted_bbox = self.motion_predictor.predict_bbox(self.frames_since_detection)
@@ -341,7 +348,8 @@ class TrackingStateManager:
                     (predicted_bbox[0] + predicted_bbox[2]) // 2,
                     (predicted_bbox[1] + predicted_bbox[3]) // 2
                 )
-                logging.debug(f"[TrackingStateManager] Using predicted position (frame {self.frames_since_detection})")
+                logging.debug(f"[TrackingStateManager] Using predicted position (frame {self.frames_since_detection}), "
+                            f"decayed confidence={self.smoothed_confidence:.2f}")
 
     def _handle_detection_loss(self, detections: List[List], compute_iou_func, frame: np.ndarray = None) -> Tuple[bool, Optional[Dict]]:
         """

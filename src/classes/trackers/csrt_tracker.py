@@ -99,6 +99,13 @@ class CSRTTracker(BaseTracker):
         # Failure tracking
         self.failure_count = 0
 
+        # Multi-frame validation consensus (3 consecutive good frames to fully trust)
+        csrt_config = getattr(Parameters, 'CSRT_Tracker', {})
+        self.enable_multiframe_validation = csrt_config.get('enable_multiframe_validation', True)
+        self.validation_consensus_frames = csrt_config.get('validation_consensus_frames', 3)
+        self.consecutive_valid_frames = 0
+        self.is_validated = False  # True once consensus reached
+
         # Performance monitoring
         self.frame_count = 0
         self.successful_frames = 0
@@ -190,6 +197,80 @@ class CSRTTracker(BaseTracker):
 
         return cv2.TrackerCSRT_create(params)
 
+    def _should_update_appearance(self, frame: np.ndarray, bbox: Tuple) -> bool:
+        """
+        Determine if appearance model should be updated.
+
+        Prevents appearance model drift by only updating when:
+        1. Confidence is above threshold + margin
+        2. Motion is consistent (no sudden jumps)
+        3. Scale change is reasonable
+
+        Research: Freezing updates during low-confidence periods prevents
+        template corruption from occlusions and false detections.
+
+        Args:
+            frame: Current video frame
+            bbox: Current bounding box
+
+        Returns:
+            bool: True if appearance should be updated
+        """
+        csrt_config = getattr(Parameters, 'CSRT_Tracker', {})
+        min_update_confidence = csrt_config.get('appearance_update_min_confidence', 0.55)
+
+        # Check 1: Confidence above threshold + margin
+        if self.confidence < min_update_confidence:
+            return False
+
+        # Check 2: Motion consistency (if we have history)
+        if self.prev_center and self.center:
+            motion_confidence = self.compute_motion_confidence()
+            if motion_confidence < 0.7:
+                return False
+
+        # Check 3: Scale change is reasonable
+        if self.prev_bbox and bbox:
+            scale_w = bbox[2] / (self.prev_bbox[2] + 1e-6)
+            scale_h = bbox[3] / (self.prev_bbox[3] + 1e-6)
+            scale_change = max(abs(scale_w - 1.0), abs(scale_h - 1.0))
+            if scale_change > 0.3:  # More than 30% size change
+                return False
+
+        return True
+
+    def _update_multiframe_consensus(self, is_valid: bool) -> bool:
+        """
+        Update multi-frame validation consensus.
+
+        Requires consecutive successful frames before fully trusting detection.
+        This prevents single-frame noise from causing false acceptances.
+
+        Args:
+            is_valid: Whether current frame passed validation
+
+        Returns:
+            bool: True if consensus reached (detection can be trusted)
+        """
+        if not self.enable_multiframe_validation:
+            return is_valid
+
+        if is_valid:
+            self.consecutive_valid_frames += 1
+            if self.consecutive_valid_frames >= self.validation_consensus_frames:
+                if not self.is_validated:
+                    logger.debug(f"Multi-frame consensus reached after {self.consecutive_valid_frames} frames")
+                self.is_validated = True
+        else:
+            # Reset on failure
+            if self.is_validated and self.consecutive_valid_frames >= self.validation_consensus_frames:
+                logger.debug("Multi-frame consensus broken - resetting validation")
+            self.consecutive_valid_frames = max(0, self.consecutive_valid_frames - 1)
+            if self.consecutive_valid_frames == 0:
+                self.is_validated = False
+
+        return self.is_validated or self.consecutive_valid_frames > 0
+
     def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
         """
         Initializes the tracker with the provided bounding box.
@@ -220,6 +301,10 @@ class CSRTTracker(BaseTracker):
         self.prev_center = None
         self.last_update_time = time.time()
         self.raw_confidence_history.clear()
+
+        # Reset multi-frame consensus
+        self.consecutive_valid_frames = 0
+        self.is_validated = False
 
     def update(self, frame: np.ndarray) -> Tuple[bool, Tuple[int, int, int, int]]:
         """
@@ -278,14 +363,18 @@ class CSRTTracker(BaseTracker):
         self.normalize_bbox()
         self.center_history.append(self.center)
 
-        # Update appearance model
+        # Update appearance model with drift protection
         if self.detector:
             current_features = self.detector.extract_features(frame, self.bbox)
             learning_rate = getattr(self, 'appearance_learning_rate', 0.05)
-            self.detector.adaptive_features = (
-                (1 - learning_rate) * self.detector.adaptive_features +
-                learning_rate * current_features
-            )
+
+            # Appearance drift protection: only update on high confidence + motion consistent
+            should_update = self._should_update_appearance(frame, bbox)
+            if should_update:
+                self.detector.adaptive_features = (
+                    (1 - learning_rate) * self.detector.adaptive_features +
+                    learning_rate * current_features
+                )
 
         # Update estimator
         if self.estimator_enabled and self.position_estimator:
@@ -312,13 +401,14 @@ class CSRTTracker(BaseTracker):
         self.normalize_bbox()
         self.center_history.append(self.center)
 
-        # Update appearance model
+        # Update appearance model with drift protection
         if self.detector:
             current_features = self.detector.extract_features(frame, self.bbox)
-            self.detector.adaptive_features = (
-                (1 - Parameters.CSRT_APPEARANCE_LEARNING_RATE) * self.detector.adaptive_features +
-                Parameters.CSRT_APPEARANCE_LEARNING_RATE * current_features
-            )
+            if self._should_update_appearance(frame, bbox):
+                self.detector.adaptive_features = (
+                    (1 - Parameters.CSRT_APPEARANCE_LEARNING_RATE) * self.detector.adaptive_features +
+                    Parameters.CSRT_APPEARANCE_LEARNING_RATE * current_features
+                )
 
         # Confidence checks
         self.compute_confidence(frame)
