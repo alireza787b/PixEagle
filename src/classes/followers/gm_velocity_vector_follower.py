@@ -16,13 +16,13 @@ Project Information:
 
 Key Features:
 -------------
-- ✅ Direct vector pursuit (no PID loops)
-- ✅ Mount-aware transformations (VERTICAL, HORIZONTAL, TILTED_45)
-- ✅ Linear velocity ramping (smooth acceleration)
-- ✅ Optional altitude control (3D or horizontal-only)
-- ✅ Robust angle filtering and deadzone
-- ✅ Target loss handling with velocity decay
-- ✅ Comprehensive safety systems
+- Direct vector pursuit (no PID loops)
+- Mount-aware transformations (VERTICAL, HORIZONTAL, TILTED_45)
+- Linear velocity ramping (smooth acceleration)
+- Optional altitude control (3D or horizontal-only)
+- Robust angle filtering and deadzone
+- Target loss handling with velocity decay
+- Comprehensive safety systems
 
 Control Philosophy:
 -------------------
@@ -707,7 +707,7 @@ class GMVelocityVectorFollower(BaseFollower):
 
     def emergency_stop(self) -> None:
         """Trigger emergency stop - immediately zero all velocities."""
-        logger.warning("⚠️ Emergency stop triggered")
+        logger.warning("Emergency stop triggered")
         self.emergency_stop_active = True
         self.following_active = False
 
@@ -724,7 +724,7 @@ class GMVelocityVectorFollower(BaseFollower):
 
     def reset_emergency_stop(self) -> None:
         """Reset emergency stop state."""
-        logger.info("✅ Emergency stop reset")
+        logger.info("Emergency stop reset")
         self.emergency_stop_active = False
         self.safety_violations_count = 0
         self.log_follower_event("emergency_stop_reset")

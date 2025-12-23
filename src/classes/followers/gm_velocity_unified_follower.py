@@ -513,7 +513,7 @@ class GMVelocityUnifiedFollower(BaseFollower):
                     )
 
                 if self.debug_logging_enabled:
-                    logger.debug(f"🚀 CONSTANT speed: target={target_velocity:.2f}, current={self.current_forward_velocity:.2f}, ramp_rate={velocity_change:.3f}")
+                    logger.debug(f"CONSTANT speed: target={target_velocity:.2f}, current={self.current_forward_velocity:.2f}, ramp_rate={velocity_change:.3f}")
 
                 return self.current_forward_velocity
 
@@ -544,7 +544,7 @@ class GMVelocityUnifiedFollower(BaseFollower):
                     )
 
                 if self.debug_logging_enabled:
-                    logger.debug(f"⚠️ PITCH_BASED: pitch_error={pitch_error:.1f}°, speed={self.current_forward_velocity:.2f} (legacy mode)")
+                    logger.debug(f"PITCH_BASED (legacy): pitch_error={pitch_error:.1f} deg, speed={self.current_forward_velocity:.2f}")
 
                 return self.current_forward_velocity
 
@@ -771,7 +771,7 @@ class GMVelocityUnifiedFollower(BaseFollower):
         """
         # DEBUG: Log only when debug is enabled for performance
         if self.debug_logging_enabled:
-            logger.debug(f"🔧 calculate_control_commands() called - data_type: {tracker_data.data_type}, tracking_active: {tracker_data.tracking_active}")
+            logger.debug(f"calculate_control_commands called - data_type: {tracker_data.data_type}, tracking_active: {tracker_data.tracking_active}")
 
         try:
             current_time = time.time()
@@ -792,7 +792,7 @@ class GMVelocityUnifiedFollower(BaseFollower):
 
                 # Event-based logging: only log significant angle changes
                 if self.debug_logging_enabled:
-                    logger.debug(f"🎯 Processing gimbal angles: Y={yaw_deg:.1f}° P={pitch_deg:.1f}° R={roll_deg:.1f}°")
+                    logger.debug(f"Processing gimbal angles: Y={yaw_deg:.1f} deg P={pitch_deg:.1f} deg R={roll_deg:.1f} deg")
 
                 # === FORWARD VELOCITY CONTROL SYSTEM ===
                 # Based on 2024 guidance control research for reliable target interception
@@ -905,7 +905,7 @@ class GMVelocityUnifiedFollower(BaseFollower):
 
         # DEBUG: Log follow_target calls only when debug enabled (performance optimization)
         if self.debug_logging_enabled:
-            logger.debug(f"🎯 follow_target() called #{self.total_follow_calls} - tracking_active: {tracker_output.tracking_active}")
+            logger.debug(f"follow_target called #{self.total_follow_calls} - tracking_active: {tracker_output.tracking_active}")
 
         try:
             # Comprehensive Safety Checks (PHASE 3.3)
@@ -1184,7 +1184,7 @@ class GMVelocityUnifiedFollower(BaseFollower):
 
     def emergency_stop(self):
         """Trigger emergency stop - immediately stop all movement."""
-        logger.warning("⚠️ Emergency stop triggered")
+        logger.warning("Emergency stop triggered")
 
         self.emergency_stop_active = True
         self.following_active = False
@@ -1206,7 +1206,7 @@ class GMVelocityUnifiedFollower(BaseFollower):
 
     def reset_emergency_stop(self) -> None:
         """Reset emergency stop state."""
-        logger.info("✅ Emergency stop reset")
+        logger.info("Emergency stop reset")
         self.emergency_stop_active = False
         self.log_follower_event("emergency_stop_reset")
 

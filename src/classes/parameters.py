@@ -27,7 +27,7 @@ class Parameters:
         'FW_ATTITUDE_RATE',
         # Tracker sections
         'GimbalFollower', 'GimbalTracker', 'GimbalTrackerSettings',
-        'CSRT_Tracker', 'KCF_Tracker', 'SmartTracker'
+        'CSRT_Tracker', 'KCF_Tracker', 'DLIB_Tracker', 'SmartTracker'
     ]
 
     # Hardcoded fallback defaults for safety (used if config is missing)

@@ -236,7 +236,10 @@ Tracking:
   APPEARANCE_CONFIDENCE_THRESHOLD: 0.5
   MOTION_CONFIDENCE_WEIGHT: 0.5
   APPEARANCE_CONFIDENCE_WEIGHT: 0.5
-  CSRT_APPEARANCE_LEARNING_RATE: 0.05      # ⚠️ Deprecated: See CSRT_Tracker section
+  CSRT_APPEARANCE_LEARNING_RATE: 0.05      # Deprecated: See CSRT_Tracker section
+
+  # Motion consistency threshold for base tracker
+  MOTION_CONFIDENCE_THRESHOLD: 0.7         # Minimum confidence from motion consistency check
   
   # === Particle Filter Parameters (if using) ===
   PF_NUM_PARTICLES: 500                    # More = accurate but slower
@@ -1090,7 +1093,7 @@ Follower:
 # SAFETY FIRST: Global circuit breaker for follower testing without drone commands
 # Default: true (SAFE) - Only set to false when you explicitly want to send real commands
 FOLLOWER_CIRCUIT_BREAKER: true            # true = SAFE (log only), false = LIVE (send commands)
-CIRCUIT_BREAKER_DISABLE_SAFETY: true      # ⚠️ Skip ALL safety checks in CB test mode (allows ground testing)
+CIRCUIT_BREAKER_DISABLE_SAFETY: false     # Skip ALL safety checks in CB test mode (set true for ground testing only)
 
 
 # ==============================================================================

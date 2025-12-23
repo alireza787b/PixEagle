@@ -293,7 +293,7 @@ class SmartTracker:
                     logger.warning(f"[SmartTracker] Cannot restore tracking - class mismatch")
 
             # 8. Log success
-            logger.info(f"[SmartTracker] ✅ Model switched successfully!")
+            logger.info(f"[SmartTracker] Model switched successfully")
             logger.info(f"[SmartTracker] Device: {old_device} → {str(self.model.device)}")
             logger.info(f"[SmartTracker] Classes: {num_classes}")
 
@@ -320,17 +320,18 @@ class SmartTracker:
             logger.exception(e)
             return {"success": False, "message": error_msg, "model_info": None}
 
-    def get_yolo_color(self, index):
+    def get_yolo_color(self, index: int) -> Tuple[int, int, int]:
         """Generate unique color for each object ID using golden ratio."""
         hue = (index * 0.61803398875) % 1.0
         hsv = np.array([[[int(hue * 179), 255, 255]]], dtype=np.uint8)
         bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)[0][0]
         return int(bgr[0]), int(bgr[1]), int(bgr[2])
 
-    def get_center(self, x1, y1, x2, y2):
+    def get_center(self, x1: int, y1: int, x2: int, y2: int) -> Tuple[int, int]:
+        """Calculate center point from bounding box corners."""
         return (x1 + x2) // 2, (y1 + y2) // 2
 
-    def compute_iou(self, box1, box2):
+    def compute_iou(self, box1: Tuple[int, int, int, int], box2: Tuple[int, int, int, int]) -> float:
         """Computes Intersection-over-Union between two boxes."""
         x1, y1, x2, y2 = box1
         x1_p, y1_p, x2_p, y2_p = box2
@@ -427,7 +428,7 @@ class SmartTracker:
 
         logger.info("[SmartTracker] Tracking cleared")
 
-    def track_and_draw(self, frame):
+    def track_and_draw(self, frame: np.ndarray) -> np.ndarray:
         """
         Runs YOLO detection + tracking, draws overlays, and returns the annotated frame.
         Uses TrackingStateManager for robust ID tracking with spatial fallback.

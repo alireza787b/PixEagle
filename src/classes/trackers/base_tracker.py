@@ -261,6 +261,8 @@ class BaseTracker(ABC):
         """
         if self.prev_center is None:
             return 1.0  # Maximum confidence on first frame
+        if not self.video_handler:
+            return 1.0  # No video handler, assume maximum confidence
         displacement = np.linalg.norm(np.array(self.center) - np.array(self.prev_center))
         frame_diag = np.hypot(self.video_handler.width, self.video_handler.height)
         confidence = max(0.0, 1.0 - (displacement / (Parameters.MAX_DISPLACEMENT_THRESHOLD * frame_diag)))
