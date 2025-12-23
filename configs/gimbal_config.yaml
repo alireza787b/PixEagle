@@ -1112,7 +1112,7 @@ GM_PID_PURSUIT:
   # === Velocity Control ===
   # SLOW SPEEDS FOR TESTING - increase after validation
   BASE_VELOCITY: 0.3                       # Base following velocity (m/s) - SLOW for testing
-  MAX_VELOCITY: 0.5                        # Maximum velocity limit (m/s) - SLOW for testing
+  MAX_VELOCITY: 0.3                        # Maximum velocity limit (m/s) - match vector follower
   VELOCITY_RAMP_RATE: 0.2                  # Acceleration rate (m/s²) - slow ramp
   VELOCITY_FILTER_ALPHA: 0.7               # Velocity smoothing filter coefficient (0-1)
 
@@ -1120,7 +1120,7 @@ GM_PID_PURSUIT:
   # Based on 2024 guidance control research for reliable target interception
   FORWARD_VELOCITY_MODE: "CONSTANT"        # Options: "CONSTANT", "PITCH_BASED", "PROPORTIONAL_NAV" (future)
   BASE_FORWARD_SPEED: 0.3                  # Constant forward speed (m/s) - SLOW for testing
-  MAX_FORWARD_VELOCITY: 0.5                # Maximum forward velocity limit (m/s) - SLOW for testing
+  MAX_FORWARD_VELOCITY: 0.3                # Maximum forward velocity limit (m/s) - match vector follower
   FORWARD_ACCELERATION: 0.2                # Ramp rate - slow for testing
 
   # === Lateral Guidance Mode ===
@@ -1154,6 +1154,9 @@ GM_PID_PURSUIT:
   MAX_SAFETY_VIOLATIONS: 5                # Maximum allowed safety violations before blocking
   SAFETY_RETURN_SPEED: 3.0                # Velocity when returning to safe altitude (m/s)
   EMERGENCY_STOP_ENABLED: true            # Enable emergency velocity zeroing
+
+  # === Altitude Safety for Ground Testing ===
+  ALTITUDE_SAFETY_ENABLED: false          # Disabled - RC pilot is in control
 
   # === Coordinate Transformation ===
   ANGLE_DEADZONE: 2.0                     # Ignore gimbal movements below this (degrees)
