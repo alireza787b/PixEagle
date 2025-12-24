@@ -20,7 +20,6 @@ import {
   CheckCircle,
   Cancel,
   Warning,
-  FlightTakeoff,
   Straighten
 } from '@mui/icons-material';
 import { useSafetyLimits } from '../hooks/useSafetyConfig';
@@ -116,44 +115,15 @@ const SafetyConfigCard = ({ followerName }) => {
     );
   }
 
-  const { velocity, altitude, rates, vehicle_type, altitude_safety_enabled } = limits || {};
-
-  const getVehicleTypeColor = (type) => {
-    switch (type) {
-      case 'MULTICOPTER': return 'primary';
-      case 'FIXED_WING': return 'secondary';
-      case 'GIMBAL': return 'warning';
-      default: return 'default';
-    }
-  };
-
-  const getVehicleTypeIcon = (type) => {
-    switch (type) {
-      case 'MULTICOPTER': return <FlightTakeoff fontSize="small" />;
-      case 'FIXED_WING': return <FlightTakeoff fontSize="small" sx={{ transform: 'rotate(-45deg)' }} />;
-      case 'GIMBAL': return <RotateRight fontSize="small" />;
-      default: return <Security fontSize="small" />;
-    }
-  };
+  const { velocity, altitude, rates, altitude_safety_enabled } = limits || {};
 
   return (
     <Card sx={{ height: '100%' }}>
       <CardContent sx={{ pb: 1 }}>
         {/* Header */}
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Security color="action" />
-            <Typography variant="h6">Safety Limits</Typography>
-          </Box>
-          {vehicle_type && (
-            <Chip
-              icon={getVehicleTypeIcon(vehicle_type)}
-              label={vehicle_type}
-              color={getVehicleTypeColor(vehicle_type)}
-              size="small"
-              variant="outlined"
-            />
-          )}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+          <Security color="action" />
+          <Typography variant="h6">Safety Limits</Typography>
         </Box>
 
         {/* Follower Name */}

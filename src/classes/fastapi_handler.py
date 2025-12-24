@@ -3074,8 +3074,6 @@ class FastAPIHandler:
                 # Fallback to Parameters.get_effective_limit (match frontend field names)
                 limits = {
                     'follower_name': follower_name,
-                    'vehicle_type': 'UNKNOWN',
-                    'legacy_mode': True,
                     'velocity': {
                         'forward': Parameters.get_effective_limit('MAX_VELOCITY_FORWARD', follower_name),
                         'lateral': Parameters.get_effective_limit('MAX_VELOCITY_LATERAL', follower_name),
@@ -3100,15 +3098,12 @@ class FastAPIHandler:
             velocity_limits = safety_manager.get_velocity_limits(follower_name)
             altitude_limits = safety_manager.get_altitude_limits(follower_name)
             rate_limits = safety_manager.get_rate_limits(follower_name)
-            vehicle_type = safety_manager._get_vehicle_type(follower_name)
 
             # Convert radians to degrees for rate limits (config stores deg/s, SafetyManager converts to rad/s)
             from math import degrees
 
             limits = {
                 'follower_name': follower_name,
-                'vehicle_type': vehicle_type.value if vehicle_type else 'UNKNOWN',
-                'legacy_mode': False,
                 # Frontend expects 'velocity' not 'velocity_limits'
                 'velocity': {
                     'forward': velocity_limits.forward,
