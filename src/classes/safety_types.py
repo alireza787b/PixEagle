@@ -128,6 +128,8 @@ FIELD_LIMIT_MAPPING = {
 
 
 # Follower name to vehicle type mapping
+# NOTE: As of v3.6.0, vehicle type is for DISPLAY ONLY (e.g., in dashboard).
+# Safety limits come from GlobalLimits, not per-vehicle profiles.
 FOLLOWER_VEHICLE_TYPE = {
     # Multicopter followers
     'MC_VELOCITY': VehicleType.MULTICOPTER,

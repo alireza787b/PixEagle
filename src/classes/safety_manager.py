@@ -4,7 +4,7 @@ Safety Manager Module - Centralized Safety Limit Management
 ============================================================
 
 This module provides a singleton SafetyManager class that centralizes all
-safety limit management for PixEagle followers. It implements a layered
+safety limit management for PixEagle followers. It implements a simple
 configuration system with caching for performance.
 
 Project Information:
@@ -12,17 +12,18 @@ Project Information:
 - Repository: https://github.com/alireza787b/PixEagle
 - Author: Alireza Ghaderi
 
-Architecture:
+Architecture (simplified v3.6.0):
 - Singleton pattern for global access
-- Layered limit resolution: Global → Vehicle Profile → Follower Override
+- Single source of truth: GlobalLimits
+- Optional per-follower overrides
 - Cached lookups for O(1) access after first resolution
-- Observable pattern for runtime updates
 
 Resolution Order:
-1. Follower-specific override (if exists)
-2. Vehicle profile limit (based on follower's vehicle type)
-3. Global hard limit (absolute bounds)
-4. Hardcoded fallback (safety default)
+1. Follower-specific override (if exists in FollowerOverrides)
+2. Global limit (from GlobalLimits - single source of truth)
+3. Hardcoded fallback (safety default)
+
+Note: VehicleProfiles removed in v3.6.0 for simplicity.
 """
 
 import logging
@@ -110,89 +111,59 @@ class SafetyManager:
         with self._lock:
             self._cache.clear()
 
-            # Load Safety section if it exists (new structure)
+            # Load Safety section if it exists
             safety_config = config.get('Safety', {})
 
             if safety_config:
-                # New unified Safety section
+                # Load GlobalLimits (single source of truth)
                 self._global_limits = safety_config.get('GlobalLimits', {})
-                self._vehicle_profiles = safety_config.get('VehicleProfiles', {})
                 self._follower_overrides = safety_config.get('FollowerOverrides', {})
-                logger.info("Loaded new unified Safety configuration")
+
+                # Warn if deprecated VehicleProfiles found
+                if 'VehicleProfiles' in safety_config:
+                    logger.warning("VehicleProfiles deprecated in v3.6.0 - using GlobalLimits only")
+
+                logger.info(f"Loaded Safety configuration (GlobalLimits: {len(self._global_limits)} params)")
             else:
-                # Legacy: Load from SafetyLimits and per-follower sections
+                # Legacy: Load from SafetyLimits section
                 self._load_legacy_config(config)
+
+            # Keep vehicle profiles empty (deprecated)
+            self._vehicle_profiles = {}
 
             # Load Followers section (behavior only)
             self._follower_configs = config.get('Followers', {})
 
             self._initialized = True
-            logger.info(f"SafetyManager initialized with {len(self._vehicle_profiles)} vehicle profiles")
+            logger.info(f"SafetyManager initialized (overrides: {len(self._follower_overrides)} followers)")
 
     def _load_legacy_config(self, config: Dict[str, Any]) -> None:
-        """Load from legacy SafetyLimits + per-follower config structure."""
-        # Legacy SafetyLimits becomes global
+        """
+        Load from legacy SafetyLimits config structure.
+
+        Note: Legacy SafetyLimits section is deprecated. Migrate to Safety.GlobalLimits.
+        """
+        logger.warning("Using legacy SafetyLimits configuration - please migrate to Safety.GlobalLimits")
+
+        # Legacy SafetyLimits becomes global limits
         self._global_limits = config.get('SafetyLimits', {})
 
-        # Create vehicle profiles from common patterns
-        self._vehicle_profiles = {
-            'MULTICOPTER': {
-                'MIN_ALTITUDE': 3.0,
-                'MAX_ALTITUDE': 120.0,
-                'ALTITUDE_WARNING_BUFFER': 2.0,
-                'MAX_VELOCITY_FORWARD': self._global_limits.get('MAX_VELOCITY_FORWARD', 8.0),
-                'MAX_VELOCITY_LATERAL': self._global_limits.get('MAX_VELOCITY_LATERAL', 5.0),
-                'MAX_VELOCITY_VERTICAL': self._global_limits.get('MAX_VELOCITY_VERTICAL', 3.0),
-                'MAX_YAW_RATE': 45.0,
-                'MAX_PITCH_RATE': 45.0,
-                'MAX_ROLL_RATE': 45.0,
-                'EMERGENCY_STOP_ENABLED': True,
-                'RTL_ON_VIOLATION': True,
-                'TARGET_LOSS_ACTION': 'hover',
-            },
-            'FIXED_WING': {
-                'MIN_ALTITUDE': 30.0,
-                'MAX_ALTITUDE': 400.0,
-                'ALTITUDE_WARNING_BUFFER': 10.0,
-                'MAX_YAW_RATE': 25.0,
-                'MAX_PITCH_RATE': 20.0,
-                'MAX_ROLL_RATE': 45.0,
-                'EMERGENCY_STOP_ENABLED': False,
-                'RTL_ON_VIOLATION': True,
-                'TARGET_LOSS_ACTION': 'orbit',
-            },
-            'GIMBAL': {
-                'MIN_ALTITUDE': 3.0,
-                'MAX_ALTITUDE': 120.0,
-                'ALTITUDE_WARNING_BUFFER': 2.0,
-                'MAX_VELOCITY': 2.0,
-                'MAX_VELOCITY_FORWARD': 2.0,
-                'MAX_VELOCITY_LATERAL': 3.0,
-                'MAX_VELOCITY_VERTICAL': 2.0,
-                'MAX_YAW_RATE': 45.0,
-                'EMERGENCY_STOP_ENABLED': True,
-                'RTL_ON_VIOLATION': False,
-                'TARGET_LOSS_ACTION': 'stop',
-            },
-        }
-
-        # Extract follower-specific overrides from legacy sections
+        # Extract follower-specific overrides from legacy per-follower sections
         for follower_name in FOLLOWER_VEHICLE_TYPE.keys():
             section = config.get(follower_name, {})
             if section:
-                # Only keep limit-related overrides
                 override = {}
                 for key in ['MIN_ALTITUDE', 'MAX_ALTITUDE', 'ALTITUDE_WARNING_BUFFER',
                            'MAX_VELOCITY', 'MAX_VELOCITY_FORWARD', 'MAX_VELOCITY_LATERAL',
                            'MAX_VELOCITY_VERTICAL', 'MAX_YAW_RATE', 'MAX_PITCH_RATE',
                            'MAX_ROLL_RATE', 'ALTITUDE_SAFETY_ENABLED', 'EMERGENCY_STOP_ENABLED',
-                           'RTL_ON_VIOLATION', 'RTL_ON_ALTITUDE_VIOLATION', 'MAX_FORWARD_VELOCITY']:
+                           'RTL_ON_VIOLATION', 'MAX_FORWARD_VELOCITY']:
                     if key in section:
                         override[key] = section[key]
                 if override:
                     self._follower_overrides[follower_name] = override
 
-        logger.info("Loaded legacy SafetyLimits configuration (migration recommended)")
+        logger.info(f"Loaded legacy SafetyLimits ({len(self._global_limits)} params)")
 
     def _get_vehicle_type(self, follower_name: str) -> VehicleType:
         """Get vehicle type for a follower."""
@@ -209,9 +180,9 @@ class SafetyManager:
 
     def _resolve_limit(self, limit_name: str, follower_name: Optional[str] = None) -> Any:
         """
-        Resolve a limit value through the hierarchy.
+        Resolve a limit value through the simplified hierarchy.
 
-        Order: Follower Override → Vehicle Profile → Global → Fallback
+        Order: Follower Override → GlobalLimits → Fallback
         """
         # 1. Check follower-specific override
         if follower_name:
@@ -223,18 +194,11 @@ class SafetyManager:
             if limit_name == 'MAX_VELOCITY_FORWARD' and 'MAX_FORWARD_VELOCITY' in override:
                 return override['MAX_FORWARD_VELOCITY']
 
-        # 2. Check vehicle profile
-        if follower_name:
-            vehicle_type = self._get_vehicle_type(follower_name)
-            profile = self._vehicle_profiles.get(vehicle_type.value, {})
-            if limit_name in profile:
-                return profile[limit_name]
-
-        # 3. Check global limits
+        # 2. Check global limits (single source of truth)
         if limit_name in self._global_limits:
             return self._global_limits[limit_name]
 
-        # 4. Return fallback
+        # 3. Return hardcoded fallback
         return self._FALLBACKS.get(limit_name)
 
     def get_limit(self, limit_name: str, follower_name: Optional[str] = None) -> float:
@@ -344,26 +308,19 @@ class SafetyManager:
 
         Resolution order (first match wins):
         1. Follower-specific override
-        2. Global limits (can disable all altitude safety)
-        3. Vehicle profile
-        4. Fallback (enabled by default for safety)
+        2. Global limits
+        3. Fallback (enabled by default for safety)
         """
         # 1. Check follower-specific override
         override = self._follower_overrides.get(follower_name, {})
         if 'ALTITUDE_SAFETY_ENABLED' in override:
             return bool(override['ALTITUDE_SAFETY_ENABLED'])
 
-        # 2. Check global limits (can globally disable altitude safety)
+        # 2. Check global limits
         if 'ALTITUDE_SAFETY_ENABLED' in self._global_limits:
             return bool(self._global_limits['ALTITUDE_SAFETY_ENABLED'])
 
-        # 3. Check vehicle profile
-        vehicle_type = self._get_vehicle_type(follower_name)
-        profile = self._vehicle_profiles.get(vehicle_type.value, {})
-        if 'ALTITUDE_SAFETY_ENABLED' in profile:
-            return bool(profile['ALTITUDE_SAFETY_ENABLED'])
-
-        # 4. Default to enabled (safe default)
+        # 3. Default to enabled (safe default)
         return self._FALLBACKS.get('ALTITUDE_SAFETY_ENABLED', True)
 
     def check_altitude_safety(self, current_altitude: float, follower_name: str) -> SafetyStatus:
@@ -473,7 +430,6 @@ class SafetyManager:
         """Get a summary of all configured limits for debugging/API."""
         return {
             'global_limits': self._global_limits,
-            'vehicle_profiles': self._vehicle_profiles,
             'follower_overrides': self._follower_overrides,
             'cache_size': len(self._cache),
             'initialized': self._initialized,

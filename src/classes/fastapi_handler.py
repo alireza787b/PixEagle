@@ -3016,8 +3016,7 @@ class FastAPIHandler:
         Get complete safety configuration from SafetyManager.
 
         Returns:
-            dict: Complete safety configuration including global limits,
-                  vehicle profiles, and follower overrides
+            dict: Safety configuration including global limits and follower overrides
         """
         try:
             # Try to import SafetyManager
@@ -3030,24 +3029,17 @@ class FastAPIHandler:
                 safety_manager = None
 
             if not safety_available or safety_manager is None:
-                # Fallback to legacy SafetyLimits from Parameters
-                legacy_limits = getattr(Parameters, 'SafetyLimits', {})
                 return JSONResponse(content={
                     'available': False,
-                    'legacy_mode': True,
-                    'safety_limits': legacy_limits,
-                    'message': 'SafetyManager not available, using legacy SafetyLimits',
+                    'message': 'SafetyManager not available',
                     'timestamp': time.time()
                 })
 
-            # Get full configuration from SafetyManager
+            # Get configuration from SafetyManager (simplified v3.6.0)
             config = {
                 'available': True,
-                'legacy_mode': False,
                 'global_limits': safety_manager._global_limits,
-                'vehicle_profiles': safety_manager._vehicle_profiles,
                 'follower_overrides': safety_manager._follower_overrides,
-                'cache_size': len(safety_manager._cache),
                 'timestamp': time.time()
             }
 
@@ -3149,37 +3141,14 @@ class FastAPIHandler:
 
     async def get_vehicle_profiles(self):
         """
-        Get all vehicle type profiles (MULTICOPTER, FIXED_WING, GIMBAL).
+        Get vehicle type profiles (DEPRECATED in v3.6.0).
 
-        Returns:
-            dict: Vehicle profiles with their respective safety limits
+        Note: Vehicle profiles were removed for simplicity.
+        All limits now come from GlobalLimits.
         """
-        try:
-            # Try to import SafetyManager
-            try:
-                from classes.safety_manager import SafetyManager, get_safety_manager
-                safety_manager = get_safety_manager()
-                safety_available = True
-            except ImportError:
-                safety_available = False
-                safety_manager = None
-
-            if not safety_available or safety_manager is None:
-                return JSONResponse(content={
-                    'available': False,
-                    'message': 'SafetyManager not available',
-                    'timestamp': time.time()
-                })
-
-            profiles = {
-                'available': True,
-                'profiles': safety_manager._vehicle_profiles,
-                'supported_types': ['MULTICOPTER', 'FIXED_WING', 'GIMBAL'],
-                'timestamp': time.time()
-            }
-
-            return JSONResponse(content=profiles)
-
-        except Exception as e:
-            self.logger.error(f"Error getting vehicle profiles: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return JSONResponse(content={
+            'deprecated': True,
+            'message': 'Vehicle profiles removed in v3.6.0. Use GlobalLimits instead.',
+            'profiles': {},
+            'timestamp': time.time()
+        })
