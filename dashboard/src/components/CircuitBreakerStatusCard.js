@@ -32,11 +32,14 @@ const CircuitBreakerStatusCard = React.memo(() => {
   const [statistics, setStatistics] = useState(null);
   const [toggling, setToggling] = useState(false);
   const [showStatistics, setShowStatistics] = useState(false);
+  const [safetyBypass, setSafetyBypass] = useState(false);
+  const [togglingBypass, setTogglingBypass] = useState(false);
 
   const fetchStatus = async () => {
     try {
       const response = await axios.get(endpoints.circuitBreakerStatus);
       setStatus(response.data);
+      setSafetyBypass(response.data.safety_bypass || false);
       setError(null);
     } catch (err) {
       setError(err.response?.data?.detail || err.message);
@@ -65,12 +68,30 @@ const CircuitBreakerStatusCard = React.memo(() => {
         ...prev,
         active: response.data.new_state
       }));
+      // Reset safety bypass when CB is turned off
+      if (!response.data.new_state) {
+        setSafetyBypass(false);
+      }
       // Refresh statistics after toggle
       await fetchStatistics();
     } catch (err) {
       setError(err.response?.data?.detail || err.message);
     } finally {
       setToggling(false);
+    }
+  };
+
+  const handleSafetyBypassToggle = async () => {
+    if (togglingBypass) return;
+
+    setTogglingBypass(true);
+    try {
+      const response = await axios.post(endpoints.toggleCircuitBreakerSafety);
+      setSafetyBypass(response.data.safety_bypass);
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message);
+    } finally {
+      setTogglingBypass(false);
     }
   };
 
@@ -194,6 +215,42 @@ const CircuitBreakerStatusCard = React.memo(() => {
                 ✅ Live mode - commands sent to drone
               </Typography>
             </Alert>
+          )}
+
+          {/* Safety Bypass Toggle - Only visible when CB is active */}
+          {isActive && (
+            <Box sx={{ mt: 1, p: 1.5, bgcolor: 'action.hover', borderRadius: 1 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="body2" color="textSecondary">
+                  Safety Bypass:
+                </Typography>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={safetyBypass}
+                      onChange={handleSafetyBypassToggle}
+                      disabled={togglingBypass}
+                      color="error"
+                      size="small"
+                    />
+                  }
+                  label={safetyBypass ? 'ON' : 'OFF'}
+                  labelPlacement="start"
+                />
+              </Box>
+              {safetyBypass && (
+                <Alert severity="error" size="small" sx={{ mt: 1 }}>
+                  <Typography variant="caption">
+                    ⚠️ Altitude/velocity safety checks DISABLED for ground testing
+                  </Typography>
+                </Alert>
+              )}
+              {!safetyBypass && (
+                <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 0.5 }}>
+                  Enable to bypass altitude safety for ground testing
+                </Typography>
+              )}
+            </Box>
           )}
 
           {/* Statistics Toggle Button */}

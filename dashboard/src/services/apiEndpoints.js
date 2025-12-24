@@ -20,6 +20,7 @@ export const endpoints = {
   // Circuit breaker endpoints
   circuitBreakerStatus: `http://${apiHost}:${apiPort}/api/circuit-breaker/status`,
   toggleCircuitBreaker: `http://${apiHost}:${apiPort}/api/circuit-breaker/toggle`,
+  toggleCircuitBreakerSafety: `http://${apiHost}:${apiPort}/api/circuit-breaker/toggle-safety`,
   circuitBreakerStats: `http://${apiHost}:${apiPort}/api/circuit-breaker/statistics`,
 
   // OSD endpoints
