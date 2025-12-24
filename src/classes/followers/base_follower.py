@@ -232,6 +232,11 @@ class BaseFollower(ABC):
                 # Derive follower config name from class (e.g., MCVelocityChaseFollower -> MC_VELOCITY_CHASE)
                 self._follower_config_name = self._derive_follower_config_name()
 
+                # Warn if SafetyManager hasn't loaded config (using fallback values)
+                if not self.safety_manager._initialized:
+                    logger.warning(f"SafetyManager not initialized from config - using fallback safety values. "
+                                   f"Ensure config file has 'Safety' section for {self._follower_config_name}")
+
                 # Cache limits at initialization for performance
                 self.velocity_limits = self.safety_manager.get_velocity_limits(self._follower_config_name)
                 self.altitude_limits = self.safety_manager.get_altitude_limits(self._follower_config_name)

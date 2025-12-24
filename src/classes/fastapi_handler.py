@@ -3026,23 +3026,27 @@ class FastAPIHandler:
                 safety_manager = None
 
             if not safety_available or safety_manager is None:
-                # Fallback to Parameters.get_effective_limit
+                # Fallback to Parameters.get_effective_limit (match frontend field names)
                 limits = {
                     'follower_name': follower_name,
+                    'vehicle_type': 'UNKNOWN',
                     'legacy_mode': True,
-                    'velocity_limits': {
+                    'velocity': {
                         'forward': Parameters.get_effective_limit('MAX_VELOCITY_FORWARD', follower_name),
                         'lateral': Parameters.get_effective_limit('MAX_VELOCITY_LATERAL', follower_name),
                         'vertical': Parameters.get_effective_limit('MAX_VELOCITY_VERTICAL', follower_name),
                     },
-                    'altitude_limits': {
-                        'min_altitude': Parameters.get_effective_limit('MIN_ALTITUDE', follower_name),
-                        'max_altitude': Parameters.get_effective_limit('MAX_ALTITUDE', follower_name),
+                    'altitude': {
+                        'min': Parameters.get_effective_limit('MIN_ALTITUDE', follower_name),
+                        'max': Parameters.get_effective_limit('MAX_ALTITUDE', follower_name),
                         'warning_buffer': Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', follower_name),
                     },
-                    'rate_limits': {
-                        'max_yaw_rate': Parameters.get_effective_limit('MAX_YAW_RATE', follower_name),
+                    'rates': {
+                        'yaw_deg': Parameters.get_effective_limit('MAX_YAW_RATE', follower_name),
+                        'pitch_deg': Parameters.get_effective_limit('MAX_PITCH_RATE', follower_name) or 45.0,
+                        'roll_deg': Parameters.get_effective_limit('MAX_ROLL_RATE', follower_name) or 45.0,
                     },
+                    'altitude_safety_enabled': True,
                     'timestamp': time.time()
                 }
                 return JSONResponse(content=limits)
@@ -3053,27 +3057,32 @@ class FastAPIHandler:
             rate_limits = safety_manager.get_rate_limits(follower_name)
             vehicle_type = safety_manager._get_vehicle_type(follower_name)
 
+            # Convert radians to degrees for rate limits (config stores deg/s, SafetyManager converts to rad/s)
+            from math import degrees
+
             limits = {
                 'follower_name': follower_name,
                 'vehicle_type': vehicle_type.value if vehicle_type else 'UNKNOWN',
                 'legacy_mode': False,
-                'velocity_limits': {
+                # Frontend expects 'velocity' not 'velocity_limits'
+                'velocity': {
                     'forward': velocity_limits.forward,
                     'lateral': velocity_limits.lateral,
                     'vertical': velocity_limits.vertical,
                     'max_magnitude': velocity_limits.max_magnitude,
                 },
-                'altitude_limits': {
-                    'min_altitude': altitude_limits.min_altitude,
-                    'max_altitude': altitude_limits.max_altitude,
+                # Frontend expects 'altitude' with 'min'/'max' not 'min_altitude'/'max_altitude'
+                'altitude': {
+                    'min': altitude_limits.min_altitude,
+                    'max': altitude_limits.max_altitude,
                     'warning_buffer': altitude_limits.warning_buffer,
                     'safety_enabled': altitude_limits.safety_enabled,
                 },
-                'rate_limits': {
-                    'yaw': rate_limits.yaw,
-                    'yaw_deg_s': rate_limits.yaw * 57.2958,  # Also provide in deg/s
-                    'pitch': rate_limits.pitch,
-                    'roll': rate_limits.roll,
+                # Frontend expects 'rates' with '_deg' suffix fields
+                'rates': {
+                    'yaw_deg': degrees(rate_limits.yaw),
+                    'pitch_deg': degrees(rate_limits.pitch),
+                    'roll_deg': degrees(rate_limits.roll),
                 },
                 'altitude_safety_enabled': safety_manager.is_altitude_safety_enabled(follower_name),
                 'timestamp': time.time()

@@ -25,6 +25,7 @@ import FollowerQuickControl from '../components/FollowerQuickControl';
 import StreamingStats from '../components/StreamingStats';
 import CircuitBreakerStatusCard from '../components/CircuitBreakerStatusCard';
 import OSDToggle from '../components/OSDToggle';
+import SafetyConfigCard from '../components/SafetyConfigCard';
 
 
 import { videoFeed, endpoints } from '../services/apiEndpoints';
@@ -442,25 +443,36 @@ const DashboardPage = () => {
             </Grid>
           </Grid>
           
-          {/* TERTIARY: Quick Controls & Stats Row - Bottom */}
+          {/* TERTIARY: Follower Control & Safety Row */}
           <Grid item xs={12}>
-            <Grid container spacing={2} sx={{ minHeight: 150 }}>
-              <Grid item xs={12} sm={6} md={3}>
-                <Box sx={{ height: '100%' }}>
-                  <StreamingStats />
-                </Box>
-              </Grid>
-              <Grid item xs={12} sm={6} md={3}>
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6} md={4}>
                 <Box sx={{ height: '100%' }}>
                   <FollowerQuickControl />
                 </Box>
               </Grid>
-              <Grid item xs={12} sm={6} md={3}>
+              <Grid item xs={12} sm={6} md={4}>
+                <Box sx={{ height: '100%' }}>
+                  <SafetyConfigCard followerName={currentProfile?.mode} />
+                </Box>
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
                 <Box sx={{ height: '100%' }}>
                   <TrackerSelector />
                 </Box>
               </Grid>
-              <Grid item xs={12} sm={6} md={3}>
+            </Grid>
+          </Grid>
+
+          {/* QUATERNARY: Stats & YOLO Row */}
+          <Grid item xs={12}>
+            <Grid container spacing={2} sx={{ minHeight: 150 }}>
+              <Grid item xs={12} sm={6} md={6}>
+                <Box sx={{ height: '100%' }}>
+                  <StreamingStats />
+                </Box>
+              </Grid>
+              <Grid item xs={12} sm={6} md={6}>
                 <Box sx={{ height: '100%' }}>
                   <YOLOModelSelector />
                 </Box>
@@ -468,7 +480,7 @@ const DashboardPage = () => {
             </Grid>
           </Grid>
 
-          {/* QUATERNARY: System Navigation Row */}
+          {/* QUINARY: System Navigation Row */}
           <Grid item xs={12}>
             <Card>
               <CardContent>

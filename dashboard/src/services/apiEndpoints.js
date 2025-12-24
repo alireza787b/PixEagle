@@ -33,6 +33,11 @@ export const endpoints = {
   yoloSwitchModel: `http://${apiHost}:${apiPort}/api/yolo/switch-model`,
   yoloUpload: `http://${apiHost}:${apiPort}/api/yolo/upload`,
   yoloDelete: (modelId) => `http://${apiHost}:${apiPort}/api/yolo/delete/${modelId}`,
+
+  // Safety configuration endpoints (v3.5.0+)
+  safetyConfig: `http://${apiHost}:${apiPort}/api/safety/config`,
+  safetyLimits: (followerName) => `http://${apiHost}:${apiPort}/api/safety/limits/${followerName}`,
+  safetyVehicleProfiles: `http://${apiHost}:${apiPort}/api/safety/vehicle-profiles`,
 };
 
 export const videoFeed = `http://${apiHost}:${apiPort}/video_feed`;

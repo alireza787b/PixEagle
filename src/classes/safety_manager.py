@@ -265,7 +265,7 @@ class SafetyManager:
                 forward=self.get_limit('MAX_VELOCITY_FORWARD', follower_name),
                 lateral=self.get_limit('MAX_VELOCITY_LATERAL', follower_name),
                 vertical=self.get_limit('MAX_VELOCITY_VERTICAL', follower_name),
-                max_magnitude=self.get_limit('MAX_VELOCITY', follower_name) or 15.0
+                max_magnitude=self.get_limit('MAX_VELOCITY', follower_name)
             )
             self._cache[cache_key] = limits
 
@@ -294,8 +294,8 @@ class SafetyManager:
             # Convert from deg/s in config to rad/s
             limits = RateLimits(
                 yaw=radians(self.get_limit('MAX_YAW_RATE', follower_name)),
-                pitch=radians(self.get_limit('MAX_PITCH_RATE', follower_name) or 45.0),
-                roll=radians(self.get_limit('MAX_ROLL_RATE', follower_name) or 45.0)
+                pitch=radians(self.get_limit('MAX_PITCH_RATE', follower_name)),
+                roll=radians(self.get_limit('MAX_ROLL_RATE', follower_name))
             )
             self._cache[cache_key] = limits
 
@@ -339,19 +339,31 @@ class SafetyManager:
         return self._cache[cache_key]
 
     def is_altitude_safety_enabled(self, follower_name: str) -> bool:
-        """Check if altitude safety is enabled for a follower."""
-        # Check explicit override
+        """
+        Check if altitude safety is enabled for a follower.
+
+        Resolution order (first match wins):
+        1. Follower-specific override
+        2. Global limits (can disable all altitude safety)
+        3. Vehicle profile
+        4. Fallback (enabled by default for safety)
+        """
+        # 1. Check follower-specific override
         override = self._follower_overrides.get(follower_name, {})
         if 'ALTITUDE_SAFETY_ENABLED' in override:
             return bool(override['ALTITUDE_SAFETY_ENABLED'])
 
-        # Check vehicle profile
+        # 2. Check global limits (can globally disable altitude safety)
+        if 'ALTITUDE_SAFETY_ENABLED' in self._global_limits:
+            return bool(self._global_limits['ALTITUDE_SAFETY_ENABLED'])
+
+        # 3. Check vehicle profile
         vehicle_type = self._get_vehicle_type(follower_name)
         profile = self._vehicle_profiles.get(vehicle_type.value, {})
         if 'ALTITUDE_SAFETY_ENABLED' in profile:
             return bool(profile['ALTITUDE_SAFETY_ENABLED'])
 
-        # Default to enabled
+        # 4. Default to enabled (safe default)
         return self._FALLBACKS.get('ALTITUDE_SAFETY_ENABLED', True)
 
     def check_altitude_safety(self, current_altitude: float, follower_name: str) -> SafetyStatus:

@@ -144,6 +144,3 @@ FOLLOWER_VEHICLE_TYPE = {
 }
 
 
-def degrees_to_radians(deg: float) -> float:
-    """Convert degrees to radians."""
-    return radians(deg)

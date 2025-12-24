@@ -1217,7 +1217,8 @@ GM_VELOCITY_VECTOR:
   # === Altitude Safety (Optional Enforcement) ===
   # Enable altitude monitoring and enforcement (similar to BODY_VELOCITY_CHASE)
   # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE (overrides global SafetyLimits if set)
-  ALTITUDE_SAFETY_ENABLED: false          # Enable altitude boundary enforcement
+  # NOTE: Now uses Safety.VehicleProfiles.GIMBAL settings by default
+  ALTITUDE_SAFETY_ENABLED: true           # Enable altitude boundary enforcement (SAFE DEFAULT)
   # MIN_ALTITUDE: 3.0                     # Override global minimum altitude (meters)
   # MAX_ALTITUDE: 120.0                   # Override global maximum altitude (meters)
   ALTITUDE_CHECK_INTERVAL: 1.0            # seconds - altitude check frequency
@@ -1306,7 +1307,8 @@ MC_VELOCITY_CHASE:
   # - Flight Testing: ENABLE_ALTITUDE_CONTROL=true, ALTITUDE_SAFETY_ENABLED=true
   #
   # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE
-  ALTITUDE_SAFETY_ENABLED: false          # ⚠️ Disabled by default for ground testing (enable for flights)
+  # NOTE: Now uses Safety.VehicleProfiles.MULTICOPTER settings by default
+  ALTITUDE_SAFETY_ENABLED: true           # Enable altitude boundary enforcement (SAFE DEFAULT)
   MIN_ALTITUDE: 5.0                       # Override: stricter minimum altitude (meters)
   MAX_ALTITUDE: 50.0                      # Override: stricter maximum altitude (meters)
   ALTITUDE_CHECK_INTERVAL: 0.1            # seconds - 100ms check frequency (fast safety checks)
@@ -2084,13 +2086,14 @@ Safety:
   # --- Optional Per-Follower Overrides ---
   # These override the vehicle profile values for specific followers.
   # Only include parameters that differ from the vehicle profile.
+  # NOTE: For ground testing, create a separate config file or use OperationalModes.GROUND_TEST
   FollowerOverrides:
     MC_VELOCITY_CHASE:
       MAX_FORWARD_VELOCITY: 0.5          # Demo-safe velocity limit
-      ALTITUDE_SAFETY_ENABLED: false     # Disabled for ground testing
+      # ALTITUDE_SAFETY_ENABLED: true    # Enabled by default (inherits from MULTICOPTER profile)
 
-    GM_PID_PURSUIT:
-      ALTITUDE_SAFETY_ENABLED: false     # Disabled for ground testing
+    GM_PID_PURSUIT: {}
+      # No overrides - inherits from GIMBAL profile
 
     GM_VELOCITY_VECTOR:
       MAX_VELOCITY: 0.5                  # Conservative for safety testing
@@ -2117,8 +2120,8 @@ SafetyLimits:
 
   # === Safety Behavior ===
   ALTITUDE_WARNING_BUFFER: 2.0         # meters - Warning zone before hard limits
-  EMERGENCY_STOP_ENABLED: false        # ⚠️ Disabled by default for ground testing (enable for flights)
-  RTL_ON_VIOLATION: false              # ⚠️ Disabled by default for ground testing (enable for flights)
+  EMERGENCY_STOP_ENABLED: true         # Enable emergency stop on safety violations
+  RTL_ON_VIOLATION: true               # Return to launch on safety violations
   MAX_SAFETY_VIOLATIONS: 5             # Max violations before emergency action
 
 # ==============================================================================

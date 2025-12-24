@@ -71,17 +71,23 @@ class Parameters:
     ]
 
     # Hardcoded fallback defaults for safety (used if config is missing)
+    # NOTE: These MUST match SafetyManager._FALLBACKS for consistency
     _SAFETY_FALLBACKS = {
         'MIN_ALTITUDE': 3.0,
         'MAX_ALTITUDE': 120.0,
-        'MAX_VELOCITY_FORWARD': 15.0,
-        'MAX_VELOCITY_LATERAL': 10.0,
-        'MAX_VELOCITY_VERTICAL': 5.0,
+        'MAX_VELOCITY': 15.0,           # Overall magnitude limit (matches SafetyManager)
+        'MAX_VELOCITY_FORWARD': 8.0,    # Conservative (matches SafetyManager)
+        'MAX_VELOCITY_LATERAL': 5.0,    # Conservative (matches SafetyManager)
+        'MAX_VELOCITY_VERTICAL': 3.0,   # Conservative (matches SafetyManager)
         'MAX_YAW_RATE': 45.0,
+        'MAX_PITCH_RATE': 45.0,         # Added for completeness
+        'MAX_ROLL_RATE': 45.0,          # Added for completeness
         'ALTITUDE_WARNING_BUFFER': 2.0,
+        'ALTITUDE_SAFETY_ENABLED': True,  # Added for safety
         'MAX_SAFETY_VIOLATIONS': 5,
         'EMERGENCY_STOP_ENABLED': True,
         'RTL_ON_VIOLATION': True,
+        'TARGET_LOSS_ACTION': 'hover',  # Default action on target loss (matches SafetyManager)
     }
 
     # Axis name to limit name mapping for get_velocity_limit()
