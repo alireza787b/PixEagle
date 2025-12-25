@@ -45,7 +45,7 @@ Ports: 9003 (commands), 9004 (broadcast data)
 
 ```bash
 cd /path/to/PixEagle
-python gimbal_simulator.py
+python tools/gimbal_simulator.py
 ```
 
 The GUI will open automatically with all controls ready.
@@ -256,7 +256,7 @@ Test Case: Dynamic Response
 
 ```
 Steps:
-1. Start simulator: python gimbal_simulator.py
+1. Start simulator: python tools/gimbal_simulator.py
 2. Configure PixEagle with simulator settings
 3. Start PixEagle and select GimbalTracker
 4. Set simulator state to "Active"
@@ -758,13 +758,13 @@ Run multiple simulators for complex scenarios:
 
 ```bash
 # Primary gimbal (default ports)
-python gimbal_simulator.py
+python tools/gimbal_simulator.py
 
 # Secondary gimbal (modified ports)
 # Edit gimbal_simulator.py:
 # listen_port: int = 9013
 # broadcast_port: int = 9014
-python gimbal_simulator.py
+python tools/gimbal_simulator.py
 ```
 
 ### Automated Testing Scripts
@@ -919,7 +919,7 @@ jobs:
 
     - name: Run PixEagle integration test
       run: |
-        python gimbal_simulator.py &
+        python tools/gimbal_simulator.py &
         sleep 2
         python test_pixeagle_gimbal_integration.py
         pkill -f gimbal_simulator

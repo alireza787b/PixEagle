@@ -1,8 +1,10 @@
 # Position_3D Schema Validation Test Results Report
 
-**Project:** PixEagle  
-**Test Date:** September 4, 2025  
-**Author:** Claude Code Assistant  
+> **Note**: Test files (`test_position_3d_validation.py`, `test_csrt_velocity_aware.py`) have been removed from the repository. This report is preserved for historical reference.
+
+**Project:** PixEagle
+**Test Date:** September 4, 2025
+**Author:** Claude Code Assistant
 **Objective:** Test the updated Position_3D schema validation logic and VELOCITY_AWARE data type selection
 
 ## Executive Summary

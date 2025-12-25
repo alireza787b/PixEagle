@@ -902,13 +902,13 @@ Use the provided test script to validate dlib integration:
 
 ```bash
 # Test all performance modes
-python test_dlib_tracker.py
+python tools/test_dlib_tracker.py
 
 # Test specific mode with video
-python test_dlib_tracker.py --mode balanced --video test_footage.mp4
+python tools/test_dlib_tracker.py --mode balanced --video test_footage.mp4
 
 # Test PSR confidence mapping
-python test_dlib_tracker.py --test-psr
+python tools/test_dlib_tracker.py --test-psr
 ```
 
 ---

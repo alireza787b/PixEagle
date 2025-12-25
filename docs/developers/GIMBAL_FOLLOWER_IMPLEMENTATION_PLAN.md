@@ -108,7 +108,7 @@ For comprehensive testing without physical hardware, use the integrated gimbal s
 **Reference**: See [Gimbal Simulator Documentation](docs/gimbal_simulator.md) for complete testing guide.
 
 **Quick Setup**:
-1. **Start Simulator**: `python gimbal_simulator.py`
+1. **Start Simulator**: `python tools/gimbal_simulator.py`
 2. **Configure PixEagle**: Update config to use localhost
 3. **Test Coordination**: Verify angle data flow and control responses
 
@@ -155,7 +155,7 @@ ROLL_RIGHT_SIGN: "POSITIVE"          # Matches your gimbal convention
 ### **Integration** ✅
 - **`src/classes/trackers/gimbal_tracker.py`**: Works with existing tracker
 - **`src/classes/gimbal_interface.py`**: Protocol communication
-- **`gimbal_simulator.py`**: Testing infrastructure
+- **`tools/gimbal_simulator.py`**: Testing infrastructure
 
 ---
 
@@ -228,7 +228,7 @@ For implementing support for different gimbal protocols:
 **Quick Test Workflow**:
 ```bash
 # 1. Start simulator
-python gimbal_simulator.py
+python tools/gimbal_simulator.py
 
 # 2. Configure PixEagle for simulator
 # Edit configs/config.yaml:
