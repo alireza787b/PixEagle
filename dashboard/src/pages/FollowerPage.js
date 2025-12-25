@@ -21,9 +21,10 @@ import DynamicFieldDisplay from '../components/DynamicFieldDisplay';
 import FollowerProfileSelector from '../components/FollowerProfileSelector';
 import { useFollowerSchema, useCurrentFollowerProfile } from '../hooks/useFollowerSchema';
 import axios from 'axios';
+import { apiConfig } from '../services/apiEndpoints';
 
 const POLLING_RATE = parseInt(process.env.REACT_APP_POLLING_RATE, 10);
-const API_URL = `http://${process.env.REACT_APP_API_HOST}:${process.env.REACT_APP_API_PORT}`;
+const API_URL = `${apiConfig.protocol}://${apiConfig.apiHost}:${apiConfig.apiPort}`;
 
 const FollowerPage = () => {
   const [trackerData, setTrackerData] = useState([]);

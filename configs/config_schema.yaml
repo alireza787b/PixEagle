@@ -309,15 +309,15 @@ sections:
       HTTP_STREAM_HOST:
         type: string
         default: 0.0.0.0
-        description: 0.0.0.0 = all interfaces
+        description: API server bind address (0.0.0.0 = all interfaces, allows LAN/remote access)
         reboot_required: true
       HTTP_STREAM_PORT:
         type: integer
         default: 5077
-        description: Web dashboard port
+        description: API server port (used by dashboard, WebSocket, and REST API)
         reboot_required: true
-        min: 0
-        max: 1000000
+        min: 1024
+        max: 65535
       STREAM_WIDTH:
         type: integer
         default: 640

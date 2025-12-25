@@ -4,6 +4,7 @@ import { Chart, registerables } from 'chart.js';
 import ArrowPlugin from '../plugins/ArrowPlugin';
 import WebRTCStream from './WebRTCStream';
 import { Button, Typography } from '@mui/material';
+import { videoFeed } from '../services/apiEndpoints';
 
 Chart.register(...registerables);
 
@@ -176,9 +177,8 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
     },
   };
 
-  const flaskHost = process.env.REACT_APP_WEBSOCKET_VIDEO_HOST;
-  const flaskPort = process.env.REACT_APP_WEBSOCKET_VIDEO_PORT;
-  const videoSrc = `http://${flaskHost}:${flaskPort}/video_feed`;
+  // Use dynamic videoFeed URL from apiEndpoints (auto-detected host)
+  const videoSrc = videoFeed;
 
   return (
     <div style={{ position: 'relative', height: '750px', width: '100%' }}>

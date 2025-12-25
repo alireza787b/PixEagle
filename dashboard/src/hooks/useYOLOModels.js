@@ -18,8 +18,9 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
+import { apiConfig } from '../services/apiEndpoints';
 
-const API_URL = `http://${process.env.REACT_APP_API_HOST}:${process.env.REACT_APP_API_PORT}`;
+const API_URL = `${apiConfig.protocol}://${apiConfig.apiHost}:${apiConfig.apiPort}`;
 
 /**
  * Hook to fetch available YOLO models

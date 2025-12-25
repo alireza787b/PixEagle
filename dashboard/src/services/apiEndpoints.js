@@ -1,77 +1,110 @@
 // dashboard/src/services/apiEndpoints.js
+// Dynamic host detection with optional override for reverse proxy/special deployments
 
-const apiHost = process.env.REACT_APP_WEBSOCKET_VIDEO_HOST;
-const apiPort = process.env.REACT_APP_WEBSOCKET_VIDEO_PORT;
+/**
+ * Get API configuration with smart defaults
+ * - Auto-detects host from browser URL (works for localhost, LAN, remote)
+ * - Supports explicit override via REACT_APP_API_HOST_OVERRIDE
+ * - Detects protocol (http/https) from current page
+ */
+const getApiConfig = () => {
+  // Check for explicit override (useful for reverse proxy, Docker, special deployments)
+  const hostOverride = process.env.REACT_APP_API_HOST_OVERRIDE;
 
-// Existing HTTP and WebSocket endpoints
-export const endpoints = {
-  startTracking: `http://${apiHost}:${apiPort}/commands/start_tracking`,
-  stopTracking: `http://${apiHost}:${apiPort}/commands/stop_tracking`,
-  redetect: `http://${apiHost}:${apiPort}/commands/redetect`,
-  cancelActivities: `http://${apiHost}:${apiPort}/commands/cancel_activities`,
-  toggleSegmentation: `http://${apiHost}:${apiPort}/commands/toggle_segmentation`,
-  startOffboardMode: `http://${apiHost}:${apiPort}/commands/start_offboard_mode`,
-  stopOffboardMode: `http://${apiHost}:${apiPort}/commands/stop_offboard_mode`,
-  quit: `http://${apiHost}:${apiPort}/commands/quit`,
-  status: `http://${apiHost}:${apiPort}/status`,
-  toggleSmartMode: `http://${apiHost}:${apiPort}/commands/toggle_smart_mode`,
-  smartClick: `http://${apiHost}:${apiPort}/commands/smart_click`,
+  // Auto-detect from browser URL (works for LAN, remote, localhost)
+  const detectedHost = typeof window !== 'undefined'
+    ? window.location.hostname
+    : 'localhost';
 
-  // Circuit breaker endpoints
-  circuitBreakerStatus: `http://${apiHost}:${apiPort}/api/circuit-breaker/status`,
-  toggleCircuitBreaker: `http://${apiHost}:${apiPort}/api/circuit-breaker/toggle`,
-  toggleCircuitBreakerSafety: `http://${apiHost}:${apiPort}/api/circuit-breaker/toggle-safety`,
-  circuitBreakerStats: `http://${apiHost}:${apiPort}/api/circuit-breaker/statistics`,
+  // Port configuration (can be overridden via env)
+  const apiPort = process.env.REACT_APP_API_PORT || '5077';
 
-  // OSD endpoints
-  osdStatus: `http://${apiHost}:${apiPort}/api/osd/status`,
-  toggleOsd: `http://${apiHost}:${apiPort}/api/osd/toggle`,
-  osdPresets: `http://${apiHost}:${apiPort}/api/osd/presets`,
-  loadOsdPreset: (presetName) => `http://${apiHost}:${apiPort}/api/osd/preset/${presetName}`,
+  // Use override if set and non-empty, otherwise auto-detect
+  const apiHost = (hostOverride && hostOverride.trim()) || detectedHost;
 
-  // YOLO Model Management endpoints
-  yoloModels: `http://${apiHost}:${apiPort}/api/yolo/models`,
-  yoloSwitchModel: `http://${apiHost}:${apiPort}/api/yolo/switch-model`,
-  yoloUpload: `http://${apiHost}:${apiPort}/api/yolo/upload`,
-  yoloDelete: (modelId) => `http://${apiHost}:${apiPort}/api/yolo/delete/${modelId}`,
+  // Protocol detection (match current page for CORS compatibility)
+  const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+  const protocol = isHttps ? 'https' : 'http';
+  const wsProtocol = isHttps ? 'wss' : 'ws';
 
-  // Safety configuration endpoints (v3.5.0+)
-  safetyConfig: `http://${apiHost}:${apiPort}/api/safety/config`,
-  safetyLimits: (followerName) => `http://${apiHost}:${apiPort}/api/safety/limits/${followerName}`,
-  safetyVehicleProfiles: `http://${apiHost}:${apiPort}/api/safety/vehicle-profiles`,
-
-  // Configuration management endpoints (v4.0.0+)
-  configSchema: `http://${apiHost}:${apiPort}/api/config/schema`,
-  configSectionSchema: (section) => `http://${apiHost}:${apiPort}/api/config/schema/${section}`,
-  configSections: `http://${apiHost}:${apiPort}/api/config/sections`,
-  configCategories: `http://${apiHost}:${apiPort}/api/config/categories`,
-  configCurrent: `http://${apiHost}:${apiPort}/api/config/current`,
-  configCurrentSection: (section) => `http://${apiHost}:${apiPort}/api/config/current/${section}`,
-  configDefault: `http://${apiHost}:${apiPort}/api/config/default`,
-  configDefaultSection: (section) => `http://${apiHost}:${apiPort}/api/config/default/${section}`,
-  configUpdateParameter: (section, param) => `http://${apiHost}:${apiPort}/api/config/${section}/${param}`,
-  configUpdateSection: (section) => `http://${apiHost}:${apiPort}/api/config/${section}`,
-  configValidate: `http://${apiHost}:${apiPort}/api/config/validate`,
-  configDiff: `http://${apiHost}:${apiPort}/api/config/diff`,
-  configRevert: `http://${apiHost}:${apiPort}/api/config/revert`,
-  configRevertSection: (section) => `http://${apiHost}:${apiPort}/api/config/revert/${section}`,
-  configRevertParameter: (section, param) => `http://${apiHost}:${apiPort}/api/config/revert/${section}/${param}`,
-  configHistory: `http://${apiHost}:${apiPort}/api/config/history`,
-  configRestore: (backupId) => `http://${apiHost}:${apiPort}/api/config/restore/${backupId}`,
-  configExport: `http://${apiHost}:${apiPort}/api/config/export`,
-  configImport: `http://${apiHost}:${apiPort}/api/config/import`,
-  configSearch: `http://${apiHost}:${apiPort}/api/config/search`,
-  configAudit: `http://${apiHost}:${apiPort}/api/config/audit`,
-
-  // System management endpoints (v4.0.0+)
-  systemStatus: `http://${apiHost}:${apiPort}/api/system/status`,
-  systemRestart: `http://${apiHost}:${apiPort}/api/system/restart`,
+  return { apiHost, apiPort, protocol, wsProtocol };
 };
 
-export const videoFeed = `http://${apiHost}:${apiPort}/video_feed`;
+const { apiHost, apiPort, protocol, wsProtocol } = getApiConfig();
 
-// Existing WebSocket video feed endpoint
-export const websocketVideoFeed = `ws://${apiHost}:${apiPort}/ws/video_feed`;
+// HTTP endpoints (using dynamic protocol for HTTPS support)
+export const endpoints = {
+  startTracking: `${protocol}://${apiHost}:${apiPort}/commands/start_tracking`,
+  stopTracking: `${protocol}://${apiHost}:${apiPort}/commands/stop_tracking`,
+  redetect: `${protocol}://${apiHost}:${apiPort}/commands/redetect`,
+  cancelActivities: `${protocol}://${apiHost}:${apiPort}/commands/cancel_activities`,
+  toggleSegmentation: `${protocol}://${apiHost}:${apiPort}/commands/toggle_segmentation`,
+  startOffboardMode: `${protocol}://${apiHost}:${apiPort}/commands/start_offboard_mode`,
+  stopOffboardMode: `${protocol}://${apiHost}:${apiPort}/commands/stop_offboard_mode`,
+  quit: `${protocol}://${apiHost}:${apiPort}/commands/quit`,
+  status: `${protocol}://${apiHost}:${apiPort}/status`,
+  toggleSmartMode: `${protocol}://${apiHost}:${apiPort}/commands/toggle_smart_mode`,
+  smartClick: `${protocol}://${apiHost}:${apiPort}/commands/smart_click`,
 
-// **New WebRTC Signaling Endpoint**
-export const webrtcSignalingEndpoint = `ws://${apiHost}:${apiPort}/ws/webrtc_signaling`;
+  // Circuit breaker endpoints
+  circuitBreakerStatus: `${protocol}://${apiHost}:${apiPort}/api/circuit-breaker/status`,
+  toggleCircuitBreaker: `${protocol}://${apiHost}:${apiPort}/api/circuit-breaker/toggle`,
+  toggleCircuitBreakerSafety: `${protocol}://${apiHost}:${apiPort}/api/circuit-breaker/toggle-safety`,
+  circuitBreakerStats: `${protocol}://${apiHost}:${apiPort}/api/circuit-breaker/statistics`,
+
+  // OSD endpoints
+  osdStatus: `${protocol}://${apiHost}:${apiPort}/api/osd/status`,
+  toggleOsd: `${protocol}://${apiHost}:${apiPort}/api/osd/toggle`,
+  osdPresets: `${protocol}://${apiHost}:${apiPort}/api/osd/presets`,
+  loadOsdPreset: (presetName) => `${protocol}://${apiHost}:${apiPort}/api/osd/preset/${presetName}`,
+
+  // YOLO Model Management endpoints
+  yoloModels: `${protocol}://${apiHost}:${apiPort}/api/yolo/models`,
+  yoloSwitchModel: `${protocol}://${apiHost}:${apiPort}/api/yolo/switch-model`,
+  yoloUpload: `${protocol}://${apiHost}:${apiPort}/api/yolo/upload`,
+  yoloDelete: (modelId) => `${protocol}://${apiHost}:${apiPort}/api/yolo/delete/${modelId}`,
+
+  // Safety configuration endpoints (v3.5.0+)
+  safetyConfig: `${protocol}://${apiHost}:${apiPort}/api/safety/config`,
+  safetyLimits: (followerName) => `${protocol}://${apiHost}:${apiPort}/api/safety/limits/${followerName}`,
+
+  // Configuration management endpoints (v4.0.0+)
+  configSchema: `${protocol}://${apiHost}:${apiPort}/api/config/schema`,
+  configSectionSchema: (section) => `${protocol}://${apiHost}:${apiPort}/api/config/schema/${section}`,
+  configSections: `${protocol}://${apiHost}:${apiPort}/api/config/sections`,
+  configCategories: `${protocol}://${apiHost}:${apiPort}/api/config/categories`,
+  configCurrent: `${protocol}://${apiHost}:${apiPort}/api/config/current`,
+  configCurrentSection: (section) => `${protocol}://${apiHost}:${apiPort}/api/config/current/${section}`,
+  configDefault: `${protocol}://${apiHost}:${apiPort}/api/config/default`,
+  configDefaultSection: (section) => `${protocol}://${apiHost}:${apiPort}/api/config/default/${section}`,
+  configUpdateParameter: (section, param) => `${protocol}://${apiHost}:${apiPort}/api/config/${section}/${param}`,
+  configUpdateSection: (section) => `${protocol}://${apiHost}:${apiPort}/api/config/${section}`,
+  configValidate: `${protocol}://${apiHost}:${apiPort}/api/config/validate`,
+  configDiff: `${protocol}://${apiHost}:${apiPort}/api/config/diff`,
+  configRevert: `${protocol}://${apiHost}:${apiPort}/api/config/revert`,
+  configRevertSection: (section) => `${protocol}://${apiHost}:${apiPort}/api/config/revert/${section}`,
+  configRevertParameter: (section, param) => `${protocol}://${apiHost}:${apiPort}/api/config/revert/${section}/${param}`,
+  configHistory: `${protocol}://${apiHost}:${apiPort}/api/config/history`,
+  configRestore: (backupId) => `${protocol}://${apiHost}:${apiPort}/api/config/restore/${backupId}`,
+  configExport: `${protocol}://${apiHost}:${apiPort}/api/config/export`,
+  configImport: `${protocol}://${apiHost}:${apiPort}/api/config/import`,
+  configSearch: `${protocol}://${apiHost}:${apiPort}/api/config/search`,
+  configAudit: `${protocol}://${apiHost}:${apiPort}/api/config/audit`,
+
+  // System management endpoints (v4.0.0+)
+  systemStatus: `${protocol}://${apiHost}:${apiPort}/api/system/status`,
+  systemRestart: `${protocol}://${apiHost}:${apiPort}/api/system/restart`,
+  systemConfig: `${protocol}://${apiHost}:${apiPort}/api/system/config`,
+};
+
+// Video feed endpoint
+export const videoFeed = `${protocol}://${apiHost}:${apiPort}/video_feed`;
+
+// WebSocket endpoints (using dynamic wsProtocol for WSS support)
+export const websocketVideoFeed = `${wsProtocol}://${apiHost}:${apiPort}/ws/video_feed`;
+
+// WebRTC Signaling Endpoint
+export const webrtcSignalingEndpoint = `${wsProtocol}://${apiHost}:${apiPort}/ws/webrtc_signaling`;
+
+// Export config for debugging/logging
+export const apiConfig = { apiHost, apiPort, protocol, wsProtocol };

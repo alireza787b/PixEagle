@@ -8,9 +8,10 @@ import PollingStatusIndicator from '../components/PollingStatusIndicator';
 import TrackerDataDisplay from '../components/TrackerDataDisplay';
 import { useTrackerSchema, useCurrentTrackerStatus, useTrackerOutput } from '../hooks/useTrackerSchema';
 import axios from 'axios';
+import { apiConfig } from '../services/apiEndpoints';
 
 const POLLING_RATE = parseInt(process.env.REACT_APP_POLLING_RATE, 10);
-const API_URL = `http://${process.env.REACT_APP_API_HOST}:${process.env.REACT_APP_API_PORT}`;
+const API_URL = `${apiConfig.protocol}://${apiConfig.apiHost}:${apiConfig.apiPort}`;
 
 const TrackerPage = () => {
   const [trackerData, setTrackerData] = useState([]);

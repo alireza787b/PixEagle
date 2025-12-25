@@ -1,8 +1,9 @@
 //dashboard/src/hooks/useStatuses.js
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { apiConfig } from '../services/apiEndpoints';
 
-const API_URL = `http://${process.env.REACT_APP_API_HOST}:${process.env.REACT_APP_API_PORT}`;
+const API_URL = `${apiConfig.protocol}://${apiConfig.apiHost}:${apiConfig.apiPort}`;
 
 export const useTrackerStatus = (interval = 2000) => {
   const [isTracking, setIsTracking] = useState(false);

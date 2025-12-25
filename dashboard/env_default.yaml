@@ -1,23 +1,21 @@
-# Dashboard Configuration
-
-# WebSocket Configuration
-REACT_APP_WEBSOCKET_HOST: 127.0.0.1
-REACT_APP_WEBSOCKET_PORT: 5551
-REACT_APP_WEBSOCKET_PATH: /ws
-
-# Video Feed Configuration
-REACT_APP_WEBSOCKET_VIDEO_PORT: 5077
-REACT_APP_WEBSOCKET_VIDEO_HOST: 127.0.0.1
-
-# Polling Configuration
-REACT_APP_POLLING_RATE: 500  # milliseconds
+# =============================================================================
+# PixEagle Dashboard Configuration
+# =============================================================================
+# Host is auto-detected from browser URL (works for localhost, LAN, remote)
+# Only set REACT_APP_API_HOST_OVERRIDE if you need to connect to a different host
 
 # API Configuration
-REACT_APP_API_HOST: 127.0.0.1
+# -----------------
+# Port where backend API runs
 REACT_APP_API_PORT: 5077
 
-# Other Configurations
-REACT_APP_MAX_SPEED: 1
+# Optional: Override auto-detected host (leave empty for auto-detection)
+# Use this for reverse proxy setups or when backend is on different host
+# Examples: api.example.com, 192.168.1.100
+REACT_APP_API_HOST_OVERRIDE: ""
 
-# Default Bounding Box Size when Click
+# UI Configuration
+# ----------------
+REACT_APP_POLLING_RATE: 500
+REACT_APP_MAX_SPEED: 1
 REACT_APP_DEFAULT_BOUNDING_BOX_SIZE: 0.1

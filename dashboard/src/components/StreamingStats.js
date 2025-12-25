@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, Typography, Box, LinearProgress, Chip } from '@mui/material';
 import { Speed, CloudQueue, Warning } from '@mui/icons-material';
 import axios from 'axios';
+import { apiConfig } from '../services/apiEndpoints';
 
 const StreamingStats = () => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const API_URL = `http://${process.env.REACT_APP_API_HOST}:${process.env.REACT_APP_API_PORT}`;
+  const API_URL = `${apiConfig.protocol}://${apiConfig.apiHost}:${apiConfig.apiPort}`;
 
   useEffect(() => {
     const fetchStats = async () => {

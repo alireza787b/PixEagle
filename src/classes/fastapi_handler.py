@@ -394,6 +394,7 @@ class FastAPIHandler:
         # System management
         self.app.post("/api/system/restart")(self.restart_backend)
         self.app.get("/api/system/status")(self.get_system_status)
+        self.app.get("/api/system/config")(self.get_frontend_config)
 
     async def video_feed(self):
         """Optimized HTTP MJPEG streaming with adaptive quality."""
@@ -3788,6 +3789,27 @@ class FastAPIHandler:
                 'status': 'running',
                 'timestamp': time.time()
             })
+
+    async def get_frontend_config(self):
+        """Return frontend configuration for runtime config injection.
+
+        This endpoint provides configuration values that the frontend may need
+        at runtime, supporting dynamic host detection and network configuration.
+        """
+        try:
+            return JSONResponse(content={
+                'success': True,
+                'config': {
+                    'api_port': Parameters.HTTP_STREAM_PORT,
+                    'websocket_port': Parameters.HTTP_STREAM_PORT,
+                    'version': '4.0.0',
+                    'api_host': Parameters.HTTP_STREAM_HOST,
+                },
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error getting frontend config: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
     async def restart_backend(self, request: Request):
         """Initiate backend restart.

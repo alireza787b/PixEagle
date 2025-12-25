@@ -51,11 +51,41 @@ FORCE_REBUILD=false
 # Tmux session name
 SESSION_NAME="pixeagle"
 
-# Default ports used by the components
+# Default ports (will be overridden from config.yaml if available)
 MAVLINK2REST_PORT=8088
 BACKEND_PORT=5077
 DASHBOARD_PORT=3000
 WEBSOCKET_PORT=5551
+
+# ============================================================================
+# Helper: Read port from config.yaml
+# ============================================================================
+get_config_value() {
+    local section="$1"
+    local key="$2"
+    local default="$3"
+
+    if [[ -f "$CONFIG_FILE" ]] && command -v python3 &>/dev/null; then
+        python3 -c "
+import yaml
+try:
+    with open('$CONFIG_FILE', 'r') as f:
+        config = yaml.safe_load(f)
+    print(config.get('$section', {}).get('$key', '$default'))
+except:
+    print('$default')
+" 2>/dev/null || echo "$default"
+    else
+        echo "$default"
+    fi
+}
+
+# ============================================================================
+# Helper: Get LAN IP address
+# ============================================================================
+get_lan_ip() {
+    hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost"
+}
 
 # Paths to component scripts
 BASE_DIR="$SCRIPT_DIR"
@@ -316,11 +346,17 @@ cleanup_previous_sessions() {
 load_configuration() {
     log_step 3 "Loading Configuration"
 
-    # Display configured ports
-    log_info "MAVLink2REST: http://localhost:${MAVLINK2REST_PORT}"
-    log_info "Backend API:  http://localhost:${BACKEND_PORT}"
-    log_info "Dashboard:    http://localhost:${DASHBOARD_PORT}"
-    log_info "WebSocket:    ws://localhost:${WEBSOCKET_PORT}"
+    # Read ports from config.yaml (with defaults)
+    BACKEND_PORT=$(get_config_value "Streaming" "HTTP_STREAM_PORT" "5077")
+
+    # Get LAN IP for network access
+    LAN_IP=$(get_lan_ip)
+
+    # Display configured ports with both localhost and LAN IP
+    log_info "MAVLink2REST: http://${LAN_IP}:${MAVLINK2REST_PORT}"
+    log_info "Backend API:  http://${LAN_IP}:${BACKEND_PORT}"
+    log_info "Dashboard:    http://${LAN_IP}:${DASHBOARD_PORT}"
+    log_detail "              (also: http://localhost:${DASHBOARD_PORT})"
 
     # Check component scripts exist
     if [[ "$RUN_MAIN_APP" == "true" ]] && [[ ! -f "$MAIN_APP_SCRIPT" ]]; then
@@ -409,6 +445,8 @@ start_services() {
     fi
 
     if [[ "$RUN_DASHBOARD" == "true" ]]; then
+        # Ensure nvm is loaded in the tmux pane (needed if node installed via nvm)
+        local nvm_setup='export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh";'
         local dashboard_cmd="bash $DASHBOARD_SCRIPT"
         if [[ "$DEVELOPMENT_MODE" == "true" ]]; then
             dashboard_cmd="$dashboard_cmd -d"
@@ -416,7 +454,7 @@ start_services() {
         if [[ "$FORCE_REBUILD" == "true" ]]; then
             dashboard_cmd="$dashboard_cmd -f"
         fi
-        components["Dashboard"]="$dashboard_cmd; bash"
+        components["Dashboard"]="${nvm_setup} ${dashboard_cmd}; bash"
         ((component_count++))
         printf "\r        ${DIM}-> Starting Dashboard... (%d/4)${NC}" $component_count
     fi
@@ -537,15 +575,21 @@ launch_tmux_interface() {
 # Final Summary
 # ============================================================================
 show_final_summary() {
+    # Get LAN IP for network access URLs
+    local lan_ip
+    lan_ip=$(get_lan_ip)
+
     echo ""
     echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${NC}"
     echo -e "                          ${PARTY} ${BOLD}PixEagle Running!${NC} ${PARTY}"
     echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "   ${BOLD}Service URLs:${NC}"
-    echo -e "      Dashboard:     ${CYAN}http://localhost:${DASHBOARD_PORT}${NC}"
-    echo -e "      Backend API:   ${CYAN}http://localhost:${BACKEND_PORT}${NC}"
-    echo -e "      MAVLink2REST:  ${CYAN}http://localhost:${MAVLINK2REST_PORT}${NC}"
+    echo -e "   ${BOLD}Service URLs (Network Access):${NC}"
+    echo -e "      Dashboard:     ${CYAN}http://${lan_ip}:${DASHBOARD_PORT}${NC}"
+    echo -e "      Backend API:   ${CYAN}http://${lan_ip}:${BACKEND_PORT}${NC}"
+    echo -e "      MAVLink2REST:  ${CYAN}http://${lan_ip}:${MAVLINK2REST_PORT}${NC}"
+    echo ""
+    echo -e "   ${DIM}Local Access: http://localhost:${DASHBOARD_PORT}${NC}"
     echo ""
     echo -e "   ${BOLD}Tmux Keyboard Shortcuts:${NC}"
     echo -e "      ${GREEN}Ctrl+B z${NC}       Toggle full-screen on current pane"

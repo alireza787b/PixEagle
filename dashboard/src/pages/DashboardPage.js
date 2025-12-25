@@ -37,8 +37,9 @@ import {
 import { useCurrentFollowerProfile } from '../hooks/useFollowerSchema';
 import useBoundingBoxHandlers from '../hooks/useBoundingBoxHandlers';
 import axios from 'axios';
+import { apiConfig } from '../services/apiEndpoints';
 
-const API_URL = `http://${process.env.REACT_APP_API_HOST}:${process.env.REACT_APP_API_PORT}`;
+const API_URL = `${apiConfig.protocol}://${apiConfig.apiHost}:${apiConfig.apiPort}`;
 
 const SystemHealthCard = ({ trackerStatus, isFollowing, smartModeActive, circuitBreakerActive }) => {
   const getSystemStatus = () => {
