@@ -88,6 +88,37 @@ Visit [PyTorch Installation](https://pytorch.org/get-started/locally/) and insta
 bash auto_opencv_build.sh
 ```
 
+For manual build instructions, see [OpenCV GStreamer Guide](OPENCV_GSTREAMER.md).
+
+## Network Requirements
+
+### Required Ports
+
+Ensure these ports are accessible for full functionality:
+
+| Port | Service | Required |
+|------|---------|----------|
+| 3000 | Dashboard | Yes |
+| 5077 | Backend API | Yes |
+| 8088 | MAVLink2REST | For OSD/telemetry |
+| 14540 | MAVSDK | For PX4 integration |
+| 14569 | MAVLink input | For PX4 integration |
+| 22 | SSH | For remote access |
+
+### Firewall Configuration (Ubuntu)
+
+```bash
+# Allow PixEagle ports
+sudo ufw allow 3000/tcp  # Dashboard
+sudo ufw allow 5077/tcp  # Backend API
+sudo ufw allow 8088/tcp  # MAVLink2REST
+
+# For PX4 integration
+sudo ufw allow 14540/udp
+sudo ufw allow 14569/udp
+sudo ufw allow 14550/udp  # QGC (optional)
+```
+
 ## Verification
 
 ```bash

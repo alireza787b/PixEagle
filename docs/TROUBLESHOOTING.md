@@ -164,6 +164,47 @@ tmux attach -t PixEagle
 bash run_pixeagle.sh
 ```
 
+## Firewall & Network Issues
+
+### Check Port Status
+
+```bash
+# Check which ports are in use
+sudo lsof -i :3000   # Dashboard
+sudo lsof -i :5077   # Backend
+sudo lsof -i :8088   # MAVLink2REST
+sudo lsof -i :14540  # MAVSDK
+sudo lsof -i :14569  # MAVLink input
+```
+
+### Open Required Ports (Ubuntu)
+
+```bash
+# PixEagle core services
+sudo ufw allow 3000/tcp   # Dashboard
+sudo ufw allow 5077/tcp   # Backend API
+sudo ufw allow 8088/tcp   # MAVLink2REST
+
+# PX4/MAVLink (UDP)
+sudo ufw allow 14540/udp  # MAVSDK
+sudo ufw allow 14569/udp  # MAVLink2REST input
+sudo ufw allow 14550/udp  # QGC (optional)
+
+# Verify rules
+sudo ufw status
+```
+
+### Port Reference
+
+| Port | Service | Protocol | Required |
+|------|---------|----------|----------|
+| 3000 | Dashboard | TCP | Yes |
+| 5077 | Backend API | TCP | Yes |
+| 8088 | MAVLink2REST | TCP | For telemetry |
+| 14540 | MAVSDK | UDP | For PX4 |
+| 14569 | MAVLink input | UDP | For PX4 |
+| 14550 | QGC | UDP | Optional |
+
 ## Getting Help
 
 - [GitHub Issues](https://github.com/alireza787b/PixEagle/issues)

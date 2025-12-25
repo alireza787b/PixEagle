@@ -28,6 +28,7 @@ Welcome to the PixEagle documentation. This guide will help you find the informa
 |-------|-------------|
 | [SmartTracker Guide](SMART_TRACKER_GUIDE.md) | Complete SmartTracker setup and configuration |
 | [OSD Guide](OSD_GUIDE.md) | Aviation-grade OSD with presets and API control |
+| [OpenCV GStreamer](OPENCV_GSTREAMER.md) | Building OpenCV with GStreamer support |
 | [Gimbal Simulator](gimbal_simulator.md) | Testing gimbal functionality |
 | [Tracker & Follower Schema](Tracker_and_Follower_Schema_Developer_Guide.md) | Schema-driven architecture guide |
 

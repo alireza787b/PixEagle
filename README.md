@@ -2,7 +2,7 @@
 
 > Vision-based autonomous tracking system for drones and ground vehicles
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Raspberry%20Pi%20%7C%20Jetson-blue)](https://github.com/alireza787b/PixEagle)
 [![PX4](https://img.shields.io/badge/Autopilot-PX4-orange)](https://px4.io/)
 
@@ -20,6 +20,14 @@
 - **Web Dashboard** - Real-time monitoring, model management, config UI
 - **Schema Architecture** - Extensible YAML-based configuration ([Developer Guide](docs/Tracker_and_Follower_Schema_Developer_Guide.md))
 - **Multiple Follower Modes** - Position hold, chase, gimbal pursuit, fixed-wing support
+
+---
+
+## Demo
+
+[![PixEagle Demo](https://img.youtube.com/vi/vJn27WEXQJw/maxresdefault.jpg)](https://www.youtube.com/watch?v=vJn27WEXQJw)
+
+**[Full YouTube Playlist](https://www.youtube.com/watch?v=nMThQLC7nBg&list=PLVZvZdBQdm_4oain9--ClKioiZrq64-Ky)**
 
 ---
 
@@ -115,15 +123,34 @@ Visit [PyTorch Installation](https://pytorch.org/get-started/locally/) for your 
 
 ## PX4 Integration
 
+### Port Requirements
+
+Your PX4 connection (serial/ethernet) must route MAVLink data to these ports:
+
+| Port | Service | Purpose |
+|------|---------|---------|
+| 14540 | MAVSDK | PX4 telemetry & commands |
+| 14569 | MAVLink2REST | REST API for OSD/telemetry |
+| 14550 | QGC | Ground Control Station (optional) |
+
 ### MAVLink Routing
 
+**Option A: mavlink-anywhere (Recommended)**
+
+Step-by-step guided setup for serial/ethernet routing:
+
 ```bash
-# Option A: Automated setup (recommended)
 git clone https://github.com/alireza787b/mavlink-anywhere.git
 cd mavlink-anywhere && bash install_mavlink_router.sh
+```
 
-# Option B: Manual
-mavlink-routerd -e 127.0.0.1:14540 -e 127.0.0.1:14550 0.0.0.0:14550
+Follow the prompts to configure your serial port and routing endpoints.
+
+**Option B: Manual mavlink-routerd (Advanced)**
+
+```bash
+# Requires mavlink-routerd installed separately
+mavlink-routerd -e 127.0.0.1:14540 -e 127.0.0.1:14569 -e 127.0.0.1:14550 /dev/ttyUSB0:921600
 ```
 
 ### MAVSDK & MAVLink2REST
@@ -133,6 +160,26 @@ Both are automatically installed during `init_pixeagle.sh` (Steps 8-9). Manual d
 ```bash
 bash src/tools/download_mavsdk_server.sh
 bash src/tools/download_mavlink2rest.sh
+```
+
+---
+
+## Network Requirements
+
+Ensure these ports are accessible (firewall allowed) for full functionality:
+
+| Port | Service | Required |
+|------|---------|----------|
+| 3000 | Dashboard | Yes |
+| 5077 | Backend API | Yes |
+| 8088 | MAVLink2REST | For OSD/telemetry |
+| 14540 | MAVSDK | For PX4 |
+| 14569 | MAVLink input | For PX4 |
+| 22 | SSH | For remote access |
+
+**Ubuntu firewall**:
+```bash
+sudo ufw allow 3000/tcp && sudo ufw allow 5077/tcp && sudo ufw allow 8088/tcp
 ```
 
 ---
@@ -237,7 +284,9 @@ Report issues at [GitHub Issues](https://github.com/alireza787b/PixEagle/issues)
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+Apache License 2.0 - see [LICENSE](LICENSE) for details.
+
+**Commercial use**: Allowed with attribution. You must include the copyright notice and license in any distribution.
 
 ---
 
