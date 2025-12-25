@@ -35,7 +35,7 @@
 
 ### Prerequisites
 
-- Ubuntu 22.04+ (Linux recommended) or Windows for SITL only
+- Ubuntu 22.04+ / Raspbian (Linux recommended) or Windows for SITL only
 - Python 3.9+
 - 4GB+ RAM
 
@@ -71,40 +71,14 @@ Open in your browser:
 
 ## Configuration
 
-### Main Settings
+Most settings can be configured via the **Web Dashboard UI** (Settings page).
 
+For manual configuration, edit `configs/config.yaml`:
 ```bash
 nano configs/config.yaml
 ```
 
-Key settings: video input, PID tuning, tracker options, SmartTracker mode, camera FOV.
-
-### SmartTracker (AI Tracking)
-
-```yaml
-SmartTracker:
-  SMART_TRACKER_ENABLED: true
-  SMART_TRACKER_USE_GPU: true
-  SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo11n.pt"
-  TRACKER_TYPE: "botsort_reid"  # bytetrack, botsort, botsort_reid, custom_reid
-```
-
-### OSD (On-Screen Display)
-
-```yaml
-OSD:
-  ENABLED: true
-  PRESET: "professional"  # minimal | professional | full_telemetry
-```
-
-### Dashboard
-
-Dashboard features automatic host detection (v4.1.0+). For reverse proxy setups:
-
-```bash
-# Optional: dashboard/.env
-REACT_APP_API_HOST_OVERRIDE=your-proxy-host
-```
+> **Note**: `config.yaml` is gitignored and created by the init script. Default values are in `configs/config_default.yaml`.
 
 ---
 
@@ -141,10 +115,13 @@ Step-by-step guided setup for serial/ethernet routing:
 
 ```bash
 git clone https://github.com/alireza787b/mavlink-anywhere.git
-cd mavlink-anywhere && bash install_mavlink_router.sh
+cd mavlink-anywhere
+bash install_mavlink_router.sh
+bash configure_mavlink_router.sh  # Configure your serial port and endpoints
 ```
 
-Follow the prompts to configure your serial port and routing endpoints.
+- **Repository**: [github.com/alireza787b/mavlink-anywhere](https://github.com/alireza787b/mavlink-anywhere)
+- **Video Tutorial**: [YouTube - MAVLink Anywhere Setup](https://www.youtube.com/watch?v=_QEWpoy6HSo)
 
 **Option B: Manual mavlink-routerd (Advanced)**
 
@@ -172,14 +149,16 @@ Ensure these ports are accessible (firewall allowed) for full functionality:
 |------|---------|----------|
 | 3000 | Dashboard | Yes |
 | 5077 | Backend API | Yes |
-| 8088 | MAVLink2REST | For OSD/telemetry |
+| 5551 | WebSocket (video) | Yes |
+| 8088 | MAVLink2REST API | For OSD/telemetry |
 | 14540 | MAVSDK | For PX4 |
-| 14569 | MAVLink input | For PX4 |
+| 14569 | MAVLink2REST input | For PX4 |
+| 14550 | QGC | Optional |
 | 22 | SSH | For remote access |
 
-**Ubuntu firewall**:
+**Ubuntu/Raspbian firewall**:
 ```bash
-sudo ufw allow 3000/tcp && sudo ufw allow 5077/tcp && sudo ufw allow 8088/tcp
+sudo ufw allow 3000/tcp && sudo ufw allow 5077/tcp && sudo ufw allow 5551/tcp && sudo ufw allow 8088/tcp
 ```
 
 ---

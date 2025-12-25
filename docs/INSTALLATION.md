@@ -24,6 +24,7 @@ bash init_pixeagle.sh
 - **x86_64** - Intel/AMD desktops, laptops, servers
 - **ARM64** - Raspberry Pi 4/5, Jetson Nano/Xavier/Orin
 - **ARMv7** - Raspberry Pi 3
+- **Raspbian** - Raspberry Pi OS
 - **macOS** - Intel and Apple Silicon
 
 ## Prerequisites
@@ -100,17 +101,20 @@ Ensure these ports are accessible for full functionality:
 |------|---------|----------|
 | 3000 | Dashboard | Yes |
 | 5077 | Backend API | Yes |
-| 8088 | MAVLink2REST | For OSD/telemetry |
+| 5551 | WebSocket (video) | Yes |
+| 8088 | MAVLink2REST API | For OSD/telemetry |
 | 14540 | MAVSDK | For PX4 integration |
-| 14569 | MAVLink input | For PX4 integration |
+| 14569 | MAVLink2REST input | For PX4 integration |
+| 14550 | QGC | Optional |
 | 22 | SSH | For remote access |
 
-### Firewall Configuration (Ubuntu)
+### Firewall Configuration (Ubuntu/Raspbian)
 
 ```bash
 # Allow PixEagle ports
 sudo ufw allow 3000/tcp  # Dashboard
 sudo ufw allow 5077/tcp  # Backend API
+sudo ufw allow 5551/tcp  # WebSocket (video)
 sudo ufw allow 8088/tcp  # MAVLink2REST
 
 # For PX4 integration

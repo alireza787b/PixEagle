@@ -172,17 +172,19 @@ bash run_pixeagle.sh
 # Check which ports are in use
 sudo lsof -i :3000   # Dashboard
 sudo lsof -i :5077   # Backend
+sudo lsof -i :5551   # WebSocket (video)
 sudo lsof -i :8088   # MAVLink2REST
 sudo lsof -i :14540  # MAVSDK
 sudo lsof -i :14569  # MAVLink input
 ```
 
-### Open Required Ports (Ubuntu)
+### Open Required Ports (Ubuntu/Raspbian)
 
 ```bash
 # PixEagle core services
 sudo ufw allow 3000/tcp   # Dashboard
 sudo ufw allow 5077/tcp   # Backend API
+sudo ufw allow 5551/tcp   # WebSocket (video)
 sudo ufw allow 8088/tcp   # MAVLink2REST
 
 # PX4/MAVLink (UDP)
@@ -200,9 +202,10 @@ sudo ufw status
 |------|---------|----------|----------|
 | 3000 | Dashboard | TCP | Yes |
 | 5077 | Backend API | TCP | Yes |
-| 8088 | MAVLink2REST | TCP | For telemetry |
+| 5551 | WebSocket (video) | TCP | Yes |
+| 8088 | MAVLink2REST API | TCP | For telemetry |
 | 14540 | MAVSDK | UDP | For PX4 |
-| 14569 | MAVLink input | UDP | For PX4 |
+| 14569 | MAVLink2REST input | UDP | For PX4 |
 | 14550 | QGC | UDP | Optional |
 
 ## Getting Help
