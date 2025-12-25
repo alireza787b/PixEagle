@@ -28,8 +28,9 @@ share/python-wheels/
 MANIFEST
 
 
-.pt
-.torchscript
+# YOLO model files
+*.pt
+*.torchscript
 
 
 # PyInstaller
@@ -59,6 +60,8 @@ pytest_debug.log
 
 #configs
 configs/config.yaml
+configs/audit_log.json
+configs/backups/
 dashboard/.env
 
 # Downloaded binaries (auto-downloaded by init_pixeagle.sh)
