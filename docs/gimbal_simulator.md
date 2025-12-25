@@ -33,7 +33,7 @@ The PixEagle Gimbal Simulator is a comprehensive testing tool that emulates real
 │ Gimbal Simulator│                     │    PixEagle      │
 │                 ├────────────────────►│  GimbalTracker   │
 └─────────────────┘    UDP Broadcast    └──────────────────┘
-     gimbal_simulator.py                   classes/trackers/gimbal_tracker.py
+     tools/gimbal_simulator.py             classes/trackers/gimbal_tracker.py
 
 Protocol: SIP (Session Initiation Protocol) for Gimbal Control
 Ports: 9003 (commands), 9004 (broadcast data)
@@ -779,8 +779,8 @@ import time
 import sys
 import os
 
-# Add simulator to path
-sys.path.append(os.path.dirname(__file__))
+# Add tools folder to path
+sys.path.append(os.path.join(os.path.dirname(__file__), 'tools'))
 from gimbal_simulator import GimbalSimulator, SimulatedTrackingState
 
 def run_test_suite():
@@ -913,15 +913,15 @@ jobs:
         sudo apt-get install python3-tk
         pip install -r requirements.txt
 
-    - name: Run gimbal simulator tests
-      run: |
-        python test_gimbal_simulator.py
-
-    - name: Run PixEagle integration test
+    - name: Start gimbal simulator
       run: |
         python tools/gimbal_simulator.py &
         sleep 2
-        python test_pixeagle_gimbal_integration.py
+
+    - name: Run integration tests
+      run: |
+        # Add your test commands here
+        python -c "print('Gimbal simulator running')"
         pkill -f gimbal_simulator
 ```
 
