@@ -49,3 +49,7 @@ uvicorn
 aiortc
 pyyaml
 pymap3d
+
+# Configuration management
+ruamel.yaml >= 0.17.0  # Round-trip YAML with comment preservation
+deepdiff >= 6.0  # Configuration diff generation

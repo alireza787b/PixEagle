@@ -1,9 +1,10 @@
 import React from 'react';
-import { Drawer, List, ListItem, ListItemIcon, ListItemText, Box } from '@mui/material';
+import { Drawer, List, ListItem, ListItemIcon, ListItemText, Box, Divider } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
 import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import LiveTvIcon from '@mui/icons-material/LiveTv';
+import SettingsIcon from '@mui/icons-material/Settings';
 import { Link } from 'react-router-dom';
 import QuitButton from './QuitButton';
 
@@ -30,6 +31,13 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
         <ListItem button component={Link} to="/live-feed">
           <ListItemIcon><LiveTvIcon /></ListItemIcon>
           <ListItemText primary="Live Feed" />
+        </ListItem>
+      </List>
+      <Divider />
+      <List>
+        <ListItem button component={Link} to="/settings">
+          <ListItemIcon><SettingsIcon /></ListItemIcon>
+          <ListItemText primary="Settings" />
         </ListItem>
       </List>
       <Box sx={{ p: 2 }}>

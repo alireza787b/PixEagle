@@ -10,11 +10,12 @@ import numpy as np
 import logging
 import time
 import hashlib
-from typing import Dict, Optional, Set, Tuple, List
+from typing import Any, Dict, Optional, Set, Tuple, List
 from collections import deque
 from dataclasses import dataclass
 import json
 from classes.parameters import Parameters
+from classes.config_service import ConfigService
 import uvicorn
 from classes.webrtc_manager import WebRTCManager
 from classes.setpoint_handler import SetpointHandler
@@ -45,6 +46,24 @@ class ClickPosition(BaseModel):
     x: float
     y: float
 
+
+# Config API Models
+class ConfigParameterUpdate(BaseModel):
+    """Request model for updating a single parameter."""
+    value: Optional[str | int | float | bool | list | dict] = None
+
+
+class ConfigSectionUpdate(BaseModel):
+    """Request model for updating multiple parameters in a section."""
+    parameters: Dict[str, Optional[str | int | float | bool | list | dict]]
+
+
+class ConfigImportRequest(BaseModel):
+    """Request model for importing configuration."""
+    data: Dict[str, Any]  # Accept any nested structure
+    merge_mode: str = "merge"  # "merge" or "replace"
+
+
 @dataclass
 class ClientConnection:
     """Track client connection state."""
@@ -63,6 +82,42 @@ class CachedFrame:
     timestamp: float
     hash: str
     quality: int
+
+
+class RateLimiter:
+    """Simple in-memory rate limiter for API endpoints."""
+
+    def __init__(self, max_requests: int = 10, window_seconds: int = 60):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self._requests: Dict[str, deque] = {}
+        self._lock = threading.Lock()
+
+    def is_allowed(self, key: str) -> Tuple[bool, Optional[int]]:
+        """
+        Check if request is allowed for given key.
+
+        Returns:
+            Tuple of (allowed: bool, retry_after: Optional[int])
+        """
+        now = time.time()
+        with self._lock:
+            if key not in self._requests:
+                self._requests[key] = deque()
+
+            # Clean old entries
+            while self._requests[key] and self._requests[key][0] < now - self.window_seconds:
+                self._requests[key].popleft()
+
+            # Check limit
+            if len(self._requests[key]) >= self.max_requests:
+                oldest = self._requests[key][0]
+                retry_after = int(oldest + self.window_seconds - now) + 1
+                return False, retry_after
+
+            # Record request
+            self._requests[key].append(now)
+            return True, None
 
 
 class StreamingOptimizer:
@@ -155,7 +210,10 @@ class FastAPIHandler:
         
         # Streaming optimization
         self.stream_optimizer = StreamingOptimizer()
-        
+
+        # Rate limiter for config write endpoints (10 requests per minute)
+        self.config_rate_limiter = RateLimiter(max_requests=60, window_seconds=60)  # 1/sec average for private system
+
         # WebRTC Manager
         self.webrtc_manager = WebRTCManager(self.video_handler)
 
@@ -216,7 +274,7 @@ class FastAPIHandler:
             CORSMiddleware,
             allow_origins=["*"],  # Configure for production
             allow_credentials=True,
-            allow_methods=["GET", "POST", "DELETE"],
+            allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             allow_headers=["*"],
             max_age=3600
         )
@@ -298,7 +356,44 @@ class FastAPIHandler:
         # Safety configuration API endpoints (v3.5.0+)
         self.app.get("/api/safety/config")(self.get_safety_config)
         self.app.get("/api/safety/limits/{follower_name}")(self.get_follower_safety_limits)
-        self.app.get("/api/safety/vehicle-profiles")(self.get_vehicle_profiles)
+        # Note: /api/safety/vehicle-profiles removed in v4.0.0 (was deprecated in v3.6.0)
+
+        # Configuration management API (v4.0.0+)
+        # Schema & metadata
+        self.app.get("/api/config/schema")(self.get_config_schema)
+        self.app.get("/api/config/schema/{section}")(self.get_config_section_schema)
+        self.app.get("/api/config/sections")(self.get_config_sections)
+        self.app.get("/api/config/categories")(self.get_config_categories)
+        # Read configuration
+        self.app.get("/api/config/current")(self.get_current_config)
+        self.app.get("/api/config/current/{section}")(self.get_current_config_section)
+        self.app.get("/api/config/default")(self.get_default_config)
+        self.app.get("/api/config/default/{section}")(self.get_default_config_section)
+        # Write configuration
+        self.app.put("/api/config/{section}/{parameter}")(self.update_config_parameter)
+        self.app.put("/api/config/{section}")(self.update_config_section)
+        self.app.post("/api/config/validate")(self.validate_config_value)
+        # Diff & comparison
+        self.app.get("/api/config/diff")(self.get_config_diff)
+        self.app.post("/api/config/diff")(self.compare_configs)
+        # Revert operations
+        self.app.post("/api/config/revert")(self.revert_config_to_default)
+        self.app.post("/api/config/revert/{section}")(self.revert_section_to_default)
+        self.app.post("/api/config/revert/{section}/{parameter}")(self.revert_parameter_to_default)
+        # Backup & history
+        self.app.get("/api/config/history")(self.get_config_backup_history)
+        self.app.post("/api/config/restore/{backup_id}")(self.restore_config_backup)
+        # Import/export
+        self.app.get("/api/config/export")(self.export_config)
+        self.app.post("/api/config/import")(self.import_config)
+        # Search
+        self.app.get("/api/config/search")(self.search_config_parameters)
+        # Audit log
+        self.app.get("/api/config/audit")(self.get_config_audit_log)
+
+        # System management
+        self.app.post("/api/system/restart")(self.restart_backend)
+        self.app.get("/api/system/status")(self.get_system_status)
 
     async def video_feed(self):
         """Optimized HTTP MJPEG streaming with adaptive quality."""
@@ -2348,14 +2443,30 @@ class FastAPIHandler:
 
     async def set_tracker_type(self, request: dict):
         """
+        DEPRECATED: Use POST /api/tracker/switch instead.
+
         Endpoint to set/change the tracker type.
-        
+        This endpoint is deprecated since v4.0.0 and will be removed in v5.0.0.
+
         Args:
             request (dict): Request body containing tracker_type
-            
+
         Returns:
-            dict: Success/failure response
+            dict: Success/failure response with deprecation warning
         """
+        # Log deprecation warning
+        self.logger.warning(
+            "DEPRECATED: /api/tracker/set-type called. Use /api/tracker/switch instead. "
+            "This endpoint will be removed in v5.0.0."
+        )
+
+        # Deprecation notice to include in all responses
+        deprecation_notice = {
+            '_deprecated': True,
+            '_deprecation_message': 'This endpoint is deprecated since v4.0.0. Use POST /api/tracker/switch instead.',
+            '_sunset': 'v5.0.0'
+        }
+
         try:
             tracker_type = request.get('tracker_type')
             if not tracker_type:
@@ -2388,6 +2499,7 @@ class FastAPIHandler:
                     if is_tracking_active:
                         # Need to restart tracking with smart mode
                         return JSONResponse(content={
+                            **deprecation_notice,
                             'status': 'success',
                             'action': 'smart_mode_enabled',
                             'old_tracker': old_tracker_type,
@@ -2397,6 +2509,7 @@ class FastAPIHandler:
                         })
                     else:
                         return JSONResponse(content={
+                            **deprecation_notice,
                             'status': 'success',
                             'action': 'configured_smart',
                             'old_tracker': old_tracker_type,
@@ -2405,6 +2518,7 @@ class FastAPIHandler:
                         })
                 else:
                     return JSONResponse(content={
+                        **deprecation_notice,
                         'status': 'success',
                         'action': 'already_smart',
                         'message': 'Smart tracker already active'
@@ -2414,12 +2528,13 @@ class FastAPIHandler:
                 if getattr(self.app_controller, 'smart_mode_active', False):
                     # Disable smart mode
                     self.app_controller.smart_mode_active = False
-                
+
                 self.app_controller.current_tracker_type = tracker_type
-                
+
                 if is_tracking_active:
                     # Need to restart tracking with new tracker
                     return JSONResponse(content={
+                        **deprecation_notice,
                         'status': 'success',
                         'action': 'classic_tracker_set',
                         'old_tracker': old_tracker_type,
@@ -2429,6 +2544,7 @@ class FastAPIHandler:
                     })
                 else:
                     return JSONResponse(content={
+                        **deprecation_notice,
                         'status': 'success',
                         'action': 'configured_classic',
                         'old_tracker': old_tracker_type,
@@ -3134,16 +3250,605 @@ class FastAPIHandler:
             self.logger.error(f"Error getting follower safety limits: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def get_vehicle_profiles(self):
-        """
-        Get vehicle type profiles (DEPRECATED in v3.6.0).
+    # Note: get_vehicle_profiles() removed in v4.0.0 (was deprecated in v3.6.0)
 
-        Note: Vehicle profiles were removed for simplicity.
-        All limits now come from GlobalLimits.
+    # =========================================================================
+    # Configuration Management API Handlers (v4.0.0+)
+    # =========================================================================
+
+    def _get_config_service(self) -> ConfigService:
+        """Get ConfigService singleton instance."""
+        return ConfigService.get_instance()
+
+    async def get_config_schema(self):
+        """Get full configuration schema."""
+        try:
+            service = self._get_config_service()
+            schema = service.get_schema()
+            return JSONResponse(content={
+                'success': True,
+                'schema': schema,
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error getting config schema: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_config_section_schema(self, section: str):
+        """Get schema for a specific section."""
+        try:
+            service = self._get_config_service()
+            schema = service.get_schema(section)
+            if not schema:
+                raise HTTPException(status_code=404, detail=f"Section '{section}' not found")
+            return JSONResponse(content={
+                'success': True,
+                'section': section,
+                'schema': schema,
+                'timestamp': time.time()
+            })
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error getting section schema: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_config_sections(self):
+        """Get list of all configuration sections."""
+        try:
+            service = self._get_config_service()
+            sections = service.get_sections()
+            return JSONResponse(content={
+                'success': True,
+                'sections': sections,
+                'count': len(sections),
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error getting config sections: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_config_categories(self):
+        """Get category definitions."""
+        try:
+            service = self._get_config_service()
+            categories = service.get_categories()
+            return JSONResponse(content={
+                'success': True,
+                'categories': categories,
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error getting config categories: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_current_config(self):
+        """Get current configuration."""
+        try:
+            service = self._get_config_service()
+            config = service.get_config()
+            return JSONResponse(content={
+                'success': True,
+                'config': config,
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error getting current config: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_current_config_section(self, section: str):
+        """Get current configuration for a specific section."""
+        try:
+            service = self._get_config_service()
+            config = service.get_config(section)
+            return JSONResponse(content={
+                'success': True,
+                'section': section,
+                'config': config,
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error getting section config: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_default_config(self):
+        """Get default configuration."""
+        try:
+            service = self._get_config_service()
+            config = service.get_default()
+            return JSONResponse(content={
+                'success': True,
+                'config': config,
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error getting default config: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_default_config_section(self, section: str):
+        """Get default configuration for a specific section."""
+        try:
+            service = self._get_config_service()
+            config = service.get_default(section)
+            return JSONResponse(content={
+                'success': True,
+                'section': section,
+                'config': config,
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error getting default section config: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def update_config_parameter(self, section: str, parameter: str, body: ConfigParameterUpdate):
+        """Update a single configuration parameter."""
+        # Rate limiting check
+        allowed, retry_after = self.config_rate_limiter.is_allowed('config_write')
+        if not allowed:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    'success': False,
+                    'error': 'Too many requests',
+                    'retry_after': retry_after,
+                    'timestamp': time.time()
+                },
+                headers={'Retry-After': str(retry_after)}
+            )
+
+        try:
+            service = self._get_config_service()
+            result = service.set_parameter(section, parameter, body.value)
+
+            if not result.valid:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        'success': False,
+                        'validation': result.to_dict(),
+                        'timestamp': time.time()
+                    }
+                )
+
+            # Save config
+            saved = service.save_config()
+
+            return JSONResponse(content={
+                'success': True,
+                'section': section,
+                'parameter': parameter,
+                'value': body.value,
+                'validation': result.to_dict(),
+                'saved': saved,
+                'reboot_required': service.is_reboot_required(section, parameter),
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error updating config parameter: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def update_config_section(self, section: str, body: ConfigSectionUpdate):
+        """Update multiple parameters in a section."""
+        # Rate limiting check
+        allowed, retry_after = self.config_rate_limiter.is_allowed('config_write')
+        if not allowed:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    'success': False,
+                    'error': 'Too many requests',
+                    'retry_after': retry_after,
+                    'timestamp': time.time()
+                },
+                headers={'Retry-After': str(retry_after)}
+            )
+
+        try:
+            service = self._get_config_service()
+            result = service.set_section(section, body.parameters)
+
+            if not result.valid:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        'success': False,
+                        'validation': result.to_dict(),
+                        'timestamp': time.time()
+                    }
+                )
+
+            # Save config
+            saved = service.save_config()
+
+            # Check if any params require reboot
+            reboot_required = any(
+                service.is_reboot_required(section, param)
+                for param in body.parameters.keys()
+            )
+
+            return JSONResponse(content={
+                'success': True,
+                'section': section,
+                'parameters': body.parameters,
+                'validation': result.to_dict(),
+                'saved': saved,
+                'reboot_required': reboot_required,
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error updating config section: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def validate_config_value(self, request: Request):
+        """Validate a configuration value without saving."""
+        try:
+            body = await request.json()
+            section = body.get('section')
+            parameter = body.get('parameter')
+            value = body.get('value')
+
+            if not section or not parameter:
+                raise HTTPException(status_code=400, detail="section and parameter are required")
+
+            service = self._get_config_service()
+            result = service.validate_value(section, parameter, value)
+
+            return JSONResponse(content={
+                'success': True,
+                'section': section,
+                'parameter': parameter,
+                'value': value,
+                'validation': result.to_dict(),
+                'timestamp': time.time()
+            })
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error validating config value: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_config_diff(self):
+        """Get differences between current config and defaults."""
+        try:
+            service = self._get_config_service()
+            diffs = service.get_changed_from_default()
+            return JSONResponse(content={
+                'success': True,
+                'differences': [d.to_dict() for d in diffs],
+                'count': len(diffs),
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error getting config diff: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def compare_configs(self, request: Request):
+        """Compare two configurations.
+
+        Supports two modes:
+        1. compare_config: Compare incoming config against current config
+        2. config1/config2: Compare two arbitrary configs
         """
-        return JSONResponse(content={
-            'deprecated': True,
-            'message': 'Vehicle profiles removed in v3.6.0. Use GlobalLimits instead.',
-            'profiles': {},
-            'timestamp': time.time()
-        })
+        try:
+            body = await request.json()
+            service = self._get_config_service()
+
+            # Mode 1: Compare incoming config against current
+            if 'compare_config' in body:
+                compare_config = body.get('compare_config', {})
+                current_config = service.get_config()
+                diffs = service.get_diff(current_config, compare_config)
+            else:
+                # Mode 2: Compare two arbitrary configs
+                config1 = body.get('config1', {})
+                config2 = body.get('config2', {})
+                diffs = service.get_diff(config1, config2)
+
+            return JSONResponse(content={
+                'success': True,
+                'differences': [d.to_dict() for d in diffs],
+                'count': len(diffs),
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error comparing configs: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def revert_config_to_default(self):
+        """Revert all configuration to defaults."""
+        try:
+            service = self._get_config_service()
+            success = service.revert_to_default()
+            if success:
+                service.save_config()
+
+            return JSONResponse(content={
+                'success': success,
+                'message': 'Configuration reverted to defaults' if success else 'Failed to revert',
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error reverting config: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def revert_section_to_default(self, section: str):
+        """Revert a section to defaults."""
+        try:
+            service = self._get_config_service()
+            success = service.revert_to_default(section=section)
+            if success:
+                service.save_config()
+
+            return JSONResponse(content={
+                'success': success,
+                'section': section,
+                'message': f"Section '{section}' reverted to defaults" if success else 'Failed to revert',
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error reverting section: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def revert_parameter_to_default(self, section: str, parameter: str):
+        """Revert a single parameter to default."""
+        try:
+            service = self._get_config_service()
+            success = service.revert_to_default(section=section, param=parameter)
+            if success:
+                service.save_config()
+
+            default_value = service.get_default_parameter(section, parameter)
+
+            return JSONResponse(content={
+                'success': success,
+                'section': section,
+                'parameter': parameter,
+                'default_value': default_value,
+                'message': f"Parameter reverted to default" if success else 'Failed to revert',
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error reverting parameter: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_config_backup_history(self, request: Request):
+        """Get list of configuration backups."""
+        try:
+            limit = int(request.query_params.get('limit', 20))
+            service = self._get_config_service()
+            backups = service.get_backup_history(limit=limit)
+
+            return JSONResponse(content={
+                'success': True,
+                'backups': [b.to_dict() for b in backups],
+                'count': len(backups),
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error getting backup history: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def restore_config_backup(self, backup_id: str):
+        """Restore configuration from a backup."""
+        try:
+            service = self._get_config_service()
+            success = service.restore_backup(backup_id)
+
+            return JSONResponse(content={
+                'success': success,
+                'backup_id': backup_id,
+                'message': 'Configuration restored from backup' if success else 'Failed to restore backup',
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error restoring backup: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def export_config(self, request: Request):
+        """Export configuration."""
+        try:
+            sections = request.query_params.get('sections')
+            changes_only = request.query_params.get('changes_only', 'false').lower() == 'true'
+
+            sections_list = sections.split(',') if sections else None
+
+            service = self._get_config_service()
+            exported = service.export_config(sections=sections_list, changes_only=changes_only)
+
+            return JSONResponse(content={
+                'success': True,
+                'config': exported,
+                'changes_only': changes_only,
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error exporting config: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def import_config(self, body: ConfigImportRequest):
+        """Import configuration."""
+        # Rate limiting check
+        allowed, retry_after = self.config_rate_limiter.is_allowed('config_write')
+        if not allowed:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    'success': False,
+                    'error': 'Too many requests',
+                    'retry_after': retry_after,
+                    'timestamp': time.time()
+                },
+                headers={'Retry-After': str(retry_after)}
+            )
+
+        try:
+            service = self._get_config_service()
+            success, diffs = service.import_config(body.data, body.merge_mode)
+
+            if success:
+                service.save_config()
+
+            return JSONResponse(content={
+                'success': success,
+                'merge_mode': body.merge_mode,
+                'changes': [d.to_dict() for d in diffs],
+                'changes_count': len(diffs),
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error importing config: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def search_config_parameters(self, request: Request):
+        """Search configuration parameters with filtering and pagination."""
+        try:
+            query = request.query_params.get('q', '')
+            section = request.query_params.get('section')
+            param_type = request.query_params.get('type')
+            modified_only = request.query_params.get('modified_only', '').lower() == 'true'
+            limit = int(request.query_params.get('limit', 50))
+            offset = int(request.query_params.get('offset', 0))
+
+            service = self._get_config_service()
+            result = service.search_parameters(
+                query=query,
+                section=section,
+                param_type=param_type,
+                modified_only=modified_only,
+                limit=limit,
+                offset=offset
+            )
+
+            return JSONResponse(content={
+                'success': True,
+                'query': query,
+                'filters': {
+                    'section': section,
+                    'type': param_type,
+                    'modified_only': modified_only
+                },
+                **result,
+                'timestamp': time.time()
+            })
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error searching config: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_config_audit_log(self, request: Request):
+        """Get configuration change audit log."""
+        try:
+            limit = int(request.query_params.get('limit', 100))
+            offset = int(request.query_params.get('offset', 0))
+            section = request.query_params.get('section')
+            action = request.query_params.get('action')
+
+            service = self._get_config_service()
+            result = service.get_audit_log(
+                limit=limit,
+                offset=offset,
+                section=section,
+                action=action
+            )
+
+            return JSONResponse(content={
+                'success': True,
+                **result,
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error getting audit log: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # ==================== System Management ====================
+
+    async def get_system_status(self):
+        """Get current system status for health checks."""
+        try:
+            import psutil
+
+            process = psutil.Process()
+            memory_info = process.memory_info()
+
+            return JSONResponse(content={
+                'success': True,
+                'status': 'running',
+                'uptime': time.time() - process.create_time(),
+                'memory_mb': memory_info.rss / (1024 * 1024),
+                'cpu_percent': process.cpu_percent(),
+                'pid': process.pid,
+                'restart_pending': getattr(self, '_restart_pending', False),
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error getting system status: {e}")
+            return JSONResponse(content={
+                'success': True,
+                'status': 'running',
+                'timestamp': time.time()
+            })
+
+    async def restart_backend(self, request: Request):
+        """Initiate backend restart.
+
+        The backend will exit with code 42, which signals the wrapper script
+        (run_main.sh) to restart the application.
+
+        This preserves the dashboard connection and allows config reloading.
+        """
+        try:
+            body = await request.json() if request.headers.get('content-type') == 'application/json' else {}
+            reason = body.get('reason', 'User requested restart')
+
+            self.logger.info(f"🔄 Restart requested: {reason}")
+
+            # Mark restart pending
+            self._restart_pending = True
+
+            # Create config backup before restart
+            try:
+                service = self._get_config_service()
+                service._create_backup()
+                self.logger.info("✅ Config backup created before restart")
+            except Exception as e:
+                self.logger.warning(f"Could not create backup before restart: {e}")
+
+            # Send response before initiating shutdown
+            response = JSONResponse(content={
+                'success': True,
+                'message': 'Restart initiated',
+                'reason': reason,
+                'timestamp': time.time()
+            })
+
+            # Schedule graceful shutdown with restart exit code
+            async def initiate_restart():
+                await asyncio.sleep(0.5)  # Allow response to be sent
+                self.logger.info("🔄 Initiating restart sequence...")
+
+                # Set shutdown flag
+                self.app_controller.shutdown_flag = True
+
+                # Trigger shutdown
+                try:
+                    await self.app_controller.shutdown()
+                except Exception as e:
+                    self.logger.error(f"Error during shutdown: {e}")
+
+                # Stop server with restart code
+                if self.server:
+                    self.server.should_exit = True
+
+                # Exit with restart code (42) for wrapper script to detect
+                self.logger.info("🔄 Exiting with restart code 42")
+                import os
+                os._exit(42)
+
+            asyncio.create_task(initiate_restart())
+
+            return response
+
+        except Exception as e:
+            self.logger.error(f"Error initiating restart: {e}")
+            raise HTTPException(status_code=500, detail=str(e))

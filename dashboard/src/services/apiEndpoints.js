@@ -39,6 +39,33 @@ export const endpoints = {
   safetyConfig: `http://${apiHost}:${apiPort}/api/safety/config`,
   safetyLimits: (followerName) => `http://${apiHost}:${apiPort}/api/safety/limits/${followerName}`,
   safetyVehicleProfiles: `http://${apiHost}:${apiPort}/api/safety/vehicle-profiles`,
+
+  // Configuration management endpoints (v4.0.0+)
+  configSchema: `http://${apiHost}:${apiPort}/api/config/schema`,
+  configSectionSchema: (section) => `http://${apiHost}:${apiPort}/api/config/schema/${section}`,
+  configSections: `http://${apiHost}:${apiPort}/api/config/sections`,
+  configCategories: `http://${apiHost}:${apiPort}/api/config/categories`,
+  configCurrent: `http://${apiHost}:${apiPort}/api/config/current`,
+  configCurrentSection: (section) => `http://${apiHost}:${apiPort}/api/config/current/${section}`,
+  configDefault: `http://${apiHost}:${apiPort}/api/config/default`,
+  configDefaultSection: (section) => `http://${apiHost}:${apiPort}/api/config/default/${section}`,
+  configUpdateParameter: (section, param) => `http://${apiHost}:${apiPort}/api/config/${section}/${param}`,
+  configUpdateSection: (section) => `http://${apiHost}:${apiPort}/api/config/${section}`,
+  configValidate: `http://${apiHost}:${apiPort}/api/config/validate`,
+  configDiff: `http://${apiHost}:${apiPort}/api/config/diff`,
+  configRevert: `http://${apiHost}:${apiPort}/api/config/revert`,
+  configRevertSection: (section) => `http://${apiHost}:${apiPort}/api/config/revert/${section}`,
+  configRevertParameter: (section, param) => `http://${apiHost}:${apiPort}/api/config/revert/${section}/${param}`,
+  configHistory: `http://${apiHost}:${apiPort}/api/config/history`,
+  configRestore: (backupId) => `http://${apiHost}:${apiPort}/api/config/restore/${backupId}`,
+  configExport: `http://${apiHost}:${apiPort}/api/config/export`,
+  configImport: `http://${apiHost}:${apiPort}/api/config/import`,
+  configSearch: `http://${apiHost}:${apiPort}/api/config/search`,
+  configAudit: `http://${apiHost}:${apiPort}/api/config/audit`,
+
+  // System management endpoints (v4.0.0+)
+  systemStatus: `http://${apiHost}:${apiPort}/api/system/status`,
+  systemRestart: `http://${apiHost}:${apiPort}/api/system/restart`,
 };
 
 export const videoFeed = `http://${apiHost}:${apiPort}/video_feed`;

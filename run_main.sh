@@ -74,8 +74,10 @@ else
     echo "Python interpreter $PYTHON_INTERPRETER is available."
 fi
 
-# 4. Run the main Python application
+# 4. Run the main Python application with restart support
 MAIN_SCRIPT=~/PixEagle/src/main.py
+RESTART_EXIT_CODE=42
+
 if [ -f "$MAIN_SCRIPT" ]; then
   header_message "Running the PixEagle Main Python Script"
 
@@ -87,13 +89,29 @@ if [ -f "$MAIN_SCRIPT" ]; then
     echo "🔧 Development environment variables set"
   fi
 
-  $PYTHON_INTERPRETER $MAIN_SCRIPT
-  if [ $? -eq 0 ]; then
-    echo "PixEagle main script executed successfully."
-  else
-    echo "Failed to execute PixEagle main script. Please check the error messages above."
-    exit 1
-  fi
+  # Restart loop: continues running until exit code is not 42
+  while true; do
+    echo "🚀 Starting PixEagle backend..."
+    $PYTHON_INTERPRETER $MAIN_SCRIPT
+    exit_code=$?
+
+    if [ $exit_code -eq $RESTART_EXIT_CODE ]; then
+      echo ""
+      header_message "🔄 Restart Requested (Exit Code 42)"
+      echo "Restarting PixEagle in 2 seconds..."
+      echo "This restart was triggered by the configuration manager."
+      sleep 2
+      echo ""
+      continue
+    elif [ $exit_code -eq 0 ]; then
+      echo "PixEagle main script executed successfully."
+      break
+    else
+      echo "❌ PixEagle exited with error code: $exit_code"
+      echo "Please check the error messages above."
+      exit $exit_code
+    fi
+  done
 else
   echo "Main Python script $MAIN_SCRIPT not found. Please check the path."
   exit 1

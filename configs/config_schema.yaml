@@ -1,0 +1,5051 @@
+schema_version: 1.0.0
+meta:
+  project: PixEagle
+  generated_from: /home/alireza/PixEagle/configs/config_default.yaml
+  generated_at: '2025-12-25T09:02:27.516488'
+  description: Auto-generated schema for PixEagle configuration
+categories:
+  video:
+    display_name: Video Input
+    icon: videocam
+    order: 1
+  network:
+    display_name: Network & Streaming
+    icon: router
+    order: 2
+  tracking:
+    display_name: Tracking
+    icon: gps_fixed
+    order: 3
+  detection:
+    display_name: Detection
+    icon: search
+    order: 4
+  follower:
+    display_name: Followers
+    icon: navigation
+    order: 5
+  safety:
+    display_name: Safety
+    icon: shield
+    order: 6
+  control:
+    display_name: Control
+    icon: tune
+    order: 7
+  processing:
+    display_name: Processing
+    icon: auto_fix_high
+    order: 8
+  display:
+    display_name: Display & Debug
+    icon: tv
+    order: 9
+sections:
+  VideoSource:
+    display_name: Video Source
+    category: video
+    icon: videocam
+    parameters:
+      VIDEO_SOURCE_TYPE:
+        type: string
+        default: VIDEO_FILE
+        description: 'Primary video source selection Options: VIDEO_FILE, USB_CAMERA, RTSP_OPENCV, RTSP_STREAM, UDP_STREAM,
+          HTTP_STREAM, CSI_CAMERA, CUSTOM_GSTREAMER'
+        reboot_required: true
+      CAPTURE_WIDTH:
+        type: integer
+        default: 640
+        description: Width in pixels (lower = less CPU)
+        reboot_required: true
+        min: 0
+        max: 10000
+        unit: lower = less cpu
+      CAPTURE_HEIGHT:
+        type: integer
+        default: 480
+        description: Height in pixels
+        reboot_required: true
+        min: 0
+        max: 10000
+        unit: px
+      CAPTURE_FPS:
+        type: integer
+        default: 30
+        description: Target FPS (actual may vary by source)
+        reboot_required: true
+        min: 0
+        max: 100
+        unit: actual may vary by source
+      DEFAULT_FPS:
+        type: integer
+        default: 30
+        description: Fallback if source doesn't report FPS
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: fps
+      USE_GSTREAMER:
+        type: boolean
+        default: false
+        description: true = Use GStreamer pipelines (better for embedded)
+        reboot_required: true
+        unit: better for embedded
+      VIDEO_FILE_PATH:
+        type: string
+        default: resources/test4.mp4
+        description: Video file source
+        reboot_required: false
+      CAMERA_INDEX:
+        type: integer
+        default: 0
+        description: 0=first camera, 1=second, etc.
+        reboot_required: true
+        min: 0
+        max: 100
+      RTSP_URL:
+        type: string
+        default: rtsp://192.168.0.108:554/stream=0
+        description: Network streams
+        reboot_required: true
+      RTSP_PROTOCOL:
+        type: string
+        default: tcp
+        description: '- tcp: More reliable, prevents packet loss (RECOMMENDED for most setups) - udp: Lower latency but may
+          have packet loss on congested networks - auto: Let GStreamer choose (may fall back to UDP which can cause issues)
+          If you see "Invalid input packet" or "no frame!" errors, switch to tcp'
+        reboot_required: true
+      RTSP_LATENCY:
+        type: integer
+        default: 200
+        description: '- 200: Recommended for stable streaming (good balance) - 100: Lower latency, may drop frames on slow
+          networks - 500: More stable for unreliable connections - 0: Minimum latency (may cause decoding errors, not recommended)'
+        reboot_required: true
+        min: 0
+        max: 10000
+        unit: may cause decoding errors, not recommended
+      UDP_URL:
+        type: string
+        default: udp://172.21.144.1:5000
+        description: UDP_URL parameter
+        reboot_required: true
+      HTTP_URL:
+        type: string
+        default: http://172.21.144.1:8100
+        description: HTTP_URL parameter
+        reboot_required: true
+      CSI_SENSOR_ID:
+        type: integer
+        default: 0
+        description: Usually 0 for first CSI port
+        reboot_required: true
+        min: 0
+        max: 100
+      CUSTOM_PIPELINE:
+        type: string
+        default: ''
+        description: 'Custom GStreamer pipeline (advanced users) Example: "videotestsrc ! video/x-raw,width=640,height=480
+          ! videoconvert ! appsink"'
+        reboot_required: false
+      STORE_LAST_FRAMES:
+        type: integer
+        default: 5
+        description: Frame history buffer size
+        reboot_required: false
+        min: 0
+        max: 100
+  USBCamera:
+    display_name: USB Camera
+    category: video
+    icon: usb
+    parameters:
+      DEVICE_PATH:
+        type: string
+        default: /dev/video0
+        description: Device path for Linux GStreamer (ignored on Windows)
+        reboot_required: false
+        unit: ignored on windows
+      PIXEL_FORMAT:
+        type: string
+        default: YUYV
+        description: Pixel format selection (impacts CPU usage) YUYV = uncompressed (moderate CPU) MJPG = compressed (lowest
+          CPU, recommended for RPi)
+        reboot_required: false
+        unit: lowest cpu, recommended for rpi
+      USE_V4L2_BACKEND:
+        type: boolean
+        default: false
+        description: 'Linux only: direct V4L2 access'
+        reboot_required: false
+      OPENCV_BUFFER_SIZE:
+        type: integer
+        default: 1
+        description: 1=lowest latency, 3=smoother
+        reboot_required: false
+        min: 0
+        max: 100
+      OPENCV_FOURCC:
+        type: string
+        default: ''
+        description: 'Force codec: "MJPG", "H264", etc.'
+        reboot_required: false
+  Camera:
+    display_name: CSI Camera (Legacy)
+    category: video
+    icon: camera
+    parameters:
+      CSI_FLIP_METHOD:
+        type: integer
+        default: 0
+        description: 0=none, 1=90°CW, 2=180°, 3=90°CCW, 4=horizontal, 5=vertical
+        reboot_required: true
+        min: 0
+        max: 100
+  CSICamera:
+    display_name: CSI Camera
+    category: video
+    icon: camera
+    parameters:
+      SENSOR_ID:
+        type: integer
+        default: 0
+        description: Camera sensor ID
+        reboot_required: false
+        min: 0
+        max: 100
+      FLIP_METHOD:
+        type: integer
+        default: 0
+        description: Image rotation/flip
+        reboot_required: false
+        min: 0
+        max: 100
+  PX4:
+    display_name: PX4 Connection
+    category: network
+    icon: flight
+    parameters:
+      EXTERNAL_MAVSDK_SERVER:
+        type: boolean
+        default: true
+        description: 🚁 PX4 Autopilot connection via MAVSDK
+        reboot_required: false
+      SYSTEM_ADDRESS:
+        type: string
+        default: udp://127.0.0.1:14540
+        description: 'For SITL: udp://127.0.0.1:14540 For companion computer: udp://127.0.0.1:14540 For WSL: udp://172.21.148.30:14540
+          (use your WSL IP)'
+        reboot_required: true
+        unit: use your wsl ip
+  MAVLink:
+    display_name: MAVLink Telemetry
+    category: network
+    icon: router
+    parameters:
+      MAVLINK_ENABLED:
+        type: boolean
+        default: true
+        description: 📡 MAVLink telemetry data source (MAVLink2REST)
+        reboot_required: false
+        unit: mavlink2rest
+      MAVLINK_HOST:
+        type: string
+        default: 127.0.0.1
+        description: 'For local: 127.0.0.1 For WSL: 172.21.148.30 (your WSL IP)'
+        reboot_required: true
+        unit: your wsl ip
+      MAVLINK_PORT:
+        type: integer
+        default: 8088
+        description: MAVLINK_PORT parameter
+        reboot_required: true
+        min: 0
+        max: 1000000
+      MAVLINK_POLLING_INTERVAL:
+        type: float
+        default: 0.5
+        description: Data refresh rate in seconds
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: s
+      MAVLINK_DATA_POINTS:
+        type: object
+        default:
+          latitude: /vehicles/1/components/1/messages/GLOBAL_POSITION_INT/message/lat
+          longitude: /vehicles/1/components/1/messages/GLOBAL_POSITION_INT/message/lon
+          altitude_msl: /vehicles/1/components/1/messages/ALTITUDE/message/altitude_amsl
+          altitude_agl: /vehicles/1/components/1/messages/ALTITUDE/message/altitude_relative
+          voltage: /vehicles/1/components/1/messages/SYS_STATUS/message/voltage_battery
+          airspeed: /vehicles/1/components/1/messages/VFR_HUD/message/airspeed
+          throttle: /vehicles/1/components/1/messages/VFR_HUD/message/throttle
+          groundspeed: /vehicles/1/components/1/messages/VFR_HUD/message/groundspeed
+          climb: /vehicles/1/components/1/messages/VFR_HUD/message/climb
+          vn: /vehicles/1/components/1/messages/LOCAL_POSITION_NED/message/vx
+          ve: /vehicles/1/components/1/messages/LOCAL_POSITION_NED/message/vy
+          vd: /vehicles/1/components/1/messages/LOCAL_POSITION_NED/message/vz
+          flight_path_angle: null
+          roll: /vehicles/1/components/1/messages/ATTITUDE/message/roll
+          pitch: /vehicles/1/components/1/messages/ATTITUDE/message/pitch
+          heading: /vehicles/1/components/1/messages/VFR_HUD/message/heading
+          vdop: /vehicles/1/components/1/messages/GPS_RAW_INT/message/vdop
+          hdop: /vehicles/1/components/1/messages/GPS_RAW_INT/message/hdop
+          satellites_visible: /vehicles/1/components/1/messages/GPS_RAW_INT/message/satellites_visible
+          flight_mode: /vehicles/1/components/1/messages/HEARTBEAT/message/custom_mode
+          arm_status: /vehicles/1/components/1/messages/HEARTBEAT/message/base_mode
+        description: Data points to fetch from MAVLink2REST API
+        reboot_required: false
+  Streaming:
+    display_name: Video Streaming
+    category: network
+    icon: stream
+    parameters:
+      ENABLE_STREAMING:
+        type: boolean
+        default: true
+        description: 🖥️ Enable HTTP/WebSocket video streaming to web dashboard
+        reboot_required: false
+      HTTP_STREAM_HOST:
+        type: string
+        default: 0.0.0.0
+        description: 0.0.0.0 = all interfaces
+        reboot_required: true
+      HTTP_STREAM_PORT:
+        type: integer
+        default: 5077
+        description: Web dashboard port
+        reboot_required: true
+        min: 0
+        max: 1000000
+      STREAM_WIDTH:
+        type: integer
+        default: 640
+        description: Output resolution
+        reboot_required: false
+        min: 0
+        max: 10000
+      STREAM_HEIGHT:
+        type: integer
+        default: 480
+        description: STREAM_HEIGHT parameter
+        reboot_required: false
+        min: 0
+        max: 10000
+      STREAM_FPS:
+        type: integer
+        default: 10
+        description: Target FPS (actual may vary)
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: actual may vary
+      STREAM_QUALITY:
+        type: integer
+        default: 50
+        description: Default JPEG quality (0-100)
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: 0-100
+      STREAM_PROCESSED_OSD:
+        type: boolean
+        default: true
+        description: Include overlays
+        reboot_required: false
+      ENABLE_FRAME_CACHE:
+        type: boolean
+        default: true
+        description: Set true to cache encoded frames
+        reboot_required: false
+      CACHE_TTL_MS:
+        type: integer
+        default: 100
+        description: Cache time-to-live in milliseconds
+        reboot_required: false
+        min: 0
+        max: 100
+      MAX_FRAME_QUEUE:
+        type: integer
+        default: 3
+        description: Max queued frames per WebSocket client
+        reboot_required: false
+        min: 0
+        max: 100
+      WS_MAX_CONNECTIONS:
+        type: integer
+        default: 10
+        description: Max concurrent WebSocket clients
+        reboot_required: false
+        min: 0
+        max: 100
+      WS_ENABLE_COMPRESSION:
+        type: boolean
+        default: false
+        description: Enable WebSocket compression
+        reboot_required: false
+      ENABLE_ADAPTIVE_QUALITY:
+        type: boolean
+        default: true
+        description: Set true for auto quality adjustment
+        reboot_required: false
+      MIN_QUALITY:
+        type: integer
+        default: 30
+        description: Minimum JPEG quality (1-100)
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: 1-100
+      MAX_QUALITY:
+        type: integer
+        default: 85
+        description: Maximum JPEG quality (1-100)
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: 1-100
+      QUALITY_STEP:
+        type: integer
+        default: 10
+        description: Quality adjustment step size
+        reboot_required: false
+        min: 0
+        max: 100
+      SKIP_IDENTICAL_FRAMES:
+        type: boolean
+        default: true
+        description: Skip encoding if frame unchanged
+        reboot_required: false
+      HTTP_MAX_CONNECTIONS:
+        type: integer
+        default: 20
+        description: Max concurrent HTTP streams
+        reboot_required: true
+        min: 0
+        max: 100
+      HTTP_CHUNK_SIZE:
+        type: integer
+        default: 65536
+        description: Chunk size for streaming
+        reboot_required: true
+        min: 0
+        max: 1000000
+      ENCODING_THREADS:
+        type: integer
+        default: 2
+        description: Parallel encoding threads
+        reboot_required: false
+        min: 0
+        max: 100
+      ENABLE_HARDWARE_ENCODING:
+        type: boolean
+        default: false
+        description: Use hardware encoder if available
+        reboot_required: false
+      FRAME_DIFFERENCE_THRESHOLD:
+        type: integer
+        default: 5
+        description: Pixel difference threshold
+        reboot_required: false
+        min: 0
+        max: 100
+      ENABLE_H264_STREAM:
+        type: boolean
+        default: false
+        description: Enable H.264/WebRTC streaming
+        reboot_required: false
+      H264_BITRATE:
+        type: integer
+        default: 1000000
+        description: H.264 bitrate (bps)
+        reboot_required: false
+        min: 0
+        max: 1000000
+        unit: bps
+      H264_PROFILE:
+        type: string
+        default: baseline
+        description: H.264 profile (baseline/main/high)
+        reboot_required: false
+        unit: baseline/main/high
+      H264_PRESET:
+        type: string
+        default: ultrafast
+        description: Encoding preset
+        reboot_required: false
+  Tracking:
+    display_name: Tracking Settings
+    category: tracking
+    icon: gps_fixed
+    parameters:
+      DEFAULT_TRACKING_ALGORITHM:
+        type: string
+        default: CSRT
+        description: 'Options: CSRT (recommended for rotation), KCF (fast), dlib (very fast), Gimbal (external) CSRT: Best
+          for drone circling, rotation, perspective changes (15-20 FPS, 85% accuracy) KCF:  Fast alternative for high-speed
+          scenarios (25-30 FPS, 75% accuracy) dlib: Very fast correlation filter with PSR confidence (25-30 FPS, 85% accuracy)'
+        reboot_required: false
+        unit: 25-30 fps, 85% accuracy
+      TRACKING_RECTANGLE_COLOR:
+        type: array
+        default:
+        - 255
+        - 0
+        - 0
+        description: 'BGR: Blue'
+        reboot_required: false
+        item_type: number
+        min_items: 0
+        max_items: 20
+      CENTER_CIRCLE_COLOR:
+        type: array
+        default:
+        - 0
+        - 255
+        - 0
+        description: 'BGR: Green'
+        reboot_required: false
+        item_type: number
+        min_items: 0
+        max_items: 20
+      CENTER_HISTORY_LENGTH:
+        type: integer
+        default: 10
+        description: Trail length
+        reboot_required: false
+        min: 0
+        max: 100
+      MAX_DISPLACEMENT_THRESHOLD:
+        type: float
+        default: 0.25
+        description: Max jump as fraction of frame
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      TRACKING_FAILURE_TIMEOUT:
+        type: float
+        default: 5.0
+        description: Seconds before re-detection
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: s
+      REDETECTION_ATTEMPTS:
+        type: integer
+        default: 5
+        description: Max re-detection attempts
+        reboot_required: false
+        min: 0
+        max: 100
+      CONFIDENCE_THRESHOLD:
+        type: float
+        default: 0.6
+        description: '⚠️ Deprecated: Use tracker-specific'
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      APPEARANCE_THRESHOLD:
+        type: float
+        default: 0.3
+        description: APPEARANCE_THRESHOLD parameter
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      APPEARANCE_CONFIDENCE_THRESHOLD:
+        type: float
+        default: 0.5
+        description: Re-detection validation
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      MOTION_CONFIDENCE_WEIGHT:
+        type: float
+        default: 0.5
+        description: MOTION_CONFIDENCE_WEIGHT parameter
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      APPEARANCE_CONFIDENCE_WEIGHT:
+        type: float
+        default: 0.5
+        description: APPEARANCE_CONFIDENCE_WEIGHT parameter
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      CSRT_APPEARANCE_LEARNING_RATE:
+        type: float
+        default: 0.05
+        description: 'Deprecated: See CSRT_Tracker section'
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      MOTION_CONFIDENCE_THRESHOLD:
+        type: float
+        default: 0.7
+        description: Minimum confidence from motion consistency check
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      PF_NUM_PARTICLES:
+        type: integer
+        default: 500
+        description: More = accurate but slower
+        reboot_required: false
+        min: 0
+        max: 10000
+      PF_INIT_POS_STD:
+        type: float
+        default: 20.0
+        description: Initial position uncertainty
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      PF_INIT_VEL_STD:
+        type: float
+        default: 5.0
+        description: Initial velocity uncertainty
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      PF_INIT_ACC_STD:
+        type: float
+        default: 1.0
+        description: Initial acceleration uncertainty
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      PF_POS_STD:
+        type: float
+        default: 15.0
+        description: Process noise for position
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      PF_VEL_STD:
+        type: float
+        default: 5.0
+        description: Process noise for velocity
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      PF_ACC_STD:
+        type: float
+        default: 1.0
+        description: Process noise for acceleration
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      PF_APPEARANCE_LIKELIHOOD_SCALE:
+        type: float
+        default: 25.0
+        description: PF_APPEARANCE_LIKELIHOOD_SCALE parameter
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      PF_APPEARANCE_LEARNING_RATE:
+        type: float
+        default: 0.05
+        description: PF_APPEARANCE_LEARNING_RATE parameter
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      PF_COLOR_WEIGHT:
+        type: float
+        default: 0.7
+        description: Color vs edge importance
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      PF_EDGE_WEIGHT:
+        type: float
+        default: 0.3
+        description: PF_EDGE_WEIGHT parameter
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      PF_CANNY_THRESHOLD1:
+        type: integer
+        default: 50
+        description: Edge detection params
+        reboot_required: false
+        min: 0
+        max: 100
+      PF_CANNY_THRESHOLD2:
+        type: integer
+        default: 150
+        description: PF_CANNY_THRESHOLD2 parameter
+        reboot_required: false
+        min: 0
+        max: 10000
+      PF_EFFECTIVE_PARTICLE_NUM_THRESHOLD:
+        type: float
+        default: 0.5
+        description: PF_EFFECTIVE_PARTICLE_NUM_THRESHOLD parameter
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      PF_RANDOM_PARTICLE_RATIO:
+        type: float
+        default: 0.1
+        description: Random resampling ratio
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      DESIRE_AIM:
+        type: array
+        default:
+        - 0
+        - 0
+        description: Desired aim point in frame [x, y] (normalized)
+        reboot_required: false
+        item_type: number
+        min_items: 0
+        max_items: 20
+        unit: normalized
+  TrackerSafety:
+    display_name: Tracker Safety
+    category: tracking
+    icon: security
+    parameters:
+      BOUNDARY_MARGIN_PIXELS:
+        type: integer
+        default: 15
+        description: Global access for base_tracker.py
+        reboot_required: false
+        min: 0
+        max: 100
+      ENABLE_BOUNDARY_PENALTY:
+        type: boolean
+        default: true
+        description: Apply confidence penalty near frame edges
+        reboot_required: false
+      BOUNDARY_PENALTY_MIN:
+        type: float
+        default: 0.5
+        description: Minimum confidence multiplier at edge (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+  BOUNDARY_MARGIN_PIXELS:
+    type: integer
+    default: 15
+    description: Global access for base_tracker.py
+    reboot_required: false
+    min: 0
+    max: 100
+  KCF_Tracker:
+    display_name: KCF Tracker
+    category: tracking
+    icon: track_changes
+    parameters:
+      confidence_threshold:
+        type: float
+        default: 0.15
+        description: Min confidence to accept (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+      failure_threshold:
+        type: integer
+        default: 7
+        description: Consecutive failures before declaring lost
+        reboot_required: false
+        min: 0
+        max: 100
+      confidence_smoothing:
+        type: float
+        default: 0.6
+        description: EMA alpha (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+      max_scale_change_per_frame:
+        type: float
+        default: 0.6
+        description: Max size change per frame (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+      max_motion_per_frame:
+        type: float
+        default: 0.7
+        description: Max motion as fraction of frame diagonal
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      appearance_learning_rate:
+        type: float
+        default: 0.18
+        description: Template update learning rate (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+      kalman_process_noise:
+        type: float
+        default: 0.1
+        description: Process noise (Q matrix multiplier)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: q matrix multiplier
+      kalman_velocity_noise_factor:
+        type: float
+        default: 0.5
+        description: Velocity noise relative to position noise
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      kalman_measurement_noise:
+        type: float
+        default: 5.0
+        description: Measurement noise (R matrix, ~pixels)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: r matrix, ~pixels
+      kalman_initial_covariance:
+        type: float
+        default: 10.0
+        description: Initial state covariance (P matrix)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: p matrix
+      motion_consistency_threshold:
+        type: float
+        default: 0.15
+        description: Max motion as fraction of frame diagonal
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      use_velocity_during_occlusion:
+        type: boolean
+        default: true
+        description: Use Kalman velocity for position extrapolation
+        reboot_required: false
+      occlusion_velocity_factor:
+        type: float
+        default: 0.5
+        description: Conservative extrapolation (50% of velocity)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 50% of velocity
+      kalman_initial_position_covariance:
+        type: float
+        default: 10.0
+        description: 'Position: high confidence (known)'
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: known
+      kalman_initial_velocity_covariance:
+        type: float
+        default: 100.0
+        description: 'Velocity: low confidence (unknown at start)'
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: unknown at start
+  CSRT_Tracker:
+    display_name: CSRT Tracker
+    category: tracking
+    icon: track_changes
+    parameters:
+      performance_mode:
+        type: string
+        default: robust
+        description: 'Choose: "fast", "balanced", or "robust"'
+        reboot_required: false
+      confidence_threshold:
+        type: float
+        default: 0.45
+        description: Min confidence to accept (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+      failure_threshold:
+        type: integer
+        default: 5
+        description: Consecutive failures before declaring lost
+        reboot_required: false
+        min: 0
+        max: 100
+      confidence_smoothing:
+        type: float
+        default: 0.7
+        description: EMA alpha (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+      validation_start_frame:
+        type: integer
+        default: 10
+        description: Grace period before validation starts
+        reboot_required: false
+        min: 0
+        max: 100
+      max_scale_change_per_frame:
+        type: float
+        default: 0.5
+        description: Max size change per frame (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+      max_motion_per_frame:
+        type: float
+        default: 0.6
+        description: Max motion as fraction of frame diagonal
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      appearance_learning_rate:
+        type: float
+        default: 0.1
+        description: Template update learning rate (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+      use_color_names:
+        type: boolean
+        default: true
+        description: ColorNames features (+5-8% accuracy for colored targets)
+        reboot_required: false
+        unit: +5-8% accuracy for colored targets
+      use_hog:
+        type: boolean
+        default: true
+        description: HOG features (essential for shape-based tracking)
+        reboot_required: false
+        unit: essential for shape-based tracking
+      csrt_learning_rate:
+        type: float
+        default: 0.02
+        description: Filter learning rate (0.02 faster than default 0.015)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.02 faster than default 0.015
+      number_of_scales:
+        type: integer
+        default: 33
+        description: Scale pyramid levels (33 for finer scale precision)
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: 33 for finer scale precision
+      scale_step:
+        type: float
+        default: 1.02
+        description: Scale factor between levels (1.02 for smooth adaptation)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: 1.02 for smooth adaptation
+      use_segmentation:
+        type: boolean
+        default: true
+        description: Foreground/background segmentation
+        reboot_required: false
+      appearance_update_min_confidence:
+        type: float
+        default: 0.55
+        description: Only update appearance when conf > this
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      enable_multiframe_validation:
+        type: boolean
+        default: true
+        description: Require N consecutive valid frames
+        reboot_required: false
+      validation_consensus_frames:
+        type: integer
+        default: 3
+        description: Frames required for consensus
+        reboot_required: false
+        min: 0
+        max: 100
+  DLIB_Tracker:
+    display_name: dlib Tracker
+    category: tracking
+    icon: track_changes
+    parameters:
+      performance_mode:
+        type: string
+        default: robust
+        description: 'Choose: "fast", "balanced", or "robust"'
+        reboot_required: false
+      psr_confidence_threshold:
+        type: float
+        default: 7.0
+        description: Min PSR for reliable tracking
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      psr_high_confidence:
+        type: float
+        default: 20.0
+        description: PSR above this = excellent tracking
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      psr_low_confidence:
+        type: float
+        default: 5.0
+        description: PSR below this = poor tracking
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      failure_threshold:
+        type: integer
+        default: 5
+        description: Consecutive failures before declaring lost
+        reboot_required: false
+        min: 0
+        max: 100
+      confidence_smoothing_alpha:
+        type: float
+        default: 0.7
+        description: EMA (Exponential Moving Average) alpha
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      validation_start_frame:
+        type: integer
+        default: 10
+        description: Grace period before validation starts
+        reboot_required: false
+        min: 0
+        max: 100
+      max_scale_change_per_frame:
+        type: float
+        default: 0.5
+        description: Max size change per frame (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+      max_motion_per_frame:
+        type: float
+        default: 0.6
+        description: Max motion as fraction of frame diagonal
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      appearance_learning_rate:
+        type: float
+        default: 0.08
+        description: Template update learning rate (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+      enable_template_redetection:
+        type: boolean
+        default: true
+        description: Use template matching for recovery
+        reboot_required: false
+      redetection_psr_threshold:
+        type: float
+        default: 5.0
+        description: Trigger re-detection below this PSR
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      adaptive:
+        type: object
+        default:
+          enable: true
+          psr_dynamic_scaling: true
+          adapt_rate: 0.15
+          psr_margin: 1.5
+        description: 'Automatically adjusts PSR thresholds based on tracking history Research: Adaptive thresholding improves
+          robustness in varying conditions Reference: Zhang et al. "Adaptive Correlation Filters with Long-Term and Short-Term
+          Memory" IJCV 2018'
+        reboot_required: false
+      appearance:
+        type: object
+        default:
+          use_adaptive_learning: true
+          adaptive_learning_bounds:
+          - 0.05
+          - 0.15
+          freeze_on_low_confidence: true
+          reference_update_interval: 30
+        description: 'Advanced template update strategies for long-term tracking stability Research: Adaptive learning prevents
+          template drift and corruption Reference: Danelljan et al. "Learning Spatially Regularized Correlation Filters" ICCV
+          2015'
+        reboot_required: false
+      motion:
+        type: object
+        default:
+          velocity_limit: 25.0
+          velocity_normalize_by_size: true
+          max_velocity_target_factor: 2.0
+          stabilization_alpha: 0.3
+        description: 'Advanced motion filtering and validation for smooth, reliable tracking Research: Temporal consistency
+          improves tracking in noisy conditions'
+        reboot_required: false
+      validation:
+        type: object
+        default:
+          reinit_on_loss: true
+          cooldown_after_reinit: 5
+        description: Smart validation and recovery mechanisms for handling tracking loss
+        reboot_required: false
+      debug:
+        type: object
+        default:
+          enable_visual_feedback: true
+          show_motion_vectors: false
+        description: Visual feedback for tracking quality monitoring
+        reboot_required: false
+  SmartTracker:
+    display_name: Smart Tracker (YOLO)
+    category: tracking
+    icon: smart_toy
+    parameters:
+      SMART_TRACKER_ENABLED:
+        type: boolean
+        default: true
+        description: 🤖 Enable AI-powered object tracking
+        reboot_required: false
+      SMART_TRACKER_USE_GPU:
+        type: boolean
+        default: true
+        description: Try GPU first (CUDA)
+        reboot_required: true
+        unit: cuda
+      SMART_TRACKER_FALLBACK_TO_CPU:
+        type: boolean
+        default: true
+        description: Fall back if GPU fails
+        reboot_required: false
+      SMART_TRACKER_GPU_MODEL_PATH:
+        type: string
+        default: yolo/yolo11n.pt
+        description: PyTorch model
+        reboot_required: true
+      SMART_TRACKER_CPU_MODEL_PATH:
+        type: string
+        default: yolo/yolo11n_ncnn_model
+        description: Optimized for ARM
+        reboot_required: true
+      SMART_TRACKER_CONFIDENCE_THRESHOLD:
+        type: float
+        default: 0.3
+        description: Min detection confidence (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+      SMART_TRACKER_IOU_THRESHOLD:
+        type: float
+        default: 0.3
+        description: Overlap threshold for NMS (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+      SMART_TRACKER_MAX_DETECTIONS:
+        type: integer
+        default: 20
+        description: Max objects per frame
+        reboot_required: false
+        min: 0
+        max: 100
+      SMART_TRACKER_COLOR:
+        type: array
+        default:
+        - 0
+        - 255
+        - 255
+        description: 'BGR: Yellow'
+        reboot_required: false
+        item_type: number
+        min_items: 0
+        max_items: 20
+      SMART_TRACKER_SHOW_FPS:
+        type: boolean
+        default: false
+        description: SMART_TRACKER_SHOW_FPS parameter
+        reboot_required: false
+      TRACKER_TYPE:
+        type: string
+        default: botsort_reid
+        description: botsort         | -3-5%      | Low          | ✓       | No         | Any version botsort_reid    | -5-8%      |
+          Excellent    | ✗       | Recommended| Required custom_reid     | -8-12%     | Good         | ✓       | No         |
+          Any version
+        reboot_required: false
+      BOTSORT_REID_MODEL:
+        type: string
+        default: auto
+        description: 'ReID embedding model selection "auto": Uses native YOLO features (fastest, zero overhead, RECOMMENDED)
+          "yolo11n-cls.pt": Classification model (better accuracy, +2-5ms latency) Custom path: Your own ReID embedding model'
+        reboot_required: false
+      BOTSORT_APPEARANCE_THRESH:
+        type: float
+        default: 0.25
+        description: 'Lower = stricter matching (fewer false positives, may miss correct matches) Higher = more lenient (more
+          false positives, better recall) ⚠️ NOTE: Opposite direction from APPEARANCE_MATCH_THRESHOLD! Recommended: 0.20-0.30'
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      BOTSORT_PROXIMITY_THRESH:
+        type: float
+        default: 0.5
+        description: 'IoU (geometric proximity) threshold for matching Works alongside appearance threshold Recommended: 0.4-0.6'
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      BOTSORT_TRACK_BUFFER:
+        type: integer
+        default: 60
+        description: 'Number of frames to remember lost tracks (for re-identification) Higher = can recover after longer occlusions
+          (uses more memory) Recommended: 30-120 frames 30 ≈ 1 second, 60 ≈ 2 seconds, 120 ≈ 4 seconds at 30 FPS'
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: s
+      BOTSORT_MATCH_THRESH:
+        type: float
+        default: 0.8
+        description: 'IoU threshold for matching detections to existing tracks Higher = stricter (fewer ID switches) Lower
+          = more lenient (better recovery) Recommended: 0.7-0.9'
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      BOTSORT_TRACK_HIGH_THRESH:
+        type: float
+        default: 0.25
+        description: 'High confidence detection threshold (first association pass) Recommended: 0.20-0.30'
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      BOTSORT_TRACK_LOW_THRESH:
+        type: float
+        default: 0.1
+        description: 'Low confidence detection threshold (recovery pass) Recommended: 0.05-0.15'
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      BOTSORT_NEW_TRACK_THRESH:
+        type: float
+        default: 0.25
+        description: 'Minimum confidence for creating new tracks Lower = easier to start tracking Higher = only track high-confidence
+          objects Recommended: 0.20-0.30'
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      BOTSORT_FUSE_SCORE:
+        type: boolean
+        default: true
+        description: Fuse detection confidence with IoU during matching true = better discrimination (recommended) false =
+          pure geometric matching
+        reboot_required: false
+      BOTSORT_CMC_METHOD:
+        type: string
+        default: sparseOptFlow
+        description: 'Camera motion compensation method "sparseOptFlow": Optical flow-based (recommended) "none": Disable
+          (use if camera is stationary)'
+        reboot_required: false
+        unit: use if camera is stationary
+      TRACKING_STRATEGY:
+        type: string
+        default: hybrid
+        description: 'How to match tracked object across frames when ID changes - "id_only": Strict ID matching (fastest,
+          but loses track on ID change) - "spatial_only": Position-based matching using IoU (works without IDs) - "hybrid":
+          ID first, falls back to spatial matching (RECOMMENDED)'
+        reboot_required: false
+        unit: recommended
+      ID_LOSS_TOLERANCE_FRAMES:
+        type: integer
+        default: 5
+        description: 'Number of frames to maintain tracking after losing track ID Useful when object is briefly occluded or
+          detector misses 1-2 frames Higher = more forgiving, Lower = stricter (re-select needed sooner) Recommended: 5-10
+          frames for drone tracking'
+        reboot_required: false
+        min: 0
+        max: 100
+      ENABLE_GRACEFUL_DEGRADATION:
+        type: boolean
+        default: true
+        description: Enable multi-level fallback chain
+        reboot_required: false
+      EXTENDED_TOLERANCE_FRAMES:
+        type: integer
+        default: 10
+        description: Additional frames beyond ID_LOSS_TOLERANCE
+        reboot_required: false
+        min: 0
+        max: 100
+      TRACK_CONFIDENCE_DECAY_RATE:
+        type: float
+        default: 0.05
+        description: Decay rate per frame without detection (5%)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 5%
+      MAX_LOST_OBJECTS_CACHED:
+        type: integer
+        default: 100
+        description: Maximum objects in re-ID memory
+        reboot_required: false
+        min: 0
+        max: 100
+      SPATIAL_IOU_THRESHOLD:
+        type: float
+        default: 0.35
+        description: 'IoU threshold for matching by position when ID is lost Higher = stricter matching (less false positives)
+          Lower = more lenient (might match wrong object) Range: 0.0-1.0, Recommended: 0.3-0.5'
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      ENABLE_PREDICTION_BUFFER:
+        type: boolean
+        default: true
+        description: Use velocity-based prediction to estimate object location during occlusion Helps find object even if
+          it moves while temporarily invisible true = more robust to occlusions, false = simpler/faster
+        reboot_required: false
+      CONFIDENCE_SMOOTHING_ALPHA:
+        type: float
+        default: 0.8
+        description: 'Apply exponential moving average to detection confidence Reduces jitter from frame-to-frame confidence
+          variations Higher = more smoothing, Lower = more responsive Range: 0.0-1.0, Recommended: 0.7-0.9'
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      BYTETRACK_TRACK_BUFFER:
+        type: integer
+        default: 50
+        description: 'Number of frames to keep track alive after losing detection Higher = tracks survive longer occlusions
+          Lower = faster cleanup of lost tracks Default: 30, Recommended for robust tracking: 50'
+        reboot_required: false
+        min: 0
+        max: 100
+      BYTETRACK_MATCH_THRESH:
+        type: float
+        default: 0.8
+        description: 'IoU threshold for matching detections to existing tracks Higher = stricter matching (less ID switches)
+          Lower = more lenient (may cause ID switches) Range: 0.0-1.0, Recommended: 0.8'
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      BYTETRACK_NEW_TRACK_THRESH:
+        type: float
+        default: 0.2
+        description: 'Confidence threshold for creating new tracks from detections Lower = easier to start tracking new objects
+          (good for re-acquisition) Higher = only track high-confidence detections (fewer false positives) Range: 0.0-1.0,
+          Recommended: 0.20-0.25'
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      BYTETRACK_TRACK_HIGH_THRESH:
+        type: float
+        default: 0.25
+        description: 'ByteTrack uses two-stage association (high conf → low conf) High threshold: First association pass (confident
+          detections) Low threshold: Second association pass (recover lost tracks)'
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: recover lost tracks
+      BYTETRACK_TRACK_LOW_THRESH:
+        type: float
+        default: 0.1
+        description: BYTETRACK_TRACK_LOW_THRESH parameter
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      BYTETRACK_FUSE_SCORE:
+        type: boolean
+        default: true
+        description: Combine detection confidence with IoU distance during matching true = better handling of similar objects
+          false = pure geometric matching
+        reboot_required: false
+      ENABLE_APPEARANCE_MODEL:
+        type: boolean
+        default: true
+        description: Set to false on low-performance boards (Raspberry Pi Zero, older ARM) Adds ~5-10ms per frame overhead
+          on modern hardware
+        reboot_required: false
+      APPEARANCE_MATCH_THRESHOLD:
+        type: float
+        default: 0.7
+        description: 'Recommended values: - 0.8-0.9: Very strict (use when objects look very similar) - 0.6-0.7: Balanced
+          (recommended for most scenarios) - 0.4-0.5: Lenient (use when lighting/angle changes dramatically)'
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: use when lighting/angle changes dramatically
+      APPEARANCE_FEATURE_TYPE:
+        type: string
+        default: histogram
+        description: '- Best for: Maximum accuracy in challenging scenarios - Speed: Slower (~8-10ms per object) - Accuracy:
+          Highest overall - Recommended for: Powerful hardware, critical applications'
+        reboot_required: false
+      MAX_REIDENTIFICATION_FRAMES:
+        type: integer
+        default: 30
+        description: 'Recommended values: - 30 frames: ~1 second at 30 FPS (good for brief occlusions) - 60 frames: ~2 seconds
+          (balanced) - 150 frames: ~5 seconds (long occlusions, uses more memory)'
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: long occlusions, uses more memory
+      APPEARANCE_ADAPTIVE_LEARNING:
+        type: boolean
+        default: true
+        description: Update appearance model during successful tracking Helps adapt to gradual changes in lighting, viewing
+          angle, or object appearance true = model adapts over time (better for changing conditions) false = uses initial
+          appearance only (more consistent but rigid)
+        reboot_required: false
+        unit: more consistent but rigid
+      APPEARANCE_LEARNING_RATE:
+        type: float
+        default: 0.1
+        description: 'Learning rate for adaptive updates (0.0-1.0) Higher = faster adaptation to changes (may drift from original
+          appearance) Lower = slower adaptation (more stable, less responsive to changes) Recommended: 0.05-0.15'
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      HOG_WIN_SIZE:
+        type: array
+        default:
+        - 64
+        - 64
+        description: ROI resize dimensions (width, height)
+        reboot_required: false
+        item_type: number
+        min_items: 0
+        max_items: 20
+        unit: width, height
+      HOG_BLOCK_SIZE:
+        type: array
+        default:
+        - 16
+        - 16
+        description: Block size for normalization
+        reboot_required: false
+        item_type: number
+        min_items: 0
+        max_items: 20
+      HOG_BLOCK_STRIDE:
+        type: array
+        default:
+        - 8
+        - 8
+        description: Step size for block overlap
+        reboot_required: false
+        item_type: number
+        min_items: 0
+        max_items: 20
+      HOG_CELL_SIZE:
+        type: array
+        default:
+        - 8
+        - 8
+        description: Cell size within blocks
+        reboot_required: false
+        item_type: number
+        min_items: 0
+        max_items: 20
+      HOG_NBINS:
+        type: integer
+        default: 9
+        description: Number of orientation bins (1-180 degrees)
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: 1-180 degrees
+      HIST_H_BINS:
+        type: integer
+        default: 30
+        description: Hue channel bins (H in HSV)
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: h in hsv
+      HIST_S_BINS:
+        type: integer
+        default: 32
+        description: Saturation channel bins (S in HSV)
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: s in hsv
+      ENABLE_APPEARANCE_PROFILING:
+        type: boolean
+        default: false
+        description: true = log timing metrics to console
+        reboot_required: false
+  GimbalTracker:
+    display_name: Gimbal Tracker
+    category: tracking
+    icon: control_camera
+    parameters:
+      ENABLED:
+        type: boolean
+        default: true
+        description: Enable/disable gimbal tracker
+        reboot_required: false
+      UDP_HOST:
+        type: string
+        default: 192.168.0.108
+        description: Gimbal IP address
+        reboot_required: true
+      UDP_PORT:
+        type: integer
+        default: 9003
+        description: Gimbal UDP port
+        reboot_required: true
+        min: 0
+        max: 1000000
+      CONNECTION_TIMEOUT:
+        type: float
+        default: 5.0
+        description: Connection timeout in seconds
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: s
+      data_timeout_seconds:
+        type: float
+        default: 5.0
+        description: Show cached data for up to N seconds when connection lost
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: s
+      max_consecutive_failures:
+        type: integer
+        default: 10
+        description: Warning threshold for consecutive data reception failures
+        reboot_required: false
+        min: 0
+        max: 100
+  GIMBAL_UDP_HOST:
+    type: string
+    default: 192.168.0.108
+    description: Gimbal IP address
+    reboot_required: false
+  GIMBAL_LISTEN_PORT:
+    type: integer
+    default: 9004
+    description: Port for listening to gimbal data
+    reboot_required: false
+    min: 0
+    max: 1000000
+  GIMBAL_COORDINATE_SYSTEM:
+    type: string
+    default: GIMBAL_BODY
+    description: Coordinate system preference
+    reboot_required: false
+  GIMBAL_DISABLE_ESTIMATOR:
+    type: boolean
+    default: true
+    description: Disable Kalman estimator for gimbal
+    reboot_required: false
+  GimbalTrackerSettings:
+    display_name: Gimbal Tracker Settings
+    category: tracking
+    icon: settings
+    parameters:
+      COORDINATE_SYSTEM:
+        type: string
+        default: GIMBAL_BODY
+        description: 'Options: "GIMBAL_BODY", "SPATIAL_FIXED"'
+        reboot_required: false
+      CAMERA_MOUNT_OFFSET_ROLL:
+        type: float
+        default: 0.0
+        description: Roll offset
+        reboot_required: true
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      CAMERA_MOUNT_OFFSET_PITCH:
+        type: float
+        default: 0.0
+        description: Pitch offset (+ = nose down from aircraft)
+        reboot_required: true
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: + = nose down from aircraft
+      CAMERA_MOUNT_OFFSET_YAW:
+        type: float
+        default: 0.0
+        description: Yaw offset (+ = right from aircraft nose)
+        reboot_required: true
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: + = right from aircraft nose
+      YAW_LIMIT:
+        type: float
+        default: 180.0
+        description: Maximum yaw angle (degrees)
+        reboot_required: false
+        min: -10000.0
+        max: 10000.0
+        step: 0.1
+        unit: deg
+      PITCH_LIMIT:
+        type: float
+        default: 90.0
+        description: Maximum pitch angle (degrees)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      ROLL_LIMIT:
+        type: float
+        default: 180.0
+        description: Maximum roll angle (degrees)
+        reboot_required: false
+        min: -10000.0
+        max: 10000.0
+        step: 0.1
+        unit: deg
+      SUPPRESS_DETECTOR:
+        type: boolean
+        default: true
+        description: Disable image detector (not needed for gimbal)
+        reboot_required: false
+        unit: not needed for gimbal
+      SUPPRESS_PREDICTOR:
+        type: boolean
+        default: true
+        description: Disable predictor (not needed for gimbal)
+        reboot_required: false
+        unit: not needed for gimbal
+      DISABLE_ESTIMATOR:
+        type: boolean
+        default: true
+        description: Disable Kalman estimator (gimbal provides direct data)
+        reboot_required: false
+        unit: gimbal provides direct data
+      MAX_DATA_AGE:
+        type: float
+        default: 5.0
+        description: Maximum age of data to consider valid (seconds)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: s
+  Follower:
+    display_name: Follower Settings
+    category: follower
+    icon: navigation
+    parameters:
+      USE_MAVLINK2REST:
+        type: boolean
+        default: true
+        description: Use REST API for MAVLink
+        reboot_required: false
+      FOLLOWER_DATA_REFRESH_RATE:
+        type: integer
+        default: 5
+        description: Hz
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: hz
+      ROI_SELECTION_MODE:
+        type: string
+        default: MANUAL
+        description: MANUAL or AUTO
+        reboot_required: false
+      TARGET_POSITION_MODE:
+        type: string
+        default: center
+        description: 'Target positioning: "center", "initial"'
+        reboot_required: false
+      FOLLOWER_MODE:
+        type: string
+        default: mc_velocity_position
+        description: 'Options: mc_velocity_ground, mc_velocity_distance, mc_velocity_position, mc_velocity_chase, mc_velocity,
+          mc_attitude_rate, fw_attitude_rate, gm_pid_pursuit, gm_velocity_vector Deprecated (still work): ground_view, constant_distance,
+          constant_position, body_velocity_chase, gimbal_vector_body'
+        reboot_required: false
+      SHOW_TRACKING_WINDOW:
+        type: boolean
+        default: false
+        description: Debug window
+        reboot_required: false
+      DISPLAY_DEVIATIONS:
+        type: boolean
+        default: false
+        description: Show error vectors
+        reboot_required: false
+      TRACKED_BBOX_STYLE:
+        type: string
+        default: fancy
+        description: simple or fancy
+        reboot_required: false
+      FOLLOWER_ACTIVE_COLOR:
+        type: array
+        default:
+        - 0
+        - 0
+        - 255
+        description: 'BGR: Red when active'
+        reboot_required: false
+        item_type: number
+        min_items: 0
+        max_items: 20
+      FOLLOWER_INACTIVE_COLOR:
+        type: array
+        default:
+        - 0
+        - 255
+        - 255
+        description: 'BGR: Yellow when inactive'
+        reboot_required: false
+        item_type: number
+        min_items: 0
+        max_items: 20
+      BBOX_LINE_THICKNESS:
+        type: integer
+        default: 2
+        description: BBOX_LINE_THICKNESS parameter
+        reboot_required: false
+        min: 0
+        max: 100
+      EXTENDED_LINE_THICKNESS:
+        type: integer
+        default: 2
+        description: EXTENDED_LINE_THICKNESS parameter
+        reboot_required: false
+        min: 0
+        max: 100
+      CORNER_DOT_RADIUS:
+        type: integer
+        default: 4
+        description: CORNER_DOT_RADIUS parameter
+        reboot_required: false
+        min: 0
+        max: 100
+      CROSSHAIR_ARM_LENGTH:
+        type: integer
+        default: 20
+        description: CROSSHAIR_ARM_LENGTH parameter
+        reboot_required: false
+        min: 0
+        max: 100
+      BBOX_CORNER_ARM_LENGTH:
+        type: integer
+        default: 20
+        description: BBOX_CORNER_ARM_LENGTH parameter
+        reboot_required: false
+        min: 0
+        max: 100
+      OVERLAY_OPACITY:
+        type: integer
+        default: 128
+        description: OVERLAY_OPACITY parameter
+        reboot_required: false
+        min: 0
+        max: 10000
+  FOLLOWER_CIRCUIT_BREAKER:
+    type: boolean
+    default: true
+    description: true = SAFE (log only), false = LIVE (send commands)
+    reboot_required: false
+    unit: send commands
+  CIRCUIT_BREAKER_DISABLE_SAFETY:
+    type: boolean
+    default: false
+    description: Skip ALL safety checks in CB test mode (set true for ground testing only)
+    reboot_required: false
+    unit: set true for ground testing only
+  GM_PID_PURSUIT:
+    display_name: Gimbal PID Pursuit
+    category: follower
+    icon: control_camera
+    parameters:
+      MOUNT_TYPE:
+        type: string
+        default: HORIZONTAL
+        description: 'Options: "VERTICAL", "HORIZONTAL", "TILTED_45"'
+        reboot_required: false
+      CONTROL_MODE:
+        type: string
+        default: BODY
+        description: 'Options: "NED", "BODY"'
+        reboot_required: false
+      REQUIRED_TRACKER_FIELDS:
+        type: array
+        default:
+        - angular
+        description: Must have angular data from gimbal
+        reboot_required: false
+        item_type: string
+      BASE_VELOCITY:
+        type: float
+        default: 2.0
+        description: Base following velocity (m/s)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m/s
+      MAX_VELOCITY:
+        type: float
+        default: 2.0
+        description: m/s - Overall magnitude limit
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m/s
+      VELOCITY_RAMP_RATE:
+        type: float
+        default: 0.5
+        description: Acceleration rate (m/s²) - smooth ramp
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: m
+      VELOCITY_FILTER_ALPHA:
+        type: float
+        default: 0.7
+        description: Velocity smoothing filter coefficient (0-1)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0-1
+      FORWARD_VELOCITY_MODE:
+        type: string
+        default: CONSTANT
+        description: constant | pn | los
+        reboot_required: false
+      BASE_FORWARD_SPEED:
+        type: float
+        default: 2.0
+        description: Constant forward speed (m/s)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m/s
+      MAX_FORWARD_VELOCITY:
+        type: float
+        default: 2.0
+        description: m/s - maximum chase speed (conservative default)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: conservative default
+      FORWARD_ACCELERATION:
+        type: float
+        default: 2.0
+        description: Ramp rate from current to target speed (m/s²) - reach 2m/s in ~1s
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m
+      LATERAL_GUIDANCE_MODE:
+        type: string
+        default: coordinated_turn
+        description: yaw_to_target | crab_strafe
+        reboot_required: false
+      ENABLE_AUTO_MODE_SWITCHING:
+        type: boolean
+        default: false
+        description: Auto-switch based on LOS rate/distance
+        reboot_required: false
+      GUIDANCE_MODE_SWITCH_VELOCITY:
+        type: float
+        default: 3.0
+        description: m/s - auto-switch threshold
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m/s
+      MAX_YAW_RATE:
+        type: float
+        default: 45.0
+        description: deg/s
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      TARGET_LOSS_HANDLING:
+        type: object
+        default:
+          CONTINUE_VELOCITY_TIMEOUT: 3.0
+          ENABLE_RTL_ON_TIMEOUT: true
+          RTL_ALTITUDE: 50.0
+          ENABLE_ADAPTIVE_TIMEOUT: true
+          ADAPTIVE_TIMEOUT_FACTOR: 1.5
+          ENABLE_PREDICTIVE_VELOCITY: true
+          PREDICTION_HISTORY_SIZE: 5
+          CONFIDENCE_TIMEOUT_ADJUSTMENT: true
+          HIGH_CONFIDENCE_THRESHOLD: 0.8
+          LOW_CONFIDENCE_THRESHOLD: 0.3
+        description: TARGET_LOSS_HANDLING parameter
+        reboot_required: false
+      MAX_SAFETY_VIOLATIONS:
+        type: integer
+        default: 5
+        description: Max consecutive safety violations before halt
+        reboot_required: false
+        min: 0
+        max: 100
+      SAFETY_RETURN_SPEED:
+        type: float
+        default: 3.0
+        description: Velocity when returning to safe altitude (m/s)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m/s
+      EMERGENCY_STOP_ENABLED:
+        type: boolean
+        default: true
+        description: Safety Behavior
+        reboot_required: false
+      ANGLE_DEADZONE:
+        type: float
+        default: 2.0
+        description: Ignore gimbal movements below this (degrees)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      TRANSFORMATION_VALIDATION:
+        type: boolean
+        default: true
+        description: Validate coordinate transformations
+        reboot_required: false
+      NEUTRAL_PITCH_ANGLE:
+        type: float
+        default: 0.0
+        description: Neutral pitch for HORIZONTAL mount only (degrees)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: deg
+      PITCH_VELOCITY_SCALING:
+        type: float
+        default: 0.15
+        description: Pitch error to velocity scaling factor
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      PITCH_DEADZONE_DEGREES:
+        type: float
+        default: 2.0
+        description: Pitch deadzone to prevent jitter (degrees)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      MAX_ROLL_ANGLE:
+        type: float
+        default: 90.0
+        description: degrees - max roll (bank)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: bank
+      MAX_PITCH_ANGLE:
+        type: float
+        default: 90.0
+        description: degrees - max pitch (nose down)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: nose down
+      INVERT_LATERAL_CONTROL:
+        type: boolean
+        default: false
+        description: Invert lateral control for different gimbal orientations
+        reboot_required: false
+      INVERT_VERTICAL_CONTROL:
+        type: boolean
+        default: true
+        description: Invert vertical control for different gimbal orientations
+        reboot_required: false
+      ROLL_RIGHT_SIGN:
+        type: string
+        default: POSITIVE
+        description: '"POSITIVE" if look_right=positive_roll, "NEGATIVE" if look_right=negative_roll'
+        reboot_required: false
+      DEFAULT_THRUST:
+        type: float
+        default: 0.5
+        description: Default thrust for attitude rate control mode
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      UPDATE_RATE:
+        type: float
+        default: 20.0
+        description: Hz - control loop frequency
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: hz
+      COMMAND_SMOOTHING_ENABLED:
+        type: boolean
+        default: true
+        description: Enable velocity smoothing
+        reboot_required: false
+      SMOOTHING_FACTOR:
+        type: float
+        default: 0.8
+        description: EMA coefficient (0-1, higher=smoother)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0-1, higher=smoother
+  GM_VELOCITY_VECTOR:
+    display_name: Gimbal Velocity Vector
+    category: follower
+    icon: control_camera
+    parameters:
+      MOUNT_TYPE:
+        type: string
+        default: HORIZONTAL
+        description: 'Options: "VERTICAL", "HORIZONTAL", "TILTED_45"'
+        reboot_required: false
+      MIN_VELOCITY:
+        type: float
+        default: 0.0
+        description: m/s - minimum pursuit speed (prevents stalling)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: prevents stalling
+      MAX_VELOCITY:
+        type: float
+        default: 0.5
+        description: m/s - Overall magnitude limit
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: m/s
+      RAMP_ACCELERATION:
+        type: float
+        default: 0.25
+        description: m/s² - velocity ramp rate (smooth acceleration)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: smooth acceleration
+      INITIAL_VELOCITY:
+        type: float
+        default: 0.0
+        description: m/s - starting velocity (0 = smooth start)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0 = smooth start
+      ENABLE_ALTITUDE_CONTROL:
+        type: boolean
+        default: false
+        description: Enable vertical velocity control
+        reboot_required: false
+      ENABLE_YAW_CONTROL:
+        type: boolean
+        default: false
+        description: 🔄 Drone yaw (heading) control
+        reboot_required: false
+      YAW_RATE_GAIN:
+        type: float
+        default: 0.5
+        description: Yaw rate proportional gain (if enabled)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: if enabled
+      ANGLE_DEADZONE_DEG:
+        type: float
+        default: 2.0
+        description: Ignore gimbal movements below this threshold (degrees)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      ANGLE_SMOOTHING_ALPHA:
+        type: float
+        default: 0.7
+        description: EMA filter coefficient (0-1, higher = smoother)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0-1, higher = smoother
+      ALTITUDE_SAFETY_ENABLED:
+        type: boolean
+        default: true
+        description: Enable altitude enforcement
+        reboot_required: false
+      ALTITUDE_CHECK_INTERVAL:
+        type: float
+        default: 1.0
+        description: seconds - 100ms safety checks
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: s
+      RTL_ON_ALTITUDE_VIOLATION:
+        type: boolean
+        default: false
+        description: Trigger RTL on violation
+        reboot_required: false
+      EMERGENCY_STOP_ENABLED:
+        type: boolean
+        default: true
+        description: Safety Behavior
+        reboot_required: false
+      MAX_SAFETY_VIOLATIONS:
+        type: integer
+        default: 5
+        description: Max consecutive safety violations before halt
+        reboot_required: false
+        min: 0
+        max: 100
+      TARGET_LOSS_TIMEOUT:
+        type: float
+        default: 3.0
+        description: seconds - before executing action
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: s
+      ENABLE_VELOCITY_DECAY:
+        type: boolean
+        default: true
+        description: Gradually reduce velocity during loss
+        reboot_required: false
+      VELOCITY_DECAY_RATE:
+        type: float
+        default: 0.5
+        description: m/s² - deceleration rate during target loss
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: m
+      UPDATE_RATE:
+        type: float
+        default: 20.0
+        description: Hz - control loop frequency
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: hz
+      COMMAND_SMOOTHING_ENABLED:
+        type: boolean
+        default: true
+        description: Enable velocity smoothing
+        reboot_required: false
+      SMOOTHING_FACTOR:
+        type: float
+        default: 0.8
+        description: EMA coefficient (0-1, higher=smoother)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0-1, higher=smoother
+      MOUNT_ROLL_OFFSET_DEG:
+        type: float
+        default: 0.0
+        description: Manual roll offset (degrees)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: deg
+      MOUNT_PITCH_OFFSET_DEG:
+        type: float
+        default: 0.0
+        description: Manual pitch offset (degrees)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: deg
+      MOUNT_YAW_OFFSET_DEG:
+        type: float
+        default: 0.0
+        description: Manual yaw offset (degrees)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: deg
+      INVERT_GIMBAL_ROLL:
+        type: boolean
+        default: false
+        description: Invert roll axis
+        reboot_required: false
+      INVERT_GIMBAL_PITCH:
+        type: boolean
+        default: false
+        description: Invert pitch axis
+        reboot_required: false
+      INVERT_GIMBAL_YAW:
+        type: boolean
+        default: false
+        description: Invert yaw axis
+        reboot_required: false
+  MC_VELOCITY_CHASE:
+    display_name: MC Velocity Chase
+    category: follower
+    icon: sports_motorsports
+    parameters:
+      INITIAL_FORWARD_VELOCITY:
+        type: float
+        default: 0.0
+        description: m/s - starting velocity
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: m/s
+      MAX_FORWARD_VELOCITY:
+        type: float
+        default: 0.5
+        description: m/s - maximum chase speed (conservative default)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: conservative default
+      FORWARD_RAMP_RATE:
+        type: float
+        default: 0.5
+        description: m/s^2 - acceleration rate (smooth 4s ramp)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: smooth 4s ramp
+      RAMP_DOWN_ON_TARGET_LOSS:
+        type: boolean
+        default: true
+        description: Gradually reduce rates on loss
+        reboot_required: false
+      TARGET_LOSS_TIMEOUT:
+        type: float
+        default: 2.0
+        description: seconds - before executing action
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: s
+      TARGET_LOSS_STOP_VELOCITY:
+        type: float
+        default: 0.0
+        description: m/s - velocity on target loss (0.0 = stop)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0 = stop
+      TARGET_LOSS_COORDINATE_THRESHOLD:
+        type: integer
+        default: 990
+        description: Lost target detection threshold
+        reboot_required: false
+        min: 0
+        max: 10000
+      ENABLE_ALTITUDE_CONTROL:
+        type: boolean
+        default: false
+        description: Enable vertical velocity control
+        reboot_required: false
+      LATERAL_GUIDANCE_MODE:
+        type: string
+        default: coordinated_turn
+        description: yaw_to_target | crab_strafe
+        reboot_required: false
+      GUIDANCE_MODE_SWITCH_VELOCITY:
+        type: float
+        default: 3.0
+        description: m/s - auto-switch threshold
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m/s
+      ENABLE_AUTO_MODE_SWITCHING:
+        type: boolean
+        default: false
+        description: Auto-switch based on LOS rate/distance
+        reboot_required: false
+      ALTITUDE_SAFETY_ENABLED:
+        type: boolean
+        default: true
+        description: Enable altitude enforcement
+        reboot_required: false
+      MIN_ALTITUDE:
+        type: float
+        default: 5.0
+        description: m - Absolute minimum safe altitude
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m
+      MAX_ALTITUDE:
+        type: float
+        default: 50.0
+        description: m - Absolute maximum altitude
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m
+      ALTITUDE_CHECK_INTERVAL:
+        type: float
+        default: 0.1
+        description: seconds - 100ms safety checks
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: s
+      RTL_ON_ALTITUDE_VIOLATION:
+        type: boolean
+        default: false
+        description: Trigger RTL on violation
+        reboot_required: false
+      EMERGENCY_STOP_ENABLED:
+        type: boolean
+        default: false
+        description: Safety Behavior
+        reboot_required: false
+      MAX_TRACKING_ERROR:
+        type: float
+        default: 1.5
+        description: Max normalized error before limiting
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      VELOCITY_SMOOTHING_ENABLED:
+        type: boolean
+        default: true
+        description: Enable velocity command smoothing
+        reboot_required: false
+      SMOOTHING_FACTOR:
+        type: float
+        default: 0.8
+        description: EMA coefficient (0-1, higher=smoother)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0-1, higher=smoother
+      MIN_FORWARD_VELOCITY_THRESHOLD:
+        type: float
+        default: 0.2
+        description: m/s - minimum velocity to maintain (important if using a fixedwing or VTOL)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: important if using a fixedwing or vtol
+      RAMP_UPDATE_RATE:
+        type: float
+        default: 10.0
+        description: Hz - forward velocity update frequency
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: hz
+      PID_UPDATE_RATE:
+        type: float
+        default: 20.0
+        description: Hz - tracking PID update frequency
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: hz
+      ENABLE_ADAPTIVE_DIVE_CLIMB:
+        type: boolean
+        default: false
+        description: Master enable/disable (off by default for stability)
+        reboot_required: false
+        unit: off by default for stability
+      ADAPTIVE_SMOOTHING_ALPHA:
+        type: float
+        default: 0.2
+        description: EMA smoothing factor (0.1-0.5)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.1-0.5
+      ADAPTIVE_WARMUP_FRAMES:
+        type: integer
+        default: 10
+        description: Frames to ignore on startup (5-15)
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: 5-15
+      ADAPTIVE_RATE_THRESHOLD:
+        type: float
+        default: 5.0
+        description: Pixels/sec error threshold to trigger correction
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: px
+      ADAPTIVE_MAX_CORRECTION:
+        type: float
+        default: 1.0
+        description: Maximum velocity correction (m/s)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: m/s
+      ADAPTIVE_CORRECTION_GAIN:
+        type: float
+        default: 0.3
+        description: Proportional gain on rate error (0.1-0.8)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.1-0.8
+      ADAPTIVE_MIN_CONFIDENCE:
+        type: float
+        default: 0.6
+        description: Minimum tracker confidence to activate (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+      ADAPTIVE_FWD_COUPLING_ENABLED:
+        type: boolean
+        default: false
+        description: Allow v_fwd adjustments (in addition to v_down)
+        reboot_required: false
+        unit: in addition to v_down
+      ADAPTIVE_FWD_COUPLING_GAIN:
+        type: float
+        default: 0.1
+        description: v_fwd adjustment gain (0.05-0.2)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.05-0.2
+      PIXEL_TO_RATE_CALIBRATION:
+        type: float
+        default: 0.05
+        description: 'Calibration factor: meters/sec per pixels/sec'
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: s
+      ADAPTIVE_OSCILLATION_DETECTION:
+        type: boolean
+        default: true
+        description: Enable oscillation detection (recommended)
+        reboot_required: false
+        unit: recommended
+      ADAPTIVE_MAX_SIGN_CHANGES:
+        type: integer
+        default: 3
+        description: Max sign changes in 2 seconds before disable
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: s
+      ADAPTIVE_DIVERGENCE_TIMEOUT:
+        type: float
+        default: 5.0
+        description: Seconds - disable if error grows despite corrections
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: s
+      ENABLE_PITCH_COMPENSATION:
+        type: boolean
+        default: false
+        description: Master enable/disable (off by default for safety)
+        reboot_required: false
+        unit: off by default for safety
+      PITCH_COMPENSATION_MODEL:
+        type: string
+        default: linear_velocity
+        description: linear_velocity | linear_angle | quadratic
+        reboot_required: false
+      PITCH_COMPENSATION_GAIN:
+        type: float
+        default: 0.05
+        description: Compensation aggressiveness (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+      PITCH_DATA_SMOOTHING_ALPHA:
+        type: float
+        default: 0.7
+        description: EMA filter (0.6-0.8 recommended)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.6-0.8 recommended
+      PITCH_DATA_MAX_AGE:
+        type: float
+        default: 0.5
+        description: Max data age in seconds
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: s
+      PITCH_COMPENSATION_MIN_VELOCITY:
+        type: float
+        default: 1.0
+        description: Min v_fwd to activate (m/s)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: m/s
+      PITCH_COMPENSATION_DEADBAND:
+        type: float
+        default: 2.0
+        description: Ignore pitch below this (degrees)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      PITCH_COMPENSATION_MAX_ANGLE:
+        type: float
+        default: 45.0
+        description: Safety limit (degrees)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      PITCH_COMPENSATION_MAX_CORRECTION:
+        type: float
+        default: 0.3
+        description: Max compensation magnitude (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+      PITCH_COMPENSATION_ADAPTIVE_GAIN:
+        type: boolean
+        default: false
+        description: 'Future: adaptive gain tuning'
+        reboot_required: false
+  MC_VELOCITY_POSITION:
+    display_name: MC Velocity Position
+    category: follower
+    icon: place
+    parameters:
+      ENABLE_ALTITUDE_CONTROL:
+        type: boolean
+        default: false
+        description: Enable vertical velocity control
+        reboot_required: false
+      ENABLE_YAW_CONTROL:
+        type: boolean
+        default: true
+        description: 🔄 Drone yaw (heading) control
+        reboot_required: false
+      MAX_VERTICAL_VELOCITY:
+        type: float
+        default: 3.0
+        description: Max vertical velocity (m/s)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m/s
+      MAX_YAW_RATE:
+        type: float
+        default: 10.0
+        description: deg/s
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      YAW_CONTROL_THRESHOLD:
+        type: float
+        default: 0.02
+        description: Activation threshold
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      TARGET_LOST_TIMEOUT:
+        type: float
+        default: 3.0
+        description: Target loss timeout (seconds)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: s
+      CONTROL_UPDATE_RATE:
+        type: float
+        default: 20.0
+        description: Control loop frequency (Hz)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: hz
+      COMMAND_SMOOTHING_ENABLED:
+        type: boolean
+        default: true
+        description: Enable velocity smoothing
+        reboot_required: false
+      SMOOTHING_FACTOR:
+        type: float
+        default: 0.8
+        description: EMA coefficient (0-1, higher=smoother)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0-1, higher=smoother
+  MC_VELOCITY_DISTANCE:
+    display_name: MC Velocity Distance
+    category: follower
+    icon: straighten
+    parameters:
+      ENABLE_YAW_CONTROL:
+        type: boolean
+        default: false
+        description: 🔄 Drone yaw (heading) control
+        reboot_required: false
+      ENABLE_ALTITUDE_CONTROL:
+        type: boolean
+        default: false
+        description: Enable vertical velocity control
+        reboot_required: false
+      MAX_VERTICAL_VELOCITY:
+        type: float
+        default: 5.0
+        description: Max vertical velocity (m/s)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m/s
+      MAX_LATERAL_VELOCITY:
+        type: float
+        default: 10.0
+        description: Max lateral velocity (m/s)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m/s
+      MAX_YAW_RATE:
+        type: float
+        default: 10.0
+        description: deg/s
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      YAW_CONTROL_THRESHOLD:
+        type: float
+        default: 0.3
+        description: Activation threshold
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      TARGET_LOST_TIMEOUT:
+        type: float
+        default: 3.0
+        description: Target loss timeout (seconds)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: s
+      CONTROL_UPDATE_RATE:
+        type: float
+        default: 20.0
+        description: Control loop frequency (Hz)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: hz
+      COMMAND_SMOOTHING_ENABLED:
+        type: boolean
+        default: true
+        description: Enable velocity smoothing
+        reboot_required: false
+      SMOOTHING_FACTOR:
+        type: float
+        default: 0.8
+        description: EMA coefficient (0-1, higher=smoother)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0-1, higher=smoother
+      DISTANCE_HOLD_ENABLED:
+        type: boolean
+        default: true
+        description: Maintain constant forward distance
+        reboot_required: false
+      DISTANCE_HOLD_TOLERANCE:
+        type: float
+        default: 0.1
+        description: Distance tolerance (normalized)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: normalized
+  FW_ATTITUDE_RATE:
+    display_name: Fixed-Wing Attitude Rate
+    category: follower
+    icon: flight
+    parameters:
+      MIN_AIRSPEED:
+        type: float
+        default: 12.0
+        description: m/s - stall speed + safety margin
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m/s
+      CRUISE_AIRSPEED:
+        type: float
+        default: 18.0
+        description: m/s - optimal efficiency airspeed
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m/s
+      MAX_AIRSPEED:
+        type: float
+        default: 30.0
+        description: m/s - structural/performance limit
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m/s
+      STALL_MARGIN_BUFFER:
+        type: float
+        default: 3.0
+        description: m/s - safety buffer above stall speed
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m/s
+      MAX_BANK_ANGLE:
+        type: float
+        default: 35.0
+        description: degrees
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      MAX_LOAD_FACTOR:
+        type: float
+        default: 2.5
+        description: g - structural load factor limit
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      MAX_PITCH_ANGLE:
+        type: float
+        default: 25.0
+        description: degrees - max pitch (nose down)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: nose down
+      MIN_PITCH_ANGLE:
+        type: float
+        default: -20.0
+        description: degrees - pitch down limit
+        reboot_required: false
+        min: -10000.0
+        max: 10000.0
+        step: 0.1
+        unit: deg
+      MAX_ROLL_RATE:
+        type: float
+        default: 45.0
+        description: deg/s
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      MAX_PITCH_RATE:
+        type: float
+        default: 20.0
+        description: deg/s
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      MAX_YAW_RATE:
+        type: float
+        default: 25.0
+        description: deg/s
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      L1_DISTANCE:
+        type: float
+        default: 50.0
+        description: m - lookahead distance
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m
+      L1_DAMPING:
+        type: float
+        default: 0.75
+        description: damping ratio (0.7-1.0 recommended)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.7-1.0 recommended
+      ENABLE_L1_ADAPTIVE:
+        type: boolean
+        default: false
+        description: Adapt L1 distance to current airspeed
+        reboot_required: false
+      L1_MIN_DISTANCE:
+        type: float
+        default: 20.0
+        description: m - minimum L1 for low speed
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m
+      L1_MAX_DISTANCE:
+        type: float
+        default: 100.0
+        description: m - maximum L1 for high speed
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m
+      ENABLE_TECS:
+        type: boolean
+        default: true
+        description: Use TECS energy management (recommended)
+        reboot_required: false
+        unit: recommended
+      TECS_TIME_CONST:
+        type: float
+        default: 5.0
+        description: seconds - energy response time constant
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: s
+      TECS_PITCH_DAMPING:
+        type: float
+        default: 1.0
+        description: pitch axis damping factor
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      TECS_THROTTLE_DAMPING:
+        type: float
+        default: 0.5
+        description: throttle axis damping factor
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      TECS_SPE_WEIGHT:
+        type: float
+        default: 1.0
+        description: altitude vs speed priority (>1 = altitude priority)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: '>1 = altitude priority'
+      MIN_THRUST:
+        type: float
+        default: 0.2
+        description: 0-1
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      MAX_THRUST:
+        type: float
+        default: 1.0
+        description: 0-1
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      CRUISE_THRUST:
+        type: float
+        default: 0.6
+        description: typical cruise throttle
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      THRUST_SLEW_RATE:
+        type: float
+        default: 0.5
+        description: max throttle change per second (smooth transitions)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: smooth transitions
+      ENABLE_COORDINATED_TURN:
+        type: boolean
+        default: true
+        description: Calculate bank from yaw rate (recommended)
+        reboot_required: false
+        unit: recommended
+      TURN_COORDINATION_GAIN:
+        type: float
+        default: 1.0
+        description: Coordination aggressiveness
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      SLIP_ANGLE_LIMIT:
+        type: float
+        default: 5.0
+        description: degrees - max sideslip allowed
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      ENABLE_ALTITUDE_SAFETY:
+        type: boolean
+        default: true
+        description: Enable altitude monitoring
+        reboot_required: false
+      MIN_ALTITUDE:
+        type: float
+        default: 30.0
+        description: m - Absolute minimum safe altitude
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m
+      MAX_ALTITUDE:
+        type: float
+        default: 400.0
+        description: m - Absolute maximum altitude
+        reboot_required: false
+        min: -10000.0
+        max: 10000.0
+        step: 0.1
+        unit: m
+      ALTITUDE_CHECK_INTERVAL:
+        type: float
+        default: 0.1
+        description: seconds - 100ms safety checks
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: s
+      RTL_ON_ALTITUDE_VIOLATION:
+        type: boolean
+        default: true
+        description: Trigger RTL on violation
+        reboot_required: false
+      ENABLE_STALL_PROTECTION:
+        type: boolean
+        default: true
+        description: Monitor airspeed for stall conditions
+        reboot_required: false
+      STALL_RECOVERY_PITCH:
+        type: float
+        default: -5.0
+        description: degrees - nose down for recovery
+        reboot_required: false
+        min: -10000.0
+        max: 10000.0
+        step: 0.1
+        unit: deg
+      STALL_RECOVERY_THROTTLE:
+        type: float
+        default: 1.0
+        description: full throttle for energy recovery
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      TARGET_LOSS_TIMEOUT:
+        type: float
+        default: 3.0
+        description: seconds - before executing action
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: s
+      TARGET_LOSS_ACTION:
+        type: string
+        default: orbit
+        description: hover, orbit, stop, rtl, continue
+        reboot_required: false
+      ORBIT_RADIUS:
+        type: float
+        default: 100.0
+        description: m - loiter radius on target loss
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m
+      TARGET_LOSS_COORDINATE_THRESHOLD:
+        type: integer
+        default: 990
+        description: Lost target detection threshold
+        reboot_required: false
+        min: 0
+        max: 10000
+      CONTROL_UPDATE_RATE:
+        type: float
+        default: 20.0
+        description: Control loop frequency (Hz)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: hz
+      ENABLE_COMMAND_SMOOTHING:
+        type: boolean
+        default: true
+        description: Apply EMA smoothing to commands
+        reboot_required: false
+      SMOOTHING_FACTOR:
+        type: float
+        default: 0.85
+        description: EMA coefficient (0-1, higher=smoother)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0-1, higher=smoother
+  MC_VELOCITY:
+    display_name: MC Velocity
+    category: follower
+    icon: speed
+    parameters:
+      LATERAL_GUIDANCE_MODE:
+        type: string
+        default: yaw_to_target
+        description: yaw_to_target | crab_strafe
+        reboot_required: false
+      ENABLE_AUTO_MODE_SWITCHING:
+        type: boolean
+        default: false
+        description: Auto-switch based on LOS rate/distance
+        reboot_required: false
+      AUTO_SWITCH_DISTANCE_THRESHOLD:
+        type: float
+        default: 20.0
+        description: meters - close = crab_strafe
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      FORWARD_VELOCITY_MODE:
+        type: string
+        default: constant
+        description: constant | pn | los
+        reboot_required: false
+      INITIAL_FORWARD_VELOCITY:
+        type: float
+        default: 0.0
+        description: m/s - starting velocity
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: m/s
+      MAX_FORWARD_VELOCITY:
+        type: float
+        default: 2.0
+        description: m/s - maximum chase speed (conservative default)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: conservative default
+      FORWARD_RAMP_RATE:
+        type: float
+        default: 0.5
+        description: m/s^2 - acceleration rate (smooth 4s ramp)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: smooth 4s ramp
+      PN_NAVIGATION_CONSTANT:
+        type: float
+        default: 4.0
+        description: N (3-5 typical for intercept)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: 3-5 typical for intercept
+      PN_BASE_VELOCITY:
+        type: float
+        default: 2.0
+        description: m/s - base velocity for PN mode (conservative)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: conservative
+      PN_LOS_SMOOTHING_ALPHA:
+        type: float
+        default: 0.3
+        description: EMA filter for LOS rate noise
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      PN_MAX_VELOCITY_SCALE:
+        type: float
+        default: 2.0
+        description: Maximum velocity multiplier
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      LOS_DISTANCE_GAIN:
+        type: float
+        default: 0.5
+        description: Velocity gain for distance
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      LOS_MAX_VELOCITY:
+        type: float
+        default: 2.0
+        description: m/s - max LOS velocity (conservative default)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: conservative default
+      TARGET_LOSS_TIMEOUT:
+        type: float
+        default: 2.0
+        description: seconds - before executing action
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: s
+      TARGET_LOSS_ACTION:
+        type: string
+        default: hover
+        description: hover, orbit, stop, rtl, continue
+        reboot_required: false
+      TARGET_LOSS_COORDINATE_THRESHOLD:
+        type: integer
+        default: 990
+        description: Lost target detection threshold
+        reboot_required: false
+        min: 0
+        max: 10000
+      RAMP_DOWN_ON_TARGET_LOSS:
+        type: boolean
+        default: true
+        description: Gradually reduce rates on loss
+        reboot_required: false
+      SLOW_FORWARD_VELOCITY:
+        type: float
+        default: 1.0
+        description: m/s - velocity for slow_forward action
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: m/s
+      ENABLE_ALTITUDE_SAFETY:
+        type: boolean
+        default: true
+        description: Enable altitude monitoring
+        reboot_required: false
+      MIN_ALTITUDE:
+        type: float
+        default: 5.0
+        description: m - Absolute minimum safe altitude
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m
+      MAX_ALTITUDE:
+        type: float
+        default: 100.0
+        description: m - Absolute maximum altitude
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m
+      ALTITUDE_CHECK_INTERVAL:
+        type: float
+        default: 0.1
+        description: seconds - 100ms safety checks
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: s
+      RTL_ON_ALTITUDE_VIOLATION:
+        type: boolean
+        default: true
+        description: Trigger RTL on violation
+        reboot_required: false
+      ENABLE_VELOCITY_MAGNITUDE_LIMIT:
+        type: boolean
+        default: true
+        description: Enable magnitude limiting
+        reboot_required: false
+      MAX_VELOCITY_MAGNITUDE:
+        type: float
+        default: 3.0
+        description: m/s - total vector magnitude limit (conservative)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: conservative
+      VELOCITY_SMOOTHING_ENABLED:
+        type: boolean
+        default: true
+        description: Enable velocity command smoothing
+        reboot_required: false
+      SMOOTHING_FACTOR:
+        type: float
+        default: 0.8
+        description: EMA coefficient (0-1, higher=smoother)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0-1, higher=smoother
+      EMERGENCY_STOP_ENABLED:
+        type: boolean
+        default: true
+        description: Safety Behavior
+        reboot_required: false
+      MAX_TRACKING_ERROR:
+        type: float
+        default: 1.5
+        description: Max normalized error before limiting
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      ENABLE_ALTITUDE_CONTROL:
+        type: boolean
+        default: true
+        description: Enable vertical velocity control
+        reboot_required: false
+      CONTROL_UPDATE_RATE:
+        type: float
+        default: 20.0
+        description: Control loop frequency (Hz)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: hz
+  MC_ATTITUDE_RATE:
+    display_name: MC Attitude Rate
+    category: follower
+    icon: rotate_right
+    parameters:
+      GUIDANCE_MODE:
+        type: string
+        default: direct_rate
+        description: direct_rate | png
+        reboot_required: false
+      MAX_PITCH_RATE:
+        type: float
+        default: 45.0
+        description: deg/s
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      MAX_ROLL_RATE:
+        type: float
+        default: 45.0
+        description: deg/s
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      MAX_YAW_RATE:
+        type: float
+        default: 60.0
+        description: deg/s
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      MAX_PITCH_ANGLE:
+        type: float
+        default: 35.0
+        description: degrees - max pitch (nose down)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: nose down
+      MAX_ROLL_ANGLE:
+        type: float
+        default: 35.0
+        description: degrees - max roll (bank)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: bank
+      MAX_BANK_ANGLE:
+        type: float
+        default: 30.0
+        description: degrees
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      HOVER_THRUST:
+        type: float
+        default: 0.5
+        description: Baseline hover thrust (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+      MIN_THRUST:
+        type: float
+        default: 0.1
+        description: 0-1
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      MAX_THRUST:
+        type: float
+        default: 0.9
+        description: 0-1
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      ENABLE_PITCH_THRUST_COMPENSATION:
+        type: boolean
+        default: true
+        description: Compensate for thrust loss at pitch angles
+        reboot_required: false
+      PITCH_COMPENSATION_GAIN:
+        type: float
+        default: 0.5
+        description: Compensation aggressiveness (0.0-1.0)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0.0-1.0
+      ENABLE_ALTITUDE_HOLD:
+        type: boolean
+        default: true
+        description: Enable altitude PID for hover
+        reboot_required: false
+      TARGET_ALTITUDE:
+        type: float
+        default: 15.0
+        description: meters - default target altitude
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      ALTITUDE_TOLERANCE:
+        type: float
+        default: 1.0
+        description: meters - acceptable altitude error
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      PN_NAVIGATION_CONSTANT:
+        type: float
+        default: 4.0
+        description: N (3-5 typical for intercept)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: 3-5 typical for intercept
+      PN_LOS_SMOOTHING_ALPHA:
+        type: float
+        default: 0.3
+        description: EMA filter for LOS rate noise
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      PN_CLOSING_VELOCITY:
+        type: float
+        default: 5.0
+        description: m/s - assumed closing velocity
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m/s
+      PN_MIN_ACCELERATION:
+        type: float
+        default: 0.5
+        description: m/s² - minimum command
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: m
+      PN_MAX_ACCELERATION:
+        type: float
+        default: 15.0
+        description: m/s² - maximum command
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m
+      ENABLE_YAW_ERROR_GATING:
+        type: boolean
+        default: true
+        description: Enable yaw alignment check
+        reboot_required: false
+      YAW_ERROR_THRESHOLD:
+        type: float
+        default: 0.3
+        description: degrees
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: deg
+      YAW_GATING_PITCH_SCALE:
+        type: float
+        default: 0.3
+        description: Pitch scaling when yaw misaligned
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      ENABLE_COORDINATED_TURNS:
+        type: boolean
+        default: true
+        description: Enable roll-yaw coordination
+        reboot_required: false
+      TURN_COORDINATION_GAIN:
+        type: float
+        default: 1.0
+        description: Coordination aggressiveness
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      TARGET_LOSS_TIMEOUT:
+        type: float
+        default: 2.0
+        description: seconds - before executing action
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: s
+      TARGET_LOSS_ACTION:
+        type: string
+        default: hover
+        description: hover, orbit, stop, rtl, continue
+        reboot_required: false
+      TARGET_LOSS_COORDINATE_THRESHOLD:
+        type: integer
+        default: 990
+        description: Lost target detection threshold
+        reboot_required: false
+        min: 0
+        max: 10000
+      RAMP_DOWN_ON_TARGET_LOSS:
+        type: boolean
+        default: true
+        description: Gradually reduce rates on loss
+        reboot_required: false
+      ENABLE_ALTITUDE_SAFETY:
+        type: boolean
+        default: true
+        description: Enable altitude monitoring
+        reboot_required: false
+      MIN_ALTITUDE:
+        type: float
+        default: 5.0
+        description: m - Absolute minimum safe altitude
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m
+      MAX_ALTITUDE:
+        type: float
+        default: 100.0
+        description: m - Absolute maximum altitude
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m
+      RTL_ON_ALTITUDE_VIOLATION:
+        type: boolean
+        default: true
+        description: Trigger RTL on violation
+        reboot_required: false
+      RATE_SMOOTHING_ENABLED:
+        type: boolean
+        default: true
+        description: Enable rate command smoothing
+        reboot_required: false
+      SMOOTHING_FACTOR:
+        type: float
+        default: 0.85
+        description: EMA coefficient (0-1, higher=smoother)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: 0-1, higher=smoother
+      EMERGENCY_STOP_ENABLED:
+        type: boolean
+        default: true
+        description: Safety Behavior
+        reboot_required: false
+      MAX_TRACKING_ERROR:
+        type: float
+        default: 1.5
+        description: Max normalized error before limiting
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      CONTROL_UPDATE_RATE:
+        type: float
+        default: 50.0
+        description: Control loop frequency (Hz)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: hz
+  MC_VELOCITY_GROUND:
+    display_name: MC Velocity Ground
+    category: follower
+    icon: terrain
+    parameters:
+      TARGET_POSITION_MODE:
+        type: string
+        default: center
+        description: 'Target positioning: "center", "initial"'
+        reboot_required: false
+      MAX_VELOCITY_X:
+        type: float
+        default: 2.0
+        description: Max lateral velocity (m/s) - conservative
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m/s
+      MAX_VELOCITY_Y:
+        type: float
+        default: 2.0
+        description: Max longitudinal velocity (m/s) - conservative
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m/s
+      MAX_RATE_OF_DESCENT:
+        type: float
+        default: 1.0
+        description: Max descent rate (m/s) - conservative
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: m/s
+      ENABLE_DESCEND_TO_TARGET:
+        type: boolean
+        default: false
+        description: Enable automatic descent to target
+        reboot_required: false
+      MIN_ALTITUDE:
+        type: float
+        default: 40.0
+        description: m - Absolute minimum safe altitude
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: m
+      IS_CAMERA_GIMBALED:
+        type: boolean
+        default: false
+        description: Camera stabilization status
+        reboot_required: false
+      BASE_ADJUSTMENT_FACTOR_X:
+        type: float
+        default: 0.1
+        description: Base correction factor for roll (X-axis)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: x-axis
+      BASE_ADJUSTMENT_FACTOR_Y:
+        type: float
+        default: 0.1
+        description: Base correction factor for pitch (Y-axis)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: y-axis
+      ALTITUDE_FACTOR:
+        type: float
+        default: 0.005
+        description: Altitude scaling factor for distance compensation
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      ENABLE_GAIN_SCHEDULING:
+        type: boolean
+        default: false
+        description: 📈 Altitude-based gain adjustment
+        reboot_required: false
+      GAIN_SCHEDULING_PARAMETER:
+        type: string
+        default: current_altitude
+        description: Parameter for gain scheduling
+        reboot_required: false
+      CONTROL_UPDATE_RATE:
+        type: float
+        default: 20.0
+        description: Control loop frequency (Hz)
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: hz
+      COORDINATE_CORRECTIONS_ENABLED:
+        type: boolean
+        default: true
+        description: Enable gimbal and altitude corrections
+        reboot_required: false
+      ERROR_LOGGING_ENABLED:
+        type: boolean
+        default: true
+        description: Enable detailed error logging
+        reboot_required: false
+  Detector:
+    display_name: Object Detector
+    category: detection
+    icon: search
+    parameters:
+      USE_DETECTOR:
+        type: boolean
+        default: true
+        description: 🔍 Object detection for tracker initialization/recovery
+        reboot_required: false
+      DETECTION_ALGORITHM:
+        type: string
+        default: TemplateMatching
+        description: or FeatureMatching, YOLO
+        reboot_required: false
+      TEMPLATE_MATCHING_METHOD:
+        type: string
+        default: TM_CCOEFF_NORMED
+        description: TEMPLATE_MATCHING_METHOD parameter
+        reboot_required: false
+      TEMPLATE_UPDATE_INTERVAL:
+        type: integer
+        default: 10
+        description: Frames between template updates
+        reboot_required: false
+        min: 0
+        max: 100
+      TEMPLATE_APPEARANCE_LEARNING_RATE:
+        type: float
+        default: 0.002
+        description: Template adaptation speed
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      TEMPLATE_MATCHING_SCALES:
+        type: array
+        default:
+        - 0.5
+        - 0.7
+        - 0.8
+        - 0.9
+        - 1.0
+        - 1.1
+        - 1.2
+        - 1.5
+        - 2.0
+        description: Multi-scale search (0.5x to 2x target size for drone scenarios)
+        reboot_required: false
+        item_type: number
+        min_items: 0
+        max_items: 20
+        unit: 0.5x to 2x target size for drone scenarios
+      TEMPLATE_MATCHING_THRESHOLD:
+        type: float
+        default: 0.7
+        description: Match confidence threshold
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      APPEARANCE_CONFIDENCE_THRESHOLD:
+        type: float
+        default: 0.7
+        description: Re-detection validation
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      TRACKER_CONFIDENCE_THRESHOLD_FOR_TEMPLATE_UPDATE:
+        type: float
+        default: 0.8
+        description: TRACKER_CONFIDENCE_THRESHOLD_FOR_TEMPLATE_UPDATE parameter
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      DEFAULT_FEATURE_EXTRACTION_ALGORITHM:
+        type: string
+        default: ORB
+        description: or SIFT, SURF
+        reboot_required: false
+      ORB_NFEATURES:
+        type: integer
+        default: 500
+        description: ORB_NFEATURES parameter
+        reboot_required: false
+        min: 0
+        max: 10000
+      ORB_MIN_MATCH_COUNT:
+        type: integer
+        default: 30
+        description: ORB_MIN_MATCH_COUNT parameter
+        reboot_required: false
+        min: 0
+        max: 100
+      RANSAC_REPROJECTION_THRESHOLD:
+        type: float
+        default: 10.0
+        description: RANSAC_REPROJECTION_THRESHOLD parameter
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      AUTO_REDETECT:
+        type: boolean
+        default: true
+        description: AUTO_REDETECT parameter
+        reboot_required: false
+      REDETECTION_SEARCH_RADIUS:
+        type: integer
+        default: 300
+        description: Pixels
+        reboot_required: false
+        min: 0
+        max: 10000
+        unit: px
+      MIN_SEARCH_RADIUS:
+        type: integer
+        default: 50
+        description: MIN_SEARCH_RADIUS parameter
+        reboot_required: false
+        min: 0
+        max: 100
+      UNCERTAINTY_SCALE_FACTOR:
+        type: float
+        default: 2.0
+        description: UNCERTAINTY_SCALE_FACTOR parameter
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      ESTIMATOR_UNCERTAINTY_THRESHOLD:
+        type: float
+        default: 1000.0
+        description: ESTIMATOR_UNCERTAINTY_THRESHOLD parameter
+        reboot_required: false
+        min: -10000.0
+        max: 10000.0
+        step: 0.1
+  GStreamerPipelines:
+    display_name: GStreamer Pipelines
+    category: network
+    icon: code
+    parameters:
+      USB_YUYV:
+        type: string
+        default: v4l2src device=/dev/video{device_id} ! video/x-raw,format=YUY2,width={width},height={height},framerate={fps}/1
+          ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true max-buffers=1 sync=false
+        description: USB camera pipelines
+        reboot_required: false
+      USB_MJPEG:
+        type: string
+        default: v4l2src device=/dev/video{device_id} ! image/jpeg,width={width},height={height},framerate={fps}/1 ! jpegdec
+          ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true max-buffers=1 sync=false
+        description: USB_MJPEG parameter
+        reboot_required: false
+      CSI_NVIDIA:
+        type: string
+        default: nvarguscamerasrc sensor-id={sensor_id} ! video/x-raw(memory:NVMM),width={width},height={height},format=NV12,framerate={fps}/1
+          ! nvvidconv flip-method={flip_method} ! video/x-raw,format=BGRx ! videoconvert ! video/x-raw,format=BGR ! appsink
+          drop=true sync=false
+        description: CSI camera pipelines
+        reboot_required: true
+      CSI_RPI:
+        type: string
+        default: libcamerasrc ! video/x-raw,width={width},height={height},framerate={fps}/1 ! videoconvert ! video/x-raw,format=BGR
+          ! appsink drop=true sync=false
+        description: CSI_RPI parameter
+        reboot_required: true
+      RTSP:
+        type: string
+        default: rtspsrc location={url} latency={latency} ! decodebin ! videoconvert ! video/x-raw,format=BGR ! videoscale
+          ! video/x-raw,width={width},height={height} ! appsink drop=true sync=false
+        description: Network stream pipelines
+        reboot_required: false
+      UDP:
+        type: string
+        default: udpsrc uri={url} ! application/x-rtp ! rtph264depay ! avdec_h264 ! videoconvert ! video/x-raw,format=BGR
+          ! videoscale ! video/x-raw,width={width},height={height} ! appsink drop=true sync=false
+        description: UDP parameter
+        reboot_required: false
+      HTTP:
+        type: string
+        default: souphttpsrc location={url} ! decodebin ! videoconvert ! video/x-raw,format=BGR ! videoscale ! video/x-raw,width={width},height={height}
+          ! appsink drop=true sync=false
+        description: HTTP parameter
+        reboot_required: false
+  FrameEstimation:
+    display_name: Frame Display
+    category: processing
+    icon: picture_in_picture
+    parameters:
+      FRAME_TITLE:
+        type: string
+        default: Video
+        description: Window title
+        reboot_required: false
+      SHOW_VIDEO_WINDOW:
+        type: boolean
+        default: false
+        description: true for debugging with display
+        reboot_required: false
+  Estimator:
+    display_name: State Estimator
+    category: processing
+    icon: insights
+    parameters:
+      USE_ESTIMATOR:
+        type: boolean
+        default: true
+        description: Enable/disable state estimation
+        reboot_required: false
+      ESTIMATOR_TYPE:
+        type: string
+        default: Kalman
+        description: 'Options: Kalman, None'
+        reboot_required: false
+      ESTIMATOR_HISTORY_LENGTH:
+        type: integer
+        default: 5
+        description: State history buffer
+        reboot_required: false
+        min: 0
+        max: 100
+      ESTIMATOR_PROCESS_NOISE_VARIANCE:
+        type: float
+        default: 10.0
+        description: Motion uncertainty
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      ESTIMATOR_MEASUREMENT_NOISE_VARIANCE:
+        type: float
+        default: 1.0
+        description: Sensor noise
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      ESTIMATOR_INITIAL_STATE_COVARIANCE:
+        type: array
+        default:
+        - 5
+        - 5
+        - 50
+        - 50
+        - 100
+        - 100
+        description: 'Initial covariance: [x, y, dx, dy, ddx, ddy]'
+        reboot_required: false
+        item_type: number
+        min_items: 0
+        max_items: 20
+      USE_ESTIMATOR_FOR_FOLLOWING:
+        type: boolean
+        default: true
+        description: Use predictions for control
+        reboot_required: false
+      ESTIMATED_POSITION_COLOR:
+        type: array
+        default:
+        - 255
+        - 0
+        - 0
+        description: 'Blue: tracking active'
+        reboot_required: false
+        item_type: number
+        min_items: 0
+        max_items: 20
+      ESTIMATION_ONLY_COLOR:
+        type: array
+        default:
+        - 0
+        - 165
+        - 255
+        description: 'Orange: prediction only'
+        reboot_required: false
+        item_type: number
+        min_items: 0
+        max_items: 20
+  FramePreprocessor:
+    display_name: Frame Preprocessor
+    category: processing
+    icon: auto_fix_high
+    parameters:
+      ENABLE_PREPROCESSING:
+        type: boolean
+        default: true
+        description: 🎨 Image enhancement for better tracking
+        reboot_required: false
+      PREPROCESSING_USE_BLUR:
+        type: boolean
+        default: true
+        description: PREPROCESSING_USE_BLUR parameter
+        reboot_required: false
+      PREPROCESSING_BLUR_KERNEL_SIZE:
+        type: integer
+        default: 5
+        description: Must be odd (3, 5, 7...)
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: 3, 5, 7...
+      PREPROCESSING_USE_MEDIAN_BLUR:
+        type: boolean
+        default: false
+        description: PREPROCESSING_USE_MEDIAN_BLUR parameter
+        reboot_required: false
+      PREPROCESSING_MEDIAN_BLUR_KERNEL_SIZE:
+        type: integer
+        default: 5
+        description: PREPROCESSING_MEDIAN_BLUR_KERNEL_SIZE parameter
+        reboot_required: false
+        min: 0
+        max: 100
+      PREPROCESSING_USE_CLAHE:
+        type: boolean
+        default: true
+        description: Adaptive histogram equalization
+        reboot_required: false
+      PREPROCESSING_CLAHE_CLIP_LIMIT:
+        type: float
+        default: 2.0
+        description: Contrast limit
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      PREPROCESSING_CLAHE_TILE_GRID_SIZE:
+        type: integer
+        default: 8
+        description: Grid size (1-10)
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: 1-10
+      PREPROCESSING_COLOR_SPACE:
+        type: string
+        default: BGR
+        description: 'Options: BGR, GRAY, HSV, LAB'
+        reboot_required: false
+  Segmentation:
+    display_name: Segmentation
+    category: processing
+    icon: crop
+    parameters:
+      SEGMENTATION_ALGORITHMS:
+        type: array
+        default:
+        - GrabCut
+        - Watershed
+        - yolov8s-seg
+        - yolov8n-oiv7
+        - yolov8s-obb
+        - yolov11n
+        description: 🎭 Object segmentation for precise tracking
+        reboot_required: false
+        item_type: string
+      DEFAULT_SEGMENTATION_ALGORITHM:
+        type: string
+        default: yolov11n.pt
+        description: DEFAULT_SEGMENTATION_ALGORITHM parameter
+        reboot_required: false
+      USE_SEGMENTATION_FOR_TRACKING:
+        type: boolean
+        default: true
+        description: USE_SEGMENTATION_FOR_TRACKING parameter
+        reboot_required: false
+      MORPHOLOGICAL_KERNEL_SIZE:
+        type: integer
+        default: 5
+        description: MORPHOLOGICAL_KERNEL_SIZE parameter
+        reboot_required: false
+        min: 0
+        max: 100
+      DILATION_ITERATIONS:
+        type: integer
+        default: 2
+        description: DILATION_ITERATIONS parameter
+        reboot_required: false
+        min: 0
+        max: 100
+      EROSION_ITERATIONS:
+        type: integer
+        default: 1
+        description: EROSION_ITERATIONS parameter
+        reboot_required: false
+        min: 0
+        max: 100
+      SEGMENTATION_GRABCUT_ITER:
+        type: integer
+        default: 5
+        description: SEGMENTATION_GRABCUT_ITER parameter
+        reboot_required: false
+        min: 0
+        max: 100
+      SEGMENTATION_MIN_AREA:
+        type: integer
+        default: 500
+        description: Min segment area in pixels
+        reboot_required: false
+        min: 0
+        max: 10000
+        unit: px
+  YawControl:
+    display_name: Yaw Control
+    category: control
+    icon: rotate_right
+    parameters:
+      ENABLE_YAW_CONTROL:
+        type: boolean
+        default: false
+        description: 🔄 Drone yaw (heading) control
+        reboot_required: false
+      YAW_CONTROL_THRESHOLD:
+        type: float
+        default: 0.3
+        description: Activation threshold
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      YAW_LATERAL_BLEND_FACTOR:
+        type: float
+        default: 0.5
+        description: Blend yaw with lateral motion
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      YAW_DEAD_ZONE:
+        type: float
+        default: 0.2
+        description: Ignore small errors
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+  VerticalErrorRecalculation:
+    display_name: Vertical Error
+    category: processing
+    icon: height
+    parameters:
+      VERTICAL_RECALC_DELAY:
+        type: float
+        default: 0.1
+        description: Seconds
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: s
+      YAW_PITCH_SYNC_FACTOR:
+        type: float
+        default: 0.5
+        description: Coupling factor
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+  Gimbal:
+    display_name: Gimbal Control
+    category: control
+    icon: control_camera
+    parameters:
+      ENABLE_GIMBAL_PRIORITY:
+        type: boolean
+        default: true
+        description: Gimbal overrides body motion
+        reboot_required: false
+  AdaptiveControl:
+    display_name: Adaptive Control
+    category: control
+    icon: auto_fix_high
+    parameters:
+      ADAPTIVE_YAW_CONTROL:
+        type: boolean
+        default: false
+        description: Auto-tune yaw gains
+        reboot_required: false
+  ChaseFollower:
+    display_name: Chase Follower Limits
+    category: control
+    icon: speed
+    parameters:
+      MAX_ROLL_RATE:
+        type: float
+        default: 20.0
+        description: deg/s
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      MAX_PITCH_RATE:
+        type: float
+        default: 10.0
+        description: deg/s
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      MAX_YAW_RATE:
+        type: float
+        default: 10.0
+        description: deg/s
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: deg
+      MAX_THRUST:
+        type: float
+        default: 1.0
+        description: 0-1
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      MIN_THRUST:
+        type: float
+        default: 0.3
+        description: 0-1
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+      MIN_GROUND_SPEED:
+        type: integer
+        default: 0
+        description: m/s
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: m/s
+      MAX_GROUND_SPEED:
+        type: integer
+        default: 100
+        description: m/s
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: m/s
+      TARGET_SPEED:
+        type: integer
+        default: 60
+        description: m/s
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: m/s
+      MAX_BANK_ANGLE:
+        type: integer
+        default: 20
+        description: degrees
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: deg
+      YAW_ERROR_CHECK_ENABLED:
+        type: boolean
+        default: true
+        description: YAW_ERROR_CHECK_ENABLED parameter
+        reboot_required: false
+      YAW_ERROR_THRESHOLD:
+        type: integer
+        default: 20
+        description: degrees
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: deg
+      ALTITUDE_FAILSAFE_ENABLED:
+        type: boolean
+        default: false
+        description: ALTITUDE_FAILSAFE_ENABLED parameter
+        reboot_required: false
+  PID:
+    display_name: PID Controller
+    category: control
+    icon: tune
+    parameters:
+      PID_GAINS:
+        type: object
+        description: ⚙️ PID gains for each control axis All angular rates in deg/s (MAVSDK standard) One PID gain set per
+          physical axis - no duplicates
+        reboot_required: false
+        properties:
+          x:
+            type: object
+            default:
+              p: 4.5
+              i: 0.1
+              d: 1.5
+            description: Lateral position
+            reboot_required: false
+          y:
+            type: object
+            default:
+              p: 4.5
+              i: 0.1
+              d: 1.5
+            description: Longitudinal position
+            reboot_required: false
+          z:
+            type: object
+            default:
+              p: 2
+              i: 0.03
+              d: 0.05
+            description: Vertical position
+            reboot_required: false
+          rollspeed_deg_s:
+            type: object
+            default:
+              p: 1
+              i: 0.05
+              d: 0.2
+            description: Roll rate (deg/s)
+            reboot_required: false
+            unit: deg/s
+          pitchspeed_deg_s:
+            type: object
+            default:
+              p: 20
+              i: 0.1
+              d: 0.4
+            description: Pitch rate (deg/s)
+            reboot_required: false
+            unit: deg/s
+          yawspeed_deg_s:
+            type: object
+            default:
+              p: 0.9
+              i: 0.05
+              d: 0.1
+            description: Yaw rate (deg/s)
+            reboot_required: false
+            unit: deg/s
+          thrust:
+            type: object
+            default:
+              p: 0.1
+              i: 3
+              d: 1
+            description: thrust parameter
+            reboot_required: false
+          vel_body_right:
+            type: object
+            default:
+              p: 1.0
+              i: 0.02
+              d: 0.1
+            description: vel_body_right parameter
+            reboot_required: false
+          vel_body_down:
+            type: object
+            default:
+              p: 0.75
+              i: 0.05
+              d: 0.1
+            description: vel_body_down parameter
+            reboot_required: false
+          fw_roll_rate:
+            type: object
+            default:
+              p: 0.8
+              i: 0.1
+              d: 0.05
+            description: Roll rate inner loop
+            reboot_required: false
+          fw_pitch_rate:
+            type: object
+            default:
+              p: 0.6
+              i: 0.15
+              d: 0.03
+            description: Pitch rate (TECS output)
+            reboot_required: false
+            unit: tecs output
+          fw_yaw_rate:
+            type: object
+            default:
+              p: 0.5
+              i: 0.05
+              d: 0.02
+            description: Yaw rate (L1 output)
+            reboot_required: false
+            unit: l1 output
+          fw_throttle:
+            type: object
+            default:
+              p: 0.4
+              i: 0.2
+              d: 0.1
+            description: Throttle (TECS energy)
+            reboot_required: false
+            unit: tecs energy
+          fw_bank_angle:
+            type: object
+            default:
+              p: 2.0
+              i: 0.3
+              d: 0.2
+            description: Bank angle outer loop
+            reboot_required: false
+          mc_yawspeed_deg_s:
+            type: object
+            default:
+              p: 15.0
+              i: 0.5
+              d: 2.0
+            description: Yaw rate for YAW_TO_TARGET mode
+            reboot_required: false
+          mc_vel_body_right:
+            type: object
+            default:
+              p: 8.0
+              i: 0.2
+              d: 1.0
+            description: Lateral velocity for CRAB_STRAFE mode
+            reboot_required: false
+          mc_vel_body_down:
+            type: object
+            default:
+              p: 5.0
+              i: 0.3
+              d: 0.8
+            description: Vertical velocity control
+            reboot_required: false
+          mcar_pitchspeed_deg_s:
+            type: object
+            default:
+              p: 18.0
+              i: 0.15
+              d: 0.4
+            description: Pitch rate (aggressive response)
+            reboot_required: false
+            unit: aggressive response
+          mcar_yawspeed_deg_s:
+            type: object
+            default:
+              p: 12.0
+              i: 0.1
+              d: 0.3
+            description: Yaw rate (turn to target)
+            reboot_required: false
+            unit: turn to target
+          mcar_rollspeed_deg_s:
+            type: object
+            default:
+              p: 1.5
+              i: 0.08
+              d: 0.25
+            description: Roll rate (coordinated turns)
+            reboot_required: false
+            unit: coordinated turns
+          mcar_thrust:
+            type: object
+            default:
+              p: 0.15
+              i: 0.5
+              d: 0.2
+            description: Thrust (altitude hold)
+            reboot_required: false
+            unit: altitude hold
+          mcar_altitude:
+            type: object
+            default:
+              p: 2.0
+              i: 0.3
+              d: 0.5
+            description: Altitude (explicit control)
+            reboot_required: false
+            unit: explicit control
+      PROPORTIONAL_ON_MEASUREMENT:
+        type: boolean
+        default: false
+        description: Avoid derivative kick
+        reboot_required: false
+      ENABLE_ANTI_WINDUP:
+        type: boolean
+        default: true
+        description: Prevent integral windup
+        reboot_required: false
+      ANTI_WINDUP_BACK_CALC_COEFF:
+        type: float
+        default: 0.1
+        description: Back-calculation coefficient
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+  Safety:
+    display_name: Safety Limits
+    category: safety
+    icon: shield
+    parameters:
+      GlobalLimits:
+        type: object
+        default:
+          MIN_ALTITUDE: 3.0
+          MAX_ALTITUDE: 120.0
+          ALTITUDE_WARNING_BUFFER: 2.0
+          ALTITUDE_SAFETY_ENABLED: true
+          MAX_VELOCITY: 15.0
+          MAX_VELOCITY_FORWARD: 8.0
+          MAX_VELOCITY_LATERAL: 5.0
+          MAX_VELOCITY_VERTICAL: 3.0
+          MAX_YAW_RATE: 45.0
+          MAX_PITCH_RATE: 45.0
+          MAX_ROLL_RATE: 45.0
+          EMERGENCY_STOP_ENABLED: true
+          RTL_ON_VIOLATION: true
+          TARGET_LOSS_ACTION: hover
+          MAX_SAFETY_VIOLATIONS: 5
+        description: '--------------------------------------------------------------------------- Global Limits - Applied
+          to ALL followers (single source of truth) ---------------------------------------------------------------------------'
+        reboot_required: false
+      FollowerOverrides:
+        type: object
+        default: {}
+        description: 'MAX_VELOCITY_FORWARD: 2.0        # Reduced for testing FW_ATTITUDE_RATE: MIN_ALTITUDE: 30.0               #
+          Higher floor for fixed-wing'
+        reboot_required: false
+  GainScheduling:
+    display_name: Gain Scheduling
+    category: control
+    icon: timeline
+    parameters:
+      ENABLE_GAIN_SCHEDULING:
+        type: boolean
+        default: false
+        description: 📈 Altitude-based gain adjustment
+        reboot_required: false
+      GAIN_SCHEDULING_PARAMETER:
+        type: string
+        default: current_altitude
+        description: Parameter for gain scheduling
+        reboot_required: false
+      ALTITUDE_GAIN_SCHEDULE:
+        type: object
+        description: Altitude ranges and corresponding gains
+        reboot_required: false
+        properties:
+          (0, 20):
+            type: object
+            description: (0, 20) settings
+            reboot_required: false
+            properties:
+              x:
+                type: object
+                default:
+                  p: 5.5
+                  i: 0.2
+                  d: 0.4
+                description: Lateral position
+                reboot_required: false
+              y:
+                type: object
+                default:
+                  p: 5.5
+                  i: 0.2
+                  d: 0.4
+                description: Longitudinal position
+                reboot_required: false
+              z:
+                type: object
+                default:
+                  p: 1
+                  i: 0.01
+                  d: 0.1
+                description: Vertical position
+                reboot_required: false
+          (20, 50):
+            type: object
+            description: (20, 50) settings
+            reboot_required: false
+            properties:
+              x:
+                type: object
+                default:
+                  p: 6
+                  i: 0.25
+                  d: 0.5
+                description: Lateral position
+                reboot_required: false
+              y:
+                type: object
+                default:
+                  p: 6
+                  i: 0.25
+                  d: 0.5
+                description: Longitudinal position
+                reboot_required: false
+              z:
+                type: object
+                default:
+                  p: 1
+                  i: 0.015
+                  d: 0.15
+                description: Vertical position
+                reboot_required: false
+          (50, 100):
+            type: object
+            description: (50, 100) settings
+            reboot_required: false
+            properties:
+              x:
+                type: object
+                default:
+                  p: 6.5
+                  i: 0.3
+                  d: 0.6
+                description: Lateral position
+                reboot_required: false
+              y:
+                type: object
+                default:
+                  p: 6.5
+                  i: 0.3
+                  d: 0.6
+                description: Longitudinal position
+                reboot_required: false
+              z:
+                type: object
+                default:
+                  p: 1
+                  i: 0.02
+                  d: 0.2
+                description: Vertical position
+                reboot_required: false
+          (100, 150):
+            type: object
+            description: (100, 150) settings
+            reboot_required: false
+            properties:
+              x:
+                type: object
+                default:
+                  p: 6
+                  i: 0.3
+                  d: 1.0
+                description: Lateral position
+                reboot_required: false
+              y:
+                type: object
+                default:
+                  p: 6
+                  i: 0.3
+                  d: 1.0
+                description: Longitudinal position
+                reboot_required: false
+              z:
+                type: object
+                default:
+                  p: 1
+                  i: 0.01
+                  d: 0.01
+                description: Vertical position
+                reboot_required: false
+          (150, 200):
+            type: object
+            description: (150, 200) settings
+            reboot_required: false
+            properties:
+              x:
+                type: object
+                default:
+                  p: 5.5
+                  i: 0.25
+                  d: 0.8
+                description: Lateral position
+                reboot_required: false
+              y:
+                type: object
+                default:
+                  p: 5.5
+                  i: 0.25
+                  d: 0.8
+                description: Longitudinal position
+                reboot_required: false
+              z:
+                type: object
+                default:
+                  p: 1
+                  i: 0.01
+                  d: 0.05
+                description: Vertical position
+                reboot_required: false
+  Setpoint:
+    display_name: Setpoint Config
+    category: processing
+    icon: my_location
+    parameters:
+      CAMERA_YAW_OFFSET:
+        type: integer
+        default: 0
+        description: Camera mounting offset (degrees)
+        reboot_required: true
+        min: 0
+        max: 100
+        unit: deg
+      SETPOINT_PUBLISH_RATE_S:
+        type: float
+        default: 0.1
+        description: Setpoint update period (seconds)
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: s
+      ENABLE_SETPOINT_DEBUGGING:
+        type: boolean
+        default: false
+        description: Debug output
+        reboot_required: false
+  Telemetry:
+    display_name: Telemetry
+    category: network
+    icon: analytics
+    parameters:
+      ENABLE_TELEMETRY:
+        type: boolean
+        default: true
+        description: 📊 Telemetry data distribution
+        reboot_required: false
+      TELEMETRY_SEND_RATE:
+        type: integer
+        default: 2
+        description: Hz
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: hz
+      TELEMETRY_FLASK_ENDPOINT:
+        type: string
+        default: /telemetry
+        description: REST endpoint
+        reboot_required: false
+      ENABLE_UDP_STREAM:
+        type: boolean
+        default: false
+        description: ENABLE_UDP_STREAM parameter
+        reboot_required: false
+      UDP_HOST:
+        type: string
+        default: 127.0.0.1
+        description: Gimbal IP address
+        reboot_required: true
+      UDP_PORT:
+        type: integer
+        default: 5550
+        description: Gimbal UDP port
+        reboot_required: true
+        min: 0
+        max: 1000000
+      WEBSOCK_HOST:
+        type: string
+        default: 127.0.0.1
+        description: WEBSOCK_HOST parameter
+        reboot_required: false
+      WEBSOCK_PORT:
+        type: integer
+        default: 5551
+        description: WEBSOCK_PORT parameter
+        reboot_required: false
+        min: 0
+        max: 1000000
+      ENABLE_FOLLOWER_TELEMETRY:
+        type: boolean
+        default: true
+        description: Include follower status
+        reboot_required: false
+  GStreamer:
+    display_name: GStreamer Output
+    category: network
+    icon: play_circle
+    parameters:
+      ENABLE_GSTREAMER_STREAM:
+        type: boolean
+        default: false
+        description: 📹 Optional GStreamer pipeline for external streaming
+        reboot_required: false
+      GSTREAMER_HOST:
+        type: string
+        default: 127.0.0.1
+        description: GSTREAMER_HOST parameter
+        reboot_required: false
+      GSTREAMER_PORT:
+        type: integer
+        default: 2000
+        description: GSTREAMER_PORT parameter
+        reboot_required: false
+        min: 0
+        max: 1000000
+      GSTREAMER_BITRATE:
+        type: integer
+        default: 2000
+        description: kbps
+        reboot_required: false
+        min: 0
+        max: 1000000
+      GSTREAMER_WIDTH:
+        type: integer
+        default: 1280
+        description: GSTREAMER_WIDTH parameter
+        reboot_required: false
+        min: 0
+        max: 1000000
+      GSTREAMER_HEIGHT:
+        type: integer
+        default: 720
+        description: GSTREAMER_HEIGHT parameter
+        reboot_required: false
+        min: 0
+        max: 10000
+      GSTREAMER_FRAMERATE:
+        type: integer
+        default: 15
+        description: GSTREAMER_FRAMERATE parameter
+        reboot_required: false
+        min: 0
+        max: 100
+      GSTREAMER_BUFFER_SIZE:
+        type: integer
+        default: 50000000
+        description: bytes
+        reboot_required: false
+        min: 0
+        max: 1000000
+      GSTREAMER_SPEED_PRESET:
+        type: string
+        default: ultrafast
+        description: x264 preset
+        reboot_required: false
+      GSTREAMER_KEY_INT_MAX:
+        type: integer
+        default: 30
+        description: Keyframe interval
+        reboot_required: false
+        min: 0
+        max: 100
+      GSTREAMER_TUNE:
+        type: string
+        default: zerolatency
+        description: x264 tuning
+        reboot_required: false
+      GSTREAMER_CONTRAST:
+        type: float
+        default: 5.0
+        description: GSTREAMER_CONTRAST parameter
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+      GSTREAMER_BRIGHTNESS:
+        type: integer
+        default: 10
+        description: GSTREAMER_BRIGHTNESS parameter
+        reboot_required: false
+        min: 0
+        max: 100
+      GSTREAMER_SATURATION:
+        type: integer
+        default: 5
+        description: GSTREAMER_SATURATION parameter
+        reboot_required: false
+        min: 0
+        max: 100
+  OSD:
+    display_name: On-Screen Display
+    category: display
+    icon: tv
+    parameters:
+      OSD_ENABLED:
+        type: boolean
+        default: true
+        description: Master enable/disable for OSD
+        reboot_required: false
+      OSD_PRESET:
+        type: string
+        default: professional
+        description: Active preset filename (without .yaml)
+        reboot_required: false
+        unit: without .yaml
+      OSD_PERFORMANCE_MODE:
+        type: string
+        default: balanced
+        description: 'Choose rendering mode based on your hardware: "fast"     - OpenCV rendering (2-3ms/frame) - For Raspberry
+          Pi, Jetson Nano "balanced" - PIL with native stroke (5-8ms/frame) - RECOMMENDED for most systems "quality"  - PIL
+          with manual outline (50-80ms/frame) - For high-end desktops/recording'
+        reboot_required: false
+  Debugging:
+    display_name: Debugging
+    category: display
+    icon: bug_report
+    parameters:
+      ENABLE_DEBUGGING:
+        type: boolean
+        default: true
+        description: 🐛 Debug and logging configuration
+        reboot_required: false
+      LOG_FILE_PATH:
+        type: string
+        default: logs/tracking_log.txt
+        description: LOG_FILE_PATH parameter
+        reboot_required: false
+      LOG_LEVEL:
+        type: string
+        default: INFO
+        description: DEBUG, INFO, WARNING, ERROR
+        reboot_required: false
+      SAVE_DEBUG_FRAMES:
+        type: boolean
+        default: false
+        description: Save frames for analysis
+        reboot_required: false
+      DEBUG_FRAME_PATH:
+        type: string
+        default: debug_frames/
+        description: Debug frame storage
+        reboot_required: false

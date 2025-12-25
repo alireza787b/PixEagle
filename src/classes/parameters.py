@@ -252,5 +252,45 @@ class Parameters:
         max_alt = cls.get_effective_limit('MAX_ALTITUDE', follower_name)
         return (min_alt, max_alt)
 
+    @classmethod
+    def reload_config(cls, config_file: str = 'configs/config.yaml') -> bool:
+        """
+        Reload configuration from disk.
+
+        This method reloads the configuration file and updates all class attributes.
+        It also notifies SafetyManager to reload its configuration.
+
+        Args:
+            config_file: Path to the config file (default: configs/config.yaml)
+
+        Returns:
+            bool: True if reload was successful, False otherwise
+
+        Note:
+            This is intended for use by the restart mechanism to reload
+            configuration changes without a full application restart.
+        """
+        try:
+            logger.info(f"🔄 Reloading configuration from {config_file}")
+
+            # Reload the config
+            cls.load_config(config_file)
+
+            # Notify SafetyManager to reload
+            try:
+                safety_manager = _get_safety_manager()
+                if hasattr(safety_manager, 'load_from_config') and cls._raw_config:
+                    safety_manager.load_from_config(cls._raw_config)
+                    logger.info("✅ SafetyManager reloaded with new configuration")
+            except Exception as e:
+                logger.warning(f"Could not reload SafetyManager: {e}")
+
+            logger.info("✅ Configuration reloaded successfully")
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Failed to reload configuration: {e}")
+            return False
+
 # Load the configurations upon module import
 Parameters.load_config()

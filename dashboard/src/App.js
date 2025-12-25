@@ -6,6 +6,7 @@ import TrackerPage from './pages/TrackerPage';
 import FollowerPage from './pages/FollowerPage';
 import DashboardPage from './pages/DashboardPage';
 import LiveFeedPage from './pages/LiveFeedPage';
+import SettingsPage from './pages/SettingsPage';
 import { ThemeProvider, ThemeContext } from './context/ThemeContext';
 
 const AppContent = () => {
@@ -28,6 +29,7 @@ const AppContent = () => {
             <Route path="tracker" element={<TrackerPage />} />
             <Route path="follower" element={<FollowerPage />} />
             <Route path="live-feed" element={<LiveFeedPage />} />
+            <Route path="settings" element={<SettingsPage />} />
           </Route>
         </Routes>
       </Router>

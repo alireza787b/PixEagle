@@ -1,5 +1,5 @@
 # ==============================================================================
-# PixEagle Configuration File - v2.0 (Beginner-Safe Template)
+# PixEagle Configuration File - v4.0.0 (Schema-Ready Template)
 # ==============================================================================
 # 🛡️ CONSERVATIVE DEFAULTS - Safe for first-time testing and demos
 #    - Video: Local file (no network dependencies)
@@ -8,8 +8,9 @@
 #    - Velocities: Max 2 m/s (safe acceleration: 0.5 m/s²)
 #
 # 📋 Priority parameters are at the top for quick access
-# 🔧 Clean unified configuration - no legacy or deprecated sections
+# 🔧 Clean unified configuration - deprecated params removed
 # 📘 Enhanced documentation for each parameter
+# 🔄 Safety.GlobalLimits is the single source of truth for all limits
 # ==============================================================================
 
 
@@ -94,11 +95,8 @@ USBCamera:
 # ==============================================================================
 # CSI CAMERA CONFIGURATION (Raspberry Pi/Jetson)
 # ==============================================================================
-Camera:  # Legacy name kept for compatibility
-  # CSI-specific settings
-  CSI_WIDTH: 640            # DEPRECATED: Use CAPTURE_WIDTH in VideoSource
-  CSI_HEIGHT: 480           # DEPRECATED: Use CAPTURE_HEIGHT in VideoSource
-  CSI_FRAMERATE: 30         # DEPRECATED: Use CAPTURE_FPS in VideoSource
+Camera:  # Legacy section name - use CSICamera for new configs
+  # CSI flip method (also applies to VideoSource CSI_CAMERA mode)
   CSI_FLIP_METHOD: 0        # 0=none, 1=90°CW, 2=180°, 3=90°CCW, 4=horizontal, 5=vertical
 
 CSICamera:  # New section name (preferred)
@@ -169,17 +167,7 @@ Streaming:
   STREAM_PROCESSED_OSD: true      # Include overlays
   
   
-  # === Frame Buffering ===
-  ENABLE_FRAME_CACHE: true        # Cache encoded frames
-  CACHE_TTL_MS: 100              # Cache time-to-live in ms
-  MAX_FRAME_QUEUE: 3             # Max queued frames per client
-  
-  # === WebSocket Settings ===
-  WS_MAX_CONNECTIONS: 10         # Max concurrent WebSocket clients
-  WS_ENABLE_COMPRESSION: false   # Enable WebSocket compression
-  
-
-   # Adaptive Quality Control
+  # Adaptive Quality Control
   ENABLE_ADAPTIVE_QUALITY: true    # Set true for auto quality adjustment
   MIN_QUALITY: 30                   # Minimum JPEG quality (1-100)
   MAX_QUALITY: 85                   # Maximum JPEG quality (1-100)
@@ -200,7 +188,6 @@ Streaming:
   # === Performance ===
   ENCODING_THREADS: 2            # Parallel encoding threads
   ENABLE_HARDWARE_ENCODING: false # Use hardware encoder if available
-  SKIP_IDENTICAL_FRAMES: true    # Skip encoding if frame unchanged
   FRAME_DIFFERENCE_THRESHOLD: 5  # Pixel difference threshold
   
   # === H.264 Streaming (Advanced) ===
@@ -1143,9 +1130,9 @@ GM_PID_PURSUIT:
     HIGH_CONFIDENCE_THRESHOLD: 0.8         # High confidence threshold
     LOW_CONFIDENCE_THRESHOLD: 0.3          # Low confidence threshold
 
-  # === Safety Parameters (Override global SafetyLimits if needed) ===
+  # === Safety Parameters (Override Safety.GlobalLimits if needed) ===
   # These use unified naming: MIN_ALTITUDE, MAX_ALTITUDE
-  # If not specified, values inherit from SafetyLimits section
+  # If not specified, values inherit from Safety.GlobalLimits section
   # MIN_ALTITUDE: 3.0                     # Override global minimum altitude (meters)
   # MAX_ALTITUDE: 120.0                   # Override global maximum altitude (meters)
   MAX_SAFETY_VIOLATIONS: 5                # Maximum allowed safety violations before blocking
@@ -1215,9 +1202,9 @@ GM_VELOCITY_VECTOR:
                                           # Recommended: 0.6-0.8 for typical gimbals
 
   # === Altitude Safety (Optional Enforcement) ===
-  # Enable altitude monitoring and enforcement (similar to BODY_VELOCITY_CHASE)
-  # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE (overrides global SafetyLimits if set)
-  # NOTE: Now uses Safety.VehicleProfiles.GIMBAL settings by default
+  # Enable altitude monitoring and enforcement
+  # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE (overrides Safety.GlobalLimits if set)
+  # Resolution: Follower Override → Safety.GlobalLimits → Hardcoded Fallbacks
   ALTITUDE_SAFETY_ENABLED: true           # Enable altitude boundary enforcement (SAFE DEFAULT)
   # MIN_ALTITUDE: 3.0                     # Override global minimum altitude (meters)
   # MAX_ALTITUDE: 120.0                   # Override global maximum altitude (meters)
@@ -1289,7 +1276,7 @@ MC_VELOCITY_CHASE:
   GUIDANCE_MODE_SWITCH_VELOCITY: 3.0          # m/s - auto-switch threshold
   ENABLE_AUTO_MODE_SWITCHING: false          # Auto-switch based on forward velocity
   
-  # === 🛡️ ALTITUDE SAFETY (Overrides global SafetyLimits) ===
+  # === 🛡️ ALTITUDE SAFETY (Overrides Safety.GlobalLimits) ===
   #
   # ⚠️ IMPORTANT - Two Different Altitude Flags:
   #
@@ -1427,7 +1414,7 @@ MC_VELOCITY_POSITION:
   ENABLE_ALTITUDE_CONTROL: false           # Disabled by default for ground testing
   ENABLE_YAW_CONTROL: true                # Always enabled for this mode
 
-  # === Altitude Parameters (Uses unified naming, inherits from SafetyLimits) ===
+  # === Altitude Parameters (Uses unified naming, inherits from Safety.GlobalLimits) ===
   # MIN_ALTITUDE: 3.0                     # Override global minimum altitude (meters)
   # MAX_ALTITUDE: 120.0                   # Override global maximum altitude (meters)
   MAX_VERTICAL_VELOCITY: 3.0              # Max vertical velocity (m/s)
@@ -1462,7 +1449,7 @@ MC_VELOCITY_DISTANCE:
   ENABLE_YAW_CONTROL: false              # Enable yaw rate control for target centering
   ENABLE_ALTITUDE_CONTROL: false          # Disabled by default for ground testing
 
-  # === Altitude Parameters (Uses unified naming, inherits from SafetyLimits) ===
+  # === Altitude Parameters (Uses unified naming, inherits from Safety.GlobalLimits) ===
   # MIN_ALTITUDE: 3.0                    # Override global minimum altitude (meters)
   # MAX_ALTITUDE: 120.0                  # Override global maximum altitude (meters)
   MAX_VERTICAL_VELOCITY: 5.0             # Max vertical velocity (m/s)
@@ -1623,7 +1610,7 @@ MC_VELOCITY:
   RAMP_DOWN_ON_TARGET_LOSS: true             # Decelerate on target loss
   SLOW_FORWARD_VELOCITY: 1.0                 # m/s - velocity for slow_forward action
 
-  # === ALTITUDE SAFETY (Overrides global SafetyLimits) ===
+  # === ALTITUDE SAFETY (Overrides Safety.GlobalLimits) ===
   ENABLE_ALTITUDE_SAFETY: true               # Enable altitude monitoring
   MIN_ALTITUDE: 5.0                          # meters - minimum safe altitude
   MAX_ALTITUDE: 100.0                        # meters - maximum altitude
@@ -1758,7 +1745,7 @@ MC_VELOCITY_GROUND:
   MAX_VELOCITY_Y: 2.0                   # Max longitudinal velocity (m/s) - conservative
   MAX_RATE_OF_DESCENT: 1.0              # Max descent rate (m/s) - conservative
 
-  # === Descent Control (Overrides global SafetyLimits) ===
+  # === Descent Control (Overrides Safety.GlobalLimits) ===
   # Uses unified naming: MIN_ALTITUDE
   ENABLE_DESCEND_TO_TARGET: false       # Enable automatic descent to target
   MIN_ALTITUDE: 40.0                    # Override: higher minimum for ground view mode (meters)
@@ -1847,18 +1834,17 @@ GStreamerPipelines:
 FrameEstimation:
   # 🖼️ Video display window settings
   FRAME_TITLE: Video                        # Window title
-  DEFAULT_FPS: 30                           # DEPRECATED: Use VideoSource/DEFAULT_FPS
   SHOW_VIDEO_WINDOW: false                  # true for debugging with display
+  # Note: Use VideoSource.DEFAULT_FPS for frame rate settings
 
 # ==============================================================================
 # ESTIMATOR (Kalman Filter for Tracking)
 # ==============================================================================
 Estimator:
   # 📊 State estimation for smooth tracking
-  USE_ESTIMATOR: true
-  ESTIMATOR_TYPE: Kalman                    # Options: Kalman, None
-  ESTIMATOR_ENABLED: true                   # DEPRECATED: Use USE_ESTIMATOR
-  ESTIMATOR_HISTORY_LENGTH: 5               # State history buffer
+  USE_ESTIMATOR: true                         # Enable/disable state estimation
+  ESTIMATOR_TYPE: Kalman                      # Options: Kalman, None
+  ESTIMATOR_HISTORY_LENGTH: 5                 # State history buffer
   
   # === Kalman Filter Parameters ===
   ESTIMATOR_PROCESS_NOISE_VARIANCE: 10.0    # Motion uncertainty
@@ -2195,12 +2181,15 @@ Debugging:
   DEBUG_FRAME_PATH: debug_frames/          # Debug frame storage
 
 # ==============================================================================
-# DEPRECATED PARAMETERS
+# END OF CONFIGURATION
 # ==============================================================================
-# ⚠️ These parameters are kept for backward compatibility but should not be used
-# in new deployments. They will be removed in future versions.
+# ✅ Configuration v4.0.0 - Cleaned and unified
 #
-# CSI_WIDTH/HEIGHT/FRAMERATE → Use CAPTURE_WIDTH/HEIGHT/FPS in VideoSource
-# ESTIMATOR_ENABLED → Use USE_ESTIMATOR in Estimator section
-# DEFAULT_FPS in FrameEstimation → Use DEFAULT_FPS in VideoSource
+# Key sections:
+# - VideoSource: All video input settings (use CAPTURE_WIDTH/HEIGHT/FPS)
+# - Safety.GlobalLimits: Single source of truth for all safety limits
+# - Follower sections: Per-follower overrides (optional)
+# - Tracker sections: Per-tracker configuration
+#
+# For schema-driven editing, see configs/config_schema.yaml
 # ==============================================================================
