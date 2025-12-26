@@ -4,6 +4,8 @@ Unit tests for DlibTracker implementation.
 
 Tests dlib correlation tracker functionality including PSR-based confidence,
 performance modes, and adaptive features.
+
+Note: These tests are skipped if dlib is not installed (e.g., in CI).
 """
 
 import pytest
@@ -15,6 +17,14 @@ from unittest.mock import MagicMock, patch
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
+
+# Check if dlib is available and skip all tests if not
+from classes.trackers.dlib_tracker import DLIB_AVAILABLE
+
+pytestmark = pytest.mark.skipif(
+    not DLIB_AVAILABLE,
+    reason="dlib library not installed - skipping dlib tracker tests"
+)
 
 from tests.fixtures.mock_dlib import (
     MockDlibCorrelationTracker, MockDlibRectangle, MockDlibModule,

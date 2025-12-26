@@ -13,6 +13,15 @@ from unittest.mock import MagicMock, patch
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'src'))
 
+# Import DLIB_AVAILABLE for skipif conditions
+from classes.trackers.dlib_tracker import DLIB_AVAILABLE
+
+# Decorator for skipping dlib-related tests when dlib is not installed
+skip_if_no_dlib = pytest.mark.skipif(
+    not DLIB_AVAILABLE,
+    reason="dlib library not installed"
+)
+
 
 @pytest.mark.unit
 class TestTrackerFactoryRegistry:
@@ -91,6 +100,7 @@ class TestCreateTrackerFunction:
         tracker = create_tracker("KCF", mock_video_handler, None, mock_app_controller)
         assert isinstance(tracker, KCFKalmanTracker)
 
+    @skip_if_no_dlib
     @patch('classes.trackers.dlib_tracker.dlib')
     @patch('classes.trackers.dlib_tracker.DLIB_AVAILABLE', True)
     def test_create_dlib_tracker(self, mock_dlib):
@@ -236,6 +246,7 @@ class TestTrackerBaseClass:
         tracker = create_tracker("KCF", None, None, mock_app_controller)
         assert isinstance(tracker, BaseTracker)
 
+    @skip_if_no_dlib
     @patch('classes.trackers.dlib_tracker.dlib')
     @patch('classes.trackers.dlib_tracker.DLIB_AVAILABLE', True)
     def test_dlib_inherits_base_tracker(self, mock_dlib, mock_app_controller):
