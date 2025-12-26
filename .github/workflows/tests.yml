@@ -9,19 +9,15 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.9', '3.11']
-      fail-fast: false
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.11'
           cache: 'pip'
 
       - name: Install system dependencies
@@ -34,17 +30,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Setup config file
+        run: |
+          cp configs/config_default.yaml configs/config.yaml
+
       - name: Run unit tests
         run: |
-          pytest tests/unit -v --tb=short -m "not slow"
+          PYTHONPATH=src pytest tests/unit -v --tb=short -m "not slow"
 
       - name: Run integration tests
         run: |
-          pytest tests/integration -v --tb=short -m "not slow"
+          PYTHONPATH=src pytest tests/integration -v --tb=short -m "not slow"
 
       - name: Generate coverage report
         run: |
-          pytest tests/ --cov=src/classes/followers --cov=src/classes/safety_manager --cov-report=xml --cov-report=term-missing
+          PYTHONPATH=src pytest tests/ --cov=src/classes/followers --cov=src/classes/safety_manager --cov-report=xml --cov-report=term-missing
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
