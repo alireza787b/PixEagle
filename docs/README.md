@@ -26,11 +26,25 @@ Welcome to the PixEagle documentation. This guide will help you find the informa
 
 | Guide | Description |
 |-------|-------------|
-| [SmartTracker Guide](SMART_TRACKER_GUIDE.md) | Complete SmartTracker setup and configuration |
 | [OSD Guide](OSD_GUIDE.md) | Aviation-grade OSD with presets and API control |
 | [OpenCV GStreamer](OPENCV_GSTREAMER.md) | Building OpenCV with GStreamer support |
 | [Gimbal Simulator](gimbal_simulator.md) | Testing gimbal functionality |
-| [Tracker & Follower Schema](Tracker_and_Follower_Schema_Developer_Guide.md) | Schema-driven architecture guide |
+
+---
+
+## Tracker System
+
+Comprehensive documentation for the object tracking system.
+
+| Guide | Description |
+|-------|-------------|
+| [Tracker Overview](trackers/README.md) | Complete tracker system guide |
+| [Architecture](trackers/01-architecture/README.md) | BaseTracker, factory, TrackerOutput |
+| [Tracker Reference](trackers/02-reference/README.md) | CSRT, KCF, dlib, Gimbal, SmartTracker |
+| [AI Concepts](trackers/03-ai-concepts/README.md) | YOLO, ByteTrack, motion prediction |
+| [Configuration](trackers/04-configuration/README.md) | Schema, parameters, tuning |
+| [Development Guide](trackers/05-development/README.md) | Creating custom trackers |
+| [Integration](trackers/06-integration/README.md) | Follower and external system integration |
 
 ---
 
@@ -73,7 +87,6 @@ These documents are for internal reference during development.
 |----------|-------------|
 | [Configuration Refactoring](CONFIGURATION_REFACTORING_GUIDE.md) | Config system refactoring notes |
 | [Conflict Check Report](CONFLICT_CHECK_REPORT.md) | Merge conflict resolution report |
-| [SmartTracker Improvements](SMARTTRACKER_IMPROVEMENTS.md) | Planned SmartTracker enhancements |
 | [YOLO Download Improvements](YOLO_MODEL_DOWNLOAD_IMPROVEMENTS.md) | YOLO model management improvements |
 | [YOLO Download UX](YOLO_MODEL_DOWNLOAD_USER_EXPERIENCE.md) | YOLO download user experience |
 
