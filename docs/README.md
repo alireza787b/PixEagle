@@ -34,6 +34,23 @@ Welcome to the PixEagle documentation. This guide will help you find the informa
 
 ---
 
+## Follower System
+
+Comprehensive documentation for the autonomous following system.
+
+| Guide | Description |
+|-------|-------------|
+| [Follower Overview](followers/README.md) | Complete follower system guide |
+| [Architecture](followers/01-architecture/README.md) | System design and components |
+| [Follower Reference](followers/02-reference/README.md) | All 10 follower implementations |
+| [GNC Concepts](followers/03-gnc-concepts/README.md) | PN, L1, TECS, PID algorithms |
+| [Configuration](followers/04-configuration/README.md) | Parameters, schema, tuning |
+| [Development Guide](followers/05-development/README.md) | Creating new followers |
+| [Safety System](followers/06-safety/README.md) | SafetyManager and limits |
+| [Integration](followers/07-integration/README.md) | Tracker and MAVLink integration |
+
+---
+
 ## Developer Documentation
 
 Internal development guides and technical references.

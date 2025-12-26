@@ -41,7 +41,10 @@ gunicorn # For deploying Flask apps in production
 
 # Development and testing tools
 ipython
-pytest # For testing
+pytest >= 7.4.0  # Testing framework
+pytest-cov >= 4.1.0  # Coverage reporting
+pytest-asyncio >= 0.21.0  # Async test support
+pytest-mock >= 3.11.0  # Mock fixtures
 
 
 fastapi
