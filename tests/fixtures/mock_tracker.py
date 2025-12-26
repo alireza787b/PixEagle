@@ -146,16 +146,18 @@ class TrackerOutputFactory:
 
     @staticmethod
     def gimbal_angles(
-        pan: float = 0.0,
-        tilt: float = 0.0,
+        yaw: float = 0.0,
+        pitch: float = 0.0,
+        roll: float = 0.0,
         confidence: float = 0.9
     ) -> TrackerOutput:
         """
         Create a gimbal angles tracker output.
 
         Args:
-            pan: Gimbal pan angle (degrees)
-            tilt: Gimbal tilt angle (degrees)
+            yaw: Gimbal yaw angle (degrees)
+            pitch: Gimbal pitch angle (degrees)
+            roll: Gimbal roll angle (degrees)
             confidence: Tracking confidence
 
         Returns:
@@ -166,7 +168,8 @@ class TrackerOutputFactory:
             timestamp=time.time(),
             tracking_active=True,
             tracker_id="test_tracker",
-            angular=(pan, tilt),
+            position_2d=(0.0, 0.0),  # Required for schema validation
+            angular=(yaw, pitch, roll),
             confidence=confidence
         )
 
