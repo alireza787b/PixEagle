@@ -14,12 +14,31 @@
 
 ## Features
 
-- **SmartTracker** - AI-powered tracking with YOLO + ByteTrack/BoT-SORT ([Guide](docs/SMART_TRACKER_GUIDE.md))
-- **Professional OSD** - Aviation-grade on-screen display with TrueType fonts ([Guide](docs/OSD_GUIDE.md))
-- **GPU Acceleration** - CUDA support for 60+ FPS, automatic CPU fallback
-- **Web Dashboard** - Real-time monitoring, model management, config UI
-- **Schema Architecture** - Extensible YAML-based configuration ([Developer Guide](docs/Tracker_and_Follower_Schema_Developer_Guide.md))
-- **Multiple Follower Modes** - Position hold, chase, gimbal pursuit, fixed-wing support
+| Feature | Description | Documentation |
+|---------|-------------|---------------|
+| **Tracker System** | 5 tracker types: CSRT, KCF, YOLO, SmartTracker, Gimbal | [Tracker Docs](docs/trackers/README.md) |
+| **Follower System** | 10 control modes: velocity, position, attitude, gimbal pursuit | [Follower Docs](docs/followers/README.md) |
+| **Video & Streaming** | 7 input sources, GStreamer, MJPEG/WebSocket streaming | [Video Docs](docs/video/README.md) |
+| **Professional OSD** | Aviation-grade on-screen display with TrueType fonts | [OSD Guide](docs/OSD_GUIDE.md) |
+| **Drone Interface** | PX4 integration via MAVSDK & MAVLink2REST | [Drone Docs](docs/drone-interface/README.md) |
+| **Core App** | REST API, WebSocket, schema-driven configuration | [Core Docs](docs/core-app/README.md) |
+| **GPU Acceleration** | CUDA support for 60+ FPS, automatic CPU fallback | [Installation](docs/INSTALLATION.md) |
+| **Web Dashboard** | Real-time monitoring, model management, config UI | - |
+
+---
+
+## Documentation
+
+| System | Description | Guide |
+|--------|-------------|-------|
+| **Trackers** | CSRT, KCF, YOLO, SmartTracker, Gimbal tracking | [docs/trackers/](docs/trackers/README.md) |
+| **Followers** | 10 control modes (velocity, position, attitude) | [docs/followers/](docs/followers/README.md) |
+| **Video** | 7 input sources, GStreamer, OSD, streaming | [docs/video/](docs/video/README.md) |
+| **Drone Interface** | PX4, MAVLink, MAVSDK setup & troubleshooting | [docs/drone-interface/](docs/drone-interface/README.md) |
+| **Core App** | REST API, WebSocket, configuration system | [docs/core-app/](docs/core-app/README.md) |
+| **Development** | Schema architecture, custom components | [docs/developers/](docs/developers/) |
+
+**Quick Links**: [Installation](docs/INSTALLATION.md) | [Configuration](docs/CONFIGURATION.md) | [Troubleshooting](docs/TROUBLESHOOTING.md)
 
 ---
 
@@ -55,6 +74,8 @@ bash init_pixeagle.sh
 
 The init script runs a 9-step automated setup including Python venv, Node.js, dashboard, and MAVSDK/MAVLink2REST binaries.
 
+> **Detailed Guide**: [Installation Documentation](docs/INSTALLATION.md)
+
 ### Run
 
 ```bash
@@ -63,9 +84,8 @@ bash run_pixeagle.sh
 
 ### Access Dashboard
 
-Open in your browser:
 - **Local**: http://localhost:3000
-- **LAN**: http://<your-ip>:3000 (auto-detected, accessible from any device on network)
+- **LAN**: http://<your-ip>:3000 (auto-detected)
 
 ---
 
@@ -78,7 +98,63 @@ For manual configuration, edit `configs/config.yaml`:
 nano configs/config.yaml
 ```
 
-> **Note**: `config.yaml` is gitignored and created by the init script. Default values are in `configs/config_default.yaml`.
+> **Note**: `config.yaml` is gitignored. Default values are in `configs/config_default.yaml`.
+
+> **Detailed Guide**: [Configuration Documentation](docs/CONFIGURATION.md) | [Config Service](docs/core-app/04-configuration/README.md)
+
+---
+
+## PX4 Integration
+
+PixEagle requires MAVLink communication with PX4.
+
+| Component | Purpose | Default Port |
+|-----------|---------|--------------|
+| MAVSDK | Offboard control & telemetry | UDP 14540 |
+| MAVLink2REST | REST API for OSD/telemetry | UDP 14569 |
+| QGC | Ground Control Station | UDP 14550 (optional) |
+
+**Setup Options:**
+- [mavlink-anywhere](https://github.com/alireza787b/mavlink-anywhere) - Guided setup (Recommended) | [Video Tutorial](https://www.youtube.com/watch?v=_QEWpoy6HSo)
+- [Manual mavlink-router](docs/drone-interface/04-infrastructure/mavlink-router.md) - Advanced users
+
+> **Full Guide**: [Drone Interface Documentation](docs/drone-interface/README.md) | [Port Configuration](docs/drone-interface/04-infrastructure/port-configuration.md)
+
+---
+
+## Network Requirements
+
+| Port | Service | Required |
+|------|---------|----------|
+| 3000 | Dashboard | Yes |
+| 5077 | Backend API | Yes |
+| 5551 | WebSocket (video) | Yes |
+| 8088 | MAVLink2REST API | For OSD |
+| 14540 | MAVSDK | For PX4 |
+
+```bash
+# Ubuntu/Raspbian firewall
+sudo ufw allow 3000/tcp && sudo ufw allow 5077/tcp && sudo ufw allow 5551/tcp && sudo ufw allow 8088/tcp
+```
+
+> **Full Guide**: [Port Configuration](docs/drone-interface/04-infrastructure/port-configuration.md)
+
+---
+
+## Running Options
+
+```bash
+bash run_pixeagle.sh          # Full system (recommended)
+bash run_pixeagle.sh --dev    # Development mode with hot-reload
+bash run_pixeagle.sh --rebuild # Force rebuild
+bash run_pixeagle.sh -d       # Skip dashboard
+bash run_pixeagle.sh -p       # Skip Python app
+bash run_pixeagle.sh -m       # Skip MAVLink2REST
+```
+
+**Tmux Controls**: `Ctrl+B` + arrows (switch panes) | `Ctrl+B D` (detach) | `tmux attach -t PixEagle` (reattach)
+
+> **Troubleshooting**: [Troubleshooting Guide](docs/TROUBLESHOOTING.md)
 
 ---
 
@@ -91,101 +167,7 @@ For CUDA-accelerated YOLO inference:
 pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu124
 ```
 
-Visit [PyTorch Installation](https://pytorch.org/get-started/locally/) for your specific setup.
-
----
-
-## PX4 Integration
-
-### Port Requirements
-
-Your PX4 connection (serial/ethernet) must route MAVLink data to these ports:
-
-| Port | Service | Purpose |
-|------|---------|---------|
-| 14540 | MAVSDK | PX4 telemetry & commands |
-| 14569 | MAVLink2REST | REST API for OSD/telemetry |
-| 14550 | QGC | Ground Control Station (optional) |
-
-### MAVLink Routing
-
-**Option A: mavlink-anywhere (Recommended)**
-
-Step-by-step guided setup for serial/ethernet routing:
-
-```bash
-git clone https://github.com/alireza787b/mavlink-anywhere.git
-cd mavlink-anywhere
-bash install_mavlink_router.sh
-bash configure_mavlink_router.sh  # Configure your serial port and endpoints
-```
-
-- **Repository**: [github.com/alireza787b/mavlink-anywhere](https://github.com/alireza787b/mavlink-anywhere)
-- **Video Tutorial**: [YouTube - MAVLink Anywhere Setup](https://www.youtube.com/watch?v=_QEWpoy6HSo)
-
-**Option B: Manual mavlink-routerd (Advanced)**
-
-```bash
-# Requires mavlink-routerd installed separately
-mavlink-routerd -e 127.0.0.1:14540 -e 127.0.0.1:14569 -e 127.0.0.1:14550 /dev/ttyUSB0:921600
-```
-
-### MAVSDK & MAVLink2REST
-
-Both are automatically installed during `init_pixeagle.sh` (Steps 8-9). Manual download:
-
-```bash
-bash src/tools/download_mavsdk_server.sh
-bash src/tools/download_mavlink2rest.sh
-```
-
----
-
-## Network Requirements
-
-Ensure these ports are accessible (firewall allowed) for full functionality:
-
-| Port | Service | Required |
-|------|---------|----------|
-| 3000 | Dashboard | Yes |
-| 5077 | Backend API | Yes |
-| 5551 | WebSocket (video) | Yes |
-| 8088 | MAVLink2REST API | For OSD/telemetry |
-| 14540 | MAVSDK | For PX4 |
-| 14569 | MAVLink2REST input | For PX4 |
-| 14550 | QGC | Optional |
-| 22 | SSH | For remote access |
-
-**Ubuntu/Raspbian firewall**:
-```bash
-sudo ufw allow 3000/tcp && sudo ufw allow 5077/tcp && sudo ufw allow 5551/tcp && sudo ufw allow 8088/tcp
-```
-
----
-
-## Running Options
-
-```bash
-# Full system (recommended)
-bash run_pixeagle.sh
-
-# Development mode with hot-reload
-bash run_pixeagle.sh --dev
-
-# Force rebuild
-bash run_pixeagle.sh --rebuild
-
-# Individual components
-bash run_pixeagle.sh -d  # Skip dashboard
-bash run_pixeagle.sh -p  # Skip Python app
-bash run_pixeagle.sh -m  # Skip MAVLink2REST
-```
-
-### Tmux Controls
-
-- Switch panes: `Ctrl+B`, then arrow keys
-- Detach: `Ctrl+B`, then `D`
-- Reattach: `tmux attach -t PixEagle`
+> **More Info**: [PyTorch Installation](https://pytorch.org/get-started/locally/) | [Installation Guide](docs/INSTALLATION.md)
 
 ---
 
@@ -195,12 +177,12 @@ Auto-start on boot (Raspberry Pi/Linux):
 
 ```bash
 sudo bash install_service.sh
-
-# Commands
 pixeagle-service start|stop|status|restart
 sudo pixeagle-service enable|disable
 pixeagle-service logs -f
 ```
+
+> **More Info**: [Installation Guide](docs/INSTALLATION.md)
 
 ---
 
@@ -212,33 +194,16 @@ pixeagle-service logs -f
 | `c` | Cancel Tracking |
 | `y` | Trigger YOLO Detection |
 | `f` | Start Following |
-| `d` | Redetect Lost Object |
 | `s` | Toggle Smart Tracker Mode |
 | `q` | Quit |
 
 ---
 
-## Documentation
-
-| Guide | Description |
-|-------|-------------|
-| [Documentation Index](docs/README.md) | All documentation |
-| [SmartTracker Guide](docs/SMART_TRACKER_GUIDE.md) | AI tracking setup |
-| [OSD Guide](docs/OSD_GUIDE.md) | On-screen display |
-| [Windows SITL](docs/WINDOWS_SITL_XPLANE.md) | X-Plane simulation |
-| [Schema Guide](docs/Tracker_and_Follower_Schema_Developer_Guide.md) | Developer architecture |
-
----
-
 ## Windows (SITL Only)
 
-PixEagle supports Windows for X-Plane SITL testing. See [Windows SITL Guide](docs/WINDOWS_SITL_XPLANE.md).
+PixEagle supports Windows for X-Plane SITL testing.
 
-```bash
-# Run components manually
-python src/main.py
-cd dashboard && npm install && npm start
-```
+> **Guide**: [Windows SITL Setup](docs/WINDOWS_SITL_XPLANE.md)
 
 ---
 
