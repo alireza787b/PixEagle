@@ -7,7 +7,7 @@ import {
   CircularProgress, Alert, IconButton, Tooltip, Slider
 } from '@mui/material';
 import {
-  Close, Save, Undo, RestartAlt, Info, Warning
+  Close, Save, Undo, RestartAlt, Info, Warning, Edit
 } from '@mui/icons-material';
 
 /**
@@ -37,6 +37,7 @@ const ParameterDetailDialog = ({
   const [localValue, setLocalValue] = useState(currentValue);
   const [error, setError] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
+  const [customMode, setCustomMode] = useState(false);
 
   // Reset local state when dialog opens with new param
   useEffect(() => {
@@ -44,6 +45,7 @@ const ParameterDetailDialog = ({
       setLocalValue(currentValue);
       setError(null);
       setHasChanges(false);
+      setCustomMode(false);
     }
   }, [open, param, currentValue]);
 
@@ -127,27 +129,166 @@ const ParameterDetailDialog = ({
     // Enum/Select
     if (type === 'enum' || paramSchema?.options) {
       const options = paramSchema?.options || [];
+      const isValueInOptions = options.some(opt => (opt.value || opt) === localValue);
+
+      // Custom mode: show text field
+      if (customMode) {
+        return (
+          <Box sx={{ mt: 2 }}>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+              <TextField
+                fullWidth
+                label="Custom Value"
+                value={localValue ?? ''}
+                onChange={(e) => handleValueChange(e.target.value)}
+                disabled={saving}
+                placeholder="Enter custom value..."
+                helperText="Enter any value not in the predefined list"
+              />
+              <Tooltip title="Switch to dropdown">
+                <IconButton
+                  onClick={() => setCustomMode(false)}
+                  sx={{ mt: 1 }}
+                >
+                  <Close />
+                </IconButton>
+              </Tooltip>
+            </Box>
+
+            {/* Show available options for reference */}
+            <Box sx={{ mt: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Predefined Options (for reference)
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1 }}>
+                {options.map((opt) => (
+                  <Chip
+                    key={opt.value || opt}
+                    label={opt.label || opt}
+                    size="small"
+                    variant="outlined"
+                    onClick={() => {
+                      handleValueChange(opt.value || opt);
+                      setCustomMode(false);
+                    }}
+                    sx={{ cursor: 'pointer' }}
+                  />
+                ))}
+              </Box>
+            </Box>
+          </Box>
+        );
+      }
+
       return (
-        <FormControl fullWidth sx={{ mt: 2 }}>
-          <InputLabel>Value</InputLabel>
-          <Select
-            value={localValue ?? ''}
-            onChange={(e) => handleValueChange(e.target.value)}
-            label="Value"
-            disabled={saving}
-          >
-            {options.map((opt) => (
-              <MenuItem key={opt.value || opt} value={opt.value || opt}>
-                {opt.label || opt}
-                {opt.description && (
-                  <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                    - {opt.description}
+        <Box sx={{ mt: 2 }}>
+          <FormControl fullWidth>
+            <InputLabel>Value</InputLabel>
+            <Select
+              value={isValueInOptions ? localValue : '__custom_current__'}
+              onChange={(e) => {
+                if (e.target.value === '__custom__') {
+                  setCustomMode(true);
+                } else if (e.target.value !== '__custom_current__') {
+                  handleValueChange(e.target.value);
+                }
+              }}
+              label="Value"
+              disabled={saving}
+              renderValue={(selected) => {
+                if (selected === '__custom_current__') {
+                  return `${localValue} (custom)`;
+                }
+                const opt = options.find(o => (o.value || o) === selected);
+                return opt?.label || opt || selected;
+              }}
+            >
+              {/* Show current custom value if not in options */}
+              {!isValueInOptions && localValue && (
+                <MenuItem value="__custom_current__" sx={{ bgcolor: 'action.selected' }}>
+                  <Box>
+                    <Typography variant="body1" fontWeight={500}>
+                      {localValue}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Current custom value
+                    </Typography>
+                  </Box>
+                </MenuItem>
+              )}
+              {!isValueInOptions && localValue && <Divider />}
+
+              {options.map((opt) => (
+                <MenuItem
+                  key={opt.value || opt}
+                  value={opt.value || opt}
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    py: opt.description ? 1.5 : 1
+                  }}
+                >
+                  <Typography variant="body1" fontWeight={500}>
+                    {opt.label || opt}
                   </Typography>
-                )}
+                  {opt.description && (
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ mt: 0.5 }}
+                    >
+                      {opt.description}
+                    </Typography>
+                  )}
+                </MenuItem>
+              ))}
+
+              {/* Custom value option */}
+              <Divider />
+              <MenuItem value="__custom__">
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Edit fontSize="small" color="primary" />
+                  <Typography color="primary" fontStyle="italic">
+                    Enter custom value...
+                  </Typography>
+                </Box>
               </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+            </Select>
+          </FormControl>
+
+          {/* Available Options List */}
+          {options.some(opt => opt.description) && (
+            <Box sx={{ mt: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Available Options
+              </Typography>
+              {options.map((opt) => (
+                <Box
+                  key={opt.value || opt}
+                  sx={{
+                    py: 0.75,
+                    borderBottom: '1px solid',
+                    borderColor: 'divider',
+                    '&:last-child': { borderBottom: 'none' }
+                  }}
+                >
+                  <Typography variant="body2" fontWeight={500}>
+                    {opt.label || opt}
+                    {(opt.value || opt) === localValue && (
+                      <Chip label="Selected" size="small" color="primary" sx={{ ml: 1 }} />
+                    )}
+                  </Typography>
+                  {opt.description && (
+                    <Typography variant="caption" color="text.secondary">
+                      {opt.description}
+                    </Typography>
+                  )}
+                </Box>
+              ))}
+            </Box>
+          )}
+        </Box>
       );
     }
 
@@ -415,7 +556,8 @@ const ParameterDetailDialog = ({
               variant="body2"
               sx={{
                 fontFamily: 'monospace',
-                bgcolor: isModified ? 'warning.50' : 'action.hover',
+                bgcolor: isModified ? 'warning.main' : 'action.hover',
+                color: isModified ? 'warning.contrastText' : 'text.primary',
                 p: 1,
                 borderRadius: 1,
                 wordBreak: 'break-all'

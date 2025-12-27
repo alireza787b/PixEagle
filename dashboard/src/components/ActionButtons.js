@@ -35,7 +35,7 @@ const ActionButtons = ({
         <Grid item xs={12}>
           <Typography variant="h6" gutterBottom>🎯 Tracker Mode</Typography>
           <Box display="flex" justifyContent="center" alignItems="center">
-            <Tooltip title={smartModeActive ? "AI-powered YOLO detection - Click video to track" : "Classic CSRT tracker - Draw bounding box to track"}>
+            <Tooltip title={smartModeActive ? "AI-powered YOLO detection - Click video to track" : "Classic tracker - Draw bounding box to track"}>
               <FormControlLabel
                 control={
                   <Switch
@@ -45,7 +45,7 @@ const ActionButtons = ({
                     color="success"
                   />
                 }
-                label={smartModeActive ? '🧠 Smart Tracker (AI)' : '🎯 Classic Tracker (CSRT)'}
+                label={smartModeActive ? '🧠 Smart Tracker (AI)' : '🎯 Classic Tracker'}
               />
             </Tooltip>
           </Box>

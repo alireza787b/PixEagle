@@ -62,9 +62,9 @@ const TrackerStatusCard = () => {
   const isActive = currentStatus && currentStatus.active;
   
   // Use active tracker info if available, otherwise use configured info
-  const trackerType = isActive 
+  const trackerType = isActive
     ? (currentStatus?.tracker_type || 'Unknown')
-    : (currentConfig?.configured_tracker || 'CSRT');
+    : (currentConfig?.configured_tracker || 'Not configured');
     
   const dataType = isActive 
     ? (currentStatus?.data_type?.toUpperCase() || 'N/A')

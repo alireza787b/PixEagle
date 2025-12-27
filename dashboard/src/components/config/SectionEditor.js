@@ -7,7 +7,7 @@ import {
   FormControl, Snackbar
 } from '@mui/material';
 import {
-  Refresh, Undo, Save, Check, Error as ErrorIcon, OpenInNew
+  Refresh, Undo, Save, Check, Error as ErrorIcon, OpenInNew, Edit, Close
 } from '@mui/icons-material';
 
 import { useConfigSection } from '../../hooks/useConfig';
@@ -89,7 +89,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
   const inputSx = {
     width: 150,
     '& .MuiOutlinedInput-root': {
-      bgcolor: isModified ? 'warning.50' : undefined,
+      bgcolor: isModified ? 'action.hover' : undefined,
       borderColor: getBorderColor(),
       '& fieldset': {
         borderColor: getBorderColor(),
@@ -178,29 +178,93 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
     );
   }
 
-  // Enum/Select - immediate save
+  // Enum/Select - immediate save with custom value support
   if (type === 'enum' || paramSchema.options) {
     const options = paramSchema.options || [];
+    const isValueInOptions = options.some(opt => (opt.value || opt) === localInput);
+
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <FormControl size="small" sx={{ minWidth: 150 }}>
+        <FormControl size="small" sx={{ minWidth: 200 }}>
           <Select
-            value={localInput ?? ''}
+            value={isValueInOptions ? localInput : (localInput ? '__custom_current__' : '')}
             onChange={(e) => {
               const newVal = e.target.value;
-              handleInputChange(newVal);
-              onSave(param, newVal);
+              if (newVal === '__custom__') {
+                // Prompt for custom value
+                const customVal = window.prompt('Enter custom value:', localInput || '');
+                if (customVal !== null && customVal !== '') {
+                  handleInputChange(customVal);
+                  onSave(param, customVal);
+                }
+              } else if (newVal !== '__custom_current__') {
+                handleInputChange(newVal);
+                onSave(param, newVal);
+              }
             }}
             disabled={saveStatus === 'saving'}
             sx={{
-              bgcolor: isModified ? 'warning.50' : undefined
+              bgcolor: isModified ? 'action.hover' : undefined
+            }}
+            renderValue={(selected) => {
+              if (selected === '__custom_current__') {
+                return `${localInput} (custom)`;
+              }
+              const opt = options.find(o => (o.value || o) === selected);
+              return opt?.label || opt || selected;
             }}
           >
+            {/* Show current custom value if not in options */}
+            {!isValueInOptions && localInput && (
+              <MenuItem value="__custom_current__" sx={{ bgcolor: 'action.selected' }}>
+                <Box>
+                  <Typography variant="body2" fontWeight={500}>
+                    {localInput}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Current custom value
+                  </Typography>
+                </Box>
+              </MenuItem>
+            )}
+            {!isValueInOptions && localInput && <Divider />}
+
             {options.map((opt) => (
-              <MenuItem key={opt.value || opt} value={opt.value || opt}>
-                {opt.label || opt}
+              <MenuItem
+                key={opt.value || opt}
+                value={opt.value || opt}
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  py: opt.description ? 1 : 0.5
+                }}
+              >
+                <Typography variant="body2" fontWeight={500}>
+                  {opt.label || opt}
+                </Typography>
+                {opt.description && (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ mt: 0.25 }}
+                  >
+                    {opt.description}
+                  </Typography>
+                )}
               </MenuItem>
             ))}
+
+            {/* Custom value option */}
+            <Divider />
+            <MenuItem value="__custom__">
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Edit fontSize="small" color="primary" />
+                <Typography color="primary" fontStyle="italic" variant="body2">
+                  Enter custom value...
+                </Typography>
+              </Box>
+            </MenuItem>
           </Select>
         </FormControl>
         {saveStatus === 'saving' && <CircularProgress size={16} />}

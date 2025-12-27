@@ -48,11 +48,35 @@ sections:
     icon: videocam
     parameters:
       VIDEO_SOURCE_TYPE:
-        type: string
+        type: enum
         default: VIDEO_FILE
-        description: 'Primary video source selection Options: VIDEO_FILE, USB_CAMERA, RTSP_OPENCV, RTSP_STREAM, UDP_STREAM,
-          HTTP_STREAM, CSI_CAMERA, CUSTOM_GSTREAMER'
+        description: Primary video source selection
         reboot_required: true
+        options:
+          - value: VIDEO_FILE
+            label: Video File
+            description: Play from local video file
+          - value: USB_CAMERA
+            label: USB Camera
+            description: Standard USB webcam or capture device
+          - value: RTSP_OPENCV
+            label: RTSP (OpenCV)
+            description: RTSP stream via OpenCV
+          - value: RTSP_STREAM
+            label: RTSP (GStreamer)
+            description: RTSP stream via GStreamer pipeline
+          - value: UDP_STREAM
+            label: UDP Stream
+            description: UDP video stream (H.264/H.265)
+          - value: HTTP_STREAM
+            label: HTTP Stream
+            description: HTTP/MJPEG video stream
+          - value: CSI_CAMERA
+            label: CSI Camera
+            description: CSI camera (Jetson/Raspberry Pi)
+          - value: CUSTOM_GSTREAMER
+            label: Custom GStreamer
+            description: Custom GStreamer pipeline
       CAPTURE_WIDTH:
         type: integer
         default: 640
@@ -109,12 +133,20 @@ sections:
         description: Network streams
         reboot_required: true
       RTSP_PROTOCOL:
-        type: string
+        type: enum
         default: tcp
-        description: '- tcp: More reliable, prevents packet loss (RECOMMENDED for most setups) - udp: Lower latency but may
-          have packet loss on congested networks - auto: Let GStreamer choose (may fall back to UDP which can cause issues)
-          If you see "Invalid input packet" or "no frame!" errors, switch to tcp'
+        description: RTSP transport protocol
         reboot_required: true
+        options:
+          - value: tcp
+            label: TCP (Recommended)
+            description: More reliable, prevents packet loss
+          - value: udp
+            label: UDP
+            description: Lower latency but may have packet loss
+          - value: auto
+            label: Auto
+            description: Let GStreamer choose (may cause issues)
       RTSP_LATENCY:
         type: integer
         default: 200
@@ -480,13 +512,23 @@ sections:
     icon: gps_fixed
     parameters:
       DEFAULT_TRACKING_ALGORITHM:
-        type: string
+        type: enum
         default: CSRT
-        description: 'Options: CSRT (recommended for rotation), KCF (fast), dlib (very fast), Gimbal (external) CSRT: Best
-          for drone circling, rotation, perspective changes (15-20 FPS, 85% accuracy) KCF:  Fast alternative for high-speed
-          scenarios (25-30 FPS, 75% accuracy) dlib: Very fast correlation filter with PSR confidence (25-30 FPS, 85% accuracy)'
+        description: Tracker algorithm for object tracking
         reboot_required: false
-        unit: 25-30 fps, 85% accuracy
+        options:
+          - value: CSRT
+            label: CSRT (Recommended)
+            description: Best for rotation/perspective changes (15-20 FPS, 85% accuracy)
+          - value: KCF
+            label: KCF (Fast)
+            description: High-speed tracking (25-30 FPS, 75% accuracy)
+          - value: dlib
+            label: dlib (Very Fast)
+            description: Correlation filter with PSR confidence (25-30 FPS, 85% accuracy)
+          - value: Gimbal
+            label: Gimbal (External)
+            description: External gimbal-based tracking
       TRACKING_RECTANGLE_COLOR:
         type: array
         default:
@@ -1618,10 +1660,17 @@ sections:
     min: 0
     max: 1000000
   GIMBAL_COORDINATE_SYSTEM:
-    type: string
+    type: enum
     default: GIMBAL_BODY
-    description: Coordinate system preference
+    description: Coordinate system for gimbal control
     reboot_required: false
+    options:
+      - value: GIMBAL_BODY
+        label: Gimbal Body
+        description: Angles relative to gimbal body frame
+      - value: SPATIAL_FIXED
+        label: Spatial Fixed
+        description: Angles relative to fixed spatial frame
   GIMBAL_DISABLE_ESTIMATOR:
     type: boolean
     default: true
@@ -1633,10 +1682,17 @@ sections:
     icon: settings
     parameters:
       COORDINATE_SYSTEM:
-        type: string
+        type: enum
         default: GIMBAL_BODY
-        description: 'Options: "GIMBAL_BODY", "SPATIAL_FIXED"'
+        description: Coordinate system for gimbal control
         reboot_required: false
+        options:
+          - value: GIMBAL_BODY
+            label: Gimbal Body
+            description: Angles relative to gimbal body frame
+          - value: SPATIAL_FIXED
+            label: Spatial Fixed
+            description: Angles relative to fixed spatial frame
       CAMERA_MOUNT_OFFSET_ROLL:
         type: float
         default: 0.0
@@ -1746,12 +1802,38 @@ sections:
         description: 'Target positioning: "center", "initial"'
         reboot_required: false
       FOLLOWER_MODE:
-        type: string
+        type: enum
         default: mc_velocity_position
-        description: 'Options: mc_velocity_ground, mc_velocity_distance, mc_velocity_position, mc_velocity_chase, mc_velocity,
-          mc_attitude_rate, fw_attitude_rate, gm_pid_pursuit, gm_velocity_vector Deprecated (still work): ground_view, constant_distance,
-          constant_position, body_velocity_chase, gimbal_vector_body'
+        description: Follower control mode
         reboot_required: false
+        options:
+          - value: mc_velocity_position
+            label: Velocity Position (Recommended)
+            description: Multicopter velocity control maintaining position
+          - value: mc_velocity_ground
+            label: Velocity Ground
+            description: Multicopter ground-referenced velocity control
+          - value: mc_velocity_distance
+            label: Velocity Distance
+            description: Multicopter distance-based velocity control
+          - value: mc_velocity_chase
+            label: Velocity Chase
+            description: Multicopter chase/pursuit velocity control
+          - value: mc_velocity
+            label: Velocity Basic
+            description: Basic multicopter velocity control
+          - value: mc_attitude_rate
+            label: Attitude Rate (MC)
+            description: Multicopter attitude rate control
+          - value: fw_attitude_rate
+            label: Attitude Rate (FW)
+            description: Fixed-wing attitude rate control
+          - value: gm_pid_pursuit
+            label: Gimbal PID Pursuit
+            description: Gimbal pursuit with PID control
+          - value: gm_velocity_vector
+            label: Gimbal Velocity Vector
+            description: Gimbal vector velocity control
       SHOW_TRACKING_WINDOW:
         type: boolean
         default: false
@@ -1849,15 +1931,32 @@ sections:
     icon: control_camera
     parameters:
       MOUNT_TYPE:
-        type: string
+        type: enum
         default: HORIZONTAL
-        description: 'Options: "VERTICAL", "HORIZONTAL", "TILTED_45"'
+        description: Gimbal mount orientation
         reboot_required: false
+        options:
+          - value: HORIZONTAL
+            label: Horizontal
+            description: Standard horizontal gimbal mount
+          - value: VERTICAL
+            label: Vertical
+            description: Vertical gimbal mount orientation
+          - value: TILTED_45
+            label: Tilted 45°
+            description: 45-degree tilted mount
       CONTROL_MODE:
-        type: string
+        type: enum
         default: BODY
-        description: 'Options: "NED", "BODY"'
+        description: Velocity reference frame
         reboot_required: false
+        options:
+          - value: BODY
+            label: Body Frame
+            description: Velocities relative to aircraft body
+          - value: NED
+            label: NED Frame
+            description: North-East-Down world reference
       REQUIRED_TRACKER_FIELDS:
         type: array
         default:
@@ -2107,10 +2206,20 @@ sections:
     icon: control_camera
     parameters:
       MOUNT_TYPE:
-        type: string
+        type: enum
         default: HORIZONTAL
-        description: 'Options: "VERTICAL", "HORIZONTAL", "TILTED_45"'
+        description: Gimbal mount orientation
         reboot_required: false
+        options:
+          - value: HORIZONTAL
+            label: Horizontal
+            description: Standard horizontal gimbal mount
+          - value: VERTICAL
+            label: Vertical
+            description: Vertical gimbal mount orientation
+          - value: TILTED_45
+            label: Tilted 45°
+            description: 45-degree tilted mount
       MIN_VELOCITY:
         type: float
         default: 0.0
@@ -4037,10 +4146,17 @@ sections:
         description: Enable/disable state estimation
         reboot_required: false
       ESTIMATOR_TYPE:
-        type: string
+        type: enum
         default: Kalman
-        description: 'Options: Kalman, None'
+        description: State estimation algorithm
         reboot_required: false
+        options:
+          - value: Kalman
+            label: Kalman Filter
+            description: Smooth state estimation with prediction
+          - value: None
+            label: None
+            description: Disable state estimation
       ESTIMATOR_HISTORY_LENGTH:
         type: integer
         default: 5
@@ -4162,10 +4278,23 @@ sections:
         max: 100
         unit: 1-10
       PREPROCESSING_COLOR_SPACE:
-        type: string
+        type: enum
         default: BGR
-        description: 'Options: BGR, GRAY, HSV, LAB'
+        description: Image color space for preprocessing
         reboot_required: false
+        options:
+          - value: BGR
+            label: BGR (Default)
+            description: Blue-Green-Red color space
+          - value: GRAY
+            label: Grayscale
+            description: Single-channel grayscale
+          - value: HSV
+            label: HSV
+            description: Hue-Saturation-Value color space
+          - value: LAB
+            label: LAB
+            description: CIE LAB perceptually uniform color space
   Segmentation:
     display_name: Segmentation
     category: processing
