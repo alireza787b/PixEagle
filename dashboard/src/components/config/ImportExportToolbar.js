@@ -1,7 +1,7 @@
 // dashboard/src/components/config/ImportExportToolbar.js
 import React, { useState } from 'react';
 import {
-  Box, Button, Tooltip, Divider, Chip, IconButton,
+  Box, Button, Tooltip, Divider, Chip,
   Dialog, DialogTitle, DialogContent, DialogActions,
   Typography, FormControlLabel, Checkbox, Alert,
   CircularProgress
@@ -33,7 +33,7 @@ const ImportExportToolbar = ({
   onMessage,
   onConfigImported
 }) => {
-  const { isMobile, iconButtonSize } = useResponsive();
+  const { isMobile } = useResponsive();
   const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -101,20 +101,18 @@ const ImportExportToolbar = ({
   return (
     <>
       {isMobile ? (
-        // Mobile: Icon-only buttons in compact grid
+        // Mobile: Icon + Label buttons in compact grid (like mobile app navigation)
         <Box sx={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(44px, 1fr))',
-          gap: 0.5,
-          alignItems: 'center',
-          justifyItems: 'center',
+          gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: 1,
           width: '100%'
         }}>
           {/* Changes indicator */}
           {changesCount > 0 && (
             <Chip
               icon={<CompareArrows />}
-              label={changesCount}
+              label={`${changesCount} changes`}
               size="small"
               color="warning"
               variant="outlined"
@@ -123,71 +121,150 @@ const ImportExportToolbar = ({
           )}
 
           {/* Export button */}
-          <Tooltip title="Export">
-            <IconButton
-              size={iconButtonSize}
-              onClick={() => setExportOpen(true)}
-              sx={{ border: 1, borderColor: 'divider' }}
-            >
-              <FileDownload />
-            </IconButton>
-          </Tooltip>
+          <Box
+            onClick={() => setExportOpen(true)}
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 0.5,
+              p: 1,
+              border: 1,
+              borderColor: 'divider',
+              borderRadius: 1,
+              cursor: 'pointer',
+              '&:active': {
+                bgcolor: 'action.selected'
+              }
+            }}
+          >
+            <FileDownload />
+            <Typography variant="caption" sx={{ fontSize: '0.65rem', textAlign: 'center', lineHeight: 1.2 }}>
+              Export
+            </Typography>
+          </Box>
 
           {/* Import button */}
-          <Tooltip title="Import">
-            <IconButton
-              size={iconButtonSize}
-              onClick={() => setImportOpen(true)}
-              sx={{ border: 1, borderColor: 'divider' }}
-            >
-              <FileUpload />
-            </IconButton>
-          </Tooltip>
+          <Box
+            onClick={() => setImportOpen(true)}
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 0.5,
+              p: 1,
+              border: 1,
+              borderColor: 'divider',
+              borderRadius: 1,
+              cursor: 'pointer',
+              '&:active': {
+                bgcolor: 'action.selected'
+              }
+            }}
+          >
+            <FileUpload />
+            <Typography variant="caption" sx={{ fontSize: '0.65rem', textAlign: 'center', lineHeight: 1.2 }}>
+              Import
+            </Typography>
+          </Box>
 
           {/* History button */}
-          <Tooltip title="History">
-            <IconButton
-              size={iconButtonSize}
-              onClick={() => setHistoryOpen(true)}
-              sx={{ border: 1, borderColor: 'divider' }}
-            >
-              <History />
-            </IconButton>
-          </Tooltip>
+          <Box
+            onClick={() => setHistoryOpen(true)}
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 0.5,
+              p: 1,
+              border: 1,
+              borderColor: 'divider',
+              borderRadius: 1,
+              cursor: 'pointer',
+              '&:active': {
+                bgcolor: 'action.selected'
+              }
+            }}
+          >
+            <History />
+            <Typography variant="caption" sx={{ fontSize: '0.65rem', textAlign: 'center', lineHeight: 1.2 }}>
+              History
+            </Typography>
+          </Box>
 
           {/* Audit Log button */}
-          <Tooltip title="Audit Log">
-            <IconButton
-              size={iconButtonSize}
-              onClick={() => setAuditOpen(true)}
-              sx={{ border: 1, borderColor: 'divider' }}
-            >
-              <ReceiptLong />
-            </IconButton>
-          </Tooltip>
+          <Box
+            onClick={() => setAuditOpen(true)}
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 0.5,
+              p: 1,
+              border: 1,
+              borderColor: 'divider',
+              borderRadius: 1,
+              cursor: 'pointer',
+              '&:active': {
+                bgcolor: 'action.selected'
+              }
+            }}
+          >
+            <ReceiptLong />
+            <Typography variant="caption" sx={{ fontSize: '0.65rem', textAlign: 'center', lineHeight: 1.2 }}>
+              Audit
+            </Typography>
+          </Box>
 
           {/* Reset to Defaults button */}
-          <Tooltip title="Reset">
-            <IconButton
-              size={iconButtonSize}
-              color="warning"
-              onClick={() => setResetOpen(true)}
-              sx={{ border: 1, borderColor: 'warning.main' }}
-            >
-              <RestartAlt />
-            </IconButton>
-          </Tooltip>
+          <Box
+            onClick={() => setResetOpen(true)}
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 0.5,
+              p: 1,
+              border: 1,
+              borderColor: 'warning.main',
+              borderRadius: 1,
+              cursor: 'pointer',
+              color: 'warning.main',
+              '&:active': {
+                bgcolor: 'warning.light',
+                color: 'warning.contrastText'
+              }
+            }}
+          >
+            <RestartAlt />
+            <Typography variant="caption" sx={{ fontSize: '0.65rem', textAlign: 'center', lineHeight: 1.2 }}>
+              Reset
+            </Typography>
+          </Box>
 
           {/* Refresh button */}
-          <Tooltip title="Refresh">
-            <IconButton
-              size={iconButtonSize}
-              onClick={onRefresh}
-              sx={{ border: 1, borderColor: 'divider' }}
-            >
-              <Refresh />
-            </IconButton>
-          </Tooltip>
+          <Box
+            onClick={onRefresh}
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 0.5,
+              p: 1,
+              border: 1,
+              borderColor: 'divider',
+              borderRadius: 1,
+              cursor: 'pointer',
+              '&:active': {
+                bgcolor: 'action.selected'
+              }
+            }}
+          >
+            <Refresh />
+            <Typography variant="caption" sx={{ fontSize: '0.65rem', textAlign: 'center', lineHeight: 1.2 }}>
+              Refresh
+            </Typography>
+          </Box>
         </Box>
       ) : (
         // Desktop: Full buttons with labels
