@@ -1,13 +1,15 @@
 // dashboard/src/components/WebRTCStream.js
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { websocketVideoFeed } from '../services/apiEndpoints';
-import { Box, Typography, Chip, IconButton, Slider } from '@mui/material';
-import { SignalCellular4Bar, SignalCellular2Bar, SignalCellular0Bar, Settings } from '@mui/icons-material';
+import { Box, Typography, Chip, IconButton, Slider, CircularProgress } from '@mui/material';
+import { SignalCellular4Bar, SignalCellular2Bar, SignalCellular0Bar, Settings, Videocam } from '@mui/icons-material';
 
 const WebRTCStream = ({ protocol = 'http', src, showStats = false, showQualityControl = false }) => {
   const canvasRef = useRef(null);
   const wsRef = useRef(null);
   const [error, setError] = useState(null);
+  const [isConnecting, setIsConnecting] = useState(true);
+  const [hasReceivedFrame, setHasReceivedFrame] = useState(false);
   const [streamStats, setStreamStats] = useState({
     fps: 0,
     quality: 60,
@@ -62,6 +64,9 @@ const WebRTCStream = ({ protocol = 'http', src, showStats = false, showQualityCo
     let isMounted = true;
 
     if (protocol === 'websocket') {
+      setIsConnecting(true);
+      setHasReceivedFrame(false);
+
       const ws = new WebSocket(websocketVideoFeed);
       ws.binaryType = 'arraybuffer';
       wsRef.current = ws;
@@ -70,7 +75,8 @@ const WebRTCStream = ({ protocol = 'http', src, showStats = false, showQualityCo
         if (!isMounted) return;
         console.log('WebSocket connection opened (optimized protocol)');
         setError(null);
-        
+        setIsConnecting(false);
+
         // Start heartbeat
         heartbeatInterval.current = setInterval(sendHeartbeat, 15000);
       };
@@ -92,20 +98,23 @@ const WebRTCStream = ({ protocol = 'http', src, showStats = false, showQualityCo
               
               img.onload = () => {
                 if (!isMounted || !canvasRef.current) return;
-                
+
                 const ctx = canvasRef.current.getContext('2d');
-                
+
                 // Update canvas dimensions if needed
-                if (canvasRef.current.width !== img.width || 
+                if (canvasRef.current.width !== img.width ||
                     canvasRef.current.height !== img.height) {
                   canvasRef.current.width = img.width;
                   canvasRef.current.height = img.height;
                 }
-                
+
                 // Draw the image
                 ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
                 ctx.drawImage(img, 0, 0);
-                
+
+                // Mark that we've received at least one frame
+                setHasReceivedFrame(true);
+
                 // Update stats
                 updateFPS();
                 setStreamStats(prev => ({
@@ -131,16 +140,17 @@ const WebRTCStream = ({ protocol = 'http', src, showStats = false, showQualityCo
               
               img.onload = () => {
                 if (!isMounted || !canvasRef.current) return;
-                
+
                 const ctx = canvasRef.current.getContext('2d');
-                if (canvasRef.current.width !== img.width || 
+                if (canvasRef.current.width !== img.width ||
                     canvasRef.current.height !== img.height) {
                   canvasRef.current.width = img.width;
                   canvasRef.current.height = img.height;
                 }
-                
+
                 ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
                 ctx.drawImage(img, 0, 0);
+                setHasReceivedFrame(true);
                 updateFPS();
                 URL.revokeObjectURL(img.src);
               };
@@ -238,10 +248,46 @@ const WebRTCStream = ({ protocol = 'http', src, showStats = false, showQualityCo
 
   if (protocol === 'websocket') {
     return (
-      <Box sx={{ position: 'relative', width: '100%' }}>
+      <Box sx={{ position: 'relative', width: '100%', minHeight: 300, bgcolor: 'grey.900' }}>
+        {/* Loading/Connecting Placeholder */}
+        {(!hasReceivedFrame) && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'grey.400',
+              minHeight: 300,
+              zIndex: 1
+            }}
+          >
+            {isConnecting ? (
+              <>
+                <CircularProgress size={40} sx={{ color: 'grey.500', mb: 2 }} />
+                <Typography variant="body2">Connecting to video stream...</Typography>
+              </>
+            ) : (
+              <>
+                <Videocam sx={{ fontSize: 48, mb: 1, opacity: 0.5 }} />
+                <Typography variant="body2">Waiting for video frames...</Typography>
+              </>
+            )}
+          </Box>
+        )}
         <canvas
           ref={canvasRef}
-          style={{ width: '100%', height: 'auto', display: 'block' }}
+          style={{
+            width: '100%',
+            height: 'auto',
+            display: 'block',
+            opacity: hasReceivedFrame ? 1 : 0
+          }}
         />
         
         {/* Streaming Stats Overlay */}

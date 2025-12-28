@@ -86,7 +86,7 @@ const SystemHealthCard = ({ trackerStatus, isFollowing, smartModeActive, circuit
             Detection Mode:
           </Typography>
           <Chip 
-            label={smartModeActive ? 'YOLO (Smart)' : 'CSRT (Classic)'}
+            label={smartModeActive ? 'YOLO (Smart)' : 'Classic'}
             color={smartModeActive ? 'secondary' : 'primary'}
             size="small"
           />
@@ -265,7 +265,7 @@ const DashboardPage = () => {
       });
       const newMode = !smartModeActive;
       setSmartModeActive(newMode);
-      setSnackbarMessage(`Switched to ${newMode ? 'Smart Tracker (YOLO)' : 'Classic Tracker (CSRT)'}`);
+      setSnackbarMessage(`Switched to ${newMode ? 'Smart Tracker (YOLO)' : 'Classic Tracker'}`);
       setSnackbarSeverity('info');
       setSnackbarOpen(true);
     } catch (err) {
@@ -387,7 +387,7 @@ const DashboardPage = () => {
 
                   {/* Main Video Feed - Primary Focus */}
                   <Grid item xs={12} lg={9}>
-                    <Card variant="outlined" sx={{ bgcolor: 'grey.50', minHeight: 400 }}>
+                    <Card variant="outlined" sx={{ bgcolor: 'background.paper', minHeight: 400 }}>
                       <CardContent sx={{ p: 1 }}>
                         <BoundingBoxDrawer
                           isTracking={isTracking}
@@ -530,7 +530,7 @@ const DashboardPage = () => {
         <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: '100%' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography variant="body2">
-              {snackbarMessage || `Switched to ${smartModeActive ? 'Smart Tracker (YOLO)' : 'Classic Tracker (CSRT)'}`}
+              {snackbarMessage || `Switched to ${smartModeActive ? 'Smart Tracker (YOLO)' : 'Classic Tracker'}`}
             </Typography>
           </Box>
         </Alert>

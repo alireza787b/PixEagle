@@ -579,7 +579,7 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
                 <TableRow
                   key={param}
                   sx={{
-                    bgcolor: modified ? 'warning.50' : undefined,
+                    bgcolor: modified ? 'action.selected' : undefined,
                     '&:hover': { bgcolor: 'action.hover' }
                   }}
                 >
