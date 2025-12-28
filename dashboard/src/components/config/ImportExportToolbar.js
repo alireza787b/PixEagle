@@ -121,150 +121,155 @@ const ImportExportToolbar = ({
           )}
 
           {/* Export button */}
-          <Box
+          <Button
             onClick={() => setExportOpen(true)}
+            variant="outlined"
+            aria-label="Export configuration to file"
             sx={{
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               gap: 0.5,
               p: 1,
-              border: 1,
-              borderColor: 'divider',
-              borderRadius: 1,
-              cursor: 'pointer',
-              '&:active': {
-                bgcolor: 'action.selected'
+              minHeight: 64,
+              flex: 1,
+              '&:hover': {
+                bgcolor: 'action.hover',
+                borderColor: 'primary.main'
               }
             }}
           >
             <FileDownload />
-            <Typography variant="caption" sx={{ fontSize: '0.65rem', textAlign: 'center', lineHeight: 1.2 }}>
+            <Typography variant="caption" sx={{ fontSize: '0.75rem', textAlign: 'center', lineHeight: 1.2 }}>
               Export
             </Typography>
-          </Box>
+          </Button>
 
           {/* Import button */}
-          <Box
+          <Button
             onClick={() => setImportOpen(true)}
+            variant="outlined"
+            aria-label="Import configuration from file"
             sx={{
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               gap: 0.5,
               p: 1,
-              border: 1,
-              borderColor: 'divider',
-              borderRadius: 1,
-              cursor: 'pointer',
-              '&:active': {
-                bgcolor: 'action.selected'
+              minHeight: 64,
+              flex: 1,
+              '&:hover': {
+                bgcolor: 'action.hover',
+                borderColor: 'primary.main'
               }
             }}
           >
             <FileUpload />
-            <Typography variant="caption" sx={{ fontSize: '0.65rem', textAlign: 'center', lineHeight: 1.2 }}>
+            <Typography variant="caption" sx={{ fontSize: '0.75rem', textAlign: 'center', lineHeight: 1.2 }}>
               Import
             </Typography>
-          </Box>
+          </Button>
 
           {/* History button */}
-          <Box
+          <Button
             onClick={() => setHistoryOpen(true)}
+            variant="outlined"
+            aria-label="View backup history"
             sx={{
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               gap: 0.5,
               p: 1,
-              border: 1,
-              borderColor: 'divider',
-              borderRadius: 1,
-              cursor: 'pointer',
-              '&:active': {
-                bgcolor: 'action.selected'
+              minHeight: 64,
+              flex: 1,
+              '&:hover': {
+                bgcolor: 'action.hover',
+                borderColor: 'primary.main'
               }
             }}
           >
             <History />
-            <Typography variant="caption" sx={{ fontSize: '0.65rem', textAlign: 'center', lineHeight: 1.2 }}>
+            <Typography variant="caption" sx={{ fontSize: '0.75rem', textAlign: 'center', lineHeight: 1.2 }}>
               History
             </Typography>
-          </Box>
+          </Button>
 
           {/* Audit Log button */}
-          <Box
+          <Button
             onClick={() => setAuditOpen(true)}
+            variant="outlined"
+            aria-label="View change audit log"
             sx={{
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               gap: 0.5,
               p: 1,
-              border: 1,
-              borderColor: 'divider',
-              borderRadius: 1,
-              cursor: 'pointer',
-              '&:active': {
-                bgcolor: 'action.selected'
+              minHeight: 64,
+              flex: 1,
+              '&:hover': {
+                bgcolor: 'action.hover',
+                borderColor: 'primary.main'
               }
             }}
           >
             <ReceiptLong />
-            <Typography variant="caption" sx={{ fontSize: '0.65rem', textAlign: 'center', lineHeight: 1.2 }}>
+            <Typography variant="caption" sx={{ fontSize: '0.75rem', textAlign: 'center', lineHeight: 1.2 }}>
               Audit
             </Typography>
-          </Box>
+          </Button>
 
           {/* Reset to Defaults button */}
-          <Box
+          <Button
             onClick={() => setResetOpen(true)}
+            variant="outlined"
+            color="warning"
+            aria-label="Reset configuration to defaults"
             sx={{
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               gap: 0.5,
               p: 1,
-              border: 1,
-              borderColor: 'warning.main',
-              borderRadius: 1,
-              cursor: 'pointer',
-              color: 'warning.main',
-              '&:active': {
+              minHeight: 64,
+              flex: 1,
+              '&:hover': {
                 bgcolor: 'warning.light',
-                color: 'warning.contrastText'
+                borderColor: 'warning.main'
               }
             }}
           >
             <RestartAlt />
-            <Typography variant="caption" sx={{ fontSize: '0.65rem', textAlign: 'center', lineHeight: 1.2 }}>
+            <Typography variant="caption" sx={{ fontSize: '0.75rem', textAlign: 'center', lineHeight: 1.2 }}>
               Reset
             </Typography>
-          </Box>
+          </Button>
 
           {/* Refresh button */}
-          <Box
+          <Button
             onClick={onRefresh}
+            variant="outlined"
+            aria-label="Refresh configuration"
             sx={{
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               gap: 0.5,
               p: 1,
-              border: 1,
-              borderColor: 'divider',
-              borderRadius: 1,
-              cursor: 'pointer',
-              '&:active': {
-                bgcolor: 'action.selected'
+              minHeight: 64,
+              flex: 1,
+              '&:hover': {
+                bgcolor: 'action.hover',
+                borderColor: 'primary.main'
               }
             }}
           >
             <Refresh />
-            <Typography variant="caption" sx={{ fontSize: '0.65rem', textAlign: 'center', lineHeight: 1.2 }}>
+            <Typography variant="caption" sx={{ fontSize: '0.75rem', textAlign: 'center', lineHeight: 1.2 }}>
               Refresh
             </Typography>
-          </Box>
+          </Button>
         </Box>
       ) : (
         // Desktop: Full buttons with labels

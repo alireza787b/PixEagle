@@ -193,25 +193,15 @@ const SmartValueEditor = ({
 
   // Analyze schema to determine pattern
   const analysis = useMemo(() => {
-    const result = analyzeSchema(schema, value);
-    console.log('SmartValueEditor analysis:', {
-      pattern: result.pattern,
-      schemaType: schema?.type,
-      valueType: typeof value,
-      valueKeys: typeof value === 'object' && value ? Object.keys(value).slice(0, 5) : null,
-      complexity: result.complexity
-    });
-    return result;
+    return analyzeSchema(schema, value);
   }, [schema, value]);
 
   // Determine display mode
   const displayMode = useMemo(() => {
-    // Force compact mode on mobile to hide sliders and simplify UI
-    if (isMobile) return 'compact';
-
+    // Respect explicit mode request
     if (mode !== 'auto') return mode;
 
-    // Auto-detect based on complexity
+    // Auto-detect based on complexity (device-agnostic)
     switch (analysis.pattern) {
       case PatternType.PID_TRIPLET:
         return 'inline';
@@ -262,14 +252,7 @@ const SmartValueEditor = ({
 
   // Get renderer for this pattern
   const Renderer = useMemo(() => {
-    const renderer = TypeRendererRegistry.get(analysis.pattern);
-    console.log('SmartValueEditor renderer lookup:', {
-      pattern: analysis.pattern,
-      found: !!renderer,
-      rendererName: renderer?.name || renderer?.displayName || 'null',
-      registeredPatterns: TypeRendererRegistry.getRegisteredPatterns()
-    });
-    return renderer;
+    return TypeRendererRegistry.get(analysis.pattern);
   }, [analysis.pattern]);
 
   // State for inline expansion
@@ -286,6 +269,7 @@ const SmartValueEditor = ({
           schema={schema}
           disabled={disabled}
           compact={isCompact}
+          isMobile={isMobile}
         />
       );
     }

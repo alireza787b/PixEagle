@@ -1,5 +1,5 @@
 // dashboard/src/components/config/renderers/PIDRenderer.js
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Box, TextField, Slider, Typography, Tooltip, IconButton
 } from '@mui/material';
@@ -24,11 +24,46 @@ const PID_COLORS = {
   d: { main: '#4CAF50', light: '#C8E6C9', dark: '#1B5E20', label: 'Derivative' }
 };
 
-// Default value ranges for PID gains
-const DEFAULT_RANGES = {
-  p: { min: 0, max: 50, step: 0.1 },
-  i: { min: 0, max: 5, step: 0.01 },
-  d: { min: 0, max: 10, step: 0.01 }
+// Fallback ranges when no value or schema available
+const FALLBACK_RANGES = {
+  p: { min: 0, max: 10, step: 0.1 },
+  i: { min: 0, max: 1, step: 0.01 },
+  d: { min: 0, max: 5, step: 0.01 }
+};
+
+/**
+ * Calculate smart range based on current value
+ * - Adapts to order of magnitude of the value
+ * - Always includes 0 and current value with headroom
+ * - Stable during editing (calculated once on mount)
+ */
+const calculateSmartRange = (value, key) => {
+  const absValue = Math.abs(value || 0);
+
+  // If value is 0 or very small, use fallback
+  if (absValue < 0.001) {
+    return FALLBACK_RANGES[key] || { min: 0, max: 10, step: 0.1 };
+  }
+
+  // Calculate order of magnitude
+  const magnitude = Math.floor(Math.log10(absValue));
+
+  // Smart step based on magnitude (2 decimal places of precision)
+  const step = Math.max(Math.pow(10, magnitude - 2), 0.001);
+
+  // Range: 0 to ~3x current value, rounded to nice number
+  const maxRaw = absValue * 3;
+  const roundTo = Math.pow(10, magnitude);
+  const max = Math.ceil(maxRaw / roundTo) * roundTo;
+
+  // Min is 0 for positive values, allow negative for negative values
+  const min = value < 0 ? -max : 0;
+
+  return {
+    min: Math.min(min, value * 0.5),
+    max: Math.max(max, absValue * 1.5),
+    step
+  };
 };
 
 const PIDField = ({
@@ -169,13 +204,17 @@ const PIDRenderer = ({
   disabled = false,
   compact = false,
   showLabel = false,
-  label = ''
+  label = '',
+  isMobile: propIsMobile
 }) => {
-  const { isMobile, showSliders: showSlidersGlobal } = useResponsive();
-  const [showSlidersLocal, setShowSlidersLocal] = useState(!compact);
+  const { isMobile: hookIsMobile } = useResponsive();
+  const effectiveMobile = propIsMobile ?? hookIsMobile;
 
-  // Hide sliders on mobile, respect local toggle on desktop
-  const effectiveShowSliders = showSlidersGlobal && showSlidersLocal && !compact;
+  // User can toggle sliders on desktop
+  const [showSlidersLocal, setShowSlidersLocal] = useState(true);
+
+  // Simple logic: hide sliders if mobile OR user toggled off OR compact mode
+  const effectiveShowSliders = !effectiveMobile && showSlidersLocal && !compact;
 
   // Normalize value to lowercase keys
   const normalizedValue = useMemo(() => ({
@@ -184,13 +223,27 @@ const PIDRenderer = ({
     d: value?.d ?? value?.D ?? 0
   }), [value]);
 
-  // Get ranges from schema or use defaults
+  // Calculate ranges ONCE on mount (stable during editing)
+  const initialRangesRef = useRef(null);
+  if (initialRangesRef.current === null) {
+    const initP = value?.p ?? value?.P ?? 0;
+    const initI = value?.i ?? value?.I ?? 0;
+    const initD = value?.d ?? value?.D ?? 0;
+    initialRangesRef.current = {
+      p: calculateSmartRange(initP, 'p'),
+      i: calculateSmartRange(initI, 'i'),
+      d: calculateSmartRange(initD, 'd')
+    };
+  }
+
   const getRangeForKey = useCallback((key) => {
     const propSchema = schema?.properties?.[key] || schema?.properties?.[key.toUpperCase()];
+    const smartRange = initialRangesRef.current[key];
+
     return {
-      min: propSchema?.minimum ?? DEFAULT_RANGES[key].min,
-      max: propSchema?.maximum ?? DEFAULT_RANGES[key].max,
-      step: propSchema?.step ?? DEFAULT_RANGES[key].step
+      min: propSchema?.minimum ?? smartRange.min,
+      max: propSchema?.maximum ?? smartRange.max,
+      step: propSchema?.step ?? smartRange.step
     };
   }, [schema?.properties]);
 
@@ -202,7 +255,7 @@ const PIDRenderer = ({
   }, [normalizedValue, onChange]);
 
   return (
-    <Box sx={{ width: isMobile ? '100%' : 'auto' }}>
+    <Box sx={{ width: effectiveMobile ? '100%' : 'auto' }}>
       {showLabel && label && (
         <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
           {label}
@@ -211,9 +264,10 @@ const PIDRenderer = ({
 
       <Box sx={{
         display: 'flex',
-        flexDirection: isMobile ? 'column' : 'row',
-        gap: compact ? 0.5 : (isMobile ? 2 : 1),
-        alignItems: 'flex-start'
+        flexDirection: effectiveMobile ? 'column' : 'row',
+        gap: compact ? 0.5 : (effectiveMobile ? 2 : 1),
+        alignItems: 'flex-start',
+        width: effectiveMobile ? '100%' : 'auto'
       }}>
         <PIDField
           label="P"
@@ -224,7 +278,7 @@ const PIDRenderer = ({
           disabled={disabled}
           compact={compact}
           showSlider={effectiveShowSliders}
-          mobileMode={isMobile}
+          mobileMode={effectiveMobile}
         />
         <PIDField
           label="I"
@@ -235,7 +289,7 @@ const PIDRenderer = ({
           disabled={disabled}
           compact={compact}
           showSlider={effectiveShowSliders}
-          mobileMode={isMobile}
+          mobileMode={effectiveMobile}
         />
         <PIDField
           label="D"
@@ -246,10 +300,10 @@ const PIDRenderer = ({
           disabled={disabled}
           compact={compact}
           showSlider={effectiveShowSliders}
-          mobileMode={isMobile}
+          mobileMode={effectiveMobile}
         />
 
-        {!compact && !isMobile && (
+        {!compact && (
           <Tooltip title={showSlidersLocal ? 'Hide sliders' : 'Show sliders'}>
             <IconButton
               size="small"
