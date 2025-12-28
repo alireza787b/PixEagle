@@ -1,5 +1,5 @@
 // dashboard/src/components/config/renderers/PIDRenderer.js
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Box, TextField, Slider, Typography, Tooltip, IconButton
 } from '@mui/material';
@@ -23,11 +23,46 @@ const PID_COLORS = {
   d: { main: '#4CAF50', light: '#C8E6C9', dark: '#1B5E20', label: 'Derivative' }
 };
 
-// Default value ranges for PID gains
-const DEFAULT_RANGES = {
-  p: { min: 0, max: 50, step: 0.1 },
-  i: { min: 0, max: 5, step: 0.01 },
-  d: { min: 0, max: 10, step: 0.01 }
+// Fallback ranges when no value or schema available
+const FALLBACK_RANGES = {
+  p: { min: 0, max: 10, step: 0.1 },
+  i: { min: 0, max: 1, step: 0.01 },
+  d: { min: 0, max: 5, step: 0.01 }
+};
+
+/**
+ * Calculate smart range based on current value
+ * - Stable: calculated once on mount, doesn't jump during editing
+ * - Adapts to order of magnitude of the value
+ * - Always includes 0 and current value with headroom
+ */
+const calculateSmartRange = (value, key) => {
+  const absValue = Math.abs(value || 0);
+
+  // If value is 0 or very small, use fallback
+  if (absValue < 0.001) {
+    return FALLBACK_RANGES[key] || { min: 0, max: 10, step: 0.1 };
+  }
+
+  // Calculate order of magnitude
+  const magnitude = Math.floor(Math.log10(absValue));
+
+  // Smart step based on magnitude
+  const step = Math.pow(10, magnitude - 2); // 2 decimal places of precision
+
+  // Range: 0 to ~3x current value, rounded to nice number
+  const maxRaw = absValue * 3;
+  const roundTo = Math.pow(10, magnitude);
+  const max = Math.ceil(maxRaw / roundTo) * roundTo;
+
+  // Min is 0 for positive values, or symmetric for negative
+  const min = value < 0 ? -max : 0;
+
+  return {
+    min: Math.min(min, value * 0.5), // Ensure current value fits
+    max: Math.max(max, absValue * 1.5), // At least 1.5x headroom
+    step: Math.max(step, 0.001) // Minimum step
+  };
 };
 
 const PIDField = ({
@@ -172,13 +207,29 @@ const PIDRenderer = ({
     d: value?.d ?? value?.D ?? 0
   }), [value]);
 
-  // Get ranges from schema or use defaults
+  // Calculate ranges ONCE on mount - stable during editing session
+  // This prevents slider jumping while user is adjusting values
+  const initialRangesRef = useRef(null);
+  if (initialRangesRef.current === null) {
+    const initP = value?.p ?? value?.P ?? 0;
+    const initI = value?.i ?? value?.I ?? 0;
+    const initD = value?.d ?? value?.D ?? 0;
+    initialRangesRef.current = {
+      p: calculateSmartRange(initP, 'p'),
+      i: calculateSmartRange(initI, 'i'),
+      d: calculateSmartRange(initD, 'd')
+    };
+  }
+
+  // Get ranges: schema first, then smart calculated, then fallback
   const getRangeForKey = useCallback((key) => {
     const propSchema = schema?.properties?.[key] || schema?.properties?.[key.toUpperCase()];
+    const smartRange = initialRangesRef.current[key];
+
     return {
-      min: propSchema?.minimum ?? DEFAULT_RANGES[key].min,
-      max: propSchema?.maximum ?? DEFAULT_RANGES[key].max,
-      step: propSchema?.step ?? DEFAULT_RANGES[key].step
+      min: propSchema?.minimum ?? smartRange.min,
+      max: propSchema?.maximum ?? smartRange.max,
+      step: propSchema?.step ?? smartRange.step
     };
   }, [schema?.properties]);
 

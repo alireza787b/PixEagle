@@ -1,5 +1,5 @@
 // dashboard/src/components/config/renderers/ScalarArrayRenderer.js
-import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Box, TextField, IconButton, Typography, Slider, Tooltip,
   Paper, Chip
@@ -166,12 +166,30 @@ const ScalarArrayRenderer = ({
   const canAdd = arr.length < maxItems;
   const canRemove = arr.length > minItems;
 
-  // Range for sliders (detect from existing values or schema)
-  const range = useMemo(() => ({
-    min: schema?.minimum ?? Math.min(0, ...arr.filter(v => typeof v === 'number')),
-    max: schema?.maximum ?? Math.max(100, ...arr.filter(v => typeof v === 'number')),
-    step: schema?.step ?? 1
-  }), [schema?.minimum, schema?.maximum, schema?.step, arr]);
+  // Range for sliders - calculated ONCE on mount for stability during editing
+  const initialRangeRef = useRef(null);
+  if (initialRangeRef.current === null) {
+    const numericValues = (Array.isArray(value) ? value : []).filter(v => typeof v === 'number');
+    const absMax = numericValues.length > 0
+      ? Math.max(...numericValues.map(v => Math.abs(v)))
+      : 0;
+
+    // Smart range: adapt to order of magnitude
+    let smartMax = 100;
+    let smartStep = 1;
+    if (absMax > 0) {
+      const magnitude = Math.floor(Math.log10(absMax));
+      smartMax = Math.ceil(absMax * 3 / Math.pow(10, magnitude)) * Math.pow(10, magnitude);
+      smartStep = Math.max(Math.pow(10, magnitude - 2), 0.01);
+    }
+
+    initialRangeRef.current = {
+      min: schema?.minimum ?? Math.min(0, ...numericValues, 0),
+      max: schema?.maximum ?? smartMax,
+      step: schema?.step ?? smartStep
+    };
+  }
+  const range = initialRangeRef.current;
 
   const handleItemChange = useCallback((index, newValue) => {
     const newArr = [...arr];
