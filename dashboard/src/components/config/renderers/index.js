@@ -13,6 +13,7 @@ import ScalarArrayRenderer from './ScalarArrayRenderer';
 import GenericObjectRenderer from './GenericObjectRenderer';
 
 // Register default renderers
+console.log('Registering renderers with PatternType:', PatternType);
 setDefaultRenderers({
   [PatternType.PID_TRIPLET]: PIDRenderer,
   [PatternType.AXIS_PID_GROUP]: AxisPIDRenderer,
@@ -22,6 +23,7 @@ setDefaultRenderers({
   [PatternType.NESTED_OBJECT]: GenericObjectRenderer,
   [PatternType.GAIN_SCHEDULE]: GenericObjectRenderer,
 });
+console.log('TypeRendererRegistry initialized. Registered patterns:', TypeRendererRegistry.getRegisteredPatterns());
 
 // Re-export all renderers
 export {

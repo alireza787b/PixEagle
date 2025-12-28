@@ -4,15 +4,16 @@ import {
   Box, Container, Typography, CircularProgress, Alert, Paper, Divider,
   List, ListItem, ListItemButton, ListItemIcon, ListItemText,
   Collapse, TextField, InputAdornment, Chip, IconButton, Tooltip,
-  Snackbar
+  Snackbar, Drawer, Fab
 } from '@mui/material';
 import {
   Settings, Search, ExpandLess, ExpandMore, Videocam, Router,
   GpsFixed, Navigation, Shield, Tune, AutoFixHigh, Tv,
-  Refresh, Warning
+  Refresh, Warning, Menu as MenuIcon
 } from '@mui/icons-material';
 
 import { useConfigSections, useConfigSection, useConfigSearch, useConfigDiff } from '../hooks/useConfig';
+import { useResponsive } from '../hooks/useResponsive';
 import SectionEditor from '../components/config/SectionEditor';
 import RestartPrompt from '../components/config/RestartPrompt';
 import ImportExportToolbar from '../components/config/ImportExportToolbar';
@@ -38,12 +39,14 @@ const SettingsPage = () => {
   const { sections, categories, groupedSections, loading: sectionsLoading, error: sectionsError, refetch } = useConfigSections();
   const { results: searchResults, search, clearResults } = useConfigSearch();
   const { diff, refetch: refetchDiff } = useConfigDiff();
+  const { isMobile, isTablet, isDesktop } = useResponsive();
 
   const [selectedSection, setSelectedSection] = useState(null);
   const [expandedCategories, setExpandedCategories] = useState({});
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingRestartParams, setPendingRestartParams] = useState([]);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // Sort categories by order
   const sortedCategories = useMemo(() => {
@@ -57,10 +60,18 @@ const SettingsPage = () => {
     }));
   };
 
+  const handleDrawerToggle = () => {
+    setDrawerOpen(!drawerOpen);
+  };
+
   const handleSectionSelect = (section) => {
     setSelectedSection(section);
     clearResults();
     setSearchQuery('');
+    // Close drawer on mobile after selection
+    if (isMobile) {
+      setDrawerOpen(false);
+    }
   };
 
   const handleSearch = (e) => {
@@ -142,9 +153,19 @@ const SettingsPage = () => {
 
       {/* Header */}
       <Box sx={{ mb: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2 }}>
+        <Box sx={{
+          display: 'flex',
+          flexDirection: { xs: 'column', sm: 'row' },
+          justifyContent: 'space-between',
+          alignItems: { xs: 'stretch', sm: 'flex-start' },
+          gap: 2
+        }}>
           <Box>
-            <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography
+              variant={{ xs: 'h6', md: 'h4' }}
+              gutterBottom
+              sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
+            >
               <Settings /> Configuration Manager
             </Typography>
             <Typography variant="body2" color="text.secondary">
@@ -160,103 +181,172 @@ const SettingsPage = () => {
         </Box>
       </Box>
 
-      {/* Main Layout */}
-      <Box sx={{ display: 'flex', gap: 3 }}>
-        {/* Sidebar */}
-        <Paper
+      {/* Hamburger Menu Button (Mobile Only) */}
+      {isMobile && (
+        <Fab
+          color="primary"
+          aria-label="menu"
+          onClick={handleDrawerToggle}
           sx={{
-            width: 300,
-            flexShrink: 0,
-            maxHeight: 'calc(100vh - 200px)',
-            overflow: 'auto',
-            position: 'sticky',
-            top: 80
+            position: 'fixed',
+            bottom: 16,
+            right: 16,
+            zIndex: 1200
           }}
         >
-          {/* Search */}
-          <Box sx={{ p: 2, position: 'sticky', top: 0, bgcolor: 'background.paper', zIndex: 1 }}>
-            <TextField
-              fullWidth
-              size="small"
-              placeholder="Search parameters..."
-              value={searchQuery}
-              onChange={handleSearch}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <Search />
-                  </InputAdornment>
-                )
-              }}
-            />
+          <MenuIcon />
+        </Fab>
+      )}
 
-            {/* Search Results */}
-            {searchResults.length > 0 && (
-              <Paper elevation={3} sx={{ mt: 1, maxHeight: 300, overflow: 'auto' }}>
-                <List dense>
-                  {searchResults.slice(0, 10).map((result, idx) => (
-                    <ListItemButton
-                      key={idx}
-                      onClick={() => handleSearchResultClick(result)}
-                    >
-                      <ListItemText
-                        primary={result.parameter}
-                        secondary={`${result.section} - ${result.description?.slice(0, 50)}...`}
-                      />
-                    </ListItemButton>
-                  ))}
-                </List>
-              </Paper>
-            )}
-          </Box>
+      {/* Main Layout */}
+      <Box sx={{ display: 'flex', gap: { xs: 0, md: 3 }, position: 'relative' }}>
+        {/* Sidebar Content (Shared between Drawer and Paper) */}
+        {(() => {
+          const sidebarContent = (
+            <Box sx={{ width: { xs: 280, sm: 300 }, height: '100%' }}>
+              {/* Search */}
+              <Box sx={{ p: 2, position: 'sticky', top: 0, bgcolor: 'background.paper', zIndex: 1 }}>
+                <TextField
+                  fullWidth
+                  size="small"
+                  placeholder="Search parameters..."
+                  value={searchQuery}
+                  onChange={handleSearch}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Search />
+                      </InputAdornment>
+                    )
+                  }}
+                />
 
-          <Divider />
-
-          {/* Section List */}
-          <List dense>
-            {sortedCategories.map((category) => {
-              const catSections = groupedSections[category] || [];
-              const catInfo = categories[category] || { display_name: category };
-              const isExpanded = expandedCategories[category] !== false; // Default expanded
-
-              return (
-                <React.Fragment key={category}>
-                  <ListItemButton onClick={() => toggleCategory(category)}>
-                    <ListItemIcon>
-                      {categoryIcons[category] || <Settings />}
-                    </ListItemIcon>
-                    <ListItemText
-                      primary={catInfo.display_name || category}
-                      secondary={`${catSections.length} sections`}
-                    />
-                    {isExpanded ? <ExpandLess /> : <ExpandMore />}
-                  </ListItemButton>
-
-                  <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-                    <List component="div" disablePadding dense>
-                      {catSections.map((section) => (
+                {/* Search Results */}
+                {searchResults.length > 0 && (
+                  <Paper elevation={3} sx={{ mt: 1, maxHeight: 300, overflow: 'auto' }}>
+                    <List dense>
+                      {searchResults.slice(0, 10).map((result, idx) => (
                         <ListItemButton
-                          key={section.name}
-                          sx={{ pl: 4 }}
-                          selected={selectedSection === section.name}
-                          onClick={() => handleSectionSelect(section.name)}
+                          key={idx}
+                          onClick={() => handleSearchResultClick(result)}
                         >
                           <ListItemText
-                            primary={section.display_name}
-                            secondary={`${section.parameter_count} params`}
+                            primary={result.parameter}
+                            secondary={`${result.section} - ${result.description?.slice(0, 50)}...`}
                           />
                         </ListItemButton>
                       ))}
                     </List>
-                  </Collapse>
-                </React.Fragment>
-              );
-            })}
-          </List>
-        </Paper>
+                  </Paper>
+                )}
+              </Box>
+
+              <Divider />
+
+              {/* Section List */}
+              <List dense>
+                {sortedCategories.map((category) => {
+                  const catSections = groupedSections[category] || [];
+                  const catInfo = categories[category] || { display_name: category };
+                  const isExpanded = expandedCategories[category] !== false; // Default expanded
+
+                  return (
+                    <React.Fragment key={category}>
+                      <ListItemButton onClick={() => toggleCategory(category)}>
+                        <ListItemIcon>
+                          {categoryIcons[category] || <Settings />}
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={catInfo.display_name || category}
+                          secondary={`${catSections.length} sections`}
+                        />
+                        {isExpanded ? <ExpandLess /> : <ExpandMore />}
+                      </ListItemButton>
+
+                      <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                        <List component="div" disablePadding dense>
+                          {catSections.map((section) => (
+                            <ListItemButton
+                              key={section.name}
+                              sx={{ pl: 4 }}
+                              selected={selectedSection === section.name}
+                              onClick={() => handleSectionSelect(section.name)}
+                            >
+                              <ListItemText
+                                primary={section.display_name}
+                                secondary={`${section.parameter_count} params`}
+                              />
+                            </ListItemButton>
+                          ))}
+                        </List>
+                      </Collapse>
+                    </React.Fragment>
+                  );
+                })}
+              </List>
+            </Box>
+          );
+
+          return (
+            <>
+              {/* Mobile: Temporary Drawer */}
+              {isMobile && (
+                <Drawer
+                  variant="temporary"
+                  open={drawerOpen}
+                  onClose={handleDrawerToggle}
+                  ModalProps={{ keepMounted: true }}
+                  sx={{
+                    '& .MuiDrawer-paper': {
+                      boxSizing: 'border-box',
+                      width: 280
+                    }
+                  }}
+                >
+                  {sidebarContent}
+                </Drawer>
+              )}
+
+              {/* Tablet: Persistent Drawer */}
+              {isTablet && (
+                <Drawer
+                  variant="persistent"
+                  open={true}
+                  sx={{
+                    width: 300,
+                    flexShrink: 0,
+                    '& .MuiDrawer-paper': {
+                      width: 300,
+                      boxSizing: 'border-box',
+                      position: 'relative'
+                    }
+                  }}
+                >
+                  {sidebarContent}
+                </Drawer>
+              )}
+
+              {/* Desktop: Fixed Paper Sidebar */}
+              {isDesktop && (
+                <Paper
+                  sx={{
+                    width: 300,
+                    flexShrink: 0,
+                    maxHeight: 'calc(100vh - 200px)',
+                    overflow: 'auto',
+                    position: 'sticky',
+                    top: 80
+                  }}
+                >
+                  {sidebarContent}
+                </Paper>
+              )}
+            </>
+          );
+        })()}
 
         {/* Content Area */}
-        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+        <Box sx={{ flexGrow: 1, minWidth: 0, width: '100%' }}>
           {selectedSection ? (
             <SectionEditor
               sectionName={selectedSection}
@@ -264,14 +354,16 @@ const SettingsPage = () => {
               onMessage={handleSnackbar}
             />
           ) : (
-            <Paper sx={{ p: 4, textAlign: 'center' }}>
-              <Settings sx={{ fontSize: 80, color: 'text.disabled', mb: 2 }} />
+            <Paper sx={{ p: { xs: 2, md: 4 }, textAlign: 'center' }}>
+              <Settings sx={{ fontSize: { xs: 60, md: 80 }, color: 'text.disabled', mb: 2 }} />
               <Typography variant="h6" color="text.secondary">
                 Select a section to edit
               </Typography>
               <Typography variant="body2" color="text.disabled">
-                Use the sidebar to navigate through configuration sections,
-                or search for specific parameters.
+                {isMobile
+                  ? 'Tap the menu button to browse sections'
+                  : 'Use the sidebar to navigate through configuration sections, or search for specific parameters.'
+                }
               </Typography>
             </Paper>
           )}

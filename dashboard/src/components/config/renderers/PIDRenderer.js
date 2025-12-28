@@ -4,6 +4,7 @@ import {
   Box, TextField, Slider, Typography, Tooltip, IconButton
 } from '@mui/material';
 import { Tune } from '@mui/icons-material';
+import { useResponsive } from '../../../hooks/useResponsive';
 
 /**
  * PIDRenderer - Inline editor for PID triplet values {p, i, d}
@@ -38,8 +39,10 @@ const PIDField = ({
   range,
   disabled,
   compact,
-  showSlider
+  showSlider,
+  mobileMode = false
 }) => {
+  const { touchTargetSize } = useResponsive();
   const [localValue, setLocalValue] = useState(String(value ?? 0));
   const [isFocused, setIsFocused] = useState(false);
 
@@ -74,7 +77,11 @@ const PIDField = ({
   };
 
   return (
-    <Box sx={{ flex: 1, minWidth: compact ? 70 : 100 }}>
+    <Box sx={{
+      flex: 1,
+      minWidth: mobileMode ? 0 : (compact ? 70 : 100),
+      width: mobileMode ? '100%' : 'auto'
+    }}>
       <Tooltip title={`${color.label} gain`} arrow placement="top">
         <Typography
           variant="caption"
@@ -91,7 +98,8 @@ const PIDField = ({
       </Tooltip>
 
       <TextField
-        size="small"
+        size={mobileMode ? touchTargetSize : 'small'}
+        fullWidth={mobileMode}
         value={localValue}
         onChange={handleTextChange}
         onBlur={handleTextBlur}
@@ -101,7 +109,7 @@ const PIDField = ({
         inputMode="decimal"
         sx={{
           '& .MuiOutlinedInput-root': {
-            height: compact ? 28 : 36,
+            height: mobileMode ? (touchTargetSize === 'medium' ? 44 : 36) : (compact ? 28 : 36),
             fontSize: compact ? '0.75rem' : '0.875rem',
             '& fieldset': {
               borderColor: color.main,
@@ -163,7 +171,11 @@ const PIDRenderer = ({
   showLabel = false,
   label = ''
 }) => {
-  const [showSliders, setShowSliders] = useState(!compact);
+  const { isMobile, showSliders: showSlidersGlobal } = useResponsive();
+  const [showSlidersLocal, setShowSlidersLocal] = useState(!compact);
+
+  // Hide sliders on mobile, respect local toggle on desktop
+  const effectiveShowSliders = showSlidersGlobal && showSlidersLocal && !compact;
 
   // Normalize value to lowercase keys
   const normalizedValue = useMemo(() => ({
@@ -190,14 +202,19 @@ const PIDRenderer = ({
   }, [normalizedValue, onChange]);
 
   return (
-    <Box>
+    <Box sx={{ width: isMobile ? '100%' : 'auto' }}>
       {showLabel && label && (
         <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
           {label}
         </Typography>
       )}
 
-      <Box sx={{ display: 'flex', gap: compact ? 0.5 : 1, alignItems: 'flex-start' }}>
+      <Box sx={{
+        display: 'flex',
+        flexDirection: isMobile ? 'column' : 'row',
+        gap: compact ? 0.5 : (isMobile ? 2 : 1),
+        alignItems: 'flex-start'
+      }}>
         <PIDField
           label="P"
           value={normalizedValue.p}
@@ -206,7 +223,8 @@ const PIDRenderer = ({
           range={getRangeForKey('p')}
           disabled={disabled}
           compact={compact}
-          showSlider={showSliders}
+          showSlider={effectiveShowSliders}
+          mobileMode={isMobile}
         />
         <PIDField
           label="I"
@@ -216,7 +234,8 @@ const PIDRenderer = ({
           range={getRangeForKey('i')}
           disabled={disabled}
           compact={compact}
-          showSlider={showSliders}
+          showSlider={effectiveShowSliders}
+          mobileMode={isMobile}
         />
         <PIDField
           label="D"
@@ -226,14 +245,15 @@ const PIDRenderer = ({
           range={getRangeForKey('d')}
           disabled={disabled}
           compact={compact}
-          showSlider={showSliders}
+          showSlider={effectiveShowSliders}
+          mobileMode={isMobile}
         />
 
-        {!compact && (
-          <Tooltip title={showSliders ? 'Hide sliders' : 'Show sliders'}>
+        {!compact && !isMobile && (
+          <Tooltip title={showSlidersLocal ? 'Hide sliders' : 'Show sliders'}>
             <IconButton
               size="small"
-              onClick={() => setShowSliders(!showSliders)}
+              onClick={() => setShowSlidersLocal(!showSlidersLocal)}
               sx={{ mt: 2 }}
             >
               <Tune fontSize="small" />

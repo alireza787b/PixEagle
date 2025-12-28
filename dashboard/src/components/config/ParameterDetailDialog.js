@@ -10,6 +10,7 @@ import {
   Close, Save, Undo, RestartAlt, Info, Warning, Edit
 } from '@mui/icons-material';
 
+import { useResponsive } from '../../hooks/useResponsive';
 import SmartValueEditor from './SmartValueEditor';
 
 /**
@@ -36,6 +37,7 @@ const ParameterDetailDialog = ({
   onRevert,
   saving = false
 }) => {
+  const { isMobile, buttonSize, iconButtonSize } = useResponsive();
   const [localValue, setLocalValue] = useState(currentValue);
   const [error, setError] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
@@ -423,7 +425,7 @@ const ParameterDetailDialog = ({
             schema={paramSchema}
             mode="full"
             disabled={saving}
-            showUndoRedo={true}
+            showUndoRedo={!isMobile}
             label="Array Value"
           />
         </Box>
@@ -440,7 +442,7 @@ const ParameterDetailDialog = ({
             schema={paramSchema}
             mode="full"
             disabled={saving}
-            showUndoRedo={true}
+            showUndoRedo={!isMobile}
             label="Object Value"
           />
         </Box>
@@ -468,19 +470,39 @@ const ParameterDetailDialog = ({
     <Dialog
       open={open}
       onClose={handleClose}
-      maxWidth="sm"
+      maxWidth={isMobile ? "xs" : "sm"}
       fullWidth
+      fullScreen={isMobile}
+      sx={{
+        '& .MuiDialog-paper': {
+          maxWidth: isMobile ? '100vw' : '600px',
+          m: isMobile ? 0 : 2
+        }
+      }}
     >
-      <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography variant="h6" component="span" sx={{ fontFamily: 'monospace' }}>
+      <DialogTitle sx={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        p: isMobile ? 1.5 : 2
+      }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+          <Typography
+            variant={isMobile ? "subtitle1" : "h6"}
+            component="span"
+            sx={{
+              fontFamily: 'monospace',
+              wordBreak: 'break-word',
+              maxWidth: isMobile ? '70%' : '100%'
+            }}
+          >
             {param}
           </Typography>
           {paramSchema?.reboot_required && (
             <Tooltip title="Restart required after change">
               <Chip
                 icon={<RestartAlt />}
-                label="Restart Required"
+                label={isMobile ? "Restart" : "Restart Required"}
                 size="small"
                 color="warning"
                 variant="outlined"
@@ -488,40 +510,47 @@ const ParameterDetailDialog = ({
             </Tooltip>
           )}
         </Box>
-        <IconButton onClick={handleClose} size="small">
+        <IconButton onClick={handleClose} size={iconButtonSize}>
           <Close />
         </IconButton>
       </DialogTitle>
 
-      <DialogContent>
+      <DialogContent sx={{ p: isMobile ? 1.5 : 2 }}>
         {/* Description */}
         {paramSchema?.description && (
           <Alert severity="info" icon={<Info />} sx={{ mb: 2 }}>
-            {paramSchema.description}
+            <Typography variant="body2">{paramSchema.description}</Typography>
           </Alert>
         )}
 
-        {/* Type and constraints info */}
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-          <Chip label={`Type: ${type}`} size="small" variant="outlined" />
-          {paramSchema?.unit && (
-            <Chip label={`Unit: ${paramSchema.unit}`} size="small" variant="outlined" />
-          )}
-          {paramSchema?.min !== undefined && (
-            <Chip label={`Min: ${paramSchema.min}`} size="small" variant="outlined" />
-          )}
-          {paramSchema?.max !== undefined && (
-            <Chip label={`Max: ${paramSchema.max}`} size="small" variant="outlined" />
-          )}
-          {paramSchema?.step && (
-            <Chip label={`Step: ${paramSchema.step}`} size="small" variant="outlined" />
-          )}
-        </Box>
+        {/* Type and constraints info - Hide on mobile to save space */}
+        {!isMobile && (
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+            <Chip label={`Type: ${type}`} size="small" variant="outlined" />
+            {paramSchema?.unit && (
+              <Chip label={`Unit: ${paramSchema.unit}`} size="small" variant="outlined" />
+            )}
+            {paramSchema?.min !== undefined && (
+              <Chip label={`Min: ${paramSchema.min}`} size="small" variant="outlined" />
+            )}
+            {paramSchema?.max !== undefined && (
+              <Chip label={`Max: ${paramSchema.max}`} size="small" variant="outlined" />
+            )}
+            {paramSchema?.step && (
+              <Chip label={`Step: ${paramSchema.step}`} size="small" variant="outlined" />
+            )}
+          </Box>
+        )}
 
         <Divider sx={{ my: 2 }} />
 
-        {/* Current vs Default comparison */}
-        <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+        {/* Current vs Default comparison - Stack vertically on mobile */}
+        <Box sx={{
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          gap: 2,
+          mb: 2
+        }}>
           <Box sx={{ flex: 1 }}>
             <Typography variant="caption" color="text.secondary">
               Current Value
@@ -580,19 +609,28 @@ const ParameterDetailDialog = ({
         )}
       </DialogContent>
 
-      <DialogActions sx={{ px: 3, pb: 2 }}>
+      <DialogActions sx={{
+        p: isMobile ? 1.5 : 2,
+        gap: 1,
+        flexWrap: 'wrap'
+      }}>
         {isModified && (
           <Button
             onClick={handleRevert}
             startIcon={<Undo />}
             color="warning"
             disabled={saving}
+            size={buttonSize}
           >
             Reset to Default
           </Button>
         )}
         <Box sx={{ flex: 1 }} />
-        <Button onClick={handleClose} disabled={saving}>
+        <Button
+          onClick={handleClose}
+          disabled={saving}
+          size={buttonSize}
+        >
           Cancel
         </Button>
         <Button
@@ -600,6 +638,7 @@ const ParameterDetailDialog = ({
           onClick={handleSave}
           startIcon={saving ? <CircularProgress size={16} /> : <Save />}
           disabled={saving || !!error || !hasChanges}
+          size={buttonSize}
         >
           {saving ? 'Saving...' : 'Save'}
         </Button>

@@ -4,18 +4,20 @@ import {
   Box, Paper, Typography, CircularProgress, Alert, Button, Divider,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   IconButton, Tooltip, Chip, TextField, Switch, Select, MenuItem,
-  FormControl
+  FormControl, Card, CardContent
 } from '@mui/material';
 import {
   Refresh, Undo, Save, Check, Error as ErrorIcon, OpenInNew, Edit
 } from '@mui/icons-material';
 
 import { useConfigSection } from '../../hooks/useConfig';
+import { useResponsive } from '../../hooks/useResponsive';
 import ParameterDetailDialog from './ParameterDetailDialog';
 import { isPIDTriplet } from '../../utils/schemaAnalyzer';
 
 // Type-specific input component with proper ref tracking
-const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, saveStatus }) => {
+const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, saveStatus, mobileMode = false }) => {
+  const { touchTargetSize } = useResponsive();
   const paramSchema = schema?.parameters?.[param] || {};
   const type = paramSchema.type || 'string';
   const isModified = value !== defaultValue;
@@ -86,10 +88,11 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
   };
 
   const inputSx = {
-    width: 150,
+    width: mobileMode ? '100%' : 150,
     '& .MuiOutlinedInput-root': {
       bgcolor: isModified ? 'action.hover' : undefined,
       borderColor: getBorderColor(),
+      minHeight: touchTargetSize === 'medium' ? 44 : 'auto',
       '& fieldset': {
         borderColor: getBorderColor(),
         borderWidth: saveStatus ? 2 : 1
@@ -121,10 +124,11 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
   if (type === 'integer') {
     const helperText = getHelperText();
     return (
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, width: mobileMode ? '100%' : 'auto' }}>
         <TextField
           type="number"
-          size="small"
+          size={touchTargetSize}
+          fullWidth={mobileMode}
           value={localInput ?? ''}
           onChange={(e) => handleInputChange(parseInt(e.target.value, 10) || 0)}
           onBlur={handleBlur}
@@ -151,10 +155,11 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
   if (type === 'float') {
     const helperText = getHelperText();
     return (
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, width: mobileMode ? '100%' : 'auto' }}>
         <TextField
           type="number"
-          size="small"
+          size={touchTargetSize}
+          fullWidth={mobileMode}
           value={localInput ?? ''}
           onChange={(e) => handleInputChange(parseFloat(e.target.value) || 0)}
           onBlur={handleBlur}
@@ -183,8 +188,8 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
     const isValueInOptions = options.some(opt => (opt.value || opt) === localInput);
 
     return (
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <FormControl size="small" sx={{ minWidth: 200 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: mobileMode ? '100%' : 'auto' }}>
+        <FormControl size={touchTargetSize} fullWidth={mobileMode} sx={{ minWidth: mobileMode ? 0 : 200 }}>
           <Select
             value={isValueInOptions ? localInput : (localInput ? '__custom_current__' : '')}
             onChange={(e) => {
@@ -345,20 +350,118 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
 
   // Default: string input
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: mobileMode ? '100%' : 'auto' }}>
       <TextField
-        size="small"
+        size={touchTargetSize}
+        fullWidth={mobileMode}
         value={localInput ?? ''}
         onChange={(e) => handleInputChange(e.target.value)}
         onBlur={handleBlur}
         onKeyDown={(e) => e.key === 'Enter' && handleBlur()}
         disabled={saveStatus === 'saving'}
-        sx={{ ...inputSx, width: 200 }}
+        sx={{ ...inputSx, width: mobileMode ? '100%' : 200 }}
       />
       {saveStatus === 'saving' && <CircularProgress size={16} />}
       {saveStatus === 'saved' && <Check color="success" fontSize="small" />}
       {saveStatus === 'error' && <ErrorIcon color="error" fontSize="small" />}
     </Box>
+  );
+};
+
+// Mobile card component for parameter display
+const ParameterCard = ({
+  param,
+  schema,
+  value,
+  defaultValue,
+  saveStatus,
+  onLocalChange,
+  onSave,
+  onRevert,
+  onOpenDetails
+}) => {
+  const { buttonSize } = useResponsive();
+  const paramSchema = schema?.parameters?.[param] || {};
+  const isModified = value !== defaultValue;
+  const type = paramSchema.type || 'string';
+
+  return (
+    <Card
+      variant="outlined"
+      sx={{
+        mb: 2,
+        bgcolor: isModified ? 'action.selected' : 'background.paper',
+        borderColor: isModified ? 'warning.main' : 'divider',
+        borderWidth: isModified ? 2 : 1
+      }}
+    >
+      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+        {/* Header: Parameter Name */}
+        <Typography variant="subtitle1" sx={{ fontFamily: 'monospace', mb: 0.5, fontWeight: 600 }}>
+          {param}
+        </Typography>
+
+        {/* Description */}
+        {paramSchema?.description && (
+          <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
+            {paramSchema.description}
+          </Typography>
+        )}
+
+        {/* Value Input - 100% width on mobile */}
+        <Box sx={{ mb: 2 }}>
+          <ParameterInput
+            param={param}
+            schema={schema}
+            value={value}
+            defaultValue={defaultValue}
+            onChange={onLocalChange}
+            onSave={onSave}
+            saveStatus={saveStatus}
+            mobileMode={true}
+          />
+        </Box>
+
+        {/* Info Chips */}
+        {(paramSchema?.reboot_required || paramSchema?.unit || isModified) && (
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+            {paramSchema?.reboot_required && (
+              <Chip label="Restart Required" size="small" color="warning" variant="outlined" />
+            )}
+            {paramSchema?.unit && (
+              <Chip label={paramSchema.unit} size="small" variant="outlined" />
+            )}
+            {isModified && (
+              <Chip label="Modified" size="small" color="warning" />
+            )}
+          </Box>
+        )}
+
+        {/* Action Buttons - Touch-friendly */}
+        <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          <Button
+            size={buttonSize}
+            variant="outlined"
+            startIcon={<OpenInNew />}
+            onClick={onOpenDetails}
+          >
+            Details
+          </Button>
+
+          {isModified && (
+            <Button
+              size={buttonSize}
+              variant="outlined"
+              startIcon={<Undo />}
+              onClick={() => onRevert(param)}
+              disabled={saveStatus === 'saving'}
+            >
+              Revert
+            </Button>
+          )}
+        </Box>
+      </CardContent>
+    </Card>
   );
 };
 
@@ -374,6 +477,7 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
     revertSection,
     refetch
   } = useConfigSection(sectionName);
+  const { isMobile, spacing } = useResponsive();
 
   const [localValues, setLocalValues] = useState({});
   const [saveStatuses, setSaveStatuses] = useState({}); // 'saving' | 'saved' | 'error' | null
@@ -525,11 +629,18 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
   };
 
   return (
-    <Paper sx={{ p: 3 }}>
+    <Paper sx={{ p: { xs: 2, md: 3 } }}>
       {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+      <Box sx={{
+        display: 'flex',
+        flexDirection: { xs: 'column', sm: 'row' },
+        justifyContent: 'space-between',
+        alignItems: { xs: 'stretch', sm: 'center' },
+        gap: 2,
+        mb: 2
+      }}>
         <Box>
-          <Typography variant="h5">
+          <Typography variant={{ xs: 'h6', md: 'h5' }}>
             {schema?.display_name || sectionName}
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -582,20 +693,40 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
 
       <Divider sx={{ mb: 2 }} />
 
-      {/* Parameters Table */}
-      <TableContainer>
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ fontWeight: 'bold' }}>Parameter</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>Value</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>Default</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>Info</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', width: 120 }}>Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {paramNames.map((param) => {
+      {/* Conditional Rendering: Card Layout (Mobile) vs Table (Desktop) */}
+      {isMobile ? (
+        // Mobile: Card Layout
+        <Box>
+          {paramNames.map((param) => (
+            <ParameterCard
+              key={param}
+              param={param}
+              schema={schema}
+              value={getValue(param)}
+              defaultValue={defaultConfig[param] ?? parameters[param]?.default}
+              saveStatus={saveStatuses[param]}
+              onLocalChange={handleLocalChange}
+              onSave={handleSave}
+              onRevert={handleRevert}
+              onOpenDetails={() => setSelectedParam(param)}
+            />
+          ))}
+        </Box>
+      ) : (
+        // Desktop: Table Layout
+        <TableContainer>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 'bold' }}>Parameter</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>Value</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>Default</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>Info</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', width: 120 }}>Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {paramNames.map((param) => {
               const paramSchema = parameters[param];
               const currentValue = getValue(param);
               const defaultValue = defaultConfig[param] ?? paramSchema?.default;
@@ -706,9 +837,10 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
                 </TableRow>
               );
             })}
-          </TableBody>
-        </Table>
-      </TableContainer>
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
 
       {paramNames.length === 0 && (
         <Box sx={{ py: 4, textAlign: 'center' }}>

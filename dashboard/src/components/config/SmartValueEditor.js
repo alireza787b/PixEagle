@@ -10,6 +10,7 @@ import {
 
 import { analyzeSchema, PatternType } from '../../utils/schemaAnalyzer';
 import { useUndoStack } from '../../hooks/useUndoStack';
+import { useResponsive } from '../../hooks/useResponsive';
 import TypeRendererRegistry from './renderers';
 
 // Import renderers to ensure registry is populated
@@ -188,13 +189,26 @@ const SmartValueEditor = ({
   label = '',
   showLabel = false
 }) => {
+  const { isMobile } = useResponsive();
+
   // Analyze schema to determine pattern
   const analysis = useMemo(() => {
-    return analyzeSchema(schema, value);
+    const result = analyzeSchema(schema, value);
+    console.log('SmartValueEditor analysis:', {
+      pattern: result.pattern,
+      schemaType: schema?.type,
+      valueType: typeof value,
+      valueKeys: typeof value === 'object' && value ? Object.keys(value).slice(0, 5) : null,
+      complexity: result.complexity
+    });
+    return result;
   }, [schema, value]);
 
   // Determine display mode
   const displayMode = useMemo(() => {
+    // Force compact mode on mobile to hide sliders and simplify UI
+    if (isMobile) return 'compact';
+
     if (mode !== 'auto') return mode;
 
     // Auto-detect based on complexity
@@ -248,7 +262,14 @@ const SmartValueEditor = ({
 
   // Get renderer for this pattern
   const Renderer = useMemo(() => {
-    return TypeRendererRegistry.get(analysis.pattern);
+    const renderer = TypeRendererRegistry.get(analysis.pattern);
+    console.log('SmartValueEditor renderer lookup:', {
+      pattern: analysis.pattern,
+      found: !!renderer,
+      rendererName: renderer?.name || renderer?.displayName || 'null',
+      registeredPatterns: TypeRendererRegistry.getRegisteredPatterns()
+    });
+    return renderer;
   }, [analysis.pattern]);
 
   // State for inline expansion
