@@ -1,7 +1,7 @@
 // dashboard/src/components/config/ImportExportToolbar.js
 import React, { useState } from 'react';
 import {
-  Box, Button, Tooltip, Divider, Chip,
+  Box, Button, Tooltip, Divider, Chip, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions,
   Typography, FormControlLabel, Checkbox, Alert,
   CircularProgress
@@ -11,6 +11,7 @@ import {
   CompareArrows, WarningAmber, ReceiptLong, RestartAlt
 } from '@mui/icons-material';
 
+import { useResponsive } from '../../hooks/useResponsive';
 import ExportDialog from './ExportDialog';
 import ImportDialog from './ImportDialog';
 import BackupHistoryDialog from './BackupHistoryDialog';
@@ -32,6 +33,7 @@ const ImportExportToolbar = ({
   onMessage,
   onConfigImported
 }) => {
+  const { isMobile, iconButtonSize } = useResponsive();
   const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -98,102 +100,194 @@ const ImportExportToolbar = ({
 
   return (
     <>
-      <Box sx={{
-        display: 'flex',
-        gap: 1,
-        alignItems: 'center',
-        flexWrap: 'wrap'
-      }}>
-        {/* Changes indicator */}
-        {changesCount > 0 && (
-          <Tooltip title={`${changesCount} parameters differ from defaults`}>
+      {isMobile ? (
+        // Mobile: Icon-only buttons in compact grid
+        <Box sx={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(44px, 1fr))',
+          gap: 0.5,
+          alignItems: 'center',
+          justifyItems: 'center',
+          width: '100%'
+        }}>
+          {/* Changes indicator */}
+          {changesCount > 0 && (
             <Chip
               icon={<CompareArrows />}
-              label={`${changesCount} changes`}
+              label={changesCount}
               size="small"
               color="warning"
               variant="outlined"
+              sx={{ gridColumn: '1 / -1', justifySelf: 'stretch' }}
             />
+          )}
+
+          {/* Export button */}
+          <Tooltip title="Export">
+            <IconButton
+              size={iconButtonSize}
+              onClick={() => setExportOpen(true)}
+              sx={{ border: 1, borderColor: 'divider' }}
+            >
+              <FileDownload />
+            </IconButton>
           </Tooltip>
-        )}
 
-        <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
+          {/* Import button */}
+          <Tooltip title="Import">
+            <IconButton
+              size={iconButtonSize}
+              onClick={() => setImportOpen(true)}
+              sx={{ border: 1, borderColor: 'divider' }}
+            >
+              <FileUpload />
+            </IconButton>
+          </Tooltip>
 
-        {/* Export button */}
-        <Tooltip title="Export configuration to YAML file">
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<FileDownload />}
-            onClick={() => setExportOpen(true)}
-          >
-            Export
-          </Button>
-        </Tooltip>
+          {/* History button */}
+          <Tooltip title="History">
+            <IconButton
+              size={iconButtonSize}
+              onClick={() => setHistoryOpen(true)}
+              sx={{ border: 1, borderColor: 'divider' }}
+            >
+              <History />
+            </IconButton>
+          </Tooltip>
 
-        {/* Import button */}
-        <Tooltip title="Import configuration from YAML file">
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<FileUpload />}
-            onClick={() => setImportOpen(true)}
-          >
-            Import
-          </Button>
-        </Tooltip>
+          {/* Audit Log button */}
+          <Tooltip title="Audit Log">
+            <IconButton
+              size={iconButtonSize}
+              onClick={() => setAuditOpen(true)}
+              sx={{ border: 1, borderColor: 'divider' }}
+            >
+              <ReceiptLong />
+            </IconButton>
+          </Tooltip>
 
-        {/* History button */}
-        <Tooltip title="View backup history">
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<History />}
-            onClick={() => setHistoryOpen(true)}
-          >
-            History
-          </Button>
-        </Tooltip>
+          {/* Reset to Defaults button */}
+          <Tooltip title="Reset">
+            <IconButton
+              size={iconButtonSize}
+              color="warning"
+              onClick={() => setResetOpen(true)}
+              sx={{ border: 1, borderColor: 'warning.main' }}
+            >
+              <RestartAlt />
+            </IconButton>
+          </Tooltip>
 
-        {/* Audit Log button */}
-        <Tooltip title="View change audit log">
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<ReceiptLong />}
-            onClick={() => setAuditOpen(true)}
-          >
-            Audit Log
-          </Button>
-        </Tooltip>
+          {/* Refresh button */}
+          <Tooltip title="Refresh">
+            <IconButton
+              size={iconButtonSize}
+              onClick={onRefresh}
+              sx={{ border: 1, borderColor: 'divider' }}
+            >
+              <Refresh />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      ) : (
+        // Desktop: Full buttons with labels
+        <Box sx={{
+          display: 'flex',
+          gap: 1,
+          alignItems: 'center',
+          flexWrap: 'wrap'
+        }}>
+          {/* Changes indicator */}
+          {changesCount > 0 && (
+            <Tooltip title={`${changesCount} parameters differ from defaults`}>
+              <Chip
+                icon={<CompareArrows />}
+                label={`${changesCount} changes`}
+                size="small"
+                color="warning"
+                variant="outlined"
+              />
+            </Tooltip>
+          )}
 
-        {/* Reset to Defaults button */}
-        <Tooltip title="Reset all parameters to default values">
-          <Button
-            variant="outlined"
-            size="small"
-            color="warning"
-            startIcon={<RestartAlt />}
-            onClick={() => setResetOpen(true)}
-          >
-            Reset to Defaults
-          </Button>
-        </Tooltip>
+          <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
 
-        <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
+          {/* Export button */}
+          <Tooltip title="Export configuration to YAML file">
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<FileDownload />}
+              onClick={() => setExportOpen(true)}
+            >
+              Export
+            </Button>
+          </Tooltip>
 
-        {/* Refresh button */}
-        <Tooltip title="Refresh configuration">
-          <Button
-            variant="text"
-            size="small"
-            startIcon={<Refresh />}
-            onClick={onRefresh}
-          >
-            Refresh
-          </Button>
-        </Tooltip>
-      </Box>
+          {/* Import button */}
+          <Tooltip title="Import configuration from YAML file">
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<FileUpload />}
+              onClick={() => setImportOpen(true)}
+            >
+              Import
+            </Button>
+          </Tooltip>
+
+          {/* History button */}
+          <Tooltip title="View backup history">
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<History />}
+              onClick={() => setHistoryOpen(true)}
+            >
+              History
+            </Button>
+          </Tooltip>
+
+          {/* Audit Log button */}
+          <Tooltip title="View change audit log">
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<ReceiptLong />}
+              onClick={() => setAuditOpen(true)}
+            >
+              Audit Log
+            </Button>
+          </Tooltip>
+
+          {/* Reset to Defaults button */}
+          <Tooltip title="Reset all parameters to default values">
+            <Button
+              variant="outlined"
+              size="small"
+              color="warning"
+              startIcon={<RestartAlt />}
+              onClick={() => setResetOpen(true)}
+            >
+              Reset to Defaults
+            </Button>
+          </Tooltip>
+
+          <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
+
+          {/* Refresh button */}
+          <Tooltip title="Refresh configuration">
+            <Button
+              variant="text"
+              size="small"
+              startIcon={<Refresh />}
+              onClick={onRefresh}
+            >
+              Refresh
+            </Button>
+          </Tooltip>
+        </Box>
+      )}
 
       {/* Dialogs */}
       <ExportDialog
