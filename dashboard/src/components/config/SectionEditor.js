@@ -1,19 +1,18 @@
 // dashboard/src/components/config/SectionEditor.js
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Box, Paper, Typography, CircularProgress, Alert, Button, Divider,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   IconButton, Tooltip, Chip, TextField, Switch, Select, MenuItem,
-  FormControl, Snackbar
+  FormControl
 } from '@mui/material';
 import {
-  Refresh, Undo, Save, Check, Error as ErrorIcon, OpenInNew, Edit, Close
+  Refresh, Undo, Save, Check, Error as ErrorIcon, OpenInNew, Edit
 } from '@mui/icons-material';
 
 import { useConfigSection } from '../../hooks/useConfig';
 import ParameterDetailDialog from './ParameterDetailDialog';
-import ArrayEditor from './ArrayEditor';
-import ObjectEditor from './ObjectEditor';
+import SmartValueEditor from './SmartValueEditor';
 
 // Type-specific input component with proper ref tracking
 const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, saveStatus }) => {
@@ -273,17 +272,21 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
     );
   }
 
-  // Array input - use ArrayEditor
+  // Array input - use SmartValueEditor
   if (type === 'array') {
     return (
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, minWidth: 250 }}>
-        <ArrayEditor
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, minWidth: 280 }}>
+        <SmartValueEditor
           value={localInput}
           onChange={(newVal) => {
             handleInputChange(newVal);
+            // Auto-save after a short delay
+            setTimeout(() => onSave(param, newVal), 100);
           }}
-          onBlur={handleBlur}
+          schema={paramSchema}
+          mode="inline"
           disabled={saveStatus === 'saving'}
+          showUndoRedo={false}
         />
         <Box sx={{ pt: 1 }}>
           {saveStatus === 'saving' && <CircularProgress size={16} />}
@@ -294,17 +297,21 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
     );
   }
 
-  // Object input - use ObjectEditor
+  // Object input - use SmartValueEditor
   if (type === 'object') {
     return (
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, minWidth: 300 }}>
-        <ObjectEditor
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, minWidth: 320 }}>
+        <SmartValueEditor
           value={localInput}
           onChange={(newVal) => {
             handleInputChange(newVal);
+            // Auto-save after a short delay
+            setTimeout(() => onSave(param, newVal), 100);
           }}
-          onBlur={handleBlur}
+          schema={paramSchema}
+          mode="inline"
           disabled={saveStatus === 'saving'}
+          showUndoRedo={false}
         />
         <Box sx={{ pt: 1 }}>
           {saveStatus === 'saving' && <CircularProgress size={16} />}

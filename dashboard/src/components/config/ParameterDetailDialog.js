@@ -10,6 +10,8 @@ import {
   Close, Save, Undo, RestartAlt, Info, Warning, Edit
 } from '@mui/icons-material';
 
+import SmartValueEditor from './SmartValueEditor';
+
 /**
  * ParameterDetailDialog - Full-featured parameter editing modal
  *
@@ -411,65 +413,37 @@ const ParameterDetailDialog = ({
       );
     }
 
-    // Array (JSON editor)
+    // Array - use SmartValueEditor
     if (type === 'array') {
-      const stringValue = typeof localValue === 'string' ? localValue : JSON.stringify(localValue || [], null, 2);
       return (
-        <TextField
-          fullWidth
-          multiline
-          rows={4}
-          label="Value (JSON Array)"
-          value={stringValue}
-          onChange={(e) => {
-            try {
-              const parsed = JSON.parse(e.target.value);
-              handleValueChange(parsed);
-            } catch {
-              // Keep as string while typing
-              setLocalValue(e.target.value);
-              setError('Invalid JSON array');
-            }
-          }}
-          error={!!error}
-          helperText={error || 'Enter a valid JSON array'}
-          disabled={saving}
-          sx={{ mt: 2 }}
-          InputProps={{
-            sx: { fontFamily: 'monospace', fontSize: '0.875rem' }
-          }}
-        />
+        <Box sx={{ mt: 2 }}>
+          <SmartValueEditor
+            value={localValue}
+            onChange={handleValueChange}
+            schema={paramSchema}
+            mode="full"
+            disabled={saving}
+            showUndoRedo={true}
+            label="Array Value"
+          />
+        </Box>
       );
     }
 
-    // Object (JSON editor)
+    // Object - use SmartValueEditor
     if (type === 'object') {
-      const stringValue = typeof localValue === 'string' ? localValue : JSON.stringify(localValue || {}, null, 2);
       return (
-        <TextField
-          fullWidth
-          multiline
-          rows={6}
-          label="Value (JSON Object)"
-          value={stringValue}
-          onChange={(e) => {
-            try {
-              const parsed = JSON.parse(e.target.value);
-              handleValueChange(parsed);
-            } catch {
-              // Keep as string while typing
-              setLocalValue(e.target.value);
-              setError('Invalid JSON object');
-            }
-          }}
-          error={!!error}
-          helperText={error || 'Enter a valid JSON object'}
-          disabled={saving}
-          sx={{ mt: 2 }}
-          InputProps={{
-            sx: { fontFamily: 'monospace', fontSize: '0.875rem' }
-          }}
-        />
+        <Box sx={{ mt: 2 }}>
+          <SmartValueEditor
+            value={localValue}
+            onChange={handleValueChange}
+            schema={paramSchema}
+            mode="full"
+            disabled={saving}
+            showUndoRedo={true}
+            label="Object Value"
+          />
+        </Box>
       );
     }
 
