@@ -278,6 +278,9 @@ const SmartValueEditor = ({
   // State for render errors
   const [renderError, setRenderError] = useState(null);
 
+  // Debug info
+  const debugInfo = `Pattern: ${analysis.pattern}, Renderer: ${Renderer ? 'Found' : 'NULL'}, Mode: ${displayMode}`;
+
   // Render content based on mode
   const renderContent = () => {
     // If there was a render error, show JSON editor with error
@@ -286,6 +289,26 @@ const SmartValueEditor = ({
         <Box>
           <Typography color="error" variant="caption" sx={{ mb: 1, display: 'block' }}>
             Editor error: {renderError}. Using JSON mode.
+          </Typography>
+          <Typography color="warning.main" variant="caption" sx={{ mb: 1, display: 'block' }}>
+            Debug: {debugInfo}
+          </Typography>
+          <JSONEditor
+            value={editValue}
+            onChange={handleChange}
+            disabled={disabled}
+            compact={isCompact}
+          />
+        </Box>
+      );
+    }
+
+    // Show debug info if no renderer found
+    if (!Renderer) {
+      return (
+        <Box>
+          <Typography color="warning.main" variant="caption" sx={{ mb: 1, display: 'block' }}>
+            No renderer for pattern. Debug: {debugInfo}
           </Typography>
           <JSONEditor
             value={editValue}
