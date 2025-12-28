@@ -14,6 +14,7 @@ import { useConfigSection } from '../../hooks/useConfig';
 import { useResponsive } from '../../hooks/useResponsive';
 import ParameterDetailDialog from './ParameterDetailDialog';
 import { isPIDTriplet } from '../../utils/schemaAnalyzer';
+import SmartValueEditor from './SmartValueEditor';
 
 // Type-specific input component with proper ref tracking
 const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, saveStatus, mobileMode = false }) => {
@@ -277,73 +278,46 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
     );
   }
 
-  // Array input - show compact preview, edit in dialog
+  // Array input - use SmartValueEditor inline
   if (type === 'array') {
-    const arr = Array.isArray(localInput) ? localInput : [];
-    const previewText = arr.length <= 3
-      ? `[${arr.join(', ')}]`
-      : `[${arr.length} items]`;
-
     return (
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Chip
-          label={previewText}
-          size="small"
-          variant="outlined"
-          icon={<Edit fontSize="small" />}
-          sx={{
-            fontFamily: 'monospace',
-            fontSize: '0.75rem',
-            maxWidth: 150,
-            '& .MuiChip-label': {
-              overflow: 'hidden',
-              textOverflow: 'ellipsis'
-            }
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, minWidth: mobileMode ? '100%' : 280 }}>
+        <SmartValueEditor
+          value={localInput}
+          onChange={(newVal) => {
+            handleInputChange(newVal);
+            setTimeout(() => onSave(param, newVal), 100);
           }}
+          schema={paramSchema}
+          mode="inline"
+          disabled={saveStatus === 'saving'}
+          showUndoRedo={false}
         />
-        {saveStatus === 'saving' && <CircularProgress size={16} />}
-        {saveStatus === 'saved' && <Check color="success" fontSize="small" />}
-        {saveStatus === 'error' && <ErrorIcon color="error" fontSize="small" />}
+        {saveStatus === 'saving' && <CircularProgress size={16} sx={{ mt: 1 }} />}
+        {saveStatus === 'saved' && <Check color="success" fontSize="small" sx={{ mt: 1 }} />}
+        {saveStatus === 'error' && <ErrorIcon color="error" fontSize="small" sx={{ mt: 1 }} />}
       </Box>
     );
   }
 
-  // Object input - show compact preview, edit in dialog
+  // Object input - use SmartValueEditor inline
   if (type === 'object') {
-    let previewText;
-    if (isPIDTriplet(localInput)) {
-      const p = localInput?.p ?? localInput?.P ?? 0;
-      const i = localInput?.i ?? localInput?.I ?? 0;
-      const d = localInput?.d ?? localInput?.D ?? 0;
-      previewText = `P:${p} I:${i} D:${d}`;
-    } else {
-      const keys = Object.keys(localInput || {});
-      previewText = keys.length <= 2
-        ? keys.map(k => `${k}:${JSON.stringify(localInput[k]).slice(0, 8)}`).join(' ')
-        : `{${keys.length} props}`;
-    }
-
     return (
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Chip
-          label={previewText}
-          size="small"
-          variant="outlined"
-          icon={<Edit fontSize="small" />}
-          color={isPIDTriplet(localInput) ? 'primary' : 'default'}
-          sx={{
-            fontFamily: 'monospace',
-            fontSize: '0.75rem',
-            maxWidth: 180,
-            '& .MuiChip-label': {
-              overflow: 'hidden',
-              textOverflow: 'ellipsis'
-            }
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, minWidth: mobileMode ? '100%' : 320 }}>
+        <SmartValueEditor
+          value={localInput}
+          onChange={(newVal) => {
+            handleInputChange(newVal);
+            setTimeout(() => onSave(param, newVal), 100);
           }}
+          schema={paramSchema}
+          mode="inline"
+          disabled={saveStatus === 'saving'}
+          showUndoRedo={false}
         />
-        {saveStatus === 'saving' && <CircularProgress size={16} />}
-        {saveStatus === 'saved' && <Check color="success" fontSize="small" />}
-        {saveStatus === 'error' && <ErrorIcon color="error" fontSize="small" />}
+        {saveStatus === 'saving' && <CircularProgress size={16} sx={{ mt: 1 }} />}
+        {saveStatus === 'saved' && <Check color="success" fontSize="small" sx={{ mt: 1 }} />}
+        {saveStatus === 'error' && <ErrorIcon color="error" fontSize="small" sx={{ mt: 1 }} />}
       </Box>
     );
   }

@@ -14,6 +14,19 @@ import { useResponsive } from '../../hooks/useResponsive';
 import SmartValueEditor from './SmartValueEditor';
 
 /**
+ * Format value compactly for mobile chips (max 20 chars)
+ */
+const formatCompactValue = (value) => {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (typeof value === 'number') return String(value);
+  if (typeof value === 'string') return value.length > 15 ? value.slice(0, 15) + '...' : value;
+  if (Array.isArray(value)) return `[${value.length} items]`;
+  if (typeof value === 'object') return `{${Object.keys(value).length} props}`;
+  return String(value).slice(0, 20);
+};
+
+/**
  * ParameterDetailDialog - Full-featured parameter editing modal
  *
  * Features:
@@ -523,7 +536,30 @@ const ParameterDetailDialog = ({
           </Alert>
         )}
 
-        {/* Type and constraints info - Hide on mobile to save space */}
+        {/* INPUT FIRST - Primary action */}
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="subtitle2" gutterBottom sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            mb: 1
+          }}>
+            New Value
+            {isModified && (
+              <Chip
+                label="Modified"
+                color="warning"
+                size="small"
+                icon={<Warning fontSize="small" />}
+              />
+            )}
+          </Typography>
+          {renderInput()}
+        </Box>
+
+        <Divider sx={{ my: 2 }} />
+
+        {/* Type and constraints info - Show on desktop */}
         {!isMobile && (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
             <Chip label={`Type: ${type}`} size="small" variant="outlined" />
@@ -542,65 +578,68 @@ const ParameterDetailDialog = ({
           </Box>
         )}
 
-        <Divider sx={{ my: 2 }} />
+        {/* Current/Default - Secondary info */}
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+          Reference Values
+        </Typography>
 
-        {/* Current vs Default comparison - Stack vertically on mobile */}
-        <Box sx={{
-          display: 'flex',
-          flexDirection: isMobile ? 'column' : 'row',
-          gap: 2,
-          mb: 2
-        }}>
-          <Box sx={{ flex: 1 }}>
-            <Typography variant="caption" color="text.secondary">
-              Current Value
-            </Typography>
-            <Typography
-              variant="body2"
-              sx={{
+        {isMobile ? (
+          // Mobile: Compact chips
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Chip
+              label={`Current: ${formatCompactValue(currentValue)}`}
+              size="small"
+              variant="outlined"
+              sx={{ fontFamily: 'monospace' }}
+            />
+            <Chip
+              label={`Default: ${formatCompactValue(defaultValue)}`}
+              size="small"
+              variant="outlined"
+              color="default"
+              sx={{ fontFamily: 'monospace' }}
+            />
+          </Box>
+        ) : (
+          // Desktop: Full comparison boxes
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                Current Value
+              </Typography>
+              <Typography variant="body2" sx={{
                 fontFamily: 'monospace',
-                bgcolor: isModified ? 'warning.main' : 'action.hover',
+                bgcolor: isModified ? 'warning.light' : 'action.hover',
                 color: isModified ? 'warning.contrastText' : 'text.primary',
                 p: 1,
                 borderRadius: 1,
-                wordBreak: 'break-all'
-              }}
-            >
-              {formatDisplayValue(currentValue)}
-            </Typography>
-          </Box>
-          <Box sx={{ flex: 1 }}>
-            <Typography variant="caption" color="text.secondary">
-              Default Value
-            </Typography>
-            <Typography
-              variant="body2"
-              sx={{
+                fontSize: '0.85rem',
+                overflowX: 'auto',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word'
+              }}>
+                {formatDisplayValue(currentValue)}
+              </Typography>
+            </Box>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                Default Value
+              </Typography>
+              <Typography variant="body2" sx={{
                 fontFamily: 'monospace',
                 bgcolor: 'action.hover',
                 p: 1,
                 borderRadius: 1,
-                wordBreak: 'break-all'
-              }}
-            >
-              {formatDisplayValue(defaultValue)}
-            </Typography>
+                fontSize: '0.85rem',
+                overflowX: 'auto',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word'
+              }}>
+                {formatDisplayValue(defaultValue)}
+              </Typography>
+            </Box>
           </Box>
-        </Box>
-
-        {isModified && (
-          <Alert severity="warning" icon={<Warning />} sx={{ mb: 2 }}>
-            This parameter has been modified from its default value.
-          </Alert>
         )}
-
-        <Divider sx={{ my: 2 }} />
-
-        {/* Input */}
-        <Typography variant="subtitle2" gutterBottom>
-          New Value
-        </Typography>
-        {renderInput()}
 
         {hasChanges && !error && (
           <Alert severity="info" sx={{ mt: 2 }}>
