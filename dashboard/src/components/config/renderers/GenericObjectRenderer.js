@@ -77,14 +77,17 @@ const NumberField = ({
   const [isFocused, setIsFocused] = useState(false);
 
   // Calculate smart range based on initial value (stable during editing)
-  const smartRange = useMemo(() =>
-    calculateSmartRange(value, schema?.type === 'integer'),
-    [] // Empty deps = calculate only on mount
-  );
+  const smartRange = useMemo(() => {
+    try {
+      return calculateSmartRange(value, schema?.type === 'integer');
+    } catch {
+      return { min: 0, max: 100, step: 0.1 };
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const min = schema?.minimum ?? smartRange.min;
-  const max = schema?.maximum ?? smartRange.max;
-  const step = schema?.step ?? smartRange.step;
+  const min = schema?.minimum ?? smartRange?.min ?? 0;
+  const max = schema?.maximum ?? smartRange?.max ?? 100;
+  const step = schema?.step ?? smartRange?.step ?? 0.1;
 
   useEffect(() => {
     if (!isFocused) {

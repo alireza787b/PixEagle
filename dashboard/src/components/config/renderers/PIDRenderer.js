@@ -224,12 +224,13 @@ const PIDRenderer = ({
   // Get ranges: schema first, then smart calculated, then fallback
   const getRangeForKey = useCallback((key) => {
     const propSchema = schema?.properties?.[key] || schema?.properties?.[key.toUpperCase()];
-    const smartRange = initialRangesRef.current[key];
+    const smartRange = initialRangesRef.current?.[key];
+    const fallback = FALLBACK_RANGES[key] || { min: 0, max: 10, step: 0.1 };
 
     return {
-      min: propSchema?.minimum ?? smartRange.min,
-      max: propSchema?.maximum ?? smartRange.max,
-      step: propSchema?.step ?? smartRange.step
+      min: propSchema?.minimum ?? smartRange?.min ?? fallback.min,
+      max: propSchema?.maximum ?? smartRange?.max ?? fallback.max,
+      step: propSchema?.step ?? smartRange?.step ?? fallback.step
     };
   }, [schema?.properties]);
 

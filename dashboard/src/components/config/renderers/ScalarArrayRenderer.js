@@ -169,27 +169,31 @@ const ScalarArrayRenderer = ({
   // Range for sliders - calculated ONCE on mount for stability during editing
   const initialRangeRef = useRef(null);
   if (initialRangeRef.current === null) {
-    const numericValues = (Array.isArray(value) ? value : []).filter(v => typeof v === 'number');
-    const absMax = numericValues.length > 0
-      ? Math.max(...numericValues.map(v => Math.abs(v)))
-      : 0;
+    try {
+      const numericValues = (Array.isArray(value) ? value : []).filter(v => typeof v === 'number');
+      const absMax = numericValues.length > 0
+        ? Math.max(...numericValues.map(v => Math.abs(v)))
+        : 0;
 
-    // Smart range: adapt to order of magnitude
-    let smartMax = 100;
-    let smartStep = 1;
-    if (absMax > 0) {
-      const magnitude = Math.floor(Math.log10(absMax));
-      smartMax = Math.ceil(absMax * 3 / Math.pow(10, magnitude)) * Math.pow(10, magnitude);
-      smartStep = Math.max(Math.pow(10, magnitude - 2), 0.01);
+      // Smart range: adapt to order of magnitude
+      let smartMax = 100;
+      let smartStep = 1;
+      if (absMax > 0 && isFinite(absMax)) {
+        const magnitude = Math.floor(Math.log10(absMax));
+        smartMax = Math.ceil(absMax * 3 / Math.pow(10, magnitude)) * Math.pow(10, magnitude);
+        smartStep = Math.max(Math.pow(10, magnitude - 2), 0.01);
+      }
+
+      initialRangeRef.current = {
+        min: schema?.minimum ?? (numericValues.length > 0 ? Math.min(0, ...numericValues) : 0),
+        max: schema?.maximum ?? smartMax,
+        step: schema?.step ?? smartStep
+      };
+    } catch {
+      initialRangeRef.current = { min: 0, max: 100, step: 1 };
     }
-
-    initialRangeRef.current = {
-      min: schema?.minimum ?? Math.min(0, ...numericValues, 0),
-      max: schema?.maximum ?? smartMax,
-      step: schema?.step ?? smartStep
-    };
   }
-  const range = initialRangeRef.current;
+  const range = initialRangeRef.current || { min: 0, max: 100, step: 1 };
 
   const handleItemChange = useCallback((index, newValue) => {
     const newArr = [...arr];

@@ -190,12 +190,33 @@ const SmartValueEditor = ({
 }) => {
   // Analyze schema to determine pattern
   const analysis = useMemo(() => {
-    return analyzeSchema(schema, value);
+    try {
+      return analyzeSchema(schema, value);
+    } catch (err) {
+      console.error('SmartValueEditor analysis error:', err);
+      return {
+        pattern: PatternType.UNKNOWN,
+        previewText: 'Error analyzing value',
+        complexity: null,
+        fieldConfigs: [],
+        isComplex: false,
+        canRenderInline: false
+      };
+    }
   }, [schema, value]);
+
+  // Get numeric complexity from analysis (complexity is a string like "22 fields")
+  const getComplexityCount = () => {
+    if (!analysis.complexity) return 0;
+    const match = String(analysis.complexity).match(/^(\d+)/);
+    return match ? parseInt(match[1], 10) : 0;
+  };
 
   // Determine display mode
   const displayMode = useMemo(() => {
     if (mode !== 'auto') return mode;
+
+    const complexityCount = getComplexityCount();
 
     // Auto-detect based on complexity
     switch (analysis.pattern) {
@@ -205,15 +226,15 @@ const SmartValueEditor = ({
         return 'full';
       case PatternType.SCALAR_ARRAY:
       case PatternType.STRING_ARRAY:
-        return analysis.complexity > 5 ? 'full' : 'inline';
+        return complexityCount > 5 ? 'full' : 'inline';
       case PatternType.FLAT_OBJECT:
-        return analysis.complexity > 5 ? 'full' : 'inline';
+        return complexityCount > 5 ? 'full' : 'inline';
       case PatternType.NESTED_OBJECT:
         return 'full';
       default:
         return 'inline';
     }
-  }, [mode, analysis]);
+  }, [mode, analysis]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isCompact = displayMode === 'compact';
   const isFull = displayMode === 'full';
@@ -254,19 +275,46 @@ const SmartValueEditor = ({
   // State for inline expansion
   const [expanded, setExpanded] = useState(false);
 
+  // State for render errors
+  const [renderError, setRenderError] = useState(null);
+
   // Render content based on mode
   const renderContent = () => {
+    // If there was a render error, show JSON editor with error
+    if (renderError) {
+      return (
+        <Box>
+          <Typography color="error" variant="caption" sx={{ mb: 1, display: 'block' }}>
+            Editor error: {renderError}. Using JSON mode.
+          </Typography>
+          <JSONEditor
+            value={editValue}
+            onChange={handleChange}
+            disabled={disabled}
+            compact={isCompact}
+          />
+        </Box>
+      );
+    }
+
     // Use specialized renderer if available
     if (Renderer) {
-      return (
-        <Renderer
-          value={editValue}
-          onChange={handleChange}
-          schema={schema}
-          disabled={disabled}
-          compact={isCompact}
-        />
-      );
+      try {
+        return (
+          <Renderer
+            value={editValue}
+            onChange={handleChange}
+            schema={schema}
+            disabled={disabled}
+            compact={isCompact}
+          />
+        );
+      } catch (err) {
+        // If renderer crashes, fall back to JSON editor
+        console.error('SmartValueEditor renderer error:', err);
+        setRenderError(err.message);
+        return null;
+      }
     }
 
     // Fallback to JSON editor
@@ -331,15 +379,15 @@ const SmartValueEditor = ({
       {/* Pattern indicator */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
         <Chip
-          label={analysis.pattern.replace(/_/g, ' ')}
+          label={analysis.pattern?.replace(/_/g, ' ') || 'unknown'}
           size="small"
           color="primary"
           variant="outlined"
           sx={{ textTransform: 'capitalize', fontSize: '0.7rem' }}
         />
-        {analysis.complexity > 0 && (
+        {analysis.complexity && (
           <Typography variant="caption" color="text.secondary">
-            Complexity: {analysis.complexity}
+            {analysis.complexity}
           </Typography>
         )}
       </Box>
