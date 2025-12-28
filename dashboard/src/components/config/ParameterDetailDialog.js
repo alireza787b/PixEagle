@@ -432,12 +432,8 @@ const ParameterDetailDialog = ({
 
     // Object - use SmartValueEditor
     if (type === 'object') {
-      console.log('ParameterDetailDialog: Rendering SmartValueEditor for object type', { param, type, localValue, paramSchema });
       return (
         <Box sx={{ mt: 2 }}>
-          <Typography variant="caption" color="info.main" sx={{ display: 'block', mb: 1 }}>
-            DEBUG: type={type}, rendering SmartValueEditor
-          </Typography>
           <SmartValueEditor
             value={localValue}
             onChange={handleValueChange}

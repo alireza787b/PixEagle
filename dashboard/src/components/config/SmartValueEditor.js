@@ -190,33 +190,12 @@ const SmartValueEditor = ({
 }) => {
   // Analyze schema to determine pattern
   const analysis = useMemo(() => {
-    try {
-      return analyzeSchema(schema, value);
-    } catch (err) {
-      console.error('SmartValueEditor analysis error:', err);
-      return {
-        pattern: PatternType.UNKNOWN,
-        previewText: 'Error analyzing value',
-        complexity: null,
-        fieldConfigs: [],
-        isComplex: false,
-        canRenderInline: false
-      };
-    }
+    return analyzeSchema(schema, value);
   }, [schema, value]);
-
-  // Get numeric complexity from analysis (complexity is a string like "22 fields")
-  const getComplexityCount = () => {
-    if (!analysis.complexity) return 0;
-    const match = String(analysis.complexity).match(/^(\d+)/);
-    return match ? parseInt(match[1], 10) : 0;
-  };
 
   // Determine display mode
   const displayMode = useMemo(() => {
     if (mode !== 'auto') return mode;
-
-    const complexityCount = getComplexityCount();
 
     // Auto-detect based on complexity
     switch (analysis.pattern) {
@@ -226,15 +205,15 @@ const SmartValueEditor = ({
         return 'full';
       case PatternType.SCALAR_ARRAY:
       case PatternType.STRING_ARRAY:
-        return complexityCount > 5 ? 'full' : 'inline';
+        return analysis.complexity > 5 ? 'full' : 'inline';
       case PatternType.FLAT_OBJECT:
-        return complexityCount > 5 ? 'full' : 'inline';
+        return analysis.complexity > 5 ? 'full' : 'inline';
       case PatternType.NESTED_OBJECT:
         return 'full';
       default:
         return 'inline';
     }
-  }, [mode, analysis]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mode, analysis]);
 
   const isCompact = displayMode === 'compact';
   const isFull = displayMode === 'full';
@@ -275,69 +254,19 @@ const SmartValueEditor = ({
   // State for inline expansion
   const [expanded, setExpanded] = useState(false);
 
-  // State for render errors
-  const [renderError, setRenderError] = useState(null);
-
-  // Debug info
-  const debugInfo = `Pattern: ${analysis.pattern}, Renderer: ${Renderer ? 'Found' : 'NULL'}, Mode: ${displayMode}`;
-
   // Render content based on mode
   const renderContent = () => {
-    // If there was a render error, show JSON editor with error
-    if (renderError) {
-      return (
-        <Box>
-          <Typography color="error" variant="caption" sx={{ mb: 1, display: 'block' }}>
-            Editor error: {renderError}. Using JSON mode.
-          </Typography>
-          <Typography color="warning.main" variant="caption" sx={{ mb: 1, display: 'block' }}>
-            Debug: {debugInfo}
-          </Typography>
-          <JSONEditor
-            value={editValue}
-            onChange={handleChange}
-            disabled={disabled}
-            compact={isCompact}
-          />
-        </Box>
-      );
-    }
-
-    // Show debug info if no renderer found
-    if (!Renderer) {
-      return (
-        <Box>
-          <Typography color="warning.main" variant="caption" sx={{ mb: 1, display: 'block' }}>
-            No renderer for pattern. Debug: {debugInfo}
-          </Typography>
-          <JSONEditor
-            value={editValue}
-            onChange={handleChange}
-            disabled={disabled}
-            compact={isCompact}
-          />
-        </Box>
-      );
-    }
-
     // Use specialized renderer if available
     if (Renderer) {
-      try {
-        return (
-          <Renderer
-            value={editValue}
-            onChange={handleChange}
-            schema={schema}
-            disabled={disabled}
-            compact={isCompact}
-          />
-        );
-      } catch (err) {
-        // If renderer crashes, fall back to JSON editor
-        console.error('SmartValueEditor renderer error:', err);
-        setRenderError(err.message);
-        return null;
-      }
+      return (
+        <Renderer
+          value={editValue}
+          onChange={handleChange}
+          schema={schema}
+          disabled={disabled}
+          compact={isCompact}
+        />
+      );
     }
 
     // Fallback to JSON editor
@@ -402,15 +331,15 @@ const SmartValueEditor = ({
       {/* Pattern indicator */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
         <Chip
-          label={analysis.pattern?.replace(/_/g, ' ') || 'unknown'}
+          label={analysis.pattern.replace(/_/g, ' ')}
           size="small"
           color="primary"
           variant="outlined"
           sx={{ textTransform: 'capitalize', fontSize: '0.7rem' }}
         />
-        {analysis.complexity && (
+        {analysis.complexity > 0 && (
           <Typography variant="caption" color="text.secondary">
-            {analysis.complexity}
+            Complexity: {analysis.complexity}
           </Typography>
         )}
       </Box>

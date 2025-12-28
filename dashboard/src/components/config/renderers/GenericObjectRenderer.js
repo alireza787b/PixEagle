@@ -37,32 +37,6 @@ const getFieldType = (propSchema, value) => {
   return 'string';
 };
 
-/**
- * Calculate smart range based on current value
- * Adapts to order of magnitude, stable during editing
- */
-const calculateSmartRange = (value, isInteger = false) => {
-  const absValue = Math.abs(value || 0);
-
-  // If value is 0 or very small, use reasonable defaults
-  if (absValue < 0.001) {
-    return { min: 0, max: isInteger ? 100 : 10, step: isInteger ? 1 : 0.1 };
-  }
-
-  const magnitude = Math.floor(Math.log10(absValue));
-  const step = isInteger ? 1 : Math.max(Math.pow(10, magnitude - 2), 0.001);
-  const maxRaw = absValue * 3;
-  const roundTo = Math.pow(10, magnitude);
-  const max = Math.ceil(maxRaw / roundTo) * roundTo;
-  const min = value < 0 ? -max : 0;
-
-  return {
-    min: Math.min(min, value * 0.5),
-    max: Math.max(max, absValue * 1.5),
-    step
-  };
-};
-
 // Number field with optional slider
 const NumberField = ({
   label,
@@ -76,18 +50,9 @@ const NumberField = ({
   const [localValue, setLocalValue] = useState(String(value ?? 0));
   const [isFocused, setIsFocused] = useState(false);
 
-  // Calculate smart range based on initial value (stable during editing)
-  const smartRange = useMemo(() => {
-    try {
-      return calculateSmartRange(value, schema?.type === 'integer');
-    } catch {
-      return { min: 0, max: 100, step: 0.1 };
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const min = schema?.minimum ?? smartRange?.min ?? 0;
-  const max = schema?.maximum ?? smartRange?.max ?? 100;
-  const step = schema?.step ?? smartRange?.step ?? 0.1;
+  const min = schema?.minimum ?? 0;
+  const max = schema?.maximum ?? 100;
+  const step = schema?.step ?? (schema?.type === 'integer' ? 1 : 0.1);
 
   useEffect(() => {
     if (!isFocused) {
