@@ -154,10 +154,13 @@ class SafetyManager:
         Resolve a limit value through the simplified hierarchy.
 
         Order: Follower Override → GlobalLimits → Fallback
+
+        Note: Follower names are normalized to uppercase for case-insensitive lookup.
         """
-        # 1. Check follower-specific override
+        # 1. Check follower-specific override (normalize to uppercase for consistent lookup)
         if follower_name:
-            override = self._follower_overrides.get(follower_name, {})
+            normalized_name = follower_name.upper()
+            override = self._follower_overrides.get(normalized_name, {})
             if limit_name in override:
                 return override[limit_name]
 
@@ -281,9 +284,12 @@ class SafetyManager:
         1. Follower-specific override
         2. Global limits
         3. Fallback (enabled by default for safety)
+
+        Note: Follower names are normalized to uppercase for case-insensitive lookup.
         """
-        # 1. Check follower-specific override
-        override = self._follower_overrides.get(follower_name, {})
+        # 1. Check follower-specific override (normalize to uppercase)
+        normalized_name = follower_name.upper() if follower_name else None
+        override = self._follower_overrides.get(normalized_name, {}) if normalized_name else {}
         if 'ALTITUDE_SAFETY_ENABLED' in override:
             return bool(override['ALTITUDE_SAFETY_ENABLED'])
 
@@ -429,6 +435,8 @@ class SafetyManager:
                 },
                 ...
             }
+
+        Note: Follower names are normalized to uppercase for case-insensitive lookup.
         """
         # Define all safety limit parameters
         LIMIT_PARAMS = [
@@ -439,7 +447,9 @@ class SafetyManager:
         ]
 
         result = {}
-        override = self._follower_overrides.get(follower_name, {}) if follower_name else {}
+        # Normalize follower name to uppercase for consistent lookup
+        normalized_name = follower_name.upper() if follower_name else None
+        override = self._follower_overrides.get(normalized_name, {}) if normalized_name else {}
 
         for param in LIMIT_PARAMS:
             global_value = self._global_limits.get(param)
@@ -449,7 +459,7 @@ class SafetyManager:
             # Determine effective value and source
             if override_value is not None:
                 effective_value = override_value
-                source = f'FollowerOverrides.{follower_name}'
+                source = f'FollowerOverrides.{normalized_name}'
             elif global_value is not None:
                 effective_value = global_value
                 source = 'GlobalLimits'

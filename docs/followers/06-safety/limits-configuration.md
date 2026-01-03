@@ -132,6 +132,8 @@ When a limit is requested, SafetyManager resolves it in this order:
 2. **GlobalLimits** - Single source of truth
 3. **Fallback** - Hardcoded safety default
 
+**Note:** Follower name lookup is case-insensitive. Both `mc_velocity_chase` and `MC_VELOCITY_CHASE` will correctly find overrides defined as `MC_VELOCITY_CHASE` in the config.
+
 Example:
 ```python
 # For MC_VELOCITY_CHASE:

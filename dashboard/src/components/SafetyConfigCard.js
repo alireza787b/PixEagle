@@ -246,7 +246,7 @@ const SafetyConfigCard = ({ followerName }) => {
         {/* Footer */}
         <Box sx={{ mt: 2, pt: 1, borderTop: '1px dashed', borderColor: 'divider' }}>
           <Typography variant="caption" color="text.secondary">
-            Limits from GlobalLimits (auto-refresh 5s)
+            Effective limits for this follower (auto-refresh 5s)
           </Typography>
         </Box>
       </CardContent>

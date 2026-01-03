@@ -187,6 +187,40 @@ class TestLimitResolutionHierarchy:
         result = safety_manager.get_limit('MAX_VELOCITY_FORWARD', 'MC_VELOCITY_CHASE')
         assert result == 20.0
 
+    def test_case_insensitive_follower_lookup(self, safety_manager):
+        """Follower names should be case-insensitive for override lookup."""
+        config = {
+            'Safety': {
+                'GlobalLimits': {
+                    'MIN_ALTITUDE': 3.0,
+                    'MAX_VELOCITY_FORWARD': 10.0
+                },
+                'FollowerOverrides': {
+                    'MC_VELOCITY_CHASE': {  # Config uses UPPERCASE
+                        'MIN_ALTITUDE': 5.0,
+                        'MAX_VELOCITY_FORWARD': 0.5
+                    }
+                }
+            }
+        }
+        safety_manager.load_from_config(config)
+
+        # Test lowercase lookup (common from frontend/config)
+        result_lower = safety_manager.get_limit('MIN_ALTITUDE', 'mc_velocity_chase')
+        assert result_lower == 5.0, "Lowercase follower name should find uppercase override"
+
+        # Test uppercase lookup
+        result_upper = safety_manager.get_limit('MIN_ALTITUDE', 'MC_VELOCITY_CHASE')
+        assert result_upper == 5.0, "Uppercase follower name should find uppercase override"
+
+        # Test mixed case lookup
+        result_mixed = safety_manager.get_limit('MIN_ALTITUDE', 'Mc_Velocity_Chase')
+        assert result_mixed == 5.0, "Mixed case follower name should find uppercase override"
+
+        # Velocity limits should also work case-insensitively
+        velocity_lower = safety_manager.get_limit('MAX_VELOCITY_FORWARD', 'mc_velocity_chase')
+        assert velocity_lower == 0.5, "Velocity override should work with lowercase lookup"
+
 
 # =============================================================================
 # Test: Velocity Limits

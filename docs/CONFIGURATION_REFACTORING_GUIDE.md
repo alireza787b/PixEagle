@@ -58,6 +58,8 @@ Limits are resolved in this order (first match wins):
 2. **GlobalLimits** - Single source of truth
 3. **Fallback** - Hardcoded safety defaults
 
+**Note:** Follower name lookup is case-insensitive. The API accepts both lowercase (`mc_velocity_chase`) and uppercase (`MC_VELOCITY_CHASE`) - both will correctly match overrides defined in the config.
+
 ### Accessing Safety Limits
 
 Use `Parameters.get_effective_limit()` or `SafetyManager` directly:
