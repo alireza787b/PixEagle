@@ -12,18 +12,21 @@ Project Information:
 - Repository: https://github.com/alireza787b/PixEagle
 - Author: Alireza Ghaderi
 
-Architecture (simplified v3.6.0):
+Architecture (v5.0.0+):
 - Singleton pattern for global access
-- Single source of truth: GlobalLimits
-- Optional per-follower overrides
+- Single source of truth: Safety.GlobalLimits
+- Optional per-follower overrides: Safety.FollowerOverrides
 - Cached lookups for O(1) access after first resolution
 
 Resolution Order:
-1. Follower-specific override (if exists in FollowerOverrides)
-2. Global limit (from GlobalLimits - single source of truth)
+1. Follower-specific override (Safety.FollowerOverrides.{follower})
+2. Global limit (Safety.GlobalLimits - single source of truth)
 3. Hardcoded fallback (safety default)
 
-Note: VehicleProfiles removed in v3.6.0 for simplicity.
+Breaking Changes in v5.0.0:
+- Per-follower MIN_ALTITUDE/MAX_ALTITUDE moved to Safety.FollowerOverrides
+- VehicleProfiles removed (was deprecated in v3.6.0)
+- SafetyLimits section renamed to Safety.GlobalLimits
 """
 
 import logging
@@ -45,8 +48,7 @@ class SafetyManager:
     Centralized safety limit management with caching and runtime updates.
 
     This singleton class provides a unified interface for accessing safety
-    limits across all followers, with support for vehicle profiles and
-    per-follower overrides.
+    limits across all followers, with support for per-follower overrides.
 
     Usage:
         safety = SafetyManager.get_instance()

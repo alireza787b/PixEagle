@@ -12,8 +12,9 @@ Project Information:
 - Repository: https://github.com/alireza787b/PixEagle
 - Author: Alireza Ghaderi
 
-Safety Integration (v3.5.0+):
-- Centralized SafetyManager for all limit enforcement
+Safety Integration (v5.0.0+):
+- SafetyManager REQUIRED for all followers
+- Centralized limits from Safety.GlobalLimits with FollowerOverrides
 - Automatic limit caching per follower
 - check_safety() method for altitude/velocity validation
 - Validated set_command_field() with automatic clamping

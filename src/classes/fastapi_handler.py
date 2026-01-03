@@ -2452,7 +2452,7 @@ class FastAPIHandler:
         DEPRECATED: Use POST /api/tracker/switch instead.
 
         Endpoint to set/change the tracker type.
-        This endpoint is deprecated since v4.0.0 and will be removed in v5.0.0.
+        This endpoint is deprecated since v4.0.0. Use /api/tracker/switch.
 
         Args:
             request (dict): Request body containing tracker_type
@@ -2462,8 +2462,7 @@ class FastAPIHandler:
         """
         # Log deprecation warning
         self.logger.warning(
-            "DEPRECATED: /api/tracker/set-type called. Use /api/tracker/switch instead. "
-            "This endpoint will be removed in v5.0.0."
+            "DEPRECATED: /api/tracker/set-type called. Use /api/tracker/switch instead."
         )
 
         # Deprecation notice to include in all responses
