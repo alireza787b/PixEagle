@@ -3220,6 +3220,29 @@ class FastAPIHandler:
             altitude_limits = safety_manager.get_altitude_limits(follower_name)
             rate_limits = safety_manager.get_rate_limits(follower_name)
 
+            # Get detailed summary to determine override status
+            limits_summary = safety_manager.get_effective_limits_summary(follower_name)
+
+            # Helper to check if any params in a group are overridden
+            def is_group_overridden(param_names):
+                return any(limits_summary.get(p, {}).get('is_overridden', False) for p in param_names)
+
+            def get_group_source(param_names):
+                for p in param_names:
+                    if limits_summary.get(p, {}).get('is_overridden', False):
+                        return limits_summary[p].get('source', 'GlobalLimits')
+                return 'GlobalLimits'
+
+            # Check override status for each category
+            velocity_params = ['MAX_VELOCITY', 'MAX_VELOCITY_FORWARD', 'MAX_VELOCITY_LATERAL', 'MAX_VELOCITY_VERTICAL']
+            altitude_params = ['MIN_ALTITUDE', 'MAX_ALTITUDE', 'ALTITUDE_WARNING_BUFFER', 'ALTITUDE_SAFETY_ENABLED']
+            rate_params = ['MAX_YAW_RATE', 'MAX_PITCH_RATE', 'MAX_ROLL_RATE']
+
+            velocity_overridden = is_group_overridden(velocity_params)
+            altitude_overridden = is_group_overridden(altitude_params)
+            rates_overridden = is_group_overridden(rate_params)
+            has_any_overrides = velocity_overridden or altitude_overridden or rates_overridden
+
             # Convert radians to degrees for rate limits (config stores deg/s, SafetyManager converts to rad/s)
             from math import degrees
 
@@ -3231,6 +3254,8 @@ class FastAPIHandler:
                     'lateral': velocity_limits.lateral,
                     'vertical': velocity_limits.vertical,
                     'max_magnitude': velocity_limits.max_magnitude,
+                    'source': get_group_source(velocity_params),
+                    'is_overridden': velocity_overridden,
                 },
                 # Frontend expects 'altitude' with 'min'/'max' not 'min_altitude'/'max_altitude'
                 'altitude': {
@@ -3238,14 +3263,19 @@ class FastAPIHandler:
                     'max': altitude_limits.max_altitude,
                     'warning_buffer': altitude_limits.warning_buffer,
                     'safety_enabled': altitude_limits.safety_enabled,
+                    'source': get_group_source(altitude_params),
+                    'is_overridden': altitude_overridden,
                 },
                 # Frontend expects 'rates' with '_deg' suffix fields
                 'rates': {
                     'yaw_deg': degrees(rate_limits.yaw),
                     'pitch_deg': degrees(rate_limits.pitch),
                     'roll_deg': degrees(rate_limits.roll),
+                    'source': get_group_source(rate_params),
+                    'is_overridden': rates_overridden,
                 },
                 'altitude_safety_enabled': safety_manager.is_altitude_safety_enabled(follower_name),
+                'has_any_overrides': has_any_overrides,
                 'timestamp': time.time()
             }
 
