@@ -2,65 +2,60 @@
 
 > Configuring safety limits for safe operation
 
-**v5.0.0+**: Safety limits use a single source of truth structure.
+**v5.1.0+**: Safety limits use a TRUE single source of truth. All followers read limits via SafetyManager, not from individual config sections.
 
 ---
 
 ## Global Limits (Single Source of Truth)
 
-Set in `configs/config.yaml` under `Safety.GlobalLimits`:
+Set in `configs/config_default.yaml` under `Safety.GlobalLimits`:
 
 ```yaml
 Safety:
   GlobalLimits:
-    # Velocity Limits (m/s)
-    MAX_VELOCITY: 15.0            # Max total velocity
-    MAX_VELOCITY_FORWARD: 10.0    # Max forward speed
-    MAX_VELOCITY_LATERAL: 5.0     # Max sideways speed
-    MAX_VELOCITY_VERTICAL: 3.0    # Max up/down speed
+    # Velocity Limits (SAFE defaults)
+    MAX_VELOCITY: 1.0             # Max total velocity magnitude (m/s)
+    MAX_VELOCITY_FORWARD: 0.5     # Max forward speed (m/s) - safe for testing
+    MAX_VELOCITY_LATERAL: 0.5     # Max sideways speed (m/s)
+    MAX_VELOCITY_VERTICAL: 0.5    # Max up/down speed (m/s)
 
     # Angular Rate Limits (deg/s)
     MAX_YAW_RATE: 45.0
-    MAX_PITCH_RATE: 30.0
-    MAX_ROLL_RATE: 60.0
+    MAX_PITCH_RATE: 45.0
+    MAX_ROLL_RATE: 45.0
 
     # Altitude Limits (meters)
     MIN_ALTITUDE: 3.0             # Minimum safe altitude
     MAX_ALTITUDE: 120.0           # Maximum altitude
     ALTITUDE_WARNING_BUFFER: 2.0  # Warning zone size
     ALTITUDE_SAFETY_ENABLED: true
+
+  FollowerOverrides: {}           # Empty by default - advanced feature
 ```
 
 ---
 
-## Per-Follower Overrides
+## Per-Follower Overrides (Advanced Feature)
 
-Override global limits for specific followers under `Safety.FollowerOverrides`:
+For advanced users who need different limits for specific followers, use `Safety.FollowerOverrides`. By default, this is empty and all followers use GlobalLimits.
 
 ```yaml
 Safety:
+  # Example: Override limits for specific followers
   FollowerOverrides:
-    # Stricter limits for chase mode
     MC_VELOCITY_CHASE:
-      MIN_ALTITUDE: 5.0
-      MAX_ALTITUDE: 50.0
+      MAX_VELOCITY_FORWARD: 2.0   # Higher speed for chase mode
+      MIN_ALTITUDE: 5.0           # Stricter minimum
 
-    # Much higher minimum for ground view
-    MC_VELOCITY_GROUND:
-      MIN_ALTITUDE: 40.0
-
-    # Higher altitude for fixed-wing
     FW_ATTITUDE_RATE:
-      MIN_ALTITUDE: 30.0
+      MIN_ALTITUDE: 30.0          # Higher floor for fixed-wing
       MAX_ALTITUDE: 400.0
-
-    # Lower velocity for precision gimbal tracking
-    GM_PID_PURSUIT:
-      MIN_ALTITUDE: 5.0
-      MAX_ALTITUDE: 100.0
 ```
 
-**Important**: Do NOT put MIN_ALTITUDE/MAX_ALTITUDE in follower sections directly. They MUST be in `Safety.FollowerOverrides`.
+**Important**:
+- All safety limits MUST be in `Safety.GlobalLimits` or `Safety.FollowerOverrides`
+- Do NOT put velocity/altitude limits in follower sections directly
+- All followers read limits via SafetyManager, not from config
 
 ---
 

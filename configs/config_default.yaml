@@ -1091,17 +1091,17 @@ GM_PID_PURSUIT:
   REQUIRED_TRACKER_FIELDS: ["angular"]     # Must have angular data from gimbal
 
   # === Velocity Control ===
+  # NOTE: Max velocity limits are now in Safety.GlobalLimits (single source of truth)
   BASE_VELOCITY: 2.0                       # Base following velocity (m/s)
-  MAX_VELOCITY: 2.0                        # Maximum velocity limit (m/s) - conservative default
   VELOCITY_RAMP_RATE: 0.5                  # Acceleration rate (m/s²) - smooth ramp
   VELOCITY_FILTER_ALPHA: 0.7               # Velocity smoothing filter coefficient (0-1)
 
   # === Forward Velocity Control System ===
   # Based on 2024 guidance control research for reliable target interception
+  # NOTE: Max velocity limits are now in Safety.GlobalLimits
   FORWARD_VELOCITY_MODE: "CONSTANT"        # Options: "CONSTANT", "PITCH_BASED", "PROPORTIONAL_NAV" (future)
   BASE_FORWARD_SPEED: 2.0                  # Constant forward speed (m/s)
-  MAX_FORWARD_VELOCITY: 2.0                # Maximum forward velocity limit (m/s) - conservative default
-  FORWARD_ACCELERATION: 2.0                # Ramp rate from current to target speed (m/s²) - reach 2m/s in ~1s
+  FORWARD_ACCELERATION: 2.0                # Ramp rate from current to target speed (m/s²)
 
   # === Lateral Guidance Mode ===
   LATERAL_GUIDANCE_MODE: "coordinated_turn" # Options: "coordinated_turn", "sideslip"
@@ -1179,8 +1179,7 @@ GM_VELOCITY_VECTOR:
 
   # === Velocity Scaling (Linear Ramp) ===
   # Direct vector pursuit: gimbal angle → unit vector → scaled velocity
-  MIN_VELOCITY: 0.0                      # m/s - minimum pursuit speed (prevents stalling)
-  MAX_VELOCITY: 0.5                       # m/s - maximum pursuit speed (safety limit)
+  # NOTE: Max velocity limits are now in Safety.GlobalLimits (single source of truth)
   RAMP_ACCELERATION: 0.25                  # m/s² - velocity ramp rate (smooth acceleration)
   INITIAL_VELOCITY: 0.0                   # m/s - starting velocity (0 = smooth start)
 
@@ -1237,8 +1236,8 @@ GM_VELOCITY_VECTOR:
 
 MC_VELOCITY_CHASE:
   # === Forward Velocity Ramping ===
+  # NOTE: Max velocity limits are now in Safety.GlobalLimits (single source of truth)
   INITIAL_FORWARD_VELOCITY: 0.0           # m/s - starting velocity
-  MAX_FORWARD_VELOCITY: 0.5               # m/s - maximum chase speed (demo safe)
   FORWARD_RAMP_RATE: 0.5                 # m/s² - acceleration rate
   RAMP_DOWN_ON_TARGET_LOSS: true          # Decelerate when target lost
   TARGET_LOSS_TIMEOUT: 2.0                # seconds before ramp down starts
@@ -1408,10 +1407,9 @@ MC_VELOCITY_POSITION:
   ENABLE_ALTITUDE_CONTROL: false           # Disabled by default for ground testing
   ENABLE_YAW_CONTROL: true                # Always enabled for this mode
 
-  # === Altitude Parameters (Uses unified naming, inherits from Safety.GlobalLimits) ===
-  # MIN_ALTITUDE: 3.0                     # Override global minimum altitude (meters)
-  # MAX_ALTITUDE: 120.0                   # Override global maximum altitude (meters)
-  MAX_VERTICAL_VELOCITY: 3.0              # Max vertical velocity (m/s)
+  # === Altitude Parameters ===
+  # NOTE: All safety limits (min/max altitude, velocity limits) are now in
+  # Safety.GlobalLimits (single source of truth). Use FollowerOverrides for custom values.
 
   # === Yaw Control ===
   MAX_YAW_RATE: 10.0                      # Max yaw rate (deg/s)
@@ -1443,13 +1441,11 @@ MC_VELOCITY_DISTANCE:
   ENABLE_YAW_CONTROL: false              # Enable yaw rate control for target centering
   ENABLE_ALTITUDE_CONTROL: false          # Disabled by default for ground testing
 
-  # === Altitude Parameters (Uses unified naming, inherits from Safety.GlobalLimits) ===
-  # MIN_ALTITUDE: 3.0                    # Override global minimum altitude (meters)
-  # MAX_ALTITUDE: 120.0                  # Override global maximum altitude (meters)
-  MAX_VERTICAL_VELOCITY: 5.0             # Max vertical velocity (m/s)
+  # === Altitude Parameters ===
+  # NOTE: All safety limits (min/max altitude, velocity limits) are now in
+  # Safety.GlobalLimits (single source of truth). Use FollowerOverrides for custom values.
 
   # === Lateral Control ===
-  MAX_LATERAL_VELOCITY: 10.0             # Max lateral velocity (m/s)
 
   # === Yaw Control ===
   MAX_YAW_RATE: 10.0                     # Max yaw rate (deg/s)
@@ -1581,8 +1577,8 @@ MC_VELOCITY:
   FORWARD_VELOCITY_MODE: constant            # constant | pn | los
 
   # === FORWARD VELOCITY PARAMETERS ===
+  # NOTE: MAX_FORWARD_VELOCITY now in Safety.GlobalLimits (single source of truth)
   INITIAL_FORWARD_VELOCITY: 0.0              # m/s - starting velocity
-  MAX_FORWARD_VELOCITY: 2.0                  # m/s - maximum chase speed (conservative default)
   FORWARD_RAMP_RATE: 0.5                     # m/s^2 - acceleration rate (smooth 4s ramp)
 
   # === PROPORTIONAL NAVIGATION PARAMETERS ===
@@ -1594,7 +1590,7 @@ MC_VELOCITY:
 
   # === LINE-OF-SIGHT PARAMETERS ===
   LOS_DISTANCE_GAIN: 0.5                     # Velocity gain for distance
-  LOS_MAX_VELOCITY: 2.0                      # m/s - max LOS velocity (conservative default)
+  # NOTE: LOS_MAX_VELOCITY now in Safety.GlobalLimits as MAX_VELOCITY_FORWARD
 
   # === TARGET LOSS HANDLING (MULTICOPTER: HOVER) ===
   # Unlike fixed-wing (orbit), multicopters can HOVER in place
@@ -1614,7 +1610,7 @@ MC_VELOCITY:
   # === VELOCITY SATURATION PROTECTION ===
   # Prevents motor saturation by limiting total velocity magnitude
   ENABLE_VELOCITY_MAGNITUDE_LIMIT: true      # Enable magnitude limiting
-  MAX_VELOCITY_MAGNITUDE: 3.0                # m/s - total vector magnitude limit (conservative)
+  # NOTE: MAX_VELOCITY_MAGNITUDE now in Safety.GlobalLimits as MAX_VELOCITY
 
   # === COMMAND SMOOTHING ===
   VELOCITY_SMOOTHING_ENABLED: true           # Enable velocity command smoothing
@@ -1734,10 +1730,9 @@ MC_VELOCITY_GROUND:
   # === Target Position Mode ===
   TARGET_POSITION_MODE: center          # Target positioning: "center", "initial"
 
-  # === Velocity Limits (Conservative defaults) ===
-  MAX_VELOCITY_X: 2.0                   # Max lateral velocity (m/s) - conservative
-  MAX_VELOCITY_Y: 2.0                   # Max longitudinal velocity (m/s) - conservative
-  MAX_RATE_OF_DESCENT: 1.0              # Max descent rate (m/s) - conservative
+  # === Velocity Limits ===
+  # NOTE: MAX_VELOCITY_X/Y now in Safety.GlobalLimits as MAX_VELOCITY_LATERAL/FORWARD
+  MAX_RATE_OF_DESCENT: 1.0              # Max descent rate (m/s) - operational parameter
 
   # === Descent Control ===
   # Altitude limits now defined in Safety.FollowerOverrides.MC_VELOCITY_GROUND
@@ -1989,26 +1984,32 @@ PID:
 # Resolution Order: FollowerOverrides -> GlobalLimits -> Hardcoded Fallbacks
 # ==============================================================================
 Safety:
-  # ---------------------------------------------------------------------------
-  # Global Limits - Applied to ALL followers (single source of truth)
-  # ---------------------------------------------------------------------------
+  # ===========================================================================
+  # GLOBAL SAFETY LIMITS - SINGLE SOURCE OF TRUTH
+  # ===========================================================================
+  # All followers use these limits. This is the ONLY place safety limits
+  # should be defined. Values here are intentionally conservative for safety.
+  # Adjust as needed for your specific use case via UI or API.
+  # ===========================================================================
   GlobalLimits:
-    # Altitude Limits
-    MIN_ALTITUDE: 3.0                    # m - Absolute minimum safe altitude
-    MAX_ALTITUDE: 120.0                  # m - Absolute maximum altitude
-    ALTITUDE_WARNING_BUFFER: 2.0         # m - Warning zone before hard limits
+    # Altitude Limits (meters AGL)
+    MIN_ALTITUDE: 3.0                    # Absolute minimum safe altitude
+    MAX_ALTITUDE: 120.0                  # Absolute maximum altitude
+    ALTITUDE_WARNING_BUFFER: 2.0         # Warning zone before hard limits
     ALTITUDE_SAFETY_ENABLED: true        # Enable altitude enforcement
 
-    # Velocity Limits (m/s)
-    MAX_VELOCITY: 15.0                   # m/s - Overall magnitude limit
-    MAX_VELOCITY_FORWARD: 8.0            # m/s - Max forward velocity
-    MAX_VELOCITY_LATERAL: 5.0            # m/s - Max lateral velocity
-    MAX_VELOCITY_VERTICAL: 3.0           # m/s - Max vertical velocity
+    # Velocity Limits (m/s) - SAFE DEFAULTS
+    # These are conservative values suitable for testing and demos.
+    # Increase these values gradually as you gain confidence with your setup.
+    MAX_VELOCITY: 1.0                    # Overall velocity magnitude limit
+    MAX_VELOCITY_FORWARD: 0.5            # Max forward velocity (demo safe)
+    MAX_VELOCITY_LATERAL: 0.5            # Max lateral velocity (demo safe)
+    MAX_VELOCITY_VERTICAL: 0.5           # Max vertical velocity (demo safe)
 
     # Rate Limits (deg/s - converted to rad/s internally)
-    MAX_YAW_RATE: 45.0                   # deg/s
-    MAX_PITCH_RATE: 45.0                 # deg/s
-    MAX_ROLL_RATE: 45.0                  # deg/s
+    MAX_YAW_RATE: 45.0
+    MAX_PITCH_RATE: 45.0
+    MAX_ROLL_RATE: 45.0
 
     # Safety Behavior
     EMERGENCY_STOP_ENABLED: true
@@ -2016,39 +2017,25 @@ Safety:
     TARGET_LOSS_ACTION: hover            # hover, orbit, stop, rtl, continue
     MAX_SAFETY_VIOLATIONS: 5
 
-  # ---------------------------------------------------------------------------
-  # Per-Follower Overrides (SINGLE SOURCE OF TRUTH)
-  # ---------------------------------------------------------------------------
-  # Override specific limits for individual followers.
-  # Only include parameters that DIFFER from GlobalLimits.
-  # All safety limits should be defined HERE, not in follower sections.
-  #
+  # ===========================================================================
+  # ADVANCED FEATURE: Per-Follower Overrides
+  # ===========================================================================
+  # For advanced users who need different limits for specific followers.
+  # Values here OVERRIDE GlobalLimits for the specified follower only.
   # Resolution Order: FollowerOverrides -> GlobalLimits -> Hardcoded Fallbacks
-  # ---------------------------------------------------------------------------
-  FollowerOverrides:
-    # MC Velocity Chase - stricter limits for chase mode testing
-    MC_VELOCITY_CHASE:
-      MIN_ALTITUDE: 5.0                  # Stricter minimum (Global: 3.0)
-      MAX_ALTITUDE: 50.0                 # Stricter maximum (Global: 120.0)
-
-    # Fixed-Wing - higher floor for terrain clearance
-    FW_ATTITUDE_RATE:
-      MIN_ALTITUDE: 30.0                 # Higher floor for FW safety (Global: 3.0)
-      MAX_ALTITUDE: 400.0                # Higher ceiling for FW ops (Global: 120.0)
-
-    # Gimbal PID Pursuit - moderate limits
-    GM_PID_PURSUIT:
-      MIN_ALTITUDE: 5.0                  # Stricter minimum (Global: 3.0)
-      MAX_ALTITUDE: 100.0                # Moderate ceiling (Global: 120.0)
-
-    # MC Attitude Rate - similar to chase mode
-    MC_ATTITUDE_RATE:
-      MIN_ALTITUDE: 5.0                  # Stricter minimum (Global: 3.0)
-      MAX_ALTITUDE: 100.0                # Moderate ceiling (Global: 120.0)
-
-    # MC Velocity Ground - higher minimum for ground view safety
-    MC_VELOCITY_GROUND:
-      MIN_ALTITUDE: 40.0                 # Much higher for ground view mode (Global: 3.0)
+  #
+  # Example usage (uncomment and customize as needed):
+  # FollowerOverrides:
+  #   MC_VELOCITY_CHASE:
+  #     MAX_VELOCITY_FORWARD: 2.0        # Higher speed for experienced users
+  #     MIN_ALTITUDE: 5.0                # Stricter minimum for chase mode
+  #   FW_ATTITUDE_RATE:
+  #     MIN_ALTITUDE: 30.0               # Higher floor for fixed-wing safety
+  #     MAX_ALTITUDE: 400.0              # Higher ceiling for FW operations
+  #   MC_VELOCITY_GROUND:
+  #     MIN_ALTITUDE: 40.0               # Higher minimum for ground view mode
+  # ===========================================================================
+  FollowerOverrides: {}                  # Empty - all followers use GlobalLimits
 
 # ==============================================================================
 # GAIN SCHEDULING

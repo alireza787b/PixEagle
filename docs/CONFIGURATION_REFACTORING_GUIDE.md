@@ -8,11 +8,11 @@ This document describes the Safety configuration system and PID/unit standardiza
 
 ---
 
-## 1. Safety Configuration System (v5.0.0+)
+## 1. Safety Configuration System (v5.1.0+)
 
 ### Purpose
 
-The Safety system provides centralized, override-capable configuration for safety-critical parameters like altitude limits and velocity constraints.
+The Safety system provides a **single source of truth** for all safety-critical parameters. All followers read velocity and altitude limits from `Safety.GlobalLimits` via the SafetyManager.
 
 ### Configuration Structure
 
@@ -21,33 +21,35 @@ Located in `configs/config_default.yaml`:
 ```yaml
 Safety:
   # === Global Limits (Single Source of Truth) ===
+  # ALL followers read their safety limits from here via SafetyManager
   GlobalLimits:
-    MIN_ALTITUDE: 3.0            # Minimum safe altitude (meters AGL)
-    MAX_ALTITUDE: 120.0          # Maximum safe altitude (meters AGL)
-    ALTITUDE_WARNING_BUFFER: 2.0 # Warning zone buffer (meters)
+    # Velocity Limits (SAFE defaults for demo/testing)
+    MAX_VELOCITY: 1.0                    # m/s - Overall magnitude limit
+    MAX_VELOCITY_FORWARD: 0.5            # m/s - Max forward velocity (safe)
+    MAX_VELOCITY_LATERAL: 0.5            # m/s - Max lateral velocity (safe)
+    MAX_VELOCITY_VERTICAL: 0.5           # m/s - Max vertical velocity (safe)
+
+    # Angular Rate Limits
+    MAX_YAW_RATE: 45.0                   # deg/s
+    MAX_PITCH_RATE: 45.0                 # deg/s
+    MAX_ROLL_RATE: 45.0                  # deg/s
+
+    # Altitude Limits
+    MIN_ALTITUDE: 3.0                    # meters AGL
+    MAX_ALTITUDE: 120.0                  # meters AGL
+    ALTITUDE_WARNING_BUFFER: 2.0         # meters
     ALTITUDE_SAFETY_ENABLED: true
 
-    MAX_VELOCITY: 15.0           # Maximum total velocity (m/s)
-    MAX_VELOCITY_FORWARD: 8.0    # m/s
-    MAX_VELOCITY_LATERAL: 5.0    # m/s
-    MAX_VELOCITY_VERTICAL: 3.0   # m/s
-
-    MAX_YAW_RATE: 45.0           # deg/s
-    MAX_PITCH_RATE: 45.0         # deg/s
-    MAX_ROLL_RATE: 45.0          # deg/s
-
-  # === Per-Follower Overrides (optional) ===
-  FollowerOverrides:
-    MC_VELOCITY_CHASE:
-      MIN_ALTITUDE: 5.0          # Stricter for chase mode
-      MAX_ALTITUDE: 50.0
-
-    MC_VELOCITY_GROUND:
-      MIN_ALTITUDE: 40.0         # Much higher for ground view
-
-    FW_ATTITUDE_RATE:
-      MIN_ALTITUDE: 30.0         # Higher for fixed-wing
-      MAX_ALTITUDE: 400.0
+  # === ADVANCED FEATURE: Per-Follower Overrides ===
+  # For advanced users who need different limits for specific followers.
+  # Values here override GlobalLimits for that follower only.
+  # Example:
+  #   FollowerOverrides:
+  #     MC_VELOCITY_CHASE:
+  #       MAX_VELOCITY_FORWARD: 2.0      # Higher speed for chase mode
+  #     FW_ATTITUDE_RATE:
+  #       MIN_ALTITUDE: 30.0             # Higher floor for fixed-wing
+  FollowerOverrides: {}  # Empty by default - all followers use GlobalLimits
 ```
 
 ### Resolution Order
@@ -220,6 +222,13 @@ The follower command schema is defined in `configs/follower_commands.yaml`.
 ---
 
 ## Version History
+
+- **v5.1.0** (January 2025): True single source of truth
+  - All velocity limits now in GlobalLimits only (removed from follower sections)
+  - All followers read limits via SafetyManager (no direct config access)
+  - Safe defaults: MAX_VELOCITY_FORWARD = 0.5 m/s
+  - FollowerOverrides empty by default (advanced users only)
+  - Regenerated config schema (569 parameters)
 
 - **v5.0.0** (January 2025): Single source of truth refactor
   - Renamed `SafetyLimits` → `Safety.GlobalLimits`

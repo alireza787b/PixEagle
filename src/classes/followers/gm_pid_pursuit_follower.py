@@ -157,7 +157,8 @@ class GMPIDPursuitFollower(BaseFollower):
         self.forward_velocity_mode = self.config.get('FORWARD_VELOCITY_MODE', 'CONSTANT')
         self.base_forward_speed = self.config.get('BASE_FORWARD_SPEED', 2.0)
         self.current_forward_velocity = 0.0
-        self.max_forward_velocity = self.config.get('MAX_FORWARD_VELOCITY', 5.0)
+        # v5.0.0: Use SafetyManager for velocity limits (single source of truth)
+        self.max_forward_velocity = self.velocity_limits.forward
         self.forward_acceleration = self.config.get('FORWARD_ACCELERATION', 2.0)
         self.last_ramp_update_time = time.time()
 

@@ -97,9 +97,10 @@ class MCVelocityGroundFollower(BaseFollower):
         )
 
         # Load ground view specific parameters from config
-        self.max_velocity_x = config.get('MAX_VELOCITY_X', 10.0)
-        self.max_velocity_y = config.get('MAX_VELOCITY_Y', 10.0)
-        self.max_rate_of_descent = config.get('MAX_RATE_OF_DESCENT', 2.0)
+        # v5.0.0: Use SafetyManager for velocity limits (single source of truth)
+        self.max_velocity_x = self.velocity_limits.lateral
+        self.max_velocity_y = self.velocity_limits.forward
+        self.max_rate_of_descent = config.get('MAX_RATE_OF_DESCENT', 2.0)  # Operational parameter
         self.enable_descend_to_target = config.get('ENABLE_DESCEND_TO_TARGET', False)
         # Use base class cached limits (via SafetyManager)
         self.min_descent_height = self.altitude_limits.min_altitude

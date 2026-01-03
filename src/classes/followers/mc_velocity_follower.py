@@ -150,7 +150,8 @@ class MCVelocityFollower(BaseFollower):
 
         # === FORWARD VELOCITY PARAMETERS ===
         self.initial_forward_velocity = config.get('INITIAL_FORWARD_VELOCITY', 0.0)
-        self.max_forward_velocity = config.get('MAX_FORWARD_VELOCITY', 8.0)
+        # v5.0.0: Use SafetyManager for velocity limits (single source of truth)
+        self.max_forward_velocity = self.velocity_limits.forward
         self.forward_ramp_rate = config.get('FORWARD_RAMP_RATE', 2.0)
 
         # === PROPORTIONAL NAVIGATION PARAMETERS ===
@@ -161,7 +162,8 @@ class MCVelocityFollower(BaseFollower):
 
         # === LINE-OF-SIGHT PARAMETERS ===
         self.los_distance_gain = config.get('LOS_DISTANCE_GAIN', 0.5)
-        self.los_max_velocity = config.get('LOS_MAX_VELOCITY', 10.0)
+        # v5.0.0: Use SafetyManager for velocity limits (single source of truth)
+        self.los_max_velocity = self.velocity_limits.forward
 
         # === TARGET LOSS HANDLING (HOVER BEHAVIOR) ===
         self.target_loss_timeout = config.get('TARGET_LOSS_TIMEOUT', 2.0)

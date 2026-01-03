@@ -2,7 +2,7 @@ schema_version: 1.0.0
 meta:
   project: PixEagle
   generated_from: /home/alireza/PixEagle/configs/config_default.yaml
-  generated_at: '2026-01-03T09:37:55.574337'
+  generated_at: '2026-01-03T10:56:29.381340'
   description: Auto-generated schema for PixEagle configuration
 categories:
   video:
@@ -1857,15 +1857,6 @@ sections:
         max: 100.0
         step: 0.1
         unit: m/s
-      MAX_VELOCITY:
-        type: float
-        default: 2.0
-        description: m/s - Overall magnitude limit
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: m/s
       VELOCITY_RAMP_RATE:
         type: float
         default: 0.5
@@ -1898,24 +1889,15 @@ sections:
         max: 100.0
         step: 0.1
         unit: m/s
-      MAX_FORWARD_VELOCITY:
-        type: float
-        default: 2.0
-        description: m/s - maximum chase speed (conservative default)
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: conservative default
       FORWARD_ACCELERATION:
         type: float
         default: 2.0
-        description: Ramp rate from current to target speed (m/s²) - reach 2m/s in ~1s
+        description: Ramp rate from current to target speed (m/s²)
         reboot_required: false
         min: 0.0
         max: 100.0
         step: 0.1
-        unit: m
+        unit: m/s²
       LATERAL_GUIDANCE_MODE:
         type: string
         default: coordinated_turn
@@ -1938,12 +1920,12 @@ sections:
       MAX_YAW_RATE:
         type: float
         default: 45.0
-        description: deg/s
+        description: Rate Limits (deg/s - converted to rad/s internally)
         reboot_required: false
         min: 0.0
         max: 100.0
         step: 0.1
-        unit: deg
+        unit: deg/s - converted to rad/s internally
       TARGET_LOSS_HANDLING:
         type: object
         default:
@@ -2094,24 +2076,6 @@ sections:
         default: HORIZONTAL
         description: 'Options: "VERTICAL", "HORIZONTAL", "TILTED_45"'
         reboot_required: false
-      MIN_VELOCITY:
-        type: float
-        default: 0.0
-        description: m/s - minimum pursuit speed (prevents stalling)
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-        unit: prevents stalling
-      MAX_VELOCITY:
-        type: float
-        default: 0.5
-        description: m/s - Overall magnitude limit
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-        unit: m/s
       RAMP_ACCELERATION:
         type: float
         default: 0.25
@@ -2300,15 +2264,6 @@ sections:
         max: 1.0
         step: 0.01
         unit: m/s
-      MAX_FORWARD_VELOCITY:
-        type: float
-        default: 0.5
-        description: m/s - maximum chase speed (conservative default)
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-        unit: conservative default
       FORWARD_RAMP_RATE:
         type: float
         default: 0.5
@@ -2645,24 +2600,15 @@ sections:
         default: true
         description: 🔄 Drone yaw (heading) control
         reboot_required: false
-      MAX_VERTICAL_VELOCITY:
-        type: float
-        default: 3.0
-        description: Max vertical velocity (m/s)
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: m/s
       MAX_YAW_RATE:
         type: float
         default: 10.0
-        description: deg/s
+        description: Rate Limits (deg/s - converted to rad/s internally)
         reboot_required: false
         min: 0.0
         max: 100.0
         step: 0.1
-        unit: deg
+        unit: deg/s - converted to rad/s internally
       YAW_CONTROL_THRESHOLD:
         type: float
         default: 0.02
@@ -2718,33 +2664,15 @@ sections:
         default: false
         description: Enable vertical velocity control
         reboot_required: false
-      MAX_VERTICAL_VELOCITY:
-        type: float
-        default: 5.0
-        description: Max vertical velocity (m/s)
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: m/s
-      MAX_LATERAL_VELOCITY:
-        type: float
-        default: 10.0
-        description: Max lateral velocity (m/s)
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: m/s
       MAX_YAW_RATE:
         type: float
         default: 10.0
-        description: deg/s
+        description: Rate Limits (deg/s - converted to rad/s internally)
         reboot_required: false
         min: 0.0
         max: 100.0
         step: 0.1
-        unit: deg
+        unit: deg/s - converted to rad/s internally
       YAW_CONTROL_THRESHOLD:
         type: float
         default: 0.3
@@ -2896,12 +2824,12 @@ sections:
       MAX_YAW_RATE:
         type: float
         default: 25.0
-        description: deg/s
+        description: Rate Limits (deg/s - converted to rad/s internally)
         reboot_required: false
         min: 0.0
         max: 100.0
         step: 0.1
-        unit: deg
+        unit: deg/s - converted to rad/s internally
       L1_DISTANCE:
         type: float
         default: 50.0
@@ -3170,15 +3098,6 @@ sections:
         max: 1.0
         step: 0.01
         unit: m/s
-      MAX_FORWARD_VELOCITY:
-        type: float
-        default: 2.0
-        description: m/s - maximum chase speed (conservative default)
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: conservative default
       FORWARD_RAMP_RATE:
         type: float
         default: 0.5
@@ -3230,15 +3149,6 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-      LOS_MAX_VELOCITY:
-        type: float
-        default: 2.0
-        description: m/s - max LOS velocity (conservative default)
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: conservative default
       TARGET_LOSS_TIMEOUT:
         type: float
         default: 2.0
@@ -3298,15 +3208,6 @@ sections:
         default: true
         description: Enable magnitude limiting
         reboot_required: false
-      MAX_VELOCITY_MAGNITUDE:
-        type: float
-        default: 3.0
-        description: m/s - total vector magnitude limit (conservative)
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: conservative
       VELOCITY_SMOOTHING_ENABLED:
         type: boolean
         default: true
@@ -3379,12 +3280,12 @@ sections:
       MAX_YAW_RATE:
         type: float
         default: 60.0
-        description: deg/s
+        description: Rate Limits (deg/s - converted to rad/s internally)
         reboot_required: false
         min: 0.0
         max: 100.0
         step: 0.1
-        unit: deg
+        unit: deg/s - converted to rad/s internally
       MAX_PITCH_ANGLE:
         type: float
         default: 35.0
@@ -3633,28 +3534,10 @@ sections:
         default: center
         description: 'Target positioning: "center", "initial"'
         reboot_required: false
-      MAX_VELOCITY_X:
-        type: float
-        default: 2.0
-        description: Max lateral velocity (m/s) - conservative
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: m/s
-      MAX_VELOCITY_Y:
-        type: float
-        default: 2.0
-        description: Max longitudinal velocity (m/s) - conservative
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: m/s
       MAX_RATE_OF_DESCENT:
         type: float
         default: 1.0
-        description: Max descent rate (m/s) - conservative
+        description: Max descent rate (m/s) - operational parameter
         reboot_required: false
         min: 0.0
         max: 1.0
@@ -4233,12 +4116,12 @@ sections:
       MAX_YAW_RATE:
         type: float
         default: 10.0
-        description: deg/s
+        description: Rate Limits (deg/s - converted to rad/s internally)
         reboot_required: false
         min: 0.0
         max: 100.0
         step: 0.1
-        unit: deg
+        unit: deg/s - converted to rad/s internally
       MAX_THRUST:
         type: float
         default: 1.0
@@ -4533,10 +4416,10 @@ sections:
           MAX_ALTITUDE: 120.0
           ALTITUDE_WARNING_BUFFER: 2.0
           ALTITUDE_SAFETY_ENABLED: true
-          MAX_VELOCITY: 15.0
-          MAX_VELOCITY_FORWARD: 8.0
-          MAX_VELOCITY_LATERAL: 5.0
-          MAX_VELOCITY_VERTICAL: 3.0
+          MAX_VELOCITY: 1.0
+          MAX_VELOCITY_FORWARD: 0.5
+          MAX_VELOCITY_LATERAL: 0.5
+          MAX_VELOCITY_VERTICAL: 0.5
           MAX_YAW_RATE: 45.0
           MAX_PITCH_RATE: 45.0
           MAX_ROLL_RATE: 45.0
@@ -4544,49 +4427,13 @@ sections:
           RTL_ON_VIOLATION: true
           TARGET_LOSS_ACTION: hover
           MAX_SAFETY_VIOLATIONS: 5
-        description: '--------------------------------------------------------------------------- Global Limits - Applied
-          to ALL followers (single source of truth) ---------------------------------------------------------------------------'
+        description: GlobalLimits parameter
         reboot_required: false
       FollowerOverrides:
         type: object
-        description: 'All safety limits should be defined HERE, not in follower sections. Resolution Order: FollowerOverrides
-          -> GlobalLimits -> Hardcoded Fallbacks ---------------------------------------------------------------------------'
+        default: {}
+        description: Empty - all followers use GlobalLimits
         reboot_required: false
-        properties:
-          MC_VELOCITY_CHASE:
-            type: object
-            default:
-              MIN_ALTITUDE: 5.0
-              MAX_ALTITUDE: 50.0
-            description: MC Velocity Chase - stricter limits for chase mode testing
-            reboot_required: false
-          FW_ATTITUDE_RATE:
-            type: object
-            default:
-              MIN_ALTITUDE: 30.0
-              MAX_ALTITUDE: 400.0
-            description: Fixed-Wing - higher floor for terrain clearance
-            reboot_required: false
-          GM_PID_PURSUIT:
-            type: object
-            default:
-              MIN_ALTITUDE: 5.0
-              MAX_ALTITUDE: 100.0
-            description: Gimbal PID Pursuit - moderate limits
-            reboot_required: false
-          MC_ATTITUDE_RATE:
-            type: object
-            default:
-              MIN_ALTITUDE: 5.0
-              MAX_ALTITUDE: 100.0
-            description: MC Attitude Rate - similar to chase mode
-            reboot_required: false
-          MC_VELOCITY_GROUND:
-            type: object
-            default:
-              MIN_ALTITUDE: 40.0
-            description: MC Velocity Ground - higher minimum for ground view safety
-            reboot_required: false
   GainScheduling:
     display_name: Gain Scheduling
     category: control

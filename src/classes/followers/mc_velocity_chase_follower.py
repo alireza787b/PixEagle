@@ -115,7 +115,8 @@ class MCVelocityChaseFollower(BaseFollower):
 
         # Load body velocity chase specific parameters from config
         self.initial_forward_velocity = config.get('INITIAL_FORWARD_VELOCITY', 0.0)
-        self.max_forward_velocity = config.get('MAX_FORWARD_VELOCITY', 8.0)
+        # v5.0.0: Use SafetyManager for velocity limits (single source of truth)
+        self.max_forward_velocity = self.velocity_limits.forward
         self.forward_ramp_rate = config.get('FORWARD_RAMP_RATE', 2.0)
         self.ramp_down_on_target_loss = config.get('RAMP_DOWN_ON_TARGET_LOSS', True)
         self.target_loss_timeout = config.get('TARGET_LOSS_TIMEOUT', 2.0)

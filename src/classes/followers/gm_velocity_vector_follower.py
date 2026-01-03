@@ -139,8 +139,9 @@ class GMVelocityVectorFollower(BaseFollower):
         logger.info(f"Gimbal mount type: {self.mount_type}")
 
         # === Velocity Control ===
-        self.min_velocity = self.config.get('MIN_VELOCITY', 0.5)
-        self.max_velocity = self.config.get('MAX_VELOCITY', 8.0)
+        # v5.0.0: Use SafetyManager for velocity limits (single source of truth)
+        self.min_velocity = 0.0  # Minimum can be 0 (hover)
+        self.max_velocity = self.velocity_limits.forward
         self.ramp_acceleration = self.config.get('RAMP_ACCELERATION', 2.0)
         self.current_velocity_magnitude = self.config.get('INITIAL_VELOCITY', 0.0)
 
