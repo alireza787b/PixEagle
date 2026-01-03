@@ -2,7 +2,7 @@ schema_version: 1.0.0
 meta:
   project: PixEagle
   generated_from: /home/alireza/PixEagle/configs/config_default.yaml
-  generated_at: '2025-12-25T09:02:27.516488'
+  generated_at: '2026-01-03T09:37:55.574337'
   description: Auto-generated schema for PixEagle configuration
 categories:
   video:
@@ -48,35 +48,11 @@ sections:
     icon: videocam
     parameters:
       VIDEO_SOURCE_TYPE:
-        type: enum
+        type: string
         default: VIDEO_FILE
-        description: Primary video source selection
+        description: 'Primary video source selection Options: VIDEO_FILE, USB_CAMERA, RTSP_OPENCV, RTSP_STREAM, UDP_STREAM,
+          HTTP_STREAM, CSI_CAMERA, CUSTOM_GSTREAMER'
         reboot_required: true
-        options:
-          - value: VIDEO_FILE
-            label: Video File
-            description: Play from local video file
-          - value: USB_CAMERA
-            label: USB Camera
-            description: Standard USB webcam or capture device
-          - value: RTSP_OPENCV
-            label: RTSP (OpenCV)
-            description: RTSP stream via OpenCV
-          - value: RTSP_STREAM
-            label: RTSP (GStreamer)
-            description: RTSP stream via GStreamer pipeline
-          - value: UDP_STREAM
-            label: UDP Stream
-            description: UDP video stream (H.264/H.265)
-          - value: HTTP_STREAM
-            label: HTTP Stream
-            description: HTTP/MJPEG video stream
-          - value: CSI_CAMERA
-            label: CSI Camera
-            description: CSI camera (Jetson/Raspberry Pi)
-          - value: CUSTOM_GSTREAMER
-            label: Custom GStreamer
-            description: Custom GStreamer pipeline
       CAPTURE_WIDTH:
         type: integer
         default: 640
@@ -133,20 +109,12 @@ sections:
         description: Network streams
         reboot_required: true
       RTSP_PROTOCOL:
-        type: enum
+        type: string
         default: tcp
-        description: RTSP transport protocol
+        description: '- tcp: More reliable, prevents packet loss (RECOMMENDED for most setups) - udp: Lower latency but may
+          have packet loss on congested networks - auto: Let GStreamer choose (may fall back to UDP which can cause issues)
+          If you see "Invalid input packet" or "no frame!" errors, switch to tcp'
         reboot_required: true
-        options:
-          - value: tcp
-            label: TCP (Recommended)
-            description: More reliable, prevents packet loss
-          - value: udp
-            label: UDP
-            description: Lower latency but may have packet loss
-          - value: auto
-            label: Auto
-            description: Let GStreamer choose (may cause issues)
       RTSP_LATENCY:
         type: integer
         default: 200
@@ -221,18 +189,6 @@ sections:
         default: ''
         description: 'Force codec: "MJPG", "H264", etc.'
         reboot_required: false
-  Camera:
-    display_name: CSI Camera (Legacy)
-    category: video
-    icon: camera
-    parameters:
-      CSI_FLIP_METHOD:
-        type: integer
-        default: 0
-        description: 0=none, 1=90°CW, 2=180°, 3=90°CCW, 4=horizontal, 5=vertical
-        reboot_required: true
-        min: 0
-        max: 100
   CSICamera:
     display_name: CSI Camera
     category: video
@@ -341,15 +297,15 @@ sections:
       HTTP_STREAM_HOST:
         type: string
         default: 0.0.0.0
-        description: API server bind address (0.0.0.0 = all interfaces, allows LAN/remote access)
+        description: 0.0.0.0 = all interfaces
         reboot_required: true
       HTTP_STREAM_PORT:
         type: integer
         default: 5077
-        description: API server port (used by dashboard, WebSocket, and REST API)
+        description: Web dashboard port
         reboot_required: true
-        min: 1024
-        max: 65535
+        min: 0
+        max: 1000000
       STREAM_WIDTH:
         type: integer
         default: 640
@@ -385,37 +341,6 @@ sections:
         default: true
         description: Include overlays
         reboot_required: false
-      ENABLE_FRAME_CACHE:
-        type: boolean
-        default: true
-        description: Set true to cache encoded frames
-        reboot_required: false
-      CACHE_TTL_MS:
-        type: integer
-        default: 100
-        description: Cache time-to-live in milliseconds
-        reboot_required: false
-        min: 0
-        max: 100
-      MAX_FRAME_QUEUE:
-        type: integer
-        default: 3
-        description: Max queued frames per WebSocket client
-        reboot_required: false
-        min: 0
-        max: 100
-      WS_MAX_CONNECTIONS:
-        type: integer
-        default: 10
-        description: Max concurrent WebSocket clients
-        reboot_required: false
-        min: 0
-        max: 100
-      WS_ENABLE_COMPRESSION:
-        type: boolean
-        default: false
-        description: Enable WebSocket compression
-        reboot_required: false
       ENABLE_ADAPTIVE_QUALITY:
         type: boolean
         default: true
@@ -444,6 +369,18 @@ sections:
         reboot_required: false
         min: 0
         max: 100
+      ENABLE_FRAME_CACHE:
+        type: boolean
+        default: true
+        description: Set true to cache encoded frames
+        reboot_required: false
+      CACHE_TTL_MS:
+        type: integer
+        default: 100
+        description: Cache time-to-live in milliseconds
+        reboot_required: false
+        min: 0
+        max: 100
       SKIP_IDENTICAL_FRAMES:
         type: boolean
         default: true
@@ -454,6 +391,20 @@ sections:
         default: 20
         description: Max concurrent HTTP streams
         reboot_required: true
+        min: 0
+        max: 100
+      WS_MAX_CONNECTIONS:
+        type: integer
+        default: 10
+        description: Max concurrent WebSocket clients
+        reboot_required: false
+        min: 0
+        max: 100
+      MAX_FRAME_QUEUE:
+        type: integer
+        default: 3
+        description: Max queued frames per WebSocket client
+        reboot_required: false
         min: 0
         max: 100
       HTTP_CHUNK_SIZE:
@@ -512,23 +463,13 @@ sections:
     icon: gps_fixed
     parameters:
       DEFAULT_TRACKING_ALGORITHM:
-        type: enum
+        type: string
         default: CSRT
-        description: Tracker algorithm for object tracking
+        description: 'Options: CSRT (recommended for rotation), KCF (fast), dlib (very fast), Gimbal (external) CSRT: Best
+          for drone circling, rotation, perspective changes (15-20 FPS, 85% accuracy) KCF:  Fast alternative for high-speed
+          scenarios (25-30 FPS, 75% accuracy) dlib: Very fast correlation filter with PSR confidence (25-30 FPS, 85% accuracy)'
         reboot_required: false
-        options:
-          - value: CSRT
-            label: CSRT (Recommended)
-            description: Best for rotation/perspective changes (15-20 FPS, 85% accuracy)
-          - value: KCF
-            label: KCF (Fast)
-            description: High-speed tracking (25-30 FPS, 75% accuracy)
-          - value: dlib
-            label: dlib (Very Fast)
-            description: Correlation filter with PSR confidence (25-30 FPS, 85% accuracy)
-          - value: Gimbal
-            label: Gimbal (External)
-            description: External gimbal-based tracking
+        unit: 25-30 fps, 85% accuracy
       TRACKING_RECTANGLE_COLOR:
         type: array
         default:
@@ -1660,17 +1601,10 @@ sections:
     min: 0
     max: 1000000
   GIMBAL_COORDINATE_SYSTEM:
-    type: enum
+    type: string
     default: GIMBAL_BODY
-    description: Coordinate system for gimbal control
+    description: Coordinate system preference
     reboot_required: false
-    options:
-      - value: GIMBAL_BODY
-        label: Gimbal Body
-        description: Angles relative to gimbal body frame
-      - value: SPATIAL_FIXED
-        label: Spatial Fixed
-        description: Angles relative to fixed spatial frame
   GIMBAL_DISABLE_ESTIMATOR:
     type: boolean
     default: true
@@ -1682,17 +1616,10 @@ sections:
     icon: settings
     parameters:
       COORDINATE_SYSTEM:
-        type: enum
+        type: string
         default: GIMBAL_BODY
-        description: Coordinate system for gimbal control
+        description: 'Options: "GIMBAL_BODY", "SPATIAL_FIXED"'
         reboot_required: false
-        options:
-          - value: GIMBAL_BODY
-            label: Gimbal Body
-            description: Angles relative to gimbal body frame
-          - value: SPATIAL_FIXED
-            label: Spatial Fixed
-            description: Angles relative to fixed spatial frame
       CAMERA_MOUNT_OFFSET_ROLL:
         type: float
         default: 0.0
@@ -1802,38 +1729,12 @@ sections:
         description: 'Target positioning: "center", "initial"'
         reboot_required: false
       FOLLOWER_MODE:
-        type: enum
+        type: string
         default: mc_velocity_position
-        description: Follower control mode
+        description: 'Options: mc_velocity_ground, mc_velocity_distance, mc_velocity_position, mc_velocity_chase, mc_velocity,
+          mc_attitude_rate, fw_attitude_rate, gm_pid_pursuit, gm_velocity_vector Deprecated (still work): ground_view, constant_distance,
+          constant_position, body_velocity_chase, gimbal_vector_body'
         reboot_required: false
-        options:
-          - value: mc_velocity_position
-            label: Velocity Position (Recommended)
-            description: Multicopter velocity control maintaining position
-          - value: mc_velocity_ground
-            label: Velocity Ground
-            description: Multicopter ground-referenced velocity control
-          - value: mc_velocity_distance
-            label: Velocity Distance
-            description: Multicopter distance-based velocity control
-          - value: mc_velocity_chase
-            label: Velocity Chase
-            description: Multicopter chase/pursuit velocity control
-          - value: mc_velocity
-            label: Velocity Basic
-            description: Basic multicopter velocity control
-          - value: mc_attitude_rate
-            label: Attitude Rate (MC)
-            description: Multicopter attitude rate control
-          - value: fw_attitude_rate
-            label: Attitude Rate (FW)
-            description: Fixed-wing attitude rate control
-          - value: gm_pid_pursuit
-            label: Gimbal PID Pursuit
-            description: Gimbal pursuit with PID control
-          - value: gm_velocity_vector
-            label: Gimbal Velocity Vector
-            description: Gimbal vector velocity control
       SHOW_TRACKING_WINDOW:
         type: boolean
         default: false
@@ -1931,32 +1832,15 @@ sections:
     icon: control_camera
     parameters:
       MOUNT_TYPE:
-        type: enum
+        type: string
         default: HORIZONTAL
-        description: Gimbal mount orientation
+        description: 'Options: "VERTICAL", "HORIZONTAL", "TILTED_45"'
         reboot_required: false
-        options:
-          - value: HORIZONTAL
-            label: Horizontal
-            description: Standard horizontal gimbal mount
-          - value: VERTICAL
-            label: Vertical
-            description: Vertical gimbal mount orientation
-          - value: TILTED_45
-            label: Tilted 45°
-            description: 45-degree tilted mount
       CONTROL_MODE:
-        type: enum
+        type: string
         default: BODY
-        description: Velocity reference frame
+        description: 'Options: "NED", "BODY"'
         reboot_required: false
-        options:
-          - value: BODY
-            label: Body Frame
-            description: Velocities relative to aircraft body
-          - value: NED
-            label: NED Frame
-            description: North-East-Down world reference
       REQUIRED_TRACKER_FIELDS:
         type: array
         default:
@@ -2206,20 +2090,10 @@ sections:
     icon: control_camera
     parameters:
       MOUNT_TYPE:
-        type: enum
+        type: string
         default: HORIZONTAL
-        description: Gimbal mount orientation
+        description: 'Options: "VERTICAL", "HORIZONTAL", "TILTED_45"'
         reboot_required: false
-        options:
-          - value: HORIZONTAL
-            label: Horizontal
-            description: Standard horizontal gimbal mount
-          - value: VERTICAL
-            label: Vertical
-            description: Vertical gimbal mount orientation
-          - value: TILTED_45
-            label: Tilted 45°
-            description: 45-degree tilted mount
       MIN_VELOCITY:
         type: float
         default: 0.0
@@ -2503,24 +2377,6 @@ sections:
         default: true
         description: Enable altitude enforcement
         reboot_required: false
-      MIN_ALTITUDE:
-        type: float
-        default: 5.0
-        description: m - Absolute minimum safe altitude
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: m
-      MAX_ALTITUDE:
-        type: float
-        default: 50.0
-        description: m - Absolute maximum altitude
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: m
       ALTITUDE_CHECK_INTERVAL:
         type: float
         default: 0.1
@@ -3188,24 +3044,6 @@ sections:
         default: true
         description: Enable altitude monitoring
         reboot_required: false
-      MIN_ALTITUDE:
-        type: float
-        default: 30.0
-        description: m - Absolute minimum safe altitude
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: m
-      MAX_ALTITUDE:
-        type: float
-        default: 400.0
-        description: m - Absolute maximum altitude
-        reboot_required: false
-        min: -10000.0
-        max: 10000.0
-        step: 0.1
-        unit: m
       ALTITUDE_CHECK_INTERVAL:
         type: float
         default: 0.1
@@ -3441,24 +3279,6 @@ sections:
         default: true
         description: Enable altitude monitoring
         reboot_required: false
-      MIN_ALTITUDE:
-        type: float
-        default: 5.0
-        description: m - Absolute minimum safe altitude
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: m
-      MAX_ALTITUDE:
-        type: float
-        default: 100.0
-        description: m - Absolute maximum altitude
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: m
       ALTITUDE_CHECK_INTERVAL:
         type: float
         default: 0.1
@@ -3762,24 +3582,6 @@ sections:
         default: true
         description: Enable altitude monitoring
         reboot_required: false
-      MIN_ALTITUDE:
-        type: float
-        default: 5.0
-        description: m - Absolute minimum safe altitude
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: m
-      MAX_ALTITUDE:
-        type: float
-        default: 100.0
-        description: m - Absolute maximum altitude
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: m
       RTL_ON_ALTITUDE_VIOLATION:
         type: boolean
         default: true
@@ -3863,15 +3665,6 @@ sections:
         default: false
         description: Enable automatic descent to target
         reboot_required: false
-      MIN_ALTITUDE:
-        type: float
-        default: 40.0
-        description: m - Absolute minimum safe altitude
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: m
       IS_CAMERA_GIMBALED:
         type: boolean
         default: false
@@ -4146,17 +3939,10 @@ sections:
         description: Enable/disable state estimation
         reboot_required: false
       ESTIMATOR_TYPE:
-        type: enum
+        type: string
         default: Kalman
-        description: State estimation algorithm
+        description: 'Options: Kalman, None'
         reboot_required: false
-        options:
-          - value: Kalman
-            label: Kalman Filter
-            description: Smooth state estimation with prediction
-          - value: None
-            label: None
-            description: Disable state estimation
       ESTIMATOR_HISTORY_LENGTH:
         type: integer
         default: 5
@@ -4278,23 +4064,10 @@ sections:
         max: 100
         unit: 1-10
       PREPROCESSING_COLOR_SPACE:
-        type: enum
+        type: string
         default: BGR
-        description: Image color space for preprocessing
+        description: 'Options: BGR, GRAY, HSV, LAB'
         reboot_required: false
-        options:
-          - value: BGR
-            label: BGR (Default)
-            description: Blue-Green-Red color space
-          - value: GRAY
-            label: Grayscale
-            description: Single-channel grayscale
-          - value: HSV
-            label: HSV
-            description: Hue-Saturation-Value color space
-          - value: LAB
-            label: LAB
-            description: CIE LAB perceptually uniform color space
   Segmentation:
     display_name: Segmentation
     category: processing
@@ -4776,10 +4549,44 @@ sections:
         reboot_required: false
       FollowerOverrides:
         type: object
-        default: {}
-        description: 'MAX_VELOCITY_FORWARD: 2.0        # Reduced for testing FW_ATTITUDE_RATE: MIN_ALTITUDE: 30.0               #
-          Higher floor for fixed-wing'
+        description: 'All safety limits should be defined HERE, not in follower sections. Resolution Order: FollowerOverrides
+          -> GlobalLimits -> Hardcoded Fallbacks ---------------------------------------------------------------------------'
         reboot_required: false
+        properties:
+          MC_VELOCITY_CHASE:
+            type: object
+            default:
+              MIN_ALTITUDE: 5.0
+              MAX_ALTITUDE: 50.0
+            description: MC Velocity Chase - stricter limits for chase mode testing
+            reboot_required: false
+          FW_ATTITUDE_RATE:
+            type: object
+            default:
+              MIN_ALTITUDE: 30.0
+              MAX_ALTITUDE: 400.0
+            description: Fixed-Wing - higher floor for terrain clearance
+            reboot_required: false
+          GM_PID_PURSUIT:
+            type: object
+            default:
+              MIN_ALTITUDE: 5.0
+              MAX_ALTITUDE: 100.0
+            description: Gimbal PID Pursuit - moderate limits
+            reboot_required: false
+          MC_ATTITUDE_RATE:
+            type: object
+            default:
+              MIN_ALTITUDE: 5.0
+              MAX_ALTITUDE: 100.0
+            description: MC Attitude Rate - similar to chase mode
+            reboot_required: false
+          MC_VELOCITY_GROUND:
+            type: object
+            default:
+              MIN_ALTITUDE: 40.0
+            description: MC Velocity Ground - higher minimum for ground view safety
+            reboot_required: false
   GainScheduling:
     display_name: Gain Scheduling
     category: control

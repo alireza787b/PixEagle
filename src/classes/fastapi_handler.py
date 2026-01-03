@@ -358,6 +358,11 @@ class FastAPIHandler:
         self.app.get("/api/safety/limits/{follower_name}")(self.get_follower_safety_limits)
         # Note: /api/safety/vehicle-profiles removed in v4.0.0 (was deprecated in v3.6.0)
 
+        # Enhanced safety/config endpoints (v5.0.0+)
+        self.app.get("/api/config/effective-limits")(self.get_effective_limits)
+        self.app.get("/api/config/sections/relevant")(self.get_relevant_sections)
+        self.app.get("/api/follower/current-mode")(self.get_current_follower_mode)
+
         # Configuration management API (v4.0.0+)
         # Schema & metadata
         self.app.get("/api/config/schema")(self.get_config_schema)
@@ -3252,6 +3257,157 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     # Note: get_vehicle_profiles() removed in v4.0.0 (was deprecated in v3.6.0)
+
+    # ==================== Enhanced Safety/Config API Endpoints (v5.0.0+) ====================
+
+    async def get_effective_limits(self, follower_name: str = None):
+        """
+        Get effective safety limits with resolution chain for UI display.
+
+        Returns all limits with their effective values, sources, and whether
+        they are overridden for the specified follower.
+
+        Args:
+            follower_name: Optional follower name (e.g., 'MC_VELOCITY_CHASE')
+
+        Returns:
+            dict: Detailed limit resolution for UI display
+        """
+        try:
+            try:
+                from classes.safety_manager import SafetyManager, get_safety_manager
+                safety_manager = get_safety_manager()
+                safety_available = True
+            except ImportError:
+                safety_available = False
+                safety_manager = None
+
+            if not safety_available or safety_manager is None:
+                return JSONResponse(content={
+                    'available': False,
+                    'message': 'SafetyManager not available',
+                    'timestamp': time.time()
+                })
+
+            # Get detailed limit summary from SafetyManager
+            limits_summary = safety_manager.get_effective_limits_summary(follower_name)
+            available_followers = safety_manager.get_available_followers()
+
+            return JSONResponse(content={
+                'success': True,
+                'follower_name': follower_name,
+                'limits': limits_summary,
+                'available_followers': available_followers,
+                'timestamp': time.time()
+            })
+
+        except Exception as e:
+            self.logger.error(f"Error getting effective limits: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_relevant_sections(self, follower_mode: str = None):
+        """
+        Get configuration sections relevant to the current follower mode.
+
+        Args:
+            follower_mode: Follower mode name (e.g., 'mc_velocity_chase').
+                          If not provided, uses currently configured mode.
+
+        Returns:
+            dict: Section names grouped by relevance
+        """
+        try:
+            # Mode to section mapping
+            MODE_SECTIONS = {
+                'mc_velocity_chase': ['Follower', 'MC_VELOCITY_CHASE', 'Safety', 'PID', 'Tracking', 'OSD'],
+                'mc_velocity_position': ['Follower', 'MC_VELOCITY_POSITION', 'Safety', 'PID', 'Tracking', 'OSD'],
+                'mc_velocity_distance': ['Follower', 'MC_VELOCITY_DISTANCE', 'Safety', 'PID', 'Tracking', 'OSD'],
+                'mc_velocity_ground': ['Follower', 'MC_VELOCITY_GROUND', 'Safety', 'PID', 'Tracking', 'OSD'],
+                'mc_velocity': ['Follower', 'MC_VELOCITY', 'Safety', 'PID', 'Tracking', 'OSD'],
+                'mc_attitude_rate': ['Follower', 'MC_ATTITUDE_RATE', 'Safety', 'PID', 'Tracking', 'OSD'],
+                'gm_pid_pursuit': ['Follower', 'GM_PID_PURSUIT', 'Safety', 'GimbalTracker', 'GimbalTrackerSettings', 'PID', 'Tracking', 'Gimbal', 'OSD'],
+                'gm_velocity_vector': ['Follower', 'GM_VELOCITY_VECTOR', 'Safety', 'GimbalTracker', 'GimbalTrackerSettings', 'PID', 'Tracking', 'Gimbal', 'OSD'],
+                'fw_attitude_rate': ['Follower', 'FW_ATTITUDE_RATE', 'Safety', 'PID', 'Tracking', 'OSD'],
+            }
+
+            # Global sections that are always relevant
+            GLOBAL_SECTIONS = ['VideoSource', 'PX4', 'MAVLink', 'Streaming', 'Debugging']
+
+            # Use provided mode or get from Parameters
+            mode = follower_mode.lower() if follower_mode else Parameters.FOLLOWER_MODE.lower()
+
+            # Get relevant sections for this mode
+            mode_specific = MODE_SECTIONS.get(mode, ['Follower', 'Safety', 'PID', 'Tracking', 'OSD'])
+
+            # Get all section names from config service
+            try:
+                service = self._get_config_service()
+                all_sections = list(service.get_schema().get('sections', {}).keys())
+            except Exception:
+                all_sections = []
+
+            # Categorize sections
+            active_sections = list(set(mode_specific + GLOBAL_SECTIONS))
+            other_sections = [s for s in all_sections if s not in active_sections]
+
+            return JSONResponse(content={
+                'success': True,
+                'current_mode': mode,
+                'active_sections': active_sections,
+                'other_sections': other_sections,
+                'mode_specific_sections': mode_specific,
+                'global_sections': GLOBAL_SECTIONS,
+                'timestamp': time.time()
+            })
+
+        except Exception as e:
+            self.logger.error(f"Error getting relevant sections: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_current_follower_mode(self):
+        """
+        Get the currently active follower mode with detailed status.
+
+        Returns:
+            dict: Current mode name, status, and related configuration
+        """
+        try:
+            configured_mode = Parameters.FOLLOWER_MODE
+            is_active = self.app_controller.following_active if self.app_controller else False
+
+            # Get effective limits for current mode
+            try:
+                from classes.safety_manager import get_safety_manager
+                safety_manager = get_safety_manager()
+                limits_summary = safety_manager.get_effective_limits_summary(configured_mode.upper())
+                limits_available = True
+            except Exception:
+                limits_summary = {}
+                limits_available = False
+
+            # Get profile info
+            try:
+                profile_config = SetpointHandler.get_profile_info(configured_mode)
+                profile_valid = True
+            except Exception:
+                profile_config = None
+                profile_valid = False
+
+            return JSONResponse(content={
+                'success': True,
+                'mode': configured_mode,
+                'mode_upper': configured_mode.upper(),
+                'is_active': is_active,
+                'profile_valid': profile_valid,
+                'profile_info': profile_config,
+                'limits_available': limits_available,
+                'effective_limits': limits_summary if limits_available else None,
+                'timestamp': time.time()
+            })
+
+        except Exception as e:
+            self.logger.error(f"Error getting current follower mode: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
     # =========================================================================
     # Configuration Management API Handlers (v4.0.0+)

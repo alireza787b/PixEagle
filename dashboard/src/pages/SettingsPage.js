@@ -4,15 +4,15 @@ import {
   Box, Container, Typography, CircularProgress, Alert, Paper, Divider,
   List, ListItem, ListItemButton, ListItemIcon, ListItemText,
   Collapse, TextField, InputAdornment, Chip, IconButton, Tooltip,
-  Snackbar, Drawer, Fab
+  Snackbar, Drawer, Fab, Switch, FormControlLabel, Badge
 } from '@mui/material';
 import {
   Settings, Search, ExpandLess, ExpandMore, Videocam, Router,
   GpsFixed, Navigation, Shield, Tune, AutoFixHigh, Tv,
-  Refresh, Warning, Menu as MenuIcon
+  Refresh, Warning, Menu as MenuIcon, FlightTakeoff, Visibility, VisibilityOff
 } from '@mui/icons-material';
 
-import { useConfigSections, useConfigSection, useConfigSearch, useConfigDiff } from '../hooks/useConfig';
+import { useConfigSections, useConfigSection, useConfigSearch, useConfigDiff, useCurrentFollowerMode, useRelevantSections } from '../hooks/useConfig';
 import { useResponsive } from '../hooks/useResponsive';
 import SectionEditor from '../components/config/SectionEditor';
 import RestartPrompt from '../components/config/RestartPrompt';
@@ -41,17 +41,39 @@ const SettingsPage = () => {
   const { diff, refetch: refetchDiff } = useConfigDiff();
   const { isMobile, isTablet, isDesktop } = useResponsive();
 
+  // Mode-aware filtering (v5.0.0+)
+  const { mode: currentMode, modeUpper, isActive: followerActive, loading: modeLoading } = useCurrentFollowerMode();
+  const { activeSections, otherSections, modeSpecificSections } = useRelevantSections(currentMode);
+
   const [selectedSection, setSelectedSection] = useState(null);
   const [expandedCategories, setExpandedCategories] = useState({});
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingRestartParams, setPendingRestartParams] = useState([]);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [showAllSections, setShowAllSections] = useState(false);
+
+  // Filter sections based on mode if not showing all
+  const filteredGroupedSections = useMemo(() => {
+    if (showAllSections || activeSections.length === 0) {
+      return groupedSections;
+    }
+
+    // Filter each category to only include active sections
+    const filtered = {};
+    for (const [category, catSections] of Object.entries(groupedSections)) {
+      const relevantSections = catSections.filter(s => activeSections.includes(s.name));
+      if (relevantSections.length > 0) {
+        filtered[category] = relevantSections;
+      }
+    }
+    return filtered;
+  }, [groupedSections, activeSections, showAllSections]);
 
   // Sort categories by order
   const sortedCategories = useMemo(() => {
-    return categoryOrder.filter(cat => groupedSections[cat]?.length > 0);
-  }, [groupedSections]);
+    return categoryOrder.filter(cat => filteredGroupedSections[cat]?.length > 0);
+  }, [filteredGroupedSections]);
 
   const toggleCategory = (category) => {
     setExpandedCategories(prev => ({
@@ -179,6 +201,68 @@ const SettingsPage = () => {
             onConfigImported={handleConfigImported}
           />
         </Box>
+
+        {/* Mode Indicator and Section Filter Toggle (v5.0.0+) */}
+        <Box sx={{
+          display: 'flex',
+          flexDirection: { xs: 'column', sm: 'row' },
+          alignItems: { xs: 'stretch', sm: 'center' },
+          gap: 2,
+          mt: 2,
+          p: 1.5,
+          bgcolor: 'background.paper',
+          borderRadius: 1,
+          border: 1,
+          borderColor: 'divider'
+        }}>
+          {/* Current Mode Indicator */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexGrow: 1 }}>
+            <FlightTakeoff color={followerActive ? 'success' : 'action'} />
+            <Box>
+              <Typography variant="body2" color="text.secondary">
+                Active Mode
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="subtitle2" fontWeight="bold">
+                  {modeUpper || 'Loading...'}
+                </Typography>
+                {followerActive && (
+                  <Chip size="small" label="Active" color="success" sx={{ height: 20, fontSize: '0.7rem' }} />
+                )}
+              </Box>
+            </Box>
+          </Box>
+
+          {/* Show All Sections Toggle */}
+          <FormControlLabel
+            control={
+              <Switch
+                checked={showAllSections}
+                onChange={(e) => setShowAllSections(e.target.checked)}
+                size="small"
+              />
+            }
+            label={
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                {showAllSections ? <Visibility fontSize="small" /> : <VisibilityOff fontSize="small" />}
+                <Typography variant="body2">
+                  {showAllSections ? 'All Sections' : 'Mode-Relevant Only'}
+                </Typography>
+              </Box>
+            }
+            sx={{ m: 0 }}
+          />
+
+          {/* Section Count */}
+          {!showAllSections && activeSections.length > 0 && (
+            <Chip
+              size="small"
+              label={`${sortedCategories.reduce((sum, cat) => sum + (filteredGroupedSections[cat]?.length || 0), 0)} sections`}
+              color="primary"
+              variant="outlined"
+            />
+          )}
+        </Box>
       </Box>
 
       {/* Hamburger Menu Button (Mobile Only) */}
@@ -246,7 +330,7 @@ const SettingsPage = () => {
               {/* Section List */}
               <List dense>
                 {sortedCategories.map((category) => {
-                  const catSections = groupedSections[category] || [];
+                  const catSections = filteredGroupedSections[category] || [];
                   const catInfo = categories[category] || { display_name: category };
                   const isExpanded = expandedCategories[category] !== false; // Default expanded
 
@@ -265,19 +349,34 @@ const SettingsPage = () => {
 
                       <Collapse in={isExpanded} timeout="auto" unmountOnExit>
                         <List component="div" disablePadding dense>
-                          {catSections.map((section) => (
-                            <ListItemButton
-                              key={section.name}
-                              sx={{ pl: 4 }}
-                              selected={selectedSection === section.name}
-                              onClick={() => handleSectionSelect(section.name)}
-                            >
-                              <ListItemText
-                                primary={section.display_name}
-                                secondary={`${section.parameter_count} params`}
-                              />
-                            </ListItemButton>
-                          ))}
+                          {catSections.map((section) => {
+                            const isModeSpecific = modeSpecificSections.includes(section.name);
+                            return (
+                              <ListItemButton
+                                key={section.name}
+                                sx={{ pl: 4 }}
+                                selected={selectedSection === section.name}
+                                onClick={() => handleSectionSelect(section.name)}
+                              >
+                                <ListItemText
+                                  primary={
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                      {section.display_name}
+                                      {isModeSpecific && !showAllSections && (
+                                        <Chip
+                                          size="small"
+                                          label="Mode"
+                                          color="primary"
+                                          sx={{ height: 16, fontSize: '0.6rem', ml: 0.5 }}
+                                        />
+                                      )}
+                                    </Box>
+                                  }
+                                  secondary={`${section.parameter_count} params`}
+                                />
+                              </ListItemButton>
+                            );
+                          })}
                         </List>
                       </Collapse>
                     </React.Fragment>

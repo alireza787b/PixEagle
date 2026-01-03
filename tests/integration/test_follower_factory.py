@@ -119,10 +119,10 @@ class TestAvailableModes:
 
         modes = FollowerFactory.get_available_modes()
 
-        # Deprecated aliases should not be in the list
-        for deprecated in FollowerFactory._deprecated_aliases.keys():
-            assert deprecated not in modes, \
-                f"Deprecated alias should not be in available modes: {deprecated}"
+        # Removed aliases should not be in the list
+        for removed in FollowerFactory._REMOVED_ALIASES.keys():
+            assert removed not in modes, \
+                f"Removed alias should not be in available modes: {removed}"
 
     @pytest.mark.integration
     def test_available_modes_not_empty(self, reset_factory):
@@ -137,30 +137,30 @@ class TestAvailableModes:
 # Test: Deprecated Alias Handling
 # =============================================================================
 
-class TestDeprecatedAliasHandling:
-    """Test deprecated alias handling."""
+class TestRemovedAliasHandling:
+    """Test removed alias handling (v5.0.0+)."""
 
     @pytest.mark.integration
-    def test_deprecated_aliases_mapped(self, reset_factory):
-        """Deprecated aliases are mapped to new implementations."""
+    def test_removed_aliases_raise_error(self, reset_factory):
+        """Removed aliases raise ValueError with migration hint."""
         from classes.follower import FollowerFactory
 
         FollowerFactory._initialize_registry()
 
-        # Check that aliases point to the same class as the new name
-        for old_name, new_name in FollowerFactory._deprecated_aliases.items():
-            if new_name in FollowerFactory._follower_registry:
-                assert old_name in FollowerFactory._follower_registry
-                assert FollowerFactory._follower_registry[old_name] == \
-                       FollowerFactory._follower_registry[new_name]
+        # Check that removed aliases raise ValueError
+        for old_name, new_name in FollowerFactory._REMOVED_ALIASES.items():
+            with pytest.raises(ValueError) as exc_info:
+                FollowerFactory.create_follower(old_name, None, None)
+            assert new_name in str(exc_info.value), \
+                f"Error should mention migration to '{new_name}'"
 
     @pytest.mark.integration
-    def test_deprecated_alias_count(self, reset_factory):
-        """Expected number of deprecated aliases."""
+    def test_removed_alias_count(self, reset_factory):
+        """Expected number of removed aliases."""
         from classes.follower import FollowerFactory
 
         # Should have aliases for legacy naming
-        assert len(FollowerFactory._deprecated_aliases) > 0
+        assert len(FollowerFactory._REMOVED_ALIASES) > 0
 
 
 # =============================================================================
@@ -246,9 +246,9 @@ class TestFollowerCreation:
 
         # All keys should be lowercase with underscores
         for profile_name in FollowerFactory._follower_registry.keys():
-            if profile_name not in FollowerFactory._deprecated_aliases:
-                assert profile_name == profile_name.lower()
-                assert ' ' not in profile_name
+            # All registered profiles should follow naming convention
+            assert profile_name == profile_name.lower()
+            assert ' ' not in profile_name
 
 
 # =============================================================================

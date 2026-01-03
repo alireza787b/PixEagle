@@ -29,7 +29,6 @@ SECTION_CATEGORIES = {
     # Video & Input
     'VideoSource': {'category': 'video', 'display_name': 'Video Source', 'icon': 'videocam'},
     'USBCamera': {'category': 'video', 'display_name': 'USB Camera', 'icon': 'usb'},
-    'Camera': {'category': 'video', 'display_name': 'CSI Camera (Legacy)', 'icon': 'camera'},
     'CSICamera': {'category': 'video', 'display_name': 'CSI Camera', 'icon': 'camera'},
 
     # Network

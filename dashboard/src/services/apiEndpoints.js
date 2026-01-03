@@ -68,6 +68,11 @@ export const endpoints = {
   safetyConfig: `${protocol}://${apiHost}:${apiPort}/api/safety/config`,
   safetyLimits: (followerName) => `${protocol}://${apiHost}:${apiPort}/api/safety/limits/${followerName}`,
 
+  // Enhanced safety/config endpoints (v5.0.0+)
+  effectiveLimits: (followerName) => `${protocol}://${apiHost}:${apiPort}/api/config/effective-limits${followerName ? `?follower_name=${followerName}` : ''}`,
+  relevantSections: (followerMode) => `${protocol}://${apiHost}:${apiPort}/api/config/sections/relevant${followerMode ? `?follower_mode=${followerMode}` : ''}`,
+  currentFollowerMode: `${protocol}://${apiHost}:${apiPort}/api/follower/current-mode`,
+
   // Configuration management endpoints (v4.0.0+)
   configSchema: `${protocol}://${apiHost}:${apiPort}/api/config/schema`,
   configSectionSchema: (section) => `${protocol}://${apiHost}:${apiPort}/api/config/schema/${section}`,

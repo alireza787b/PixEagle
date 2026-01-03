@@ -12,11 +12,10 @@ Project Information:
 - Repository: https://github.com/alireza787b/PixEagle
 - Author: Alireza Ghaderi
 
-Safety Limit Resolution (via SafetyManager):
-    1. Follower-specific override
-    2. Vehicle profile (MULTICOPTER, FIXED_WING, GIMBAL)
-    3. Global limits
-    4. Hardcoded fallback
+Safety Limit Resolution (v5.0.0+ via SafetyManager):
+    1. Safety.FollowerOverrides (per-follower limits)
+    2. Safety.GlobalLimits (single source of truth)
+    3. Hardcoded fallback (for safety)
 """
 
 import yaml
@@ -44,12 +43,11 @@ class Parameters:
     Automatically loads all configuration parameters from the config.yaml file.
     Configurations are set as class variables, maintaining compatibility with existing code.
 
-    Safety Limits Resolution (v3.5.0+):
+    Safety Limits Resolution (v5.0.0+):
         Uses SafetyManager for centralized limit resolution:
-        1. FollowerOverrides (if follower_name provided)
-        2. VehicleProfiles (based on follower's vehicle type)
-        3. GlobalLimits
-        4. Hardcoded fallback (for safety)
+        1. Safety.FollowerOverrides (if follower_name provided)
+        2. Safety.GlobalLimits (single source of truth)
+        3. Hardcoded fallback (for safety)
     """
 
     # Raw config storage for SafetyManager initialization
@@ -57,10 +55,9 @@ class Parameters:
 
     # Grouped sections that should NOT be flattened
     _GROUPED_SECTIONS = [
-        'Safety',        # New unified safety config (v3.5.0+)
-        'SafetyLimits',  # Legacy safety limits (deprecated)
-        'Followers',     # New unified follower configs (v3.5.0+)
-        # Follower sections (legacy - maintained for compatibility)
+        'Safety',        # Unified safety config (v5.0.0+)
+        'Followers',     # Unified follower configs
+        # Follower sections
         'MC_VELOCITY_POSITION', 'MC_VELOCITY_DISTANCE', 'MC_VELOCITY_GROUND',
         'MC_VELOCITY_CHASE', 'MC_VELOCITY', 'MC_ATTITUDE_RATE',
         'GM_VELOCITY_VECTOR', 'GM_PID_PURSUIT',
@@ -69,26 +66,6 @@ class Parameters:
         'GimbalTracker', 'GimbalTrackerSettings',
         'CSRT_Tracker', 'KCF_Tracker', 'DLIB_Tracker', 'SmartTracker'
     ]
-
-    # Hardcoded fallback defaults for safety (used if config is missing)
-    # NOTE: These MUST match SafetyManager._FALLBACKS for consistency
-    _SAFETY_FALLBACKS = {
-        'MIN_ALTITUDE': 3.0,
-        'MAX_ALTITUDE': 120.0,
-        'MAX_VELOCITY': 15.0,           # Overall magnitude limit (matches SafetyManager)
-        'MAX_VELOCITY_FORWARD': 8.0,    # Conservative (matches SafetyManager)
-        'MAX_VELOCITY_LATERAL': 5.0,    # Conservative (matches SafetyManager)
-        'MAX_VELOCITY_VERTICAL': 3.0,   # Conservative (matches SafetyManager)
-        'MAX_YAW_RATE': 45.0,
-        'MAX_PITCH_RATE': 45.0,         # Added for completeness
-        'MAX_ROLL_RATE': 45.0,          # Added for completeness
-        'ALTITUDE_WARNING_BUFFER': 2.0,
-        'ALTITUDE_SAFETY_ENABLED': True,  # Added for safety
-        'MAX_SAFETY_VIOLATIONS': 5,
-        'EMERGENCY_STOP_ENABLED': True,
-        'RTL_ON_VIOLATION': True,
-        'TARGET_LOSS_ACTION': 'hover',  # Default action on target loss (matches SafetyManager)
-    }
 
     # Axis name to limit name mapping for get_velocity_limit()
     _AXIS_TO_LIMIT = {
@@ -163,12 +140,10 @@ class Parameters:
         """
         Get the effective safety limit for a given parameter.
 
-        Resolution order (via SafetyManager):
-        1. Follower-specific override (Safety.FollowerOverrides)
-        2. Vehicle profile (Safety.VehicleProfiles based on follower type)
-        3. Global limits (Safety.GlobalLimits)
-        4. Legacy SafetyLimits (for backward compatibility)
-        5. Hardcoded fallback (for safety)
+        Resolution order (v5.0.0+ via SafetyManager):
+        1. Safety.FollowerOverrides (if follower_name provided)
+        2. Safety.GlobalLimits (single source of truth)
+        3. Hardcoded fallback (for safety)
 
         Args:
             limit_name: Name of the limit (e.g., 'MIN_ALTITUDE', 'MAX_VELOCITY_FORWARD')
@@ -179,34 +154,23 @@ class Parameters:
 
         Example:
             >>> Parameters.get_effective_limit('MIN_ALTITUDE', 'MC_VELOCITY_CHASE')
-            5.0  # Returns follower override if exists, else vehicle profile
+            5.0  # Returns follower override from Safety.FollowerOverrides
 
             >>> Parameters.get_effective_limit('MIN_ALTITUDE')
-            3.0  # Returns global limit
+            3.0  # Returns global limit from Safety.GlobalLimits
         """
         try:
-            # Use SafetyManager for centralized resolution
+            # Use SafetyManager for centralized resolution (single source of truth)
             safety_manager = _get_safety_manager()
             value = safety_manager.get_limit(limit_name, follower_name)
             if value is not None:
                 return float(value)
         except Exception as e:
-            logger.debug(f"SafetyManager fallback for {limit_name}: {e}")
+            logger.error(f"SafetyManager error for {limit_name}: {e}")
 
-        # Fallback to legacy resolution if SafetyManager fails
-        # Step 1: Check follower-specific override (legacy)
-        if follower_name:
-            follower_config = getattr(cls, follower_name, {})
-            if isinstance(follower_config, dict) and limit_name in follower_config:
-                return float(follower_config[limit_name])
-
-        # Step 2: Check global SafetyLimits (legacy)
-        safety_limits = getattr(cls, 'SafetyLimits', {})
-        if isinstance(safety_limits, dict) and limit_name in safety_limits:
-            return float(safety_limits[limit_name])
-
-        # Step 3: Return hardcoded fallback
-        return float(cls._SAFETY_FALLBACKS.get(limit_name, 0.0))
+        # SafetyManager handles fallbacks internally, this should rarely execute
+        logger.warning(f"SafetyManager returned None for {limit_name}, using 0.0")
+        return 0.0
 
     @classmethod
     def get_velocity_limit(cls, axis: str, follower_name: Optional[str] = None) -> float:
@@ -292,5 +256,76 @@ class Parameters:
             logger.error(f"❌ Failed to reload configuration: {e}")
             return False
 
+    @classmethod
+    def validate_config_structure(cls) -> bool:
+        """
+        Validate configuration structure for v5.0.0+ compliance.
+
+        Checks for deprecated patterns and logs warnings/errors with migration hints.
+
+        Returns:
+            bool: True if config is valid, False if deprecated patterns found
+        """
+        issues_found = False
+
+        # Deprecated SAFETY limit fields that should no longer exist in follower sections
+        # Note: MAX_VELOCITY in follower sections is often an operational parameter (pursuit speed),
+        # not a safety limit, so we only check for altitude-related safety limits
+        DEPRECATED_FOLLOWER_FIELDS = ['MIN_ALTITUDE', 'MAX_ALTITUDE']
+
+        FOLLOWER_SECTIONS = [
+            'MC_VELOCITY_CHASE', 'MC_VELOCITY_POSITION', 'MC_VELOCITY_DISTANCE',
+            'MC_VELOCITY_GROUND', 'MC_VELOCITY', 'MC_ATTITUDE_RATE',
+            'GM_PID_PURSUIT', 'GM_VELOCITY_VECTOR', 'FW_ATTITUDE_RATE'
+        ]
+
+        # Check for deprecated top-level sections
+        deprecated_sections = ['SafetyLimits', 'VehicleProfiles', 'Camera']
+        for section in deprecated_sections:
+            if hasattr(cls, section) and getattr(cls, section):
+                logger.error(
+                    f"❌ DEPRECATED: '{section}' section found in config. "
+                    f"This section was removed in v5.0.0. Please migrate your configuration."
+                )
+                issues_found = True
+
+        # Check for deprecated limit fields in follower sections
+        for section_name in FOLLOWER_SECTIONS:
+            section_data = getattr(cls, section_name, None)
+            if section_data and isinstance(section_data, dict):
+                for field in DEPRECATED_FOLLOWER_FIELDS:
+                    if field in section_data:
+                        logger.warning(
+                            f"⚠️  DEPRECATED: '{section_name}.{field}' should be in "
+                            f"'Safety.FollowerOverrides.{section_name}.{field}' instead. "
+                            f"Per-follower limits in section configs are deprecated in v5.0.0."
+                        )
+                        issues_found = True
+
+        # Verify Safety section has correct structure
+        safety = getattr(cls, 'Safety', None)
+        if safety:
+            if 'GlobalLimits' not in safety:
+                logger.error(
+                    "❌ MISSING: 'Safety.GlobalLimits' section not found. "
+                    "This is required in v5.0.0+ for safety limit management."
+                )
+                issues_found = True
+        else:
+            logger.error(
+                "❌ MISSING: 'Safety' section not found in configuration. "
+                "This section is required for v5.0.0+ safety management."
+            )
+            issues_found = True
+
+        if not issues_found:
+            logger.info("✅ Configuration structure validated (v5.0.0+ compliant)")
+
+        return not issues_found
+
+
 # Load the configurations upon module import
 Parameters.load_config()
+
+# Validate configuration structure on startup
+Parameters.validate_config_structure()

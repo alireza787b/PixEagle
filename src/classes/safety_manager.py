@@ -79,7 +79,6 @@ class SafetyManager:
     def __init__(self):
         """Initialize SafetyManager. Use get_instance() instead."""
         self._global_limits: Dict[str, Any] = {}
-        self._vehicle_profiles: Dict[str, Dict[str, Any]] = {}
         self._follower_overrides: Dict[str, Dict[str, Any]] = {}
         self._follower_configs: Dict[str, Dict[str, Any]] = {}  # Behavior configs
         self._cache: Dict[str, Any] = {}
@@ -105,65 +104,35 @@ class SafetyManager:
         """
         Load safety configuration from parsed YAML config.
 
+        Architecture (v5.0.0+):
+        - Single Source of Truth: Safety.GlobalLimits
+        - Per-Follower Overrides: Safety.FollowerOverrides
+        - No legacy SafetyLimits or VehicleProfiles support
+
         Args:
             config: Parsed configuration dictionary
         """
         with self._lock:
             self._cache.clear()
 
-            # Load Safety section if it exists
+            # Load Safety section (REQUIRED in v5.0.0+)
             safety_config = config.get('Safety', {})
 
-            if safety_config:
+            if not safety_config:
+                logger.error("Missing Safety section in config! Using hardcoded fallbacks.")
+                self._global_limits = {}
+                self._follower_overrides = {}
+            else:
                 # Load GlobalLimits (single source of truth)
                 self._global_limits = safety_config.get('GlobalLimits', {})
                 self._follower_overrides = safety_config.get('FollowerOverrides', {})
-
-                # Warn if deprecated VehicleProfiles found
-                if 'VehicleProfiles' in safety_config:
-                    logger.warning("VehicleProfiles deprecated in v3.6.0 - using GlobalLimits only")
-
                 logger.info(f"Loaded Safety configuration (GlobalLimits: {len(self._global_limits)} params)")
-            else:
-                # Legacy: Load from SafetyLimits section
-                self._load_legacy_config(config)
-
-            # Keep vehicle profiles empty (deprecated)
-            self._vehicle_profiles = {}
 
             # Load Followers section (behavior only)
             self._follower_configs = config.get('Followers', {})
 
             self._initialized = True
             logger.info(f"SafetyManager initialized (overrides: {len(self._follower_overrides)} followers)")
-
-    def _load_legacy_config(self, config: Dict[str, Any]) -> None:
-        """
-        Load from legacy SafetyLimits config structure.
-
-        Note: Legacy SafetyLimits section is deprecated. Migrate to Safety.GlobalLimits.
-        """
-        logger.warning("Using legacy SafetyLimits configuration - please migrate to Safety.GlobalLimits")
-
-        # Legacy SafetyLimits becomes global limits
-        self._global_limits = config.get('SafetyLimits', {})
-
-        # Extract follower-specific overrides from legacy per-follower sections
-        for follower_name in FOLLOWER_VEHICLE_TYPE.keys():
-            section = config.get(follower_name, {})
-            if section:
-                override = {}
-                for key in ['MIN_ALTITUDE', 'MAX_ALTITUDE', 'ALTITUDE_WARNING_BUFFER',
-                           'MAX_VELOCITY', 'MAX_VELOCITY_FORWARD', 'MAX_VELOCITY_LATERAL',
-                           'MAX_VELOCITY_VERTICAL', 'MAX_YAW_RATE', 'MAX_PITCH_RATE',
-                           'MAX_ROLL_RATE', 'ALTITUDE_SAFETY_ENABLED', 'EMERGENCY_STOP_ENABLED',
-                           'RTL_ON_VIOLATION', 'MAX_FORWARD_VELOCITY']:
-                    if key in section:
-                        override[key] = section[key]
-                if override:
-                    self._follower_overrides[follower_name] = override
-
-        logger.info(f"Loaded legacy SafetyLimits ({len(self._global_limits)} params)")
 
     def _get_vehicle_type(self, follower_name: str) -> VehicleType:
         """Get vehicle type for a follower."""
@@ -434,6 +403,72 @@ class SafetyManager:
             'cache_size': len(self._cache),
             'initialized': self._initialized,
         }
+
+    def get_effective_limits_summary(self, follower_name: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+        """
+        Get detailed limit resolution for UI display.
+
+        For each safety limit, returns the effective value, source, and override info.
+        This enables the UI to show where each value comes from.
+
+        Args:
+            follower_name: Optional follower name for context-specific resolution
+
+        Returns:
+            Dict mapping limit names to resolution info:
+            {
+                'MIN_ALTITUDE': {
+                    'effective_value': 5.0,
+                    'source': 'FollowerOverrides.MC_VELOCITY_CHASE',  # or 'GlobalLimits' or 'Fallback'
+                    'global_value': 3.0,
+                    'override_value': 5.0,  # None if not overridden
+                    'fallback_value': 3.0,
+                    'is_overridden': True
+                },
+                ...
+            }
+        """
+        # Define all safety limit parameters
+        LIMIT_PARAMS = [
+            'MIN_ALTITUDE', 'MAX_ALTITUDE', 'ALTITUDE_WARNING_BUFFER', 'ALTITUDE_SAFETY_ENABLED',
+            'MAX_VELOCITY', 'MAX_VELOCITY_FORWARD', 'MAX_VELOCITY_LATERAL', 'MAX_VELOCITY_VERTICAL',
+            'MAX_YAW_RATE', 'MAX_PITCH_RATE', 'MAX_ROLL_RATE',
+            'EMERGENCY_STOP_ENABLED', 'RTL_ON_VIOLATION', 'TARGET_LOSS_ACTION', 'MAX_SAFETY_VIOLATIONS'
+        ]
+
+        result = {}
+        override = self._follower_overrides.get(follower_name, {}) if follower_name else {}
+
+        for param in LIMIT_PARAMS:
+            global_value = self._global_limits.get(param)
+            override_value = override.get(param) if follower_name else None
+            fallback_value = self._FALLBACKS.get(param)
+
+            # Determine effective value and source
+            if override_value is not None:
+                effective_value = override_value
+                source = f'FollowerOverrides.{follower_name}'
+            elif global_value is not None:
+                effective_value = global_value
+                source = 'GlobalLimits'
+            else:
+                effective_value = fallback_value
+                source = 'Fallback'
+
+            result[param] = {
+                'effective_value': effective_value,
+                'source': source,
+                'global_value': global_value,
+                'override_value': override_value,
+                'fallback_value': fallback_value,
+                'is_overridden': override_value is not None
+            }
+
+        return result
+
+    def get_available_followers(self) -> List[str]:
+        """Get list of followers with configured overrides."""
+        return list(self._follower_overrides.keys())
 
 
 # Module-level convenience functions

@@ -95,11 +95,7 @@ USBCamera:
 # ==============================================================================
 # CSI CAMERA CONFIGURATION (Raspberry Pi/Jetson)
 # ==============================================================================
-Camera:  # Legacy section name - use CSICamera for new configs
-  # CSI flip method (also applies to VideoSource CSI_CAMERA mode)
-  CSI_FLIP_METHOD: 0        # 0=none, 1=90°CW, 2=180°, 3=90°CCW, 4=horizontal, 5=vertical
-
-CSICamera:  # New section name (preferred)
+CSICamera:
   SENSOR_ID: 0              # Camera sensor ID
   FLIP_METHOD: 0            # Image rotation/flip
 
@@ -1293,11 +1289,9 @@ MC_VELOCITY_CHASE:
   # - SITL Testing: ENABLE_ALTITUDE_CONTROL=true, ALTITUDE_SAFETY_ENABLED=true
   # - Flight Testing: ENABLE_ALTITUDE_CONTROL=true, ALTITUDE_SAFETY_ENABLED=true
   #
-  # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE
-  # NOTE: Now uses Safety.VehicleProfiles.MULTICOPTER settings by default
+  # Altitude limits now defined in Safety.FollowerOverrides.MC_VELOCITY_CHASE
+  # Resolution: FollowerOverrides -> GlobalLimits -> Hardcoded Fallbacks
   ALTITUDE_SAFETY_ENABLED: true           # Enable altitude boundary enforcement (SAFE DEFAULT)
-  MIN_ALTITUDE: 5.0                       # Override: stricter minimum altitude (meters)
-  MAX_ALTITUDE: 50.0                      # Override: stricter maximum altitude (meters)
   ALTITUDE_CHECK_INTERVAL: 0.1            # seconds - 100ms check frequency (fast safety checks)
   RTL_ON_ALTITUDE_VIOLATION: false        # ⚠️ Disabled by default for ground testing (enable for flights)
 
@@ -1535,9 +1529,9 @@ FW_ATTITUDE_RATE:
   SLIP_ANGLE_LIMIT: 5.0           # degrees - max sideslip allowed
 
   # === ALTITUDE SAFETY ===
+  # Altitude limits now defined in Safety.FollowerOverrides.FW_ATTITUDE_RATE
+  # Resolution: FollowerOverrides -> GlobalLimits -> Hardcoded Fallbacks
   ENABLE_ALTITUDE_SAFETY: true    # Monitor altitude bounds
-  MIN_ALTITUDE: 30.0              # m AGL - terrain clearance
-  MAX_ALTITUDE: 400.0             # m AGL - airspace limit
   ALTITUDE_CHECK_INTERVAL: 0.1    # seconds between checks
   RTL_ON_ALTITUDE_VIOLATION: true # Trigger RTL on altitude violation
 
@@ -1610,10 +1604,10 @@ MC_VELOCITY:
   RAMP_DOWN_ON_TARGET_LOSS: true             # Decelerate on target loss
   SLOW_FORWARD_VELOCITY: 1.0                 # m/s - velocity for slow_forward action
 
-  # === ALTITUDE SAFETY (Overrides Safety.GlobalLimits) ===
+  # === ALTITUDE SAFETY ===
+  # Altitude limits now defined in Safety.FollowerOverrides.GM_PID_PURSUIT
+  # Resolution: FollowerOverrides -> GlobalLimits -> Hardcoded Fallbacks
   ENABLE_ALTITUDE_SAFETY: true               # Enable altitude monitoring
-  MIN_ALTITUDE: 5.0                          # meters - minimum safe altitude
-  MAX_ALTITUDE: 100.0                        # meters - maximum altitude
   ALTITUDE_CHECK_INTERVAL: 0.1               # seconds - 100ms safety checks
   RTL_ON_ALTITUDE_VIOLATION: true            # Trigger RTL on violation
 
@@ -1717,9 +1711,9 @@ MC_ATTITUDE_RATE:
   RAMP_DOWN_ON_TARGET_LOSS: true             # Gradually reduce rates on loss
 
   # === ALTITUDE SAFETY ===
+  # Altitude limits now defined in Safety.FollowerOverrides.MC_ATTITUDE_RATE
+  # Resolution: FollowerOverrides -> GlobalLimits -> Hardcoded Fallbacks
   ENABLE_ALTITUDE_SAFETY: true               # Enable altitude monitoring
-  MIN_ALTITUDE: 5.0                          # meters - minimum safe altitude
-  MAX_ALTITUDE: 100.0                        # meters - maximum altitude
   RTL_ON_ALTITUDE_VIOLATION: true            # Trigger RTL on violation
 
   # === COMMAND SMOOTHING ===
@@ -1745,10 +1739,10 @@ MC_VELOCITY_GROUND:
   MAX_VELOCITY_Y: 2.0                   # Max longitudinal velocity (m/s) - conservative
   MAX_RATE_OF_DESCENT: 1.0              # Max descent rate (m/s) - conservative
 
-  # === Descent Control (Overrides Safety.GlobalLimits) ===
-  # Uses unified naming: MIN_ALTITUDE
+  # === Descent Control ===
+  # Altitude limits now defined in Safety.FollowerOverrides.MC_VELOCITY_GROUND
+  # Resolution: FollowerOverrides -> GlobalLimits -> Hardcoded Fallbacks
   ENABLE_DESCEND_TO_TARGET: false       # Enable automatic descent to target
-  MIN_ALTITUDE: 40.0                    # Override: higher minimum for ground view mode (meters)
 
   # === Gimbal Corrections ===
   IS_CAMERA_GIMBALED: false             # Camera stabilization status
@@ -2023,19 +2017,38 @@ Safety:
     MAX_SAFETY_VIOLATIONS: 5
 
   # ---------------------------------------------------------------------------
-  # Per-Follower Overrides (Optional)
+  # Per-Follower Overrides (SINGLE SOURCE OF TRUTH)
   # ---------------------------------------------------------------------------
   # Override specific limits for individual followers.
-  # Only include parameters that differ from GlobalLimits.
-  # Leave empty for single source of truth (recommended).
+  # Only include parameters that DIFFER from GlobalLimits.
+  # All safety limits should be defined HERE, not in follower sections.
   #
-  # Example usage:
-  #   MC_VELOCITY_CHASE:
-  #     MAX_VELOCITY_FORWARD: 2.0        # Reduced for testing
-  #   FW_ATTITUDE_RATE:
-  #     MIN_ALTITUDE: 30.0               # Higher floor for fixed-wing
-  #
-  FollowerOverrides: {}
+  # Resolution Order: FollowerOverrides -> GlobalLimits -> Hardcoded Fallbacks
+  # ---------------------------------------------------------------------------
+  FollowerOverrides:
+    # MC Velocity Chase - stricter limits for chase mode testing
+    MC_VELOCITY_CHASE:
+      MIN_ALTITUDE: 5.0                  # Stricter minimum (Global: 3.0)
+      MAX_ALTITUDE: 50.0                 # Stricter maximum (Global: 120.0)
+
+    # Fixed-Wing - higher floor for terrain clearance
+    FW_ATTITUDE_RATE:
+      MIN_ALTITUDE: 30.0                 # Higher floor for FW safety (Global: 3.0)
+      MAX_ALTITUDE: 400.0                # Higher ceiling for FW ops (Global: 120.0)
+
+    # Gimbal PID Pursuit - moderate limits
+    GM_PID_PURSUIT:
+      MIN_ALTITUDE: 5.0                  # Stricter minimum (Global: 3.0)
+      MAX_ALTITUDE: 100.0                # Moderate ceiling (Global: 120.0)
+
+    # MC Attitude Rate - similar to chase mode
+    MC_ATTITUDE_RATE:
+      MIN_ALTITUDE: 5.0                  # Stricter minimum (Global: 3.0)
+      MAX_ALTITUDE: 100.0                # Moderate ceiling (Global: 120.0)
+
+    # MC Velocity Ground - higher minimum for ground view safety
+    MC_VELOCITY_GROUND:
+      MIN_ALTITUDE: 40.0                 # Much higher for ground view mode (Global: 3.0)
 
 # ==============================================================================
 # GAIN SCHEDULING

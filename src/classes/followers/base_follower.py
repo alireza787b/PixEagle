@@ -226,34 +226,26 @@ class BaseFollower(ABC):
         self._last_safety_check_time = 0.0
         self._safety_check_interval = 0.05  # 20Hz safety checks
 
-        # Initialize legacy limit storage (used as fallback)
-        self._legacy_velocity_limits = None
-        self._legacy_altitude_limits = None
-        self._legacy_rate_limits = None
+        # v5.0.0: SafetyManager is now required (single source of truth)
+        if not SAFETY_MANAGER_AVAILABLE:
+            raise RuntimeError("SafetyManager is required in v5.0.0+. Check your imports.")
 
-        if SAFETY_MANAGER_AVAILABLE:
-            try:
-                self.safety_manager = get_safety_manager()
-                # Derive follower config name from class (e.g., MCVelocityChaseFollower -> MC_VELOCITY_CHASE)
-                self._follower_config_name = self._derive_follower_config_name()
+        try:
+            self.safety_manager = get_safety_manager()
+            # Derive follower config name from class (e.g., MCVelocityChaseFollower -> MC_VELOCITY_CHASE)
+            self._follower_config_name = self._derive_follower_config_name()
 
-                # Warn if SafetyManager hasn't loaded config (using fallback values)
-                if not self.safety_manager._initialized:
-                    logger.warning(f"SafetyManager not initialized from config - using fallback safety values. "
-                                   f"Ensure config file has 'Safety' section for {self._follower_config_name}")
+            # Warn if SafetyManager hasn't loaded config (using fallback values)
+            if not self.safety_manager._initialized:
+                logger.warning(f"SafetyManager not initialized from config - using hardcoded fallbacks. "
+                               f"Ensure config file has 'Safety' section.")
 
-                # NOTE: Safety limits are now dynamic properties (not cached)
-                # They read fresh from SafetyManager on each access, allowing
-                # config changes to take effect immediately without restart.
-                logger.info(f"SafetyManager initialized for {self._follower_config_name}: "
-                           f"vel_limits={self.velocity_limits}, alt_limits={self.altitude_limits}")
-            except Exception as e:
-                logger.warning(f"SafetyManager initialization failed, using legacy limits: {e}")
-                self.safety_manager = None
-                self._init_legacy_limits()
-        else:
-            self.safety_manager = None
-            self._init_legacy_limits()
+            # Safety limits are dynamic properties - read fresh from SafetyManager
+            logger.info(f"SafetyManager initialized for {self._follower_config_name}: "
+                       f"vel_limits={self.velocity_limits}, alt_limits={self.altitude_limits}")
+        except Exception as e:
+            logger.error(f"SafetyManager initialization failed: {e}")
+            raise RuntimeError(f"SafetyManager required but failed: {e}")
 
         logger.info(f"BaseFollower initialized with profile: {self.get_display_name()} "
                    f"(control type: {self.get_control_type()})")
@@ -520,71 +512,18 @@ class BaseFollower(ABC):
 
     @property
     def velocity_limits(self):
-        """Get velocity limits - dynamic from SafetyManager or fallback to legacy."""
-        if self.safety_manager:
-            return self.safety_manager.get_velocity_limits(self._follower_config_name)
-        return self._legacy_velocity_limits
+        """Get velocity limits from SafetyManager (v5.0.0+: single source of truth)."""
+        return self.safety_manager.get_velocity_limits(self._follower_config_name)
 
     @property
     def altitude_limits(self):
-        """Get altitude limits - dynamic from SafetyManager or fallback to legacy."""
-        if self.safety_manager:
-            return self.safety_manager.get_altitude_limits(self._follower_config_name)
-        return self._legacy_altitude_limits
+        """Get altitude limits from SafetyManager (v5.0.0+: single source of truth)."""
+        return self.safety_manager.get_altitude_limits(self._follower_config_name)
 
     @property
     def rate_limits(self):
-        """Get rate limits - dynamic from SafetyManager or fallback to legacy."""
-        if self.safety_manager:
-            return self.safety_manager.get_rate_limits(self._follower_config_name)
-        return self._legacy_rate_limits
-
-    def _init_legacy_limits(self) -> None:
-        """
-        Initialize legacy limit structures when SafetyManager is not available.
-
-        Creates fallback VelocityLimits, AltitudeLimits, and RateLimits with
-        default values from Parameters.
-        """
-        from classes.parameters import Parameters
-
-        # Try to get limits from Parameters, fallback to hardcoded values
-        try:
-            self._legacy_velocity_limits = type('VelocityLimits', (), {
-                'forward': Parameters.get_effective_limit('MAX_VELOCITY_FORWARD'),
-                'lateral': Parameters.get_effective_limit('MAX_VELOCITY_LATERAL'),
-                'vertical': Parameters.get_effective_limit('MAX_VELOCITY_VERTICAL'),
-                'max_magnitude': 15.0
-            })()
-
-            self._legacy_altitude_limits = type('AltitudeLimits', (), {
-                'min_altitude': Parameters.get_effective_limit('MIN_ALTITUDE'),
-                'max_altitude': Parameters.get_effective_limit('MAX_ALTITUDE'),
-                'warning_buffer': Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', 2.0),
-                'safety_enabled': True
-            })()
-
-            self._legacy_rate_limits = type('RateLimits', (), {
-                'yaw': Parameters.get_effective_limit('MAX_YAW_RATE') * 0.0174533,  # deg to rad
-                'pitch': Parameters.get_effective_limit('MAX_PITCH_RATE', 45.0) * 0.0174533,
-                'roll': Parameters.get_effective_limit('MAX_ROLL_RATE', 45.0) * 0.0174533
-            })()
-
-        except Exception as e:
-            logger.warning(f"Failed to load legacy limits from Parameters: {e}")
-            # Ultimate fallback with hardcoded safe values
-            self._legacy_velocity_limits = type('VelocityLimits', (), {
-                'forward': 8.0, 'lateral': 5.0, 'vertical': 3.0, 'max_magnitude': 15.0
-            })()
-            self._legacy_altitude_limits = type('AltitudeLimits', (), {
-                'min_altitude': 3.0, 'max_altitude': 120.0, 'warning_buffer': 2.0, 'safety_enabled': True
-            })()
-            self._legacy_rate_limits = type('RateLimits', (), {
-                'yaw': 0.785, 'pitch': 0.785, 'roll': 0.785  # ~45 deg/s in rad/s
-            })()
-
-        self._follower_config_name = self._derive_follower_config_name()
-        logger.info(f"Initialized legacy limits for {self._follower_config_name}")
+        """Get rate limits from SafetyManager (v5.0.0+: single source of truth)."""
+        return self.safety_manager.get_rate_limits(self._follower_config_name)
 
     def check_safety(self) -> 'SafetyStatus':
         """

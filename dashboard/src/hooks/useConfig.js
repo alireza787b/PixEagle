@@ -367,4 +367,117 @@ export const useConfigHistory = () => {
   return { backups, loading, error, restoreBackup, refetch: fetchHistory };
 };
 
+/**
+ * Hook for fetching current follower mode and effective limits (v5.0.0+)
+ */
+export const useCurrentFollowerMode = () => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchMode = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await axios.get(endpoints.currentFollowerMode);
+      if (response.data.success) {
+        setData(response.data);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchMode();
+  }, [fetchMode]);
+
+  return {
+    mode: data?.mode,
+    modeUpper: data?.mode_upper,
+    isActive: data?.is_active,
+    effectiveLimits: data?.effective_limits,
+    profileInfo: data?.profile_info,
+    loading,
+    error,
+    refetch: fetchMode
+  };
+};
+
+/**
+ * Hook for fetching effective limits with resolution chain (v5.0.0+)
+ */
+export const useEffectiveLimits = (followerName) => {
+  const [limits, setLimits] = useState({});
+  const [availableFollowers, setAvailableFollowers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchLimits = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await axios.get(endpoints.effectiveLimits(followerName));
+      if (response.data.success) {
+        setLimits(response.data.limits);
+        setAvailableFollowers(response.data.available_followers || []);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [followerName]);
+
+  useEffect(() => {
+    fetchLimits();
+  }, [fetchLimits]);
+
+  return { limits, availableFollowers, loading, error, refetch: fetchLimits };
+};
+
+/**
+ * Hook for fetching relevant sections based on follower mode (v5.0.0+)
+ */
+export const useRelevantSections = (followerMode) => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchSections = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await axios.get(endpoints.relevantSections(followerMode));
+      if (response.data.success) {
+        setData(response.data);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [followerMode]);
+
+  useEffect(() => {
+    fetchSections();
+  }, [fetchSections]);
+
+  return {
+    activeSections: data?.active_sections || [],
+    otherSections: data?.other_sections || [],
+    modeSpecificSections: data?.mode_specific_sections || [],
+    globalSections: data?.global_sections || [],
+    currentMode: data?.current_mode,
+    loading,
+    error,
+    refetch: fetchSections
+  };
+};
+
 export default useConfigSection;

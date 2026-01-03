@@ -17,9 +17,9 @@ class FollowerFactory:
     _follower_registry: Dict[str, Type] = {}
     _registry_initialized = False
     
-    # Deprecated alias mapping (old name -> new name)
-    # These will log warnings when used
-    _deprecated_aliases = {
+    # REMOVED in v5.0.0 - Deprecated alias mapping (old name -> new name)
+    # These will now raise errors instead of silently mapping
+    _REMOVED_ALIASES = {
         'ground_view': 'mc_velocity_ground',
         'constant_distance': 'mc_velocity_distance',
         'constant_position': 'mc_velocity_position',
@@ -27,7 +27,7 @@ class FollowerFactory:
         'chase_follower': 'mc_attitude_rate',
         'body_velocity_chase': 'mc_velocity_chase',
         'gimbal_unified': 'gm_pid_pursuit',
-        'gm_velocity_unified': 'gm_pid_pursuit',  # Renamed from unified to pid_pursuit
+        'gm_velocity_unified': 'gm_pid_pursuit',
         'gimbal_vector_body': 'gm_velocity_vector',
         'fixed_wing': 'fw_attitude_rate',
         'multicopter': 'mc_velocity',
@@ -80,15 +80,11 @@ class FollowerFactory:
                 'gm_velocity_vector': GMVelocityVectorFollower,
             }
 
-            # Add deprecated aliases for backward compatibility
-            # These map old names to the new implementations
-            for old_name, new_name in cls._deprecated_aliases.items():
-                if new_name in cls._follower_registry:
-                    cls._follower_registry[old_name] = cls._follower_registry[new_name]
+            # v5.0.0: Deprecated aliases are NO LONGER registered
+            # They will raise errors with migration hints when used
 
             cls._registry_initialized = True
-            logger.info(f"Follower registry initialized with {len(cls._follower_registry)} entries "
-                       f"(10 implementations + {len(cls._deprecated_aliases)} deprecated aliases)")
+            logger.info(f"Follower registry initialized with {len(cls._follower_registry)} implementations")
 
         except ImportError as e:
             logger.error(f"Failed to import follower implementations: {e}")
@@ -134,16 +130,13 @@ class FollowerFactory:
     @classmethod
     def get_available_modes(cls) -> List[str]:
         """
-        Returns a list of all available follower modes (primary names only).
-        Excludes deprecated aliases to avoid confusion in API responses.
+        Returns a list of all available follower modes.
 
         Returns:
-            List[str]: List of available follower mode names (new naming convention).
+            List[str]: List of available follower mode names.
         """
         cls._initialize_registry()
-        # Filter out deprecated aliases - only return primary profile names
-        return [name for name in cls._follower_registry.keys()
-                if name not in cls._deprecated_aliases]
+        return list(cls._follower_registry.keys())
     
     @classmethod
     def get_follower_info(cls, profile_name: str) -> Dict[str, Any]:
@@ -195,11 +188,13 @@ class FollowerFactory:
         # Normalize profile name
         normalized_name = SetpointHandler.normalize_profile_name(profile_name)
 
-        # Check for deprecated names and log warning
-        if normalized_name in cls._deprecated_aliases:
-            new_name = cls._deprecated_aliases[normalized_name]
-            logger.warning(f"DEPRECATED: Follower mode '{normalized_name}' is deprecated. "
-                          f"Please update to '{new_name}'. Old names will be removed in a future version.")
+        # v5.0.0: Raise error for removed aliases with migration hint
+        if normalized_name in cls._REMOVED_ALIASES:
+            new_name = cls._REMOVED_ALIASES[normalized_name]
+            raise ValueError(
+                f"Follower mode '{normalized_name}' was removed in v5.0.0. "
+                f"Please update your configuration to use '{new_name}' instead."
+            )
         
         # Check if profile exists in schema
         available_profiles = SetpointHandler.get_available_profiles()
