@@ -1,5 +1,5 @@
 // dashboard/src/components/config/SectionEditor.js
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Paper, Typography, CircularProgress, Alert, Button, Divider,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -17,12 +17,37 @@ import { isPIDTriplet } from '../../utils/schemaAnalyzer';
 import SmartValueEditor from './SmartValueEditor';
 import SafetyLimitsEditor from './SafetyLimitsEditor';
 
+/**
+ * Deep equality comparison for detecting modified values
+ * Handles objects, arrays, primitives correctly
+ */
+const isDeepEqual = (a, b) => {
+  if (a === b) return true;
+  if (a === null || b === null) return a === b;
+  if (a === undefined || b === undefined) return a === b;
+  if (typeof a !== typeof b) return false;
+  if (typeof a !== 'object') return a === b;
+
+  // Arrays
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) {
+    if (a.length !== b.length) return false;
+    return a.every((item, i) => isDeepEqual(item, b[i]));
+  }
+
+  // Objects
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  return keysA.every(key => isDeepEqual(a[key], b[key]));
+};
+
 // Type-specific input component with proper ref tracking
 const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, saveStatus, mobileMode = false, configValues = {} }) => {
   const { touchTargetSize } = useResponsive();
   const paramSchema = schema?.parameters?.[param] || {};
   const type = paramSchema.type || 'string';
-  const isModified = value !== defaultValue;
+  const isModified = !isDeepEqual(value, defaultValue);
 
   // Use ref to track current input value for blur handling (must be called unconditionally)
   const currentValueRef = useRef(value);
@@ -385,7 +410,7 @@ const ParameterCard = ({
 }) => {
   const { buttonSize } = useResponsive();
   const paramSchema = schema?.parameters?.[param] || {};
-  const isModified = value !== defaultValue;
+  const isModified = !isDeepEqual(value, defaultValue);
   const type = paramSchema.type || 'string';
 
   return (
@@ -738,7 +763,7 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
               const paramSchema = parameters[param];
               const currentValue = getValue(param);
               const defaultValue = defaultConfig[param] ?? paramSchema?.default;
-              const modified = currentValue !== defaultValue;
+              const modified = !isDeepEqual(currentValue, defaultValue);
               const hasPending = param in pendingChanges;
               const saveStatus = saveStatuses[param];
 

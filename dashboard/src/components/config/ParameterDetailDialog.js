@@ -1,5 +1,5 @@
 // dashboard/src/components/config/ParameterDetailDialog.js
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Box, Typography, Button, TextField, Switch, Select, MenuItem,
@@ -12,6 +12,26 @@ import {
 
 import { useResponsive } from '../../hooks/useResponsive';
 import SmartValueEditor from './SmartValueEditor';
+
+/**
+ * Deep equality comparison for detecting modified values
+ */
+const isDeepEqual = (a, b) => {
+  if (a === b) return true;
+  if (a === null || b === null) return a === b;
+  if (a === undefined || b === undefined) return a === b;
+  if (typeof a !== typeof b) return false;
+  if (typeof a !== 'object') return a === b;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) {
+    if (a.length !== b.length) return false;
+    return a.every((item, i) => isDeepEqual(item, b[i]));
+  }
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  return keysA.every(key => isDeepEqual(a[key], b[key]));
+};
 
 /**
  * Format value compactly for mobile chips (max 20 chars)
@@ -55,24 +75,44 @@ const ParameterDetailDialog = ({
   const [error, setError] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [customMode, setCustomMode] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const prevParamRef = useRef(null);
 
   // Reset local state when dialog opens with new param
+  // Use a ref to track previous param to avoid race conditions
   useEffect(() => {
     if (open && param) {
+      // Only reset if param changed or dialog just opened
+      if (prevParamRef.current !== param) {
+        prevParamRef.current = param;
+        setIsInitialized(false);
+      }
+    } else if (!open) {
+      prevParamRef.current = null;
+      setIsInitialized(false);
+    }
+  }, [open, param]);
+
+  // Initialize value once currentValue is available
+  useEffect(() => {
+    if (open && param && currentValue !== undefined && !isInitialized) {
       setLocalValue(currentValue);
       setError(null);
       setHasChanges(false);
       setCustomMode(false);
+      setIsInitialized(true);
     }
-  }, [open, param, currentValue]);
+  }, [open, param, currentValue, isInitialized]);
 
-  // Track changes
+  // Track changes using deep comparison
   useEffect(() => {
-    setHasChanges(localValue !== currentValue);
-  }, [localValue, currentValue]);
+    if (isInitialized) {
+      setHasChanges(!isDeepEqual(localValue, currentValue));
+    }
+  }, [localValue, currentValue, isInitialized]);
 
   const type = paramSchema?.type || 'string';
-  const isModified = currentValue !== defaultValue;
+  const isModified = !isDeepEqual(currentValue, defaultValue);
   const hasConstraints = paramSchema?.min !== undefined || paramSchema?.max !== undefined;
 
   // Validate value based on schema constraints
@@ -479,6 +519,9 @@ const ParameterDetailDialog = ({
 
   if (!param) return null;
 
+  // Show loading state while initializing
+  const showLoading = !isInitialized && open;
+
   return (
     <Dialog
       open={open}
@@ -529,122 +572,130 @@ const ParameterDetailDialog = ({
       </DialogTitle>
 
       <DialogContent sx={{ p: isMobile ? 1.5 : 2 }}>
-        {/* Description */}
-        {paramSchema?.description && (
-          <Alert severity="info" icon={<Info />} sx={{ mb: 2 }}>
-            <Typography variant="body2">{paramSchema.description}</Typography>
-          </Alert>
-        )}
-
-        {/* INPUT FIRST - Primary action */}
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="subtitle2" gutterBottom sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1,
-            mb: 1
-          }}>
-            New Value
-            {isModified && (
-              <Chip
-                label="Modified"
-                color="warning"
-                size="small"
-                icon={<Warning fontSize="small" />}
-              />
-            )}
-          </Typography>
-          {renderInput()}
-        </Box>
-
-        <Divider sx={{ my: 2 }} />
-
-        {/* Type and constraints info - Show on desktop */}
-        {!isMobile && (
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-            <Chip label={`Type: ${type}`} size="small" variant="outlined" />
-            {paramSchema?.unit && (
-              <Chip label={`Unit: ${paramSchema.unit}`} size="small" variant="outlined" />
-            )}
-            {paramSchema?.min !== undefined && (
-              <Chip label={`Min: ${paramSchema.min}`} size="small" variant="outlined" />
-            )}
-            {paramSchema?.max !== undefined && (
-              <Chip label={`Max: ${paramSchema.max}`} size="small" variant="outlined" />
-            )}
-            {paramSchema?.step && (
-              <Chip label={`Step: ${paramSchema.step}`} size="small" variant="outlined" />
-            )}
-          </Box>
-        )}
-
-        {/* Current/Default - Secondary info */}
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-          Reference Values
-        </Typography>
-
-        {isMobile ? (
-          // Mobile: Compact chips
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            <Chip
-              label={`Current: ${formatCompactValue(currentValue)}`}
-              size="small"
-              variant="outlined"
-              sx={{ fontFamily: 'monospace' }}
-            />
-            <Chip
-              label={`Default: ${formatCompactValue(defaultValue)}`}
-              size="small"
-              variant="outlined"
-              color="default"
-              sx={{ fontFamily: 'monospace' }}
-            />
+        {showLoading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 4 }}>
+            <CircularProgress />
           </Box>
         ) : (
-          // Desktop: Full comparison boxes
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                Current Value
-              </Typography>
-              <Typography variant="body2" sx={{
-                fontFamily: 'monospace',
-                bgcolor: isModified ? 'warning.light' : 'action.hover',
-                color: isModified ? 'warning.contrastText' : 'text.primary',
-                p: 1,
-                borderRadius: 1,
-                fontSize: '0.85rem',
-                overflowX: 'auto',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word'
-              }}>
-                {formatDisplayValue(currentValue)}
-              </Typography>
-            </Box>
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                Default Value
-              </Typography>
-              <Typography variant="body2" sx={{
-                fontFamily: 'monospace',
-                bgcolor: 'action.hover',
-                p: 1,
-                borderRadius: 1,
-                fontSize: '0.85rem',
-                overflowX: 'auto',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word'
-              }}>
-                {formatDisplayValue(defaultValue)}
-              </Typography>
-            </Box>
-          </Box>
-        )}
+          <>
+            {/* Description */}
+            {paramSchema?.description && (
+              <Alert severity="info" icon={<Info />} sx={{ mb: 2 }}>
+                <Typography variant="body2">{paramSchema.description}</Typography>
+              </Alert>
+            )}
 
-        {hasChanges && !error && (
-          <Alert severity="info" sx={{ mt: 2 }}>
-            Click "Save" to apply this change.
-          </Alert>
+            {/* INPUT FIRST - Primary action */}
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" gutterBottom sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                mb: 1
+              }}>
+                New Value
+                {isModified && (
+                  <Chip
+                    label="Modified"
+                    color="warning"
+                    size="small"
+                    icon={<Warning fontSize="small" />}
+                  />
+                )}
+              </Typography>
+              {renderInput()}
+            </Box>
+
+            <Divider sx={{ my: 2 }} />
+
+            {/* Type and constraints info - Show on desktop */}
+            {!isMobile && (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                <Chip label={`Type: ${type}`} size="small" variant="outlined" />
+                {paramSchema?.unit && (
+                  <Chip label={`Unit: ${paramSchema.unit}`} size="small" variant="outlined" />
+                )}
+                {paramSchema?.min !== undefined && (
+                  <Chip label={`Min: ${paramSchema.min}`} size="small" variant="outlined" />
+                )}
+                {paramSchema?.max !== undefined && (
+                  <Chip label={`Max: ${paramSchema.max}`} size="small" variant="outlined" />
+                )}
+                {paramSchema?.step && (
+                  <Chip label={`Step: ${paramSchema.step}`} size="small" variant="outlined" />
+                )}
+              </Box>
+            )}
+
+            {/* Current/Default - Secondary info */}
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+              Reference Values
+            </Typography>
+
+            {isMobile ? (
+              // Mobile: Compact chips
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                <Chip
+                  label={`Current: ${formatCompactValue(currentValue)}`}
+                  size="small"
+                  variant="outlined"
+                  sx={{ fontFamily: 'monospace' }}
+                />
+                <Chip
+                  label={`Default: ${formatCompactValue(defaultValue)}`}
+                  size="small"
+                  variant="outlined"
+                  color="default"
+                  sx={{ fontFamily: 'monospace' }}
+                />
+              </Box>
+            ) : (
+              // Desktop: Full comparison boxes
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                    Current Value
+                  </Typography>
+                  <Typography variant="body2" sx={{
+                    fontFamily: 'monospace',
+                    bgcolor: isModified ? 'warning.light' : 'action.hover',
+                    color: isModified ? 'warning.contrastText' : 'text.primary',
+                    p: 1,
+                    borderRadius: 1,
+                    fontSize: '0.85rem',
+                    overflowX: 'auto',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word'
+                  }}>
+                    {formatDisplayValue(currentValue)}
+                  </Typography>
+                </Box>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                    Default Value
+                  </Typography>
+                  <Typography variant="body2" sx={{
+                    fontFamily: 'monospace',
+                    bgcolor: 'action.hover',
+                    p: 1,
+                    borderRadius: 1,
+                    fontSize: '0.85rem',
+                    overflowX: 'auto',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word'
+                  }}>
+                    {formatDisplayValue(defaultValue)}
+                  </Typography>
+                </Box>
+              </Box>
+            )}
+
+            {hasChanges && !error && (
+              <Alert severity="info" sx={{ mt: 2 }}>
+                Click "Save" to apply this change.
+              </Alert>
+            )}
+          </>
         )}
       </DialogContent>
 
