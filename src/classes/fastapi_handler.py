@@ -328,11 +328,13 @@ class FastAPIHandler:
         self.app.get("/api/follower/setpoints-status")(self.get_follower_setpoints_with_status)
         self.app.post("/api/follower/switch-profile")(self.switch_follower_profile)
         self.app.get("/api/follower/health")(self.get_follower_health)
+        self.app.post("/api/follower/restart")(self.restart_follower)  # Hot-reload: recreate follower with fresh config
 
         # Tracker Selector API (mirroring follower API pattern)
         self.app.get("/api/tracker/available")(self.get_available_trackers)
         self.app.get("/api/tracker/current")(self.get_current_tracker)
         self.app.post("/api/tracker/switch")(self.switch_tracker)
+        self.app.post("/api/tracker/restart")(self.restart_tracker)  # Hot-reload: reinitialize tracker with fresh config
 
         # YOLO Model Management API
         self.app.get("/api/yolo/models")(self.get_yolo_models)
@@ -1788,6 +1790,125 @@ class FastAPIHandler:
             raise
         except Exception as e:
             self.logger.error(f"Error switching tracker: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def restart_follower(self):
+        """
+        Restart the current follower with fresh config.
+
+        This endpoint is used after configuration changes that require
+        follower restart (reload_tier: follower_restart) to take effect.
+
+        The follower is stopped, config is reloaded, and follower is restarted
+        with the same profile but fresh parameters.
+
+        Returns:
+            JSONResponse: Restart status with before/after config summary.
+        """
+        try:
+            # Reload config first
+            Parameters.reload_config()
+            self.logger.info("Config reloaded for follower restart")
+
+            # Get current follower state
+            has_active_follower = (
+                hasattr(self.app_controller, 'follower') and
+                self.app_controller.follower is not None and
+                self.app_controller.following_active
+            )
+
+            current_profile = Parameters.FOLLOWER_MODE
+
+            if has_active_follower:
+                # Get old follower info before restart
+                old_follower = self.app_controller.follower
+                old_profile = getattr(old_follower, 'profile_name', current_profile)
+
+                # Stop current follower
+                if hasattr(self.app_controller, 'stop_following'):
+                    await self.app_controller.stop_following()
+                    self.logger.info("Stopped active follower for restart")
+
+                # Start fresh follower with same profile
+                if hasattr(self.app_controller, 'start_following'):
+                    await self.app_controller.start_following()
+                    self.logger.info(f"Restarted follower with profile: {current_profile}")
+
+                return JSONResponse(content={
+                    'success': True,
+                    'action': 'follower_restarted',
+                    'profile': current_profile,
+                    'message': f'Follower restarted with fresh config (profile: {current_profile})',
+                    'config_reloaded': True
+                })
+            else:
+                # No active follower - just confirm config was reloaded
+                return JSONResponse(content={
+                    'success': True,
+                    'action': 'config_reloaded',
+                    'profile': current_profile,
+                    'message': 'Config reloaded. No active follower to restart. Changes will apply on next start.',
+                    'config_reloaded': True
+                })
+
+        except Exception as e:
+            self.logger.error(f"Error restarting follower: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def restart_tracker(self):
+        """
+        Restart the current tracker with fresh config.
+
+        This endpoint is used after configuration changes that require
+        tracker restart (reload_tier: tracker_restart) to take effect.
+
+        The current tracker type is preserved, but tracker is reinitialized
+        with fresh parameters from config.
+
+        Returns:
+            JSONResponse: Restart status with tracker info.
+        """
+        try:
+            # Reload config first
+            Parameters.reload_config()
+            self.logger.info("Config reloaded for tracker restart")
+
+            # Get current tracker type
+            current_tracker_type = getattr(
+                self.app_controller,
+                'current_tracker_type',
+                Parameters.DEFAULT_TRACKING_ALGORITHM
+            )
+
+            # Switch to same tracker type (this reinitializes with fresh config)
+            result = await self.app_controller.switch_tracker_type(current_tracker_type)
+
+            if result.get('success'):
+                self.logger.info(f"Tracker reinitialized: {current_tracker_type}")
+
+                return JSONResponse(content={
+                    'success': True,
+                    'action': 'tracker_restarted',
+                    'tracker_type': current_tracker_type,
+                    'message': f'Tracker {current_tracker_type} reinitialized with fresh config',
+                    'config_reloaded': True,
+                    'details': result
+                })
+            else:
+                error_detail = result.get('error', 'Unknown error during tracker restart')
+                self.logger.error(f"Tracker restart failed: {error_detail}")
+
+                return JSONResponse(content={
+                    'success': False,
+                    'action': 'restart_failed',
+                    'tracker_type': current_tracker_type,
+                    'error': error_detail,
+                    'config_reloaded': True,
+                    'details': result
+                }, status_code=500)
+
+        except Exception as e:
+            self.logger.error(f"Error restarting tracker: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     # ==================== YOLO Model Management API Endpoints ====================
@@ -3599,6 +3720,20 @@ class FastAPIHandler:
             # Save config
             saved = service.save_config()
 
+            # Hot-reload Parameters class for immediate-tier params
+            applied = False
+            if saved:
+                try:
+                    Parameters.reload_config()
+                    applied = True
+                    self.logger.info(f"Config hot-reloaded after updating {section}.{parameter}")
+                except Exception as reload_error:
+                    self.logger.warning(f"Config reload failed: {reload_error}")
+
+            # Get reload tier and message
+            reload_tier = service.get_reload_tier(section, parameter)
+            reload_message = service.get_reload_message(reload_tier)
+
             return JSONResponse(content={
                 'success': True,
                 'section': section,
@@ -3606,7 +3741,10 @@ class FastAPIHandler:
                 'value': body.value,
                 'validation': result.to_dict(),
                 'saved': saved,
-                'reboot_required': service.is_reboot_required(section, parameter),
+                'applied': applied,
+                'reload_tier': reload_tier,
+                'reload_message': reload_message,
+                'reboot_required': service.is_reboot_required(section, parameter),  # Backward compat
                 'timestamp': time.time()
             })
         except Exception as e:
@@ -3646,7 +3784,28 @@ class FastAPIHandler:
             # Save config
             saved = service.save_config()
 
-            # Check if any params require reboot
+            # Hot-reload Parameters class for immediate-tier params
+            applied = False
+            if saved:
+                try:
+                    Parameters.reload_config()
+                    applied = True
+                    self.logger.info(f"Config hot-reloaded after updating section {section}")
+                except Exception as reload_error:
+                    self.logger.warning(f"Config reload failed: {reload_error}")
+
+            # Get reload tiers for all changed params
+            reload_tiers = {
+                param: service.get_reload_tier(section, param)
+                for param in body.parameters.keys()
+            }
+
+            # Determine highest-priority tier (system > tracker > follower > immediate)
+            tier_priority = {'system_restart': 4, 'tracker_restart': 3, 'follower_restart': 2, 'immediate': 1}
+            max_tier = max(reload_tiers.values(), key=lambda t: tier_priority.get(t, 0))
+            reload_message = service.get_reload_message(max_tier)
+
+            # Backward compat: reboot_required if any param needs system restart
             reboot_required = any(
                 service.is_reboot_required(section, param)
                 for param in body.parameters.keys()
@@ -3658,7 +3817,11 @@ class FastAPIHandler:
                 'parameters': body.parameters,
                 'validation': result.to_dict(),
                 'saved': saved,
-                'reboot_required': reboot_required,
+                'applied': applied,
+                'reload_tiers': reload_tiers,
+                'reload_tier': max_tier,
+                'reload_message': reload_message,
+                'reboot_required': reboot_required,  # Backward compat
                 'timestamp': time.time()
             })
         except Exception as e:

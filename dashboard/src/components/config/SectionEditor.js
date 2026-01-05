@@ -16,6 +16,7 @@ import ParameterDetailDialog from './ParameterDetailDialog';
 import { isPIDTriplet } from '../../utils/schemaAnalyzer';
 import SmartValueEditor from './SmartValueEditor';
 import SafetyLimitsEditor from './SafetyLimitsEditor';
+import { ReloadTierChip } from './ReloadTierBadge';
 
 /**
  * Deep equality comparison for detecting modified values
@@ -452,10 +453,10 @@ const ParameterCard = ({
         </Box>
 
         {/* Info Chips */}
-        {(paramSchema?.reboot_required || paramSchema?.unit || isModified) && (
+        {(paramSchema?.reload_tier || paramSchema?.unit || isModified) && (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-            {paramSchema?.reboot_required && (
-              <Chip label="Restart Required" size="small" color="warning" variant="outlined" />
+            {paramSchema?.reload_tier && (
+              <ReloadTierChip tier={paramSchema.reload_tier} size="small" />
             )}
             {paramSchema?.unit && (
               <Chip label={paramSchema.unit} size="small" variant="outlined" />
@@ -816,10 +817,8 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
 
                   <TableCell>
                     <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                      {paramSchema?.reboot_required && (
-                        <Tooltip title="Restart required after change">
-                          <Chip label="Restart" size="small" color="warning" variant="outlined" />
-                        </Tooltip>
+                      {paramSchema?.reload_tier && (
+                        <ReloadTierChip tier={paramSchema.reload_tier} size="small" />
                       )}
                       {paramSchema?.unit && (
                         <Chip label={paramSchema.unit} size="small" variant="outlined" />

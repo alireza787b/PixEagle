@@ -934,12 +934,43 @@ class ConfigService:
     # Utility Methods
     # =========================================================================
 
-    def is_reboot_required(self, section: str, param: str) -> bool:
-        """Check if a parameter requires restart."""
+    def get_reload_tier(self, section: str, param: str) -> str:
+        """
+        Get the reload tier for a parameter.
+
+        Tiers:
+        - 'immediate': Takes effect immediately after Parameters.reload_config()
+        - 'follower_restart': Requires follower restart to take effect
+        - 'tracker_restart': Requires tracker restart to take effect
+        - 'system_restart': Requires full system restart
+
+        Returns:
+            Reload tier string, defaults to 'system_restart' for safety
+        """
         param_schema = self.get_parameter_schema(section, param)
         if param_schema:
-            return param_schema.get('reboot_required', False)
-        return False
+            return param_schema.get('reload_tier', 'system_restart')
+        return 'system_restart'
+
+    def is_reboot_required(self, section: str, param: str) -> bool:
+        """
+        Check if a parameter requires system restart.
+
+        DEPRECATED: Use get_reload_tier() for more granular control.
+        This method is kept for backward compatibility.
+        """
+        tier = self.get_reload_tier(section, param)
+        return tier == 'system_restart'
+
+    def get_reload_message(self, reload_tier: str) -> str:
+        """Get user-friendly message for reload tier."""
+        messages = {
+            'immediate': 'Changes applied immediately',
+            'follower_restart': 'Restart follower to apply changes',
+            'tracker_restart': 'Restart tracker to apply changes',
+            'system_restart': 'System restart required to apply changes'
+        }
+        return messages.get(reload_tier, 'Unknown reload tier')
 
     def search_parameters(
         self,

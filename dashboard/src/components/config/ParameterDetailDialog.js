@@ -13,6 +13,7 @@ import {
 import { useResponsive } from '../../hooks/useResponsive';
 import SmartValueEditor from './SmartValueEditor';
 import SafetyLimitsEditor from './SafetyLimitsEditor';
+import { ReloadTierChip } from './ReloadTierBadge';
 
 /**
  * Deep equality comparison for detecting modified values
@@ -572,16 +573,8 @@ const ParameterDetailDialog = ({
           >
             {param}
           </Typography>
-          {paramSchema?.reboot_required && (
-            <Tooltip title="Restart required after change">
-              <Chip
-                icon={<RestartAlt />}
-                label={isMobile ? "Restart" : "Restart Required"}
-                size="small"
-                color="warning"
-                variant="outlined"
-              />
-            </Tooltip>
+          {paramSchema?.reload_tier && (
+            <ReloadTierChip tier={paramSchema.reload_tier} size="small" showLabel={!isMobile} />
           )}
         </Box>
         <IconButton onClick={handleClose} size={iconButtonSize}>
