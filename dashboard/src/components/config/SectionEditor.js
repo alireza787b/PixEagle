@@ -482,8 +482,9 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
     refetch
   } = useConfigSection(sectionName);
   const { isMobile, isTablet, spacing } = useResponsive();
-  // Use card layout on mobile AND tablet for better responsiveness
-  const useCardLayout = isMobile || isTablet;
+  // Use card layout on mobile/tablet, OR always for Safety section (has complex embedded editors)
+  const isSafetySection = sectionName === 'Safety' || sectionName === 'SafetyLimits';
+  const useCardLayout = isMobile || isTablet || isSafetySection;
 
   const [localValues, setLocalValues] = useState({});
   const [saveStatuses, setSaveStatuses] = useState({}); // 'saving' | 'saved' | 'error' | null
