@@ -1,5 +1,5 @@
 // dashboard/src/pages/SettingsPage.js
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Box, Container, Typography, CircularProgress, Alert, Paper, Divider,
   List, ListItem, ListItemButton, ListItemIcon, ListItemText,
@@ -52,6 +52,44 @@ const SettingsPage = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showAllSections, setShowAllSections] = useState(false);
+
+  // Ref for hash navigation processed flag
+  const hashProcessedRef = useRef(false);
+
+  // Hash navigation support - handle URL hash to select section (e.g., /settings#Safety)
+  useEffect(() => {
+    // Only process once when sections are loaded
+    if (hashProcessedRef.current || !sections || sections.length === 0) return;
+
+    const hash = window.location.hash.slice(1); // Remove #
+    if (!hash) return;
+
+    // Find section by name (case-insensitive)
+    const sectionName = sections.find(
+      s => s.name.toLowerCase() === hash.toLowerCase()
+    )?.name;
+
+    if (sectionName) {
+      hashProcessedRef.current = true;
+
+      // Select the section
+      setSelectedSection(sectionName);
+
+      // Show all sections to ensure the target is visible
+      setShowAllSections(true);
+
+      // Expand the category containing this section
+      const sectionMeta = sections.find(s => s.name === sectionName);
+      if (sectionMeta?.category) {
+        setExpandedCategories(prev => ({ ...prev, [sectionMeta.category]: true }));
+      }
+
+      // Clear the hash after navigation to keep URL clean
+      if (window.history.replaceState) {
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    }
+  }, [sections]);
 
   // Filter sections based on mode if not showing all
   const filteredGroupedSections = useMemo(() => {

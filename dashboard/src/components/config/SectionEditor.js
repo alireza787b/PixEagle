@@ -15,15 +15,16 @@ import { useResponsive } from '../../hooks/useResponsive';
 import ParameterDetailDialog from './ParameterDetailDialog';
 import { isPIDTriplet } from '../../utils/schemaAnalyzer';
 import SmartValueEditor from './SmartValueEditor';
+import SafetyLimitsEditor from './SafetyLimitsEditor';
 
 // Type-specific input component with proper ref tracking
-const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, saveStatus, mobileMode = false }) => {
+const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, saveStatus, mobileMode = false, configValues = {} }) => {
   const { touchTargetSize } = useResponsive();
   const paramSchema = schema?.parameters?.[param] || {};
   const type = paramSchema.type || 'string';
   const isModified = value !== defaultValue;
 
-  // Use ref to track current input value for blur handling
+  // Use ref to track current input value for blur handling (must be called unconditionally)
   const currentValueRef = useRef(value);
   const [localInput, setLocalInput] = useState(value);
   const [validationError, setValidationError] = useState(null);
@@ -100,6 +101,33 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
       }
     }
   };
+
+  // Special handling for Safety section GlobalLimits and FollowerOverrides
+  const isSafetyParameter = param === 'GlobalLimits' || param === 'FollowerOverrides';
+  if (isSafetyParameter && type === 'object') {
+    const safetyType = param === 'GlobalLimits' ? 'GlobalLimits' : 'FollowerOverrides';
+    const globalLimits = param === 'FollowerOverrides' ? (configValues.GlobalLimits || {}) : {};
+
+    return (
+      <Box sx={{ width: '100%', minWidth: mobileMode ? '100%' : 400 }}>
+        <SafetyLimitsEditor
+          type={safetyType}
+          value={value || {}}
+          onChange={(newVal) => {
+            onChange(param, newVal);
+            setTimeout(() => onSave(param, newVal), 100);
+          }}
+          globalLimits={globalLimits}
+          disabled={saveStatus === 'saving'}
+        />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+          {saveStatus === 'saving' && <CircularProgress size={16} />}
+          {saveStatus === 'saved' && <Check color="success" fontSize="small" />}
+          {saveStatus === 'error' && <ErrorIcon color="error" fontSize="small" />}
+        </Box>
+      </Box>
+    );
+  }
 
   // Boolean toggle - immediate save
   if (type === 'boolean') {
@@ -352,7 +380,8 @@ const ParameterCard = ({
   onLocalChange,
   onSave,
   onRevert,
-  onOpenDetails
+  onOpenDetails,
+  configValues = {}
 }) => {
   const { buttonSize } = useResponsive();
   const paramSchema = schema?.parameters?.[param] || {};
@@ -393,6 +422,7 @@ const ParameterCard = ({
             onSave={onSave}
             saveStatus={saveStatus}
             mobileMode={true}
+            configValues={configValues}
           />
         </Box>
 
@@ -683,6 +713,7 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
               onSave={handleSave}
               onRevert={handleRevert}
               onOpenDetails={() => setSelectedParam(param)}
+              configValues={config}
             />
           ))}
         </Box>
@@ -739,6 +770,7 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
                       onChange={handleLocalChange}
                       onSave={handleSave}
                       saveStatus={saveStatus}
+                      configValues={config}
                     />
                   </TableCell>
 
