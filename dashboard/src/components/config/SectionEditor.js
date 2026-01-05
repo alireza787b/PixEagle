@@ -481,7 +481,9 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
     revertSection,
     refetch
   } = useConfigSection(sectionName);
-  const { isMobile, spacing } = useResponsive();
+  const { isMobile, isTablet, spacing } = useResponsive();
+  // Use card layout on mobile AND tablet for better responsiveness
+  const useCardLayout = isMobile || isTablet;
 
   const [localValues, setLocalValues] = useState({});
   const [saveStatuses, setSaveStatuses] = useState({}); // 'saving' | 'saved' | 'error' | null
@@ -697,9 +699,9 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
 
       <Divider sx={{ mb: 2 }} />
 
-      {/* Conditional Rendering: Card Layout (Mobile) vs Table (Desktop) */}
-      {isMobile ? (
-        // Mobile: Card Layout
+      {/* Conditional Rendering: Card Layout (Mobile/Tablet) vs Table (Desktop only) */}
+      {useCardLayout ? (
+        // Mobile/Tablet: Card Layout for better touch experience
         <Box>
           {paramNames.map((param) => (
             <ParameterCard
@@ -718,7 +720,7 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
           ))}
         </Box>
       ) : (
-        // Desktop: Table Layout with responsive overflow
+        // Desktop (>= 900px): Table Layout with responsive overflow
         <TableContainer sx={{ overflowX: 'auto' }}>
           <Table size="small" sx={{ minWidth: 650 }}>
             <TableHead>

@@ -206,9 +206,10 @@ const PropertyRow = ({
 /**
  * Add Property Dialog
  *
- * Enhanced with:
- * - Follower selector for FollowerOverrides mode
- * - State reset on open to fix loading issues
+ * Features:
+ * - For GlobalLimits: Shows property selector only
+ * - For FollowerOverrides: Shows follower selector FIRST, then property selector
+ * - Custom property option for advanced users
  */
 const AddPropertyDialog = ({
   open,
@@ -217,32 +218,22 @@ const AddPropertyDialog = ({
   existingProperties,
   globalLimits,
   showComparison,
-  // FollowerOverrides support
   isOverrides = false,
   selectedFollower = '',
   onFollowerChange,
   followersByType = {}
 }) => {
+  // State for dialog
+  const [dialogFollower, setDialogFollower] = useState(selectedFollower || '');
   const [selectedProperty, setSelectedProperty] = useState('');
   const [propertyValue, setPropertyValue] = useState('');
   const [isCustomMode, setIsCustomMode] = useState(false);
   const [customPropertyName, setCustomPropertyName] = useState('');
-  const [dialogFollower, setDialogFollower] = useState('');
 
-  // Reset state when dialog opens to fix loading issues
-  useEffect(() => {
-    if (open) {
-      setSelectedProperty('');
-      setPropertyValue('');
-      setIsCustomMode(false);
-      setCustomPropertyName('');
-      setDialogFollower(selectedFollower || '');
-    }
-  }, [open, selectedFollower]);
-
+  // Compute addable properties based on existing ones
   const addableProperties = useMemo(() =>
-    getAddableProperties(existingProperties),
-    [existingProperties, open]  // Added open to ensure recalculation when dialog opens
+    getAddableProperties(existingProperties || {}),
+    [existingProperties]
   );
 
   // Group by category
@@ -319,172 +310,201 @@ const AddPropertyDialog = ({
     ? (isCustomNameValid && propertyValue !== '')
     : (selectedProperty && propertyValue !== ''));
 
+  // Get list of followers for selector
+  const followerList = useMemo(() => {
+    const list = [];
+    Object.entries(followersByType || {}).forEach(([type, followers]) => {
+      if (followers && followers.length > 0) {
+        list.push({ type, followers });
+      }
+    });
+    return list;
+  }, [followersByType]);
+
+  // Determine if we can show property selector
+  const showPropertySelector = !isOverrides || dialogFollower;
+
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
       <DialogTitle>
         {isOverrides ? 'Add Follower Override Property' : 'Add Safety Limit Property'}
       </DialogTitle>
-      <DialogContent sx={{ pt: 2 }}>
-        {/* Follower selector for FollowerOverrides mode */}
-        {isOverrides && (
-          <FormControl fullWidth sx={{ mb: 2, mt: 1 }}>
-            <InputLabel id="follower-select-label">Select Follower</InputLabel>
-            <Select
-              labelId="follower-select-label"
-              value={dialogFollower}
-              onChange={(e) => setDialogFollower(e.target.value)}
-              label="Select Follower"
-              displayEmpty
-            >
-              <MenuItem value="">
-                <em>-- Select Follower --</em>
-              </MenuItem>
-              {Object.entries(followersByType || {}).map(([type, followers]) => [
-                <ListSubheader key={`type-${type}`}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    {followerTypeIcons[type]}
-                    {FOLLOWER_TYPES[type]?.label || type}
-                  </Box>
-                </ListSubheader>,
-                ...(followers || []).map(f => (
-                  <MenuItem key={f.name} value={f.name}>
-                    <Box>
-                      <Typography variant="body2">{f.label}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {f.description}
-                      </Typography>
-                    </Box>
+      <DialogContent>
+        <Box sx={{ pt: 1 }}>
+          {/* Step 1: Follower selector for FollowerOverrides mode */}
+          {isOverrides && (
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" color="primary" sx={{ mb: 1 }}>
+                Step 1: Select Follower
+              </Typography>
+              <FormControl fullWidth>
+                <InputLabel id="dialog-follower-select">Follower</InputLabel>
+                <Select
+                  labelId="dialog-follower-select"
+                  value={dialogFollower}
+                  onChange={(e) => setDialogFollower(e.target.value)}
+                  label="Follower"
+                >
+                  <MenuItem value="">
+                    <em>-- Select a follower --</em>
                   </MenuItem>
-                ))
-              ])}
-            </Select>
-          </FormControl>
-        )}
-
-        <Alert severity="info" sx={{ mb: 2 }}>
-          {isOverrides && !dialogFollower
-            ? 'First select a follower, then choose a property to override.'
-            : isCustomMode
-              ? 'Enter a custom property name (UPPER_SNAKE_CASE) and numeric value.'
-              : 'Select a property to add, or choose "Enter custom property" for advanced use.'}
-        </Alert>
-
-        {/* Only show property selection if follower is selected (for overrides) or not in overrides mode */}
-        {(!isOverrides || dialogFollower) && isCustomMode ? (
-          // Custom property mode
-          <Box>
-            <TextField
-              fullWidth
-              label="Property Name"
-              value={customPropertyName}
-              onChange={(e) => setCustomPropertyName(e.target.value.toUpperCase())}
-              placeholder="MY_CUSTOM_LIMIT"
-              helperText={
-                customPropertyName && !isCustomNameValid
-                  ? 'Use UPPER_SNAKE_CASE (e.g., MY_CUSTOM_LIMIT)'
-                  : 'Custom properties are not validated. Use with caution.'
-              }
-              error={customPropertyName && !isCustomNameValid}
-              sx={{ mb: 2 }}
-            />
-            <TextField
-              fullWidth
-              label="Value"
-              type="number"
-              value={propertyValue}
-              onChange={(e) => setPropertyValue(e.target.value)}
-              inputProps={{ step: 0.1 }}
-              helperText="Numeric value for this custom property"
-            />
-            <Button
-              size="small"
-              onClick={() => {
-                setIsCustomMode(false);
-                setCustomPropertyName('');
-              }}
-              sx={{ mt: 1 }}
-            >
-              ← Back to property list
-            </Button>
-          </Box>
-        ) : (!isOverrides || dialogFollower) ? (
-          // Standard property selection
-          <>
-            <FormControl fullWidth sx={{ mb: 2 }}>
-              <InputLabel>Property</InputLabel>
-              <Select
-                value={selectedProperty}
-                onChange={(e) => handlePropertySelect(e.target.value)}
-                label="Property"
-              >
-                {Object.entries(groupedProperties).map(([category, props]) => [
-                  <ListSubheader key={`header-${category}`}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {categoryIcons[category]}
-                      {PROPERTY_CATEGORIES[category]?.label || category}
-                    </Box>
-                  </ListSubheader>,
-                  ...props.map(prop => (
-                    <MenuItem key={prop.name} value={prop.name}>
-                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                        <Typography variant="body2">{prop.name}</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {prop.description} ({prop.unit || prop.type})
-                        </Typography>
+                  {followerList.map(({ type, followers }) => [
+                    <ListSubheader key={`header-${type}`}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {followerTypeIcons[type]}
+                        <span>{FOLLOWER_TYPES[type]?.label || type}</span>
                       </Box>
-                    </MenuItem>
-                  ))
-                ])}
-                {/* Custom property option */}
-                <Divider />
-                <MenuItem value="__custom__">
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Edit fontSize="small" color="primary" />
-                    <Typography color="primary" fontStyle="italic" variant="body2">
-                      Enter custom property...
-                    </Typography>
-                  </Box>
-                </MenuItem>
-              </Select>
-            </FormControl>
+                    </ListSubheader>,
+                    ...followers.map(f => (
+                      <MenuItem key={f.name} value={f.name}>
+                        <Box>
+                          <Typography variant="body2">{f.label || f.name}</Typography>
+                          {f.description && (
+                            <Typography variant="caption" color="text.secondary">
+                              {f.description}
+                            </Typography>
+                          )}
+                        </Box>
+                      </MenuItem>
+                    ))
+                  ])}
+                </Select>
+              </FormControl>
+              {!dialogFollower && (
+                <Alert severity="info" sx={{ mt: 1 }} icon={<Info />}>
+                  Select a follower to add override properties
+                </Alert>
+              )}
+            </Box>
+          )}
 
-            {selectedMeta && (
-              <Box>
-                {selectedMeta.type === 'boolean' ? (
-                  <FormControl fullWidth>
-                    <InputLabel>Value</InputLabel>
-                    <Select
-                      value={propertyValue}
-                      onChange={(e) => setPropertyValue(e.target.value)}
-                      label="Value"
-                    >
-                      <MenuItem value="true">Enabled (ON)</MenuItem>
-                      <MenuItem value="false">Disabled (OFF)</MenuItem>
-                    </Select>
-                  </FormControl>
-                ) : (
+          {/* Step 2 (or Step 1 for GlobalLimits): Property selector */}
+          {showPropertySelector && (
+            <Box>
+              {isOverrides && (
+                <Typography variant="subtitle2" color="primary" sx={{ mb: 1 }}>
+                  Step 2: Select Property
+                </Typography>
+              )}
+
+              {isCustomMode ? (
+                // Custom property mode
+                <Box>
+                  <TextField
+                    fullWidth
+                    label="Property Name"
+                    value={customPropertyName}
+                    onChange={(e) => setCustomPropertyName(e.target.value.toUpperCase())}
+                    placeholder="MY_CUSTOM_LIMIT"
+                    helperText={
+                      customPropertyName && !isCustomNameValid
+                        ? 'Use UPPER_SNAKE_CASE (e.g., MY_CUSTOM_LIMIT)'
+                        : 'Custom properties are not validated. Use with caution.'
+                    }
+                    error={customPropertyName && !isCustomNameValid}
+                    sx={{ mb: 2 }}
+                  />
                   <TextField
                     fullWidth
                     label="Value"
                     type="number"
                     value={propertyValue}
                     onChange={(e) => setPropertyValue(e.target.value)}
-                    inputProps={{
-                      min: selectedMeta.min,
-                      max: selectedMeta.max,
-                      step: selectedMeta.step
-                    }}
-                    helperText={
-                      showComparison && globalLimits?.[selectedProperty] !== undefined
-                        ? `Global: ${globalLimits[selectedProperty]} ${selectedMeta.unit || ''}`
-                        : `Range: ${selectedMeta.min} - ${selectedMeta.max} ${selectedMeta.unit || ''}`
-                    }
+                    inputProps={{ step: 0.1 }}
+                    helperText="Numeric value for this custom property"
                   />
-                )}
-              </Box>
-            )}
-          </>
-        ) : null}
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setIsCustomMode(false);
+                      setCustomPropertyName('');
+                    }}
+                    sx={{ mt: 1 }}
+                  >
+                    ← Back to property list
+                  </Button>
+                </Box>
+              ) : (
+                // Standard property selection
+                <>
+                  <FormControl fullWidth sx={{ mb: 2 }}>
+                    <InputLabel>Property</InputLabel>
+                    <Select
+                      value={selectedProperty}
+                      onChange={(e) => handlePropertySelect(e.target.value)}
+                      label="Property"
+                    >
+                      {Object.entries(groupedProperties).map(([category, props]) => [
+                        <ListSubheader key={`header-${category}`}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            {categoryIcons[category]}
+                            {PROPERTY_CATEGORIES[category]?.label || category}
+                          </Box>
+                        </ListSubheader>,
+                        ...props.map(prop => (
+                          <MenuItem key={prop.name} value={prop.name}>
+                            <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                              <Typography variant="body2">{prop.name}</Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {prop.description} ({prop.unit || prop.type})
+                              </Typography>
+                            </Box>
+                          </MenuItem>
+                        ))
+                      ])}
+                      {/* Custom property option */}
+                      <Divider />
+                      <MenuItem value="__custom__">
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Edit fontSize="small" color="primary" />
+                          <Typography color="primary" fontStyle="italic" variant="body2">
+                            Enter custom property...
+                          </Typography>
+                        </Box>
+                      </MenuItem>
+                    </Select>
+                  </FormControl>
+
+                  {selectedMeta && (
+                    <Box>
+                      {selectedMeta.type === 'boolean' ? (
+                        <FormControl fullWidth>
+                          <InputLabel>Value</InputLabel>
+                          <Select
+                            value={propertyValue}
+                            onChange={(e) => setPropertyValue(e.target.value)}
+                            label="Value"
+                          >
+                            <MenuItem value="true">Enabled (ON)</MenuItem>
+                            <MenuItem value="false">Disabled (OFF)</MenuItem>
+                          </Select>
+                        </FormControl>
+                      ) : (
+                        <TextField
+                          fullWidth
+                          label="Value"
+                          type="number"
+                          value={propertyValue}
+                          onChange={(e) => setPropertyValue(e.target.value)}
+                          inputProps={{
+                            min: selectedMeta.min,
+                            max: selectedMeta.max,
+                            step: selectedMeta.step
+                          }}
+                          helperText={
+                            showComparison && globalLimits?.[selectedProperty] !== undefined
+                              ? `Global: ${globalLimits[selectedProperty]} ${selectedMeta.unit || ''}`
+                              : `Range: ${selectedMeta.min} - ${selectedMeta.max} ${selectedMeta.unit || ''}`
+                          }
+                        />
+                      )}
+                    </Box>
+                  )}
+                </>
+              )}
+            </Box>
+          )}
+        </Box>
       </DialogContent>
       <DialogActions>
         <Button onClick={handleClose}>Cancel</Button>
