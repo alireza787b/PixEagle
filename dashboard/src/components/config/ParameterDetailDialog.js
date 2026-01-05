@@ -12,6 +12,7 @@ import {
 
 import { useResponsive } from '../../hooks/useResponsive';
 import SmartValueEditor from './SmartValueEditor';
+import SafetyLimitsEditor from './SafetyLimitsEditor';
 
 /**
  * Deep equality comparison for detecting modified values
@@ -68,7 +69,8 @@ const ParameterDetailDialog = ({
   defaultValue,
   onSave,
   onRevert,
-  saving = false
+  saving = false,
+  configValues = {}
 }) => {
   const { isMobile, buttonSize, iconButtonSize } = useResponsive();
   const [localValue, setLocalValue] = useState(currentValue);
@@ -485,8 +487,24 @@ const ParameterDetailDialog = ({
       );
     }
 
-    // Object - use SmartValueEditor
+    // Object - use SafetyLimitsEditor for GlobalLimits/FollowerOverrides, SmartValueEditor for others
     if (type === 'object') {
+      const isSafetyParam = param === 'GlobalLimits' || param === 'FollowerOverrides';
+
+      if (isSafetyParam) {
+        return (
+          <Box sx={{ mt: 2 }}>
+            <SafetyLimitsEditor
+              type={param}
+              value={localValue || {}}
+              onChange={handleValueChange}
+              globalLimits={param === 'FollowerOverrides' ? (configValues?.GlobalLimits || {}) : {}}
+              disabled={saving}
+            />
+          </Box>
+        );
+      }
+
       return (
         <Box sx={{ mt: 2 }}>
           <SmartValueEditor

@@ -895,6 +895,7 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
         onSave={handleDialogSave}
         onRevert={handleDialogRevert}
         saving={selectedParam ? saveStatuses[selectedParam] === 'saving' : false}
+        configValues={config}
       />
     </Paper>
   );
