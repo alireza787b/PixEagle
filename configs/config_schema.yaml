@@ -2,7 +2,7 @@ schema_version: 1.0.0
 meta:
   project: PixEagle
   generated_from: /home/alireza/PixEagle/configs/config_default.yaml
-  generated_at: '2026-01-05T06:43:47.568388'
+  generated_at: '2026-01-05T07:08:32.858647'
   description: Auto-generated schema for PixEagle configuration
 categories:
   video:
@@ -481,10 +481,19 @@ sections:
       DEFAULT_TRACKING_ALGORITHM:
         type: string
         default: CSRT
-        description: 'Options: CSRT (recommended for rotation), KCF (fast), dlib (very fast), Gimbal (external) CSRT: Best
-          for drone circling, rotation, perspective changes (15-20 FPS, 85% accuracy) KCF:  Fast alternative for high-speed
-          scenarios (25-30 FPS, 75% accuracy) dlib: Very fast correlation filter with PSR confidence (25-30 FPS, 85% accuracy)'
+        description: 'CSRT: Best for drone circling, rotation, perspective changes (15-20 FPS, 85% accuracy) KCF: Fast alternative
+          for high-speed scenarios (25-30 FPS, 75% accuracy) dlib: Very fast correlation filter with PSR confidence (25-30
+          FPS, 85% accuracy)'
         reboot_required: false
+        options:
+        - value: CSRT
+          label: CSRT
+        - value: KCF
+          label: KCF
+        - value: dlib
+          label: dlib
+        - value: Gimbal
+          label: Gimbal
         unit: 25-30 fps, 85% accuracy
       TRACKING_RECTANGLE_COLOR:
         type: array
@@ -1236,9 +1245,9 @@ sections:
       TRACKER_TYPE:
         type: string
         default: botsort_reid
-        description: botsort         | -3-5%      | Low          | ✓       | No         | Any version botsort_reid    | -5-8%      |
+        description: 'botsort         | -3-5%      | Low          | ✓       | No         | Any version botsort_reid    | -5-8%      |
           Excellent    | ✗       | Recommended| Required custom_reid     | -8-12%     | Good         | ✓       | No         |
-          Any version
+          Any version Options:'
         reboot_required: false
       BOTSORT_REID_MODEL:
         type: string
@@ -1634,8 +1643,13 @@ sections:
       COORDINATE_SYSTEM:
         type: string
         default: GIMBAL_BODY
-        description: 'Options: "GIMBAL_BODY", "SPATIAL_FIXED"'
+        description: COORDINATE_SYSTEM parameter
         reboot_required: false
+        options:
+        - value: GIMBAL_BODY
+          label: GIMBAL_BODY
+        - value: SPATIAL_FIXED
+          label: SPATIAL_FIXED
       CAMERA_MOUNT_OFFSET_ROLL:
         type: float
         default: 0.0
@@ -1867,13 +1881,25 @@ sections:
       MOUNT_TYPE:
         type: string
         default: HORIZONTAL
-        description: 'Options: "VERTICAL", "HORIZONTAL", "TILTED_45"'
+        description: MOUNT_TYPE parameter
         reboot_required: false
+        options:
+        - value: VERTICAL
+          label: VERTICAL
+        - value: HORIZONTAL
+          label: HORIZONTAL
+        - value: TILTED_45
+          label: TILTED_45
       CONTROL_MODE:
         type: string
         default: BODY
-        description: 'Options: "NED", "BODY"'
+        description: CONTROL_MODE parameter
         reboot_required: false
+        options:
+        - value: NED
+          label: NED
+        - value: BODY
+          label: BODY
       REQUIRED_TRACKER_FIELDS:
         type: array
         default:
@@ -2107,8 +2133,15 @@ sections:
       MOUNT_TYPE:
         type: string
         default: HORIZONTAL
-        description: 'Options: "VERTICAL", "HORIZONTAL", "TILTED_45"'
+        description: MOUNT_TYPE parameter
         reboot_required: false
+        options:
+        - value: VERTICAL
+          label: VERTICAL
+        - value: HORIZONTAL
+          label: HORIZONTAL
+        - value: TILTED_45
+          label: TILTED_45
       RAMP_ACCELERATION:
         type: float
         default: 0.25
@@ -4841,6 +4874,13 @@ sections:
         default: professional
         description: Active preset filename (without .yaml)
         reboot_required: false
+        options:
+        - value: minimal
+          label: minimal
+        - value: professional
+          label: professional
+        - value: full_telemetry
+          label: full_telemetry
         unit: without .yaml
       OSD_PERFORMANCE_MODE:
         type: string
@@ -4849,6 +4889,13 @@ sections:
           Pi, Jetson Nano "balanced" - PIL with native stroke (5-8ms/frame) - RECOMMENDED for most systems "quality"  - PIL
           with manual outline (50-80ms/frame) - For high-end desktops/recording'
         reboot_required: false
+        options:
+        - value: fast
+          label: fast
+        - value: balanced
+          label: balanced
+        - value: quality
+          label: quality
   Debugging:
     display_name: Debugging
     category: display
@@ -4867,8 +4914,17 @@ sections:
       LOG_LEVEL:
         type: string
         default: INFO
-        description: DEBUG, INFO, WARNING, ERROR
+        description: LOG_LEVEL parameter
         reboot_required: false
+        options:
+        - value: DEBUG
+          label: DEBUG
+        - value: INFO
+          label: INFO
+        - value: WARNING
+          label: WARNING
+        - value: ERROR
+          label: ERROR
       SAVE_DEBUG_FRAMES:
         type: boolean
         default: false

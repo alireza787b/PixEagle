@@ -200,7 +200,14 @@ def extract_unit(description: str) -> Optional[str]:
 
 
 def extract_options(description: str) -> Tuple[Optional[List[Dict]], str]:
-    """Extract options from 'Options: val1, val2, val3' pattern in description.
+    """Extract options from various patterns in description.
+
+    Supported patterns:
+    - "Options: val1, val2, val3" - comma separated
+    - "Options: val1 | val2 | val3" - pipe separated
+    - "Options: val1 (description), val2 (fast)" - with parenthetical descriptions
+    - "val1, val2, val3" - trailing comma-separated values (implicit options)
+    - '"val1", "val2"' - quoted values
 
     Returns:
         Tuple of (options_list, cleaned_description)
@@ -210,40 +217,98 @@ def extract_options(description: str) -> Tuple[Optional[List[Dict]], str]:
     if not description:
         return None, description
 
-    # Match "Options: val1, val2, val3" pattern (case-insensitive)
-    # Handle multi-line comments that got joined with spaces
-    # Pattern: "Options:" followed by comma-separated values, stopping at "Deprecated" or end
-    match = re.search(r'Options:\s*([a-zA-Z0-9_,\s]+?)(?=\s+Deprecated|\s*$)', description, re.IGNORECASE)
+    options = []
+    cleaned = description
 
-    if match:
-        options_str = match.group(1).strip()
-        # Parse comma-separated values
-        options = []
-        for opt in options_str.split(','):
-            opt = opt.strip()
-            # Only accept valid option names (alphanumeric + underscore)
+    # Pattern 1: "Options: ..." with pipe separator
+    pipe_match = re.search(r'Options:\s*([^#\n]+\|[^#\n]+)', description, re.IGNORECASE)
+    if pipe_match:
+        options_str = pipe_match.group(1).strip()
+        for opt in options_str.split('|'):
+            opt = opt.strip().strip('"\'')
             if opt and re.match(r'^[a-zA-Z0-9_]+$', opt):
                 options.append({'value': opt, 'label': opt})
-
         if options:
-            # Clean description by removing the Options line and Deprecated line
-            # Pattern 1: "Options: val1, val2, ..."
-            cleaned = re.sub(r'\s*Options:\s*[a-zA-Z0-9_,\s]+', '', description, flags=re.IGNORECASE)
-            # Pattern 2: "Deprecated (still work): val1, val2, ..." or similar
-            cleaned = re.sub(r'\s*Deprecated\s*\([^)]*\)\s*:\s*[a-zA-Z0-9_,\s]+', '', cleaned, flags=re.IGNORECASE)
-            # Pattern 3: Any remaining "(still work): ..." fragments
-            cleaned = re.sub(r'\s*\([^)]*\)\s*:\s*[a-zA-Z0-9_,\s]+\s*$', '', cleaned, flags=re.IGNORECASE)
+            # Clean the Options: ... part from description
+            cleaned = re.sub(r'\s*Options:\s*[^#\n]+\|[^#\n]+', '', description, flags=re.IGNORECASE)
             cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-            # If description is now empty or just punctuation, use a generic one
             if not cleaned or cleaned in [':', '.', '-']:
                 cleaned = ''
             return options, cleaned
+
+    # Pattern 2: "Options: val1 (desc), val2 (desc), ..." with parenthetical descriptions
+    # Capture everything after "Options:" that may include parens
+    paren_match = re.search(r'Options:\s*([A-Za-z0-9_]+\s*\([^)]+\)(?:\s*,\s*[A-Za-z0-9_]+(?:\s*\([^)]*\))?)+)', description, re.IGNORECASE)
+    if paren_match:
+        options_str = paren_match.group(1).strip()
+        # Extract just the option names (before parentheses)
+        for opt_match in re.finditer(r'([A-Za-z0-9_]+)(?:\s*\([^)]*\))?', options_str):
+            opt = opt_match.group(1).strip()
+            if opt:
+                options.append({'value': opt, 'label': opt})
+        if options:
+            cleaned = re.sub(r'\s*Options:\s*[A-Za-z0-9_]+\s*\([^)]+\)(?:\s*,\s*[A-Za-z0-9_]+(?:\s*\([^)]*\))?)+', '', description, flags=re.IGNORECASE)
+            cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+            if not cleaned or cleaned in [':', '.', '-']:
+                cleaned = ''
+            return options, cleaned
+
+    # Pattern 3: "Options: val1, val2, val3" simple comma separated
+    # Also handle quoted values like "HORIZONTAL", "VERTICAL"
+    simple_match = re.search(r'Options:\s*(["\']?[A-Za-z0-9_]+["\']?(?:\s*,\s*["\']?[A-Za-z0-9_]+["\']?)+)', description, re.IGNORECASE)
+    if simple_match:
+        options_str = simple_match.group(1).strip()
+        for opt in options_str.split(','):
+            opt = opt.strip().strip('"\'')
+            if opt and re.match(r'^[a-zA-Z0-9_]+$', opt):
+                options.append({'value': opt, 'label': opt})
+        if options:
+            cleaned = re.sub(r'\s*Options:\s*["\']?[A-Za-z0-9_]+["\']?(?:\s*,\s*["\']?[A-Za-z0-9_]+["\']?)+', '', description, flags=re.IGNORECASE)
+            # Also clean up Deprecated patterns
+            cleaned = re.sub(r'\s*Deprecated\s*\([^)]*\)\s*:\s*[a-zA-Z0-9_,\s]+', '', cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+            if not cleaned or cleaned in [':', '.', '-']:
+                cleaned = ''
+            return options, cleaned
+
+    # Pattern 4: Trailing comma-separated uppercase values (implicit options, no "Options:" prefix)
+    # e.g., "# DEBUG, INFO, WARNING, ERROR" at end of description
+    trailing_match = re.search(r'([A-Z][A-Z0-9_]*(?:\s*,\s*[A-Z][A-Z0-9_]*){2,})\s*$', description)
+    if trailing_match:
+        options_str = trailing_match.group(1).strip()
+        for opt in options_str.split(','):
+            opt = opt.strip()
+            if opt and re.match(r'^[A-Z][A-Z0-9_]*$', opt):
+                options.append({'value': opt, 'label': opt})
+        if options:
+            cleaned = description[:trailing_match.start()].strip()
+            if not cleaned or cleaned in [':', '.', '-']:
+                cleaned = ''
+            return options, cleaned
+
+    # Pattern 5: Quoted values followed by dash-descriptions
+    # e.g., "fast" - description "balanced" - description "quality" - description
+    # Common in performance mode configs
+    quoted_matches = re.findall(r'"([a-zA-Z0-9_]+)"\s*-\s*', description)
+    if len(quoted_matches) >= 2:  # At least 2 options to be considered a valid option set
+        for opt in quoted_matches:
+            if opt and re.match(r'^[a-zA-Z0-9_]+$', opt):
+                options.append({'value': opt, 'label': opt})
+        if options:
+            # Keep description but note options are extracted
+            return options, description
 
     return None, description
 
 
 def parse_config_with_comments(config_path: str) -> Tuple[Dict, Dict[str, str]]:
-    """Parse config file and extract comments for descriptions."""
+    """Parse config file and extract comments for descriptions.
+
+    Extracts comments from:
+    - Inline comments (same line as key)
+    - Previous lines (up to 5 lines before)
+    - Following lines (up to 3 lines after, for Options: patterns)
+    """
     with open(config_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
@@ -277,8 +342,33 @@ def parse_config_with_comments(config_path: str) -> Tuple[Dict, Dict[str, str]]:
                 elif prev_line:
                     break
 
-            # Combine comments
-            description = inline_comment if inline_comment else ' '.join(prev_comments)
+            # Look for Options: on following lines (up to 3 lines)
+            # This handles cases where Options: is on its own comment line after the value
+            following_options = ''
+            for j in range(i + 1, min(len(lines), i + 4)):
+                follow_line = lines[j].strip()
+                # Stop if we hit another key definition or non-comment line
+                if re.match(r'^(\s*)\w+:\s*', lines[j]):
+                    break
+                if follow_line.startswith('#'):
+                    follow_comment = follow_line.lstrip('#').strip()
+                    # Look for Options: pattern
+                    if 'Options:' in follow_comment or 'options:' in follow_comment:
+                        following_options = follow_comment
+                        break
+                elif follow_line and not follow_line.startswith('#'):
+                    break
+
+            # Combine comments: inline + following options, or prev_comments
+            if inline_comment:
+                description = inline_comment
+                if following_options:
+                    description += ' ' + following_options
+            else:
+                description = ' '.join(prev_comments)
+                if following_options:
+                    description += ' ' + following_options
+
             if description:
                 comments[key] = description
 

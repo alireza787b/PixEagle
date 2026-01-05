@@ -127,14 +127,18 @@ def mock_parameters():
 
 @pytest.fixture
 def setpoint_handler(mock_schema, mock_parameters):
-    """Create a SetpointHandler instance for testing."""
+    """Create a SetpointHandler instance for testing.
+
+    Uses yield instead of return to keep patch contexts active during test execution.
+    This ensures mock_parameters is used when set_field() calls Parameters.get_effective_limit().
+    """
     with patch('classes.setpoint_handler.SetpointHandler._schema_cache', mock_schema):
         with patch('classes.setpoint_handler.SetpointHandler._load_schema'):
             with patch('classes.parameters.Parameters', mock_parameters):
                 from classes.setpoint_handler import SetpointHandler
                 SetpointHandler._schema_cache = mock_schema
                 handler = SetpointHandler('mc_velocity_offboard')
-                return handler
+                yield handler  # Keep patches active during test
 
 
 # ============================================================================

@@ -13,7 +13,7 @@
  * - Visual comparison with GlobalLimits
  * - Instructional guides
  */
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Box, Typography, Paper, Alert, Chip, Divider,
   Table, TableBody, TableCell, TableHead, TableRow,
@@ -205,6 +205,10 @@ const PropertyRow = ({
 
 /**
  * Add Property Dialog
+ *
+ * Enhanced with:
+ * - Follower selector for FollowerOverrides mode
+ * - State reset on open to fix loading issues
  */
 const AddPropertyDialog = ({
   open,
@@ -212,16 +216,33 @@ const AddPropertyDialog = ({
   onAdd,
   existingProperties,
   globalLimits,
-  showComparison
+  showComparison,
+  // FollowerOverrides support
+  isOverrides = false,
+  selectedFollower = '',
+  onFollowerChange,
+  followersByType = {}
 }) => {
   const [selectedProperty, setSelectedProperty] = useState('');
   const [propertyValue, setPropertyValue] = useState('');
   const [isCustomMode, setIsCustomMode] = useState(false);
   const [customPropertyName, setCustomPropertyName] = useState('');
+  const [dialogFollower, setDialogFollower] = useState('');
+
+  // Reset state when dialog opens to fix loading issues
+  useEffect(() => {
+    if (open) {
+      setSelectedProperty('');
+      setPropertyValue('');
+      setIsCustomMode(false);
+      setCustomPropertyName('');
+      setDialogFollower(selectedFollower || '');
+    }
+  }, [open, selectedFollower]);
 
   const addableProperties = useMemo(() =>
     getAddableProperties(existingProperties),
-    [existingProperties]
+    [existingProperties, open]  // Added open to ensure recalculation when dialog opens
   );
 
   // Group by category
@@ -240,16 +261,25 @@ const AddPropertyDialog = ({
 
   const handleAdd = () => {
     const propName = isCustomMode ? customPropertyName.trim() : selectedProperty;
-    if (propName && propertyValue !== '') {
+    const effectiveFollower = isOverrides ? dialogFollower : null;
+
+    if (propName && propertyValue !== '' && (!isOverrides || effectiveFollower)) {
       const value = selectedMeta?.type === 'boolean'
         ? propertyValue === 'true'
         : parseFloat(propertyValue);
-      onAdd(propName, value);
+
+      // If follower changed in dialog, notify parent
+      if (isOverrides && onFollowerChange && effectiveFollower !== selectedFollower) {
+        onFollowerChange(effectiveFollower);
+      }
+
+      onAdd(propName, value, effectiveFollower);
       // Reset state
       setSelectedProperty('');
       setPropertyValue('');
       setIsCustomMode(false);
       setCustomPropertyName('');
+      setDialogFollower('');
       onClose();
     }
   };
@@ -282,21 +312,65 @@ const AddPropertyDialog = ({
     !existingProperties?.[customPropertyName.trim()] &&
     /^[A-Z][A-Z0-9_]*$/.test(customPropertyName.trim());
 
-  const canAdd = isCustomMode
+  // For FollowerOverrides mode, require follower selection
+  const hasFollower = !isOverrides || dialogFollower;
+
+  const canAdd = hasFollower && (isCustomMode
     ? (isCustomNameValid && propertyValue !== '')
-    : (selectedProperty && propertyValue !== '');
+    : (selectedProperty && propertyValue !== ''));
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Add Safety Limit Property</DialogTitle>
-      <DialogContent>
+      <DialogTitle>
+        {isOverrides ? 'Add Follower Override Property' : 'Add Safety Limit Property'}
+      </DialogTitle>
+      <DialogContent sx={{ pt: 2 }}>
+        {/* Follower selector for FollowerOverrides mode */}
+        {isOverrides && (
+          <FormControl fullWidth sx={{ mb: 2, mt: 1 }}>
+            <InputLabel id="follower-select-label">Select Follower</InputLabel>
+            <Select
+              labelId="follower-select-label"
+              value={dialogFollower}
+              onChange={(e) => setDialogFollower(e.target.value)}
+              label="Select Follower"
+              displayEmpty
+            >
+              <MenuItem value="">
+                <em>-- Select Follower --</em>
+              </MenuItem>
+              {Object.entries(followersByType || {}).map(([type, followers]) => [
+                <ListSubheader key={`type-${type}`}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {followerTypeIcons[type]}
+                    {FOLLOWER_TYPES[type]?.label || type}
+                  </Box>
+                </ListSubheader>,
+                ...(followers || []).map(f => (
+                  <MenuItem key={f.name} value={f.name}>
+                    <Box>
+                      <Typography variant="body2">{f.label}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {f.description}
+                      </Typography>
+                    </Box>
+                  </MenuItem>
+                ))
+              ])}
+            </Select>
+          </FormControl>
+        )}
+
         <Alert severity="info" sx={{ mb: 2 }}>
-          {isCustomMode
-            ? 'Enter a custom property name (UPPER_SNAKE_CASE) and numeric value.'
-            : 'Select a property to add, or choose "Enter custom property" for advanced use.'}
+          {isOverrides && !dialogFollower
+            ? 'First select a follower, then choose a property to override.'
+            : isCustomMode
+              ? 'Enter a custom property name (UPPER_SNAKE_CASE) and numeric value.'
+              : 'Select a property to add, or choose "Enter custom property" for advanced use.'}
         </Alert>
 
-        {isCustomMode ? (
+        {/* Only show property selection if follower is selected (for overrides) or not in overrides mode */}
+        {(!isOverrides || dialogFollower) && isCustomMode ? (
           // Custom property mode
           <Box>
             <TextField
@@ -333,7 +407,7 @@ const AddPropertyDialog = ({
               ← Back to property list
             </Button>
           </Box>
-        ) : (
+        ) : (!isOverrides || dialogFollower) ? (
           // Standard property selection
           <>
             <FormControl fullWidth sx={{ mb: 2 }}>
@@ -410,7 +484,7 @@ const AddPropertyDialog = ({
               </Box>
             )}
           </>
-        )}
+        ) : null}
       </DialogContent>
       <DialogActions>
         <Button onClick={handleClose}>Cancel</Button>
@@ -491,11 +565,19 @@ const SafetyLimitsEditor = ({
     }
   }, [isOverrides, selectedFollower, value, onChange]);
 
-  const handlePropertyAdd = useCallback((propName, propValue) => {
+  const handlePropertyAdd = useCallback((propName, propValue, followerFromDialog) => {
     if (isOverrides) {
-      if (!selectedFollower) return;
-      const followerProps = { ...(value?.[selectedFollower] || {}), [propName]: propValue };
-      onChange({ ...value, [selectedFollower]: followerProps });
+      // Use follower from dialog if provided, otherwise use selected follower
+      const targetFollower = followerFromDialog || selectedFollower;
+      if (!targetFollower) return;
+
+      // Update the selected follower if dialog specified a different one
+      if (followerFromDialog && followerFromDialog !== selectedFollower) {
+        setSelectedFollower(followerFromDialog);
+      }
+
+      const followerProps = { ...(value?.[targetFollower] || {}), [propName]: propValue };
+      onChange({ ...value, [targetFollower]: followerProps });
     } else {
       onChange({ ...value, [propName]: propValue });
     }
@@ -619,14 +701,14 @@ const SafetyLimitsEditor = ({
       ) : (
         <Box>
           {hasProperties ? (
-            <Paper variant="outlined">
-              <Table size="small">
+            <Paper variant="outlined" sx={{ overflowX: 'auto' }}>
+              <Table size="small" sx={{ minWidth: 400 }}>
                 <TableHead>
                   <TableRow>
-                    <TableCell>Property</TableCell>
-                    <TableCell>Value</TableCell>
-                    {isOverrides && <TableCell>Global Value</TableCell>}
-                    <TableCell align="right" width={80}>Actions</TableCell>
+                    <TableCell sx={{ minWidth: 150 }}>Property</TableCell>
+                    <TableCell sx={{ minWidth: 120 }}>Value</TableCell>
+                    {isOverrides && <TableCell sx={{ minWidth: 100 }}>Global Value</TableCell>}
+                    <TableCell align="right" sx={{ minWidth: 80, whiteSpace: 'nowrap' }}>Actions</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -664,7 +746,7 @@ const SafetyLimitsEditor = ({
               variant="outlined"
               startIcon={<Add />}
               onClick={() => setAddDialogOpen(true)}
-              disabled={disabled || (isOverrides && !selectedFollower)}
+              disabled={disabled}
             >
               Add Property
             </Button>
@@ -684,15 +766,21 @@ const SafetyLimitsEditor = ({
         </Box>
       )}
 
-      {/* Add Property Dialog */}
-      <AddPropertyDialog
-        open={addDialogOpen}
-        onClose={() => setAddDialogOpen(false)}
-        onAdd={handlePropertyAdd}
-        existingProperties={currentProperties}
-        globalLimits={globalLimits}
-        showComparison={isOverrides}
-      />
+      {/* Add Property Dialog - conditionally rendered to ensure fresh mount each time */}
+      {addDialogOpen && (
+        <AddPropertyDialog
+          open={addDialogOpen}
+          onClose={() => setAddDialogOpen(false)}
+          onAdd={handlePropertyAdd}
+          existingProperties={currentProperties}
+          globalLimits={globalLimits}
+          showComparison={isOverrides}
+          isOverrides={isOverrides}
+          selectedFollower={selectedFollower}
+          onFollowerChange={setSelectedFollower}
+          followersByType={followersByType}
+        />
+      )}
     </Box>
   );
 };

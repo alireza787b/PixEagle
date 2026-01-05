@@ -718,16 +718,16 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
           ))}
         </Box>
       ) : (
-        // Desktop: Table Layout
-        <TableContainer>
-          <Table size="small">
+        // Desktop: Table Layout with responsive overflow
+        <TableContainer sx={{ overflowX: 'auto' }}>
+          <Table size="small" sx={{ minWidth: 650 }}>
             <TableHead>
               <TableRow>
-                <TableCell sx={{ fontWeight: 'bold' }}>Parameter</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Value</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Default</TableCell>
-                <TableCell sx={{ fontWeight: 'bold' }}>Info</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', width: 120 }}>Actions</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', minWidth: 180 }}>Parameter</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', minWidth: 150 }}>Value</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', minWidth: 100 }}>Default</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', minWidth: 100 }}>Info</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', minWidth: 100, whiteSpace: 'nowrap' }}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
