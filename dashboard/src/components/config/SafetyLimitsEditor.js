@@ -20,7 +20,7 @@ import {
   TextField, IconButton, Tooltip, Button, Switch,
   Dialog, DialogTitle, DialogContent, DialogActions,
   FormControl, InputLabel, Select, MenuItem, ListSubheader,
-  InputAdornment, Slider
+  InputAdornment, Slider, Card, CardContent
 } from '@mui/material';
 import {
   Add, Delete, Info, Speed, Height, RotateRight,
@@ -34,6 +34,7 @@ import {
   getPropertyByName,
   getFollowersByType
 } from '../../utils/safetySchemaUtils';
+import { useResponsive } from '../../hooks/useResponsive';
 
 // Category icons mapping
 const categoryIcons = {
@@ -200,6 +201,126 @@ const PropertyRow = ({
         </Tooltip>
       </TableCell>
     </TableRow>
+  );
+};
+
+/**
+ * Property Card for mobile/tablet view
+ * Touch-friendly card layout with full-width inputs
+ */
+const PropertyCard = ({
+  propertyName,
+  value,
+  globalValue,
+  onChange,
+  onRemove,
+  showComparison,
+  disabled
+}) => {
+  const propMeta = getPropertyByName(propertyName);
+  const [localValue, setLocalValue] = useState(value);
+  const [isFocused, setIsFocused] = useState(false);
+
+  const handleBlur = () => {
+    setIsFocused(false);
+    if (localValue !== value) {
+      onChange(propertyName, localValue);
+    }
+  };
+
+  const handleSliderChange = (_, newValue) => {
+    setLocalValue(newValue);
+    onChange(propertyName, newValue);
+  };
+
+  const isCustomProperty = !propMeta;
+  const min = propMeta?.min ?? 0;
+  const max = propMeta?.max ?? 1000;
+  const step = propMeta?.step ?? 0.1;
+
+  return (
+    <Card variant="outlined" sx={{ mb: 2 }}>
+      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+        {/* Header: Property name with icon */}
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
+            {isCustomProperty ? <Edit fontSize="small" color="action" /> : categoryIcons[propMeta?.category]}
+            <Box>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                <Typography variant="body2" fontWeight="medium">
+                  {propertyName}
+                </Typography>
+                {isCustomProperty && (
+                  <Chip label="Custom" size="small" variant="outlined" sx={{ height: 18, fontSize: '0.6rem' }} />
+                )}
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                {isCustomProperty ? 'Custom property' : propMeta?.description}
+              </Typography>
+            </Box>
+          </Box>
+          <IconButton size="small" onClick={() => onRemove(propertyName)} disabled={disabled} color="error">
+            <Delete fontSize="small" />
+          </IconButton>
+        </Box>
+
+        {/* Value editor */}
+        {propMeta?.type === 'boolean' ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="body2">Enabled</Typography>
+            <Switch
+              checked={Boolean(value)}
+              onChange={(e) => onChange(propertyName, e.target.checked)}
+              disabled={disabled}
+            />
+          </Box>
+        ) : (
+          <Box>
+            <TextField
+              fullWidth
+              size="small"
+              type="number"
+              label="Value"
+              value={isFocused ? localValue : value}
+              onChange={(e) => setLocalValue(parseFloat(e.target.value) || 0)}
+              onFocus={() => { setIsFocused(true); setLocalValue(value); }}
+              onBlur={handleBlur}
+              disabled={disabled}
+              inputProps={{ min, max, step }}
+              InputProps={{
+                endAdornment: propMeta?.unit && (
+                  <InputAdornment position="end">
+                    <Typography variant="caption" color="text.secondary">
+                      {propMeta.unit}
+                    </Typography>
+                  </InputAdornment>
+                )
+              }}
+              sx={{ mb: 1 }}
+            />
+            <Slider
+              size="small"
+              value={typeof value === 'number' ? value : 0}
+              onChange={handleSliderChange}
+              min={min}
+              max={max}
+              step={step}
+              disabled={disabled}
+              valueLabelDisplay="auto"
+            />
+          </Box>
+        )}
+
+        {/* Global comparison */}
+        {showComparison && globalValue !== undefined && (
+          <Box sx={{ mt: 1.5, pt: 1.5, borderTop: 1, borderColor: 'divider' }}>
+            <Typography variant="caption" color="text.secondary">
+              Global: {propMeta?.type === 'boolean' ? (globalValue ? 'ON' : 'OFF') : `${globalValue} ${propMeta?.unit || ''}`}
+            </Typography>
+          </Box>
+        )}
+      </CardContent>
+    </Card>
   );
 };
 
@@ -534,6 +655,10 @@ const SafetyLimitsEditor = ({
   const [selectedFollower, setSelectedFollower] = useState('');
   const [addDialogOpen, setAddDialogOpen] = useState(false);
 
+  // Responsive: use card layout on mobile/tablet for better UX
+  const { isMobile, isTablet } = useResponsive();
+  const useCardLayout = isMobile || isTablet;
+
   // Get followers grouped by type
   const followersByType = useMemo(() => getFollowersByType(), []);
 
@@ -707,7 +832,7 @@ const SafetyLimitsEditor = ({
         </Box>
       )}
 
-      {/* Properties Table */}
+      {/* Properties Display - Responsive Card/Table Layout */}
       {(isOverrides && !selectedFollower) ? (
         <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
           <Warning sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
@@ -721,32 +846,51 @@ const SafetyLimitsEditor = ({
       ) : (
         <Box>
           {hasProperties ? (
-            <Paper variant="outlined" sx={{ overflowX: 'auto' }}>
-              <Table size="small" sx={{ minWidth: 400 }}>
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ minWidth: 150 }}>Property</TableCell>
-                    <TableCell sx={{ minWidth: 120 }}>Value</TableCell>
-                    {isOverrides && <TableCell sx={{ minWidth: 100 }}>Global Value</TableCell>}
-                    <TableCell align="right" sx={{ minWidth: 80, whiteSpace: 'nowrap' }}>Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {propertyEntries.map(([propName, propValue]) => (
-                    <PropertyRow
-                      key={propName}
-                      propertyName={propName}
-                      value={propValue}
-                      globalValue={globalLimits?.[propName]}
-                      onChange={handlePropertyChange}
-                      onRemove={handlePropertyRemove}
-                      showComparison={isOverrides}
-                      disabled={disabled}
-                    />
-                  ))}
-                </TableBody>
-              </Table>
-            </Paper>
+            useCardLayout ? (
+              // Mobile/Tablet: Card layout for touch-friendly interaction
+              <Box>
+                {propertyEntries.map(([propName, propValue]) => (
+                  <PropertyCard
+                    key={propName}
+                    propertyName={propName}
+                    value={propValue}
+                    globalValue={globalLimits?.[propName]}
+                    onChange={handlePropertyChange}
+                    onRemove={handlePropertyRemove}
+                    showComparison={isOverrides}
+                    disabled={disabled}
+                  />
+                ))}
+              </Box>
+            ) : (
+              // Desktop: Table layout with more information density
+              <Paper variant="outlined" sx={{ overflowX: 'auto' }}>
+                <Table size="small" sx={{ minWidth: 400 }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ minWidth: 150 }}>Property</TableCell>
+                      <TableCell sx={{ minWidth: 120 }}>Value</TableCell>
+                      {isOverrides && <TableCell sx={{ minWidth: 100 }}>Global Value</TableCell>}
+                      <TableCell align="right" sx={{ minWidth: 80, whiteSpace: 'nowrap' }}>Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {propertyEntries.map(([propName, propValue]) => (
+                      <PropertyRow
+                        key={propName}
+                        propertyName={propName}
+                        value={propValue}
+                        globalValue={globalLimits?.[propName]}
+                        onChange={handlePropertyChange}
+                        onRemove={handlePropertyRemove}
+                        showComparison={isOverrides}
+                        disabled={disabled}
+                      />
+                    ))}
+                  </TableBody>
+                </Table>
+              </Paper>
+            )
           ) : (
             <Paper variant="outlined" sx={{ p: 3, textAlign: 'center' }}>
               <Typography color="text.secondary" sx={{ mb: 1 }}>
@@ -761,7 +905,7 @@ const SafetyLimitsEditor = ({
           )}
 
           {/* Action Buttons */}
-          <Box sx={{ mt: 2, display: 'flex', gap: 1, justifyContent: 'flex-start' }}>
+          <Box sx={{ mt: 2, display: 'flex', gap: 1, justifyContent: 'flex-start', flexWrap: 'wrap' }}>
             <Button
               variant="outlined"
               startIcon={<Add />}
