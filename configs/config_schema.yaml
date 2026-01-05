@@ -2,7 +2,7 @@ schema_version: 1.0.0
 meta:
   project: PixEagle
   generated_from: /home/alireza/PixEagle/configs/config_default.yaml
-  generated_at: '2026-01-03T10:56:29.381340'
+  generated_at: '2026-01-05T06:43:47.568388'
   description: Auto-generated schema for PixEagle configuration
 categories:
   video:
@@ -50,9 +50,25 @@ sections:
       VIDEO_SOURCE_TYPE:
         type: string
         default: VIDEO_FILE
-        description: 'Primary video source selection Options: VIDEO_FILE, USB_CAMERA, RTSP_OPENCV, RTSP_STREAM, UDP_STREAM,
-          HTTP_STREAM, CSI_CAMERA, CUSTOM_GSTREAMER'
+        description: Primary video source selection
         reboot_required: true
+        options:
+        - value: VIDEO_FILE
+          label: VIDEO_FILE
+        - value: USB_CAMERA
+          label: USB_CAMERA
+        - value: RTSP_OPENCV
+          label: RTSP_OPENCV
+        - value: RTSP_STREAM
+          label: RTSP_STREAM
+        - value: UDP_STREAM
+          label: UDP_STREAM
+        - value: HTTP_STREAM
+          label: HTTP_STREAM
+        - value: CSI_CAMERA
+          label: CSI_CAMERA
+        - value: CUSTOM_GSTREAMER
+          label: CUSTOM_GSTREAMER
       CAPTURE_WIDTH:
         type: integer
         default: 640
@@ -1731,10 +1747,27 @@ sections:
       FOLLOWER_MODE:
         type: string
         default: mc_velocity_position
-        description: 'Options: mc_velocity_ground, mc_velocity_distance, mc_velocity_position, mc_velocity_chase, mc_velocity,
-          mc_attitude_rate, fw_attitude_rate, gm_pid_pursuit, gm_velocity_vector Deprecated (still work): ground_view, constant_distance,
-          constant_position, body_velocity_chase, gimbal_vector_body'
+        description: FOLLOWER_MODE parameter
         reboot_required: false
+        options:
+        - value: mc_velocity_ground
+          label: mc_velocity_ground
+        - value: mc_velocity_distance
+          label: mc_velocity_distance
+        - value: mc_velocity_position
+          label: mc_velocity_position
+        - value: mc_velocity_chase
+          label: mc_velocity_chase
+        - value: mc_velocity
+          label: mc_velocity
+        - value: mc_attitude_rate
+          label: mc_attitude_rate
+        - value: fw_attitude_rate
+          label: fw_attitude_rate
+        - value: gm_pid_pursuit
+          label: gm_pid_pursuit
+        - value: gm_velocity_vector
+          label: gm_velocity_vector
       SHOW_TRACKING_WINDOW:
         type: boolean
         default: false
@@ -3824,8 +3857,13 @@ sections:
       ESTIMATOR_TYPE:
         type: string
         default: Kalman
-        description: 'Options: Kalman, None'
+        description: ESTIMATOR_TYPE parameter
         reboot_required: false
+        options:
+        - value: Kalman
+          label: Kalman
+        - value: None
+          label: None
       ESTIMATOR_HISTORY_LENGTH:
         type: integer
         default: 5
@@ -3949,8 +3987,17 @@ sections:
       PREPROCESSING_COLOR_SPACE:
         type: string
         default: BGR
-        description: 'Options: BGR, GRAY, HSV, LAB'
+        description: PREPROCESSING_COLOR_SPACE parameter
         reboot_required: false
+        options:
+        - value: BGR
+          label: BGR
+        - value: GRAY
+          label: GRAY
+        - value: HSV
+          label: HSV
+        - value: LAB
+          label: LAB
   Segmentation:
     display_name: Segmentation
     category: processing

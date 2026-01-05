@@ -199,6 +199,49 @@ def extract_unit(description: str) -> Optional[str]:
     return None
 
 
+def extract_options(description: str) -> Tuple[Optional[List[Dict]], str]:
+    """Extract options from 'Options: val1, val2, val3' pattern in description.
+
+    Returns:
+        Tuple of (options_list, cleaned_description)
+        options_list: List of {'value': str, 'label': str} or None
+        cleaned_description: Description with Options line removed
+    """
+    if not description:
+        return None, description
+
+    # Match "Options: val1, val2, val3" pattern (case-insensitive)
+    # Handle multi-line comments that got joined with spaces
+    # Pattern: "Options:" followed by comma-separated values, stopping at "Deprecated" or end
+    match = re.search(r'Options:\s*([a-zA-Z0-9_,\s]+?)(?=\s+Deprecated|\s*$)', description, re.IGNORECASE)
+
+    if match:
+        options_str = match.group(1).strip()
+        # Parse comma-separated values
+        options = []
+        for opt in options_str.split(','):
+            opt = opt.strip()
+            # Only accept valid option names (alphanumeric + underscore)
+            if opt and re.match(r'^[a-zA-Z0-9_]+$', opt):
+                options.append({'value': opt, 'label': opt})
+
+        if options:
+            # Clean description by removing the Options line and Deprecated line
+            # Pattern 1: "Options: val1, val2, ..."
+            cleaned = re.sub(r'\s*Options:\s*[a-zA-Z0-9_,\s]+', '', description, flags=re.IGNORECASE)
+            # Pattern 2: "Deprecated (still work): val1, val2, ..." or similar
+            cleaned = re.sub(r'\s*Deprecated\s*\([^)]*\)\s*:\s*[a-zA-Z0-9_,\s]+', '', cleaned, flags=re.IGNORECASE)
+            # Pattern 3: Any remaining "(still work): ..." fragments
+            cleaned = re.sub(r'\s*\([^)]*\)\s*:\s*[a-zA-Z0-9_,\s]+\s*$', '', cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+            # If description is now empty or just punctuation, use a generic one
+            if not cleaned or cleaned in [':', '.', '-']:
+                cleaned = ''
+            return options, cleaned
+
+    return None, description
+
+
 def parse_config_with_comments(config_path: str) -> Tuple[Dict, Dict[str, str]]:
     """Parse config file and extract comments for descriptions."""
     with open(config_path, 'r', encoding='utf-8') as f:
@@ -246,18 +289,25 @@ def generate_parameter_schema(key: str, value: Any, description: str = '') -> Di
     """Generate schema entry for a parameter."""
     param_type, constraints = infer_type(value)
 
+    # Extract options from description (e.g., "Options: val1, val2, val3")
+    options, cleaned_description = extract_options(description)
+
     schema = {
         'type': param_type,
         'default': value,
-        'description': description or f'{key} parameter',
+        'description': cleaned_description or f'{key} parameter',
         'reboot_required': is_reboot_required(key),
     }
 
     # Add constraints
     schema.update(constraints)
 
+    # Add options if found (for dropdown display)
+    if options:
+        schema['options'] = options
+
     # Extract unit from description
-    unit = extract_unit(description)
+    unit = extract_unit(cleaned_description)
     if unit:
         schema['unit'] = unit
 

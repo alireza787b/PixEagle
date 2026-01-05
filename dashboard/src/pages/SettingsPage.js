@@ -370,7 +370,7 @@ const SettingsPage = () => {
                 {sortedCategories.map((category) => {
                   const catSections = filteredGroupedSections[category] || [];
                   const catInfo = categories[category] || { display_name: category };
-                  const isExpanded = expandedCategories[category] !== false; // Default expanded
+                  const isExpanded = expandedCategories[category] === true; // Default collapsed
 
                   return (
                     <React.Fragment key={category}>

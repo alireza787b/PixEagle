@@ -15,7 +15,7 @@
  */
 import React, { useState, useMemo, useCallback } from 'react';
 import {
-  Box, Typography, Paper, Alert, Chip,
+  Box, Typography, Paper, Alert, Chip, Divider,
   Table, TableBody, TableCell, TableHead, TableRow,
   TextField, IconButton, Tooltip, Button, Switch,
   Dialog, DialogTitle, DialogContent, DialogActions,
@@ -24,7 +24,7 @@ import {
 } from '@mui/material';
 import {
   Add, Delete, Info, Speed, Height, RotateRight,
-  FlightTakeoff, CameraAlt, Flight, Warning
+  FlightTakeoff, CameraAlt, Flight, Warning, Edit
 } from '@mui/icons-material';
 
 import {
@@ -123,22 +123,28 @@ const PropertyRow = ({
     );
   }
 
-  // For number type
+  // For number type (or unknown custom properties)
+  const isCustomProperty = !propMeta;
   const min = propMeta?.min ?? 0;
-  const max = propMeta?.max ?? 100;
+  const max = propMeta?.max ?? 1000;
   const step = propMeta?.step ?? 0.1;
 
   return (
     <TableRow hover>
       <TableCell>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {categoryIcons[propMeta?.category]}
+          {isCustomProperty ? <Edit fontSize="small" color="action" /> : categoryIcons[propMeta?.category]}
           <Box>
-            <Typography variant="body2" fontWeight="medium">
-              {propertyName}
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Typography variant="body2" fontWeight="medium">
+                {propertyName}
+              </Typography>
+              {isCustomProperty && (
+                <Chip label="Custom" size="small" variant="outlined" color="default" sx={{ height: 16, fontSize: '0.6rem' }} />
+              )}
+            </Box>
             <Typography variant="caption" color="text.secondary">
-              {propMeta?.description}
+              {isCustomProperty ? 'Custom property (not validated)' : propMeta?.description}
             </Typography>
           </Box>
         </Box>
@@ -210,6 +216,8 @@ const AddPropertyDialog = ({
 }) => {
   const [selectedProperty, setSelectedProperty] = useState('');
   const [propertyValue, setPropertyValue] = useState('');
+  const [isCustomMode, setIsCustomMode] = useState(false);
+  const [customPropertyName, setCustomPropertyName] = useState('');
 
   const addableProperties = useMemo(() =>
     getAddableProperties(existingProperties),
@@ -228,106 +236,188 @@ const AddPropertyDialog = ({
     return groups;
   }, [addableProperties]);
 
-  const selectedMeta = selectedProperty ? getPropertyByName(selectedProperty) : null;
+  const selectedMeta = selectedProperty && !isCustomMode ? getPropertyByName(selectedProperty) : null;
 
   const handleAdd = () => {
-    if (selectedProperty && propertyValue !== '') {
+    const propName = isCustomMode ? customPropertyName.trim() : selectedProperty;
+    if (propName && propertyValue !== '') {
       const value = selectedMeta?.type === 'boolean'
         ? propertyValue === 'true'
         : parseFloat(propertyValue);
-      onAdd(selectedProperty, value);
+      onAdd(propName, value);
+      // Reset state
       setSelectedProperty('');
       setPropertyValue('');
+      setIsCustomMode(false);
+      setCustomPropertyName('');
       onClose();
     }
   };
 
   const handlePropertySelect = (propName) => {
-    setSelectedProperty(propName);
-    const meta = getPropertyByName(propName);
-    // Set default value
-    const defaultVal = globalLimits?.[propName] ?? meta?.default ?? 0;
-    setPropertyValue(String(defaultVal));
+    if (propName === '__custom__') {
+      setIsCustomMode(true);
+      setSelectedProperty('');
+      setPropertyValue('0');
+    } else {
+      setIsCustomMode(false);
+      setSelectedProperty(propName);
+      const meta = getPropertyByName(propName);
+      // Set default value
+      const defaultVal = globalLimits?.[propName] ?? meta?.default ?? 0;
+      setPropertyValue(String(defaultVal));
+    }
   };
 
+  const handleClose = () => {
+    setSelectedProperty('');
+    setPropertyValue('');
+    setIsCustomMode(false);
+    setCustomPropertyName('');
+    onClose();
+  };
+
+  // Check if custom property name is valid (not empty, not already exists)
+  const isCustomNameValid = customPropertyName.trim() &&
+    !existingProperties?.[customPropertyName.trim()] &&
+    /^[A-Z][A-Z0-9_]*$/.test(customPropertyName.trim());
+
+  const canAdd = isCustomMode
+    ? (isCustomNameValid && propertyValue !== '')
+    : (selectedProperty && propertyValue !== '');
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
       <DialogTitle>Add Safety Limit Property</DialogTitle>
       <DialogContent>
         <Alert severity="info" sx={{ mb: 2 }}>
-          Select a property to add. Values are validated against schema constraints.
+          {isCustomMode
+            ? 'Enter a custom property name (UPPER_SNAKE_CASE) and numeric value.'
+            : 'Select a property to add, or choose "Enter custom property" for advanced use.'}
         </Alert>
 
-        <FormControl fullWidth sx={{ mb: 2 }}>
-          <InputLabel>Property</InputLabel>
-          <Select
-            value={selectedProperty}
-            onChange={(e) => handlePropertySelect(e.target.value)}
-            label="Property"
-          >
-            {Object.entries(groupedProperties).map(([category, props]) => [
-              <ListSubheader key={`header-${category}`}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  {categoryIcons[category]}
-                  {PROPERTY_CATEGORIES[category]?.label || category}
-                </Box>
-              </ListSubheader>,
-              ...props.map(prop => (
-                <MenuItem key={prop.name} value={prop.name}>
-                  <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                    <Typography variant="body2">{prop.name}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {prop.description} ({prop.unit || prop.type})
+        {isCustomMode ? (
+          // Custom property mode
+          <Box>
+            <TextField
+              fullWidth
+              label="Property Name"
+              value={customPropertyName}
+              onChange={(e) => setCustomPropertyName(e.target.value.toUpperCase())}
+              placeholder="MY_CUSTOM_LIMIT"
+              helperText={
+                customPropertyName && !isCustomNameValid
+                  ? 'Use UPPER_SNAKE_CASE (e.g., MY_CUSTOM_LIMIT)'
+                  : 'Custom properties are not validated. Use with caution.'
+              }
+              error={customPropertyName && !isCustomNameValid}
+              sx={{ mb: 2 }}
+            />
+            <TextField
+              fullWidth
+              label="Value"
+              type="number"
+              value={propertyValue}
+              onChange={(e) => setPropertyValue(e.target.value)}
+              inputProps={{ step: 0.1 }}
+              helperText="Numeric value for this custom property"
+            />
+            <Button
+              size="small"
+              onClick={() => {
+                setIsCustomMode(false);
+                setCustomPropertyName('');
+              }}
+              sx={{ mt: 1 }}
+            >
+              ← Back to property list
+            </Button>
+          </Box>
+        ) : (
+          // Standard property selection
+          <>
+            <FormControl fullWidth sx={{ mb: 2 }}>
+              <InputLabel>Property</InputLabel>
+              <Select
+                value={selectedProperty}
+                onChange={(e) => handlePropertySelect(e.target.value)}
+                label="Property"
+              >
+                {Object.entries(groupedProperties).map(([category, props]) => [
+                  <ListSubheader key={`header-${category}`}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      {categoryIcons[category]}
+                      {PROPERTY_CATEGORIES[category]?.label || category}
+                    </Box>
+                  </ListSubheader>,
+                  ...props.map(prop => (
+                    <MenuItem key={prop.name} value={prop.name}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                        <Typography variant="body2">{prop.name}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {prop.description} ({prop.unit || prop.type})
+                        </Typography>
+                      </Box>
+                    </MenuItem>
+                  ))
+                ])}
+                {/* Custom property option */}
+                <Divider />
+                <MenuItem value="__custom__">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Edit fontSize="small" color="primary" />
+                    <Typography color="primary" fontStyle="italic" variant="body2">
+                      Enter custom property...
                     </Typography>
                   </Box>
                 </MenuItem>
-              ))
-            ])}
-          </Select>
-        </FormControl>
+              </Select>
+            </FormControl>
 
-        {selectedMeta && (
-          <Box>
-            {selectedMeta.type === 'boolean' ? (
-              <FormControl fullWidth>
-                <InputLabel>Value</InputLabel>
-                <Select
-                  value={propertyValue}
-                  onChange={(e) => setPropertyValue(e.target.value)}
-                  label="Value"
-                >
-                  <MenuItem value="true">Enabled (ON)</MenuItem>
-                  <MenuItem value="false">Disabled (OFF)</MenuItem>
-                </Select>
-              </FormControl>
-            ) : (
-              <TextField
-                fullWidth
-                label="Value"
-                type="number"
-                value={propertyValue}
-                onChange={(e) => setPropertyValue(e.target.value)}
-                inputProps={{
-                  min: selectedMeta.min,
-                  max: selectedMeta.max,
-                  step: selectedMeta.step
-                }}
-                helperText={
-                  showComparison && globalLimits?.[selectedProperty] !== undefined
-                    ? `Global: ${globalLimits[selectedProperty]} ${selectedMeta.unit || ''}`
-                    : `Range: ${selectedMeta.min} - ${selectedMeta.max} ${selectedMeta.unit || ''}`
-                }
-              />
+            {selectedMeta && (
+              <Box>
+                {selectedMeta.type === 'boolean' ? (
+                  <FormControl fullWidth>
+                    <InputLabel>Value</InputLabel>
+                    <Select
+                      value={propertyValue}
+                      onChange={(e) => setPropertyValue(e.target.value)}
+                      label="Value"
+                    >
+                      <MenuItem value="true">Enabled (ON)</MenuItem>
+                      <MenuItem value="false">Disabled (OFF)</MenuItem>
+                    </Select>
+                  </FormControl>
+                ) : (
+                  <TextField
+                    fullWidth
+                    label="Value"
+                    type="number"
+                    value={propertyValue}
+                    onChange={(e) => setPropertyValue(e.target.value)}
+                    inputProps={{
+                      min: selectedMeta.min,
+                      max: selectedMeta.max,
+                      step: selectedMeta.step
+                    }}
+                    helperText={
+                      showComparison && globalLimits?.[selectedProperty] !== undefined
+                        ? `Global: ${globalLimits[selectedProperty]} ${selectedMeta.unit || ''}`
+                        : `Range: ${selectedMeta.min} - ${selectedMeta.max} ${selectedMeta.unit || ''}`
+                    }
+                  />
+                )}
+              </Box>
             )}
-          </Box>
+          </>
         )}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={handleClose}>Cancel</Button>
         <Button
           onClick={handleAdd}
           variant="contained"
-          disabled={!selectedProperty || propertyValue === ''}
+          disabled={!canAdd}
         >
           Add Property
         </Button>
