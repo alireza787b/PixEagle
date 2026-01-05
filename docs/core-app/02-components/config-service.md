@@ -403,6 +403,60 @@ POST /api/config/restore/{backup_id}
 GET /api/config/diff
 ```
 
+## Reload Tier System (v5.3.0+)
+
+Parameters support hot-reload tiers for granular restart control:
+
+### Get Reload Tier
+
+```python
+def get_reload_tier(self, section: str, param: str) -> str:
+    """
+    Get reload tier for a parameter.
+
+    Returns:
+        One of: 'immediate', 'follower_restart', 'tracker_restart', 'system_restart'
+    """
+    param_schema = self.get_parameter_schema(section, param)
+    if param_schema:
+        return param_schema.get('reload_tier', 'system_restart')
+    return 'system_restart'  # Safe default
+```
+
+### Get Reload Message
+
+```python
+def get_reload_message(self, reload_tier: str) -> str:
+    """
+    Get user-friendly message for reload tier.
+
+    Returns:
+        Human-readable message describing when changes take effect
+    """
+    messages = {
+        'immediate': 'Changes applied immediately',
+        'follower_restart': 'Restart follower to apply changes',
+        'tracker_restart': 'Restart tracker to apply changes',
+        'system_restart': 'System restart required to apply changes'
+    }
+    return messages.get(reload_tier, 'Unknown reload tier')
+```
+
+### Legacy Compatibility
+
+```python
+def is_reboot_required(self, section: str, param: str) -> bool:
+    """
+    DEPRECATED: Use get_reload_tier() for more granular control.
+
+    Returns True only for system_restart tier.
+    """
+    tier = self.get_reload_tier(section, param)
+    return tier == 'system_restart'
+```
+
+See [Hot-Reload Guide](../04-configuration/hot-reload-guide.md) for complete documentation.
+
 ## Thread Safety
 
 - Singleton uses `threading.Lock`
@@ -413,3 +467,4 @@ GET /api/config/diff
 
 - [FastAPIHandler](fastapi-handler.md) - Exposes config API
 - [SchemaManager](schema-manager.md) - Tracker schemas
+- [Hot-Reload Guide](../04-configuration/hot-reload-guide.md) - Reload tier system

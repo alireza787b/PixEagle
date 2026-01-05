@@ -9,6 +9,7 @@
  */
 
 import React from 'react';
+import PropTypes from 'prop-types';
 import { Chip, Tooltip, Box, Typography, Button } from '@mui/material';
 import {
   CheckCircle as ImmediateIcon,
@@ -17,6 +18,9 @@ import {
   FlightTakeoff as FollowerIcon,
   GpsFixed as TrackerIcon,
 } from '@mui/icons-material';
+
+/** Valid reload tier values */
+export const RELOAD_TIERS = ['immediate', 'follower_restart', 'tracker_restart', 'system_restart'];
 
 // Tier configuration
 const TIER_CONFIG = {
@@ -63,6 +67,10 @@ const getTierConfig = (tier) => {
 
 /**
  * Compact badge for table/list views
+ * @param {Object} props
+ * @param {string} props.tier - The reload tier (immediate, follower_restart, tracker_restart, system_restart)
+ * @param {string} [props.size='small'] - Chip size ('small' or 'medium')
+ * @param {boolean} [props.showLabel=true] - Whether to show the label text
  */
 export const ReloadTierChip = ({ tier, size = 'small', showLabel = true }) => {
   const config = getTierConfig(tier);
@@ -72,10 +80,11 @@ export const ReloadTierChip = ({ tier, size = 'small', showLabel = true }) => {
     <Tooltip title={config.description} arrow placement="top">
       <Chip
         size={size}
-        icon={<Icon sx={{ fontSize: size === 'small' ? 14 : 18 }} />}
+        icon={<Icon sx={{ fontSize: size === 'small' ? 14 : 18 }} aria-hidden="true" />}
         label={showLabel ? config.label : undefined}
         color={config.color}
         variant="outlined"
+        aria-label={`Reload tier: ${config.fullLabel}`}
         sx={{
           height: size === 'small' ? 22 : 28,
           '& .MuiChip-label': {
@@ -92,8 +101,20 @@ export const ReloadTierChip = ({ tier, size = 'small', showLabel = true }) => {
   );
 };
 
+ReloadTierChip.propTypes = {
+  tier: PropTypes.oneOf(RELOAD_TIERS),
+  size: PropTypes.oneOf(['small', 'medium']),
+  showLabel: PropTypes.bool,
+};
+
 /**
  * Full badge with description and optional restart button
+ * @param {Object} props
+ * @param {string} props.tier - The reload tier
+ * @param {boolean} [props.showDescription=true] - Whether to show the description text
+ * @param {boolean} [props.showRestartButton=false] - Whether to show the restart button
+ * @param {Function} [props.onRestart] - Callback when restart button is clicked
+ * @param {boolean} [props.compact=false] - If true, renders as ReloadTierChip instead
  */
 export const ReloadTierBadge = ({
   tier,
@@ -111,6 +132,8 @@ export const ReloadTierBadge = ({
 
   return (
     <Box
+      role="status"
+      aria-label={`Reload tier: ${config.fullLabel}`}
       sx={{
         display: 'flex',
         alignItems: 'center',
@@ -122,7 +145,7 @@ export const ReloadTierBadge = ({
         borderColor: `${config.color}.200`,
       }}
     >
-      <Icon color={config.color} />
+      <Icon color={config.color} aria-hidden="true" />
       <Box sx={{ flex: 1 }}>
         <Typography variant="body2" fontWeight="medium" color={`${config.color}.main`}>
           {config.fullLabel}
@@ -138,8 +161,9 @@ export const ReloadTierBadge = ({
           size="small"
           variant="outlined"
           color={config.color}
-          startIcon={<RestartIcon />}
+          startIcon={<RestartIcon aria-hidden="true" />}
           onClick={() => onRestart(config.restartEndpoint)}
+          aria-label={config.restartLabel}
         >
           {config.restartLabel}
         </Button>
@@ -148,8 +172,19 @@ export const ReloadTierBadge = ({
   );
 };
 
+ReloadTierBadge.propTypes = {
+  tier: PropTypes.oneOf(RELOAD_TIERS),
+  showDescription: PropTypes.bool,
+  showRestartButton: PropTypes.bool,
+  onRestart: PropTypes.func,
+  compact: PropTypes.bool,
+};
+
 /**
  * Inline indicator for parameter rows
+ * Only shows for non-immediate tiers to reduce visual noise
+ * @param {Object} props
+ * @param {string} props.tier - The reload tier
  */
 export const ReloadTierIndicator = ({ tier }) => {
   const config = getTierConfig(tier);
@@ -163,6 +198,7 @@ export const ReloadTierIndicator = ({ tier }) => {
   return (
     <Tooltip title={config.fullLabel} arrow>
       <Icon
+        aria-label={config.fullLabel}
         sx={{
           fontSize: 16,
           color: `${config.color}.main`,
@@ -173,8 +209,14 @@ export const ReloadTierIndicator = ({ tier }) => {
   );
 };
 
+ReloadTierIndicator.propTypes = {
+  tier: PropTypes.oneOf(RELOAD_TIERS),
+};
+
 /**
  * Get the highest priority tier from a list of tiers
+ * @param {string[]} tiers - Array of reload tier values
+ * @returns {string} The highest priority tier (system_restart > tracker_restart > follower_restart > immediate)
  */
 export const getHighestTier = (tiers) => {
   const priority = {
@@ -184,16 +226,20 @@ export const getHighestTier = (tiers) => {
     immediate: 1,
   };
 
+  // Default to 4 (system_restart) for unknown tiers as safe fallback
   return tiers.reduce((highest, tier) => {
-    return (priority[tier] || 0) > (priority[highest] || 0) ? tier : highest;
+    return (priority[tier] || 4) > (priority[highest] || 4) ? tier : highest;
   }, 'immediate');
 };
 
 /**
  * Check if tier requires restart
+ * @param {string} tier - The reload tier to check
+ * @returns {boolean} True if the tier requires any kind of restart
  */
 export const requiresRestart = (tier) => {
   return tier !== 'immediate';
 };
 
+// Default export
 export default ReloadTierBadge;

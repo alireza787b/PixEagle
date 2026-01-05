@@ -1,5 +1,6 @@
 // dashboard/src/components/config/SectionEditor.js
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import PropTypes from 'prop-types';
 import {
   Box, Paper, Typography, CircularProgress, Alert, Button, Divider,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -568,10 +569,11 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
           return updated;
         });
 
-        // Check if reboot required
+        // Check if restart required based on reload_tier
         const paramSchema = schema?.parameters?.[param];
-        if (paramSchema?.reboot_required) {
-          onRebootRequired?.(sectionName, param);
+        const reloadTier = paramSchema?.reload_tier || 'system_restart';
+        if (reloadTier !== 'immediate') {
+          onRebootRequired?.(sectionName, param, reloadTier);
         }
 
         onMessage?.(`${param} saved`, 'success');
@@ -898,6 +900,34 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
       />
     </Paper>
   );
+};
+
+// PropTypes for ParameterInput (internal component)
+ParameterInput.propTypes = {
+  param: PropTypes.string.isRequired,
+  schema: PropTypes.object,
+  value: PropTypes.any,
+  defaultValue: PropTypes.any,
+  onChange: PropTypes.func.isRequired,
+  onSave: PropTypes.func.isRequired,
+  saveStatus: PropTypes.oneOf(['idle', 'saving', 'saved', 'error']),
+  mobileMode: PropTypes.bool,
+  configValues: PropTypes.object,
+};
+
+// PropTypes for SectionEditor
+SectionEditor.propTypes = {
+  /** The section name to edit (e.g., 'Tracker', 'Follower') */
+  sectionName: PropTypes.string.isRequired,
+  /** Callback when reboot/restart is required after parameter change */
+  onRebootRequired: PropTypes.func,
+  /** Callback for displaying messages (toast notifications) */
+  onMessage: PropTypes.func,
+};
+
+SectionEditor.defaultProps = {
+  onRebootRequired: null,
+  onMessage: null,
 };
 
 export default SectionEditor;

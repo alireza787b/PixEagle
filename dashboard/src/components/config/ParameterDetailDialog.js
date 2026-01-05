@@ -1,5 +1,6 @@
 // dashboard/src/components/config/ParameterDetailDialog.js
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import PropTypes from 'prop-types';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Box, Typography, Button, TextField, Switch, Select, MenuItem,
@@ -7,13 +8,13 @@ import {
   CircularProgress, Alert, IconButton, Tooltip, Slider
 } from '@mui/material';
 import {
-  Close, Save, Undo, RestartAlt, Info, Warning, Edit
+  Close, Save, Undo, Info, Warning, Edit
 } from '@mui/icons-material';
 
 import { useResponsive } from '../../hooks/useResponsive';
 import SmartValueEditor from './SmartValueEditor';
 import SafetyLimitsEditor from './SafetyLimitsEditor';
-import { ReloadTierChip } from './ReloadTierBadge';
+import { ReloadTierChip, RELOAD_TIERS } from './ReloadTierBadge';
 
 /**
  * Deep equality comparison for detecting modified values
@@ -746,6 +747,48 @@ const ParameterDetailDialog = ({
       </DialogActions>
     </Dialog>
   );
+};
+
+ParameterDetailDialog.propTypes = {
+  /** Whether the dialog is open */
+  open: PropTypes.bool.isRequired,
+  /** Callback when dialog should close */
+  onClose: PropTypes.func.isRequired,
+  /** The parameter name being edited */
+  param: PropTypes.string,
+  /** Schema definition for the parameter */
+  paramSchema: PropTypes.shape({
+    type: PropTypes.string,
+    description: PropTypes.string,
+    unit: PropTypes.string,
+    min: PropTypes.number,
+    max: PropTypes.number,
+    step: PropTypes.number,
+    options: PropTypes.array,
+    reload_tier: PropTypes.oneOf(RELOAD_TIERS),
+  }),
+  /** Current value of the parameter */
+  currentValue: PropTypes.any,
+  /** Default value of the parameter */
+  defaultValue: PropTypes.any,
+  /** Callback when saving (receives new value) */
+  onSave: PropTypes.func.isRequired,
+  /** Callback to revert to default value */
+  onRevert: PropTypes.func,
+  /** Whether a save operation is in progress */
+  saving: PropTypes.bool,
+  /** Full config values (used for safety limit editors) */
+  configValues: PropTypes.object,
+};
+
+ParameterDetailDialog.defaultProps = {
+  param: null,
+  paramSchema: null,
+  currentValue: null,
+  defaultValue: null,
+  onRevert: null,
+  saving: false,
+  configValues: {},
 };
 
 export default ParameterDetailDialog;

@@ -357,5 +357,88 @@ class TestConfigBackup:
         assert d['size'] == 1024
 
 
+class TestReloadTier:
+    """Test reload tier functionality (v5.3.0+)."""
+
+    @pytest.fixture
+    def service(self):
+        return ConfigService.get_instance()
+
+    def test_get_reload_tier_returns_valid_tier(self, service):
+        """Should return a valid reload tier string."""
+        valid_tiers = ['immediate', 'follower_restart', 'tracker_restart', 'system_restart']
+        # Test with a known parameter
+        tier = service.get_reload_tier('Tracker', 'DEFAULT_TRACKING_ALGORITHM')
+        assert tier in valid_tiers
+
+    def test_get_reload_tier_defaults_to_system_restart(self, service):
+        """Unknown parameters should default to system_restart for safety."""
+        tier = service.get_reload_tier('NonExistent', 'FAKE_PARAM')
+        assert tier == 'system_restart'
+
+    def test_get_reload_tier_unknown_section(self, service):
+        """Unknown section should return system_restart."""
+        tier = service.get_reload_tier('InvalidSection', 'InvalidParam')
+        assert tier == 'system_restart'
+
+    def test_get_reload_message_immediate(self, service):
+        """Should return appropriate message for immediate tier."""
+        message = service.get_reload_message('immediate')
+        assert 'immediate' in message.lower() or 'applied' in message.lower()
+
+    def test_get_reload_message_follower_restart(self, service):
+        """Should return appropriate message for follower_restart tier."""
+        message = service.get_reload_message('follower_restart')
+        assert 'follower' in message.lower() or 'restart' in message.lower()
+
+    def test_get_reload_message_tracker_restart(self, service):
+        """Should return appropriate message for tracker_restart tier."""
+        message = service.get_reload_message('tracker_restart')
+        assert 'tracker' in message.lower() or 'restart' in message.lower()
+
+    def test_get_reload_message_system_restart(self, service):
+        """Should return appropriate message for system_restart tier."""
+        message = service.get_reload_message('system_restart')
+        assert 'system' in message.lower() or 'restart' in message.lower()
+
+    def test_get_reload_message_unknown_tier(self, service):
+        """Should handle unknown tier gracefully."""
+        message = service.get_reload_message('unknown_tier')
+        assert message is not None
+        assert len(message) > 0
+
+    def test_is_reboot_required_consistency(self, service):
+        """is_reboot_required should be True only for system_restart tier."""
+        # For a system_restart tier param
+        tier = service.get_reload_tier('VideoSource', 'VIDEO_SOURCE_TYPE')
+        is_reboot = service.is_reboot_required('VideoSource', 'VIDEO_SOURCE_TYPE')
+
+        if tier == 'system_restart':
+            assert is_reboot is True
+        else:
+            assert is_reboot is False
+
+    def test_reload_tier_in_schema(self, service):
+        """Parameters in schema should have reload_tier field."""
+        schema = service.get_schema()
+        # Schema structure: { 'sections': { 'SectionName': { 'parameters': {...} } } }
+        sections = schema.get('sections', {})
+
+        # Check that at least some parameters have reload_tier
+        found_reload_tier = False
+        valid_tiers = ['immediate', 'follower_restart', 'tracker_restart', 'system_restart']
+
+        for section_name, section in sections.items():
+            if isinstance(section, dict) and 'parameters' in section:
+                for param_name, param_schema in section['parameters'].items():
+                    if isinstance(param_schema, dict) and 'reload_tier' in param_schema:
+                        found_reload_tier = True
+                        # Validate the tier value
+                        assert param_schema['reload_tier'] in valid_tiers, \
+                            f"Invalid reload_tier '{param_schema['reload_tier']}' in {section_name}.{param_name}"
+
+        assert found_reload_tier, "No reload_tier found in any schema parameter"
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

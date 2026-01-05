@@ -99,7 +99,28 @@ export const useConfigSections = () => {
 };
 
 /**
- * Hook for managing a single section's configuration
+ * Hook for managing a single section's configuration.
+ *
+ * Provides CRUD operations for configuration parameters within a section,
+ * with support for hot-reload tiers and validation.
+ *
+ * @param {string} sectionName - The configuration section name (e.g., 'Tracker', 'Follower')
+ * @returns {Object} Configuration state and methods
+ * @returns {Object} return.config - Current configuration values
+ * @returns {Object} return.defaultConfig - Default configuration values
+ * @returns {Object} return.schema - Schema definitions for parameters
+ * @returns {boolean} return.loading - Whether data is being fetched
+ * @returns {string|null} return.error - Error message if any
+ * @returns {Object} return.pendingChanges - Unsaved local changes
+ * @returns {boolean} return.hasPendingChanges - Whether there are unsaved changes
+ * @returns {boolean} return.rebootRequired - Whether any saved change requires system restart (deprecated: use reload_tier)
+ * @returns {Function} return.updateParameter - Save a parameter value
+ * @returns {Function} return.setLocalValue - Set local value without saving
+ * @returns {Function} return.saveAllChanges - Save all pending changes
+ * @returns {Function} return.revertParameter - Revert parameter to default
+ * @returns {Function} return.revertSection - Revert entire section to defaults
+ * @returns {Function} return.isModified - Check if parameter differs from default
+ * @returns {Function} return.refetch - Re-fetch section data
  */
 export const useConfigSection = (sectionName) => {
   const [config, setConfig] = useState({});
@@ -108,6 +129,8 @@ export const useConfigSection = (sectionName) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pendingChanges, setPendingChanges] = useState({});
+  // Track if any saved change requires system restart (kept for backward compatibility)
+  // Prefer using reload_tier from updateParameter response for granular control
   const [rebootRequired, setRebootRequired] = useState(false);
 
   const fetchSection = useCallback(async () => {
@@ -165,6 +188,7 @@ export const useConfigSection = (sectionName) => {
           });
         }
 
+        // Track if any change requires system restart (legacy compatibility)
         if (response.data.reboot_required) {
           setRebootRequired(true);
         }
@@ -173,7 +197,10 @@ export const useConfigSection = (sectionName) => {
           success: true,
           saved: wasSaved,
           validation: response.data.validation,
-          reboot_required: response.data.reboot_required
+          applied: response.data.applied,  // True if hot-reload was successful
+          reload_tier: response.data.reload_tier,  // immediate, follower_restart, tracker_restart, system_restart
+          reload_message: response.data.reload_message,
+          reboot_required: response.data.reboot_required  // Legacy, use reload_tier instead
         };
       } else {
         return {

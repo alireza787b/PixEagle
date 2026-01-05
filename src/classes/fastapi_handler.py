@@ -1805,6 +1805,20 @@ class FastAPIHandler:
         Returns:
             JSONResponse: Restart status with before/after config summary.
         """
+        # Rate limiting check - prevent restart abuse
+        allowed, retry_after = self.config_rate_limiter.is_allowed('config_write')
+        if not allowed:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    'success': False,
+                    'error': 'Too many restart requests',
+                    'retry_after': retry_after,
+                    'timestamp': time.time()
+                },
+                headers={'Retry-After': str(retry_after)}
+            )
+
         try:
             # Reload config first
             Parameters.reload_config()
@@ -1868,6 +1882,20 @@ class FastAPIHandler:
         Returns:
             JSONResponse: Restart status with tracker info.
         """
+        # Rate limiting check - prevent restart abuse
+        allowed, retry_after = self.config_rate_limiter.is_allowed('config_write')
+        if not allowed:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    'success': False,
+                    'error': 'Too many restart requests',
+                    'retry_after': retry_after,
+                    'timestamp': time.time()
+                },
+                headers={'Retry-After': str(retry_after)}
+            )
+
         try:
             # Reload config first
             Parameters.reload_config()
@@ -3724,11 +3752,14 @@ class FastAPIHandler:
             applied = False
             if saved:
                 try:
-                    Parameters.reload_config()
-                    applied = True
-                    self.logger.info(f"Config hot-reloaded after updating {section}.{parameter}")
+                    reload_success = Parameters.reload_config()
+                    if reload_success:
+                        applied = True
+                        self.logger.info(f"Config hot-reloaded after updating {section}.{parameter}")
+                    else:
+                        self.logger.warning(f"Config reload returned False for {section}.{parameter}")
                 except Exception as reload_error:
-                    self.logger.warning(f"Config reload failed: {reload_error}")
+                    self.logger.error(f"Config reload failed: {reload_error}")
 
             # Get reload tier and message
             reload_tier = service.get_reload_tier(section, parameter)
@@ -3788,11 +3819,14 @@ class FastAPIHandler:
             applied = False
             if saved:
                 try:
-                    Parameters.reload_config()
-                    applied = True
-                    self.logger.info(f"Config hot-reloaded after updating section {section}")
+                    reload_success = Parameters.reload_config()
+                    if reload_success:
+                        applied = True
+                        self.logger.info(f"Config hot-reloaded after updating section {section}")
+                    else:
+                        self.logger.warning(f"Config reload returned False for section {section}")
                 except Exception as reload_error:
-                    self.logger.warning(f"Config reload failed: {reload_error}")
+                    self.logger.error(f"Config reload failed: {reload_error}")
 
             # Get reload tiers for all changed params
             reload_tiers = {
@@ -3801,8 +3835,13 @@ class FastAPIHandler:
             }
 
             # Determine highest-priority tier (system > tracker > follower > immediate)
+            # Default to 4 (system_restart) for unknown tiers as safe fallback
             tier_priority = {'system_restart': 4, 'tracker_restart': 3, 'follower_restart': 2, 'immediate': 1}
-            max_tier = max(reload_tiers.values(), key=lambda t: tier_priority.get(t, 0))
+            if reload_tiers:
+                max_tier = max(reload_tiers.values(), key=lambda t: tier_priority.get(t, 4))
+            else:
+                # Empty parameters dict - shouldn't happen, but handle gracefully
+                max_tier = 'immediate'
             reload_message = service.get_reload_message(max_tier)
 
             # Backward compat: reboot_required if any param needs system restart

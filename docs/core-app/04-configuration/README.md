@@ -63,7 +63,16 @@ sections:
 | `min` | number | Minimum value (numeric types) |
 | `max` | number | Maximum value (numeric types) |
 | `step` | number | UI increment step |
-| `reboot_required` | boolean | Requires restart to apply |
+| `reload_tier` | string | When changes take effect (see [Hot-Reload Guide](hot-reload-guide.md)) |
+
+### Reload Tiers (v5.3.0+)
+
+| Tier | Description |
+|------|-------------|
+| `immediate` | Changes apply instantly after save |
+| `follower_restart` | Requires follower restart |
+| `tracker_restart` | Requires tracker restart |
+| `system_restart` | Requires full system restart |
 
 ## Configuration Files
 
@@ -283,4 +292,5 @@ Before each save, a timestamped backup is created. Old backups are cleaned up (k
 ## Related Documentation
 
 - [ConfigService Component](../02-components/config-service.md)
+- [Hot-Reload Guide](hot-reload-guide.md)
 - [API Reference](../03-api/README.md)

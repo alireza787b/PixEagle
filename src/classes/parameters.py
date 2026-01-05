@@ -21,9 +21,13 @@ Safety Limit Resolution (v5.0.0+ via SafetyManager):
 import yaml
 import os
 import logging
+import threading
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
+
+# Thread lock for config reload operations
+_config_reload_lock = threading.Lock()
 
 # Lazy import to avoid circular dependency
 _safety_manager = None
@@ -219,7 +223,7 @@ class Parameters:
     @classmethod
     def reload_config(cls, config_file: str = 'configs/config.yaml') -> bool:
         """
-        Reload configuration from disk.
+        Reload configuration from disk (thread-safe).
 
         This method reloads the configuration file and updates all class attributes.
         It also notifies SafetyManager to reload its configuration.
@@ -233,28 +237,33 @@ class Parameters:
         Note:
             This is intended for use by the restart mechanism to reload
             configuration changes without a full application restart.
+            Thread-safe via _config_reload_lock.
         """
-        try:
-            logger.info(f"🔄 Reloading configuration from {config_file}")
-
-            # Reload the config
-            cls.load_config(config_file)
-
-            # Notify SafetyManager to reload
+        with _config_reload_lock:
             try:
-                safety_manager = _get_safety_manager()
-                if hasattr(safety_manager, 'load_from_config') and cls._raw_config:
-                    safety_manager.load_from_config(cls._raw_config)
-                    logger.info("✅ SafetyManager reloaded with new configuration")
+                logger.info(f"🔄 Reloading configuration from {config_file}")
+
+                # Reload the config
+                cls.load_config(config_file)
+
+                # Notify SafetyManager to reload
+                try:
+                    safety_manager = _get_safety_manager()
+                    if hasattr(safety_manager, 'load_from_config') and cls._raw_config:
+                        safety_manager.load_from_config(cls._raw_config)
+                        logger.info("✅ SafetyManager reloaded with new configuration")
+                except Exception as e:
+                    # Critical failure - SafetyManager must stay in sync
+                    logger.error(f"❌ Failed to reload SafetyManager: {e}")
+                    # Continue - config was loaded, safety manager will use stale data
+                    # but this is better than crashing
+
+                logger.info("✅ Configuration reloaded successfully")
+                return True
+
             except Exception as e:
-                logger.warning(f"Could not reload SafetyManager: {e}")
-
-            logger.info("✅ Configuration reloaded successfully")
-            return True
-
-        except Exception as e:
-            logger.error(f"❌ Failed to reload configuration: {e}")
-            return False
+                logger.error(f"❌ Failed to reload configuration: {e}")
+                return False
 
     @classmethod
     def validate_config_structure(cls) -> bool:
