@@ -525,6 +525,7 @@ class GimbalTracker(BaseTracker):
                     'tracking': gimbal_tracking_status,  # TRACKING_ACTIVE
                     'tracking_status': gimbal_tracking_status,  # Also add as tracking_status for UI compatibility
                     'connection_status': self.gimbal_interface.get_connection_status(),
+                    'connection_health': self.gimbal_interface.get_health_status(),  # Enterprise health monitoring
                     'timestamp': current_timestamp
                 },
 

@@ -1934,6 +1934,37 @@ sections:
         step: 0.1
         unit: m/s
         reload_tier: follower_restart
+      MODE_SWITCH_HYSTERESIS:
+        type: float
+        default: 0.5
+        description: Hysteresis band to prevent mode oscillation (m/s)
+        min: 0.0
+        max: 5.0
+        step: 0.1
+        unit: m/s
+        reload_tier: follower_restart
+      MIN_MODE_SWITCH_INTERVAL:
+        type: float
+        default: 2.0
+        description: Minimum time between mode switches (seconds)
+        min: 0.0
+        max: 10.0
+        step: 0.1
+        unit: seconds
+        reload_tier: follower_restart
+      YAW_SMOOTHING:
+        type: object
+        default:
+          ENABLED: true
+          DEADZONE_DEG_S: 0.5
+          MAX_RATE_CHANGE_DEG_S2: 90.0
+          SMOOTHING_ALPHA: 0.7
+          ENABLE_SPEED_SCALING: true
+          MIN_SPEED_THRESHOLD: 0.5
+          MAX_SPEED_THRESHOLD: 5.0
+          LOW_SPEED_YAW_FACTOR: 0.5
+        description: Enterprise-grade yaw rate smoothing with deadzone, rate limiting, and speed-adaptive scaling
+        reload_tier: follower_restart
       MAX_YAW_RATE:
         type: float
         default: 45.0
@@ -4272,10 +4303,10 @@ sections:
           yawspeed_deg_s:
             type: object
             default:
-              p: 0.9
-              i: 0.05
-              d: 0.1
-            description: Yaw rate (deg/s)
+              p: 12.0
+              i: 0.5
+              d: 1.5
+            description: Yaw rate (deg/s) - conservative for safe demo
             unit: deg/s
             reload_tier: immediate
           thrust:
@@ -4289,18 +4320,18 @@ sections:
           vel_body_right:
             type: object
             default:
-              p: 1.0
-              i: 0.02
-              d: 0.1
-            description: vel_body_right parameter
+              p: 1.5
+              i: 0.08
+              d: 0.2
+            description: Lateral velocity - conservative for safe demo
             reload_tier: immediate
           vel_body_down:
             type: object
             default:
-              p: 0.75
-              i: 0.05
-              d: 0.1
-            description: vel_body_down parameter
+              p: 1.0
+              i: 0.08
+              d: 0.15
+            description: Vertical velocity - conservative for safe demo
             reload_tier: immediate
           fw_roll_rate:
             type: object

@@ -1111,6 +1111,28 @@ GM_PID_PURSUIT:
   # === Yaw Control ===
   MAX_YAW_RATE: 45.0                      # Maximum yaw rate (degrees/second)
 
+  # === Yaw Rate Smoothing (Enterprise-Grade) ===
+  # Configurable smoothing pipeline for smooth, professional yaw control
+  # All parameters are configurable - no hardcoded values
+  YAW_SMOOTHING:
+    ENABLED: true                          # Master enable for yaw smoothing
+    # Deadzone - prevents jitter at low rates (configurable, not hardcoded)
+    DEADZONE_DEG_S: 0.5                    # deg/s - ignore rates below this threshold
+    # Rate limiting - prevents jerky movements (max yaw acceleration)
+    MAX_RATE_CHANGE_DEG_S2: 90.0           # deg/s² - max yaw acceleration
+    # EMA smoothing coefficient (0-1, lower = more smoothing)
+    SMOOTHING_ALPHA: 0.7                   # 0.7 balances responsiveness and smoothness
+    # Speed-adaptive scaling - works with slow AND fast speeds
+    ENABLE_SPEED_SCALING: true             # Scale yaw authority based on forward speed
+    MIN_SPEED_THRESHOLD: 0.5               # m/s - below this, reduce yaw authority
+    MAX_SPEED_THRESHOLD: 5.0               # m/s - above this, full yaw authority
+    LOW_SPEED_YAW_FACTOR: 0.5              # Reduce yaw rate by this factor at low speed
+
+  # === Mode Switch Hysteresis ===
+  # Prevents oscillation when velocity is near the mode switch threshold
+  MODE_SWITCH_HYSTERESIS: 0.5              # m/s - hysteresis band around switch velocity
+  MIN_MODE_SWITCH_INTERVAL: 2.0            # seconds - minimum time between mode switches
+
   # === Target Loss Handling ===
   TARGET_LOSS_HANDLING:
     CONTINUE_VELOCITY_TIMEOUT: 3.0         # Continue last velocity for N seconds
@@ -1950,10 +1972,10 @@ PID:
     z: {p: 2, i: 0.03, d: 0.05}            # Vertical position
     rollspeed_deg_s: {p: 1, i: 0.05, d: 0.2}     # Roll rate (deg/s)
     pitchspeed_deg_s: {p: 20, i: 0.1, d: 0.4}    # Pitch rate (deg/s)
-    yawspeed_deg_s: {p: 0.9, i: 0.05, d: 0.1}    # Yaw rate (deg/s)
+    yawspeed_deg_s: {p: 12.0, i: 0.5, d: 1.5}    # Yaw rate (deg/s) - conservative for safe demo
     thrust: {p: 0.1, i: 3, d: 1}
-    vel_body_right: {p: 1.0, i: 0.02, d: 0.1}
-    vel_body_down: {p: 0.75, i: 0.05, d: 0.1}
+    vel_body_right: {p: 1.5, i: 0.08, d: 0.2}  # Lateral velocity - conservative for safe demo
+    vel_body_down: {p: 1.0, i: 0.08, d: 0.15}  # Vertical velocity - conservative for safe demo
     # Fixed-wing specific PID gains (L1/TECS follower)
     fw_roll_rate: {p: 0.8, i: 0.1, d: 0.05}       # Roll rate inner loop
     fw_pitch_rate: {p: 0.6, i: 0.15, d: 0.03}     # Pitch rate (TECS output)

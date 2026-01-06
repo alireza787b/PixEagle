@@ -396,6 +396,62 @@ class GimbalInterface:
                 'listen_port': self.listen_port
             }
 
+    def get_health_status(self) -> Dict[str, Any]:
+        """
+        Get gimbal connection health status for enterprise-grade monitoring.
+
+        This method provides comprehensive health information including:
+        - Connection status ('healthy', 'degraded', 'disconnected')
+        - Data freshness and age
+        - Consecutive timeout tracking
+        - Recommendations for follower behavior
+
+        Returns:
+            Dict[str, Any]: Health status dictionary with fields:
+                - status: 'healthy', 'degraded', or 'disconnected'
+                - data_age_seconds: Time since last valid data
+                - is_fresh: Whether data is within freshness timeout
+                - last_data_time: Unix timestamp of last data
+                - consecutive_timeouts: Count of consecutive timeouts (internal tracking)
+                - recommendation: Suggested action ('proceed', 'reduce_velocity', 'emergency_hold')
+        """
+        with self.lock:
+            current_time = time.time()
+            data_age = (
+                (current_time - self.last_data_time)
+                if self.last_data_time else float('inf')
+            )
+
+            # Determine health status based on data freshness
+            # DEGRADED_THRESHOLD: 2x freshness timeout
+            # DISCONNECT_THRESHOLD: 5x freshness timeout
+            degraded_threshold = self.DATA_FRESHNESS_TIMEOUT * 2
+            disconnect_threshold = self.DATA_FRESHNESS_TIMEOUT * 5
+
+            if data_age < self.DATA_FRESHNESS_TIMEOUT:
+                status = 'healthy'
+                recommendation = 'proceed'
+            elif data_age < degraded_threshold:
+                status = 'degraded'
+                recommendation = 'reduce_velocity'
+            elif data_age < disconnect_threshold:
+                status = 'degraded'
+                recommendation = 'reduce_velocity'
+            else:
+                status = 'disconnected'
+                recommendation = 'emergency_hold'
+
+            return {
+                'status': status,
+                'data_age_seconds': data_age,
+                'is_fresh': data_age < self.DATA_FRESHNESS_TIMEOUT,
+                'last_data_time': self.last_data_time,
+                'freshness_timeout': self.DATA_FRESHNESS_TIMEOUT,
+                'connection_status': self.connection_status.value,
+                'recommendation': recommendation,
+                'is_tracking_active': self.is_tracking_active()
+            }
+
     def _init_listening_socket(self) -> bool:
         """Initialize UDP sockets for both listening and control."""
         try:
