@@ -1296,8 +1296,10 @@ MC_VELOCITY_CHASE:
   TARGET_LOSS_TIMEOUT: 2.0                # seconds before ramp down starts
   # Target loss stop velocity: ramp to this when target lost (0.0 = full stop)
   TARGET_LOSS_STOP_VELOCITY: 0.0          # m/s - velocity on target loss (0.0 = stop)
-  # Coordinate threshold for detecting lost target (values > this indicate lost)
-  TARGET_LOSS_COORDINATE_THRESHOLD: 990   # Configurable threshold for lost target detection
+  # Coordinate threshold for detecting lost target (normalized coords, > this = lost)
+  # Coordinates are normalized [-1, 1] with center at (0, 0)
+  # Values beyond frame edges may reach ~1.5 before tracking loss
+  TARGET_LOSS_COORDINATE_THRESHOLD: 1.5   # v5.7.0: Fixed from 990 (broken) to normalized range
 
   # === Control Enablement ===
   #
@@ -1439,6 +1441,38 @@ MC_VELOCITY_CHASE:
   PITCH_COMPENSATION_MAX_ANGLE: 45.0     # Safety limit (degrees)
   PITCH_COMPENSATION_MAX_CORRECTION: 0.3 # Max compensation magnitude (0.0-1.0)
   PITCH_COMPENSATION_ADAPTIVE_GAIN: false # Future: adaptive gain tuning
+
+  # === v5.7.0: Configurable Parameters (Enterprise Hardening) ===
+  # These were previously hardcoded values - now configurable for different platforms
+
+  # Camera resolution height for adaptive rate calculations
+  # Adjust based on your camera's actual resolution for accurate rate estimation
+  VIDEO_HEIGHT_PIXELS: 480.0              # Default 480p, change for 720/1080/etc
+
+  # Velocity deadzone for forward ramping logic
+  # Values below this threshold are considered "at target" - prevents jitter
+  FORWARD_VELOCITY_DEADZONE: 0.01         # m/s - default 0.01 (1 cm/s)
+
+  # === 🎯 YAW RATE SMOOTHING (v5.7.0) ===
+  # Enterprise-grade yaw rate smoothing with deadzone, rate limiting, and EMA
+  # Prevents jitter on yaw commands from small tracking errors
+  #
+  # FIXED CAMERA NOTE: MC_VELOCITY_CHASE uses fixed camera (no gimbal), so
+  # the drone MUST yaw to keep target centered. Sideslip mode is incompatible
+  # and will be auto-converted to coordinated_turn with a warning.
+  #
+  YAW_SMOOTHING:
+    ENABLED: true                         # Master enable/disable for yaw smoothing
+    DEADZONE_DEG_S: 0.5                   # Ignore yaw rates below this (deg/s)
+                                          # Prevents jitter from noise/small errors
+    MAX_RATE_CHANGE_DEG_S2: 90.0          # Maximum yaw acceleration (deg/s²)
+                                          # Limits how fast yaw rate can change
+    SMOOTHING_ALPHA: 0.7                  # EMA filter coefficient (0-1)
+                                          # Higher = more responsive, Lower = smoother
+    ENABLE_SPEED_SCALING: true            # Scale yaw authority with forward speed
+    MIN_SPEED_THRESHOLD: 0.5              # m/s - below this, apply low-speed factor
+    MAX_SPEED_THRESHOLD: 5.0              # m/s - above this, full yaw authority
+    LOW_SPEED_YAW_FACTOR: 0.5             # Reduce yaw at low speeds (0-1)
 
 # ==============================================================================
 # CONSTANT POSITION FOLLOWER CONFIGURATION

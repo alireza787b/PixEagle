@@ -2407,11 +2407,13 @@ sections:
         unit: 0.0 = stop
         reload_tier: follower_restart
       TARGET_LOSS_COORDINATE_THRESHOLD:
-        type: integer
-        default: 990
-        description: Lost target detection threshold
-        min: 0
-        max: 10000
+        type: float
+        default: 1.5
+        description: Normalized coord threshold for target loss (> this = lost)
+        min: 0.5
+        max: 5.0
+        step: 0.1
+        unit: normalized
         reload_tier: follower_restart
       ENABLE_ALTITUDE_CONTROL:
         type: boolean
@@ -2695,6 +2697,93 @@ sections:
         default: false
         description: 'Future: adaptive gain tuning'
         reload_tier: follower_restart
+      # === v5.7.0: Enterprise Hardening Parameters ===
+      VIDEO_HEIGHT_PIXELS:
+        type: float
+        default: 480.0
+        description: Camera resolution height for rate calculations (px)
+        min: 120.0
+        max: 2160.0
+        step: 1.0
+        unit: px
+        reload_tier: follower_restart
+      FORWARD_VELOCITY_DEADZONE:
+        type: float
+        default: 0.01
+        description: Velocity deadzone for ramping (m/s)
+        min: 0.001
+        max: 0.5
+        step: 0.001
+        unit: m/s
+        reload_tier: follower_restart
+    # === YAW_SMOOTHING Nested Config (v5.7.0) ===
+    YAW_SMOOTHING:
+      display_name: Yaw Rate Smoothing
+      category: follower
+      icon: rotate_right
+      parameters:
+        ENABLED:
+          type: boolean
+          default: true
+          description: Enable yaw rate smoothing
+          reload_tier: follower_restart
+        DEADZONE_DEG_S:
+          type: float
+          default: 0.5
+          description: Ignore yaw rates below this (deg/s)
+          min: 0.0
+          max: 5.0
+          step: 0.1
+          unit: deg/s
+          reload_tier: follower_restart
+        MAX_RATE_CHANGE_DEG_S2:
+          type: float
+          default: 90.0
+          description: Maximum yaw acceleration (deg/s²)
+          min: 10.0
+          max: 360.0
+          step: 1.0
+          unit: deg/s²
+          reload_tier: follower_restart
+        SMOOTHING_ALPHA:
+          type: float
+          default: 0.7
+          description: EMA filter coefficient (0-1)
+          min: 0.0
+          max: 1.0
+          step: 0.01
+          reload_tier: follower_restart
+        ENABLE_SPEED_SCALING:
+          type: boolean
+          default: true
+          description: Scale yaw authority with forward speed
+          reload_tier: follower_restart
+        MIN_SPEED_THRESHOLD:
+          type: float
+          default: 0.5
+          description: Below this speed, apply low-speed factor (m/s)
+          min: 0.0
+          max: 5.0
+          step: 0.1
+          unit: m/s
+          reload_tier: follower_restart
+        MAX_SPEED_THRESHOLD:
+          type: float
+          default: 5.0
+          description: Above this speed, full yaw authority (m/s)
+          min: 1.0
+          max: 20.0
+          step: 0.1
+          unit: m/s
+          reload_tier: follower_restart
+        LOW_SPEED_YAW_FACTOR:
+          type: float
+          default: 0.5
+          description: Yaw reduction at low speeds (0-1)
+          min: 0.0
+          max: 1.0
+          step: 0.01
+          reload_tier: follower_restart
   MC_VELOCITY_POSITION:
     display_name: MC Velocity Position
     category: follower

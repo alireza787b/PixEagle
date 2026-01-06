@@ -1,44 +1,72 @@
 # src/classes/followers/mc_velocity_chase_follower.py
 """
-MC Velocity Chase Follower Module - Dual-Mode Lateral Guidance
-===============================================================
+MC Velocity Chase Follower Module - Fixed Camera Body Velocity Tracking
+=========================================================================
 
 This module implements the MCVelocityChaseFollower class for quadcopter target following
-using offboard body velocity control with dual-mode lateral guidance capabilities.
+using offboard body velocity control with a FIXED CAMERA (no gimbal).
 
 Project Information:
-- Project Name: PixEagle  
+- Project Name: PixEagle
 - Repository: https://github.com/alireza787b/PixEagle
 - Author: Alireza Ghaderi
 - LinkedIn: https://www.linkedin.com/in/alireza787b
 
 Key Features:
 - Body velocity offboard control (forward, right, down, yaw speed)
-- Dual-mode lateral guidance: Sideslip vs Coordinated Turn
+- Fixed camera constraint: ALWAYS uses coordinated_turn (yaw-to-target)
 - Forward velocity ramping with configurable acceleration
-- PID-controlled lateral and vertical tracking
+- PID-controlled vertical tracking
+- Enterprise-grade YawRateSmoother (deadzone, rate limiting, EMA)
 - Altitude safety monitoring with RTL capability
 - Target loss handling with automatic ramp-down
 - Emergency stop functionality
 - Comprehensive telemetry and status reporting
 
-Lateral Guidance Modes:
+FIXED CAMERA CONSTRAINT (v5.7.0):
+=================================
+With a fixed camera (no gimbal), the drone MUST yaw to keep the target centered.
+Sideslip mode (lateral velocity without yaw) would cause the target to drift
+off-frame, making tracking impossible. Therefore, this follower ALWAYS uses
+coordinated_turn mode regardless of configuration.
+
+Unit Conventions:
+=================
+- Target coordinates: Normalized [-1, 1], center at (0, 0)
+- Target loss threshold: Normalized (default 1.5 = edge of frame)
+- PID input: Normalized error [-1, 1]
+- PID output (yaw): rad/s (internal), converted to deg/s for MAVSDK
+- Velocity commands: m/s (body frame)
+- Yaw rate command: deg/s (MAVSDK convention)
+
+Control Flow (v5.7.0):
 ======================
-- **Sideslip Mode**: Direct lateral velocity control (v_right ≠ 0, yaw_rate = 0)
-  Best for: Precision hovering, close proximity operations, confined spaces
-  
-- **Coordinated Turn Mode**: Turn-to-track control (v_right = 0, yaw_rate ≠ 0)
-  Best for: Forward flight efficiency, natural behavior, wind resistance
+1. 2D Target Coords (x, y) ∈ [-1, 1] from tracker
+2. error_x = 0 - target_x (horizontal), error_y = 0 - target_y (vertical)
+3. PID controllers compute raw commands
+4. YawRateSmoother applies deadzone, rate limiting, EMA, speed scaling
+5. Commands sent to MAVSDK: vel_body_fwd, vel_body_right=0, vel_body_down, yawspeed_deg_s
+
+v5.7.0 Enterprise Hardening:
+============================
+- Fixed TARGET_LOSS_COORDINATE_THRESHOLD (was 990, now 1.5 normalized)
+- Forced coordinated_turn mode (sideslip incompatible with fixed camera)
+- Added YawRateSmoother for smooth yaw commands
+- Made VIDEO_HEIGHT_PIXELS configurable (was hardcoded 480)
+- Made FORWARD_VELOCITY_DEADZONE configurable (was hardcoded 0.01)
 
 Configuration:
 =============
-- Static mode selection via LATERAL_GUIDANCE_MODE parameter
-- Auto-switching based on forward velocity threshold
-- Separate PID tuning for each mode (vel_body_right vs yawspeed_deg_s)
+- LATERAL_GUIDANCE_MODE: Ignored - always uses coordinated_turn
+- TARGET_LOSS_COORDINATE_THRESHOLD: Normalized coords (default 1.5)
+- YAW_SMOOTHING: Nested config for enterprise-grade yaw smoothing
+- VIDEO_HEIGHT_PIXELS: Camera resolution for rate calculations
+- FORWARD_VELOCITY_DEADZONE: Velocity ramping deadzone
 """
 
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
+from classes.followers.gm_pid_pursuit_follower import YawRateSmoother  # v5.7.0: Reuse enterprise-grade yaw smoothing
 from classes.parameters import Parameters
 from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
@@ -162,6 +190,18 @@ class MCVelocityChaseFollower(BaseFollower):
         self.adaptive_oscillation_detection = config.get('ADAPTIVE_OSCILLATION_DETECTION', True)
         self.adaptive_max_sign_changes = config.get('ADAPTIVE_MAX_SIGN_CHANGES', 3)
         self.adaptive_divergence_timeout = config.get('ADAPTIVE_DIVERGENCE_TIMEOUT', 5.0)
+
+        # === v5.7.0: Configurable parameters (removed hardcodes) ===
+        # Video resolution for adaptive rate calculations (was hardcoded 480)
+        self.video_height_pixels = config.get('VIDEO_HEIGHT_PIXELS', 480.0)
+        # Velocity deadzone for ramping logic (was hardcoded 0.01 m/s)
+        self.forward_velocity_deadzone = config.get('FORWARD_VELOCITY_DEADZONE', 0.01)
+
+        # === v5.7.0: YawRateSmoother configuration ===
+        yaw_smoothing_config = config.get('YAW_SMOOTHING', {})
+        self.yaw_smoother = YawRateSmoother.from_config(yaw_smoothing_config)
+        logger.debug(f"YawRateSmoother initialized: enabled={self.yaw_smoother.enabled}, "
+                    f"deadzone={self.yaw_smoother.deadzone_deg_s}°/s")
 
         # Initialize forward velocity ramping state
         self.current_forward_velocity = self.initial_forward_velocity
@@ -314,30 +354,33 @@ class MCVelocityChaseFollower(BaseFollower):
 
     def _get_active_lateral_mode(self) -> str:
         """
-        Determines the active lateral guidance mode based on configuration and flight state.
-        
+        Determines the active lateral guidance mode for fixed camera tracking.
+
+        FIXED CAMERA CONSTRAINT (v5.7.0):
+        With a fixed camera (no gimbal), the drone MUST yaw to keep the target centered.
+        Sideslip mode (lateral velocity without yaw) would cause the target to drift
+        off-frame, making tracking impossible. Therefore, this follower ALWAYS uses
+        coordinated_turn mode regardless of configuration.
+
         Returns:
-            str: 'sideslip' or 'coordinated_turn'
+            str: Always 'coordinated_turn' for fixed camera tracking
         """
         try:
-            # Get configured mode
-            configured_mode = self.lateral_guidance_mode
+            # v5.7.0: Fixed camera requires coordinated_turn - sideslip is incompatible
+            # Sideslip would cause target to drift off frame since camera can't compensate
+            if self.lateral_guidance_mode == 'sideslip':
+                logger.warning(
+                    "MC_VELOCITY_CHASE: Sideslip mode configured but incompatible with fixed camera. "
+                    "Using coordinated_turn (yaw-to-target) for proper tracking. "
+                    "Note: Sideslip only works with gimbal-based followers where gimbal compensates."
+                )
 
-            # Check for auto-switching
-            if self.enable_auto_mode_switching:
-                switch_velocity = self.guidance_mode_switch_velocity
-                
-                if self.current_forward_velocity >= switch_velocity:
-                    return 'coordinated_turn'  # High speed: use coordinated turns
-                else:
-                    return 'sideslip'  # Low speed: use sideslip
-            
-            # Use configured mode
-            return configured_mode
-            
+            # Always use coordinated_turn for fixed camera tracking
+            return 'coordinated_turn'
+
         except Exception as e:
             logger.error(f"Error determining lateral mode: {e}")
-            return 'coordinated_turn'  # Safe default
+            return 'coordinated_turn'
 
     def _switch_lateral_mode(self, new_mode: str) -> None:
         """
@@ -453,8 +496,9 @@ class MCVelocityChaseFollower(BaseFollower):
             # Calculate velocity change
             ramp_rate = self.forward_ramp_rate
             velocity_error = target_velocity - self.current_forward_velocity
-            
-            if abs(velocity_error) < 0.01:  # Close enough to target
+
+            # v5.7.0: Use configurable deadzone (was hardcoded 0.01 m/s)
+            if abs(velocity_error) < self.forward_velocity_deadzone:  # Close enough to target
                 self.current_forward_velocity = target_velocity
             else:
                 # Apply ramping with acceleration limit
@@ -723,10 +767,9 @@ class MCVelocityChaseFollower(BaseFollower):
                     # Raw vertical rate in normalized coords per second
                     raw_rate = (y2 - y1) / dt
 
-                    # Convert to pixels/sec (assume 480p vertical resolution as reference)
-                    # This is normalized coordinate change, needs scaling by image height
-                    # For now, work in normalized space and calibrate the threshold
-                    instantaneous_rate = raw_rate * 480.0  # Scale to pixel-equivalent rate
+                    # Convert to pixels/sec using configurable video height
+                    # v5.7.0: Use self.video_height_pixels (was hardcoded 480.0)
+                    instantaneous_rate = raw_rate * self.video_height_pixels  # Scale to pixel-equivalent rate
 
                     # Apply exponential moving average (EMA) filtering
                     alpha = self.adaptive_smoothing_alpha
@@ -745,7 +788,8 @@ class MCVelocityChaseFollower(BaseFollower):
 
             # Since we don't have distance/altitude directly, use calibration factor
             # that user can tune based on their specific scenario
-            expected_rate = self.smoothed_down_velocity * self.pixel_to_rate_calibration * 480.0
+            # v5.7.0: Use self.video_height_pixels (was hardcoded 480.0)
+            expected_rate = self.smoothed_down_velocity * self.pixel_to_rate_calibration * self.video_height_pixels
 
             # Note: This is a simplified model. For better accuracy:
             # - Account for forward velocity (perspective scaling)
@@ -1350,7 +1394,11 @@ class MCVelocityChaseFollower(BaseFollower):
             self.set_command_field('vel_body_fwd', forward_velocity)
             self.set_command_field('vel_body_right', right_velocity)
             self.set_command_field('vel_body_down', down_velocity)
-            self.set_command_field('yawspeed_deg_s', self._degrees(yaw_speed))  # rad/s → deg/s
+
+            # v5.7.0: Apply enterprise-grade yaw rate smoothing (deadzone, rate limiting, EMA)
+            raw_yaw_rate_deg_s = self._degrees(yaw_speed)  # rad/s → deg/s
+            smoothed_yaw_rate = self.yaw_smoother.apply(raw_yaw_rate_deg_s, dt, forward_velocity)
+            self.set_command_field('yawspeed_deg_s', smoothed_yaw_rate)
             
             # Update telemetry metadata
             self.update_telemetry_metadata('last_target_coords', target_coords)
@@ -1370,7 +1418,7 @@ class MCVelocityChaseFollower(BaseFollower):
             
             logger.debug(f"Body velocity commands ({self.active_lateral_mode}) - "
                         f"Fwd: {forward_velocity:.2f}, Right: {right_velocity:.2f}, "
-                        f"Down: {down_velocity:.2f} m/s, Yaw: {self._degrees(yaw_speed):.2f} deg/s")
+                        f"Down: {down_velocity:.2f} m/s, Yaw: {smoothed_yaw_rate:.2f} deg/s (raw: {raw_yaw_rate_deg_s:.2f})")
             
         except Exception as e:
             logger.error(f"Error calculating control commands: {e}")
