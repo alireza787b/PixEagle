@@ -77,6 +77,10 @@ from classes.followers.base_follower import BaseFollower
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.parameters import Parameters
 
+# Import YawRateSmoother from GMPIDPursuitFollower for enterprise-grade yaw control
+# This provides deadzone, rate limiting, EMA smoothing, and speed-adaptive scaling
+from classes.followers.gm_pid_pursuit_follower import YawRateSmoother
+
 logger = logging.getLogger(__name__)
 
 
@@ -149,6 +153,29 @@ class GMVelocityVectorFollower(BaseFollower):
         self.enable_altitude_control = self.config.get('ENABLE_ALTITUDE_CONTROL', False)
         self.enable_yaw_control = self.config.get('ENABLE_YAW_CONTROL', False)
         self.yaw_rate_gain = self.config.get('YAW_RATE_GAIN', 0.5)
+
+        # === Lateral Guidance Mode (v5.6.0) ===
+        # Two strategies for lateral target tracking:
+        # - sideslip: Direct lateral velocity (v_right from gimbal, yaw_rate = 0)
+        # - coordinated_turn: Turn-to-track (v_right = 0, yaw_rate from gimbal yaw)
+        self.lateral_guidance_mode = self.config.get('LATERAL_GUIDANCE_MODE', 'sideslip')
+        self.active_lateral_mode = self.lateral_guidance_mode
+        logger.info(f"Lateral guidance mode: {self.lateral_guidance_mode}")
+
+        # === Auto Mode Switching (optional) ===
+        self.enable_auto_mode_switching = self.config.get('ENABLE_AUTO_MODE_SWITCHING', False)
+        self.guidance_mode_switch_velocity = self.config.get('GUIDANCE_MODE_SWITCH_VELOCITY', 3.0)
+
+        # === Mode Switch Hysteresis (prevents oscillation) ===
+        self.mode_switch_hysteresis = self.config.get('MODE_SWITCH_HYSTERESIS', 0.5)
+        self.min_mode_switch_interval = self.config.get('MIN_MODE_SWITCH_INTERVAL', 2.0)
+        self.last_mode_switch_time = 0.0
+
+        # === Yaw Rate Smoother (enterprise-grade smoothing for coordinated_turn) ===
+        yaw_smoothing_config = self.config.get('YAW_SMOOTHING', {})
+        self.yaw_smoother = YawRateSmoother.from_config(yaw_smoothing_config)
+        logger.debug(f"YawRateSmoother: enabled={self.yaw_smoother.enabled}, "
+                    f"deadzone={self.yaw_smoother.deadzone_deg_s} deg/s")
 
         # === Filtering ===
         self.angle_deadzone = self.config.get('ANGLE_DEADZONE_DEG', 2.0)
@@ -278,16 +305,47 @@ class GMVelocityVectorFollower(BaseFollower):
             self.last_command_vector = velocity_vector
             self.last_velocity_vector = velocity_vector
 
-            # Set command fields
+            # Set forward and vertical commands (common to all lateral modes)
             self.set_command_field("vel_body_fwd", velocity_vector.x)
-            self.set_command_field("vel_body_right", velocity_vector.y)
             self.set_command_field("vel_body_down", velocity_vector.z)
 
-            # Optional yaw control
-            if self.enable_yaw_control:
-                yaw_rate = self._calculate_yaw_rate(yaw_deg)
-                self.set_command_field("yawspeed_deg_s", yaw_rate)
+            # === AUTO MODE SWITCHING (optional) ===
+            if self.enable_auto_mode_switching:
+                new_mode = self._get_active_lateral_mode()
+                if new_mode != self.active_lateral_mode:
+                    self._switch_lateral_mode(new_mode)
+
+            # === LATERAL GUIDANCE MODE ===
+            if self.active_lateral_mode == 'sideslip':
+                # Sideslip Mode: Direct lateral velocity from gimbal, no yaw rotation
+                # Best for: Precision hovering, close proximity, confined spaces
+                self.set_command_field("vel_body_right", velocity_vector.y)
+                self.set_command_field("yawspeed_deg_s", 0.0)
+
+            elif self.active_lateral_mode == 'coordinated_turn':
+                # Coordinated Turn Mode: Yaw to track target, no lateral velocity
+                # Best for: Forward flight efficiency, natural behavior, wind resistance
+                self.set_command_field("vel_body_right", 0.0)
+
+                # Calculate raw yaw rate from gimbal yaw angle
+                raw_yaw_rate = self._calculate_yaw_rate(yaw_deg)
+
+                # Apply enterprise-grade yaw smoothing pipeline:
+                # 1. Deadzone - prevents jitter at low rates
+                # 2. Speed-adaptive scaling - works with slow AND fast speeds
+                # 3. Rate limiting - prevents jerky movements
+                # 4. EMA smoothing - noise reduction
+                forward_speed = abs(velocity_vector.x)
+                smoothed_yaw_rate = self.yaw_smoother.apply(raw_yaw_rate, dt, forward_speed)
+
+                self.set_command_field("yawspeed_deg_s", smoothed_yaw_rate)
+
+                logger.debug(f"Coordinated turn: raw_yaw={raw_yaw_rate:.2f} -> smoothed={smoothed_yaw_rate:.2f} deg/s")
+
             else:
+                # Fallback: sideslip behavior (safe default)
+                logger.warning(f"Unknown lateral mode '{self.active_lateral_mode}', using sideslip")
+                self.set_command_field("vel_body_right", velocity_vector.y)
                 self.set_command_field("yawspeed_deg_s", 0.0)
 
         except Exception as e:
@@ -552,6 +610,75 @@ class GMVelocityVectorFollower(BaseFollower):
         yaw_rate = max(-max_yaw_rate, min(max_yaw_rate, yaw_rate))
 
         return yaw_rate
+
+    # ==================== Lateral Guidance Mode Switching ====================
+
+    def _get_active_lateral_mode(self) -> str:
+        """
+        Determine active lateral guidance mode based on configuration and flight state.
+
+        Uses hysteresis to prevent oscillation when velocity is near the switch threshold.
+        Enforces minimum time between mode switches for stability.
+
+        Returns:
+            str: 'sideslip' or 'coordinated_turn'
+        """
+        try:
+            # If auto-switching is disabled, use configured mode
+            if not self.enable_auto_mode_switching:
+                return self.lateral_guidance_mode
+
+            current_time = time.time()
+            switch_velocity = self.guidance_mode_switch_velocity
+            hysteresis = self.mode_switch_hysteresis
+
+            # Enforce minimum time between mode switches
+            if current_time - self.last_mode_switch_time < self.min_mode_switch_interval:
+                return self.active_lateral_mode  # Stay in current mode
+
+            # Apply hysteresis based on current mode to prevent oscillation
+            if self.active_lateral_mode == 'sideslip':
+                # Need to exceed threshold + hysteresis to switch to coordinated_turn
+                if self.current_velocity_magnitude >= switch_velocity + hysteresis:
+                    self.last_mode_switch_time = current_time
+                    logger.info(f"Lateral mode switch: sideslip -> coordinated_turn "
+                               f"(v={self.current_velocity_magnitude:.2f} m/s)")
+                    return 'coordinated_turn'
+            else:  # coordinated_turn
+                # Need to drop below threshold - hysteresis to switch to sideslip
+                if self.current_velocity_magnitude <= switch_velocity - hysteresis:
+                    self.last_mode_switch_time = current_time
+                    logger.info(f"Lateral mode switch: coordinated_turn -> sideslip "
+                               f"(v={self.current_velocity_magnitude:.2f} m/s)")
+                    return 'sideslip'
+
+            # Stay in current mode (within hysteresis band)
+            return self.active_lateral_mode
+
+        except Exception as e:
+            logger.error(f"Error determining lateral mode: {e}")
+            return 'sideslip'  # Safe default
+
+    def _switch_lateral_mode(self, new_mode: str) -> None:
+        """
+        Switch between lateral guidance modes dynamically.
+
+        Resets yaw smoother state when switching to coordinated_turn mode
+        to prevent smoothing artifacts from the previous mode.
+
+        Args:
+            new_mode: New lateral guidance mode ('sideslip' or 'coordinated_turn')
+        """
+        if new_mode == self.active_lateral_mode:
+            return  # Already in the requested mode
+
+        logger.info(f"Switching lateral guidance mode: {self.active_lateral_mode} -> {new_mode}")
+        self.active_lateral_mode = new_mode
+
+        # Reset yaw smoother state for clean transition to coordinated_turn
+        if new_mode == 'coordinated_turn':
+            self.yaw_smoother.reset()
+            logger.debug("YawRateSmoother reset for coordinated_turn mode")
 
     # ==================== Target Loss Handling ====================
 

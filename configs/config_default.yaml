@@ -1209,8 +1209,39 @@ GM_VELOCITY_VECTOR:
   # Altitude control uses gimbal pitch to compute vertical velocity
   # When disabled, only horizontal pursuit (vel_down = 0, safer default)
   ENABLE_ALTITUDE_CONTROL: false          # true = 3D vector pursuit, false = horizontal only
-  ENABLE_YAW_CONTROL: false               # Optional: yaw drone toward target
+  ENABLE_YAW_CONTROL: false               # Optional: yaw drone toward target (DEPRECATED: use LATERAL_GUIDANCE_MODE)
   YAW_RATE_GAIN: 0.5                      # Yaw rate proportional gain (if enabled)
+
+  # === LATERAL GUIDANCE MODES (v5.6.0) ===
+  # Two strategies for lateral target tracking:
+  # - sideslip: Direct lateral velocity (v_right from gimbal, yaw_rate = 0)
+  #   Best for: Precision hovering, close proximity, confined spaces
+  # - coordinated_turn: Turn-to-track (v_right = 0, yaw_rate from gimbal yaw)
+  #   Best for: Forward flight efficiency, natural behavior, wind resistance
+  LATERAL_GUIDANCE_MODE: sideslip         # sideslip | coordinated_turn
+
+  # === Auto Mode Switching (Optional) ===
+  # Automatically switch between modes based on forward velocity
+  ENABLE_AUTO_MODE_SWITCHING: false       # Disabled by default (conservative)
+  GUIDANCE_MODE_SWITCH_VELOCITY: 3.0      # m/s - switch threshold
+
+  # === Mode Switch Hysteresis ===
+  # Prevents oscillation when velocity is near the mode switch threshold
+  MODE_SWITCH_HYSTERESIS: 0.5             # m/s - hysteresis band around switch velocity
+  MIN_MODE_SWITCH_INTERVAL: 2.0           # seconds - minimum time between mode switches
+
+  # === Yaw Rate Smoothing (Enterprise-Grade) ===
+  # Configurable smoothing pipeline for smooth, professional yaw control
+  # Applied in coordinated_turn mode for smooth heading changes
+  YAW_SMOOTHING:
+    ENABLED: true                         # Master enable for yaw smoothing
+    DEADZONE_DEG_S: 0.5                   # deg/s - ignore rates below this threshold
+    MAX_RATE_CHANGE_DEG_S2: 90.0          # deg/s² - max yaw acceleration
+    SMOOTHING_ALPHA: 0.7                  # EMA coefficient (0-1, lower = more smoothing)
+    ENABLE_SPEED_SCALING: true            # Scale yaw authority based on forward speed
+    MIN_SPEED_THRESHOLD: 0.5              # m/s - below this, reduce yaw authority
+    MAX_SPEED_THRESHOLD: 5.0              # m/s - above this, full yaw authority
+    LOW_SPEED_YAW_FACTOR: 0.5             # Reduce yaw rate by this factor at low speed
 
   # === Gimbal Angle Filtering ===
   # Real-world gimbals have jitter and noise - filtering provides smooth control

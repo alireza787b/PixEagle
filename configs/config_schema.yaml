@@ -2168,6 +2168,61 @@ sections:
         step: 0.01
         unit: if enabled
         reload_tier: follower_restart
+      LATERAL_GUIDANCE_MODE:
+        type: string
+        default: sideslip
+        description: Lateral guidance strategy (sideslip = direct lateral velocity, coordinated_turn = yaw to track)
+        options:
+        - value: sideslip
+          label: Sideslip (Direct Lateral)
+        - value: coordinated_turn
+          label: Coordinated Turn (Yaw to Track)
+        reload_tier: follower_restart
+      ENABLE_AUTO_MODE_SWITCHING:
+        type: boolean
+        default: false
+        description: Auto-switch lateral mode based on forward velocity
+        reload_tier: follower_restart
+      GUIDANCE_MODE_SWITCH_VELOCITY:
+        type: float
+        default: 3.0
+        description: Forward velocity threshold for auto mode switching (m/s)
+        min: 0.5
+        max: 20.0
+        step: 0.5
+        unit: m/s
+        reload_tier: follower_restart
+      MODE_SWITCH_HYSTERESIS:
+        type: float
+        default: 0.5
+        description: Hysteresis band to prevent mode oscillation (m/s)
+        min: 0.1
+        max: 2.0
+        step: 0.1
+        unit: m/s
+        reload_tier: follower_restart
+      MIN_MODE_SWITCH_INTERVAL:
+        type: float
+        default: 2.0
+        description: Minimum time between lateral mode switches (seconds)
+        min: 0.5
+        max: 10.0
+        step: 0.5
+        unit: seconds
+        reload_tier: follower_restart
+      YAW_SMOOTHING:
+        type: object
+        default:
+          ENABLED: true
+          DEADZONE_DEG_S: 0.5
+          MAX_RATE_CHANGE_DEG_S2: 90.0
+          SMOOTHING_ALPHA: 0.7
+          ENABLE_SPEED_SCALING: true
+          MIN_SPEED_THRESHOLD: 0.5
+          MAX_SPEED_THRESHOLD: 5.0
+          LOW_SPEED_YAW_FACTOR: 0.5
+        description: Enterprise-grade yaw rate smoothing for coordinated_turn mode
+        reload_tier: follower_restart
       ANGLE_DEADZONE_DEG:
         type: float
         default: 2.0
