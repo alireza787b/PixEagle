@@ -1,14 +1,25 @@
 // dashboard/src/components/config/ImportExportToolbar.js
+/**
+ * Organized 3-tier toolbar for config import/export operations (v5.4.0+)
+ *
+ * Layout organized by usage frequency:
+ * - Tier 1 (Primary): View Changes, Sync Defaults
+ * - Tier 2 (Secondary): Export/Import, History/Audit, Refresh
+ * - Tier 3 (Destructive): Reset to Defaults
+ */
+
 import React, { useState } from 'react';
+import PropTypes from 'prop-types';
 import {
-  Box, Button, Tooltip, Divider, Chip,
+  Box, Button, IconButton, Tooltip, Divider, Badge,
   Dialog, DialogTitle, DialogContent, DialogActions,
   Typography, FormControlLabel, Checkbox, Alert,
-  CircularProgress
+  CircularProgress, Menu, MenuItem, ListItemIcon, ListItemText
 } from '@mui/material';
 import {
   FileUpload, FileDownload, History, Refresh,
-  CompareArrows, WarningAmber, ReceiptLong, RestartAlt
+  CompareArrows, WarningAmber, ReceiptLong, RestartAlt,
+  Sync, MoreVert
 } from '@mui/icons-material';
 
 import { useResponsive } from '../../hooks/useResponsive';
@@ -19,19 +30,21 @@ import AuditLogDialog from './AuditLogDialog';
 import { endpoints } from '../../services/apiEndpoints';
 
 /**
- * ImportExportToolbar - Toolbar for config import/export operations
+ * ImportExportToolbar - Organized 3-tier toolbar for config operations
  *
  * Features:
- * - Export current config (full or changes-only)
- * - Import config with diff preview
- * - View and restore backup history
- * - Show count of changes from default
+ * - Tier 1 (Primary): View Changes, Sync Defaults (badges show counts)
+ * - Tier 2 (Secondary): Export/Import, History/Audit, Refresh
+ * - Tier 3 (Destructive): Reset to Defaults (right-aligned, warning color)
  */
 const ImportExportToolbar = ({
   changesCount = 0,
+  syncAvailableCount = 0,
   onRefresh,
   onMessage,
-  onConfigImported
+  onConfigImported,
+  onViewChanges,
+  onSyncDefaults,
 }) => {
   const { isMobile } = useResponsive();
   const [exportOpen, setExportOpen] = useState(false);
@@ -41,6 +54,7 @@ const ImportExportToolbar = ({
   const [resetOpen, setResetOpen] = useState(false);
   const [resetConfirmed, setResetConfirmed] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [moreMenuAnchor, setMoreMenuAnchor] = useState(null);
 
   const handleExportClose = (success) => {
     setExportOpen(false);
@@ -98,251 +112,300 @@ const ImportExportToolbar = ({
     setResetConfirmed(false);
   };
 
-  return (
-    <>
-      {isMobile ? (
-        // Mobile: Icon + Label buttons in compact grid (like mobile app navigation)
+  const handleMoreMenuClose = () => {
+    setMoreMenuAnchor(null);
+  };
+
+  // Mobile: Compact layout with overflow menu
+  if (isMobile) {
+    return (
+      <>
         <Box sx={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
+          display: 'flex',
           gap: 1,
-          width: '100%'
+          alignItems: 'center',
+          width: '100%',
+          flexWrap: 'wrap'
         }}>
-          {/* Changes indicator */}
-          {changesCount > 0 && (
-            <Chip
-              icon={<CompareArrows />}
-              label={`${changesCount} changes`}
-              size="small"
-              color="warning"
+          {/* Tier 1: Primary Actions */}
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<CompareArrows />}
+            onClick={onViewChanges}
+            disabled={changesCount === 0}
+            sx={{ minWidth: 0, px: 1.5 }}
+          >
+            <Badge badgeContent={changesCount} color="warning" max={99}>
+              <Typography variant="button" sx={{ pr: changesCount > 0 ? 1 : 0 }}>
+                Changes
+              </Typography>
+            </Badge>
+          </Button>
+
+          {syncAvailableCount > 0 && (
+            <Button
               variant="outlined"
-              sx={{ gridColumn: '1 / -1', justifySelf: 'stretch' }}
-            />
+              size="small"
+              color="info"
+              startIcon={<Sync />}
+              onClick={onSyncDefaults}
+              sx={{ minWidth: 0, px: 1.5 }}
+            >
+              <Badge badgeContent={syncAvailableCount} color="info" max={99}>
+                <Typography variant="button" sx={{ pr: 1 }}>
+                  Sync
+                </Typography>
+              </Badge>
+            </Button>
           )}
 
-          {/* Export button */}
-          <Button
-            onClick={() => setExportOpen(true)}
-            variant="outlined"
-            aria-label="Export configuration to file"
-            sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 0.5,
-              p: 1,
-              minHeight: 64,
-              flex: 1,
-              '&:hover': {
-                bgcolor: 'action.hover',
-                borderColor: 'primary.main'
-              }
-            }}
-          >
-            <FileDownload />
-            <Typography variant="caption" sx={{ fontSize: '0.75rem', textAlign: 'center', lineHeight: 1.2 }}>
-              Export
-            </Typography>
-          </Button>
+          <Box sx={{ flexGrow: 1 }} />
 
-          {/* Import button */}
-          <Button
-            onClick={() => setImportOpen(true)}
-            variant="outlined"
-            aria-label="Import configuration from file"
-            sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 0.5,
-              p: 1,
-              minHeight: 64,
-              flex: 1,
-              '&:hover': {
-                bgcolor: 'action.hover',
-                borderColor: 'primary.main'
-              }
-            }}
+          {/* More Menu */}
+          <IconButton
+            onClick={(e) => setMoreMenuAnchor(e.currentTarget)}
+            size="small"
           >
-            <FileUpload />
-            <Typography variant="caption" sx={{ fontSize: '0.75rem', textAlign: 'center', lineHeight: 1.2 }}>
-              Import
-            </Typography>
-          </Button>
+            <MoreVert />
+          </IconButton>
 
-          {/* History button */}
-          <Button
-            onClick={() => setHistoryOpen(true)}
-            variant="outlined"
-            aria-label="View backup history"
-            sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 0.5,
-              p: 1,
-              minHeight: 64,
-              flex: 1,
-              '&:hover': {
-                bgcolor: 'action.hover',
-                borderColor: 'primary.main'
-              }
-            }}
+          <Menu
+            anchorEl={moreMenuAnchor}
+            open={Boolean(moreMenuAnchor)}
+            onClose={handleMoreMenuClose}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
           >
-            <History />
-            <Typography variant="caption" sx={{ fontSize: '0.75rem', textAlign: 'center', lineHeight: 1.2 }}>
-              History
-            </Typography>
-          </Button>
-
-          {/* Audit Log button */}
-          <Button
-            onClick={() => setAuditOpen(true)}
-            variant="outlined"
-            aria-label="View change audit log"
-            sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 0.5,
-              p: 1,
-              minHeight: 64,
-              flex: 1,
-              '&:hover': {
-                bgcolor: 'action.hover',
-                borderColor: 'primary.main'
-              }
-            }}
-          >
-            <ReceiptLong />
-            <Typography variant="caption" sx={{ fontSize: '0.75rem', textAlign: 'center', lineHeight: 1.2 }}>
-              Audit
-            </Typography>
-          </Button>
-
-          {/* Reset to Defaults button */}
-          <Button
-            onClick={() => setResetOpen(true)}
-            variant="outlined"
-            color="warning"
-            aria-label="Reset configuration to defaults"
-            sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 0.5,
-              p: 1,
-              minHeight: 64,
-              flex: 1,
-              '&:hover': {
-                bgcolor: 'warning.light',
-                borderColor: 'warning.main'
-              }
-            }}
-          >
-            <RestartAlt />
-            <Typography variant="caption" sx={{ fontSize: '0.75rem', textAlign: 'center', lineHeight: 1.2 }}>
-              Reset
-            </Typography>
-          </Button>
-
-          {/* Refresh button */}
-          <Button
-            onClick={onRefresh}
-            variant="outlined"
-            aria-label="Refresh configuration"
-            sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 0.5,
-              p: 1,
-              minHeight: 64,
-              flex: 1,
-              '&:hover': {
-                bgcolor: 'action.hover',
-                borderColor: 'primary.main'
-              }
-            }}
-          >
-            <Refresh />
-            <Typography variant="caption" sx={{ fontSize: '0.75rem', textAlign: 'center', lineHeight: 1.2 }}>
-              Refresh
-            </Typography>
-          </Button>
+            <MenuItem onClick={() => { setExportOpen(true); handleMoreMenuClose(); }}>
+              <ListItemIcon><FileDownload fontSize="small" /></ListItemIcon>
+              <ListItemText>Export</ListItemText>
+            </MenuItem>
+            <MenuItem onClick={() => { setImportOpen(true); handleMoreMenuClose(); }}>
+              <ListItemIcon><FileUpload fontSize="small" /></ListItemIcon>
+              <ListItemText>Import</ListItemText>
+            </MenuItem>
+            <Divider />
+            <MenuItem onClick={() => { setHistoryOpen(true); handleMoreMenuClose(); }}>
+              <ListItemIcon><History fontSize="small" /></ListItemIcon>
+              <ListItemText>Backup History</ListItemText>
+            </MenuItem>
+            <MenuItem onClick={() => { setAuditOpen(true); handleMoreMenuClose(); }}>
+              <ListItemIcon><ReceiptLong fontSize="small" /></ListItemIcon>
+              <ListItemText>Audit Log</ListItemText>
+            </MenuItem>
+            <Divider />
+            <MenuItem onClick={() => { onRefresh?.(); handleMoreMenuClose(); }}>
+              <ListItemIcon><Refresh fontSize="small" /></ListItemIcon>
+              <ListItemText>Refresh</ListItemText>
+            </MenuItem>
+            <Divider />
+            <MenuItem
+              onClick={() => { setResetOpen(true); handleMoreMenuClose(); }}
+              sx={{ color: 'warning.main' }}
+            >
+              <ListItemIcon><RestartAlt fontSize="small" color="warning" /></ListItemIcon>
+              <ListItemText>Reset to Defaults</ListItemText>
+            </MenuItem>
+          </Menu>
         </Box>
-      ) : (
-        // Desktop: Full buttons with labels
+
+        {/* Dialogs */}
+        {renderDialogs()}
+      </>
+    );
+  }
+
+  // Helper to render dialogs (shared between mobile and desktop)
+  function renderDialogs() {
+    return (
+      <>
+        <ExportDialog
+          open={exportOpen}
+          onClose={handleExportClose}
+          changesCount={changesCount}
+        />
+
+        <ImportDialog
+          open={importOpen}
+          onClose={handleImportClose}
+        />
+
+        <BackupHistoryDialog
+          open={historyOpen}
+          onClose={handleHistoryClose}
+        />
+
+        <AuditLogDialog
+          open={auditOpen}
+          onClose={() => setAuditOpen(false)}
+        />
+
+        {/* Reset to Defaults Confirmation Dialog */}
+        <Dialog
+          open={resetOpen}
+          onClose={handleResetDialogClose}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <WarningAmber color="warning" />
+            Reset Configuration to Defaults
+          </DialogTitle>
+          <DialogContent>
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              This will reset ALL configuration parameters to their default values.
+              Your current settings will be lost.
+            </Alert>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              A backup of your current configuration will be created automatically
+              before resetting. You can restore it later from the History dialog.
+            </Typography>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={resetConfirmed}
+                  onChange={(e) => setResetConfirmed(e.target.checked)}
+                  color="warning"
+                />
+              }
+              label="I understand this will reset all configuration to defaults"
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleResetDialogClose} disabled={resetting}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleResetToDefaults}
+              variant="contained"
+              color="warning"
+              disabled={!resetConfirmed || resetting}
+              startIcon={resetting ? <CircularProgress size={16} /> : <RestartAlt />}
+            >
+              {resetting ? 'Resetting...' : 'Reset to Defaults'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </>
+    );
+  }
+
+  // Desktop/Tablet: 3-tier organized layout
+  return (
+    <>
+      <Box sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 1,
+        width: '100%'
+      }}>
+        {/* Tier 1: Primary Actions - Always visible, prominent */}
         <Box sx={{
           display: 'flex',
           gap: 1,
           alignItems: 'center',
           flexWrap: 'wrap'
         }}>
-          {/* Changes indicator */}
-          {changesCount > 0 && (
-            <Tooltip title={`${changesCount} parameters differ from defaults`}>
-              <Chip
-                icon={<CompareArrows />}
-                label={`${changesCount} changes`}
-                size="small"
-                color="warning"
-                variant="outlined"
-              />
-            </Tooltip>
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<CompareArrows />}
+            onClick={onViewChanges}
+            disabled={changesCount === 0}
+          >
+            <Badge badgeContent={changesCount} color="warning" max={99}>
+              <Typography variant="button" sx={{ pr: changesCount > 0 ? 1.5 : 0 }}>
+                View Changes
+              </Typography>
+            </Badge>
+          </Button>
+
+          {syncAvailableCount > 0 && (
+            <Button
+              variant="outlined"
+              size="small"
+              color="info"
+              startIcon={<Sync />}
+              onClick={onSyncDefaults}
+            >
+              <Badge badgeContent={syncAvailableCount} color="info" max={99}>
+                <Typography variant="button" sx={{ pr: 1.5 }}>
+                  Sync Defaults
+                </Typography>
+              </Badge>
+            </Button>
           )}
+        </Box>
 
-          <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
-
-          {/* Export button */}
+        {/* Tier 2: Secondary Actions - Grouped by function */}
+        <Box sx={{
+          display: 'flex',
+          gap: 0.5,
+          alignItems: 'center',
+          flexWrap: 'wrap'
+        }}>
+          {/* File Group */}
           <Tooltip title="Export configuration to YAML file">
-            <Button
-              variant="outlined"
+            <IconButton
               size="small"
-              startIcon={<FileDownload />}
               onClick={() => setExportOpen(true)}
+              sx={{ color: 'text.secondary' }}
             >
-              Export
-            </Button>
+              <FileDownload fontSize="small" />
+            </IconButton>
           </Tooltip>
 
-          {/* Import button */}
           <Tooltip title="Import configuration from YAML file">
-            <Button
-              variant="outlined"
+            <IconButton
               size="small"
-              startIcon={<FileUpload />}
               onClick={() => setImportOpen(true)}
+              sx={{ color: 'text.secondary' }}
             >
-              Import
-            </Button>
+              <FileUpload fontSize="small" />
+            </IconButton>
           </Tooltip>
 
-          {/* History button */}
+          <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+
+          {/* History Group */}
           <Tooltip title="View backup history">
-            <Button
-              variant="outlined"
+            <IconButton
               size="small"
-              startIcon={<History />}
               onClick={() => setHistoryOpen(true)}
+              sx={{ color: 'text.secondary' }}
             >
-              History
-            </Button>
+              <History fontSize="small" />
+            </IconButton>
           </Tooltip>
 
-          {/* Audit Log button */}
           <Tooltip title="View change audit log">
-            <Button
-              variant="outlined"
+            <IconButton
               size="small"
-              startIcon={<ReceiptLong />}
               onClick={() => setAuditOpen(true)}
+              sx={{ color: 'text.secondary' }}
             >
-              Audit Log
-            </Button>
+              <ReceiptLong fontSize="small" />
+            </IconButton>
           </Tooltip>
 
-          {/* Reset to Defaults button */}
+          <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+
+          {/* Utility */}
+          <Tooltip title="Refresh configuration">
+            <IconButton
+              size="small"
+              onClick={onRefresh}
+              sx={{ color: 'text.secondary' }}
+            >
+              <Refresh fontSize="small" />
+            </IconButton>
+          </Tooltip>
+
+          {/* Spacer */}
+          <Box sx={{ flexGrow: 1 }} />
+
+          {/* Tier 3: Destructive - Right-aligned, warning color */}
           <Tooltip title="Reset all parameters to default values">
             <Button
               variant="outlined"
@@ -350,97 +413,35 @@ const ImportExportToolbar = ({
               color="warning"
               startIcon={<RestartAlt />}
               onClick={() => setResetOpen(true)}
+              sx={{ ml: 2 }}
             >
-              Reset to Defaults
-            </Button>
-          </Tooltip>
-
-          <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
-
-          {/* Refresh button */}
-          <Tooltip title="Refresh configuration">
-            <Button
-              variant="text"
-              size="small"
-              startIcon={<Refresh />}
-              onClick={onRefresh}
-            >
-              Refresh
+              Reset
             </Button>
           </Tooltip>
         </Box>
-      )}
+      </Box>
 
       {/* Dialogs */}
-      <ExportDialog
-        open={exportOpen}
-        onClose={handleExportClose}
-        changesCount={changesCount}
-      />
-
-      <ImportDialog
-        open={importOpen}
-        onClose={handleImportClose}
-      />
-
-      <BackupHistoryDialog
-        open={historyOpen}
-        onClose={handleHistoryClose}
-      />
-
-      <AuditLogDialog
-        open={auditOpen}
-        onClose={() => setAuditOpen(false)}
-      />
-
-      {/* Reset to Defaults Confirmation Dialog */}
-      <Dialog
-        open={resetOpen}
-        onClose={handleResetDialogClose}
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <WarningAmber color="warning" />
-          Reset Configuration to Defaults
-        </DialogTitle>
-        <DialogContent>
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            This will reset ALL configuration parameters to their default values.
-            Your current settings will be lost.
-          </Alert>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            A backup of your current configuration will be created automatically
-            before resetting. You can restore it later from the History dialog.
-          </Typography>
-          <FormControlLabel
-            control={
-              <Checkbox
-                checked={resetConfirmed}
-                onChange={(e) => setResetConfirmed(e.target.checked)}
-                color="warning"
-              />
-            }
-            label="I understand this will reset all configuration to defaults"
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleResetDialogClose} disabled={resetting}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleResetToDefaults}
-            variant="contained"
-            color="warning"
-            disabled={!resetConfirmed || resetting}
-            startIcon={resetting ? <CircularProgress size={16} /> : <RestartAlt />}
-          >
-            {resetting ? 'Resetting...' : 'Reset to Defaults'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {renderDialogs()}
     </>
   );
+};
+
+ImportExportToolbar.propTypes = {
+  /** Number of parameters that differ from defaults */
+  changesCount: PropTypes.number,
+  /** Number of new defaults available for sync (v5.4.0+) */
+  syncAvailableCount: PropTypes.number,
+  /** Callback to refresh configuration */
+  onRefresh: PropTypes.func,
+  /** Callback to show messages (toast) */
+  onMessage: PropTypes.func,
+  /** Callback when config is imported */
+  onConfigImported: PropTypes.func,
+  /** Callback to view changes drawer (v5.4.0+) */
+  onViewChanges: PropTypes.func,
+  /** Callback to open sync defaults dialog (v5.4.0+) */
+  onSyncDefaults: PropTypes.func,
 };
 
 export default ImportExportToolbar;

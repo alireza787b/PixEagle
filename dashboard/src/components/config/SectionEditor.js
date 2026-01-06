@@ -1,5 +1,5 @@
 // dashboard/src/components/config/SectionEditor.js
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import {
   Box, Paper, Typography, CircularProgress, Alert, Button, Divider,
@@ -13,8 +13,8 @@ import {
 
 import { useConfigSection } from '../../hooks/useConfig';
 import { useResponsive } from '../../hooks/useResponsive';
+import { useConfigGlobalState } from '../../hooks/useConfigGlobalState';
 import ParameterDetailDialog from './ParameterDetailDialog';
-import { isPIDTriplet } from '../../utils/schemaAnalyzer';
 import SmartValueEditor from './SmartValueEditor';
 import SafetyLimitsEditor from './SafetyLimitsEditor';
 import { ReloadTierChip } from './ReloadTierBadge';
@@ -509,6 +509,8 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
     refetch
   } = useConfigSection(sectionName);
   const { isMobile, isTablet, spacing } = useResponsive();
+  const globalState = useConfigGlobalState();
+
   // Use card layout on mobile/tablet, OR always for Safety section (has complex embedded editors)
   const isSafetySection = sectionName === 'Safety' || sectionName === 'SafetyLimits';
   const useCardLayout = isMobile || isTablet || isSafetySection;
@@ -546,11 +548,15 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
   const handleLocalChange = useCallback((param, value) => {
     setLocalValues(prev => ({ ...prev, [param]: value }));
     setPendingChanges(prev => ({ ...prev, [param]: value }));
-  }, []);
+    // Track in global state for status banner
+    const oldValue = config[param];
+    globalState.registerUnsavedChange?.(sectionName, param, oldValue, value);
+  }, [config, sectionName, globalState]);
 
   const handleSave = useCallback(async (param, value) => {
     // Set saving status
     setSaveStatuses(prev => ({ ...prev, [param]: 'saving' }));
+    globalState.markSectionSaving?.(sectionName);
 
     try {
       const result = await updateParameter(param, value);
@@ -569,6 +575,10 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
           return updated;
         });
 
+        // Update global state
+        globalState.markParamSaved?.(sectionName, param);
+        globalState.refreshModifiedCount?.();
+
         // Check if restart required based on reload_tier
         const paramSchema = schema?.parameters?.[param];
         const reloadTier = paramSchema?.reload_tier || 'system_restart';
@@ -576,19 +586,23 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
           onRebootRequired?.(sectionName, param, reloadTier);
         }
 
-        onMessage?.(`${param} saved`, 'success');
+        // Enhanced message callback with safety detection
+        const isSafetyParam = sectionName === 'Safety' || sectionName === 'SafetyLimits';
+        onMessage?.(`${param} saved`, 'success', { persistent: isSafetyParam });
       } else {
         // Save failed
         setSaveStatuses(prev => ({ ...prev, [param]: 'error' }));
+        globalState.markSaveError?.(sectionName, param, result.error || 'Save failed');
         const errorMsg = result.error ||
           (result.saved === false ? 'Failed to write to config file' : 'Validation failed');
         onMessage?.(`Error saving ${param}: ${errorMsg}`, 'error');
       }
     } catch (err) {
       setSaveStatuses(prev => ({ ...prev, [param]: 'error' }));
+      globalState.markSaveError?.(sectionName, param, err.message);
       onMessage?.(`Error saving ${param}: ${err.message}`, 'error');
     }
-  }, [updateParameter, schema, sectionName, onRebootRequired, onMessage]);
+  }, [updateParameter, schema, sectionName, onRebootRequired, onMessage, globalState]);
 
   const handleRevert = useCallback(async (param) => {
     const success = await revertParameter(param);
@@ -604,9 +618,12 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
         return updated;
       });
       setSaveStatuses(prev => ({ ...prev, [param]: 'saved' }));
+      // Update global state
+      globalState.markParamSaved?.(sectionName, param);
+      globalState.refreshModifiedCount?.();
       onMessage?.('Parameter reverted to default', 'info');
     }
-  }, [revertParameter, onMessage]);
+  }, [revertParameter, onMessage, sectionName, globalState]);
 
   const handleRevertAll = useCallback(async () => {
     const success = await revertSection();
@@ -614,9 +631,12 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
       setLocalValues({});
       setPendingChanges({});
       setSaveStatuses({});
+      // Clear section from global state
+      globalState.clearSectionChanges?.(sectionName);
+      globalState.refreshModifiedCount?.();
       onMessage?.('Section reverted to defaults', 'info');
     }
-  }, [revertSection, onMessage]);
+  }, [revertSection, onMessage, sectionName, globalState]);
 
   const handleSaveAll = useCallback(async () => {
     const params = Object.keys(pendingChanges);

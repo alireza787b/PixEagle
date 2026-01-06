@@ -383,6 +383,8 @@ class FastAPIHandler:
         # Diff & comparison
         self.app.get("/api/config/diff")(self.get_config_diff)
         self.app.post("/api/config/diff")(self.compare_configs)
+        # Defaults sync (v5.4.0+)
+        self.app.get("/api/config/defaults-sync")(self.get_defaults_sync)
         # Revert operations
         self.app.post("/api/config/revert")(self.revert_config_to_default)
         self.app.post("/api/config/revert/{section}")(self.revert_section_to_default)
@@ -3940,6 +3942,72 @@ class FastAPIHandler:
             })
         except Exception as e:
             self.logger.error(f"Error comparing configs: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_defaults_sync(self):
+        """Get sync information between current config and defaults (v5.4.0+).
+
+        Returns:
+            - new_parameters: Parameters in default that user doesn't have
+            - changed_defaults: Parameters where default value has changed
+            - removed_parameters: Parameters user has that are no longer in schema
+        """
+        try:
+            service = self._get_config_service()
+            schema = service.get_schema()
+            current_config = service.get_config()
+            default_config = service.get_default_config()
+
+            new_parameters = []
+            changed_defaults = []
+            removed_parameters = []
+
+            # Get all sections from schema
+            sections = schema.get('sections', {})
+
+            for section_name, section_schema in sections.items():
+                parameters = section_schema.get('parameters', {})
+                current_section = current_config.get(section_name, {})
+                default_section = default_config.get(section_name, {})
+
+                for param_name, param_schema in parameters.items():
+                    default_value = param_schema.get('default')
+                    current_value = current_section.get(param_name)
+
+                    # New parameter: in schema/defaults but not in user config
+                    if param_name not in current_section and param_name in default_section:
+                        new_parameters.append({
+                            'section': section_name,
+                            'parameter': param_name,
+                            'default_value': default_value,
+                            'description': param_schema.get('description', ''),
+                            'type': param_schema.get('type', 'string'),
+                        })
+
+                # Check for removed parameters (in current but not in schema)
+                for param_name in current_section:
+                    if param_name not in parameters:
+                        removed_parameters.append({
+                            'section': section_name,
+                            'parameter': param_name,
+                            'current_value': current_section[param_name],
+                        })
+
+            return JSONResponse(content={
+                'success': True,
+                'new_parameters': new_parameters,
+                'changed_defaults': changed_defaults,
+                'removed_parameters': removed_parameters,
+                'counts': {
+                    'new': len(new_parameters),
+                    'changed': len(changed_defaults),
+                    'removed': len(removed_parameters),
+                    'total': len(new_parameters) + len(changed_defaults) + len(removed_parameters),
+                },
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error getting defaults sync: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     async def revert_config_to_default(self):

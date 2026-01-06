@@ -1,22 +1,24 @@
 // dashboard/src/pages/SettingsPage.js
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   Box, Container, Typography, CircularProgress, Alert, Paper, Divider,
-  List, ListItem, ListItemButton, ListItemIcon, ListItemText,
-  Collapse, TextField, InputAdornment, Chip, IconButton, Tooltip,
-  Snackbar, Drawer, Fab, Switch, FormControlLabel, Badge
+  List, ListItemButton, ListItemIcon, ListItemText,
+  Collapse, TextField, InputAdornment, Chip,
+  Snackbar, Drawer, Fab, Switch, FormControlLabel
 } from '@mui/material';
 import {
   Settings, Search, ExpandLess, ExpandMore, Videocam, Router,
   GpsFixed, Navigation, Shield, Tune, AutoFixHigh, Tv,
-  Refresh, Warning, Menu as MenuIcon, FlightTakeoff, Visibility, VisibilityOff
+  Menu as MenuIcon, FlightTakeoff, Visibility, VisibilityOff
 } from '@mui/icons-material';
 
-import { useConfigSections, useConfigSection, useConfigSearch, useConfigDiff, useCurrentFollowerMode, useRelevantSections } from '../hooks/useConfig';
+import { useConfigSections, useConfigSearch, useConfigDiff, useCurrentFollowerMode, useRelevantSections } from '../hooks/useConfig';
 import { useResponsive } from '../hooks/useResponsive';
+import { ConfigGlobalStateProvider, useConfigGlobalState } from '../hooks/useConfigGlobalState';
 import SectionEditor from '../components/config/SectionEditor';
 import RestartPrompt from '../components/config/RestartPrompt';
 import ImportExportToolbar from '../components/config/ImportExportToolbar';
+import ConfigStatusBanner from '../components/config/ConfigStatusBanner';
 
 // Icon mapping for categories
 const categoryIcons = {
@@ -35,21 +37,24 @@ const categoryIcons = {
 // Category order for display
 const categoryOrder = ['video', 'network', 'tracking', 'detection', 'follower', 'safety', 'control', 'processing', 'display', 'other'];
 
-const SettingsPage = () => {
+// Inner component that uses global state
+const SettingsPageContent = () => {
   const { sections, categories, groupedSections, loading: sectionsLoading, error: sectionsError, refetch } = useConfigSections();
   const { results: searchResults, search, clearResults } = useConfigSearch();
   const { diff, refetch: refetchDiff } = useConfigDiff();
   const { isMobile, isTablet, isDesktop } = useResponsive();
+  // Global state available for ConfigStatusBanner
+  useConfigGlobalState();
 
   // Mode-aware filtering (v5.0.0+)
-  const { mode: currentMode, modeUpper, isActive: followerActive, loading: modeLoading } = useCurrentFollowerMode();
-  const { activeSections, otherSections, modeSpecificSections } = useRelevantSections(currentMode);
+  const { mode: currentMode, modeUpper, isActive: followerActive } = useCurrentFollowerMode();
+  const { activeSections, modeSpecificSections } = useRelevantSections(currentMode);
 
   const [selectedSection, setSelectedSection] = useState(null);
   const [expandedCategories, setExpandedCategories] = useState({});
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingRestartParams, setPendingRestartParams] = useState([]);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info', persistent: false });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showAllSections, setShowAllSections] = useState(false);
 
@@ -160,9 +165,11 @@ const SettingsPage = () => {
     });
   };
 
-  const handleSnackbar = (message, severity = 'info') => {
-    setSnackbar({ open: true, message, severity });
-  };
+  // Enhanced snackbar handler with persistent option for safety params
+  const handleSnackbar = useCallback((message, severity = 'info', options = {}) => {
+    const { persistent = false } = options;
+    setSnackbar({ open: true, message, severity, persistent });
+  }, []);
 
   const handleRefreshAll = () => {
     refetch();
@@ -211,6 +218,21 @@ const SettingsPage = () => {
         />
       )}
 
+      {/* Save Status Banner (v5.4.0+) */}
+      <Box sx={{ mb: 2 }}>
+        <ConfigStatusBanner
+          compact={isMobile}
+          onSaveAll={() => {
+            // Save all functionality is handled by SectionEditor
+            handleSnackbar('Use Save All button in each section to save pending changes', 'info');
+          }}
+          onViewChanges={() => {
+            // Open changes drawer (future feature)
+            handleSnackbar(`${diff?.length || 0} parameters differ from defaults`, 'info');
+          }}
+        />
+      </Box>
+
       {/* Header */}
       <Box sx={{ mb: 3 }}>
         <Box sx={{
@@ -234,9 +256,18 @@ const SettingsPage = () => {
           </Box>
           <ImportExportToolbar
             changesCount={diff?.length || 0}
+            syncAvailableCount={0}
             onRefresh={handleRefreshAll}
             onMessage={handleSnackbar}
             onConfigImported={handleConfigImported}
+            onViewChanges={() => {
+              // Future: Open ChangesDrawer
+              handleSnackbar(`${diff?.length || 0} parameters differ from defaults`, 'info');
+            }}
+            onSyncDefaults={() => {
+              // Future: Open SyncWithDefaultsDialog
+              handleSnackbar('Sync with defaults feature coming soon', 'info');
+            }}
           />
         </Box>
 
@@ -507,17 +538,47 @@ const SettingsPage = () => {
         </Box>
       </Box>
 
-      {/* Snackbar */}
+      {/* Snackbar - Enhanced with 6s duration, persistent for safety params */}
       <Snackbar
         open={snackbar.open}
-        autoHideDuration={4000}
-        onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
+        autoHideDuration={snackbar.persistent ? null : 6000}
+        onClose={(event, reason) => {
+          // Don't close on clickaway for persistent toasts
+          if (snackbar.persistent && reason === 'clickaway') return;
+          setSnackbar(prev => ({ ...prev, open: false }));
+        }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
-        <Alert severity={snackbar.severity} onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}>
+        <Alert
+          severity={snackbar.severity}
+          onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
+          sx={{
+            width: '100%',
+            ...(snackbar.persistent && {
+              border: 2,
+              borderColor: snackbar.severity === 'success' ? 'success.main' : 'warning.main',
+            }),
+          }}
+          variant={snackbar.persistent ? 'filled' : 'standard'}
+        >
           {snackbar.message}
+          {snackbar.persistent && (
+            <Typography variant="caption" display="block" sx={{ mt: 0.5, opacity: 0.9 }}>
+              Click X to dismiss
+            </Typography>
+          )}
         </Alert>
       </Snackbar>
     </Container>
+  );
+};
+
+// Main component with provider wrapper
+const SettingsPage = () => {
+  return (
+    <ConfigGlobalStateProvider>
+      <SettingsPageContent />
+    </ConfigGlobalStateProvider>
   );
 };
 
