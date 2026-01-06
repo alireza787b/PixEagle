@@ -8,18 +8,19 @@
  * - Tier 3 (Destructive): Reset to Defaults
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import {
   Box, Button, IconButton, Tooltip, Divider, Badge,
   Dialog, DialogTitle, DialogContent, DialogActions,
-  Typography, FormControlLabel, Checkbox, Alert,
-  CircularProgress, Menu, MenuItem, ListItemIcon, ListItemText
+  Typography, FormControlLabel, Checkbox, Alert, Chip,
+  CircularProgress, Menu, MenuItem, ListItemIcon, ListItemText,
+  Collapse, List, ListItem, ListItemText as MuiListItemText
 } from '@mui/material';
 import {
   FileUpload, FileDownload, History, Refresh,
   CompareArrows, WarningAmber, ReceiptLong, RestartAlt,
-  Sync, MoreVert
+  Sync, MoreVert, ExpandMore, ExpandLess, ArrowForward
 } from '@mui/icons-material';
 
 import { useResponsive } from '../../hooks/useResponsive';
@@ -55,6 +56,45 @@ const ImportExportToolbar = ({
   const [resetConfirmed, setResetConfirmed] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [moreMenuAnchor, setMoreMenuAnchor] = useState(null);
+
+  // Reset dialog diff preview state (v5.4.1+)
+  const [resetDiff, setResetDiff] = useState([]);
+  const [resetDiffLoading, setResetDiffLoading] = useState(false);
+  const [resetDiffExpanded, setResetDiffExpanded] = useState(false);
+
+  // Fetch diff when reset dialog opens
+  const fetchResetDiff = useCallback(async () => {
+    setResetDiffLoading(true);
+    try {
+      const response = await fetch(endpoints.configDiff);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setResetDiff(data.differences || []);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch diff for reset preview:', err);
+    } finally {
+      setResetDiffLoading(false);
+    }
+  }, []);
+
+  // Trigger diff fetch when reset dialog opens
+  useEffect(() => {
+    if (resetOpen) {
+      fetchResetDiff();
+      setResetDiffExpanded(false);
+    }
+  }, [resetOpen, fetchResetDiff]);
+
+  // Format value for display
+  const formatResetValue = (value) => {
+    if (value === null || value === undefined) return 'null';
+    if (typeof value === 'object') return JSON.stringify(value).slice(0, 40) + (JSON.stringify(value).length > 40 ? '...' : '');
+    if (typeof value === 'boolean') return value ? 'true' : 'false';
+    return String(value).slice(0, 40) + (String(value).length > 40 ? '...' : '');
+  };
 
   const handleExportClose = (success) => {
     setExportOpen(false);
@@ -241,22 +281,111 @@ const ImportExportToolbar = ({
           onClose={() => setAuditOpen(false)}
         />
 
-        {/* Reset to Defaults Confirmation Dialog */}
+        {/* Reset to Defaults Confirmation Dialog (v5.4.1+ enhanced with diff preview) */}
         <Dialog
           open={resetOpen}
           onClose={handleResetDialogClose}
-          maxWidth="sm"
+          maxWidth="md"
           fullWidth
         >
           <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <WarningAmber color="warning" />
             Reset Configuration to Defaults
+            {resetDiff.length > 0 && (
+              <Chip
+                label={`${resetDiff.length} change${resetDiff.length > 1 ? 's' : ''}`}
+                color="warning"
+                size="small"
+                sx={{ ml: 1 }}
+              />
+            )}
           </DialogTitle>
           <DialogContent>
             <Alert severity="warning" sx={{ mb: 2 }}>
               This will reset ALL configuration parameters to their default values.
               Your current settings will be lost.
             </Alert>
+
+            {/* Diff Preview Section (v5.4.1+) */}
+            {resetDiffLoading ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <CircularProgress size={16} />
+                <Typography variant="body2" color="text.secondary">
+                  Loading changes preview...
+                </Typography>
+              </Box>
+            ) : resetDiff.length > 0 ? (
+              <Box sx={{ mb: 2 }}>
+                <Button
+                  size="small"
+                  onClick={() => setResetDiffExpanded(!resetDiffExpanded)}
+                  startIcon={resetDiffExpanded ? <ExpandLess /> : <ExpandMore />}
+                  sx={{ mb: 1 }}
+                >
+                  {resetDiff.length} parameter{resetDiff.length > 1 ? 's' : ''} will be reverted
+                </Button>
+                <Collapse in={resetDiffExpanded}>
+                  <Box sx={{
+                    maxHeight: 250,
+                    overflow: 'auto',
+                    bgcolor: 'grey.50',
+                    borderRadius: 1,
+                    border: 1,
+                    borderColor: 'divider'
+                  }}>
+                    <List dense disablePadding>
+                      {resetDiff.map((d, idx) => (
+                        <ListItem
+                          key={d.path || idx}
+                          divider={idx < resetDiff.length - 1}
+                          sx={{ py: 0.5, px: 1.5 }}
+                        >
+                          <MuiListItemText
+                            primary={
+                              <Typography variant="body2" fontFamily="monospace" fontWeight="medium">
+                                {d.path || `${d.section}.${d.parameter}`}
+                              </Typography>
+                            }
+                            secondary={
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    bgcolor: 'error.lighter',
+                                    px: 0.5,
+                                    borderRadius: 0.5,
+                                    fontFamily: 'monospace'
+                                  }}
+                                >
+                                  {formatResetValue(d.current_value)}
+                                </Typography>
+                                <ArrowForward sx={{ fontSize: 12, color: 'text.disabled' }} />
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    bgcolor: 'success.lighter',
+                                    px: 0.5,
+                                    borderRadius: 0.5,
+                                    fontFamily: 'monospace'
+                                  }}
+                                >
+                                  {formatResetValue(d.default_value)}
+                                </Typography>
+                              </Box>
+                            }
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  </Box>
+                </Collapse>
+              </Box>
+            ) : (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                No changes detected. Configuration already matches defaults.
+              </Alert>
+            )}
+
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               A backup of your current configuration will be created automatically
               before resetting. You can restore it later from the History dialog.
@@ -280,10 +409,10 @@ const ImportExportToolbar = ({
               onClick={handleResetToDefaults}
               variant="contained"
               color="warning"
-              disabled={!resetConfirmed || resetting}
+              disabled={!resetConfirmed || resetting || resetDiff.length === 0}
               startIcon={resetting ? <CircularProgress size={16} /> : <RestartAlt />}
             >
-              {resetting ? 'Resetting...' : 'Reset to Defaults'}
+              {resetting ? 'Resetting...' : `Reset ${resetDiff.length} Parameter${resetDiff.length !== 1 ? 's' : ''}`}
             </Button>
           </DialogActions>
         </Dialog>

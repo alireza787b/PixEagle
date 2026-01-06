@@ -45,7 +45,7 @@ const isDeepEqual = (a, b) => {
 };
 
 // Type-specific input component with proper ref tracking
-const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, saveStatus, mobileMode = false, configValues = {} }) => {
+const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, saveStatus, mobileMode = false, configValues = {}, autoSaveEnabled = true }) => {
   const { touchTargetSize } = useResponsive();
   const paramSchema = schema?.parameters?.[param] || {};
   const type = paramSchema.type || 'string';
@@ -100,6 +100,9 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
   };
 
   const handleBlur = () => {
+    // Only auto-save on blur if autoSaveEnabled is true
+    if (!autoSaveEnabled) return;
+
     const currentValue = currentValueRef.current;
     // Only save if value actually changed and no validation error
     if (!validationError && (currentValue !== value || (currentValue !== defaultValue && saveStatus !== 'saved'))) {
@@ -408,7 +411,8 @@ const ParameterCard = ({
   onSave,
   onRevert,
   onOpenDetails,
-  configValues = {}
+  configValues = {},
+  autoSaveEnabled = true
 }) => {
   const { buttonSize } = useResponsive();
   const paramSchema = schema?.parameters?.[param] || {};
@@ -450,6 +454,7 @@ const ParameterCard = ({
             saveStatus={saveStatus}
             mobileMode={true}
             configValues={configValues}
+            autoSaveEnabled={autoSaveEnabled}
           />
         </Box>
 
@@ -496,7 +501,7 @@ const ParameterCard = ({
   );
 };
 
-const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
+const SectionEditor = ({ sectionName, onRebootRequired, onMessage, autoSaveEnabled = true }) => {
   const {
     config,
     defaultConfig,
@@ -742,7 +747,9 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
       {/* Unsaved changes warning */}
       {hasUnsavedChanges && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          You have unsaved changes. Click "Save All" or press Enter/blur from a field to save individual changes.
+          {autoSaveEnabled
+            ? 'You have unsaved changes. Click "Save All" or press Enter/blur from a field to save individual changes.'
+            : 'Manual save mode: Changes are stored locally. Click "Save All" to persist all changes.'}
         </Alert>
       )}
 
@@ -765,6 +772,7 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
               onRevert={handleRevert}
               onOpenDetails={() => setSelectedParam(param)}
               configValues={config}
+              autoSaveEnabled={autoSaveEnabled}
             />
           ))}
         </Box>
@@ -822,6 +830,7 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage }) => {
                       onSave={handleSave}
                       saveStatus={saveStatus}
                       configValues={config}
+                      autoSaveEnabled={autoSaveEnabled}
                     />
                   </TableCell>
 
@@ -933,6 +942,7 @@ ParameterInput.propTypes = {
   saveStatus: PropTypes.oneOf(['idle', 'saving', 'saved', 'error']),
   mobileMode: PropTypes.bool,
   configValues: PropTypes.object,
+  autoSaveEnabled: PropTypes.bool,
 };
 
 // PropTypes for SectionEditor
@@ -943,11 +953,14 @@ SectionEditor.propTypes = {
   onRebootRequired: PropTypes.func,
   /** Callback for displaying messages (toast notifications) */
   onMessage: PropTypes.func,
+  /** Whether auto-save on blur is enabled (v5.4.1+). When false, user must click Save All. */
+  autoSaveEnabled: PropTypes.bool,
 };
 
 SectionEditor.defaultProps = {
   onRebootRequired: null,
   onMessage: null,
+  autoSaveEnabled: true,
 };
 
 export default SectionEditor;

@@ -3,22 +3,25 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import {
   Box, Container, Typography, CircularProgress, Alert, Paper, Divider,
   List, ListItemButton, ListItemIcon, ListItemText,
-  Collapse, TextField, InputAdornment, Chip,
+  Collapse, TextField, InputAdornment, Chip, Tooltip,
   Snackbar, Drawer, Fab, Switch, FormControlLabel
 } from '@mui/material';
 import {
   Settings, Search, ExpandLess, ExpandMore, Videocam, Router,
   GpsFixed, Navigation, Shield, Tune, AutoFixHigh, Tv,
-  Menu as MenuIcon, FlightTakeoff, Visibility, VisibilityOff
+  Menu as MenuIcon, FlightTakeoff, Visibility, VisibilityOff, Save
 } from '@mui/icons-material';
 
 import { useConfigSections, useConfigSearch, useConfigDiff, useCurrentFollowerMode, useRelevantSections } from '../hooks/useConfig';
 import { useResponsive } from '../hooks/useResponsive';
 import { ConfigGlobalStateProvider, useConfigGlobalState } from '../hooks/useConfigGlobalState';
+import { useDefaultsSync } from '../hooks/useDefaultsSync';
 import SectionEditor from '../components/config/SectionEditor';
 import RestartPrompt from '../components/config/RestartPrompt';
 import ImportExportToolbar from '../components/config/ImportExportToolbar';
 import ConfigStatusBanner from '../components/config/ConfigStatusBanner';
+import ChangesDrawer from '../components/config/ChangesDrawer';
+import SyncWithDefaultsDialog from '../components/config/SyncWithDefaultsDialog';
 
 // Icon mapping for categories
 const categoryIcons = {
@@ -57,6 +60,12 @@ const SettingsPageContent = () => {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info', persistent: false });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [showAllSections, setShowAllSections] = useState(false);
+  const [changesDrawerOpen, setChangesDrawerOpen] = useState(false);
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
+
+  // Sync with defaults tracking (v5.4.1+)
+  const { counts: syncCounts, refresh: refreshSyncCounts } = useDefaultsSync();
 
   // Ref for hash navigation processed flag
   const hashProcessedRef = useRef(false);
@@ -226,10 +235,7 @@ const SettingsPageContent = () => {
             // Save all functionality is handled by SectionEditor
             handleSnackbar('Use Save All button in each section to save pending changes', 'info');
           }}
-          onViewChanges={() => {
-            // Open changes drawer (future feature)
-            handleSnackbar(`${diff?.length || 0} parameters differ from defaults`, 'info');
-          }}
+          onViewChanges={() => setChangesDrawerOpen(true)}
         />
       </Box>
 
@@ -256,18 +262,12 @@ const SettingsPageContent = () => {
           </Box>
           <ImportExportToolbar
             changesCount={diff?.length || 0}
-            syncAvailableCount={0}
+            syncAvailableCount={syncCounts?.total || 0}
             onRefresh={handleRefreshAll}
             onMessage={handleSnackbar}
             onConfigImported={handleConfigImported}
-            onViewChanges={() => {
-              // Future: Open ChangesDrawer
-              handleSnackbar(`${diff?.length || 0} parameters differ from defaults`, 'info');
-            }}
-            onSyncDefaults={() => {
-              // Future: Open SyncWithDefaultsDialog
-              handleSnackbar('Sync with defaults feature coming soon', 'info');
-            }}
+            onViewChanges={() => setChangesDrawerOpen(true)}
+            onSyncDefaults={() => setSyncDialogOpen(true)}
           />
         </Box>
 
@@ -301,6 +301,31 @@ const SettingsPageContent = () => {
               </Box>
             </Box>
           </Box>
+
+          {/* Auto-Save Toggle (v5.4.1+) */}
+          <Tooltip title={autoSaveEnabled ? 'Changes save automatically on blur/enter' : 'Manual save mode - click Save to persist changes'}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={autoSaveEnabled}
+                  onChange={(e) => setAutoSaveEnabled(e.target.checked)}
+                  size="small"
+                  color="success"
+                />
+              }
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Save fontSize="small" color={autoSaveEnabled ? 'success' : 'action'} />
+                  <Typography variant="body2">
+                    {autoSaveEnabled ? 'Auto-Save' : 'Manual'}
+                  </Typography>
+                </Box>
+              }
+              sx={{ m: 0 }}
+            />
+          </Tooltip>
+
+          <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
 
           {/* Show All Sections Toggle */}
           <FormControlLabel
@@ -520,6 +545,7 @@ const SettingsPageContent = () => {
               sectionName={selectedSection}
               onRebootRequired={handleRebootRequired}
               onMessage={handleSnackbar}
+              autoSaveEnabled={autoSaveEnabled}
             />
           ) : (
             <Paper sx={{ p: { xs: 2, md: 4 }, textAlign: 'center' }}>
@@ -537,6 +563,26 @@ const SettingsPageContent = () => {
           )}
         </Box>
       </Box>
+
+      {/* Changes Drawer (v5.4.1+) */}
+      <ChangesDrawer
+        open={changesDrawerOpen}
+        onClose={() => setChangesDrawerOpen(false)}
+        pendingRestartParams={pendingRestartParams}
+        onMessage={handleSnackbar}
+      />
+
+      {/* Sync With Defaults Dialog (v5.4.1+) */}
+      <SyncWithDefaultsDialog
+        open={syncDialogOpen}
+        onClose={() => {
+          setSyncDialogOpen(false);
+          // Refresh counts after sync actions
+          refreshSyncCounts();
+          refetchDiff();
+        }}
+        onMessage={handleSnackbar}
+      />
 
       {/* Snackbar - Enhanced with 6s duration, persistent for safety params */}
       <Snackbar
