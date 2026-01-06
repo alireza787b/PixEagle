@@ -7,7 +7,7 @@ import {
 } from '@mui/material';
 import {
   Add, Remove, Edit, ExpandMore, ExpandLess, Search,
-  CheckBox, CheckBoxOutlineBlank, IndeterminateCheckBox
+  CheckBox, CheckBoxOutlineBlank, IndeterminateCheckBox, Undo
 } from '@mui/icons-material';
 
 /**
@@ -26,7 +26,8 @@ const DiffViewer = ({
   selectedChanges = [],
   onSelectionChange,
   showFilter = true,
-  compact = false
+  compact = false,
+  onRevert = null  // v5.4.2: Callback for selective revert (section, parameter)
 }) => {
   const [expandedSections, setExpandedSections] = useState({});
   const [filter, setFilter] = useState('');
@@ -277,9 +278,10 @@ const DiffViewer = ({
               {!compact && (
                 <>
                   <TableCell sx={{ fontWeight: 'bold' }}>Current Value</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold' }}>New Value</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Default Value</TableCell>
                 </>
               )}
+              {onRevert && <TableCell sx={{ fontWeight: 'bold', width: 60 }}>Action</TableCell>}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -309,7 +311,7 @@ const DiffViewer = ({
                         />
                       </TableCell>
                     )}
-                    <TableCell colSpan={compact ? 2 : 4}>
+                    <TableCell colSpan={compact ? (onRevert ? 3 : 2) : (onRevert ? 5 : 4)}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <IconButton size="small">
                           {isExpanded ? <ExpandLess /> : <ExpandMore />}
@@ -372,7 +374,7 @@ const DiffViewer = ({
                                 opacity: diff.change_type === 'added' ? 0.5 : 1
                               }}
                             >
-                              {diff.change_type === 'added' ? '-' : formatValue(diff.old_value)}
+                              {diff.change_type === 'added' ? '-' : formatValue(diff.new_value)}
                             </Typography>
                           </TableCell>
                           <TableCell>
@@ -384,10 +386,24 @@ const DiffViewer = ({
                                 opacity: diff.change_type === 'removed' ? 0.5 : 1
                               }}
                             >
-                              {diff.change_type === 'removed' ? '-' : formatValue(diff.new_value)}
+                              {diff.change_type === 'removed' ? '-' : formatValue(diff.old_value)}
                             </Typography>
                           </TableCell>
                         </>
+                      )}
+                      {onRevert && (
+                        <TableCell>
+                          <Tooltip title="Revert to default">
+                            <IconButton
+                              size="small"
+                              onClick={() => onRevert(diff.section, diff.parameter)}
+                              color="primary"
+                              disabled={diff.change_type === 'added'}
+                            >
+                              <Undo fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
                       )}
                     </TableRow>
                   ))}

@@ -23,6 +23,7 @@ import {
   Sync, MoreVert, ExpandMore, ExpandLess, ArrowForward
 } from '@mui/icons-material';
 
+import { alpha } from '@mui/material/styles';
 import { useResponsive } from '../../hooks/useResponsive';
 import ExportDialog from './ExportDialog';
 import ImportDialog from './ImportDialog';
@@ -88,12 +89,18 @@ const ImportExportToolbar = ({
     }
   }, [resetOpen, fetchResetDiff]);
 
-  // Format value for display
+  // Format value for display (v5.4.2: improved object display)
   const formatResetValue = (value) => {
-    if (value === null || value === undefined) return 'null';
-    if (typeof value === 'object') return JSON.stringify(value).slice(0, 40) + (JSON.stringify(value).length > 40 ? '...' : '');
+    if (value === null || value === undefined) return '(not set)';
+    if (typeof value === 'object') {
+      const keys = Object.keys(value);
+      if (keys.length === 0) return '{}';
+      if (keys.length <= 3) return `{${keys.join(', ')}}`;
+      return `{${keys.slice(0, 2).join(', ')}... +${keys.length - 2}}`;
+    }
     if (typeof value === 'boolean') return value ? 'true' : 'false';
-    return String(value).slice(0, 40) + (String(value).length > 40 ? '...' : '');
+    const str = String(value);
+    return str.length > 30 ? str.slice(0, 27) + '...' : str;
   };
 
   const handleExportClose = (success) => {
@@ -328,7 +335,7 @@ const ImportExportToolbar = ({
                   <Box sx={{
                     maxHeight: 250,
                     overflow: 'auto',
-                    bgcolor: 'grey.50',
+                    bgcolor: (theme) => theme.palette.mode === 'dark' ? 'grey.900' : 'grey.100',
                     borderRadius: 1,
                     border: 1,
                     borderColor: 'divider'
@@ -347,29 +354,33 @@ const ImportExportToolbar = ({
                               </Typography>
                             }
                             secondary={
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
                                 <Typography
                                   variant="caption"
                                   sx={{
-                                    bgcolor: 'error.lighter',
-                                    px: 0.5,
+                                    bgcolor: (theme) => alpha(theme.palette.error.main, 0.15),
+                                    color: 'error.main',
+                                    px: 0.75,
+                                    py: 0.25,
                                     borderRadius: 0.5,
                                     fontFamily: 'monospace'
                                   }}
                                 >
-                                  {formatResetValue(d.current_value)}
+                                  {formatResetValue(d.new_value)}
                                 </Typography>
                                 <ArrowForward sx={{ fontSize: 12, color: 'text.disabled' }} />
                                 <Typography
                                   variant="caption"
                                   sx={{
-                                    bgcolor: 'success.lighter',
-                                    px: 0.5,
+                                    bgcolor: (theme) => alpha(theme.palette.success.main, 0.15),
+                                    color: 'success.main',
+                                    px: 0.75,
+                                    py: 0.25,
                                     borderRadius: 0.5,
                                     fontFamily: 'monospace'
                                   }}
                                 >
-                                  {formatResetValue(d.default_value)}
+                                  {formatResetValue(d.old_value)}
                                 </Typography>
                               </Box>
                             }

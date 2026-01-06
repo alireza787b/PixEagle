@@ -11,51 +11,57 @@ import PropTypes from 'prop-types';
 import {
   Box, Typography, Chip, Button, LinearProgress, IconButton, Tooltip
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import {
   CheckCircle, Warning, Error, Sync, Save, Schedule, Compare
 } from '@mui/icons-material';
 import { useConfigGlobalState, formatRelativeTime } from '../../hooks/useConfigGlobalState';
 
 /**
- * Status colors and icons for different save states
+ * Status colors and icons for different save states (v5.4.2: fixed for dark mode)
  */
 const statusConfig = {
   idle: {
     color: 'success.main',
-    bgColor: 'success.lighter',
+    colorKey: 'success',
     borderColor: 'success.light',
     icon: CheckCircle,
     label: 'All Saved',
   },
   saving: {
     color: 'info.main',
-    bgColor: 'info.lighter',
+    colorKey: 'info',
     borderColor: 'info.light',
     icon: Sync,
     label: 'Saving...',
   },
   saved: {
     color: 'success.main',
-    bgColor: 'success.lighter',
+    colorKey: 'success',
     borderColor: 'success.light',
     icon: CheckCircle,
     label: 'Saved',
   },
   unsaved: {
     color: 'warning.main',
-    bgColor: 'warning.lighter',
+    colorKey: 'warning',
     borderColor: 'warning.light',
     icon: Warning,
     label: 'Unsaved Changes',
   },
   error: {
     color: 'error.main',
-    bgColor: 'error.lighter',
+    colorKey: 'error',
     borderColor: 'error.light',
     icon: Error,
     label: 'Save Error',
   },
 };
+
+/**
+ * Get theme-aware background color (v5.4.2)
+ */
+const getBgColor = (colorKey) => (theme) => alpha(theme.palette[colorKey].main, 0.1);
 
 /**
  * ConfigStatusBanner - Persistent status indicator for configuration save state.
@@ -119,7 +125,7 @@ const ConfigStatusBanner = ({
           gap: 1,
           px: 1.5,
           py: 0.75,
-          bgcolor: config.bgColor,
+          bgcolor: getBgColor(config.colorKey),
           borderRadius: 1,
           border: 1,
           borderColor: config.borderColor,
@@ -159,7 +165,7 @@ const ConfigStatusBanner = ({
         gap: 2,
         px: 2,
         py: 1,
-        bgcolor: config.bgColor,
+        bgcolor: getBgColor(config.colorKey),
         borderRadius: 1,
         border: 1,
         borderColor: config.borderColor,

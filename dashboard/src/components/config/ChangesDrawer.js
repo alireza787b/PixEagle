@@ -8,22 +8,25 @@
  * - Restart: Saved changes awaiting restart (non-immediate tier)
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import {
   Drawer, Box, Typography, IconButton, Tabs, Tab, Chip, Button,
   List, ListItem, ListItemText, ListItemSecondaryAction, Divider,
   Alert, Tooltip
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import {
   Close, Save, Undo, Warning, Check, Schedule, Sync,
   RestartAlt, FlightTakeoff, GpsFixed
 } from '@mui/icons-material';
 
+import axios from 'axios';
 import { useConfigGlobalState } from '../../hooks/useConfigGlobalState';
 import { useConfigDiff } from '../../hooks/useConfig';
 import { ReloadTierChip } from './ReloadTierBadge';
 import DiffViewer from './DiffViewer';
+import { endpoints } from '../../services/apiEndpoints';
 
 /**
  * Tab panel component
@@ -59,6 +62,13 @@ const ChangesDrawer = ({
   const globalState = useConfigGlobalState();
   const { diff: modifiedFromDefaults, loading: diffLoading, refetch: refetchDiff } = useConfigDiff();
 
+  // Auto-refresh diff when drawer opens (v5.4.2)
+  useEffect(() => {
+    if (open) {
+      refetchDiff();
+    }
+  }, [open, refetchDiff]);
+
   // Calculate tab counts
   const unsavedCount = globalState.totalUnsaved || 0;
   const modifiedCount = modifiedFromDefaults?.length || 0;
@@ -70,6 +80,17 @@ const ChangesDrawer = ({
     if (typeof value === 'object') return JSON.stringify(value).slice(0, 30) + '...';
     if (typeof value === 'boolean') return value ? 'true' : 'false';
     return String(value).slice(0, 30);
+  };
+
+  // Handle selective revert (v5.4.2)
+  const handleRevert = async (section, parameter) => {
+    try {
+      await axios.post(endpoints.configRevertParameter(section, parameter));
+      refetchDiff();
+      onMessage?.(`${parameter} reverted to default`, 'success');
+    } catch (err) {
+      onMessage?.(`Failed to revert ${parameter}: ${err.message}`, 'error');
+    }
   };
 
   // Get icon for restart tier
@@ -170,7 +191,7 @@ const ChangesDrawer = ({
               <List dense>
                 {globalState.unsavedParams?.map((param, idx) => (
                   <React.Fragment key={`${param.section}-${param.param}`}>
-                    <ListItem sx={{ bgcolor: 'warning.lighter', borderRadius: 1, mb: 0.5 }}>
+                    <ListItem sx={{ bgcolor: (theme) => alpha(theme.palette.warning.main, 0.1), borderRadius: 1, mb: 0.5 }}>
                       <ListItemText
                         primary={
                           <Typography variant="body2" fontFamily="monospace">
@@ -215,6 +236,7 @@ const ChangesDrawer = ({
                 selectable={false}
                 showFilter={true}
                 compact={false}
+                onRevert={handleRevert}
               />
             </>
           )}
@@ -235,7 +257,7 @@ const ChangesDrawer = ({
               <List dense>
                 {pendingRestartParams.map((param, idx) => (
                   <React.Fragment key={`${param.section}-${param.param}`}>
-                    <ListItem sx={{ bgcolor: 'error.lighter', borderRadius: 1, mb: 0.5 }}>
+                    <ListItem sx={{ bgcolor: (theme) => alpha(theme.palette.error.main, 0.1), borderRadius: 1, mb: 0.5 }}>
                       <ListItemText
                         primary={
                           <Typography variant="body2" fontFamily="monospace">
