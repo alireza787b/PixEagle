@@ -219,6 +219,31 @@ class MockGimbalInterface:
         """Disable auto-update simulation."""
         self._auto_update = False
 
+    def get_health_status(self) -> Dict[str, Any]:
+        """
+        Get gimbal connection health status (mock implementation).
+
+        Returns:
+            Dict[str, Any]: Health status dictionary matching real GimbalInterface
+        """
+        data_age = 0.0 if self._current_data else float('inf')
+        is_healthy = self.listening and self._current_data is not None
+
+        return {
+            'status': 'healthy' if is_healthy else 'disconnected',
+            'data_age_seconds': data_age,
+            'is_fresh': is_healthy,
+            'last_data_time': time.time() if is_healthy else None,
+            'freshness_timeout': 0.5,
+            'connection_status': self._connection_status,
+            'recommendation': 'proceed' if is_healthy else 'emergency_hold',
+            'is_tracking_active': (
+                self._current_data is not None and
+                self._current_data.tracking_status is not None and
+                self._current_data.tracking_status.state == MockTrackingState.TRACKING_ACTIVE
+            )
+        }
+
 
 class MockCoordinateTransformer:
     """Mock coordinate transformer for testing."""
