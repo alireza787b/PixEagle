@@ -1453,6 +1453,12 @@ MC_VELOCITY_CHASE:
   # Values below this threshold are considered "at target" - prevents jitter
   FORWARD_VELOCITY_DEADZONE: 0.01         # m/s - default 0.01 (1 cm/s)
 
+  # v5.7.1: Target validation thresholds for enhanced tracking
+  # Confidence threshold - targets with lower confidence are considered lost
+  TARGET_CONFIDENCE_THRESHOLD: 0.5        # Range 0-1, default 0.5
+  # Maximum reasonable target velocity - reject outliers from tracker noise
+  MAX_REASONABLE_TARGET_VELOCITY: 50.0    # pixels/frame, default 50.0
+
   # === 🎯 YAW RATE SMOOTHING (v5.7.0) ===
   # Enterprise-grade yaw rate smoothing with deadzone, rate limiting, and EMA
   # Prevents jitter on yaw commands from small tracking errors

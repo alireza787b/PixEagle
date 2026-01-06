@@ -2716,6 +2716,24 @@ sections:
         step: 0.001
         unit: m/s
         reload_tier: follower_restart
+      # v5.7.1: Target validation thresholds
+      TARGET_CONFIDENCE_THRESHOLD:
+        type: float
+        default: 0.5
+        description: Minimum confidence to consider target valid (0-1)
+        min: 0.0
+        max: 1.0
+        step: 0.05
+        reload_tier: follower_restart
+      MAX_REASONABLE_TARGET_VELOCITY:
+        type: float
+        default: 50.0
+        description: Max target velocity before rejection (px/frame)
+        min: 10.0
+        max: 500.0
+        step: 5.0
+        unit: px/frame
+        reload_tier: follower_restart
     # === YAW_SMOOTHING Nested Config (v5.7.0) ===
     YAW_SMOOTHING:
       display_name: Yaw Rate Smoothing

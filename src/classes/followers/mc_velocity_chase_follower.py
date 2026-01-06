@@ -81,32 +81,37 @@ logger = logging.getLogger(__name__)
 
 class MCVelocityChaseFollower(BaseFollower):
     """
-    Advanced body velocity chase follower with dual-mode lateral guidance for quadcopter target following.
-    
+    Body velocity chase follower for FIXED CAMERA target tracking (v5.7.1).
+
     This follower uses offboard body velocity commands (forward, right, down, yaw speed)
-    to achieve smooth target tracking with forward velocity ramping, dual-mode lateral guidance,
-    and comprehensive safety monitoring.
-    
+    for target tracking with 2D bounding box coordinates from a body-fixed camera.
+
+    FIXED CAMERA CONSTRAINT (v5.7.0):
+    =================================
+    Since the camera is body-fixed (no gimbal), the drone MUST yaw to keep the target
+    centered in frame. Sideslip mode (lateral velocity without yaw) is incompatible
+    because the target would drift out of the camera's field of view.
+
+    This follower ALWAYS uses coordinated_turn mode regardless of configuration.
+
     Control Strategy:
     ================
     - **Forward Velocity**: Ramped acceleration from 0 to max velocity
-    - **Lateral Guidance**: Dual-mode approach:
-      * Sideslip Mode: Direct lateral velocity (v_right ≠ 0, yaw_rate = 0)
-      * Coordinated Turn Mode: Turn-to-track (v_right = 0, yaw_rate ≠ 0)
-    - **Vertical Control**: PID-controlled down velocity for altitude tracking
-    
-    Features:
-    =========
+    - **Yaw Control**: PID-controlled yaw rate to center target horizontally
+    - **Vertical Control**: PID-controlled down velocity for altitude/vertical tracking
+    - **Lateral Velocity**: Always 0 (fixed camera requires yaw, not sideslip)
+
+    Features (v5.7.1):
+    ==================
     - Forward velocity ramping with configurable acceleration rate
-    - Dual-mode lateral guidance with auto-switching capability
-    - PID-controlled lateral and vertical tracking
-    - Target loss detection with automatic velocity ramp-down
+    - YawRateSmoother integration (deadzone, rate limiting, EMA, speed scaling)
+    - PID-controlled yaw and vertical tracking
+    - Target loss detection with normalized coordinate threshold (default 1.5)
     - Altitude safety monitoring with RTL capability
     - Emergency stop functionality for critical situations
     - Velocity smoothing for stable control commands
     - Comprehensive telemetry and status reporting
-    - Dynamic mode switching based on flight conditions
-    
+
     Safety Features:
     ===============
     - Altitude bounds checking with automatic RTL
@@ -114,7 +119,6 @@ class MCVelocityChaseFollower(BaseFollower):
     - Emergency velocity zeroing capability
     - Velocity command smoothing and limiting
     - Comprehensive error handling and recovery
-    - Mode-specific safety considerations
     """
     
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
@@ -167,7 +171,8 @@ class MCVelocityChaseFollower(BaseFollower):
         # Target loss stop velocity: velocity to ramp to when target is lost (0.0 = full stop)
         self.target_loss_stop_velocity = config.get('TARGET_LOSS_STOP_VELOCITY', 0.0)
         # Coordinate threshold for detecting lost target (abs value > this = lost)
-        self.target_loss_coord_threshold = config.get('TARGET_LOSS_COORDINATE_THRESHOLD', 990)
+        # v5.7.1: Fallback 1.5 matches normalized coords [-1,1] - target at edge = near loss
+        self.target_loss_coord_threshold = config.get('TARGET_LOSS_COORDINATE_THRESHOLD', 1.5)
         self.ramp_update_rate = config.get('RAMP_UPDATE_RATE', 10.0)
         self.pid_update_rate = config.get('PID_UPDATE_RATE', 20.0)
 
@@ -196,6 +201,9 @@ class MCVelocityChaseFollower(BaseFollower):
         self.video_height_pixels = config.get('VIDEO_HEIGHT_PIXELS', 480.0)
         # Velocity deadzone for ramping logic (was hardcoded 0.01 m/s)
         self.forward_velocity_deadzone = config.get('FORWARD_VELOCITY_DEADZONE', 0.01)
+        # v5.7.1: Target validation thresholds (were hardcoded)
+        self.target_confidence_threshold = config.get('TARGET_CONFIDENCE_THRESHOLD', 0.5)
+        self.max_reasonable_target_velocity = config.get('MAX_REASONABLE_TARGET_VELOCITY', 50.0)
 
         # === v5.7.0: YawRateSmoother configuration ===
         yaw_smoothing_config = config.get('YAW_SMOOTHING', {})
@@ -268,13 +276,14 @@ class MCVelocityChaseFollower(BaseFollower):
         # Initialize PID controllers (includes mode determination)
         self._initialize_pid_controllers()
         
-        # Update telemetry metadata
+        # Update telemetry metadata (v5.7.1: fixed camera = coordinated_turn only)
         self.update_telemetry_metadata('controller_type', 'velocity_body_offboard')
-        self.update_telemetry_metadata('control_strategy', 'mc_velocity_chase')
-        self.update_telemetry_metadata('lateral_guidance_modes', ['sideslip', 'coordinated_turn'])
+        self.update_telemetry_metadata('control_strategy', 'mc_velocity_chase_fixed_camera')
+        self.update_telemetry_metadata('lateral_guidance_mode', 'coordinated_turn')  # Fixed camera constraint
         self.update_telemetry_metadata('active_lateral_mode', self.active_lateral_mode)
         self.update_telemetry_metadata('safety_features', [
-            'altitude_monitoring', 'target_loss_handling', 'velocity_ramping', 'emergency_stop', 'dual_mode_guidance',
+            'altitude_monitoring', 'target_loss_handling', 'velocity_ramping', 'emergency_stop',
+            'yaw_rate_smoothing',  # v5.7.0: YawRateSmoother integration
             'adaptive_dive_climb' if self.adaptive_mode_enabled else None,
             'pitch_compensation' if self.pitch_compensation_enabled else None
         ])
@@ -592,7 +601,7 @@ class MCVelocityChaseFollower(BaseFollower):
             
             # === APPLY COMMANDS USING SCHEMA-AWARE METHODS ===
             # Schema now uses velocity_body_offboard with yawspeed_deg_s and vel_body_down
-            # PID output is already in deg/s (configured with yawspeed_deg_s gains)
+            # NOTE: PID output (yaw_speed) is in RAD/S - converted to deg/s via _degrees() below
             # Calculate vertical command (same for both modes)
             down_velocity = self.pid_down(error_y) if self.pid_down else 0.0
             
@@ -1777,27 +1786,25 @@ class MCVelocityChaseFollower(BaseFollower):
         try:
             # Use existing target loss logic first
             basic_validity = self._handle_target_loss(target_coords)
-            
-            # Enhance with confidence analysis if available
+
+            # Enhance with confidence analysis if available (v5.7.1: configurable threshold)
             if tracker_data.confidence is not None:
-                confidence_threshold = 0.5  # Can be made configurable
-                confidence_valid = tracker_data.confidence >= confidence_threshold
-                
+                confidence_valid = tracker_data.confidence >= self.target_confidence_threshold
+
                 if not confidence_valid:
-                    logger.debug(f"Target confidence too low: {tracker_data.confidence:.2f} < {confidence_threshold}")
+                    logger.debug(f"Target confidence too low: {tracker_data.confidence:.2f} < {self.target_confidence_threshold}")
                     return False
-            
-            # Consider velocity information if available
+
+            # Consider velocity information if available (v5.7.1: configurable threshold)
             if tracker_data.velocity is not None:
                 # Validate that velocity is reasonable
                 vx, vy = tracker_data.velocity
                 velocity_magnitude = np.sqrt(vx**2 + vy**2)
-                max_reasonable_velocity = 50.0  # pixels/frame or similar unit
-                
-                if velocity_magnitude > max_reasonable_velocity:
-                    logger.debug(f"Target velocity too high: {velocity_magnitude:.2f}")
+
+                if velocity_magnitude > self.max_reasonable_target_velocity:
+                    logger.debug(f"Target velocity too high: {velocity_magnitude:.2f} > {self.max_reasonable_target_velocity}")
                     return False
-            
+
             return basic_validity
             
         except Exception as e:
