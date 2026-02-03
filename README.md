@@ -3,7 +3,7 @@
 > Vision-based autonomous tracking system for drones and ground vehicles
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Raspberry%20Pi%20%7C%20Jetson-blue)](https://github.com/alireza787b/PixEagle)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20Raspberry%20Pi%20%7C%20Jetson-blue)](https://github.com/alireza787b/PixEagle)
 [![PX4](https://img.shields.io/badge/Autopilot-PX4-orange)](https://px4.io/)
 
 **PixEagle** is a modular image-processing and tracking suite for drones running PX4 autopilot. It combines MAVSDK Python, OpenCV, and YOLO object detection to deliver high-performance visual tracking and autonomous following.
@@ -54,23 +54,32 @@
 
 ### Prerequisites
 
-- Ubuntu 22.04+ / Raspbian (Linux recommended) or Windows for SITL only
+- Ubuntu 22.04+ / Raspbian / **Windows 10+**
 - Python 3.9+
 - 4GB+ RAM
+
+### Linux Installation
 
 ```bash
 # Install system dependencies
 sudo apt update && sudo apt install -y python3 python3-venv python3-pip tmux lsof curl git
-```
 
-### Installation
-
-```bash
 # Clone and initialize
 git clone https://github.com/alireza787b/PixEagle.git
 cd PixEagle
 bash init_pixeagle.sh
 ```
+
+### Windows Installation
+
+```cmd
+# Clone and initialize
+git clone https://github.com/alireza787b/PixEagle.git
+cd PixEagle
+init_pixeagle.bat
+```
+
+> **Windows Guide**: [Windows Setup Documentation](docs/WINDOWS_SETUP.md)
 
 The init script runs a 9-step automated setup including Python venv, Node.js, dashboard, and MAVSDK/MAVLink2REST binaries.
 
@@ -78,8 +87,14 @@ The init script runs a 9-step automated setup including Python venv, Node.js, da
 
 ### Run
 
+**Linux:**
 ```bash
 bash run_pixeagle.sh
+```
+
+**Windows:**
+```cmd
+run_pixeagle.bat
 ```
 
 ### Access Dashboard
@@ -199,11 +214,26 @@ pixeagle-service logs -f
 
 ---
 
-## Windows (SITL Only)
+## Windows Support
 
-PixEagle supports Windows for X-Plane SITL testing.
+PixEagle now provides **full Windows support** with enterprise-grade batch scripts matching the Linux experience:
 
-> **Guide**: [Windows SITL Setup](docs/WINDOWS_SITL_XPLANE.md)
+```cmd
+# Initialize (one-time setup)
+init_pixeagle.bat
+
+# Run PixEagle
+run_pixeagle.bat
+run_pixeagle.bat --dev      # Development mode
+```
+
+**Features:**
+- Windows Terminal tabs support (similar to tmux)
+- Automatic fallback to separate windows
+- Full 9-step setup wizard
+- All component runners
+
+> **Guide**: [Windows Setup Documentation](docs/WINDOWS_SETUP.md) | [Windows SITL Setup](docs/WINDOWS_SITL_XPLANE.md)
 
 ---
 

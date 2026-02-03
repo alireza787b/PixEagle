@@ -26,6 +26,7 @@ bash init_pixeagle.sh
 - **ARMv7** - Raspberry Pi 3
 - **Raspbian** - Raspberry Pi OS
 - **macOS** - Intel and Apple Silicon
+- **Windows** - Windows 10 version 1809+ (x86_64)
 
 ## Prerequisites
 
@@ -129,8 +130,44 @@ sudo ufw allow 14550/udp  # QGC (optional)
 python src/test_Ver.py
 ```
 
+## Windows Installation
+
+For Windows users, PixEagle provides enterprise-grade batch scripts matching the Linux experience.
+
+### Quick Start (Windows)
+
+```cmd
+git clone https://github.com/alireza787b/PixEagle.git
+cd PixEagle
+init_pixeagle.bat
+```
+
+### Windows Requirements
+
+| Software | Minimum Version | Download |
+|----------|-----------------|----------|
+| Windows | 10 version 1809+ | - |
+| Python | 3.9+ | [python.org](https://www.python.org/downloads/) |
+| Node.js | 14+ LTS | [nodejs.org](https://nodejs.org/en/download) |
+
+### Windows Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `init_pixeagle.bat` | 9-step setup wizard |
+| `run_pixeagle.bat` | Launch all services |
+| `run_dashboard.bat` | Dashboard only |
+| `run_main.bat` | Python backend only |
+
+### Windows Terminal (Recommended)
+
+Install [Windows Terminal](https://aka.ms/terminal) for a tabbed interface similar to Linux's tmux.
+
+> **Full Guide**: [Windows Setup Documentation](WINDOWS_SETUP.md)
+
 ## Next Steps
 
 - [Configuration Guide](CONFIGURATION.md)
 - [SmartTracker Setup](SMART_TRACKER_GUIDE.md)
+- [Windows Setup](WINDOWS_SETUP.md)
 - [Main README](../README.md)

@@ -208,8 +208,77 @@ sudo ufw status
 | 14569 | MAVLink2REST input | UDP | For PX4 |
 | 14550 | QGC | UDP | Optional |
 
+## Windows-Specific Issues
+
+### Python Not Found
+
+**Problem**: `'python' is not recognized as an internal or external command`
+
+**Solution**:
+1. Install Python from [python.org](https://www.python.org/downloads/)
+2. During installation, check **"Add Python to PATH"**
+3. Restart Command Prompt
+
+### Node.js Not Found
+
+**Problem**: `'node' is not recognized...`
+
+**Solution**:
+1. Install Node.js from [nodejs.org](https://nodejs.org/en/download)
+2. Restart Command Prompt
+
+### Port Already In Use (Windows)
+
+```cmd
+# Find process using the port
+netstat -ano | findstr :3000
+
+# Kill the process (replace PID with actual number)
+taskkill /PID 12345 /F
+```
+
+### Colors Not Displaying
+
+**Problem**: ANSI color codes showing as text
+
+**Solution**:
+- Use Windows Terminal (recommended)
+- Ensure Windows 10 version 1809 or later
+- Colors are enabled automatically by the scripts
+
+### Virtual Environment Issues (Windows)
+
+**Problem**: venv activation fails
+
+**Solution**:
+```cmd
+# Remove corrupted venv
+rmdir /s /q venv
+
+# Re-run init
+init_pixeagle.bat
+```
+
+### npm Install Fails (Windows)
+
+```cmd
+cd dashboard
+rmdir /s /q node_modules
+del package-lock.json
+npm install
+```
+
+### Port Status Check (Windows)
+
+```cmd
+netstat -ano | findstr "3000 5077 8088 5551"
+```
+
+> **Full Windows Guide**: [Windows Setup Documentation](WINDOWS_SETUP.md)
+
 ## Getting Help
 
 - [GitHub Issues](https://github.com/alireza787b/PixEagle/issues)
 - [Documentation Index](README.md)
+- [Windows Setup Guide](WINDOWS_SETUP.md)
 - [YouTube Tutorials](https://www.youtube.com/watch?v=nMThQLC7nBg&list=PLVZvZdBQdm_4oain9--ClKioiZrq64-Ky)
