@@ -6,7 +6,16 @@ import logging
 import yaml
 import os
 from typing import Tuple
-from ultralytics import YOLO
+
+# Conditional AI imports - allows app to run without ultralytics/torch
+try:
+    from ultralytics import YOLO
+    ULTRALYTICS_AVAILABLE = True
+except ImportError:
+    YOLO = None
+    ULTRALYTICS_AVAILABLE = False
+    logging.warning("Ultralytics not available - SmartTracker disabled")
+
 from classes.parameters import Parameters
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.tracking_state_manager import TrackingStateManager
@@ -21,7 +30,18 @@ class SmartTracker:
         """
         Initializes the YOLO model (supports GPU/CPU config + optional fallback).
         Model path is selected based on config flags.
+
+        Raises:
+            RuntimeError: If ultralytics/torch is not installed
         """
+        # Check if AI packages are available
+        if not ULTRALYTICS_AVAILABLE:
+            raise RuntimeError(
+                "SmartTracker requires ultralytics package. "
+                "Install with: pip install ultralytics\n"
+                "Or re-run 'make init' and select 'Full' profile."
+            )
+
         self.app_controller = app_controller
         use_gpu = Parameters.SmartTracker.get('SMART_TRACKER_USE_GPU', True)
         fallback_enabled = Parameters.SmartTracker.get('SMART_TRACKER_FALLBACK_TO_CPU', True)

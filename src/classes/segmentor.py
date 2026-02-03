@@ -1,8 +1,15 @@
 import cv2
 import numpy as np
-from .parameters import Parameters  
-from ultralytics import YOLO
+from .parameters import Parameters
 import logging
+
+# Conditional AI imports - allows app to run without ultralytics/torch
+try:
+    from ultralytics import YOLO
+    ULTRALYTICS_AVAILABLE = True
+except ImportError:
+    YOLO = None
+    ULTRALYTICS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -12,8 +19,13 @@ class Segmentor:
         Initializes the Segmentor with a specified segmentation algorithm.
         """
         self.algorithm = algorithm
+        self.model = None
         if 'yolov8' in self.algorithm:
-            self.model = YOLO(f"{self.algorithm}.pt")
+            if not ULTRALYTICS_AVAILABLE:
+                logger.warning("YOLO segmentation requested but ultralytics not installed. Using generic segmentation.")
+                self.algorithm = 'generic'
+            else:
+                self.model = YOLO(f"{self.algorithm}.pt")
         self.previous_detections = []
 
     def segment_frame(self, frame):

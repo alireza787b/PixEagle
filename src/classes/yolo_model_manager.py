@@ -24,19 +24,29 @@ import shutil
 import logging
 import asyncio
 import requests
-import torch
 import re
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List
 from datetime import datetime
 
-# Import YOLO from ultralytics
+# Conditional AI imports - allows app to run without ultralytics/torch
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    torch = None
+    TORCH_AVAILABLE = False
+    logging.warning("PyTorch not available - some YOLO features limited")
+
 try:
     from ultralytics import YOLO
     ULTRALYTICS_AVAILABLE = True
 except ImportError:
+    YOLO = None
     ULTRALYTICS_AVAILABLE = False
     logging.warning("Ultralytics not available - YOLO functionality limited")
+
+AI_AVAILABLE = TORCH_AVAILABLE and ULTRALYTICS_AVAILABLE
 
 
 class YOLOModelManager:
@@ -657,6 +667,12 @@ class YOLOModelManager:
 
     def _download_from_ultralytics(self, model_name: str, destination: Path) -> Dict:
         """Download YOLOv5 model from Ultralytics hub (refactored from add_yolo_model.py)"""
+        if not TORCH_AVAILABLE:
+            return {
+                "success": False,
+                "error": "PyTorch not installed - cannot download from Ultralytics hub"
+            }
+
         try:
             self.logger.info(f"Downloading {model_name} from Ultralytics hub...")
 
@@ -934,6 +950,10 @@ class YOLOModelManager:
         This bypasses PyTorch's weights_only=True safety mechanism.
         Only use with trusted model files.
         """
+        if not TORCH_AVAILABLE:
+            self.logger.debug("torch not available, skipping torch.load patch")
+            return
+
         _original_torch_load = torch.load
 
         def patched_torch_load(*args, **kwargs):

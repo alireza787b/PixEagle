@@ -21,7 +21,7 @@ from classes.webrtc_manager import WebRTCManager
 from classes.setpoint_handler import SetpointHandler
 from classes.follower import FollowerFactory
 from classes.tracker_output import TrackerOutput, TrackerDataType
-from classes.yolo_model_manager import YOLOModelManager
+from classes.yolo_model_manager import YOLOModelManager, AI_AVAILABLE
 
 # Import circuit breaker with error handling
 try:
@@ -2580,10 +2580,18 @@ class FastAPIHandler:
                     'description': 'AI-powered YOLO-based smart tracking system',
                     'data_type': 'BBOX_CONFIDENCE',
                     'smart_mode': True,
-                    'suitable_for': ['Multiple targets', 'AI detection', 'Complex scenarios']
+                    'suitable_for': ['Multiple targets', 'AI detection', 'Complex scenarios'],
+                    'available': AI_AVAILABLE,
+                    'unavailable_reason': None if AI_AVAILABLE else 'AI packages (ultralytics/torch) not installed'
                 }
             }
-            
+
+            # Mark availability status for all trackers
+            for name, info in available_trackers.items():
+                if 'available' not in info:
+                    info['available'] = True
+                    info['unavailable_reason'] = None
+
             # Get current configured tracker
             current_tracker = getattr(self.app_controller, 'current_tracker_type', 'CSRT')
             
@@ -2646,6 +2654,13 @@ class FastAPIHandler:
             old_tracker_type = getattr(self.app_controller, 'current_tracker_type', 'CSRT')
             
             if tracker_type == 'SmartTracker':
+                # Check if AI packages are available
+                if not AI_AVAILABLE:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="SmartTracker requires AI packages (ultralytics/torch) which are not installed. "
+                               "Re-run 'make init' and select 'Full' profile, or install manually: pip install ultralytics"
+                    )
                 # Handle smart mode activation
                 if not getattr(self.app_controller, 'smart_mode_active', False):
                     # Enable smart mode

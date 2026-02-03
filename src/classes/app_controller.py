@@ -27,8 +27,14 @@ from classes.estimators.estimator_factory import create_estimator
 from classes.detectors.detector_factory import create_detector
 from classes.tracker_output import TrackerOutput, TrackerDataType
 
-# Import the SmartTracker module
-from classes.smart_tracker import SmartTracker
+# Import the SmartTracker module (conditional - may not be available without AI packages)
+try:
+    from classes.smart_tracker import SmartTracker, ULTRALYTICS_AVAILABLE
+    SMART_TRACKER_AVAILABLE = ULTRALYTICS_AVAILABLE
+except ImportError:
+    SmartTracker = None
+    SMART_TRACKER_AVAILABLE = False
+    logging.warning("SmartTracker not available - AI packages not installed")
 
 
 class AppController:
@@ -216,6 +222,14 @@ class AppController:
         If enabling for the first time, initializes SmartTracker (with GPU/CPU config + fallback).
         """
         if not self.smart_mode_active:
+            # Check if SmartTracker is available (requires ultralytics/torch)
+            if not SMART_TRACKER_AVAILABLE:
+                logging.error(
+                    "SmartTracker not available - AI packages (ultralytics/torch) not installed. "
+                    "Re-run 'make init' and select 'Full' profile, or install manually: pip install ultralytics"
+                )
+                return
+
             self.cancel_activities()
             self.smart_mode_active = True
 
