@@ -146,39 +146,96 @@ function Install-OrUpdate {
 
     if (Test-Path $gitDir) {
         # Existing installation - update
-        Write-Warning "Existing installation found"
-        Write-Host ""
-        $response = Read-Host "   Update existing installation? [Y/n]"
+        Push-Location $InstallDir
 
-        if ([string]::IsNullOrEmpty($response) -or $response -match "^[Yy]") {
-            Write-Info "Updating repository..."
-            Push-Location $InstallDir
+        try {
+            # Get current version info
+            $currentCommit = git rev-parse --short HEAD 2>$null
+            if (-not $currentCommit) { $currentCommit = "unknown" }
+            $currentBranch = git branch --show-current 2>$null
+            if (-not $currentBranch) { $currentBranch = "unknown" }
 
-            try {
-                # Check for local changes
-                $status = git status --porcelain 2>$null
+            Write-Host ""
+            Write-Warning "Existing installation found"
+            Write-Host "      Current: " -NoNewline
+            Write-Host "$currentBranch" -ForegroundColor Cyan -NoNewline
+            Write-Host " @ " -NoNewline
+            Write-Host "$currentCommit" -ForegroundColor Cyan
+            Write-Host ""
+
+            # Check for local changes
+            $status = git status --porcelain 2>$null
+            if ($status) {
+                Write-Warning "Local changes detected:"
+                $staged = git diff --cached --name-only 2>$null
+                $unstaged = git diff --name-only 2>$null
+                $untracked = git ls-files --others --exclude-standard 2>$null
+
+                if ($staged) { Write-Host "      " -NoNewline; Write-Host "* Staged changes" -ForegroundColor Yellow }
+                if ($unstaged) { Write-Host "      " -NoNewline; Write-Host "* Unstaged changes" -ForegroundColor Yellow }
+                if ($untracked) { Write-Host "      " -NoNewline; Write-Host "* Untracked files" -ForegroundColor Yellow }
+                Write-Host ""
+            }
+
+            $response = Read-Host "   Update to latest version? [Y/n]"
+
+            if ([string]::IsNullOrEmpty($response) -or $response -match "^[Yy]") {
+                Write-Info "Updating repository..."
+
+                # Stash ALL local changes
                 if ($status) {
-                    Write-Warning "Stashing local changes..."
-                    git stash push -m "Pre-update stash $(Get-Date -Format 'yyyyMMdd_HHmmss')"
+                    $stashName = "Pre-update stash $(Get-Date -Format 'yyyyMMdd_HHmmss')"
+                    Write-Warning "Stashing local changes: $stashName"
+                    git stash push -m $stashName --include-untracked 2>$null
+                    if ($LASTEXITCODE -ne 0) {
+                        git stash push -m $stashName 2>$null
+                    }
+                    Write-Host "      " -NoNewline
+                    Write-Host "TIP: Restore with: " -ForegroundColor Yellow -NoNewline
+                    Write-Host "git stash pop" -ForegroundColor Cyan
                 }
 
-                git fetch origin
-                git checkout $Branch
-                git pull origin $Branch
-                Write-Success "Repository updated"
-            } finally {
-                Pop-Location
+                # Fetch latest
+                Write-Info "Fetching latest changes..."
+                git fetch origin $Branch
+
+                # Get remote version info
+                $remoteCommit = git rev-parse --short "origin/$Branch" 2>$null
+                if (-not $remoteCommit) { $remoteCommit = "unknown" }
+
+                if ($currentCommit -eq $remoteCommit) {
+                    Write-Success "Already up to date ($currentCommit)"
+                } else {
+                    Write-Host "      Updating: " -NoNewline
+                    Write-Host "$currentCommit" -ForegroundColor Cyan -NoNewline
+                    Write-Host " -> " -NoNewline
+                    Write-Host "$remoteCommit" -ForegroundColor Cyan
+
+                    # Reset to remote branch (safe because we stashed changes)
+                    git checkout $Branch 2>$null
+                    if ($LASTEXITCODE -ne 0) {
+                        git checkout -b $Branch "origin/$Branch" 2>$null
+                    }
+                    git reset --hard "origin/$Branch"
+
+                    Write-Success "Repository updated to $remoteCommit"
+                }
+            } else {
+                Write-Info "Skipping update - using existing version"
             }
-        } else {
-            Write-Info "Skipping update"
+        } finally {
+            Pop-Location
         }
     } else {
         # Fresh installation
         if (Test-Path $InstallDir) {
             Write-Error "Directory exists but is not a git repository: $InstallDir"
             Write-Host ""
-            Write-Host "   Please remove or rename the existing directory:"
-            Write-Host "   Remove-Item -Recurse -Force '$InstallDir'" -ForegroundColor Cyan
+            Write-Host "   Options:"
+            Write-Host "   1. Remove it:  " -NoNewline
+            Write-Host "Remove-Item -Recurse -Force '$InstallDir'" -ForegroundColor Cyan
+            Write-Host "   2. Rename it:  " -NoNewline
+            Write-Host "Rename-Item '$InstallDir' '${InstallDir}.backup'" -ForegroundColor Cyan
             Write-Host ""
             exit 1
         }
@@ -194,7 +251,11 @@ function Install-OrUpdate {
         # Clone with shallow depth for faster download
         git clone --depth 1 --branch $Branch $RepoUrl $InstallDir
 
-        Write-Success "Repository cloned"
+        Push-Location $InstallDir
+        $newCommit = git rev-parse --short HEAD 2>$null
+        Pop-Location
+
+        Write-Success "Repository cloned ($newCommit)"
     }
 }
 

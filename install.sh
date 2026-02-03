@@ -172,35 +172,74 @@ clone_or_update() {
 
     if [[ -d "$INSTALL_DIR/.git" ]]; then
         # Existing installation - update
-        log_warn "Existing installation found"
+        cd "$INSTALL_DIR"
+
+        # Get current version info
+        local current_commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        local current_branch=$(git branch --show-current 2>/dev/null || echo "unknown")
+
         echo ""
-        echo -en "   Update existing installation? [Y/n]: "
+        log_warn "Existing installation found"
+        echo -e "      Current: ${CYAN}$current_branch${NC} @ ${CYAN}$current_commit${NC}"
+        echo ""
+
+        # Check for local changes (staged + unstaged + untracked)
+        local has_staged=$(git diff --cached --quiet 2>/dev/null; echo $?)
+        local has_unstaged=$(git diff --quiet 2>/dev/null; echo $?)
+        local has_untracked=$(git ls-files --others --exclude-standard | head -1)
+
+        if [[ "$has_staged" != "0" ]] || [[ "$has_unstaged" != "0" ]] || [[ -n "$has_untracked" ]]; then
+            log_warn "Local changes detected:"
+            [[ "$has_staged" != "0" ]] && echo -e "      ${YELLOW}•${NC} Staged changes"
+            [[ "$has_unstaged" != "0" ]] && echo -e "      ${YELLOW}•${NC} Unstaged changes"
+            [[ -n "$has_untracked" ]] && echo -e "      ${YELLOW}•${NC} Untracked files"
+            echo ""
+        fi
+
+        echo -en "   Update to latest version? [Y/n]: "
         read -r REPLY
 
         if [[ -z "$REPLY" ]] || [[ $REPLY =~ ^[Yy]$ ]]; then
             log_info "Updating repository..."
-            cd "$INSTALL_DIR"
 
-            # Save any local changes
-            if ! git diff --quiet 2>/dev/null; then
-                log_warn "Stashing local changes..."
-                git stash push -m "Pre-update stash $(date +%Y%m%d_%H%M%S)"
+            # Stash ALL local changes (staged + unstaged)
+            if [[ "$has_staged" != "0" ]] || [[ "$has_unstaged" != "0" ]]; then
+                local stash_name="Pre-update stash $(date +%Y%m%d_%H%M%S)"
+                log_warn "Stashing local changes: $stash_name"
+                git stash push -m "$stash_name" --include-untracked 2>/dev/null || \
+                git stash push -m "$stash_name" 2>/dev/null || true
+                echo -e "      ${YELLOW}TIP:${NC} Restore with: ${CYAN}git stash pop${NC}"
             fi
 
-            git fetch origin
-            git checkout "$BRANCH"
-            git pull origin "$BRANCH"
-            log_success "Repository updated"
+            # Fetch latest
+            log_info "Fetching latest changes..."
+            git fetch origin "$BRANCH"
+
+            # Get remote version info
+            local remote_commit=$(git rev-parse --short "origin/$BRANCH" 2>/dev/null || echo "unknown")
+
+            if [[ "$current_commit" == "$remote_commit" ]]; then
+                log_success "Already up to date ($current_commit)"
+            else
+                echo -e "      Updating: ${CYAN}$current_commit${NC} → ${CYAN}$remote_commit${NC}"
+
+                # Reset to remote branch (safe because we stashed changes)
+                git checkout "$BRANCH" 2>/dev/null || git checkout -b "$BRANCH" "origin/$BRANCH"
+                git reset --hard "origin/$BRANCH"
+
+                log_success "Repository updated to $remote_commit"
+            fi
         else
-            log_info "Skipping update"
+            log_info "Skipping update - using existing version"
         fi
     else
         # Fresh installation
         if [[ -d "$INSTALL_DIR" ]]; then
             log_error "Directory exists but is not a git repository: $INSTALL_DIR"
             echo ""
-            echo "   Please remove or rename the existing directory:"
-            echo "   ${CYAN}rm -rf $INSTALL_DIR${NC}"
+            echo "   Options:"
+            echo "   1. Remove it:  ${CYAN}rm -rf $INSTALL_DIR${NC}"
+            echo "   2. Rename it:  ${CYAN}mv $INSTALL_DIR ${INSTALL_DIR}.backup${NC}"
             echo ""
             exit 1
         fi
@@ -213,7 +252,9 @@ clone_or_update() {
         # Clone with shallow depth for faster download
         git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
 
-        log_success "Repository cloned"
+        cd "$INSTALL_DIR"
+        local new_commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        log_success "Repository cloned ($new_commit)"
     fi
 }
 
