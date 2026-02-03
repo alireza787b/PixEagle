@@ -301,6 +301,7 @@ install_system_packages() {
     log_step 2 "Installing system packages..."
 
     local MISSING_PKGS=()
+    local ARM_PKGS=()
     local PYTHON_VENV_PKG="python${PYTHON_VERSION}-venv"
 
     # Detect ARM architecture (Raspberry Pi, etc.)
@@ -311,7 +312,7 @@ install_system_packages() {
         log_info "ARM architecture detected ($ARCH)"
     fi
 
-    # Check each required package
+    # Check each REQUIRED package
     if ! dpkg -s "$PYTHON_VENV_PKG" &>/dev/null 2>&1; then
         MISSING_PKGS+=("$PYTHON_VENV_PKG")
     fi
@@ -328,57 +329,73 @@ install_system_packages() {
         MISSING_PKGS+=("tmux")
     fi
 
-    # ARM-specific build dependencies (needed for numpy, scipy, etc.)
+    # ARM-specific OPTIONAL build dependencies (for compiling numpy, scipy if no wheel)
+    # These are optional - pip wheels usually work without them on modern systems
     if [[ "$IS_ARM" == true ]]; then
-        if ! dpkg -s "libatlas-base-dev" &>/dev/null 2>&1; then
-            MISSING_PKGS+=("libatlas-base-dev")
-        fi
-        if ! dpkg -s "libopenblas-dev" &>/dev/null 2>&1; then
-            MISSING_PKGS+=("libopenblas-dev")
-        fi
-        if ! dpkg -s "gfortran" &>/dev/null 2>&1; then
-            MISSING_PKGS+=("gfortran")
-        fi
-        if ! dpkg -s "libhdf5-dev" &>/dev/null 2>&1; then
-            MISSING_PKGS+=("libhdf5-dev")
-        fi
+        # Use package names compatible with both old and new Debian
+        for pkg in libblas-dev liblapack-dev libopenblas-dev gfortran; do
+            if ! dpkg -s "$pkg" &>/dev/null 2>&1; then
+                ARM_PKGS+=("$pkg")
+            fi
+        done
     fi
 
-    if [[ ${#MISSING_PKGS[@]} -eq 0 ]]; then
-        log_success "All system packages already installed"
-        return 0
-    fi
+    # Install required packages
+    if [[ ${#MISSING_PKGS[@]} -gt 0 ]]; then
+        log_info "Missing required packages: ${MISSING_PKGS[*]}"
+        if ask_yes_no "        Install automatically? [Y/n]: "; then
+            echo ""
+            prompt_sudo
 
-    log_info "Missing packages: ${MISSING_PKGS[*]}"
-    if ask_yes_no "        Install automatically? [Y/n]: "; then
-        echo ""
-        # Show prominent sudo prompt
-        prompt_sudo
-
-        log_info "Updating package lists..."
-        start_spinner "Running apt update..."
-        if sudo apt update -qq 2>&1; then
+            log_info "Updating package lists..."
+            start_spinner "Running apt update..."
+            sudo apt update -qq 2>&1 || true
             stop_spinner
+
+            start_spinner "Installing required packages..."
+            if sudo apt install -y "${MISSING_PKGS[@]}" 2>&1; then
+                stop_spinner
+                log_success "Required packages installed"
+            else
+                stop_spinner
+                log_error "Required package installation failed"
+                log_detail "Try manually: sudo apt install ${MISSING_PKGS[*]}"
+                exit 1
+            fi
         else
-            stop_spinner
-            log_warn "apt update had warnings (continuing anyway)"
-        fi
-
-        start_spinner "Installing packages..."
-        if sudo apt install -y "${MISSING_PKGS[@]}" >/dev/null 2>&1; then
-            stop_spinner
-            log_success "System packages installed: ${MISSING_PKGS[*]}"
-        else
-            stop_spinner
-            log_error "Package installation failed"
-            log_detail "Try manually: sudo apt install ${MISSING_PKGS[*]}"
+            log_error "Required packages not installed"
+            log_detail "Please install: sudo apt install ${MISSING_PKGS[*]}"
             exit 1
         fi
     else
-        log_error "Required packages not installed"
-        log_detail "Please install manually: sudo apt install ${MISSING_PKGS[*]}"
-        exit 1
+        log_success "All required packages already installed"
     fi
+
+    # Install ARM optional packages (don't fail if unavailable)
+    if [[ ${#ARM_PKGS[@]} -gt 0 ]]; then
+        echo ""
+        log_info "Optional ARM build packages: ${ARM_PKGS[*]}"
+        log_detail "These help compile packages if no pre-built wheel exists"
+        if ask_yes_no "        Install optional ARM packages? [Y/n]: "; then
+            echo ""
+            local failed_pkgs=()
+            for pkg in "${ARM_PKGS[@]}"; do
+                if sudo apt install -y "$pkg" >/dev/null 2>&1; then
+                    log_success "Installed: $pkg"
+                else
+                    failed_pkgs+=("$pkg")
+                fi
+            done
+            if [[ ${#failed_pkgs[@]} -gt 0 ]]; then
+                log_warn "Some optional packages unavailable: ${failed_pkgs[*]}"
+                log_detail "This is usually OK - pip will use pre-built wheels"
+            fi
+        else
+            log_info "Skipped optional ARM packages (usually OK)"
+        fi
+    fi
+
+    return 0
 }
 
 # ============================================================================
