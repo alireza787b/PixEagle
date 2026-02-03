@@ -1,3 +1,14 @@
+# ============================================================================
+# PixEagle Python Dependencies
+# ============================================================================
+# RECOMMENDED: Use 'make init' for automatic platform detection and setup
+#
+# MANUAL INSTALL: pip install -r requirements.txt
+#   - Works on x86_64 (Intel/AMD) and macOS
+#   - On ARM/Raspberry Pi: ultralytics/torch may fail with "Illegal instruction"
+#     If this happens, run 'make init' and select "Core" profile
+# ============================================================================
+
 # Core MAVSDK for drone control
 aiogrpc
 grpcio

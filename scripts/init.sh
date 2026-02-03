@@ -55,6 +55,12 @@ NODE_VERSION="22"  # LTS version for stability
 MIN_PYTHON_VERSION="3.9"
 REQUIRED_DISK_MB=500
 
+# Installation profile: "core" (no AI) or "full" (with AI/torch)
+INSTALL_PROFILE="full"
+# Platform detection
+DETECTED_ARCH=""
+IS_ARM_PLATFORM=false
+
 # Get the scripts directory and PixEagle root
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
@@ -234,6 +240,92 @@ prompt_sudo() {
         log_error "Failed to authenticate. Please try again."
         exit 1
     fi
+    echo ""
+}
+
+# ============================================================================
+# Installation Profile Selection
+# ============================================================================
+# Detects platform and prompts user for installation profile
+select_installation_profile() {
+    # Detect architecture
+    DETECTED_ARCH=$(uname -m)
+    IS_ARM_PLATFORM=false
+    [[ "$DETECTED_ARCH" == "arm"* || "$DETECTED_ARCH" == "aarch64" ]] && IS_ARM_PLATFORM=true
+
+    echo ""
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}   ${BOLD}📦 INSTALLATION PROFILE${NC}                                                ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
+
+    if [[ "$IS_ARM_PLATFORM" == true ]]; then
+        echo -e "${CYAN}║${NC}   ${YELLOW}⚠ ARM platform detected ($DETECTED_ARCH)${NC}                                  ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}   ${BOLD}1) Core${NC} - Essential features (recommended for ARM)                    ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}      • Drone control, tracking, dashboard                               ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}      • OpenCV-based detection and tracking                              ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}      • Works reliably on all ARM devices                                ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}   ${BOLD}2) Full${NC} - All features including AI/YOLO                              ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}      • Includes PyTorch and Ultralytics                                 ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}      ${YELLOW}• May require manual torch installation on ARM${NC}                      ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}      ${YELLOW}• Can cause 'Illegal instruction' on some ARM devices${NC}              ${CYAN}║${NC}"
+    else
+        echo -e "${CYAN}║${NC}   ${GREEN}✓ x86_64 platform detected${NC} - Full compatibility                      ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}   ${BOLD}1) Core${NC} - Essential features only                                     ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}      • Drone control, tracking, dashboard                               ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}      • Lighter installation, faster setup                               ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}   ${BOLD}2) Full${NC} - All features including AI/YOLO (recommended)                ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}      • YOLO object detection                                            ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}      • Advanced AI-based tracking                                       ${CYAN}║${NC}"
+    fi
+
+    echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    # Set default based on platform
+    local default_choice="2"
+    [[ "$IS_ARM_PLATFORM" == true ]] && default_choice="1"
+
+    while true; do
+        if [[ "$IS_ARM_PLATFORM" == true ]]; then
+            echo -en "   Select profile [1=Core (recommended), 2=Full]: "
+        else
+            echo -en "   Select profile [1=Core, 2=Full (recommended)]: "
+        fi
+        read -r choice
+
+        # Use default if empty
+        [[ -z "$choice" ]] && choice="$default_choice"
+
+        case "$choice" in
+            1)
+                INSTALL_PROFILE="core"
+                echo ""
+                log_success "Selected: Core installation (no AI packages)"
+                break
+                ;;
+            2)
+                INSTALL_PROFILE="full"
+                echo ""
+                if [[ "$IS_ARM_PLATFORM" == true ]]; then
+                    log_warn "Selected: Full installation with AI packages"
+                    log_detail "If torch fails, you can reinstall with: make init (choose Core)"
+                    log_detail "Or manually install ARM torch from pytorch.org"
+                else
+                    log_success "Selected: Full installation with AI packages"
+                fi
+                break
+                ;;
+            *)
+                echo -e "   ${RED}Invalid choice. Please enter 1 or 2.${NC}"
+                ;;
+        esac
+    done
     echo ""
 }
 
@@ -537,8 +629,15 @@ install_python_deps() {
     # Count packages (excluding comments and empty lines)
     local total_packages
     total_packages=$(grep -c -E '^[^#[:space:]]' requirements.txt 2>/dev/null || echo "0")
-    log_info "Installing ${total_packages} packages from requirements.txt"
-    log_warn "Large packages (ultralytics, torch, opencv) may take several minutes"
+    log_info "Installing packages from requirements.txt"
+
+    # Show what will be installed based on profile
+    if [[ "$INSTALL_PROFILE" == "core" ]]; then
+        log_info "Profile: Core (skipping AI packages: ultralytics, ncnn, lap)"
+    else
+        log_info "Profile: Full (all packages including AI)"
+        log_warn "Large packages (ultralytics, torch, opencv) may take several minutes"
+    fi
     echo ""
 
     # Check for existing custom OpenCV with GStreamer before pip install
@@ -566,13 +665,32 @@ install_python_deps() {
     echo -e "        ${CYAN}Installing packages:${NC}"
     local install_failed=0
 
-    # Prepare requirements file (optionally excluding opencv)
+    # Prepare requirements file based on profile and options
     local req_file="requirements.txt"
+    local using_temp_file=false
+
+    # Build exclusion pattern
+    local exclude_pattern=""
     if [[ "$SKIP_OPENCV" == true ]]; then
-        # Create temp file without opencv packages
+        exclude_pattern="opencv"
+    fi
+    if [[ "$INSTALL_PROFILE" == "core" ]]; then
+        # Skip AI packages: ultralytics, ncnn, lap (torch is a dependency of ultralytics)
+        if [[ -n "$exclude_pattern" ]]; then
+            exclude_pattern="${exclude_pattern}|ultralytics|ncnn|lap"
+        else
+            exclude_pattern="ultralytics|ncnn|lap"
+        fi
+    fi
+
+    # Create filtered requirements file if needed
+    if [[ -n "$exclude_pattern" ]]; then
         req_file=$(mktemp)
-        grep -v -i "opencv" requirements.txt > "$req_file"
-        log_info "Installing without opencv packages"
+        using_temp_file=true
+        grep -v -iE "$exclude_pattern" requirements.txt > "$req_file"
+        local filtered_count
+        filtered_count=$(grep -c -E '^[^#[:space:]]' "$req_file" 2>/dev/null || echo "0")
+        log_info "Installing ${filtered_count} packages (filtered from ${total_packages})"
     fi
 
     # Create a temp file to capture pip output for error checking
@@ -619,7 +737,7 @@ install_python_deps() {
     rm -f "$pip_log"
 
     # Clean up temp file if created
-    if [[ "$SKIP_OPENCV" == true ]] && [[ "$req_file" != "requirements.txt" ]]; then
+    if [[ "$using_temp_file" == true ]]; then
         rm -f "$req_file"
     fi
 
@@ -632,10 +750,13 @@ install_python_deps() {
 
     # Verify key packages are installed
     if venv/bin/python -c "import cv2; import numpy" 2>/dev/null; then
-        if [[ "$SKIP_OPENCV" == true ]]; then
+        if [[ "$INSTALL_PROFILE" == "core" ]]; then
+            log_success "Core packages installed successfully (AI packages skipped)"
+            log_detail "To add AI features later: pip install ultralytics"
+        elif [[ "$SKIP_OPENCV" == true ]]; then
             log_success "Packages installed (preserved custom OpenCV with GStreamer)"
         else
-            log_success "${total_packages} packages installed successfully"
+            log_success "All packages installed successfully"
         fi
     else
         if [[ "$SKIP_OPENCV" == true ]]; then
@@ -983,7 +1104,11 @@ show_summary() {
     echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${NC}"
     echo ""
     echo -e "   ${GREEN}${CHECK}${NC} Python ${PYTHON_VERSION} virtual environment created"
-    echo -e "   ${GREEN}${CHECK}${NC} Python dependencies installed"
+    if [[ "$INSTALL_PROFILE" == "core" ]]; then
+        echo -e "   ${GREEN}${CHECK}${NC} Core Python dependencies installed ${DIM}(AI packages skipped)${NC}"
+    else
+        echo -e "   ${GREEN}${CHECK}${NC} Full Python dependencies installed ${DIM}(including AI/YOLO)${NC}"
+    fi
     if [[ "$node_version" != "not installed" ]]; then
         echo -e "   ${GREEN}${CHECK}${NC} Node.js ${node_version} ready"
         echo -e "   ${GREEN}${CHECK}${NC} Dashboard dependencies installed"
@@ -1000,6 +1125,9 @@ show_summary() {
     echo ""
     echo -e "   ${YELLOW}${BOLD}⚡ Optional (better performance):${NC}"
     echo -e "      • ${BOLD}bash scripts/setup/install-dlib.sh${NC}    (faster tracking)"
+    if [[ "$INSTALL_PROFILE" == "core" ]]; then
+        echo -e "      • ${BOLD}pip install ultralytics${NC}              (add AI/YOLO support)"
+    fi
     echo -e "      • ${BOLD}bash scripts/setup/setup-pytorch.sh${NC}   (GPU acceleration)"
     echo -e "      • ${BOLD}bash scripts/setup/build-opencv.sh${NC}    (GStreamer support)"
     if [[ "$mavsdk_status" == *"Not installed"* ]] || [[ "$mavlink2rest_status" == *"Not installed"* ]]; then
@@ -1031,6 +1159,7 @@ main() {
     echo ""
 
     check_system_requirements
+    select_installation_profile
     install_system_packages
     create_venv
     install_python_deps
