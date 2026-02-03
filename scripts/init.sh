@@ -316,6 +316,14 @@ install_system_packages() {
     if ! dpkg -s "$PYTHON_VENV_PKG" &>/dev/null 2>&1; then
         MISSING_PKGS+=("$PYTHON_VENV_PKG")
     fi
+    # Python dev headers (required for compiling numpy, etc.)
+    local PYTHON_DEV_PKG="python${PYTHON_VERSION}-dev"
+    if ! dpkg -s "$PYTHON_DEV_PKG" &>/dev/null 2>&1; then
+        # Try generic python3-dev if version-specific not found
+        if ! dpkg -s "python3-dev" &>/dev/null 2>&1; then
+            MISSING_PKGS+=("python3-dev")
+        fi
+    fi
     if ! dpkg -s "libgl1" &>/dev/null 2>&1; then
         MISSING_PKGS+=("libgl1")
     fi
