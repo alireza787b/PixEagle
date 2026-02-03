@@ -196,8 +196,16 @@ clone_or_update() {
             echo ""
         fi
 
-        echo -en "   Update to latest version? [Y/n]: "
-        read -r REPLY
+        # Check if running interactively (has TTY) or via pipe
+        if [[ -t 0 ]]; then
+            # Interactive - ask user
+            echo -en "   Update to latest version? [Y/n]: "
+            read -r REPLY
+        else
+            # Running via pipe (curl | bash) - default to yes
+            log_info "Running non-interactively, auto-updating..."
+            REPLY="y"
+        fi
 
         if [[ -z "$REPLY" ]] || [[ $REPLY =~ ^[Yy]$ ]]; then
             log_info "Updating repository..."

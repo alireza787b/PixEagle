@@ -44,6 +44,36 @@ log_detail() {
     echo -e "        ${DIM}$1${NC}"
 }
 
+# Read user input - works both interactively and when piped
+# Usage: ask_yes_no "prompt" [default]
+# Returns 0 for yes, 1 for no
+ask_yes_no() {
+    local prompt="$1"
+    local default="${2:-y}"  # Default to yes
+    local reply
+
+    echo -en "$prompt"
+
+    # Check if we have a TTY for input
+    if [[ -t 0 ]]; then
+        # Interactive - read from stdin
+        read -r reply
+    elif [[ -e /dev/tty ]]; then
+        # No stdin but TTY available (common in pipe scenarios)
+        read -r reply </dev/tty
+    else
+        # Non-interactive with no TTY - use default
+        echo " (auto: $default)"
+        reply="$default"
+    fi
+
+    # Empty reply uses default
+    [[ -z "$reply" ]] && reply="$default"
+
+    # Return 0 for yes, 1 for no
+    [[ $reply =~ ^[Yy] ]]
+}
+
 # ============================================================================
 # Spinner for Long-Running Operations
 # ============================================================================
@@ -202,11 +232,8 @@ install_system_packages() {
     fi
 
     log_info "Missing packages: ${MISSING_PKGS[*]}"
-    echo -en "        Install automatically? [Y/n]: "
-    read -r REPLY
-    echo ""
-
-    if [[ -z "$REPLY" ]] || [[ $REPLY =~ ^[Yy]$ ]]; then
+    if ask_yes_no "        Install automatically? [Y/n]: "; then
+        echo ""
         # Show prominent sudo prompt
         prompt_sudo
 
@@ -312,13 +339,11 @@ install_python_deps() {
         log_detail "pip install will OVERWRITE this with standard opencv-python (no GStreamer)"
         log_detail "You'll lose RTSP/GStreamer camera support if you proceed"
         echo ""
-        echo -en "        ${YELLOW}Overwrite custom OpenCV? [y/N]:${NC} "
-        read -r REPLY
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        if ask_yes_no "        ${YELLOW}Overwrite custom OpenCV? [y/N]:${NC} " "n"; then
+            log_info "Will install pip opencv (GStreamer support will be lost)"
+        else
             log_info "Preserving custom OpenCV build (skipping opencv packages)"
             SKIP_OPENCV=true
-        else
-            log_info "Will install pip opencv (GStreamer support will be lost)"
         fi
         echo ""
     fi
@@ -559,11 +584,8 @@ setup_configs() {
         echo ""
         echo -e "        ${YELLOW}⚠️  Existing configs/config.yaml found${NC}"
         echo -e "        ${DIM}New releases may include new configuration options.${NC}"
-        echo -en "        Replace with latest default? [y/N]: "
-        read -r REPLY
-        echo ""
 
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
+        if ask_yes_no "        Replace with latest default? [y/N]: " "n"; then
             # Backup existing config
             local backup_name="${USER_CONFIG}.backup.$(date +%Y%m%d_%H%M%S)"
             cp "$USER_CONFIG" "$backup_name"
@@ -584,11 +606,8 @@ setup_configs() {
             echo ""
             echo -e "        ${YELLOW}⚠️  Existing dashboard/.env found${NC}"
             echo -e "        ${DIM}New releases may include new dashboard settings.${NC}"
-            echo -en "        Replace with latest default? [y/N]: "
-            read -r REPLY
-            echo ""
 
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
+            if ask_yes_no "        Replace with latest default? [y/N]: " "n"; then
                 # Backup existing .env
                 local backup_name="${DASHBOARD_ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
                 cp "$DASHBOARD_ENV_FILE" "$backup_name"
@@ -638,11 +657,8 @@ setup_mavsdk_server() {
     # Prompt user
     echo ""
     echo -e "        ${BLUE}${INFO}${NC}  MAVSDK Server is required for drone communication"
-    echo -en "        Download MAVSDK Server now? [Y/n]: "
-    read -r REPLY
-    echo ""
 
-    if [[ -z "$REPLY" ]] || [[ $REPLY =~ ^[Yy]$ ]]; then
+    if ask_yes_no "        Download MAVSDK Server now? [Y/n]: " "y"; then
         # Run download script with mavsdk flag
         if bash "$download_script" --mavsdk; then
             log_success "MAVSDK Server installed successfully"
@@ -690,11 +706,8 @@ setup_mavlink2rest() {
     # Prompt user
     echo ""
     echo -e "        ${BLUE}${INFO}${NC}  MAVLink2REST provides REST API access to MAVLink telemetry"
-    echo -en "        Download MAVLink2REST Server now? [Y/n]: "
-    read -r REPLY
-    echo ""
 
-    if [[ -z "$REPLY" ]] || [[ $REPLY =~ ^[Yy]$ ]]; then
+    if ask_yes_no "        Download MAVLink2REST Server now? [Y/n]: " "y"; then
         # Run download script with mavlink2rest flag
         if bash "$download_script" --mavlink2rest; then
             log_success "MAVLink2REST Server installed successfully"
