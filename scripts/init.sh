@@ -135,28 +135,37 @@ log_detail() {
 ask_yes_no() {
     local prompt="$1"
     local default="${2:-y}"  # Default to yes
-    local reply
+    local reply=""
 
-    echo -en "$prompt"
+    # Print prompt (use printf for reliability)
+    printf "%s" "$prompt"
 
-    # Check if we have a TTY for input
-    if [[ -t 0 ]]; then
-        # Interactive - read from stdin
-        read -r reply
-    elif [[ -e /dev/tty ]]; then
-        # No stdin but TTY available (common in pipe scenarios)
-        read -r reply </dev/tty
+    # Try to read user input
+    # Priority: /dev/tty (works when stdin is piped) > stdin (interactive)
+    if [[ -r /dev/tty ]] && [[ -w /dev/tty ]]; then
+        # /dev/tty available - best option for piped scenarios
+        reply=$(bash -c 'read -r line </dev/tty && echo "$line"' 2>/dev/null) || reply=""
+    elif [[ -t 0 ]]; then
+        # stdin is a terminal
+        read -r reply || reply=""
     else
-        # Non-interactive with no TTY - use default
-        echo " (auto: $default)"
+        # No interactive input possible - use default
+        printf " (auto: %s)\n" "$default"
         reply="$default"
     fi
 
     # Empty reply uses default
     [[ -z "$reply" ]] && reply="$default"
 
+    # Debug: uncomment to see what was read
+    # echo "[DEBUG] reply='$reply' default='$default'" >&2
+
     # Return 0 for yes, 1 for no
-    [[ $reply =~ ^[Yy] ]]
+    case "$reply" in
+        [Yy]|[Yy][Ee][Ss]) return 0 ;;
+        [Nn]|[Nn][Oo]) return 1 ;;
+        *) [[ "$default" =~ ^[Yy] ]] && return 0 || return 1 ;;
+    esac
 }
 
 # ============================================================================
