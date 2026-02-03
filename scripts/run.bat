@@ -67,9 +67,19 @@ REM Launch Components
 REM ============================================================================
 echo    [1/3] Starting MAVLink2REST...
 
-REM Check if Windows Terminal is available
+REM Check if Windows Terminal is available and working
+REM Note: 'where wt' may succeed but wt may not run if just installed (needs terminal restart)
+set "USE_WT=0"
 where wt >nul 2>&1
 if %errorlevel% equ 0 (
+    REM Test if wt actually works by running a quick test
+    wt --version >nul 2>&1
+    if !errorlevel! equ 0 (
+        set "USE_WT=1"
+    )
+)
+
+if "!USE_WT!"=="1" (
     REM Use Windows Terminal with tabs
     echo          Using Windows Terminal with tabs
 
@@ -89,11 +99,13 @@ if %errorlevel% equ 0 (
     start "" wt -w 0 new-tab -d "%PIXEAGLE_DIR%" --title "PixEagle Main" cmd /k "call %MAIN_APP_SCRIPT%"
 ) else (
     REM Fallback to separate cmd windows
-    echo          Windows Terminal not found, using separate windows
+    echo          Using separate windows ^(Windows Terminal not available^)
     echo.
     call :print_yellow "    TIP: For a better experience with tabs, install Windows Terminal:"
     echo          winget install Microsoft.WindowsTerminal
     echo          Or download from: https://aka.ms/terminal
+    echo.
+    call :print_yellow "    NOTE: If you just installed Windows Terminal, restart your terminal first."
     echo.
 
     start "MAVLink2REST" cmd /k "cd /d %PIXEAGLE_DIR% && call %MAVLINK2REST_SCRIPT%"
