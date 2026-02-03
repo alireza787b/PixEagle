@@ -5,8 +5,8 @@ mavsdk  >= 3.9.0
 protobuf
 
 # OpenCV for computer vision and tracking
-opencv-python == 4.9.0.80
-opencv-contrib-python == 4.9.0.80 # For extra features including tracking algorithms
+opencv-python >= 4.8.0  # Flexible for ARM/Raspberry Pi compatibility
+opencv-contrib-python >= 4.8.0  # For extra features including tracking algorithms
 # dlib - OPTIONAL: For fast correlation filter tracker, run: bash scripts/install_dlib.sh
 ultralytics
 ncnn
@@ -23,7 +23,7 @@ websockets
 wsproto
 
 # Libraries for numerical processing, data handling, and mathematical operations
-numpy == 1.26.4
+numpy >= 1.24.0, < 2.0  # Flexible version for ARM/Raspberry Pi compatibility
 pandas
 scipy # Includes modules for optimization, linear algebra, integration, and more
 scikit-learn

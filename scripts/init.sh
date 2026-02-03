@@ -303,6 +303,14 @@ install_system_packages() {
     local MISSING_PKGS=()
     local PYTHON_VENV_PKG="python${PYTHON_VERSION}-venv"
 
+    # Detect ARM architecture (Raspberry Pi, etc.)
+    local IS_ARM=false
+    local ARCH=$(uname -m)
+    if [[ "$ARCH" == "arm"* ]] || [[ "$ARCH" == "aarch64" ]]; then
+        IS_ARM=true
+        log_info "ARM architecture detected ($ARCH)"
+    fi
+
     # Check each required package
     if ! dpkg -s "$PYTHON_VENV_PKG" &>/dev/null 2>&1; then
         MISSING_PKGS+=("$PYTHON_VENV_PKG")
@@ -318,6 +326,22 @@ install_system_packages() {
     fi
     if ! command -v tmux &>/dev/null; then
         MISSING_PKGS+=("tmux")
+    fi
+
+    # ARM-specific build dependencies (needed for numpy, scipy, etc.)
+    if [[ "$IS_ARM" == true ]]; then
+        if ! dpkg -s "libatlas-base-dev" &>/dev/null 2>&1; then
+            MISSING_PKGS+=("libatlas-base-dev")
+        fi
+        if ! dpkg -s "libopenblas-dev" &>/dev/null 2>&1; then
+            MISSING_PKGS+=("libopenblas-dev")
+        fi
+        if ! dpkg -s "gfortran" &>/dev/null 2>&1; then
+            MISSING_PKGS+=("gfortran")
+        fi
+        if ! dpkg -s "libhdf5-dev" &>/dev/null 2>&1; then
+            MISSING_PKGS+=("libhdf5-dev")
+        fi
     fi
 
     if [[ ${#MISSING_PKGS[@]} -eq 0 ]]; then
@@ -459,24 +483,48 @@ install_python_deps() {
         log_info "Installing without opencv packages"
     fi
 
-    # Run pip and parse output line by line
-    venv/bin/pip install -r "$req_file" 2>&1 | while IFS= read -r line; do
+    # Create a temp file to capture pip output for error checking
+    local pip_log=$(mktemp)
+    local pip_exit_code=0
+
+    # Run pip with visible output for errors
+    log_info "Running pip install (this may take a while on ARM)..."
+    echo ""
+
+    # Run pip and capture output, showing progress
+    if venv/bin/pip install -r "$req_file" 2>&1 | tee "$pip_log" | while IFS= read -r line; do
         # Parse pip output for package names
         if [[ "$line" =~ ^Collecting\ (.+) ]]; then
             local pkg="${BASH_REMATCH[1]}"
-            # Truncate long package names
             printf "\r        ${DIM}→ Collecting: %-55s${NC}" "${pkg:0:55}"
         elif [[ "$line" =~ ^Downloading\ (.+) ]]; then
             local file="${BASH_REMATCH[1]}"
             printf "\r        ${DIM}→ Downloading: %-53s${NC}" "${file:0:53}"
+        elif [[ "$line" =~ ^Building\ wheel ]]; then
+            printf "\r        ${YELLOW}→ Building wheel (may take several minutes)...              ${NC}"
         elif [[ "$line" =~ ^Installing\ collected\ packages ]]; then
             printf "\r        ${GREEN}→ Installing collected packages...                           ${NC}\n"
         elif [[ "$line" =~ ^Successfully\ installed ]]; then
             printf "\r        ${GREEN}✅ Packages installed successfully                            ${NC}\n"
-        elif [[ "$line" =~ ^ERROR: ]]; then
-            printf "\r        ${RED}❌ Error: %s${NC}\n" "${line:7}"
+        elif [[ "$line" =~ ^ERROR:|^error:|failed|Error: ]]; then
+            printf "\n        ${RED}❌ %s${NC}\n" "$line"
         fi
-    done
+    done; then
+        pip_exit_code=0
+    else
+        pip_exit_code=${PIPESTATUS[0]}
+    fi
+    printf "\n"
+
+    # Check for errors in pip log
+    if grep -qi "error\|failed\|could not" "$pip_log" 2>/dev/null; then
+        log_warn "pip encountered issues. Check above for details."
+        # Show last few error lines
+        grep -i "error\|failed" "$pip_log" | tail -5 | while read -r err; do
+            log_detail "$err"
+        done
+    fi
+    rm -f "$pip_log"
 
     # Clean up temp file if created
     if [[ "$SKIP_OPENCV" == true ]] && [[ "$req_file" != "requirements.txt" ]]; then
