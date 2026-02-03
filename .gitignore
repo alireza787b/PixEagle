@@ -72,10 +72,10 @@ bin/mavsdk_server_bin.*
 bin/mavlink2rest
 bin/mavlink2rest.*
 # Legacy root location (deprecated)
-mavsdk_server_bin
-mavsdk_server_bin.*
-mavlink2rest
-mavlink2rest.*
+/mavsdk_server_bin
+/mavsdk_server_bin.*
+/mavlink2rest
+/mavlink2rest.*
 
 # Translations
 *.mo

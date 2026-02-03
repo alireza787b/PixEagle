@@ -69,6 +69,7 @@ if ! declare -f log_info &>/dev/null; then
     log_warn() { echo -e "   ${YELLOW}[${WARN}]${NC} $1"; }
     log_error() { echo -e "   ${RED}[${CROSS}]${NC} $1"; }
     log_step() { echo -e "\n${CYAN}━━━ Step $1/${TOTAL_STEPS}: $2 ━━━${NC}"; }
+    log_detail() { echo -e "      ${DIM}$1${NC}"; }
     display_pixeagle_banner() {
         echo -e "\n${CYAN}═══ PixEagle System Launcher ═══${NC}\n"
     }
