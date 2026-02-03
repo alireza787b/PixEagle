@@ -95,6 +95,12 @@ scripts\init.bat
 
 The init script runs a 9-step automated setup including Python venv, Node.js, dashboard, and MAVSDK/MAVLink2REST binaries.
 
+**Installation Profiles:**
+- **Core** - Essential features (recommended for ARM/Raspberry Pi)
+- **Full** - All features including AI/YOLO detection
+
+The script auto-detects your platform and recommends the appropriate profile.
+
 > **Detailed Guide**: [Installation Documentation](docs/INSTALLATION.md)
 
 ### Run

@@ -756,7 +756,34 @@ install_python_deps() {
         elif [[ "$SKIP_OPENCV" == true ]]; then
             log_success "Packages installed (preserved custom OpenCV with GStreamer)"
         else
-            log_success "All packages installed successfully"
+            # Full profile - verify AI packages work
+            local ai_status="unknown"
+            if venv/bin/python -c "from ultralytics import YOLO; print('ok')" 2>/dev/null | grep -q "ok"; then
+                ai_status="ok"
+                log_success "All packages installed successfully (including AI/YOLO)"
+            else
+                ai_status="failed"
+                log_warn "Core packages OK, but AI packages (ultralytics/torch) failed to load"
+
+                # Uninstall broken AI packages to prevent app crashes
+                log_info "Removing incompatible AI packages to ensure app stability..."
+                venv/bin/pip uninstall -y ultralytics torch torchvision torchaudio 2>/dev/null || true
+
+                if [[ "$IS_ARM_PLATFORM" == true ]]; then
+                    log_detail "This is common on ARM - standard PyTorch is not compatible"
+                    log_detail "The app will work with all features except AI/YOLO tracking"
+                    echo ""
+                    log_info "To add AI support on ARM later, try:"
+                    log_detail "1. pip install torch --index-url https://download.pytorch.org/whl/cpu"
+                    log_detail "2. pip install ultralytics"
+                    log_detail "3. Test with: python -c \"from ultralytics import YOLO\""
+                else
+                    log_detail "Unexpected failure on x86 platform"
+                    log_detail "Try manually: pip install ultralytics"
+                fi
+                # Update profile to reflect reality
+                INSTALL_PROFILE="core"
+            fi
         fi
     else
         if [[ "$SKIP_OPENCV" == true ]]; then

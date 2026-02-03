@@ -30,13 +30,18 @@ from typing import Dict, Optional, Tuple, List
 from datetime import datetime
 
 # Conditional AI imports - allows app to run without ultralytics/torch
+# Catches ImportError (not installed) and other errors (incompatible on ARM, etc.)
 try:
     import torch
     TORCH_AVAILABLE = True
 except ImportError:
     torch = None
     TORCH_AVAILABLE = False
-    logging.warning("PyTorch not available - some YOLO features limited")
+    logging.warning("PyTorch not installed - AI features disabled")
+except Exception as e:
+    torch = None
+    TORCH_AVAILABLE = False
+    logging.warning(f"PyTorch import failed: {e} - AI features disabled")
 
 try:
     from ultralytics import YOLO
@@ -44,7 +49,11 @@ try:
 except ImportError:
     YOLO = None
     ULTRALYTICS_AVAILABLE = False
-    logging.warning("Ultralytics not available - YOLO functionality limited")
+    logging.warning("Ultralytics not installed - YOLO functionality disabled")
+except Exception as e:
+    YOLO = None
+    ULTRALYTICS_AVAILABLE = False
+    logging.warning(f"Ultralytics import failed: {e} - YOLO functionality disabled")
 
 AI_AVAILABLE = TORCH_AVAILABLE and ULTRALYTICS_AVAILABLE
 

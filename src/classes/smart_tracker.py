@@ -8,13 +8,20 @@ import os
 from typing import Tuple
 
 # Conditional AI imports - allows app to run without ultralytics/torch
+# Catches ImportError (not installed) and any other errors (incompatible torch on ARM, etc.)
 try:
     from ultralytics import YOLO
+    # Quick sanity check that YOLO is actually usable
     ULTRALYTICS_AVAILABLE = True
 except ImportError:
     YOLO = None
     ULTRALYTICS_AVAILABLE = False
-    logging.warning("Ultralytics not available - SmartTracker disabled")
+    logging.warning("Ultralytics not installed - SmartTracker disabled. Install with: pip install ultralytics")
+except Exception as e:
+    # Catches RuntimeError, OSError, or other issues (e.g., incompatible torch on ARM)
+    YOLO = None
+    ULTRALYTICS_AVAILABLE = False
+    logging.warning(f"Ultralytics import failed: {e} - SmartTracker disabled")
 
 from classes.parameters import Parameters
 from classes.tracker_output import TrackerOutput, TrackerDataType

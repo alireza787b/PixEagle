@@ -10,6 +10,10 @@ try:
 except ImportError:
     YOLO = None
     ULTRALYTICS_AVAILABLE = False
+except Exception as e:
+    YOLO = None
+    ULTRALYTICS_AVAILABLE = False
+    logging.warning(f"Ultralytics import failed: {e}")
 
 logger = logging.getLogger(__name__)
 
