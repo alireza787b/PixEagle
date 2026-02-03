@@ -4270,7 +4270,7 @@ class FastAPIHandler:
         """Initiate backend restart.
 
         The backend will exit with code 42, which signals the wrapper script
-        (run_main.sh) to restart the application.
+        (scripts/components/main.sh) to restart the application.
 
         This preserves the dashboard connection and allows config reloading.
         """

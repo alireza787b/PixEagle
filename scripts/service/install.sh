@@ -1,15 +1,11 @@
 #!/bin/bash
 
-#########################################
-# PixEagle Service Installation Script
-#
-# Project: PixEagle
-# Repository: https://github.com/alireza787b/PixEagle
-#
-# This script installs the PixEagle service management system,
-# making it available system-wide as 'pixeagle-service' command.
-# It provides automatic detection, validation, and setup with
-# comprehensive user guidance.
+# ============================================================================
+# scripts/service/install.sh - PixEagle Service Installation Script
+# ============================================================================
+# This script installs the PixEagle service management system, making it
+# available system-wide as 'pixeagle-service' command. It provides automatic
+# detection, validation, and setup with comprehensive user guidance.
 #
 # Features:
 # - Automatic environment detection and validation
@@ -19,14 +15,19 @@
 # - User-friendly setup guidance
 # - Plug-and-play installation
 #
-# Usage: bash install_service.sh
+# Usage:
+#   sudo bash scripts/service/install.sh
+#   sudo bash scripts/service/install.sh uninstall
 #
-#########################################
+# Project: PixEagle
+# Repository: https://github.com/alireza787b/PixEagle
+# ============================================================================
 
 # Installation configuration
 INSTALL_DIR="/usr/local/bin"
 SERVICE_COMMAND="pixeagle-service"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Colors for output
 RED='\033[0;31m'
@@ -44,13 +45,13 @@ print_status() {
     local message="$2"
 
     case "$status" in
-        "info")    echo -e "${BLUE}ℹ️  $message${NC}" ;;
-        "success") echo -e "${GREEN}✅ $message${NC}" ;;
-        "warning") echo -e "${YELLOW}⚠️  $message${NC}" ;;
-        "error")   echo -e "${RED}❌ $message${NC}" ;;
-        "process") echo -e "${CYAN}🔄 $message${NC}" ;;
-        "note")    echo -e "${PURPLE}📝 $message${NC}" ;;
-        "header")  echo -e "${WHITE}🚀 $message${NC}" ;;
+        "info")    echo -e "${BLUE}[*] $message${NC}" ;;
+        "success") echo -e "${GREEN}[OK] $message${NC}" ;;
+        "warning") echo -e "${YELLOW}[WARNING] $message${NC}" ;;
+        "error")   echo -e "${RED}[ERROR] $message${NC}" ;;
+        "process") echo -e "${CYAN}[*] $message${NC}" ;;
+        "note")    echo -e "${PURPLE}[NOTE] $message${NC}" ;;
+        "header")  echo -e "${WHITE}$message${NC}" ;;
         *)         echo -e "${WHITE}$message${NC}" ;;
     esac
 }
@@ -68,12 +69,12 @@ show_banner() {
                             __/ |
                            |___/
 
-┌─────────────────────────────────────────────────────────────────┐
-│              PixEagle Service Installation Script               │
-│                                                                 │
-│ This installer will set up the PixEagle service management     │
-│ system, making it available as a system-wide command.          │
-└─────────────────────────────────────────────────────────────────┘
+========================================================================
+              PixEagle Service Installation Script
+
+ This installer will set up the PixEagle service management
+ system, making it available as a system-wide command.
+========================================================================
 
 EOF
 }
@@ -82,7 +83,7 @@ EOF
 check_root_privileges() {
     if [ "$EUID" -ne 0 ]; then
         print_status "error" "This installer must be run as root"
-        print_status "info" "Please run: sudo bash install_service.sh"
+        print_status "info" "Please run: sudo bash scripts/service/install.sh"
         exit 1
     fi
 }
@@ -150,8 +151,8 @@ detect_pixeagle() {
 
     local user_home="/home/$target_user"
     local pixeagle_locations=(
+        "$PROJECT_ROOT"
         "$user_home/PixEagle"
-        "$SCRIPT_DIR"
         "/opt/PixEagle"
         "$user_home/Projects/PixEagle"
         "$user_home/Desktop/PixEagle"
@@ -159,7 +160,7 @@ detect_pixeagle() {
 
     local pixeagle_dir=""
     for location in "${pixeagle_locations[@]}"; do
-        if [ -f "$location/run_pixeagle.sh" ]; then
+        if [ -f "$location/scripts/run.sh" ]; then
             pixeagle_dir="$location"
             break
         fi
@@ -191,9 +192,9 @@ validate_pixeagle() {
     print_status "process" "Validating PixEagle installation..."
 
     local required_files=(
-        "run_pixeagle.sh"
-        "src/tools/service_utils.sh"
-        "pixeagle-service"
+        "scripts/run.sh"
+        "scripts/service/utils.sh"
+        "scripts/service/run.sh"
     )
 
     local missing_files=()
@@ -214,7 +215,7 @@ validate_pixeagle() {
     # Check if PixEagle appears to be properly configured
     if [ ! -f "$PIXEAGLE_DIR/configs/config.yaml" ] && [ ! -f "$PIXEAGLE_DIR/configs/config_default.yaml" ]; then
         print_status "warning" "PixEagle configuration files not found"
-        print_status "note" "Run 'bash init_pixeagle.sh' to initialize PixEagle first"
+        print_status "note" "Run 'make init' or 'bash scripts/init.sh' to initialize PixEagle first"
     fi
 
     print_status "success" "PixEagle installation validation completed"
@@ -225,7 +226,6 @@ validate_pixeagle() {
 install_service_command() {
     print_status "process" "Installing pixeagle-service command..."
 
-    local source_script="$PIXEAGLE_DIR/pixeagle-service"
     local target_script="$INSTALL_DIR/$SERVICE_COMMAND"
 
     # Check if target directory exists
@@ -234,19 +234,105 @@ install_service_command() {
         mkdir -p "$INSTALL_DIR"
     fi
 
-    # Copy and modify the service script to include proper paths
+    # Create the service command script
     print_status "process" "Creating system-wide service command..."
 
     cat > "$target_script" << EOF
 #!/bin/bash
 # PixEagle Service Management Tool - System Installation
-# Auto-generated by install_service.sh
+# Auto-generated by scripts/service/install.sh
 
 # Set the correct PixEagle directory
 export PIXEAGLE_INSTALL_DIR="$PIXEAGLE_DIR"
 
-# Execute the actual service script
-exec bash "$PIXEAGLE_DIR/pixeagle-service" "\$@"
+# Source service utilities
+source "\$PIXEAGLE_INSTALL_DIR/scripts/service/utils.sh"
+
+# Handle commands
+case "\${1:-}" in
+    "start")
+        print_status "process" "Starting PixEagle..."
+        if is_service_installed && is_service_enabled; then
+            systemctl start pixeagle.service
+        else
+            exec bash "\$PIXEAGLE_INSTALL_DIR/scripts/run.sh" "\${@:2}"
+        fi
+        ;;
+    "stop")
+        print_status "process" "Stopping PixEagle..."
+        if is_service_active; then
+            systemctl stop pixeagle.service
+        fi
+        exec bash "\$PIXEAGLE_INSTALL_DIR/scripts/stop.sh"
+        ;;
+    "restart")
+        print_status "process" "Restarting PixEagle..."
+        "\$0" stop
+        sleep 2
+        "\$0" start
+        ;;
+    "status")
+        get_service_status
+        ;;
+    "enable")
+        if [ "\$EUID" -ne 0 ]; then
+            echo "Please run with sudo: sudo pixeagle-service enable"
+            exit 1
+        fi
+        create_service_file
+        systemctl daemon-reload
+        systemctl enable pixeagle.service
+        print_status "success" "Auto-start enabled"
+        ;;
+    "disable")
+        if [ "\$EUID" -ne 0 ]; then
+            echo "Please run with sudo: sudo pixeagle-service disable"
+            exit 1
+        fi
+        remove_service
+        print_status "success" "Auto-start disabled"
+        ;;
+    "logs")
+        if [ "\$2" = "-f" ]; then
+            show_service_logs 50 true
+        else
+            show_service_logs "\${2:-50}"
+        fi
+        ;;
+    "attach")
+        attach_to_session
+        ;;
+    "help"|"--help"|"-h"|"")
+        echo ""
+        echo "PixEagle Service Management"
+        echo "==========================="
+        echo ""
+        echo "Usage: pixeagle-service <command>"
+        echo ""
+        echo "Commands:"
+        echo "  start    - Start PixEagle"
+        echo "  stop     - Stop PixEagle"
+        echo "  restart  - Restart PixEagle"
+        echo "  status   - Show detailed status"
+        echo "  enable   - Enable auto-start on boot (requires sudo)"
+        echo "  disable  - Disable auto-start (requires sudo)"
+        echo "  logs     - Show service logs (use -f to follow)"
+        echo "  attach   - Attach to tmux session"
+        echo "  help     - Show this help message"
+        echo ""
+        echo "Examples:"
+        echo "  pixeagle-service start"
+        echo "  pixeagle-service status"
+        echo "  sudo pixeagle-service enable"
+        echo "  pixeagle-service logs -f"
+        echo ""
+        ;;
+    *)
+        echo "Unknown command: \$1"
+        echo "Run 'pixeagle-service help' for usage"
+        exit 1
+        ;;
+esac
 EOF
 
     # Make executable
@@ -267,15 +353,14 @@ setup_permissions() {
     print_status "process" "Setting up file permissions..."
 
     # Make scripts executable
-    chmod +x "$PIXEAGLE_DIR/pixeagle-service"
-    chmod +x "$PIXEAGLE_DIR/run_pixeagle_service.sh"
-    chmod +x "$PIXEAGLE_DIR/src/tools/service_utils.sh"
+    chmod +x "$PIXEAGLE_DIR/scripts/service/utils.sh"
+    chmod +x "$PIXEAGLE_DIR/scripts/service/run.sh"
+    chmod +x "$PIXEAGLE_DIR/scripts/service/install.sh"
+    chmod +x "$PIXEAGLE_DIR/scripts/run.sh"
+    chmod +x "$PIXEAGLE_DIR/scripts/stop.sh"
 
     # Set ownership to target user
     chown -R "$TARGET_USER:$TARGET_USER" "$PIXEAGLE_DIR"
-
-    # Ensure service utilities are readable by all
-    chmod 644 "$PIXEAGLE_DIR/src/tools/service_utils.sh"
 
     print_status "success" "File permissions configured"
 }
@@ -379,7 +464,7 @@ main() {
             ;;
         "help"|"--help"|"-h")
             show_banner
-            echo "Usage: sudo bash install_service.sh [uninstall]"
+            echo "Usage: sudo bash scripts/service/install.sh [uninstall]"
             echo
             echo "Commands:"
             echo "  (no args)  - Install PixEagle service management"

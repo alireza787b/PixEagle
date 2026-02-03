@@ -58,8 +58,21 @@
 - Python 3.9+
 - 4GB+ RAM
 
-### Linux Installation
+### One-Liner Installation
 
+**Linux/macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.sh | bash
+```
+
+**Windows PowerShell:**
+```powershell
+irm https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.ps1 | iex
+```
+
+### Manual Installation
+
+**Linux:**
 ```bash
 # Install system dependencies
 sudo apt update && sudo apt install -y python3 python3-venv python3-pip tmux lsof curl git
@@ -67,16 +80,15 @@ sudo apt update && sudo apt install -y python3 python3-venv python3-pip tmux lso
 # Clone and initialize
 git clone https://github.com/alireza787b/PixEagle.git
 cd PixEagle
-bash init_pixeagle.sh
+make init
 ```
 
-### Windows Installation
-
+**Windows:**
 ```cmd
 # Clone and initialize
 git clone https://github.com/alireza787b/PixEagle.git
 cd PixEagle
-init_pixeagle.bat
+scripts\init.bat
 ```
 
 > **Windows Guide**: [Windows Setup Documentation](docs/WINDOWS_SETUP.md)
@@ -87,20 +99,48 @@ The init script runs a 9-step automated setup including Python venv, Node.js, da
 
 ### Run
 
-**Linux:**
+**Linux/macOS:**
 ```bash
-bash run_pixeagle.sh
+make run           # Run all services
+make dev           # Development mode with hot-reload
+make stop          # Stop all services
+make help          # Show all commands
 ```
 
 **Windows:**
 ```cmd
-run_pixeagle.bat
+scripts\run.bat            # Run all services
+scripts\run.bat --dev      # Development mode
+scripts\stop.bat           # Stop all services
 ```
 
 ### Access Dashboard
 
 - **Local**: http://localhost:3000
 - **LAN**: http://<your-ip>:3000 (auto-detected)
+
+---
+
+## Project Structure
+
+```
+PixEagle/
+├── Makefile                 # Primary entry point (make help, make run)
+├── install.sh               # Bootstrap installer (Linux/macOS)
+├── install.ps1              # Bootstrap installer (Windows)
+├── scripts/                 # All scripts organized here
+│   ├── init.sh/bat          # Main setup scripts
+│   ├── run.sh/bat           # Main launcher scripts
+│   ├── stop.sh/bat          # Stop services
+│   ├── lib/                 # Shared utilities
+│   ├── components/          # Component runners
+│   └── setup/               # Setup utilities
+├── bin/                     # Downloaded binaries
+├── src/                     # Python source code
+├── configs/                 # Configuration files
+├── dashboard/               # React web dashboard
+└── docs/                    # Documentation
+```
 
 ---
 
@@ -158,16 +198,28 @@ sudo ufw allow 3000/tcp && sudo ufw allow 5077/tcp && sudo ufw allow 5551/tcp &&
 
 ## Running Options
 
+**Using Makefile (Linux/macOS):**
 ```bash
-bash run_pixeagle.sh          # Full system (recommended)
-bash run_pixeagle.sh --dev    # Development mode with hot-reload
-bash run_pixeagle.sh --rebuild # Force rebuild
-bash run_pixeagle.sh -d       # Skip dashboard
-bash run_pixeagle.sh -p       # Skip Python app
-bash run_pixeagle.sh -m       # Skip MAVLink2REST
+make run                # Full system (recommended)
+make dev                # Development mode with hot-reload
+make stop               # Stop all services
+make status             # Show service status
+make logs               # Attach to tmux session
+make help               # Show all commands
 ```
 
-**Tmux Controls**: `Ctrl+B` + arrows (switch panes) | `Ctrl+B D` (detach) | `tmux attach -t PixEagle` (reattach)
+**Using scripts directly:**
+```bash
+bash scripts/run.sh          # Full system (recommended)
+bash scripts/run.sh --dev    # Development mode with hot-reload
+bash scripts/run.sh --rebuild # Force rebuild
+bash scripts/run.sh -d       # Skip dashboard
+bash scripts/run.sh -p       # Skip Python app
+bash scripts/run.sh -m       # Skip MAVLink2REST
+bash scripts/stop.sh         # Stop all services
+```
+
+**Tmux Controls**: `Ctrl+B` + arrows (switch panes) | `Ctrl+B D` (detach) | `tmux attach -t pixeagle` (reattach)
 
 > **Troubleshooting**: [Troubleshooting Guide](docs/TROUBLESHOOTING.md)
 
@@ -191,7 +243,7 @@ pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorc
 Auto-start on boot (Raspberry Pi/Linux):
 
 ```bash
-sudo bash install_service.sh
+sudo bash scripts/service/install.sh
 pixeagle-service start|stop|status|restart
 sudo pixeagle-service enable|disable
 pixeagle-service logs -f
@@ -216,15 +268,18 @@ pixeagle-service logs -f
 
 ## Windows Support
 
-PixEagle now provides **full Windows support** with enterprise-grade batch scripts matching the Linux experience:
+PixEagle provides **full Windows support** with enterprise-grade batch scripts matching the Linux experience:
 
 ```cmd
 # Initialize (one-time setup)
-init_pixeagle.bat
+scripts\init.bat
 
 # Run PixEagle
-run_pixeagle.bat
-run_pixeagle.bat --dev      # Development mode
+scripts\run.bat
+scripts\run.bat --dev      # Development mode
+
+# Stop services
+scripts\stop.bat
 ```
 
 **Features:**

@@ -64,7 +64,14 @@ configs/audit_log.json
 configs/backups/
 dashboard/.env
 
-# Downloaded binaries (auto-downloaded by init_pixeagle.sh)
+# Downloaded binaries (auto-downloaded by scripts/init.sh)
+# Binaries are stored in bin/ directory
+bin/*.exe
+bin/mavsdk_server_bin
+bin/mavsdk_server_bin.*
+bin/mavlink2rest
+bin/mavlink2rest.*
+# Legacy root location (deprecated)
 mavsdk_server_bin
 mavsdk_server_bin.*
 mavlink2rest

@@ -35,7 +35,7 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 
 **Solution**:
 ```bash
-chmod +x init_pixeagle.sh run_pixeagle.sh
+chmod +x scripts/*.sh scripts/**/*.sh
 ```
 
 ## Video Feed Issues
@@ -66,7 +66,7 @@ ffplay rtsp://your-stream-url
 
 **Rebuild OpenCV with GStreamer**:
 ```bash
-bash auto_opencv_build.sh
+bash scripts/setup/build-opencv.sh
 ```
 
 ## Dashboard Issues
@@ -94,14 +94,14 @@ Dashboard uses `window.location.hostname` for auto-detection. Ensure:
 
 ### MAVSDK Connection Failed
 
-1. **Check binary exists**: `ls mavsdk_server_bin`
-2. **Re-download**: `bash src/tools/download_mavsdk_server.sh`
+1. **Check binary exists**: `ls bin/mavsdk_server_bin`
+2. **Re-download**: `bash scripts/setup/download-binaries.sh --mavsdk`
 3. **Check port**: MAVLink should be on 14540
 
 ### MAVLink2REST Not Responding
 
-1. **Check binary**: `ls mavlink2rest`
-2. **Re-download**: `bash src/tools/download_mavlink2rest.sh`
+1. **Check binary**: `ls bin/mavlink2rest`
+2. **Re-download**: `bash scripts/setup/download-binaries.sh --mavlink2rest`
 3. **Check port 14569**
 
 ### No Telemetry Data
@@ -148,7 +148,7 @@ pixeagle-service status
 pixeagle-service logs
 
 # Reinstall
-sudo bash install_service.sh
+sudo bash scripts/service/install.sh
 ```
 
 ### Tmux Session Lost
@@ -161,7 +161,7 @@ tmux ls
 tmux attach -t PixEagle
 
 # If no session, restart
-bash run_pixeagle.sh
+make run   # or: bash scripts/run.sh
 ```
 
 ## Firewall & Network Issues
@@ -256,7 +256,7 @@ taskkill /PID 12345 /F
 rmdir /s /q venv
 
 # Re-run init
-init_pixeagle.bat
+scripts\init.bat
 ```
 
 ### npm Install Fails (Windows)

@@ -1,14 +1,11 @@
 #!/bin/bash
 
-#########################################
-# PixEagle Service Management Utilities
-#
-# Project: PixEagle
-# Repository: https://github.com/alireza787b/PixEagle
-#
-# This script provides utility functions for managing PixEagle
-# as a system service. It includes user detection, service status
-# checking, tmux session management, and installation helpers.
+# ============================================================================
+# scripts/service/utils.sh - PixEagle Service Management Utilities
+# ============================================================================
+# This script provides utility functions for managing PixEagle as a system
+# service. It includes user detection, service status checking, tmux session
+# management, and installation helpers.
 #
 # Key Features:
 # - Automatic user detection and flexible configuration
@@ -17,7 +14,9 @@
 # - Service installation and cleanup utilities
 # - Cross-platform compatibility (Linux/Raspberry Pi)
 #
-#########################################
+# Project: PixEagle
+# Repository: https://github.com/alireza787b/PixEagle
+# ============================================================================
 
 # Service configuration
 SERVICE_NAME="pixeagle"
@@ -27,7 +26,7 @@ SERVICE_DESCRIPTION="PixEagle UAV Tracking and Control System"
 # Auto-detect project paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-SERVICE_TOOLS_DIR="$PROJECT_ROOT/src/tools"
+SERVICE_TOOLS_DIR="$PROJECT_ROOT/scripts/service"
 
 # Colors for output
 RED='\033[0;31m'
@@ -52,7 +51,7 @@ detect_service_user() {
 
     # Validate user exists
     if ! id "$SERVICE_USER" &>/dev/null; then
-        echo -e "${RED}❌ User '$SERVICE_USER' does not exist${NC}"
+        echo -e "${RED}[ERROR] User '$SERVICE_USER' does not exist${NC}"
         return 1
     fi
 
@@ -62,15 +61,15 @@ detect_service_user() {
 
     # Validate PixEagle directory exists
     if [ ! -d "$USER_PIXEAGLE_DIR" ]; then
-        echo -e "${YELLOW}⚠️  PixEagle directory not found at: $USER_PIXEAGLE_DIR${NC}"
-        echo -e "${BLUE}💡 Checking current directory...${NC}"
+        echo -e "${YELLOW}[WARNING] PixEagle directory not found at: $USER_PIXEAGLE_DIR${NC}"
+        echo -e "${BLUE}[*] Checking current directory...${NC}"
 
         # Try current directory or script location
-        if [ -f "$PROJECT_ROOT/run_pixeagle.sh" ]; then
+        if [ -f "$PROJECT_ROOT/scripts/run.sh" ]; then
             USER_PIXEAGLE_DIR="$PROJECT_ROOT"
-            echo -e "${GREEN}✅ Found PixEagle at: $USER_PIXEAGLE_DIR${NC}"
+            echo -e "${GREEN}[OK] Found PixEagle at: $USER_PIXEAGLE_DIR${NC}"
         else
-            echo -e "${RED}❌ PixEagle installation not found${NC}"
+            echo -e "${RED}[ERROR] PixEagle installation not found${NC}"
             return 1
         fi
     fi
@@ -85,12 +84,12 @@ print_status() {
     local message="$2"
 
     case "$status" in
-        "info")    echo -e "${BLUE}ℹ️  $message${NC}" ;;
-        "success") echo -e "${GREEN}✅ $message${NC}" ;;
-        "warning") echo -e "${YELLOW}⚠️  $message${NC}" ;;
-        "error")   echo -e "${RED}❌ $message${NC}" ;;
-        "process") echo -e "${CYAN}🔄 $message${NC}" ;;
-        "note")    echo -e "${PURPLE}📝 $message${NC}" ;;
+        "info")    echo -e "${BLUE}[*] $message${NC}" ;;
+        "success") echo -e "${GREEN}[OK] $message${NC}" ;;
+        "warning") echo -e "${YELLOW}[WARNING] $message${NC}" ;;
+        "error")   echo -e "${RED}[ERROR] $message${NC}" ;;
+        "process") echo -e "${CYAN}[*] $message${NC}" ;;
+        "note")    echo -e "${PURPLE}[NOTE] $message${NC}" ;;
         *)         echo -e "${WHITE}$message${NC}" ;;
     esac
 }
@@ -137,12 +136,12 @@ check_component_health() {
 
     if command -v lsof &>/dev/null; then
         if lsof -i ":$port" &>/dev/null; then
-            echo -e "${GREEN}●${NC} $component (port $port)"
+            echo -e "${GREEN}*${NC} $component (port $port)"
         else
-            echo -e "${RED}●${NC} $component (port $port) - Not responding"
+            echo -e "${RED}*${NC} $component (port $port) - Not responding"
         fi
     else
-        echo -e "${YELLOW}●${NC} $component (port $port) - Cannot check (lsof not available)"
+        echo -e "${YELLOW}*${NC} $component (port $port) - Cannot check (lsof not available)"
     fi
 }
 
@@ -155,19 +154,19 @@ get_service_status() {
         return 1
     fi
 
-    echo "📊 PixEagle Service Status Report"
+    echo "PixEagle Service Status Report"
     echo "=================================="
     echo
 
     # Basic service information
-    echo "🔧 Service Configuration:"
+    echo "Service Configuration:"
     echo "   User: $SERVICE_USER"
     echo "   Home: $SERVICE_HOME"
     echo "   Project: $USER_PIXEAGLE_DIR"
     echo
 
     # Service installation status
-    echo "📦 Installation Status:"
+    echo "Installation Status:"
     if is_service_installed; then
         print_status "success" "Service is installed"
 
@@ -183,7 +182,7 @@ get_service_status() {
     echo
 
     # Runtime status
-    echo "🚀 Runtime Status:"
+    echo "Runtime Status:"
     if is_service_active; then
         print_status "success" "Systemd service is active"
     else
@@ -200,7 +199,7 @@ get_service_status() {
     echo
 
     # Component health check
-    echo "🧩 Component Health:"
+    echo "Component Health:"
     check_component_health "MAVLink2REST" "8088"
     check_component_health "Main Python App" "5077"
     check_component_health "Dashboard" "3000"
@@ -208,7 +207,7 @@ get_service_status() {
 
     # Access information
     if is_tmux_session_active; then
-        echo "🖥️  Access Information:"
+        echo "Access Information:"
         print_status "info" "Dashboard: http://localhost:3000"
         print_status "info" "Tmux session: sudo -u $SERVICE_USER tmux attach -t $TMUX_SESSION_NAME"
         print_status "note" "Or use: pixeagle-service attach"
@@ -231,8 +230,8 @@ check_prerequisites() {
         return 1
     fi
 
-    if [ ! -f "$USER_PIXEAGLE_DIR/run_pixeagle.sh" ]; then
-        print_status "error" "PixEagle launcher script not found: $USER_PIXEAGLE_DIR/run_pixeagle.sh"
+    if [ ! -f "$USER_PIXEAGLE_DIR/scripts/run.sh" ]; then
+        print_status "error" "PixEagle launcher script not found: $USER_PIXEAGLE_DIR/scripts/run.sh"
         return 1
     fi
 
@@ -269,8 +268,8 @@ Group=$SERVICE_USER
 WorkingDirectory=$USER_PIXEAGLE_DIR
 Environment=HOME=$SERVICE_HOME
 Environment=USER=$SERVICE_USER
-ExecStart=$USER_PIXEAGLE_DIR/run_pixeagle_service.sh
-ExecStop=$USER_PIXEAGLE_DIR/src/tools/stop_pixeagle_service.sh
+ExecStart=$USER_PIXEAGLE_DIR/scripts/service/run.sh
+ExecStop=$USER_PIXEAGLE_DIR/scripts/stop.sh
 Restart=on-failure
 RestartSec=10
 KillMode=mixed

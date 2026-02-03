@@ -4,10 +4,32 @@
 
 ## Quick Installation
 
+### One-Liner (Recommended)
+
+**Linux/macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.sh | bash
+```
+
+**Windows PowerShell:**
+```powershell
+irm https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.ps1 | iex
+```
+
+### Manual Installation
+
+**Linux:**
 ```bash
 git clone https://github.com/alireza787b/PixEagle.git
 cd PixEagle
-bash init_pixeagle.sh
+make init
+```
+
+**Windows:**
+```cmd
+git clone https://github.com/alireza787b/PixEagle.git
+cd PixEagle
+scripts\init.bat
 ```
 
 ## System Requirements
@@ -37,7 +59,7 @@ sudo apt install -y python3 python3-venv python3-pip tmux lsof curl git
 
 ## Init Script Steps
 
-The `init_pixeagle.sh` script performs a 9-step setup:
+The `scripts/init.sh` (or `make init`) performs a 9-step setup:
 
 1. **System Requirements** - Validates Python version, disk space
 2. **System Packages** - Installs missing dependencies
@@ -77,17 +99,22 @@ cp dashboard/env_default.yaml dashboard/.env
 ### dlib Tracker
 
 ```bash
-bash scripts/install_dlib.sh
+bash scripts/setup/install-dlib.sh
 ```
 
 ### GPU Support (PyTorch)
 
 Visit [PyTorch Installation](https://pytorch.org/get-started/locally/) and install for your CUDA version.
 
+Or use the automated script:
+```bash
+bash scripts/setup/setup-pytorch.sh
+```
+
 ### GStreamer Support
 
 ```bash
-bash auto_opencv_build.sh
+bash scripts/setup/build-opencv.sh
 ```
 
 For manual build instructions, see [OpenCV GStreamer Guide](OPENCV_GSTREAMER.md).
@@ -130,6 +157,24 @@ sudo ufw allow 14550/udp  # QGC (optional)
 python src/test_Ver.py
 ```
 
+## Running PixEagle
+
+**Linux/macOS (using Makefile):**
+```bash
+make run           # Run all services
+make dev           # Development mode with hot-reload
+make stop          # Stop all services
+make status        # Show service status
+make help          # Show all commands
+```
+
+**Linux (using scripts directly):**
+```bash
+bash scripts/run.sh          # Run all services
+bash scripts/run.sh --dev    # Development mode
+bash scripts/stop.sh         # Stop all services
+```
+
 ## Windows Installation
 
 For Windows users, PixEagle provides enterprise-grade batch scripts matching the Linux experience.
@@ -139,7 +184,7 @@ For Windows users, PixEagle provides enterprise-grade batch scripts matching the
 ```cmd
 git clone https://github.com/alireza787b/PixEagle.git
 cd PixEagle
-init_pixeagle.bat
+scripts\init.bat
 ```
 
 ### Windows Requirements
@@ -154,16 +199,47 @@ init_pixeagle.bat
 
 | Script | Purpose |
 |--------|---------|
-| `init_pixeagle.bat` | 9-step setup wizard |
-| `run_pixeagle.bat` | Launch all services |
-| `run_dashboard.bat` | Dashboard only |
-| `run_main.bat` | Python backend only |
+| `scripts\init.bat` | 9-step setup wizard |
+| `scripts\run.bat` | Launch all services |
+| `scripts\run.bat --dev` | Development mode |
+| `scripts\stop.bat` | Stop all services |
+| `scripts\components\dashboard.bat` | Dashboard only |
+| `scripts\components\main.bat` | Python backend only |
 
 ### Windows Terminal (Recommended)
 
 Install [Windows Terminal](https://aka.ms/terminal) for a tabbed interface similar to Linux's tmux.
 
 > **Full Guide**: [Windows Setup Documentation](WINDOWS_SETUP.md)
+
+## Downloading Binaries
+
+If you need to download MAVSDK and MAVLink2REST binaries separately:
+
+**Linux:**
+```bash
+bash scripts/setup/download-binaries.sh --all
+bash scripts/setup/download-binaries.sh --mavsdk
+bash scripts/setup/download-binaries.sh --mavlink2rest
+```
+
+**Windows:**
+```cmd
+scripts\setup\download-binaries.bat --all
+```
+
+Binaries are downloaded to the `bin/` directory.
+
+## Service Management
+
+Auto-start on boot (Raspberry Pi/Linux):
+
+```bash
+sudo bash scripts/service/install.sh
+pixeagle-service start|stop|status|restart
+sudo pixeagle-service enable|disable
+pixeagle-service logs -f
+```
 
 ## Next Steps
 

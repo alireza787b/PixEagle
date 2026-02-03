@@ -1,8 +1,8 @@
 # Building OpenCV with GStreamer Support for PixEagle
 
-> **Recommended**: Use the automated script `auto_build_opencv.sh` for a streamlined installation:
+> **Recommended**: Use the automated script for a streamlined installation:
 > ```bash
-> bash ~/PixEagle/auto_build_opencv.sh
+> bash scripts/setup/build-opencv.sh
 > ```
 > The manual instructions below are provided for users who need more control over the build process.
 

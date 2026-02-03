@@ -54,21 +54,30 @@ v18.x.x (or higher)
 
 ## Quick Start
 
+### One-Liner Installation (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.ps1 | iex
+```
+
+### Manual Installation
+
 1. **Open Command Prompt** (or Windows Terminal)
 
-2. **Navigate to PixEagle directory:**
+2. **Clone and navigate to PixEagle:**
    ```cmd
-   cd C:\path\to\PixEagle
+   git clone https://github.com/alireza787b/PixEagle.git
+   cd PixEagle
    ```
 
 3. **Run the initialization script:**
    ```cmd
-   init_pixeagle.bat
+   scripts\init.bat
    ```
 
 4. **Start PixEagle:**
    ```cmd
-   run_pixeagle.bat
+   scripts\run.bat
    ```
 
 5. **Open the dashboard** in your browser:
@@ -91,10 +100,10 @@ Or download and extract the ZIP from GitHub.
 
 ### Step 2: Run the Setup Script
 
-The `init_pixeagle.bat` script performs a complete 9-step setup:
+The `scripts\init.bat` script performs a complete 9-step setup:
 
 ```cmd
-init_pixeagle.bat
+scripts\init.bat
 ```
 
 **What it does:**
@@ -125,15 +134,22 @@ Key settings to configure:
 
 If you skipped during init, run these manually:
 
-**MAVSDK Server:**
+**All binaries:**
 ```cmd
-src\tools\download_mavsdk_server.bat
+scripts\setup\download-binaries.bat --all
 ```
 
-**MAVLink2REST:**
+**MAVSDK Server only:**
 ```cmd
-src\tools\download_mavlink2rest.bat
+scripts\setup\download-binaries.bat --mavsdk
 ```
+
+**MAVLink2REST only:**
+```cmd
+scripts\setup\download-binaries.bat --mavlink2rest
+```
+
+Binaries are downloaded to the `bin\` directory.
 
 ---
 
@@ -158,7 +174,7 @@ winget install Microsoft.WindowsTerminal
 
 ### How PixEagle Uses Windows Terminal
 
-When you run `run_pixeagle.bat`:
+When you run `scripts\run.bat`:
 - If Windows Terminal is installed, services open in **tabs**
 - If not installed, services open in **separate cmd windows**
 
@@ -179,7 +195,7 @@ When you run `run_pixeagle.bat`:
 ### Basic Usage
 
 ```cmd
-run_pixeagle.bat
+scripts\run.bat
 ```
 
 This starts all 4 components:
@@ -193,7 +209,13 @@ This starts all 4 components:
 For hot-reload and enhanced debugging:
 
 ```cmd
-run_pixeagle.bat --dev
+scripts\run.bat --dev
+```
+
+### Stopping Services
+
+```cmd
+scripts\stop.bat
 ```
 
 ### Command-Line Options
@@ -202,7 +224,6 @@ run_pixeagle.bat --dev
 |--------|-------------|
 | `--dev`, `-d` | Development mode with hot-reload |
 | `--rebuild`, `-r` | Force dashboard rebuild |
-| `--separate`, `-s` | Use separate windows (not tabs) |
 | `-m` | Skip MAVLink2REST |
 | `-p` | Skip Python application |
 | `-k` | Skip MAVSDK Server |
@@ -212,35 +233,37 @@ run_pixeagle.bat --dev
 
 ```cmd
 # Normal startup
-run_pixeagle.bat
+scripts\run.bat
 
 # Development mode
-run_pixeagle.bat --dev
+scripts\run.bat --dev
 
 # Force rebuild and development mode
-run_pixeagle.bat --dev --rebuild
+scripts\run.bat --dev --rebuild
 
 # Skip MAVLink2REST (for testing)
-run_pixeagle.bat -m
+scripts\run.bat -m
+
+# Stop all services
+scripts\stop.bat
 ```
 
 ### Running Individual Components
 
 **Dashboard only:**
 ```cmd
-run_dashboard.bat
-run_dashboard.bat -d    # Development mode
+scripts\components\dashboard.bat
+scripts\components\dashboard.bat --dev    # Development mode
 ```
 
 **Python backend only:**
 ```cmd
-run_main.bat
-run_main.bat --dev
+scripts\components\main.bat
 ```
 
 **MAVLink2REST only:**
 ```cmd
-src\tools\mavlink2rest\run_mavlink2rest.bat
+scripts\components\mavlink2rest.bat
 ```
 
 ---
@@ -306,6 +329,11 @@ netstat -ano | findstr :3000
 taskkill /PID 12345 /F
 ```
 
+Or run the stop script:
+```cmd
+scripts\stop.bat
+```
+
 #### Colors not displaying
 
 **Issue:** ANSI color codes showing as text
@@ -337,7 +365,7 @@ npm install
 rmdir /s /q venv
 
 # Re-run init
-init_pixeagle.bat
+scripts\init.bat
 ```
 
 ### Port Reference
@@ -370,19 +398,25 @@ netstat -ano | findstr "3000 5077 8088 5551"
 
 | Script | Purpose |
 |--------|---------|
-| `init_pixeagle.bat` | Complete 9-step setup wizard |
-| `run_pixeagle.bat` | Launch all services |
-| `run_dashboard.bat` | Dashboard server only |
-| `run_main.bat` | Python backend only |
+| `scripts\init.bat` | Complete 9-step setup wizard |
+| `scripts\run.bat` | Launch all services |
+| `scripts\run.bat --dev` | Launch in development mode |
+| `scripts\stop.bat` | Stop all services |
 
-### Utility Scripts
+### Component Scripts
 
 | Script | Purpose |
 |--------|---------|
-| `src\tools\download_mavsdk_server.bat` | Download MAVSDK binary |
-| `src\tools\download_mavlink2rest.bat` | Download MAVLink2REST binary |
-| `src\tools\mavlink2rest\run_mavlink2rest.bat` | Run MAVLink2REST |
-| `scripts\common.bat` | Shared functions (colors, logging) |
+| `scripts\components\main.bat` | Python backend only |
+| `scripts\components\dashboard.bat` | Dashboard server only |
+| `scripts\components\mavlink2rest.bat` | MAVLink2REST bridge only |
+
+### Setup Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts\setup\download-binaries.bat` | Download MAVSDK/MAVLink2REST binaries |
+| `scripts\lib\common.bat` | Shared functions (colors, logging) |
 
 ---
 
@@ -390,6 +424,9 @@ netstat -ano | findstr "3000 5077 8088 5551"
 
 | Feature | Linux | Windows |
 |---------|-------|---------|
+| Primary entry | `make run` | `scripts\run.bat` |
+| Init command | `make init` | `scripts\init.bat` |
+| Stop command | `make stop` | `scripts\stop.bat` |
 | Terminal multiplexer | tmux | Windows Terminal (tabs) |
 | Virtual env activation | `source venv/bin/activate` | `call venv\Scripts\activate.bat` |
 | Port checking | `lsof -i :PORT` | `netstat -ano \| findstr :PORT` |
@@ -402,7 +439,7 @@ netstat -ano | findstr "3000 5077 8088 5551"
 
 - **Issues**: [GitHub Issues](https://github.com/alireza787b/PixEagle/issues)
 - **Documentation**: Check the `docs/` folder
-- **Help command**: `run_pixeagle.bat --help`
+- **Help command**: `scripts\run.bat --help`
 
 ---
 

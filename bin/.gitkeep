@@ -1,0 +1,3 @@
+# This directory contains downloaded binaries
+# These are automatically downloaded by scripts/setup/download-binaries.sh
+# Files in this directory are gitignored except this .gitkeep

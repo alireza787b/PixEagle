@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # ============================================================================
-# auto_build_opencv.sh - Build OpenCV with GStreamer Support for PixEagle
+# scripts/setup/build-opencv.sh - Build OpenCV with GStreamer Support
 # ============================================================================
 # This script builds OpenCV from source with GStreamer, Qt, and OpenGL support.
 #
@@ -18,7 +18,7 @@
 #   - 4GB+ RAM (8GB recommended for parallel build)
 #   - 1-2 hours build time (depends on CPU cores)
 #
-# Usage: bash auto_build_opencv.sh [-h|--help] [-v|--version]
+# Usage: bash scripts/setup/build-opencv.sh [-h|--help] [-v|--version]
 #
 # Author: Alireza Ghaderi
 # Version: 2.0.0
@@ -31,15 +31,16 @@ set -euo pipefail
 # Configuration
 # ============================================================================
 TOTAL_STEPS=9
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-VENV_DIR="$SCRIPT_DIR/venv"
+SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
+VENV_DIR="$PIXEAGLE_DIR/venv"
 OPENCV_VERSION="4.9.0"
 REQUIRED_DISK_GB=10
 REQUIRED_RAM_GB=4
 VERSION="2.1.0"
 
 # Source shared functions (colors, logging, banner)
-source "$SCRIPT_DIR/scripts/common.sh"
+source "$SCRIPTS_DIR/lib/common.sh"
 
 # ============================================================================
 # Spinner for Long Operations
@@ -97,7 +98,7 @@ parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -h|--help)
-                echo "Usage: bash auto_build_opencv.sh [OPTIONS]"
+                echo "Usage: bash scripts/setup/build-opencv.sh [OPTIONS]"
                 echo ""
                 echo "Build OpenCV ${OPENCV_VERSION} with GStreamer support for PixEagle."
                 echo ""
@@ -113,7 +114,7 @@ parse_args() {
                 exit 0
                 ;;
             -v|--version)
-                echo "auto_build_opencv.sh version $VERSION"
+                echo "build-opencv.sh version $VERSION"
                 exit 0
                 ;;
             --skip-confirm)

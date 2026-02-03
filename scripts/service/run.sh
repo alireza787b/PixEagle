@@ -1,14 +1,11 @@
 #!/bin/bash
 
-#########################################
-# PixEagle Service-Optimized Launcher
-#
-# Project: PixEagle
-# Repository: https://github.com/alireza787b/PixEagle
-#
+# ============================================================================
+# scripts/service/run.sh - PixEagle Service-Optimized Launcher
+# ============================================================================
 # This script is optimized for running PixEagle as a system service.
 # It provides enhanced error handling, logging, and headless operation
-# while maintaining compatibility with the original tmux-based architecture.
+# while maintaining compatibility with the tmux-based architecture.
 #
 # Key Features:
 # - Headless operation suitable for systemd services
@@ -21,13 +18,16 @@
 # This script is automatically called by the systemd service but can
 # also be run manually for testing service operation.
 #
-#########################################
+# Project: PixEagle
+# Repository: https://github.com/alireza787b/PixEagle
+# ============================================================================
 
 # Service configuration
 SERVICE_MODE=true
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_FILE="$SCRIPT_DIR/pixeagle_service.log"
-PID_FILE="$SCRIPT_DIR/pixeagle_service.pid"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+LOG_FILE="$PROJECT_ROOT/pixeagle_service.log"
+PID_FILE="$PROJECT_ROOT/pixeagle_service.pid"
 
 # Store PID for service management
 echo $$ > "$PID_FILE"
@@ -98,23 +98,23 @@ check_service_prerequisites() {
     fi
 
     # Check PixEagle files
-    if [ ! -f "$SCRIPT_DIR/run_pixeagle.sh" ]; then
-        log_message "ERROR" "PixEagle launcher script not found: $SCRIPT_DIR/run_pixeagle.sh"
+    if [ ! -f "$PROJECT_ROOT/scripts/run.sh" ]; then
+        log_message "ERROR" "PixEagle launcher script not found: $PROJECT_ROOT/scripts/run.sh"
         return 1
     fi
 
     # Check Python virtual environment
-    if [ ! -d "$SCRIPT_DIR/venv" ]; then
-        log_message "WARN" "Python virtual environment not found at $SCRIPT_DIR/venv"
+    if [ ! -d "$PROJECT_ROOT/venv" ]; then
+        log_message "WARN" "Python virtual environment not found at $PROJECT_ROOT/venv"
         log_message "INFO" "Attempting to create virtual environment..."
-        if ! python3 -m venv "$SCRIPT_DIR/venv"; then
+        if ! python3 -m venv "$PROJECT_ROOT/venv"; then
             log_message "ERROR" "Failed to create virtual environment"
             return 1
         fi
     fi
 
     # Check if dashboard dependencies are installed
-    if [ -d "$SCRIPT_DIR/dashboard" ] && [ ! -d "$SCRIPT_DIR/dashboard/node_modules" ]; then
+    if [ -d "$PROJECT_ROOT/dashboard" ] && [ ! -d "$PROJECT_ROOT/dashboard/node_modules" ]; then
         log_message "WARN" "Dashboard dependencies not installed"
         log_message "INFO" "This may cause dashboard startup delays"
     fi
@@ -133,15 +133,15 @@ setup_service_environment() {
     export DBUS_SESSION_BUS_ADDRESS=""
 
     # Ensure proper working directory
-    cd "$SCRIPT_DIR" || {
-        log_message "ERROR" "Failed to change to PixEagle directory: $SCRIPT_DIR"
+    cd "$PROJECT_ROOT" || {
+        log_message "ERROR" "Failed to change to PixEagle directory: $PROJECT_ROOT"
         exit 1
     }
 
     # Set Python path if virtual environment exists
     if [ -d "venv" ]; then
-        export PATH="$SCRIPT_DIR/venv/bin:$PATH"
-        export VIRTUAL_ENV="$SCRIPT_DIR/venv"
+        export PATH="$PROJECT_ROOT/venv/bin:$PATH"
+        export VIRTUAL_ENV="$PROJECT_ROOT/venv"
     fi
 
     log_message "INFO" "Service environment configured"
@@ -166,19 +166,19 @@ start_pixeagle_service() {
         fi
     done
 
-    # Start PixEagle using the original launcher but in detached mode
+    # Start PixEagle using the new launcher but in detached mode
     log_message "INFO" "Launching PixEagle components in tmux session..."
 
     # Create tmux session in detached mode
-    tmux new-session -d -s PixEagle -c "$SCRIPT_DIR"
+    tmux new-session -d -s PixEagle -c "$PROJECT_ROOT"
 
     # Set tmux session environment
     tmux send-keys -t PixEagle "export HOME=$HOME" C-m
     tmux send-keys -t PixEagle "export USER=$USER" C-m
-    tmux send-keys -t PixEagle "cd $SCRIPT_DIR" C-m
+    tmux send-keys -t PixEagle "cd $PROJECT_ROOT" C-m
 
-    # Execute the original PixEagle launcher within tmux
-    tmux send-keys -t PixEagle "bash run_pixeagle.sh" C-m
+    # Execute the PixEagle launcher within tmux
+    tmux send-keys -t PixEagle "bash scripts/run.sh" C-m
 
     # Wait for components to start
     log_message "INFO" "Waiting for components to initialize..."
