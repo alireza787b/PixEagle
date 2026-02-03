@@ -266,11 +266,30 @@ clone_or_update() {
     fi
 }
 
+fix_line_endings() {
+    # Fix CRLF line endings in shell scripts (Windows compatibility)
+    local dir="$1"
+    log_info "Normalizing shell script line endings..."
+
+    # Find all .sh files and fix CRLF endings
+    if command -v find &>/dev/null && command -v sed &>/dev/null; then
+        find "$dir" -name "*.sh" -type f 2>/dev/null | while read -r file; do
+            if grep -q $'\r' "$file" 2>/dev/null; then
+                sed -i.bak 's/\r$//' "$file" 2>/dev/null && rm -f "${file}.bak" 2>/dev/null
+            fi
+        done
+        log_success "Line endings normalized"
+    fi
+}
+
 run_init() {
     log_info "Running initialization script..."
     echo ""
 
     cd "$INSTALL_DIR"
+
+    # Fix any CRLF line endings before running scripts
+    fix_line_endings "$INSTALL_DIR"
 
     if [[ -f "scripts/init.sh" ]]; then
         bash scripts/init.sh

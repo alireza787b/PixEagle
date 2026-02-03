@@ -40,10 +40,23 @@ CALCULATED_SWAP_MB=0
 
 # Get script directory for sourcing common functions
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PIXEAGLE_DIR="$(dirname "$SCRIPT_DIR")"
+SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 
-# Source shared functions (colors, logging, banner)
-source "$SCRIPT_DIR/common.sh"
+# Fix CRLF line endings
+[[ -f "$SCRIPTS_DIR/lib/common.sh" ]] && grep -q $'\r' "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null && \
+    sed -i.bak 's/\r$//' "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null && rm -f "$SCRIPTS_DIR/lib/common.sh.bak"
+
+# Source shared functions with fallback
+if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+    log_info() { echo -e "   ${CYAN}[*]${NC} $1"; }
+    log_success() { echo -e "   ${GREEN}[✓]${NC} $1"; }
+    log_warn() { echo -e "   ${YELLOW}[!]${NC} $1"; }
+    log_warning() { log_warn "$1"; }
+    log_error() { echo -e "   ${RED}[✗]${NC} $1"; }
+    log_step() { echo -e "\n${CYAN}━━━ Step $1/${TOTAL_STEPS}: $2 ━━━${NC}"; }
+fi
 
 # ============================================================================
 # Trap Handler for Graceful Cleanup

@@ -31,14 +31,48 @@
 set -o pipefail
 
 # ============================================================================
+# CRLF Line Ending Fix (Windows compatibility)
+# ============================================================================
+fix_line_endings() {
+    local file="$1"
+    if [[ -f "$file" ]] && grep -q $'\r' "$file" 2>/dev/null; then
+        if command -v sed &>/dev/null; then
+            sed -i.bak 's/\r$//' "$file" 2>/dev/null && rm -f "${file}.bak" 2>/dev/null
+        elif command -v tr &>/dev/null; then
+            tr -d '\r' < "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+        fi
+    fi
+}
+
+# ============================================================================
 # Configuration
 # ============================================================================
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 TOTAL_STEPS=6
 
+# Fix line endings before sourcing
+fix_line_endings "$SCRIPTS_DIR/lib/common.sh"
+
 # Source shared functions (colors, logging, banner)
-source "$SCRIPTS_DIR/lib/common.sh"
+if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
+    echo "Warning: Could not source common.sh"
+fi
+
+# Fallback definitions if common.sh failed
+if ! declare -f log_info &>/dev/null; then
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'; CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
+    CHECK="✓"; CROSS="✗"; WARN="!"; INFO="i"
+    log_info() { echo -e "   ${CYAN}[*]${NC} $1"; }
+    log_success() { echo -e "   ${GREEN}[${CHECK}]${NC} $1"; }
+    log_warn() { echo -e "   ${YELLOW}[${WARN}]${NC} $1"; }
+    log_error() { echo -e "   ${RED}[${CROSS}]${NC} $1"; }
+    log_step() { echo -e "\n${CYAN}━━━ Step $1/${TOTAL_STEPS}: $2 ━━━${NC}"; }
+    display_pixeagle_banner() {
+        echo -e "\n${CYAN}═══ PixEagle System Launcher ═══${NC}\n"
+    }
+fi
 
 # Default flag values (all components enabled by default)
 RUN_MAVLINK2REST=true

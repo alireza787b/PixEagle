@@ -17,8 +17,19 @@
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 
+# Fix CRLF line endings before sourcing
+fix_crlf() {
+    local f="$1"
+    [[ -f "$f" ]] && grep -q $'\r' "$f" 2>/dev/null && sed -i.bak 's/\r$//' "$f" 2>/dev/null && rm -f "${f}.bak"
+}
+fix_crlf "$SCRIPTS_DIR/lib/common.sh"
+
 # Source shared functions
-source "$SCRIPTS_DIR/lib/common.sh"
+if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
+    # Fallback colors
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+    CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+fi
 
 # Configuration
 SESSION_NAME="pixeagle"

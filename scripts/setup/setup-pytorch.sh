@@ -28,10 +28,25 @@ set -o pipefail
 # ============================================================================
 TOTAL_STEPS=5
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-VENV_DIR="$SCRIPT_DIR/venv"
+SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
+VENV_DIR="$PIXEAGLE_DIR/venv"
 
-# Source shared functions (colors, logging, banner)
-source "$SCRIPT_DIR/scripts/common.sh"
+# Fix CRLF line endings
+[[ -f "$SCRIPTS_DIR/lib/common.sh" ]] && grep -q $'\r' "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null && \
+    sed -i.bak 's/\r$//' "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null && rm -f "$SCRIPTS_DIR/lib/common.sh.bak"
+
+# Source shared functions with fallback
+if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+    FIRE="🔥"
+    log_info() { echo -e "   ${CYAN}[*]${NC} $1"; }
+    log_success() { echo -e "   ${GREEN}[✓]${NC} $1"; }
+    log_warn() { echo -e "   ${YELLOW}[!]${NC} $1"; }
+    log_error() { echo -e "   ${RED}[✗]${NC} $1"; }
+    log_step() { echo -e "\n${CYAN}━━━ Step $1/${TOTAL_STEPS}: $2 ━━━${NC}"; }
+    display_pixeagle_banner() { echo -e "\n${CYAN}═══ PixEagle - $1 ═══${NC}\n"; }
+fi
 
 # PyTorch versions (updated December 2025)
 PYTORCH_VERSION="2.5.1"

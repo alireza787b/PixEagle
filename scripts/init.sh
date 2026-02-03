@@ -22,6 +22,31 @@
 set -o pipefail  # Catch pipe failures
 
 # ============================================================================
+# CRLF Line Ending Fix (Windows compatibility)
+# ============================================================================
+# When files are edited on Windows or checked out with wrong line endings,
+# bash scripts fail with "command not found" errors. This fixes it automatically.
+fix_line_endings() {
+    local file="$1"
+    if [[ -f "$file" ]] && file "$file" 2>/dev/null | grep -q "CRLF"; then
+        # File has CRLF endings - fix them
+        if command -v sed &>/dev/null; then
+            sed -i.bak 's/\r$//' "$file" 2>/dev/null && rm -f "${file}.bak" 2>/dev/null
+        elif command -v tr &>/dev/null; then
+            tr -d '\r' < "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+        fi
+    fi
+    # Also check using grep for \r (more reliable on some systems)
+    if [[ -f "$file" ]] && grep -q $'\r' "$file" 2>/dev/null; then
+        if command -v sed &>/dev/null; then
+            sed -i.bak 's/\r$//' "$file" 2>/dev/null && rm -f "${file}.bak" 2>/dev/null
+        elif command -v tr &>/dev/null; then
+            tr -d '\r' < "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+        fi
+    fi
+}
+
+# ============================================================================
 # Configuration
 # ============================================================================
 TOTAL_STEPS=9
@@ -34,8 +59,68 @@ REQUIRED_DISK_MB=500
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 
+# Fix line endings on critical files before sourcing
+fix_line_endings "$SCRIPTS_DIR/lib/common.sh"
+fix_line_endings "$0"  # Fix this script too
+
 # Source shared functions (colors, logging, banner)
-source "$SCRIPTS_DIR/lib/common.sh"
+if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
+    echo "Warning: Could not source common.sh, using fallback definitions"
+fi
+
+# Fallback definitions if common.sh failed to load properly
+if ! declare -f display_pixeagle_banner &>/dev/null; then
+    # Minimal color definitions
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    CYAN='\033[0;36m'
+    BOLD='\033[1m'
+    DIM='\033[2m'
+    NC='\033[0m'
+    CHECK="✓"
+    CROSS="✗"
+    WARN="!"
+    INFO="i"
+    PARTY="🎉"
+
+    display_pixeagle_banner() {
+        echo ""
+        echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${CYAN}║${NC}              ${BOLD}PixEagle${NC}                                       ${CYAN}║${NC}"
+        echo -e "${CYAN}║${NC}       Vision-Based Drone Tracking System                     ${CYAN}║${NC}"
+        echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+        echo ""
+    }
+
+    get_version_info() {
+        local script_version="${1:-unknown}"
+        if [[ -d "$PIXEAGLE_DIR/.git" ]]; then
+            local git_tag=$(git -C "$PIXEAGLE_DIR" describe --tags --abbrev=0 2>/dev/null || echo "")
+            local git_commit=$(git -C "$PIXEAGLE_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+            if [[ -n "$git_tag" ]]; then
+                echo -e "  ${DIM}Version: ${git_tag} (${git_commit}) | Script: v${script_version}${NC}"
+            else
+                echo -e "  ${DIM}Commit: ${git_commit} | Script: v${script_version}${NC}"
+            fi
+        fi
+    }
+
+    log_step() {
+        local step=$1
+        local msg=$2
+        echo ""
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "   ${BOLD}Step ${step}/${TOTAL_STEPS}:${NC} ${msg}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    }
+
+    log_info() { echo -e "   ${CYAN}[*]${NC} $1"; }
+    log_success() { echo -e "   ${GREEN}[${CHECK}]${NC} $1"; }
+    log_warn() { echo -e "   ${YELLOW}[${WARN}]${NC} $1"; }
+    log_error() { echo -e "   ${RED}[${CROSS}]${NC} $1"; }
+fi
 
 # ============================================================================
 # Script-Specific Functions
