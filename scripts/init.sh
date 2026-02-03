@@ -424,14 +424,10 @@ install_system_packages() {
             stop_spinner
 
             log_info "Installing required packages..."
-            if sudo apt install -y "${MISSING_PKGS[@]}" 2>&1 | while read -r line; do
-                # Show progress for long installs
-                [[ "$line" =~ ^(Setting up|Unpacking) ]] && printf "\r        ${DIM}%s${NC}" "${line:0:60}"
-            done; then
-                echo ""
+            # Run apt install directly (pipe loses exit code)
+            if sudo apt install -y "${MISSING_PKGS[@]}"; then
                 log_success "Required packages installed"
             else
-                echo ""
                 log_error "Some packages failed to install"
                 log_detail "Try manually: sudo apt install ${MISSING_PKGS[*]}"
                 log_detail "Or check package names for your distribution"
