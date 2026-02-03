@@ -1,0 +1,48 @@
+# ============================================================================
+# .gitattributes - Git Line Ending Configuration
+# ============================================================================
+# Ensures consistent line endings across different operating systems.
+# Shell scripts MUST use LF line endings to work on Linux/macOS.
+# ============================================================================
+
+# Default behavior
+* text=auto
+
+# Shell scripts - MUST use LF (Linux line endings)
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Batch scripts - use CRLF (Windows line endings)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# PowerShell scripts - use CRLF
+*.ps1 text eol=crlf
+
+# Python scripts - use LF for cross-platform compatibility
+*.py text eol=lf
+
+# Configuration files - use LF
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+
+# Makefiles - MUST use LF
+Makefile text eol=lf
+makefile text eol=lf
+*.mk text eol=lf
+
+# Keep binary files as-is
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.pt binary
+*.pth binary
