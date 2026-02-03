@@ -297,60 +297,123 @@ check_system_requirements() {
 # ============================================================================
 # System Package Installation (Step 2)
 # ============================================================================
+
+# Helper: Check if a package is installed
+pkg_installed() {
+    dpkg -s "$1" &>/dev/null 2>&1
+}
+
+# Helper: Check if any package from a list is installed (for alternatives)
+any_pkg_installed() {
+    for pkg in "$@"; do
+        pkg_installed "$pkg" && return 0
+    done
+    return 1
+}
+
+# Helper: Find first available package from alternatives
+find_available_pkg() {
+    for pkg in "$@"; do
+        if apt-cache show "$pkg" &>/dev/null 2>&1; then
+            echo "$pkg"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Helper: Install packages with error handling
+install_packages() {
+    local packages=("$@")
+    local failed=()
+
+    for pkg in "${packages[@]}"; do
+        if sudo apt install -y "$pkg" >/dev/null 2>&1; then
+            log_success "Installed: $pkg"
+        else
+            failed+=("$pkg")
+        fi
+    done
+
+    if [[ ${#failed[@]} -gt 0 ]]; then
+        return 1
+    fi
+    return 0
+}
+
 install_system_packages() {
     log_step 2 "Installing system packages..."
 
-    local MISSING_PKGS=()
-    local ARM_PKGS=()
-    local PYTHON_VENV_PKG="python${PYTHON_VERSION}-venv"
-
-    # Detect ARM architecture (Raspberry Pi, etc.)
-    local IS_ARM=false
+    # Detect system info
     local ARCH=$(uname -m)
-    if [[ "$ARCH" == "arm"* ]] || [[ "$ARCH" == "aarch64" ]]; then
-        IS_ARM=true
+    local IS_ARM=false
+    [[ "$ARCH" == "arm"* || "$ARCH" == "aarch64" ]] && IS_ARM=true
+
+    if [[ "$IS_ARM" == true ]]; then
         log_info "ARM architecture detected ($ARCH)"
     fi
 
-    # Check each REQUIRED package
-    if ! dpkg -s "$PYTHON_VENV_PKG" &>/dev/null 2>&1; then
-        MISSING_PKGS+=("$PYTHON_VENV_PKG")
-    fi
-    # Python dev headers (required for compiling numpy, etc.)
-    local PYTHON_DEV_PKG="python${PYTHON_VERSION}-dev"
-    if ! dpkg -s "$PYTHON_DEV_PKG" &>/dev/null 2>&1; then
-        # Try generic python3-dev if version-specific not found
-        if ! dpkg -s "python3-dev" &>/dev/null 2>&1; then
-            MISSING_PKGS+=("python3-dev")
-        fi
-    fi
-    if ! dpkg -s "libgl1" &>/dev/null 2>&1; then
-        MISSING_PKGS+=("libgl1")
-    fi
-    if ! command -v curl &>/dev/null; then
-        MISSING_PKGS+=("curl")
-    fi
-    if ! command -v lsof &>/dev/null; then
-        MISSING_PKGS+=("lsof")
-    fi
-    if ! command -v tmux &>/dev/null; then
-        MISSING_PKGS+=("tmux")
-    fi
+    # -------------------------------------------------------------------------
+    # Required packages definition (with alternatives for different distros)
+    # Format: "primary|alternative1|alternative2" or just "package"
+    # -------------------------------------------------------------------------
+    local REQUIRED_SPECS=(
+        "python${PYTHON_VERSION}-venv|python3-venv"      # Python venv
+        "python${PYTHON_VERSION}-dev|python3-dev"        # Python headers (for compilation)
+        "libgl1|libgl1-mesa-glx"                         # OpenGL library
+        "curl"                                            # HTTP client
+        "lsof"                                            # List open files
+        "tmux"                                            # Terminal multiplexer
+    )
 
-    # ARM-specific OPTIONAL build dependencies (for compiling numpy, scipy if no wheel)
-    # These are optional - pip wheels usually work without them on modern systems
+    # Optional ARM build packages (for compiling if no wheel available)
+    local ARM_OPTIONAL_SPECS=(
+        "libblas-dev|libatlas-base-dev"                  # BLAS library
+        "liblapack-dev"                                   # LAPACK library
+        "libopenblas-dev"                                 # OpenBLAS (optimized)
+        "gfortran"                                        # Fortran compiler
+    )
+
+    # -------------------------------------------------------------------------
+    # Check which packages are missing
+    # -------------------------------------------------------------------------
+    local MISSING_PKGS=()
+
+    for spec in "${REQUIRED_SPECS[@]}"; do
+        # Split spec by | to get alternatives
+        IFS='|' read -ra alternatives <<< "$spec"
+
+        # Check if any alternative is installed
+        if ! any_pkg_installed "${alternatives[@]}"; then
+            # Find first available alternative
+            local pkg_to_install=$(find_available_pkg "${alternatives[@]}")
+            if [[ -n "$pkg_to_install" ]]; then
+                MISSING_PKGS+=("$pkg_to_install")
+            else
+                # Fallback to first option (apt will show proper error)
+                MISSING_PKGS+=("${alternatives[0]}")
+            fi
+        fi
+    done
+
+    # Check ARM optional packages
+    local ARM_PKGS=()
     if [[ "$IS_ARM" == true ]]; then
-        # Use package names compatible with both old and new Debian
-        for pkg in libblas-dev liblapack-dev libopenblas-dev gfortran; do
-            if ! dpkg -s "$pkg" &>/dev/null 2>&1; then
-                ARM_PKGS+=("$pkg")
+        for spec in "${ARM_OPTIONAL_SPECS[@]}"; do
+            IFS='|' read -ra alternatives <<< "$spec"
+            if ! any_pkg_installed "${alternatives[@]}"; then
+                local pkg_to_install=$(find_available_pkg "${alternatives[@]}")
+                [[ -n "$pkg_to_install" ]] && ARM_PKGS+=("$pkg_to_install")
             fi
         done
     fi
 
+    # -------------------------------------------------------------------------
     # Install required packages
+    # -------------------------------------------------------------------------
     if [[ ${#MISSING_PKGS[@]} -gt 0 ]]; then
         log_info "Missing required packages: ${MISSING_PKGS[*]}"
+
         if ask_yes_no "        Install automatically? [Y/n]: "; then
             echo ""
             prompt_sudo
@@ -360,31 +423,38 @@ install_system_packages() {
             sudo apt update -qq 2>&1 || true
             stop_spinner
 
-            start_spinner "Installing required packages..."
-            if sudo apt install -y "${MISSING_PKGS[@]}" 2>&1; then
-                stop_spinner
+            log_info "Installing required packages..."
+            if sudo apt install -y "${MISSING_PKGS[@]}" 2>&1 | while read -r line; do
+                # Show progress for long installs
+                [[ "$line" =~ ^(Setting up|Unpacking) ]] && printf "\r        ${DIM}%s${NC}" "${line:0:60}"
+            done; then
+                echo ""
                 log_success "Required packages installed"
             else
-                stop_spinner
-                log_error "Required package installation failed"
+                echo ""
+                log_error "Some packages failed to install"
                 log_detail "Try manually: sudo apt install ${MISSING_PKGS[*]}"
+                log_detail "Or check package names for your distribution"
                 exit 1
             fi
         else
             log_error "Required packages not installed"
-            log_detail "Please install: sudo apt install ${MISSING_PKGS[*]}"
+            log_detail "Install manually: sudo apt install ${MISSING_PKGS[*]}"
             exit 1
         fi
     else
         log_success "All required packages already installed"
     fi
 
-    # Install ARM optional packages (don't fail if unavailable)
+    # -------------------------------------------------------------------------
+    # Install optional ARM packages (non-fatal)
+    # -------------------------------------------------------------------------
     if [[ ${#ARM_PKGS[@]} -gt 0 ]]; then
         echo ""
-        log_info "Optional ARM build packages: ${ARM_PKGS[*]}"
+        log_info "Optional ARM build packages available: ${ARM_PKGS[*]}"
         log_detail "These help compile packages if no pre-built wheel exists"
-        if ask_yes_no "        Install optional ARM packages? [Y/n]: "; then
+
+        if ask_yes_no "        Install optional packages? [Y/n]: "; then
             echo ""
             local failed_pkgs=()
             for pkg in "${ARM_PKGS[@]}"; do
@@ -394,12 +464,13 @@ install_system_packages() {
                     failed_pkgs+=("$pkg")
                 fi
             done
+
             if [[ ${#failed_pkgs[@]} -gt 0 ]]; then
                 log_warn "Some optional packages unavailable: ${failed_pkgs[*]}"
-                log_detail "This is usually OK - pip will use pre-built wheels"
+                log_detail "This is OK - pip will use pre-built wheels when available"
             fi
         else
-            log_info "Skipped optional ARM packages (usually OK)"
+            log_info "Skipped optional packages (pip will use pre-built wheels)"
         fi
     fi
 
