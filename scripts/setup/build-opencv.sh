@@ -31,7 +31,8 @@ set -euo pipefail
 # Configuration
 # ============================================================================
 TOTAL_STEPS=9
-SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 VENV_DIR="$PIXEAGLE_DIR/venv"
 OPENCV_VERSION="4.9.0"
