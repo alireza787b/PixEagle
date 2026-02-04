@@ -49,13 +49,21 @@ PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 
 # Source shared functions with fallback
 if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
-    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
+    # Symbols
+    CHECK="[✓]"; CROSS="[✗]"; WARN="[!]"; INFO="[i]"; PACKAGE="[pkg]"; PARTY=""
     log_info() { echo -e "   ${CYAN}[*]${NC} $1"; }
     log_success() { echo -e "   ${GREEN}[✓]${NC} $1"; }
     log_warn() { echo -e "   ${YELLOW}[!]${NC} $1"; }
     log_warning() { log_warn "$1"; }
     log_error() { echo -e "   ${RED}[✗]${NC} $1"; }
     log_step() { echo -e "\n${CYAN}━━━ Step $1/${TOTAL_STEPS}: $2 ━━━${NC}"; }
+    display_pixeagle_banner() {
+        echo -e "\n${CYAN}${BOLD}PixEagle${NC}"
+        [[ -n "${1:-}" ]] && echo -e "  ${BOLD}$1${NC}"
+        [[ -n "${2:-}" ]] && echo -e "  ${DIM}$2${NC}"
+        echo ""
+    }
 fi
 
 # ============================================================================
