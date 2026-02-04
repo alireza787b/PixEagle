@@ -48,7 +48,7 @@ VERSION="2.1.0"
 if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
     RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
     # Symbols
-    CHECK="[✓]"; CROSS="[✗]"; WARN="[!]"; INFO="[i]"; VIDEO="[Video]"; PARTY=""
+    CHECK="[✓]"; CROSS="[✗]"; WARN="[!]"; INFO="[i]"; VIDEO="[Video]"; CLOCK="[time]"; PARTY=""
     log_info() { echo -e "   ${CYAN}[*]${NC} $1"; }
     log_success() { echo -e "   ${GREEN}[✓]${NC} $1"; }
     log_warn() { echo -e "   ${YELLOW}[!]${NC} $1"; }
