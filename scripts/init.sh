@@ -91,18 +91,18 @@ if ! declare -f display_pixeagle_banner &>/dev/null; then
     BOLD='\033[1m'
     DIM='\033[2m'
     NC='\033[0m'
-    CHECK="✓"
-    CROSS="✗"
+    CHECK="OK"
+    CROSS="X"
     WARN="!"
     INFO="i"
-    PARTY="🎉"
+    PARTY="*"
 
     display_pixeagle_banner() {
         echo ""
-        echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "${CYAN}║${NC}              ${BOLD}PixEagle${NC}                                       ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}       Vision-Based Drone Tracking System                     ${CYAN}║${NC}"
-        echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+        echo -e "${CYAN}+===============================================================+${NC}"
+        echo -e "${CYAN}|${NC}              ${BOLD}PixEagle${NC}                                       ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}       Vision-Based Drone Tracking System                     ${CYAN}|${NC}"
+        echo -e "${CYAN}+===============================================================+${NC}"
         echo ""
     }
 
@@ -123,9 +123,9 @@ if ! declare -f display_pixeagle_banner &>/dev/null; then
         local step=$1
         local msg=$2
         echo ""
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${CYAN}----------------------------------------------------------------${NC}"
         echo -e "   ${BOLD}Step ${step}/${TOTAL_STEPS}:${NC} ${msg}"
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${CYAN}----------------------------------------------------------------${NC}"
     }
 
     log_info() { echo -e "   ${CYAN}[*]${NC} $1"; }
@@ -187,7 +187,7 @@ spinner_pid=""
 
 start_spinner() {
     local msg="$1"
-    local chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+    local chars='|/-\'
     (
         while true; do
             for ((i=0; i<${#chars}; i++)); do
@@ -231,14 +231,14 @@ display_banner() {
 # ============================================================================
 prompt_sudo() {
     echo ""
-    echo -e "${YELLOW}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${YELLOW}║${NC}                                                                          ${YELLOW}║${NC}"
-    echo -e "${YELLOW}║${NC}   ${BOLD}🔐 SUDO PASSWORD REQUIRED${NC}                                              ${YELLOW}║${NC}"
-    echo -e "${YELLOW}║${NC}                                                                          ${YELLOW}║${NC}"
-    echo -e "${YELLOW}║${NC}   System packages need to be installed. Please enter your password       ${YELLOW}║${NC}"
-    echo -e "${YELLOW}║${NC}   when prompted below.                                                   ${YELLOW}║${NC}"
-    echo -e "${YELLOW}║${NC}                                                                          ${YELLOW}║${NC}"
-    echo -e "${YELLOW}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${YELLOW}+==========================================================================+${NC}"
+    echo -e "${YELLOW}|${NC}                                                                          ${YELLOW}|${NC}"
+    echo -e "${YELLOW}|${NC}   ${BOLD}SUDO PASSWORD REQUIRED${NC}                                                 ${YELLOW}|${NC}"
+    echo -e "${YELLOW}|${NC}                                                                          ${YELLOW}|${NC}"
+    echo -e "${YELLOW}|${NC}   System packages need to be installed. Please enter your password       ${YELLOW}|${NC}"
+    echo -e "${YELLOW}|${NC}   when prompted below.                                                   ${YELLOW}|${NC}"
+    echo -e "${YELLOW}|${NC}                                                                          ${YELLOW}|${NC}"
+    echo -e "${YELLOW}+==========================================================================+${NC}"
     echo ""
 
     # Pre-authenticate sudo to cache credentials
@@ -260,37 +260,37 @@ select_installation_profile() {
     [[ "$DETECTED_ARCH" == "arm"* || "$DETECTED_ARCH" == "aarch64" ]] && IS_ARM_PLATFORM=true
 
     echo ""
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}   ${BOLD}📦 INSTALLATION PROFILE${NC}                                                ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
+    echo -e "${CYAN}+==========================================================================+${NC}"
+    echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
+    echo -e "${CYAN}|${NC}   ${BOLD}INSTALLATION PROFILE${NC}                                                   ${CYAN}|${NC}"
+    echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
 
     if [[ "$IS_ARM_PLATFORM" == true ]]; then
-        echo -e "${CYAN}║${NC}   ${YELLOW}⚠ ARM platform detected ($DETECTED_ARCH)${NC}                                  ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}   ${BOLD}1) Core${NC} - Essential features (recommended for ARM)                    ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}      • Drone control, tracking, dashboard                               ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}      • OpenCV-based detection and tracking                              ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}      • Works reliably on all ARM devices                                ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}   ${BOLD}2) Full${NC} - All features including AI/YOLO                              ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}      • Includes PyTorch and Ultralytics                                 ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}      ${YELLOW}• May require manual torch installation on ARM${NC}                      ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}      ${YELLOW}• Can cause 'Illegal instruction' on some ARM devices${NC}              ${CYAN}║${NC}"
+        echo -e "${CYAN}|${NC}   ${YELLOW}WARNING: ARM platform detected ($DETECTED_ARCH)${NC}                         ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}   ${BOLD}1) Core${NC} - Essential features (recommended for ARM)                    ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}      - Drone control, tracking, dashboard                               ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}      - OpenCV-based detection and tracking                              ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}      - Works reliably on all ARM devices                                ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}   ${BOLD}2) Full${NC} - All features including AI/YOLO                              ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}      - Includes PyTorch and Ultralytics                                 ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}      ${YELLOW}- May require manual torch installation on ARM${NC}                      ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}      ${YELLOW}- Can cause 'Illegal instruction' on some ARM devices${NC}              ${CYAN}|${NC}"
     else
-        echo -e "${CYAN}║${NC}   ${GREEN}✓ x86_64 platform detected${NC} - Full compatibility                      ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}   ${BOLD}1) Core${NC} - Essential features only                                     ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}      • Drone control, tracking, dashboard                               ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}      • Lighter installation, faster setup                               ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}   ${BOLD}2) Full${NC} - All features including AI/YOLO (recommended)                ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}      • YOLO object detection                                            ${CYAN}║${NC}"
-        echo -e "${CYAN}║${NC}      • Advanced AI-based tracking                                       ${CYAN}║${NC}"
+        echo -e "${CYAN}|${NC}   ${GREEN}OK x86_64 platform detected${NC} - Full compatibility                      ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}   ${BOLD}1) Core${NC} - Essential features only                                     ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}      - Drone control, tracking, dashboard                               ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}      - Lighter installation, faster setup                               ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}   ${BOLD}2) Full${NC} - All features including AI/YOLO (recommended)                ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}      - YOLO object detection                                            ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}      - Advanced AI-based tracking                                       ${CYAN}|${NC}"
     fi
 
-    echo -e "${CYAN}║${NC}                                                                          ${CYAN}║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
+    echo -e "${CYAN}+==========================================================================+${NC}"
     echo ""
 
     # Set default based on platform
@@ -942,7 +942,7 @@ setup_configs() {
     if [[ -f "$USER_CONFIG" ]]; then
         # Existing config found - ask user what to do
         echo ""
-        echo -e "        ${YELLOW}⚠️  Existing configs/config.yaml found${NC}"
+            echo -e "        ${YELLOW}WARNING: Existing configs/config.yaml found${NC}"
         echo -e "        ${DIM}New releases may include new configuration options.${NC}"
 
         if ask_yes_no "        Replace with latest default? [y/N]: " "n"; then
@@ -964,7 +964,7 @@ setup_configs() {
         if [[ -f "$DASHBOARD_ENV_FILE" ]]; then
             # Existing .env found - ask user what to do
             echo ""
-            echo -e "        ${YELLOW}⚠️  Existing dashboard/.env found${NC}"
+            echo -e "        ${YELLOW}WARNING: Existing dashboard/.env found${NC}"
             echo -e "        ${DIM}New releases may include new dashboard settings.${NC}"
 
             if ask_yes_no "        Replace with latest default? [y/N]: " "n"; then
@@ -1104,9 +1104,9 @@ show_summary() {
     fi
 
     echo ""
-    echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}============================================================================${NC}"
     echo -e "                          ${PARTY} ${BOLD}Setup Complete!${NC} ${PARTY}"
-    echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}============================================================================${NC}"
     echo ""
     echo -e "   ${GREEN}${CHECK}${NC} Python ${PYTHON_VERSION} virtual environment created"
     if [[ "$INSTALL_PROFILE" == "core" ]]; then
@@ -1132,33 +1132,33 @@ show_summary() {
     echo -e "   MAVSDK Server:    $mavsdk_status"
     echo -e "   MAVLink2REST:     $mavlink2rest_status"
     echo ""
-    echo -e "   ${CYAN}${BOLD}📋 Next Steps:${NC}"
+    echo -e "   ${CYAN}${BOLD}Next Steps:${NC}"
     echo -e "      1. Edit ${BOLD}configs/config.yaml${NC} for your setup"
     echo -e "      2. Run: ${BOLD}make run${NC} (or ${BOLD}bash scripts/run.sh${NC})"
     echo ""
-    echo -e "   ${YELLOW}${BOLD}⚡ Optional (better performance):${NC}"
-    echo -e "      • ${BOLD}bash scripts/setup/install-dlib.sh${NC}    (faster tracking)"
+    echo -e "   ${YELLOW}${BOLD}Optional (better performance):${NC}"
+    echo -e "      - ${BOLD}bash scripts/setup/install-dlib.sh${NC}    (faster tracking)"
     if [[ "$INSTALL_PROFILE" == "core" ]] || [[ "$AI_VERIFY_PASSED" != "true" ]]; then
-        echo -e "      • ${BOLD}source venv/bin/activate${NC}"
-        echo -e "      • ${BOLD}pip install --prefer-binary ultralytics lap${NC}  (AI deps)"
-        echo -e "      • ${BOLD}pip install --prefer-binary ncnn${NC}             (optional CPU accel)"
-        echo -e "      • ${BOLD}python -c \"from ultralytics import YOLO; import lap; print('AI OK')\"${NC}"
+        echo -e "      - ${BOLD}source venv/bin/activate${NC}"
+        echo -e "      - ${BOLD}pip install --prefer-binary ultralytics lap${NC}  (AI deps)"
+        echo -e "      - ${BOLD}pip install --prefer-binary ncnn${NC}             (optional CPU accel)"
+        echo -e "      - ${BOLD}python -c \"from ultralytics import YOLO; import lap; print('AI OK')\"${NC}"
     fi
-    echo -e "      • ${BOLD}bash scripts/setup/setup-pytorch.sh${NC}   (GPU acceleration)"
-    echo -e "      • ${BOLD}bash scripts/setup/build-opencv.sh${NC}    (GStreamer support)"
+    echo -e "      - ${BOLD}bash scripts/setup/setup-pytorch.sh${NC}   (GPU acceleration)"
+    echo -e "      - ${BOLD}bash scripts/setup/build-opencv.sh${NC}    (GStreamer support)"
     if [[ "$mavsdk_status" == *"Not installed"* ]] || [[ "$mavlink2rest_status" == *"Not installed"* ]]; then
-        echo -e "      • ${BOLD}bash scripts/setup/download-binaries.sh${NC}  (download binaries)"
+        echo -e "      - ${BOLD}bash scripts/setup/download-binaries.sh${NC}  (download binaries)"
     fi
-    echo -e "      • ${BOLD}python tools/add_yolo_model.py${NC}        (add YOLO models)"
+    echo -e "      - ${BOLD}python tools/add_yolo_model.py${NC}        (add YOLO models)"
     echo ""
     if [[ "$node_version" == "not installed" ]]; then
-        echo -e "   ${RED}${BOLD}⚠️  Node.js Installation:${NC}"
+        echo -e "   ${RED}${BOLD}WARNING: Node.js Installation:${NC}"
         echo -e "      If nvm installation failed, install manually:"
         echo -e "      ${DIM}https://nodejs.org/en/download${NC}"
         echo -e "      Then run: ${BOLD}cd dashboard && npm install${NC}"
         echo ""
     fi
-    echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}============================================================================${NC}"
     echo ""
 }
 
