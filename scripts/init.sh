@@ -149,8 +149,8 @@ ask_yes_no() {
     local default="${2:-y}"  # Default to yes
     local reply=""
 
-    # Print prompt (use printf for reliability)
-    printf "%s" "$prompt"
+    # Print prompt (use %b so color escape sequences render correctly)
+    printf "%b" "$prompt"
 
     # Try to read user input
     # Priority: /dev/tty (works when stdin is piped) > stdin (interactive)
