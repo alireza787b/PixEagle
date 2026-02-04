@@ -112,6 +112,25 @@ Dashboard uses `window.location.hostname` for auto-detection. Ensure:
 
 ## SmartTracker Issues
 
+### SmartTracker Says ultralytics/lap Not Installed After Full Init
+
+**Problem**: You selected `Full` in `make init`, but SmartTracker still reports missing AI packages.
+
+**Why it happens**:
+- Core dependencies may install successfully while AI verification fails
+- Init can roll back AI packages if verification fails (based on your prompt choice)
+- Network/wheel availability can cause transient AI install failures
+
+**Solution**:
+```bash
+source venv/bin/activate
+pip install --prefer-binary ultralytics lap
+pip install --prefer-binary ncnn
+python -c "from ultralytics import YOLO; import lap; print('AI OK')"
+```
+
+If the verification command prints `AI OK`, restart PixEagle and re-enable SmartTracker.
+
 ### YOLO Model Not Loading
 
 **Check model exists**:

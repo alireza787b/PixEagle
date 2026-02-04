@@ -113,5 +113,5 @@ The Settings page in the dashboard allows runtime configuration changes:
 ## Next Steps
 
 - [Installation Guide](INSTALLATION.md)
-- [SmartTracker Guide](SMART_TRACKER_GUIDE.md)
+- [SmartTracker Guide](trackers/02-reference/smart-tracker.md)
 - [OSD Guide](OSD_GUIDE.md)

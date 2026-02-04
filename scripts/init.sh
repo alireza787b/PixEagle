@@ -57,6 +57,12 @@ REQUIRED_DISK_MB=500
 
 # Installation profile: "core" (no AI) or "full" (with AI/torch)
 INSTALL_PROFILE="full"
+# Python dependency installation status (used in final summary)
+CORE_DEPS_OK=false
+AI_DEPS_REQUESTED=false
+AI_VERIFY_PASSED=false
+AI_ROLLBACK_APPLIED=false
+AI_KEEP_FAILED=false
 # Platform detection
 DETECTED_ARCH=""
 IS_ARM_PLATFORM=false
@@ -626,17 +632,20 @@ install_python_deps() {
     # shellcheck source=/dev/null
     source venv/bin/activate
 
-    # Count packages (excluding comments and empty lines)
-    local total_packages
-    total_packages=$(grep -c -E '^[^#[:space:]]' requirements.txt 2>/dev/null || echo "0")
-    log_info "Installing packages from requirements.txt"
+    # Reset status flags for this run
+    CORE_DEPS_OK=false
+    AI_DEPS_REQUESTED=false
+    AI_VERIFY_PASSED=false
+    AI_ROLLBACK_APPLIED=false
+    AI_KEEP_FAILED=false
 
-    # Show what will be installed based on profile
+    # Show profile and strategy
+    log_info "Installing packages from requirements.txt"
     if [[ "$INSTALL_PROFILE" == "core" ]]; then
-        log_info "Profile: Core (skipping AI packages: ultralytics, ncnn, lap)"
+        log_info "Profile: Core (AI packages skipped)"
     else
-        log_info "Profile: Full (all packages including AI)"
-        log_warn "Large packages (ultralytics, torch, opencv) may take several minutes"
+        log_info "Profile: Full (core first, AI packages installed in final phase)"
+        log_warn "Large AI packages may take several minutes on slower links/devices"
     fi
     echo ""
 
@@ -661,140 +670,109 @@ install_python_deps() {
     echo -e "        ${DIM}Upgrading pip...${NC}"
     venv/bin/pip install --upgrade pip -q 2>&1 || true
 
-    # Install with visible progress - parse pip output in real-time
-    echo -e "        ${CYAN}Installing packages:${NC}"
-    local install_failed=0
-
-    # Prepare requirements file based on profile and options
-    local req_file="requirements.txt"
-    local using_temp_file=false
-
-    # Build exclusion pattern
-    local exclude_pattern=""
+    # -------------------------------
+    # Phase A: Install core packages
+    # -------------------------------
+    local core_req_file
+    core_req_file=$(mktemp)
+    local core_exclude_pattern="ultralytics|ncnn|lap"
     if [[ "$SKIP_OPENCV" == true ]]; then
-        exclude_pattern="opencv"
+        core_exclude_pattern="${core_exclude_pattern}|opencv"
     fi
-    if [[ "$INSTALL_PROFILE" == "core" ]]; then
-        # Skip AI packages: ultralytics, ncnn, lap (torch is a dependency of ultralytics)
-        if [[ -n "$exclude_pattern" ]]; then
-            exclude_pattern="${exclude_pattern}|ultralytics|ncnn|lap"
+    grep -v -iE "$core_exclude_pattern" requirements.txt > "$core_req_file"
+
+    local core_count
+    core_count=$(grep -c -E '^[^#[:space:]]' "$core_req_file" 2>/dev/null || echo "0")
+    log_info "Phase A/2: Installing ${core_count} core packages"
+    log_detail "AI packages are installed separately at the end in Full profile"
+
+    if ! venv/bin/pip install -r "$core_req_file"; then
+        rm -f "$core_req_file"
+        log_error "Core dependency installation failed"
+        log_detail "Try manually: source venv/bin/activate && pip install -r requirements.txt"
+        deactivate
+        exit 1
+    fi
+    rm -f "$core_req_file"
+
+    # Verify core dependencies
+    if venv/bin/python -c "import cv2; import numpy" 2>/dev/null; then
+        CORE_DEPS_OK=true
+        if [[ "$SKIP_OPENCV" == true ]]; then
+            log_success "Core packages installed (preserved custom OpenCV with GStreamer)"
         else
-            exclude_pattern="ultralytics|ncnn|lap"
+            log_success "Core packages installed successfully"
         fi
-    fi
-
-    # Create filtered requirements file if needed
-    if [[ -n "$exclude_pattern" ]]; then
-        req_file=$(mktemp)
-        using_temp_file=true
-        grep -v -iE "$exclude_pattern" requirements.txt > "$req_file"
-        local filtered_count
-        filtered_count=$(grep -c -E '^[^#[:space:]]' "$req_file" 2>/dev/null || echo "0")
-        log_info "Installing ${filtered_count} packages (filtered from ${total_packages})"
-    fi
-
-    # Create a temp file to capture pip output for error checking
-    local pip_log=$(mktemp)
-    local pip_exit_code=0
-
-    # Run pip with visible output for errors
-    log_info "Running pip install (this may take a while on ARM)..."
-    echo ""
-
-    # Run pip and capture output, showing progress
-    if venv/bin/pip install -r "$req_file" 2>&1 | tee "$pip_log" | while IFS= read -r line; do
-        # Parse pip output for package names
-        if [[ "$line" =~ ^Collecting\ (.+) ]]; then
-            local pkg="${BASH_REMATCH[1]}"
-            printf "\r        ${DIM}→ Collecting: %-55s${NC}" "${pkg:0:55}"
-        elif [[ "$line" =~ ^Downloading\ (.+) ]]; then
-            local file="${BASH_REMATCH[1]}"
-            printf "\r        ${DIM}→ Downloading: %-53s${NC}" "${file:0:53}"
-        elif [[ "$line" =~ ^Building\ wheel ]]; then
-            printf "\r        ${YELLOW}→ Building wheel (may take several minutes)...              ${NC}"
-        elif [[ "$line" =~ ^Installing\ collected\ packages ]]; then
-            printf "\r        ${GREEN}→ Installing collected packages...                           ${NC}\n"
-        elif [[ "$line" =~ ^Successfully\ installed ]]; then
-            printf "\r        ${GREEN}✅ Packages installed successfully                            ${NC}\n"
-        elif [[ "$line" =~ ^ERROR:|^error:|failed|Error: ]]; then
-            printf "\n        ${RED}❌ %s${NC}\n" "$line"
-        fi
-    done; then
-        pip_exit_code=0
     else
-        pip_exit_code=${PIPESTATUS[0]}
-    fi
-    printf "\n"
-
-    # Check for errors in pip log
-    if grep -qi "error\|failed\|could not" "$pip_log" 2>/dev/null; then
-        log_warn "pip encountered issues. Check above for details."
-        # Show last few error lines
-        grep -i "error\|failed" "$pip_log" | tail -5 | while read -r err; do
-            log_detail "$err"
-        done
-    fi
-    rm -f "$pip_log"
-
-    # Clean up temp file if created
-    if [[ "$using_temp_file" == true ]]; then
-        rm -f "$req_file"
+        log_error "Core packages (opencv, numpy) not installed correctly"
+        log_detail "Try manually: source venv/bin/activate && pip install -r requirements.txt"
+        deactivate
+        exit 1
     fi
 
-    # Check if pip succeeded
-    # Re-run pip in check mode to verify installation
+    # pip consistency check (warning only)
     if ! venv/bin/pip check >/dev/null 2>&1; then
-        # Some dependency issues but not necessarily fatal
         log_warn "Some dependency warnings detected (usually not critical)"
     fi
 
-    # Verify key packages are installed
-    if venv/bin/python -c "import cv2; import numpy" 2>/dev/null; then
-        if [[ "$INSTALL_PROFILE" == "core" ]]; then
-            log_success "Core packages installed successfully (AI packages skipped)"
-            log_detail "To add AI features later: pip install ultralytics"
-        elif [[ "$SKIP_OPENCV" == true ]]; then
-            log_success "Packages installed (preserved custom OpenCV with GStreamer)"
-        else
-            # Full profile - verify AI packages work
-            local ai_status="unknown"
-            if venv/bin/python -c "from ultralytics import YOLO; print('ok')" 2>/dev/null | grep -q "ok"; then
-                ai_status="ok"
-                log_success "All packages installed successfully (including AI/YOLO)"
-            else
-                ai_status="failed"
-                log_warn "Core packages OK, but AI packages (ultralytics/torch) failed to load"
-
-                # Uninstall broken AI packages to prevent app crashes
-                log_info "Removing incompatible AI packages to ensure app stability..."
-                venv/bin/pip uninstall -y ultralytics torch torchvision torchaudio 2>/dev/null || true
-
-                if [[ "$IS_ARM_PLATFORM" == true ]]; then
-                    log_detail "This is common on ARM - standard PyTorch is not compatible"
-                    log_detail "The app will work with all features except AI/YOLO tracking"
-                    echo ""
-                    log_info "To add AI support on ARM later, try:"
-                    log_detail "1. pip install torch --index-url https://download.pytorch.org/whl/cpu"
-                    log_detail "2. pip install ultralytics"
-                    log_detail "3. Test with: python -c \"from ultralytics import YOLO\""
-                else
-                    log_detail "Unexpected failure on x86 platform"
-                    log_detail "Try manually: pip install ultralytics"
-                fi
-                # Update profile to reflect reality
-                INSTALL_PROFILE="core"
-            fi
-        fi
-    else
-        if [[ "$SKIP_OPENCV" == true ]]; then
-            log_error "numpy not installed correctly"
-            log_detail "Custom OpenCV should still be available"
-        else
-            log_error "Core packages (opencv, numpy) not installed correctly"
-            log_detail "Try manually: source venv/bin/activate && pip install -r requirements.txt"
-        fi
+    # Core profile ends here
+    if [[ "$INSTALL_PROFILE" == "core" ]]; then
+        log_detail "To add AI features later:"
+        log_detail "source venv/bin/activate"
+        log_detail "pip install --prefer-binary ultralytics lap"
+        log_detail "python -c \"from ultralytics import YOLO; import lap; print('AI OK')\""
         deactivate
-        exit 1
+        return 0
+    fi
+
+    # -------------------------------
+    # Phase B: Install AI packages
+    # -------------------------------
+    AI_DEPS_REQUESTED=true
+    echo ""
+    log_info "Phase B/2: Installing AI packages (ultralytics, lap, ncnn)"
+    log_warn "This phase may fail on some platforms or networks; core install remains usable"
+
+    if ! venv/bin/pip install --prefer-binary ultralytics lap ncnn; then
+        log_warn "AI package install command reported errors; verifying imports next"
+    fi
+
+    # Verify AI imports
+    local ai_verify_failed=false
+    if ! venv/bin/python -c "from ultralytics import YOLO; print('ok')" 2>/dev/null | grep -q "ok"; then
+        ai_verify_failed=true
+        log_warn "AI verify failed: ultralytics could not be imported"
+    fi
+    if ! venv/bin/python -c "import lap; print('ok')" 2>/dev/null | grep -q "ok"; then
+        ai_verify_failed=true
+        log_warn "AI verify failed: lap could not be imported"
+    fi
+    if ! venv/bin/python -c "import ncnn; print('ok')" 2>/dev/null | grep -q "ok"; then
+        log_warn "Optional package check: ncnn import failed (SmartTracker may still work)"
+    fi
+
+    if [[ "$ai_verify_failed" == false ]]; then
+        AI_VERIFY_PASSED=true
+        log_success "Full AI dependencies installed and verified (ultralytics + lap)"
+    else
+        echo ""
+        log_warn "AI packages are not fully usable yet."
+        log_info "Manual recovery commands:"
+        log_detail "source venv/bin/activate"
+        log_detail "pip install --prefer-binary ultralytics lap"
+        log_detail "pip install --prefer-binary ncnn"
+        log_detail "python -c \"from ultralytics import YOLO; import lap; print('AI OK')\""
+        echo ""
+
+        if ask_yes_no "        Roll back to Core-safe mode now? [Y/n]: " "y"; then
+            log_info "Rolling back AI packages for stable Core mode..."
+            venv/bin/pip uninstall -y ultralytics torch torchvision torchaudio lap ncnn 2>/dev/null || true
+            AI_ROLLBACK_APPLIED=true
+            log_warn "AI rollback applied. Core mode remains fully functional."
+        else
+            AI_KEEP_FAILED=true
+            log_warn "Keeping current AI package state. SmartTracker may fail until fixed manually."
+        fi
     fi
 
     deactivate
@@ -1134,7 +1112,15 @@ show_summary() {
     if [[ "$INSTALL_PROFILE" == "core" ]]; then
         echo -e "   ${GREEN}${CHECK}${NC} Core Python dependencies installed ${DIM}(AI packages skipped)${NC}"
     else
-        echo -e "   ${GREEN}${CHECK}${NC} Full Python dependencies installed ${DIM}(including AI/YOLO)${NC}"
+        if [[ "$AI_VERIFY_PASSED" == true ]]; then
+            echo -e "   ${GREEN}${CHECK}${NC} Full Python dependencies installed ${DIM}(including AI/YOLO)${NC}"
+        elif [[ "$AI_ROLLBACK_APPLIED" == true ]]; then
+            echo -e "   ${YELLOW}${WARN}${NC}  Core dependencies installed ${DIM}(AI rollback applied after verify failure)${NC}"
+        elif [[ "$AI_KEEP_FAILED" == true ]]; then
+            echo -e "   ${YELLOW}${WARN}${NC}  Core dependencies installed ${DIM}(AI install incomplete - manual fix needed)${NC}"
+        else
+            echo -e "   ${YELLOW}${WARN}${NC}  Core dependencies installed ${DIM}(AI status unknown - verify manually)${NC}"
+        fi
     fi
     if [[ "$node_version" != "not installed" ]]; then
         echo -e "   ${GREEN}${CHECK}${NC} Node.js ${node_version} ready"
@@ -1152,16 +1138,18 @@ show_summary() {
     echo ""
     echo -e "   ${YELLOW}${BOLD}⚡ Optional (better performance):${NC}"
     echo -e "      • ${BOLD}bash scripts/setup/install-dlib.sh${NC}    (faster tracking)"
-    if [[ "$INSTALL_PROFILE" == "core" ]]; then
-        echo -e "      • ${BOLD}pip install ultralytics${NC}              (add AI/YOLO support)"
+    if [[ "$INSTALL_PROFILE" == "core" ]] || [[ "$AI_VERIFY_PASSED" != "true" ]]; then
+        echo -e "      • ${BOLD}source venv/bin/activate${NC}"
+        echo -e "      • ${BOLD}pip install --prefer-binary ultralytics lap${NC}  (AI deps)"
+        echo -e "      • ${BOLD}pip install --prefer-binary ncnn${NC}             (optional CPU accel)"
+        echo -e "      • ${BOLD}python -c \"from ultralytics import YOLO; import lap; print('AI OK')\"${NC}"
     fi
     echo -e "      • ${BOLD}bash scripts/setup/setup-pytorch.sh${NC}   (GPU acceleration)"
     echo -e "      • ${BOLD}bash scripts/setup/build-opencv.sh${NC}    (GStreamer support)"
     if [[ "$mavsdk_status" == *"Not installed"* ]] || [[ "$mavlink2rest_status" == *"Not installed"* ]]; then
         echo -e "      • ${BOLD}bash scripts/setup/download-binaries.sh${NC}  (download binaries)"
     fi
-    echo -e "      • ${BOLD}source venv/bin/activate${NC}"
-    echo -e "        ${BOLD}python tools/add_yolo_model.py${NC}        (add YOLO models)"
+    echo -e "      • ${BOLD}python tools/add_yolo_model.py${NC}        (add YOLO models)"
     echo ""
     if [[ "$node_version" == "not installed" ]]; then
         echo -e "   ${RED}${BOLD}⚠️  Node.js Installation:${NC}"

@@ -226,7 +226,8 @@ class AppController:
             if not SMART_TRACKER_AVAILABLE:
                 logging.error(
                     "SmartTracker not available - AI packages (ultralytics/torch) not installed. "
-                    "Re-run 'make init' and select 'Full' profile, or install manually: pip install ultralytics"
+                    "Re-run 'make init' and select 'Full' profile, or install manually: "
+                    "source venv/bin/activate && pip install --prefer-binary ultralytics lap"
                 )
                 return
 

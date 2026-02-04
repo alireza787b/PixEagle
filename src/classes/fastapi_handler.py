@@ -2659,7 +2659,8 @@ class FastAPIHandler:
                     raise HTTPException(
                         status_code=400,
                         detail="SmartTracker requires AI packages (ultralytics/torch) which are not installed. "
-                               "Re-run 'make init' and select 'Full' profile, or install manually: pip install ultralytics"
+                               "Re-run 'make init' and select 'Full' profile, or install manually: "
+                               "source venv/bin/activate && pip install --prefer-binary ultralytics lap"
                     )
                 # Handle smart mode activation
                 if not getattr(self.app_controller, 'smart_mode_active', False):

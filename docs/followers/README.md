@@ -187,7 +187,7 @@ clamped = follower.clamp_velocity(15.0, 8.0, 5.0)
 ## Related Documentation
 
 - [Tracker & Follower Schema Guide](../Tracker_and_Follower_Schema_Developer_Guide.md)
-- [SmartTracker Guide](../SMART_TRACKER_GUIDE.md)
+- [SmartTracker Guide](../trackers/02-reference/smart-tracker.md)
 - [Configuration Guide](../CONFIGURATION.md)
 - [Main README](../../README.md)
 

@@ -16,7 +16,10 @@ try:
 except ImportError:
     YOLO = None
     ULTRALYTICS_AVAILABLE = False
-    logging.warning("Ultralytics not installed - SmartTracker disabled. Install with: pip install ultralytics")
+    logging.warning(
+        "Ultralytics/lap not installed - SmartTracker disabled. "
+        "Install with: source venv/bin/activate && pip install --prefer-binary ultralytics lap"
+    )
 except Exception as e:
     # Catches RuntimeError, OSError, or other issues (e.g., incompatible torch on ARM)
     YOLO = None
@@ -45,7 +48,7 @@ class SmartTracker:
         if not ULTRALYTICS_AVAILABLE:
             raise RuntimeError(
                 "SmartTracker requires ultralytics package. "
-                "Install with: pip install ultralytics\n"
+                "Install with: source venv/bin/activate && pip install --prefer-binary ultralytics lap\n"
                 "Or re-run 'make init' and select 'Full' profile."
             )
 
@@ -729,4 +732,3 @@ class SmartTracker:
                 if track_id == self.selected_object_id:
                     return float(track[5])
         return None
-

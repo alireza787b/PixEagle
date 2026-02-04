@@ -71,6 +71,24 @@ The `scripts/init.sh` (or `make init`) performs a 9-step setup:
 8. **MAVSDK Server** - Downloads platform-specific binary
 9. **MAVLink2REST** - Downloads REST API bridge
 
+### Full Profile AI Install Strategy
+
+When you select **Full** profile, init uses a two-phase Python dependency flow:
+
+1. Install **core** packages first (stable base)
+2. Install and verify **AI** packages (`ultralytics`, `lap`, optional `ncnn`) at the end
+
+If AI verification fails, init keeps your core install usable and prompts whether to roll back AI packages to Core-safe mode.
+
+Manual AI recovery commands:
+
+```bash
+source venv/bin/activate
+pip install --prefer-binary ultralytics lap
+pip install --prefer-binary ncnn
+python -c "from ultralytics import YOLO; import lap; print('AI OK')"
+```
+
 ## Manual Installation
 
 If you prefer manual setup:
@@ -244,6 +262,6 @@ pixeagle-service logs -f
 ## Next Steps
 
 - [Configuration Guide](CONFIGURATION.md)
-- [SmartTracker Setup](SMART_TRACKER_GUIDE.md)
+- [SmartTracker Reference](trackers/02-reference/smart-tracker.md)
 - [Windows Setup](WINDOWS_SETUP.md)
 - [Main README](../README.md)

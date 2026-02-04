@@ -64,12 +64,17 @@ cd ~
 git clone https://github.com/yourusername/PixEagle.git
 cd PixEagle
 
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
+# Recommended: run guided init
+make init
+```
 
-# Install dependencies
-pip install -r requirements.txt
+If you choose **Full** profile and SmartTracker AI deps fail verification, recover manually:
+
+```bash
+source venv/bin/activate
+pip install --prefer-binary ultralytics lap
+pip install --prefer-binary ncnn
+python -c "from ultralytics import YOLO; import lap; print('AI OK')"
 ```
 
 ### UART Configuration

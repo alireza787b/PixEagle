@@ -101,6 +101,9 @@ The init script runs a 9-step automated setup including Python venv, Node.js, da
 
 The script auto-detects your platform and recommends the appropriate profile.
 
+> **AI install behavior in Full profile:** Core dependencies are installed first, then AI packages (`ultralytics`, `lap`, `ncnn`) are installed and verified in a final phase.  
+> If AI verification fails, init prompts whether to roll back to Core-safe mode and shows exact manual recovery commands.
+
 > **Detailed Guide**: [Installation Documentation](docs/INSTALLATION.md)
 
 ### Run
