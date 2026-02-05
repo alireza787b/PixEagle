@@ -95,11 +95,23 @@ const YOLOModelSelector = memo(() => {
   const [modelToDelete, setModelToDelete] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [autoExportNcnn, setAutoExportNcnn] = useState(true);
+  const hasPendingSelection = React.useRef(false);
+
+  const activeModelId = useMemo(() => {
+    if (!models) return '';
+    const modelToMatch = currentModel || configuredModel;
+    if (!modelToMatch) return '';
+    const entry = Object.entries(models).find(
+      ([, modelData]) => modelData.path?.endsWith(modelToMatch)
+    );
+    return entry?.[0] || '';
+  }, [models, currentModel, configuredModel]);
 
   // Update selected model when current/configured model changes
   // Priority: currentModel (if SmartTracker active) > configuredModel (from config.yaml) > empty
   React.useEffect(() => {
     if (!models) return;
+    if (hasPendingSelection.current) return;
 
     // Use currentModel if SmartTracker is active, otherwise use configuredModel
     const modelToSelect = currentModel || configuredModel;
@@ -112,15 +124,13 @@ const YOLOModelSelector = memo(() => {
       if (modelEntry) {
         // Only update if different to avoid unnecessary re-renders
         const modelId = modelEntry[0];
-        if (selectedModel !== modelId) {
-          setSelectedModel(modelId);
-        }
+        setSelectedModel((prev) => (prev === modelId ? prev : modelId));
       }
-    } else if (!modelToSelect && selectedModel) {
+    } else if (!modelToSelect) {
       // Clear selection if no model is configured
-      setSelectedModel('');
+      setSelectedModel((prev) => (prev ? '' : prev));
     }
-  }, [currentModel, configuredModel, models, selectedModel]);
+  }, [currentModel, configuredModel, models]);
 
   // Memoized model list for dropdown
   const modelOptions = useMemo(() => {
@@ -139,8 +149,10 @@ const YOLOModelSelector = memo(() => {
 
   // Handle model selection change
   const handleModelChange = useCallback((event) => {
-    setSelectedModel(event.target.value);
-  }, []);
+    const newValue = event.target.value;
+    setSelectedModel(newValue);
+    hasPendingSelection.current = Boolean(newValue && newValue !== activeModelId);
+  }, [activeModelId]);
 
   // Handle device selection change
   const handleDeviceChange = useCallback((event) => {
@@ -155,9 +167,11 @@ const YOLOModelSelector = memo(() => {
 
     const modelPath = models[selectedModel].path;
     const result = await switchModel(modelPath, selectedDevice);
+    hasPendingSelection.current = false;
 
     if (result.success) {
       // Refresh model list to update current model
+      refetch();
       setTimeout(() => refetch(), 500);
     }
   }, [selectedModel, selectedDevice, models, switchModel, refetch]);
@@ -207,6 +221,7 @@ const YOLOModelSelector = memo(() => {
       if (selectedModel === modelToDelete) {
         setSelectedModel('');
       }
+      hasPendingSelection.current = false;
       // Refresh model list
       setTimeout(() => refetch(), 500);
     }
