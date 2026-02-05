@@ -61,6 +61,7 @@ httpx >= 0.24.0  # Required for FastAPI/Starlette TestClient
 
 fastapi
 uvicorn
+python-multipart
 aiortc
 pyyaml
 pymap3d
