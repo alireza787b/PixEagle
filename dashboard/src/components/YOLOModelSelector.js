@@ -336,16 +336,6 @@ const YOLOModelSelector = memo(() => {
                         {option.hasNcnn && ' • NCNN ready'}
                       </Typography>
                     </Box>
-                    <IconButton
-                      size="small"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteClick(option.value);
-                      }}
-                      disabled={deleting}
-                    >
-                      <Delete fontSize="small" />
-                    </IconButton>
                   </Box>
                 </MenuItem>
               ))}
@@ -394,6 +384,18 @@ const YOLOModelSelector = memo(() => {
             sx={{ mb: 2 }}
           >
             {switching ? 'Switching...' : 'Switch Model'}
+          </Button>
+
+          <Button
+            fullWidth
+            variant="outlined"
+            color="error"
+            startIcon={deleting ? <CircularProgress size={16} color="inherit" /> : <Delete />}
+            onClick={() => handleDeleteClick(selectedModel)}
+            disabled={!selectedModel || deleting || switching}
+            sx={{ mb: 2 }}
+          >
+            Delete Selected Model
           </Button>
 
           {/* Switch Error/Info Alert */}
