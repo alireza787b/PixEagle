@@ -90,6 +90,13 @@ class FastAPIHandler:
 | `/api/config/{section}/{param}` | PUT | Update parameter |
 | `/api/config/history` | GET | Backup history |
 
+### Video Resilience Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/video/health` | GET | Video health and degraded-mode state |
+| `/api/video/reconnect` | POST | Trigger manual video reconnect attempt |
+
 ### Tracker/Follower Endpoints
 
 | Endpoint | Method | Description |

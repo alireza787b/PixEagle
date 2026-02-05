@@ -58,8 +58,11 @@ class FlowController:
             while not self.controller.shutdown_flag:
                 frame = self.controller.video_handler.get_frame()
                 if frame is None:
-                    logging.warning("📹 FlowController: No frame from video_handler - breaking loop")
-                    break
+                    logging.warning("📹 FlowController: No frame from video_handler - continuing in degraded mode")
+                    delay_seconds = self.controller.video_handler.delay_frame / 1000.0
+                    if delay_seconds > 0:
+                        time.sleep(delay_seconds)
+                    continue
 
                 # DEBUG: Log every 200th frame to verify flow controller is running
                 if not hasattr(self, '_flow_frame_count'):

@@ -6,6 +6,8 @@
 
 The video subsystem implements multi-level error recovery to maintain video feed during connection issues, especially important for RTSP streams from drones or IP cameras.
 
+As of degraded-mode hardening, backend startup no longer fails when the video source is unavailable. The API and dashboard remain usable so operators can correct camera configuration and reconnect without losing control-plane access.
+
 ## Recovery Architecture
 
 ```
@@ -240,6 +242,13 @@ def force_recovery(self) -> bool:
     logger.info("Forcing recovery...")
     return self.reconnect()
 ```
+
+### API-triggered recovery
+
+Operators can trigger and observe recovery via API:
+
+- `GET /api/video/health` - current video health state (`healthy`, `degraded`, `recovering`, `failed`, `unavailable`)
+- `POST /api/video/reconnect` - force a reconnect attempt and return updated health
 
 **Use Cases:**
 - User-triggered reconnection

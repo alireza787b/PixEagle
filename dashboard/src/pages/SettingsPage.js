@@ -4,7 +4,7 @@ import {
   Box, Container, Typography, CircularProgress, Alert, Paper, Divider,
   List, ListItemButton, ListItemIcon, ListItemText,
   Collapse, TextField, InputAdornment, Chip, Tooltip,
-  Snackbar, Drawer, Fab, Switch, FormControlLabel
+  Snackbar, Drawer, Fab, Switch, FormControlLabel, Button
 } from '@mui/material';
 import {
   Settings, Search, ExpandLess, ExpandMore, Videocam, Router,
@@ -22,6 +22,7 @@ import ImportExportToolbar from '../components/config/ImportExportToolbar';
 import ConfigStatusBanner from '../components/config/ConfigStatusBanner';
 import ChangesDrawer from '../components/config/ChangesDrawer';
 import SyncWithDefaultsDialog from '../components/config/SyncWithDefaultsDialog';
+import { endpoints } from '../services/apiEndpoints';
 
 // Icon mapping for categories
 const categoryIcons = {
@@ -63,6 +64,8 @@ const SettingsPageContent = () => {
   const [changesDrawerOpen, setChangesDrawerOpen] = useState(false);
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
+  const [videoHealth, setVideoHealth] = useState(null);
+  const [reconnectingVideo, setReconnectingVideo] = useState(false);
 
   // Sync with defaults tracking (v5.4.1+)
   const { counts: syncCounts, refresh: refreshSyncCounts } = useDefaultsSync();
@@ -185,6 +188,47 @@ const SettingsPageContent = () => {
     refetchDiff();
   };
 
+  useEffect(() => {
+    let mounted = true;
+
+    const loadVideoHealth = async () => {
+      try {
+        const response = await fetch(endpoints.videoHealth);
+        const data = await response.json();
+        if (mounted && data?.video) {
+          setVideoHealth(data.video);
+        }
+      } catch (error) {
+        if (mounted) {
+          setVideoHealth({ status: 'unavailable' });
+        }
+      }
+    };
+
+    loadVideoHealth();
+    const interval = setInterval(loadVideoHealth, 5000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const handleReconnectVideo = useCallback(async () => {
+    setReconnectingVideo(true);
+    try {
+      const response = await fetch(endpoints.videoReconnect, { method: 'POST' });
+      const data = await response.json();
+      if (data?.video) {
+        setVideoHealth(data.video);
+      }
+      handleSnackbar(data?.message || 'Reconnect request completed', response.ok ? 'success' : 'warning');
+    } catch (error) {
+      handleSnackbar(`Reconnect failed: ${error.message}`, 'error');
+    } finally {
+      setReconnectingVideo(false);
+    }
+  }, [handleSnackbar]);
+
   const handleConfigImported = () => {
     // Refresh diff after import
     refetchDiff();
@@ -238,6 +282,25 @@ const SettingsPageContent = () => {
           onViewChanges={() => setChangesDrawerOpen(true)}
         />
       </Box>
+
+      {videoHealth && videoHealth.status !== 'healthy' && (
+        <Alert
+          severity={videoHealth.status === 'recovering' ? 'info' : 'warning'}
+          sx={{ mb: 2 }}
+          action={(
+            <Button
+              color="inherit"
+              size="small"
+              onClick={handleReconnectVideo}
+              disabled={reconnectingVideo}
+            >
+              {reconnectingVideo ? 'Reconnecting...' : 'Reconnect Camera'}
+            </Button>
+          )}
+        >
+          Camera is currently {videoHealth.status}. Settings remain available; fix source config and reconnect.
+        </Alert>
+      )}
 
       {/* Header */}
       <Box sx={{ mb: 3 }}>

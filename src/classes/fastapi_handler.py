@@ -291,6 +291,8 @@ class FastAPIHandler:
         self.app.get("/telemetry/follower_data")(self.follower_data)
         self.app.get("/status")(self.get_status)
         self.app.get("/stats")(self.get_streaming_stats)
+        self.app.get("/api/video/health")(self.get_video_health)
+        self.app.post("/api/video/reconnect")(self.reconnect_video)
         
         # Enhanced tracker schema endpoints
         self.app.get("/api/tracker/schema")(self.get_tracker_schema)
@@ -686,6 +688,12 @@ class FastAPIHandler:
             dict: Status of the operation.
         """
         try:
+            if not self.video_handler or self.video_handler.current_raw_frame is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Video source is unavailable. Restore camera connection before starting tracking."
+                )
+
             width = self.video_handler.width
             height = self.video_handler.height
 
@@ -752,6 +760,11 @@ class FastAPIHandler:
         try:
             if not self.app_controller.smart_mode_active:
                 raise HTTPException(status_code=400, detail="Smart mode not active.")
+            if not self.video_handler or self.video_handler.current_raw_frame is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Video source is unavailable. Smart click requires an active frame."
+                )
             
             width = self.video_handler.width
             height = self.video_handler.height
@@ -777,14 +790,50 @@ class FastAPIHandler:
 
     async def get_status(self):
         try:
+            video_health = self.video_handler.get_connection_health() if self.video_handler else {}
             return {
                 "smart_mode_active": self.app_controller.smart_mode_active,
                 "tracking_started": self.app_controller.tracking_started,
                 "segmentation_active": self.app_controller.segmentation_active,
                 "following_active": self.app_controller.following_active,
+                "video_status": video_health.get("status", "unknown"),
             }
         except Exception as e:
             self.logger.error(f"Error in get_status: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_video_health(self):
+        """Get video subsystem health for degraded-mode observability."""
+        try:
+            health = self.video_handler.get_connection_health() if self.video_handler else {"status": "unavailable"}
+            return JSONResponse(content={
+                "success": True,
+                "video": health,
+                "timestamp": time.time(),
+            })
+        except Exception as e:
+            self.logger.error(f"Error in get_video_health: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def reconnect_video(self):
+        """Manually trigger video reconnection attempt."""
+        try:
+            if not self.video_handler:
+                raise HTTPException(status_code=503, detail="Video handler not initialized")
+
+            success = self.video_handler.force_recovery()
+            health = self.video_handler.get_connection_health()
+
+            return JSONResponse(content={
+                "success": success,
+                "message": "Video reconnect succeeded" if success else "Video reconnect attempted but source still unavailable",
+                "video": health,
+                "timestamp": time.time(),
+            }, status_code=200 if success else 503)
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error in reconnect_video: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -4242,6 +4291,7 @@ class FastAPIHandler:
 
             process = psutil.Process()
             memory_info = process.memory_info()
+            video_health = self.video_handler.get_connection_health() if self.video_handler else {"status": "unavailable"}
 
             return JSONResponse(content={
                 'success': True,
@@ -4251,6 +4301,12 @@ class FastAPIHandler:
                 'cpu_percent': process.cpu_percent(),
                 'pid': process.pid,
                 'restart_pending': getattr(self, '_restart_pending', False),
+                'video': {
+                    'available': bool(self.video_handler and self.video_handler.is_available()),
+                    'status': video_health.get('status', 'unknown'),
+                    'time_since_last_frame': video_health.get('time_since_last_frame'),
+                    'recovery_attempts': video_health.get('recovery_attempts', 0),
+                },
                 'timestamp': time.time()
             })
         except Exception as e:
@@ -4258,6 +4314,7 @@ class FastAPIHandler:
             return JSONResponse(content={
                 'success': True,
                 'status': 'running',
+                'video': {'available': False, 'status': 'unknown'},
                 'timestamp': time.time()
             })
 

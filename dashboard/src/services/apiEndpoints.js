@@ -101,6 +101,8 @@ export const endpoints = {
   systemStatus: `${protocol}://${apiHost}:${apiPort}/api/system/status`,
   systemRestart: `${protocol}://${apiHost}:${apiPort}/api/system/restart`,
   systemConfig: `${protocol}://${apiHost}:${apiPort}/api/system/config`,
+  videoHealth: `${protocol}://${apiHost}:${apiPort}/api/video/health`,
+  videoReconnect: `${protocol}://${apiHost}:${apiPort}/api/video/reconnect`,
 };
 
 // Video feed endpoint

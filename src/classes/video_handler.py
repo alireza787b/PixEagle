@@ -75,6 +75,10 @@ class VideoHandler:
         self._recovery_attempts = 0
         self._max_recovery_attempts = getattr(Parameters, 'RTSP_MAX_RECOVERY_ATTEMPTS', 3)
         self._frame_cache = deque(maxlen=getattr(Parameters, 'RTSP_FRAME_CACHE_SIZE', 5))
+        self._next_recovery_time = 0.0
+        self._recovery_backoff_base = getattr(Parameters, 'RTSP_RECOVERY_BACKOFF_BASE', 1.0)
+        self._recovery_backoff_max = getattr(Parameters, 'RTSP_RECOVERY_BACKOFF_MAX', 10.0)
+        self._init_failed = False
         
         # Platform detection for optimization
         self.platform = platform.system()
@@ -85,8 +89,16 @@ class VideoHandler:
             self.delay_frame = self.init_video_source()
             logger.info(f"Video handler initialized: {self.width}x{self.height}@{self.fps}fps")
         except Exception as e:
-            logger.error(f"Failed to initialize video handler: {e}")
-            raise
+            # Degraded startup mode: keep backend online even if camera source is unavailable.
+            self._init_failed = True
+            self.width = Parameters.CAPTURE_WIDTH
+            self.height = Parameters.CAPTURE_HEIGHT
+            self.fps = Parameters.CAPTURE_FPS or Parameters.DEFAULT_FPS
+            self.delay_frame = max(int(1000 / max(self.fps, 1)), 1)
+            logger.error(
+                "Failed to initialize video handler: %s. Starting in degraded mode without active video source.",
+                e
+            )
     
     def init_video_source(self, max_retries: int = 5, retry_delay: float = 1.0) -> int:
         """
@@ -572,6 +584,9 @@ class VideoHandler:
                 self._capture_error_logged = True
             else:
                 logger.debug("Video capture not initialized (repeated)")
+            current_time = time.time()
+            if current_time >= self._next_recovery_time:
+                self._attempt_recovery()
             return self._get_cached_frame()
         
         try:
@@ -600,6 +615,8 @@ class VideoHandler:
         self._last_successful_frame_time = time.time()
         self._is_recovering = False
         self._recovery_attempts = 0
+        self._next_recovery_time = 0.0
+        self._init_failed = False
         
         # Cache the good frame
         if self.current_raw_frame is not None:
@@ -628,7 +645,7 @@ class VideoHandler:
             time_since_last_frame >= self._connection_timeout
         )
         
-        if should_recover and not self._is_recovering:
+        if should_recover and not self._is_recovering and current_time >= self._next_recovery_time:
             return self._attempt_recovery()
         
         # Return cached frame for graceful degradation
@@ -648,14 +665,26 @@ class VideoHandler:
         Returns:
             Frame if recovery successful, cached frame otherwise
         """
-        if self._recovery_attempts >= self._max_recovery_attempts:
-            logger.error(f"Max recovery attempts ({self._max_recovery_attempts}) reached")
-            return self._get_cached_frame()
-        
         self._is_recovering = True
         self._recovery_attempts += 1
-        
-        logger.warning(f"Attempting connection recovery ({self._recovery_attempts}/{self._max_recovery_attempts})")
+        backoff_seconds = min(
+            self._recovery_backoff_max,
+            self._recovery_backoff_base * (2 ** max(0, self._recovery_attempts - 1))
+        )
+        self._next_recovery_time = time.time() + backoff_seconds
+
+        if self._recovery_attempts <= self._max_recovery_attempts:
+            logger.warning(
+                "Attempting connection recovery (%d/%d)",
+                self._recovery_attempts,
+                self._max_recovery_attempts
+            )
+        else:
+            logger.warning(
+                "Attempting connection recovery (%d, continuing beyond configured max=%d)",
+                self._recovery_attempts,
+                self._max_recovery_attempts
+            )
         
         try:
             # Quick connection test first
@@ -691,6 +720,7 @@ class VideoHandler:
             logger.error(f"Exception during recovery: {e}")
         
         # Recovery failed, return cached frame
+        self._is_recovering = False
         return self._get_cached_frame()
     
     def _get_cached_frame(self) -> Optional[Any]:
@@ -921,7 +951,9 @@ class VideoHandler:
         time_since_last_frame = current_time - self._last_successful_frame_time
         
         # Determine connection status
-        if self._consecutive_failures == 0:
+        if not self.cap and not self._frame_cache:
+            status = "unavailable"
+        elif self._consecutive_failures == 0:
             status = "healthy"
         elif self._consecutive_failures < 5:
             status = "degraded"
@@ -939,10 +971,16 @@ class VideoHandler:
             "cached_frames_available": len(self._frame_cache),
             "connection_open": self.cap.isOpened() if self.cap else False,
             "video_source_type": Parameters.VIDEO_SOURCE_TYPE,
-            "use_gstreamer": Parameters.USE_GSTREAMER
+            "use_gstreamer": Parameters.USE_GSTREAMER,
+            "init_failed": self._init_failed,
+            "next_recovery_in_seconds": max(0.0, self._next_recovery_time - current_time)
         }
         
         return health_info
+
+    def is_available(self) -> bool:
+        """Return True when an active capture source is open."""
+        return self.cap is not None and self.cap.isOpened()
     
     def force_recovery(self) -> bool:
         """

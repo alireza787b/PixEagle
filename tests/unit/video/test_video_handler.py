@@ -19,6 +19,7 @@ from tests.fixtures.mock_video import (
     MockVideoCapture, VideoHandlerMock, create_test_frame,
     create_mock_video_capture
 )
+from classes.video_handler import VideoHandler
 
 
 @pytest.fixture
@@ -112,6 +113,16 @@ class TestVideoHandlerInitialization:
 
         expected_delay = int(1000 / 30.0)  # ~33ms
         assert handler.delay_frame == expected_delay
+
+    def test_video_handler_starts_in_degraded_mode_when_init_fails(self):
+        """VideoHandler should not raise when the source cannot be opened at startup."""
+        with patch.object(VideoHandler, 'init_video_source', side_effect=ValueError("source unavailable")):
+            handler = VideoHandler()
+
+        assert handler.cap is None
+        assert handler.width is not None
+        assert handler.height is not None
+        assert handler.get_connection_health()["status"] == "unavailable"
 
 
 @pytest.mark.unit
