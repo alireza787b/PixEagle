@@ -1322,7 +1322,7 @@ MC_VELOCITY_CHASE:
   #   RECOMMENDED for fixed camera tracking (keeps target centered more reliably)
   # - sideslip: Direct lateral velocity (v_right ≠ 0, yaw_rate = 0)
   #   ADVANCED: allowed for expert use, but may lose target with fixed camera
-  LATERAL_GUIDANCE_MODE: coordinated_turn     # Options: coordinated_turn (recommended fixed camera), sideslip (advanced, may lose target)
+  LATERAL_GUIDANCE_MODE: coordinated_turn     # Fixed-camera lateral guidance strategy. Options: coordinated_turn (recommended fixed camera), sideslip (advanced, may lose target)
   GUIDANCE_MODE_SWITCH_VELOCITY: 3.0          # m/s - auto-switch threshold
   ENABLE_AUTO_MODE_SWITCHING: false          # Auto-switch based on forward velocity
   
