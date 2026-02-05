@@ -14,7 +14,9 @@ Project Information:
 
 Key Features:
 - Body velocity offboard control (forward, right, down, yaw speed)
-- Fixed camera constraint: ALWAYS uses coordinated_turn (yaw-to-target)
+- Supports both lateral guidance modes:
+  - coordinated_turn (recommended for fixed camera)
+  - sideslip (advanced mode; may lose target in fixed-camera setups)
 - Forward velocity ramping with configurable acceleration
 - PID-controlled vertical tracking
 - Enterprise-grade YawRateSmoother (deadzone, rate limiting, EMA)
@@ -23,12 +25,12 @@ Key Features:
 - Emergency stop functionality
 - Comprehensive telemetry and status reporting
 
-FIXED CAMERA CONSTRAINT (v5.7.0):
+FIXED CAMERA ADVISORY:
 =================================
 With a fixed camera (no gimbal), the drone MUST yaw to keep the target centered.
-Sideslip mode (lateral velocity without yaw) would cause the target to drift
-off-frame, making tracking impossible. Therefore, this follower ALWAYS uses
-coordinated_turn mode regardless of configuration.
+Sideslip mode (lateral velocity without yaw) can cause target drift and loss.
+PixEagle now allows sideslip when explicitly selected, but coordinated_turn
+remains the default and recommended mode for fixed-camera tracking.
 
 Unit Conventions:
 =================
@@ -45,19 +47,21 @@ Control Flow (v5.7.0):
 2. error_x = 0 - target_x (horizontal), error_y = 0 - target_y (vertical)
 3. PID controllers compute raw commands
 4. YawRateSmoother applies deadzone, rate limiting, EMA, speed scaling
-5. Commands sent to MAVSDK: vel_body_fwd, vel_body_right=0, vel_body_down, yawspeed_deg_s
+5. Commands sent to MAVSDK:
+   - coordinated_turn: vel_body_fwd, vel_body_right=0, vel_body_down, yawspeed_deg_s
+   - sideslip: vel_body_fwd, vel_body_right, vel_body_down, yawspeed_deg_s=0
 
-v5.7.0 Enterprise Hardening:
+v5.7.0+ Enterprise Hardening:
 ============================
 - Fixed TARGET_LOSS_COORDINATE_THRESHOLD (was 990, now 1.5 normalized)
-- Forced coordinated_turn mode (sideslip incompatible with fixed camera)
+- Added explicit fixed-camera advisory for sideslip mode
 - Added YawRateSmoother for smooth yaw commands
 - Made VIDEO_HEIGHT_PIXELS configurable (was hardcoded 480)
 - Made FORWARD_VELOCITY_DEADZONE configurable (was hardcoded 0.01)
 
 Configuration:
 =============
-- LATERAL_GUIDANCE_MODE: Ignored - always uses coordinated_turn
+- LATERAL_GUIDANCE_MODE: coordinated_turn (recommended) or sideslip (advanced)
 - TARGET_LOSS_COORDINATE_THRESHOLD: Normalized coords (default 1.5)
 - YAW_SMOOTHING: Nested config for enterprise-grade yaw smoothing
 - VIDEO_HEIGHT_PIXELS: Camera resolution for rate calculations
@@ -86,20 +90,20 @@ class MCVelocityChaseFollower(BaseFollower):
     This follower uses offboard body velocity commands (forward, right, down, yaw speed)
     for target tracking with 2D bounding box coordinates from a body-fixed camera.
 
-    FIXED CAMERA CONSTRAINT (v5.7.0):
+    FIXED CAMERA ADVISORY:
     =================================
     Since the camera is body-fixed (no gimbal), the drone MUST yaw to keep the target
     centered in frame. Sideslip mode (lateral velocity without yaw) is incompatible
-    because the target would drift out of the camera's field of view.
-
-    This follower ALWAYS uses coordinated_turn mode regardless of configuration.
+    in many scenarios because the target may drift out of frame.
+    This follower allows sideslip when explicitly configured, but coordinated_turn
+    remains the recommended default.
 
     Control Strategy:
     ================
     - **Forward Velocity**: Ramped acceleration from 0 to max velocity
-    - **Yaw Control**: PID-controlled yaw rate to center target horizontally
+    - **Yaw Control**: PID-controlled yaw rate in coordinated_turn mode
     - **Vertical Control**: PID-controlled down velocity for altitude/vertical tracking
-    - **Lateral Velocity**: Always 0 (fixed camera requires yaw, not sideslip)
+    - **Lateral Velocity**: PID-controlled in sideslip mode
 
     Features (v5.7.1):
     ==================
@@ -156,6 +160,9 @@ class MCVelocityChaseFollower(BaseFollower):
         self.lateral_guidance_mode = config.get('LATERAL_GUIDANCE_MODE', 'coordinated_turn')
         self.guidance_mode_switch_velocity = config.get('GUIDANCE_MODE_SWITCH_VELOCITY', 3.0)
         self.enable_auto_mode_switching = config.get('ENABLE_AUTO_MODE_SWITCHING', False)
+        self.mode_switch_hysteresis = config.get('MODE_SWITCH_HYSTERESIS', 0.5)
+        self.min_mode_switch_interval = config.get('MIN_MODE_SWITCH_INTERVAL', 2.0)
+        self.last_mode_switch_time = 0.0
         self.altitude_safety_enabled = config.get('ALTITUDE_SAFETY_ENABLED', False)
         # Use base class cached altitude limits (via SafetyManager)
         self.min_altitude_limit = self.altitude_limits.min_altitude
@@ -233,6 +240,7 @@ class MCVelocityChaseFollower(BaseFollower):
         
         # Initialize lateral guidance mode tracking
         self.active_lateral_mode = None  # Will be set by PID initialization
+        self._sideslip_advisory_logged = False
 
         # Initialize adaptive dive/climb control state
         self.adaptive_active = False  # Whether adaptive mode is currently active
@@ -276,11 +284,15 @@ class MCVelocityChaseFollower(BaseFollower):
         # Initialize PID controllers (includes mode determination)
         self._initialize_pid_controllers()
         
-        # Update telemetry metadata (v5.7.1: fixed camera = coordinated_turn only)
+        # Update telemetry metadata
         self.update_telemetry_metadata('controller_type', 'velocity_body_offboard')
         self.update_telemetry_metadata('control_strategy', 'mc_velocity_chase_fixed_camera')
-        self.update_telemetry_metadata('lateral_guidance_mode', 'coordinated_turn')  # Fixed camera constraint
+        self.update_telemetry_metadata('lateral_guidance_mode', self.lateral_guidance_mode)
         self.update_telemetry_metadata('active_lateral_mode', self.active_lateral_mode)
+        self.update_telemetry_metadata(
+            'lateral_mode_advisory',
+            'Fixed camera: coordinated_turn recommended; sideslip may lose target.'
+        )
         self.update_telemetry_metadata('safety_features', [
             'altitude_monitoring', 'target_loss_handling', 'velocity_ramping', 'emergency_stop',
             'yaw_rate_smoothing',  # v5.7.0: YawRateSmoother integration
@@ -363,29 +375,63 @@ class MCVelocityChaseFollower(BaseFollower):
 
     def _get_active_lateral_mode(self) -> str:
         """
-        Determines the active lateral guidance mode for fixed camera tracking.
+        Determine the active lateral guidance mode based on configuration and flight state.
 
-        FIXED CAMERA CONSTRAINT (v5.7.0):
-        With a fixed camera (no gimbal), the drone MUST yaw to keep the target centered.
-        Sideslip mode (lateral velocity without yaw) would cause the target to drift
-        off-frame, making tracking impossible. Therefore, this follower ALWAYS uses
-        coordinated_turn mode regardless of configuration.
+        Behavior:
+        - If auto-switching is disabled, uses configured mode directly.
+        - If auto-switching is enabled, switches based on forward velocity threshold
+          with hysteresis and minimum switch interval.
+        - Logs an advisory when sideslip is selected for fixed-camera operation.
 
         Returns:
-            str: Always 'coordinated_turn' for fixed camera tracking
+            str: 'sideslip' or 'coordinated_turn'
         """
         try:
-            # v5.7.0: Fixed camera requires coordinated_turn - sideslip is incompatible
-            # Sideslip would cause target to drift off frame since camera can't compensate
-            if self.lateral_guidance_mode == 'sideslip':
+            configured_mode = str(self.lateral_guidance_mode).strip().lower()
+            if configured_mode not in ('sideslip', 'coordinated_turn'):
                 logger.warning(
-                    "MC_VELOCITY_CHASE: Sideslip mode configured but incompatible with fixed camera. "
-                    "Using coordinated_turn (yaw-to-target) for proper tracking. "
-                    "Note: Sideslip only works with gimbal-based followers where gimbal compensates."
+                    f"Invalid LATERAL_GUIDANCE_MODE '{self.lateral_guidance_mode}' for MC_VELOCITY_CHASE. "
+                    "Falling back to coordinated_turn."
                 )
+                configured_mode = 'coordinated_turn'
 
-            # Always use coordinated_turn for fixed camera tracking
-            return 'coordinated_turn'
+            if configured_mode == 'sideslip' and not self._sideslip_advisory_logged:
+                logger.warning(
+                    "MC_VELOCITY_CHASE running in sideslip mode on fixed camera. "
+                    "This is advanced and may increase target-loss risk. "
+                    "Use coordinated_turn for more robust framing."
+                )
+                self._sideslip_advisory_logged = True
+
+            if not self.enable_auto_mode_switching:
+                return configured_mode
+
+            current_time = time.time()
+            switch_velocity = self.guidance_mode_switch_velocity
+            hysteresis = self.mode_switch_hysteresis
+
+            # Prevent mode flapping near threshold.
+            if current_time - self.last_mode_switch_time < self.min_mode_switch_interval:
+                return self.active_lateral_mode or configured_mode
+
+            active_mode = self.active_lateral_mode or configured_mode
+
+            if active_mode == 'sideslip':
+                if self.current_forward_velocity >= switch_velocity + hysteresis:
+                    self.last_mode_switch_time = current_time
+                    logger.info(
+                        f"Mode switch: sideslip -> coordinated_turn (v={self.current_forward_velocity:.2f} m/s)"
+                    )
+                    return 'coordinated_turn'
+            else:
+                if self.current_forward_velocity <= switch_velocity - hysteresis:
+                    self.last_mode_switch_time = current_time
+                    logger.info(
+                        f"Mode switch: coordinated_turn -> sideslip (v={self.current_forward_velocity:.2f} m/s)"
+                    )
+                    return 'sideslip'
+
+            return active_mode
 
         except Exception as e:
             logger.error(f"Error determining lateral mode: {e}")

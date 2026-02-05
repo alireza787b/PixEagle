@@ -256,11 +256,15 @@ def extract_options(description: str) -> Tuple[Optional[List[Dict]], str]:
     paren_match = re.search(r'Options:\s*([A-Za-z0-9_]+\s*\([^)]+\)(?:\s*,\s*[A-Za-z0-9_]+(?:\s*\([^)]*\))?)+)', description, re.IGNORECASE)
     if paren_match:
         options_str = paren_match.group(1).strip()
-        # Extract just the option names (before parentheses)
-        for opt_match in re.finditer(r'([A-Za-z0-9_]+)(?:\s*\([^)]*\))?', options_str):
+        # Extract option names and optional parenthetical descriptions.
+        for opt_match in re.finditer(r'([A-Za-z0-9_]+)(?:\s*\(([^)]*)\))?', options_str):
             opt = opt_match.group(1).strip()
+            opt_desc = opt_match.group(2).strip() if opt_match.group(2) else None
             if opt:
-                options.append({'value': opt, 'label': opt})
+                opt_entry = {'value': opt, 'label': opt}
+                if opt_desc:
+                    opt_entry['description'] = opt_desc
+                options.append(opt_entry)
         if options:
             cleaned = re.sub(r'\s*Options:\s*[A-Za-z0-9_]+\s*\([^)]+\)(?:\s*,\s*[A-Za-z0-9_]+(?:\s*\([^)]*\))?)+', '', description, flags=re.IGNORECASE)
             cleaned = re.sub(r'\s+', ' ', cleaned).strip()

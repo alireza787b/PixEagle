@@ -2428,12 +2428,14 @@ sections:
       LATERAL_GUIDANCE_MODE:
         type: string
         default: coordinated_turn
-        description: Lateral guidance strategy (sideslip = direct lateral velocity, coordinated_turn = yaw to track)
+        description: Lateral guidance strategy for fixed-camera chase (coordinated_turn recommended; sideslip is advanced and may lose target)
         options:
         - value: coordinated_turn
           label: Coordinated Turn (Yaw to Track)
+          description: Recommended for fixed camera tracking reliability
         - value: sideslip
           label: Sideslip (Direct Lateral)
+          description: Advanced mode; may increase target-loss risk with fixed camera
         reload_tier: follower_restart
       GUIDANCE_MODE_SWITCH_VELOCITY:
         type: float

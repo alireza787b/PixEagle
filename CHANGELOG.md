@@ -10,6 +10,7 @@
   - `POST /api/video/reconnect`
 - Prevented app shutdown on temporary or persistent frame loss.
 - Added camera status and reconnect action in dashboard Settings.
+- MC Velocity Chase now allows user-selected lateral guidance mode (`coordinated_turn` or `sideslip`), with fixed-camera advisory hints surfaced via schema/UI.
 
 ### 🔧 Version Consistency
 

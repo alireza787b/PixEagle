@@ -1318,11 +1318,11 @@ MC_VELOCITY_CHASE:
 
   # === 🧭 LATERAL GUIDANCE MODES ===
   # Two guidance strategies for lateral target tracking:
+  # - coordinated_turn: Turn-to-track (v_right = 0, yaw_rate ≠ 0)
+  #   RECOMMENDED for fixed camera tracking (keeps target centered more reliably)
   # - sideslip: Direct lateral velocity (v_right ≠ 0, yaw_rate = 0)
-  #   Best for: Precision hovering, close proximity, confined spaces
-  # - coordinated_turn: Turn-to-track (v_right = 0, yaw_rate ≠ 0) 
-  #   Best for: Forward flight efficiency, natural behavior, wind resistance
-  LATERAL_GUIDANCE_MODE: coordinated_turn     # sideslip | coordinated_turn
+  #   ADVANCED: allowed for expert use, but may lose target with fixed camera
+  LATERAL_GUIDANCE_MODE: coordinated_turn     # Options: coordinated_turn (recommended fixed camera), sideslip (advanced, may lose target)
   GUIDANCE_MODE_SWITCH_VELOCITY: 3.0          # m/s - auto-switch threshold
   ENABLE_AUTO_MODE_SWITCHING: false          # Auto-switch based on forward velocity
   
