@@ -143,6 +143,10 @@ tracker_data_types:
       - confidence
       - position_2d
       - velocity
+      - geometry_type
+      - oriented_bbox
+      - polygon
+      - normalized_polygon
     validation:
       bbox:
         type: "tuple"
@@ -209,6 +213,10 @@ tracker_data_types:
       - confidence
       - bbox
       - normalized_bbox
+      - geometry_type
+      - oriented_bbox
+      - polygon
+      - normalized_polygon
     validation:
       targets:
         type: "list"
@@ -224,6 +232,10 @@ tracker_data_types:
             - bbox
             - center
             - is_selected
+            - geometry_type
+            - oriented_bbox
+            - polygon
+            - normalized_polygon
 
 # Tracker type configurations
 tracker_types:

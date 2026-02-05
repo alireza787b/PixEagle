@@ -807,9 +807,18 @@ class FastAPIHandler:
         """Get video subsystem health for degraded-mode observability."""
         try:
             health = self.video_handler.get_connection_health() if self.video_handler else {"status": "unavailable"}
+            smart = getattr(self.app_controller, "smart_tracker", None)
+            obb_health = {
+                "model_loaded": bool(smart and hasattr(smart, "model")),
+                "adapter_initialized": bool(smart and hasattr(smart, "last_detections")),
+                "geometry_utils_available": bool(smart and hasattr(smart, "current_geometry_mode")),
+                "geometry_mode": getattr(smart, "current_geometry_mode", None),
+                "model_task": getattr(smart, "model_task", None),
+            }
             return JSONResponse(content={
                 "success": True,
                 "video": health,
+                "obb_pipeline": obb_health,
                 "timestamp": time.time(),
             })
         except Exception as e:
@@ -2098,6 +2107,23 @@ class FastAPIHandler:
             full_path = Path(model_path)
             if not full_path.exists():
                 raise HTTPException(status_code=404, detail=f"Model file not found: {model_path}")
+
+            # Validate model capabilities before switching
+            validation = self.yolo_model_manager.validate_model(full_path)
+            if not validation.get("valid", False):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Model validation failed: {validation.get('error', 'unknown error')}"
+                )
+            if not validation.get("smarttracker_supported", True):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Model task is not supported by SmartTracker. "
+                        f"Task={validation.get('task', 'unknown')}. "
+                        f"Notes={validation.get('compatibility_notes', [])}"
+                    )
+                )
 
             # Call SmartTracker's switch_model method
             smart_tracker = self.app_controller.smart_tracker

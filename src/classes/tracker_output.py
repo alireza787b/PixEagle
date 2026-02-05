@@ -120,6 +120,10 @@ class TrackerOutput:
     # Bounding box data
     bbox: Optional[Tuple[int, int, int, int]] = None
     normalized_bbox: Optional[Tuple[float, float, float, float]] = None
+    geometry_type: Optional[str] = None  # aabb | obb | polygon
+    oriented_bbox: Optional[Tuple[float, float, float, float, float]] = None
+    polygon: Optional[List[Tuple[float, float]]] = None
+    normalized_polygon: Optional[List[Tuple[float, float]]] = None
     
     # Quality metrics
     confidence: Optional[float] = None
@@ -168,6 +172,10 @@ class TrackerOutput:
                     'angular': self.angular,
                     'bbox': self.bbox,
                     'normalized_bbox': self.normalized_bbox,
+                    'geometry_type': self.geometry_type,
+                    'oriented_bbox': self.oriented_bbox,
+                    'polygon': self.polygon,
+                    'normalized_polygon': self.normalized_polygon,
                     'targets': self.targets,
                     'confidence': self.confidence,
                     'velocity': self.velocity

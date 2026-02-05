@@ -19,7 +19,7 @@ protobuf
 opencv-python >= 4.8.0  # Flexible for ARM/Raspberry Pi compatibility
 opencv-contrib-python >= 4.8.0  # For extra features including tracking algorithms
 # dlib - OPTIONAL: For fast correlation filter tracker, run: bash scripts/install_dlib.sh
-ultralytics
+ultralytics >= 8.3.114, < 9.0
 ncnn
 lap
 

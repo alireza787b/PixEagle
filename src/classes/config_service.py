@@ -424,6 +424,10 @@ class ConfigService:
         elif expected_type == 'string':
             if not isinstance(value, str):
                 errors.append(f"Expected string, got {type(value).__name__}")
+            elif 'enum' in param_schema and value not in param_schema['enum']:
+                errors.append(
+                    f"Value '{value}' not in allowed set {param_schema['enum']}"
+                )
 
         elif expected_type == 'array':
             if not isinstance(value, list):

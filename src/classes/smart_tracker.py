@@ -3,9 +3,7 @@ import cv2
 import numpy as np
 import time
 import logging
-import yaml
-import os
-from typing import Tuple
+from typing import Dict, List, Optional, Tuple
 
 # Conditional AI imports - allows app to run without ultralytics/torch
 # Catches ImportError (not installed) and any other errors (incompatible torch on ARM, etc.)
@@ -27,6 +25,12 @@ except Exception as e:
     logging.warning(f"Ultralytics import failed: {e} - SmartTracker disabled")
 
 from classes.parameters import Parameters
+from classes.detection_adapter import (
+    NormalizedDetection,
+    normalize_results,
+    to_tracking_state_rows,
+)
+from classes.geometry_utils import point_in_polygon
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.tracking_state_manager import TrackingStateManager
 from classes.motion_predictor import MotionPredictor
@@ -62,6 +66,14 @@ class SmartTracker:
         # === Validate and Select Tracker Type ===
         self.tracker_type_str, self.use_custom_reid = self._select_tracker_type()
 
+        self.model_task_policy = self.config.get("SMART_TRACKER_MODEL_TASK_POLICY", "auto")
+        self.geometry_output_mode = self.config.get("SMART_TRACKER_GEOMETRY_OUTPUT_MODE", "hybrid")
+        self.draw_oriented = self.config.get("SMART_TRACKER_DRAW_ORIENTED", True)
+        self.selection_mode = self.config.get("SMART_TRACKER_SELECTION_MODE", "auto")
+        self.max_oriented_tracks = int(self.config.get("SMART_TRACKER_MAX_ORIENTED_TRACKS", 100))
+        self.disable_obb_globally = bool(self.config.get("SMART_TRACKER_DISABLE_OBB_GLOBALLY", False))
+        self.obb_error_budget = float(self.config.get("SMART_TRACKER_OBB_AUTO_DISABLE_ERROR_RATE", 0.001))
+
         try:
             if use_gpu:
                 model_path = self.config.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo11n.pt')
@@ -71,7 +83,7 @@ class SmartTracker:
                 model_path = self.config.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo11n_ncnn_model')
                 logger.info(f"[SmartTracker] Loading YOLO model with CPU: {model_path}")
 
-            self.model = YOLO(model_path, task="detect")
+            self.model = YOLO(model_path)
 
             if use_gpu:
                 self.model.to('cuda')
@@ -85,7 +97,7 @@ class SmartTracker:
 
                 try:
                     model_path = self.config.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo11n_ncnn_model')
-                    self.model = YOLO(model_path, task="detect")
+                    self.model = YOLO(model_path)
                     logger.info(f"[SmartTracker] CPU model loaded successfully: {self.model.device}")
                 except Exception as cpu_error:
                     logger.error(f"[SmartTracker] CPU fallback also failed: {cpu_error}")
@@ -106,12 +118,27 @@ class SmartTracker:
         self.tracker_args = self._build_tracker_args()
 
         self.labels = self.model.names if hasattr(self.model, 'names') else {}
+        self.model_task = getattr(self.model, "task", "detect")
+        self.allow_mixed_outputs = False
+        self.current_geometry_mode = "aabb"
+        self.last_detections: List[NormalizedDetection] = []
+        self.selected_oriented_bbox: Optional[Tuple[float, float, float, float, float]] = None
+        self.selected_polygon: Optional[List[Tuple[float, float]]] = None
+
+        self._frame_count = 0
+        self._frame_errors = 0
+        self._geometry_errors = 0
+        self._obb_auto_disabled = False
+
+        self._apply_model_task_policy()
 
         # === Tracking state (maintained for backward compatibility and output)
         self.selected_object_id = None
         self.selected_class_id = None
         self.selected_bbox = None
         self.selected_center = None
+        self.selected_oriented_bbox = None
+        self.selected_polygon = None
         self.last_results = None
         self.object_colors = {}
 
@@ -146,6 +173,8 @@ class SmartTracker:
 
         logger.info("[SmartTracker] Initialization complete.")
         logger.info(f"[SmartTracker] Tracker: {self.tracker_type_str.upper()}")
+        logger.info(f"[SmartTracker] Model task: {self.model_task}")
+        logger.info(f"[SmartTracker] Geometry mode: {self.current_geometry_mode}")
         if self.use_custom_reid:
             logger.info(f"[SmartTracker] Custom ReID: {'enabled' if self.appearance_model else 'disabled'}")
         logger.info(f"[SmartTracker] Tracking strategy: {self.config.get('TRACKING_STRATEGY', 'hybrid')}")
@@ -221,6 +250,33 @@ class SmartTracker:
 
         return args
 
+    def _apply_model_task_policy(self):
+        """Apply task/geometry policy and determine effective mode."""
+        task = (self.model_task or "detect").lower()
+        if self.model_task_policy == "detect_only" and self.geometry_output_mode == "oriented_preferred":
+            logger.warning(
+                "[SmartTracker] Invalid policy combo detect_only+oriented_preferred; coercing to legacy_aabb"
+            )
+            self.geometry_output_mode = "legacy_aabb"
+
+        if self.disable_obb_globally:
+            self.current_geometry_mode = "aabb"
+            return
+
+        if self.model_task_policy == "detect_only":
+            self.current_geometry_mode = "aabb"
+            return
+
+        if task == "obb" and self.model_task_policy in ("auto", "allow_oriented"):
+            self.current_geometry_mode = "obb"
+            return
+
+        self.current_geometry_mode = "aabb"
+
+    def _should_run_track_api(self) -> bool:
+        """Use track API for detection models only; OBB uses predict + local continuity."""
+        return self.current_geometry_mode != "obb"
+
     def switch_model(self, new_model_path: str, device: str = "auto") -> dict:
         """
         Hot-swap YOLO model without restarting SmartTracker.
@@ -272,7 +328,7 @@ class SmartTracker:
                 logger.info("[SmartTracker] GPU cache cleared")
 
             # 4. Load new model
-            self.model = YOLO(new_model_path, task="detect")
+            self.model = YOLO(new_model_path)
 
             # 5. Set device based on preference
             target_device = "cpu"  # Default to CPU
@@ -292,6 +348,8 @@ class SmartTracker:
 
             # 6. Update labels
             self.labels = self.model.names if hasattr(self.model, 'names') else {}
+            self.model_task = getattr(self.model, "task", "detect")
+            self._apply_model_task_policy()
             num_classes = len(self.labels)
 
             # 7. Attempt to restore tracking if classes are compatible
@@ -304,6 +362,8 @@ class SmartTracker:
                     self.selected_class_id = backup_state["class_id"]
                     self.selected_bbox = backup_state["bbox"]
                     self.selected_center = backup_state["center"]
+                    self.selected_oriented_bbox = None
+                    self.selected_polygon = None
 
                     # Reinitialize tracking manager with backed up state
                     if self.selected_bbox and self.selected_center:
@@ -335,6 +395,8 @@ class SmartTracker:
                     "device": str(self.model.device),
                     "num_classes": num_classes,
                     "class_names": self.labels,
+                    "model_task": self.model_task,
+                    "geometry_mode": self.current_geometry_mode,
                     "tracking_restored": backup_state["was_tracking"] and backup_state["class_id"] < num_classes
                 }
             }
@@ -401,26 +463,34 @@ class SmartTracker:
             logger.warning("[SmartTracker] No YOLO results yet, click ignored.")
             return
 
-        detections = self.last_results[0].boxes.data if self.last_results[0].boxes is not None else []
         min_area = float('inf')
         best_match = None
 
-        # Find the smallest object containing the click point
-        for track in detections:
-            track = track.tolist()
-            if len(track) >= 6:
-                x1, y1, x2, y2 = map(int, track[:4])
-                if x1 <= x <= x2 and y1 <= y <= y2:
-                    area = (x2 - x1) * (y2 - y1)
-                    if area < min_area:
-                        class_id = int(track[6]) if len(track) >= 7 else int(track[5])
-                        track_id = int(track[4]) if len(track) >= 7 else -1
-                        confidence = float(track[5])
-                        min_area = area
-                        best_match = (track_id, class_id, (x1, y1, x2, y2), confidence)
+        # Find smallest matching detection, oriented first if configured.
+        for det in self.last_detections:
+            x1, y1, x2, y2 = det.aabb_xyxy
+            contains = False
+            if self.selection_mode in ("auto", "oriented") and det.polygon_xy:
+                contains = point_in_polygon((x, y), det.polygon_xy)
+            if not contains and self.selection_mode in ("auto", "aabb"):
+                contains = (x1 <= x <= x2 and y1 <= y <= y2)
+            if not contains:
+                continue
+
+            area = max(1, (x2 - x1) * (y2 - y1))
+            if area < min_area:
+                min_area = area
+                best_match = (
+                    det.track_id,
+                    det.class_id,
+                    det.aabb_xyxy,
+                    det.confidence,
+                    det.obb_xywhr,
+                    det.polygon_xy,
+                )
 
         if best_match:
-            track_id, class_id, bbox, confidence = best_match
+            track_id, class_id, bbox, confidence, oriented_bbox, polygon_xy = best_match
             center = self.get_center(*bbox)
 
             # Update local state (for backward compatibility)
@@ -428,6 +498,8 @@ class SmartTracker:
             self.selected_class_id = class_id
             self.selected_bbox = bbox
             self.selected_center = center
+            self.selected_oriented_bbox = oriented_bbox
+            self.selected_polygon = polygon_xy
 
             # Initialize tracking manager with robust tracking
             self.tracking_manager.start_tracking(
@@ -452,6 +524,8 @@ class SmartTracker:
         self.selected_class_id = None
         self.selected_bbox = None
         self.selected_center = None
+        self.selected_oriented_bbox = None
+        self.selected_polygon = None
 
         # Clear tracking manager state
         self.tracking_manager.clear()
@@ -463,27 +537,56 @@ class SmartTracker:
         Runs YOLO detection + tracking, draws overlays, and returns the annotated frame.
         Uses TrackingStateManager for robust ID tracking with spatial fallback.
         """
-        # Run YOLO tracking with selected tracker (ByteTrack or BoT-SORT)
-        results = self.model.track(
-            frame,
-            conf=self.conf_threshold,
-            iou=self.iou_threshold,
-            max_det=self.max_det,
-            tracker=f"{self.tracker_type_str}.yaml",  # bytetrack.yaml or botsort.yaml
-            **self.tracker_args
-        )
-        self.last_results = results
+        self._frame_count += 1
+        t0 = time.perf_counter()
+        try:
+            if self._should_run_track_api():
+                results = self.model.track(
+                    frame,
+                    conf=self.conf_threshold,
+                    iou=self.iou_threshold,
+                    max_det=self.max_det,
+                    tracker=f"{self.tracker_type_str}.yaml",
+                    **self.tracker_args
+                )
+            else:
+                results = self.model.predict(
+                    frame,
+                    conf=self.conf_threshold,
+                    iou=self.iou_threshold,
+                    max_det=self.max_det,
+                    verbose=False,
+                )
+            self.last_results = results
+        except Exception as exc:
+            self._frame_errors += 1
+            logger.error(f"[SmartTracker] Inference failure: {exc}")
+            return frame
 
-        detections = results[0].boxes.data if results[0].boxes is not None else []
+        try:
+            _, self.last_detections = normalize_results(results, allow_mixed=self.allow_mixed_outputs)
+        except Exception as exc:
+            self._frame_errors += 1
+            self._geometry_errors += 1
+            logger.error(f"[SmartTracker] Detection normalization failure: {exc}")
+            self.last_detections = []
+
+        if self.current_geometry_mode == "obb" and len(self.last_detections) > self.max_oriented_tracks:
+            self.last_detections = self.last_detections[:self.max_oriented_tracks]
+
+        if self.current_geometry_mode == "obb" and self._frame_count > 0:
+            err_rate = self._geometry_errors / float(self._frame_count)
+            if err_rate > self.obb_error_budget and not self._obb_auto_disabled:
+                logger.warning(
+                    f"[SmartTracker] OBB auto-disabled due to error budget breach: {err_rate:.4f}"
+                )
+                self._obb_auto_disabled = True
+                self.current_geometry_mode = "aabb"
+
         frame_overlay = frame.copy()
 
         # === Use TrackingStateManager for robust tracking ===
-        # Converts detections to list format expected by tracking_manager
-        detections_list = []
-        for track in detections:
-            track = track.tolist()
-            if len(track) >= 6:
-                detections_list.append(track)
+        detections_list = to_tracking_state_rows(self.last_detections)
 
         # Update tracking state using TrackingStateManager (handles ID + spatial + appearance matching)
         is_tracking_active, selected_detection = self.tracking_manager.update_tracking(
@@ -493,11 +596,11 @@ class SmartTracker:
         )
 
         # Draw all detections
-        for track in detections_list:
-            x1, y1, x2, y2 = map(int, track[:4])
-            conf = float(track[5])
-            class_id = int(track[6]) if len(track) >= 7 else int(track[5])
-            track_id = int(track[4]) if len(track) >= 7 else -1
+        for det in self.last_detections:
+            x1, y1, x2, y2 = det.aabb_xyxy
+            conf = float(det.confidence)
+            class_id = int(det.class_id)
+            track_id = int(det.track_id)
             label_name = self.labels.get(class_id, str(class_id))
             color = self.object_colors.setdefault(track_id, self.get_yolo_color(track_id))
             label = f"{label_name} ID {track_id} ({conf:.2f})"
@@ -512,6 +615,8 @@ class SmartTracker:
                 self.selected_class_id = class_id
                 self.selected_bbox = (x1, y1, x2, y2)
                 self.selected_center = self.get_center(x1, y1, x2, y2)
+                self.selected_oriented_bbox = det.obb_xywhr
+                self.selected_polygon = det.polygon_xy
 
                 # Continuously update classic tracker's override with latest detection
                 if self.app_controller.tracker and hasattr(self.app_controller.tracker, 'set_external_override'):
@@ -520,8 +625,11 @@ class SmartTracker:
                         self.selected_center
                     )
 
-                # Draw thick tracking box with scope lines
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 4)
+                if self.draw_oriented and det.polygon_xy:
+                    pts = np.array([[int(px), int(py)] for px, py in det.polygon_xy], dtype=np.int32)
+                    cv2.polylines(frame, [pts], isClosed=True, color=color, thickness=4)
+                else:
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 4)
                 self.draw_tracking_scope(frame, (x1, y1, x2, y2), color)
                 cv2.circle(frame, self.selected_center, 6, color, -1)
 
@@ -533,12 +641,16 @@ class SmartTracker:
                     label = f"*ACTIVE* {label}"
             else:
                 # Dashed overlay box for unselected objects
-                for i in range(x1, x2, 10):
-                    cv2.line(frame_overlay, (i, y1), (i + 5, y1), color, 2)
-                    cv2.line(frame_overlay, (i, y2), (i + 5, y2), color, 2)
-                for i in range(y1, y2, 10):
-                    cv2.line(frame_overlay, (x1, i), (x1, i + 5), color, 2)
-                    cv2.line(frame_overlay, (x2, i), (x2, i + 5), color, 2)
+                if self.draw_oriented and det.polygon_xy:
+                    pts = np.array([[int(px), int(py)] for px, py in det.polygon_xy], dtype=np.int32)
+                    cv2.polylines(frame_overlay, [pts], isClosed=True, color=color, thickness=2)
+                else:
+                    for i in range(x1, x2, 10):
+                        cv2.line(frame_overlay, (i, y1), (i + 5, y1), color, 2)
+                        cv2.line(frame_overlay, (i, y2), (i + 5, y2), color, 2)
+                    for i in range(y1, y2, 10):
+                        cv2.line(frame_overlay, (x1, i), (x1, i + 5), color, 2)
+                        cv2.line(frame_overlay, (x2, i), (x2, i + 5), color, 2)
 
             # Draw label text on the frame
             cv2.putText(frame, label, (x1 + 5, y1 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
@@ -553,6 +665,8 @@ class SmartTracker:
             self.selected_class_id = None
             self.selected_bbox = None
             self.selected_center = None
+            self.selected_oriented_bbox = None
+            self.selected_polygon = None
 
             # Clear classic tracker override to remove visual scope
             if self.app_controller.tracker and hasattr(self.app_controller.tracker, 'clear_external_override'):
@@ -570,6 +684,7 @@ class SmartTracker:
 
         # Final blended result
         blended_frame = cv2.addWeighted(frame_overlay, 0.5, frame, 0.5, 0)
+        self.last_frame_processing_ms = (time.perf_counter() - t0) * 1000.0
         return blended_frame
 
     def get_output(self) -> TrackerOutput:
@@ -586,26 +701,25 @@ class SmartTracker:
 
         # Prepare multi-target data if available
         targets = []
-        if self.last_results and self.last_results[0].boxes is not None:
-            detections = self.last_results[0].boxes.data
-            for track in detections:
-                track = track.tolist()
-                if len(track) >= 6:
-                    x1, y1, x2, y2 = map(int, track[:4])
-                    conf = float(track[5])
-                    class_id = int(track[6]) if len(track) >= 7 else int(track[5])
-                    track_id = int(track[4]) if len(track) >= 7 else -1
-
-                    target_data = {
-                        'target_id': track_id,
-                        'class_id': class_id,
-                        'class_name': self.labels.get(class_id, str(class_id)),
-                        'bbox': (x1, y1, x2 - x1, y2 - y1),  # Convert to x,y,w,h
-                        'center': self.get_center(x1, y1, x2, y2),
-                        'confidence': conf,
-                        'is_selected': track_id == self.selected_object_id
-                    }
-                    targets.append(target_data)
+        for det in self.last_detections:
+            x1, y1, x2, y2 = det.aabb_xyxy
+            target_data = {
+                'target_id': det.track_id,
+                'class_id': det.class_id,
+                'class_name': self.labels.get(det.class_id, str(det.class_id)),
+                'bbox': (x1, y1, x2 - x1, y2 - y1),  # x,y,w,h (legacy-safe)
+                'center': self.get_center(x1, y1, x2, y2),
+                'confidence': det.confidence,
+                'is_selected': det.track_id == self.selected_object_id,
+                'geometry_type': det.geometry_type,
+            }
+            if det.obb_xywhr:
+                cx, cy, w, h, r = det.obb_xywhr
+                target_data['oriented_bbox'] = (cx, cy, w, h, float(np.degrees(r)))
+            if det.polygon_xy:
+                target_data['polygon'] = det.polygon_xy
+                target_data['normalized_polygon'] = self._normalize_polygon(det.polygon_xy)
+            targets.append(target_data)
 
         # Use MULTI_TARGET only if we have detections, otherwise use POSITION_2D to avoid schema error
         data_type = TrackerDataType.MULTI_TARGET if len(targets) > 0 else TrackerDataType.POSITION_2D
@@ -620,6 +734,10 @@ class SmartTracker:
             position_2d=self._normalize_center(self.selected_center) if self.selected_center else None,
             bbox=self._convert_bbox_format(self.selected_bbox) if self.selected_bbox else None,
             normalized_bbox=self._normalize_bbox(self.selected_bbox) if self.selected_bbox else None,
+            geometry_type="obb" if self.selected_oriented_bbox else "aabb",
+            oriented_bbox=self._get_selected_oriented_bbox_degrees(),
+            polygon=self.selected_polygon,
+            normalized_polygon=self._normalize_polygon(self.selected_polygon) if self.selected_polygon else None,
             confidence=self._get_selected_confidence(),
 
             # Multi-target data (only included if we have targets)
@@ -629,14 +747,28 @@ class SmartTracker:
             quality_metrics={
                 'detection_count': len(targets),
                 'fps': self.fps_display,
-                'model_confidence_threshold': self.conf_threshold
+                'model_confidence_threshold': self.conf_threshold,
+                'frame_processing_ms': getattr(self, "last_frame_processing_ms", 0.0),
+                'frame_error_rate': (self._frame_errors / self._frame_count) if self._frame_count else 0.0,
+                'geometry_error_rate': (self._geometry_errors / self._frame_count) if self._frame_count else 0.0,
             },
 
             raw_data={
-                'yolo_results': self.last_results[0].boxes.data.tolist() if self.last_results and self.last_results[0].boxes is not None else [],
+                'yolo_results': [
+                    {
+                        'track_id': d.track_id,
+                        'class_id': d.class_id,
+                        'confidence': d.confidence,
+                        'aabb_xyxy': d.aabb_xyxy,
+                        'geometry_type': d.geometry_type,
+                    } for d in self.last_detections
+                ],
                 'selected_class_id': self.selected_class_id,
                 'tracker_type': self.tracker_type_str,
-                'device': str(self.model.device) if hasattr(self.model, 'device') else 'unknown'
+                'device': str(self.model.device) if hasattr(self.model, 'device') else 'unknown',
+                'model_task': self.model_task,
+                'geometry_mode': self.current_geometry_mode,
+                'obb_auto_disabled': self._obb_auto_disabled,
             },
 
             metadata={
@@ -646,7 +778,9 @@ class SmartTracker:
                 'supports_multi_target': True,
                 'supports_classification': True,
                 'real_time': True,
-                'detection_classes': list(self.labels.keys()) if self.labels else []
+                'detection_classes': list(self.labels.keys()) if self.labels else [],
+                'geometry_output_mode': self.geometry_output_mode,
+                'model_task_policy': self.model_task_policy,
             }
         )
 
@@ -665,13 +799,15 @@ class SmartTracker:
             'supports_normalization': True,
             'supports_multi_target': True,
             'supports_classification': True,
+            'supports_oriented_bbox': True,
             'estimator_available': False,
             'multi_target': True,
             'real_time': True,
             'tracker_algorithm': 'YOLO + ByteTrack',
             'accuracy_rating': 'very_high',
             'speed_rating': 'high' if hasattr(self.model, 'device') and 'cuda' in str(self.model.device) else 'medium',
-            'detection_classes': len(self.labels) if self.labels else 0
+            'detection_classes': len(self.labels) if self.labels else 0,
+            'geometry_mode': self.current_geometry_mode,
         }
 
     def _normalize_center(self, center):
@@ -716,19 +852,33 @@ class SmartTracker:
         x1, y1, x2, y2 = bbox
         return (x1, y1, x2 - x1, y2 - y1)
 
+    def _normalize_polygon(self, polygon):
+        """Normalize polygon coordinates to [-1, 1]."""
+        if not polygon or not hasattr(self.app_controller, 'video_handler'):
+            return None
+        video_handler = self.app_controller.video_handler
+        if not video_handler:
+            return None
+        frame_width, frame_height = video_handler.width, video_handler.height
+        out = []
+        for x, y in polygon:
+            nx = (x - frame_width / 2) / (frame_width / 2)
+            ny = (y - frame_height / 2) / (frame_height / 2)
+            out.append((nx, ny))
+        return out
+
+    def _get_selected_oriented_bbox_degrees(self):
+        """Return selected oriented bbox in degree representation."""
+        if not self.selected_oriented_bbox:
+            return None
+        cx, cy, w, h, r = self.selected_oriented_bbox
+        return (cx, cy, w, h, float(np.degrees(r)))
+
     def _get_selected_confidence(self):
         """Get confidence of the selected object."""
-        if not self.last_results or not self.selected_object_id:
+        if self.selected_object_id is None:
             return None
-            
-        if not self.last_results[0].boxes:
-            return None
-            
-        detections = self.last_results[0].boxes.data
-        for track in detections:
-            track = track.tolist()
-            if len(track) >= 6:
-                track_id = int(track[4]) if len(track) >= 7 else -1
-                if track_id == self.selected_object_id:
-                    return float(track[5])
+        for det in self.last_detections:
+            if det.track_id == self.selected_object_id:
+                return float(det.confidence)
         return None

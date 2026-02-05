@@ -1,4 +1,4 @@
-schema_version: 1.0.0
+schema_version: 1.1.0
 meta:
   project: PixEagle
   generated_from: /home/alireza/PixEagle/configs/config_default.yaml
@@ -1213,6 +1213,58 @@ sections:
         min: 0
         max: 100
         reload_tier: tracker_restart
+      SMART_TRACKER_MODEL_TASK_POLICY:
+        type: string
+        default: auto
+        description: Model task policy (auto|detect_only|allow_oriented)
+        enum:
+        - auto
+        - detect_only
+        - allow_oriented
+        reload_tier: tracker_restart
+      SMART_TRACKER_GEOMETRY_OUTPUT_MODE:
+        type: string
+        default: hybrid
+        description: Geometry output mode (legacy_aabb|hybrid|oriented_preferred)
+        enum:
+        - legacy_aabb
+        - hybrid
+        - oriented_preferred
+        reload_tier: tracker_restart
+      SMART_TRACKER_DRAW_ORIENTED:
+        type: boolean
+        default: true
+        description: Draw oriented geometry when available
+        reload_tier: immediate
+      SMART_TRACKER_SELECTION_MODE:
+        type: string
+        default: auto
+        description: Selection mode for click pick (auto|aabb|oriented)
+        enum:
+        - auto
+        - aabb
+        - oriented
+        reload_tier: immediate
+      SMART_TRACKER_MAX_ORIENTED_TRACKS:
+        type: integer
+        default: 100
+        description: Max oriented tracks before fallback truncation
+        min: 1
+        max: 1000
+        reload_tier: immediate
+      SMART_TRACKER_DISABLE_OBB_GLOBALLY:
+        type: boolean
+        default: false
+        description: Emergency kill switch for OBB mode
+        reload_tier: immediate
+      SMART_TRACKER_OBB_AUTO_DISABLE_ERROR_RATE:
+        type: float
+        default: 0.001
+        description: Auto-disable OBB when geometry error rate exceeds threshold
+        min: 0.0
+        max: 1.0
+        step: 0.0001
+        reload_tier: immediate
       SMART_TRACKER_COLOR:
         type: array
         default:

@@ -153,6 +153,10 @@ class YOLOModelManager:
                         "num_classes": validation_result.get('num_classes', 0),
                         "class_names": validation_result.get('class_names', []),
                         "is_custom": validation_result.get('is_custom', False),
+                        "task": validation_result.get('task', 'unknown'),
+                        "output_geometry": validation_result.get('output_geometry', 'aabb'),
+                        "smarttracker_supported": validation_result.get('smarttracker_supported', True),
+                        "compatibility_notes": validation_result.get('compatibility_notes', []),
                         "has_ncnn": self._check_ncnn_exists(pt_file),
                         "ncnn_path": str(self._get_ncnn_path(pt_file)) if self._check_ncnn_exists(pt_file) else None,
                         "last_modified": file_mtime,
@@ -254,6 +258,7 @@ class YOLOModelManager:
             # Extract basic metadata
             num_classes = len(model.names) if hasattr(model, 'names') else 0
             class_names = list(model.names.values()) if hasattr(model, 'names') else []
+            task = getattr(model, 'task', 'unknown')
 
             # Detect custom models (non-COCO)
             is_custom = self._is_custom_model(class_names, num_classes)
@@ -261,9 +266,22 @@ class YOLOModelManager:
             # Detect model type
             model_type = self._detect_model_type(pt_file.stem)
 
+            output_geometry = "obb" if task == "obb" else "aabb"
+            compatibility_notes = []
+            smarttracker_supported = True
+            if task not in ("detect", "obb"):
+                smarttracker_supported = False
+                compatibility_notes.append(
+                    f"SmartTracker currently supports detect/obb tasks, got '{task}'."
+                )
+
             return {
                 "valid": True,
                 "model_type": model_type,
+                "task": task,
+                "output_geometry": output_geometry,
+                "smarttracker_supported": smarttracker_supported,
+                "compatibility_notes": compatibility_notes,
                 "num_classes": num_classes,
                 "class_names": class_names,
                 "is_custom": is_custom
