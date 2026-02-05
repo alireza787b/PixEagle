@@ -1,6 +1,6 @@
 {
   "name": "dashboard",
-  "version": "0.1.0",
+  "version": "3.2.1",
   "private": true,
   "dependencies": {
     "@emotion/react": "^11.11.4",

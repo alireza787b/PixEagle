@@ -1,5 +1,22 @@
 # PixEagle Changelog
 
+## Version 3.2.1 (2026-02-05) - Resilience & Version Consistency
+
+### 🚀 Improvements
+
+- Added degraded-mode startup: backend stays online when video source is unavailable.
+- Added video resilience endpoints:
+  - `GET /api/video/health`
+  - `POST /api/video/reconnect`
+- Prevented app shutdown on temporary or persistent frame loss.
+- Added camera status and reconnect action in dashboard Settings.
+
+### 🔧 Version Consistency
+
+- Unified API-exposed project version via central `src/classes/app_version.py`.
+- FastAPI app version and frontend runtime config now use the same project version.
+- Dashboard package version updated to `3.2.1`.
+
 ## Version 3.2 (2025-10-10) - Professional OSD System
 
 ### 🚀 New Features

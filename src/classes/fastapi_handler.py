@@ -22,6 +22,7 @@ from classes.setpoint_handler import SetpointHandler
 from classes.follower import FollowerFactory
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.yolo_model_manager import YOLOModelManager, AI_AVAILABLE
+from classes.app_version import PIXEAGLE_VERSION
 
 # Import circuit breaker with error handling
 try:
@@ -221,7 +222,7 @@ class FastAPIHandler:
         self.yolo_model_manager = YOLOModelManager()
 
         # FastAPI app
-        self.app = FastAPI(title="PixEagle API", version="2.0")
+        self.app = FastAPI(title="PixEagle API", version=PIXEAGLE_VERSION)
         self._setup_middleware()
         
         # Logging
@@ -4330,7 +4331,7 @@ class FastAPIHandler:
                 'config': {
                     'api_port': Parameters.HTTP_STREAM_PORT,
                     'websocket_port': Parameters.HTTP_STREAM_PORT,
-                    'version': '4.0.0',
+                    'version': PIXEAGLE_VERSION,
                     'api_host': Parameters.HTTP_STREAM_HOST,
                 },
                 'timestamp': time.time()
