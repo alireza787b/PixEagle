@@ -236,6 +236,21 @@ def extract_options(description: str) -> Tuple[Optional[List[Dict]], str]:
                 cleaned = ''
             return options, cleaned
 
+    # Pattern 1b: Bare pipe-separated options without "Options:" prefix
+    # e.g., "sideslip | coordinated_turn"
+    bare_pipe_match = re.fullmatch(
+        r'["\']?[A-Za-z0-9_]+["\']?(?:\s*\|\s*["\']?[A-Za-z0-9_]+["\']?)+',
+        description.strip()
+    )
+    if bare_pipe_match:
+        options_str = bare_pipe_match.group(0).strip()
+        for opt in options_str.split('|'):
+            opt = opt.strip().strip('"\'')
+            if opt and re.match(r'^[a-zA-Z0-9_]+$', opt):
+                options.append({'value': opt, 'label': opt})
+        if options:
+            return options, ''
+
     # Pattern 2: "Options: val1 (desc), val2 (desc), ..." with parenthetical descriptions
     # Capture everything after "Options:" that may include parens
     paren_match = re.search(r'Options:\s*([A-Za-z0-9_]+\s*\([^)]+\)(?:\s*,\s*[A-Za-z0-9_]+(?:\s*\([^)]*\))?)+)', description, re.IGNORECASE)
@@ -315,15 +330,24 @@ def parse_config_with_comments(config_path: str) -> Tuple[Dict, Dict[str, str]]:
     # Parse YAML
     config = yaml.safe_load(content)
 
-    # Extract comments (line before each key)
+    # Extract comments keyed by full YAML path (e.g., "MC_VELOCITY.LATERAL_GUIDANCE_MODE")
+    # to avoid collisions when repeated key names appear in different sections.
     comments = {}
     lines = content.split('\n')
+    path_stack: List[Tuple[int, str]] = []
 
     for i, line in enumerate(lines):
         # Find key definitions
         key_match = re.match(r'^(\s*)(\w+):\s*(.*)$', line)
         if key_match:
             indent, key, value_part = key_match.groups()
+            indent_len = len(indent)
+
+            # Maintain parent key stack based on indentation level
+            while path_stack and path_stack[-1][0] >= indent_len:
+                path_stack.pop()
+
+            full_path = '.'.join([k for _, k in path_stack] + [key])
 
             # Look for comment on same line
             inline_comment = ''
@@ -370,7 +394,10 @@ def parse_config_with_comments(config_path: str) -> Tuple[Dict, Dict[str, str]]:
                     description += ' ' + following_options
 
             if description:
-                comments[key] = description
+                comments[full_path] = description
+
+            # Track current key as a potential parent for nested keys
+            path_stack.append((indent_len, key))
 
     return config, comments
 
@@ -429,7 +456,7 @@ def process_section(section_name: str, section_data: Any, comments: Dict[str, st
         params = {}
         for key, value in data.items():
             full_key = f"{prefix}.{key}" if prefix else key
-            desc = comments.get(key, '')
+            desc = comments.get(full_key, comments.get(key, ''))
 
             if isinstance(value, dict) and not any(isinstance(v, dict) for v in value.values()):
                 # Simple nested dict (like PID_GAINS entries)
@@ -447,7 +474,7 @@ def process_section(section_name: str, section_data: Any, comments: Dict[str, st
 
         return params
 
-    section_schema['parameters'] = process_params(section_data)
+    section_schema['parameters'] = process_params(section_data, section_name)
 
     return section_schema
 

@@ -1918,7 +1918,12 @@ sections:
       LATERAL_GUIDANCE_MODE:
         type: string
         default: coordinated_turn
-        description: yaw_to_target | crab_strafe
+        description: Lateral guidance strategy (sideslip = direct lateral velocity, coordinated_turn = yaw to track)
+        options:
+        - value: coordinated_turn
+          label: Coordinated Turn (Yaw to Track)
+        - value: sideslip
+          label: Sideslip (Direct Lateral)
         reload_tier: follower_restart
       ENABLE_AUTO_MODE_SWITCHING:
         type: boolean
@@ -2423,7 +2428,12 @@ sections:
       LATERAL_GUIDANCE_MODE:
         type: string
         default: coordinated_turn
-        description: yaw_to_target | crab_strafe
+        description: Lateral guidance strategy (sideslip = direct lateral velocity, coordinated_turn = yaw to track)
+        options:
+        - value: coordinated_turn
+          label: Coordinated Turn (Yaw to Track)
+        - value: sideslip
+          label: Sideslip (Direct Lateral)
         reload_tier: follower_restart
       GUIDANCE_MODE_SWITCH_VELOCITY:
         type: float
@@ -3286,7 +3296,12 @@ sections:
       LATERAL_GUIDANCE_MODE:
         type: string
         default: yaw_to_target
-        description: yaw_to_target | crab_strafe
+        description: Lateral guidance strategy (yaw_to_target = rotate to target, crab_strafe = lateral strafe)
+        options:
+        - value: yaw_to_target
+          label: Yaw to Target
+        - value: crab_strafe
+          label: Crab Strafe
         reload_tier: follower_restart
       ENABLE_AUTO_MODE_SWITCHING:
         type: boolean
