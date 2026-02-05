@@ -87,6 +87,8 @@ export const endpoints = {
   configValidate: `${protocol}://${apiHost}:${apiPort}/api/config/validate`,
   configDiff: `${protocol}://${apiHost}:${apiPort}/api/config/diff`,
   configDefaultsSync: `${protocol}://${apiHost}:${apiPort}/api/config/defaults-sync`,
+  configDefaultsSyncPlan: `${protocol}://${apiHost}:${apiPort}/api/config/defaults-sync/plan`,
+  configDefaultsSyncApply: `${protocol}://${apiHost}:${apiPort}/api/config/defaults-sync/apply`,
   configRevert: `${protocol}://${apiHost}:${apiPort}/api/config/revert`,
   configRevertSection: (section) => `${protocol}://${apiHost}:${apiPort}/api/config/revert/${section}`,
   configRevertParameter: (section, param) => `${protocol}://${apiHost}:${apiPort}/api/config/revert/${section}/${param}`,

@@ -124,6 +124,8 @@ class ConfigService:
     DEFAULT_PATH = "configs/config_default.yaml"
     BACKUP_DIR = "configs/backups"
     AUDIT_LOG_PATH = "configs/audit_log.json"
+    SYNC_META_PATH = "configs/config_sync_meta.json"
+    SYNC_ARCHIVE_SECTION = "_ARCHIVED_OBSOLETE"
     MAX_BACKUPS = 20
     MAX_AUDIT_ENTRIES = 1000
 
@@ -355,6 +357,14 @@ class ConfigService:
             return self._default.get(section, {})
         return self._default
 
+    def get_default_config(self, section: Optional[str] = None) -> Dict:
+        """Backward-compatible alias for default configuration retrieval."""
+        return self.get_default(section)
+
+    def get_schema_version(self) -> str:
+        """Get schema version string."""
+        return str(self._schema.get('schema_version', 'unknown'))
+
     def get_parameter(self, section: str, param: str) -> Any:
         """Get a specific parameter value."""
         section_data = self._config.get(section, {})
@@ -526,6 +536,90 @@ class ConfigService:
         )
 
         return ValidationResult(valid, status, all_errors, all_warnings)
+
+    def remove_parameter(self, section: str, param: str) -> bool:
+        """Remove a parameter from current config and round-trip YAML state."""
+        section_data = self._config.get(section)
+        if not isinstance(section_data, dict) or param not in section_data:
+            return False
+
+        del section_data[param]
+
+        if (
+            self._config_raw is not None
+            and section in self._config_raw
+            and isinstance(self._config_raw[section], dict)
+            and param in self._config_raw[section]
+        ):
+            del self._config_raw[section][param]
+
+        return True
+
+    def archive_and_remove_parameter(
+        self,
+        section: str,
+        param: str,
+        reason: str = "obsolete_in_schema"
+    ) -> bool:
+        """Archive a parameter and remove it from active config."""
+        section_data = self._config.get(section)
+        if not isinstance(section_data, dict) or param not in section_data:
+            return False
+
+        key = f"{section}.{param}"
+        value = section_data[param]
+
+        if self.SYNC_ARCHIVE_SECTION not in self._config or not isinstance(self._config[self.SYNC_ARCHIVE_SECTION], dict):
+            self._config[self.SYNC_ARCHIVE_SECTION] = {}
+
+        self._config[self.SYNC_ARCHIVE_SECTION][key] = {
+            "value": value,
+            "archived_at": datetime.now().isoformat(),
+            "reason": reason,
+        }
+
+        if self._config_raw is not None:
+            if (
+                self.SYNC_ARCHIVE_SECTION not in self._config_raw
+                or not isinstance(self._config_raw[self.SYNC_ARCHIVE_SECTION], dict)
+            ):
+                self._config_raw[self.SYNC_ARCHIVE_SECTION] = {}
+            self._config_raw[self.SYNC_ARCHIVE_SECTION][key] = self._config[self.SYNC_ARCHIVE_SECTION][key]
+
+        return self.remove_parameter(section, param)
+
+    def get_sync_meta(self) -> Dict[str, Any]:
+        """Load persisted config sync metadata."""
+        meta_path = self._get_path(self.SYNC_META_PATH)
+        if not meta_path.exists():
+            return {}
+        try:
+            with open(meta_path, 'r', encoding='utf-8') as f:
+                loaded = json.load(f)
+                return dict(loaded) if loaded else {}
+        except Exception as e:
+            logger.warning(f"Could not load sync metadata: {e}")
+            return {}
+
+    def save_sync_meta(self, meta: Dict[str, Any]) -> bool:
+        """Persist config sync metadata."""
+        meta_path = self._get_path(self.SYNC_META_PATH)
+        try:
+            meta_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(meta_path, 'w', encoding='utf-8') as f:
+                json.dump(meta, f, indent=2, ensure_ascii=True)
+            return True
+        except Exception as e:
+            logger.error(f"Could not save sync metadata: {e}")
+            return False
+
+    def refresh_defaults_snapshot(self) -> bool:
+        """Store current defaults as baseline for changed-default detection."""
+        meta = self.get_sync_meta()
+        meta['defaults_snapshot'] = self.get_default()
+        meta['defaults_snapshot_saved_at'] = datetime.now().isoformat()
+        meta['schema_version'] = self.get_schema_version()
+        return self.save_sync_meta(meta)
 
     def revert_to_default(
         self,

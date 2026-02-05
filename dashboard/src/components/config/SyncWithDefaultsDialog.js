@@ -1,34 +1,42 @@
 // dashboard/src/components/config/SyncWithDefaultsDialog.js
-/**
- * SyncWithDefaultsDialog - Dialog for syncing config with new defaults (v5.4.0+)
- *
- * Shows:
- * - New parameters available in defaults
- * - Changed default values
- * - Obsolete parameters to remove
- *
- * Allows selective acceptance of changes.
- */
-
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import {
-  Dialog, DialogTitle, DialogContent, DialogActions,
-  Box, Typography, Button, Checkbox, Chip, Alert,
-  List, ListItem, ListItemText, ListItemIcon, ListItemSecondaryAction,
-  Divider, Collapse, IconButton, CircularProgress, Tooltip,
-  Tabs, Tab, Badge
+  Alert,
+  Badge,
+  Box,
+  Button,
+  Checkbox,
+  Chip,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  Tab,
+  Tabs,
+  Typography,
 } from '@mui/material';
 import {
-  Sync, Add, Edit, Delete, ExpandMore, ExpandLess,
-  CheckCircle, Warning, Info
+  Add,
+  CheckCircle,
+  Delete,
+  Edit,
+  Sync,
+  Warning,
 } from '@mui/icons-material';
 
 import { useDefaultsSync } from '../../hooks/useDefaultsSync';
 
-/**
- * Tab panel component
- */
+const EMPTY_SET = new Set();
+
+const toKey = (section, parameter) => `${section}.${parameter}`;
+
 const TabPanel = ({ children, value, index }) => (
   <Box role="tabpanel" hidden={value !== index} sx={{ pt: 2 }}>
     {value === index && children}
@@ -41,150 +49,189 @@ TabPanel.propTypes = {
   index: PropTypes.number.isRequired,
 };
 
-/**
- * SyncWithDefaultsDialog - Dialog for syncing with new defaults
- *
- * @param {Object} props
- * @param {boolean} props.open - Whether the dialog is open
- * @param {Function} props.onClose - Callback when dialog closes
- * @param {Function} props.onMessage - Callback for toast messages
- */
-const SyncWithDefaultsDialog = ({
-  open,
-  onClose,
-  onMessage,
-}) => {
+const groupBySection = (items) => {
+  const grouped = {};
+  items.forEach((item) => {
+    const section = item.section || 'Uncategorized';
+    if (!grouped[section]) {
+      grouped[section] = [];
+    }
+    grouped[section].push(item);
+  });
+  return grouped;
+};
+
+const formatValue = (value) => {
+  if (value === null || value === undefined) return 'null';
+  if (typeof value === 'object') return JSON.stringify(value);
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  return String(value);
+};
+
+const SyncWithDefaultsDialog = ({ open, onClose, onMessage }) => {
   const {
     newParameters,
     changedDefaults,
     removedParameters,
     counts,
+    meta,
     loading,
     error,
+    planning,
+    applying,
     refresh,
-    acceptParameter,
-    acceptAllNew,
+    buildOperationsFromSelections,
+    previewOperations,
+    applyOperations,
   } = useDefaultsSync();
 
   const [tabIndex, setTabIndex] = useState(0);
-  const [selectedNew, setSelectedNew] = useState(new Set());
-  const [applying, setApplying] = useState(false);
-  const [expandedSections, setExpandedSections] = useState({});
+  const [selectedNew, setSelectedNew] = useState(EMPTY_SET);
+  const [selectedChanged, setSelectedChanged] = useState(EMPTY_SET);
+  const [selectedRemoved, setSelectedRemoved] = useState(EMPTY_SET);
+  const [planResult, setPlanResult] = useState(null);
 
-  // Group new parameters by section
-  const groupedNewParams = useMemo(() => {
-    const grouped = {};
-    newParameters.forEach(param => {
-      if (!grouped[param.section]) {
-        grouped[param.section] = [];
-      }
-      grouped[param.section].push(param);
+  const groupedNew = useMemo(() => groupBySection(newParameters), [newParameters]);
+  const groupedChanged = useMemo(() => groupBySection(changedDefaults), [changedDefaults]);
+  const groupedRemoved = useMemo(() => groupBySection(removedParameters), [removedParameters]);
+
+  useEffect(() => {
+    if (!open) return;
+    setSelectedNew(new Set(newParameters.map((item) => toKey(item.section, item.parameter))));
+    setSelectedChanged(new Set());
+    setSelectedRemoved(new Set(removedParameters.map((item) => toKey(item.section, item.parameter))));
+    setPlanResult(null);
+  }, [open, newParameters, removedParameters]);
+
+  const totalSelected = selectedNew.size + selectedChanged.size + selectedRemoved.size;
+
+  const setFromItems = (items) => new Set(items.map((item) => toKey(item.section, item.parameter)));
+
+  const toggle = (setter, section, parameter) => {
+    const key = toKey(section, parameter);
+    setter((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
     });
-    return grouped;
-  }, [newParameters]);
-
-  // Toggle section expansion
-  const toggleSection = (section) => {
-    setExpandedSections(prev => ({
-      ...prev,
-      [section]: !prev[section]
-    }));
+    setPlanResult(null);
   };
 
-  // Toggle selection of a parameter
-  const toggleSelection = (section, parameter) => {
-    const key = `${section}.${parameter}`;
-    setSelectedNew(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(key)) {
-        newSet.delete(key);
-      } else {
-        newSet.add(key);
-      }
-      return newSet;
-    });
+  const getSelectedOperations = () => buildOperationsFromSelections({
+    selectedNew: Array.from(selectedNew),
+    selectedChanged: Array.from(selectedChanged),
+    selectedRemoved: Array.from(selectedRemoved),
+  });
+
+  const handlePreview = async () => {
+    const operations = getSelectedOperations();
+    if (operations.length === 0) {
+      onMessage?.('Select at least one item before previewing', 'warning');
+      return;
+    }
+    const result = await previewOperations(operations);
+    if (!result.success) {
+      onMessage?.(`Preview failed: ${result.error}`, 'error');
+    }
+    setPlanResult(result);
   };
 
-  // Select all new parameters
-  const selectAllNew = () => {
-    const allKeys = newParameters.map(p => `${p.section}.${p.parameter}`);
-    setSelectedNew(new Set(allKeys));
-  };
-
-  // Deselect all
-  const selectNone = () => {
-    setSelectedNew(new Set());
-  };
-
-  // Apply selected new parameters
-  const applySelected = async () => {
-    if (selectedNew.size === 0) {
-      onMessage?.('No parameters selected', 'warning');
+  const handleApply = async () => {
+    const operations = getSelectedOperations();
+    if (operations.length === 0) {
+      onMessage?.('Select at least one item to apply', 'warning');
       return;
     }
 
-    setApplying(true);
-    let successCount = 0;
-    let failCount = 0;
-
-    for (const key of selectedNew) {
-      const [section, parameter] = key.split('.');
-      const param = newParameters.find(
-        p => p.section === section && p.parameter === parameter
-      );
-
-      if (param) {
-        const result = await acceptParameter(section, parameter, param.default_value);
-        if (result.success) {
-          successCount++;
-        } else {
-          failCount++;
-        }
-      }
+    const result = await applyOperations(operations);
+    if (!result.success) {
+      onMessage?.(`Apply failed: ${result.error}`, 'error');
+      return;
     }
 
-    setApplying(false);
-    setSelectedNew(new Set());
-
-    if (failCount === 0) {
-      onMessage?.(`${successCount} parameter(s) added successfully`, 'success');
-    } else {
-      onMessage?.(`${successCount} added, ${failCount} failed`, 'warning');
-    }
-
-    // Refresh the list
-    refresh();
+    const applied = result.result?.applied_count || 0;
+    const skipped = result.result?.skipped_count || 0;
+    onMessage?.(`Config sync applied (${applied} applied, ${skipped} skipped)`, 'success');
+    setPlanResult(null);
   };
 
-  // Apply all new parameters
-  const handleApplyAllNew = async () => {
-    setApplying(true);
-    const results = await acceptAllNew();
-    setApplying(false);
+  const renderList = (grouped, selectedSet, setter, variant) => (
+    <>
+      <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+        <Button size="small" onClick={() => { setter(setFromItems(Object.values(grouped).flat())); setPlanResult(null); }}>
+          Select All
+        </Button>
+        <Button size="small" onClick={() => { setter(new Set()); setPlanResult(null); }}>
+          Select None
+        </Button>
+        <Chip
+          size="small"
+          color={selectedSet.size > 0 ? 'primary' : 'default'}
+          label={`${selectedSet.size} selected`}
+        />
+      </Box>
 
-    const successCount = results.filter(r => r.success).length;
-    const failCount = results.filter(r => !r.success).length;
-
-    if (failCount === 0) {
-      onMessage?.(`${successCount} parameter(s) added successfully`, 'success');
-    } else {
-      onMessage?.(`${successCount} added, ${failCount} failed`, 'warning');
-    }
-  };
-
-  // Format value for display
-  const formatValue = (value) => {
-    if (value === null || value === undefined) return 'null';
-    if (typeof value === 'object') return JSON.stringify(value);
-    if (typeof value === 'boolean') return value ? 'true' : 'false';
-    return String(value);
-  };
+      <List dense>
+        {Object.entries(grouped).map(([section, items]) => (
+          <Box key={section} sx={{ mb: 1.5 }}>
+            <Typography variant="subtitle2" sx={{ mb: 0.5 }}>{section}</Typography>
+            {items.map((item) => {
+              const key = toKey(item.section, item.parameter);
+              const isSelected = selectedSet.has(key);
+              return (
+                <ListItem
+                  key={key}
+                  button
+                  onClick={() => toggle(setter, item.section, item.parameter)}
+                  sx={{ borderRadius: 1 }}
+                >
+                  <ListItemIcon>
+                    <Checkbox checked={isSelected} size="small" />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={
+                      <Typography variant="body2" fontFamily="monospace">
+                        {item.parameter}
+                      </Typography>
+                    }
+                    secondary={
+                      <Box>
+                        {item.description && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            {item.description}
+                          </Typography>
+                        )}
+                        {variant === 'new' && (
+                          <Chip size="small" variant="outlined" label={`Default: ${formatValue(item.default_value)}`} />
+                        )}
+                        {variant === 'changed' && (
+                          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                            <Chip size="small" variant="outlined" label={`Old: ${formatValue(item.old_default)}`} />
+                            <Chip size="small" variant="outlined" label={`New: ${formatValue(item.new_default)}`} />
+                            <Chip size="small" variant="outlined" label={`Current: ${formatValue(item.user_value)}`} />
+                          </Box>
+                        )}
+                        {variant === 'removed' && (
+                          <Chip size="small" variant="outlined" label={`Current: ${formatValue(item.current_value)}`} />
+                        )}
+                      </Box>
+                    }
+                  />
+                </ListItem>
+              );
+            })}
+          </Box>
+        ))}
+      </List>
+    </>
+  );
 
   if (loading && open) {
     return (
-      <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+      <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
         <DialogContent>
-          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', py: 4 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 5 }}>
             <CircularProgress />
           </Box>
         </DialogContent>
@@ -193,289 +240,143 @@ const SyncWithDefaultsDialog = ({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Sync color="info" />
-        Sync Configuration with Defaults
-        {counts.total > 0 && (
-          <Chip
-            label={`${counts.total} items`}
-            color="info"
-            size="small"
-            sx={{ ml: 1 }}
-          />
-        )}
+        Config Sync
+        {counts.total > 0 && <Chip label={`${counts.total} items`} color="info" size="small" />}
       </DialogTitle>
 
       <DialogContent dividers>
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            Error loading sync data: {error}
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+        <Alert severity="info" sx={{ mb: 2 }}>
+          Review changes, preview migration, then apply atomically. Your config values are never overwritten unless selected.
+        </Alert>
+
+        {meta.baselineInitialized && (
+          <Alert severity="success" sx={{ mb: 2 }}>
+            Defaults baseline initialized. Changed-default detection will be available for future upgrades.
           </Alert>
         )}
 
         {counts.total === 0 ? (
           <Box sx={{ textAlign: 'center', py: 4 }}>
-            <CheckCircle sx={{ fontSize: 64, color: 'success.main', mb: 2 }} />
-            <Typography variant="h6" color="text.secondary">
-              Configuration is in sync
-            </Typography>
-            <Typography variant="body2" color="text.disabled">
-              No new parameters or changes detected
-            </Typography>
+            <CheckCircle sx={{ fontSize: 64, color: 'success.main', mb: 1 }} />
+            <Typography variant="h6" color="text.secondary">Configuration is in sync</Typography>
           </Box>
         ) : (
           <>
-            {/* Tabs */}
-            <Tabs
-              value={tabIndex}
-              onChange={(e, newVal) => setTabIndex(newVal)}
-              variant="fullWidth"
-              sx={{ mb: 2 }}
-            >
+            <Tabs value={tabIndex} onChange={(e, v) => setTabIndex(v)} variant="fullWidth" sx={{ mb: 1 }}>
               <Tab
-                label={
-                  <Badge badgeContent={counts.new} color="success" max={99}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, pr: 1 }}>
-                      <Add fontSize="small" />
-                      New
-                    </Box>
-                  </Badge>
-                }
                 disabled={counts.new === 0}
+                label={<Badge badgeContent={counts.new} color="success"><Box sx={{ display: 'flex', gap: 0.5, pr: 1 }}><Add fontSize="small" />New</Box></Badge>}
               />
               <Tab
-                label={
-                  <Badge badgeContent={counts.changed} color="warning" max={99}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, pr: 1 }}>
-                      <Edit fontSize="small" />
-                      Changed
-                    </Box>
-                  </Badge>
-                }
-                disabled={counts.changed === 0}
+                disabled={counts.changed === 0 && meta.baselineAvailable}
+                label={<Badge badgeContent={counts.changed} color="warning"><Box sx={{ display: 'flex', gap: 0.5, pr: 1 }}><Edit fontSize="small" />Changed</Box></Badge>}
               />
               <Tab
-                label={
-                  <Badge badgeContent={counts.removed} color="error" max={99}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, pr: 1 }}>
-                      <Delete fontSize="small" />
-                      Obsolete
-                    </Box>
-                  </Badge>
-                }
                 disabled={counts.removed === 0}
+                label={<Badge badgeContent={counts.removed} color="error"><Box sx={{ display: 'flex', gap: 0.5, pr: 1 }}><Delete fontSize="small" />Obsolete</Box></Badge>}
               />
             </Tabs>
 
-            {/* New Parameters Tab */}
             <TabPanel value={tabIndex} index={0}>
               {counts.new === 0 ? (
-                <Typography color="text.secondary">No new parameters</Typography>
-              ) : (
-                <>
-                  <Alert severity="info" sx={{ mb: 2 }}>
-                    {counts.new} new parameter{counts.new > 1 ? 's' : ''} available.
-                    Select which ones to add to your configuration.
-                  </Alert>
-
-                  <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                    <Button size="small" onClick={selectAllNew}>Select All</Button>
-                    <Button size="small" onClick={selectNone}>Select None</Button>
-                    <Chip
-                      label={`${selectedNew.size} selected`}
-                      size="small"
-                      color={selectedNew.size > 0 ? 'primary' : 'default'}
-                    />
-                  </Box>
-
-                  <List dense>
-                    {Object.entries(groupedNewParams).map(([section, params]) => {
-                      const isExpanded = expandedSections[section] !== false;
-                      const sectionSelected = params.every(
-                        p => selectedNew.has(`${p.section}.${p.parameter}`)
-                      );
-
-                      return (
-                        <React.Fragment key={section}>
-                          <ListItem
-                            button
-                            onClick={() => toggleSection(section)}
-                            sx={{ bgcolor: 'action.hover', borderRadius: 1, mb: 0.5 }}
-                          >
-                            <ListItemIcon>
-                              <Checkbox
-                                checked={sectionSelected}
-                                indeterminate={
-                                  !sectionSelected && params.some(
-                                    p => selectedNew.has(`${p.section}.${p.parameter}`)
-                                  )
-                                }
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (sectionSelected) {
-                                    // Deselect all in section
-                                    setSelectedNew(prev => {
-                                      const newSet = new Set(prev);
-                                      params.forEach(p => newSet.delete(`${p.section}.${p.parameter}`));
-                                      return newSet;
-                                    });
-                                  } else {
-                                    // Select all in section
-                                    setSelectedNew(prev => {
-                                      const newSet = new Set(prev);
-                                      params.forEach(p => newSet.add(`${p.section}.${p.parameter}`));
-                                      return newSet;
-                                    });
-                                  }
-                                }}
-                                size="small"
-                              />
-                            </ListItemIcon>
-                            <ListItemText
-                              primary={section}
-                              secondary={`${params.length} new parameter${params.length > 1 ? 's' : ''}`}
-                            />
-                            {isExpanded ? <ExpandLess /> : <ExpandMore />}
-                          </ListItem>
-
-                          <Collapse in={isExpanded}>
-                            <List dense sx={{ pl: 4 }}>
-                              {params.map(param => (
-                                <ListItem
-                                  key={`${param.section}.${param.parameter}`}
-                                  button
-                                  onClick={() => toggleSelection(param.section, param.parameter)}
-                                >
-                                  <ListItemIcon>
-                                    <Checkbox
-                                      checked={selectedNew.has(`${param.section}.${param.parameter}`)}
-                                      size="small"
-                                    />
-                                  </ListItemIcon>
-                                  <ListItemText
-                                    primary={
-                                      <Typography variant="body2" fontFamily="monospace">
-                                        {param.parameter}
-                                      </Typography>
-                                    }
-                                    secondary={
-                                      <Box>
-                                        <Typography variant="caption" color="text.secondary">
-                                          {param.description}
-                                        </Typography>
-                                        <Box sx={{ mt: 0.5 }}>
-                                          <Chip
-                                            label={`Default: ${formatValue(param.default_value)}`}
-                                            size="small"
-                                            variant="outlined"
-                                          />
-                                          <Chip
-                                            label={param.type}
-                                            size="small"
-                                            variant="outlined"
-                                            sx={{ ml: 0.5 }}
-                                          />
-                                        </Box>
-                                      </Box>
-                                    }
-                                  />
-                                </ListItem>
-                              ))}
-                            </List>
-                          </Collapse>
-                        </React.Fragment>
-                      );
-                    })}
-                  </List>
-                </>
-              )}
+                <Typography color="text.secondary">No new parameters detected.</Typography>
+              ) : renderList(groupedNew, selectedNew, setSelectedNew, 'new')}
             </TabPanel>
 
-            {/* Changed Defaults Tab */}
             <TabPanel value={tabIndex} index={1}>
-              {counts.changed === 0 ? (
-                <Typography color="text.secondary">No changed defaults</Typography>
-              ) : (
-                <Alert severity="warning">
-                  Changed defaults feature coming in a future update.
+              {!meta.baselineAvailable ? (
+                <Alert severity="info">
+                  Changed-default tracking needs one baseline snapshot. It has been initialized now and will start reporting on future default updates.
                 </Alert>
+              ) : counts.changed === 0 ? (
+                <Typography color="text.secondary">No default changes detected since baseline.</Typography>
+              ) : (
+                renderList(groupedChanged, selectedChanged, setSelectedChanged, 'changed')
               )}
             </TabPanel>
 
-            {/* Obsolete Parameters Tab */}
             <TabPanel value={tabIndex} index={2}>
               {counts.removed === 0 ? (
-                <Typography color="text.secondary">No obsolete parameters</Typography>
+                <Typography color="text.secondary">No obsolete parameters detected.</Typography>
               ) : (
                 <>
                   <Alert severity="warning" sx={{ mb: 2 }}>
-                    {counts.removed} parameter{counts.removed > 1 ? 's' : ''} in your config
-                    {counts.removed > 1 ? ' are' : ' is'} no longer in the schema.
+                    Selected obsolete keys will be archived under `_ARCHIVED_OBSOLETE` and removed from active config.
                   </Alert>
-                  <List dense>
-                    {removedParameters.map(param => (
-                      <ListItem key={`${param.section}.${param.parameter}`}>
-                        <ListItemIcon>
-                          <Warning color="warning" />
-                        </ListItemIcon>
-                        <ListItemText
-                          primary={
-                            <Typography variant="body2" fontFamily="monospace">
-                              {param.section}.{param.parameter}
-                            </Typography>
-                          }
-                          secondary={`Current value: ${formatValue(param.current_value)}`}
-                        />
-                      </ListItem>
-                    ))}
-                  </List>
+                  {renderList(groupedRemoved, selectedRemoved, setSelectedRemoved, 'removed')}
                 </>
               )}
             </TabPanel>
+
+            <Divider sx={{ my: 2 }} />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+              <Chip label={`${totalSelected} selected`} color={totalSelected > 0 ? 'primary' : 'default'} />
+              <Chip label={`Schema ${meta.schemaVersion}`} size="small" variant="outlined" />
+              {meta.baselineSavedAt && (
+                <Chip label={`Baseline: ${new Date(meta.baselineSavedAt).toLocaleString()}`} size="small" variant="outlined" />
+              )}
+            </Box>
+
+            {planResult?.success && planResult.plan && (
+              <Alert severity={planResult.plan.valid ? 'success' : 'error'} sx={{ mt: 1 }}>
+                <Typography variant="body2">
+                  Preview: {planResult.plan.summary.applicable} applicable, {planResult.plan.summary.skipped} skipped.
+                </Typography>
+                {planResult.plan.warnings?.length > 0 && (
+                  <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                    Warnings: {planResult.plan.warnings.length}
+                  </Typography>
+                )}
+                {planResult.plan.errors?.length > 0 && (
+                  <Typography variant="caption" display="block" sx={{ mt: 0.5 }}>
+                    Errors: {planResult.plan.errors.map((e) => e.error).join(' | ')}
+                  </Typography>
+                )}
+              </Alert>
+            )}
+
+            {planResult && !planResult.success && (
+              <Alert severity="error" sx={{ mt: 1 }}>
+                {planResult.error || 'Could not generate migration preview.'}
+              </Alert>
+            )}
           </>
         )}
       </DialogContent>
 
       <DialogActions>
-        <Button onClick={refresh} disabled={loading}>
-          Refresh
-        </Button>
+        <Button onClick={refresh} disabled={loading || planning || applying}>Refresh</Button>
         <Box sx={{ flexGrow: 1 }} />
-        <Button onClick={onClose}>
-          Close
+        <Button onClick={onClose}>Close</Button>
+        <Button
+          variant="outlined"
+          onClick={handlePreview}
+          disabled={planning || applying || totalSelected === 0}
+          startIcon={planning ? <CircularProgress size={16} /> : <Sync />}
+        >
+          Preview
         </Button>
-        {tabIndex === 0 && counts.new > 0 && (
-          <>
-            <Button
-              variant="outlined"
-              onClick={applySelected}
-              disabled={applying || selectedNew.size === 0}
-              startIcon={applying ? <CircularProgress size={16} /> : <Add />}
-            >
-              Add Selected ({selectedNew.size})
-            </Button>
-            <Button
-              variant="contained"
-              onClick={handleApplyAllNew}
-              disabled={applying}
-              startIcon={applying ? <CircularProgress size={16} /> : <Add />}
-            >
-              Add All New
-            </Button>
-          </>
-        )}
+        <Button
+          variant="contained"
+          onClick={handleApply}
+          disabled={applying || planning || totalSelected === 0}
+          startIcon={applying ? <CircularProgress size={16} /> : <Warning />}
+        >
+          Apply Selected
+        </Button>
       </DialogActions>
     </Dialog>
   );
 };
 
 SyncWithDefaultsDialog.propTypes = {
-  /** Whether the dialog is open */
   open: PropTypes.bool.isRequired,
-  /** Callback when dialog closes */
   onClose: PropTypes.func.isRequired,
-  /** Callback for toast messages */
   onMessage: PropTypes.func,
 };
 

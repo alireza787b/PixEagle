@@ -35,6 +35,7 @@ except ImportError:
 from contextlib import asynccontextmanager
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 # Models
 class BoundingBox(BaseModel):
@@ -63,6 +64,19 @@ class ConfigImportRequest(BaseModel):
     """Request model for importing configuration."""
     data: Dict[str, Any]  # Accept any nested structure
     merge_mode: str = "merge"  # "merge" or "replace"
+
+
+class ConfigSyncOperation(BaseModel):
+    """Single operation for config defaults sync migration."""
+    op_type: str  # ADD_NEW | ADOPT_DEFAULT | ARCHIVE_REMOVE
+    section: str
+    parameter: str
+    value: Optional[Any] = None
+
+
+class ConfigSyncPlanRequest(BaseModel):
+    """Batch operations for sync preview/apply."""
+    operations: List[ConfigSyncOperation]
 
 
 @dataclass
@@ -388,6 +402,8 @@ class FastAPIHandler:
         self.app.post("/api/config/diff")(self.compare_configs)
         # Defaults sync (v5.4.0+)
         self.app.get("/api/config/defaults-sync")(self.get_defaults_sync)
+        self.app.post("/api/config/defaults-sync/plan")(self.plan_defaults_sync)
+        self.app.post("/api/config/defaults-sync/apply")(self.apply_defaults_sync)
         # Revert operations
         self.app.post("/api/config/revert")(self.revert_config_to_default)
         self.app.post("/api/config/revert/{section}")(self.revert_section_to_default)
@@ -4036,6 +4052,185 @@ class FastAPIHandler:
             self.logger.error(f"Error comparing configs: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+    def _build_defaults_sync_report(self, service: ConfigService) -> Dict[str, Any]:
+        """Build defaults-sync report with new, changed, and obsolete parameters."""
+        schema = service.get_schema()
+        current_config = service.get_config()
+        default_config = service.get_default()
+        sync_meta = service.get_sync_meta()
+        defaults_snapshot = sync_meta.get('defaults_snapshot', {})
+        baseline_available = isinstance(defaults_snapshot, dict) and bool(defaults_snapshot)
+
+        new_parameters = []
+        changed_defaults = []
+        removed_parameters = []
+
+        sections = schema.get('sections', {})
+        for section_name, section_schema in sections.items():
+            parameters = section_schema.get('parameters', {})
+            current_section = current_config.get(section_name, {})
+            default_section = default_config.get(section_name, {})
+            snapshot_section = defaults_snapshot.get(section_name, {}) if baseline_available else {}
+
+            if not isinstance(current_section, dict):
+                current_section = {}
+            if not isinstance(default_section, dict):
+                default_section = {}
+            if not isinstance(snapshot_section, dict):
+                snapshot_section = {}
+
+            for param_name, param_schema in parameters.items():
+                schema_default = param_schema.get('default')
+                new_default = default_section.get(param_name, schema_default)
+                has_current = param_name in current_section
+
+                if not has_current and param_name in default_section:
+                    new_parameters.append({
+                        'section': section_name,
+                        'parameter': param_name,
+                        'default_value': new_default,
+                        'description': param_schema.get('description', ''),
+                        'type': param_schema.get('type', 'string'),
+                    })
+                    continue
+
+                if baseline_available and has_current and param_name in snapshot_section:
+                    old_default = snapshot_section.get(param_name)
+                    if old_default != new_default:
+                        user_value = current_section.get(param_name)
+                        changed_defaults.append({
+                            'section': section_name,
+                            'parameter': param_name,
+                            'old_default': old_default,
+                            'new_default': new_default,
+                            'user_value': user_value,
+                            'description': param_schema.get('description', ''),
+                            'type': param_schema.get('type', 'string'),
+                            'matches_new_default': user_value == new_default,
+                            'impact_level': 'warning',
+                        })
+
+            for param_name, current_value in current_section.items():
+                if param_name not in parameters:
+                    removed_parameters.append({
+                        'section': section_name,
+                        'parameter': param_name,
+                        'current_value': current_value,
+                    })
+
+        # Include unknown sections from current config (except archive section).
+        for section_name, current_section in current_config.items():
+            if section_name in sections or section_name == service.SYNC_ARCHIVE_SECTION:
+                continue
+            if not isinstance(current_section, dict):
+                continue
+            for param_name, current_value in current_section.items():
+                removed_parameters.append({
+                    'section': section_name,
+                    'parameter': param_name,
+                    'current_value': current_value,
+                })
+
+        return {
+            'new_parameters': new_parameters,
+            'changed_defaults': changed_defaults,
+            'removed_parameters': removed_parameters,
+            'counts': {
+                'new': len(new_parameters),
+                'changed': len(changed_defaults),
+                'removed': len(removed_parameters),
+                'total': len(new_parameters) + len(changed_defaults) + len(removed_parameters),
+            },
+            'baseline_available': baseline_available,
+            'baseline_saved_at': sync_meta.get('defaults_snapshot_saved_at'),
+            'schema_version': service.get_schema_version(),
+        }
+
+    def _build_defaults_sync_plan(
+        self,
+        service: ConfigService,
+        operations: List[ConfigSyncOperation]
+    ) -> Dict[str, Any]:
+        """Validate and normalize defaults-sync operations."""
+        schema_sections = service.get_schema().get('sections', {})
+        current_config = service.get_config()
+        default_config = service.get_default()
+
+        valid_types = {'ADD_NEW', 'ADOPT_DEFAULT', 'ARCHIVE_REMOVE'}
+        plan_operations: List[Dict[str, Any]] = []
+        errors: List[Dict[str, Any]] = []
+        warnings: List[Dict[str, Any]] = []
+
+        for idx, op in enumerate(operations):
+            op_type = str(op.op_type or '').upper().strip()
+            section = op.section
+            parameter = op.parameter
+
+            if op_type not in valid_types:
+                errors.append({'index': idx, 'error': f"Unsupported op_type '{op.op_type}'"})
+                continue
+
+            section_schema = schema_sections.get(section, {})
+            section_params = section_schema.get('parameters', {}) if isinstance(section_schema, dict) else {}
+            has_schema_param = parameter in section_params
+
+            current_section = current_config.get(section, {})
+            if not isinstance(current_section, dict):
+                current_section = {}
+
+            default_section = default_config.get(section, {})
+            if not isinstance(default_section, dict):
+                default_section = {}
+
+            current_value = current_section.get(parameter)
+            default_value = default_section.get(parameter)
+
+            normalized = {
+                'op_type': op_type,
+                'section': section,
+                'parameter': parameter,
+                'current_value': current_value,
+                'target_value': op.value,
+                'skip': False,
+            }
+
+            if op_type in {'ADD_NEW', 'ADOPT_DEFAULT'} and not has_schema_param:
+                errors.append({'index': idx, 'error': f"{section}.{parameter} is not in schema"})
+                continue
+
+            if op_type == 'ADD_NEW':
+                if parameter in current_section:
+                    normalized['skip'] = True
+                    warnings.append({'index': idx, 'warning': f"{section}.{parameter} already exists; skipping ADD_NEW"})
+                else:
+                    normalized['target_value'] = default_value if op.value is None else op.value
+
+            elif op_type == 'ADOPT_DEFAULT':
+                if parameter not in default_section:
+                    errors.append({'index': idx, 'error': f"No default value found for {section}.{parameter}"})
+                    continue
+                normalized['target_value'] = default_value
+
+            elif op_type == 'ARCHIVE_REMOVE':
+                if parameter not in current_section:
+                    normalized['skip'] = True
+                    warnings.append({'index': idx, 'warning': f"{section}.{parameter} missing in current config; skipping ARCHIVE_REMOVE"})
+
+            plan_operations.append(normalized)
+
+        changed_count = sum(1 for op in plan_operations if not op['skip'])
+        return {
+            'valid': len(errors) == 0,
+            'errors': errors,
+            'warnings': warnings,
+            'operations': plan_operations,
+            'summary': {
+                'requested': len(operations),
+                'applicable': changed_count,
+                'skipped': len(plan_operations) - changed_count,
+            }
+        }
+
     async def get_defaults_sync(self):
         """Get sync information between current config and defaults (v5.4.0+).
 
@@ -4046,60 +4241,120 @@ class FastAPIHandler:
         """
         try:
             service = self._get_config_service()
-            schema = service.get_schema()
-            current_config = service.get_config()
-            default_config = service.get_default_config()
+            report = self._build_defaults_sync_report(service)
+            # Initialize snapshot for future changed-default tracking.
+            if not report['baseline_available']:
+                service.refresh_defaults_snapshot()
+                report['baseline_initialized'] = True
+            else:
+                report['baseline_initialized'] = False
 
-            new_parameters = []
-            changed_defaults = []
-            removed_parameters = []
+            report.update({'success': True, 'timestamp': time.time()})
+            return JSONResponse(content=report)
+        except Exception as e:
+            self.logger.error(f"Error getting defaults sync: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
-            # Get all sections from schema
-            sections = schema.get('sections', {})
-
-            for section_name, section_schema in sections.items():
-                parameters = section_schema.get('parameters', {})
-                current_section = current_config.get(section_name, {})
-                default_section = default_config.get(section_name, {})
-
-                for param_name, param_schema in parameters.items():
-                    default_value = param_schema.get('default')
-                    current_value = current_section.get(param_name)
-
-                    # New parameter: in schema/defaults but not in user config
-                    if param_name not in current_section and param_name in default_section:
-                        new_parameters.append({
-                            'section': section_name,
-                            'parameter': param_name,
-                            'default_value': default_value,
-                            'description': param_schema.get('description', ''),
-                            'type': param_schema.get('type', 'string'),
-                        })
-
-                # Check for removed parameters (in current but not in schema)
-                for param_name in current_section:
-                    if param_name not in parameters:
-                        removed_parameters.append({
-                            'section': section_name,
-                            'parameter': param_name,
-                            'current_value': current_section[param_name],
-                        })
-
+    async def plan_defaults_sync(self, body: ConfigSyncPlanRequest):
+        """Validate selected sync operations and return a dry-run plan."""
+        try:
+            service = self._get_config_service()
+            plan = self._build_defaults_sync_plan(service, body.operations)
             return JSONResponse(content={
                 'success': True,
-                'new_parameters': new_parameters,
-                'changed_defaults': changed_defaults,
-                'removed_parameters': removed_parameters,
-                'counts': {
-                    'new': len(new_parameters),
-                    'changed': len(changed_defaults),
-                    'removed': len(removed_parameters),
-                    'total': len(new_parameters) + len(changed_defaults) + len(removed_parameters),
-                },
+                'plan': plan,
                 'timestamp': time.time()
             })
         except Exception as e:
-            self.logger.error(f"Error getting defaults sync: {e}")
+            self.logger.error(f"Error planning defaults sync: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def apply_defaults_sync(self, body: ConfigSyncPlanRequest):
+        """Apply validated defaults-sync operations atomically."""
+        allowed, retry_after = self.config_rate_limiter.is_allowed('config_write')
+        if not allowed:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    'success': False,
+                    'error': 'Too many requests',
+                    'retry_after': retry_after,
+                    'timestamp': time.time()
+                },
+                headers={'Retry-After': str(retry_after)}
+            )
+
+        service = self._get_config_service()
+        plan = self._build_defaults_sync_plan(service, body.operations)
+        if not plan['valid']:
+            return JSONResponse(
+                status_code=400,
+                content={'success': False, 'plan': plan, 'timestamp': time.time()}
+            )
+
+        backup_path = None
+        applied_ops: List[Dict[str, Any]] = []
+        skipped_ops: List[Dict[str, Any]] = []
+
+        try:
+            backup_path = service._create_backup()
+
+            for op in plan['operations']:
+                if op['skip']:
+                    skipped_ops.append(op)
+                    continue
+
+                op_type = op['op_type']
+                section = op['section']
+                parameter = op['parameter']
+
+                if op_type in {'ADD_NEW', 'ADOPT_DEFAULT'}:
+                    result = service.set_parameter(section, parameter, op['target_value'], validate=True)
+                    if not result.valid:
+                        raise ValueError(f"Validation failed for {section}.{parameter}: {result.errors}")
+                    op['reload_tier'] = service.get_reload_tier(section, parameter)
+                    applied_ops.append(op)
+                elif op_type == 'ARCHIVE_REMOVE':
+                    archived = service.archive_and_remove_parameter(section, parameter)
+                    if not archived:
+                        raise ValueError(f"Failed to archive/remove {section}.{parameter}")
+                    op['reload_tier'] = 'immediate'
+                    applied_ops.append(op)
+
+            saved = service.save_config(backup=False)
+            if not saved:
+                raise RuntimeError("Failed to save config after applying sync plan")
+
+            try:
+                Parameters.reload_config()
+            except Exception as reload_error:
+                self.logger.warning(f"Config sync applied but reload failed: {reload_error}")
+
+            service.refresh_defaults_snapshot()
+
+            backup_id = None
+            if backup_path:
+                try:
+                    backup_id = Path(backup_path).stem
+                except Exception:
+                    backup_id = None
+
+            return JSONResponse(content={
+                'success': True,
+                'applied_count': len(applied_ops),
+                'skipped_count': len(skipped_ops),
+                'applied_operations': applied_ops,
+                'skipped_operations': skipped_ops,
+                'backup_id': backup_id,
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            # Roll back in-memory state if apply fails before successful save.
+            try:
+                service.reload()
+            except Exception:
+                pass
+            self.logger.error(f"Error applying defaults sync: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     async def revert_config_to_default(self):

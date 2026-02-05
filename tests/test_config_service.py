@@ -440,5 +440,49 @@ class TestReloadTier:
         assert found_reload_tier, "No reload_tier found in any schema parameter"
 
 
+class TestConfigSyncUtilities:
+    """Tests for config sync helper utilities."""
+
+    @pytest.fixture
+    def service(self):
+        return ConfigService.get_instance()
+
+    def test_get_default_config_alias(self, service):
+        """get_default_config should mirror get_default."""
+        assert service.get_default_config() == service.get_default()
+
+    def test_remove_parameter(self, service):
+        """remove_parameter should delete a key from current config."""
+        section = 'VideoSource'
+        param = '_TEST_REMOVE_PARAMETER'
+        service.set_parameter(section, param, 123, validate=False)
+        assert service.get_parameter(section, param) == 123
+        assert service.remove_parameter(section, param) is True
+        assert service.get_parameter(section, param) is None
+
+    def test_archive_and_remove_parameter(self, service):
+        """archive_and_remove_parameter should move key to archive and remove active key."""
+        section = 'VideoSource'
+        param = '_TEST_ARCHIVE_PARAMETER'
+        service.set_parameter(section, param, 'value', validate=False)
+        assert service.archive_and_remove_parameter(section, param) is True
+        assert service.get_parameter(section, param) is None
+        archived = service.get_parameter(service.SYNC_ARCHIVE_SECTION, f'{section}.{param}')
+        assert isinstance(archived, dict)
+        assert archived.get('value') == 'value'
+
+    def test_refresh_defaults_snapshot(self, service, tmp_path):
+        """refresh_defaults_snapshot should persist defaults snapshot metadata."""
+        original_root = service._project_root
+        try:
+            service._project_root = tmp_path
+            assert service.refresh_defaults_snapshot() is True
+            meta = service.get_sync_meta()
+            assert 'defaults_snapshot' in meta
+            assert 'schema_version' in meta
+        finally:
+            service._project_root = original_root
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
