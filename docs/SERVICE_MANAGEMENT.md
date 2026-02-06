@@ -74,22 +74,36 @@ The systemd unit is generated at:
 
 ## Optional SSH Login Hint
 
-Enable compact status/help on interactive SSH login:
+Two scopes are supported:
+
+- `--user` (default): only current/default service user
+- `--system`: all users on the board (recommended for shared embedded devices)
+
+Enable for all users:
 
 ```bash
-pixeagle-service login-hint enable
+sudo pixeagle-service login-hint enable --system
 ```
 
-Disable:
+Open a new SSH session after changing hint scope to verify output.
+
+Disable for all users:
 
 ```bash
-pixeagle-service login-hint disable
+sudo pixeagle-service login-hint disable --system
 ```
 
-Check status:
+Enable only for current/default user:
 
 ```bash
-pixeagle-service login-hint status
+pixeagle-service login-hint enable --user
+```
+
+Check status by scope:
+
+```bash
+pixeagle-service login-hint status --user
+pixeagle-service login-hint status --system
 ```
 
 ## Recovery Patterns
@@ -124,4 +138,3 @@ Remove wrapper and systemd unit:
 ```bash
 sudo bash scripts/service/install.sh uninstall
 ```
-

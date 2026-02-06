@@ -1222,15 +1222,15 @@ configure_service_autostart() {
         log_detail "Enable later with: sudo pixeagle-service enable"
     fi
 
-    if ask_yes_no "        Show PixEagle status hints on SSH login? [Y/n]: " "y"; then
-        if pixeagle-service login-hint enable; then
-            log_success "SSH login hint enabled"
+    if ask_yes_no "        Show PixEagle status hints on SSH login for all users? [Y/n]: " "y"; then
+        if sudo pixeagle-service login-hint enable --system; then
+            log_success "SSH login hint enabled (system-wide)"
         else
             log_warn "Could not enable SSH login hint"
         fi
     else
         log_info "SSH login hint disabled"
-        log_detail "Enable later with: pixeagle-service login-hint enable"
+        log_detail "Enable later with: sudo pixeagle-service login-hint enable --system"
     fi
 }
 

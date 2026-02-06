@@ -271,6 +271,10 @@ pixeagle-service logs -f
 # Optional SSH login hint (interactive SSH sessions only)
 pixeagle-service login-hint enable
 pixeagle-service login-hint disable
+
+# System-wide SSH login hint (all users on the board)
+sudo pixeagle-service login-hint enable --system
+sudo pixeagle-service login-hint disable --system
 ```
 
 Tmux session name is standardized to: `pixeagle`.

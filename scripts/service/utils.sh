@@ -30,6 +30,7 @@ NC='\033[0m'
 
 LOGIN_HINT_BLOCK_BEGIN="# >>> pixeagle login hint >>>"
 LOGIN_HINT_BLOCK_END="# <<< pixeagle login hint <<<"
+SYSTEM_LOGIN_HINT_FILE="/etc/profile.d/pixeagle-login-hint.sh"
 
 print_status() {
     local status="$1"
@@ -396,7 +397,16 @@ get_service_status() {
     echo "  sudo pixeagle-service disable"
 }
 
-create_login_hint_script() {
+require_root_for_system_scope() {
+    if [ "$EUID" -ne 0 ]; then
+        print_status "error" "System-wide login hint management requires root"
+        print_status "note" "Re-run with sudo"
+        return 1
+    fi
+    return 0
+}
+
+create_user_login_hint_script() {
     cat > "$LOGIN_HINT_SCRIPT" <<'EOF'
 #!/bin/bash
 # Managed by pixeagle-service login-hint
@@ -428,6 +438,34 @@ printf '[PixEagle] Boot: sudo pixeagle-service enable | sudo pixeagle-service di
 EOF
 }
 
+create_system_login_hint_script() {
+    cat > "$SYSTEM_LOGIN_HINT_FILE" <<'EOF'
+#!/bin/bash
+# Managed by pixeagle-service login-hint --system
+
+case "$-" in
+    *i*) ;;
+    *) return 0 ;;
+esac
+
+[ -n "${SSH_CONNECTION:-}" ] || return 0
+[ -t 1 ] || return 0
+[ -n "${PIXEAGLE_LOGIN_HINT_SHOWN:-}" ] && return 0
+export PIXEAGLE_LOGIN_HINT_SHOWN=1
+
+if ! command -v systemctl >/dev/null 2>&1; then
+    return 0
+fi
+
+service_state="$(systemctl is-active pixeagle.service 2>/dev/null || echo "inactive")"
+enabled_state="$(systemctl is-enabled pixeagle.service 2>/dev/null || echo "disabled")"
+
+printf '\n[PixEagle] service=%s enabled=%s\n' "$service_state" "$enabled_state"
+printf '[PixEagle] Commands: pixeagle-service status | pixeagle-service attach | pixeagle-service logs -f\n'
+printf '[PixEagle] Boot: sudo pixeagle-service enable | sudo pixeagle-service disable\n\n'
+EOF
+}
+
 remove_login_hint_block() {
     local bashrc_file="$1"
     [ -f "$bashrc_file" ] || return 0
@@ -445,13 +483,13 @@ remove_login_hint_block() {
     rm -f "$tmp_file"
 }
 
-login_hint_enable() {
+login_hint_enable_user() {
     if ! detect_service_user; then
         return 1
     fi
 
     mkdir -p "$LOGIN_HINT_DIR"
-    create_login_hint_script
+    create_user_login_hint_script
     chmod 0644 "$LOGIN_HINT_SCRIPT"
 
     [ -f "$BASHRC_PATH" ] || touch "$BASHRC_PATH"
@@ -469,10 +507,10 @@ EOF
         chown "$SERVICE_USER:$SERVICE_USER" "$LOGIN_HINT_SCRIPT" "$BASHRC_PATH" >/dev/null 2>&1 || true
     fi
 
-    print_status "success" "SSH login hint enabled for user '$SERVICE_USER'"
+    print_status "success" "SSH login hint enabled for user '$SERVICE_USER' (per-user scope)"
 }
 
-login_hint_disable() {
+login_hint_disable_user() {
     if ! detect_service_user; then
         return 1
     fi
@@ -487,10 +525,10 @@ login_hint_disable() {
         chown "$SERVICE_USER:$SERVICE_USER" "$BASHRC_PATH" >/dev/null 2>&1 || true
     fi
 
-    print_status "success" "SSH login hint disabled for user '$SERVICE_USER'"
+    print_status "success" "SSH login hint disabled for user '$SERVICE_USER' (per-user scope)"
 }
 
-login_hint_status() {
+login_hint_status_user() {
     if ! detect_service_user; then
         return 1
     fi
@@ -503,8 +541,8 @@ login_hint_status() {
         block_present="yes"
     fi
 
-    echo "Login Hint Status"
-    echo "================="
+    echo "Login Hint Status (per-user)"
+    echo "============================"
     echo "  User: $SERVICE_USER"
     echo "  Script: $LOGIN_HINT_SCRIPT ($script_present)"
     echo "  Bashrc block: $block_present"
@@ -514,4 +552,86 @@ login_hint_status() {
     else
         print_status "warning" "Login hint is disabled"
     fi
+}
+
+login_hint_enable_system() {
+    require_root_for_system_scope || return 1
+
+    create_system_login_hint_script
+    chmod 0644 "$SYSTEM_LOGIN_HINT_FILE"
+    print_status "success" "SSH login hint enabled for all users (system scope)"
+}
+
+login_hint_disable_system() {
+    require_root_for_system_scope || return 1
+
+    if [ -f "$SYSTEM_LOGIN_HINT_FILE" ]; then
+        rm -f "$SYSTEM_LOGIN_HINT_FILE"
+        print_status "success" "SSH login hint disabled for all users (system scope)"
+    else
+        print_status "warning" "System login hint file not found: $SYSTEM_LOGIN_HINT_FILE"
+    fi
+}
+
+login_hint_status_system() {
+    local system_present="no"
+    [ -f "$SYSTEM_LOGIN_HINT_FILE" ] && system_present="yes"
+
+    echo "Login Hint Status (system)"
+    echo "=========================="
+    echo "  File: $SYSTEM_LOGIN_HINT_FILE ($system_present)"
+
+    if [ "$system_present" = "yes" ]; then
+        print_status "success" "System-wide login hint is enabled"
+    else
+        print_status "warning" "System-wide login hint is disabled"
+    fi
+}
+
+login_hint_enable() {
+    local scope="${1:-user}"
+    case "$scope" in
+        user)
+            login_hint_enable_user
+            ;;
+        system)
+            login_hint_enable_system
+            ;;
+        *)
+            print_status "error" "Unknown login-hint scope: $scope"
+            return 1
+            ;;
+    esac
+}
+
+login_hint_disable() {
+    local scope="${1:-user}"
+    case "$scope" in
+        user)
+            login_hint_disable_user
+            ;;
+        system)
+            login_hint_disable_system
+            ;;
+        *)
+            print_status "error" "Unknown login-hint scope: $scope"
+            return 1
+            ;;
+    esac
+}
+
+login_hint_status() {
+    local scope="${1:-user}"
+    case "$scope" in
+        user)
+            login_hint_status_user
+            ;;
+        system)
+            login_hint_status_system
+            ;;
+        *)
+            print_status "error" "Unknown login-hint scope: $scope"
+            return 1
+            ;;
+    esac
 }

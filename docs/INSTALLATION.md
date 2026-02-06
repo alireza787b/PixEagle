@@ -271,6 +271,9 @@ pixeagle-service logs -f
 
 # Optional SSH login summary
 pixeagle-service login-hint enable
+
+# System-wide SSH login summary (all users)
+sudo pixeagle-service login-hint enable --system
 ```
 
 tmux session name: `pixeagle`

@@ -139,6 +139,7 @@ show_completion() {
     print_status "success" "PixEagle service command installed successfully"
     print_status "info" "Use: pixeagle-service help"
     print_status "info" "Enable auto-start: sudo pixeagle-service enable"
+    print_status "info" "Enable SSH hint for all users: sudo pixeagle-service login-hint enable --system"
     print_status "info" "Status: pixeagle-service status"
     echo
 }

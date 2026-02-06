@@ -53,6 +53,7 @@ Commands:
   logs [-f] [-n LINES]  View service logs (journald)
   attach                Attach to tmux session
   login-hint <action>   Manage SSH login hint (enable|disable|status)
+                         Options: --system (all users), --user (current/default user)
   help                  Show this message
 
 Examples:
@@ -61,6 +62,7 @@ Examples:
   pixeagle-service logs -f
   sudo pixeagle-service enable
   pixeagle-service login-hint enable
+  sudo pixeagle-service login-hint enable --system
 EOF
 }
 
@@ -166,20 +168,41 @@ logs_command() {
 
 login_hint_command() {
     local action="${1:-status}"
+    local scope="user"
+    if [ $# -gt 0 ]; then
+        shift
+    fi
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --system)
+                scope="system"
+                ;;
+            --user)
+                scope="user"
+                ;;
+            *)
+                print_status "error" "Unknown login-hint option: $1"
+                print_status "note" "Use: pixeagle-service login-hint <enable|disable|status> [--system|--user]"
+                return 1
+                ;;
+        esac
+        shift
+    done
 
     case "$action" in
         enable)
-            login_hint_enable
+            login_hint_enable "$scope"
             ;;
         disable)
-            login_hint_disable
+            login_hint_disable "$scope"
             ;;
         status)
-            login_hint_status
+            login_hint_status "$scope"
             ;;
         *)
             print_status "error" "Unknown login-hint action: $action"
-            print_status "note" "Use: pixeagle-service login-hint enable|disable|status"
+            print_status "note" "Use: pixeagle-service login-hint <enable|disable|status> [--system|--user]"
             return 1
             ;;
     esac
