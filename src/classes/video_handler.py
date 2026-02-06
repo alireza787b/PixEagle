@@ -21,6 +21,7 @@ import cv2
 import time
 import logging
 import platform
+import re
 from collections import deque
 from typing import Optional, Dict, Any, Tuple
 from classes.parameters import Parameters
@@ -67,6 +68,11 @@ class VideoHandler:
         self.height: Optional[int] = None
         self.fps: Optional[float] = None
         self.delay_frame: int = 33  # Default 30 FPS
+        self._requested_fps: float = float(getattr(Parameters, "CAPTURE_FPS", 0) or 0)
+        self._effective_fps: Optional[float] = None
+        self._capture_mode: str = "uninitialized"
+        self._last_pipeline_strategy: str = "uninitialized"
+        self._last_capture_error: Optional[str] = None
         
         # Current frame states
         self.current_raw_frame = None
@@ -102,7 +108,11 @@ class VideoHandler:
             self.width = Parameters.CAPTURE_WIDTH
             self.height = Parameters.CAPTURE_HEIGHT
             self.fps = Parameters.CAPTURE_FPS or Parameters.DEFAULT_FPS
+            self._effective_fps = self.fps
             self.delay_frame = max(int(1000 / max(self.fps, 1)), 1)
+            self._capture_mode = "degraded"
+            self._last_pipeline_strategy = "degraded_startup"
+            self._last_capture_error = str(e)
             logger.error(
                 "Failed to initialize video handler: %s. Starting in degraded mode without active video source.",
                 e
@@ -124,16 +134,33 @@ class VideoHandler:
         """
         for attempt in range(max_retries):
             logger.debug(f"Attempt {attempt + 1}/{max_retries} to open video source")
+            self._requested_fps = float(getattr(Parameters, "CAPTURE_FPS", 0) or 0)
             
             try:
                 self.cap = self._create_capture_object()
                 
                 if self.cap and self.cap.isOpened():
+                    probe_ok, probe_frame = self._probe_initial_frame(self.cap)
+                    if not probe_ok:
+                        self._last_capture_error = "Capture opened but initial frame probe returned no frames"
+                        logger.warning(
+                            "Video source opened but failed initial frame probe on attempt %d",
+                            attempt + 1
+                        )
+                        self.cap.release()
+                        self.cap = None
+                        continue
+
                     # Extract video properties
                     capture_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                     capture_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    if probe_frame is not None and hasattr(probe_frame, "shape") and len(probe_frame.shape) >= 2:
+                        capture_height = int(probe_frame.shape[0])
+                        capture_width = int(probe_frame.shape[1])
                     self.width, self.height = self._get_oriented_dimensions(capture_width, capture_height)
-                    self.fps = self.cap.get(cv2.CAP_PROP_FPS) or Parameters.DEFAULT_FPS
+                    detected_fps = self.cap.get(cv2.CAP_PROP_FPS)
+                    self.fps = detected_fps if detected_fps and detected_fps > 0 else Parameters.DEFAULT_FPS
+                    self._effective_fps = self.fps
                     
                     # Validate dimensions for coordinate mapping consistency
                     if self.width <= 0 or self.height <= 0:
@@ -163,17 +190,32 @@ class VideoHandler:
                             self.width = expected_width
                             self.height = expected_height
                     
-                    delay_frame = max(int(1000 / self.fps), 1)
+                    delay_frame = max(int(1000 / max(self.fps, 1)), 1)
+                    if self._capture_mode == "uninitialized":
+                        backend_label = "gstreamer" if Parameters.USE_GSTREAMER else "opencv"
+                        self._capture_mode = f"{Parameters.VIDEO_SOURCE_TYPE.lower()}_{backend_label}"
+                    if self._last_pipeline_strategy == "uninitialized":
+                        self._last_pipeline_strategy = self._capture_mode
+                    self._last_capture_error = None
                     
                     logger.info(f"Video source opened successfully: {Parameters.VIDEO_SOURCE_TYPE}")
-                    logger.debug(f"Properties - Width: {self.width}, Height: {self.height}, FPS: {self.fps}")
+                    logger.debug(
+                        "Properties - Width: %s, Height: %s, Requested FPS: %s, Effective FPS: %s, Mode: %s",
+                        self.width,
+                        self.height,
+                        self._requested_fps,
+                        self._effective_fps,
+                        self._capture_mode
+                    )
                     
                     return delay_frame
                 else:
                     logger.warning(f"Failed to open video source on attempt {attempt + 1}")
+                    self._last_capture_error = f"Failed to open video source on attempt {attempt + 1}"
                     
             except Exception as e:
                 logger.error(f"Exception during video source initialization: {e}")
+                self._last_capture_error = str(e)
             
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
@@ -192,6 +234,8 @@ class VideoHandler:
         """
         source_type = Parameters.VIDEO_SOURCE_TYPE
         use_gstreamer = Parameters.USE_GSTREAMER
+        self._capture_mode = "uninitialized"
+        self._last_pipeline_strategy = "uninitialized"
         
         logger.debug(f"Creating capture for {source_type}, GStreamer: {use_gstreamer}")
         
@@ -199,6 +243,7 @@ class VideoHandler:
         handlers = {
             "VIDEO_FILE": self._create_video_file_capture,
             "USB_CAMERA": self._create_usb_camera_capture,
+            "RTSP_OPENCV": self._create_rtsp_opencv_capture,
             "RTSP_STREAM": self._create_rtsp_capture,
             "UDP_STREAM": self._create_udp_capture,
             "HTTP_STREAM": self._create_http_capture,
@@ -215,34 +260,90 @@ class VideoHandler:
         """Create capture for video file."""
         if use_gstreamer:
             pipeline = self._build_gstreamer_file_pipeline()
+            self._capture_mode = "video_file_gstreamer"
+            self._last_pipeline_strategy = "video_file_gstreamer_primary"
             return cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
         else:
+            self._capture_mode = "video_file_opencv"
+            self._last_pipeline_strategy = "video_file_opencv_primary"
             return cv2.VideoCapture(Parameters.VIDEO_FILE_PATH)
     
     def _create_usb_camera_capture(self, use_gstreamer: bool) -> cv2.VideoCapture:
         """Create optimized capture for USB camera."""
         if use_gstreamer:
-            pipeline = self._build_gstreamer_usb_pipeline()
-            logger.debug(f"USB GStreamer pipeline: {pipeline}")
-            return cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+            return self._create_usb_camera_capture_with_fallbacks()
         else:
-            # Use appropriate backend based on platform
-            if self.platform == "Linux" and Parameters.USE_V4L2_BACKEND:
-                cap = cv2.VideoCapture(Parameters.CAMERA_INDEX, cv2.CAP_V4L2)
-            elif self.platform == "Windows":
-                cap = cv2.VideoCapture(Parameters.CAMERA_INDEX, cv2.CAP_DSHOW)
-            else:
-                cap = cv2.VideoCapture(Parameters.CAMERA_INDEX)
-            
-            # Apply OpenCV optimizations
-            self._optimize_opencv_capture(cap)
-            return cap
+            return self._open_usb_camera_opencv_capture(strategy_name="usb_opencv_primary")
+
+    def _create_usb_camera_capture_with_fallbacks(self) -> cv2.VideoCapture:
+        """Create USB capture with progressive fallback strategies."""
+        requested_format = str(getattr(Parameters, "PIXEL_FORMAT", "YUYV") or "YUYV").upper()
+        if requested_format == "MJPEG":
+            requested_format = "MJPG"
+
+        alternate_format = "MJPG" if requested_format != "MJPG" else "YUYV"
+        strategies = [
+            (f"usb_gstreamer_{requested_format.lower()}_strict", requested_format, True),
+            (f"usb_gstreamer_{requested_format.lower()}_relaxed_fps", requested_format, False),
+            (f"usb_gstreamer_{alternate_format.lower()}_strict", alternate_format, True),
+            (f"usb_gstreamer_{alternate_format.lower()}_relaxed_fps", alternate_format, False),
+        ]
+
+        for strategy_name, pixel_format, strict_fps in strategies:
+            pipeline = self._build_gstreamer_usb_pipeline(
+                pixel_format_override=pixel_format,
+                strict_fps=strict_fps
+            )
+            logger.info("Trying USB camera strategy: %s", strategy_name)
+            logger.debug("USB GStreamer pipeline (%s): %s", strategy_name, pipeline)
+            cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+            if cap.isOpened():
+                self._capture_mode = strategy_name
+                self._last_pipeline_strategy = strategy_name
+                self._last_capture_error = None
+                if not strict_fps:
+                    logger.warning(
+                        "USB camera requested FPS %s could not be strictly enforced; using relaxed negotiation",
+                        Parameters.CAPTURE_FPS
+                    )
+                return cap
+            cap.release()
+            self._last_capture_error = f"USB strategy failed: {strategy_name}"
+            logger.warning("USB capture strategy failed: %s", strategy_name)
+
+        logger.warning("All USB GStreamer strategies failed, falling back to OpenCV backend")
+        self._last_capture_error = "All USB GStreamer strategies failed"
+        return self._open_usb_camera_opencv_capture(strategy_name="usb_opencv_fallback")
+
+    def _open_usb_camera_opencv_capture(self, strategy_name: str) -> cv2.VideoCapture:
+        """Create USB capture via OpenCV backend."""
+        if self.platform == "Linux" and Parameters.USE_V4L2_BACKEND:
+            cap = cv2.VideoCapture(Parameters.CAMERA_INDEX, cv2.CAP_V4L2)
+        elif self.platform == "Windows":
+            cap = cv2.VideoCapture(Parameters.CAMERA_INDEX, cv2.CAP_DSHOW)
+        else:
+            cap = cv2.VideoCapture(Parameters.CAMERA_INDEX)
+
+        self._optimize_opencv_capture(cap)
+        self._capture_mode = strategy_name
+        self._last_pipeline_strategy = strategy_name
+        return cap
+
+    def _create_rtsp_opencv_capture(self, use_gstreamer: bool) -> cv2.VideoCapture:
+        """Create RTSP capture with forced OpenCV backend."""
+        if use_gstreamer:
+            logger.info("VIDEO_SOURCE_TYPE=RTSP_OPENCV forces OpenCV backend; ignoring USE_GSTREAMER=true")
+        self._capture_mode = "rtsp_opencv"
+        self._last_pipeline_strategy = "rtsp_opencv_forced"
+        return self._create_opencv_rtsp_optimized()
     
     def _create_rtsp_capture(self, use_gstreamer: bool) -> cv2.VideoCapture:
         """Create optimized capture for RTSP stream with auto-detection and fallback."""
         if use_gstreamer:
+            self._capture_mode = "rtsp_gstreamer"
             return self._create_gstreamer_rtsp_with_fallback()
         else:
+            self._capture_mode = "rtsp_opencv_auto"
             return self._create_opencv_rtsp_optimized()
     
     def _create_gstreamer_rtsp_with_fallback(self) -> cv2.VideoCapture:
@@ -250,14 +351,17 @@ class VideoHandler:
         # Try primary optimized pipeline first
         pipeline = self._build_gstreamer_rtsp_pipeline()
         logger.info("Attempting primary RTSP GStreamer pipeline...")
+        self._last_pipeline_strategy = "rtsp_gstreamer_primary"
         
         cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
         if cap.isOpened():
+            self._capture_mode = "rtsp_gstreamer_primary"
             logging_manager.log_connection_status(logger, "Video", True, "Primary GStreamer RTSP pipeline")
             self._log_rtsp_stream_info(cap)
             return cap
         
         cap.release()
+        self._last_capture_error = "RTSP primary GStreamer pipeline failed"
         logger.warning("Primary pipeline failed, trying fallback pipelines...")
         
         # Try fallback pipelines
@@ -266,18 +370,22 @@ class VideoHandler:
         for i, fallback_pipeline in enumerate(fallback_pipelines, 1):
             logger.info(f"Trying fallback pipeline {i}/{len(fallback_pipelines)}...")
             logger.debug(f"Fallback pipeline: {fallback_pipeline}")
+            self._last_pipeline_strategy = f"rtsp_gstreamer_fallback_{i}"
             
             cap = cv2.VideoCapture(fallback_pipeline, cv2.CAP_GSTREAMER)
             if cap.isOpened():
+                self._capture_mode = f"rtsp_gstreamer_fallback_{i}"
                 logging_manager.log_connection_status(logger, "Video", True, f"Fallback pipeline {i}")
                 self._log_rtsp_stream_info(cap)
                 return cap
             
             cap.release()
             logger.warning(f"Fallback pipeline {i} failed")
+            self._last_capture_error = f"RTSP fallback pipeline {i} failed"
         
         # If all GStreamer pipelines fail, try OpenCV as last resort
         logger.warning("All GStreamer pipelines failed, falling back to OpenCV...")
+        self._last_capture_error = "All GStreamer RTSP pipelines failed"
         return self._create_opencv_rtsp_optimized()
     
     def _create_opencv_rtsp_optimized(self) -> cv2.VideoCapture:
@@ -286,20 +394,26 @@ class VideoHandler:
         logger.info("Attempting OpenCV RTSP capture...")
         
         # Try FFMPEG backend first (usually best for RTSP)
+        self._last_pipeline_strategy = "rtsp_opencv_ffmpeg"
         cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
         
         if not cap.isOpened():
             logger.warning("FFMPEG backend failed, trying default backend...")
+            self._last_capture_error = "OpenCV RTSP FFMPEG backend failed"
+            self._last_pipeline_strategy = "rtsp_opencv_default"
             cap = cv2.VideoCapture(rtsp_url)
         
         if cap.isOpened():
             # Real-time optimizations
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)        # Minimum buffering
-            cap.set(cv2.CAP_PROP_FPS, 30)              # Request 30 FPS
+            cap.set(cv2.CAP_PROP_FPS, max(int(Parameters.CAPTURE_FPS or Parameters.DEFAULT_FPS or 1), 1))
+            self._capture_mode = self._last_pipeline_strategy
+            self._last_capture_error = None
             
             logging_manager.log_connection_status(logger, "Video", True, "OpenCV RTSP")
             self._log_rtsp_stream_info(cap)
         else:
+            self._last_capture_error = "All OpenCV RTSP backends failed"
             logging_manager.log_connection_status(logger, "Video", False, "All RTSP methods failed")
         
         return cap
@@ -308,22 +422,32 @@ class VideoHandler:
         """Create capture for UDP stream."""
         if use_gstreamer:
             pipeline = self._build_gstreamer_udp_pipeline()
+            self._capture_mode = "udp_gstreamer"
+            self._last_pipeline_strategy = "udp_gstreamer_primary"
             return cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
         else:
+            self._capture_mode = "udp_opencv_ffmpeg"
+            self._last_pipeline_strategy = "udp_opencv_ffmpeg_primary"
             return cv2.VideoCapture(Parameters.UDP_URL, cv2.CAP_FFMPEG)
     
     def _create_http_capture(self, use_gstreamer: bool) -> cv2.VideoCapture:
         """Create capture for HTTP stream."""
         if use_gstreamer:
             pipeline = self._build_gstreamer_http_pipeline()
+            self._capture_mode = "http_gstreamer"
+            self._last_pipeline_strategy = "http_gstreamer_primary"
             return cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
         else:
+            self._capture_mode = "http_opencv"
+            self._last_pipeline_strategy = "http_opencv_primary"
             return cv2.VideoCapture(Parameters.HTTP_URL)
     
     def _create_csi_capture(self, use_gstreamer: bool) -> cv2.VideoCapture:
         """Create capture for CSI camera (always uses GStreamer)."""
         pipeline = self._build_gstreamer_csi_pipeline()
         logger.debug(f"CSI GStreamer pipeline: {pipeline}")
+        self._capture_mode = "csi_gstreamer"
+        self._last_pipeline_strategy = "csi_gstreamer_primary"
         return cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
     
     def _create_custom_gstreamer_capture(self, use_gstreamer: bool) -> cv2.VideoCapture:
@@ -332,6 +456,8 @@ class VideoHandler:
         if not pipeline:
             raise ValueError("CUSTOM_PIPELINE is empty")
         logger.debug(f"Custom GStreamer pipeline: {pipeline}")
+        self._capture_mode = "custom_gstreamer"
+        self._last_pipeline_strategy = "custom_gstreamer_primary"
         return cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
     
     def _build_gstreamer_file_pipeline(self) -> str:
@@ -343,25 +469,54 @@ class VideoHandler:
             f"height={Parameters.CAPTURE_HEIGHT} ! appsink drop=true sync=false"
         )
     
-    def _build_gstreamer_usb_pipeline(self) -> str:
+    def _build_gstreamer_usb_pipeline(
+        self,
+        pixel_format_override: Optional[str] = None,
+        strict_fps: bool = True
+    ) -> str:
         """Build optimized GStreamer pipeline for USB camera."""
         # Get pipeline template based on pixel format
-        pixel_format = Parameters.PIXEL_FORMAT
-        
+        pixel_format = str(pixel_format_override or Parameters.PIXEL_FORMAT or "YUYV").upper()
+        if pixel_format == "MJPEG":
+            pixel_format = "MJPG"
+
         if pixel_format == "MJPG":
             template = Parameters.USB_MJPEG
         else:
             template = Parameters.USB_YUYV
-        
+
+        capture_fps = max(int(getattr(Parameters, "CAPTURE_FPS", 0) or Parameters.DEFAULT_FPS or 1), 1)
+        device_path = str(getattr(Parameters, "DEVICE_PATH", "") or "").strip()
+        default_device_path = f"/dev/video{Parameters.CAMERA_INDEX}"
+        effective_device_path = device_path or default_device_path
+
         # Format pipeline with parameters
         pipeline = template.format(
             device_id=Parameters.CAMERA_INDEX,
+            device_path=effective_device_path,
             width=Parameters.CAPTURE_WIDTH,
             height=Parameters.CAPTURE_HEIGHT,
-            fps=Parameters.CAPTURE_FPS
+            fps=capture_fps
         )
-        
+
+        # Backward compatibility for templates that still hardcode /dev/video{device_id}
+        if device_path and "{device_path}" not in template:
+            pipeline = pipeline.replace(
+                f"device={default_device_path}",
+                f"device={effective_device_path}",
+                1
+            )
+
+        if not strict_fps:
+            pipeline = self._relax_gstreamer_framerate_constraint(pipeline)
+
         return pipeline
+
+    def _relax_gstreamer_framerate_constraint(self, pipeline: str) -> str:
+        """Remove strict framerate caps to allow camera auto-negotiation."""
+        relaxed = re.sub(r",\s*framerate=\d+\s*/\s*\d+", "", pipeline)
+        relaxed = re.sub(r"\s+framerate=\d+\s*/\s*\d+", " ", relaxed)
+        return re.sub(r"\s+", " ", relaxed).strip()
     
     def _build_gstreamer_rtsp_pipeline(self) -> str:
         """
@@ -540,6 +695,29 @@ class VideoHandler:
             return height, width
         return width, height
 
+    def _probe_initial_frame(
+        self,
+        cap: cv2.VideoCapture,
+        attempts: int = 3,
+        delay_seconds: float = 0.05
+    ) -> Tuple[bool, Optional[Any]]:
+        """
+        Validate that an opened capture can actually deliver frames.
+
+        Some backends report isOpened()=True even when caps negotiation later fails.
+        """
+        for probe_idx in range(1, attempts + 1):
+            try:
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    return True, frame
+            except Exception as e:
+                logger.debug("Initial frame probe exception (%d/%d): %s", probe_idx, attempts, e)
+                self._last_capture_error = f"Initial frame probe exception: {e}"
+            if probe_idx < attempts and delay_seconds > 0:
+                time.sleep(delay_seconds)
+        return False, None
+
     def _apply_frame_orientation(self, frame: Any) -> Any:
         """Apply configured rotation/flip and keep dimensions in sync."""
         if frame is None:
@@ -576,7 +754,7 @@ class VideoHandler:
             # Set resolution
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, Parameters.CAPTURE_WIDTH)
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, Parameters.CAPTURE_HEIGHT)
-            cap.set(cv2.CAP_PROP_FPS, Parameters.CAPTURE_FPS)
+            cap.set(cv2.CAP_PROP_FPS, max(int(Parameters.CAPTURE_FPS or Parameters.DEFAULT_FPS or 1), 1))
             
             # Reduce buffer size for lower latency
             cap.set(cv2.CAP_PROP_BUFFERSIZE, Parameters.OPENCV_BUFFER_SIZE)
@@ -711,6 +889,7 @@ class VideoHandler:
         # Log failure details
         if self._consecutive_failures == 1:
             logger.warning(f"Frame read failure detected (attempt {self._consecutive_failures})")
+            self._last_capture_error = "Frame read returned no data"
         elif self._consecutive_failures % 5 == 0:
             logger.warning(f"Consecutive frame failures: {self._consecutive_failures}")
         
@@ -792,9 +971,11 @@ class VideoHandler:
                     return frame
             
             logger.warning(f"Recovery attempt {self._recovery_attempts} failed")
+            self._last_capture_error = f"Recovery attempt {self._recovery_attempts} failed"
             
         except Exception as e:
             logger.error(f"Exception during recovery: {e}")
+            self._last_capture_error = f"Recovery exception: {e}"
         
         # Recovery failed, return cached frame
         self._is_recovering = False
@@ -949,7 +1130,12 @@ class VideoHandler:
             "width": self.width,
             "height": self.height,
             "fps": self.fps,
+            "requested_fps": self._requested_fps,
+            "effective_fps": self._effective_fps if self._effective_fps is not None else self.fps,
             "backend": "GStreamer" if Parameters.USE_GSTREAMER else "OpenCV",
+            "capture_mode": self._capture_mode,
+            "last_pipeline_strategy": self._last_pipeline_strategy,
+            "last_capture_error": self._last_capture_error,
             "frame_count": int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT)),
             "position": int(self.cap.get(cv2.CAP_PROP_POS_FRAMES)),
             "codec": self.cap.get(cv2.CAP_PROP_FOURCC)
@@ -1051,7 +1237,12 @@ class VideoHandler:
             "video_source_type": Parameters.VIDEO_SOURCE_TYPE,
             "use_gstreamer": Parameters.USE_GSTREAMER,
             "init_failed": self._init_failed,
-            "next_recovery_in_seconds": max(0.0, self._next_recovery_time - current_time)
+            "next_recovery_in_seconds": max(0.0, self._next_recovery_time - current_time),
+            "requested_fps": self._requested_fps,
+            "effective_fps": self._effective_fps if self._effective_fps is not None else self.fps,
+            "capture_mode": self._capture_mode,
+            "last_pipeline_strategy": self._last_pipeline_strategy,
+            "last_capture_error": self._last_capture_error
         }
         
         return health_info

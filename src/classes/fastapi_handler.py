@@ -3874,6 +3874,14 @@ class FastAPIHandler:
             # Get reload tier and message
             reload_tier = service.get_reload_tier(section, parameter)
             reload_message = service.get_reload_message(reload_tier)
+            effective_applied = applied and reload_tier == 'immediate'
+            if applied and not effective_applied:
+                self.logger.info(
+                    "Config reload succeeded for %s.%s, but reload_tier=%s requires restart; reporting applied=false",
+                    section,
+                    parameter,
+                    reload_tier
+                )
 
             return JSONResponse(content={
                 'success': True,
@@ -3882,7 +3890,7 @@ class FastAPIHandler:
                 'value': body.value,
                 'validation': result.to_dict(),
                 'saved': saved,
-                'applied': applied,
+                'applied': effective_applied,
                 'reload_tier': reload_tier,
                 'reload_message': reload_message,
                 'reboot_required': service.is_reboot_required(section, parameter),  # Backward compat
@@ -3953,6 +3961,13 @@ class FastAPIHandler:
                 # Empty parameters dict - shouldn't happen, but handle gracefully
                 max_tier = 'immediate'
             reload_message = service.get_reload_message(max_tier)
+            effective_applied = applied and max_tier == 'immediate'
+            if applied and not effective_applied:
+                self.logger.info(
+                    "Config reload succeeded for section %s, but highest reload_tier=%s requires restart; reporting applied=false",
+                    section,
+                    max_tier
+                )
 
             # Backward compat: reboot_required if any param needs system restart
             reboot_required = any(
@@ -3966,7 +3981,7 @@ class FastAPIHandler:
                 'parameters': body.parameters,
                 'validation': result.to_dict(),
                 'saved': saved,
-                'applied': applied,
+                'applied': effective_applied,
                 'reload_tiers': reload_tiers,
                 'reload_tier': max_tier,
                 'reload_message': reload_message,

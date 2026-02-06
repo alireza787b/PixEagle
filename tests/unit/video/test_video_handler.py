@@ -36,9 +36,30 @@ def mock_parameters():
         mock_params.USE_GSTREAMER = False
         mock_params.STORE_LAST_FRAMES = 5
         mock_params.OPENCV_BUFFER_SIZE = 1
+        mock_params.USB_YUYV = (
+            "v4l2src device=/dev/video{device_id} ! "
+            "video/x-raw,format=YUY2,width={width},height={height},framerate={fps}/1 ! "
+            "videoconvert ! video/x-raw,format=BGR ! appsink drop=true max-buffers=1 sync=false"
+        )
+        mock_params.USB_MJPEG = (
+            "v4l2src device=/dev/video{device_id} ! "
+            "image/jpeg,width={width},height={height},framerate={fps}/1 ! "
+            "jpegdec ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true max-buffers=1 sync=false"
+        )
+        mock_params.PIXEL_FORMAT = "YUYV"
+        mock_params.CAMERA_INDEX = 0
+        mock_params.DEVICE_PATH = "/dev/video0"
         mock_params.FRAME_ROTATION_DEG = 0
         mock_params.FRAME_FLIP_MODE = "none"
         mock_params.SENSOR_ID = 0
+        mock_params.RTSP_URL = "rtsp://127.0.0.1:8554/test"
+        mock_params.RTSP_PROTOCOL = "tcp"
+        mock_params.RTSP_LATENCY = 200
+        mock_params.UDP_URL = "udp://127.0.0.1:5600"
+        mock_params.HTTP_URL = "http://127.0.0.1:8080/video"
+        mock_params.CUSTOM_PIPELINE = "videotestsrc ! videoconvert ! appsink"
+        mock_params.USE_V4L2_BACKEND = False
+        mock_params.OPENCV_FOURCC = ""
         mock_params.RTSP_MAX_CONSECUTIVE_FAILURES = 10
         mock_params.RTSP_CONNECTION_TIMEOUT = 5.0
         mock_params.RTSP_MAX_RECOVERY_ATTEMPTS = 3
@@ -482,6 +503,90 @@ class TestConnectionHealth:
         assert info['height'] == 480
         assert info['fps'] == 30.0
         assert 'source_type' in info
+
+
+@pytest.mark.unit
+class TestUSBFallbackAndDiagnostics:
+    """Tests for USB fallback strategy and diagnostics fields."""
+
+    def test_relaxed_usb_pipeline_removes_framerate_caps(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+        pipeline = handler._build_gstreamer_usb_pipeline(pixel_format_override="YUYV", strict_fps=False)
+        assert "framerate=" not in pipeline
+
+    def test_usb_pipeline_honors_device_path_override(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+        mock_parameters.DEVICE_PATH = "/dev/video2"
+        pipeline = handler._build_gstreamer_usb_pipeline()
+        assert "device=/dev/video2" in pipeline
+
+    def test_usb_gstreamer_fallback_uses_relaxed_mode_on_second_try(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+
+        cap_fail = MagicMock()
+        cap_fail.isOpened.return_value = False
+        cap_ok = MagicMock()
+        cap_ok.isOpened.return_value = True
+
+        with patch('classes.video_handler.cv2.VideoCapture', side_effect=[cap_fail, cap_ok]) as mock_capture:
+            cap = handler._create_usb_camera_capture_with_fallbacks()
+
+        assert cap is cap_ok
+        assert handler._capture_mode.endswith("relaxed_fps")
+        first_pipeline = mock_capture.call_args_list[0][0][0]
+        second_pipeline = mock_capture.call_args_list[1][0][0]
+        assert "framerate=" in first_pipeline
+        assert "framerate=" not in second_pipeline
+
+    def test_rtsp_opencv_source_type_is_supported(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+
+        fake_cap = MagicMock()
+        with patch.object(handler, '_create_rtsp_opencv_capture', return_value=fake_cap) as rtsp_opencv_method:
+            mock_parameters.VIDEO_SOURCE_TYPE = "RTSP_OPENCV"
+            mock_parameters.USE_GSTREAMER = False
+            result = handler._create_capture_object()
+
+        assert result is fake_cap
+        rtsp_opencv_method.assert_called_once_with(False)
+
+    def test_init_video_source_rejects_open_capture_without_frames(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+
+        bad_cap = MagicMock()
+        bad_cap.isOpened.return_value = True
+        bad_cap.read.return_value = (False, None)
+        bad_cap.get.return_value = 0.0
+
+        with patch.object(handler, '_create_capture_object', return_value=bad_cap):
+            with pytest.raises(ValueError):
+                handler.init_video_source(max_retries=1, retry_delay=0)
+
+        bad_cap.release.assert_called()
+
+    def test_connection_health_includes_capture_diagnostics(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+        handler.cap = MagicMock()
+        handler.cap.isOpened.return_value = True
+        handler._requested_fps = 20
+        handler._effective_fps = 30
+        handler._capture_mode = "usb_gstreamer_yuyv_relaxed_fps"
+        handler._last_pipeline_strategy = "usb_gstreamer_yuyv_relaxed_fps"
+        handler._last_capture_error = "strict caps not supported"
+
+        health = handler.get_connection_health()
+
+        assert health["requested_fps"] == 20
+        assert health["effective_fps"] == 30
+        assert health["capture_mode"] == "usb_gstreamer_yuyv_relaxed_fps"
+        assert health["last_pipeline_strategy"] == "usb_gstreamer_yuyv_relaxed_fps"
+        assert health["last_capture_error"] == "strict caps not supported"
 
 
 @pytest.mark.unit

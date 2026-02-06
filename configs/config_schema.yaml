@@ -89,7 +89,7 @@ sections:
         type: integer
         default: 30
         description: Target FPS (actual may vary by source)
-        min: 0
+        min: 1
         max: 100
         unit: actual may vary by source
         reload_tier: system_restart
