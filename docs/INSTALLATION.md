@@ -250,14 +250,32 @@ Binaries are downloaded to the `bin/` directory.
 
 ## Service Management
 
-Auto-start on boot (Raspberry Pi/Linux):
+Production startup on Linux/systemd (Raspberry Pi/Jetson):
 
 ```bash
+# Install command wrapper
 sudo bash scripts/service/install.sh
-pixeagle-service start|stop|status|restart
-sudo pixeagle-service enable|disable
+
+# Manage runtime
+pixeagle-service start
+pixeagle-service stop
+pixeagle-service status
+pixeagle-service attach
+
+# Manage boot auto-start
+sudo pixeagle-service enable
+sudo pixeagle-service disable
+
+# Inspect logs
 pixeagle-service logs -f
+
+# Optional SSH login summary
+pixeagle-service login-hint enable
 ```
+
+tmux session name: `pixeagle`
+
+See [Service Management Runbook](SERVICE_MANAGEMENT.md) for full operational guidance.
 
 ## Next Steps
 

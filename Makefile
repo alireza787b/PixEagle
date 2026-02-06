@@ -16,7 +16,9 @@
 #   scripts\run.bat
 # ============================================================================
 
-.PHONY: help init run dev stop clean status logs download-binaries
+.PHONY: help init run dev stop clean status logs download-binaries \
+        service-install service-uninstall service-enable service-disable \
+        service-status service-logs service-attach
 
 # Default target
 .DEFAULT_GOAL := help
@@ -42,6 +44,15 @@ help:
 	@echo "    make status            Show service status"
 	@echo "    make logs              Show service logs"
 	@echo "    make attach            Attach to tmux session"
+	@echo ""
+	@echo "  Service Management (Linux/systemd):"
+	@echo "    make service-install   Install pixeagle-service command"
+	@echo "    make service-enable    Enable boot auto-start"
+	@echo "    make service-disable   Disable boot auto-start"
+	@echo "    make service-status    Show detailed service status"
+	@echo "    make service-logs      Follow service logs"
+	@echo "    make service-attach    Attach to service tmux session"
+	@echo "    make service-uninstall Remove pixeagle-service + systemd unit"
 	@echo ""
 	@echo "  Maintenance:"
 	@echo "    make clean             Clean build artifacts and caches"
@@ -98,6 +109,30 @@ logs:
 
 attach:
 	@tmux has-session -t pixeagle 2>/dev/null && tmux attach -t pixeagle || echo "No active session. Start with: make run"
+
+# ============================================================================
+# Service Management (Linux/systemd)
+# ============================================================================
+service-install:
+	@sudo bash scripts/service/install.sh
+
+service-uninstall:
+	@sudo bash scripts/service/install.sh uninstall
+
+service-enable:
+	@sudo pixeagle-service enable
+
+service-disable:
+	@sudo pixeagle-service disable
+
+service-status:
+	@pixeagle-service status
+
+service-logs:
+	@pixeagle-service logs -f
+
+service-attach:
+	@pixeagle-service attach
 
 # ============================================================================
 # Maintenance

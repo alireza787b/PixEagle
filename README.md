@@ -249,16 +249,33 @@ pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorc
 
 ## Service Management
 
-Auto-start on boot (Raspberry Pi/Linux):
+Production auto-start (Raspberry Pi/Jetson/Linux with systemd):
 
 ```bash
+# Install canonical management command
 sudo bash scripts/service/install.sh
-pixeagle-service start|stop|status|restart
-sudo pixeagle-service enable|disable
+
+# Runtime management
+pixeagle-service start
+pixeagle-service stop
+pixeagle-service status
+pixeagle-service attach
+
+# Boot auto-start
+sudo pixeagle-service enable
+sudo pixeagle-service disable
+
+# Logs
 pixeagle-service logs -f
+
+# Optional SSH login hint (interactive SSH sessions only)
+pixeagle-service login-hint enable
+pixeagle-service login-hint disable
 ```
 
-> **More Info**: [Installation Guide](docs/INSTALLATION.md)
+Tmux session name is standardized to: `pixeagle`.
+
+> **More Info**: [Service Management Runbook](docs/SERVICE_MANAGEMENT.md) | [Installation Guide](docs/INSTALLATION.md)
 
 ---
 

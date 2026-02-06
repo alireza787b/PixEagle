@@ -73,7 +73,7 @@ bash scripts/setup/build-opencv.sh
 
 ### Dashboard Not Accessible
 
-1. **Check if running**: `tmux attach -t PixEagle`
+1. **Check if running**: `tmux attach -t pixeagle`
 2. **Check port**: `lsof -i :3000`
 3. **Firewall**: `sudo ufw allow 3000`
 
@@ -164,10 +164,13 @@ python add_yolo_model.py --model_name yolo11n.pt
 pixeagle-service status
 
 # Check logs
-pixeagle-service logs
+pixeagle-service logs -n 200
 
-# Reinstall
+# Reinstall command wrapper
 sudo bash scripts/service/install.sh
+
+# (Re)enable boot auto-start
+sudo pixeagle-service enable
 ```
 
 ### Tmux Session Lost
@@ -177,10 +180,10 @@ sudo bash scripts/service/install.sh
 tmux ls
 
 # Reattach
-tmux attach -t PixEagle
+tmux attach -t pixeagle
 
 # If no session, restart
-make run   # or: bash scripts/run.sh
+pixeagle-service start
 ```
 
 ## Firewall & Network Issues

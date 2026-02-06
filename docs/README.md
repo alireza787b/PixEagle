@@ -17,6 +17,7 @@ Welcome to the PixEagle documentation. This guide will help you find the informa
 |-------|-------------|
 | [Installation Guide](INSTALLATION.md) | Detailed installation instructions |
 | [Configuration Guide](CONFIGURATION.md) | All configuration options |
+| [Service Management](SERVICE_MANAGEMENT.md) | systemd + tmux production operations |
 | [Troubleshooting](TROUBLESHOOTING.md) | Common issues and solutions |
 | [Windows SITL Setup](WINDOWS_SITL_XPLANE.md) | X-Plane simulation on Windows |
 

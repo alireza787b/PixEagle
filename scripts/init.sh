@@ -1135,6 +1135,7 @@ show_summary() {
     echo -e "   ${CYAN}${BOLD}Next Steps:${NC}"
     echo -e "      1. Edit ${BOLD}configs/config.yaml${NC} for your setup"
     echo -e "      2. Run: ${BOLD}make run${NC} (or ${BOLD}bash scripts/run.sh${NC})"
+    echo -e "      3. Optional: ${BOLD}sudo bash scripts/service/install.sh${NC} for boot auto-start"
     echo ""
     echo -e "   ${YELLOW}${BOLD}Optional (better performance):${NC}"
     echo -e "      - ${BOLD}bash scripts/setup/install-dlib.sh${NC}    (faster tracking)"
@@ -1163,6 +1164,77 @@ show_summary() {
 }
 
 # ============================================================================
+# Optional Service Setup (Linux/systemd)
+# ============================================================================
+configure_service_autostart() {
+    # Linux/systemd-only feature.
+    if [[ "$(uname -s)" != "Linux" ]]; then
+        return 0
+    fi
+
+    if ! command -v systemctl &>/dev/null; then
+        log_info "systemd not detected; skipping auto-start setup prompt"
+        return 0
+    fi
+
+    local installer="$SCRIPTS_DIR/service/install.sh"
+    if [[ ! -f "$installer" ]]; then
+        log_warn "Service installer not found: $installer"
+        return 0
+    fi
+
+    echo ""
+    echo -e "   ${CYAN}${INFO}${NC}  Optional: configure PixEagle auto-start on boot"
+
+    if ! ask_yes_no "        Install pixeagle-service command now? [y/N]: " "n"; then
+        log_info "Skipped service command installation"
+        log_detail "Install later with: sudo bash scripts/service/install.sh"
+        return 0
+    fi
+
+    if ! command -v sudo &>/dev/null; then
+        log_warn "sudo is not available; cannot install service command automatically"
+        log_detail "Run as root later: bash scripts/service/install.sh"
+        return 0
+    fi
+
+    if ! sudo -v; then
+        log_warn "sudo authentication failed; skipping service setup"
+        return 0
+    fi
+
+    if ! sudo bash "$installer"; then
+        log_warn "Service installer failed"
+        log_detail "Retry later: sudo bash scripts/service/install.sh"
+        return 0
+    fi
+
+    log_success "Service command installed"
+
+    if ask_yes_no "        Enable auto-start on every boot now? [Y/n]: " "y"; then
+        if sudo pixeagle-service enable; then
+            log_success "Auto-start enabled"
+        else
+            log_warn "Failed to enable auto-start"
+        fi
+    else
+        log_info "Auto-start remains disabled"
+        log_detail "Enable later with: sudo pixeagle-service enable"
+    fi
+
+    if ask_yes_no "        Show PixEagle status hints on SSH login? [Y/n]: " "y"; then
+        if pixeagle-service login-hint enable; then
+            log_success "SSH login hint enabled"
+        else
+            log_warn "Could not enable SSH login hint"
+        fi
+    else
+        log_info "SSH login hint disabled"
+        log_detail "Enable later with: pixeagle-service login-hint enable"
+    fi
+}
+
+# ============================================================================
 # Main Execution
 # ============================================================================
 main() {
@@ -1185,6 +1257,7 @@ main() {
     setup_mavlink2rest
 
     show_summary
+    configure_service_autostart
 }
 
 # Run main function
