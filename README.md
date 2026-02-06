@@ -279,6 +279,11 @@ sudo pixeagle-service login-hint disable --system
 
 Tmux session name is standardized to: `pixeagle`.
 
+During `make init` on Linux/systemd, PixEagle now prompts for:
+- auto-start enablement
+- system-wide SSH login hint
+- optional immediate start and optional reboot validation
+
 > **More Info**: [Service Management Runbook](docs/SERVICE_MANAGEMENT.md) | [Installation Guide](docs/INSTALLATION.md)
 
 ---

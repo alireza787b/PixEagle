@@ -1178,6 +1178,9 @@ configure_service_autostart() {
     fi
 
     local installer="$SCRIPTS_DIR/service/install.sh"
+    local service_cmd_installed=false
+    local auto_start_enabled=false
+    local login_hint_enabled=false
     if [[ ! -f "$installer" ]]; then
         log_warn "Service installer not found: $installer"
         return 0
@@ -1209,10 +1212,12 @@ configure_service_autostart() {
         return 0
     fi
 
+    service_cmd_installed=true
     log_success "Service command installed"
 
     if ask_yes_no "        Enable auto-start on every boot now? [Y/n]: " "y"; then
         if sudo pixeagle-service enable; then
+            auto_start_enabled=true
             log_success "Auto-start enabled"
         else
             log_warn "Failed to enable auto-start"
@@ -1224,6 +1229,7 @@ configure_service_autostart() {
 
     if ask_yes_no "        Show PixEagle status hints on SSH login for all users? [Y/n]: " "y"; then
         if sudo pixeagle-service login-hint enable --system; then
+            login_hint_enabled=true
             log_success "SSH login hint enabled (system-wide)"
         else
             log_warn "Could not enable SSH login hint"
@@ -1231,6 +1237,54 @@ configure_service_autostart() {
     else
         log_info "SSH login hint disabled"
         log_detail "Enable later with: sudo pixeagle-service login-hint enable --system"
+    fi
+
+    # Optional immediate start for first-time onboarding.
+    if [[ "$service_cmd_installed" == true ]] && [[ "$auto_start_enabled" == true ]]; then
+        if ask_yes_no "        Start PixEagle service now? [Y/n]: " "y"; then
+            if sudo pixeagle-service start; then
+                log_success "PixEagle service started"
+            else
+                log_warn "Could not start PixEagle service"
+            fi
+            echo ""
+            log_info "Current service status:"
+            pixeagle-service status || true
+        else
+            log_info "Service start skipped"
+            log_detail "Start later with: sudo pixeagle-service start"
+        fi
+    fi
+
+    echo ""
+    echo -e "   ${CYAN}${BOLD}Service Onboarding Guide:${NC}"
+    if [[ "$auto_start_enabled" == true ]]; then
+        echo -e "      - Auto-start enabled: ${BOLD}yes${NC}"
+    else
+        echo -e "      - Auto-start enabled: ${BOLD}no${NC} (enable with: sudo pixeagle-service enable)"
+    fi
+    if [[ "$login_hint_enabled" == true ]]; then
+        echo -e "      - SSH login hint (all users): ${BOLD}enabled${NC}"
+    else
+        echo -e "      - SSH login hint (all users): ${BOLD}disabled${NC} (enable with: sudo pixeagle-service login-hint enable --system)"
+    fi
+    echo -e "      - Inspect status: ${BOLD}pixeagle-service status${NC}"
+    echo -e "      - View logs: ${BOLD}pixeagle-service logs -f${NC}"
+    echo -e "      - Attach tmux: ${BOLD}pixeagle-service attach${NC}"
+
+    # Offer reboot validation for boot auto-start; default is No to avoid surprises.
+    if [[ "$auto_start_enabled" == true ]]; then
+        if [[ -f /var/run/reboot-required ]]; then
+            log_warn "System reports a reboot is recommended by package updates."
+        fi
+        if ask_yes_no "        Reboot now to validate boot auto-start? [y/N]: " "n"; then
+            log_info "Rebooting now. After reconnect, verify with: pixeagle-service status"
+            sudo reboot
+        else
+            log_info "Reboot skipped"
+            log_detail "Recommended validation later: sudo reboot"
+            log_detail "After reconnect: pixeagle-service status"
+        fi
     fi
 }
 

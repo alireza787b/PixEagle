@@ -21,6 +21,12 @@ sudo bash scripts/service/install.sh
 
 This installs `/usr/local/bin/pixeagle-service` and points it to this repo.
 
+If you run `make init`, PixEagle will also walk you through:
+- installing `pixeagle-service`
+- enabling boot auto-start
+- enabling SSH login hint
+- optional immediate start and optional reboot validation
+
 ## Daily Operations
 
 Start/stop/restart:
@@ -70,6 +76,14 @@ The systemd unit is generated at:
 
 ```bash
 /etc/systemd/system/pixeagle.service
+```
+
+Recommended first-time validation after enabling auto-start:
+
+```bash
+sudo reboot
+# after reconnect:
+pixeagle-service status
 ```
 
 ## Optional SSH Login Hint

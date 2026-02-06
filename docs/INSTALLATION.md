@@ -252,6 +252,12 @@ Binaries are downloaded to the `bin/` directory.
 
 Production startup on Linux/systemd (Raspberry Pi/Jetson):
 
+`make init` now includes guided prompts for:
+- installing `pixeagle-service`
+- enabling boot auto-start
+- enabling system-wide SSH login hints
+- optional immediate service start and optional reboot validation
+
 ```bash
 # Install command wrapper
 sudo bash scripts/service/install.sh
@@ -274,6 +280,11 @@ pixeagle-service login-hint enable
 
 # System-wide SSH login summary (all users)
 sudo pixeagle-service login-hint enable --system
+
+# Reboot validation (recommended after enabling auto-start)
+sudo reboot
+# after reconnect:
+pixeagle-service status
 ```
 
 tmux session name: `pixeagle`
