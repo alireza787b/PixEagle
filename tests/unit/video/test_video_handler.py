@@ -9,6 +9,7 @@ import pytest
 import sys
 import os
 import numpy as np
+import cv2
 from unittest.mock import MagicMock, patch, PropertyMock
 from collections import deque
 
@@ -35,6 +36,9 @@ def mock_parameters():
         mock_params.USE_GSTREAMER = False
         mock_params.STORE_LAST_FRAMES = 5
         mock_params.OPENCV_BUFFER_SIZE = 1
+        mock_params.FRAME_ROTATION_DEG = 0
+        mock_params.FRAME_FLIP_MODE = "none"
+        mock_params.SENSOR_ID = 0
         mock_params.RTSP_MAX_CONSECUTIVE_FAILURES = 10
         mock_params.RTSP_CONNECTION_TIMEOUT = 5.0
         mock_params.RTSP_MAX_RECOVERY_ATTEMPTS = 3
@@ -193,6 +197,145 @@ class TestGetFrame:
 
         assert handler._consecutive_failures == 0
         assert handler._is_recovering == False
+
+
+@pytest.mark.unit
+class TestFrameOrientation:
+    """Tests for universal frame orientation in VideoHandler."""
+
+    def _build_cap(self, frame: np.ndarray) -> MagicMock:
+        cap = MagicMock()
+        cap.isOpened.return_value = True
+        cap.read.return_value = (True, frame.copy())
+
+        def _get(prop_id):
+            if prop_id == cv2.CAP_PROP_FRAME_WIDTH:
+                return float(frame.shape[1])
+            if prop_id == cv2.CAP_PROP_FRAME_HEIGHT:
+                return float(frame.shape[0])
+            if prop_id == cv2.CAP_PROP_FPS:
+                return 30.0
+            return 0.0
+
+        cap.get.side_effect = _get
+        return cap
+
+    def test_get_frame_applies_rotation(self):
+        frame = np.array(
+            [
+                [[1, 0, 0], [2, 0, 0]],
+                [[3, 0, 0], [4, 0, 0]],
+            ],
+            dtype=np.uint8
+        )
+        cap = self._build_cap(frame)
+
+        with patch('classes.video_handler.Parameters') as params:
+            params.STORE_LAST_FRAMES = 5
+            params.FRAME_ROTATION_DEG = 180
+            params.FRAME_FLIP_MODE = "none"
+            params.RTSP_MAX_CONSECUTIVE_FAILURES = 10
+            params.RTSP_CONNECTION_TIMEOUT = 5.0
+            params.RTSP_MAX_RECOVERY_ATTEMPTS = 3
+            params.RTSP_FRAME_CACHE_SIZE = 5
+            params.RTSP_RECOVERY_BACKOFF_BASE = 1.0
+            params.RTSP_RECOVERY_BACKOFF_MAX = 10.0
+            params.CAPTURE_WIDTH = frame.shape[1]
+            params.CAPTURE_HEIGHT = frame.shape[0]
+            params.CAPTURE_FPS = 30
+            params.DEFAULT_FPS = 30
+            params.VIDEO_SOURCE_TYPE = "USB_CAMERA"
+            params.USE_GSTREAMER = False
+            params.USE_V4L2_BACKEND = False
+            params.CAMERA_INDEX = 0
+            params.OPENCV_BUFFER_SIZE = 1
+            params.OPENCV_FOURCC = ""
+
+            with patch.object(VideoHandler, "_create_capture_object", return_value=cap):
+                handler = VideoHandler()
+
+        out = handler.get_frame()
+        expected = cv2.rotate(frame, cv2.ROTATE_180)
+        assert np.array_equal(out, expected)
+
+    def test_get_frame_applies_flip(self):
+        frame = np.array(
+            [
+                [[10, 0, 0], [20, 0, 0]],
+                [[30, 0, 0], [40, 0, 0]],
+            ],
+            dtype=np.uint8
+        )
+        cap = self._build_cap(frame)
+
+        with patch('classes.video_handler.Parameters') as params:
+            params.STORE_LAST_FRAMES = 5
+            params.FRAME_ROTATION_DEG = 0
+            params.FRAME_FLIP_MODE = "vertical"
+            params.RTSP_MAX_CONSECUTIVE_FAILURES = 10
+            params.RTSP_CONNECTION_TIMEOUT = 5.0
+            params.RTSP_MAX_RECOVERY_ATTEMPTS = 3
+            params.RTSP_FRAME_CACHE_SIZE = 5
+            params.RTSP_RECOVERY_BACKOFF_BASE = 1.0
+            params.RTSP_RECOVERY_BACKOFF_MAX = 10.0
+            params.CAPTURE_WIDTH = frame.shape[1]
+            params.CAPTURE_HEIGHT = frame.shape[0]
+            params.CAPTURE_FPS = 30
+            params.DEFAULT_FPS = 30
+            params.VIDEO_SOURCE_TYPE = "USB_CAMERA"
+            params.USE_GSTREAMER = False
+            params.USE_V4L2_BACKEND = False
+            params.CAMERA_INDEX = 0
+            params.OPENCV_BUFFER_SIZE = 1
+            params.OPENCV_FOURCC = ""
+
+            with patch.object(VideoHandler, "_create_capture_object", return_value=cap):
+                handler = VideoHandler()
+
+        out = handler.get_frame()
+        expected = cv2.flip(frame, 0)
+        assert np.array_equal(out, expected)
+
+    def test_get_frame_applies_rotation_then_flip(self):
+        frame = np.array(
+            [
+                [[1, 0, 0], [2, 0, 0], [3, 0, 0]],
+                [[4, 0, 0], [5, 0, 0], [6, 0, 0]],
+            ],
+            dtype=np.uint8
+        )
+        cap = self._build_cap(frame)
+
+        with patch('classes.video_handler.Parameters') as params:
+            params.STORE_LAST_FRAMES = 5
+            params.FRAME_ROTATION_DEG = 90
+            params.FRAME_FLIP_MODE = "horizontal"
+            params.RTSP_MAX_CONSECUTIVE_FAILURES = 10
+            params.RTSP_CONNECTION_TIMEOUT = 5.0
+            params.RTSP_MAX_RECOVERY_ATTEMPTS = 3
+            params.RTSP_FRAME_CACHE_SIZE = 5
+            params.RTSP_RECOVERY_BACKOFF_BASE = 1.0
+            params.RTSP_RECOVERY_BACKOFF_MAX = 10.0
+            params.CAPTURE_WIDTH = frame.shape[1]
+            params.CAPTURE_HEIGHT = frame.shape[0]
+            params.CAPTURE_FPS = 30
+            params.DEFAULT_FPS = 30
+            params.VIDEO_SOURCE_TYPE = "USB_CAMERA"
+            params.USE_GSTREAMER = False
+            params.USE_V4L2_BACKEND = False
+            params.CAMERA_INDEX = 0
+            params.OPENCV_BUFFER_SIZE = 1
+            params.OPENCV_FOURCC = ""
+
+            with patch.object(VideoHandler, "_create_capture_object", return_value=cap):
+                handler = VideoHandler()
+
+        out = handler.get_frame()
+        expected = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+        expected = cv2.flip(expected, 1)
+        assert np.array_equal(out, expected)
+        assert handler.width == expected.shape[1]
+        assert handler.height == expected.shape[0]
 
 
 @pytest.mark.unit

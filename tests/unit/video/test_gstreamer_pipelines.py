@@ -43,7 +43,9 @@ def mock_parameters():
 
         # CSI
         mock_params.CSI_SENSOR_ID = 0
-        mock_params.CSI_FLIP_METHOD = 0
+        mock_params.SENSOR_ID = 0
+        mock_params.FRAME_ROTATION_DEG = 0
+        mock_params.FRAME_FLIP_MODE = "none"
 
         # Video File
         mock_params.VIDEO_FILE_PATH = "resources/test.mp4"
@@ -206,11 +208,13 @@ class TestCSIPipelineConstruction:
 
         assert mock_parameters.CSI_SENSOR_ID == 1
 
-    def test_pipeline_includes_flip_method(self, mock_parameters):
-        """Pipeline should include flip-method parameter."""
-        mock_parameters.CSI_FLIP_METHOD = 2
+    def test_pipeline_uses_universal_orientation_config(self, mock_parameters):
+        """Orientation should be configured via universal frame settings."""
+        mock_parameters.FRAME_ROTATION_DEG = 180
+        mock_parameters.FRAME_FLIP_MODE = "vertical"
 
-        assert mock_parameters.CSI_FLIP_METHOD == 2
+        assert mock_parameters.FRAME_ROTATION_DEG == 180
+        assert mock_parameters.FRAME_FLIP_MODE == "vertical"
 
 
 @pytest.mark.unit

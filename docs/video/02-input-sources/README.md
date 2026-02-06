@@ -145,11 +145,12 @@ VideoSource:
 ```yaml
 VideoSource:
   VIDEO_SOURCE_TYPE: CSI_CAMERA
+  FRAME_ROTATION_DEG: 0
+  FRAME_FLIP_MODE: none
   USE_GSTREAMER: true
 
 CSICamera:
-  CSI_SENSOR_ID: 0
-  CSI_FLIP_METHOD: 0
+  SENSOR_ID: 0
 ```
 
 ## Troubleshooting

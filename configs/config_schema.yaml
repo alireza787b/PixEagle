@@ -154,6 +154,36 @@ sections:
         min: 0
         max: 100
         reload_tier: system_restart
+      FRAME_ROTATION_DEG:
+        type: integer
+        default: 0
+        description: Universal frame rotation in degrees (applies to all source types/backends)
+        options:
+        - value: 0
+          label: 0 deg
+        - value: 90
+          label: 90 deg
+        - value: 180
+          label: 180 deg
+        - value: 270
+          label: 270 deg
+        min: 0
+        max: 270
+        reload_tier: system_restart
+      FRAME_FLIP_MODE:
+        type: string
+        default: none
+        description: Universal frame flip mode (applies to all source types/backends)
+        options:
+        - value: none
+          label: None
+        - value: horizontal
+          label: Horizontal
+        - value: vertical
+          label: Vertical
+        - value: both
+          label: Both
+        reload_tier: system_restart
       CUSTOM_PIPELINE:
         type: string
         default: ''
@@ -209,13 +239,6 @@ sections:
         type: integer
         default: 0
         description: Camera sensor ID
-        min: 0
-        max: 100
-        reload_tier: system_restart
-      FLIP_METHOD:
-        type: integer
-        default: 0
-        description: Image rotation/flip
         min: 0
         max: 100
         reload_tier: system_restart
@@ -4051,7 +4074,7 @@ sections:
         reload_tier: system_restart
       CSI_NVIDIA:
         type: string
-        default: nvarguscamerasrc sensor-id={sensor_id} ! video/x-raw(memory:NVMM),width={width},height={height},format=NV12,framerate={fps}/1 ! nvvidconv flip-method={flip_method} ! video/x-raw,format=BGRx ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true sync=false
+        default: nvarguscamerasrc sensor-id={sensor_id} ! video/x-raw(memory:NVMM),width={width},height={height},format=NV12,framerate={fps}/1 ! nvvidconv ! video/x-raw,format=BGRx ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true sync=false
         description: CSI camera pipelines
         reload_tier: system_restart
       CSI_RPI:

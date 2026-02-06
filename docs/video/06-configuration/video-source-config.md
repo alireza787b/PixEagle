@@ -140,26 +140,33 @@ VideoSource:
 VideoSource:
   VIDEO_SOURCE_TYPE: CSI_CAMERA
   CSI_SENSOR_ID: 0
-  CSI_FLIP_METHOD: 0
+  FRAME_ROTATION_DEG: 0
+  FRAME_FLIP_MODE: none
 ```
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `CSI_SENSOR_ID` | int | 0 | Camera sensor ID (0 or 1) |
-| `CSI_FLIP_METHOD` | int | 0 | Rotation method (0-7) |
+| `FRAME_ROTATION_DEG` | int | 0 | Rotation in degrees (`0`, `90`, `180`, `270`) |
+| `FRAME_FLIP_MODE` | string | `none` | Flip mode (`none`, `horizontal`, `vertical`, `both`) |
 
-### Flip Method Values
+### Rotation Values
 
 | Value | Effect |
 |-------|--------|
 | 0 | No rotation |
-| 1 | 90° clockwise |
-| 2 | 180° |
-| 3 | 90° counter-clockwise |
-| 4 | Horizontal flip |
-| 5 | Upper-right diagonal |
-| 6 | Vertical flip |
-| 7 | Upper-left diagonal |
+| 90 | 90° clockwise |
+| 180 | 180° |
+| 270 | 90° counter-clockwise |
+
+### Flip Values
+
+| Value | Effect |
+|-------|--------|
+| `none` | No flip |
+| `horizontal` | Mirror left/right |
+| `vertical` | Mirror up/down |
+| `both` | Horizontal + vertical flip |
 
 ## CUSTOM_GSTREAMER Settings
 
@@ -239,7 +246,8 @@ VideoSource:
 VideoSource:
   VIDEO_SOURCE_TYPE: CSI_CAMERA
   CSI_SENSOR_ID: 0
-  CSI_FLIP_METHOD: 0
+  FRAME_ROTATION_DEG: 0
+  FRAME_FLIP_MODE: none
   CAPTURE_WIDTH: 1280
   CAPTURE_HEIGHT: 720
   CAPTURE_FPS: 60

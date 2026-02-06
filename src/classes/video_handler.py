@@ -22,7 +22,7 @@ import time
 import logging
 import platform
 from collections import deque
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from classes.parameters import Parameters
 from classes.logging_manager import logging_manager
 
@@ -53,6 +53,14 @@ class VideoHandler:
         """Initialize video handler with configured source."""
         self.cap: Optional[cv2.VideoCapture] = None
         self.frame_history = deque(maxlen=Parameters.STORE_LAST_FRAMES)
+
+        # Universal frame orientation settings (applied to all source types/backends)
+        self._frame_rotation_deg = self._normalize_rotation_deg(
+            getattr(Parameters, "FRAME_ROTATION_DEG", 0)
+        )
+        self._frame_flip_mode = self._normalize_flip_mode(
+            getattr(Parameters, "FRAME_FLIP_MODE", "none")
+        )
         
         # Video properties
         self.width: Optional[int] = None
@@ -122,19 +130,24 @@ class VideoHandler:
                 
                 if self.cap and self.cap.isOpened():
                     # Extract video properties
-                    self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    capture_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    capture_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    self.width, self.height = self._get_oriented_dimensions(capture_width, capture_height)
                     self.fps = self.cap.get(cv2.CAP_PROP_FPS) or Parameters.DEFAULT_FPS
                     
                     # Validate dimensions for coordinate mapping consistency
                     if self.width <= 0 or self.height <= 0:
                         logger.warning("Invalid dimensions detected, using configured defaults")
-                        self.width = Parameters.CAPTURE_WIDTH
-                        self.height = Parameters.CAPTURE_HEIGHT
+                        self.width, self.height = self._get_oriented_dimensions(
+                            Parameters.CAPTURE_WIDTH,
+                            Parameters.CAPTURE_HEIGHT
+                        )
 
                     # Coordinate mapping validation
-                    expected_width = Parameters.CAPTURE_WIDTH
-                    expected_height = Parameters.CAPTURE_HEIGHT
+                    expected_width, expected_height = self._get_oriented_dimensions(
+                        Parameters.CAPTURE_WIDTH,
+                        Parameters.CAPTURE_HEIGHT
+                    )
 
                     if self.width != expected_width or self.height != expected_height:
                         logger.warning(
@@ -487,9 +500,70 @@ class VideoHandler:
             sensor_id=Parameters.SENSOR_ID,
             width=Parameters.CAPTURE_WIDTH,
             height=Parameters.CAPTURE_HEIGHT,
-            fps=Parameters.CAPTURE_FPS,
-            flip_method=Parameters.FLIP_METHOD
+            fps=Parameters.CAPTURE_FPS
         )
+
+    def _normalize_rotation_deg(self, rotation_deg: Any) -> int:
+        """Normalize configured rotation to supported right-angle values."""
+        try:
+            value = int(rotation_deg)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid FRAME_ROTATION_DEG=%r; falling back to 0",
+                rotation_deg
+            )
+            return 0
+
+        if value not in {0, 90, 180, 270}:
+            logger.warning(
+                "Unsupported FRAME_ROTATION_DEG=%s; allowed values are 0,90,180,270. Falling back to 0",
+                value
+            )
+            return 0
+        return value
+
+    def _normalize_flip_mode(self, flip_mode: Any) -> str:
+        """Normalize configured flip mode to supported values."""
+        value = str(flip_mode).strip().lower()
+        allowed = {"none", "horizontal", "vertical", "both"}
+        if value not in allowed:
+            logger.warning(
+                "Unsupported FRAME_FLIP_MODE=%r; allowed values are none,horizontal,vertical,both. Falling back to none",
+                flip_mode
+            )
+            return "none"
+        return value
+
+    def _get_oriented_dimensions(self, width: int, height: int) -> Tuple[int, int]:
+        """Return effective frame dimensions after configured rotation."""
+        if self._frame_rotation_deg in (90, 270):
+            return height, width
+        return width, height
+
+    def _apply_frame_orientation(self, frame: Any) -> Any:
+        """Apply configured rotation/flip and keep dimensions in sync."""
+        if frame is None:
+            return None
+
+        if self._frame_rotation_deg == 90:
+            frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+        elif self._frame_rotation_deg == 180:
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
+        elif self._frame_rotation_deg == 270:
+            frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
+        if self._frame_flip_mode == "horizontal":
+            frame = cv2.flip(frame, 1)
+        elif self._frame_flip_mode == "vertical":
+            frame = cv2.flip(frame, 0)
+        elif self._frame_flip_mode == "both":
+            frame = cv2.flip(frame, -1)
+
+        if hasattr(frame, "shape") and len(frame.shape) >= 2:
+            self.height = int(frame.shape[0])
+            self.width = int(frame.shape[1])
+
+        return frame
     
     def _optimize_opencv_capture(self, cap: cv2.VideoCapture) -> None:
         """
@@ -594,6 +668,7 @@ class VideoHandler:
             
             if ret and frame is not None:
                 # Successful frame capture
+                frame = self._apply_frame_orientation(frame)
                 self.current_raw_frame = frame
                 self.frame_history.append(frame)
                 self._reset_failure_counters()
@@ -694,6 +769,7 @@ class VideoHandler:
                 if ret:
                     ret, frame = self.cap.retrieve()
                     if ret and frame is not None:
+                        frame = self._apply_frame_orientation(frame)
                         logger.info("Connection recovered without reconnect")
                         self.current_raw_frame = frame
                         self.frame_history.append(frame)
@@ -708,6 +784,7 @@ class VideoHandler:
                 # Try to get a frame immediately
                 ret, frame = self.cap.read()
                 if ret and frame is not None:
+                    frame = self._apply_frame_orientation(frame)
                     logger.info("Full reconnection successful")
                     self.current_raw_frame = frame
                     self.frame_history.append(frame)
@@ -764,6 +841,7 @@ class VideoHandler:
                 # Get the latest frame after clearing buffer
                 ret, frame = self.cap.retrieve()
                 if ret and frame is not None:
+                    frame = self._apply_frame_orientation(frame)
                     self.current_raw_frame = frame
                     self.frame_history.append(frame)
                     self._reset_failure_counters()

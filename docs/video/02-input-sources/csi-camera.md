@@ -15,10 +15,11 @@ VideoSource:
   CAPTURE_HEIGHT: 480
   CAPTURE_FPS: 30
   USE_GSTREAMER: true  # Required for CSI
+  FRAME_ROTATION_DEG: 0
+  FRAME_FLIP_MODE: none
 
 CSICamera:
-  CSI_SENSOR_ID: 0     # Camera sensor index
-  CSI_FLIP_METHOD: 0   # Rotation/flip
+  SENSOR_ID: 0         # Camera sensor index
 ```
 
 ## Platform Detection
@@ -44,7 +45,7 @@ else:
 ```
 nvarguscamerasrc sensor-id=0
   ! video/x-raw(memory:NVMM),width=640,height=480,format=NV12,framerate=30/1
-  ! nvvidconv flip-method=0
+  ! nvvidconv
   ! video/x-raw,format=BGRx
   ! videoconvert
   ! video/x-raw,format=BGR
@@ -54,26 +55,28 @@ nvarguscamerasrc sensor-id=0
 **Key Elements:**
 - `nvarguscamerasrc` - NVIDIA camera source (hardware accelerated)
 - `memory:NVMM` - GPU memory for zero-copy
-- `nvvidconv` - GPU-accelerated conversion with flip support
+- `nvvidconv` - GPU-accelerated conversion
 - `NV12` format for GPU efficiency
 
-### Flip Methods
+### Universal Orientation
 
 ```yaml
-CSICamera:
-  CSI_FLIP_METHOD: 0  # See table below
+VideoSource:
+  FRAME_ROTATION_DEG: 0  # 0, 90, 180, 270
+  FRAME_FLIP_MODE: none  # none, horizontal, vertical, both
 ```
 
-| Value | Effect |
-|-------|--------|
-| 0 | No rotation |
-| 1 | 90° clockwise |
-| 2 | 180° |
-| 3 | 90° counter-clockwise |
-| 4 | Horizontal flip |
-| 5 | Vertical flip |
-| 6 | Upper-left to lower-right |
-| 7 | Upper-right to lower-left |
+Rotation values:
+- `0`: No rotation
+- `90`: 90° clockwise
+- `180`: 180°
+- `270`: 90° counter-clockwise
+
+Flip values:
+- `none`: No flip
+- `horizontal`: Mirror left/right
+- `vertical`: Mirror up/down
+- `both`: Horizontal + vertical
 
 ### Jetson Camera Verification
 
@@ -120,8 +123,8 @@ For multi-camera setups:
 
 ```yaml
 CSICamera:
-  CSI_SENSOR_ID: 0  # First camera
-  # CSI_SENSOR_ID: 1  # Second camera (if available)
+  SENSOR_ID: 0  # First camera
+  # SENSOR_ID: 1  # Second camera (if available)
 ```
 
 ## Performance Comparison
@@ -165,8 +168,9 @@ sudo reboot
 ### Image Upside Down
 
 ```yaml
-CSICamera:
-  CSI_FLIP_METHOD: 2  # 180° rotation
+VideoSource:
+  FRAME_ROTATION_DEG: 180
+  FRAME_FLIP_MODE: none
 ```
 
 ### Low FPS on Raspberry Pi
@@ -186,14 +190,15 @@ CSICamera:
 ```yaml
 VideoSource:
   VIDEO_SOURCE_TYPE: CSI_CAMERA
+  FRAME_ROTATION_DEG: 0
+  FRAME_FLIP_MODE: none
   CAPTURE_WIDTH: 1280
   CAPTURE_HEIGHT: 720
   CAPTURE_FPS: 30
   USE_GSTREAMER: true
 
 CSICamera:
-  CSI_SENSOR_ID: 0
-  CSI_FLIP_METHOD: 0
+  SENSOR_ID: 0
 ```
 
 ## Example: Raspberry Pi Camera Module 3
@@ -201,14 +206,15 @@ CSICamera:
 ```yaml
 VideoSource:
   VIDEO_SOURCE_TYPE: CSI_CAMERA
+  FRAME_ROTATION_DEG: 0
+  FRAME_FLIP_MODE: none
   CAPTURE_WIDTH: 640
   CAPTURE_HEIGHT: 480
   CAPTURE_FPS: 30
   USE_GSTREAMER: true
 
 CSICamera:
-  CSI_SENSOR_ID: 0
-  CSI_FLIP_METHOD: 0
+  SENSOR_ID: 0
 ```
 
 ## Advanced: Custom Jetson Pipeline

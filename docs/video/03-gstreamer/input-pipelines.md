@@ -140,7 +140,7 @@ udpsrc port=5600
 ```gstreamer
 nvarguscamerasrc sensor-id=0
   ! video/x-raw(memory:NVMM),width=1920,height=1080,framerate=30/1
-  ! nvvidconv flip-method=0
+  ! nvvidconv
   ! video/x-raw,format=BGRx,width=640,height=480
   ! videoconvert
   ! video/x-raw,format=BGR
@@ -152,21 +152,14 @@ Configuration:
 VideoSource:
   VIDEO_SOURCE_TYPE: CSI_CAMERA
   CSI_SENSOR_ID: 0
-  CSI_FLIP_METHOD: 0  # 0=none, 2=180deg
+  FRAME_ROTATION_DEG: 0
+  FRAME_FLIP_MODE: none
   USE_GSTREAMER: true
 ```
 
-Flip method values:
-| Value | Rotation |
-|-------|----------|
-| 0 | None |
-| 1 | 90 clockwise |
-| 2 | 180 |
-| 3 | 90 counter-clockwise |
-| 4 | Horizontal flip |
-| 5 | Upper-right diagonal flip |
-| 6 | Vertical flip |
-| 7 | Upper-left diagonal flip |
+Orientation values:
+- Rotation: `0`, `90`, `180`, `270`
+- Flip: `none`, `horizontal`, `vertical`, `both`
 
 ### Raspberry Pi
 

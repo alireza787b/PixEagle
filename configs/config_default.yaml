@@ -66,6 +66,10 @@ VideoSource:
   
   # CSI Camera (Raspberry Pi/Jetson camera)
   CSI_SENSOR_ID: 0          # Usually 0 for first CSI port
+
+  # Universal frame orientation (applies to all source types/backends)
+  FRAME_ROTATION_DEG: 0     # Allowed: 0, 90, 180, 270
+  FRAME_FLIP_MODE: none     # Allowed: none, horizontal, vertical, both
   
   # Custom GStreamer pipeline (advanced users)
   # Example: "videotestsrc ! video/x-raw,width=640,height=480 ! videoconvert ! appsink"
@@ -97,7 +101,6 @@ USBCamera:
 # ==============================================================================
 CSICamera:
   SENSOR_ID: 0              # Camera sensor ID
-  FLIP_METHOD: 0            # Image rotation/flip
 
 # ==============================================================================
 # NETWORK CONFIGURATION (Connection Settings)
@@ -1906,7 +1909,7 @@ GStreamerPipelines:
   USB_MJPEG: "v4l2src device=/dev/video{device_id} ! image/jpeg,width={width},height={height},framerate={fps}/1 ! jpegdec ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true max-buffers=1 sync=false"
   
   # CSI camera pipelines
-  CSI_NVIDIA: "nvarguscamerasrc sensor-id={sensor_id} ! video/x-raw(memory:NVMM),width={width},height={height},format=NV12,framerate={fps}/1 ! nvvidconv flip-method={flip_method} ! video/x-raw,format=BGRx ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true sync=false"
+  CSI_NVIDIA: "nvarguscamerasrc sensor-id={sensor_id} ! video/x-raw(memory:NVMM),width={width},height={height},format=NV12,framerate={fps}/1 ! nvvidconv ! video/x-raw,format=BGRx ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true sync=false"
   
   CSI_RPI: "libcamerasrc ! video/x-raw,width={width},height={height},framerate={fps}/1 ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true sync=false"
   

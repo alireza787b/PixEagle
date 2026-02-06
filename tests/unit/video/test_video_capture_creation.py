@@ -58,7 +58,9 @@ def mock_parameters():
 
         # CSI settings
         mock_params.CSI_SENSOR_ID = 0
-        mock_params.CSI_FLIP_METHOD = 0
+        mock_params.SENSOR_ID = 0
+        mock_params.FRAME_ROTATION_DEG = 0
+        mock_params.FRAME_FLIP_MODE = "none"
 
         # Custom GStreamer
         mock_params.CUSTOM_PIPELINE = "videotestsrc ! videoconvert ! appsink"
@@ -226,17 +228,21 @@ class TestCSICapture:
 
         assert mock_parameters.CSI_SENSOR_ID == 1
 
-    def test_csi_flip_method_configurable(self, mock_parameters):
-        """CSI_FLIP_METHOD should be configurable."""
-        mock_parameters.CSI_FLIP_METHOD = 2  # 180 degrees
+    def test_frame_rotation_deg_configurable(self, mock_parameters):
+        """FRAME_ROTATION_DEG should be configurable."""
+        mock_parameters.FRAME_ROTATION_DEG = 180
+        assert mock_parameters.FRAME_ROTATION_DEG == 180
 
-        assert mock_parameters.CSI_FLIP_METHOD == 2
+    def test_frame_rotation_deg_valid_values(self, mock_parameters):
+        """FRAME_ROTATION_DEG should support right-angle values."""
+        for rotation in (0, 90, 180, 270):
+            mock_parameters.FRAME_ROTATION_DEG = rotation
+            assert mock_parameters.FRAME_ROTATION_DEG in (0, 90, 180, 270)
 
-    def test_csi_flip_method_valid_range(self, mock_parameters):
-        """CSI_FLIP_METHOD should be 0-7."""
-        for flip_method in range(8):
-            mock_parameters.CSI_FLIP_METHOD = flip_method
-            assert 0 <= mock_parameters.CSI_FLIP_METHOD <= 7
+    def test_frame_flip_mode_configurable(self, mock_parameters):
+        """FRAME_FLIP_MODE should be configurable."""
+        mock_parameters.FRAME_FLIP_MODE = "vertical"
+        assert mock_parameters.FRAME_FLIP_MODE == "vertical"
 
     def test_csi_requires_gstreamer(self, mock_parameters):
         """CSI_CAMERA requires GStreamer."""

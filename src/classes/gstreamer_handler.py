@@ -26,9 +26,9 @@ class GStreamerHandler:
        - The `x264enc` element is configured with `zerolatency` tuning for low-latency streaming, and `ultrafast` preset 
          for faster encoding at the expense of some quality.
 
-    4. Flip Method:
-       - The `nvvidconv` element's `flip-method` parameter can be adjusted to flip the video as needed. This is crucial 
-         when working with different camera orientations.
+    4. Frame Orientation:
+       - Frame orientation is handled in VideoHandler before frames reach this output stage.
+       - The output pipeline remains orientation-neutral to avoid double transforms.
 
     5. Error Handling and Logging:
        - Robust error handling ensures that issues with pipeline initialization or frame streaming are logged and managed 
@@ -41,11 +41,10 @@ class GStreamerHandler:
 
     def __init__(self):
         """
-        Initializes the GStreamerHandler with parameters for frame width, height, framerate, and flip method.
+        Initializes the GStreamerHandler with parameters for frame width, height, and framerate.
         The pipeline is constructed based on these parameters.
         """
         self.out = None
-        self.FLIP_METHOD = Parameters.CSI_FLIP_METHOD
         self.WIDTH = Parameters.GSTREAMER_WIDTH
         self.HEIGHT = Parameters.GSTREAMER_HEIGHT
         self.FRAMERATE = Parameters.GSTREAMER_FRAMERATE
@@ -66,7 +65,7 @@ class GStreamerHandler:
             f"video/x-raw,format=BGR,width={self.WIDTH},height={self.HEIGHT},framerate={self.FRAMERATE}/1 ! "
             f"videoconvert ! "
             f"video/x-raw,format=NV12 ! "  # Convert to NV12 format for compatibility with NVIDIA encoder
-            f"nvvidconv flip-method={self.FLIP_METHOD} ! "
+            f"nvvidconv ! "
             f"x264enc tune={Parameters.GSTREAMER_TUNE} "
             f"bitrate={Parameters.GSTREAMER_BITRATE} "  # Bitrate in kbps
             f"key-int-max={Parameters.GSTREAMER_KEY_INT_MAX} "

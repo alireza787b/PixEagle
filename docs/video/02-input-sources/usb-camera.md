@@ -15,6 +15,8 @@ VideoSource:
   CAPTURE_WIDTH: 640
   CAPTURE_HEIGHT: 480
   CAPTURE_FPS: 30
+  FRAME_ROTATION_DEG: 0     # 0, 90, 180, 270
+  FRAME_FLIP_MODE: none     # none, horizontal, vertical, both
   USE_GSTREAMER: true       # Recommended on Linux
 
 USBCamera:
@@ -196,6 +198,14 @@ v4l2-ctl --list-formats-ext -d /dev/video0
 1. Use MJPEG format (less bandwidth)
 2. Reduce resolution
 3. Check USB bandwidth (try USB 3.0 port)
+
+### Image Upside Down
+
+```yaml
+VideoSource:
+  FRAME_ROTATION_DEG: 180
+  FRAME_FLIP_MODE: none
+```
 
 ### Dark/Overexposed Image
 
