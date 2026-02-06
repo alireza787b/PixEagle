@@ -1188,8 +1188,10 @@ configure_service_autostart() {
 
     echo ""
     echo -e "   ${CYAN}${INFO}${NC}  Optional: configure PixEagle auto-start on boot"
+    echo -e "        ${DIM}This guided setup can install service management, enable boot auto-start,${NC}"
+    echo -e "        ${DIM}configure SSH startup guide output, and optionally reboot for validation.${NC}"
 
-    if ! ask_yes_no "        Install pixeagle-service command now? [y/N]: " "n"; then
+    if ! ask_yes_no "        Install pixeagle-service command now? [Y/n]: " "y"; then
         log_info "Skipped service command installation"
         log_detail "Install later with: sudo bash scripts/service/install.sh"
         return 0
@@ -1231,6 +1233,7 @@ configure_service_autostart() {
         if sudo pixeagle-service login-hint enable --system; then
             login_hint_enabled=true
             log_success "SSH login hint enabled (system-wide)"
+            log_detail "Open a new SSH session to view the startup guide banner, URLs, and version metadata"
         else
             log_warn "Could not enable SSH login hint"
         fi
@@ -1240,7 +1243,7 @@ configure_service_autostart() {
     fi
 
     # Optional immediate start for first-time onboarding.
-    if [[ "$service_cmd_installed" == true ]] && [[ "$auto_start_enabled" == true ]]; then
+    if [[ "$service_cmd_installed" == true ]]; then
         if ask_yes_no "        Start PixEagle service now? [Y/n]: " "y"; then
             if sudo pixeagle-service start; then
                 log_success "PixEagle service started"
@@ -1265,6 +1268,8 @@ configure_service_autostart() {
     fi
     if [[ "$login_hint_enabled" == true ]]; then
         echo -e "      - SSH login hint (all users): ${BOLD}enabled${NC}"
+        echo -e "      - SSH hint refresh: ${BOLD}sudo pixeagle-service login-hint disable --system && sudo pixeagle-service login-hint enable --system${NC}"
+        echo -e "      - Verify hint: ${BOLD}open a new SSH session${NC}"
     else
         echo -e "      - SSH login hint (all users): ${BOLD}disabled${NC} (enable with: sudo pixeagle-service login-hint enable --system)"
     fi

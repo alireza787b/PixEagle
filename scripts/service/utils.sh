@@ -406,42 +406,13 @@ require_root_for_system_scope() {
     return 0
 }
 
-create_user_login_hint_script() {
-    cat > "$LOGIN_HINT_SCRIPT" <<'EOF'
+write_login_hint_script() {
+    local target_file="$1"
+    local scope_label="$2"
+
+    cat > "$target_file" <<'EOF'
 #!/bin/bash
-# Managed by pixeagle-service login-hint
-
-case "$-" in
-    *i*) ;;
-    *) return 0 ;;
-esac
-
-[ -n "${SSH_CONNECTION:-}" ] || return 0
-[ -n "${PIXEAGLE_LOGIN_HINT_SHOWN:-}" ] && return 0
-export PIXEAGLE_LOGIN_HINT_SHOWN=1
-
-if ! command -v pixeagle-service >/dev/null 2>&1; then
-    return 0
-fi
-
-service_state="$(systemctl is-active pixeagle.service 2>/dev/null || echo "inactive")"
-enabled_state="$(systemctl is-enabled pixeagle.service 2>/dev/null || echo "disabled")"
-
-tmux_state="stopped"
-if command -v tmux >/dev/null 2>&1 && tmux has-session -t pixeagle 2>/dev/null; then
-    tmux_state="running"
-fi
-
-printf '\n[PixEagle] service=%s enabled=%s tmux=%s\n' "$service_state" "$enabled_state" "$tmux_state"
-printf '[PixEagle] Commands: pixeagle-service status | pixeagle-service attach | pixeagle-service logs -f\n'
-printf '[PixEagle] Boot: sudo pixeagle-service enable | sudo pixeagle-service disable\n\n'
-EOF
-}
-
-create_system_login_hint_script() {
-    cat > "$SYSTEM_LOGIN_HINT_FILE" <<'EOF'
-#!/bin/bash
-# Managed by pixeagle-service login-hint --system
+# Managed by pixeagle-service login-hint (__SCOPE__)
 
 case "$-" in
     *i*) ;;
@@ -453,17 +424,158 @@ esac
 [ -n "${PIXEAGLE_LOGIN_HINT_SHOWN:-}" ] && return 0
 export PIXEAGLE_LOGIN_HINT_SHOWN=1
 
-if ! command -v systemctl >/dev/null 2>&1; then
-    return 0
+if command -v tput >/dev/null 2>&1 && [ "$(tput colors 2>/dev/null || echo 0)" -ge 8 ]; then
+    C_CYAN="$(printf '\033[1;36m')"
+    C_BOLD="$(printf '\033[1m')"
+    C_DIM="$(printf '\033[2m')"
+    C_NC="$(printf '\033[0m')"
+else
+    C_CYAN=""
+    C_BOLD=""
+    C_DIM=""
+    C_NC=""
 fi
 
-service_state="$(systemctl is-active pixeagle.service 2>/dev/null || echo "inactive")"
-enabled_state="$(systemctl is-enabled pixeagle.service 2>/dev/null || echo "disabled")"
+get_service_workdir() {
+    local wd=""
 
-printf '\n[PixEagle] service=%s enabled=%s\n' "$service_state" "$enabled_state"
-printf '[PixEagle] Commands: pixeagle-service status | pixeagle-service attach | pixeagle-service logs -f\n'
-printf '[PixEagle] Boot: sudo pixeagle-service enable | sudo pixeagle-service disable\n\n'
+    if command -v systemctl >/dev/null 2>&1; then
+        wd="$(systemctl show -p WorkingDirectory --value pixeagle.service 2>/dev/null)"
+        if [ -n "$wd" ] && [ -d "$wd" ]; then
+            printf '%s\n' "$wd"
+            return 0
+        fi
+    fi
+
+    if [ -d "$HOME/PixEagle" ]; then
+        printf '%s\n' "$HOME/PixEagle"
+        return 0
+    fi
+
+    return 1
+}
+
+get_yaml_int_value() {
+    local file_path="$1"
+    local key_name="$2"
+
+    [ -f "$file_path" ] || return 1
+
+    awk -F: -v key="$key_name" '
+        $1 ~ "^[[:space:]]*" key "[[:space:]]*$" {
+            val=$2
+            sub(/#.*/, "", val)
+            gsub(/[[:space:]]/, "", val)
+            if (val ~ /^[0-9]+$/) {
+                print val
+                exit 0
+            }
+        }
+    ' "$file_path"
+}
+
+get_env_int_value() {
+    local file_path="$1"
+    local key_name="$2"
+
+    [ -f "$file_path" ] || return 1
+
+    grep -E "^${key_name}=[0-9]+$" "$file_path" 2>/dev/null | head -n 1 | cut -d= -f2
+}
+
+print_pixeagle_ascii_banner() {
+    local banner_file=""
+
+    if [ -n "$repo_dir" ] && [ -f "$repo_dir/scripts/banner.txt" ]; then
+        banner_file="$repo_dir/scripts/banner.txt"
+    fi
+
+    if [ -n "$banner_file" ]; then
+        while IFS= read -r line; do
+            printf '%s\n' "${C_CYAN}${line}${C_NC}"
+        done < "$banner_file"
+        return 0
+    fi
+
+    # Fallback keeps output stable even if scripts/banner.txt is missing.
+    printf '%s\n' "${C_CYAN} _____ _      ______            _${C_NC}"
+    printf '%s\n' "${C_CYAN}|  __ (_)    |  ____|          | |${C_NC}"
+    printf '%s\n' "${C_CYAN}| |__) |__  _| |__   __ _  __ _| | ___${C_NC}"
+    printf '%s\n' "${C_CYAN}|  ___/ \\ \\/ /  __| / _\` |/ _\` | |/ _ \\${C_NC}"
+    printf '%s\n' "${C_CYAN}| |   | |>  <| |___| (_| | (_| | |  __/${C_NC}"
+    printf '%s\n' "${C_CYAN}|_|   |_/_/\\_\\______\\__,_|\\__, |_|\\___|${C_NC}"
+    printf '%s\n' "${C_CYAN}                           __/ |${C_NC}"
+    printf '%s\n' "${C_CYAN}                          |___/${C_NC}"
+}
+
+service_state="unknown"
+enabled_state="unknown"
+if command -v systemctl >/dev/null 2>&1; then
+    service_state="$(systemctl is-active pixeagle.service 2>/dev/null || echo "inactive")"
+    enabled_state="$(systemctl is-enabled pixeagle.service 2>/dev/null || echo "disabled")"
+fi
+
+repo_dir="$(get_service_workdir 2>/dev/null || true)"
+
+backend_port="5077"
+dashboard_port="3000"
+if [ -n "$repo_dir" ] && [ -f "$repo_dir/configs/config.yaml" ]; then
+    cfg_backend_port="$(get_yaml_int_value "$repo_dir/configs/config.yaml" "HTTP_STREAM_PORT" 2>/dev/null || true)"
+    [ -n "$cfg_backend_port" ] && backend_port="$cfg_backend_port"
+fi
+if [ -n "$repo_dir" ] && [ -f "$repo_dir/dashboard/.env" ]; then
+    cfg_dashboard_port="$(get_env_int_value "$repo_dir/dashboard/.env" "PORT" 2>/dev/null || true)"
+    [ -n "$cfg_dashboard_port" ] && dashboard_port="$cfg_dashboard_port"
+fi
+
+branch_name="unknown"
+commit_id="unknown"
+commit_date="unknown"
+origin_url="unknown"
+if [ -n "$repo_dir" ] && [ -d "$repo_dir/.git" ] && command -v git >/dev/null 2>&1; then
+    branch_name="$(git -C "$repo_dir" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")"
+    commit_id="$(git -C "$repo_dir" rev-parse --short HEAD 2>/dev/null || echo "unknown")"
+    commit_date="$(git -C "$repo_dir" show -s --date=format:'%Y-%m-%d %H:%M:%S %z' --format=%cd HEAD 2>/dev/null || echo "unknown")"
+    origin_url="$(git -C "$repo_dir" remote get-url origin 2>/dev/null || echo "unknown")"
+fi
+
+ipv4_list="$(hostname -I 2>/dev/null | tr ' ' '\n' | sed '/^$/d' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | sort -u | tr '\n' ' ')"
+if [ -z "$ipv4_list" ] && command -v ip >/dev/null 2>&1; then
+    ipv4_list="$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | sort -u | tr '\n' ' ')"
+fi
+[ -n "$ipv4_list" ] || ipv4_list="127.0.0.1"
+
+host_name="$(hostname 2>/dev/null || echo "unknown")"
+
+printf '\n'
+print_pixeagle_ascii_banner
+printf '%s\n' " ${C_BOLD}[PixEagle]${C_NC} host=${host_name} service=${service_state} enabled=${enabled_state}"
+
+if [ -n "$repo_dir" ]; then
+    printf '%s\n' " ${C_DIM}[Version] repo=${repo_dir}${C_NC}"
+fi
+printf '%s\n' " ${C_DIM}[Version] branch=${branch_name} commit=${commit_id} date=${commit_date}${C_NC}"
+printf '%s\n' " ${C_DIM}[Version] origin=${origin_url}${C_NC}"
+
+printf '%s\n' " [PixEagle] Access URLs:"
+for ip in $ipv4_list; do
+    printf '   - %-15s dashboard: http://%s:%s\n' "$ip" "$ip" "$dashboard_port"
+    printf '                    backend:   http://%s:%s/docs\n' "$ip" "$backend_port"
+done
+
+printf '%s\n' " [PixEagle] Commands: pixeagle-service status | pixeagle-service attach | pixeagle-service logs -f"
+printf '%s\n\n' " [PixEagle] Boot: sudo pixeagle-service enable | sudo pixeagle-service disable"
 EOF
+
+    sed -i "s/__SCOPE__/${scope_label}/g" "$target_file"
+}
+
+create_user_login_hint_script() {
+    write_login_hint_script "$LOGIN_HINT_SCRIPT" "user"
+}
+
+create_system_login_hint_script() {
+    write_login_hint_script "$SYSTEM_LOGIN_HINT_FILE" "system"
 }
 
 remove_login_hint_block() {

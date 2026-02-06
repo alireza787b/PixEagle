@@ -258,6 +258,9 @@ Production startup on Linux/systemd (Raspberry Pi/Jetson):
 - enabling system-wide SSH login hints
 - optional immediate service start and optional reboot validation
 
+After enabling SSH login hints in `make init`, open a new SSH session to validate
+the startup guide output.
+
 ```bash
 # Install command wrapper
 sudo bash scripts/service/install.sh
@@ -285,6 +288,19 @@ sudo pixeagle-service login-hint enable --system
 sudo reboot
 # after reconnect:
 pixeagle-service status
+```
+
+What the SSH login hint includes:
+- PixEagle ASCII banner
+- service status + boot enablement
+- dashboard/backend URLs for each detected IPv4 interface
+- repo metadata (branch, commit, commit date, origin)
+
+If your login still shows the old short 3-line hint after updating:
+
+```bash
+sudo pixeagle-service login-hint disable --system
+sudo pixeagle-service login-hint enable --system
 ```
 
 tmux session name: `pixeagle`

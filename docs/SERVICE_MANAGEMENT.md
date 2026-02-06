@@ -27,6 +27,9 @@ If you run `make init`, PixEagle will also walk you through:
 - enabling SSH login hint
 - optional immediate start and optional reboot validation
 
+For first-time setup, accept the guided defaults, then reconnect once after init
+to confirm the SSH startup guide output.
+
 ## Daily Operations
 
 Start/stop/restart:
@@ -100,6 +103,20 @@ sudo pixeagle-service login-hint enable --system
 ```
 
 Open a new SSH session after changing hint scope to verify output.
+
+System-scope hint output includes:
+- PixEagle ASCII banner
+- host + service + boot state
+- dashboard/backend URLs for each detected IPv4 interface
+- git metadata (repo path, branch, commit, commit date, origin)
+- quick service command references
+
+If output still shows an older short hint format after code update, regenerate:
+
+```bash
+sudo pixeagle-service login-hint disable --system
+sudo pixeagle-service login-hint enable --system
+```
 
 Disable for all users:
 

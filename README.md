@@ -277,12 +277,29 @@ sudo pixeagle-service login-hint enable --system
 sudo pixeagle-service login-hint disable --system
 ```
 
+System login hint now shows:
+- PixEagle ASCII banner
+- service and boot state
+- per-interface dashboard/backend URLs
+- repo metadata (branch, commit, date, origin)
+- quick operations commands
+
+If hint format still looks old after updating code, regenerate it:
+
+```bash
+sudo pixeagle-service login-hint disable --system
+sudo pixeagle-service login-hint enable --system
+```
+
 Tmux session name is standardized to: `pixeagle`.
 
 During `make init` on Linux/systemd, PixEagle now prompts for:
 - auto-start enablement
 - system-wide SSH login hint
 - optional immediate start and optional reboot validation
+
+When SSH login hint is enabled, open a new SSH session to verify the startup guide output
+(ASCII banner, per-interface URLs, and version metadata).
 
 > **More Info**: [Service Management Runbook](docs/SERVICE_MANAGEMENT.md) | [Installation Guide](docs/INSTALLATION.md)
 
