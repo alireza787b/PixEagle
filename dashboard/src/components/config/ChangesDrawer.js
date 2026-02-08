@@ -13,11 +13,11 @@ import PropTypes from 'prop-types';
 import {
   Drawer, Box, Typography, IconButton, Tabs, Tab, Chip, Button,
   List, ListItem, ListItemText, ListItemSecondaryAction, Divider,
-  Alert, Tooltip
+  Alert, Tooltip, useMediaQuery
 } from '@mui/material';
-import { alpha } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import {
-  Close, Save, Undo, Warning, Check, Schedule, Sync,
+  Close, Warning, Check, Schedule, Sync,
   RestartAlt, FlightTakeoff, GpsFixed
 } from '@mui/icons-material';
 
@@ -32,7 +32,18 @@ import { endpoints } from '../../services/apiEndpoints';
  * Tab panel component
  */
 const TabPanel = ({ children, value, index }) => (
-  <Box role="tabpanel" hidden={value !== index} sx={{ py: 2, overflow: 'auto', flexGrow: 1 }}>
+  <Box
+    role="tabpanel"
+    hidden={value !== index}
+    sx={{
+      py: 2,
+      overflow: 'auto',
+      overflowX: 'auto',
+      flexGrow: 1,
+      minHeight: 0,
+      minWidth: 0
+    }}
+  >
     {value === index && children}
   </Box>
 );
@@ -59,8 +70,10 @@ const ChangesDrawer = ({
   onMessage,
 }) => {
   const [tabIndex, setTabIndex] = useState(0);
+  const theme = useTheme();
+  const useFullWidthDrawer = useMediaQuery(theme.breakpoints.down('lg'));
   const globalState = useConfigGlobalState();
-  const { diff: modifiedFromDefaults, loading: diffLoading, refetch: refetchDiff } = useConfigDiff();
+  const { diff: modifiedFromDefaults, refetch: refetchDiff } = useConfigDiff();
 
   // Auto-refresh diff when drawer opens (v5.4.2)
   useEffect(() => {
@@ -107,13 +120,25 @@ const ChangesDrawer = ({
     }
   };
 
+  const drawerWidth = useMemo(() => {
+    if (useFullWidthDrawer) return '100vw';
+    return 'min(640px, 48vw)';
+  }, [useFullWidthDrawer]);
+
   return (
     <Drawer
       anchor="right"
       open={open}
       onClose={onClose}
+      ModalProps={{ keepMounted: true }}
       PaperProps={{
-        sx: { width: { xs: '100%', sm: 400, md: 450 }, display: 'flex', flexDirection: 'column' }
+        sx: {
+          width: drawerWidth,
+          maxWidth: '100vw',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden'
+        }
       }}
     >
       {/* Header */}
@@ -174,7 +199,17 @@ const ChangesDrawer = ({
       </Tabs>
 
       {/* Tab Panels */}
-      <Box sx={{ flexGrow: 1, overflow: 'auto', p: 2 }}>
+      <Box
+        sx={{
+          flexGrow: 1,
+          minHeight: 0,
+          minWidth: 0,
+          overflow: 'hidden',
+          p: 2,
+          display: 'flex',
+          flexDirection: 'column'
+        }}
+      >
         {/* Unsaved Tab */}
         <TabPanel value={tabIndex} index={0}>
           {unsavedCount === 0 ? (

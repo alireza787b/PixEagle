@@ -275,10 +275,6 @@ const SettingsPageContent = () => {
       <Box sx={{ mb: 2 }}>
         <ConfigStatusBanner
           compact={isMobile}
-          onSaveAll={() => {
-            // Save all functionality is handled by SectionEditor
-            handleSnackbar('Use Save All button in each section to save pending changes', 'info');
-          }}
           onViewChanges={() => setChangesDrawerOpen(true)}
         />
       </Box>

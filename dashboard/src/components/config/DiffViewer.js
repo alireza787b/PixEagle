@@ -1,13 +1,13 @@
 // dashboard/src/components/config/DiffViewer.js
 import React, { useState, useMemo } from 'react';
 import {
-  Box, Typography, Paper, Chip, Checkbox, FormControlLabel,
+  Box, Typography, Paper, Chip, Checkbox,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  IconButton, Tooltip, Collapse, TextField, InputAdornment
+  IconButton, Tooltip, TextField, InputAdornment
 } from '@mui/material';
 import {
   Add, Remove, Edit, ExpandMore, ExpandLess, Search,
-  CheckBox, CheckBoxOutlineBlank, IndeterminateCheckBox, Undo
+  CheckBox, CheckBoxOutlineBlank, Undo
 } from '@mui/icons-material';
 
 /**
@@ -152,14 +152,6 @@ const DiffViewer = ({
     }
   };
 
-  const getChangeColor = (changeType) => {
-    switch (changeType) {
-      case 'added': return 'success';
-      case 'removed': return 'error';
-      default: return 'warning';
-    }
-  };
-
   const formatValue = (value) => {
     if (value === null || value === undefined) {
       return <Typography component="span" color="text.disabled">null</Typography>;
@@ -268,17 +260,31 @@ const DiffViewer = ({
       )}
 
       {/* Diff table */}
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
+      <TableContainer
+        component={Paper}
+        variant="outlined"
+        sx={{
+          maxWidth: '100%',
+          overflowX: 'auto',
+          overflowY: 'hidden'
+        }}
+      >
+        <Table
+          size="small"
+          sx={{
+            minWidth: compact ? 0 : 620,
+            tableLayout: compact ? 'auto' : 'fixed'
+          }}
+        >
           <TableHead>
             <TableRow>
               {selectable && <TableCell padding="checkbox" />}
-              <TableCell sx={{ fontWeight: 'bold', width: 40 }}>Type</TableCell>
-              <TableCell sx={{ fontWeight: 'bold' }}>Parameter</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', width: 40, whiteSpace: 'nowrap' }}>Type</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', width: compact ? 'auto' : '22%' }}>Parameter</TableCell>
               {!compact && (
                 <>
-                  <TableCell sx={{ fontWeight: 'bold' }}>Current Value</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold' }}>Default Value</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', width: '34%' }}>Current Value</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', width: '34%' }}>Default Value</TableCell>
                 </>
               )}
               {onRevert && <TableCell sx={{ fontWeight: 'bold', width: 60 }}>Action</TableCell>}
@@ -356,7 +362,9 @@ const DiffViewer = ({
                           variant="body2"
                           sx={{
                             fontFamily: 'monospace',
-                            pl: 2
+                            pl: 2,
+                            overflowWrap: 'anywhere',
+                            wordBreak: 'break-word'
                           }}
                         >
                           {diff.parameter}
@@ -371,7 +379,10 @@ const DiffViewer = ({
                                 fontFamily: 'monospace',
                                 color: diff.change_type === 'added' ? 'text.disabled' : 'error.main',
                                 textDecoration: diff.change_type !== 'added' ? 'line-through' : 'none',
-                                opacity: diff.change_type === 'added' ? 0.5 : 1
+                                opacity: diff.change_type === 'added' ? 0.5 : 1,
+                                whiteSpace: 'normal',
+                                overflowWrap: 'anywhere',
+                                wordBreak: 'break-word'
                               }}
                             >
                               {diff.change_type === 'added' ? '-' : formatValue(diff.new_value)}
@@ -383,7 +394,10 @@ const DiffViewer = ({
                               sx={{
                                 fontFamily: 'monospace',
                                 color: diff.change_type === 'removed' ? 'text.disabled' : 'success.main',
-                                opacity: diff.change_type === 'removed' ? 0.5 : 1
+                                opacity: diff.change_type === 'removed' ? 0.5 : 1,
+                                whiteSpace: 'normal',
+                                overflowWrap: 'anywhere',
+                                wordBreak: 'break-word'
                               }}
                             >
                               {diff.change_type === 'removed' ? '-' : formatValue(diff.old_value)}

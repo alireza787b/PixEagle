@@ -12,6 +12,7 @@ import {
 } from '@mui/icons-material';
 
 import { useResponsive } from '../../hooks/useResponsive';
+import { parseCommittedNumeric } from '../../utils/numericInput';
 import SmartValueEditor from './SmartValueEditor';
 import SafetyLimitsEditor from './SafetyLimitsEditor';
 import { ReloadTierChip, RELOAD_TIERS } from './ReloadTierBadge';
@@ -75,12 +76,25 @@ const ParameterDetailDialog = ({
   configValues = {}
 }) => {
   const { isMobile, buttonSize, iconButtonSize } = useResponsive();
+  const type = paramSchema?.type || 'string';
+  const isNumericType = type === 'integer' || type === 'float';
+  const isModified = !isDeepEqual(currentValue, defaultValue);
+  const hasConstraints = paramSchema?.min !== undefined || paramSchema?.max !== undefined;
+  const minValue = paramSchema?.min;
+  const maxValue = paramSchema?.max;
+
   const [localValue, setLocalValue] = useState(currentValue);
+  const [numericDraft, setNumericDraft] = useState('');
   const [error, setError] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [customMode, setCustomMode] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
   const prevParamRef = useRef(null);
+
+  const formatNumericDraft = useCallback((value) => {
+    if (value === null || value === undefined) return '';
+    return String(value);
+  }, []);
 
   // Reset local state when dialog opens with new param
   // Use a ref to track previous param to avoid race conditions
@@ -101,12 +115,13 @@ const ParameterDetailDialog = ({
   useEffect(() => {
     if (open && param && currentValue !== undefined && !isInitialized) {
       setLocalValue(currentValue);
+      setNumericDraft(isNumericType ? formatNumericDraft(currentValue) : '');
       setError(null);
       setHasChanges(false);
       setCustomMode(false);
       setIsInitialized(true);
     }
-  }, [open, param, currentValue, isInitialized]);
+  }, [open, param, currentValue, isInitialized, isNumericType, formatNumericDraft]);
 
   // Track changes using deep comparison
   useEffect(() => {
@@ -115,34 +130,72 @@ const ParameterDetailDialog = ({
     }
   }, [localValue, currentValue, isInitialized]);
 
-  const type = paramSchema?.type || 'string';
-  const isModified = !isDeepEqual(currentValue, defaultValue);
-  const hasConstraints = paramSchema?.min !== undefined || paramSchema?.max !== undefined;
-
   // Validate value based on schema constraints
   const validateValue = useCallback((value) => {
-    if (type === 'integer' || type === 'float') {
-      const numValue = type === 'integer' ? parseInt(value, 10) : parseFloat(value);
-      if (isNaN(numValue)) {
+    if (isNumericType) {
+      if (!Number.isFinite(value)) {
         return 'Must be a valid number';
       }
-      if (paramSchema?.min !== undefined && numValue < paramSchema.min) {
-        return `Value must be at least ${paramSchema.min}`;
+      if (minValue !== undefined && value < minValue) {
+        return `Value must be at least ${minValue}`;
       }
-      if (paramSchema?.max !== undefined && numValue > paramSchema.max) {
-        return `Value must be at most ${paramSchema.max}`;
+      if (maxValue !== undefined && value > maxValue) {
+        return `Value must be at most ${maxValue}`;
       }
     }
     return null;
-  }, [type, paramSchema]);
+  }, [isNumericType, minValue, maxValue]);
 
   const handleValueChange = (newValue) => {
     setLocalValue(newValue);
+    if (isNumericType && Number.isFinite(newValue)) {
+      setNumericDraft(formatNumericDraft(newValue));
+    }
     const validationError = validateValue(newValue);
     setError(validationError);
   };
 
+  const handleNumericInputChange = (rawValue) => {
+    setNumericDraft(rawValue);
+    const parsed = parseCommittedNumeric(rawValue, type);
+    if (!parsed.valid) {
+      setError(parsed.transient ? null : 'Must be a valid number');
+      return;
+    }
+    const validationError = validateValue(parsed.value);
+    setError(validationError);
+    if (!validationError) {
+      setLocalValue(parsed.value);
+    }
+  };
+
+  const commitNumericDraft = useCallback(() => {
+    const parsed = parseCommittedNumeric(numericDraft, type);
+    if (!parsed.valid) {
+      setError('Must be a valid number');
+      return { valid: false, value: null };
+    }
+
+    const numericValue = parsed.value;
+    const validationError = validateValue(numericValue);
+    setError(validationError);
+    if (validationError) {
+      return { valid: false, value: null };
+    }
+
+    setLocalValue(numericValue);
+    setNumericDraft(formatNumericDraft(numericValue));
+    return { valid: true, value: numericValue };
+  }, [numericDraft, type, validateValue, formatNumericDraft]);
+
   const handleSave = () => {
+    if (isNumericType) {
+      const result = commitNumericDraft();
+      if (!result.valid) return;
+      onSave(param, result.value);
+      return;
+    }
+
     if (error) return;
     onSave(param, localValue);
   };
@@ -361,8 +414,15 @@ const ParameterDetailDialog = ({
             fullWidth
             type="number"
             label="Value"
-            value={localValue ?? ''}
-            onChange={(e) => handleValueChange(parseInt(e.target.value, 10) || 0)}
+            value={numericDraft}
+            onChange={(e) => handleNumericInputChange(e.target.value)}
+            onBlur={() => commitNumericDraft()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commitNumericDraft();
+              }
+            }}
             error={!!error}
             helperText={error || `Range: ${paramSchema.min} - ${paramSchema.max}${paramSchema.unit ? ` ${paramSchema.unit}` : ''}`}
             disabled={saving}
@@ -399,8 +459,15 @@ const ParameterDetailDialog = ({
             fullWidth
             type="number"
             label="Value"
-            value={localValue ?? ''}
-            onChange={(e) => handleValueChange(parseFloat(e.target.value) || 0)}
+            value={numericDraft}
+            onChange={(e) => handleNumericInputChange(e.target.value)}
+            onBlur={() => commitNumericDraft()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commitNumericDraft();
+              }
+            }}
             error={!!error}
             helperText={error || `Range: ${paramSchema.min} - ${paramSchema.max}${paramSchema.unit ? ` ${paramSchema.unit}` : ''}`}
             disabled={saving}
@@ -435,8 +502,15 @@ const ParameterDetailDialog = ({
           fullWidth
           type="number"
           label="Value"
-          value={localValue ?? ''}
-          onChange={(e) => handleValueChange(parseInt(e.target.value, 10) || 0)}
+          value={numericDraft}
+          onChange={(e) => handleNumericInputChange(e.target.value)}
+          onBlur={() => commitNumericDraft()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              commitNumericDraft();
+            }
+          }}
           error={!!error}
           helperText={error || (hasConstraints ? `Range: ${paramSchema.min ?? '-∞'} - ${paramSchema.max ?? '∞'}` : undefined)}
           disabled={saving}
@@ -457,8 +531,15 @@ const ParameterDetailDialog = ({
           fullWidth
           type="number"
           label="Value"
-          value={localValue ?? ''}
-          onChange={(e) => handleValueChange(parseFloat(e.target.value) || 0)}
+          value={numericDraft}
+          onChange={(e) => handleNumericInputChange(e.target.value)}
+          onBlur={() => commitNumericDraft()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              commitNumericDraft();
+            }
+          }}
           error={!!error}
           helperText={error || (hasConstraints ? `Range: ${paramSchema.min ?? '-∞'} - ${paramSchema.max ?? '∞'}` : undefined)}
           disabled={saving}

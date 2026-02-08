@@ -34,6 +34,7 @@ import {
   getPropertyByName,
   getFollowersByType
 } from '../../utils/safetySchemaUtils';
+import { clampNumericValue, parseCommittedNumeric } from '../../utils/numericInput';
 import { useResponsive } from '../../hooks/useResponsive';
 
 // Category icons mapping
@@ -63,20 +64,24 @@ const PropertyRow = ({
   disabled
 }) => {
   const propMeta = getPropertyByName(propertyName);
-  const [localValue, setLocalValue] = useState(value);
+  const [localValue, setLocalValue] = useState(() => String(value ?? ''));
   const [isFocused, setIsFocused] = useState(false);
 
-  const handleBlur = () => {
-    setIsFocused(false);
-    if (localValue !== value) {
-      onChange(propertyName, localValue);
-    }
-  };
-
   const handleSliderChange = (_, newValue) => {
-    setLocalValue(newValue);
     onChange(propertyName, newValue);
   };
+
+  useEffect(() => {
+    if (!isFocused) {
+      setLocalValue(String(value ?? ''));
+    }
+  }, [value, isFocused]);
+
+  // For number type (or unknown custom properties)
+  const isCustomProperty = !propMeta;
+  const min = propMeta?.min ?? 0;
+  const max = propMeta?.max ?? 1000;
+  const step = propMeta?.step ?? 0.1;
 
   // For boolean type
   if (propMeta?.type === 'boolean') {
@@ -124,12 +129,6 @@ const PropertyRow = ({
     );
   }
 
-  // For number type (or unknown custom properties)
-  const isCustomProperty = !propMeta;
-  const min = propMeta?.min ?? 0;
-  const max = propMeta?.max ?? 1000;
-  const step = propMeta?.step ?? 0.1;
-
   return (
     <TableRow hover>
       <TableCell>
@@ -155,10 +154,25 @@ const PropertyRow = ({
           <TextField
             size="small"
             type="number"
-            value={isFocused ? localValue : value}
-            onChange={(e) => setLocalValue(parseFloat(e.target.value) || 0)}
-            onFocus={() => { setIsFocused(true); setLocalValue(value); }}
-            onBlur={handleBlur}
+            value={localValue}
+            onChange={(e) => setLocalValue(e.target.value)}
+            onFocus={() => {
+              setIsFocused(true);
+              setLocalValue(String(value ?? ''));
+            }}
+            onBlur={() => {
+              setIsFocused(false);
+              const parsed = parseCommittedNumeric(localValue, 'float');
+              if (!parsed.valid) {
+                setLocalValue(String(value ?? ''));
+                return;
+              }
+              const boundedValue = clampNumericValue(parsed.value, min, max);
+              setLocalValue(String(boundedValue));
+              if (boundedValue !== value) {
+                onChange(propertyName, boundedValue);
+              }
+            }}
             disabled={disabled}
             inputProps={{ min, max, step }}
             sx={{ width: 100 }}
@@ -175,7 +189,10 @@ const PropertyRow = ({
           <Slider
             size="small"
             value={typeof value === 'number' ? value : 0}
-            onChange={handleSliderChange}
+            onChange={(_, newValue) => {
+              handleSliderChange(_, newValue);
+              setLocalValue(String(newValue));
+            }}
             min={min}
             max={max}
             step={step}
@@ -218,18 +235,10 @@ const PropertyCard = ({
   disabled
 }) => {
   const propMeta = getPropertyByName(propertyName);
-  const [localValue, setLocalValue] = useState(value);
+  const [localValue, setLocalValue] = useState(() => String(value ?? ''));
   const [isFocused, setIsFocused] = useState(false);
 
-  const handleBlur = () => {
-    setIsFocused(false);
-    if (localValue !== value) {
-      onChange(propertyName, localValue);
-    }
-  };
-
   const handleSliderChange = (_, newValue) => {
-    setLocalValue(newValue);
     onChange(propertyName, newValue);
   };
 
@@ -237,6 +246,12 @@ const PropertyCard = ({
   const min = propMeta?.min ?? 0;
   const max = propMeta?.max ?? 1000;
   const step = propMeta?.step ?? 0.1;
+
+  useEffect(() => {
+    if (!isFocused) {
+      setLocalValue(String(value ?? ''));
+    }
+  }, [value, isFocused]);
 
   return (
     <Card variant="outlined" sx={{ mb: 2 }}>
@@ -281,10 +296,25 @@ const PropertyCard = ({
               size="small"
               type="number"
               label="Value"
-              value={isFocused ? localValue : value}
-              onChange={(e) => setLocalValue(parseFloat(e.target.value) || 0)}
-              onFocus={() => { setIsFocused(true); setLocalValue(value); }}
-              onBlur={handleBlur}
+              value={localValue}
+              onChange={(e) => setLocalValue(e.target.value)}
+              onFocus={() => {
+                setIsFocused(true);
+                setLocalValue(String(value ?? ''));
+              }}
+              onBlur={() => {
+                setIsFocused(false);
+                const parsed = parseCommittedNumeric(localValue, 'float');
+                if (!parsed.valid) {
+                  setLocalValue(String(value ?? ''));
+                  return;
+                }
+                const boundedValue = clampNumericValue(parsed.value, min, max);
+                setLocalValue(String(boundedValue));
+                if (boundedValue !== value) {
+                  onChange(propertyName, boundedValue);
+                }
+              }}
               disabled={disabled}
               inputProps={{ min, max, step }}
               InputProps={{
@@ -301,7 +331,10 @@ const PropertyCard = ({
             <Slider
               size="small"
               value={typeof value === 'number' ? value : 0}
-              onChange={handleSliderChange}
+              onChange={(_, newValue) => {
+                handleSliderChange(_, newValue);
+                setLocalValue(String(newValue));
+              }}
               min={min}
               max={max}
               step={step}
@@ -376,9 +409,14 @@ const AddPropertyDialog = ({
     const effectiveFollower = isOverrides ? dialogFollower : null;
 
     if (propName && propertyValue !== '' && (!isOverrides || effectiveFollower)) {
-      const value = selectedMeta?.type === 'boolean'
-        ? propertyValue === 'true'
-        : parseFloat(propertyValue);
+      let value;
+      if (selectedMeta?.type === 'boolean') {
+        value = propertyValue === 'true';
+      } else {
+        const parsed = parseCommittedNumeric(propertyValue, 'float');
+        if (!parsed.valid) return;
+        value = clampNumericValue(parsed.value, selectedMeta?.min, selectedMeta?.max);
+      }
 
       // If follower changed in dialog, notify parent
       if (isOverrides && onFollowerChange && effectiveFollower !== selectedFollower) {

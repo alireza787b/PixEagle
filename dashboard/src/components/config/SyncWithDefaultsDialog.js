@@ -21,6 +21,7 @@ import {
   Tab,
   Tabs,
   Typography,
+  useMediaQuery,
 } from '@mui/material';
 import {
   Add,
@@ -30,6 +31,7 @@ import {
   Sync,
   Warning,
 } from '@mui/icons-material';
+import { useTheme } from '@mui/material/styles';
 
 import { useDefaultsSync } from '../../hooks/useDefaultsSync';
 
@@ -69,6 +71,8 @@ const formatValue = (value) => {
 };
 
 const SyncWithDefaultsDialog = ({ open, onClose, onMessage }) => {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('md'));
   const {
     newParameters,
     changedDefaults,
@@ -229,8 +233,23 @@ const SyncWithDefaultsDialog = ({ open, onClose, onMessage }) => {
 
   if (loading && open) {
     return (
-      <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
-        <DialogContent>
+      <Dialog
+        open={open}
+        onClose={onClose}
+        maxWidth={fullScreen ? false : 'lg'}
+        fullWidth={!fullScreen}
+        fullScreen={fullScreen}
+        PaperProps={{
+          sx: {
+            width: fullScreen ? '100%' : 'min(1200px, 96vw)',
+            maxWidth: '96vw',
+            maxHeight: fullScreen ? '100vh' : '92vh',
+            m: fullScreen ? 0 : 2,
+            overflow: 'hidden'
+          }
+        }}
+      >
+        <DialogContent sx={{ overflowX: 'auto', minWidth: 0 }}>
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 5 }}>
             <CircularProgress />
           </Box>
@@ -240,14 +259,29 @@ const SyncWithDefaultsDialog = ({ open, onClose, onMessage }) => {
   }
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth={fullScreen ? false : 'lg'}
+      fullWidth={!fullScreen}
+      fullScreen={fullScreen}
+      PaperProps={{
+        sx: {
+          width: fullScreen ? '100%' : 'min(1200px, 96vw)',
+          maxWidth: '96vw',
+          maxHeight: fullScreen ? '100vh' : '92vh',
+          m: fullScreen ? 0 : 2,
+          overflow: 'hidden'
+        }
+      }}
+    >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <Sync color="info" />
         Config Sync
         {counts.total > 0 && <Chip label={`${counts.total} items`} color="info" size="small" />}
       </DialogTitle>
 
-      <DialogContent dividers>
+      <DialogContent dividers sx={{ overflowX: 'auto', minWidth: 0 }}>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
         <Alert severity="info" sx={{ mb: 2 }}>

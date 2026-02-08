@@ -14,6 +14,7 @@ import {
 import { useConfigSection } from '../../hooks/useConfig';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useConfigGlobalState } from '../../hooks/useConfigGlobalState';
+import { parseCommittedNumeric } from '../../utils/numericInput';
 import ParameterDetailDialog from './ParameterDetailDialog';
 import SmartValueEditor from './SmartValueEditor';
 import SafetyLimitsEditor from './SafetyLimitsEditor';
@@ -49,43 +50,55 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
   const { touchTargetSize } = useResponsive();
   const paramSchema = schema?.parameters?.[param] || {};
   const type = paramSchema.type || 'string';
+  const minValue = paramSchema.min;
+  const maxValue = paramSchema.max;
+  const unitLabel = paramSchema.unit;
   const isModified = !isDeepEqual(value, defaultValue);
+  const isNumericType = type === 'integer' || type === 'float';
+  const formatInputValue = useCallback((nextValue) => {
+    if (!isNumericType) return nextValue;
+    if (nextValue === null || nextValue === undefined) return '';
+    return String(nextValue);
+  }, [isNumericType]);
 
   // Use ref to track current input value for blur handling (must be called unconditionally)
-  const currentValueRef = useRef(value);
-  const [localInput, setLocalInput] = useState(value);
+  const currentValueRef = useRef(formatInputValue(value));
+  const [localInput, setLocalInput] = useState(() => formatInputValue(value));
+  const [isFocused, setIsFocused] = useState(false);
   const [validationError, setValidationError] = useState(null);
 
   // Sync local input with prop value when it changes externally
   useEffect(() => {
-    setLocalInput(value);
-    currentValueRef.current = value;
+    if (!isNumericType || !isFocused) {
+      const nextValue = formatInputValue(value);
+      setLocalInput(nextValue);
+      currentValueRef.current = nextValue;
+    }
     setValidationError(null);
-  }, [value]);
+  }, [value, isNumericType, formatInputValue, isFocused]);
 
   // Validate value based on schema constraints
   const validateValue = useCallback((val) => {
-    if (type === 'integer' || type === 'float') {
-      const numValue = type === 'integer' ? parseInt(val, 10) : parseFloat(val);
-      if (isNaN(numValue)) return 'Invalid number';
-      if (paramSchema.min !== undefined && numValue < paramSchema.min) {
-        return `Min: ${paramSchema.min}`;
+    if (isNumericType) {
+      if (!Number.isFinite(val)) return 'Invalid number';
+      if (minValue !== undefined && val < minValue) {
+        return `Min: ${minValue}`;
       }
-      if (paramSchema.max !== undefined && numValue > paramSchema.max) {
-        return `Max: ${paramSchema.max}`;
+      if (maxValue !== undefined && val > maxValue) {
+        return `Max: ${maxValue}`;
       }
     }
     return null;
-  }, [type, paramSchema]);
+  }, [isNumericType, minValue, maxValue]);
 
   // Build helper text showing constraints
   const getHelperText = () => {
     if (validationError) return validationError;
-    if (type === 'integer' || type === 'float') {
+    if (isNumericType) {
       const parts = [];
-      if (paramSchema.min !== undefined) parts.push(`Min: ${paramSchema.min}`);
-      if (paramSchema.max !== undefined) parts.push(`Max: ${paramSchema.max}`);
-      if (paramSchema.unit) parts.push(paramSchema.unit);
+      if (minValue !== undefined) parts.push(`Min: ${minValue}`);
+      if (maxValue !== undefined) parts.push(`Max: ${maxValue}`);
+      if (unitLabel) parts.push(unitLabel);
       return parts.length > 0 ? parts.join(' | ') : undefined;
     }
     return undefined;
@@ -99,7 +112,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
     onChange(param, newValue);
   };
 
-  const handleBlur = () => {
+  const handleNonNumericBlur = () => {
     // Only auto-save on blur if autoSaveEnabled is true
     if (!autoSaveEnabled) return;
 
@@ -107,6 +120,50 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
     // Only save if value actually changed and no validation error
     if (!validationError && (currentValue !== value || (currentValue !== defaultValue && saveStatus !== 'saved'))) {
       onSave(param, currentValue);
+    }
+  };
+
+  const handleNumericInputChange = (rawValue) => {
+    setLocalInput(rawValue);
+    currentValueRef.current = rawValue;
+
+    const parsed = parseCommittedNumeric(rawValue, type);
+    if (!parsed.valid) {
+      setValidationError(parsed.transient ? null : 'Invalid number');
+      return;
+    }
+
+    const error = validateValue(parsed.value);
+    setValidationError(error);
+    if (!error) {
+      onChange(param, parsed.value);
+    }
+  };
+
+  const handleNumericBlur = () => {
+    setIsFocused(false);
+    const parsed = parseCommittedNumeric(currentValueRef.current, type);
+    if (!parsed.valid) {
+      const restored = formatInputValue(value);
+      setLocalInput(restored);
+      currentValueRef.current = restored;
+      setValidationError('Invalid number');
+      return;
+    }
+
+    const numericValue = parsed.value;
+    const error = validateValue(numericValue);
+    setValidationError(error);
+    if (error) return;
+
+    const normalized = formatInputValue(numericValue);
+    setLocalInput(normalized);
+    currentValueRef.current = normalized;
+    onChange(param, numericValue);
+
+    if (!autoSaveEnabled) return;
+    if (!isDeepEqual(numericValue, value) || (!isDeepEqual(numericValue, defaultValue) && saveStatus !== 'saved')) {
+      onSave(param, numericValue);
     }
   };
 
@@ -189,9 +246,15 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
           size={touchTargetSize}
           fullWidth={mobileMode}
           value={localInput ?? ''}
-          onChange={(e) => handleInputChange(parseInt(e.target.value, 10) || 0)}
-          onBlur={handleBlur}
-          onKeyDown={(e) => e.key === 'Enter' && handleBlur()}
+          onChange={(e) => handleNumericInputChange(e.target.value)}
+          onFocus={() => setIsFocused(true)}
+          onBlur={handleNumericBlur}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleNumericBlur();
+            }
+          }}
           disabled={saveStatus === 'saving'}
           error={!!validationError}
           helperText={helperText}
@@ -220,9 +283,15 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
           size={touchTargetSize}
           fullWidth={mobileMode}
           value={localInput ?? ''}
-          onChange={(e) => handleInputChange(parseFloat(e.target.value) || 0)}
-          onBlur={handleBlur}
-          onKeyDown={(e) => e.key === 'Enter' && handleBlur()}
+          onChange={(e) => handleNumericInputChange(e.target.value)}
+          onFocus={() => setIsFocused(true)}
+          onBlur={handleNumericBlur}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleNumericBlur();
+            }
+          }}
           disabled={saveStatus === 'saving'}
           error={!!validationError}
           helperText={helperText}
@@ -388,8 +457,8 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
         fullWidth={mobileMode}
         value={localInput ?? ''}
         onChange={(e) => handleInputChange(e.target.value)}
-        onBlur={handleBlur}
-        onKeyDown={(e) => e.key === 'Enter' && handleBlur()}
+        onBlur={handleNonNumericBlur}
+        onKeyDown={(e) => e.key === 'Enter' && handleNonNumericBlur()}
         disabled={saveStatus === 'saving'}
         sx={{ ...inputSx, width: mobileMode ? '100%' : 200 }}
       />
@@ -417,7 +486,6 @@ const ParameterCard = ({
   const { buttonSize } = useResponsive();
   const paramSchema = schema?.parameters?.[param] || {};
   const isModified = !isDeepEqual(value, defaultValue);
-  const type = paramSchema.type || 'string';
 
   return (
     <Card
@@ -513,7 +581,7 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage, autoSaveEnabl
     revertSection,
     refetch
   } = useConfigSection(sectionName);
-  const { isMobile, isTablet, spacing } = useResponsive();
+  const { isMobile, isTablet } = useResponsive();
   const globalState = useConfigGlobalState();
 
   // Use card layout on mobile/tablet, OR always for Safety section (has complex embedded editors)
