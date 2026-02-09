@@ -26,6 +26,7 @@ ELEMENTS:
   # System info
   name:
     enabled: true
+    layer: static
     text: "PixEagle - FULL TELEMETRY"
     anchor: "top-left"
     offset: [5, 5]
@@ -35,6 +36,7 @@ ELEMENTS:
 
   datetime:
     enabled: true
+    layer: slow_dynamic
     anchor: "top-right"
     offset: [-5, 5]
     font_scale: 0.45
@@ -44,12 +46,14 @@ ELEMENTS:
 
   crosshair:
     enabled: true
+    layer: static
     color: [0, 255, 0]
     thickness: 1
     length: 10
 
   attitude_indicator:
     enabled: true
+    layer: dynamic
     position: [50, 50]
     size: [10, 10]          # Small to save space (10% not 50%!)
     horizon_color: [255, 255, 255]
@@ -63,6 +67,7 @@ ELEMENTS:
 
   mavlink_data:
     enabled: true
+    layer: dynamic
     fields:
       # === LEFT COLUMN - Navigation & Position ===
       # Flight mode
@@ -196,6 +201,7 @@ ELEMENTS:
 
   tracker_status:
     enabled: true
+    layer: dynamic
     anchor: "bottom-right"
     offset: [-5, -45]
     font_scale: 0.45
@@ -204,6 +210,7 @@ ELEMENTS:
 
   follower_status:
     enabled: true
+    layer: dynamic
     anchor: "bottom-right"
     offset: [-5, -20]
     font_scale: 0.45

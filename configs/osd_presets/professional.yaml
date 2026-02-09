@@ -28,6 +28,7 @@ ELEMENTS:
   # ===========================================================================
   name:
     enabled: true
+    layer: static
     text: "PixEagle"
     anchor: "top-left"
     offset: [10, 10]
@@ -40,6 +41,7 @@ ELEMENTS:
   # ===========================================================================
   datetime:
     enabled: true
+    layer: slow_dynamic
     anchor: "top-right"
     offset: [0, 10]                # Anchor handles right alignment automatically
     font_scale: 0.5                # Slightly larger, more readable
@@ -51,12 +53,14 @@ ELEMENTS:
   # ===========================================================================
   crosshair:
     enabled: true
+    layer: static
     color: [0, 255, 0]             # Green
     thickness: 1                   # Thin and subtle
     length: 8                      # Short
 
   attitude_indicator:
     enabled: true
+    layer: dynamic
     position: [48, 50]             # Slightly left of center
     size: [8, 8]                   # MUCH smaller (8% not 60%!)
     horizon_color: [255, 255, 255]
@@ -68,6 +72,7 @@ ELEMENTS:
   # ===========================================================================
   mavlink_data:
     enabled: true
+    layer: dynamic
     fields:
       # === TOP CENTER - Flight Mode (Most Critical) ===
       flight_mode:
@@ -170,6 +175,7 @@ ELEMENTS:
   # ===========================================================================
   tracker_status:
     enabled: true
+    layer: dynamic
     anchor: "bottom-right"
     offset: [-10, -30]
     font_scale: 0.5
@@ -178,6 +184,7 @@ ELEMENTS:
 
   follower_status:
     enabled: true
+    layer: dynamic
     anchor: "bottom-right"
     offset: [-10, -5]
     font_scale: 0.5

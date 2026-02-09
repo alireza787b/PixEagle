@@ -19,8 +19,9 @@ import numpy as np
 import time
 import logging
 import yaml
+from collections import deque
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, Iterable
 from .osd_text_renderer import OSDTextRenderer, TextStyle
 from .osd_layout_manager import OSDLayoutManager, Anchor
 from .parameters import Parameters
@@ -85,6 +86,9 @@ class OSDRenderer:
         # Performance tracking
         self.last_render_time = 0
         self.render_count = 0
+        self.render_time_samples = deque(maxlen=180)
+        self.last_overlay_render_time = 0
+        self.overlay_render_samples = deque(maxlen=180)
 
         preset_name = getattr(Parameters, 'OSD_PRESET', 'professional')
         logger.info(f"OSDRenderer initialized with preset '{preset_name}'")
@@ -147,21 +151,25 @@ class OSDRenderer:
             }
         }
 
-    def _initialize_renderers(self, width: int, height: int):
+    def _initialize_renderers(self, width: int, height: int, performance_mode: Optional[str] = None):
         """
         Initialize or reinitialize rendering engines with new dimensions.
 
         Args:
             width: Frame width
             height: Frame height
+            performance_mode: Optional rendering mode override
         """
         # Get performance mode from Parameters (defaults to "balanced")
-        performance_mode = getattr(Parameters, 'OSD_PERFORMANCE_MODE', 'balanced')
+        mode = str(performance_mode or getattr(Parameters, 'OSD_PERFORMANCE_MODE', 'balanced')).strip().lower()
+        if mode not in {'fast', 'balanced', 'quality'}:
+            mode = 'balanced'
+        self.current_performance_mode = mode
 
-        self.text_renderer = OSDTextRenderer(width, height, self.base_font_scale, performance_mode)
+        self.text_renderer = OSDTextRenderer(width, height, self.base_font_scale, mode)
         self.layout_manager = OSDLayoutManager(width, height, self.safe_zone_margin)
 
-        logger.debug(f"Rendering engines initialized for {width}x{height} (performance mode: {performance_mode})")
+        logger.debug(f"Rendering engines initialized for {width}x{height} (performance mode: {mode})")
 
     def _check_frame_size_change(self, frame: np.ndarray) -> bool:
         """
@@ -187,6 +195,192 @@ class OSDRenderer:
             return True
 
         return False
+
+    def _resolve_element_layer(self, element_name: str, config: Dict[str, Any]) -> str:
+        """
+        Resolve element layer with backward-compatible defaults.
+
+        Supported layers:
+        - static
+        - slow_dynamic
+        - dynamic
+        """
+        explicit_layer = str(config.get("layer", "")).strip().lower()
+        if explicit_layer in {"static", "slow_dynamic", "dynamic"}:
+            return explicit_layer
+
+        default_layers = {
+            "name": "static",
+            "crosshair": "static",
+            "datetime": "slow_dynamic",
+            "mavlink_data": "dynamic",
+            "attitude_indicator": "dynamic",
+            "tracker_status": "dynamic",
+            "follower_status": "dynamic",
+        }
+        return default_layers.get(element_name, "dynamic")
+
+    def _iter_enabled_elements(self, layer_filter: Optional[str] = None) -> Iterable[Tuple[str, Dict[str, Any]]]:
+        """Yield enabled OSD elements, optionally filtered by layer."""
+        for element_name, config in self.osd_elements.items():
+            if not isinstance(config, dict):
+                continue
+            if not config.get("enabled", False):
+                continue
+            if layer_filter and self._resolve_element_layer(element_name, config) != layer_filter:
+                continue
+            yield element_name, config
+
+    @staticmethod
+    def _alpha_over_rgba(bottom: np.ndarray, top: np.ndarray) -> np.ndarray:
+        """Alpha composite top RGBA over bottom RGBA."""
+        if bottom is None:
+            return top
+        if top is None:
+            return bottom
+
+        bottom_f = bottom.astype(np.float32) / 255.0
+        top_f = top.astype(np.float32) / 255.0
+
+        bottom_a = bottom_f[..., 3:4]
+        top_a = top_f[..., 3:4]
+
+        out_a = top_a + bottom_a * (1.0 - top_a)
+        denom = np.clip(out_a, 1e-6, None)
+        out_rgb = (top_f[..., :3] * top_a + bottom_f[..., :3] * bottom_a * (1.0 - top_a)) / denom
+        out = np.concatenate([out_rgb, out_a], axis=2)
+        return np.clip(out * 255.0, 0, 255).astype(np.uint8)
+
+    @staticmethod
+    def _bgr_to_rgba_with_mask(frame_bgr: np.ndarray) -> np.ndarray:
+        """
+        Convert BGR frame to RGBA where alpha is inferred from non-zero pixels.
+
+        Used for OpenCV-drawn shapes on transparent overlays.
+        """
+        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        alpha = (np.any(frame_bgr > 0, axis=2).astype(np.uint8) * 255)
+        return np.dstack([rgb, alpha])
+
+    def render_overlay(
+        self,
+        frame_shape: Tuple[int, int, int],
+        layer_filter: Optional[str] = None,
+    ) -> Optional[np.ndarray]:
+        """
+        Render selected OSD elements into a transparent RGBA overlay.
+
+        Args:
+            frame_shape: Target frame shape (h, w, c)
+            layer_filter: Optional layer name (static|slow_dynamic|dynamic)
+
+        Returns:
+            RGBA overlay or None when no drawable pixels are generated
+        """
+        if not self.osd_enabled:
+            return None
+
+        frame_h, frame_w = frame_shape[:2]
+        working_frame = np.zeros((frame_h, frame_w, 3), dtype=np.uint8)
+
+        # Keep renderers synced to target size
+        self._check_frame_size_change(working_frame)
+        self.layout_manager.clear_elements()
+
+        start = time.perf_counter()
+        self.text_renderer.initialize_overlay(working_frame.shape)
+
+        has_rendered = False
+        for element_name, config in self._iter_enabled_elements(layer_filter=layer_filter):
+            working_frame = self._render_element(working_frame, element_name, config)
+            has_rendered = True
+
+        text_overlay_rgba = self.text_renderer.get_overlay_rgba()
+        shape_overlay_rgba = self._bgr_to_rgba_with_mask(working_frame)
+
+        if text_overlay_rgba is None:
+            combined = shape_overlay_rgba
+        else:
+            combined = self._alpha_over_rgba(text_overlay_rgba, shape_overlay_rgba)
+
+        self.last_overlay_render_time = (time.perf_counter() - start)
+        self.overlay_render_samples.append(self.last_overlay_render_time)
+
+        if not has_rendered:
+            return None
+        if combined is None:
+            return None
+        if not np.any(combined[..., 3] > 0):
+            return None
+
+        return combined
+
+    def composite_overlay_rgba(
+        self,
+        frame: np.ndarray,
+        overlay_rgba: Optional[np.ndarray],
+        method: str = "cv2_alpha",
+    ) -> np.ndarray:
+        """
+        Composite RGBA overlay onto BGR frame.
+
+        Args:
+            frame: BGR frame
+            overlay_rgba: RGBA overlay
+            method: Compositor mode ("cv2_alpha" or "legacy_pil_composite")
+
+        Returns:
+            BGR frame
+        """
+        if overlay_rgba is None or frame is None:
+            return frame
+
+        frame_h, frame_w = frame.shape[:2]
+        if overlay_rgba.shape[0] != frame_h or overlay_rgba.shape[1] != frame_w:
+            overlay_rgba = cv2.resize(overlay_rgba, (frame_w, frame_h), interpolation=cv2.INTER_LINEAR)
+
+        alpha = overlay_rgba[..., 3:4].astype(np.float32) / 255.0
+        if not np.any(alpha > 0):
+            return frame
+
+        # RGBA (RGB color order) -> BGR
+        overlay_bgr = overlay_rgba[..., :3][:, :, ::-1].astype(np.float32)
+        frame_f = frame.astype(np.float32)
+
+        if method == "legacy_pil_composite":
+            # Kept as compatibility mode; still uses vectorized alpha blend.
+            out = overlay_bgr * alpha + frame_f * (1.0 - alpha)
+            return np.clip(out, 0, 255).astype(np.uint8)
+
+        out = overlay_bgr * alpha + frame_f * (1.0 - alpha)
+        return np.clip(out, 0, 255).astype(np.uint8)
+
+    def set_performance_mode(self, mode: str) -> bool:
+        """
+        Update OSD rendering performance mode at runtime.
+
+        Args:
+            mode: fast|balanced|quality
+
+        Returns:
+            True when mode changed, False otherwise
+        """
+        requested_mode = str(mode).strip().lower()
+        if requested_mode not in {"fast", "balanced", "quality"}:
+            logger.warning("Invalid OSD performance mode requested: %s", mode)
+            return False
+
+        if requested_mode == self.current_performance_mode:
+            return False
+
+        Parameters.OSD_PERFORMANCE_MODE = requested_mode
+        self._initialize_renderers(self.frame_width, self.frame_height, performance_mode=requested_mode)
+        logger.info("OSD performance mode changed: %s", requested_mode)
+        return True
+
+    def get_performance_mode(self) -> str:
+        """Get current OSD performance mode."""
+        return self.current_performance_mode
 
     def render(self, frame: np.ndarray) -> np.ndarray:
         """
@@ -245,6 +439,7 @@ class OSDRenderer:
         # Update performance metrics
         self.last_render_time = time.time() - start_time
         self.render_count += 1
+        self.render_time_samples.append(self.last_render_time)
 
         # Log performance periodically
         if self.render_count % 100 == 0:
@@ -645,10 +840,22 @@ class OSDRenderer:
         Returns:
             Dictionary with performance metrics
         """
+        render_avg_ms = 0.0
+        if self.render_time_samples:
+            render_avg_ms = (sum(self.render_time_samples) / len(self.render_time_samples)) * 1000.0
+
+        overlay_avg_ms = 0.0
+        if self.overlay_render_samples:
+            overlay_avg_ms = (sum(self.overlay_render_samples) / len(self.overlay_render_samples)) * 1000.0
+
         return {
             'last_render_time_ms': self.last_render_time * 1000,
+            'avg_render_time_ms': render_avg_ms,
+            'last_overlay_render_time_ms': self.last_overlay_render_time * 1000,
+            'avg_overlay_render_time_ms': overlay_avg_ms,
             'render_count': self.render_count,
             'frame_size': f"{self.frame_width}x{self.frame_height}",
+            'performance_mode': self.current_performance_mode,
             'base_font_size': self.text_renderer.base_font_size if self.text_renderer else 0,
             'fonts_cached': len(self.text_renderer.font_cache) if self.text_renderer else 0
         }

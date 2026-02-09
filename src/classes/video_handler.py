@@ -1058,30 +1058,57 @@ class VideoHandler:
         self.frame_history.clear()
         logger.debug("Frame history cleared")
     
-    def update_resized_frames(self, width: int, height: int) -> None:
+    def resize_frame(self, frame: Optional[Any], width: int, height: int) -> Optional[Any]:
+        """
+        Resize a frame safely only when needed.
+
+        Args:
+            frame: Source frame
+            width: Target width
+            height: Target height
+
+        Returns:
+            Resized frame, original frame copy, or None
+        """
+        if frame is None:
+            return None
+        if frame.shape[1] == width and frame.shape[0] == height:
+            return frame.copy()
+        return cv2.resize(frame, (width, height), interpolation=cv2.INTER_LINEAR)
+
+    def update_resized_frames(
+        self,
+        width: int,
+        height: int,
+        resize_raw: bool = True,
+        resize_osd: bool = True,
+        raw_frame: Optional[Any] = None,
+        osd_frame: Optional[Any] = None,
+    ) -> None:
         """
         Resize frames for streaming.
         
         Args:
             width: Target width
             height: Target height
+            resize_raw: Whether to resize/store raw frame output
+            resize_osd: Whether to resize/store OSD frame output
+            raw_frame: Optional override source for raw frame
+            osd_frame: Optional override source for OSD frame
         """
         try:
-            # Resize raw frame
-            if self.current_raw_frame is not None:
-                self.current_resized_raw_frame = cv2.resize(
-                    self.current_raw_frame, (width, height), 
-                    interpolation=cv2.INTER_LINEAR
-                )
+            source_raw = self.current_raw_frame if raw_frame is None else raw_frame
+            source_osd = self.current_osd_frame if osd_frame is None else osd_frame
+
+            # Resize raw frame only when requested
+            if resize_raw:
+                self.current_resized_raw_frame = self.resize_frame(source_raw, width, height)
             else:
                 self.current_resized_raw_frame = None
-            
-            # Resize OSD frame
-            if self.current_osd_frame is not None:
-                self.current_resized_osd_frame = cv2.resize(
-                    self.current_osd_frame, (width, height),
-                    interpolation=cv2.INTER_LINEAR
-                )
+
+            # Resize OSD frame only when requested
+            if resize_osd:
+                self.current_resized_osd_frame = self.resize_frame(source_osd, width, height)
             else:
                 self.current_resized_osd_frame = None
                 

@@ -682,6 +682,13 @@ class FastAPIHandler:
                     'frame_drops': client.frame_drops,
                     'bandwidth_kbps': client.bandwidth_estimate * 8 / 1024
                 })
+
+        osd_pipeline_stats = {}
+        if hasattr(self.app_controller, 'osd_pipeline'):
+            try:
+                osd_pipeline_stats = self.app_controller.osd_pipeline.get_stats()
+            except Exception as osd_stats_error:
+                self.logger.debug(f"Could not read OSD pipeline stats: {osd_stats_error}")
         
         return JSONResponse(content={
             'frames_sent': self.stats['frames_sent'],
@@ -691,7 +698,8 @@ class FastAPIHandler:
             'websocket_connections': len(self.ws_connections),
             'websocket_clients': ws_clients_info,
             'cache_size': len(self.stream_optimizer.frame_cache),
-            'uptime': time.time() - (self.server.started if self.server else time.time())
+            'uptime': time.time() - (self.server.started if self.server else time.time()),
+            'osd_pipeline': osd_pipeline_stats,
         })
 
     async def start_tracking(self, bbox: BoundingBox):
@@ -3254,6 +3262,10 @@ class FastAPIHandler:
             if hasattr(osd_handler, 'get_performance_stats'):
                 perf_stats = osd_handler.get_performance_stats()
 
+            pipeline_stats = {}
+            if hasattr(self.app_controller, 'osd_pipeline'):
+                pipeline_stats = self.app_controller.osd_pipeline.get_stats()
+
             # Get preset name
             current_preset = getattr(Parameters, 'OSD_PRESET', 'professional')
 
@@ -3264,9 +3276,14 @@ class FastAPIHandler:
                 'configuration': {
                     'enabled_parameter': Parameters.OSD_ENABLED,
                     'current_preset': current_preset,
-                    'presets_location': 'configs/osd_presets/'
+                    'presets_location': 'configs/osd_presets/',
+                    'pipeline_mode': getattr(Parameters, 'OSD_PIPELINE_MODE', 'layered_realtime'),
+                    'target_resolution': getattr(Parameters, 'OSD_TARGET_LAYER_RESOLUTION', 'stream'),
+                    'dynamic_fps': getattr(Parameters, 'OSD_DYNAMIC_FPS', 10),
+                    'datetime_fps': getattr(Parameters, 'OSD_DATETIME_FPS', 1),
                 },
                 'performance': perf_stats,
+                'pipeline': pipeline_stats,
                 'message': 'OSD overlay active on video feed' if is_enabled else 'OSD overlay disabled',
                 'timestamp': time.time()
             })
@@ -3298,6 +3315,8 @@ class FastAPIHandler:
             new_state = not old_state
             if hasattr(osd_handler, 'set_enabled'):
                 osd_handler.set_enabled(new_state)
+            if hasattr(self.app_controller, 'osd_pipeline'):
+                self.app_controller.osd_pipeline.invalidate_cache("toggle_osd")
 
             # Update parameter
             Parameters.OSD_ENABLED = new_state
@@ -3408,6 +3427,8 @@ class FastAPIHandler:
                     from classes.osd_renderer import OSDRenderer
                     # Destroy old renderer and create new one with new preset
                     self.app_controller.osd_handler.renderer = OSDRenderer(self.app_controller)
+                    if hasattr(self.app_controller, 'osd_pipeline'):
+                        self.app_controller.osd_pipeline.invalidate_cache("preset_switch")
                     self.logger.info(f"OSD renderer reinitialized with preset '{preset_name}'")
                 except Exception as e:
                     self.logger.error(f"Failed to reinitialize OSD renderer: {e}")
@@ -3422,8 +3443,8 @@ class FastAPIHandler:
                 'preset_file': str(preset_path),
                 'configuration_updated': True,
                 'element_count': element_count,
-                'message': f'OSD preset switched to "{preset_name}". Restart app for changes to take effect.',
-                'requires_restart': True,
+                'message': f'OSD preset switched to "{preset_name}" and applied immediately.',
+                'requires_restart': False,
                 'timestamp': time.time()
             })
 

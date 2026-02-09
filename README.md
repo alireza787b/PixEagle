@@ -19,7 +19,7 @@
 | **Tracker System** | 5 tracker types: CSRT, KCF, YOLO, SmartTracker, Gimbal | [Tracker Docs](docs/trackers/README.md) |
 | **Follower System** | 10 control modes: velocity, position, attitude, gimbal pursuit | [Follower Docs](docs/followers/README.md) |
 | **Video & Streaming** | 7 input sources, GStreamer, MJPEG/WebSocket streaming | [Video Docs](docs/video/README.md) |
-| **Professional OSD** | Aviation-grade on-screen display with TrueType fonts | [OSD Guide](docs/OSD_GUIDE.md) |
+| **Professional OSD** | Aviation-grade on-screen display with layered real-time pipeline and TrueType fonts | [OSD Guide](docs/OSD_GUIDE.md) |
 | **Drone Interface** | PX4 integration via MAVSDK & MAVLink2REST | [Drone Docs](docs/drone-interface/README.md) |
 | **Core App** | REST API, WebSocket, schema-driven configuration | [Core Docs](docs/core-app/README.md) |
 | **GPU Acceleration** | CUDA support for 60+ FPS, automatic CPU fallback | [Installation](docs/INSTALLATION.md) |

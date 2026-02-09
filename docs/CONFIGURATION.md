@@ -39,8 +39,17 @@ SmartTracker:
 
 ```yaml
 OSD:
-  ENABLED: true
-  PRESET: "professional"  # minimal | professional | full_telemetry
+  OSD_ENABLED: true
+  OSD_PRESET: "professional"          # minimal | professional | full_telemetry
+  OSD_PERFORMANCE_MODE: "balanced"    # fast | balanced | quality
+  OSD_PIPELINE_MODE: "layered_realtime"     # layered_realtime | legacy
+  OSD_TARGET_LAYER_RESOLUTION: "stream"     # stream | capture
+  OSD_DYNAMIC_FPS: 10
+  OSD_DATETIME_FPS: 1
+  OSD_MAX_RENDER_BUDGET_MS: 6.0
+  OSD_AUTO_DEGRADE: true
+  OSD_AUTO_DEGRADE_MIN_MODE: "balanced"     # balanced | fast
+  OSD_COMPOSITOR: "cv2_alpha"               # cv2_alpha | legacy_pil_composite
 ```
 
 ### Follower Modes

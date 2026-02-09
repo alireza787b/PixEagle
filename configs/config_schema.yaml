@@ -5128,6 +5128,73 @@ sections:
         - value: quality
           label: quality
         reload_tier: immediate
+      OSD_PIPELINE_MODE:
+        type: string
+        default: layered_realtime
+        description: OSD pipeline mode
+        options:
+        - value: layered_realtime
+          label: layered_realtime
+        - value: legacy
+          label: legacy
+        reload_tier: immediate
+      OSD_TARGET_LAYER_RESOLUTION:
+        type: string
+        default: stream
+        description: Render OSD layers at stream or capture resolution
+        options:
+        - value: stream
+          label: stream
+        - value: capture
+          label: capture
+        reload_tier: immediate
+      OSD_DYNAMIC_FPS:
+        type: integer
+        default: 10
+        description: OSD dynamic overlay update rate
+        min: 1
+        max: 60
+        reload_tier: immediate
+      OSD_DATETIME_FPS:
+        type: integer
+        default: 1
+        description: OSD datetime overlay update rate
+        min: 1
+        max: 10
+        reload_tier: immediate
+      OSD_MAX_RENDER_BUDGET_MS:
+        type: float
+        default: 6.0
+        description: Dynamic OSD render budget in milliseconds
+        min: 1.0
+        max: 50.0
+        step: 0.1
+        reload_tier: immediate
+      OSD_AUTO_DEGRADE:
+        type: boolean
+        default: true
+        description: Auto-adjust OSD mode when render budget is exceeded
+        reload_tier: immediate
+      OSD_AUTO_DEGRADE_MIN_MODE:
+        type: string
+        default: balanced
+        description: Lowest mode allowed by auto-degrade
+        options:
+        - value: balanced
+          label: balanced
+        - value: fast
+          label: fast
+        reload_tier: immediate
+      OSD_COMPOSITOR:
+        type: string
+        default: cv2_alpha
+        description: OSD compositing backend
+        options:
+        - value: cv2_alpha
+          label: cv2_alpha
+        - value: legacy_pil_composite
+          label: legacy_pil_composite
+        reload_tier: immediate
   Debugging:
     display_name: Debugging
     category: display

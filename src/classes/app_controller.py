@@ -20,6 +20,7 @@ from classes.telemetry_handler import TelemetryHandler
 from classes.fastapi_handler import FastAPIHandler  # Correct import
 from typing import Dict, Optional, Tuple, Any
 from classes.osd_handler import OSDHandler
+from classes.osd_pipeline import OSDPipeline
 from classes.gstreamer_handler import GStreamerHandler
 from classes.mavlink_data_manager import MavlinkDataManager
 from classes.frame_preprocessor import FramePreprocessor
@@ -147,6 +148,7 @@ class AppController:
 
         # Initialize OSD handler for overlay graphics
         self.osd_handler = OSDHandler(self)
+        self.osd_pipeline = OSDPipeline(self.osd_handler)
         
         # Initialize GStreamer streaming if enabled
         if Parameters.ENABLE_GSTREAMER_STREAM:
@@ -533,20 +535,46 @@ class AppController:
             # Update current frame for app controller
             self.current_frame = frame
 
-            # Draw OSD elements on frame
-            frame = self.osd_handler.draw_osd(frame)
+            stream_width = Parameters.STREAM_WIDTH
+            stream_height = Parameters.STREAM_HEIGHT
+            stream_processed = bool(getattr(Parameters, "STREAM_PROCESSED_OSD", True))
+            target_resolution = str(
+                getattr(Parameters, "OSD_TARGET_LAYER_RESOLUTION", "stream")
+            ).strip().lower()
 
-            # Save OSD-rendered frame to video handler (AFTER drawing OSD)
-            self.video_handler.current_osd_frame = frame
+            capture_osd_frame = None
 
-            # GStreamer streaming if enabled
-            if Parameters.ENABLE_GSTREAMER_STREAM and hasattr(self, 'gstreamer_handler'):
-                self.gstreamer_handler.stream_frame(frame)
-
-            # Update resized frames for streaming (will now include OSD!)
+            # Maintain raw resized frame only when stream is configured for non-OSD output.
             self.video_handler.update_resized_frames(
-                Parameters.STREAM_WIDTH, Parameters.STREAM_HEIGHT
+                stream_width,
+                stream_height,
+                resize_raw=not stream_processed,
+                resize_osd=False,
+                raw_frame=self.video_handler.current_raw_frame if self.video_handler.current_raw_frame is not None else frame,
             )
+
+            if stream_processed:
+                if target_resolution == "capture":
+                    capture_osd_frame = self.osd_pipeline.compose(frame.copy())
+                    stream_osd_frame = self.video_handler.resize_frame(
+                        capture_osd_frame, stream_width, stream_height
+                    )
+                    self.video_handler.current_osd_frame = capture_osd_frame
+                else:
+                    stream_base = self.video_handler.resize_frame(frame, stream_width, stream_height)
+                    stream_osd_frame = self.osd_pipeline.compose(stream_base)
+                    # Keep compatibility for code paths that inspect current_osd_frame.
+                    self.video_handler.current_osd_frame = frame
+
+                self.video_handler.current_resized_osd_frame = stream_osd_frame
+            else:
+                self.video_handler.current_osd_frame = frame
+                self.video_handler.current_resized_osd_frame = None
+
+            # Optional secondary GStreamer output
+            if Parameters.ENABLE_GSTREAMER_STREAM and hasattr(self, 'gstreamer_handler'):
+                gstreamer_frame = capture_osd_frame if capture_osd_frame is not None else frame
+                self.gstreamer_handler.stream_frame(gstreamer_frame)
 
         except Exception as e:
             logging.exception(f"Error in update_loop: {e}")

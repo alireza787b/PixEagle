@@ -274,6 +274,17 @@ class OSDTextRenderer:
 
         return frame_bgr
 
+    def get_overlay_rgba(self) -> Optional[np.ndarray]:
+        """
+        Return the current transparent text overlay as an RGBA numpy array.
+
+        Returns:
+            RGBA overlay as uint8 array, or None when overlay is not initialized
+        """
+        if self.overlay is None:
+            return None
+        return np.array(self.overlay, dtype=np.uint8)
+
     def render_text(
         self,
         frame: np.ndarray,

@@ -24,6 +24,7 @@ ELEMENTS:
   # System watermark
   name:
     enabled: true
+    layer: static
     text: "PixEagle"
     anchor: "top-left"
     offset: [10, 10]
@@ -34,6 +35,7 @@ ELEMENTS:
   # Timestamp
   datetime:
     enabled: true
+    layer: slow_dynamic
     anchor: "top-right"
     offset: [-10, 10]
     font_scale: 0.4           # Small and subtle
@@ -44,6 +46,7 @@ ELEMENTS:
   # Center crosshair
   crosshair:
     enabled: true
+    layer: static
     color: [0, 255, 0]      # Green
     thickness: 2
     length: 12
@@ -51,6 +54,7 @@ ELEMENTS:
   # Critical flight data only
   mavlink_data:
     enabled: true
+    layer: dynamic
     fields:
       # Altitude (most important for drones)
       altitude_agl:
@@ -71,6 +75,7 @@ ELEMENTS:
   # Tracker status (minimal)
   tracker_status:
     enabled: true
+    layer: dynamic
     anchor: "bottom-right"
     offset: [-10, -10]
     font_scale: 0.45
@@ -80,7 +85,9 @@ ELEMENTS:
   # Attitude indicator - DISABLED for minimal
   attitude_indicator:
     enabled: false
+    layer: dynamic
 
   # Follower status - DISABLED for minimal
   follower_status:
     enabled: false
+    layer: dynamic

@@ -26,6 +26,7 @@
 2. **Named Anchors**: Use semantic positioning (`top-left`, `center-right`, etc.) not pixel coordinates
 3. **Font Scaling**: Formula is `frame_height / 20 * font_scale` - always resolution-independent
 4. **MAVLink Integration**: All telemetry fields in `mavlink_data.fields.{field_name}`
+5. **Layered Pipeline**: Use per-element `layer` values (`static`, `slow_dynamic`, `dynamic`) for real-time efficiency
 
 ### Creating a New Preset (3 steps)
 
@@ -40,7 +41,8 @@ cp configs/osd_presets/professional.yaml configs/osd_presets/my_preset.yaml
 # 3. Load it
 # configs/config_default.yaml:
 # OSD:
-#   PRESET: "my_preset"
+#   OSD_PRESET: "my_preset"
+#   OSD_PIPELINE_MODE: "layered_realtime"
 ```
 
 ### Element Template (copy-paste ready)
@@ -48,6 +50,7 @@ cp configs/osd_presets/professional.yaml configs/osd_presets/my_preset.yaml
 ```yaml
 mavlink_data:
   enabled: true
+  layer: dynamic
   fields:
     my_new_field:
       anchor: "center-right"         # 9 options: top-left, top-center, top-right, center-left, center, center-right, bottom-left, bottom-center, bottom-right

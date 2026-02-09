@@ -77,6 +77,22 @@ class OSDHandler:
         """Get rendering performance statistics (delegates to renderer)."""
         return self.renderer.get_performance_stats()
 
+    def render_overlay(self, frame_shape, layer_filter=None):
+        """Render a transparent RGBA overlay for the requested layer."""
+        return self.renderer.render_overlay(frame_shape, layer_filter=layer_filter)
+
+    def compose_overlay(self, frame, overlay_rgba, method="cv2_alpha"):
+        """Composite an RGBA overlay onto a BGR frame."""
+        return self.renderer.composite_overlay_rgba(frame, overlay_rgba, method=method)
+
+    def get_performance_mode(self) -> str:
+        """Get current renderer performance mode."""
+        return self.renderer.get_performance_mode()
+
+    def set_performance_mode(self, mode: str) -> bool:
+        """Set renderer performance mode."""
+        return self.renderer.set_performance_mode(mode)
+
     def debug_draw_layout(self, frame):
         """Draw layout debug information (delegates to renderer)."""
         return self.renderer.debug_draw_layout(frame)

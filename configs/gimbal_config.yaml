@@ -2171,6 +2171,18 @@ OSD:
   # "quality"  - PIL with manual outline (50-80ms/frame) - For high-end desktops/recording
   OSD_PERFORMANCE_MODE: "balanced"
 
+  # === Real-Time OSD Pipeline ===
+  # "layered_realtime" uses cached static/dynamic overlays for lower latency
+  # "legacy" keeps per-frame monolithic OSD rendering for compatibility
+  OSD_PIPELINE_MODE: "layered_realtime"
+  OSD_TARGET_LAYER_RESOLUTION: "stream"   # stream | capture
+  OSD_DYNAMIC_FPS: 10                     # Update cadence for telemetry/status overlays
+  OSD_DATETIME_FPS: 1                     # Lower cadence for clock text updates
+  OSD_MAX_RENDER_BUDGET_MS: 6.0           # Dynamic layer render budget
+  OSD_AUTO_DEGRADE: true                  # Auto-lower OSD mode when over budget
+  OSD_AUTO_DEGRADE_MIN_MODE: "balanced"   # quality->balanced (or fast if configured)
+  OSD_COMPOSITOR: "cv2_alpha"             # cv2_alpha | legacy_pil_composite
+
   # ℹ️ NOTE: All element configurations are loaded from the preset file
   # ℹ️ See configs/osd_presets/{OSD_PRESET}.yaml for layout and styling
 
