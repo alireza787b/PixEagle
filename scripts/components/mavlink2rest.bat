@@ -61,8 +61,8 @@ exit /b 1
 
 :found_binary
 REM Default connection settings (can be overridden by environment variables)
-REM Match Linux default to avoid collisions with common GCS listeners on 14550
-if not defined MAVLINK_CONNECTION set "MAVLINK_CONNECTION=udpin:127.0.0.1:14569"
+REM Keep historical default for compatibility; bind conflicts are preflight-checked below
+if not defined MAVLINK_CONNECTION set "MAVLINK_CONNECTION=udpin:0.0.0.0:14550"
 if not defined MAVLINK2REST_PORT set "MAVLINK2REST_PORT=8088"
 
 echo.
