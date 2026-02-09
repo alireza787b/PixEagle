@@ -71,6 +71,15 @@ The `scripts/init.sh` (or `make init`) performs a 9-step setup:
 8. **MAVSDK Server** - Downloads platform-specific binary
 9. **MAVLink2REST** - Downloads REST API bridge
 
+### OpenCV + GStreamer Safety During Init
+
+If your venv already has a **custom OpenCV build with GStreamer**, `make init` detects it and asks:
+
+`Overwrite custom OpenCV? [y/N]`
+
+- Choosing **N** (default) preserves your custom build and skips pip OpenCV packages.
+- Choosing **Y** installs pip OpenCV and replaces the custom GStreamer-enabled build.
+
 ### Full Profile AI Install Strategy
 
 When you select **Full** profile, init uses a two-phase Python dependency flow:

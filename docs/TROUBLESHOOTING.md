@@ -69,6 +69,12 @@ ffplay rtsp://your-stream-url
 bash scripts/setup/build-opencv.sh
 ```
 
+If you rebuilt OpenCV manually, `make init` will ask before replacing it:
+
+`Overwrite custom OpenCV? [y/N]`
+
+Choose **N** to preserve your GStreamer-enabled build.
+
 ## Dashboard Issues
 
 ### Dashboard Not Accessible
