@@ -489,7 +489,7 @@ bash run_pixeagle.sh
 
 #### 4. Verify OSD
 
-1. Open dashboard: `http://localhost:3000`
+1. Open dashboard: `http://localhost:3040`
 2. Navigate to video feed
 3. OSD should appear with telemetry data
 

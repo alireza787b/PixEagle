@@ -125,8 +125,8 @@ scripts\stop.bat           # Stop all services
 
 ### Access Dashboard
 
-- **Local**: http://localhost:3000
-- **LAN**: http://<your-ip>:3000 (auto-detected)
+- **Local**: http://localhost:3040
+- **LAN**: http://<your-ip>:3040 (auto-detected)
 
 ---
 
@@ -190,7 +190,7 @@ PixEagle requires MAVLink communication with PX4.
 
 | Port | Service | Required |
 |------|---------|----------|
-| 3000 | Dashboard | Yes |
+| 3040 | Dashboard | Yes |
 | 5077 | Backend API | Yes |
 | 5551 | WebSocket (video) | Yes |
 | 8088 | MAVLink2REST API | For OSD |
@@ -198,7 +198,7 @@ PixEagle requires MAVLink communication with PX4.
 
 ```bash
 # Ubuntu/Raspbian firewall
-sudo ufw allow 3000/tcp && sudo ufw allow 5077/tcp && sudo ufw allow 5551/tcp && sudo ufw allow 8088/tcp
+sudo ufw allow 3040/tcp && sudo ufw allow 5077/tcp && sudo ufw allow 5551/tcp && sudo ufw allow 8088/tcp
 ```
 
 > **Full Guide**: [Port Configuration](docs/drone-interface/04-infrastructure/port-configuration.md)

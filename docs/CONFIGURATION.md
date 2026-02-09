@@ -78,6 +78,9 @@ Safety:
 ## Dashboard Environment (.env)
 
 ```bash
+# Dashboard HTTP port (default: 3040)
+PORT=3040
+
 # API port (default: 5077)
 REACT_APP_API_PORT=5077
 

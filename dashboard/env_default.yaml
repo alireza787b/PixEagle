@@ -6,6 +6,9 @@
 
 # API Configuration
 # -----------------
+# Dashboard HTTP server port (used by npm start and production serve)
+PORT: 3040
+
 # Port where backend API runs
 REACT_APP_API_PORT: 5077
 

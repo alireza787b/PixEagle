@@ -74,8 +74,8 @@ bash scripts/setup/build-opencv.sh
 ### Dashboard Not Accessible
 
 1. **Check if running**: `tmux attach -t pixeagle`
-2. **Check port**: `lsof -i :3000`
-3. **Firewall**: `sudo ufw allow 3000`
+2. **Check port**: `lsof -i :3040`
+3. **Firewall**: `sudo ufw allow 3040`
 
 ### API Connection Failed
 
@@ -87,7 +87,7 @@ bash scripts/setup/build-opencv.sh
 
 Dashboard uses `window.location.hostname` for auto-detection. Ensure:
 - Both devices on same network
-- Firewall allows ports 3000, 5077
+- Firewall allows ports 3040, 5077
 - Use IP address, not localhost
 
 ## PX4/MAVLink Issues
@@ -192,7 +192,7 @@ pixeagle-service start
 
 ```bash
 # Check which ports are in use
-sudo lsof -i :3000   # Dashboard
+sudo lsof -i :3040   # Dashboard
 sudo lsof -i :5077   # Backend
 sudo lsof -i :5551   # WebSocket (video)
 sudo lsof -i :8088   # MAVLink2REST
@@ -204,7 +204,7 @@ sudo lsof -i :14569  # MAVLink input
 
 ```bash
 # PixEagle core services
-sudo ufw allow 3000/tcp   # Dashboard
+sudo ufw allow 3040/tcp   # Dashboard
 sudo ufw allow 5077/tcp   # Backend API
 sudo ufw allow 5551/tcp   # WebSocket (video)
 sudo ufw allow 8088/tcp   # MAVLink2REST
@@ -222,7 +222,7 @@ sudo ufw status
 
 | Port | Service | Protocol | Required |
 |------|---------|----------|----------|
-| 3000 | Dashboard | TCP | Yes |
+| 3040 | Dashboard | TCP | Yes |
 | 5077 | Backend API | TCP | Yes |
 | 5551 | WebSocket (video) | TCP | Yes |
 | 8088 | MAVLink2REST API | TCP | For telemetry |
@@ -253,7 +253,7 @@ sudo ufw status
 
 ```cmd
 # Find process using the port
-netstat -ano | findstr :3000
+netstat -ano | findstr :3040
 
 # Kill the process (replace PID with actual number)
 taskkill /PID 12345 /F
@@ -293,7 +293,7 @@ npm install
 ### Port Status Check (Windows)
 
 ```cmd
-netstat -ano | findstr "3000 5077 8088 5551"
+netstat -ano | findstr "3040 5077 8088 5551"
 ```
 
 > **Full Windows Guide**: [Windows Setup Documentation](WINDOWS_SETUP.md)

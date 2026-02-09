@@ -53,10 +53,16 @@ TOTAL_STEPS=6
 
 # Fix line endings before sourcing
 fix_line_endings "$SCRIPTS_DIR/lib/common.sh"
+fix_line_endings "$SCRIPTS_DIR/lib/ports.sh"
 
 # Source shared functions (colors, logging, banner)
 if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
     echo "Warning: Could not source common.sh"
+fi
+
+# Source shared port helpers (optional fallback below).
+if ! source "$SCRIPTS_DIR/lib/ports.sh" 2>/dev/null; then
+    echo "Warning: Could not source ports.sh"
 fi
 
 # Fallback definitions if common.sh failed
@@ -90,11 +96,11 @@ FORCE_REBUILD=false
 # Tmux session name
 SESSION_NAME="pixeagle"
 
-# Default ports (will be overridden from config.yaml if available)
-MAVLINK2REST_PORT=8088
-BACKEND_PORT=5077
-DASHBOARD_PORT=3000
-WEBSOCKET_PORT=5551
+# Default ports (resolved from shared defaults + config when available)
+MAVLINK2REST_PORT="${PIXEAGLE_DEFAULT_MAVLINK2REST_PORT:-8088}"
+BACKEND_PORT="${PIXEAGLE_DEFAULT_BACKEND_PORT:-5077}"
+DASHBOARD_PORT="${PIXEAGLE_DEFAULT_DASHBOARD_PORT:-3040}"
+WEBSOCKET_PORT="${PIXEAGLE_DEFAULT_WEBSOCKET_PORT:-5551}"
 
 # ============================================================================
 # Helper: Read port from config.yaml
@@ -132,6 +138,11 @@ CONFIG_FILE="$PIXEAGLE_DIR/configs/config.yaml"
 MAVLINK2REST_SCRIPT="$SCRIPTS_DIR/components/mavlink2rest.sh"
 DASHBOARD_SCRIPT="$SCRIPTS_DIR/components/dashboard.sh"
 MAIN_APP_SCRIPT="$SCRIPTS_DIR/components/main.sh"
+
+# Resolve dashboard port from dashboard/.env (or env_default.yaml fallback).
+if declare -f resolve_dashboard_port >/dev/null 2>&1; then
+    DASHBOARD_PORT="$(resolve_dashboard_port "$PIXEAGLE_DIR/dashboard" 2>/dev/null || echo "$DASHBOARD_PORT")"
+fi
 
 # Binary locations (check bin/ first, then root for backwards compatibility)
 if [[ -f "$PIXEAGLE_DIR/bin/mavsdk_server_bin" ]]; then
@@ -392,7 +403,10 @@ load_configuration() {
     log_step 3 "Loading Configuration"
 
     # Read ports from config.yaml (with defaults)
-    BACKEND_PORT=$(get_config_value "Streaming" "HTTP_STREAM_PORT" "5077")
+    BACKEND_PORT=$(get_config_value "Streaming" "HTTP_STREAM_PORT" "$BACKEND_PORT")
+    if declare -f resolve_dashboard_port >/dev/null 2>&1; then
+        DASHBOARD_PORT="$(resolve_dashboard_port "$PIXEAGLE_DIR/dashboard" 2>/dev/null || echo "$DASHBOARD_PORT")"
+    fi
 
     # Get LAN IP for network access
     LAN_IP=$(get_lan_ip)
@@ -503,6 +517,7 @@ start_services() {
         if [[ "$FORCE_REBUILD" == "true" ]]; then
             dashboard_cmd="$dashboard_cmd -f"
         fi
+        dashboard_cmd="$dashboard_cmd $DASHBOARD_PORT"
         components["Dashboard"]="${nvm_setup} ${dashboard_cmd}; bash"
         ((component_count++))
         printf "\r        ${DIM}-> Starting Dashboard... (%d/4)${NC}" $component_count

@@ -17,6 +17,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PROJECT_ROOT="${PIXEAGLE_INSTALL_DIR:-$DEFAULT_PROJECT_ROOT}"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+PORTS_HELPER="$PROJECT_ROOT/scripts/lib/ports.sh"
+
+# Shared port helpers are optional; fallback defaults are still used below.
+source "$PORTS_HELPER" 2>/dev/null || true
 
 # Colors for output
 RED='\033[0;31m'
@@ -382,10 +386,25 @@ get_service_status() {
     echo
 
     echo "Ports:"
-    check_component_health "Dashboard" "3000"
-    check_component_health "Backend API" "5077"
-    check_component_health "MAVLink2REST" "8088"
-    check_component_health "WebSocket" "5551"
+    local runtime_ports_helper="$USER_PIXEAGLE_DIR/scripts/lib/ports.sh"
+    source "$runtime_ports_helper" 2>/dev/null || true
+
+    local dashboard_port="${PIXEAGLE_DEFAULT_DASHBOARD_PORT:-3040}"
+    local backend_port="${PIXEAGLE_DEFAULT_BACKEND_PORT:-5077}"
+    local mavlink2rest_port="${PIXEAGLE_DEFAULT_MAVLINK2REST_PORT:-8088}"
+    local websocket_port="${PIXEAGLE_DEFAULT_WEBSOCKET_PORT:-5551}"
+
+    if declare -f resolve_dashboard_port >/dev/null 2>&1; then
+        dashboard_port="$(resolve_dashboard_port "$USER_PIXEAGLE_DIR/dashboard" 2>/dev/null || echo "$dashboard_port")"
+    fi
+    if declare -f resolve_backend_port >/dev/null 2>&1; then
+        backend_port="$(resolve_backend_port "$USER_PIXEAGLE_DIR/configs/config.yaml" 2>/dev/null || echo "$backend_port")"
+    fi
+
+    check_component_health "Dashboard" "$dashboard_port"
+    check_component_health "Backend API" "$backend_port"
+    check_component_health "MAVLink2REST" "$mavlink2rest_port"
+    check_component_health "WebSocket" "$websocket_port"
     echo
 
     echo "Commands:"
@@ -518,10 +537,14 @@ fi
 repo_dir="$(get_service_workdir 2>/dev/null || true)"
 
 backend_port="5077"
-dashboard_port="3000"
+dashboard_port="3040"
 if [ -n "$repo_dir" ] && [ -f "$repo_dir/configs/config.yaml" ]; then
     cfg_backend_port="$(get_yaml_int_value "$repo_dir/configs/config.yaml" "HTTP_STREAM_PORT" 2>/dev/null || true)"
     [ -n "$cfg_backend_port" ] && backend_port="$cfg_backend_port"
+fi
+if [ -n "$repo_dir" ] && [ -f "$repo_dir/dashboard/env_default.yaml" ]; then
+    cfg_dashboard_default_port="$(get_yaml_int_value "$repo_dir/dashboard/env_default.yaml" "PORT" 2>/dev/null || true)"
+    [ -n "$cfg_dashboard_default_port" ] && dashboard_port="$cfg_dashboard_default_port"
 fi
 if [ -n "$repo_dir" ] && [ -f "$repo_dir/dashboard/.env" ]; then
     cfg_dashboard_port="$(get_env_int_value "$repo_dir/dashboard/.env" "PORT" 2>/dev/null || true)"

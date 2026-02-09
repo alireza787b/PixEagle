@@ -23,6 +23,12 @@
 # Default target
 .DEFAULT_GOAL := help
 
+# Shared service ports
+DASHBOARD_PORT ?= $(shell bash scripts/lib/ports.sh --dashboard-port "$(CURDIR)/dashboard" 2>/dev/null || echo 3040)
+BACKEND_PORT ?= $(shell bash scripts/lib/ports.sh --backend-port "$(CURDIR)/configs/config.yaml" 2>/dev/null || echo 5077)
+MAVLINK2REST_PORT ?= 8088
+WEBSOCKET_PORT ?= 5551
+
 # ============================================================================
 # Help
 # ============================================================================
@@ -96,10 +102,10 @@ status:
 	@tmux has-session -t pixeagle 2>/dev/null && echo "  Tmux session: Running" || echo "  Tmux session: Not running"
 	@echo ""
 	@echo "  Port Status:"
-	@lsof -i :3000 >/dev/null 2>&1 && echo "    Dashboard (3000):     Running" || echo "    Dashboard (3000):     Not running"
-	@lsof -i :5077 >/dev/null 2>&1 && echo "    Backend (5077):       Running" || echo "    Backend (5077):       Not running"
-	@lsof -i :8088 >/dev/null 2>&1 && echo "    MAVLink2REST (8088):  Running" || echo "    MAVLink2REST (8088):  Not running"
-	@lsof -i :5551 >/dev/null 2>&1 && echo "    WebSocket (5551):     Running" || echo "    WebSocket (5551):     Not running"
+	@lsof -i :$(DASHBOARD_PORT) >/dev/null 2>&1 && echo "    Dashboard ($(DASHBOARD_PORT)):     Running" || echo "    Dashboard ($(DASHBOARD_PORT)):     Not running"
+	@lsof -i :$(BACKEND_PORT) >/dev/null 2>&1 && echo "    Backend ($(BACKEND_PORT)):       Running" || echo "    Backend ($(BACKEND_PORT)):       Not running"
+	@lsof -i :$(MAVLINK2REST_PORT) >/dev/null 2>&1 && echo "    MAVLink2REST ($(MAVLINK2REST_PORT)):  Running" || echo "    MAVLink2REST ($(MAVLINK2REST_PORT)):  Not running"
+	@lsof -i :$(WEBSOCKET_PORT) >/dev/null 2>&1 && echo "    WebSocket ($(WEBSOCKET_PORT)):     Running" || echo "    WebSocket ($(WEBSOCKET_PORT)):     Not running"
 	@echo ""
 	@echo "  ═══════════════════════════════════════════════════════════════"
 	@echo ""

@@ -91,7 +91,7 @@ Follower                        ← Final configuration
 
 Most settings are configurable via the Dashboard UI:
 
-1. Access http://localhost:3000
+1. Access http://localhost:3040
 2. Navigate to Settings
 3. Select Follower section
 4. Modify parameters

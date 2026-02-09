@@ -27,6 +27,7 @@ for %%i in ("%SCRIPTS_DIR%\..") do set "PIXEAGLE_DIR=%%~fi"
 
 REM Source common functions
 call "%SCRIPTS_DIR%\lib\common.bat"
+call "%SCRIPTS_DIR%\lib\ports.bat"
 
 REM Default flags
 set "DEV_MODE=0"
@@ -34,6 +35,7 @@ set "FORCE_REBUILD=0"
 set "RUN_MAVLINK2REST=1"
 set "RUN_MAIN_APP=1"
 set "RUN_MAVSDK_SERVER=1"
+set "DASHBOARD_PORT=%PIXEAGLE_PORT_DASHBOARD%"
 
 REM Parse arguments
 :parse_args
@@ -108,7 +110,7 @@ if "%RUN_MAVLINK2REST%"=="1" set /a "TOTAL_COMPONENTS+=1"
 if "%RUN_MAIN_APP%"=="1" set /a "TOTAL_COMPONENTS+=1"
 if "%RUN_MAVSDK_SERVER%"=="1" set /a "TOTAL_COMPONENTS+=1"
 
-set "DASHBOARD_ARGS="
+set "DASHBOARD_ARGS= --port %DASHBOARD_PORT%"
 if "%DEV_MODE%"=="1" set "DASHBOARD_ARGS=!DASHBOARD_ARGS! --dev"
 if "%FORCE_REBUILD%"=="1" set "DASHBOARD_ARGS=!DASHBOARD_ARGS! --rebuild"
 set "MAIN_ARGS="
@@ -272,9 +274,9 @@ call :print_green "                    [OK] All Services Launched"
 call :print_cyan "========================================================================"
 echo.
 echo    Services:
-echo      - Dashboard:    http://localhost:3000
-if "%RUN_MAVLINK2REST%"=="1" echo      - MAVLink2REST: http://localhost:8088
-if "%RUN_MAIN_APP%"=="1" echo      - Backend:      http://localhost:5077
+echo      - Dashboard:    http://localhost:%DASHBOARD_PORT%
+if "%RUN_MAVLINK2REST%"=="1" echo      - MAVLink2REST: http://localhost:%PIXEAGLE_PORT_MAVLINK2REST%
+if "%RUN_MAIN_APP%"=="1" echo      - Backend:      http://localhost:%PIXEAGLE_PORT_BACKEND%
 if "%RUN_MAVSDK_SERVER%"=="1" echo      - MAVSDK gRPC:   localhost:50051
 echo.
 if "%DEV_MODE%"=="1" (

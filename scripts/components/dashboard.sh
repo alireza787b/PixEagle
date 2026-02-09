@@ -23,13 +23,23 @@
 SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 
+# Shared port helpers (optional).
+PORTS_LIB="$SCRIPTS_DIR/lib/ports.sh"
+if [ -f "$PORTS_LIB" ]; then
+    # shellcheck source=/dev/null
+    source "$PORTS_LIB"
+fi
+
 # Minimum required versions
 MIN_NODE_VERSION=12
 MIN_NPM_VERSION=6
 
 # Default Parameters
-DEFAULT_PORT=3000
 DEFAULT_DASHBOARD_DIR="$PIXEAGLE_DIR/dashboard"
+DEFAULT_PORT="${PIXEAGLE_DEFAULT_DASHBOARD_PORT:-3040}"
+if declare -f resolve_dashboard_port >/dev/null 2>&1; then
+    DEFAULT_PORT="$(resolve_dashboard_port "$DEFAULT_DASHBOARD_DIR" 2>/dev/null || echo "$DEFAULT_PORT")"
+fi
 
 # Cache and optimization settings
 CACHE_DIR=".pixeagle_cache"
@@ -87,6 +97,12 @@ set -- "${POSITIONAL_ARGS[@]}"
 # Optionally allow the port and directory to be passed as arguments
 PORT="${1:-$DEFAULT_PORT}"
 DASHBOARD_DIR="${2:-$DEFAULT_DASHBOARD_DIR}"
+
+if ! [[ "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+    echo "Invalid port: $PORT"
+    echo "Port must be an integer between 1 and 65535."
+    exit 1
+fi
 
 # Function to display a header message
 function header_message() {

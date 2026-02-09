@@ -21,9 +21,10 @@ for %%i in ("%SCRIPTS_DIR%\..") do set "PIXEAGLE_DIR=%%~fi"
 
 REM Source common functions
 call "%SCRIPTS_DIR%\lib\common.bat"
+call "%SCRIPTS_DIR%\lib\ports.bat"
 
 REM Configuration - ports used by PixEagle services
-set "PORTS=3000 5077 5551 8088 50051"
+set "PORTS=%PIXEAGLE_PORT_DASHBOARD% %PIXEAGLE_PORT_BACKEND% %PIXEAGLE_PORT_WEBSOCKET% %PIXEAGLE_PORT_MAVLINK2REST% 50051"
 
 REM ============================================================================
 REM Banner

@@ -81,8 +81,8 @@ irm https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.ps1 | ie
    ```
 
 5. **Open the dashboard** in your browser:
-   - Local: http://localhost:3000
-   - Network: http://YOUR_IP:3000
+   - Local: http://localhost:3040
+   - Network: http://YOUR_IP:3040
 
 ---
 
@@ -325,12 +325,12 @@ copy configs\config_default.yaml configs\config.yaml
 
 #### Port already in use
 
-**Error:** `Port 3000 is already in use`
+**Error:** `Port 3040 is already in use`
 
 **Solution:**
 ```cmd
 # Find process using the port
-netstat -ano | findstr :3000
+netstat -ano | findstr :3040
 
 # Kill the process (replace PID with actual number)
 taskkill /PID 12345 /F
@@ -408,7 +408,7 @@ If corporate firewall/proxy blocks GitHub downloads, place binaries manually in 
 
 | Service | Default Port |
 |---------|--------------|
-| Dashboard | 3000 |
+| Dashboard | 3040 |
 | Backend API | 5077 |
 | MAVLink2REST | 8088 |
 | WebSocket | 5551 |
@@ -417,7 +417,7 @@ If corporate firewall/proxy blocks GitHub downloads, place binaries manually in 
 
 ```cmd
 # Check if ports are in use
-netstat -ano | findstr "3000 5077 8088 5551"
+netstat -ano | findstr "3040 5077 8088 5551"
 ```
 
 ### Logs and Debugging
@@ -487,4 +487,4 @@ After successful setup:
 1. **Configure for your setup** - Edit `configs\config.yaml`
 2. **Connect to SITL** - For simulation testing
 3. **Connect to real vehicle** - For actual flights
-4. **Explore the dashboard** - http://localhost:3000
+4. **Explore the dashboard** - http://localhost:3040

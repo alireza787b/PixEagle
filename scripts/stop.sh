@@ -23,6 +23,7 @@ fix_crlf() {
     [[ -f "$f" ]] && grep -q $'\r' "$f" 2>/dev/null && sed -i.bak 's/\r$//' "$f" 2>/dev/null && rm -f "${f}.bak"
 }
 fix_crlf "$SCRIPTS_DIR/lib/common.sh"
+fix_crlf "$SCRIPTS_DIR/lib/ports.sh"
 
 # Source shared functions
 if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
@@ -31,9 +32,24 @@ if ! source "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null; then
     CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
 fi
 
+# Source shared port helpers (optional fallback below).
+source "$SCRIPTS_DIR/lib/ports.sh" 2>/dev/null || true
+
 # Configuration
 SESSION_NAME="pixeagle"
-PORTS=(3000 5077 5551 8088)
+DASHBOARD_PORT="${PIXEAGLE_DEFAULT_DASHBOARD_PORT:-3040}"
+BACKEND_PORT="${PIXEAGLE_DEFAULT_BACKEND_PORT:-5077}"
+WEBSOCKET_PORT="${PIXEAGLE_DEFAULT_WEBSOCKET_PORT:-5551}"
+MAVLINK2REST_PORT="${PIXEAGLE_DEFAULT_MAVLINK2REST_PORT:-8088}"
+
+if declare -f resolve_dashboard_port >/dev/null 2>&1; then
+    DASHBOARD_PORT="$(resolve_dashboard_port "$PIXEAGLE_DIR/dashboard" 2>/dev/null || echo "$DASHBOARD_PORT")"
+fi
+if declare -f resolve_backend_port >/dev/null 2>&1; then
+    BACKEND_PORT="$(resolve_backend_port "$PIXEAGLE_DIR/configs/config.yaml" 2>/dev/null || echo "$BACKEND_PORT")"
+fi
+
+PORTS=("$DASHBOARD_PORT" "$BACKEND_PORT" "$WEBSOCKET_PORT" "$MAVLINK2REST_PORT")
 
 # ============================================================================
 # Banner
