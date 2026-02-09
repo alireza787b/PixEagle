@@ -373,13 +373,13 @@ class OSDTextRenderer:
         x, y = position
         text_color_rgba = (*reversed(color), 255)  # Convert BGR to RGBA
 
-        # Get text bounding box for plate/shadow
-        bbox = self.overlay_draw.textbbox((0, 0), text, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
-
         # Apply style-specific effects
         if style == TextStyle.PLATE:
+            # Only plate styling needs text bounds.
+            bbox = self.overlay_draw.textbbox((0, 0), text, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+
             # Draw semi-transparent background plate
             plate_color = (20, 20, 20, int(255 * background_opacity))
             plate_box = [
@@ -589,10 +589,13 @@ class OSDTextRenderer:
             )
             size = (width, height)
         else:
-            # Use PIL to measure
-            dummy_img = Image.new('RGB', (1, 1))
-            draw = ImageDraw.Draw(dummy_img)
-            bbox = draw.textbbox((0, 0), text, font=font)
+            # Use FreeType metrics directly when available (faster than creating a draw context)
+            if hasattr(font, "getbbox"):
+                bbox = font.getbbox(text)
+            else:
+                dummy_img = Image.new('RGB', (1, 1))
+                draw = ImageDraw.Draw(dummy_img)
+                bbox = draw.textbbox((0, 0), text, font=font)
             width = bbox[2] - bbox[0]
             height = bbox[3] - bbox[1]
             size = (width, height)

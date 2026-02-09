@@ -162,6 +162,33 @@ python add_yolo_model.py --model_name yolo26n.pt
 2. **Enable GPU**: Set `SMART_TRACKER_USE_GPU: true`
 3. **Lower resolution** in config
 
+### OSD Causes Choppy/Stretchy Video
+
+**Symptom**: Video is smooth with OSD OFF, but choppy with OSD ON (common on Jetson Nano / low-power ARM).
+
+**Check live OSD pipeline timings**:
+```bash
+curl -s http://127.0.0.1:5077/stats | jq '.osd_pipeline'
+```
+
+If `dynamic_render_ms_avg` is high (for example >80ms), tune OSD runtime:
+
+```yaml
+OSD:
+  OSD_PERFORMANCE_MODE: "balanced"      # keeps quality by default
+  OSD_AUTO_DEGRADE: true
+  OSD_AUTO_DEGRADE_MIN_MODE: "fast"     # allows emergency fallback on weak hardware
+  OSD_MAX_RENDER_BUDGET_MS: 25.0
+  OSD_DYNAMIC_FPS: 6                     # lower dynamic redraw cadence on weak CPUs
+  OSD_TARGET_LAYER_RESOLUTION: "stream"  # avoid rendering overlays at capture resolution
+```
+
+Then restart and recheck:
+```bash
+pixeagle-service restart
+curl -s http://127.0.0.1:5077/stats | jq '.osd_pipeline'
+```
+
 ## Service Issues
 
 ### Service Won't Start

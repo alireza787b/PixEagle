@@ -46,9 +46,9 @@ OSD:
   OSD_TARGET_LAYER_RESOLUTION: "stream"     # stream | capture
   OSD_DYNAMIC_FPS: 10
   OSD_DATETIME_FPS: 1
-  OSD_MAX_RENDER_BUDGET_MS: 6.0
+  OSD_MAX_RENDER_BUDGET_MS: 25.0
   OSD_AUTO_DEGRADE: true
-  OSD_AUTO_DEGRADE_MIN_MODE: "balanced"     # balanced | fast
+  OSD_AUTO_DEGRADE_MIN_MODE: "fast"         # fast keeps low-power boards responsive
   OSD_COMPOSITOR: "cv2_alpha"               # cv2_alpha | legacy_pil_composite
 ```
 

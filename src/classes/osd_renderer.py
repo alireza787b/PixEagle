@@ -252,15 +252,23 @@ class OSDRenderer:
         return np.clip(out * 255.0, 0, 255).astype(np.uint8)
 
     @staticmethod
-    def _bgr_to_rgba_with_mask(frame_bgr: np.ndarray) -> np.ndarray:
+    def _bgr_to_rgba_with_mask(frame_bgr: np.ndarray) -> Optional[np.ndarray]:
         """
         Convert BGR frame to RGBA where alpha is inferred from non-zero pixels.
 
         Used for OpenCV-drawn shapes on transparent overlays.
         """
-        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-        alpha = (np.any(frame_bgr > 0, axis=2).astype(np.uint8) * 255)
-        return np.dstack([rgb, alpha])
+        alpha_mask = np.any(frame_bgr > 0, axis=2)
+        if not np.any(alpha_mask):
+            return None
+
+        rgba = np.zeros((frame_bgr.shape[0], frame_bgr.shape[1], 4), dtype=np.uint8)
+        # BGR -> RGB
+        rgba[..., 0] = frame_bgr[..., 2]
+        rgba[..., 1] = frame_bgr[..., 1]
+        rgba[..., 2] = frame_bgr[..., 0]
+        rgba[..., 3] = np.where(alpha_mask, 255, 0).astype(np.uint8)
+        return rgba
 
     def render_overlay(
         self,
@@ -298,8 +306,12 @@ class OSDRenderer:
         text_overlay_rgba = self.text_renderer.get_overlay_rgba()
         shape_overlay_rgba = self._bgr_to_rgba_with_mask(working_frame)
 
-        if text_overlay_rgba is None:
+        if text_overlay_rgba is None and shape_overlay_rgba is None:
+            combined = None
+        elif text_overlay_rgba is None:
             combined = shape_overlay_rgba
+        elif shape_overlay_rgba is None:
+            combined = text_overlay_rgba
         else:
             combined = self._alpha_over_rgba(text_overlay_rgba, shape_overlay_rgba)
 
@@ -313,6 +325,26 @@ class OSDRenderer:
         if not np.any(combined[..., 3] > 0):
             return None
 
+        return combined
+
+    def combine_overlays_rgba(
+        self,
+        overlays: Iterable[Optional[np.ndarray]],
+    ) -> Optional[np.ndarray]:
+        """
+        Merge multiple RGBA overlays into one RGBA buffer.
+
+        Args:
+            overlays: Iterable of optional RGBA overlays
+
+        Returns:
+            Combined RGBA overlay, or None when all inputs are empty
+        """
+        combined: Optional[np.ndarray] = None
+        for overlay in overlays:
+            if overlay is None:
+                continue
+            combined = overlay if combined is None else self._alpha_over_rgba(combined, overlay)
         return combined
 
     def composite_overlay_rgba(
@@ -339,21 +371,31 @@ class OSDRenderer:
         if overlay_rgba.shape[0] != frame_h or overlay_rgba.shape[1] != frame_w:
             overlay_rgba = cv2.resize(overlay_rgba, (frame_w, frame_h), interpolation=cv2.INTER_LINEAR)
 
-        alpha = overlay_rgba[..., 3:4].astype(np.float32) / 255.0
-        if not np.any(alpha > 0):
+        alpha_plane = overlay_rgba[..., 3]
+        non_zero = cv2.findNonZero(alpha_plane)
+        if non_zero is None:
             return frame
 
-        # RGBA (RGB color order) -> BGR
-        overlay_bgr = overlay_rgba[..., :3][:, :, ::-1].astype(np.float32)
-        frame_f = frame.astype(np.float32)
+        x, y, w, h = cv2.boundingRect(non_zero)
+        overlay_roi = overlay_rgba[y:y + h, x:x + w]
+        frame_roi = frame[y:y + h, x:x + w]
+        alpha_roi = overlay_roi[..., 3]
 
-        if method == "legacy_pil_composite":
-            # Kept as compatibility mode; still uses vectorized alpha blend.
-            out = overlay_bgr * alpha + frame_f * (1.0 - alpha)
-            return np.clip(out, 0, 255).astype(np.uint8)
+        # Fast path when overlay is fully opaque over ROI.
+        if np.all(alpha_roi == 255):
+            frame_roi[:] = overlay_roi[..., :3][:, :, ::-1]
+            return frame
 
-        out = overlay_bgr * alpha + frame_f * (1.0 - alpha)
-        return np.clip(out, 0, 255).astype(np.uint8)
+        # Integer alpha blending on ROI to avoid full-frame float conversions.
+        alpha_u16 = alpha_roi.astype(np.uint16)[..., None]
+        inv_alpha_u16 = (255 - alpha_u16).astype(np.uint16)
+        overlay_bgr_u16 = overlay_roi[..., :3][:, :, ::-1].astype(np.uint16)
+        frame_u16 = frame_roi.astype(np.uint16)
+
+        out_u16 = (overlay_bgr_u16 * alpha_u16 + frame_u16 * inv_alpha_u16 + 127) // 255
+        frame_roi[:] = out_u16.astype(np.uint8)
+
+        return frame
 
     def set_performance_mode(self, mode: str) -> bool:
         """

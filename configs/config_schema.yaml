@@ -5164,7 +5164,7 @@ sections:
         reload_tier: immediate
       OSD_MAX_RENDER_BUDGET_MS:
         type: float
-        default: 6.0
+        default: 25.0
         description: Dynamic OSD render budget in milliseconds
         min: 1.0
         max: 50.0
@@ -5177,7 +5177,7 @@ sections:
         reload_tier: immediate
       OSD_AUTO_DEGRADE_MIN_MODE:
         type: string
-        default: balanced
+        default: fast
         description: Lowest mode allowed by auto-degrade
         options:
         - value: balanced

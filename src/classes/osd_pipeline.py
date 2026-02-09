@@ -44,6 +44,7 @@ class OSDPipeline:
         self._static_overlay: Optional[np.ndarray] = None
         self._slow_overlay: Optional[np.ndarray] = None
         self._dynamic_overlay: Optional[np.ndarray] = None
+        self._combined_overlay: Optional[np.ndarray] = None
 
         # Cache invalidation tracking
         self._last_shape: Optional[Tuple[int, int]] = None
@@ -102,6 +103,7 @@ class OSDPipeline:
         self._static_overlay = None
         self._slow_overlay = None
         self._dynamic_overlay = None
+        self._combined_overlay = None
         self._last_slow_update_ts = 0.0
         self._last_dynamic_update_ts = 0.0
         logger.debug("OSD pipeline cache invalidated (%s)", reason)
@@ -218,12 +220,14 @@ class OSDPipeline:
             return frame
 
         self._refresh_invalidation_state(renderer, frame.shape)
+        layer_state_changed = False
 
         # Build static layer only when cache is invalid
         if self._static_overlay is None:
             self._static_overlay, self._last_static_render_ms = self._build_layer_overlay(
                 renderer, frame.shape, "static"
             )
+            layer_state_changed = True
 
         now_ts = time.perf_counter()
 
@@ -234,6 +238,7 @@ class OSDPipeline:
             )
             self._last_slow_update_ts = now_ts
             self._slow_updates += 1
+            layer_state_changed = True
 
         # Rebuild dynamic layer on cadence
         if self._dynamic_overlay is None or self._needs_refresh(now_ts, self._last_dynamic_update_ts, self.dynamic_fps):
@@ -244,14 +249,21 @@ class OSDPipeline:
             self._dynamic_updates += 1
             self._dynamic_render_samples.append(self._last_dynamic_render_ms)
             self._maybe_auto_degrade(renderer, self._last_dynamic_render_ms)
+            layer_state_changed = True
         else:
             self._dynamic_skips += 1
 
+        if self._combined_overlay is None or layer_state_changed:
+            self._combined_overlay = renderer.combine_overlays_rgba(
+                (
+                    self._static_overlay,
+                    self._slow_overlay,
+                    self._dynamic_overlay,
+                )
+            )
+
         compose_start = time.perf_counter()
-        out = frame
-        out = renderer.composite_overlay_rgba(out, self._static_overlay, method=self.compositor)
-        out = renderer.composite_overlay_rgba(out, self._slow_overlay, method=self.compositor)
-        out = renderer.composite_overlay_rgba(out, self._dynamic_overlay, method=self.compositor)
+        out = renderer.composite_overlay_rgba(frame, self._combined_overlay, method=self.compositor)
         self._last_compose_ms = (time.perf_counter() - compose_start) * 1000.0
         self._compose_samples.append(self._last_compose_ms)
 
@@ -300,4 +312,5 @@ class OSDPipeline:
             "static_cache_valid": self._static_overlay is not None,
             "dynamic_cache_valid": self._dynamic_overlay is not None,
             "slow_cache_valid": self._slow_overlay is not None,
+            "combined_cache_valid": self._combined_overlay is not None,
         }
