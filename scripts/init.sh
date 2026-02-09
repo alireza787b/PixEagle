@@ -294,9 +294,42 @@ select_installation_profile() {
     echo -e "${CYAN}+==========================================================================+${NC}"
     echo ""
 
-    # Set default based on platform
-    local default_choice="2"
-    [[ "$IS_ARM_PLATFORM" == true ]] && default_choice="1"
+    # Honor explicit environment override for non-interactive installs.
+    # Accepted values: core/full (preferred), 1/2 (legacy numeric style)
+    local env_profile="${PIXEAGLE_INSTALL_PROFILE:-}"
+    if [[ -z "$env_profile" ]]; then
+        env_profile="${INSTALL_PROFILE:-}"
+    fi
+    case "${env_profile,,}" in
+        core|1)
+            INSTALL_PROFILE="core"
+            echo ""
+            log_success "Selected via environment override: Core installation (no AI packages)"
+            echo ""
+            return
+            ;;
+        full|2)
+            INSTALL_PROFILE="full"
+            echo ""
+            if [[ "$IS_ARM_PLATFORM" == true ]]; then
+                log_warn "Selected via environment override: Full installation with AI packages"
+            else
+                log_success "Selected via environment override: Full installation with AI packages"
+            fi
+            echo ""
+            return
+            ;;
+    esac
+
+    local read_from_tty=false
+    if [[ -r /dev/tty ]] && [[ -w /dev/tty ]]; then
+        read_from_tty=true
+    elif [[ ! -t 0 ]]; then
+        log_error "No interactive input available for installation profile selection."
+        log_detail "Run interactively and choose 1/2, or set PIXEAGLE_INSTALL_PROFILE=full|core."
+        log_detail "Example: PIXEAGLE_INSTALL_PROFILE=full bash scripts/init.sh"
+        exit 1
+    fi
 
     while true; do
         if [[ "$IS_ARM_PLATFORM" == true ]]; then
@@ -304,10 +337,17 @@ select_installation_profile() {
         else
             echo -en "   Select profile [1=Core, 2=Full (recommended)]: "
         fi
-        read -r choice
 
-        # Use default if empty
-        [[ -z "$choice" ]] && choice="$default_choice"
+        if [[ "$read_from_tty" == true ]]; then
+            read -r choice </dev/tty || choice=""
+        else
+            read -r choice || choice=""
+        fi
+        choice="${choice//[[:space:]]/}"
+        if [[ -z "$choice" ]]; then
+            echo -e "   ${YELLOW}Please enter 1 or 2 (no automatic default).${NC}"
+            continue
+        fi
 
         case "$choice" in
             1)
