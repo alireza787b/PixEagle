@@ -130,9 +130,7 @@ Dashboard uses `window.location.hostname` for auto-detection. Ensure:
 **Solution**:
 ```bash
 bash scripts/setup/setup-pytorch.sh --mode auto
-source venv/bin/activate
-pip install --prefer-binary ultralytics lap
-pip install --prefer-binary ncnn
+bash scripts/setup/install-ai-deps.sh
 bash scripts/setup/check-ai-runtime.sh
 ```
 

@@ -744,9 +744,7 @@ install_python_deps() {
     if [[ "$INSTALL_PROFILE" == "core" ]]; then
         log_detail "To add AI features later:"
         log_detail "bash scripts/setup/setup-pytorch.sh --mode auto"
-        log_detail "source venv/bin/activate"
-        log_detail "pip install --prefer-binary ultralytics lap"
-        log_detail "pip install --prefer-binary ncnn"
+        log_detail "bash scripts/setup/install-ai-deps.sh"
         log_detail "bash scripts/setup/check-ai-runtime.sh"
         deactivate
         return 0
@@ -795,37 +793,46 @@ install_python_deps() {
     AI_DEPS_REQUESTED=true
     echo ""
     log_info "Phase B/2: Installing AI packages (ultralytics, lap, ncnn)"
-    log_warn "This phase may fail on some platforms or networks; core install remains usable"
+    log_warn "Using safe AI installer to preserve core runtime (numpy/opencv/torch) versions"
 
-    if ! venv/bin/pip install --prefer-binary ultralytics lap ncnn; then
-        log_warn "AI package install command reported errors; verifying imports next"
-    fi
-
-    # Verify AI imports
+    local ai_setup_script="$PIXEAGLE_DIR/scripts/setup/install-ai-deps.sh"
     local ai_verify_failed=false
-    if ! venv/bin/python -c "from ultralytics import YOLO; print('ok')" 2>/dev/null | grep -q "ok"; then
-        ai_verify_failed=true
-        log_warn "AI verify failed: ultralytics could not be imported"
-    fi
-    if ! venv/bin/python -c "import lap; print('ok')" 2>/dev/null | grep -q "ok"; then
-        ai_verify_failed=true
-        log_warn "AI verify failed: lap could not be imported"
-    fi
-    if ! venv/bin/python -c "import ncnn; print('ok')" 2>/dev/null | grep -q "ok"; then
-        log_warn "Optional package check: ncnn import failed (SmartTracker may still work)"
+    if [[ -f "$ai_setup_script" ]]; then
+        if bash "$ai_setup_script"; then
+            AI_VERIFY_PASSED=true
+            log_success "Full AI dependencies installed and verified (ultralytics + lap)"
+        else
+            ai_verify_failed=true
+            log_warn "AI setup helper failed"
+        fi
+    else
+        log_warn "AI setup helper not found; using legacy pip fallback"
+        if ! venv/bin/pip install --prefer-binary ultralytics lap ncnn; then
+            log_warn "AI package install command reported errors; verifying imports next"
+        fi
+        if ! venv/bin/python -c "from ultralytics import YOLO; print('ok')" 2>/dev/null | grep -q "ok"; then
+            ai_verify_failed=true
+            log_warn "AI verify failed: ultralytics could not be imported"
+        fi
+        if ! venv/bin/python -c "import lap; print('ok')" 2>/dev/null | grep -q "ok"; then
+            ai_verify_failed=true
+            log_warn "AI verify failed: lap could not be imported"
+        fi
+        if ! venv/bin/python -c "import ncnn; print('ok')" 2>/dev/null | grep -q "ok"; then
+            log_warn "Optional package check: ncnn import failed (SmartTracker may still work)"
+        fi
+        if [[ "$ai_verify_failed" == false ]]; then
+            AI_VERIFY_PASSED=true
+            log_success "Full AI dependencies installed and verified (ultralytics + lap)"
+        fi
     fi
 
-    if [[ "$ai_verify_failed" == false ]]; then
-        AI_VERIFY_PASSED=true
-        log_success "Full AI dependencies installed and verified (ultralytics + lap)"
-    else
+    if [[ "$AI_VERIFY_PASSED" != true ]]; then
         echo ""
         log_warn "AI packages are not fully usable yet."
         log_info "Manual recovery commands:"
-        log_detail "source venv/bin/activate"
         log_detail "bash scripts/setup/setup-pytorch.sh --mode auto"
-        log_detail "pip install --prefer-binary ultralytics lap"
-        log_detail "pip install --prefer-binary ncnn"
+        log_detail "bash scripts/setup/install-ai-deps.sh"
         log_detail "bash scripts/setup/check-ai-runtime.sh"
         echo ""
 
@@ -1213,9 +1220,7 @@ show_summary() {
     echo -e "      - ${BOLD}bash scripts/setup/install-dlib.sh${NC}    (faster tracking)"
     echo -e "      - ${BOLD}bash scripts/setup/setup-pytorch.sh --mode auto${NC}   (auto accelerator profile)"
     if [[ "$INSTALL_PROFILE" == "core" ]] || [[ "$AI_VERIFY_PASSED" != "true" ]]; then
-        echo -e "      - ${BOLD}source venv/bin/activate${NC}"
-        echo -e "      - ${BOLD}pip install --prefer-binary ultralytics lap${NC}  (AI deps)"
-        echo -e "      - ${BOLD}pip install --prefer-binary ncnn${NC}             (optional CPU accel)"
+        echo -e "      - ${BOLD}bash scripts/setup/install-ai-deps.sh${NC}         (safe AI deps install)"
     fi
     echo -e "      - ${BOLD}bash scripts/setup/check-ai-runtime.sh${NC}        (verify runtime/backends)"
     echo -e "      - ${BOLD}bash scripts/setup/build-opencv.sh${NC}    (GStreamer support)"
