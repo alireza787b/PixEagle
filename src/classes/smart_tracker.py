@@ -77,9 +77,9 @@ class SmartTracker:
 
         requested_device = "gpu" if use_gpu else "cpu"
         requested_model_path = (
-            self.config.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo11n.pt')
+            self.config.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo26n.pt')
             if use_gpu else
-            self.config.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo11n_ncnn_model')
+            self.config.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo26n_ncnn_model')
         )
         self.runtime_info: Dict[str, Any] = {}
 
@@ -332,7 +332,7 @@ class SmartTracker:
         """Choose best CPU candidate, preferring NCNN when available."""
         requested = self._normalize_model_path(requested_model_path)
         cpu_config_path = self._normalize_model_path(
-            self.config.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo11n_ncnn_model')
+            self.config.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo26n_ncnn_model')
         )
 
         candidates: List[Dict[str, str]] = []
@@ -380,7 +380,7 @@ class SmartTracker:
 
         # Hard fallback - legacy default.
         return {
-            "path": "yolo/yolo11n_ncnn_model",
+            "path": "yolo/yolo26n_ncnn_model",
             "backend": "cpu_ncnn",
             "source": "hardcoded_default",
         }
@@ -389,7 +389,7 @@ class SmartTracker:
         """Choose best GPU candidate (.pt), with deterministic fallback to configured GPU path."""
         requested = self._normalize_model_path(requested_model_path)
         gpu_config_path = self._normalize_model_path(
-            self.config.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo11n.pt')
+            self.config.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo26n.pt')
         )
 
         candidates: List[Dict[str, str]] = []
@@ -423,7 +423,7 @@ class SmartTracker:
             return candidates[0]
 
         return {
-            "path": "yolo/yolo11n.pt",
+            "path": "yolo/yolo26n.pt",
             "backend": "cuda",
             "source": "hardcoded_default",
         }
@@ -551,12 +551,12 @@ class SmartTracker:
         Hot-swap YOLO model without restarting SmartTracker.
 
         This method allows dynamic model switching at runtime, useful for:
-        - Switching between different YOLO versions (e.g., yolo11n -> yolov8s)
+        - Switching between different YOLO versions (e.g., yolo26n -> yolov8s)
         - Changing between GPU (.pt) and CPU (NCNN) models
         - Switching to custom-trained models with different classes
 
         Args:
-            new_model_path (str): Path to the new model file (e.g., "yolo/yolo11n.pt" or "yolo/custom_model.pt")
+            new_model_path (str): Path to the new model file (e.g., "yolo/yolo26n.pt" or "yolo/custom_model.pt")
             device (str): Device preference - "auto" (default), "gpu", or "cpu"
 
         Returns:

@@ -1203,12 +1203,12 @@ sections:
         reload_tier: tracker_restart
       SMART_TRACKER_GPU_MODEL_PATH:
         type: string
-        default: yolo/yolo11n.pt
+        default: yolo/yolo26n.pt
         description: PyTorch model
         reload_tier: tracker_restart
       SMART_TRACKER_CPU_MODEL_PATH:
         type: string
-        default: yolo/yolo11n_ncnn_model
+        default: yolo/yolo26n_ncnn_model
         description: Optimized for ARM
         reload_tier: tracker_restart
       SMART_TRACKER_CONFIDENCE_THRESHOLD:

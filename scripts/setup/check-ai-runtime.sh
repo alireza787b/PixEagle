@@ -160,8 +160,8 @@ if isinstance(cfg, dict):
 
 use_gpu = bool(smart_cfg.get("SMART_TRACKER_USE_GPU", True))
 fallback_to_cpu = bool(smart_cfg.get("SMART_TRACKER_FALLBACK_TO_CPU", True))
-gpu_model = str(smart_cfg.get("SMART_TRACKER_GPU_MODEL_PATH", "yolo/yolo11n.pt"))
-cpu_model = str(smart_cfg.get("SMART_TRACKER_CPU_MODEL_PATH", "yolo/yolo11n_ncnn_model"))
+gpu_model = str(smart_cfg.get("SMART_TRACKER_GPU_MODEL_PATH", "yolo/yolo26n.pt"))
+cpu_model = str(smart_cfg.get("SMART_TRACKER_CPU_MODEL_PATH", "yolo/yolo26n_ncnn_model"))
 
 gpu_model_path = resolve_path(gpu_model)
 cpu_model_path = resolve_path(cpu_model)

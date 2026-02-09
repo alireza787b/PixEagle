@@ -19,7 +19,7 @@ REFACTORED: Now uses YOLOModelManager class for consistency with web API.
 
 Usage examples:
     python add_yolo_model.py --model_name yolov5s.pt
-    python add_yolo_model.py --model_name yolo11n.pt
+    python add_yolo_model.py --model_name yolo26n.pt
 
 Dependencies:
     - Python 3.x
@@ -56,7 +56,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Add and export a YOLO model to NCNN format (CLI interface)"
     )
-    parser.add_argument("--model_name", type=str, help="Name of the YOLO model file (e.g., yolov5s.pt or yolo11n.pt)")
+    parser.add_argument("--model_name", type=str, help="Name of the YOLO model file (e.g., yolov5s.pt or yolo26n.pt)")
     parser.add_argument("--download_url", type=str, help="Optional custom download URL for non-YOLOv5 models")
     parser.add_argument("--skip_export", action="store_true", help="Skip NCNN export (download only)")
     args = parser.parse_args()
@@ -72,9 +72,10 @@ def main():
         print("  • YOLOv5: yolov5s.pt, yolov5m.pt, yolov5l.pt, yolov5x.pt")
         print("  • YOLO8:  yolov8n.pt, yolov8s.pt, yolov8m.pt, yolov8l.pt, yolov8x.pt")
         print("  • YOLO11: yolo11n.pt, yolo11s.pt, yolo11m.pt, yolo11l.pt, yolo11x.pt")
+        print("  • YOLO26: yolo26n.pt, yolo26s.pt, yolo26m.pt, yolo26l.pt, yolo26x.pt")
         print("  • Future versions (yolo12, yolo13, etc.) are also supported!")
         print()
-        model_name = input("Please enter the YOLO model file name (e.g., yolo11n.pt): ").strip()
+        model_name = input("Please enter the YOLO model file name (e.g., yolo26n.pt): ").strip()
         if not model_name:
             print("[ERROR] No model name provided. Exiting.")
             sys.exit(1)

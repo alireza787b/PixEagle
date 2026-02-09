@@ -2041,8 +2041,8 @@ class FastAPIHandler:
             JSONResponse: {
                 "models": {
                     "model_id": {
-                        "name": "YOLO11n",
-                        "path": "yolo/yolo11n.pt",
+                        "name": "YOLO26n",
+                        "path": "yolo/yolo26n.pt",
                         "type": "gpu",
                         "num_classes": 80,
                         "is_custom": false,
@@ -2050,7 +2050,7 @@ class FastAPIHandler:
                         ...
                     }
                 },
-                "current_model": "yolo11n.pt" (if SmartTracker is active)
+                "current_model": "yolo26n.pt" (if SmartTracker is active)
             }
         """
         try:
@@ -2099,8 +2099,8 @@ class FastAPIHandler:
             configured_cpu_model = None
             try:
                 from classes.parameters import Parameters
-                gpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo11n.pt')
-                cpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo11n_ncnn_model')
+                gpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo26n.pt')
+                cpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo26n_ncnn_model')
                 configured_gpu_model = Path(gpu_model_path).name
                 configured_cpu_model = Path(cpu_model_path).name
 
@@ -2125,13 +2125,60 @@ class FastAPIHandler:
             self.logger.error(f"Error getting YOLO models: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+    def _resolve_standby_cpu_model_path(self, model_path: Path) -> str:
+        """Prefer sibling NCNN export for standby CPU path, fallback to .pt."""
+        ncnn_dir = model_path.with_name(f"{model_path.stem}_ncnn_model")
+        has_ncnn_files = ncnn_dir.exists() and ncnn_dir.is_dir() and any(ncnn_dir.glob("*.bin")) and any(ncnn_dir.glob("*.param"))
+        if has_ncnn_files:
+            return str(ncnn_dir.as_posix())
+        return str(model_path.as_posix())
+
+    def _persist_standby_model_selection(self, model_path: Path, device: str) -> Dict[str, Any]:
+        """Persist standby SmartTracker model paths in config.yaml."""
+        device = (device or "auto").strip().lower()
+        normalized_pt = str(model_path.as_posix())
+        resolved_cpu = self._resolve_standby_cpu_model_path(model_path)
+
+        updates: Dict[str, str] = {}
+        if device in ("auto", "gpu"):
+            updates["SMART_TRACKER_GPU_MODEL_PATH"] = normalized_pt
+        if device in ("auto", "cpu"):
+            updates["SMART_TRACKER_CPU_MODEL_PATH"] = resolved_cpu
+
+        service = self._get_config_service()
+        for parameter, value in updates.items():
+            validation = service.set_parameter("SmartTracker", parameter, value)
+            if not validation.valid:
+                errors = "; ".join(validation.errors or validation.warnings or ["validation failed"])
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to persist SmartTracker standby model ({parameter}): {errors}",
+                )
+
+        if not service.save_config():
+            raise HTTPException(status_code=500, detail="Failed to save standby SmartTracker model configuration")
+
+        try:
+            Parameters.reload_config()
+        except Exception as reload_error:
+            self.logger.warning(f"Standby model config saved but runtime reload failed: {reload_error}")
+
+        effective_gpu = Parameters.SmartTracker.get("SMART_TRACKER_GPU_MODEL_PATH", normalized_pt)
+        effective_cpu = Parameters.SmartTracker.get("SMART_TRACKER_CPU_MODEL_PATH", resolved_cpu)
+
+        return {
+            "updated": updates,
+            "configured_gpu_model_path": str(effective_gpu),
+            "configured_cpu_model_path": str(effective_cpu),
+        }
+
     async def switch_yolo_model(self, request: Request):
         """
         Switch YOLO model in SmartTracker without restart.
 
         Args:
             request: Should contain {
-                'model_path': 'yolo/yolo11n.pt',
+                'model_path': 'yolo/yolo26n.pt',
                 'device': 'auto' | 'gpu' | 'cpu'  (optional, default='auto')
             }
 
@@ -2150,15 +2197,7 @@ class FastAPIHandler:
             if device not in ['auto', 'gpu', 'cpu']:
                 raise HTTPException(status_code=400, detail="device must be 'auto', 'gpu', or 'cpu'")
 
-            # Check if SmartTracker is available
-            if not hasattr(self.app_controller, 'smart_tracker') or self.app_controller.smart_tracker is None:
-                raise HTTPException(
-                    status_code=400,
-                    detail="SmartTracker is not initialized. Enable Smart Mode first."
-                )
-
             # Validate model file exists
-            from pathlib import Path
             full_path = Path(model_path)
             if not full_path.exists():
                 raise HTTPException(status_code=404, detail=f"Model file not found: {model_path}")
@@ -2180,11 +2219,43 @@ class FastAPIHandler:
                     )
                 )
 
-            # Call SmartTracker's switch_model method
-            smart_tracker = self.app_controller.smart_tracker
+            smart_tracker = getattr(self.app_controller, 'smart_tracker', None)
+            if smart_tracker is None:
+                standby_result = self._persist_standby_model_selection(full_path, device)
+                self.logger.info(f"YOLO standby model configured via API: {model_path} (device={device})")
+                return JSONResponse(content={
+                    'status': 'success',
+                    'action': 'model_configured',
+                    'model_path': model_path,
+                    'device': device,
+                    'message': (
+                        "SmartTracker is currently off. Standby model selection saved and will be used "
+                        "the next time Smart Mode starts."
+                    ),
+                    'model_info': {
+                        'path': model_path,
+                        'device': device,
+                        'backend': 'standby_config',
+                    },
+                    'runtime': None,
+                    'configured_gpu_model_path': standby_result.get('configured_gpu_model_path'),
+                    'configured_cpu_model_path': standby_result.get('configured_cpu_model_path'),
+                })
+
+            # SmartTracker is active: switch live model first.
             result = smart_tracker.switch_model(str(full_path), device=device)
 
             if result['success']:
+                standby_result: Dict[str, Any] = {}
+                standby_warning = None
+                try:
+                    standby_result = self._persist_standby_model_selection(full_path, device)
+                except HTTPException as cfg_error:
+                    standby_warning = getattr(cfg_error, "detail", str(cfg_error))
+                    self.logger.warning(
+                        "YOLO live switch succeeded but standby config persist failed: %s",
+                        standby_warning,
+                    )
                 self.logger.info(f"YOLO model switched via API: {model_path} (device={device})")
 
                 return JSONResponse(content={
@@ -2195,6 +2266,9 @@ class FastAPIHandler:
                     'message': result['message'],
                     'model_info': result.get('model_info'),
                     'runtime': (result.get('model_info') or {}).get('runtime'),
+                    'configured_gpu_model_path': standby_result.get('configured_gpu_model_path'),
+                    'configured_cpu_model_path': standby_result.get('configured_cpu_model_path'),
+                    'config_persist_warning': standby_warning,
                 })
             else:
                 # Switch failed

@@ -701,7 +701,7 @@ install_python_deps() {
     # -------------------------------
     local core_req_file
     core_req_file=$(mktemp)
-    local core_exclude_pattern="ultralytics|ncnn|lap"
+    local core_exclude_pattern="ultralytics|ncnn|lap|pnnx"
     if [[ "$SKIP_OPENCV" == true ]]; then
         core_exclude_pattern="${core_exclude_pattern}|opencv"
     fi

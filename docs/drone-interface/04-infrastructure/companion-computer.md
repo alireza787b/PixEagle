@@ -74,7 +74,8 @@ If you choose **Full** profile and SmartTracker AI deps fail verification, recov
 source venv/bin/activate
 pip install --prefer-binary ultralytics lap
 pip install --prefer-binary ncnn
-python -c "from ultralytics import YOLO; import lap; print('AI OK')"
+pip install --prefer-binary pnnx
+python -c "from ultralytics import YOLO; import lap; import pnnx; print('AI OK')"
 ```
 
 ### UART Configuration

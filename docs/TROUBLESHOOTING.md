@@ -146,7 +146,7 @@ ls yolo/*.pt
 
 **Download model**:
 ```bash
-python add_yolo_model.py --model_name yolo11n.pt
+python add_yolo_model.py --model_name yolo26n.pt
 ```
 
 ### GPU Not Detected
@@ -158,7 +158,7 @@ python add_yolo_model.py --model_name yolo11n.pt
 
 ### Low FPS
 
-1. **Use smaller model**: yolo11n vs yolo11s
+1. **Use smaller model**: yolo26n vs yolo26s
 2. **Enable GPU**: Set `SMART_TRACKER_USE_GPU: true`
 3. **Lower resolution** in config
 

@@ -110,8 +110,8 @@ class YOLOModelManager:
             Dictionary of models:
             {
                 "model_id": {
-                    "name": "YOLO11n",
-                    "path": "yolo/yolo11n.pt",
+                    "name": "YOLO26n",
+                    "path": "yolo/yolo26n.pt",
                     "type": "gpu",  # gpu | cpu
                     "format": "pt",  # pt | ncnn
                     "size_mb": 5.35,
@@ -119,7 +119,7 @@ class YOLOModelManager:
                     "class_names": ["person", "car", ...],
                     "is_custom": False,
                     "has_ncnn": True,
-                    "ncnn_path": "yolo/yolo11n_ncnn_model",
+                    "ncnn_path": "yolo/yolo26n_ncnn_model",
                     "last_modified": 1234567890.0
                 }
             }
@@ -206,7 +206,7 @@ class YOLOModelManager:
 
         # Check for required files with various possible names
         # Standard names: model.bin and model.param
-        # Alternative: might be named after the model (e.g., yolo11n.bin, yolo11n.param)
+        # Alternative: might be named after the model (e.g., yolo26n.bin, yolo26n.param)
         bin_files = list(ncnn_folder.glob("*.bin"))
         param_files = list(ncnn_folder.glob("*.param"))
         
@@ -655,7 +655,7 @@ class YOLOModelManager:
         4. Return suggested URLs if all automatic methods fail
 
         Args:
-            model_name: Model filename (e.g., "yolo11n.pt")
+            model_name: Model filename (e.g., "yolo26n.pt")
             download_url: Optional custom URL (takes priority if provided)
 
         Returns:
@@ -816,7 +816,7 @@ class YOLOModelManager:
         try:
             self.logger.info(f"Downloading {model_name} via Ultralytics YOLO class...")
             
-            # Remove .pt extension for model name (YOLO class expects "yolo11n", not "yolo11n.pt")
+            # Remove .pt extension for model name (YOLO class expects "yolo26n", not "yolo26n.pt")
             model_id = os.path.splitext(model_name)[0]
             
             # YOLO class will auto-download if model not in cache
@@ -916,7 +916,7 @@ class YOLOModelManager:
         """
         model_name_lower = model_name.lower()
         suggested = []
-        model_id = os.path.splitext(model_name)[0]  # e.g., "yolo11n"
+        model_id = os.path.splitext(model_name)[0]  # e.g., "yolo26n"
         
         # Extract YOLO version number if possible (for future versions)
         version_match = re.search(r'yolo-?(\d+)', model_name_lower)

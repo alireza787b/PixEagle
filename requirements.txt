@@ -22,6 +22,7 @@ opencv-contrib-python >= 4.8.0  # For extra features including tracking algorith
 ultralytics >= 8.3.114, < 9.0
 ncnn
 lap
+pnnx
 
 # Professional OSD rendering with high-quality TrueType fonts
 Pillow >= 10.0.0  # PIL fork for professional text rendering on video frames
