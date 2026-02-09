@@ -86,9 +86,11 @@ When you select **Full** profile, init uses a two-phase Python dependency flow:
 
 1. Install **core** packages first (stable base)
 2. Offer automated PyTorch setup (`scripts/setup/setup-pytorch.sh --mode auto`)
-3. Install and verify **AI** packages (`ultralytics`, `lap`, optional `ncnn`)
+3. Install and verify **AI** packages (`ultralytics`, `lap`, `ncnn`, and optional `pnnx` for NCNN export)
 
 If AI verification fails, init keeps your core install usable and prompts whether to roll back AI packages to Core-safe mode.
+
+Note: NCNN auto-export from uploaded `.pt` models requires `pnnx` in the same venv.
 
 Manual AI recovery commands:
 

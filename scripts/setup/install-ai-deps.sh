@@ -63,6 +63,7 @@ Install AI dependencies used by SmartTracker and model tooling:
   - ultralytics
   - lap
   - ncnn
+  - pnnx (recommended for NCNN export)
 
 Options:
   --allow-core-upgrades   Allow pip to upgrade numpy/opencv/torch stack
@@ -159,6 +160,19 @@ install_ai_packages() {
     log_info "Running pip install for ultralytics/lap/ncnn"
     "${cmd[@]}"
 
+    # pnnx is used by Ultralytics NCNN export. Keep it best-effort so
+    # SmartTracker runtime remains available even if pnnx wheel is unavailable.
+    local pnnx_cmd=("$VENV_PIP" install --prefer-binary pnnx)
+    if [[ -n "$CONSTRAINTS_FILE" ]]; then
+        pnnx_cmd=("$VENV_PIP" install --prefer-binary -c "$CONSTRAINTS_FILE" pnnx)
+    fi
+    log_info "Installing optional NCNN exporter dependency (pnnx)"
+    if "${pnnx_cmd[@]}"; then
+        log_success "pnnx install OK"
+    else
+        log_warn "pnnx install failed (NCNN auto-export may be unavailable until fixed manually)"
+    fi
+
     log_success "AI packages installation command completed"
 }
 
@@ -173,6 +187,7 @@ status = {
     "ultralytics": False,
     "lap": False,
     "ncnn": False,
+    "pnnx": False,
     "error": None,
 }
 
@@ -195,6 +210,12 @@ try:
 except Exception:
     status["ncnn"] = False
 
+try:
+    import pnnx  # noqa: F401
+    status["pnnx"] = True
+except Exception:
+    status["pnnx"] = False
+
 print(json.dumps(status))
 PY
 )"
@@ -212,6 +233,7 @@ print(f"OK={1 if ok else 0}")
 print(f"ULTRA={1 if data.get('ultralytics') else 0}")
 print(f"LAP={1 if data.get('lap') else 0}")
 print(f"NCNN={1 if data.get('ncnn') else 0}")
+print(f"PNNX={1 if data.get('pnnx') else 0}")
 print(f"ERR={shlex.quote(data.get('error') or '')}")
 PY
 )"
@@ -220,6 +242,7 @@ PY
     [[ "$ULTRA" -eq 1 ]] && log_success "ultralytics import OK" || log_warn "ultralytics import failed"
     [[ "$LAP" -eq 1 ]] && log_success "lap import OK" || log_warn "lap import failed"
     [[ "$NCNN" -eq 1 ]] && log_success "ncnn import OK" || log_warn "ncnn import failed (optional)"
+    [[ "$PNNX" -eq 1 ]] && log_success "pnnx import OK" || log_warn "pnnx import failed (NCNN auto-export optional)"
 
     if [[ "$OK" -ne 1 ]]; then
         log_error "AI verification failed: ${ERR:-unknown}"
@@ -232,7 +255,7 @@ PY
 
 main() {
     parse_args "$@"
-    display_pixeagle_banner "AI Dependency Setup" "Safe installation for ultralytics/lap/ncnn"
+    display_pixeagle_banner "AI Dependency Setup" "Safe installation for ultralytics/lap/ncnn (+ optional pnnx)"
 
     check_prereqs
     build_constraints

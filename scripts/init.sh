@@ -793,7 +793,7 @@ install_python_deps() {
 
     AI_DEPS_REQUESTED=true
     echo ""
-    log_info "Phase B/2: Installing AI packages (ultralytics, lap, ncnn)"
+    log_info "Phase B/2: Installing AI packages (ultralytics, lap, ncnn, pnnx optional)"
     log_warn "Using safe AI installer to preserve core runtime (numpy/opencv/torch) versions"
 
     local ai_setup_script="$PIXEAGLE_DIR/scripts/setup/install-ai-deps.sh"
@@ -808,7 +808,7 @@ install_python_deps() {
         fi
     else
         log_warn "AI setup helper not found; using legacy pip fallback"
-        if ! venv/bin/pip install --prefer-binary ultralytics lap ncnn; then
+        if ! venv/bin/pip install --prefer-binary ultralytics lap ncnn pnnx; then
             log_warn "AI package install command reported errors; verifying imports next"
         fi
         if ! venv/bin/python -c "from ultralytics import YOLO; print('ok')" 2>/dev/null | grep -q "ok"; then
@@ -839,7 +839,7 @@ install_python_deps() {
 
         if ask_yes_no "        Roll back to Core-safe mode now? [Y/n]: " "y"; then
             log_info "Rolling back AI packages for stable Core mode..."
-            venv/bin/pip uninstall -y ultralytics torch torchvision torchaudio lap ncnn 2>/dev/null || true
+            venv/bin/pip uninstall -y ultralytics torch torchvision torchaudio lap ncnn pnnx 2>/dev/null || true
             AI_ROLLBACK_APPLIED=true
             log_warn "AI rollback applied. Core mode remains fully functional."
         else

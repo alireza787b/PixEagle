@@ -25,6 +25,8 @@ import logging
 import asyncio
 import requests
 import re
+from contextlib import contextmanager
+import importlib.util
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List
 from datetime import datetime
@@ -225,6 +227,29 @@ class YOLOModelManager:
     def _get_ncnn_path(self, pt_file: Path) -> Path:
         """Get NCNN folder path for a .pt file"""
         return pt_file.parent / f"{pt_file.stem}_ncnn_model"
+
+    @staticmethod
+    def _restore_env_var(name: str, value: Optional[str]) -> None:
+        """Restore an environment variable to a previous value (or unset it)."""
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+
+    @contextmanager
+    def _preserve_env_vars(self, names: List[str]):
+        """Preserve process env vars around code that mutates global runtime state."""
+        snapshot = {name: os.environ.get(name) for name in names}
+        try:
+            yield
+        finally:
+            for name, value in snapshot.items():
+                self._restore_env_var(name, value)
+
+    @staticmethod
+    def _pnnx_available() -> bool:
+        """Check whether pnnx is import-discoverable."""
+        return importlib.util.find_spec("pnnx") is not None
 
     # ==================== MODEL VALIDATION ====================
 
@@ -497,13 +522,26 @@ class YOLOModelManager:
                     "error": "Ultralytics not installed"
                 }
 
+            if not self._pnnx_available():
+                return {
+                    "success": False,
+                    "error": (
+                        "NCNN export requires 'pnnx', but it is not installed in the active venv. "
+                        "Run: source venv/bin/activate && pip install --prefer-binary pnnx"
+                    ),
+                }
+
             self.logger.info(f"Exporting {pt_file.name} to NCNN format...")
 
-            # Load model (torch.load is already patched in __init__)
-            model = YOLO(str(pt_file))
+            # Ultralytics export(format="ncnn") internally calls select_device("cpu"),
+            # which mutates CUDA_VISIBLE_DEVICES globally. Preserve and restore it so
+            # SmartTracker GPU runtime remains unaffected after upload/export.
+            with self._preserve_env_vars(["CUDA_VISIBLE_DEVICES"]):
+                # Load model (torch.load is already patched in __init__)
+                model = YOLO(str(pt_file))
 
-            # Export to NCNN - returns the path to exported model
-            export_result = model.export(format="ncnn")
+                # Export to NCNN - returns the path to exported model
+                export_result = model.export(format="ncnn")
             
             # Small delay to ensure files are fully written
             time.sleep(0.5)

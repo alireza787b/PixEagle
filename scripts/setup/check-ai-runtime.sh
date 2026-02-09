@@ -6,7 +6,7 @@
 # Provides a deterministic snapshot of local AI/runtime readiness:
 #   - torch/torchvision/torchaudio import and versions
 #   - CUDA / MPS availability
-#   - ultralytics / lap / ncnn import health
+#   - ultralytics / lap / ncnn / pnnx import health
 #   - SmartTracker config intent (GPU/CPU + fallback)
 #   - Model path existence checks
 #
@@ -121,6 +121,7 @@ torchaudio_status = mod_status("torchaudio")
 ultralytics_status = mod_status("ultralytics")
 lap_status = mod_status("lap")
 ncnn_status = mod_status("ncnn")
+pnnx_status = mod_status("pnnx")
 
 torch_details = {
     "cuda_built": None,
@@ -192,6 +193,7 @@ payload = {
         "ultralytics": ultralytics_status,
         "lap": lap_status,
         "ncnn": ncnn_status,
+        "pnnx": pnnx_status,
     },
     "torch_runtime": torch_details,
     "smart_tracker": {
@@ -225,6 +227,7 @@ print(status_line("torchaudio", torchaudio_status))
 print(status_line("ultralytics", ultralytics_status))
 print(status_line("lap", lap_status))
 print(status_line("ncnn", ncnn_status))
+print(status_line("pnnx", pnnx_status))
 print("")
 print("Acceleration:")
 print(f"  - torch CUDA build : {torch_details['cuda_built'] or 'none'}")
