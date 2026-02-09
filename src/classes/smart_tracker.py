@@ -46,9 +46,11 @@ class HUDColors:
     ACTIVE_RETICLE     = (0, 230, 90)     # Green - reticle tick marks
     ACTIVE_LABEL_TEXT  = (0, 255, 100)    # Green label text
     ACTIVE_LABEL_BG    = (20, 20, 20)     # Near-black label plate
+    ACTIVE_FILL        = (0, 60, 25)      # Dark green tint - active box interior
     PASSIVE_BOX        = (140, 140, 140)  # Mid-grey - untracked boxes
-    PASSIVE_LABEL_TEXT = (160, 160, 160)  # Light grey label text
+    PASSIVE_LABEL_TEXT = (200, 200, 200)  # Bright grey label text (more readable)
     PASSIVE_LABEL_BG   = (30, 30, 30)    # Dark grey plate
+    PASSIVE_FILL       = (40, 40, 40)     # Dark grey tint - passive box interior
     LOST_PRIMARY       = (0, 180, 255)    # Amber - lost target
 
 
@@ -195,23 +197,26 @@ class SmartTracker:
         """Compute resolution-relative dimensions for HUD elements (480p-4K)."""
         def s(factor, minimum=1):
             return max(int(fh * factor), minimum)
+        plate_alpha = float(self.config.get('SMART_TRACKER_LABEL_PLATE_OPACITY', 0.75))
         return {
             'bracket_length':            s(0.025, 8),
             'bracket_thickness':         s(0.003, 1),
-            'bracket_thickness_active':  s(0.004, 2),
+            'bracket_thickness_active':  s(0.005, 2),
             'tick_length':               s(0.015, 5),
             'tick_gap':                  s(0.008, 3),
-            'tick_thickness':            s(0.002, 1),
-            'crosshair_arm':             s(0.006, 3),
+            'tick_thickness':            s(0.0025, 1),
+            'crosshair_arm':             s(0.007, 3),
             'crosshair_thickness':       s(0.002, 1),
-            'label_font_scale':          max(fh * 0.0008, 0.35),
-            'label_padding_h':           s(0.006, 4),
-            'label_padding_v':           s(0.004, 3),
+            'label_font_scale':          max(fh * 0.001, 0.40),
+            'label_padding_h':           s(0.008, 5),
+            'label_padding_v':           s(0.005, 4),
             'label_offset_y':            s(0.008, 4),
             'dash_length':               s(0.012, 6),
             'dash_gap':                  s(0.008, 4),
-            'label_plate_alpha':         float(self.config.get('SMART_TRACKER_LABEL_PLATE_OPACITY', 0.70)),
-            'passive_label_plate_alpha': float(self.config.get('SMART_TRACKER_LABEL_PLATE_OPACITY', 0.70)) * 0.8,
+            'label_plate_alpha':         plate_alpha,
+            'passive_label_plate_alpha': plate_alpha * 0.85,
+            'active_fill_alpha':         0.10,
+            'passive_fill_alpha':        0.08,
         }
 
     def _select_tracker_type(self) -> Tuple[str, bool]:
@@ -792,11 +797,20 @@ class SmartTracker:
         cv2.line(frame, (x2, y2), (x2 - bl, y2), color, thickness, cv2.LINE_AA)
         cv2.line(frame, (x2, y2), (x2, y2 - bl), color, thickness, cv2.LINE_AA)
 
+    def draw_box_fill(self, frame, x1, y1, x2, y2, color, alpha):
+        """Draw a very subtle transparent color fill inside a bounding box."""
+        bx1, by1 = max(0, x1), max(0, y1)
+        bx2, by2 = min(frame.shape[1], x2), min(frame.shape[0], y2)
+        if bx2 > bx1 and by2 > by1:
+            roi = frame[by1:by2, bx1:bx2]
+            overlay = np.full_like(roi, color)
+            cv2.addWeighted(overlay, alpha, roi, 1.0 - alpha, 0, roi)
+
     def draw_hud_label(self, frame, text, x1, y1, color_text, color_bg, bg_alpha, s):
         """Draw a label with semi-transparent dark plate above the bounding box."""
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = s['label_font_scale']
-        thickness = max(1, int(font_scale * 2))
+        thickness = max(1, int(font_scale * 2.5))
         ph, pv = s['label_padding_h'], s['label_padding_v']
         (tw, th), baseline = cv2.getTextSize(text, font, font_scale, thickness)
 
@@ -1017,6 +1031,9 @@ class SmartTracker:
 
             label_name = self.labels.get(class_id, str(class_id))
 
+            # Subtle interior shading
+            self.draw_box_fill(frame, x1, y1, x2, y2, HUDColors.PASSIVE_FILL, s['passive_fill_alpha'])
+
             if self.draw_oriented and det.polygon_xy:
                 pts = np.array([[int(px), int(py)] for px, py in det.polygon_xy], dtype=np.int32)
                 cv2.polylines(frame, [pts], isClosed=True, color=HUDColors.PASSIVE_BOX,
@@ -1059,6 +1076,9 @@ class SmartTracker:
                     self.selected_bbox,
                     self.selected_center
                 )
+
+            # Subtle interior shading (green tint for active)
+            self.draw_box_fill(frame, x1, y1, x2, y2, HUDColors.ACTIVE_FILL, s['active_fill_alpha'])
 
             # Draw OBB polygon or corner brackets
             if self.draw_oriented and det.polygon_xy:
