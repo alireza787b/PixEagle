@@ -40,6 +40,18 @@ from classes.appearance_model import AppearanceModel
 logger = logging.getLogger(__name__)
 
 
+class HUDColors:
+    """Military/surveillance HUD color palette (BGR)."""
+    ACTIVE_PRIMARY     = (0, 255, 100)    # Bright green - tracked target box
+    ACTIVE_RETICLE     = (0, 230, 90)     # Green - reticle tick marks
+    ACTIVE_LABEL_TEXT  = (0, 255, 100)    # Green label text
+    ACTIVE_LABEL_BG    = (20, 20, 20)     # Near-black label plate
+    PASSIVE_BOX        = (140, 140, 140)  # Mid-grey - untracked boxes
+    PASSIVE_LABEL_TEXT = (160, 160, 160)  # Light grey label text
+    PASSIVE_LABEL_BG   = (30, 30, 30)    # Dark grey plate
+    LOST_PRIMARY       = (0, 180, 255)    # Amber - lost target
+
+
 class SmartTracker:
     def __init__(self, app_controller):
         """
@@ -105,7 +117,7 @@ class SmartTracker:
         self.iou_threshold = self.config.get('SMART_TRACKER_IOU_THRESHOLD', 0.3)
         self.max_det = self.config.get('SMART_TRACKER_MAX_DETECTIONS', 20)
         self.show_fps = self.config.get('SMART_TRACKER_SHOW_FPS', False)
-        self.draw_color = tuple(self.config.get('SMART_TRACKER_COLOR', [0, 255, 255]))
+        self.hud_style = self.config.get('SMART_TRACKER_HUD_STYLE', 'military')
 
         # === Build Tracker Arguments Based on Selected Type ===
         self.tracker_args = self._build_tracker_args()
@@ -133,8 +145,6 @@ class SmartTracker:
         self.selected_oriented_bbox = None
         self.selected_polygon = None
         self.last_results = None
-        self.object_colors = {}
-
         # === Motion Predictor (for occlusion handling)
         # Predicts object position during brief detection loss
         prediction_enabled = self.config.get('ENABLE_PREDICTION_BUFFER', True)
@@ -180,6 +190,29 @@ class SmartTracker:
             logger.info(f"[SmartTracker] Custom ReID: {'enabled' if self.appearance_model else 'disabled'}")
         logger.info(f"[SmartTracker] Tracking strategy: {self.config.get('TRACKING_STRATEGY', 'hybrid')}")
         logger.info(f"[SmartTracker] Motion prediction: {'enabled' if self.motion_predictor else 'disabled'}")
+
+    def _hud_scale(self, fh: int) -> dict:
+        """Compute resolution-relative dimensions for HUD elements (480p-4K)."""
+        def s(factor, minimum=1):
+            return max(int(fh * factor), minimum)
+        return {
+            'bracket_length':            s(0.025, 8),
+            'bracket_thickness':         s(0.003, 1),
+            'bracket_thickness_active':  s(0.004, 2),
+            'tick_length':               s(0.015, 5),
+            'tick_gap':                  s(0.008, 3),
+            'tick_thickness':            s(0.002, 1),
+            'crosshair_arm':             s(0.006, 3),
+            'crosshair_thickness':       s(0.002, 1),
+            'label_font_scale':          max(fh * 0.0008, 0.35),
+            'label_padding_h':           s(0.006, 4),
+            'label_padding_v':           s(0.004, 3),
+            'label_offset_y':            s(0.008, 4),
+            'dash_length':               s(0.012, 6),
+            'dash_gap':                  s(0.008, 4),
+            'label_plate_alpha':         float(self.config.get('SMART_TRACKER_LABEL_PLATE_OPACITY', 0.70)),
+            'passive_label_plate_alpha': float(self.config.get('SMART_TRACKER_LABEL_PLATE_OPACITY', 0.70)) * 0.8,
+        }
 
     def _select_tracker_type(self) -> Tuple[str, bool]:
         """
@@ -724,13 +757,6 @@ class SmartTracker:
             logger.exception(e)
             return {"success": False, "message": error_msg, "model_info": None}
 
-    def get_yolo_color(self, index: int) -> Tuple[int, int, int]:
-        """Generate unique color for each object ID using golden ratio."""
-        hue = (index * 0.61803398875) % 1.0
-        hsv = np.array([[[int(hue * 179), 255, 255]]], dtype=np.uint8)
-        bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)[0][0]
-        return int(bgr[0]), int(bgr[1]), int(bgr[2])
-
     def get_center(self, x1: int, y1: int, x2: int, y2: int) -> Tuple[int, int]:
         """Calculate center point from bounding box corners."""
         return (x1 + x2) // 2, (y1 + y2) // 2
@@ -747,24 +773,93 @@ class SmartTracker:
         union_area = box1_area + box2_area - inter_area
         return inter_area / union_area if union_area > 0 else 0
 
-    def extend_line_from_edge(self, mid_x, mid_y, direction, img_shape):
-        h, w = img_shape[:2]
-        if direction == "left": return (0, mid_y)
-        if direction == "right": return (w - 1, mid_y)
-        if direction == "up": return (mid_x, 0)
-        if direction == "down": return (mid_x, h - 1)
-        return mid_x, mid_y
+    # === HUD Drawing Methods ===
 
-    def draw_tracking_scope(self, frame, bbox, color):
+    def draw_corner_brackets(self, frame, x1, y1, x2, y2, color, thickness, bracket_len):
+        """Draw 4 L-shaped corner brackets instead of a full rectangle."""
+        bl = min(bracket_len, (x2 - x1) // 4, (y2 - y1) // 4)
+        bl = max(bl, 4)
+        # Top-left
+        cv2.line(frame, (x1, y1), (x1 + bl, y1), color, thickness, cv2.LINE_AA)
+        cv2.line(frame, (x1, y1), (x1, y1 + bl), color, thickness, cv2.LINE_AA)
+        # Top-right
+        cv2.line(frame, (x2, y1), (x2 - bl, y1), color, thickness, cv2.LINE_AA)
+        cv2.line(frame, (x2, y1), (x2, y1 + bl), color, thickness, cv2.LINE_AA)
+        # Bottom-left
+        cv2.line(frame, (x1, y2), (x1 + bl, y2), color, thickness, cv2.LINE_AA)
+        cv2.line(frame, (x1, y2), (x1, y2 - bl), color, thickness, cv2.LINE_AA)
+        # Bottom-right
+        cv2.line(frame, (x2, y2), (x2 - bl, y2), color, thickness, cv2.LINE_AA)
+        cv2.line(frame, (x2, y2), (x2, y2 - bl), color, thickness, cv2.LINE_AA)
+
+    def draw_hud_label(self, frame, text, x1, y1, color_text, color_bg, bg_alpha, s):
+        """Draw a label with semi-transparent dark plate above the bounding box."""
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = s['label_font_scale']
+        thickness = max(1, int(font_scale * 2))
+        ph, pv = s['label_padding_h'], s['label_padding_v']
+        (tw, th), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+
+        # Position above the box; fall back to below-top-edge if near frame top
+        label_y = y1 - s['label_offset_y']
+        if label_y - th - pv * 2 < 0:
+            label_y = y1 + th + pv * 2 + s['label_offset_y']
+
+        plate_x1 = max(0, x1)
+        plate_y1 = max(0, label_y - th - pv * 2)
+        plate_x2 = min(frame.shape[1], plate_x1 + tw + ph * 2)
+        plate_y2 = min(frame.shape[0], label_y + pv)
+
+        # Semi-transparent plate via small ROI blend
+        if plate_x2 > plate_x1 and plate_y2 > plate_y1:
+            roi = frame[plate_y1:plate_y2, plate_x1:plate_x2]
+            overlay = np.full_like(roi, color_bg)
+            cv2.addWeighted(overlay, bg_alpha, roi, 1.0 - bg_alpha, 0, roi)
+
+        # Text with dark outline for contrast
+        text_x = plate_x1 + ph
+        text_y = label_y - pv
+        cv2.putText(frame, text, (text_x, text_y), font, font_scale, (0, 0, 0), thickness + 1, cv2.LINE_AA)
+        cv2.putText(frame, text, (text_x, text_y), font, font_scale, color_text, thickness, cv2.LINE_AA)
+
+    def draw_tracking_reticle(self, frame, bbox, color, s):
+        """Draw 4 short tick marks at box midpoints + center crosshair."""
         x1, y1, x2, y2 = bbox
-        mid_top = ((x1 + x2) // 2, y1)
-        mid_bottom = ((x1 + x2) // 2, y2)
-        mid_left = (x1, (y1 + y2) // 2)
-        mid_right = (x2, (y1 + y2) // 2)
-        cv2.line(frame, mid_top, self.extend_line_from_edge(*mid_top, "up", frame.shape), color, 2)
-        cv2.line(frame, mid_bottom, self.extend_line_from_edge(*mid_bottom, "down", frame.shape), color, 2)
-        cv2.line(frame, mid_left, self.extend_line_from_edge(*mid_left, "left", frame.shape), color, 2)
-        cv2.line(frame, mid_right, self.extend_line_from_edge(*mid_right, "right", frame.shape), color, 2)
+        cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+        tl = s['tick_length']
+        tg = s['tick_gap']
+        tt = s['tick_thickness']
+        ca = s['crosshair_arm']
+        ct = s['crosshair_thickness']
+
+        # Tick marks extending outward from box midpoints
+        cv2.line(frame, (cx, y1 - tg), (cx, y1 - tg - tl), color, tt, cv2.LINE_AA)  # top
+        cv2.line(frame, (cx, y2 + tg), (cx, y2 + tg + tl), color, tt, cv2.LINE_AA)  # bottom
+        cv2.line(frame, (x1 - tg, cy), (x1 - tg - tl, cy), color, tt, cv2.LINE_AA)  # left
+        cv2.line(frame, (x2 + tg, cy), (x2 + tg + tl, cy), color, tt, cv2.LINE_AA)  # right
+
+        # Center crosshair
+        cv2.line(frame, (cx - ca, cy), (cx + ca, cy), color, ct, cv2.LINE_AA)
+        cv2.line(frame, (cx, cy - ca), (cx, cy + ca), color, ct, cv2.LINE_AA)
+
+    def draw_dashed_box(self, frame, x1, y1, x2, y2, color, thickness, dash_len, gap):
+        """Draw a dashed rectangle along all 4 edges."""
+        edges = [
+            ((x1, y1), (x2, y1)),  # top
+            ((x2, y1), (x2, y2)),  # right
+            ((x2, y2), (x1, y2)),  # bottom
+            ((x1, y2), (x1, y1)),  # left
+        ]
+        for (ex1, ey1), (ex2, ey2) in edges:
+            dx, dy = ex2 - ex1, ey2 - ey1
+            length = max(1, int((dx**2 + dy**2) ** 0.5))
+            step = dash_len + gap
+            for i in range(0, length, step):
+                t0 = i / length
+                t1 = min((i + dash_len) / length, 1.0)
+                pt1 = (int(ex1 + dx * t0), int(ey1 + dy * t0))
+                pt2 = (int(ex1 + dx * t1), int(ey1 + dy * t1))
+                cv2.line(frame, pt1, pt2, color, thickness, cv2.LINE_AA)
 
     def select_object_by_click(self, x, y):
         """
@@ -895,8 +990,6 @@ class SmartTracker:
                 self._obb_auto_disabled = True
                 self.current_geometry_mode = "aabb"
 
-        frame_overlay = frame.copy()
-
         # === Use TrackingStateManager for robust tracking ===
         detections_list = to_tracking_state_rows(self.last_detections)
 
@@ -907,65 +1000,83 @@ class SmartTracker:
             frame  # Pass frame for appearance matching
         )
 
-        # Draw all detections
+        # Compute HUD scale factors once per frame
+        s = self._hud_scale(frame.shape[0])
+        show_passive_labels = self.config.get('SMART_TRACKER_SHOW_PASSIVE_LABELS', True)
+
+        # --- Pass 1: Draw passive (untracked) detections first (back layer) ---
         for det in self.last_detections:
             x1, y1, x2, y2 = det.aabb_xyxy
-            conf = float(det.confidence)
-            class_id = int(det.class_id)
             track_id = int(det.track_id)
-            label_name = self.labels.get(class_id, str(class_id))
-            color = self.object_colors.setdefault(track_id, self.get_yolo_color(track_id))
-            label = f"{label_name} ID {track_id} ({conf:.2f})"
+            class_id = int(det.class_id)
 
-            # Check if this is the actively tracked object
             is_selected = (selected_detection is not None and
                           track_id == selected_detection['track_id'])
-
             if is_selected:
-                # Update local state (for backward compatibility)
-                self.selected_object_id = track_id
-                self.selected_class_id = class_id
-                self.selected_bbox = (x1, y1, x2, y2)
-                self.selected_center = self.get_center(x1, y1, x2, y2)
-                self.selected_oriented_bbox = det.obb_xywhr
-                self.selected_polygon = det.polygon_xy
+                continue  # Draw active target in pass 2
 
-                # Continuously update classic tracker's override with latest detection
-                if self.app_controller.tracker and hasattr(self.app_controller.tracker, 'set_external_override'):
-                    self.app_controller.tracker.set_external_override(
-                        self.selected_bbox,
-                        self.selected_center
-                    )
+            label_name = self.labels.get(class_id, str(class_id))
 
-                if self.draw_oriented and det.polygon_xy:
-                    pts = np.array([[int(px), int(py)] for px, py in det.polygon_xy], dtype=np.int32)
-                    cv2.polylines(frame, [pts], isClosed=True, color=color, thickness=4)
-                else:
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), color, 4)
-                self.draw_tracking_scope(frame, (x1, y1, x2, y2), color)
-                cv2.circle(frame, self.selected_center, 6, color, -1)
-
-                # Add status indicator to label
-                if selected_detection.get('iou_match', False):
-                    match_info = f"IoU={selected_detection['match_iou']:.2f}"
-                    label = f"*ACTIVE* {label} [{match_info}]"
-                else:
-                    label = f"*ACTIVE* {label}"
+            if self.draw_oriented and det.polygon_xy:
+                pts = np.array([[int(px), int(py)] for px, py in det.polygon_xy], dtype=np.int32)
+                cv2.polylines(frame, [pts], isClosed=True, color=HUDColors.PASSIVE_BOX,
+                              thickness=s['bracket_thickness'])
             else:
-                # Dashed overlay box for unselected objects
-                if self.draw_oriented and det.polygon_xy:
-                    pts = np.array([[int(px), int(py)] for px, py in det.polygon_xy], dtype=np.int32)
-                    cv2.polylines(frame_overlay, [pts], isClosed=True, color=color, thickness=2)
-                else:
-                    for i in range(x1, x2, 10):
-                        cv2.line(frame_overlay, (i, y1), (i + 5, y1), color, 2)
-                        cv2.line(frame_overlay, (i, y2), (i + 5, y2), color, 2)
-                    for i in range(y1, y2, 10):
-                        cv2.line(frame_overlay, (x1, i), (x1, i + 5), color, 2)
-                        cv2.line(frame_overlay, (x2, i), (x2, i + 5), color, 2)
+                self.draw_dashed_box(frame, x1, y1, x2, y2, HUDColors.PASSIVE_BOX,
+                                     s['bracket_thickness'], s['dash_length'], s['dash_gap'])
 
-            # Draw label text on the frame
-            cv2.putText(frame, label, (x1 + 5, y1 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            if show_passive_labels:
+                passive_label = f"{label_name.upper()} {track_id:02d}"
+                self.draw_hud_label(frame, passive_label, x1, y1,
+                                    HUDColors.PASSIVE_LABEL_TEXT, HUDColors.PASSIVE_LABEL_BG,
+                                    s['passive_label_plate_alpha'], s)
+
+        # --- Pass 2: Draw active tracked target on top ---
+        for det in self.last_detections:
+            x1, y1, x2, y2 = det.aabb_xyxy
+            track_id = int(det.track_id)
+            class_id = int(det.class_id)
+            conf = float(det.confidence)
+
+            is_selected = (selected_detection is not None and
+                          track_id == selected_detection['track_id'])
+            if not is_selected:
+                continue
+
+            label_name = self.labels.get(class_id, str(class_id))
+
+            # Update local state (for backward compatibility)
+            self.selected_object_id = track_id
+            self.selected_class_id = class_id
+            self.selected_bbox = (x1, y1, x2, y2)
+            self.selected_center = self.get_center(x1, y1, x2, y2)
+            self.selected_oriented_bbox = det.obb_xywhr
+            self.selected_polygon = det.polygon_xy
+
+            # Continuously update classic tracker's override with latest detection
+            if self.app_controller.tracker and hasattr(self.app_controller.tracker, 'set_external_override'):
+                self.app_controller.tracker.set_external_override(
+                    self.selected_bbox,
+                    self.selected_center
+                )
+
+            # Draw OBB polygon or corner brackets
+            if self.draw_oriented and det.polygon_xy:
+                pts = np.array([[int(px), int(py)] for px, py in det.polygon_xy], dtype=np.int32)
+                cv2.polylines(frame, [pts], isClosed=True, color=HUDColors.ACTIVE_PRIMARY,
+                              thickness=s['bracket_thickness_active'])
+            else:
+                self.draw_corner_brackets(frame, x1, y1, x2, y2, HUDColors.ACTIVE_PRIMARY,
+                                          s['bracket_thickness_active'], s['bracket_length'])
+
+            # Reticle tick marks + center crosshair
+            self.draw_tracking_reticle(frame, (x1, y1, x2, y2), HUDColors.ACTIVE_RETICLE, s)
+
+            # Active label plate
+            active_label = f"{label_name.upper()} {track_id:02d} | {conf:.0%}"
+            self.draw_hud_label(frame, active_label, x1, y1,
+                                HUDColors.ACTIVE_LABEL_TEXT, HUDColors.ACTIVE_LABEL_BG,
+                                s['label_plate_alpha'], s)
 
         # Update app controller tracking status
         self.app_controller.tracking_started = is_tracking_active
@@ -991,13 +1102,12 @@ class SmartTracker:
                 self.fps_display = self.fps_counter
                 self.fps_counter = 0
                 self.fps_timer = time.time()
-            cv2.putText(frame, f"FPS: {self.fps_display}", (10, 25),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            self.draw_hud_label(frame, f"FPS {self.fps_display}", 10, 30,
+                                HUDColors.ACTIVE_LABEL_TEXT, HUDColors.ACTIVE_LABEL_BG,
+                                s['label_plate_alpha'], s)
 
-        # Final blended result
-        blended_frame = cv2.addWeighted(frame_overlay, 0.5, frame, 0.5, 0)
         self.last_frame_processing_ms = (time.perf_counter() - t0) * 1000.0
-        return blended_frame
+        return frame
 
     def get_output(self) -> TrackerOutput:
         """

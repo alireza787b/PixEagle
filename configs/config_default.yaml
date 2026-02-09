@@ -726,8 +726,15 @@ SmartTracker:
   SMART_TRACKER_OBB_AUTO_DISABLE_ERROR_RATE: 0.001  # Circuit breaker threshold
 
   # === Visual Settings ===
-  SMART_TRACKER_COLOR: [0, 255, 255]        # BGR: Yellow
+  SMART_TRACKER_COLOR: [0, 255, 255]        # BGR: Yellow (legacy, unused in military HUD)
   SMART_TRACKER_SHOW_FPS: false
+
+  # === HUD Style ===
+  SMART_TRACKER_HUD_STYLE: "military"         # "military" (new) or "classic" (legacy)
+  SMART_TRACKER_ACTIVE_COLOR: [0, 255, 100]   # BGR green for active target
+  SMART_TRACKER_PASSIVE_COLOR: [140, 140, 140] # BGR grey for untracked
+  SMART_TRACKER_LABEL_PLATE_OPACITY: 0.70     # Background plate opacity (0.0-1.0)
+  SMART_TRACKER_SHOW_PASSIVE_LABELS: true     # Labels on untracked detections
 
   # ==============================================================================
   # 🎯 TRACKER TYPE SELECTION (Choose Your Tracking Strategy)
