@@ -22,7 +22,7 @@ This guide provides comprehensive instructions for setting up and running PixEag
 | Software | Minimum Version | Download Link |
 |----------|-----------------|---------------|
 | **Windows** | Windows 10 version 1809+ | - |
-| **Python** | 3.9+ | [python.org/downloads](https://www.python.org/downloads/) |
+| **Python** | 3.9+ (3.10-3.12 recommended) | [python.org/downloads](https://www.python.org/downloads/) |
 | **Node.js** | 14+ (LTS recommended) | [nodejs.org/download](https://nodejs.org/en/download) |
 
 ### Optional Software
@@ -45,7 +45,7 @@ npm --version
 
 Expected output:
 ```
-Python 3.9.x (or higher)
+Python 3.10.x to 3.12.x (recommended)
 v18.x.x (or higher)
 9.x.x (or higher)
 ```
@@ -150,6 +150,7 @@ scripts\setup\download-binaries.bat --mavlink2rest
 ```
 
 Binaries are downloaded to the `bin\` directory.
+The downloader tries multiple release tags and validates that downloaded files are real `.exe` binaries.
 
 ---
 
@@ -259,11 +260,17 @@ scripts\components\dashboard.bat --dev    # Development mode
 **Python backend only:**
 ```cmd
 scripts\components\main.bat
+scripts\components\main.bat --dev
 ```
 
 **MAVLink2REST only:**
 ```cmd
 scripts\components\mavlink2rest.bat
+```
+
+**MAVSDK Server only:**
+```cmd
+scripts\components\mavsdk_server.bat
 ```
 
 ---
@@ -368,6 +375,35 @@ rmdir /s /q venv
 scripts\init.bat
 ```
 
+#### NumPy metadata error during pip install
+
+**Error:** `Encountered error while generating package metadata. ... numpy`
+
+**Solution:**
+```cmd
+# 1) Use a stable Python version (recommended)
+#    Python 3.10-3.12 is the safest range today
+
+# 2) Recreate venv and upgrade packaging tools
+rmdir /s /q venv
+python -m pip install --upgrade pip setuptools wheel
+scripts\init.bat
+```
+
+#### dlib installation error
+
+`dlib` tracker dependency is optional in PixEagle and is not required for baseline setup.
+
+- If `dlib` install fails on Windows, continue with default trackers (`CSRT`/`KCF`).
+- Install `dlib` later only if you specifically need the dlib tracker.
+
+#### Manual binary placement (if download is blocked by network policy)
+
+If corporate firewall/proxy blocks GitHub downloads, place binaries manually in `bin\` with these exact names:
+
+- `bin\mavsdk_server_bin.exe`
+- `bin\mavlink2rest.exe`
+
 ### Port Reference
 
 | Service | Default Port |
@@ -410,6 +446,7 @@ netstat -ano | findstr "3000 5077 8088 5551"
 | `scripts\components\main.bat` | Python backend only |
 | `scripts\components\dashboard.bat` | Dashboard server only |
 | `scripts\components\mavlink2rest.bat` | MAVLink2REST bridge only |
+| `scripts\components\mavsdk_server.bat` | MAVSDK gRPC bridge only |
 
 ### Setup Scripts
 

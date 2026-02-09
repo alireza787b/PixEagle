@@ -25,6 +25,7 @@ call "%SCRIPTS_DIR%\lib\common.bat"
 REM Configuration
 set "TOTAL_STEPS=9"
 set "MIN_PYTHON_VERSION=3.9"
+set "MAX_TESTED_PYTHON_MINOR=12"
 set "REQUIRED_DISK_MB=500"
 
 REM Clear screen and display header
@@ -60,6 +61,14 @@ if %errorlevel% neq 0 (
         set /a "ERRORS+=1"
     ) else (
         call :ok "Python !PYTHON_VERSION!"
+
+        if !PY_MAJOR! gtr 3 (
+            call :warn "Python !PYTHON_VERSION! is newer than tested range (3.9-3.%MAX_TESTED_PYTHON_MINOR%)"
+            call :warn "If installation fails, use Python 3.10-3.12 for best compatibility"
+        ) else if !PY_MAJOR! equ 3 if !PY_MINOR! gtr %MAX_TESTED_PYTHON_MINOR% (
+            call :warn "Python !PYTHON_VERSION! is newer than tested range (3.9-3.%MAX_TESTED_PYTHON_MINOR%)"
+            call :warn "If installation fails, use Python 3.10-3.12 for best compatibility"
+        )
     )
 )
 
@@ -156,12 +165,28 @@ call :warn "Large packages may take several minutes"
 echo.
 
 echo       Upgrading pip...
-python -m pip install --upgrade pip -q 2>nul
+python -m pip install --upgrade pip setuptools wheel
+if !errorlevel! neq 0 (
+    call :warn "pip/setuptools/wheel upgrade failed - continuing with existing tooling"
+)
+
+if !PY_MAJOR! equ 3 if !PY_MINOR! geq 13 (
+    echo.
+    call :warn "Python !PYTHON_VERSION! detected - pre-installing NumPy 2.x wheel for compatibility"
+    python -m pip install --only-binary=:all: "numpy>=2.1.0,<3.0"
+    if !errorlevel! neq 0 (
+        call :warn "NumPy pre-install failed (non-fatal). requirements.txt includes a fallback marker."
+    )
+)
 
 echo       Installing packages...
-python -m pip install -r requirements.txt
+python -m pip install --prefer-binary -r requirements.txt
 if !errorlevel! neq 0 (
     call :error "Some packages failed to install"
+    echo       Common fixes:
+    echo         1. Use Python 3.10-3.12 for best wheel availability
+    echo         2. Re-run: python -m pip install --upgrade pip setuptools wheel
+    echo         3. Remove venv and run scripts\init.bat again
     call venv\Scripts\deactivate.bat 2>nul
     pause
     exit /b 1

@@ -7,6 +7,7 @@ REM
 REM Usage:
 REM   scripts\components\dashboard.bat          (production build)
 REM   scripts\components\dashboard.bat --dev    (development mode with hot-reload)
+REM   scripts\components\dashboard.bat --rebuild (force production rebuild)
 REM
 REM Project: PixEagle
 REM Repository: https://github.com/alireza787b/PixEagle
@@ -26,8 +27,30 @@ set "BUILD_DIR=%DASHBOARD_DIR%\build"
 
 REM Parse arguments
 set "DEV_MODE=0"
-if "%~1"=="--dev" set "DEV_MODE=1"
-if "%~1"=="-d" set "DEV_MODE=1"
+set "FORCE_REBUILD=0"
+
+:parse_args
+if "%~1"=="" goto :args_done
+if /I "%~1"=="--dev" set "DEV_MODE=1"
+if /I "%~1"=="-d" set "DEV_MODE=1"
+if /I "%~1"=="--rebuild" set "FORCE_REBUILD=1"
+if /I "%~1"=="-r" set "FORCE_REBUILD=1"
+if /I "%~1"=="--force" set "FORCE_REBUILD=1"
+if /I "%~1"=="-f" set "FORCE_REBUILD=1"
+if /I "%~1"=="--help" goto :show_help
+if /I "%~1"=="-h" goto :show_help
+shift
+goto :parse_args
+
+:show_help
+echo Usage: scripts\components\dashboard.bat [--dev^|-d] [--rebuild^|-r]
+echo.
+echo   --dev, -d       Start React dashboard in development mode
+echo   --rebuild, -r   Force production rebuild before serving
+echo.
+exit /b 0
+
+:args_done
 
 echo.
 echo [36m========================================================================[0m
@@ -84,6 +107,11 @@ echo    [*] Checking for cached build...
 
 REM Create cache directory if needed
 if not exist "%CACHE_DIR%" mkdir "%CACHE_DIR%"
+
+if "%FORCE_REBUILD%"=="1" (
+    echo    [*] Force rebuild requested...
+    goto :do_build
+)
 
 REM Check if build exists
 if not exist "%BUILD_DIR%\index.html" (

@@ -6,6 +6,7 @@ REM Activates the virtual environment and runs the main Python application.
 REM
 REM Usage:
 REM   scripts\components\main.bat          (from project root)
+REM   scripts\components\main.bat --dev    (development mode env vars)
 REM
 REM Project: PixEagle
 REM Repository: https://github.com/alireza787b/PixEagle
@@ -21,10 +22,18 @@ for %%i in ("%SCRIPTS_DIR%\..\..") do set "PIXEAGLE_DIR=%%~fi"
 REM Configuration
 set "VENV_DIR=%PIXEAGLE_DIR%\venv"
 set "MAIN_SCRIPT=%PIXEAGLE_DIR%\src\main.py"
+set "DEV_MODE=0"
+
+if /I "%~1"=="--dev" set "DEV_MODE=1"
+if /I "%~1"=="-d" set "DEV_MODE=1"
 
 echo.
 echo [36m========================================================================[0m
-echo                     PixEagle Main Application
+if "%DEV_MODE%"=="1" (
+    echo                PixEagle Main Application ^(Development^)
+) else (
+    echo                     PixEagle Main Application
+)
 echo [36m========================================================================[0m
 echo.
 
@@ -57,6 +66,13 @@ timeout /t 1 /nobreak >nul
 REM Activate virtual environment and run
 echo    [*] Activating virtual environment...
 call "%VENV_DIR%\Scripts\activate.bat"
+
+if "%DEV_MODE%"=="1" (
+    set "PIXEAGLE_DEV_MODE=true"
+    set "FLASK_DEBUG=1"
+    set "PYTHONUNBUFFERED=1"
+    echo    [*] Development mode enabled for backend
+)
 
 echo    [*] Starting main.py...
 echo.

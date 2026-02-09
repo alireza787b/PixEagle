@@ -177,11 +177,21 @@ class VideoHandler:
                     )
 
                     if self.width != expected_width or self.height != expected_height:
-                        logger.warning(
+                        mismatch_msg = (
                             f"Video dimensions ({self.width}x{self.height}) differ from "
-                            f"configured ({expected_width}x{expected_height}). "
-                            f"This may indicate scaling pipeline issues."
+                            f"configured ({expected_width}x{expected_height})."
                         )
+                        if Parameters.VIDEO_SOURCE_TYPE.endswith("_CAMERA"):
+                            logger.info(
+                                "%s Camera negotiated nearest supported mode; "
+                                "continuing with detected dimensions.",
+                                mismatch_msg
+                            )
+                        else:
+                            logger.warning(
+                                "%s This is non-fatal but may indicate scaling pipeline issues.",
+                                mismatch_msg
+                            )
 
                         # For coordinate mapping consistency, trust the configured dimensions
                         # if the difference is due to pipeline scaling issues
@@ -1287,7 +1297,13 @@ class VideoHandler:
                 f"Video dimensions ({self.width}x{self.height}) don't match "
                 f"configured ({Parameters.CAPTURE_WIDTH}x{Parameters.CAPTURE_HEIGHT})"
             )
-            validation['is_valid'] = False
+            if Parameters.VIDEO_SOURCE_TYPE.endswith("_CAMERA"):
+                validation['info'].append(
+                    "Camera negotiated a nearby supported resolution; "
+                    "coordinate mapping uses detected frame dimensions."
+                )
+            else:
+                validation['is_valid'] = False
 
         # Check stream vs capture dimensions
         if Parameters.CAPTURE_WIDTH != Parameters.STREAM_WIDTH or Parameters.CAPTURE_HEIGHT != Parameters.STREAM_HEIGHT:

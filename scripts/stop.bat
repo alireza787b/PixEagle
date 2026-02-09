@@ -23,7 +23,7 @@ REM Source common functions
 call "%SCRIPTS_DIR%\lib\common.bat"
 
 REM Configuration - ports used by PixEagle services
-set "PORTS=3000 5077 5551 8088"
+set "PORTS=3000 5077 5551 8088 50051"
 
 REM ============================================================================
 REM Banner
@@ -103,6 +103,24 @@ if !errorlevel! equ 0 (
     call :print_green "   [OK] Stopped MAVLink2REST"
 ) else (
     echo    [-] MAVLink2REST was not running
+)
+
+REM ============================================================================
+REM Kill MAVSDK Server
+REM ============================================================================
+echo.
+echo    [*] Stopping MAVSDK Server...
+
+taskkill /IM mavsdk_server_bin.exe /F >nul 2>&1
+set "MAVSDK_KILLED=0"
+if !errorlevel! equ 0 set "MAVSDK_KILLED=1"
+taskkill /IM mavsdk_server.exe /F >nul 2>&1
+if !errorlevel! equ 0 set "MAVSDK_KILLED=1"
+
+if "!MAVSDK_KILLED!"=="1" (
+    call :print_green "   [OK] Stopped MAVSDK Server"
+) else (
+    echo    [-] MAVSDK Server was not running
 )
 
 REM ============================================================================

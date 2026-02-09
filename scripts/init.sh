@@ -53,6 +53,7 @@ TOTAL_STEPS=9
 NVM_VERSION="v0.40.3"
 NODE_VERSION="22"  # LTS version for stability
 MIN_PYTHON_VERSION="3.9"
+MAX_TESTED_PYTHON_MINOR="12"
 REQUIRED_DISK_MB=500
 
 # Installation profile: "core" (no AI) or "full" (with AI/torch)
@@ -357,6 +358,10 @@ check_system_requirements() {
             errors=$((errors + 1))
         else
             log_success "Python ${PYTHON_VERSION} detected"
+            if [[ $PYTHON_MAJOR -gt 3 ]] || [[ $PYTHON_MAJOR -eq 3 && $PYTHON_MINOR -gt $MAX_TESTED_PYTHON_MINOR ]]; then
+                log_warn "Python ${PYTHON_VERSION} is newer than tested range (3.9-3.${MAX_TESTED_PYTHON_MINOR})"
+                log_detail "If installation fails, use Python 3.10-3.12 for best compatibility"
+            fi
         fi
     fi
 

@@ -590,6 +590,46 @@ class TestUSBFallbackAndDiagnostics:
 
 
 @pytest.mark.unit
+class TestCoordinateMappingValidationRealHandler:
+    """Tests for real VideoHandler coordinate mapping validation behavior."""
+
+    def test_camera_dimension_mismatch_is_warning_only(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+
+        mock_parameters.VIDEO_SOURCE_TYPE = "USB_CAMERA"
+        mock_parameters.CAPTURE_WIDTH = 640
+        mock_parameters.CAPTURE_HEIGHT = 480
+        mock_parameters.STREAM_WIDTH = 640
+        mock_parameters.STREAM_HEIGHT = 480
+        handler.width = 1280
+        handler.height = 720
+
+        result = handler.validate_coordinate_mapping()
+
+        assert result["is_valid"] is True
+        assert any("don't match configured" in warning for warning in result["warnings"])
+        assert any("nearby supported resolution" in info for info in result["info"])
+
+    def test_non_camera_dimension_mismatch_is_invalid(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+
+        mock_parameters.VIDEO_SOURCE_TYPE = "VIDEO_FILE"
+        mock_parameters.CAPTURE_WIDTH = 640
+        mock_parameters.CAPTURE_HEIGHT = 480
+        mock_parameters.STREAM_WIDTH = 640
+        mock_parameters.STREAM_HEIGHT = 480
+        handler.width = 1280
+        handler.height = 720
+
+        result = handler.validate_coordinate_mapping()
+
+        assert result["is_valid"] is False
+        assert any("don't match configured" in warning for warning in result["warnings"])
+
+
+@pytest.mark.unit
 class TestErrorRecovery:
     """Tests for error recovery behavior."""
 
