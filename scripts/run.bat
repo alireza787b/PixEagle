@@ -110,11 +110,11 @@ if "%RUN_MAVLINK2REST%"=="1" set /a "TOTAL_COMPONENTS+=1"
 if "%RUN_MAIN_APP%"=="1" set /a "TOTAL_COMPONENTS+=1"
 if "%RUN_MAVSDK_SERVER%"=="1" set /a "TOTAL_COMPONENTS+=1"
 
-set "DASHBOARD_ARGS= --port %DASHBOARD_PORT%"
+set "DASHBOARD_ARGS=--port %DASHBOARD_PORT%"
 if "%DEV_MODE%"=="1" set "DASHBOARD_ARGS=!DASHBOARD_ARGS! --dev"
 if "%FORCE_REBUILD%"=="1" set "DASHBOARD_ARGS=!DASHBOARD_ARGS! --rebuild"
 set "MAIN_ARGS="
-if "%DEV_MODE%"=="1" set "MAIN_ARGS= --dev"
+if "%DEV_MODE%"=="1" set "MAIN_ARGS=--dev"
 
 REM ============================================================================
 REM Banner
@@ -193,13 +193,13 @@ if "%RUN_MAVLINK2REST%"=="1" (
     echo    [!CURRENT_COMPONENT!/%TOTAL_COMPONENTS%] Starting MAVLink2REST...
     if "!USE_WT!"=="1" (
         if "!FIRST_COMPONENT!"=="1" (
-            start "" wt -d "%PIXEAGLE_DIR%" --title "MAVLink2REST" cmd /k "call ""%MAVLINK2REST_SCRIPT%"""
+            start "" wt -d "%PIXEAGLE_DIR%" --title "MAVLink2REST" cmd /k call "%MAVLINK2REST_SCRIPT%"
             set "FIRST_COMPONENT=0"
         ) else (
-            start "" wt -w 0 new-tab -d "%PIXEAGLE_DIR%" --title "MAVLink2REST" cmd /k "call ""%MAVLINK2REST_SCRIPT%"""
+            start "" wt -w 0 new-tab -d "%PIXEAGLE_DIR%" --title "MAVLink2REST" cmd /k call "%MAVLINK2REST_SCRIPT%"
         )
     ) else (
-        start "MAVLink2REST" cmd /k "cd /d %PIXEAGLE_DIR% && call ""%MAVLINK2REST_SCRIPT%"""
+        start "MAVLink2REST" /D "%PIXEAGLE_DIR%" cmd /k call "%MAVLINK2REST_SCRIPT%"
     )
     timeout /t 3 /nobreak >nul
 )
@@ -213,23 +213,23 @@ if "%DEV_MODE%"=="1" (
 if "!USE_WT!"=="1" (
     if "!FIRST_COMPONENT!"=="1" (
         if "%DEV_MODE%"=="1" (
-            start "" wt -d "%PIXEAGLE_DIR%" --title "Dashboard (Dev)" cmd /k "call ""%DASHBOARD_SCRIPT%""!DASHBOARD_ARGS!"
+            start "" wt -d "%PIXEAGLE_DIR%" --title "Dashboard (Dev)" cmd /k call "%DASHBOARD_SCRIPT%" !DASHBOARD_ARGS!
         ) else (
-            start "" wt -d "%PIXEAGLE_DIR%" --title "Dashboard" cmd /k "call ""%DASHBOARD_SCRIPT%""!DASHBOARD_ARGS!"
+            start "" wt -d "%PIXEAGLE_DIR%" --title "Dashboard" cmd /k call "%DASHBOARD_SCRIPT%" !DASHBOARD_ARGS!
         )
         set "FIRST_COMPONENT=0"
     ) else (
         if "%DEV_MODE%"=="1" (
-            start "" wt -w 0 new-tab -d "%PIXEAGLE_DIR%" --title "Dashboard (Dev)" cmd /k "call ""%DASHBOARD_SCRIPT%""!DASHBOARD_ARGS!"
+            start "" wt -w 0 new-tab -d "%PIXEAGLE_DIR%" --title "Dashboard (Dev)" cmd /k call "%DASHBOARD_SCRIPT%" !DASHBOARD_ARGS!
         ) else (
-            start "" wt -w 0 new-tab -d "%PIXEAGLE_DIR%" --title "Dashboard" cmd /k "call ""%DASHBOARD_SCRIPT%""!DASHBOARD_ARGS!"
+            start "" wt -w 0 new-tab -d "%PIXEAGLE_DIR%" --title "Dashboard" cmd /k call "%DASHBOARD_SCRIPT%" !DASHBOARD_ARGS!
         )
     )
 ) else (
     if "%DEV_MODE%"=="1" (
-        start "Dashboard (Dev)" cmd /k "cd /d %PIXEAGLE_DIR% && call ""%DASHBOARD_SCRIPT%""!DASHBOARD_ARGS!"
+        start "Dashboard (Dev)" /D "%PIXEAGLE_DIR%" cmd /k call "%DASHBOARD_SCRIPT%" !DASHBOARD_ARGS!
     ) else (
-        start "Dashboard" cmd /k "cd /d %PIXEAGLE_DIR% && call ""%DASHBOARD_SCRIPT%""!DASHBOARD_ARGS!"
+        start "Dashboard" /D "%PIXEAGLE_DIR%" cmd /k call "%DASHBOARD_SCRIPT%" !DASHBOARD_ARGS!
     )
 )
 timeout /t 5 /nobreak >nul
@@ -239,13 +239,13 @@ if "%RUN_MAIN_APP%"=="1" (
     echo    [!CURRENT_COMPONENT!/%TOTAL_COMPONENTS%] Starting Main Application...
     if "!USE_WT!"=="1" (
         if "!FIRST_COMPONENT!"=="1" (
-            start "" wt -d "%PIXEAGLE_DIR%" --title "PixEagle Main" cmd /k "call ""%MAIN_APP_SCRIPT%""!MAIN_ARGS!"
+            start "" wt -d "%PIXEAGLE_DIR%" --title "PixEagle Main" cmd /k call "%MAIN_APP_SCRIPT%" !MAIN_ARGS!
             set "FIRST_COMPONENT=0"
         ) else (
-            start "" wt -w 0 new-tab -d "%PIXEAGLE_DIR%" --title "PixEagle Main" cmd /k "call ""%MAIN_APP_SCRIPT%""!MAIN_ARGS!"
+            start "" wt -w 0 new-tab -d "%PIXEAGLE_DIR%" --title "PixEagle Main" cmd /k call "%MAIN_APP_SCRIPT%" !MAIN_ARGS!
         )
     ) else (
-        start "PixEagle Main" cmd /k "cd /d %PIXEAGLE_DIR% && call ""%MAIN_APP_SCRIPT%""!MAIN_ARGS!"
+        start "PixEagle Main" /D "%PIXEAGLE_DIR%" cmd /k call "%MAIN_APP_SCRIPT%" !MAIN_ARGS!
     )
     timeout /t 3 /nobreak >nul
 )
@@ -255,13 +255,13 @@ if "%RUN_MAVSDK_SERVER%"=="1" (
     echo    [!CURRENT_COMPONENT!/%TOTAL_COMPONENTS%] Starting MAVSDK Server...
     if "!USE_WT!"=="1" (
         if "!FIRST_COMPONENT!"=="1" (
-            start "" wt -d "%PIXEAGLE_DIR%" --title "MAVSDK Server" cmd /k "call ""%MAVSDK_SERVER_SCRIPT%"""
+            start "" wt -d "%PIXEAGLE_DIR%" --title "MAVSDK Server" cmd /k call "%MAVSDK_SERVER_SCRIPT%"
             set "FIRST_COMPONENT=0"
         ) else (
-            start "" wt -w 0 new-tab -d "%PIXEAGLE_DIR%" --title "MAVSDK Server" cmd /k "call ""%MAVSDK_SERVER_SCRIPT%"""
+            start "" wt -w 0 new-tab -d "%PIXEAGLE_DIR%" --title "MAVSDK Server" cmd /k call "%MAVSDK_SERVER_SCRIPT%"
         )
     ) else (
-        start "MAVSDK Server" cmd /k "cd /d %PIXEAGLE_DIR% && call ""%MAVSDK_SERVER_SCRIPT%"""
+        start "MAVSDK Server" /D "%PIXEAGLE_DIR%" cmd /k call "%MAVSDK_SERVER_SCRIPT%"
     )
 )
 
