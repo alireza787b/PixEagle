@@ -1,0 +1,159 @@
+{
+  "version": "2026-02-09",
+  "notes": "Platform-specific PyTorch install profiles for PixEagle setup-pytorch.sh",
+  "profiles": {
+    "linux_x86_cuda12": {
+      "supported": true,
+      "description": "Linux x86_64 with NVIDIA GPU (CUDA 12.x)",
+      "install_method": "index",
+      "index_url": "https://download.pytorch.org/whl/cu124",
+      "packages": {
+        "torch": "2.5.1",
+        "torchvision": "0.20.1",
+        "torchaudio": "2.5.1"
+      },
+      "verify": {
+        "require_cuda": true,
+        "require_mps": false
+      },
+      "prereqs": {
+        "apt_packages": []
+      }
+    },
+    "linux_x86_cuda11": {
+      "supported": true,
+      "description": "Linux x86_64 with NVIDIA GPU (CUDA 11.x)",
+      "install_method": "index",
+      "index_url": "https://download.pytorch.org/whl/cu118",
+      "packages": {
+        "torch": "2.5.1",
+        "torchvision": "0.20.1",
+        "torchaudio": "2.5.1"
+      },
+      "verify": {
+        "require_cuda": true,
+        "require_mps": false
+      },
+      "prereqs": {
+        "apt_packages": []
+      }
+    },
+    "linux_cpu": {
+      "supported": true,
+      "description": "Linux CPU-only",
+      "install_method": "index",
+      "index_url": "https://download.pytorch.org/whl/cpu",
+      "packages": {
+        "torch": "2.5.1",
+        "torchvision": "0.20.1",
+        "torchaudio": "2.5.1"
+      },
+      "verify": {
+        "require_cuda": false,
+        "require_mps": false
+      },
+      "prereqs": {
+        "apt_packages": []
+      }
+    },
+    "macos_arm64_mps": {
+      "supported": true,
+      "description": "macOS Apple Silicon (MPS acceleration)",
+      "install_method": "pypi",
+      "packages": {
+        "torch": "2.5.1",
+        "torchvision": "0.20.1",
+        "torchaudio": "2.5.1"
+      },
+      "verify": {
+        "require_cuda": false,
+        "require_mps": true
+      },
+      "prereqs": {
+        "apt_packages": []
+      }
+    },
+    "macos_arm64_cpu": {
+      "supported": true,
+      "description": "macOS Apple Silicon (CPU-only)",
+      "install_method": "pypi",
+      "packages": {
+        "torch": "2.5.1",
+        "torchvision": "0.20.1",
+        "torchaudio": "2.5.1"
+      },
+      "verify": {
+        "require_cuda": false,
+        "require_mps": false
+      },
+      "prereqs": {
+        "apt_packages": []
+      }
+    },
+    "macos_x86_cpu": {
+      "supported": true,
+      "description": "macOS Intel (CPU-only)",
+      "install_method": "pypi",
+      "packages": {
+        "torch": "2.5.1",
+        "torchvision": "0.20.1",
+        "torchaudio": "2.5.1"
+      },
+      "verify": {
+        "require_cuda": false,
+        "require_mps": false
+      },
+      "prereqs": {
+        "apt_packages": []
+      }
+    },
+    "jetson_jp62": {
+      "supported": true,
+      "description": "NVIDIA Jetson JetPack 6.2.x (GPU)",
+      "install_method": "wheels",
+      "python_tag": "cp310",
+      "wheels": {
+        "torch": "https://github.com/davidl-nv/torch/raw/refs/heads/main/torch-2.8/torch-2.8.0-cp310-cp310-linux_aarch64.whl",
+        "torchvision": "https://github.com/davidl-nv/torch/raw/refs/heads/main/torch-2.8/torchvision-0.23.0-cp310-cp310-linux_aarch64.whl",
+        "torchaudio": ""
+      },
+      "verify": {
+        "require_cuda": true,
+        "require_mps": false
+      },
+      "prereqs": {
+        "apt_packages": [],
+        "cusparselt": {
+          "enabled": true,
+          "repo_deb_url": "https://developer.download.nvidia.com/compute/cusparselt/0.8.1/local_installers/cusparselt-local-tegra-repo-ubuntu2204-0.8.1_0.8.1-1_arm64.deb",
+          "repo_deb_filename": "cusparselt-local-tegra-repo-ubuntu2204-0.8.1_0.8.1-1_arm64.deb",
+          "keyring_src": "/var/cusparselt-local-tegra-repo-ubuntu2204-0.8.1/cusparselt-local-tegra-C4CC87E1-keyring.gpg",
+          "keyring_dst": "/usr/share/keyrings/",
+          "apt_packages": [
+            "cusparselt-cuda-12"
+          ]
+        }
+      },
+      "manual_hint": "If this profile fails, provide JetPack-matched wheel overrides with --torch-wheel/--torchvision-wheel."
+    },
+    "jetson_jp61": {
+      "supported": false,
+      "description": "NVIDIA Jetson JetPack 6.1.x (manual wheel override required)",
+      "install_method": "wheels",
+      "python_tag": "cp310",
+      "wheels": {
+        "torch": "",
+        "torchvision": "",
+        "torchaudio": ""
+      },
+      "verify": {
+        "require_cuda": true,
+        "require_mps": false
+      },
+      "prereqs": {
+        "apt_packages": []
+      },
+      "manual_hint": "JetPack 6.1 profile is not yet pinned. Use --torch-wheel and --torchvision-wheel with NVIDIA-compatible wheels."
+    }
+  }
+}

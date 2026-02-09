@@ -217,7 +217,7 @@ preflight_checks() {
     echo -e "${DIM}Checking Python virtual environment...${NC}"
     if [[ ! -d "$PIXEAGLE_DIR/venv" ]]; then
         log_error "Virtual environment not found!"
-        log_info "Please run 'bash init_pixeagle.sh' first to set up PixEagle."
+        log_info "Please run 'make init' (or 'bash scripts/init.sh') first to set up PixEagle."
         exit 1
     fi
     log_success "Virtual environment found"

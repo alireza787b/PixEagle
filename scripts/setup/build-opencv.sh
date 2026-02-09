@@ -236,7 +236,7 @@ check_prerequisites() {
     # Check PixEagle venv
     if [[ ! -d "$VENV_DIR" ]] || [[ ! -f "$VENV_DIR/bin/activate" ]]; then
         log_error "PixEagle virtual environment not found"
-        log_detail "Run 'bash init_pixeagle.sh' first"
+        log_detail "Run 'make init' (or 'bash scripts/init.sh') first"
         errors=$((errors + 1))
     else
         log_success "PixEagle venv found"

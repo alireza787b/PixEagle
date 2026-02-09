@@ -64,6 +64,10 @@ AI_DEPS_REQUESTED=false
 AI_VERIFY_PASSED=false
 AI_ROLLBACK_APPLIED=false
 AI_KEEP_FAILED=false
+PYTORCH_SETUP_ATTEMPTED=false
+PYTORCH_SETUP_PASSED=false
+PYTORCH_SETUP_SKIPPED=false
+PYTORCH_SETUP_FAILED=false
 # Platform detection
 DETECTED_ARCH=""
 IS_ARM_PLATFORM=false
@@ -276,8 +280,8 @@ select_installation_profile() {
         echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
         echo -e "${CYAN}|${NC}   ${BOLD}2) Full${NC} - All features including AI/YOLO                              ${CYAN}|${NC}"
         echo -e "${CYAN}|${NC}      - Includes PyTorch and Ultralytics                                 ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}      ${YELLOW}- May require manual torch installation on ARM${NC}                      ${CYAN}|${NC}"
-        echo -e "${CYAN}|${NC}      ${YELLOW}- Can cause 'Illegal instruction' on some ARM devices${NC}              ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}      - Includes guided PyTorch setup (Jetson/NVIDIA aware)             ${CYAN}|${NC}"
+        echo -e "${CYAN}|${NC}      ${YELLOW}- Some ARM boards may still need CPU mode/manual override${NC}            ${CYAN}|${NC}"
     else
         echo -e "${CYAN}|${NC}   ${GREEN}OK x86_64 platform detected${NC} - Full compatibility                      ${CYAN}|${NC}"
         echo -e "${CYAN}|${NC}                                                                          ${CYAN}|${NC}"
@@ -655,6 +659,10 @@ install_python_deps() {
     AI_VERIFY_PASSED=false
     AI_ROLLBACK_APPLIED=false
     AI_KEEP_FAILED=false
+    PYTORCH_SETUP_ATTEMPTED=false
+    PYTORCH_SETUP_PASSED=false
+    PYTORCH_SETUP_SKIPPED=false
+    PYTORCH_SETUP_FAILED=false
 
     # Show profile and strategy
     log_info "Installing packages from requirements.txt"
@@ -735,9 +743,11 @@ install_python_deps() {
     # Core profile ends here
     if [[ "$INSTALL_PROFILE" == "core" ]]; then
         log_detail "To add AI features later:"
+        log_detail "bash scripts/setup/setup-pytorch.sh --mode auto"
         log_detail "source venv/bin/activate"
         log_detail "pip install --prefer-binary ultralytics lap"
-        log_detail "python -c \"from ultralytics import YOLO; import lap; print('AI OK')\""
+        log_detail "pip install --prefer-binary ncnn"
+        log_detail "bash scripts/setup/check-ai-runtime.sh"
         deactivate
         return 0
     fi
@@ -745,6 +755,43 @@ install_python_deps() {
     # -------------------------------
     # Phase B: Install AI packages
     # -------------------------------
+    local pytorch_setup_script="$PIXEAGLE_DIR/scripts/setup/setup-pytorch.sh"
+    local run_pytorch_setup_default="n"
+    local is_jetson=false
+    if [[ -f /proc/device-tree/model ]] && tr -d '\0' </proc/device-tree/model 2>/dev/null | grep -qi "jetson"; then
+        is_jetson=true
+    elif command -v dpkg-query &>/dev/null && dpkg-query -W -f='${Status}' nvidia-l4t-core 2>/dev/null | grep -q "install ok installed"; then
+        is_jetson=true
+    fi
+
+    if [[ "$is_jetson" == true ]] || command -v nvidia-smi &>/dev/null; then
+        run_pytorch_setup_default="y"
+    fi
+
+    if [[ -f "$pytorch_setup_script" ]]; then
+        echo ""
+        log_info "Optional accelerator setup (recommended for NVIDIA GPU/Jetson)"
+        if ask_yes_no "        Run automated PyTorch setup now? [Y/n]: " "$run_pytorch_setup_default"; then
+            PYTORCH_SETUP_ATTEMPTED=true
+            if bash "$pytorch_setup_script" --mode auto; then
+                PYTORCH_SETUP_PASSED=true
+                log_success "Automated PyTorch setup completed"
+            else
+                PYTORCH_SETUP_FAILED=true
+                log_warn "Automated PyTorch setup failed"
+                log_detail "Continuing with AI package installation; you can retry later:"
+                log_detail "bash scripts/setup/setup-pytorch.sh --mode auto"
+            fi
+        else
+            PYTORCH_SETUP_SKIPPED=true
+            log_info "Skipped automated PyTorch setup"
+            log_detail "You can run it later: bash scripts/setup/setup-pytorch.sh --mode auto"
+        fi
+    else
+        PYTORCH_SETUP_SKIPPED=true
+        log_warn "PyTorch setup script not found: scripts/setup/setup-pytorch.sh"
+    fi
+
     AI_DEPS_REQUESTED=true
     echo ""
     log_info "Phase B/2: Installing AI packages (ultralytics, lap, ncnn)"
@@ -776,9 +823,10 @@ install_python_deps() {
         log_warn "AI packages are not fully usable yet."
         log_info "Manual recovery commands:"
         log_detail "source venv/bin/activate"
+        log_detail "bash scripts/setup/setup-pytorch.sh --mode auto"
         log_detail "pip install --prefer-binary ultralytics lap"
         log_detail "pip install --prefer-binary ncnn"
-        log_detail "python -c \"from ultralytics import YOLO; import lap; print('AI OK')\""
+        log_detail "bash scripts/setup/check-ai-runtime.sh"
         echo ""
 
         if ask_yes_no "        Roll back to Core-safe mode now? [Y/n]: " "y"; then
@@ -1138,6 +1186,13 @@ show_summary() {
         else
             echo -e "   ${YELLOW}${WARN}${NC}  Core dependencies installed ${DIM}(AI status unknown - verify manually)${NC}"
         fi
+        if [[ "$PYTORCH_SETUP_PASSED" == true ]]; then
+            echo -e "   ${GREEN}${CHECK}${NC} Automated PyTorch setup completed ${DIM}(accelerator profile resolved)${NC}"
+        elif [[ "$PYTORCH_SETUP_FAILED" == true ]]; then
+            echo -e "   ${YELLOW}${WARN}${NC}  Automated PyTorch setup failed ${DIM}(retry with setup-pytorch.sh)${NC}"
+        elif [[ "$PYTORCH_SETUP_SKIPPED" == true ]]; then
+            echo -e "   ${YELLOW}${WARN}${NC}  Automated PyTorch setup skipped ${DIM}(run setup-pytorch.sh when ready)${NC}"
+        fi
     fi
     if [[ "$node_version" != "not installed" ]]; then
         echo -e "   ${GREEN}${CHECK}${NC} Node.js ${node_version} ready"
@@ -1156,13 +1211,13 @@ show_summary() {
     echo ""
     echo -e "   ${YELLOW}${BOLD}Optional (better performance):${NC}"
     echo -e "      - ${BOLD}bash scripts/setup/install-dlib.sh${NC}    (faster tracking)"
+    echo -e "      - ${BOLD}bash scripts/setup/setup-pytorch.sh --mode auto${NC}   (auto accelerator profile)"
     if [[ "$INSTALL_PROFILE" == "core" ]] || [[ "$AI_VERIFY_PASSED" != "true" ]]; then
         echo -e "      - ${BOLD}source venv/bin/activate${NC}"
         echo -e "      - ${BOLD}pip install --prefer-binary ultralytics lap${NC}  (AI deps)"
         echo -e "      - ${BOLD}pip install --prefer-binary ncnn${NC}             (optional CPU accel)"
-        echo -e "      - ${BOLD}python -c \"from ultralytics import YOLO; import lap; print('AI OK')\"${NC}"
     fi
-    echo -e "      - ${BOLD}bash scripts/setup/setup-pytorch.sh${NC}   (GPU acceleration)"
+    echo -e "      - ${BOLD}bash scripts/setup/check-ai-runtime.sh${NC}        (verify runtime/backends)"
     echo -e "      - ${BOLD}bash scripts/setup/build-opencv.sh${NC}    (GStreamer support)"
     if [[ "$mavsdk_status" == *"Not installed"* ]] || [[ "$mavlink2rest_status" == *"Not installed"* ]]; then
         echo -e "      - ${BOLD}bash scripts/setup/download-binaries.sh${NC}  (download binaries)"

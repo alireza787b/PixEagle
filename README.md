@@ -101,8 +101,8 @@ The init script runs a 9-step automated setup including Python venv, Node.js, da
 
 The script auto-detects your platform and recommends the appropriate profile.
 
-> **AI install behavior in Full profile:** Core dependencies are installed first, then AI packages (`ultralytics`, `lap`, `ncnn`) are installed and verified in a final phase.  
-> If AI verification fails, init prompts whether to roll back to Core-safe mode and shows exact manual recovery commands.
+> **AI install behavior in Full profile:** Core dependencies are installed first, then init offers deterministic PyTorch setup (`setup-pytorch.sh`) for your platform (x86 CUDA, Jetson, macOS, or CPU).  
+> After that, AI packages (`ultralytics`, `lap`, optional `ncnn`) are installed and verified. If verification fails, init can roll back to Core-safe mode and prints recovery commands.
 
 > **Detailed Guide**: [Installation Documentation](docs/INSTALLATION.md)
 
@@ -236,14 +236,16 @@ bash scripts/stop.sh         # Stop all services
 
 ## GPU Setup (Optional)
 
-For CUDA-accelerated YOLO inference:
+For accelerator-aware PyTorch setup (CUDA/MPS/CPU auto-detection):
 
 ```bash
-# Example for CUDA 12.4
-pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu124
+bash scripts/setup/setup-pytorch.sh --mode auto
+bash scripts/setup/check-ai-runtime.sh
 ```
 
-> **More Info**: [PyTorch Installation](https://pytorch.org/get-started/locally/) | [Installation Guide](docs/INSTALLATION.md)
+Use `--mode gpu` (strict GPU) or `--mode cpu` (force CPU) when needed.
+
+> **More Info**: [Installation Guide](docs/INSTALLATION.md)
 
 ---
 

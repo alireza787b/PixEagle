@@ -76,17 +76,19 @@ The `scripts/init.sh` (or `make init`) performs a 9-step setup:
 When you select **Full** profile, init uses a two-phase Python dependency flow:
 
 1. Install **core** packages first (stable base)
-2. Install and verify **AI** packages (`ultralytics`, `lap`, optional `ncnn`) at the end
+2. Offer automated PyTorch setup (`scripts/setup/setup-pytorch.sh --mode auto`)
+3. Install and verify **AI** packages (`ultralytics`, `lap`, optional `ncnn`)
 
 If AI verification fails, init keeps your core install usable and prompts whether to roll back AI packages to Core-safe mode.
 
 Manual AI recovery commands:
 
 ```bash
+bash scripts/setup/setup-pytorch.sh --mode auto
 source venv/bin/activate
 pip install --prefer-binary ultralytics lap
 pip install --prefer-binary ncnn
-python -c "from ultralytics import YOLO; import lap; print('AI OK')"
+bash scripts/setup/check-ai-runtime.sh
 ```
 
 ## Manual Installation
@@ -122,12 +124,17 @@ bash scripts/setup/install-dlib.sh
 
 ### GPU Support (PyTorch)
 
-Visit [PyTorch Installation](https://pytorch.org/get-started/locally/) and install for your CUDA version.
-
-Or use the automated script:
+Use the deterministic installer:
 ```bash
-bash scripts/setup/setup-pytorch.sh
+bash scripts/setup/setup-pytorch.sh --mode auto
+bash scripts/setup/check-ai-runtime.sh
 ```
+
+Useful options:
+- `--mode auto` - Resolve best profile automatically (recommended)
+- `--mode gpu` - Require accelerated backend (fail if unavailable)
+- `--mode cpu` - Force CPU-only profile
+- `--dry-run` - Preview selected profile without installing
 
 ### GStreamer Support
 

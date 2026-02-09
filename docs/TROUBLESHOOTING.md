@@ -123,13 +123,14 @@ Dashboard uses `window.location.hostname` for auto-detection. Ensure:
 
 **Solution**:
 ```bash
+bash scripts/setup/setup-pytorch.sh --mode auto
 source venv/bin/activate
 pip install --prefer-binary ultralytics lap
 pip install --prefer-binary ncnn
-python -c "from ultralytics import YOLO; import lap; print('AI OK')"
+bash scripts/setup/check-ai-runtime.sh
 ```
 
-If the verification command prints `AI OK`, restart PixEagle and re-enable SmartTracker.
+If the runtime check reports healthy `torch/ultralytics/lap`, restart PixEagle and re-enable SmartTracker.
 
 ### YOLO Model Not Loading
 
@@ -145,9 +146,10 @@ python add_yolo_model.py --model_name yolo11n.pt
 
 ### GPU Not Detected
 
-1. **Check CUDA**: `nvidia-smi`
-2. **Check PyTorch**: `python -c "import torch; print(torch.cuda.is_available())"`
-3. **Reinstall PyTorch** for your CUDA version
+1. **Check driver/runtime**: `nvidia-smi` (or `tegrastats` on Jetson)
+2. **Run diagnostic**: `bash scripts/setup/check-ai-runtime.sh`
+3. **Reinstall via matrix installer**: `bash scripts/setup/setup-pytorch.sh --mode auto`
+4. **Strict GPU validation** (optional): `bash scripts/setup/setup-pytorch.sh --mode gpu`
 
 ### Low FPS
 
