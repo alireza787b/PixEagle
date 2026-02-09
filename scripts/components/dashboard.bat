@@ -14,7 +14,7 @@ REM Project: PixEagle
 REM Repository: https://github.com/alireza787b/PixEagle
 REM ============================================================================
 
-setlocal
+setlocal EnableDelayedExpansion
 
 REM Get script and project directories
 set "SCRIPTS_DIR=%~dp0"
@@ -64,8 +64,26 @@ exit /b 0
 
 :args_done
 
-echo %DASHBOARD_PORT% | findstr /R "^[0-9][0-9]*$" >nul
-if errorlevel 1 (
+REM Normalize and validate port (handles accidental quotes/whitespace from callers)
+set "DASHBOARD_PORT=!DASHBOARD_PORT:"=!"
+for /f "tokens=1" %%A in ("!DASHBOARD_PORT!") do set "DASHBOARD_PORT=%%~A"
+
+set "DASHBOARD_PORT_NON_DIGIT="
+for /f "delims=0123456789" %%A in ("!DASHBOARD_PORT!") do set "DASHBOARD_PORT_NON_DIGIT=%%A"
+if "!DASHBOARD_PORT!"=="" (
+    echo [31m[ERROR] Invalid dashboard port: %DASHBOARD_PORT%[0m
+    exit /b 1
+)
+if defined DASHBOARD_PORT_NON_DIGIT (
+    echo [31m[ERROR] Invalid dashboard port: %DASHBOARD_PORT%[0m
+    exit /b 1
+)
+set /a DASHBOARD_PORT_NUM=!DASHBOARD_PORT! >nul 2>&1
+if !DASHBOARD_PORT_NUM! lss 1 (
+    echo [31m[ERROR] Invalid dashboard port: %DASHBOARD_PORT%[0m
+    exit /b 1
+)
+if !DASHBOARD_PORT_NUM! gtr 65535 (
     echo [31m[ERROR] Invalid dashboard port: %DASHBOARD_PORT%[0m
     exit /b 1
 )

@@ -110,9 +110,10 @@ if "%RUN_MAVLINK2REST%"=="1" set /a "TOTAL_COMPONENTS+=1"
 if "%RUN_MAIN_APP%"=="1" set /a "TOTAL_COMPONENTS+=1"
 if "%RUN_MAVSDK_SERVER%"=="1" set /a "TOTAL_COMPONENTS+=1"
 
-set "DASHBOARD_ARGS=--port %DASHBOARD_PORT%"
-if "%DEV_MODE%"=="1" set "DASHBOARD_ARGS=!DASHBOARD_ARGS! --dev"
-if "%FORCE_REBUILD%"=="1" set "DASHBOARD_ARGS=!DASHBOARD_ARGS! --rebuild"
+set "DASHBOARD_MODE_ARG="
+set "DASHBOARD_REBUILD_ARG="
+if "%DEV_MODE%"=="1" set "DASHBOARD_MODE_ARG=--dev"
+if "%FORCE_REBUILD%"=="1" set "DASHBOARD_REBUILD_ARG=--rebuild"
 set "MAIN_ARGS="
 if "%DEV_MODE%"=="1" set "MAIN_ARGS=--dev"
 
@@ -213,23 +214,23 @@ if "%DEV_MODE%"=="1" (
 if "!USE_WT!"=="1" (
     if "!FIRST_COMPONENT!"=="1" (
         if "%DEV_MODE%"=="1" (
-            start "" wt -d "%PIXEAGLE_DIR%" --title "Dashboard (Dev)" cmd /k call "%DASHBOARD_SCRIPT%" !DASHBOARD_ARGS!
+            start "" wt -d "%PIXEAGLE_DIR%" --title "Dashboard (Dev)" cmd /k call "%DASHBOARD_SCRIPT%" --port "%DASHBOARD_PORT%" !DASHBOARD_MODE_ARG! !DASHBOARD_REBUILD_ARG!
         ) else (
-            start "" wt -d "%PIXEAGLE_DIR%" --title "Dashboard" cmd /k call "%DASHBOARD_SCRIPT%" !DASHBOARD_ARGS!
+            start "" wt -d "%PIXEAGLE_DIR%" --title "Dashboard" cmd /k call "%DASHBOARD_SCRIPT%" --port "%DASHBOARD_PORT%" !DASHBOARD_MODE_ARG! !DASHBOARD_REBUILD_ARG!
         )
         set "FIRST_COMPONENT=0"
     ) else (
         if "%DEV_MODE%"=="1" (
-            start "" wt -w 0 new-tab -d "%PIXEAGLE_DIR%" --title "Dashboard (Dev)" cmd /k call "%DASHBOARD_SCRIPT%" !DASHBOARD_ARGS!
+            start "" wt -w 0 new-tab -d "%PIXEAGLE_DIR%" --title "Dashboard (Dev)" cmd /k call "%DASHBOARD_SCRIPT%" --port "%DASHBOARD_PORT%" !DASHBOARD_MODE_ARG! !DASHBOARD_REBUILD_ARG!
         ) else (
-            start "" wt -w 0 new-tab -d "%PIXEAGLE_DIR%" --title "Dashboard" cmd /k call "%DASHBOARD_SCRIPT%" !DASHBOARD_ARGS!
+            start "" wt -w 0 new-tab -d "%PIXEAGLE_DIR%" --title "Dashboard" cmd /k call "%DASHBOARD_SCRIPT%" --port "%DASHBOARD_PORT%" !DASHBOARD_MODE_ARG! !DASHBOARD_REBUILD_ARG!
         )
     )
 ) else (
     if "%DEV_MODE%"=="1" (
-        start "Dashboard (Dev)" /D "%PIXEAGLE_DIR%" cmd /k call "%DASHBOARD_SCRIPT%" !DASHBOARD_ARGS!
+        start "Dashboard (Dev)" /D "%PIXEAGLE_DIR%" cmd /k call "%DASHBOARD_SCRIPT%" --port "%DASHBOARD_PORT%" !DASHBOARD_MODE_ARG! !DASHBOARD_REBUILD_ARG!
     ) else (
-        start "Dashboard" /D "%PIXEAGLE_DIR%" cmd /k call "%DASHBOARD_SCRIPT%" !DASHBOARD_ARGS!
+        start "Dashboard" /D "%PIXEAGLE_DIR%" cmd /k call "%DASHBOARD_SCRIPT%" --port "%DASHBOARD_PORT%" !DASHBOARD_MODE_ARG! !DASHBOARD_REBUILD_ARG!
     )
 )
 timeout /t 5 /nobreak >nul

@@ -17,7 +17,7 @@ REM Project: PixEagle
 REM Repository: https://github.com/alireza787b/PixEagle
 REM ============================================================================
 
-setlocal
+setlocal EnableDelayedExpansion
 
 REM Get script and project directories
 set "SCRIPTS_DIR=%~dp0"
@@ -61,7 +61,8 @@ exit /b 1
 
 :found_binary
 REM Default connection settings (can be overridden by environment variables)
-if not defined MAVLINK_CONNECTION set "MAVLINK_CONNECTION=udpin:0.0.0.0:14550"
+REM Match Linux default to avoid collisions with common GCS listeners on 14550
+if not defined MAVLINK_CONNECTION set "MAVLINK_CONNECTION=udpin:127.0.0.1:14569"
 if not defined MAVLINK2REST_PORT set "MAVLINK2REST_PORT=8088"
 
 echo.
@@ -82,6 +83,47 @@ echo.
 
 REM Change to project directory
 cd /d "%PIXEAGLE_DIR%"
+
+REM Validate and preflight UDP input bind for udpin:*:* connections
+set "MAVLINK_SCHEME="
+set "MAVLINK_HOST="
+set "MAVLINK_INPUT_PORT="
+set "MAVLINK_INPUT_PID="
+for /f "tokens=1,2,* delims=:" %%A in ("%MAVLINK_CONNECTION%") do (
+    set "MAVLINK_SCHEME=%%A"
+    set "MAVLINK_HOST=%%B"
+    set "MAVLINK_INPUT_PORT=%%C"
+)
+
+if /I "!MAVLINK_SCHEME!"=="udpin" (
+    set "MAVLINK_INPUT_PORT=!MAVLINK_INPUT_PORT:"=!"
+    for /f "tokens=1" %%A in ("!MAVLINK_INPUT_PORT!") do set "MAVLINK_INPUT_PORT=%%~A"
+
+    set "MAVLINK_INPUT_PORT_NON_DIGIT="
+    for /f "delims=0123456789" %%A in ("!MAVLINK_INPUT_PORT!") do set "MAVLINK_INPUT_PORT_NON_DIGIT=%%A"
+    if "!MAVLINK_INPUT_PORT!"=="" (
+        echo [31m[ERROR] Invalid MAVLINK_CONNECTION: %MAVLINK_CONNECTION%[0m
+        echo         Expected format: udpin:HOST:PORT
+        exit /b 1
+    )
+    if defined MAVLINK_INPUT_PORT_NON_DIGIT (
+        echo [31m[ERROR] Invalid MAVLINK_CONNECTION: %MAVLINK_CONNECTION%[0m
+        echo         Expected format: udpin:HOST:PORT
+        exit /b 1
+    )
+
+    for /f "tokens=5" %%P in ('netstat -ano -p UDP ^| findstr /R /C:":!MAVLINK_INPUT_PORT! " 2^>nul') do (
+        set "MAVLINK_INPUT_PID=%%P"
+        goto :mavlink_port_check_done
+    )
+)
+:mavlink_port_check_done
+if defined MAVLINK_INPUT_PID (
+    echo [31m[ERROR] MAVLink UDP input port !MAVLINK_INPUT_PORT! is already in use ^(PID: !MAVLINK_INPUT_PID!^).[0m
+    echo         Set a free port via environment variable before launch:
+    echo         set MAVLINK_CONNECTION=udpin:127.0.0.1:14570
+    exit /b 1
+)
 
 REM Check and kill any existing process on the REST port
 echo    [*] Checking for existing processes on port %MAVLINK2REST_PORT%...
