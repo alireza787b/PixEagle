@@ -73,6 +73,7 @@ const TrackerStatusCard = () => {
   const smartMode = isActive 
     ? (currentStatus?.smart_mode || false)
     : (currentConfig?.smart_mode_active || false);
+  const inference = isActive ? (currentStatus?.inference || null) : null;
     
   const fields = currentStatus?.fields || {};
   const fieldCount = Object.keys(fields).length;
@@ -193,6 +194,32 @@ const TrackerStatusCard = () => {
               )}
             </Box>
           </Box>
+
+          {smartMode && inference?.backend && (
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="body2" color="textSecondary">
+                Inference:
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Chip
+                  size="small"
+                  label={`${inference.backend} (${inference.effective_device || 'n/a'})`}
+                  color={inference.backend === 'cuda' ? 'success' : 'warning'}
+                  variant="filled"
+                />
+                {inference.fallback_occurred && (
+                  <Tooltip title={inference.fallback_reason || 'GPU load failed, CPU fallback applied'}>
+                    <Chip
+                      size="small"
+                      label="Fallback"
+                      color="warning"
+                      variant="outlined"
+                    />
+                  </Tooltip>
+                )}
+              </Box>
+            </Box>
+          )}
           
           {/* Show configured info when inactive */}
           {!isActive && configuredTrackerInfo.description && (

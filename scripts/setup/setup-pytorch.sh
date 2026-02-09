@@ -77,6 +77,7 @@ DETECTED_ARCH=""
 DETECTED_CUDA=""
 DETECTED_GPU=""
 INSTALL_MODE=""  # gpu, mps, cpu
+IS_JETSON=false
 
 detect_system() {
     log_step 1 "Detecting system configuration..."
@@ -104,9 +105,22 @@ detect_system() {
     DETECTED_ARCH=$(uname -m)
     log_success "Architecture: ${DETECTED_ARCH}"
 
-    # Detect CUDA (only on Linux x86_64)
+    # Detect Jetson platform
+    IS_JETSON=false
+    if [[ "$DETECTED_OS" == "Linux" ]]; then
+        if [[ -f /proc/device-tree/model ]] && tr -d '\0' </proc/device-tree/model 2>/dev/null | grep -qi "jetson"; then
+            IS_JETSON=true
+        elif command -v dpkg-query &>/dev/null && dpkg-query -W -f='${Status}' nvidia-l4t-core 2>/dev/null | grep -q "install ok installed"; then
+            IS_JETSON=true
+        fi
+    fi
+    if [[ "$IS_JETSON" == true ]]; then
+        log_success "Platform: NVIDIA Jetson detected"
+    fi
+
+    # Detect CUDA
     DETECTED_CUDA="none"
-    if [[ "$DETECTED_OS" == "Linux" ]] && [[ "$DETECTED_ARCH" == "x86_64" ]]; then
+    if [[ "$DETECTED_OS" == "Linux" ]]; then
         # Try nvidia-smi first
         if command -v nvidia-smi &>/dev/null; then
             local cuda_version
@@ -126,6 +140,21 @@ detect_system() {
             DETECTED_CUDA=$(nvcc --version 2>/dev/null | grep "release" | awk '{print $6}' | cut -d',' -f1)
         fi
 
+        # Fallback to /usr/local/cuda metadata (common on Jetson)
+        if [[ "$DETECTED_CUDA" == "none" ]] && [[ -f /usr/local/cuda/version.json ]]; then
+            local cuda_major cuda_minor
+            cuda_major=$(grep -oE '"major"[[:space:]]*:[[:space:]]*[0-9]+' /usr/local/cuda/version.json 2>/dev/null | head -1 | grep -oE '[0-9]+')
+            cuda_minor=$(grep -oE '"minor"[[:space:]]*:[[:space:]]*[0-9]+' /usr/local/cuda/version.json 2>/dev/null | head -1 | grep -oE '[0-9]+')
+            if [[ -n "$cuda_major" ]] && [[ -n "$cuda_minor" ]]; then
+                DETECTED_CUDA="${cuda_major}.${cuda_minor}"
+            fi
+        fi
+
+        if [[ "$DETECTED_CUDA" == "none" ]] && [[ -f /usr/local/cuda/version.txt ]]; then
+            DETECTED_CUDA=$(grep -oE '[0-9]+\.[0-9]+' /usr/local/cuda/version.txt 2>/dev/null | head -1)
+            [[ -z "$DETECTED_CUDA" ]] && DETECTED_CUDA="none"
+        fi
+
         if [[ "$DETECTED_CUDA" != "none" ]]; then
             log_success "CUDA: ${DETECTED_CUDA} detected"
         else
@@ -140,6 +169,11 @@ detect_system() {
         if [[ -n "$DETECTED_GPU" ]]; then
             log_success "GPU: ${DETECTED_GPU}"
         fi
+    elif [[ "$IS_JETSON" == true ]]; then
+        local jetson_model
+        jetson_model=$(tr -d '\0' </proc/device-tree/model 2>/dev/null || echo "NVIDIA Jetson")
+        DETECTED_GPU="$jetson_model"
+        log_success "GPU: ${DETECTED_GPU}"
     elif [[ "$DETECTED_OS" == "macOS" ]] && [[ "$DETECTED_ARCH" == "arm64" ]]; then
         DETECTED_GPU="Apple Silicon (MPS)"
         log_success "GPU: ${DETECTED_GPU}"
@@ -212,31 +246,37 @@ select_pytorch_config() {
     # Determine the best PyTorch configuration based on detected system
     case "$INSTALL_MODE" in
         gpu)
-            # Determine CUDA version to use
-            local cuda_major
-            cuda_major=$(echo "$DETECTED_CUDA" | cut -d'.' -f1)
-            local cuda_minor
-            cuda_minor=$(echo "$DETECTED_CUDA" | cut -d'.' -f2)
-
-            if [[ "$cuda_major" -ge 12 ]]; then
-                if [[ "$cuda_minor" -ge 4 ]]; then
-                    PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cu124"
-                    INSTALL_DESCRIPTION="PyTorch ${PYTORCH_VERSION} + CUDA 12.4"
-                elif [[ "$cuda_minor" -ge 1 ]]; then
-                    PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cu121"
-                    INSTALL_DESCRIPTION="PyTorch ${PYTORCH_VERSION} + CUDA 12.1"
+            # Jetson uses JetPack-specific PyTorch wheels (not regular x86 CUDA index URLs)
+            if [[ "$IS_JETSON" == true ]]; then
+                PYTORCH_INDEX_URL=""
+                INSTALL_DESCRIPTION="PyTorch (Jetson GPU best-effort pip install; NVIDIA wheel may be required)"
                 else
-                    PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cu121"
-                    INSTALL_DESCRIPTION="PyTorch ${PYTORCH_VERSION} + CUDA 12.1"
+                # Determine CUDA version to use
+                local cuda_major
+                cuda_major=$(echo "$DETECTED_CUDA" | cut -d'.' -f1)
+                local cuda_minor
+                cuda_minor=$(echo "$DETECTED_CUDA" | cut -d'.' -f2)
+
+                if [[ "$cuda_major" -ge 12 ]]; then
+                    if [[ "$cuda_minor" -ge 4 ]]; then
+                        PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cu124"
+                        INSTALL_DESCRIPTION="PyTorch ${PYTORCH_VERSION} + CUDA 12.4"
+                    elif [[ "$cuda_minor" -ge 1 ]]; then
+                        PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cu121"
+                        INSTALL_DESCRIPTION="PyTorch ${PYTORCH_VERSION} + CUDA 12.1"
+                    else
+                        PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cu121"
+                        INSTALL_DESCRIPTION="PyTorch ${PYTORCH_VERSION} + CUDA 12.1"
+                    fi
+                elif [[ "$cuda_major" -eq 11 ]]; then
+                    PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cu118"
+                    INSTALL_DESCRIPTION="PyTorch ${PYTORCH_VERSION} + CUDA 11.8"
+                else
+                    # Fallback to CPU
+                    PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cpu"
+                    INSTALL_DESCRIPTION="PyTorch ${PYTORCH_VERSION} (CPU)"
+                    INSTALL_MODE="cpu"
                 fi
-            elif [[ "$cuda_major" -eq 11 ]]; then
-                PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cu118"
-                INSTALL_DESCRIPTION="PyTorch ${PYTORCH_VERSION} + CUDA 11.8"
-            else
-                # Fallback to CPU
-                PYTORCH_INDEX_URL="https://download.pytorch.org/whl/cpu"
-                INSTALL_DESCRIPTION="PyTorch ${PYTORCH_VERSION} (CPU)"
-                INSTALL_MODE="cpu"
             fi
             ;;
         mps)
@@ -301,7 +341,12 @@ install_pytorch() {
         pip_cmd+=(--index-url "$PYTORCH_INDEX_URL")
     fi
 
-    pip_cmd+=(torch torchvision torchaudio)
+    if [[ "$IS_JETSON" == true ]]; then
+        # torchaudio wheels are frequently unavailable on Jetson; install it opportunistically later.
+        pip_cmd+=(torch torchvision)
+    else
+        pip_cmd+=(torch torchvision torchaudio)
+    fi
 
     log_info "Installing packages (this may take a few minutes)..."
     echo -e "        ${DIM}Command: pip install torch torchvision torchaudio${NC}"
@@ -324,6 +369,14 @@ install_pytorch() {
             printf "\r        ${GREEN}${CHECK} Packages installed successfully                            ${NC}\n"
         fi
     done
+
+    # Optional step for Jetson: attempt torchaudio without failing setup
+    if [[ "$IS_JETSON" == true ]]; then
+        log_info "Jetson detected: attempting optional torchaudio install..."
+        if ! "$VENV_DIR/bin/pip" install torchaudio >/dev/null 2>&1; then
+            log_warn "torchaudio install skipped (not required for SmartTracker)"
+        fi
+    fi
 
     deactivate
 
@@ -413,7 +466,10 @@ show_summary() {
     echo -e "   ${CYAN}${BOLD}📋 Next Steps:${NC}"
     echo -e "      1. Enable SmartTracker in ${BOLD}configs/config.yaml${NC}:"
     echo -e "         ${DIM}SMART_TRACKER_USE_GPU: true${NC}"
-    echo -e "      2. Run PixEagle: ${BOLD}bash run_pixeagle.sh${NC}"
+    echo -e "      2. Run PixEagle: ${BOLD}bash scripts/run.sh${NC}"
+    if [[ "$IS_JETSON" == true ]]; then
+        echo -e "      3. If CUDA is unavailable, install NVIDIA JetPack-matched PyTorch wheel manually and rerun this script."
+    fi
     echo ""
     echo -e "   ${YELLOW}${BOLD}💡 Test GPU acceleration:${NC}"
     echo -e "      ${DIM}source venv/bin/activate${NC}"

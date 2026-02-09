@@ -808,12 +808,19 @@ class FastAPIHandler:
     async def get_status(self):
         try:
             video_health = self.video_handler.get_connection_health() if self.video_handler else {}
+            smart_tracker_runtime = None
+            if getattr(self.app_controller, "smart_tracker", None) and hasattr(self.app_controller.smart_tracker, "get_runtime_info"):
+                try:
+                    smart_tracker_runtime = self.app_controller.smart_tracker.get_runtime_info()
+                except Exception as runtime_error:
+                    self.logger.debug(f"Could not fetch smart tracker runtime info: {runtime_error}")
             return {
                 "smart_mode_active": self.app_controller.smart_mode_active,
                 "tracking_started": self.app_controller.tracking_started,
                 "segmentation_active": self.app_controller.segmentation_active,
                 "following_active": self.app_controller.following_active,
                 "video_status": video_health.get("status", "unknown"),
+                "smart_tracker_runtime": smart_tracker_runtime,
             }
         except Exception as e:
             self.logger.error(f"Error in get_status: {e}")
@@ -2046,31 +2053,52 @@ class FastAPIHandler:
 
             # Get current model if SmartTracker is active
             current_model = None
+            smart_tracker_runtime = None
             if (hasattr(self.app_controller, 'smart_tracker') and
                 self.app_controller.smart_tracker is not None):
                 smart_tracker = self.app_controller.smart_tracker
+
+                if hasattr(smart_tracker, "get_runtime_info"):
+                    try:
+                        smart_tracker_runtime = smart_tracker.get_runtime_info()
+                        runtime_model_path = smart_tracker_runtime.get("model_path")
+                        if runtime_model_path:
+                            runtime_model_name = Path(runtime_model_path).name
+                            # UI model list is .pt-based. If runtime uses NCNN folder,
+                            # map to sibling .pt name when available.
+                            if runtime_model_name.endswith("_ncnn_model"):
+                                sibling_pt = Path(runtime_model_path).with_name(
+                                    f"{runtime_model_name[:-len('_ncnn_model')]}.pt"
+                                )
+                                current_model = sibling_pt.name if sibling_pt.exists() else runtime_model_name
+                            else:
+                                current_model = runtime_model_name
+                    except Exception as e:
+                        self.logger.debug(f"Could not read smart tracker runtime info: {e}")
+
                 if hasattr(smart_tracker, 'model'):
                     # Try to extract current model path
                     try:
                         model_file = getattr(smart_tracker.model, 'ckpt_path', None)
-                        if model_file:
+                        if model_file and not current_model:
                             current_model = Path(model_file).name
                     except Exception as e:
                         self.logger.debug(f"Could not determine current model: {e}")
 
             # If SmartTracker is not active, get configured model from config
             configured_model = None
+            configured_gpu_model = None
+            configured_cpu_model = None
             try:
                 from classes.parameters import Parameters
-                # Get GPU model path from config (primary) or CPU model as fallback
-                use_gpu = Parameters.SmartTracker.get('SMART_TRACKER_USE_GPU', True)
-                if use_gpu:
-                    model_path = Parameters.SmartTracker.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo11n.pt')
-                else:
-                    model_path = Parameters.SmartTracker.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo11n_ncnn_model')
+                gpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo11n.pt')
+                cpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo11n_ncnn_model')
+                configured_gpu_model = Path(gpu_model_path).name
+                configured_cpu_model = Path(cpu_model_path).name
 
-                # Extract just the filename
-                configured_model = Path(model_path).name
+                # Keep legacy configured_model key (selected by SMART_TRACKER_USE_GPU)
+                use_gpu = Parameters.SmartTracker.get('SMART_TRACKER_USE_GPU', True)
+                configured_model = configured_gpu_model if use_gpu else configured_cpu_model
             except Exception as e:
                 self.logger.debug(f"Could not determine configured model: {e}")
 
@@ -2079,6 +2107,9 @@ class FastAPIHandler:
                 'models': models,
                 'current_model': current_model,  # Currently active model (if SmartTracker is running)
                 'configured_model': configured_model,  # Configured model from config.yaml
+                'configured_gpu_model': configured_gpu_model,
+                'configured_cpu_model': configured_cpu_model,
+                'runtime': smart_tracker_runtime,
                 'total_count': len(models)
             })
 
@@ -2154,7 +2185,8 @@ class FastAPIHandler:
                     'model_path': model_path,
                     'device': device,
                     'message': result['message'],
-                    'model_info': result.get('model_info')
+                    'model_info': result.get('model_info'),
+                    'runtime': (result.get('model_info') or {}).get('runtime'),
                 })
             else:
                 # Switch failed
@@ -2221,7 +2253,8 @@ class FastAPIHandler:
                     'filename': filename,
                     'message': result.get('message', 'Model uploaded successfully'),
                     'model_info': result.get('model_info'),
-                    'ncnn_exported': result.get('ncnn_exported', False)
+                    'ncnn_exported': result.get('ncnn_exported', False),
+                    'ncnn_export': result.get('ncnn_export'),
                 })
             else:
                 error_msg = result.get('error', 'Unknown error during upload')
@@ -2389,6 +2422,8 @@ class FastAPIHandler:
                     'tracker_type': None,
                     'data_type': None,
                     'fields': {},
+                    'smart_mode': getattr(self.app_controller, 'smart_mode_active', False),
+                    'inference': None,
                     'timestamp': time.time()
                 })
             
@@ -2416,6 +2451,14 @@ class FastAPIHandler:
                         available_fields[raw_field] = field_info
             
             tracker_class = self.app_controller.tracker.__class__.__name__ if self.app_controller.tracker else 'Unknown'
+            inference_info = None
+            if getattr(self.app_controller, 'smart_mode_active', False):
+                smart_tracker = getattr(self.app_controller, 'smart_tracker', None)
+                if smart_tracker and hasattr(smart_tracker, 'get_runtime_info'):
+                    try:
+                        inference_info = smart_tracker.get_runtime_info()
+                    except Exception as runtime_error:
+                        self.logger.debug(f"Could not fetch smart tracker inference info: {runtime_error}")
             
             return JSONResponse(content={
                 'active': tracker_output.tracking_active,
@@ -2424,6 +2467,7 @@ class FastAPIHandler:
                 'fields': available_fields,
                 'raw_data': tracker_output.raw_data,  # Include raw_data for gimbal status
                 'smart_mode': getattr(self.app_controller, 'smart_mode_active', False),
+                'inference': inference_info,
                 'timestamp': time.time()
             })
             

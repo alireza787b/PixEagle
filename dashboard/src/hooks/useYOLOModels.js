@@ -31,6 +31,9 @@ export const useYOLOModels = (refreshInterval = 10000) => {
   const [models, setModels] = useState(null);
   const [currentModel, setCurrentModel] = useState(null);
   const [configuredModel, setConfiguredModel] = useState(null);
+  const [configuredGpuModel, setConfiguredGpuModel] = useState(null);
+  const [configuredCpuModel, setConfiguredCpuModel] = useState(null);
+  const [runtime, setRuntime] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const lastSuccessfulData = useRef(null);
@@ -45,6 +48,9 @@ export const useYOLOModels = (refreshInterval = 10000) => {
         setModels(response.data.models || {});
         setCurrentModel(response.data.current_model || null);
         setConfiguredModel(response.data.configured_model || null);
+        setConfiguredGpuModel(response.data.configured_gpu_model || null);
+        setConfiguredCpuModel(response.data.configured_cpu_model || null);
+        setRuntime(response.data.runtime || null);
         lastSuccessfulData.current = response.data;
       }
 
@@ -59,6 +65,9 @@ export const useYOLOModels = (refreshInterval = 10000) => {
         setModels(lastSuccessfulData.current.models || {});
         setCurrentModel(lastSuccessfulData.current.current_model || null);
         setConfiguredModel(lastSuccessfulData.current.configured_model || null);
+        setConfiguredGpuModel(lastSuccessfulData.current.configured_gpu_model || null);
+        setConfiguredCpuModel(lastSuccessfulData.current.configured_cpu_model || null);
+        setRuntime(lastSuccessfulData.current.runtime || null);
       }
 
       setLoading(false);
@@ -77,11 +86,24 @@ export const useYOLOModels = (refreshInterval = 10000) => {
       models,
       currentModel,
       configuredModel,
+      configuredGpuModel,
+      configuredCpuModel,
+      runtime,
       loading,
       error,
       refetch: fetchModels
     }),
-    [models, currentModel, configuredModel, loading, error, fetchModels]
+    [
+      models,
+      currentModel,
+      configuredModel,
+      configuredGpuModel,
+      configuredCpuModel,
+      runtime,
+      loading,
+      error,
+      fetchModels
+    ]
   );
 };
 
@@ -108,7 +130,8 @@ export const useSwitchYOLOModel = () => {
         return {
           success: true,
           message: response.data.message,
-          modelInfo: response.data.model_info
+          modelInfo: response.data.model_info,
+          runtime: response.data.runtime || response.data.model_info?.runtime || null,
         };
       } else {
         setSwitchError(response.data.error || 'Failed to switch model');
@@ -177,7 +200,8 @@ export const useUploadYOLOModel = () => {
           message: response.data.message,
           filename: response.data.filename,
           modelInfo: response.data.model_info,
-          ncnnExported: response.data.ncnn_exported
+          ncnnExported: response.data.ncnn_exported,
+          ncnnExport: response.data.ncnn_export || null,
         };
       } else {
         setUploadError(response.data.error || 'Upload failed');

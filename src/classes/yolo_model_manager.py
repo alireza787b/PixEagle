@@ -409,7 +409,10 @@ class YOLOModelManager:
                 "success": True,
                 "model_id": model_id,
                 "model_path": str(model_path),
-                "validation": validation_result
+                "validation": validation_result,
+                "model_info": None,
+                "ncnn_exported": False,
+                "ncnn_export": None,
             }
 
             # Auto-export to NCNN if requested
@@ -417,6 +420,7 @@ class YOLOModelManager:
                 self.logger.info(f"Starting automatic NCNN export for {model_id}...")
                 export_result = await self._export_async(model_path)
                 result["ncnn_export"] = export_result
+                result["ncnn_exported"] = bool(export_result.get('success'))
 
                 if export_result['success']:
                     self.logger.info(f"✅ NCNN export completed: {export_result['ncnn_path']}")
@@ -424,7 +428,38 @@ class YOLOModelManager:
                     self.logger.warning(f"⚠️ NCNN export failed: {export_result.get('error')}")
 
             # Refresh model discovery
-            self.discover_models(force_rescan=True)
+            discovered_models = self.discover_models(force_rescan=True)
+            model_info = discovered_models.get(model_id)
+
+            # Backward-compatible info if discovery cache misses unexpectedly.
+            if not model_info:
+                model_info = {
+                    "name": self._generate_display_name(model_id, validation_result),
+                    "path": str(model_path),
+                    "type": "gpu",
+                    "format": "pt",
+                    "size_mb": round(model_path.stat().st_size / (1024 * 1024), 2),
+                    "num_classes": validation_result.get('num_classes', 0),
+                    "class_names": validation_result.get('class_names', []),
+                    "is_custom": validation_result.get('is_custom', False),
+                    "task": validation_result.get('task', 'unknown'),
+                    "output_geometry": validation_result.get('output_geometry', 'aabb'),
+                    "smarttracker_supported": validation_result.get('smarttracker_supported', True),
+                    "compatibility_notes": validation_result.get('compatibility_notes', []),
+                    "has_ncnn": self._check_ncnn_exists(model_path),
+                    "ncnn_path": str(self._get_ncnn_path(model_path)) if self._check_ncnn_exists(model_path) else None,
+                }
+
+            result["model_info"] = model_info
+            result["ncnn_exported"] = bool(result["ncnn_exported"] or model_info.get("has_ncnn"))
+            result["ncnn_path"] = (
+                (result.get("ncnn_export") or {}).get("ncnn_path")
+                or model_info.get("ncnn_path")
+            )
+            result["message"] = (
+                f"Model '{model_id}' uploaded successfully"
+                + (" with NCNN export." if result["ncnn_exported"] else ".")
+            )
 
             return result
 

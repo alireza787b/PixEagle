@@ -1155,7 +1155,7 @@ show_summary() {
     if [[ "$mavsdk_status" == *"Not installed"* ]] || [[ "$mavlink2rest_status" == *"Not installed"* ]]; then
         echo -e "      - ${BOLD}bash scripts/setup/download-binaries.sh${NC}  (download binaries)"
     fi
-    echo -e "      - ${BOLD}python tools/add_yolo_model.py${NC}        (add YOLO models)"
+    echo -e "      - ${BOLD}python add_yolo_model.py${NC}              (add YOLO models)"
     echo ""
     if [[ "$node_version" == "not installed" ]]; then
         echo -e "   ${RED}${BOLD}WARNING: Node.js Installation:${NC}"

@@ -3,7 +3,8 @@ import cv2
 import numpy as np
 import time
 import logging
-from typing import Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 # Conditional AI imports - allows app to run without ultralytics/torch
 # Catches ImportError (not installed) and any other errors (incompatible torch on ARM, etc.)
@@ -74,38 +75,30 @@ class SmartTracker:
         self.disable_obb_globally = bool(self.config.get("SMART_TRACKER_DISABLE_OBB_GLOBALLY", False))
         self.obb_error_budget = float(self.config.get("SMART_TRACKER_OBB_AUTO_DISABLE_ERROR_RATE", 0.001))
 
+        requested_device = "gpu" if use_gpu else "cpu"
+        requested_model_path = (
+            self.config.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo11n.pt')
+            if use_gpu else
+            self.config.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo11n_ncnn_model')
+        )
+        self.runtime_info: Dict[str, Any] = {}
+
         try:
-            if use_gpu:
-                model_path = self.config.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo11n.pt')
-                logger.info(f"[SmartTracker] Attempting to load YOLO model with GPU: {model_path}")
-
-            else:
-                model_path = self.config.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo11n_ncnn_model')
-                logger.info(f"[SmartTracker] Loading YOLO model with CPU: {model_path}")
-
-            self.model = YOLO(model_path)
-
-            if use_gpu:
-                self.model.to('cuda')
-
-            logger.info(f"[SmartTracker] YOLO model loaded on device: {self.model.device}")
-
-        except Exception as e:
-            if use_gpu and fallback_enabled:
-                logger.warning(f"[SmartTracker] GPU load failed: {e}")
-                logger.info("[SmartTracker] Falling back to CPU model...")
-
-                try:
-                    model_path = self.config.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo11n_ncnn_model')
-                    self.model = YOLO(model_path)
-                    logger.info(f"[SmartTracker] CPU model loaded successfully: {self.model.device}")
-                except Exception as cpu_error:
-                    logger.error(f"[SmartTracker] CPU fallback also failed: {cpu_error}")
-                    raise RuntimeError("YOLO model loading failed (both GPU and CPU).")
-
-            else:
-                logger.error(f"[SmartTracker] Failed to load YOLO model: {e}")
-                raise RuntimeError("YOLO model loading failed.")
+            self.model, runtime_info = self._load_model_with_runtime_fallback(
+                requested_model_path=requested_model_path,
+                requested_device=requested_device,
+                fallback_enabled=fallback_enabled,
+                context="startup",
+            )
+            self.runtime_info = runtime_info
+            logger.info(
+                "[SmartTracker] YOLO loaded: "
+                f"path={runtime_info.get('model_path')} backend={runtime_info.get('backend')} "
+                f"requested={runtime_info.get('requested_device')} effective={runtime_info.get('effective_device')}"
+            )
+        except Exception as exc:
+            logger.error(f"[SmartTracker] Failed to load YOLO model: {exc}")
+            raise RuntimeError("YOLO model loading failed.") from exc
 
         # === Detection Parameters ===
         self.conf_threshold = self.config.get('SMART_TRACKER_CONFIDENCE_THRESHOLD', 0.3)
@@ -173,6 +166,14 @@ class SmartTracker:
 
         logger.info("[SmartTracker] Initialization complete.")
         logger.info(f"[SmartTracker] Tracker: {self.tracker_type_str.upper()}")
+        logger.info(
+            f"[SmartTracker] Inference backend: {self.runtime_info.get('backend')} "
+            f"({self.runtime_info.get('effective_device')}) model={self.runtime_info.get('model_path')}"
+        )
+        if self.runtime_info.get("fallback_occurred"):
+            logger.warning(
+                f"[SmartTracker] Startup fallback occurred: {self.runtime_info.get('fallback_reason')}"
+            )
         logger.info(f"[SmartTracker] Model task: {self.model_task}")
         logger.info(f"[SmartTracker] Geometry mode: {self.current_geometry_mode}")
         if self.use_custom_reid:
@@ -277,6 +278,274 @@ class SmartTracker:
         """Use track API for detection models only; OBB uses predict + local continuity."""
         return self.current_geometry_mode != "obb"
 
+    def _cuda_available(self) -> bool:
+        """Check CUDA availability safely (works even if torch import is fragile)."""
+        try:
+            import torch
+            return bool(torch.cuda.is_available())
+        except Exception:
+            return False
+
+    def _clear_torch_cuda_cache(self):
+        """Clear CUDA cache if available; no-op otherwise."""
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            return
+
+    def _normalize_device_preference(self, device: str) -> str:
+        normalized = (device or "auto").strip().lower()
+        return normalized if normalized in ("auto", "gpu", "cpu") else "auto"
+
+    def _normalize_model_path(self, model_path: str) -> str:
+        return str(Path(model_path).as_posix())
+
+    def _is_valid_ncnn_dir(self, model_path: str) -> bool:
+        path_obj = Path(model_path)
+        if not path_obj.exists() or not path_obj.is_dir():
+            return False
+        return any(path_obj.glob("*.bin")) and any(path_obj.glob("*.param"))
+
+    def _looks_like_ncnn_path(self, model_path: str) -> bool:
+        path_obj = Path(model_path)
+        return path_obj.suffix == "" and (
+            path_obj.name.endswith("_ncnn_model") or self._is_valid_ncnn_dir(model_path)
+        )
+
+    def _derive_ncnn_path(self, pt_model_path: str) -> Optional[str]:
+        pt_path = Path(pt_model_path)
+        if pt_path.suffix.lower() != ".pt":
+            return None
+        return str((pt_path.parent / f"{pt_path.stem}_ncnn_model").as_posix())
+
+    def _derive_pt_from_ncnn_path(self, ncnn_model_path: str) -> Optional[str]:
+        ncnn_path = Path(ncnn_model_path)
+        base_name = ncnn_path.name
+        if base_name.endswith("_ncnn_model"):
+            stem = base_name[:-len("_ncnn_model")]
+            return str((ncnn_path.parent / f"{stem}.pt").as_posix())
+        return None
+
+    def _pick_cpu_model_candidate(self, requested_model_path: str) -> Dict[str, str]:
+        """Choose best CPU candidate, preferring NCNN when available."""
+        requested = self._normalize_model_path(requested_model_path)
+        cpu_config_path = self._normalize_model_path(
+            self.config.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo11n_ncnn_model')
+        )
+
+        candidates: List[Dict[str, str]] = []
+
+        def add_candidate(path: Optional[str], source: str):
+            if not path:
+                return
+            normalized = self._normalize_model_path(path)
+            backend = "cpu_ncnn" if self._looks_like_ncnn_path(normalized) else "cpu_torch"
+            candidates.append({
+                "path": normalized,
+                "backend": backend,
+                "source": source,
+            })
+
+        # First priority: requested path (if already NCNN)
+        if self._looks_like_ncnn_path(requested):
+            add_candidate(requested, "requested_ncnn")
+            derived_pt = self._derive_pt_from_ncnn_path(requested)
+            add_candidate(derived_pt, "derived_pt_from_requested_ncnn")
+        elif requested.endswith(".pt"):
+            derived_ncnn = self._derive_ncnn_path(requested)
+            add_candidate(derived_ncnn, "derived_ncnn_from_requested_pt")
+            add_candidate(requested, "requested_pt")
+        else:
+            add_candidate(requested, "requested_generic")
+
+        # Second priority: configured CPU path
+        if cpu_config_path != requested:
+            add_candidate(cpu_config_path, "configured_cpu")
+            if cpu_config_path.endswith(".pt"):
+                add_candidate(self._derive_ncnn_path(cpu_config_path), "derived_ncnn_from_configured_cpu_pt")
+
+        # Prefer existing paths first; if none exist, keep first candidate and let loader error with clear message.
+        for candidate in candidates:
+            candidate_path = Path(candidate["path"])
+            if candidate["backend"] == "cpu_ncnn":
+                if self._is_valid_ncnn_dir(candidate["path"]):
+                    return candidate
+            elif candidate_path.exists() and candidate_path.is_file():
+                return candidate
+
+        if candidates:
+            return candidates[0]
+
+        # Hard fallback - legacy default.
+        return {
+            "path": "yolo/yolo11n_ncnn_model",
+            "backend": "cpu_ncnn",
+            "source": "hardcoded_default",
+        }
+
+    def _pick_gpu_model_candidate(self, requested_model_path: str) -> Dict[str, str]:
+        """Choose best GPU candidate (.pt), with deterministic fallback to configured GPU path."""
+        requested = self._normalize_model_path(requested_model_path)
+        gpu_config_path = self._normalize_model_path(
+            self.config.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo11n.pt')
+        )
+
+        candidates: List[Dict[str, str]] = []
+
+        def add_candidate(path: Optional[str], source: str):
+            if not path:
+                return
+            normalized = self._normalize_model_path(path)
+            candidates.append({
+                "path": normalized,
+                "backend": "cuda",
+                "source": source,
+            })
+
+        if requested.endswith(".pt"):
+            add_candidate(requested, "requested_pt")
+        elif self._looks_like_ncnn_path(requested):
+            add_candidate(self._derive_pt_from_ncnn_path(requested), "derived_pt_from_requested_ncnn")
+        else:
+            add_candidate(requested if requested.endswith(".pt") else None, "requested_generic")
+
+        if gpu_config_path != requested:
+            add_candidate(gpu_config_path if gpu_config_path.endswith(".pt") else None, "configured_gpu")
+
+        for candidate in candidates:
+            path_obj = Path(candidate["path"])
+            if path_obj.exists() and path_obj.is_file() and candidate["path"].endswith(".pt"):
+                return candidate
+
+        if candidates:
+            return candidates[0]
+
+        return {
+            "path": "yolo/yolo11n.pt",
+            "backend": "cuda",
+            "source": "hardcoded_default",
+        }
+
+    def _load_candidate(self, candidate: Dict[str, str]) -> YOLO:
+        """Load a single model candidate and move to target device if needed."""
+        model = YOLO(candidate["path"])
+        if candidate["backend"] == "cuda":
+            model.to('cuda')
+        return model
+
+    def _load_model_with_runtime_fallback(
+        self,
+        requested_model_path: str,
+        requested_device: str,
+        fallback_enabled: bool,
+        context: str,
+    ) -> Tuple[YOLO, Dict[str, Any]]:
+        """
+        Resolve/load model deterministically.
+        - CPU requests prefer NCNN directories.
+        - GPU/auto requests prefer .pt on CUDA.
+        - GPU failures can fall back to CPU when configured.
+        """
+        requested_device = self._normalize_device_preference(requested_device)
+        requested_model_path = self._normalize_model_path(requested_model_path)
+
+        attempts: List[Dict[str, Any]] = []
+        fallback_reason = None
+        fallback_occurred = False
+
+        def attempt_load(candidate: Dict[str, str]) -> Optional[YOLO]:
+            try:
+                model = self._load_candidate(candidate)
+                attempts.append({
+                    "path": candidate["path"],
+                    "backend": candidate["backend"],
+                    "source": candidate["source"],
+                    "success": True,
+                })
+                return model
+            except Exception as exc:
+                attempts.append({
+                    "path": candidate["path"],
+                    "backend": candidate["backend"],
+                    "source": candidate["source"],
+                    "success": False,
+                    "error": str(exc),
+                })
+                return None
+
+        if requested_device == "cpu":
+            primary = self._pick_cpu_model_candidate(requested_model_path)
+        elif requested_device == "gpu":
+            primary = self._pick_gpu_model_candidate(requested_model_path)
+        else:
+            # auto
+            primary = (
+                self._pick_gpu_model_candidate(requested_model_path)
+                if self._cuda_available()
+                else self._pick_cpu_model_candidate(requested_model_path)
+            )
+
+        logger.info(
+            "[SmartTracker] Model load request: "
+            f"device={requested_device} path={requested_model_path} primary={primary['path']} ({primary['backend']})"
+        )
+        model = attempt_load(primary)
+
+        should_try_cpu_fallback = (
+            model is None
+            and primary["backend"] == "cuda"
+            and fallback_enabled
+        )
+        if should_try_cpu_fallback:
+            fallback_candidate = self._pick_cpu_model_candidate(requested_model_path)
+            logger.warning(
+                "[SmartTracker] GPU load failed, attempting CPU fallback: "
+                f"{fallback_candidate['path']} ({fallback_candidate['backend']})"
+            )
+            model = attempt_load(fallback_candidate)
+            fallback_occurred = model is not None
+            if fallback_occurred:
+                fallback_reason = attempts[-2].get("error") if len(attempts) >= 2 else "unknown"
+                primary = fallback_candidate
+
+        if model is None:
+            joined_errors = "; ".join(
+                f"{a.get('backend')}:{a.get('path')} -> {a.get('error')}"
+                for a in attempts if not a.get("success")
+            )
+            raise RuntimeError(
+                "No compatible model candidate could be loaded. "
+                f"attempts={len(attempts)} errors={joined_errors}"
+            )
+
+        effective_device = "cuda" if primary["backend"] == "cuda" else "cpu"
+        runtime_info = {
+            "requested_device": requested_device,
+            "effective_device": effective_device,
+            "backend": primary["backend"],
+            "model_path": primary["path"],
+            "model_name": Path(primary["path"]).name,
+            "fallback_enabled": bool(fallback_enabled),
+            "fallback_occurred": fallback_occurred,
+            "fallback_reason": fallback_reason,
+            "resolution_source": primary["source"],
+            "context": context,
+            "attempts": attempts,
+        }
+
+        return model, runtime_info
+
+    def get_runtime_info(self) -> Dict[str, Any]:
+        """Expose current SmartTracker runtime info for API/UI status."""
+        info = dict(self.runtime_info or {})
+        info.update({
+            "model_task": getattr(self, "model_task", None),
+            "geometry_mode": getattr(self, "current_geometry_mode", None),
+        })
+        return info
+
     def switch_model(self, new_model_path: str, device: str = "auto") -> dict:
         """
         Hot-swap YOLO model without restarting SmartTracker.
@@ -302,9 +571,9 @@ class SmartTracker:
                 }
             }
         """
-        import torch
-
         try:
+            device = self._normalize_device_preference(device)
+            new_model_path = self._normalize_model_path(new_model_path)
             logger.info(f"[SmartTracker] Switching model to: {new_model_path} (device={device})")
 
             # 1. Backup current tracking state
@@ -319,34 +588,31 @@ class SmartTracker:
             # 2. Clear current tracking state (will attempt restore later if compatible)
             self.clear_selection()
 
-            # 3. Unload old model and clear GPU cache
-            old_device = str(self.model.device) if hasattr(self.model, 'device') else 'unknown'
-            del self.model
+            old_model = self.model
+            old_runtime = dict(self.runtime_info or {})
+            old_device = old_runtime.get("effective_device", "unknown")
 
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                logger.info("[SmartTracker] GPU cache cleared")
+            # 3. Resolve/load new model with deterministic fallback policy
+            fallback_enabled = bool(self.config.get('SMART_TRACKER_FALLBACK_TO_CPU', True))
+            new_model, new_runtime = self._load_model_with_runtime_fallback(
+                requested_model_path=new_model_path,
+                requested_device=device,
+                fallback_enabled=fallback_enabled,
+                context="switch",
+            )
 
-            # 4. Load new model
-            self.model = YOLO(new_model_path)
+            # 4. Switch active model
+            self.model = new_model
+            self.runtime_info = new_runtime
 
-            # 5. Set device based on preference
-            target_device = "cpu"  # Default to CPU
+            # 5. Release old model resources after successful switch
+            try:
+                del old_model
+            except Exception:
+                pass
+            self._clear_torch_cuda_cache()
 
-            if device == "auto":
-                # Auto-detect: use GPU if available and model is .pt file
-                if torch.cuda.is_available() and new_model_path.endswith('.pt'):
-                    self.model.to('cuda')
-                    target_device = "cuda"
-            elif device == "gpu":
-                if not torch.cuda.is_available():
-                    logger.warning("[SmartTracker] GPU requested but not available, using CPU")
-                else:
-                    self.model.to('cuda')
-                    target_device = "cuda"
-            # device == "cpu" remains on CPU (default)
-
-            # 6. Update labels
+            # 6. Update labels and task metadata
             self.labels = self.model.names if hasattr(self.model, 'names') else {}
             self.model_task = getattr(self.model, "task", "detect")
             self._apply_model_task_policy()
@@ -354,6 +620,7 @@ class SmartTracker:
 
             # 7. Attempt to restore tracking if classes are compatible
             restore_info = ""
+            tracking_restored = False
             if backup_state["was_tracking"]:
                 # Check if the class ID is valid in the new model
                 if backup_state["class_id"] is not None and backup_state["class_id"] < num_classes:
@@ -377,27 +644,43 @@ class SmartTracker:
 
                     old_class_name = self.labels.get(backup_state["class_id"], "Unknown")
                     restore_info = f" Tracking restored for class '{old_class_name}'."
+                    tracking_restored = True
                     logger.info(f"[SmartTracker] Tracking state restored (class {backup_state['class_id']})")
                 else:
                     restore_info = f" Previous tracking cleared (class ID {backup_state['class_id']} not in new model with {num_classes} classes)."
                     logger.warning(f"[SmartTracker] Cannot restore tracking - class mismatch")
 
             # 8. Log success
-            logger.info(f"[SmartTracker] Model switched successfully")
-            logger.info(f"[SmartTracker] Device: {old_device} → {str(self.model.device)}")
+            logger.info(
+                f"[SmartTracker] Model switched successfully: "
+                f"{old_device} -> {self.runtime_info.get('effective_device')} "
+                f"({self.runtime_info.get('backend')})"
+            )
             logger.info(f"[SmartTracker] Classes: {num_classes}")
+
+            backend = self.runtime_info.get("backend", "unknown")
+            fallback_flag = self.runtime_info.get("fallback_occurred", False)
+            fallback_note = (
+                f" CPU fallback triggered: {self.runtime_info.get('fallback_reason')}"
+                if fallback_flag else ""
+            )
 
             return {
                 "success": True,
-                "message": f"Model switched successfully to {new_model_path} on {target_device}.{restore_info}",
+                "message": (
+                    f"Model switched successfully to {self.runtime_info.get('model_path')} "
+                    f"using backend '{backend}'.{restore_info}{fallback_note}"
+                ),
                 "model_info": {
-                    "path": new_model_path,
-                    "device": str(self.model.device),
+                    "path": self.runtime_info.get("model_path"),
+                    "device": self.runtime_info.get("effective_device"),
+                    "backend": backend,
                     "num_classes": num_classes,
                     "class_names": self.labels,
                     "model_task": self.model_task,
                     "geometry_mode": self.current_geometry_mode,
-                    "tracking_restored": backup_state["was_tracking"] and backup_state["class_id"] < num_classes
+                    "tracking_restored": tracking_restored,
+                    "runtime": self.get_runtime_info(),
                 }
             }
 
@@ -407,6 +690,35 @@ class SmartTracker:
             return {"success": False, "message": error_msg, "model_info": None}
 
         except Exception as e:
+            # Keep currently active model/runtime if switch failed.
+            logger.warning("[SmartTracker] Model switch failed, keeping previous active model.")
+            try:
+                if 'old_model' in locals() and old_model is not None and self.model is not old_model:
+                    self.model = old_model
+                    if 'old_runtime' in locals():
+                        self.runtime_info = old_runtime
+            except Exception:
+                pass
+            try:
+                if 'backup_state' in locals() and backup_state.get("was_tracking"):
+                    class_id = backup_state.get("class_id")
+                    if class_id is not None and class_id < len(self.labels):
+                        self.selected_object_id = backup_state.get("object_id")
+                        self.selected_class_id = class_id
+                        self.selected_bbox = backup_state.get("bbox")
+                        self.selected_center = backup_state.get("center")
+                        self.selected_oriented_bbox = None
+                        self.selected_polygon = None
+                        if self.selected_bbox and self.selected_center:
+                            self.tracking_manager.start_tracking(
+                                track_id=self.selected_object_id,
+                                class_id=self.selected_class_id,
+                                bbox=self.selected_bbox,
+                                confidence=0.5,
+                                center=self.selected_center
+                            )
+            except Exception:
+                pass
             error_msg = f"Failed to switch model: {str(e)}"
             logger.error(f"[SmartTracker] {error_msg}")
             logger.exception(e)
@@ -765,7 +1077,15 @@ class SmartTracker:
                 ],
                 'selected_class_id': self.selected_class_id,
                 'tracker_type': self.tracker_type_str,
-                'device': str(self.model.device) if hasattr(self.model, 'device') else 'unknown',
+                'device': self.runtime_info.get('effective_device')
+                          if isinstance(self.runtime_info, dict)
+                          else (str(self.model.device) if hasattr(self.model, 'device') else 'unknown'),
+                'backend': self.runtime_info.get('backend') if isinstance(self.runtime_info, dict) else 'unknown',
+                'model_path': self.runtime_info.get('model_path') if isinstance(self.runtime_info, dict) else None,
+                'fallback_occurred': self.runtime_info.get('fallback_occurred', False)
+                                     if isinstance(self.runtime_info, dict) else False,
+                'fallback_reason': self.runtime_info.get('fallback_reason')
+                                   if isinstance(self.runtime_info, dict) else None,
                 'model_task': self.model_task,
                 'geometry_mode': self.current_geometry_mode,
                 'obb_auto_disabled': self._obb_auto_disabled,

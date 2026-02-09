@@ -54,7 +54,8 @@ import {
   Memory,
   Autorenew,
   Star,
-  CloudDownload
+  CloudDownload,
+  Warning
 } from '@mui/icons-material';
 import {
   useYOLOModels,
@@ -82,7 +83,17 @@ const LoadingSkeleton = () => (
 
 const YOLOModelSelector = memo(() => {
   // Custom hooks for YOLO model management
-  const { models, currentModel, configuredModel, loading: loadingModels, error: modelsError, refetch } = useYOLOModels();
+  const {
+    models,
+    currentModel,
+    configuredModel,
+    configuredGpuModel,
+    configuredCpuModel,
+    runtime,
+    loading: loadingModels,
+    error: modelsError,
+    refetch
+  } = useYOLOModels();
   const { switchModel, switching, switchError } = useSwitchYOLOModel();
   const { uploadModel, uploading, uploadError, uploadProgress, resetUpload } = useUploadYOLOModel();
   const { deleteModel, deleting, deleteError } = useDeleteYOLOModel();
@@ -95,6 +106,7 @@ const YOLOModelSelector = memo(() => {
   const [modelToDelete, setModelToDelete] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [autoExportNcnn, setAutoExportNcnn] = useState(true);
+  const [actionFeedback, setActionFeedback] = useState(null);
   const hasPendingSelection = React.useRef(false);
 
   const activeModelId = useMemo(() => {
@@ -170,9 +182,22 @@ const YOLOModelSelector = memo(() => {
     hasPendingSelection.current = false;
 
     if (result.success) {
+      const runtimeInfo = result.runtime || {};
+      const fallbackText = runtimeInfo?.fallback_occurred
+        ? ` Fallback: ${runtimeInfo.fallback_reason || 'GPU load failed'}`
+        : '';
+      setActionFeedback({
+        type: 'success',
+        message: `Switched to ${runtimeInfo.model_name || modelPath} (${runtimeInfo.backend || 'unknown'}).${fallbackText}`
+      });
       // Refresh model list to update current model
       refetch();
       setTimeout(() => refetch(), 500);
+    } else {
+      setActionFeedback({
+        type: 'error',
+        message: result.error || 'Failed to switch model'
+      });
     }
   }, [selectedModel, selectedDevice, models, switchModel, refetch]);
 
@@ -194,11 +219,24 @@ const YOLOModelSelector = memo(() => {
     const result = await uploadModel(selectedFile, autoExportNcnn);
 
     if (result.success) {
+      const exportInfo = result.ncnnExport;
+      const exportSummary = result.ncnnExported
+        ? ` NCNN ready${exportInfo?.ncnn_path ? `: ${exportInfo.ncnn_path}` : ''}.`
+        : ' Uploaded without NCNN export.';
+      setActionFeedback({
+        type: 'success',
+        message: `${result.filename} uploaded.${exportSummary}`
+      });
       setUploadDialogOpen(false);
       setSelectedFile(null);
       resetUpload();
       // Refresh model list
       setTimeout(() => refetch(), 500);
+    } else {
+      setActionFeedback({
+        type: 'error',
+        message: result.error || 'Upload failed'
+      });
     }
   }, [selectedFile, autoExportNcnn, uploadModel, resetUpload, refetch]);
 
@@ -215,6 +253,10 @@ const YOLOModelSelector = memo(() => {
     const result = await deleteModel(modelToDelete);
 
     if (result.success) {
+      setActionFeedback({
+        type: 'success',
+        message: `Deleted model ${modelToDelete}`
+      });
       setDeleteDialogOpen(false);
       setModelToDelete(null);
       // Clear selection if deleted model was selected
@@ -224,6 +266,11 @@ const YOLOModelSelector = memo(() => {
       hasPendingSelection.current = false;
       // Refresh model list
       setTimeout(() => refetch(), 500);
+    } else {
+      setActionFeedback({
+        type: 'error',
+        message: result.error || 'Delete failed'
+      });
     }
   }, [modelToDelete, deleteModel, selectedModel, refetch]);
 
@@ -309,6 +356,33 @@ const YOLOModelSelector = memo(() => {
                   icon={<Star fontSize="small" />}
                 />
               )}
+              {runtime?.backend && (
+                <Chip
+                  label={`Backend: ${runtime.backend}`}
+                  color={runtime.backend === 'cuda' ? 'success' : 'warning'}
+                  size="small"
+                  icon={runtime.backend === 'cuda' ? <Speed fontSize="small" /> : <Memory fontSize="small" />}
+                />
+              )}
+              {runtime?.fallback_occurred && (
+                <Chip
+                  label="Fallback Applied"
+                  color="warning"
+                  size="small"
+                  icon={<Warning fontSize="small" />}
+                />
+              )}
+            </Box>
+          )}
+
+          {(configuredGpuModel || configuredCpuModel) && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="caption" color="textSecondary" sx={{ display: 'block' }}>
+                Config defaults:
+              </Typography>
+              <Typography variant="caption" color="textSecondary" sx={{ display: 'block' }}>
+                GPU: {configuredGpuModel || 'n/a'} | CPU: {configuredCpuModel || 'n/a'}
+              </Typography>
             </Box>
           )}
 
@@ -355,7 +429,7 @@ const YOLOModelSelector = memo(() => {
               <MenuItem value="auto">
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Autorenew fontSize="small" />
-                  Auto (GPU if available)
+                  Auto (prefer CUDA, fallback CPU)
                 </Box>
               </MenuItem>
               <MenuItem value="gpu">
@@ -367,7 +441,7 @@ const YOLOModelSelector = memo(() => {
               <MenuItem value="cpu">
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Memory fontSize="small" />
-                  CPU (Slower)
+                  CPU (prefer NCNN)
                 </Box>
               </MenuItem>
             </Select>
@@ -400,14 +474,14 @@ const YOLOModelSelector = memo(() => {
 
           {/* Switch Error/Info Alert */}
           {switchError && (
-            <Alert
-              severity={switchError.includes('switched successfully') ? 'success' : 'error'}
-              size="small"
-              sx={{ mb: 2 }}
-            >
-              <Typography variant="caption">
-                {switchError}
-              </Typography>
+            <Alert severity="error" size="small" sx={{ mb: 2 }}>
+              <Typography variant="caption">{switchError}</Typography>
+            </Alert>
+          )}
+
+          {actionFeedback && (
+            <Alert severity={actionFeedback.type} size="small" sx={{ mb: 2 }}>
+              <Typography variant="caption">{actionFeedback.message}</Typography>
             </Alert>
           )}
 
@@ -425,8 +499,8 @@ const YOLOModelSelector = memo(() => {
           <Alert severity="info" size="small">
             <Typography variant="caption">
               {currentModel
-                ? "SmartTracker is running with the active model. Switch to change instantly."
-                : "Configured model will be used when Smart Mode is enabled. Upload .pt files or switch models anytime."}
+                ? "SmartTracker is running with the active model. CPU mode prefers NCNN if available."
+                : "Configured model is used when Smart Mode starts. Upload .pt and optional NCNN export is handled automatically."}
             </Typography>
           </Alert>
         </CardContent>
