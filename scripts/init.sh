@@ -338,7 +338,8 @@ select_installation_profile() {
                 if [[ "$IS_ARM_PLATFORM" == true ]]; then
                     log_warn "Selected: Full installation with AI packages"
                     log_detail "If torch fails, you can reinstall with: make init (choose Core)"
-                    log_detail "Or manually install ARM torch from pytorch.org"
+                    log_detail "Recommended recovery: bash scripts/setup/setup-pytorch.sh --mode auto"
+                    log_detail "Manual wheel override is available via --torch-wheel/--torchvision-wheel"
                 else
                     log_success "Selected: Full installation with AI packages"
                 fi
