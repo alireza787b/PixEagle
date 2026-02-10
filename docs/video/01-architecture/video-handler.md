@@ -8,6 +8,14 @@
 
 The `VideoHandler` class provides a unified interface for video input from 7 different source types. It handles capture initialization, frame acquisition, error recovery, and connection health monitoring.
 
+### Backend Selection Notes
+
+- `VIDEO_FILE` and `USB_CAMERA` treat `USE_GSTREAMER` as a preference:
+  - `false`: OpenCV backend.
+  - `true`: try GStreamer first, then fallback to OpenCV when unavailable/failing.
+- `CSI_CAMERA` and `CUSTOM_GSTREAMER` always use GStreamer.
+- Health/info diagnostics report the active backend after fallback (`active_backend`).
+
 ## Class Definition
 
 ```python
@@ -216,7 +224,8 @@ Get detailed connection health metrics.
     'cached_frames_available': 5,
     'connection_open': True,
     'video_source_type': 'RTSP_STREAM',
-    'use_gstreamer': True
+    'use_gstreamer': True,
+    'active_backend': 'GStreamer'
 }
 ```
 

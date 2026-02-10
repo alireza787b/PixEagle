@@ -15,12 +15,26 @@ VideoSource:
   CAPTURE_FPS: 30                 # Target frame rate
 
   # Backend selection
-  USE_GSTREAMER: true             # Use GStreamer backend
+  USE_GSTREAMER: true             # Prefer GStreamer backend
 
   # Buffer settings
   OPENCV_BUFFER_SIZE: 1           # OpenCV buffer size
   STORE_LAST_FRAMES: 5            # Frame history length
 ```
+
+## Backend Routing Rules
+
+`USE_GSTREAMER` is a **preference** for source types that support dual backends:
+
+| Source Type | `USE_GSTREAMER: false` | `USE_GSTREAMER: true` |
+|-------------|-------------------------|-----------------------|
+| `VIDEO_FILE` | OpenCV | Try GStreamer, fallback to OpenCV if unavailable/fails |
+| `USB_CAMERA` | OpenCV | Try GStreamer strategy chain, fallback to OpenCV |
+| `RTSP_STREAM` | OpenCV | Existing RTSP GStreamer fallback flow |
+| `UDP_STREAM` | OpenCV/FFmpeg | GStreamer pipeline |
+| `HTTP_STREAM` | OpenCV | GStreamer pipeline |
+| `CSI_CAMERA` | GStreamer | GStreamer |
+| `CUSTOM_GSTREAMER` | GStreamer | GStreamer |
 
 ## VIDEO_FILE Settings
 

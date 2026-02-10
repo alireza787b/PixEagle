@@ -509,6 +509,28 @@ class TestConnectionHealth:
 class TestUSBFallbackAndDiagnostics:
     """Tests for USB fallback strategy and diagnostics fields."""
 
+    def test_video_file_gstreamer_open_failure_falls_back_to_opencv(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+
+        mock_parameters.USE_GSTREAMER = True
+        mock_parameters.VIDEO_SOURCE_TYPE = "VIDEO_FILE"
+
+        cap_fail = MagicMock()
+        cap_fail.isOpened.return_value = False
+        cap_ok = MagicMock()
+        cap_ok.isOpened.return_value = True
+
+        with patch.object(handler, "_is_gstreamer_usable", return_value=True):
+            with patch('classes.video_handler.cv2.VideoCapture', side_effect=[cap_fail, cap_ok]) as mock_capture:
+                cap = handler._create_video_file_capture(use_gstreamer=True)
+
+        assert cap is cap_ok
+        assert handler._capture_mode == "video_file_opencv_fallback"
+        assert handler._last_pipeline_strategy == "video_file_opencv_fallback"
+        assert mock_capture.call_args_list[0][0][1] == cv2.CAP_GSTREAMER
+        assert mock_capture.call_args_list[1][0][0] == mock_parameters.VIDEO_FILE_PATH
+
     def test_relaxed_usb_pipeline_removes_framerate_caps(self, mock_parameters):
         with patch.object(VideoHandler, 'init_video_source', return_value=33):
             handler = VideoHandler()
@@ -540,6 +562,47 @@ class TestUSBFallbackAndDiagnostics:
         second_pipeline = mock_capture.call_args_list[1][0][0]
         assert "framerate=" in first_pipeline
         assert "framerate=" not in second_pipeline
+
+    def test_usb_capture_short_circuits_to_opencv_when_gstreamer_unavailable(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+
+        mock_parameters.USE_GSTREAMER = True
+        mock_parameters.VIDEO_SOURCE_TYPE = "USB_CAMERA"
+
+        fallback_cap = MagicMock()
+        with patch.object(handler, "_is_gstreamer_usable", return_value=False):
+            with patch.object(handler, "_create_usb_camera_capture_with_fallbacks") as gst_fallbacks:
+                with patch.object(handler, "_open_usb_camera_opencv_capture", return_value=fallback_cap) as open_usb:
+                    cap = handler._create_usb_camera_capture(use_gstreamer=True)
+
+        assert cap is fallback_cap
+        gst_fallbacks.assert_not_called()
+        open_usb.assert_called_once_with(strategy_name="usb_opencv_no_gstreamer")
+
+    def test_video_file_probe_failure_fallback_switches_to_opencv(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+
+        mock_parameters.USE_GSTREAMER = True
+        mock_parameters.VIDEO_SOURCE_TYPE = "VIDEO_FILE"
+        handler._capture_mode = "video_file_gstreamer_primary"
+
+        bad_cap = MagicMock()
+        bad_cap.isOpened.return_value = True
+        bad_cap.read.return_value = (False, None)
+
+        good_cap = MagicMock()
+        good_cap.isOpened.return_value = True
+
+        with patch('classes.video_handler.cv2.VideoCapture', return_value=good_cap):
+            handler.cap = bad_cap
+            switched = handler._try_video_file_opencv_fallback_after_probe_failure()
+
+        assert switched is True
+        bad_cap.release.assert_called_once()
+        assert handler.cap is good_cap
+        assert handler._capture_mode == "video_file_opencv_fallback_probe"
 
     def test_rtsp_opencv_source_type_is_supported(self, mock_parameters):
         with patch.object(VideoHandler, 'init_video_source', return_value=33):
@@ -587,6 +650,21 @@ class TestUSBFallbackAndDiagnostics:
         assert health["capture_mode"] == "usb_gstreamer_yuyv_relaxed_fps"
         assert health["last_pipeline_strategy"] == "usb_gstreamer_yuyv_relaxed_fps"
         assert health["last_capture_error"] == "strict caps not supported"
+        assert health["active_backend"] == "GStreamer"
+
+    def test_video_info_reports_actual_backend_after_opencv_fallback(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+        handler.cap = MagicMock()
+        handler.cap.isOpened.return_value = True
+        handler.cap.get.return_value = 0.0
+        handler._capture_mode = "video_file_opencv_fallback"
+        handler._last_pipeline_strategy = "video_file_opencv_fallback"
+
+        info = handler.get_video_info()
+
+        assert info["backend"] == "OpenCV"
+        assert info["active_backend"] == "OpenCV"
 
 
 @pytest.mark.unit

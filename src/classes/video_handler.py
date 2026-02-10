@@ -73,6 +73,7 @@ class VideoHandler:
         self._capture_mode: str = "uninitialized"
         self._last_pipeline_strategy: str = "uninitialized"
         self._last_capture_error: Optional[str] = None
+        self._gstreamer_usable_cache: Optional[bool] = None
         
         # Current frame states
         self.current_raw_frame = None
@@ -147,9 +148,23 @@ class VideoHandler:
                             "Video source opened but failed initial frame probe on attempt %d",
                             attempt + 1
                         )
-                        self.cap.release()
-                        self.cap = None
-                        continue
+                        if self._try_video_file_opencv_fallback_after_probe_failure():
+                            probe_ok, probe_frame = self._probe_initial_frame(self.cap)
+                            if not probe_ok:
+                                self._last_capture_error = (
+                                    "Video file OpenCV fallback opened but initial frame probe returned no frames"
+                                )
+                                logger.warning(
+                                    "Video file OpenCV fallback opened but failed initial frame probe on attempt %d",
+                                    attempt + 1
+                                )
+                                self.cap.release()
+                                self.cap = None
+                                continue
+                        else:
+                            self.cap.release()
+                            self.cap = None
+                            continue
 
                     # Extract video properties
                     capture_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -265,25 +280,113 @@ class VideoHandler:
             raise ValueError(f"Unsupported video source type: {source_type}")
         
         return handlers[source_type](use_gstreamer)
+
+    def _should_prefer_gstreamer_for_source(self, source_type: str) -> bool:
+        """
+        Decide whether GStreamer should be preferred for a given source type.
+
+        This keeps source-level routing explicit while preserving existing global
+        USE_GSTREAMER semantics for currently supported high-impact sources.
+        """
+        source = str(source_type or "").upper()
+        return bool(getattr(Parameters, "USE_GSTREAMER", False)) and source in {
+            "VIDEO_FILE",
+            "USB_CAMERA",
+        }
+
+    def _is_gstreamer_usable(self) -> bool:
+        """
+        Determine if current OpenCV build has GStreamer support.
+
+        Returns cached result after the first check.
+        """
+        if self._gstreamer_usable_cache is not None:
+            return self._gstreamer_usable_cache
+
+        try:
+            build_info = cv2.getBuildInformation()
+            match = re.search(r"(?mi)^\s*GStreamer\s*:\s*(YES|NO)\s*$", build_info)
+            if match:
+                self._gstreamer_usable_cache = match.group(1).upper() == "YES"
+            else:
+                # Conservative default: do not block GStreamer attempts if build parsing fails.
+                self._gstreamer_usable_cache = True
+                logger.debug("Could not determine OpenCV GStreamer support from build info")
+        except Exception as e:
+            # Conservative default: allow GStreamer attempt and rely on runtime fallback.
+            self._gstreamer_usable_cache = True
+            logger.debug("Failed to inspect OpenCV build info for GStreamer support: %s", e)
+
+        return self._gstreamer_usable_cache
+
+    def _try_video_file_opencv_fallback_after_probe_failure(self) -> bool:
+        """
+        Switch VIDEO_FILE capture from GStreamer to OpenCV when frame probing fails.
+
+        Returns:
+            True if OpenCV fallback was attempted and opened successfully.
+        """
+        if Parameters.VIDEO_SOURCE_TYPE != "VIDEO_FILE":
+            return False
+        if not self._capture_mode.startswith("video_file_gstreamer"):
+            return False
+
+        logger.warning(
+            "VIDEO_FILE GStreamer capture opened but delivered no frames; retrying with OpenCV backend"
+        )
+        if self.cap:
+            self.cap.release()
+
+        self.cap = self._open_video_file_opencv_capture(
+            strategy_name="video_file_opencv_fallback_probe"
+        )
+        return bool(self.cap and self.cap.isOpened())
     
     def _create_video_file_capture(self, use_gstreamer: bool) -> cv2.VideoCapture:
         """Create capture for video file."""
-        if use_gstreamer:
+        if use_gstreamer and self._should_prefer_gstreamer_for_source("VIDEO_FILE"):
+            if not self._is_gstreamer_usable():
+                logger.warning(
+                    "USE_GSTREAMER=true but OpenCV build lacks GStreamer support; "
+                    "using OpenCV backend for VIDEO_FILE"
+                )
+                self._last_capture_error = "GStreamer unavailable in OpenCV build for VIDEO_FILE"
+                return self._open_video_file_opencv_capture(strategy_name="video_file_opencv_no_gstreamer")
+
             pipeline = self._build_gstreamer_file_pipeline()
-            self._capture_mode = "video_file_gstreamer"
             self._last_pipeline_strategy = "video_file_gstreamer_primary"
-            return cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
-        else:
-            self._capture_mode = "video_file_opencv"
-            self._last_pipeline_strategy = "video_file_opencv_primary"
-            return cv2.VideoCapture(Parameters.VIDEO_FILE_PATH)
+            cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+            if cap.isOpened():
+                self._capture_mode = "video_file_gstreamer"
+                self._last_capture_error = None
+                return cap
+
+            cap.release()
+            self._last_capture_error = "Video file GStreamer pipeline failed to open"
+            logger.warning("VIDEO_FILE GStreamer open failed, falling back to OpenCV backend")
+            return self._open_video_file_opencv_capture(strategy_name="video_file_opencv_fallback")
+
+        return self._open_video_file_opencv_capture(strategy_name="video_file_opencv_primary")
+
+    def _open_video_file_opencv_capture(self, strategy_name: str) -> cv2.VideoCapture:
+        """Create VIDEO_FILE capture via OpenCV backend."""
+        cap = cv2.VideoCapture(Parameters.VIDEO_FILE_PATH)
+        self._capture_mode = strategy_name
+        self._last_pipeline_strategy = strategy_name
+        return cap
     
     def _create_usb_camera_capture(self, use_gstreamer: bool) -> cv2.VideoCapture:
         """Create optimized capture for USB camera."""
-        if use_gstreamer:
+        if use_gstreamer and self._should_prefer_gstreamer_for_source("USB_CAMERA"):
+            if not self._is_gstreamer_usable():
+                logger.warning(
+                    "USE_GSTREAMER=true but OpenCV build lacks GStreamer support; "
+                    "using OpenCV backend for USB camera"
+                )
+                self._last_capture_error = "GStreamer unavailable in OpenCV build for USB camera"
+                return self._open_usb_camera_opencv_capture(strategy_name="usb_opencv_no_gstreamer")
             return self._create_usb_camera_capture_with_fallbacks()
-        else:
-            return self._open_usb_camera_opencv_capture(strategy_name="usb_opencv_primary")
+        return self._open_usb_camera_opencv_capture(strategy_name="usb_opencv_primary")
 
     def _create_usb_camera_capture_with_fallbacks(self) -> cv2.VideoCapture:
         """Create USB capture with progressive fallback strategies."""
@@ -831,6 +934,21 @@ class VideoHandler:
                 
         except Exception as e:
             logger.error(f"Error detecting RTSP stream properties: {e}")
+
+    def _resolve_active_backend(self) -> str:
+        """
+        Resolve the backend label from actual active strategy/mode.
+
+        Falls back to USE_GSTREAMER intent when strategy data is inconclusive.
+        """
+        mode_and_strategy = f"{self._capture_mode} {self._last_pipeline_strategy}".lower()
+        if "opencv" in mode_and_strategy:
+            return "OpenCV"
+        if "gstreamer" in mode_and_strategy:
+            return "GStreamer"
+        if Parameters.VIDEO_SOURCE_TYPE in {"CSI_CAMERA", "CUSTOM_GSTREAMER"}:
+            return "GStreamer"
+        return "GStreamer" if Parameters.USE_GSTREAMER else "OpenCV"
     
     def get_frame(self) -> Optional[Any]:
         """
@@ -1162,6 +1280,7 @@ class VideoHandler:
         if not self.cap:
             return {}
         
+        active_backend = self._resolve_active_backend()
         return {
             "source_type": Parameters.VIDEO_SOURCE_TYPE,
             "width": self.width,
@@ -1169,7 +1288,8 @@ class VideoHandler:
             "fps": self.fps,
             "requested_fps": self._requested_fps,
             "effective_fps": self._effective_fps if self._effective_fps is not None else self.fps,
-            "backend": "GStreamer" if Parameters.USE_GSTREAMER else "OpenCV",
+            "backend": active_backend,
+            "active_backend": active_backend,
             "capture_mode": self._capture_mode,
             "last_pipeline_strategy": self._last_pipeline_strategy,
             "last_capture_error": self._last_capture_error,
@@ -1273,6 +1393,7 @@ class VideoHandler:
             "connection_open": self.cap.isOpened() if self.cap else False,
             "video_source_type": Parameters.VIDEO_SOURCE_TYPE,
             "use_gstreamer": Parameters.USE_GSTREAMER,
+            "active_backend": self._resolve_active_backend(),
             "init_failed": self._init_failed,
             "next_recovery_in_seconds": max(0.0, self._next_recovery_time - current_time),
             "requested_fps": self._requested_fps,
