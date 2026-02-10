@@ -222,7 +222,7 @@ Tracking:
   APPEARANCE_CONFIDENCE_THRESHOLD: 0.5
   MOTION_CONFIDENCE_WEIGHT: 0.5
   APPEARANCE_CONFIDENCE_WEIGHT: 0.5
-  CSRT_APPEARANCE_LEARNING_RATE: 0.05      # Deprecated: See CSRT_Tracker section
+
 
   # Motion consistency threshold for base tracker
   MOTION_CONFIDENCE_THRESHOLD: 0.7         # Minimum confidence from motion consistency check
@@ -263,6 +263,31 @@ TrackerSafety:
 
 # Global boundary margin (for backward compatibility)
 BOUNDARY_MARGIN_PIXELS: 15               # Global access for base_tracker.py
+
+# ==============================================================================
+# CLASSIC TRACKER COMMON SETTINGS
+# ==============================================================================
+# Shared defaults for all classic trackers (CSRT, KCF, dlib).
+# Individual tracker sections (CSRT_Tracker, KCF_Tracker, DLIB_Tracker)
+# override these values when set.
+ClassicTracker_Common:
+  # Minimum confidence to consider appearance update safe
+  appearance_update_min_confidence: 0.55
+
+  # Maximum bbox scale change per frame before rejecting as invalid
+  max_scale_change_per_frame: 0.4
+
+  # Maximum motion as fraction of frame diagonal (for validation)
+  motion_consistency_threshold: 0.5
+
+  # Pixel margin from frame edge for out-of-frame detection
+  exit_edge_margin_pixels: 5
+
+  # Performance logging interval (frames between logs)
+  performance_log_interval: 30
+
+  # EMA alpha for confidence smoothing (0=very smooth, 1=no smoothing)
+  confidence_ema_alpha: 0.7
 
 # ==============================================================================
 # 🎯 KCF TRACKER CONFIGURATION (Kernelized Correlation Filter + Kalman)

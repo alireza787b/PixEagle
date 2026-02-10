@@ -1,71 +1,19 @@
 # src/classes/trackers/kcf_kalman_tracker.py
 
 """
-KCFKalmanTracker Module - Production-Ready Robust Correlation Filter Tracking
-------------------------------------------------------------------------------
+KCFKalmanTracker Module - KCF + Internal Kalman Filter Hybrid
+--------------------------------------------------------------
 
-This module implements a production-grade KCF+Kalman tracker with enterprise-level
-robustness features based on real-world computer vision best practices (2024-2025).
+Production-grade KCF tracker with an internal 4D Kalman filter for robust
+position estimation and graceful degradation during occlusion.
 
-Project Information:
-- Project Name: PixEagle
-- Repository: https://github.com/alireza787b/PixEagle
-- Date: January 2025
-- Author: Alireza Ghaderi
-- LinkedIn: https://www.linkedin.com/in/alireza787b
-
-Key Robustness Features:
--------------------------
-1. **Multi-Frame Validation**: Requires N consecutive failures before declaring lost
-2. **Confidence Buffering**: Smooths confidence with exponential moving average
-3. **Adaptive Learning**: Updates appearance model like CSRT (detector integration)
-4. **Scale Adaptation**: Multi-scale template matching for size changes
-5. **Consistency Checks**: Validates bbox against motion model before accepting
-6. **Graceful Degradation**: Falls back to Kalman prediction during occlusions
-7. **Automatic Recovery**: Works with PixEagle's template matching re-detection
-
-Architecture (Production-Grade):
----------------------------------
-    Frame Input
-        ↓
-    KCF Tracker (OpenCV) → Raw Bbox
-        ↓
-    Multi-Frame Validator → Check N consecutive frames
-        ↓
-    Motion Consistency Check → Validate against Kalman prediction
-        ↓
-    Confidence Calculation (EMA Smoothed)
-        ↓
-        ├─→ High Confidence (>0.3): Accept KCF, Update Kalman + Appearance Model
-        └─→ Low Confidence (≤0.3): Use Kalman prediction, Buffer failure count
-        ↓
-    Return (success, bbox)
-
-Research-Based Design Decisions:
----------------------------------
-- OpenCV KCF: 30-50 FPS, 70% success rate (OTB-2015 benchmark)
-- Kalman Filter: Standard for state estimation in production trackers
-- Multi-frame validation: Reduces false positives by 60-80% (Google Research 2023)
-- Appearance adaptation: Critical for long-term tracking (CSRT paper, CVPR 2017)
-- Confidence EMA: Reduces jitter, improves stability (Meta AI tracking systems)
-
-Best Practices Implemented:
----------------------------
-- ✅ Appearance model updates (learned from CSRT, not deprecated particle filter)
-- ✅ Multi-frame failure validation (prevent single-frame false negatives)
-- ✅ Exponential moving average confidence (smooth confidence over time)
-- ✅ Motion consistency checks (validate against Kalman prediction)
-- ✅ Bbox size validation (reject unrealistic scale changes)
-- ✅ Template matching integration (PixEagle's re-detection workflow)
-- ✅ Graceful degradation (Kalman takes over during occlusions)
-- ✅ Automatic recovery (reinitialize when detector finds target)
+Architecture:
+    Frame → KCF Tracker → Validate (motion + scale) → Accept / Kalman fallback
 
 References:
 -----------
-- KCF: Henriques et al., "High-Speed Tracking with Kernelized Correlation Filters," TPAMI 2015
-- CSRT: Lukezic et al., "Discriminative Correlation Filter with Channel and Spatial Reliability," CVPR 2017
-- Kalman Filters: Welch & Bishop, "An Introduction to the Kalman Filter," TR 95-041, 2006
-- Production Tracking: Google Research, "Robust Visual Tracking via Multi-Frame Confidence," 2023
+- KCF: Henriques et al., TPAMI 2015
+- Kalman Filters: Welch & Bishop, TR 95-041, 2006
 """
 
 import logging
@@ -73,7 +21,6 @@ import time
 import cv2
 import numpy as np
 from typing import Optional, Tuple
-from collections import deque
 from filterpy.kalman import KalmanFilter
 
 from classes.trackers.base_tracker import BaseTracker
@@ -82,113 +29,82 @@ from classes.parameters import Parameters
 
 logger = logging.getLogger(__name__)
 
+
 class KCFKalmanTracker(BaseTracker):
-    """
-    Production-Grade KCF + Kalman Filter Hybrid Tracker
-
-    Implements robust object tracking with enterprise-level reliability features:
-    - Multi-frame failure validation
-    - Confidence buffering with exponential moving average
-    - Adaptive appearance learning (integrated with detector)
-    - Motion consistency checks
-    - Graceful degradation to Kalman during occlusions
-
-    Attributes:
-    -----------
-    - kcf_tracker (cv2.Tracker): OpenCV KCF tracker instance
-    - kf (KalmanFilter): Internal Kalman filter (4D state: x, y, vx, vy)
-    - confidence (float): Current smoothed confidence (0.0-1.0)
-    - confidence_ema_alpha (float): Exponential moving average factor for confidence
-    - failure_count (int): Consecutive failure frames counter
-    - failure_threshold (int): Required consecutive failures before declaring lost
-    - confidence_threshold (float): Minimum confidence to accept KCF result
-    - max_scale_change (float): Maximum allowed bbox scale change per frame
-    - motion_consistency_threshold (float): Maximum allowed motion deviation (normalized)
-
-    Methods:
-    --------
-    - start_tracking(frame, bbox): Initialize KCF, Kalman, and appearance model
-    - update(frame): Robust tracking with multi-frame validation
-    - _update_appearance_model(frame, bbox): Adaptive appearance learning
-    - _validate_bbox_motion(bbox): Check bbox against Kalman prediction
-    - _validate_bbox_scale(bbox): Check bbox scale change
-    - _smooth_confidence(raw_confidence): Apply EMA to confidence
-    """
+    """KCF + Kalman Filter Hybrid Tracker with multi-frame validation."""
 
     def __init__(self, video_handler: Optional[object] = None,
                  detector: Optional[object] = None,
                  app_controller: Optional[object] = None):
-        """
-        Initializes the production-grade KCF+Kalman tracker.
-
-        Args:
-            video_handler (Optional[object]): Video streaming handler
-            detector (Optional[object]): Detector for appearance-based methods
-            app_controller (Optional[object]): Main application controller
-        """
         super().__init__(video_handler, detector, app_controller)
 
-        # OpenCV KCF Tracker
+        self.tracker_name = "KCF+Kalman"
         self.kcf_tracker = None
-        self.tracker_name: str = "KCF+Kalman"
-
-        # Internal Kalman Filter
         self.kf = None
-
-        # State tracking
-        self.bbox = None
-        self.prev_bbox = None
-        self.confidence = 0.0
-        self.raw_confidence_history = deque(maxlen=5)  # Track raw confidence
         self.is_initialized = False
 
-        # Robustness parameters (from config section - with fallback defaults)
+        # Robustness parameters from config
         kcf_config = getattr(Parameters, 'KCF_Tracker', {})
         self.confidence_threshold = kcf_config.get('confidence_threshold', 0.15)
         self.confidence_ema_alpha = kcf_config.get('confidence_smoothing', 0.6)
-        self.failure_count = 0  # Consecutive failure counter
         self.failure_threshold = kcf_config.get('failure_threshold', 7)
         self.max_scale_change = kcf_config.get('max_scale_change_per_frame', 0.6)
-        # Motion threshold reduced from 0.7 to 0.15 (research-backed for accurate tracking)
-        # 0.7 allows 1541 pixels movement on 640x480 (6x too permissive)
-        # 0.15 allows ~120 pixels which is reasonable for frame-to-frame motion
         self.motion_consistency_threshold = kcf_config.get('motion_consistency_threshold', 0.15)
-
-        # Performance monitoring
-        self.frame_count = 0
-        self.fps_history = []
-        self.successful_frames = 0
-        self.failed_frames = 0
 
         logger.info(f"{self.tracker_name} initialized with production robustness features")
 
-    def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
-        """
-        Initializes the tracker with appearance model integration.
+    # =========================================================================
+    # Internal Kalman Filter
+    # =========================================================================
 
-        Args:
-            frame (np.ndarray): The initial video frame
-            bbox (Tuple[int, int, int, int]): Bounding box (x, y, width, height)
-        """
+    def _init_kalman(self, bbox: Tuple[int, int, int, int]) -> None:
+        """Initialize internal 4D Kalman filter: state [x, y, vx, vy]."""
         x, y, w, h = bbox
+        cx, cy = x + w / 2, y + h / 2
 
-        # Initialize OpenCV KCF tracker
+        self.kf = KalmanFilter(dim_x=4, dim_z=2)
+
+        dt = 1.0
+        self.kf.F = np.array([
+            [1, 0, dt, 0],
+            [0, 1, 0, dt],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]
+        ])
+        self.kf.H = np.array([
+            [1, 0, 0, 0],
+            [0, 1, 0, 0]
+        ])
+
+        kcf_config = getattr(Parameters, 'KCF_Tracker', {})
+        process_noise = kcf_config.get('kalman_process_noise', 0.1)
+        velocity_noise_factor = kcf_config.get('kalman_velocity_noise_factor', 0.5)
+        self.kf.Q = np.eye(4) * process_noise
+        self.kf.Q[2:, 2:] *= velocity_noise_factor
+
+        measurement_noise = kcf_config.get('kalman_measurement_noise', 5.0)
+        self.kf.R = np.eye(2) * measurement_noise
+
+        initial_pos_cov = kcf_config.get('kalman_initial_position_covariance', 10.0)
+        initial_vel_cov = kcf_config.get('kalman_initial_velocity_covariance', 100.0)
+        self.kf.P = np.diag([initial_pos_cov, initial_pos_cov,
+                             initial_vel_cov, initial_vel_cov])
+        self.kf.x = np.array([cx, cy, 0, 0])
+
+    # =========================================================================
+    # Tracking Interface
+    # =========================================================================
+
+    def start_tracking(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
         self.kcf_tracker = cv2.TrackerKCF_create()
         self.kcf_tracker.init(frame, bbox)
-
-        # Initialize internal Kalman Filter
         self._init_kalman(bbox)
-
-        # Set tracking started flag
         self.tracking_started = True
 
-        # Initialize appearance models using the detector (CSRT pattern)
         if self.detector:
             self.detector.initial_features = self.detector.extract_features(frame, bbox)
             self.detector.adaptive_features = self.detector.initial_features.copy()
-            logger.debug("Appearance model initialized for adaptive learning")
 
-        # Reset state
         self.bbox = bbox
         self.prev_bbox = bbox
         self.confidence = 1.0
@@ -197,522 +113,207 @@ class KCFKalmanTracker(BaseTracker):
         self.prev_center = None
         self.last_update_time = time.time()
         self.raw_confidence_history.clear()
+        self.frame_count = 0
+        self.successful_frames = 0
+        self.failed_frames = 0
+        self.fps_history.clear()
 
         logger.info(f"{self.tracker_name} tracking started: bbox={bbox}")
 
-    def _init_kalman(self, bbox: Tuple[int, int, int, int]) -> None:
-        """
-        Initialize internal Kalman Filter for 2D position + velocity tracking.
-
-        State Vector (4D): [x, y, vx, vy]
-        Motion Model: Constant velocity (x' = x + vx*dt)
-
-        Args:
-            bbox (Tuple[int, int, int, int]): Initial bounding box
-        """
-        x, y, w, h = bbox
-        cx, cy = x + w/2, y + h/2
-
-        # Create KF: state [x, y, vx, vy], measurement [x, y]
-        self.kf = KalmanFilter(dim_x=4, dim_z=2)
-
-        # State transition matrix (constant velocity model)
-        dt = 1.0
-        self.kf.F = np.array([
-            [1, 0, dt, 0],
-            [0, 1, 0, dt],
-            [0, 0, 1, 0],
-            [0, 0, 0, 1]
-        ])
-
-        # Measurement function (observe position only)
-        self.kf.H = np.array([
-            [1, 0, 0, 0],
-            [0, 1, 0, 0]
-        ])
-
-        # Process noise (trust motion model) - from config with defaults
-        process_noise = getattr(Parameters, 'KCF_Tracker', {}).get('kalman_process_noise', 0.1)
-        velocity_noise_factor = getattr(Parameters, 'KCF_Tracker', {}).get('kalman_velocity_noise_factor', 0.5)
-        self.kf.Q = np.eye(4) * process_noise
-        self.kf.Q[2:, 2:] *= velocity_noise_factor
-
-        # Measurement noise (~pixels sensor uncertainty) - from config with default
-        measurement_noise = getattr(Parameters, 'KCF_Tracker', {}).get('kalman_measurement_noise', 5.0)
-        self.kf.R = np.eye(2) * measurement_noise
-
-        # Initial covariance - asymmetric (position = high confidence, velocity = low)
-        # Research: Position starts with high confidence (we know where object is)
-        #           Velocity starts with low confidence (unknown initial motion)
-        kcf_config = getattr(Parameters, 'KCF_Tracker', {})
-        initial_position_covariance = kcf_config.get('kalman_initial_position_covariance', 10.0)
-        initial_velocity_covariance = kcf_config.get('kalman_initial_velocity_covariance', 100.0)
-
-        self.kf.P = np.diag([
-            initial_position_covariance,   # x position - high confidence
-            initial_position_covariance,   # y position - high confidence
-            initial_velocity_covariance,   # vx velocity - low confidence (unknown)
-            initial_velocity_covariance    # vy velocity - low confidence (unknown)
-        ])
-
-        # Initial state
-        self.kf.x = np.array([cx, cy, 0, 0])
-
     def update(self, frame: np.ndarray) -> Tuple[bool, Optional[Tuple[int, int, int, int]]]:
-        """
-        Robust tracking update with multi-frame validation and appearance adaptation.
-
-        Production-Grade Algorithm:
-        1. Run KCF tracker
-        2. Validate bbox against motion model (Kalman prediction)
-        3. Validate bbox scale change
-        4. Compute raw confidence from bbox stability
-        5. Apply exponential moving average to confidence
-        6. Multi-frame failure validation (require N consecutive failures)
-        7. If confident: Accept KCF, update Kalman + appearance model
-        8. If not confident: Use Kalman prediction, increment failure counter
-        9. Only declare failure after N consecutive bad frames
-
-        Args:
-            frame (np.ndarray): Current video frame
-
-        Returns:
-            Tuple[bool, Optional[Tuple]]: (success, bbox) where success=True if tracking active
-        """
         if not self.is_initialized:
             return False, None
 
         start_time = time.time()
         dt = self.update_time()
 
-        # Handle SmartTracker override
         if self.override_active:
             return self._handle_smart_tracker_override(frame, dt)
 
-        # Step 1: Run KCF tracker
+        # KCF tracker update
         kcf_success, kcf_bbox = self.kcf_tracker.update(frame)
 
-        # Step 2: Kalman prediction (always predict for motion model)
+        # Kalman prediction (always run for motion model)
         self.kf.predict()
-        kf_prediction = (self.kf.x[0], self.kf.x[1])  # Predicted center
+        kf_prediction = (self.kf.x[0], self.kf.x[1])
 
-        # Step 3: Validate KCF result
         if kcf_success:
-            # Validate motion consistency
             motion_valid = self._validate_bbox_motion(kcf_bbox, kf_prediction)
-
-            # Validate scale change
             scale_valid = self._validate_bbox_scale(kcf_bbox)
-
-            # Compute raw confidence
-            raw_confidence = self._compute_confidence(kcf_bbox, self.prev_bbox)
-
-            # Smooth confidence with EMA
+            raw_confidence = self._compute_kcf_confidence(kcf_bbox, self.prev_bbox)
             smoothed_confidence = self._smooth_confidence(raw_confidence)
 
-            # Decision: Accept or reject KCF result
             if smoothed_confidence > self.confidence_threshold and motion_valid and scale_valid:
-                # High confidence: Accept KCF bbox
+                # Accept KCF result
                 self.prev_center = self.center
                 self.bbox = tuple(int(v) for v in kcf_bbox)
-                cx, cy = kcf_bbox[0] + kcf_bbox[2]/2, kcf_bbox[1] + kcf_bbox[3]/2
-
-                # Update Kalman filter
+                cx, cy = kcf_bbox[0] + kcf_bbox[2] / 2, kcf_bbox[1] + kcf_bbox[3] / 2
                 self.kf.update(np.array([cx, cy]))
-
-                # Update appearance model (CSRT pattern)
-                self._update_appearance_model(frame, self.bbox)
-
-                # Reset failure counter
+                self._update_appearance_model_safe(frame, self.bbox)
                 self.failure_count = 0
                 self.successful_frames += 1
                 success = True
-
-                logger.debug(f"KCF accepted: conf={smoothed_confidence:.2f}, motion_ok={motion_valid}, scale_ok={scale_valid}")
+                logger.debug(f"KCF accepted: conf={smoothed_confidence:.2f}, "
+                             f"motion_ok={motion_valid}, scale_ok={scale_valid}")
             else:
-                # Low confidence: Use Kalman prediction
-                self._handle_low_confidence(kf_prediction, smoothed_confidence, motion_valid, scale_valid)
+                self._handle_low_confidence(kf_prediction, smoothed_confidence,
+                                            motion_valid, scale_valid)
                 success = False
         else:
-            # KCF completely failed
             self._handle_kcf_failure(kf_prediction)
             success = False
 
-        # Update tracker state
         if success:
-            self.set_center((int(self.bbox[0] + self.bbox[2] / 2), int(self.bbox[1] + self.bbox[3] / 2)))
+            self.set_center((int(self.bbox[0] + self.bbox[2] / 2),
+                             int(self.bbox[1] + self.bbox[3] / 2)))
             self.normalize_bbox()
             self.center_history.append(self.center)
             self.prev_bbox = self.bbox
 
         self.frame_count += 1
+        self._update_out_of_frame_status(frame)
+        self._log_performance(start_time)
 
-        # Performance logging
-        elapsed = time.time() - start_time
-        fps = 1.0 / (elapsed + 1e-6)
-        self.fps_history.append(fps)
-
-        if self.frame_count % 30 == 0:
-            avg_fps = np.mean(self.fps_history[-30:])
-            success_rate = 100 * self.successful_frames / (self.frame_count + 1e-6)
-            logger.info(f"{self.tracker_name} Performance: FPS={avg_fps:.1f}, conf={self.confidence:.2f}, success_rate={success_rate:.1f}%")
-
-        # Multi-frame validation: Only declare failure after N consecutive bad frames
+        # Multi-frame failure check
         if self.failure_count >= self.failure_threshold:
+            loss_reason = "tracker_failed" if not kcf_success else "low_confidence"
             logger.warning(f"{self.tracker_name} lost target ({self.failure_count} consecutive failures)")
-            return False, self.bbox  # Tracking lost
+            self._build_failure_info(loss_reason)
+            return False, self.bbox
 
-        return True, self.bbox  # Tracking active (even during temporary failures)
+        return True, self.bbox
 
-    def _handle_low_confidence(self, kf_prediction: Tuple, smoothed_confidence: float,
-                               motion_valid: bool, scale_valid: bool) -> None:
-        """
-        Handle low confidence case: use Kalman prediction with velocity extrapolation.
+    # =========================================================================
+    # KCF-Specific Helpers
+    # =========================================================================
 
-        Uses velocity from Kalman state for improved occlusion recovery.
-        The Kalman filter state contains [x, y, vx, vy], so we can extrapolate
-        position using velocity for better prediction during temporary occlusions.
+    def _compute_kcf_confidence(self, curr_bbox, prev_bbox) -> float:
+        """Confidence from bbox stability (motion + scale penalties)."""
+        if prev_bbox is None:
+            return 0.9
+        curr_cx = curr_bbox[0] + curr_bbox[2] / 2
+        curr_cy = curr_bbox[1] + curr_bbox[3] / 2
+        prev_cx = prev_bbox[0] + prev_bbox[2] / 2
+        prev_cy = prev_bbox[1] + prev_bbox[3] / 2
+        motion = np.sqrt((curr_cx - prev_cx) ** 2 + (curr_cy - prev_cy) ** 2)
+        avg_size = (prev_bbox[2] + prev_bbox[3]) / 2
+        normalized_motion = motion / (avg_size + 1e-6)
+        scale_change_w = abs(curr_bbox[2] / (prev_bbox[2] + 1e-6) - 1.0)
+        scale_change_h = abs(curr_bbox[3] / (prev_bbox[3] + 1e-6) - 1.0)
+        scale_change = (scale_change_w + scale_change_h) / 2
+        confidence = 1.0 / (1.0 + 1.5 * normalized_motion + 3.0 * scale_change)
+        return np.clip(confidence, 0.0, 1.0)
 
-        Args:
-            kf_prediction (Tuple): Kalman predicted center (x, y)
-            smoothed_confidence (float): Smoothed confidence score
-            motion_valid (bool): Whether motion was consistent
-            scale_valid (bool): Whether scale change was reasonable
-        """
+    def _handle_low_confidence(self, kf_prediction, smoothed_confidence,
+                                motion_valid, scale_valid):
+        """Use Kalman prediction with velocity extrapolation on low confidence."""
         kf_x, kf_y = kf_prediction
-
-        # Get velocity from Kalman filter state for extrapolation
-        # State vector is [x, y, vx, vy]
         kcf_config = getattr(Parameters, 'KCF_Tracker', {})
         use_velocity = kcf_config.get('use_velocity_during_occlusion', True)
 
         if use_velocity and self.kf is not None:
             kf_vx, kf_vy = float(self.kf.x[2]), float(self.kf.x[3])
-            # Conservative extrapolation: use 50% of velocity to avoid overshooting
             velocity_factor = kcf_config.get('occlusion_velocity_factor', 0.5)
             predicted_x = kf_x + kf_vx * velocity_factor
             predicted_y = kf_y + kf_vy * velocity_factor
             logger.debug(f"Velocity extrapolation: pos=({kf_x:.1f},{kf_y:.1f}), "
-                        f"vel=({kf_vx:.1f},{kf_vy:.1f}), "
-                        f"predicted=({predicted_x:.1f},{predicted_y:.1f})")
+                         f"vel=({kf_vx:.1f},{kf_vy:.1f}), "
+                         f"predicted=({predicted_x:.1f},{predicted_y:.1f})")
         else:
             predicted_x, predicted_y = kf_x, kf_y
 
         if self.prev_bbox:
             w, h = self.prev_bbox[2], self.prev_bbox[3]
-            self.bbox = tuple(int(v) for v in [predicted_x - w/2, predicted_y - h/2, w, h])
+            self.bbox = tuple(int(v) for v in [predicted_x - w / 2, predicted_y - h / 2, w, h])
 
+        self._record_loss_start()
         self.failure_count += 1
         self.failed_frames += 1
-
         logger.debug(f"Low confidence ({self.failure_count}/{self.failure_threshold}): "
-                    f"conf={smoothed_confidence:.2f}, motion={motion_valid}, scale={scale_valid}")
+                     f"conf={smoothed_confidence:.2f}, motion={motion_valid}, scale={scale_valid}")
 
-    def _handle_kcf_failure(self, kf_prediction: Tuple) -> None:
-        """
-        Handle complete KCF failure: use Kalman prediction.
-
-        Args:
-            kf_prediction (Tuple): Kalman predicted center (x, y)
-        """
+    def _handle_kcf_failure(self, kf_prediction):
+        """Handle complete KCF failure — use Kalman prediction."""
         kf_x, kf_y = kf_prediction
         if self.prev_bbox:
             w, h = self.prev_bbox[2], self.prev_bbox[3]
-            self.bbox = tuple(int(v) for v in [kf_x - w/2, kf_y - h/2, w, h])
-
+            self.bbox = tuple(int(v) for v in [kf_x - w / 2, kf_y - h / 2, w, h])
+        self._record_loss_start()
         self.failure_count += 1
         self.failed_frames += 1
         self.confidence = 0.1
+        logger.debug(f"{self.tracker_name} KCF failed, using Kalman "
+                     f"({self.failure_count}/{self.failure_threshold})")
 
-        logger.debug(f"{self.tracker_name} KCF failed, using Kalman ({self.failure_count}/{self.failure_threshold})")
+    # =========================================================================
+    # Overrides (KCF-specific behavior)
+    # =========================================================================
 
-    def _update_appearance_model(self, frame: np.ndarray, bbox: Tuple[int, int, int, int]) -> None:
-        """
-        Update adaptive appearance model (learned from CSRT pattern).
-
-        This is CRITICAL for long-term tracking robustness.
-
-        Args:
-            frame (np.ndarray): Current frame
-            bbox (Tuple): Current bounding box
-        """
-        if not self.detector:
-            return
-
-        try:
-            current_features = self.detector.extract_features(frame, bbox)
-            # Use KCF-specific learning rate from config
-            from classes.parameters import Parameters
-            learning_rate = getattr(Parameters, 'KCF_APPEARANCE_LEARNING_RATE', 0.15)
-
-            self.detector.adaptive_features = (
-                (1 - learning_rate) * self.detector.adaptive_features +
-                learning_rate * current_features
-            )
-            logger.debug(f"Appearance model updated (lr={learning_rate:.3f})")
-        except Exception as e:
-            logger.warning(f"Failed to update appearance model: {e}")
-
-    def _validate_bbox_motion(self, bbox: Tuple, kf_prediction: Tuple) -> bool:
-        """
-        Validate bbox center against Kalman prediction (motion consistency check).
-
-        Args:
-            bbox (Tuple): KCF bounding box (x, y, w, h)
-            kf_prediction (Tuple): Kalman predicted center (x, y)
-
-        Returns:
-            bool: True if motion is consistent, False otherwise
-        """
-        if not self.video_handler or not kf_prediction:
-            return True  # Can't validate, assume OK
-
-        # Compute KCF bbox center
-        kcf_cx = bbox[0] + bbox[2]/2
-        kcf_cy = bbox[1] + bbox[3]/2
-
-        # Compute distance from Kalman prediction
-        kf_x, kf_y = kf_prediction
-        distance = np.sqrt((kcf_cx - kf_x)**2 + (kcf_cy - kf_y)**2)
-
-        # Normalize by frame diagonal
-        frame_diag = np.hypot(self.video_handler.width, self.video_handler.height)
-        normalized_distance = distance / frame_diag
-
-        is_valid = normalized_distance < self.motion_consistency_threshold
-
-        if not is_valid:
-            logger.debug(f"Motion validation failed: distance={normalized_distance:.3f} > {self.motion_consistency_threshold}")
-
-        return is_valid
-
-    def _validate_bbox_scale(self, bbox: Tuple) -> bool:
-        """
-        Validate bbox scale change (reject unrealistic size changes).
-
-        Args:
-            bbox (Tuple): Current bounding box (x, y, w, h)
-
-        Returns:
-            bool: True if scale change is reasonable, False otherwise
-        """
-        if not self.prev_bbox:
-            return True  # First frame, assume OK
-
-        # Compute scale change
-        scale_w = bbox[2] / (self.prev_bbox[2] + 1e-6)
-        scale_h = bbox[3] / (self.prev_bbox[3] + 1e-6)
-        scale_change = max(abs(scale_w - 1.0), abs(scale_h - 1.0))
-
-        is_valid = scale_change < self.max_scale_change
-
-        if not is_valid:
-            logger.debug(f"Scale validation failed: change={scale_change:.3f} > {self.max_scale_change}")
-
-        return is_valid
-
-    def _compute_confidence(self, curr_bbox: Tuple, prev_bbox: Tuple) -> float:
-        """
-        Compute raw confidence from bbox stability (motion + scale penalties).
-
-        Args:
-            curr_bbox (Tuple): Current bounding box
-            prev_bbox (Tuple): Previous bounding box
-
-        Returns:
-            float: Raw confidence score [0.0, 1.0]
-        """
-        if prev_bbox is None:
-            return 0.9
-
-        # Position change (normalized)
-        curr_cx = curr_bbox[0] + curr_bbox[2]/2
-        curr_cy = curr_bbox[1] + curr_bbox[3]/2
-        prev_cx = prev_bbox[0] + prev_bbox[2]/2
-        prev_cy = prev_bbox[1] + prev_bbox[3]/2
-
-        dx = abs(curr_cx - prev_cx)
-        dy = abs(curr_cy - prev_cy)
-        motion = np.sqrt(dx**2 + dy**2)
-
-        avg_size = (prev_bbox[2] + prev_bbox[3]) / 2
-        normalized_motion = motion / (avg_size + 1e-6)
-
-        # Scale change
-        scale_change_w = abs(curr_bbox[2] / (prev_bbox[2] + 1e-6) - 1.0)
-        scale_change_h = abs(curr_bbox[3] / (prev_bbox[3] + 1e-6) - 1.0)
-        scale_change = (scale_change_w + scale_change_h) / 2
-
-        # Confidence formula (tuned for robustness)
-        motion_penalty = 1.5 * normalized_motion  # Reduced from 2.0
-        scale_penalty = 3.0 * scale_change  # Reduced from 5.0
-
-        confidence = 1.0 / (1.0 + motion_penalty + scale_penalty)
-        return np.clip(confidence, 0.0, 1.0)
-
-    def _smooth_confidence(self, raw_confidence: float) -> float:
-        """
-        Apply exponential moving average to confidence (reduce jitter).
-
-        Args:
-            raw_confidence (float): Current frame's raw confidence
-
-        Returns:
-            float: Smoothed confidence
-        """
-        self.raw_confidence_history.append(raw_confidence)
-
-        # Exponential moving average
-        if self.confidence == 0.0:
-            # First frame
-            smoothed = raw_confidence
-        else:
-            smoothed = (self.confidence_ema_alpha * raw_confidence +
-                       (1 - self.confidence_ema_alpha) * self.confidence)
-
-        self.confidence = smoothed
-        return smoothed
-
-    def _handle_smart_tracker_override(self, frame: np.ndarray, dt: float) -> Tuple[bool, Optional[Tuple]]:
-        """Handle SmartTracker override mode."""
-        smart_tracker = self.app_controller.smart_tracker
-        if smart_tracker and smart_tracker.selected_bbox:
-            self.prev_center = self.center
-            x1, y1, x2, y2 = smart_tracker.selected_bbox
-            w, h = x2 - x1, y2 - y1
-            self.bbox = (x1, y1, w, h)
-            self.set_center(((x1 + x2) // 2, (y1 + y2) // 2))
-            self.normalize_bbox()
-            self.center_history.append(self.center)
-            self.confidence = 1.0
-
-            # Update Kalman
-            cx, cy = x1 + w/2, y1 + h/2
+    def _handle_smart_tracker_override(self, frame, dt):
+        """Override: also update internal Kalman with SmartTracker bbox."""
+        success, bbox = super()._handle_smart_tracker_override(frame, dt)
+        if success and self.kf:
+            x1, y1, x2, y2 = self.app_controller.smart_tracker.selected_bbox
+            cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
             self.kf.predict()
             self.kf.update(np.array([cx, cy]))
-
-            # Reset failure counter
-            self.failure_count = 0
-
-            return True, self.bbox
-        else:
-            logger.warning("Override active but no SmartTracker bbox")
-            return False, self.bbox
+        return success, bbox
 
     def update_estimator_without_measurement(self) -> None:
-        """Compatibility stub (internal Kalman handles prediction)."""
+        """KCF uses internal Kalman — external estimator not needed for prediction."""
         pass
 
     def get_estimated_position(self) -> Optional[Tuple[float, float]]:
-        """Get current Kalman state."""
+        """Get position from internal Kalman state."""
         if self.kf and self.is_initialized:
             return (float(self.kf.x[0]), float(self.kf.x[1]))
         return None
 
     def reset(self) -> None:
-        """Reset tracker state."""
         self.kcf_tracker = None
         self.kf = None
-        self.bbox = None
-        self.prev_bbox = None
-        self.center = None
-        self.prev_center = None
         self.is_initialized = False
-        self.tracking_started = False
-        self.frame_count = 0
-        self.confidence = 0.0
-        self.failure_count = 0
-        self.successful_frames = 0
-        self.failed_frames = 0
-        self.fps_history.clear()
-        self.center_history.clear()
-        self.raw_confidence_history.clear()
-        self.override_active = False
-        self.last_update_time = time.time()
-        logger.info(f"{self.tracker_name} fully reset")
+        super().reset()
 
-    def get_output(self) -> TrackerOutput:
-        """Returns tracker output with velocity information."""
-        # Get velocity from internal Kalman
-        velocity = None
+    # =========================================================================
+    # Output
+    # =========================================================================
+
+    def _get_velocity_from_estimator(self):
+        """Override: get velocity from internal Kalman instead of external estimator."""
         if self.kf and self.is_initialized and len(self.center_history) > 2:
             vel_x, vel_y = self.kf.x[2], self.kf.x[3]
-            velocity_magnitude = (vel_x ** 2 + vel_y ** 2) ** 0.5
-            if velocity_magnitude > 0.001:
-                velocity = (float(vel_x), float(vel_y))
+            if (vel_x ** 2 + vel_y ** 2) ** 0.5 > 0.001:
+                return (float(vel_x), float(vel_y))
+        return None
 
-        # Determine data type
-        has_bbox = self.bbox is not None or self.normalized_bbox is not None
-        has_velocity = velocity is not None
-
-        if has_velocity:
-            data_type = TrackerDataType.VELOCITY_AWARE
-        elif has_bbox:
-            data_type = TrackerDataType.BBOX_CONFIDENCE
-        else:
-            data_type = TrackerDataType.POSITION_2D
-
-        return TrackerOutput(
-            data_type=data_type,
-            timestamp=time.time(),
-            tracking_active=self.tracking_started,
-            tracker_id=f"KCF_{id(self)}",
-            position_2d=self.normalized_center,
-            bbox=self.bbox,
-            normalized_bbox=self.normalized_bbox,
-            confidence=self.confidence,
-            velocity=velocity,
-            quality_metrics={
-                'motion_consistency': self.compute_motion_confidence() if self.prev_center else 1.0,
+    def get_output(self) -> TrackerOutput:
+        return self._build_output(
+            tracker_algorithm='KCF+Kalman',
+            extra_quality={
                 'bbox_stability': self.confidence,
-                'failure_count': self.failure_count,
-                'success_rate': self.successful_frames / (self.frame_count + 1e-6)
             },
-            raw_data={
-                'center_history_length': len(self.center_history) if self.center_history else 0,
+            extra_raw={
                 'internal_kalman_enabled': True,
-                'kalman_providing_velocity': has_velocity,
-                'velocity_magnitude': round((velocity[0]**2 + velocity[1]**2)**0.5, 4) if velocity else 0.0,
-                'failure_count': self.failure_count,
                 'failure_threshold': self.failure_threshold,
-                'successful_frames': self.successful_frames,
-                'failed_frames': self.failed_frames,
-                'frame_count': self.frame_count,
-                'avg_fps': round(np.mean(self.fps_history[-30:]), 1) if len(self.fps_history) >= 30 else 0.0
             },
-            metadata={
-                'tracker_class': self.__class__.__name__,
-                'tracker_algorithm': 'KCF+Kalman',
-                'robustness_features': [
-                    'multi_frame_validation',
-                    'confidence_ema_smoothing',
-                    'adaptive_appearance_learning',
-                    'motion_consistency_checks',
-                    'scale_validation'
-                ],
+            extra_metadata={
                 'has_internal_kalman': True,
                 'supports_velocity': True,
-                'center_pixel': self.center,
-                'bbox_pixel': self.bbox,
-                'opencv_version': cv2.__version__
-            }
+                'opencv_version': cv2.__version__,
+            },
         )
 
     def get_capabilities(self) -> dict:
-        """Returns KCF-specific capabilities."""
-        base_capabilities = super().get_capabilities()
-        base_capabilities.update({
+        base = super().get_capabilities()
+        base.update({
             'tracker_algorithm': 'KCF+Kalman',
             'supports_rotation': False,
             'supports_scale_change': True,
             'supports_occlusion': True,
             'accuracy_rating': 'high',
             'speed_rating': 'very_fast',
-            'robustness_rating': 'high',
-            'opencv_tracker': True,
             'internal_kalman': True,
             'real_time_cpu': True,
-            'production_ready': True,
-            'recommended_for': ['embedded_systems', 'real_time_tracking', 'drone_applications']
         })
-        return base_capabilities
+        return base

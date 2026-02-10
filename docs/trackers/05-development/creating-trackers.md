@@ -140,12 +140,12 @@ class MyTracker(BaseTracker):
         if not self.is_initialized:
             return False, (0, 0, 0, 0)
 
-        # Update timing
+        start_time = time.time()
         dt = self.update_time()
 
-        # Handle SmartTracker override
+        # Handle SmartTracker override (inherited from BaseTracker)
         if self.override_active:
-            return self._handle_override(frame, dt)
+            return self._handle_smart_tracker_override(frame, dt)
 
         # ===== YOUR TRACKING LOGIC HERE =====
         # Example:
@@ -169,64 +169,45 @@ class MyTracker(BaseTracker):
             self.center_history.append(self.center)
 
             # Compute confidence
-            self.confidence = self.compute_confidence(frame)
+            self.compute_confidence(frame)
 
-            # Update appearance model
-            self._update_appearance(frame, new_bbox)
+            # Update appearance model (inherited, with drift protection)
+            my_config = getattr(Parameters, 'MyTracker', {})
+            self._update_appearance_model_safe(
+                frame, new_bbox,
+                learning_rate=my_config.get('appearance_learning_rate', 0.05))
 
-            # Update estimator
-            if self.estimator_enabled and self.position_estimator:
-                self.position_estimator.set_dt(dt)
-                self.position_estimator.predict_and_update(np.array(self.center))
+            # Update estimator (inherited)
+            self._update_estimator(dt)
 
-        return success, self.bbox
+            # Update out-of-frame status (inherited)
+            self._update_out_of_frame_status(frame)
 
-    def _update_appearance(self, frame: np.ndarray, bbox: Tuple) -> None:
-        """Update appearance model with current observation."""
-        if not self.detector:
-            return
+            # Track counters
+            self.prev_bbox = self.bbox
+            self.failure_count = 0
+            self.successful_frames += 1
+            self.frame_count += 1
 
-        try:
-            current_features = self.detector.extract_features(frame, bbox)
-            learning_rate = 0.1
-            self.detector.adaptive_features = (
-                (1 - learning_rate) * self.detector.adaptive_features +
-                learning_rate * current_features
-            )
-        except Exception as e:
-            logger.warning(f"Appearance update failed: {e}")
+            # Log performance (inherited)
+            self._log_performance(start_time)
 
-    def _handle_override(self, frame: np.ndarray, dt: float) -> Tuple[bool, Tuple]:
-        """Handle SmartTracker override mode."""
-        smart_tracker = self.app_controller.smart_tracker
-        if smart_tracker and smart_tracker.selected_bbox:
-            x1, y1, x2, y2 = smart_tracker.selected_bbox
-            w, h = x2 - x1, y2 - y1
-            self.bbox = (x1, y1, w, h)
-            self.set_center(((x1 + x2) // 2, (y1 + y2) // 2))
-            self.normalize_bbox()
-            self.confidence = 1.0
             return True, self.bbox
-        return False, self.bbox
+        else:
+            # Handle failure
+            self._record_loss_start()
+            self.failure_count += 1
+            self.failed_frames += 1
+            self.frame_count += 1
+            self._build_failure_info("tracker_failed")
+            return False, self.bbox
 
     def get_output(self) -> TrackerOutput:
-        """Generate TrackerOutput with current state."""
-        return TrackerOutput(
-            data_type=TrackerDataType.POSITION_2D,
-            timestamp=time.time(),
-            tracking_active=self.tracking_started,
-            tracker_id=f"{self.tracker_name}_{id(self)}",
-            position_2d=self.normalized_center,
-            bbox=self.bbox,
-            normalized_bbox=self.normalized_bbox,
-            confidence=self.confidence,
-            quality_metrics={
-                'motion_consistency': self.compute_motion_confidence()
-            },
-            metadata={
-                'tracker_class': self.__class__.__name__,
-                'tracker_algorithm': 'my_algorithm'
-            }
+        """Generate TrackerOutput using inherited _build_output()."""
+        return self._build_output(
+            tracker_algorithm='my_algorithm',
+            extra_quality={'my_custom_metric': 0.95},
+            extra_raw={'mode': 'default'},
         )
 
     def get_capabilities(self) -> dict:
@@ -242,14 +223,9 @@ class MyTracker(BaseTracker):
         return base
 
     def reset(self) -> None:
-        """Reset tracker state."""
-        self.bbox = None
-        self.prev_bbox = None
-        self.confidence = 0.0
+        """Reset tracker-specific state, then call super().reset()."""
         self.is_initialized = False
-        self.tracking_started = False
-        self.center_history.clear()
-        logger.info(f"{self.tracker_name} reset")
+        super().reset()
 ```
 
 ---
@@ -358,11 +334,16 @@ class TestMyTracker:
 
 - [ ] Implement `start_tracking()` and `update()` methods
 - [ ] Call `set_center()` and `normalize_bbox()` on updates
-- [ ] Set `tracking_started` flag appropriately
-- [ ] Handle failure cases gracefully
+- [ ] Use `self._update_appearance_model_safe()` instead of manual appearance code
+- [ ] Use `self._update_estimator(dt)` instead of manual estimator calls
+- [ ] Use `self._update_out_of_frame_status(frame)` in update loop
+- [ ] Use `self._log_performance(start_time)` for diagnostics
+- [ ] Use `self._build_output('MyAlgorithm')` in `get_output()`
+- [ ] Use `self._record_loss_start()` and `self._build_failure_info()` on failure
+- [ ] Call `super().reset()` in `reset()` instead of manual clearing
+- [ ] Handle failure cases with structured `TrackingFailureInfo`
 - [ ] Add to TrackerFactory registry
 - [ ] Add configuration section
-- [ ] Add schema definition (if needed)
 - [ ] Write unit tests
 - [ ] Test with AppController
 

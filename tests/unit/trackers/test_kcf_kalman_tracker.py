@@ -586,6 +586,7 @@ class TestKCFMotionValidation:
         video_handler, detector, app_controller = mock_dependencies
 
         tracker = KCFKalmanTracker(video_handler, detector, app_controller)
+        tracker.frame_count = 20  # Must be >= 15 to bypass early-return guard
 
         # Bbox center far from prediction
         bbox = (0, 0, 50, 50)  # Center at (25, 25)

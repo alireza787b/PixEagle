@@ -68,6 +68,7 @@ class Parameters:
         'FW_ATTITUDE_RATE',
         # Tracker sections
         'GimbalTracker', 'GimbalTrackerSettings',
+        'ClassicTracker_Common',
         'CSRT_Tracker', 'KCF_Tracker', 'DLIB_Tracker', 'SmartTracker'
     ]
 

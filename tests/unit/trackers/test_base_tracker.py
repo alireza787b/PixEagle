@@ -25,11 +25,12 @@ class ConcreteTracker:
     Concrete implementation of BaseTracker for testing abstract methods.
 
     Since BaseTracker is abstract, we need a minimal concrete implementation
-    to test its utility methods.
+    to test its utility methods. Includes Phase 3 attributes for reset/get_output.
     """
 
     def __init__(self, video_handler=None, detector=None, app_controller=None):
         # Import here to avoid circular imports
+        import types
         from classes.trackers.base_tracker import BaseTracker
         from classes.parameters import Parameters
 
@@ -66,6 +67,35 @@ class ConcreteTracker:
         self.suppress_detector = False
         self.suppress_predictor = False
         self.tracker = None
+
+        # Phase 3 attributes (needed by reset, get_output, _build_output)
+        self.prev_bbox = None
+        self.failure_count = 0
+        self.failure_threshold = 5
+        self.frame_count = 0
+        self.successful_frames = 0
+        self.failed_frames = 0
+        self.fps_history = []
+        self.raw_confidence_history = deque(maxlen=5)
+        self.tracker_name = "ConcreteTracker"
+        self.confidence_ema_alpha = 0.7
+        self.max_scale_change = 0.4
+        self.motion_consistency_threshold = 0.5
+        self.target_out_of_frame = False
+        self.exit_edge = None
+        self.exit_edge_margin_pixels = 5
+        self.last_failure_info = None
+        self._confidence_at_loss_start = 0.0
+        self.performance_log_interval = 30
+
+        # Bind Phase 3 methods needed by get_output/reset
+        for name in ['_build_output', '_get_velocity_from_estimator',
+                      'compute_motion_confidence', '_build_failure_info',
+                      '_record_loss_start', '_check_out_of_frame',
+                      '_update_out_of_frame_status', '_smooth_confidence',
+                      '_log_performance']:
+            method = getattr(BaseTracker, name)
+            setattr(self, name, types.MethodType(method, self))
 
     def start_tracking(self, frame, bbox):
         """Minimal implementation of abstract method."""
@@ -738,3 +768,300 @@ class TestExternalOverride:
 
         assert tracker.override_active is False
         assert tracker.bbox is None
+
+
+# =============================================================================
+# Phase 3 Feature Tests
+# =============================================================================
+
+
+def create_phase3_tracker(width=640, height=480):
+    """Create a tracker with Phase 3 attributes and bound BaseTracker methods."""
+    import types
+    from classes.trackers.base_tracker import BaseTracker
+
+    tracker = create_test_tracker(width, height)
+    # Add Phase 3 attributes that ConcreteTracker doesn't set
+    tracker.prev_bbox = None
+    tracker.failure_count = 0
+    tracker.failure_threshold = 5
+    tracker.frame_count = 0
+    tracker.successful_frames = 0
+    tracker.failed_frames = 0
+    tracker.fps_history = []
+    tracker.raw_confidence_history = deque(maxlen=5)
+    tracker.tracker_name = "TestTracker"
+    tracker.confidence_ema_alpha = 0.7
+    tracker.max_scale_change = 0.4
+    tracker.motion_consistency_threshold = 0.5
+    tracker.target_out_of_frame = False
+    tracker.exit_edge = None
+    tracker.exit_edge_margin_pixels = 5
+    tracker.last_failure_info = None
+    tracker._confidence_at_loss_start = 0.0
+    tracker.performance_log_interval = 30
+    tracker.normalized_bbox = None
+
+    # Bind Phase 3 methods so they work as self.method()
+    phase3_methods = [
+        '_build_failure_info', '_record_loss_start', '_check_out_of_frame',
+        '_update_out_of_frame_status', '_smooth_confidence', '_log_performance',
+        '_get_velocity_from_estimator', '_build_output', 'compute_motion_confidence',
+    ]
+    for name in phase3_methods:
+        method = getattr(BaseTracker, name)
+        setattr(tracker, name, types.MethodType(method, tracker))
+
+    return tracker
+
+
+@pytest.mark.unit
+class TestTrackingFailureInfo:
+    """Tests for structured failure reporting (Phase 3)."""
+
+    def test_build_failure_info_creates_dataclass(self):
+        """_build_failure_info should create a TrackingFailureInfo with correct fields."""
+        from classes.trackers.base_tracker import BaseTracker, TrackingFailureInfo
+        tracker = create_phase3_tracker()
+        tracker.bbox = (100, 100, 50, 50)
+        tracker.prev_bbox = (95, 95, 50, 50)
+        tracker.failure_count = 3
+        tracker._confidence_at_loss_start = 0.75
+
+        info = BaseTracker._build_failure_info(tracker, "tracker_failed")
+
+        assert isinstance(info, TrackingFailureInfo)
+        assert info.loss_reason == "tracker_failed"
+        assert info.last_seen_bbox == (95, 95, 50, 50)
+        assert info.predicted_bbox == (100, 100, 50, 50)
+        assert info.frames_lost == 3
+        assert info.confidence_at_loss == 0.75
+
+    def test_build_failure_info_stores_in_last_failure_info(self):
+        """_build_failure_info should store result in tracker.last_failure_info."""
+        from classes.trackers.base_tracker import BaseTracker
+        tracker = create_phase3_tracker()
+        tracker.bbox = (100, 100, 50, 50)
+        tracker.failure_count = 1
+
+        BaseTracker._build_failure_info(tracker, "low_confidence")
+
+        assert tracker.last_failure_info is not None
+        assert tracker.last_failure_info.loss_reason == "low_confidence"
+
+    def test_build_failure_info_overrides_with_oof(self):
+        """When target is out-of-frame, loss_reason should be 'left_frame'."""
+        from classes.trackers.base_tracker import BaseTracker
+        tracker = create_phase3_tracker()
+        tracker.bbox = (635, 200, 5, 50)
+        tracker.target_out_of_frame = True
+        tracker.exit_edge = "right"
+        tracker.failure_count = 2
+
+        info = BaseTracker._build_failure_info(tracker, "tracker_failed")
+
+        assert info.loss_reason == "left_frame"
+        assert info.exit_edge == "right"
+
+    def test_record_loss_start_snapshots_confidence(self):
+        """_record_loss_start should snapshot confidence only on first failure."""
+        from classes.trackers.base_tracker import BaseTracker
+        tracker = create_phase3_tracker()
+        tracker.confidence = 0.65
+        tracker.failure_count = 0
+
+        BaseTracker._record_loss_start(tracker)
+        assert tracker._confidence_at_loss_start == 0.65
+
+        # Second call should NOT overwrite (failure_count > 0 now)
+        tracker.failure_count = 1
+        tracker.confidence = 0.30
+        BaseTracker._record_loss_start(tracker)
+        assert tracker._confidence_at_loss_start == 0.65
+
+
+@pytest.mark.unit
+class TestBuildOutput:
+    """Tests for standardized TrackerOutput building (Phase 3)."""
+
+    def test_build_output_returns_tracker_output(self):
+        """_build_output should return a TrackerOutput instance."""
+        from classes.trackers.base_tracker import BaseTracker
+        from classes.tracker_output import TrackerOutput
+        tracker = create_phase3_tracker()
+        tracker.bbox = (100, 100, 50, 50)
+        tracker.center = (125, 125)
+        tracker.tracking_started = True
+
+        output = BaseTracker._build_output(tracker, tracker_algorithm='TestAlgo')
+
+        assert isinstance(output, TrackerOutput)
+        assert output.tracking_active is True
+
+    def test_build_output_includes_quality_metrics(self):
+        """_build_output should include motion_consistency, failure_count, success_rate."""
+        from classes.trackers.base_tracker import BaseTracker
+        tracker = create_phase3_tracker()
+        tracker.bbox = (100, 100, 50, 50)
+        tracker.center = (125, 125)
+        tracker.frame_count = 100
+        tracker.successful_frames = 90
+        tracker.failure_count = 2
+        tracker.tracking_started = True
+
+        output = BaseTracker._build_output(tracker, tracker_algorithm='Test')
+
+        assert 'motion_consistency' in output.quality_metrics
+        assert output.quality_metrics['failure_count'] == 2
+        assert output.quality_metrics['success_rate'] == pytest.approx(0.9, abs=0.01)
+
+    def test_build_output_includes_raw_data(self):
+        """_build_output should include frame_count and fps info."""
+        from classes.trackers.base_tracker import BaseTracker
+        tracker = create_phase3_tracker()
+        tracker.bbox = (100, 100, 50, 50)
+        tracker.center = (125, 125)
+        tracker.frame_count = 50
+        tracker.successful_frames = 48
+        tracker.failed_frames = 2
+        tracker.tracking_started = True
+
+        output = BaseTracker._build_output(tracker, tracker_algorithm='Test')
+
+        assert output.raw_data['frame_count'] == 50
+        assert output.raw_data['successful_frames'] == 48
+        assert output.raw_data['failed_frames'] == 2
+
+    def test_build_output_merges_extras(self):
+        """_build_output should merge extra_quality, extra_raw, extra_metadata."""
+        from classes.trackers.base_tracker import BaseTracker
+        tracker = create_phase3_tracker()
+        tracker.bbox = (100, 100, 50, 50)
+        tracker.center = (125, 125)
+        tracker.tracking_started = True
+
+        output = BaseTracker._build_output(
+            tracker, tracker_algorithm='Test',
+            extra_quality={'psr': 15.0},
+            extra_raw={'mode': 'robust'},
+            extra_metadata={'version': '1.0'})
+
+        assert output.quality_metrics['psr'] == 15.0
+        assert output.raw_data['mode'] == 'robust'
+        assert output.metadata['version'] == '1.0'
+
+
+@pytest.mark.unit
+class TestOutOfFrameDetection:
+    """Tests for out-of-frame detection (Phase 3)."""
+
+    def test_check_out_of_frame_left(self):
+        """Target touching left edge should return 'left'."""
+        from classes.trackers.base_tracker import BaseTracker
+        tracker = create_phase3_tracker()
+        result = BaseTracker._check_out_of_frame(tracker, (0, 200, 3, 50), (480, 640, 3))
+        assert result == "left"
+
+    def test_check_out_of_frame_right(self):
+        """Target touching right edge should return 'right'."""
+        from classes.trackers.base_tracker import BaseTracker
+        tracker = create_phase3_tracker()
+        result = BaseTracker._check_out_of_frame(tracker, (636, 200, 10, 50), (480, 640, 3))
+        assert result == "right"
+
+    def test_check_out_of_frame_top(self):
+        """Target touching top edge should return 'top'."""
+        from classes.trackers.base_tracker import BaseTracker
+        tracker = create_phase3_tracker()
+        result = BaseTracker._check_out_of_frame(tracker, (200, 0, 50, 3), (480, 640, 3))
+        assert result == "top"
+
+    def test_check_out_of_frame_bottom(self):
+        """Target touching bottom edge should return 'bottom'."""
+        from classes.trackers.base_tracker import BaseTracker
+        tracker = create_phase3_tracker()
+        result = BaseTracker._check_out_of_frame(tracker, (200, 476, 50, 10), (480, 640, 3))
+        assert result == "bottom"
+
+    def test_check_out_of_frame_center_returns_none(self):
+        """Target in center of frame should return None."""
+        from classes.trackers.base_tracker import BaseTracker
+        tracker = create_phase3_tracker()
+        result = BaseTracker._check_out_of_frame(tracker, (200, 200, 50, 50), (480, 640, 3))
+        assert result is None
+
+    def test_update_out_of_frame_status_sets_flag(self):
+        """_update_out_of_frame_status should set target_out_of_frame when at edge."""
+        from classes.trackers.base_tracker import BaseTracker
+        tracker = create_phase3_tracker()
+        tracker.bbox = (636, 200, 10, 50)
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+        BaseTracker._update_out_of_frame_status(tracker, frame)
+
+        assert tracker.target_out_of_frame is True
+        assert tracker.exit_edge == "right"
+
+
+@pytest.mark.unit
+class TestConfidenceSmoothing:
+    """Tests for confidence EMA smoothing (Phase 3)."""
+
+    def test_smooth_confidence_first_value(self):
+        """First call to _smooth_confidence should return close to raw value."""
+        from classes.trackers.base_tracker import BaseTracker
+        tracker = create_phase3_tracker()
+        tracker.raw_confidence_history.clear()
+
+        result = BaseTracker._smooth_confidence(tracker, 0.8)
+        # With empty history, should be close to the raw value
+        assert 0.5 < result < 1.0
+
+    def test_smooth_confidence_ema_convergence(self):
+        """Repeated calls should converge towards the raw value."""
+        from classes.trackers.base_tracker import BaseTracker
+        tracker = create_phase3_tracker()
+        tracker.confidence_ema_alpha = 0.7
+
+        results = []
+        for _ in range(10):
+            result = BaseTracker._smooth_confidence(tracker, 0.5)
+            results.append(result)
+
+        # After 10 iterations, should be near 0.5
+        assert abs(results[-1] - 0.5) < 0.1
+
+
+@pytest.mark.unit
+class TestClassicTrackerCommonConfig:
+    """Tests for ClassicTracker_Common config loading (Phase 3)."""
+
+    def test_common_config_values_loaded(self):
+        """BaseTracker should load defaults from ClassicTracker_Common config."""
+        from classes.parameters import Parameters
+        common = getattr(Parameters, 'ClassicTracker_Common', {})
+
+        # These should match config_default.yaml ClassicTracker_Common section
+        if common:  # Config may not be loaded in test environment
+            assert common.get('appearance_update_min_confidence') == 0.55
+            assert common.get('max_scale_change_per_frame') == 0.4
+            assert common.get('exit_edge_margin_pixels') == 5
+            assert common.get('performance_log_interval') == 30
+            assert common.get('confidence_ema_alpha') == 0.7
+
+
+@pytest.mark.unit
+class TestPerformanceLogging:
+    """Tests for performance logging (Phase 3)."""
+
+    def test_log_performance_records_fps(self):
+        """_log_performance should add to fps_history."""
+        from classes.trackers.base_tracker import BaseTracker
+        tracker = create_phase3_tracker()
+        tracker.frame_count = 1
+
+        initial_len = len(tracker.fps_history)
+        BaseTracker._log_performance(tracker, time.time() - 0.033)  # ~30fps
+
+        assert len(tracker.fps_history) == initial_len + 1
+        assert tracker.fps_history[-1] > 0

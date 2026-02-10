@@ -603,14 +603,6 @@ sections:
         max: 1.0
         step: 0.01
         reload_tier: immediate
-      CSRT_APPEARANCE_LEARNING_RATE:
-        type: float
-        default: 0.05
-        description: 'Deprecated: See CSRT_Tracker section'
-        min: 0.0
-        max: 1.0
-        step: 0.01
-        reload_tier: immediate
       MOTION_CONFIDENCE_THRESHOLD:
         type: float
         default: 0.7

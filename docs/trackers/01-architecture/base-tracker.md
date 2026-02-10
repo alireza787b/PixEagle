@@ -210,6 +210,166 @@ def get_effective_bbox(self) -> Optional[Tuple]:
 
 ---
 
+## Shared Robustness Methods (Phase 3)
+
+Phase 3 extracted 17 shared methods into BaseTracker, eliminating ~1300 lines of duplication across CSRT/KCF/dlib. These are loaded from the `ClassicTracker_Common:` YAML config section.
+
+### Confidence Smoothing
+
+```python
+def _smooth_confidence(self, raw_confidence: float) -> float:
+    """
+    EMA-smooth raw confidence to prevent jitter.
+
+    Uses confidence_ema_alpha (default 0.7) from ClassicTracker_Common config.
+    Stores history in raw_confidence_history deque.
+    """
+```
+
+### Bbox Validation
+
+```python
+def _validate_bbox_motion(self, bbox: Tuple, estimator_prediction: Optional[Tuple]) -> bool:
+    """
+    Validate bbox center against estimator/Kalman prediction.
+
+    Rejects detections that moved too far from predicted position.
+    Threshold: motion_consistency_threshold (default 0.5, as fraction of frame diagonal).
+    Only active after frame_count >= 15 (warm-up period).
+    """
+
+def _validate_bbox_scale(self, bbox: Tuple) -> bool:
+    """
+    Validate bbox scale change against previous frame.
+
+    Rejects sudden size changes > max_scale_change (default 0.4 = 40%).
+    """
+
+def _should_update_appearance(self, frame: np.ndarray, bbox: Tuple) -> bool:
+    """
+    3-level drift protection gate: confidence + motion + scale.
+
+    Only updates appearance model when all three checks pass.
+    Prevents model corruption from bad frames.
+    """
+```
+
+### Appearance Model
+
+```python
+def _update_appearance_model_safe(self, frame: np.ndarray, bbox: Tuple,
+                                   learning_rate: float = 0.05) -> None:
+    """
+    Safe appearance update with drift protection.
+
+    Calls _should_update_appearance() gate first.
+    Updates detector.adaptive_features with EMA blending.
+    """
+```
+
+### Estimator Integration
+
+```python
+def _update_estimator(self, dt: float) -> None:
+    """Update position estimator with current center (if enabled)."""
+
+def update_estimator_without_measurement(self, dt: float) -> None:
+    """Predict-only step when tracking is lost (no measurement update)."""
+
+def _get_velocity_from_estimator(self) -> Optional[Tuple[float, float]]:
+    """
+    Get velocity from external position estimator.
+
+    KCFKalmanTracker overrides this to read from internal Kalman filter.
+    """
+```
+
+### SmartTracker Override
+
+```python
+def _handle_smart_tracker_override(self, frame: np.ndarray, dt: float) -> Tuple[bool, Tuple]:
+    """
+    Handle external SmartTracker override mode.
+
+    Returns override bbox/center when override_active is True.
+    KCFKalmanTracker overrides to also update internal Kalman state.
+    """
+```
+
+### Out-of-Frame Detection
+
+```python
+def _check_out_of_frame(self, bbox: Tuple, frame_shape: Tuple) -> Optional[str]:
+    """
+    Check if bbox is touching frame edge.
+
+    Returns edge name ('left', 'right', 'top', 'bottom') or None.
+    Margin: exit_edge_margin_pixels (default 5).
+    """
+
+def _update_out_of_frame_status(self, frame: np.ndarray) -> None:
+    """
+    Update target_out_of_frame flag and exit_edge.
+
+    Called in update loop after successful tracking.
+    """
+```
+
+### Failure Reporting
+
+```python
+@dataclass
+class TrackingFailureInfo:
+    loss_reason: str          # 'tracker_failed', 'low_confidence', 'left_frame'
+    last_seen_bbox: Tuple
+    predicted_bbox: Tuple
+    exit_edge: Optional[str]
+    frames_lost: int
+    confidence_at_loss: float
+
+def _build_failure_info(self, loss_reason: str) -> TrackingFailureInfo:
+    """
+    Create structured failure report. Stored in self.last_failure_info.
+
+    Automatically overrides loss_reason to 'left_frame' if target_out_of_frame.
+    """
+
+def _record_loss_start(self) -> None:
+    """Snapshot confidence on first failure frame (failure_count == 0)."""
+```
+
+### Output Construction
+
+```python
+def _build_output(self, tracker_algorithm: str,
+                  extra_quality: dict = None,
+                  extra_raw: dict = None,
+                  extra_metadata: dict = None) -> TrackerOutput:
+    """
+    Standardized TrackerOutput builder used by all classic trackers.
+
+    Includes: confidence, bbox, normalized coords, velocity, quality_metrics
+    (motion_consistency, failure_count, success_rate), raw_data (frame_count,
+    fps, successful/failed frames), and metadata (tracker_algorithm).
+
+    Subclasses merge extra dicts for algorithm-specific data
+    (e.g., PSR for dlib, Kalman state for KCF).
+    """
+```
+
+### Performance Logging
+
+```python
+def _log_performance(self, start_time: float) -> None:
+    """
+    Record FPS and log periodic performance summary.
+
+    Logs every performance_log_interval frames (default 30).
+    """
+```
+
+---
+
 ## Visualization
 
 ```python
