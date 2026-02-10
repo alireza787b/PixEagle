@@ -21,8 +21,8 @@ import logging
 import yaml
 from collections import deque
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple, Iterable
-from .osd_text_renderer import OSDTextRenderer, TextStyle
+from typing import Dict, Any, Optional, Tuple, Iterable, List
+from .osd_text_renderer import OSDTextRenderer, OSDSprite, TextStyle
 from .osd_layout_manager import OSDLayoutManager, Anchor
 from .parameters import Parameters
 
@@ -423,6 +423,183 @@ class OSDRenderer:
     def get_performance_mode(self) -> str:
         """Get current OSD performance mode."""
         return self.current_performance_mode
+
+    # ── Sprite-based rendering (high-performance pipeline path) ──────
+
+    # Elements that are rendered as sprites (text-based, cacheable)
+    _SPRITE_ELEMENTS = {"name", "datetime", "tracker_status", "follower_status", "mavlink_data"}
+    # Elements that draw directly on frame (complex shapes, not worth spriting)
+    _DIRECT_ELEMENTS = {"crosshair", "attitude_indicator"}
+
+    def get_element_sprites(
+        self,
+        frame_shape: Tuple[int, int, int],
+        layer_filter: Optional[str] = None,
+    ) -> Dict[str, OSDSprite]:
+        """Render enabled text elements as individually cached sprites.
+
+        Each sprite is keyed by a unique element identifier (e.g. "name",
+        "mavlink_data.altitude_agl").  The caller is responsible for caching
+        and content-hash comparison.
+
+        Non-text elements (crosshair, attitude_indicator) are excluded here
+        and should be drawn via ``draw_direct_elements()``.
+
+        Returns:
+            Dict mapping element key to OSDSprite.
+        """
+        if not self.osd_enabled:
+            return {}
+
+        # Sync frame dimensions
+        frame_h, frame_w = frame_shape[:2]
+        if frame_w != self.frame_width or frame_h != self.frame_height:
+            self.frame_width = frame_w
+            self.frame_height = frame_h
+            self.text_renderer.update_frame_size(frame_w, frame_h)
+            self.layout_manager.update_frame_size(frame_w, frame_h)
+
+        self.layout_manager.clear_elements()
+        sprites: Dict[str, OSDSprite] = {}
+
+        for element_name, config in self._iter_enabled_elements(layer_filter=layer_filter):
+            if element_name not in self._SPRITE_ELEMENTS:
+                continue
+            try:
+                new_sprites = self._element_to_sprites(element_name, config)
+                sprites.update(new_sprites)
+            except Exception as e:
+                logger.warning("Error creating sprite for '%s': %s", element_name, e)
+
+        return sprites
+
+    def draw_direct_elements(
+        self,
+        frame: np.ndarray,
+        layer_filter: Optional[str] = None,
+    ) -> np.ndarray:
+        """Draw non-spriteable elements (crosshair, attitude_indicator) directly on frame."""
+        if not self.osd_enabled:
+            return frame
+        for element_name, config in self._iter_enabled_elements(layer_filter=layer_filter):
+            if element_name in self._DIRECT_ELEMENTS:
+                frame = self._render_element(frame, element_name, config)
+        return frame
+
+    def _element_to_sprites(
+        self,
+        element_name: str,
+        config: Dict[str, Any],
+    ) -> Dict[str, OSDSprite]:
+        """Route a single element to its sprite generator.  Returns a dict
+        because mavlink_data produces multiple sprites (one per field)."""
+        if element_name == "name":
+            return self._sprite_name(config)
+        elif element_name == "datetime":
+            return self._sprite_datetime(config)
+        elif element_name == "tracker_status":
+            return self._sprite_tracker_status(config)
+        elif element_name == "follower_status":
+            return self._sprite_follower_status(config)
+        elif element_name == "mavlink_data":
+            return self._sprite_mavlink_data(config)
+        return {}
+
+    def _make_text_sprite(
+        self,
+        key: str,
+        text: str,
+        config: Dict[str, Any],
+        color: Optional[Tuple[int, int, int]] = None,
+    ) -> Dict[str, OSDSprite]:
+        """Helper: create a single text sprite with content-hash from config."""
+        font_scale = config.get("font_scale", config.get("font_size", 0.7))
+        if color is None:
+            color = tuple(config.get("color", [255, 255, 255]))
+        style = self._get_text_style(config)
+
+        x, y = self._calculate_position(config, text, font_scale)
+        content_hash = f"{text}|{x},{y}|{color}|{style.value}|{font_scale}"
+
+        sp = self.text_renderer.render_text_sprite(
+            text, (x, y),
+            color=color,
+            font_scale=font_scale,
+            style=style,
+            outline_thickness=self.outline_thickness,
+            shadow_offset=self.shadow_offset,
+            shadow_opacity=self.shadow_opacity,
+            background_opacity=self.background_opacity,
+        )
+        if sp is None:
+            return {}
+        sp.content_hash = content_hash
+        return {key: sp}
+
+    def _sprite_name(self, config: Dict[str, Any]) -> Dict[str, OSDSprite]:
+        text = config.get("text", "PixEagle")
+        return self._make_text_sprite("name", text, config)
+
+    def _sprite_datetime(self, config: Dict[str, Any]) -> Dict[str, OSDSprite]:
+        text = time.strftime("%Y-%m-%d %H:%M:%S")
+        return self._make_text_sprite("datetime", text, config)
+
+    def _sprite_tracker_status(self, config: Dict[str, Any]) -> Dict[str, OSDSprite]:
+        if not self.app_controller:
+            return {}
+        active = self.app_controller.tracking_started
+        status = "Active" if active else "Not Active"
+        color = (0, 255, 0) if active else tuple(config.get("color", [255, 255, 0]))
+        return self._make_text_sprite("tracker_status", f"Tracker: {status}", config, color)
+
+    def _sprite_follower_status(self, config: Dict[str, Any]) -> Dict[str, OSDSprite]:
+        if not self.app_controller:
+            return {}
+        active = self.app_controller.following_active
+        status = "Active" if active else "Not Active"
+        color = (0, 255, 0) if active else tuple(config.get("color", [255, 255, 0]))
+        return self._make_text_sprite("follower_status", f"Follower: {status}", config, color)
+
+    def _sprite_mavlink_data(self, config: Dict[str, Any]) -> Dict[str, OSDSprite]:
+        fields_config = config.get("fields", {})
+        sprites: Dict[str, OSDSprite] = {}
+
+        for field_name, field_config in fields_config.items():
+            if not isinstance(field_config, dict):
+                continue
+            if field_config.get("enabled", True) is False:
+                continue
+            try:
+                raw_value = None
+                if Parameters.MAVLINK_ENABLED and self.mavlink_data_manager:
+                    raw_value = self.mavlink_data_manager.get_data(field_name.lower())
+
+                if field_name == "flight_path_angle":
+                    if raw_value == 0.0:
+                        formatted_value = "Level"
+                    else:
+                        try:
+                            formatted_value = f"{float(raw_value):.1f}"
+                        except (ValueError, TypeError):
+                            formatted_value = "N/A"
+                else:
+                    if raw_value is None:
+                        raw_value = "N/A"
+                    formatted_value = self._format_value(
+                        field_name.replace("_", " ").title(), raw_value,
+                    )
+
+                display_name = field_config.get(
+                    "display_name", field_name.replace("_", " ").title(),
+                )
+                text = f"{display_name}: {formatted_value}"
+                key = f"mavlink_data.{field_name}"
+                result = self._make_text_sprite(key, text, field_config)
+                sprites.update(result)
+
+            except Exception as e:
+                logger.warning("Error creating sprite for MAVLink field '%s': %s", field_name, e)
+        return sprites
 
     def render(self, frame: np.ndarray) -> np.ndarray:
         """

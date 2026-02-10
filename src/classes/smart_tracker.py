@@ -137,6 +137,9 @@ class SmartTracker:
         self._geometry_errors = 0
         self._obb_auto_disabled = False
 
+        # Pre-allocated buffer for box fills / label plates (avoids per-detection np.full_like)
+        self._fill_buf = np.zeros((600, 600, 3), dtype=np.uint8)
+
         self._apply_model_task_policy()
 
         # === Tracking state (maintained for backward compatibility and output)
@@ -801,10 +804,16 @@ class SmartTracker:
         """Draw a very subtle transparent color fill inside a bounding box."""
         bx1, by1 = max(0, x1), max(0, y1)
         bx2, by2 = min(frame.shape[1], x2), min(frame.shape[0], y2)
-        if bx2 > bx1 and by2 > by1:
+        h, w = by2 - by1, bx2 - bx1
+        if h > 0 and w > 0:
             roi = frame[by1:by2, bx1:bx2]
-            overlay = np.full_like(roi, color)
-            cv2.addWeighted(overlay, alpha, roi, 1.0 - alpha, 0, roi)
+            # Grow pre-allocated buffer if needed (rare, only on first large detection)
+            if h > self._fill_buf.shape[0] or w > self._fill_buf.shape[1]:
+                self._fill_buf = np.zeros((max(h, self._fill_buf.shape[0]),
+                                           max(w, self._fill_buf.shape[1]), 3), dtype=np.uint8)
+            buf = self._fill_buf[:h, :w]
+            buf[:] = color
+            cv2.addWeighted(buf, alpha, roi, 1.0 - alpha, 0, roi)
 
     def draw_hud_label(self, frame, text, x1, y1, color_text, color_bg, bg_alpha, s):
         """Draw a label with semi-transparent dark plate above the bounding box."""
@@ -824,11 +833,17 @@ class SmartTracker:
         plate_x2 = min(frame.shape[1], plate_x1 + tw + ph * 2)
         plate_y2 = min(frame.shape[0], label_y + pv)
 
-        # Semi-transparent plate via small ROI blend
-        if plate_x2 > plate_x1 and plate_y2 > plate_y1:
+        # Semi-transparent plate via small ROI blend (reuses pre-allocated buffer)
+        ph_roi = plate_y2 - plate_y1
+        pw_roi = plate_x2 - plate_x1
+        if ph_roi > 0 and pw_roi > 0:
             roi = frame[plate_y1:plate_y2, plate_x1:plate_x2]
-            overlay = np.full_like(roi, color_bg)
-            cv2.addWeighted(overlay, bg_alpha, roi, 1.0 - bg_alpha, 0, roi)
+            if ph_roi > self._fill_buf.shape[0] or pw_roi > self._fill_buf.shape[1]:
+                self._fill_buf = np.zeros((max(ph_roi, self._fill_buf.shape[0]),
+                                           max(pw_roi, self._fill_buf.shape[1]), 3), dtype=np.uint8)
+            buf = self._fill_buf[:ph_roi, :pw_roi]
+            buf[:] = color_bg
+            cv2.addWeighted(buf, bg_alpha, roi, 1.0 - bg_alpha, 0, roi)
 
         # Text with dark outline for contrast
         text_x = plate_x1 + ph

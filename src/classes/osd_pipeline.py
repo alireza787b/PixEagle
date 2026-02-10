@@ -16,10 +16,11 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from .osd_text_renderer import OSDSprite, OSDTextRenderer
 from .parameters import Parameters
 
 logger = logging.getLogger(__name__)
@@ -40,11 +41,18 @@ class OSDPipeline:
     def __init__(self, osd_handler: Any):
         self.osd_handler = osd_handler
 
-        # Cached RGBA overlays
+        # Cached RGBA overlays (legacy overlay path)
         self._static_overlay: Optional[np.ndarray] = None
         self._slow_overlay: Optional[np.ndarray] = None
         self._dynamic_overlay: Optional[np.ndarray] = None
         self._combined_overlay: Optional[np.ndarray] = None
+
+        # ── Sprite cache (new high-performance path) ──
+        # Keyed by element identifier (e.g. "name", "mavlink_data.altitude_agl")
+        self._sprite_cache: Dict[str, OSDSprite] = {}
+        # Flat list rebuilt whenever any sprite changes (avoids dict iteration per frame)
+        self._sprite_list: List[OSDSprite] = []
+        self._sprite_list_dirty = True
 
         # Cache invalidation tracking
         self._last_shape: Optional[Tuple[int, int]] = None
@@ -99,11 +107,14 @@ class OSDPipeline:
         self.compositor = compositor if compositor in {"cv2_alpha", "legacy_pil_composite"} else "cv2_alpha"
 
     def invalidate_cache(self, reason: str = "manual") -> None:
-        """Invalidate all cached OSD layers."""
+        """Invalidate all cached OSD layers and sprites."""
         self._static_overlay = None
         self._slow_overlay = None
         self._dynamic_overlay = None
         self._combined_overlay = None
+        self._sprite_cache.clear()
+        self._sprite_list.clear()
+        self._sprite_list_dirty = True
         self._last_slow_update_ts = 0.0
         self._last_dynamic_update_ts = 0.0
         logger.debug("OSD pipeline cache invalidated (%s)", reason)
@@ -190,21 +201,23 @@ class OSDPipeline:
             )
 
     def compose(self, frame: np.ndarray) -> np.ndarray:
-        """
-        Compose OSD onto a frame using cached layers.
+        """Compose OSD onto a BGR frame using cached sprites (high-performance path).
 
-        Args:
-            frame: BGR frame
+        Each OSD text element is pre-rendered to a small RGBA sprite and cached.
+        Per-frame cost is a single uint16 multiply-accumulate on each sprite's
+        tiny ROI (typically 200x40px), plus direct OpenCV drawing for shape
+        elements (crosshair, attitude indicator).
 
-        Returns:
-            BGR frame with OSD
+        Falls back to legacy overlay path when ``pipeline_mode == "legacy"``
+        or ``pipeline_mode == "layered_realtime"`` (backward-compatible overlay
+        path preserved as ``_compose_overlay``).
         """
         if frame is None:
             return frame
 
         self._load_runtime_config()
 
-        # Keep renderer state synchronized with hot-reloaded Parameters values.
+        # Keep renderer state synchronized with hot-reloaded Parameters.
         configured_enabled = bool(getattr(Parameters, "OSD_ENABLED", True))
         if self.osd_handler.is_enabled() != configured_enabled:
             self.osd_handler.set_enabled(configured_enabled)
@@ -220,9 +233,101 @@ class OSDPipeline:
             return frame
 
         self._refresh_invalidation_state(renderer, frame.shape)
+
+        # ── Rebuild stale sprites per layer cadence ──
+
+        now_ts = time.perf_counter()
+
+        # Static layer: rebuild only on cache invalidation
+        if not self._sprite_cache:
+            start = time.perf_counter()
+            self._rebuild_layer_sprites(renderer, frame.shape, "static")
+            self._last_static_render_ms = (time.perf_counter() - start) * 1000.0
+
+        # Slow-dynamic layer (datetime, etc.)
+        if self._needs_refresh(now_ts, self._last_slow_update_ts, self.datetime_fps):
+            start = time.perf_counter()
+            self._rebuild_layer_sprites(renderer, frame.shape, "slow_dynamic")
+            self._last_slow_render_ms = (time.perf_counter() - start) * 1000.0
+            self._last_slow_update_ts = now_ts
+            self._slow_updates += 1
+
+        # Dynamic layer (telemetry, tracker/follower status)
+        if self._needs_refresh(now_ts, self._last_dynamic_update_ts, self.dynamic_fps):
+            start = time.perf_counter()
+            self._rebuild_layer_sprites(renderer, frame.shape, "dynamic")
+            render_ms = (time.perf_counter() - start) * 1000.0
+            self._last_dynamic_render_ms = render_ms
+            self._last_dynamic_update_ts = now_ts
+            self._dynamic_updates += 1
+            self._dynamic_render_samples.append(render_ms)
+            self._maybe_auto_degrade(renderer, render_ms)
+        else:
+            self._dynamic_skips += 1
+
+        # ── Compose onto frame ──
+
+        compose_start = time.perf_counter()
+
+        # 1. Draw non-spriteable elements (crosshair, attitude indicator) directly
+        renderer.draw_direct_elements(frame, layer_filter=None)
+
+        # 2. Blit all cached sprites
+        if self._sprite_list_dirty:
+            self._sprite_list = list(self._sprite_cache.values())
+            self._sprite_list_dirty = False
+
+        OSDTextRenderer.blit_sprites(frame, self._sprite_list)
+
+        self._last_compose_ms = (time.perf_counter() - compose_start) * 1000.0
+        self._compose_samples.append(self._last_compose_ms)
+
+        return frame
+
+    def _rebuild_layer_sprites(
+        self,
+        renderer: Any,
+        frame_shape: Tuple[int, int, int],
+        layer_name: str,
+    ) -> None:
+        """Rebuild sprites for a single layer, updating cache only on change."""
+        new_sprites = renderer.get_element_sprites(frame_shape, layer_filter=layer_name)
+
+        # Remove sprites from this layer that no longer exist
+        stale_keys = [
+            k for k in self._sprite_cache
+            if k in self._sprite_cache
+            and renderer._resolve_element_layer(
+                k.split(".")[0],
+                renderer.osd_elements.get(k.split(".")[0], {}),
+            ) == layer_name
+            and k not in new_sprites
+        ]
+        for k in stale_keys:
+            del self._sprite_cache[k]
+            self._sprite_list_dirty = True
+
+        # Update sprites that changed (content hash comparison)
+        for key, sprite in new_sprites.items():
+            cached = self._sprite_cache.get(key)
+            if cached is None or cached.content_hash != sprite.content_hash:
+                self._sprite_cache[key] = sprite
+                self._sprite_list_dirty = True
+
+    def _compose_overlay(self, frame: np.ndarray) -> np.ndarray:
+        """Legacy overlay-based composition (preserved for backward compatibility).
+
+        Used when ``pipeline_mode == "layered_realtime"`` before the sprite
+        refactor.  Not called in normal operation but kept for reference and
+        potential fallback.
+        """
+        renderer = self._get_renderer()
+        if renderer is None:
+            return frame
+
+        self._refresh_invalidation_state(renderer, frame.shape)
         layer_state_changed = False
 
-        # Build static layer only when cache is invalid
         if self._static_overlay is None:
             self._static_overlay, self._last_static_render_ms = self._build_layer_overlay(
                 renderer, frame.shape, "static"
@@ -231,7 +336,6 @@ class OSDPipeline:
 
         now_ts = time.perf_counter()
 
-        # Rebuild slow dynamic layer on its own cadence (datetime, etc.)
         if self._slow_overlay is None or self._needs_refresh(now_ts, self._last_slow_update_ts, self.datetime_fps):
             self._slow_overlay, self._last_slow_render_ms = self._build_layer_overlay(
                 renderer, frame.shape, "slow_dynamic"
@@ -240,7 +344,6 @@ class OSDPipeline:
             self._slow_updates += 1
             layer_state_changed = True
 
-        # Rebuild dynamic layer on cadence
         if self._dynamic_overlay is None or self._needs_refresh(now_ts, self._last_dynamic_update_ts, self.dynamic_fps):
             self._dynamic_overlay, self._last_dynamic_render_ms = self._build_layer_overlay(
                 renderer, frame.shape, "dynamic"
@@ -255,18 +358,13 @@ class OSDPipeline:
 
         if self._combined_overlay is None or layer_state_changed:
             self._combined_overlay = renderer.combine_overlays_rgba(
-                (
-                    self._static_overlay,
-                    self._slow_overlay,
-                    self._dynamic_overlay,
-                )
+                (self._static_overlay, self._slow_overlay, self._dynamic_overlay)
             )
 
         compose_start = time.perf_counter()
         out = renderer.composite_overlay_rgba(frame, self._combined_overlay, method=self.compositor)
         self._last_compose_ms = (time.perf_counter() - compose_start) * 1000.0
         self._compose_samples.append(self._last_compose_ms)
-
         return out
 
     @staticmethod
@@ -309,6 +407,7 @@ class OSDPipeline:
             "auto_degrade_active": self._auto_degrade_active,
             "auto_degrade_last_action": self._last_degrade_action,
             "performance_mode": current_mode,
+            "sprite_cache_count": len(self._sprite_cache),
             "static_cache_valid": self._static_overlay is not None,
             "dynamic_cache_valid": self._dynamic_overlay is not None,
             "slow_cache_valid": self._slow_overlay is not None,

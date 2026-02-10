@@ -20,8 +20,9 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import logging
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple, Optional, Union, Dict
+from typing import Tuple, Optional, Union, Dict, List
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,21 @@ class PerformanceMode(Enum):
     FAST = "fast"             # OpenCV fallback (fastest, ~2-3ms)
     BALANCED = "balanced"     # PIL with native stroke (recommended, ~5-8ms)
     QUALITY = "quality"       # PIL with manual outline (highest quality, ~50-80ms)
+
+
+@dataclass
+class OSDSprite:
+    """Pre-rendered OSD element as a small RGBA patch with pre-computed blending arrays.
+
+    Sprites are rendered once (on content change) and blitted to the frame each cycle.
+    All blending data is pre-computed at creation time so the per-frame cost is a single
+    uint16 multiply-accumulate on a small ROI (typically 200x40px).
+    """
+    x: int                     # Top-left X position on target frame
+    y: int                     # Top-left Y position on target frame
+    bgr_premult: np.ndarray    # (src_bgr * alpha) as uint16 [H, W, 3]
+    inv_alpha_u16: np.ndarray  # (255 - alpha) as uint16 [H, W, 1]
+    content_hash: str          # For cache invalidation
 
 
 class OSDTextRenderer:
@@ -92,6 +108,10 @@ class OSDTextRenderer:
         # Overlay for transparent compositing (created on first render)
         self.overlay = None
         self.overlay_draw = None
+
+        # Reusable draw context for text measurement (avoids per-call allocation)
+        self._measure_img = Image.new('RGBA', (1, 1))
+        self._measure_draw = ImageDraw.Draw(self._measure_img, 'RGBA')
 
         # Load available fonts
         self.font_paths = self._discover_fonts()
@@ -550,6 +570,293 @@ class OSDTextRenderer:
             font, font_scale * 0.6, color,
             thickness, line_type
         )
+
+        return frame
+
+    # ── Sprite-based rendering (high-performance path) ──────────────────
+
+    def render_text_sprite(
+        self,
+        text: str,
+        position: Tuple[int, int],
+        color: Tuple[int, int, int] = (220, 220, 220),
+        font_scale: float = 1.0,
+        style: TextStyle = TextStyle.OUTLINED,
+        outline_thickness: int = 2,
+        shadow_offset: Tuple[int, int] = (2, 2),
+        shadow_opacity: float = 0.7,
+        background_opacity: float = 0.6,
+        background_padding: Tuple[int, int] = (8, 4),
+        font_name: Optional[str] = None,
+    ) -> Optional[OSDSprite]:
+        """Render text to a small cached sprite instead of a full-frame overlay.
+
+        Returns an OSDSprite with pre-computed blending arrays for fast per-frame
+        composition.  PIL is used only here (amortised cost); the per-frame blit
+        is pure numpy uint16 arithmetic on a tiny ROI.
+        """
+        x, y = position
+
+        if self.performance_mode == PerformanceMode.FAST:
+            return self._create_sprite_opencv(
+                text, x, y, color, font_scale, style,
+                outline_thickness, shadow_offset,
+            )
+
+        font_size = self.calculate_font_size(font_scale)
+        font = self._get_font(font_size, font_name)
+        if font is None:
+            return self._create_sprite_opencv(
+                text, x, y, color, font_scale, style,
+                outline_thickness, shadow_offset,
+            )
+
+        return self._create_sprite_pil(
+            text, x, y, color, font, style,
+            outline_thickness, shadow_offset, shadow_opacity,
+            background_opacity, background_padding,
+        )
+
+    def _create_sprite_pil(
+        self,
+        text: str,
+        frame_x: int,
+        frame_y: int,
+        color: Tuple[int, int, int],
+        font: ImageFont.FreeTypeFont,
+        style: TextStyle,
+        outline_thickness: int,
+        shadow_offset: Tuple[int, int],
+        shadow_opacity: float,
+        background_opacity: float,
+        background_padding: Tuple[int, int],
+    ) -> Optional[OSDSprite]:
+        """Create a sprite using PIL rendering (BALANCED / QUALITY modes)."""
+        text_color_rgba = (*reversed(color), 255)  # BGR → RGBA
+
+        # Measure text bounds including effects
+        use_stroke = (
+            style == TextStyle.OUTLINED
+            and self.performance_mode == PerformanceMode.BALANCED
+        )
+        stroke_w = outline_thickness if use_stroke else 0
+        bbox = self._measure_draw.textbbox(
+            (0, 0), text, font=font, stroke_width=stroke_w,
+        )
+        bx1, by1, bx2, by2 = bbox
+
+        # Expand for style-specific effects
+        if style == TextStyle.OUTLINED and not use_stroke:
+            # QUALITY mode manual outline
+            bx1 -= outline_thickness
+            by1 -= outline_thickness
+            bx2 += outline_thickness
+            by2 += outline_thickness
+        elif style == TextStyle.SHADOWED:
+            bx2 = max(bx2, bx2 + shadow_offset[0])
+            by2 = max(by2, by2 + shadow_offset[1])
+            bx1 = min(bx1, bx1 + shadow_offset[0])
+            by1 = min(by1, by1 + shadow_offset[1])
+        elif style == TextStyle.PLATE:
+            bx1 -= background_padding[0]
+            by1 -= background_padding[1]
+            bx2 += background_padding[0]
+            by2 += background_padding[1]
+
+        # Sprite dimensions (add 2px safety margin)
+        sprite_w = max(1, bx2 - bx1 + 2)
+        sprite_h = max(1, by2 - by1 + 2)
+
+        # Draw offset within sprite: text origin (0,0) maps to (-bx1+1, -by1+1)
+        draw_x = -bx1 + 1
+        draw_y = -by1 + 1
+
+        # Create small PIL RGBA image
+        img = Image.new('RGBA', (sprite_w, sprite_h), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img, 'RGBA')
+
+        if style == TextStyle.PLATE:
+            plate_color = (20, 20, 20, int(255 * background_opacity))
+            draw.rectangle([0, 0, sprite_w - 1, sprite_h - 1], fill=plate_color)
+            draw.text((draw_x, draw_y), text, font=font, fill=text_color_rgba)
+        elif style == TextStyle.SHADOWED:
+            shadow_color = (0, 0, 0, int(255 * shadow_opacity))
+            draw.text(
+                (draw_x + shadow_offset[0], draw_y + shadow_offset[1]),
+                text, font=font, fill=shadow_color,
+            )
+            draw.text((draw_x, draw_y), text, font=font, fill=text_color_rgba)
+        elif style == TextStyle.OUTLINED:
+            if use_stroke:
+                draw.text(
+                    (draw_x, draw_y), text, font=font, fill=text_color_rgba,
+                    stroke_width=outline_thickness, stroke_fill=(0, 0, 0, 255),
+                )
+            else:
+                outline_color = (0, 0, 0, 255)
+                for ox in range(-outline_thickness, outline_thickness + 1):
+                    for oy in range(-outline_thickness, outline_thickness + 1):
+                        if ox != 0 or oy != 0:
+                            draw.text(
+                                (draw_x + ox, draw_y + oy), text,
+                                font=font, fill=outline_color,
+                            )
+                draw.text((draw_x, draw_y), text, font=font, fill=text_color_rgba)
+        else:  # PLAIN
+            draw.text((draw_x, draw_y), text, font=font, fill=text_color_rgba)
+
+        # Convert to numpy RGBA (RGB channel order from PIL)
+        rgba = np.array(img, dtype=np.uint8)  # [H, W, 4]
+
+        # Skip empty sprites
+        if not np.any(rgba[..., 3] > 0):
+            return None
+
+        # RGB → BGR channel swap
+        bgr = np.empty((rgba.shape[0], rgba.shape[1], 3), dtype=np.uint8)
+        bgr[..., 0] = rgba[..., 2]
+        bgr[..., 1] = rgba[..., 1]
+        bgr[..., 2] = rgba[..., 0]
+
+        # Pre-compute blending arrays (done once, reused every frame)
+        alpha_u16 = rgba[..., 3:4].astype(np.uint16)       # [H, W, 1]
+        bgr_premult = bgr.astype(np.uint16) * alpha_u16    # [H, W, 3]
+        inv_alpha = (255 - alpha_u16).astype(np.uint16)     # [H, W, 1]
+
+        # Sprite position on frame: draw_x/draw_y offset maps text origin to frame_x/frame_y
+        return OSDSprite(
+            x=frame_x - draw_x,
+            y=frame_y - draw_y,
+            bgr_premult=bgr_premult,
+            inv_alpha_u16=inv_alpha,
+            content_hash="",
+        )
+
+    def _create_sprite_opencv(
+        self,
+        text: str,
+        frame_x: int,
+        frame_y: int,
+        color: Tuple[int, int, int],
+        font_scale: float,
+        style: TextStyle,
+        outline_thickness: int,
+        shadow_offset: Tuple[int, int],
+    ) -> Optional[OSDSprite]:
+        """Create a sprite using OpenCV rendering with dual-background alpha extraction.
+
+        Renders text on black and white backgrounds to recover per-pixel alpha.
+        Produces visually identical output to the direct cv2.putText path.
+        """
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        thickness = max(1, int(2 * font_scale))
+        actual_scale = font_scale * 0.6
+
+        # Measure text bounds (including outline if applicable)
+        ot = (outline_thickness if style == TextStyle.OUTLINED else 0)
+        (tw, th), baseline = cv2.getTextSize(
+            text, font, actual_scale, thickness + ot,
+        )
+
+        # Padding for effects
+        sx = abs(shadow_offset[0]) if style == TextStyle.SHADOWED else 0
+        sy = abs(shadow_offset[1]) if style == TextStyle.SHADOWED else 0
+        pad = max(ot, sx, sy) + 4
+
+        sprite_w = tw + 2 * pad
+        sprite_h = th + baseline + 2 * pad
+        if sprite_w < 1 or sprite_h < 1:
+            return None
+
+        # Text baseline position within sprite
+        text_pos = (pad, pad + th)
+
+        # Render on black and white backgrounds
+        buf_black = np.zeros((sprite_h, sprite_w, 3), dtype=np.uint8)
+        buf_white = np.full((sprite_h, sprite_w, 3), 255, dtype=np.uint8)
+
+        for buf in (buf_black, buf_white):
+            if style == TextStyle.SHADOWED:
+                cv2.putText(
+                    buf, text,
+                    (text_pos[0] + shadow_offset[0], text_pos[1] + shadow_offset[1]),
+                    font, actual_scale, (0, 0, 0), thickness, cv2.LINE_AA,
+                )
+            elif style == TextStyle.OUTLINED:
+                cv2.putText(
+                    buf, text, text_pos, font, actual_scale, (0, 0, 0),
+                    thickness + outline_thickness, cv2.LINE_AA,
+                )
+            cv2.putText(
+                buf, text, text_pos, font, actual_scale, color,
+                thickness, cv2.LINE_AA,
+            )
+
+        # Alpha from max channel difference (conservative estimate)
+        diff = buf_white.astype(np.int16) - buf_black.astype(np.int16)
+        alpha_2d = np.clip(255 - np.max(np.abs(diff), axis=2), 0, 255).astype(np.uint8)
+
+        if not np.any(alpha_2d > 0):
+            return None
+
+        # Pre-compute blending arrays.
+        # buf_black = src_color * alpha / 255, so buf_black * 255 ≈ src_color * alpha.
+        # Maximum value: 255*255 = 65025, fits uint16. Sum with frame contribution
+        # is bounded by 65025 + 127 = 65152 < 65535 (proven by alpha + inv_alpha = 255).
+        alpha_u16 = alpha_2d[..., np.newaxis].astype(np.uint16)  # [H, W, 1]
+        bgr_premult = buf_black.astype(np.uint16) * 255          # [H, W, 3]
+        inv_alpha = (255 - alpha_u16).astype(np.uint16)          # [H, W, 1]
+
+        # OpenCV putText position is baseline-left; sprite origin is top-left.
+        # text_pos = (pad, pad + th) within sprite, and frame_x/frame_y is the
+        # position the caller intended for the baseline.
+        sprite_frame_x = frame_x - pad
+        sprite_frame_y = frame_y - pad - th
+
+        return OSDSprite(
+            x=sprite_frame_x,
+            y=sprite_frame_y,
+            bgr_premult=bgr_premult,
+            inv_alpha_u16=inv_alpha,
+            content_hash="",
+        )
+
+    @staticmethod
+    def blit_sprites(frame: np.ndarray, sprites: List[OSDSprite]) -> np.ndarray:
+        """Blit a list of pre-rendered sprites onto a BGR frame (in-place).
+
+        This is the per-frame hot path.  All heavy work (PIL rendering, alpha
+        pre-computation) was done at sprite creation time.  Here we perform only
+        a uint16 multiply-accumulate on each sprite's small ROI.
+
+        Target: <0.5 ms for 15 sprites at 1080p.
+        """
+        fh, fw = frame.shape[:2]
+        for sp in sprites:
+            sh, sw = sp.bgr_premult.shape[:2]
+
+            # Destination bounds on frame (clipped to frame edges)
+            dx1 = max(0, sp.x)
+            dy1 = max(0, sp.y)
+            dx2 = min(fw, sp.x + sw)
+            dy2 = min(fh, sp.y + sh)
+            if dx2 <= dx1 or dy2 <= dy1:
+                continue
+
+            # Source bounds within sprite (adjusted for clipping)
+            cx1 = dx1 - sp.x
+            cy1 = dy1 - sp.y
+            cx2 = cx1 + (dx2 - dx1)
+            cy2 = cy1 + (dy2 - dy1)
+
+            roi = frame[dy1:dy2, dx1:dx2]
+            premult = sp.bgr_premult[cy1:cy2, cx1:cx2]
+            inv_a = sp.inv_alpha_u16[cy1:cy2, cx1:cx2]
+
+            # Integer alpha blend: out = (src*alpha + dst*(255-alpha) + 127) / 255
+            roi[:] = (
+                (premult + roi.astype(np.uint16) * inv_a + 127) // 255
+            ).astype(np.uint8)
 
         return frame
 
