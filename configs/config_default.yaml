@@ -914,7 +914,7 @@ SmartTracker:
   # === Search Expansion During Loss ===
   # When the target is lost, gradually expand the spatial search radius per frame.
   # This handles cases where the object took an unpredictable path during occlusion.
-  # Expansion factor: frames_lost * rate (capped at 2.0-3.0 for safety)
+  # Expansion = min(frames_lost * rate, cap)
   SEARCH_EXPANSION_RATE: 0.2           # Bbox/distance expansion rate per frame
 
   # === Appearance Position Gating ===
@@ -922,6 +922,71 @@ SmartTracker:
   # the predicted position. Prevents false matches with similar objects far away.
   # Gate distance = object_diagonal * factor * (1 + frames_lost * expansion)
   APPEARANCE_DISTANCE_GATE_FACTOR: 3.0
+
+  # ==============================================================================
+  # 🔐 RE-ACQUISITION & IDENTITY VERIFICATION
+  # ==============================================================================
+  # Controls how strictly the tracker verifies identity when re-acquiring a target
+  # after extended loss. Prevents false tracking of wrong objects.
+  #
+  # "aggressive": Accept any compatible-class match immediately (fastest recovery,
+  #               best when tracking generic class like "any car")
+  # "balanced":   Require size consistency + appearance check for distance matches
+  #               after long loss (DEFAULT — good for most scenarios)
+  # "strict":     Require appearance confirmation for ALL re-acquisitions after
+  #               long loss (best when tracking a specific individual)
+  REACQUISITION_MODE: "balanced"
+
+  # Maximum area ratio change allowed for re-acquisition size consistency check.
+  # Detection area / reference area must be within [1/ratio, ratio].
+  # 2.5 = allows up to 250% area change (handles scale variation from distance)
+  # Range: 1.5-5.0, Recommended: 2.0-3.0
+  MAX_SIZE_CHANGE_RATIO: 2.5
+
+  # Consecutive frames a re-acquired target must be detected before confirming.
+  # Prevents committing to a wrong target after a single frame match.
+  # Only applies in "balanced" and "strict" modes after long loss.
+  # Range: 1-10, Recommended: 2-5
+  REACQUISITION_CONFIRM_FRAMES: 3
+
+  # Fraction of frame dimension to consider "near the exit edge" for out-of-frame return.
+  # 0.15 = within 15% of frame width/height from the edge where target exited.
+  # Range: 0.05-0.30, Recommended: 0.10-0.20
+  EXIT_EDGE_MARGIN: 0.15
+
+  # ==============================================================================
+  # 🔧 SEARCH & RECOVERY TUNING
+  # ==============================================================================
+
+  # Max search expansion multiplier for normal spatial matching.
+  # Expansion = min(frames_lost * SEARCH_EXPANSION_RATE, this cap)
+  # Range: 1.0-5.0, Recommended: 1.5-3.0
+  SEARCH_EXPANSION_CAP: 2.0
+
+  # Max search expansion multiplier for lenient recovery matching.
+  # Used during extended tolerance period (after ID_LOSS_TOLERANCE_FRAMES).
+  # Range: 2.0-8.0, Recommended: 2.5-4.0
+  LENIENT_SEARCH_EXPANSION_CAP: 3.0
+
+  # Scale factor applied to SPATIAL_IOU_THRESHOLD for lenient matching.
+  # Lenient IoU = max(LENIENT_IOU_FLOOR, SPATIAL_IOU_THRESHOLD * this)
+  # Range: 0.2-0.6, Recommended: 0.3-0.5
+  LENIENT_IOU_SCALE: 0.4
+
+  # Minimum IoU threshold floor during lenient recovery.
+  # Prevents threshold from dropping to near-zero.
+  # Range: 0.05-0.20, Recommended: 0.08-0.15
+  LENIENT_IOU_FLOOR: 0.10
+
+  # Floor confidence value in prediction-only mode (no detection, Kalman only).
+  # Prevents confidence from reaching zero during extended prediction.
+  # Range: 0.05-0.20, Recommended: 0.08-0.15
+  MIN_PREDICTION_CONFIDENCE: 0.10
+
+  # Only log re-acquisition events when target was lost for more than this many frames.
+  # Reduces log noise from normal 1-2 frame detection gaps.
+  # Range: 1-10, Recommended: 2-5
+  REACQUISITION_LOG_THRESHOLD: 3
 
   # ==============================================================================
   # 🔧 BYTETRACK ADVANCED TUNING

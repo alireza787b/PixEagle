@@ -292,6 +292,28 @@ class AppearanceModel:
 
         return float(similarity)
 
+    def compare_features(self, track_id: int, features: np.ndarray) -> Optional[float]:
+        """
+        Compare features against stored features for a specific track ID.
+
+        Looks up the registered/lost object features and computes cosine similarity.
+
+        Args:
+            track_id: Track ID to compare against
+            features: Candidate feature vector
+
+        Returns:
+            Similarity score (0.0-1.0) or None if track_id has no stored features
+        """
+        if features is None or track_id not in self.lost_objects:
+            return None
+
+        stored_features = self.lost_objects[track_id].get('features')
+        if stored_features is None:
+            return None
+
+        return self.compute_similarity(stored_features, features)
+
     def register_object(self, track_id: int, class_id: int, features: np.ndarray):
         """
         Register appearance features for a tracked object.
