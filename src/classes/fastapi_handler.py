@@ -355,6 +355,8 @@ class FastAPIHandler:
 
         # YOLO Model Management API
         self.app.get("/api/yolo/models")(self.get_yolo_models)
+        self.app.get("/api/yolo/active-model")(self.get_yolo_active_model)
+        self.app.get("/api/yolo/models/{model_id}/labels")(self.get_yolo_model_labels)
         self.app.post("/api/yolo/switch-model")(self.switch_yolo_model)
         self.app.post("/api/yolo/upload")(self.upload_yolo_model)
         self.app.post("/api/yolo/delete/{model_id}")(self.delete_yolo_model)
@@ -2033,6 +2035,120 @@ class FastAPIHandler:
 
     # ==================== YOLO Model Management API Endpoints ====================
 
+    def _resolve_runtime_model_name(self, runtime_model_path: Optional[str]) -> Optional[str]:
+        """Map runtime model paths to UI-compatible model filenames."""
+        if not runtime_model_path:
+            return None
+
+        runtime_model_name = Path(runtime_model_path).name
+        if runtime_model_name.endswith("_ncnn_model"):
+            sibling_pt = Path(runtime_model_path).with_name(
+                f"{runtime_model_name[:-len('_ncnn_model')]}.pt"
+            )
+            return sibling_pt.name if sibling_pt.exists() else runtime_model_name
+
+        return runtime_model_name
+
+    def _get_smart_tracker_runtime_context(self) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """Return active runtime model filename + runtime metadata when SmartTracker is running."""
+        current_model = None
+        smart_tracker_runtime = None
+
+        smart_tracker = getattr(self.app_controller, 'smart_tracker', None)
+        if smart_tracker is None:
+            return current_model, smart_tracker_runtime
+
+        if hasattr(smart_tracker, "get_runtime_info"):
+            try:
+                smart_tracker_runtime = smart_tracker.get_runtime_info()
+                runtime_model_path = smart_tracker_runtime.get("model_path")
+                current_model = self._resolve_runtime_model_name(runtime_model_path)
+            except Exception as runtime_error:
+                self.logger.debug(f"Could not read smart tracker runtime info: {runtime_error}")
+
+        if hasattr(smart_tracker, 'model') and not current_model:
+            try:
+                model_file = getattr(smart_tracker.model, 'ckpt_path', None)
+                if model_file:
+                    current_model = Path(model_file).name
+            except Exception as model_error:
+                self.logger.debug(f"Could not determine current model: {model_error}")
+
+        return current_model, smart_tracker_runtime
+
+    def _get_configured_yolo_models(self) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """Return configured default model filenames from Parameters."""
+        configured_model = None
+        configured_gpu_model = None
+        configured_cpu_model = None
+
+        try:
+            gpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo26n.pt')
+            cpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo26n_ncnn_model')
+            configured_gpu_model = Path(gpu_model_path).name
+            configured_cpu_model = Path(cpu_model_path).name
+
+            # Keep legacy configured_model key (selected by SMART_TRACKER_USE_GPU)
+            use_gpu = Parameters.SmartTracker.get('SMART_TRACKER_USE_GPU', True)
+            configured_model = configured_gpu_model if use_gpu else configured_cpu_model
+        except Exception as config_error:
+            self.logger.debug(f"Could not determine configured model: {config_error}")
+
+        return configured_model, configured_gpu_model, configured_cpu_model
+
+    def _resolve_model_entry(self, models: Dict[str, Dict[str, Any]], model_identifier: Optional[str]) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """Resolve a discovered model entry from model id, filename, or path-like identifier."""
+        normalized_model_id = self.yolo_model_manager.normalize_model_id(model_identifier)
+        if normalized_model_id and normalized_model_id in models:
+            return normalized_model_id, models[normalized_model_id]
+
+        if model_identifier:
+            model_name = Path(str(model_identifier)).name
+            for candidate_id, candidate_info in models.items():
+                candidate_path = str(candidate_info.get("path", ""))
+                if candidate_path.endswith(model_name):
+                    return candidate_id, candidate_info
+
+        return None, None
+
+    def _build_active_model_summary(
+        self,
+        model_id: Optional[str],
+        model_info: Optional[Dict[str, Any]],
+        runtime: Optional[Dict[str, Any]],
+        source: str,
+        label_preview_limit: int = 8,
+    ) -> Optional[Dict[str, Any]]:
+        """Build summary payload for compact UI display."""
+        if not model_id or not model_info:
+            return None
+
+        labels = [str(label) for label in (model_info.get("class_names") or [])]
+        num_labels = int(model_info.get("num_classes") or len(labels))
+        label_preview = labels[:max(label_preview_limit, 0)]
+        runtime = runtime or {}
+
+        return {
+            "model_id": model_id,
+            "model_name": model_info.get("name") or model_id,
+            "model_path": model_info.get("path"),
+            "task": runtime.get("model_task") or model_info.get("task") or "unknown",
+            "geometry_mode": runtime.get("geometry_mode") or model_info.get("output_geometry") or "aabb",
+            "backend": runtime.get("backend"),
+            "device": runtime.get("effective_device"),
+            "fallback_occurred": bool(runtime.get("fallback_occurred", False)),
+            "fallback_reason": runtime.get("fallback_reason"),
+            "num_labels": num_labels,
+            "label_preview": label_preview,
+            "has_more_labels": len(labels) > len(label_preview),
+            "is_custom": bool(model_info.get("is_custom", False)),
+            "has_ncnn": bool(model_info.get("has_ncnn", False)),
+            "size_mb": model_info.get("size_mb"),
+            "smarttracker_supported": bool(model_info.get("smarttracker_supported", True)),
+            "compatibility_notes": model_info.get("compatibility_notes", []),
+            "source": source,
+        }
+
     async def get_yolo_models(self):
         """
         Get list of available YOLO models in yolo/ folder.
@@ -2054,61 +2170,21 @@ class FastAPIHandler:
             }
         """
         try:
-            from pathlib import Path
-
             # Discover models using YOLOModelManager
             models = self.yolo_model_manager.discover_models(force_rescan=False)
 
-            # Get current model if SmartTracker is active
-            current_model = None
-            smart_tracker_runtime = None
-            if (hasattr(self.app_controller, 'smart_tracker') and
-                self.app_controller.smart_tracker is not None):
-                smart_tracker = self.app_controller.smart_tracker
+            current_model, smart_tracker_runtime = self._get_smart_tracker_runtime_context()
+            configured_model, configured_gpu_model, configured_cpu_model = self._get_configured_yolo_models()
 
-                if hasattr(smart_tracker, "get_runtime_info"):
-                    try:
-                        smart_tracker_runtime = smart_tracker.get_runtime_info()
-                        runtime_model_path = smart_tracker_runtime.get("model_path")
-                        if runtime_model_path:
-                            runtime_model_name = Path(runtime_model_path).name
-                            # UI model list is .pt-based. If runtime uses NCNN folder,
-                            # map to sibling .pt name when available.
-                            if runtime_model_name.endswith("_ncnn_model"):
-                                sibling_pt = Path(runtime_model_path).with_name(
-                                    f"{runtime_model_name[:-len('_ncnn_model')]}.pt"
-                                )
-                                current_model = sibling_pt.name if sibling_pt.exists() else runtime_model_name
-                            else:
-                                current_model = runtime_model_name
-                    except Exception as e:
-                        self.logger.debug(f"Could not read smart tracker runtime info: {e}")
-
-                if hasattr(smart_tracker, 'model'):
-                    # Try to extract current model path
-                    try:
-                        model_file = getattr(smart_tracker.model, 'ckpt_path', None)
-                        if model_file and not current_model:
-                            current_model = Path(model_file).name
-                    except Exception as e:
-                        self.logger.debug(f"Could not determine current model: {e}")
-
-            # If SmartTracker is not active, get configured model from config
-            configured_model = None
-            configured_gpu_model = None
-            configured_cpu_model = None
-            try:
-                from classes.parameters import Parameters
-                gpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo26n.pt')
-                cpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo26n_ncnn_model')
-                configured_gpu_model = Path(gpu_model_path).name
-                configured_cpu_model = Path(cpu_model_path).name
-
-                # Keep legacy configured_model key (selected by SMART_TRACKER_USE_GPU)
-                use_gpu = Parameters.SmartTracker.get('SMART_TRACKER_USE_GPU', True)
-                configured_model = configured_gpu_model if use_gpu else configured_cpu_model
-            except Exception as e:
-                self.logger.debug(f"Could not determine configured model: {e}")
+            active_model_source = 'runtime' if current_model else ('configured' if configured_model else 'none')
+            active_model_identifier = current_model or configured_model
+            active_model_id, active_model_info = self._resolve_model_entry(models, active_model_identifier)
+            active_model_summary = self._build_active_model_summary(
+                active_model_id,
+                active_model_info,
+                smart_tracker_runtime if active_model_source == 'runtime' else None,
+                source=active_model_source,
+            )
 
             return JSONResponse(content={
                 'status': 'success',
@@ -2118,11 +2194,119 @@ class FastAPIHandler:
                 'configured_gpu_model': configured_gpu_model,
                 'configured_cpu_model': configured_cpu_model,
                 'runtime': smart_tracker_runtime,
-                'total_count': len(models)
+                'total_count': len(models),
+                'active_model_id': active_model_id,
+                'active_model_source': active_model_source,
+                'active_model_summary': active_model_summary,
+                'schema_version': '1.0',
             })
 
         except Exception as e:
             self.logger.error(f"Error getting YOLO models: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_yolo_active_model(self):
+        """
+        Get compact, UI-focused metadata for the active/configured YOLO model.
+        """
+        try:
+            models = self.yolo_model_manager.discover_models(force_rescan=False)
+            current_model, smart_tracker_runtime = self._get_smart_tracker_runtime_context()
+            configured_model, configured_gpu_model, configured_cpu_model = self._get_configured_yolo_models()
+
+            active_model_source = 'runtime' if current_model else ('configured' if configured_model else 'none')
+            active_model_identifier = current_model or configured_model
+            active_model_id, active_model_info = self._resolve_model_entry(models, active_model_identifier)
+
+            active_model_summary = self._build_active_model_summary(
+                active_model_id,
+                active_model_info,
+                smart_tracker_runtime if active_model_source == 'runtime' else None,
+                source=active_model_source,
+            )
+
+            return JSONResponse(content={
+                'status': 'success',
+                'available': bool(active_model_summary),
+                'active_model_source': active_model_source,
+                'active_model_summary': active_model_summary,
+                'runtime': smart_tracker_runtime,
+                'configured_model': configured_model,
+                'configured_gpu_model': configured_gpu_model,
+                'configured_cpu_model': configured_cpu_model,
+                'schema_version': '1.0',
+                'timestamp': time.time(),
+            })
+        except Exception as e:
+            self.logger.error(f"Error getting active YOLO model metadata: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_yolo_model_labels(self, model_id: str, request: Request):
+        """
+        Get paginated/searchable labels for a specific YOLO model.
+        """
+        try:
+            query_params = request.query_params
+            search = (query_params.get('search') or '').strip()
+            force_rescan = (query_params.get('force_rescan') or 'false').strip().lower() == 'true'
+
+            try:
+                offset = int(query_params.get('offset', '0'))
+                limit = int(query_params.get('limit', '200'))
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="offset and limit must be integers")
+
+            if offset < 0:
+                raise HTTPException(status_code=400, detail="offset must be >= 0")
+            if limit <= 0:
+                raise HTTPException(status_code=400, detail="limit must be > 0")
+
+            # Keep payload bounded for production UI traffic.
+            limit = min(limit, 500)
+
+            normalized_model_id = self.yolo_model_manager.normalize_model_id(model_id)
+            model_info, labels = self.yolo_model_manager.get_model_labels(
+                model_identifier=normalized_model_id,
+                force_rescan=force_rescan,
+            )
+            if model_info is None:
+                raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found")
+
+            indexed_labels = list(enumerate(labels))
+            if search:
+                search_lower = search.lower()
+                indexed_labels = [
+                    (class_id, label_name)
+                    for class_id, label_name in indexed_labels
+                    if search_lower in label_name.lower()
+                ]
+
+            filtered_count = len(indexed_labels)
+            page_labels = indexed_labels[offset:offset + limit]
+
+            return JSONResponse(content={
+                'status': 'success',
+                'model_id': normalized_model_id,
+                'model_name': model_info.get('name') or normalized_model_id,
+                'total_labels': len(labels),
+                'filtered_count': filtered_count,
+                'returned_count': len(page_labels),
+                'offset': offset,
+                'limit': limit,
+                'has_more': (offset + len(page_labels)) < filtered_count,
+                'labels': [
+                    {'class_id': class_id, 'label': label_name}
+                    for class_id, label_name in page_labels
+                ],
+                'search': search,
+                'schema_version': '1.0',
+                'timestamp': time.time(),
+            })
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error getting YOLO model labels for '{model_id}': {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     def _resolve_standby_cpu_model_path(self, model_path: Path) -> str:

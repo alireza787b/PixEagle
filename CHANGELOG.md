@@ -1,5 +1,26 @@
 # PixEagle Changelog
 
+## Unreleased (2026-02-10) - Dashboard State Sync & YOLO Model Metadata UX
+
+### 🚀 Improvements
+
+- Hardened dashboard state synchronization for live toggles:
+  - OSD toggle now continuously reconciles with backend state and refreshes on focus/visibility changes.
+  - Smart mode toggle now confirms backend state after mutation instead of relying on local inversion.
+  - Circuit breaker toggles now reconcile with authoritative status updates to reduce stale UI drift.
+- Added active-model capability metadata for SmartTracker/YOLO:
+  - `GET /api/yolo/active-model`
+  - `GET /api/yolo/models/{model_id}/labels` (paginated/searchable label listing)
+- Extended `GET /api/yolo/models` response with `active_model_summary`, `active_model_source`, and schema metadata.
+- Upgraded YOLO model selector UI with:
+  - "Active Model Capabilities" summary chips (task, geometry, source, NCNN/custom flags, label count)
+  - Click-to-open label browser dialog with search and bounded payload behavior.
+
+### 🧪 Validation
+
+- Added/updated unit coverage for YOLO model identifier normalization and label extraction helpers.
+- Python compile checks and JS syntax checks passed on all touched files.
+
 ## Version 3.2.1 (2026-02-05) - Resilience & Version Consistency
 
 ### 🚀 Improvements

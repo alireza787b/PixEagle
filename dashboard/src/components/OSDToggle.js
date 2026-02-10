@@ -1,5 +1,5 @@
 // dashboard/src/components/OSDToggle.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Switch,
   FormControlLabel,
@@ -17,26 +17,79 @@ import {
 import InfoIcon from '@mui/icons-material/Info';
 import { endpoints } from '../services/apiEndpoints';
 
+const DEFAULT_PRESETS = ['minimal', 'professional', 'full_telemetry'];
+const STATUS_POLL_INTERVAL_MS = 2000;
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-cache, no-store, must-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+};
+
+const normalizePresets = (presets) => {
+  if (!Array.isArray(presets)) {
+    return DEFAULT_PRESETS;
+  }
+
+  const cleanedPresets = presets
+    .map((preset) => String(preset).trim())
+    .filter(Boolean);
+
+  return cleanedPresets.length > 0 ? cleanedPresets : DEFAULT_PRESETS;
+};
+
+const extractPresetFromStatus = (statusPayload) => (
+  statusPayload?.configuration?.current_preset
+  || statusPayload?.current_preset
+  || statusPayload?.preset
+  || null
+);
+
+const fetchJsonNoStore = async (url, options = {}) => {
+  const { headers = {}, ...rest } = options;
+  const response = await fetch(url, {
+    cache: 'no-store',
+    ...rest,
+    headers: {
+      ...NO_STORE_HEADERS,
+      ...headers,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Request failed (${response.status})`);
+  }
+
+  return response.json();
+};
+
 /**
  * OSDToggle Component
  *
- * Professional OSD control component with enable/disable toggle and preset selection.
- * Follows PixEagle dashboard design standards (similar to TrackerModeToggle).
- *
- * Features:
- * - Toggle OSD on/off
- * - Select from available presets (minimal, professional, full_telemetry)
- * - Real-time status updates
- * - Error handling with user feedback
- * - Tooltip with preset descriptions
+ * Server-synced OSD control with resilient state reconciliation.
+ * Backend state is the source of truth for both enable/disable and preset selection.
  */
 const OSDToggle = () => {
   const [osdEnabled, setOsdEnabled] = useState(false);
   const [currentPreset, setCurrentPreset] = useState('professional');
-  const [availablePresets, setAvailablePresets] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [availablePresets, setAvailablePresets] = useState(DEFAULT_PRESETS);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [toggleLoading, setToggleLoading] = useState(false);
   const [presetLoading, setPresetLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const currentPresetRef = useRef('professional');
+  const availablePresetsRef = useRef(DEFAULT_PRESETS);
+  const statusRequestRef = useRef(0);
+  const presetsRequestRef = useRef(0);
+
+  useEffect(() => {
+    currentPresetRef.current = currentPreset;
+  }, [currentPreset]);
+
+  useEffect(() => {
+    availablePresetsRef.current = availablePresets;
+  }, [availablePresets]);
 
   // Preset descriptions for tooltips
   const presetDescriptions = {
@@ -45,106 +98,171 @@ const OSDToggle = () => {
     full_telemetry: 'Debugging - Maximum telemetry data for analysis (25+ elements)',
   };
 
-  // Fetch OSD status on component mount
-  useEffect(() => {
-    fetchOSDStatus();
-    fetchAvailablePresets();
+  const syncState = useCallback(async ({ includePresets = false, silent = false, suppressError = false } = {}) => {
+    const statusRequestId = ++statusRequestRef.current;
+    const presetsRequestId = includePresets ? ++presetsRequestRef.current : null;
+
+    if (!silent) {
+      setSyncing(true);
+    }
+
+    try {
+      const [statusData, presetsData] = await Promise.all([
+        fetchJsonNoStore(endpoints.osdStatus),
+        includePresets ? fetchJsonNoStore(endpoints.osdPresets) : Promise.resolve(null),
+      ]);
+
+      if (statusRequestId !== statusRequestRef.current) {
+        return null;
+      }
+      if (includePresets && presetsRequestId !== presetsRequestRef.current) {
+        return null;
+      }
+
+      let resolvedPresets = availablePresetsRef.current;
+      if (includePresets) {
+        resolvedPresets = normalizePresets(presetsData?.presets);
+        setAvailablePresets(resolvedPresets);
+        availablePresetsRef.current = resolvedPresets;
+      }
+
+      const statusPreset = extractPresetFromStatus(statusData);
+      const presetFromPresetsApi = presetsData?.current ? String(presetsData.current) : null;
+      const fallbackPreset = resolvedPresets[0] || 'professional';
+      const resolvedPreset = statusPreset || presetFromPresetsApi || currentPresetRef.current || fallbackPreset;
+
+      if (resolvedPreset && !resolvedPresets.includes(resolvedPreset)) {
+        resolvedPresets = [...resolvedPresets, resolvedPreset];
+        setAvailablePresets(resolvedPresets);
+        availablePresetsRef.current = resolvedPresets;
+      }
+
+      setCurrentPreset(resolvedPreset);
+      currentPresetRef.current = resolvedPreset;
+      setOsdEnabled(Boolean(statusData?.enabled));
+      setError(null);
+
+      return {
+        enabled: Boolean(statusData?.enabled),
+        preset: resolvedPreset,
+      };
+    } catch (syncError) {
+      if (!suppressError) {
+        console.error('Failed to sync OSD state:', syncError);
+        setError('Failed to sync OSD status');
+      }
+      return null;
+    } finally {
+      if (!silent) {
+        setSyncing(false);
+      }
+    }
   }, []);
 
-  /**
-   * Fetch current OSD status from backend
-   */
-  const fetchOSDStatus = async () => {
-    try {
-      const response = await fetch(endpoints.osdStatus);
-      if (response.ok) {
-        const data = await response.json();
-        setOsdEnabled(data.enabled || false);
-        setCurrentPreset(data.preset || 'professional');
+  useEffect(() => {
+    let mounted = true;
+
+    const initialize = async () => {
+      await syncState({ includePresets: true });
+      if (mounted) {
+        setInitialLoading(false);
       }
-    } catch (err) {
-      console.error('Failed to fetch OSD status:', err);
-      setError('Failed to fetch OSD status');
+    };
+
+    initialize();
+
+    const pollStatus = () => {
+      syncState({ silent: true, suppressError: true });
+    };
+
+    const intervalId = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
+      pollStatus();
+    }, STATUS_POLL_INTERVAL_MS);
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        pollStatus();
+      }
+    };
+
+    const handleWindowFocus = () => {
+      pollStatus();
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
     }
-  };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleWindowFocus);
+    }
+
+    return () => {
+      mounted = false;
+      clearInterval(intervalId);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleWindowFocus);
+      }
+    };
+  }, [syncState]);
 
   /**
-   * Fetch available OSD presets from backend
-   */
-  const fetchAvailablePresets = async () => {
-    try {
-      const response = await fetch(endpoints.osdPresets);
-      if (response.ok) {
-        const data = await response.json();
-        setAvailablePresets(data.presets || ['minimal', 'professional', 'full_telemetry']);
-        setCurrentPreset(data.current || 'professional');
-      }
-    } catch (err) {
-      console.error('Failed to fetch OSD presets:', err);
-      // Use default presets if fetch fails
-      setAvailablePresets(['minimal', 'professional', 'full_telemetry']);
-    }
-  };
-
-  /**
-   * Toggle OSD enable/disable
+   * Toggle OSD enable/disable and reconcile with backend status.
    */
   const handleToggle = async () => {
-    setLoading(true);
+    if (toggleLoading || presetLoading) {
+      return;
+    }
+
+    setToggleLoading(true);
     setError(null);
 
     try {
-      const response = await fetch(endpoints.toggleOsd, {
+      await fetchJsonNoStore(endpoints.toggleOsd, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        setOsdEnabled(data.enabled);
-      } else {
-        throw new Error('Failed to toggle OSD');
-      }
-    } catch (err) {
-      console.error('Failed to toggle OSD:', err);
+      await syncState({ silent: true, suppressError: true });
+    } catch (toggleError) {
+      console.error('Failed to toggle OSD:', toggleError);
       setError('Failed to toggle OSD. Please try again.');
+      await syncState({ silent: true, suppressError: true });
     } finally {
-      setLoading(false);
+      setToggleLoading(false);
     }
   };
 
   /**
-   * Change OSD preset
+   * Change OSD preset and reconcile with backend status.
    */
   const handlePresetChange = async (event) => {
-    const newPreset = event.target.value;
+    const newPreset = String(event.target.value);
     setPresetLoading(true);
     setError(null);
 
     try {
-      const response = await fetch(endpoints.loadOsdPreset(newPreset), {
+      await fetchJsonNoStore(endpoints.loadOsdPreset(newPreset), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        setCurrentPreset(newPreset);
-
-        // If OSD was disabled, enable it when changing preset
-        if (!osdEnabled && data.status === 'success') {
-          setOsdEnabled(true);
-        }
-      } else {
-        throw new Error('Failed to load preset');
-      }
-    } catch (err) {
-      console.error('Failed to change OSD preset:', err);
+      await syncState({ includePresets: true, silent: true, suppressError: true });
+    } catch (presetError) {
+      console.error('Failed to change OSD preset:', presetError);
       setError('Failed to load preset. Please try again.');
+      await syncState({ silent: true, suppressError: true });
     } finally {
       setPresetLoading(false);
     }
   };
+
+  const switchBusy = initialLoading || toggleLoading || syncing;
 
   return (
     <Box sx={{ mt: 2 }}>
@@ -174,20 +292,20 @@ const OSDToggle = () => {
           <Switch
             checked={osdEnabled}
             onChange={handleToggle}
-            disabled={loading}
+            disabled={switchBusy || presetLoading}
             color="primary"
           />
         }
         label={
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            {loading && <CircularProgress size={16} sx={{ mr: 1 }} />}
+            {switchBusy && <CircularProgress size={16} sx={{ mr: 1 }} />}
             {osdEnabled ? 'OSD Enabled' : 'OSD Disabled'}
           </Box>
         }
       />
 
       {/* Preset Selector */}
-      <FormControl fullWidth sx={{ mt: 2 }} disabled={!osdEnabled || presetLoading}>
+      <FormControl fullWidth sx={{ mt: 2 }} disabled={!osdEnabled || presetLoading || initialLoading}>
         <InputLabel id="osd-preset-label">OSD Preset</InputLabel>
         <Select
           labelId="osd-preset-label"
@@ -197,8 +315,7 @@ const OSDToggle = () => {
           onChange={handlePresetChange}
         >
           {availablePresets.map((preset) => {
-            // Ensure preset is a string
-            const presetName = typeof preset === 'string' ? preset : String(preset);
+            const presetName = String(preset);
             const displayName = presetName.charAt(0).toUpperCase() + presetName.slice(1).replace('_', ' ');
 
             return (
@@ -226,9 +343,9 @@ const OSDToggle = () => {
       )}
 
       {/* Current status display */}
-      {osdEnabled && currentPreset && (
+      {currentPreset && (
         <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-          Active: {String(currentPreset).charAt(0).toUpperCase() + String(currentPreset).slice(1).replace('_', ' ')}
+          Active Preset: {currentPreset.charAt(0).toUpperCase() + currentPreset.slice(1).replace('_', ' ')}
         </Typography>
       )}
     </Box>

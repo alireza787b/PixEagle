@@ -179,6 +179,54 @@ class YOLOModelManager:
 
         return models
 
+    def normalize_model_id(self, model_identifier: Optional[str]) -> str:
+        """
+        Normalize model identifiers to canonical model_id keys used by discover_models().
+
+        Accepts values such as:
+        - "yolo26n"
+        - "yolo26n.pt"
+        - "yolo/yolo26n.pt"
+        - "yolo/yolo26n_ncnn_model"
+        """
+        if not model_identifier:
+            return ""
+
+        model_name = Path(str(model_identifier)).name.strip()
+        if not model_name:
+            return ""
+
+        if model_name.endswith("_ncnn_model"):
+            model_name = model_name[:-len("_ncnn_model")]
+        elif model_name.lower().endswith(".pt"):
+            model_name = model_name[:-3]
+
+        return model_name
+
+    def get_model_info(self, model_identifier: Optional[str], force_rescan: bool = False) -> Optional[Dict]:
+        """Return discovered model metadata by flexible model identifier."""
+        model_id = self.normalize_model_id(model_identifier)
+        if not model_id:
+            return None
+
+        models = self.discover_models(force_rescan=force_rescan)
+        return models.get(model_id)
+
+    def get_model_labels(self, model_identifier: Optional[str], force_rescan: bool = False) -> Tuple[Optional[Dict], List[str]]:
+        """
+        Return model metadata and normalized label list.
+
+        Returns:
+            Tuple[model_info, labels]
+        """
+        model_info = self.get_model_info(model_identifier, force_rescan=force_rescan)
+        if not model_info:
+            return None, []
+
+        raw_labels = model_info.get("class_names") or model_info.get("metadata", {}).get("class_names") or []
+        labels = [str(label).strip() for label in raw_labels if str(label).strip()]
+        return model_info, labels
+
     def _generate_display_name(self, model_id: str, validation: Dict) -> str:
         """Generate user-friendly display name"""
         base_name = model_id.upper()

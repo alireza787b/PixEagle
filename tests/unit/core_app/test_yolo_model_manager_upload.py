@@ -97,3 +97,41 @@ def test_export_to_ncnn_returns_clear_error_when_pnnx_missing(tmp_path, monkeypa
 
     assert result["success"] is False
     assert "pnnx" in result["error"].lower()
+
+
+def test_model_identifier_helpers_resolve_pt_and_ncnn_identifiers(tmp_path, monkeypatch):
+    manager = YOLOModelManager(yolo_folder=str(tmp_path))
+    discovered = {
+        "demo": {
+            "name": "DEMO",
+            "path": str((tmp_path / "demo.pt").as_posix()),
+            "class_names": ["person", "car"],
+            "num_classes": 2,
+        }
+    }
+    monkeypatch.setattr(manager, "discover_models", lambda force_rescan=False: discovered)
+
+    assert manager.normalize_model_id("demo") == "demo"
+    assert manager.normalize_model_id("demo.pt") == "demo"
+    assert manager.normalize_model_id(f"{tmp_path.as_posix()}/demo.pt") == "demo"
+    assert manager.normalize_model_id(f"{tmp_path.as_posix()}/demo_ncnn_model") == "demo"
+
+    assert manager.get_model_info("demo.pt") == discovered["demo"]
+    assert manager.get_model_info(f"{tmp_path.as_posix()}/demo_ncnn_model") == discovered["demo"]
+
+
+def test_get_model_labels_returns_cleaned_labels(tmp_path, monkeypatch):
+    manager = YOLOModelManager(yolo_folder=str(tmp_path))
+    discovered = {
+        "demo": {
+            "name": "DEMO",
+            "path": str((tmp_path / "demo.pt").as_posix()),
+            "class_names": ["person", "", "car", "   "],
+            "num_classes": 4,
+        }
+    }
+    monkeypatch.setattr(manager, "discover_models", lambda force_rescan=False: discovered)
+
+    model_info, labels = manager.get_model_labels("demo.pt")
+    assert model_info == discovered["demo"]
+    assert labels == ["person", "car"]

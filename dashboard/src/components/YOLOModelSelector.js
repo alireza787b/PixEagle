@@ -21,7 +21,7 @@
  * Repository: https://github.com/alireza787b/PixEagle
  */
 
-import React, { useState, useMemo, useCallback, memo } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, memo } from 'react';
 import {
   Card,
   CardContent,
@@ -43,7 +43,8 @@ import {
   DialogContent,
   DialogActions,
   LinearProgress,
-  FormControlLabel
+  FormControlLabel,
+  TextField,
 } from '@mui/material';
 import {
   SwapHoriz,
@@ -55,13 +56,15 @@ import {
   Autorenew,
   Star,
   CloudDownload,
-  Warning
+  Warning,
+  Label
 } from '@mui/icons-material';
 import {
   useYOLOModels,
   useSwitchYOLOModel,
   useUploadYOLOModel,
-  useDeleteYOLOModel
+  useDeleteYOLOModel,
+  useYOLOModelLabels,
 } from '../hooks/useYOLOModels';
 
 // Loading skeleton component
@@ -90,6 +93,9 @@ const YOLOModelSelector = memo(() => {
     configuredGpuModel,
     configuredCpuModel,
     runtime,
+    activeModelId,
+    activeModelSource,
+    activeModelSummary,
     loading: loadingModels,
     error: modelsError,
     refetch
@@ -97,6 +103,7 @@ const YOLOModelSelector = memo(() => {
   const { switchModel, switching, switchError } = useSwitchYOLOModel();
   const { uploadModel, uploading, uploadError, uploadProgress, resetUpload } = useUploadYOLOModel();
   const { deleteModel, deleting, deleteError } = useDeleteYOLOModel();
+  const { fetchLabels, loading: labelsLoading, error: labelsError } = useYOLOModelLabels();
 
   // Local state
   const [selectedModel, setSelectedModel] = useState('');
@@ -107,9 +114,16 @@ const YOLOModelSelector = memo(() => {
   const [selectedFile, setSelectedFile] = useState(null);
   const [autoExportNcnn, setAutoExportNcnn] = useState(true);
   const [actionFeedback, setActionFeedback] = useState(null);
+  const [labelsDialogOpen, setLabelsDialogOpen] = useState(false);
+  const [labelsQuery, setLabelsQuery] = useState('');
+  const [labelRows, setLabelRows] = useState([]);
+  const [labelFilteredCount, setLabelFilteredCount] = useState(0);
+  const [labelTotalCount, setLabelTotalCount] = useState(0);
+  const [labelHasMore, setLabelHasMore] = useState(false);
   const hasPendingSelection = React.useRef(false);
+  const labelsRequestId = React.useRef(0);
 
-  const activeModelId = useMemo(() => {
+  const activeModelSelectionId = useMemo(() => {
     if (!models) return '';
     const modelToMatch = currentModel || configuredModel;
     if (!modelToMatch) return '';
@@ -159,12 +173,97 @@ const YOLOModelSelector = memo(() => {
     }));
   }, [models]);
 
+  const resolvedActiveModelSummary = useMemo(() => {
+    if (activeModelSummary?.model_id) {
+      return activeModelSummary;
+    }
+
+    if (!models) {
+      return null;
+    }
+
+    const modelIdentifier = currentModel || configuredModel;
+    if (!modelIdentifier) {
+      return null;
+    }
+
+    const matchedEntry = Object.entries(models).find(
+      ([, modelData]) => modelData.path?.endsWith(modelIdentifier)
+    );
+    if (!matchedEntry) {
+      return null;
+    }
+
+    const [fallbackModelId, modelData] = matchedEntry;
+    const labels = modelData.class_names || [];
+    return {
+      model_id: activeModelId || fallbackModelId,
+      model_name: modelData.name || fallbackModelId,
+      task: modelData.task || runtime?.model_task || 'unknown',
+      geometry_mode: runtime?.geometry_mode || modelData.output_geometry || 'aabb',
+      backend: runtime?.backend || null,
+      device: runtime?.effective_device || null,
+      fallback_occurred: Boolean(runtime?.fallback_occurred),
+      num_labels: modelData.num_classes || labels.length || 0,
+      label_preview: labels.slice(0, 8),
+      has_more_labels: labels.length > 8,
+      is_custom: Boolean(modelData.is_custom),
+      has_ncnn: Boolean(modelData.has_ncnn),
+      source: activeModelSource || (currentModel ? 'runtime' : 'configured'),
+    };
+  }, [activeModelSummary, activeModelId, activeModelSource, currentModel, configuredModel, models, runtime]);
+
+  const handleOpenLabelsDialog = useCallback(() => {
+    if (!resolvedActiveModelSummary?.model_id) {
+      return;
+    }
+    setLabelsQuery('');
+    setLabelsDialogOpen(true);
+  }, [resolvedActiveModelSummary]);
+
+  const handleCloseLabelsDialog = useCallback(() => {
+    setLabelsDialogOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!labelsDialogOpen || !resolvedActiveModelSummary?.model_id) {
+      return undefined;
+    }
+
+    const requestId = ++labelsRequestId.current;
+    const timer = setTimeout(async () => {
+      const response = await fetchLabels(resolvedActiveModelSummary.model_id, {
+        offset: 0,
+        limit: 500,
+        search: labelsQuery,
+      });
+
+      if (requestId !== labelsRequestId.current) {
+        return;
+      }
+
+      if (response.success) {
+        setLabelRows(response.labels || []);
+        setLabelFilteredCount(response.filteredCount ?? 0);
+        setLabelTotalCount(response.totalLabels ?? 0);
+        setLabelHasMore(Boolean(response.hasMore));
+      } else {
+        setLabelRows([]);
+        setLabelFilteredCount(0);
+        setLabelTotalCount(0);
+        setLabelHasMore(false);
+      }
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [labelsDialogOpen, resolvedActiveModelSummary, labelsQuery, fetchLabels]);
+
   // Handle model selection change
   const handleModelChange = useCallback((event) => {
     const newValue = event.target.value;
     setSelectedModel(newValue);
-    hasPendingSelection.current = Boolean(newValue && newValue !== activeModelId);
-  }, [activeModelId]);
+    hasPendingSelection.current = Boolean(newValue && newValue !== activeModelSelectionId);
+  }, [activeModelSelectionId]);
 
   // Handle device selection change
   const handleDeviceChange = useCallback((event) => {
@@ -375,6 +474,73 @@ const YOLOModelSelector = memo(() => {
             </Box>
           )}
 
+          {resolvedActiveModelSummary && (
+            <Box
+              sx={{
+                mb: 2,
+                p: 1.5,
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 1,
+                bgcolor: 'action.hover'
+              }}
+            >
+              <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mb: 1 }}>
+                Active Model Capabilities
+              </Typography>
+
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  icon={<Label fontSize="small" />}
+                  label={`${resolvedActiveModelSummary.num_labels || 0} labels`}
+                  onClick={handleOpenLabelsDialog}
+                  clickable
+                  color="info"
+                />
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={`Task: ${resolvedActiveModelSummary.task || 'unknown'}`}
+                />
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={`Geometry: ${resolvedActiveModelSummary.geometry_mode || 'aabb'}`}
+                />
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={`Source: ${resolvedActiveModelSummary.source || 'unknown'}`}
+                />
+                {resolvedActiveModelSummary.has_ncnn && (
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    color="success"
+                    label="NCNN Ready"
+                  />
+                )}
+                {resolvedActiveModelSummary.is_custom && (
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    color="secondary"
+                    label="Custom Labels"
+                  />
+                )}
+              </Box>
+
+              {(resolvedActiveModelSummary.label_preview || []).length > 0 && (
+                <Typography variant="caption" color="textSecondary">
+                  Labels preview: {resolvedActiveModelSummary.label_preview.join(', ')}
+                  {resolvedActiveModelSummary.has_more_labels ? ' ...' : ''}
+                </Typography>
+              )}
+            </Box>
+          )}
+
           {(configuredGpuModel || configuredCpuModel) && (
             <Box sx={{ mb: 2 }}>
               <Typography variant="caption" color="textSecondary" sx={{ display: 'block' }}>
@@ -505,6 +671,96 @@ const YOLOModelSelector = memo(() => {
           </Alert>
         </CardContent>
       </Card>
+
+      <Dialog
+        open={labelsDialogOpen}
+        onClose={handleCloseLabelsDialog}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>
+          Model Labels
+          {resolvedActiveModelSummary?.model_name ? ` - ${resolvedActiveModelSummary.model_name}` : ''}
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ pt: 1 }}>
+            <TextField
+              fullWidth
+              size="small"
+              label="Search labels"
+              value={labelsQuery}
+              onChange={(event) => setLabelsQuery(event.target.value)}
+              placeholder="Type to filter class names"
+            />
+
+            {(labelTotalCount > 0 || labelFilteredCount > 0) && (
+              <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mt: 1 }}>
+                Showing {labelRows.length} of {labelFilteredCount} matching labels
+                {labelFilteredCount !== labelTotalCount ? ` (${labelTotalCount} total)` : ''}
+              </Typography>
+            )}
+
+            {labelsLoading && <LinearProgress sx={{ mt: 1.5 }} />}
+
+            {labelsError && (
+              <Alert severity="error" size="small" sx={{ mt: 2 }}>
+                {labelsError}
+              </Alert>
+            )}
+
+            {!labelsLoading && !labelsError && labelRows.length === 0 && (
+              <Alert severity="info" size="small" sx={{ mt: 2 }}>
+                No labels found for this query.
+              </Alert>
+            )}
+
+            {!labelsLoading && labelRows.length > 0 && (
+              <Box
+                sx={{
+                  mt: 2,
+                  maxHeight: 320,
+                  overflowY: 'auto',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  borderRadius: 1,
+                }}
+              >
+                {labelRows.map((labelItem) => (
+                  <Box
+                    key={`${labelItem.class_id}-${labelItem.label}`}
+                    sx={{
+                      px: 1.5,
+                      py: 1,
+                      borderBottom: '1px solid',
+                      borderColor: 'divider',
+                      '&:last-child': { borderBottom: 'none' },
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                    }}
+                  >
+                    <Chip
+                      size="small"
+                      label={`#${labelItem.class_id}`}
+                      sx={{ minWidth: 56, fontFamily: 'monospace' }}
+                    />
+                    <Typography variant="body2">{labelItem.label}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            )}
+
+            {labelHasMore && (
+              <Alert severity="warning" size="small" sx={{ mt: 1.5 }}>
+                Showing first 500 labels. Narrow your search to see specific classes.
+              </Alert>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseLabelsDialog}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Upload Dialog */}
       <Dialog open={uploadDialogOpen} onClose={() => setUploadDialogOpen(false)}>

@@ -60,6 +60,8 @@ export const endpoints = {
 
   // YOLO Model Management endpoints
   yoloModels: `${protocol}://${apiHost}:${apiPort}/api/yolo/models`,
+  yoloActiveModel: `${protocol}://${apiHost}:${apiPort}/api/yolo/active-model`,
+  yoloModelLabels: (modelId) => `${protocol}://${apiHost}:${apiPort}/api/yolo/models/${encodeURIComponent(modelId)}/labels`,
   yoloSwitchModel: `${protocol}://${apiHost}:${apiPort}/api/yolo/switch-model`,
   yoloUpload: `${protocol}://${apiHost}:${apiPort}/api/yolo/upload`,
   yoloDelete: (modelId) => `${protocol}://${apiHost}:${apiPort}/api/yolo/delete/${modelId}`,

@@ -1,5 +1,5 @@
 // dashboard/src/components/CircuitBreakerStatusCard.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Card,
   CardContent,
@@ -25,6 +25,17 @@ import {
 import { endpoints } from '../services/apiEndpoints';
 import axios from 'axios';
 
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-cache, no-store, must-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+};
+
+const buildNoCacheConfig = () => ({
+  headers: NO_CACHE_HEADERS,
+  params: { _t: Date.now() },
+});
+
 const CircuitBreakerStatusCard = React.memo(() => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -34,48 +45,65 @@ const CircuitBreakerStatusCard = React.memo(() => {
   const [showStatistics, setShowStatistics] = useState(false);
   const [safetyBypass, setSafetyBypass] = useState(false);
   const [togglingBypass, setTogglingBypass] = useState(false);
+  const statusRequestRef = useRef(0);
+  const statsRequestRef = useRef(0);
 
-  const fetchStatus = async () => {
+  const fetchStatus = useCallback(async ({ suppressError = false } = {}) => {
+    const requestId = ++statusRequestRef.current;
     try {
-      const response = await axios.get(endpoints.circuitBreakerStatus);
+      const response = await axios.get(endpoints.circuitBreakerStatus, buildNoCacheConfig());
+      if (requestId !== statusRequestRef.current) {
+        return null;
+      }
+
       setStatus(response.data);
       setSafetyBypass(response.data.safety_bypass || false);
       setError(null);
+      return response.data;
     } catch (err) {
-      setError(err.response?.data?.detail || err.message);
+      if (!suppressError) {
+        setError(err.response?.data?.detail || err.message);
+      }
+      return null;
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const fetchStatistics = async () => {
+  const fetchStatistics = useCallback(async ({ suppressError = false } = {}) => {
+    const requestId = ++statsRequestRef.current;
     try {
-      const response = await axios.get(endpoints.circuitBreakerStats);
+      const response = await axios.get(endpoints.circuitBreakerStats, buildNoCacheConfig());
+      if (requestId !== statsRequestRef.current) {
+        return null;
+      }
+
       setStatistics(response.data);
+      return response.data;
     } catch (err) {
-      // Note: Error already handled by parent component's error state
-      // In production, this would integrate with proper logging service
+      if (!suppressError) {
+        setError(err.response?.data?.detail || err.message);
+      }
+      return null;
     }
-  };
+  }, []);
 
   const handleToggle = async () => {
     if (toggling) return;
 
     setToggling(true);
+    setError(null);
     try {
-      const response = await axios.post(endpoints.toggleCircuitBreaker);
-      setStatus(prev => ({
-        ...prev,
-        active: response.data.new_state
-      }));
-      // Reset safety bypass when CB is turned off
-      if (!response.data.new_state) {
+      await axios.post(endpoints.toggleCircuitBreaker, {}, { headers: NO_CACHE_HEADERS });
+      const latestStatus = await fetchStatus({ suppressError: true });
+      if (latestStatus && !latestStatus.active) {
         setSafetyBypass(false);
       }
-      // Refresh statistics after toggle
-      await fetchStatistics();
+
+      await fetchStatistics({ suppressError: true });
     } catch (err) {
       setError(err.response?.data?.detail || err.message);
+      await fetchStatus({ suppressError: true });
     } finally {
       setToggling(false);
     }
@@ -85,11 +113,14 @@ const CircuitBreakerStatusCard = React.memo(() => {
     if (togglingBypass) return;
 
     setTogglingBypass(true);
+    setError(null);
     try {
-      const response = await axios.post(endpoints.toggleCircuitBreakerSafety);
-      setSafetyBypass(response.data.safety_bypass);
+      await axios.post(endpoints.toggleCircuitBreakerSafety, {}, { headers: NO_CACHE_HEADERS });
+      await fetchStatus({ suppressError: true });
+      await fetchStatistics({ suppressError: true });
     } catch (err) {
       setError(err.response?.data?.detail || err.message);
+      await fetchStatus({ suppressError: true });
     } finally {
       setTogglingBypass(false);
     }
@@ -104,18 +135,57 @@ const CircuitBreakerStatusCard = React.memo(() => {
     }
 
     // Optimized polling: status every 2 seconds, statistics only if shown and less frequently
-    const statusInterval = setInterval(fetchStatus, 2000);
+    const statusInterval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
+      fetchStatus({ suppressError: true });
+    }, 2000);
 
     let statisticsInterval = null;
     if (showStatistics) {
-      statisticsInterval = setInterval(fetchStatistics, 5000); // Less frequent for statistics
+      statisticsInterval = setInterval(() => {
+        if (typeof document !== 'undefined' && document.hidden) {
+          return;
+        }
+        fetchStatistics({ suppressError: true });
+      }, 5000); // Less frequent for statistics
+    }
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && !document.hidden) {
+        fetchStatus({ suppressError: true });
+        if (showStatistics) {
+          fetchStatistics({ suppressError: true });
+        }
+      }
+    };
+
+    const handleWindowFocus = () => {
+      fetchStatus({ suppressError: true });
+      if (showStatistics) {
+        fetchStatistics({ suppressError: true });
+      }
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleWindowFocus);
     }
 
     return () => {
       clearInterval(statusInterval);
       if (statisticsInterval) clearInterval(statisticsInterval);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleWindowFocus);
+      }
     };
-  }, [showStatistics]); // Re-run when showStatistics changes
+  }, [showStatistics, fetchStatus, fetchStatistics]); // Re-run when showStatistics changes
 
   if (loading) {
     return (

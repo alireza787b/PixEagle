@@ -131,7 +131,6 @@ const DashboardPage = () => {
   const [isTracking, setIsTracking] = useState(false);
   const [loading, setLoading] = useState(true);
   const [streamingProtocol, setStreamingProtocol] = useState('websocket');
-  const [smartModeActive, setSmartModeActive] = useState(false);
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState('info');
@@ -142,12 +141,11 @@ const DashboardPage = () => {
 
   const isFollowing = useFollowerStatus(checkInterval);
   const trackerStatus = useTrackerStatus(checkInterval);
-  const smartModeStatus = useSmartModeStatus(checkInterval);
+  const {
+    smartModeActive,
+    refresh: refreshSmartModeStatus,
+  } = useSmartModeStatus(checkInterval);
   const { currentProfile } = useCurrentFollowerProfile();
-
-  useEffect(() => {
-    setSmartModeActive(smartModeStatus);
-  }, [smartModeStatus]);
 
   // Unified data fetching for better performance
   useEffect(() => {
@@ -259,13 +257,18 @@ const DashboardPage = () => {
 
   const handleToggleSmartMode = async () => {
     try {
-      await fetch(endpoints.toggleSmartMode, {
+      const response = await fetch(endpoints.toggleSmartMode, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
-      const newMode = !smartModeActive;
-      setSmartModeActive(newMode);
-      setSnackbarMessage(`Switched to ${newMode ? 'Smart Tracker (YOLO)' : 'Classic Tracker'}`);
+      if (!response.ok) {
+        throw new Error(`Failed to toggle smart mode (HTTP ${response.status})`);
+      }
+
+      const syncedMode = await refreshSmartModeStatus({ suppressErrors: true });
+      const activeMode = typeof syncedMode === 'boolean' ? syncedMode : smartModeActive;
+
+      setSnackbarMessage(`Switched to ${activeMode ? 'Smart Tracker (YOLO)' : 'Classic Tracker'}`);
       setSnackbarSeverity('info');
       setSnackbarOpen(true);
     } catch (err) {

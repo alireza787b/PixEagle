@@ -21,6 +21,15 @@ import axios from 'axios';
 import { apiConfig } from '../services/apiEndpoints';
 
 const API_URL = `${apiConfig.protocol}://${apiConfig.apiHost}:${apiConfig.apiPort}`;
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-cache, no-store, must-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+};
+const buildNoCacheRequestConfig = () => ({
+  headers: NO_CACHE_HEADERS,
+  params: { _t: Date.now() },
+});
 
 /**
  * Hook to fetch available YOLO models
@@ -34,13 +43,16 @@ export const useYOLOModels = (refreshInterval = 10000) => {
   const [configuredGpuModel, setConfiguredGpuModel] = useState(null);
   const [configuredCpuModel, setConfiguredCpuModel] = useState(null);
   const [runtime, setRuntime] = useState(null);
+  const [activeModelId, setActiveModelId] = useState(null);
+  const [activeModelSource, setActiveModelSource] = useState('none');
+  const [activeModelSummary, setActiveModelSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const lastSuccessfulData = useRef(null);
 
   const fetchModels = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/yolo/models`);
+      const response = await axios.get(`${API_URL}/api/yolo/models`, buildNoCacheRequestConfig());
 
       // Only update if data actually changed
       const dataString = JSON.stringify(response.data);
@@ -51,6 +63,9 @@ export const useYOLOModels = (refreshInterval = 10000) => {
         setConfiguredGpuModel(response.data.configured_gpu_model || null);
         setConfiguredCpuModel(response.data.configured_cpu_model || null);
         setRuntime(response.data.runtime || null);
+        setActiveModelId(response.data.active_model_id || null);
+        setActiveModelSource(response.data.active_model_source || 'none');
+        setActiveModelSummary(response.data.active_model_summary || null);
         lastSuccessfulData.current = response.data;
       }
 
@@ -68,6 +83,9 @@ export const useYOLOModels = (refreshInterval = 10000) => {
         setConfiguredGpuModel(lastSuccessfulData.current.configured_gpu_model || null);
         setConfiguredCpuModel(lastSuccessfulData.current.configured_cpu_model || null);
         setRuntime(lastSuccessfulData.current.runtime || null);
+        setActiveModelId(lastSuccessfulData.current.active_model_id || null);
+        setActiveModelSource(lastSuccessfulData.current.active_model_source || 'none');
+        setActiveModelSummary(lastSuccessfulData.current.active_model_summary || null);
       }
 
       setLoading(false);
@@ -89,6 +107,9 @@ export const useYOLOModels = (refreshInterval = 10000) => {
       configuredGpuModel,
       configuredCpuModel,
       runtime,
+      activeModelId,
+      activeModelSource,
+      activeModelSummary,
       loading,
       error,
       refetch: fetchModels
@@ -100,10 +121,85 @@ export const useYOLOModels = (refreshInterval = 10000) => {
       configuredGpuModel,
       configuredCpuModel,
       runtime,
+      activeModelId,
+      activeModelSource,
+      activeModelSummary,
       loading,
       error,
       fetchModels
     ]
+  );
+};
+
+/**
+ * Hook to fetch model label metadata on demand (for detail dialogs, search, etc.).
+ * @returns {Object} { fetchLabels, loading, error }
+ */
+export const useYOLOModelLabels = () => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const fetchLabels = useCallback(async (modelId, options = {}) => {
+    const {
+      offset = 0,
+      limit = 500,
+      search = '',
+      forceRescan = false,
+    } = options;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await axios.get(
+        `${API_URL}/api/yolo/models/${encodeURIComponent(modelId)}/labels`,
+        {
+          ...buildNoCacheRequestConfig(),
+          params: {
+            offset,
+            limit,
+            search: search || undefined,
+            force_rescan: forceRescan ? 'true' : 'false',
+            _t: Date.now(),
+          },
+        }
+      );
+
+      const payload = response.data || {};
+      if (payload.status !== 'success') {
+        throw new Error(payload.error || 'Failed to fetch model labels');
+      }
+
+      return {
+        success: true,
+        modelId: payload.model_id,
+        modelName: payload.model_name,
+        totalLabels: payload.total_labels ?? 0,
+        filteredCount: payload.filtered_count ?? 0,
+        returnedCount: payload.returned_count ?? 0,
+        hasMore: Boolean(payload.has_more),
+        labels: payload.labels || [],
+      };
+    } catch (err) {
+      const errorMsg = err.response?.data?.detail || err.message || 'Failed to fetch model labels';
+      setError(errorMsg);
+      return {
+        success: false,
+        error: errorMsg,
+        labels: [],
+      };
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return useMemo(
+    () => ({
+      fetchLabels,
+      loading,
+      error,
+    }),
+    [fetchLabels, loading, error]
   );
 };
 
