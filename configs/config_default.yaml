@@ -888,6 +888,41 @@ SmartTracker:
   # Range: 0.0-1.0, Recommended: 0.7-0.9
   CONFIDENCE_SMOOTHING_ALPHA: 0.8
 
+  # === Kalman Filter State Estimator ===
+  # Replaces simple motion prediction with a proper Kalman filter for continuous
+  # position estimation during occlusion. Uses the same constant-velocity model
+  # as SORT, DeepSORT, and ByteTrack. Provides continuous prediction without
+  # the 5-frame limit of the legacy MotionPredictor.
+  ENABLE_KALMAN_FILTER: true
+  KALMAN_PROCESS_NOISE: 1.0            # Process noise scale (higher = trust model less)
+  KALMAN_MEASUREMENT_NOISE: 1.0        # Measurement noise scale (higher = trust detections less)
+
+  # === Center-Distance Matching ===
+  # Fallback when IoU is zero (fast-moving objects that displaced beyond overlap).
+  # Matches by Euclidean center distance normalized to object diagonal.
+  # Threshold is adaptive: expands with frames_lost * SEARCH_EXPANSION_RATE
+  ENABLE_CENTER_DISTANCE_MATCHING: true
+  CENTER_DISTANCE_THRESHOLD: 2.0       # Max center distance as multiple of object diagonal
+
+  # === Class Flexibility ===
+  # YOLO frequently flickers between similar classes (car<->truck, person<->pedestrian).
+  # When enabled, tracking continues even if class_id changes, as long as it appeared
+  # in the recent class history buffer.
+  CLASS_MATCH_FLEXIBLE: true
+  CLASS_HISTORY_SIZE: 10               # Number of recent class observations to remember
+
+  # === Search Expansion During Loss ===
+  # When the target is lost, gradually expand the spatial search radius per frame.
+  # This handles cases where the object took an unpredictable path during occlusion.
+  # Expansion factor: frames_lost * rate (capped at 2.0-3.0 for safety)
+  SEARCH_EXPANSION_RATE: 0.2           # Bbox/distance expansion rate per frame
+
+  # === Appearance Position Gating ===
+  # Limits appearance (ReID) matching to candidates within plausible distance from
+  # the predicted position. Prevents false matches with similar objects far away.
+  # Gate distance = object_diagonal * factor * (1 + frames_lost * expansion)
+  APPEARANCE_DISTANCE_GATE_FACTOR: 3.0
+
   # ==============================================================================
   # 🔧 BYTETRACK ADVANCED TUNING
   # ==============================================================================
