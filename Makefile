@@ -10,13 +10,14 @@
 #   make run     - Run all services
 #   make dev     - Run in development mode
 #   make stop    - Stop all services
+#   make sync    - Pull latest changes from upstream
 #
 # For Windows without make, use:
 #   scripts\init.bat
 #   scripts\run.bat
 # ============================================================================
 
-.PHONY: help init run dev stop clean status logs download-binaries \
+.PHONY: help init run dev stop clean sync update status logs download-binaries \
         service-install service-uninstall service-enable service-disable \
         service-status service-logs service-attach
 
@@ -59,6 +60,11 @@ help:
 	@echo "    make service-logs      Follow service logs"
 	@echo "    make service-attach    Attach to service tmux session"
 	@echo "    make service-uninstall Remove pixeagle-service + systemd unit"
+	@echo ""
+	@echo "  Updates:"
+	@echo "    make sync              Pull latest changes from upstream safely"
+	@echo "    make update            Alias for sync"
+	@echo "    Options: SYNC_REMOTE=<remote> SYNC_BRANCH=<branch>"
 	@echo ""
 	@echo "  Maintenance:"
 	@echo "    make clean             Clean build artifacts and caches"
@@ -139,6 +145,70 @@ service-logs:
 
 service-attach:
 	@pixeagle-service attach
+
+# ============================================================================
+# Updates
+# ============================================================================
+# Override these to sync from a different remote or branch:
+#   make sync SYNC_REMOTE=upstream SYNC_BRANCH=develop
+# Defaults: auto-detect from git config (works with both SSH and HTTPS remotes)
+SYNC_REMOTE ?=
+SYNC_BRANCH ?=
+
+sync:
+	@echo ""
+	@echo "  Syncing PixEagle with upstream..."
+	@echo "  ═══════════════════════════════════════════════════════════════"
+	@echo ""
+	@if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+		echo "  Error: Not a git repository."; exit 1; \
+	fi
+	@CUR_BRANCH=$$(git symbolic-ref --short HEAD 2>/dev/null); \
+	REMOTE="$(SYNC_REMOTE)"; \
+	if [ -z "$$REMOTE" ]; then REMOTE=$$(git config branch.$$CUR_BRANCH.remote 2>/dev/null || echo "origin"); fi; \
+	BRANCH="$(SYNC_BRANCH)"; \
+	if [ -z "$$BRANCH" ]; then BRANCH=$$CUR_BRANCH; fi; \
+	REMOTE_URL=$$(git remote get-url $$REMOTE 2>/dev/null || echo "unknown"); \
+	echo "  Remote:  $$REMOTE ($$REMOTE_URL)"; \
+	echo "  Branch:  $$BRANCH"; \
+	echo ""; \
+	if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then \
+		echo "  Stashing local changes..."; \
+		git stash push -m "pixeagle-sync-$$(date +%Y%m%d-%H%M%S)" || exit 1; \
+		STASHED=1; \
+	else \
+		STASHED=0; \
+	fi; \
+	echo "  Fetching from $$REMOTE..."; \
+	git fetch $$REMOTE || exit 1; \
+	echo "  Pulling $$REMOTE/$$BRANCH..."; \
+	if git merge --ff-only $$REMOTE/$$BRANCH; then \
+		echo ""; \
+		echo "  Sync successful (fast-forward)."; \
+	else \
+		echo ""; \
+		echo "  Fast-forward not possible. Attempting merge..."; \
+		if git merge $$REMOTE/$$BRANCH --no-edit; then \
+			echo "  Sync successful (merge)."; \
+		else \
+			echo "  Merge conflict detected. Aborting merge."; \
+			git merge --abort; \
+			echo "  Please resolve manually: git pull $$REMOTE $$BRANCH"; \
+			if [ "$$STASHED" = "1" ]; then \
+				echo "  Your stashed changes are preserved. Run: git stash pop"; \
+			fi; \
+			exit 1; \
+		fi; \
+	fi; \
+	if [ "$$STASHED" = "1" ]; then \
+		echo "  Restoring stashed changes..."; \
+		git stash pop || echo "  Warning: Stash pop had conflicts. Run: git stash show -p | git apply"; \
+	fi; \
+	echo ""; \
+	echo "  ═══════════════════════════════════════════════════════════════"; \
+	echo ""
+
+update: sync
 
 # ============================================================================
 # Maintenance

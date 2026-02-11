@@ -113,6 +113,7 @@ The script auto-detects your platform and recommends the appropriate profile.
 make run           # Run all services
 make dev           # Development mode with hot-reload
 make stop          # Stop all services
+make sync          # Pull latest updates from upstream
 make help          # Show all commands
 ```
 
@@ -212,6 +213,7 @@ sudo ufw allow 3040/tcp && sudo ufw allow 5077/tcp && sudo ufw allow 5551/tcp &&
 make run                # Full system (recommended)
 make dev                # Development mode with hot-reload
 make stop               # Stop all services
+make sync               # Pull latest updates safely
 make status             # Show service status
 make logs               # Attach to tmux session
 make help               # Show all commands
