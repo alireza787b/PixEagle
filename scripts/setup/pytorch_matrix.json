@@ -1,5 +1,5 @@
 {
-  "version": "2026-02-09",
+  "version": "2026-02-11",
   "notes": "Platform-specific PyTorch install profiles for PixEagle setup-pytorch.sh",
   "profiles": {
     "linux_x86_cuda12": {
@@ -8,9 +8,9 @@
       "install_method": "index",
       "index_url": "https://download.pytorch.org/whl/cu124",
       "packages": {
-        "torch": "2.5.1",
-        "torchvision": "0.20.1",
-        "torchaudio": "2.5.1"
+        "torch": "2.6.0",
+        "torchvision": "0.21.0",
+        "torchaudio": "2.6.0"
       },
       "verify": {
         "require_cuda": true,
@@ -26,9 +26,9 @@
       "install_method": "index",
       "index_url": "https://download.pytorch.org/whl/cu118",
       "packages": {
-        "torch": "2.5.1",
-        "torchvision": "0.20.1",
-        "torchaudio": "2.5.1"
+        "torch": "2.6.0",
+        "torchvision": "0.21.0",
+        "torchaudio": "2.6.0"
       },
       "verify": {
         "require_cuda": true,
@@ -44,9 +44,9 @@
       "install_method": "index",
       "index_url": "https://download.pytorch.org/whl/cpu",
       "packages": {
-        "torch": "2.5.1",
-        "torchvision": "0.20.1",
-        "torchaudio": "2.5.1"
+        "torch": "2.6.0",
+        "torchvision": "0.21.0",
+        "torchaudio": "2.6.0"
       },
       "verify": {
         "require_cuda": false,
@@ -61,9 +61,9 @@
       "description": "macOS Apple Silicon (MPS acceleration)",
       "install_method": "pypi",
       "packages": {
-        "torch": "2.5.1",
-        "torchvision": "0.20.1",
-        "torchaudio": "2.5.1"
+        "torch": "2.6.0",
+        "torchvision": "0.21.0",
+        "torchaudio": "2.6.0"
       },
       "verify": {
         "require_cuda": false,
@@ -78,9 +78,9 @@
       "description": "macOS Apple Silicon (CPU-only)",
       "install_method": "pypi",
       "packages": {
-        "torch": "2.5.1",
-        "torchvision": "0.20.1",
-        "torchaudio": "2.5.1"
+        "torch": "2.6.0",
+        "torchvision": "0.21.0",
+        "torchaudio": "2.6.0"
       },
       "verify": {
         "require_cuda": false,
@@ -95,9 +95,9 @@
       "description": "macOS Intel (CPU-only)",
       "install_method": "pypi",
       "packages": {
-        "torch": "2.5.1",
-        "torchvision": "0.20.1",
-        "torchaudio": "2.5.1"
+        "torch": "2.6.0",
+        "torchvision": "0.21.0",
+        "torchaudio": "2.6.0"
       },
       "verify": {
         "require_cuda": false,
