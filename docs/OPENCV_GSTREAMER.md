@@ -36,7 +36,7 @@ If both are `false` (the defaults), skip this guide entirely.
 bash scripts/setup/build-opencv.sh
 ```
 
-This builds OpenCV 4.13.0 with GStreamer, Qt, OpenGL, and FFMPEG support. It:
+This builds OpenCV 4.13.0 with GStreamer, GTK, OpenGL, and FFMPEG support. It:
 - Checks disk space (10GB+) and available memory
 - **Auto-creates temporary swap** on low-memory systems (Jetson Nano, RPi) — cleaned up after build
 - Scales build parallelism to available RAM (2-2.5GB per job, CUDA-aware) to prevent OOM

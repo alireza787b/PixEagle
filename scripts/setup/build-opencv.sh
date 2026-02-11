@@ -3,7 +3,7 @@
 # ============================================================================
 # scripts/setup/build-opencv.sh - Build OpenCV with GStreamer Support
 # ============================================================================
-# This script builds OpenCV from source with GStreamer, Qt, and OpenGL support.
+# This script builds OpenCV from source with GStreamer, GTK, and OpenGL support.
 #
 # Features:
 #   - Professional UX with progress indicators and colors
@@ -11,7 +11,7 @@
 #   - Automatic temporary swap creation on low-memory systems (cleaned up after build)
 #   - Memory-aware parallelism (2-2.5GB per job based on RAM, CUDA-aware)
 #   - Platform auto-detection: Jetson (CUDA), Raspberry Pi (NEON), ARM, x86
-#   - GStreamer and Qt support for video streaming
+#   - GStreamer and GTK support for video streaming
 #   - Installs into PixEagle virtual environment
 #   - Verifies GStreamer support after build
 #
@@ -114,7 +114,7 @@ trap cleanup EXIT INT TERM
 # ============================================================================
 display_banner() {
     display_pixeagle_banner "${VIDEO} OpenCV Build with GStreamer" \
-        "Builds OpenCV ${OPENCV_VERSION} with GStreamer, Qt, and OpenGL support"
+        "Builds OpenCV ${OPENCV_VERSION} with GStreamer, GTK, and OpenGL support"
 
     # Warning about build time
     echo -e "   ${YELLOW}${WARN}${NC}  ${BOLD}This build takes 1-2 hours.${NC} Ensure you have:"
@@ -436,6 +436,7 @@ install_dependencies() {
         libgstreamer-plugins-base1.0-dev
         gstreamer1.0-tools
         gstreamer1.0-libav
+        gstreamer1.0-plugins-base
         gstreamer1.0-plugins-good
         gstreamer1.0-plugins-bad
         gstreamer1.0-plugins-ugly
@@ -445,17 +446,23 @@ install_dependencies() {
     local optional_gstreamer=(
         gstreamer1.0-gl
         gstreamer1.0-gtk3
+        gstreamer1.0-rtsp
+        libgstrtspserver-1.0-dev
     )
 
     # Video/Image libraries
     local media_packages=(
         libavcodec-dev
         libavformat-dev
+        libavutil-dev
         libswscale-dev
+        libswresample-dev
         libv4l-dev
+        v4l-utils
         libjpeg-dev
         libpng-dev
         libtiff-dev
+        libwebp-dev
     )
 
     # Optional media packages (may not exist on all distros)
@@ -464,15 +471,20 @@ install_dependencies() {
         libx264-dev
     )
 
-    # GUI packages
+    # GUI + OpenGL packages (GTK3 + GL needed for WITH_GTK=ON + WITH_OPENGL=ON)
     local gui_packages=(
+        libgtk-3-dev
         libgtk2.0-dev
+        libgl1-mesa-dev
+        libglu1-mesa-dev
     )
 
-    # Math packages
+    # Math / linear algebra packages
     local math_packages=(
         libatlas-base-dev
         gfortran
+        libtbb-dev
+        libeigen3-dev
     )
 
     # Install core packages first (required)
@@ -667,10 +679,11 @@ configure_cmake() {
         -D CMAKE_INSTALL_PREFIX="$VENV_DIR"
         -D OPENCV_EXTRA_MODULES_PATH="$SCRIPT_DIR/opencv_contrib/modules"
         -D WITH_GSTREAMER=ON
-        -D WITH_QT=ON
+        -D WITH_GTK=ON
         -D WITH_OPENGL=ON
         -D WITH_FFMPEG=ON
         -D WITH_V4L=ON
+        -D WITH_TBB=ON
         -D BUILD_EXAMPLES=OFF
         -D BUILD_TESTS=OFF
         -D BUILD_PERF_TESTS=OFF
