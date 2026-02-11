@@ -45,6 +45,7 @@ SECTION_CATEGORIES = {
     'CSRT_Tracker': {'category': 'tracking', 'display_name': 'CSRT Tracker', 'icon': 'track_changes'},
     'KCF_Tracker': {'category': 'tracking', 'display_name': 'KCF Tracker', 'icon': 'track_changes'},
     'DLIB_Tracker': {'category': 'tracking', 'display_name': 'dlib Tracker', 'icon': 'track_changes'},
+    'ClassicTracker_Common': {'category': 'tracking', 'display_name': 'Classic Tracker Common', 'icon': 'tune'},
     'SmartTracker': {'category': 'tracking', 'display_name': 'Smart Tracker (YOLO)', 'icon': 'smart_toy'},
     'GimbalTracker': {'category': 'tracking', 'display_name': 'Gimbal Tracker', 'icon': 'control_camera'},
     'GimbalTrackerSettings': {'category': 'tracking', 'display_name': 'Gimbal Tracker Settings', 'icon': 'settings'},

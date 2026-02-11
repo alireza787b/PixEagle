@@ -4652,7 +4652,12 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     def _build_defaults_sync_report(self, service: ConfigService) -> Dict[str, Any]:
-        """Build defaults-sync report with new, changed, and obsolete parameters."""
+        """Build defaults-sync report with new, changed, and obsolete parameters.
+
+        Uses the UNION of schema sections and config_default.yaml sections
+        as the source of truth, so sections/parameters not yet in the schema
+        but present in defaults are never falsely flagged as obsolete.
+        """
         schema = service.get_schema()
         current_config = service.get_config()
         default_config = service.get_default()
@@ -4664,9 +4669,18 @@ class FastAPIHandler:
         changed_defaults = []
         removed_parameters = []
 
-        sections = schema.get('sections', {})
-        for section_name, section_schema in sections.items():
-            parameters = section_schema.get('parameters', {})
+        schema_sections = schema.get('sections', {})
+
+        # Build the union of all known section names from schema + defaults.
+        # This ensures newly-added config sections (not yet in the schema)
+        # are recognised as valid and their params are not flagged obsolete.
+        all_section_names = set(schema_sections.keys()) | {
+            k for k, v in default_config.items() if isinstance(v, dict)
+        }
+
+        for section_name in sorted(all_section_names):
+            section_schema = schema_sections.get(section_name, {})
+            schema_params = section_schema.get('parameters', {}) if isinstance(section_schema, dict) else {}
             current_section = current_config.get(section_name, {})
             default_section = default_config.get(section_name, {})
             snapshot_section = defaults_snapshot.get(section_name, {}) if baseline_available else {}
@@ -4678,11 +4692,17 @@ class FastAPIHandler:
             if not isinstance(snapshot_section, dict):
                 snapshot_section = {}
 
-            for param_name, param_schema in parameters.items():
+            # Iterate over the union of schema params and default params
+            # so new params added to defaults but not yet in schema are found.
+            all_param_names = set(schema_params.keys()) | set(default_section.keys())
+
+            for param_name in sorted(all_param_names):
+                param_schema = schema_params.get(param_name, {})
                 schema_default = param_schema.get('default')
                 new_default = default_section.get(param_name, schema_default)
                 has_current = param_name in current_section
 
+                # NEW: exists in defaults but not in user's config
                 if not has_current and param_name in default_section:
                     new_parameters.append({
                         'section': section_name,
@@ -4693,6 +4713,7 @@ class FastAPIHandler:
                     })
                     continue
 
+                # CHANGED: default value changed since last baseline snapshot
                 if baseline_available and has_current and param_name in snapshot_section:
                     old_default = snapshot_section.get(param_name)
                     if old_default != new_default:
@@ -4709,17 +4730,19 @@ class FastAPIHandler:
                             'impact_level': 'warning',
                         })
 
+            # OBSOLETE: exists in user's config but NOT in defaults AND NOT
+            # in schema.  A param present in either source is considered valid.
             for param_name, current_value in current_section.items():
-                if param_name not in parameters:
+                if param_name not in default_section and param_name not in schema_params:
                     removed_parameters.append({
                         'section': section_name,
                         'parameter': param_name,
                         'current_value': current_value,
                     })
 
-        # Include unknown sections from current config (except archive section).
+        # Unknown sections: exist in user config but not in defaults or schema.
         for section_name, current_section in current_config.items():
-            if section_name in sections or section_name == service.SYNC_ARCHIVE_SECTION:
+            if section_name in all_section_names or section_name == service.SYNC_ARCHIVE_SECTION:
                 continue
             if not isinstance(current_section, dict):
                 continue
@@ -4771,7 +4794,6 @@ class FastAPIHandler:
 
             section_schema = schema_sections.get(section, {})
             section_params = section_schema.get('parameters', {}) if isinstance(section_schema, dict) else {}
-            has_schema_param = parameter in section_params
 
             current_section = current_config.get(section, {})
             if not isinstance(current_section, dict):
@@ -4780,6 +4802,9 @@ class FastAPIHandler:
             default_section = default_config.get(section, {})
             if not isinstance(default_section, dict):
                 default_section = {}
+
+            # A parameter is "known" if it appears in schema OR in defaults
+            is_known_param = parameter in section_params or parameter in default_section
 
             current_value = current_section.get(parameter)
             default_value = default_section.get(parameter)
@@ -4793,8 +4818,8 @@ class FastAPIHandler:
                 'skip': False,
             }
 
-            if op_type in {'ADD_NEW', 'ADOPT_DEFAULT'} and not has_schema_param:
-                errors.append({'index': idx, 'error': f"{section}.{parameter} is not in schema"})
+            if op_type in {'ADD_NEW', 'ADOPT_DEFAULT'} and not is_known_param:
+                errors.append({'index': idx, 'error': f"{section}.{parameter} is not in schema or defaults"})
                 continue
 
             if op_type == 'ADD_NEW':
