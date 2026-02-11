@@ -37,7 +37,10 @@ bash scripts/setup/build-opencv.sh
 ```
 
 This builds OpenCV 4.13.0 with GStreamer, Qt, OpenGL, and FFMPEG support. It:
-- Checks disk space (10GB+) and RAM (4GB+)
+- Checks disk space (10GB+) and available memory
+- **Auto-creates temporary swap** on low-memory systems (Jetson Nano, RPi) — cleaned up after build
+- Scales build parallelism to available RAM (1.5GB per job) to prevent OOM
+- Auto-detects platform: Jetson (CUDA), Raspberry Pi (NEON), ARM, x86
 - Installs all dependencies automatically
 - Builds into the PixEagle virtual environment
 - Verifies GStreamer support after build

@@ -8,15 +8,18 @@
 # Features:
 #   - Professional UX with progress indicators and colors
 #   - Pre-flight checks (disk space, RAM, dependencies)
+#   - Automatic temporary swap creation on low-memory systems (cleaned up after build)
+#   - Memory-aware parallelism (1.5GB per job, auto-scales to available RAM+swap)
+#   - Platform auto-detection: Jetson (CUDA), Raspberry Pi (NEON), ARM, x86
 #   - GStreamer and Qt support for video streaming
 #   - Installs into PixEagle virtual environment
 #   - Verifies GStreamer support after build
 #
 # Requirements:
-#   - Debian-based Linux (Ubuntu, Raspberry Pi OS)
+#   - Debian-based Linux (Ubuntu, Raspberry Pi OS, Jetson)
 #   - 10GB+ free disk space
-#   - 4GB+ RAM (8GB recommended for parallel build)
-#   - 1-2 hours build time (depends on CPU cores)
+#   - 2GB+ RAM (script auto-creates swap if needed; 8GB+ recommended)
+#   - 1-2 hours build time (depends on CPU cores and memory)
 #
 # Usage: bash scripts/setup/build-opencv.sh [-h|--help] [-v|--version]
 #
@@ -37,8 +40,8 @@ PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 VENV_DIR="$PIXEAGLE_DIR/venv"
 OPENCV_VERSION="4.13.0"
 REQUIRED_DISK_GB=10
-REQUIRED_RAM_GB=4
-VERSION="2.1.0"
+REQUIRED_RAM_GB=2
+VERSION="2.2.0"
 
 # Fix CRLF line endings
 [[ -f "$SCRIPTS_DIR/lib/common.sh" ]] && grep -q $'\r' "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null && \
@@ -91,10 +94,20 @@ stop_spinner() {
     fi
 }
 
+TEMP_SWAP_FILE=""
+
 cleanup() {
     stop_spinner
+    # Remove temporary swap if we created one
+    if [[ -n "$TEMP_SWAP_FILE" ]] && [[ -f "$TEMP_SWAP_FILE" ]]; then
+        log_info "Cleaning up temporary swap file..."
+        sudo swapoff "$TEMP_SWAP_FILE" 2>/dev/null || true
+        sudo rm -f "$TEMP_SWAP_FILE" 2>/dev/null || true
+        TEMP_SWAP_FILE=""
+        log_success "Temporary swap removed"
+    fi
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 # ============================================================================
 # Banner Display
@@ -106,7 +119,7 @@ display_banner() {
     # Warning about build time
     echo -e "   ${YELLOW}${WARN}${NC}  ${BOLD}This build takes 1-2 hours.${NC} Ensure you have:"
     echo -e "       • ${REQUIRED_DISK_GB}GB+ free disk space"
-    echo -e "       • ${REQUIRED_RAM_GB}GB+ RAM (8GB recommended)"
+    echo -e "       • ${REQUIRED_RAM_GB}GB+ RAM (swap auto-created if needed; 8GB+ recommended)"
     echo -e "       • Stable internet connection"
     echo -e "       • Power supply (for laptops)"
     echo ""
@@ -152,6 +165,67 @@ parse_args() {
 
 SKIP_CONFIRM=false
 LOW_RAM_MODE=false
+
+# ============================================================================
+# Automatic Swap Management
+# ============================================================================
+# Creates a temporary swap file if total memory (RAM+swap) is too low for the
+# build.  The swap is cleaned up automatically on exit (success, failure, or
+# Ctrl-C) via the trap registered above.
+#
+# Design decisions:
+#   - Never touches existing swap — only adds when needed
+#   - Swap size is calculated dynamically: enough for at least 2 parallel jobs
+#   - Uses /var/tmp (persistent across reboots) so the file survives a stall
+#   - Requires sudo (already acquired for apt-get earlier in the flow)
+ensure_build_memory() {
+    local total_ram_mb
+    total_ram_mb=$(free -m 2>/dev/null | awk '/^Mem:/ {print $2}')
+    local existing_swap_mb
+    existing_swap_mb=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')
+    local total_mb=$((total_ram_mb + existing_swap_mb))
+
+    # Target: enough total memory for at least 2 parallel jobs (3000MB) plus
+    # ~1GB headroom for the OS and other processes = 4000MB minimum.
+    # On systems with plenty of RAM this is a no-op.
+    local target_mb=4000
+
+    if [[ $total_mb -ge $target_mb ]]; then
+        return 0  # Already enough memory
+    fi
+
+    local needed_mb=$((target_mb - total_mb))
+    # Round up to nearest 512MB for filesystem alignment
+    needed_mb=$(( ((needed_mb + 511) / 512) * 512 ))
+
+    log_warn "Only ${total_mb}MB usable memory (${total_ram_mb}MB RAM + ${existing_swap_mb}MB swap)"
+    log_info "Creating ${needed_mb}MB temporary swap to prevent OOM during build..."
+
+    TEMP_SWAP_FILE="/var/tmp/.opencv_build_swap_$$"
+
+    # fallocate is fast and preferred; dd is the fallback for older kernels/fs
+    if sudo fallocate -l "${needed_mb}M" "$TEMP_SWAP_FILE" 2>/dev/null; then
+        : # success
+    elif sudo dd if=/dev/zero of="$TEMP_SWAP_FILE" bs=1M count="$needed_mb" status=none 2>/dev/null; then
+        : # success via dd
+    else
+        log_warn "Could not create swap file — build will proceed without extra swap"
+        TEMP_SWAP_FILE=""
+        return 0
+    fi
+
+    sudo chmod 600 "$TEMP_SWAP_FILE"
+    if sudo mkswap "$TEMP_SWAP_FILE" >/dev/null 2>&1 && sudo swapon "$TEMP_SWAP_FILE" 2>/dev/null; then
+        local new_swap_mb
+        new_swap_mb=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')
+        local new_total=$((total_ram_mb + new_swap_mb))
+        log_success "Temporary swap active — now ${new_total}MB usable (will be removed after build)"
+    else
+        log_warn "Could not activate swap file — build will proceed without extra swap"
+        sudo rm -f "$TEMP_SWAP_FILE" 2>/dev/null || true
+        TEMP_SWAP_FILE=""
+    fi
+}
 
 # ============================================================================
 # Platform Detection
@@ -259,15 +333,7 @@ check_prerequisites() {
         LOW_RAM_MODE=true
         log_warn "Limited memory: ${total_ram_mb}MB RAM + ${swap_mb}MB swap = ${total_memory_mb}MB total"
         log_detail "Safe parallel jobs: -j${safe_jobs} (1.5GB per job)"
-
-        if [[ $total_memory_mb -lt 3500 ]]; then
-            log_warn "Very low memory — build may fail even with -j1"
-            log_detail "Add swap space first:"
-            log_detail "  sudo fallocate -l 4G /swapfile"
-            log_detail "  sudo chmod 600 /swapfile"
-            log_detail "  sudo mkswap /swapfile && sudo swapon /swapfile"
-            log_detail "Then re-run this script."
-        fi
+        log_detail "Temporary swap will be created automatically if needed"
     else
         log_success "RAM: ${total_ram_mb}MB + ${swap_mb}MB swap (${total_memory_mb}MB total)"
         LOW_RAM_MODE=false
@@ -812,6 +878,10 @@ main() {
     setup_python_env
     prepare_build
     configure_cmake
+    # Ensure enough memory before the heavy compilation step.
+    # This creates temporary swap if RAM+swap is below the safe threshold.
+    # The swap is automatically removed on exit (see cleanup trap).
+    ensure_build_memory
     compile_opencv
     verify_installation
     show_summary
