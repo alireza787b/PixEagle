@@ -177,7 +177,8 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
   };
 
   const inputSx = {
-    width: mobileMode ? '100%' : 150,
+    width: '100%',
+    maxWidth: mobileMode ? '100%' : 200,
     '& .MuiOutlinedInput-root': {
       bgcolor: isModified ? 'action.hover' : undefined,
       borderColor: getBorderColor(),
@@ -196,7 +197,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
     const globalLimits = param === 'FollowerOverrides' ? (configValues.GlobalLimits || {}) : {};
 
     return (
-      <Box sx={{ width: '100%', minWidth: mobileMode ? '100%' : 400 }}>
+      <Box sx={{ width: '100%' }}>
         <SafetyLimitsEditor
           type={safetyType}
           value={value || {}}
@@ -317,7 +318,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
 
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: mobileMode ? '100%' : 'auto' }}>
-        <FormControl size={touchTargetSize} fullWidth={mobileMode} sx={{ minWidth: mobileMode ? 0 : 200 }}>
+        <FormControl size={touchTargetSize} fullWidth={mobileMode} sx={{ minWidth: 0, maxWidth: '100%', width: '100%' }}>
           <Select
             value={isValueInOptions ? localInput : (localInput ? '__custom_current__' : '')}
             onChange={(e) => {
@@ -408,7 +409,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
   // Array input - use SmartValueEditor inline
   if (type === 'array') {
     return (
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, minWidth: mobileMode ? '100%' : 280 }}>
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, width: '100%' }}>
         <SmartValueEditor
           value={localInput}
           onChange={(newVal) => {
@@ -430,7 +431,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
   // Object input - use SmartValueEditor inline
   if (type === 'object') {
     return (
-      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, minWidth: mobileMode ? '100%' : 320 }}>
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, width: '100%' }}>
         <SmartValueEditor
           value={localInput}
           onChange={(newVal) => {
@@ -460,7 +461,7 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
         onBlur={handleNonNumericBlur}
         onKeyDown={(e) => e.key === 'Enter' && handleNonNumericBlur()}
         disabled={saveStatus === 'saving'}
-        sx={{ ...inputSx, width: mobileMode ? '100%' : 200 }}
+        sx={{ ...inputSx, width: '100%', maxWidth: mobileMode ? '100%' : 200 }}
       />
       {saveStatus === 'saving' && <CircularProgress size={16} />}
       {saveStatus === 'saved' && <Check color="success" fontSize="small" />}
@@ -582,12 +583,12 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
     revertSection,
     refetch
   } = useConfigSection(sectionName);
-  const { isMobile, isTablet } = useResponsive();
+  const { isMobile, isTablet, isCompactDesktop, compactTable } = useResponsive();
   const globalState = useConfigGlobalState();
 
-  // Use card layout on mobile/tablet, OR always for Safety section (has complex embedded editors)
+  // Use card layout on mobile/tablet/compact-desktop, OR always for Safety section
   const isSafetySection = sectionName === 'Safety' || sectionName === 'SafetyLimits';
-  const useCardLayout = isMobile || isTablet || isSafetySection;
+  const useCardLayout = isMobile || isTablet || isCompactDesktop || isSafetySection;
 
   const [localValues, setLocalValues] = useState({});
   const [saveStatuses, setSaveStatuses] = useState({}); // 'saving' | 'saved' | 'error' | null
@@ -888,14 +889,14 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
       ) : (
         // Desktop (>= 900px): Table Layout with responsive overflow
         <TableContainer sx={{ overflowX: 'auto' }}>
-          <Table size="small" sx={{ minWidth: 650 }}>
+          <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
             <TableHead>
               <TableRow>
-                <TableCell sx={{ fontWeight: 'bold', minWidth: 180 }}>Parameter</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', minWidth: 150 }}>Value</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', minWidth: 100 }}>Default</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', minWidth: 100 }}>Info</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', minWidth: 100, whiteSpace: 'nowrap' }}>Actions</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', width: compactTable ? '22%' : '20%' }}>Parameter</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', width: compactTable ? '38%' : '35%' }}>Value</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', width: compactTable ? '14%' : '18%' }}>Default</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', width: compactTable ? '12%' : '14%' }}>Info</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', width: compactTable ? '14%' : '13%', whiteSpace: 'nowrap' }}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -916,13 +917,13 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
                     '&:hover': { bgcolor: 'action.hover' }
                   }}
                 >
-                  <TableCell>
+                  <TableCell sx={{ overflow: 'hidden' }}>
                     <Box>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {param}
                       </Typography>
                       {paramSchema?.description && (
-                        <Typography variant="caption" color="text.secondary">
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {paramSchema.description.slice(0, 60)}
                           {paramSchema.description.length > 60 ? '...' : ''}
                         </Typography>
@@ -930,7 +931,7 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
                     </Box>
                   </TableCell>
 
-                  <TableCell>
+                  <TableCell sx={{ overflow: 'hidden' }}>
                     <ParameterInput
                       param={param}
                       schema={schema}
@@ -944,10 +945,11 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
                     />
                   </TableCell>
 
-                  <TableCell>
+                  <TableCell sx={{ overflow: 'hidden' }}>
                     <Typography
                       variant="body2"
                       color="text.secondary"
+                      noWrap
                       sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}
                     >
                       {typeof defaultValue === 'object'
