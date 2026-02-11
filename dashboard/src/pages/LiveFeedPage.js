@@ -10,36 +10,39 @@ import {
   Select,
   MenuItem,
 } from '@mui/material';
-import WebRTCStream from '../components/WebRTCStream';
+import VideoStream from '../components/VideoStream';
 import OSDToggle from '../components/OSDToggle';
+import StreamingStatusIndicator from '../components/StreamingStatusIndicator';
+import GStreamerQGCPanel from '../components/GStreamerQGCPanel';
 import { videoFeed } from '../services/apiEndpoints';
 
 const LiveFeedPage = () => {
   const [loading, setLoading] = useState(true);
-  const [streamingProtocol, setStreamingProtocol] = useState('websocket'); // Default to 'websocket'
+  const [streamingProtocol, setStreamingProtocol] = useState('auto'); // Default to 'auto'
 
   useEffect(() => {
-    if (streamingProtocol === 'http') {
-      // Check the HTTP video feed
-      const checkStream = setInterval(() => {
-        const img = new Image();
-        img.src = videoFeed;
-
-        img.onload = () => {
-          setLoading(false);
-          clearInterval(checkStream);
-        };
-
-        img.onerror = () => {
-          console.error('Error loading video feed');
-        };
-      }, 2000); // Check every 2 seconds
-
-      return () => clearInterval(checkStream);
-    } else if (streamingProtocol === 'websocket') {
-      // For WebSocket, assume the feed is available
+    if (streamingProtocol === 'websocket' || streamingProtocol === 'webrtc' || streamingProtocol === 'auto') {
+      // WebSocket/WebRTC/Auto manage their own connection state
       setLoading(false);
+      return;
     }
+
+    // Only probe HTTP endpoint when protocol is 'http'
+    const checkStream = setInterval(() => {
+      const img = new Image();
+      img.src = videoFeed;
+
+      img.onload = () => {
+        setLoading(false);
+        clearInterval(checkStream);
+      };
+
+      img.onerror = () => {
+        console.error('Error loading video feed');
+      };
+    }, 2000); // Check every 2 seconds
+
+    return () => clearInterval(checkStream);
   }, [streamingProtocol]);
 
   return (
@@ -60,8 +63,10 @@ const LiveFeedPage = () => {
           }}
           label="Streaming Protocol"
         >
+          <MenuItem value="auto">Auto (Best Available)</MenuItem>
+          <MenuItem value="webrtc">WebRTC (Low Latency)</MenuItem>
           <MenuItem value="websocket">WebSocket</MenuItem>
-          <MenuItem value="http">HTTP</MenuItem>
+          <MenuItem value="http">HTTP (Fallback)</MenuItem>
         </Select>
       </FormControl>
 
@@ -69,6 +74,12 @@ const LiveFeedPage = () => {
       <Box sx={{ mt: 2, mb: 2 }}>
         <OSDToggle />
       </Box>
+
+      {/* Streaming Status Indicator */}
+      <StreamingStatusIndicator />
+
+      {/* GStreamer QGC Output Control */}
+      <GStreamerQGCPanel />
 
       {loading ? (
         <Box
@@ -85,8 +96,8 @@ const LiveFeedPage = () => {
         </Box>
       ) : (
         <Box>
-        <WebRTCStream 
-          protocol={streamingProtocol} 
+        <VideoStream
+          protocol={streamingProtocol}
           src={videoFeed}
           showStats={true}          // Show FPS, bandwidth, latency
           showQualityControl={true} // Show quality adjustment slider

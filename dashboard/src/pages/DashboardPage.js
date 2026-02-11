@@ -26,6 +26,7 @@ import StreamingStats from '../components/StreamingStats';
 import CircuitBreakerStatusCard from '../components/CircuitBreakerStatusCard';
 import OSDToggle from '../components/OSDToggle';
 import SafetyConfigCard from '../components/SafetyConfigCard';
+import StreamingStatusIndicator from '../components/StreamingStatusIndicator';
 
 
 import { videoFeed, endpoints } from '../services/apiEndpoints';
@@ -130,7 +131,7 @@ const SystemHealthCard = ({ trackerStatus, isFollowing, smartModeActive, circuit
 const DashboardPage = () => {
   const [isTracking, setIsTracking] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [streamingProtocol, setStreamingProtocol] = useState('websocket');
+  const [streamingProtocol, setStreamingProtocol] = useState('auto');
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState('info');
@@ -282,6 +283,13 @@ const DashboardPage = () => {
   const handleSnackbarClose = () => setSnackbarOpen(false);
 
   useEffect(() => {
+    if (streamingProtocol === 'websocket' || streamingProtocol === 'webrtc' || streamingProtocol === 'auto') {
+      // WebSocket/WebRTC/Auto manage their own connection state
+      setLoading(false);
+      return;
+    }
+
+    // Only probe HTTP endpoint when protocol is 'http'
     const checkStream = setInterval(() => {
       const img = new Image();
       img.src = videoFeed;
@@ -293,7 +301,7 @@ const DashboardPage = () => {
     }, checkInterval);
 
     return () => clearInterval(checkStream);
-  }, []);
+  }, [streamingProtocol]);
 
   return (
     <Container maxWidth="xl" sx={{ mt: 2, mb: 4 }}>
@@ -359,10 +367,15 @@ const DashboardPage = () => {
                               onChange={(e) => setStreamingProtocol(e.target.value)}
                               label="Streaming Protocol"
                             >
+                              <MenuItem value="auto">Auto (Best Available)</MenuItem>
+                              <MenuItem value="webrtc">WebRTC (Low Latency)</MenuItem>
                               <MenuItem value="websocket">WebSocket</MenuItem>
-                              <MenuItem value="http">HTTP</MenuItem>
+                              <MenuItem value="http">HTTP (Fallback)</MenuItem>
                             </Select>
                           </FormControl>
+
+                          {/* Streaming Status Indicator */}
+                          <StreamingStatusIndicator />
 
                           {/* OSD Toggle Control */}
                           <OSDToggle />

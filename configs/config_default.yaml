@@ -32,8 +32,11 @@ VideoSource:
   DEFAULT_FPS: 30            # Fallback if source doesn't report FPS
   
   # === Performance Optimization ===
-  # 🚀 Enable for Raspberry Pi, Jetson, or low-power systems
-  USE_GSTREAMER: false       # true = Use GStreamer pipelines (better for embedded)
+  # USE_GSTREAMER controls how frames are READ from cameras (input capture).
+  # Set true for Raspberry Pi, Jetson, or embedded systems with GStreamer support.
+  # NOTE: This is completely separate from ENABLE_GSTREAMER_STREAM (in GStreamer
+  # section below) which controls OUTPUT streaming to QGC/ground stations.
+  USE_GSTREAMER: false
   
   # === Source-Specific Parameters ===
   # Video file source
@@ -186,14 +189,32 @@ Streaming:
   
   # === Performance ===
   ENCODING_THREADS: 2            # Parallel encoding threads
-  ENABLE_HARDWARE_ENCODING: false # Use hardware encoder if available
   FRAME_DIFFERENCE_THRESHOLD: 5  # Pixel difference threshold
   
-  # === H.264 Streaming (Advanced) ===
-  ENABLE_H264_STREAM: false      # Enable H.264/WebRTC streaming
-  H264_BITRATE: 1000000          # H.264 bitrate (bps)
-  H264_PROFILE: baseline         # H.264 profile (baseline/main/high)
-  H264_PRESET: ultrafast         # Encoding preset
+  # === Heartbeat & Connection Health ===
+  WS_HEARTBEAT_INTERVAL: 30       # Seconds between WebSocket heartbeat checks
+  WS_STALE_TIMEOUT_MULTIPLIER: 2  # Client stale after interval * multiplier
+
+  # === Adaptive Quality Engine ===
+  QUALITY_STEP_ADAPTIVE: 5          # Finer quality step for EWMA engine
+  BANDWIDTH_EWMA_ALPHA: 0.3        # Bandwidth smoothing (0=stable, 1=reactive)
+  ENCODING_EWMA_ALPHA: 0.2         # Encoding time smoothing
+  QUALITY_COOLDOWN_SECONDS: 2.0    # Min seconds between quality adjustments
+  TARGET_BANDWIDTH_LOW_KBPS: 50    # Below this: reduce quality
+  TARGET_BANDWIDTH_HIGH_KBPS: 200  # Above this: increase quality
+  CPU_THRESHOLD_HIGH: 80           # CPU% triggers quality reduction
+  CPU_THRESHOLD_LOW: 60            # CPU% allows quality increase
+  ENCODING_TIME_THRESHOLD_MS: 20   # Encoding > this triggers reduction (ms)
+  MAX_FRAME_CACHE_SIZE: 10         # Maximum cached encoded frames
+
+  # === WebRTC Settings ===
+  WEBRTC_MAX_CONNECTIONS: 3        # Max concurrent WebRTC peers
+  WEBRTC_STUN_SERVER: "stun:stun.l.google.com:19302"
+  WEBRTC_TURN_SERVER: ""           # Optional TURN server URL
+  WEBRTC_TURN_USERNAME: ""
+  WEBRTC_TURN_CREDENTIAL: ""
+  DEFAULT_PROTOCOL: auto           # auto | webrtc | websocket | http
+
 
 # ==============================================================================
 # 🎯 TRACKING MODE CONFIGURATION
@@ -2334,22 +2355,54 @@ Telemetry:
   ENABLE_FOLLOWER_TELEMETRY: true          # Include follower status
 
 # ==============================================================================
-# GSTREAMER OUTPUT STREAM (Secondary Output)
+# GSTREAMER OUTPUT STREAM (Secondary H.264 Output for QGC/Ground Stations)
+# ==============================================================================
+# Streams video as H.264/RTP/UDP — the format required by QGroundControl (QGC),
+# Mission Planner, and other MAVLink-based ground control stations.
+#
+# IMPORTANT — Two separate GStreamer configs exist in this file:
+#   1. USE_GSTREAMER (in VideoSource above) = how frames are READ from cameras
+#      - Only affects input capture (RTSP, CSI, USB via GStreamer pipelines)
+#      - Has NO effect on output streaming
+#   2. ENABLE_GSTREAMER_STREAM (this section) = how frames are SENT to QGC
+#      - Creates a secondary H.264/RTP/UDP output alongside the dashboard
+#      - Dashboard streaming (HTTP/WebSocket/WebRTC) works independently
+#
+# When ENABLE_GSTREAMER_STREAM is false (default):
+#   - Dashboard streaming works normally via HTTP, WebSocket, or WebRTC
+#   - No H.264 encoding overhead, no UDP output
+#   - QGC will NOT receive video (use dashboard instead)
+#
+# When ENABLE_GSTREAMER_STREAM is true:
+#   - Dashboard streaming continues as before (unaffected)
+#   - Additionally, H.264/RTP frames are sent to GSTREAMER_HOST:GSTREAMER_PORT
+#   - QGC receives video at the configured UDP endpoint
+#   - In QGC: Application Settings → Video → UDP Video Stream, port 2000
+#
 # ==============================================================================
 GStreamer:
-  # 📹 Optional GStreamer pipeline for external streaming
-  ENABLE_GSTREAMER_STREAM: false
-  GSTREAMER_HOST: 127.0.0.1
-  GSTREAMER_PORT: 2000
-  GSTREAMER_BITRATE: 2000                  # kbps
-  GSTREAMER_WIDTH: 1280
-  GSTREAMER_HEIGHT: 720
-  GSTREAMER_FRAMERATE: 15
-  GSTREAMER_BUFFER_SIZE: 50000000          # bytes
-  GSTREAMER_SPEED_PRESET: ultrafast        # x264 preset
-  GSTREAMER_KEY_INT_MAX: 30                # Keyframe interval
-  GSTREAMER_TUNE: zerolatency               # x264 tuning
-  
+  ENABLE_GSTREAMER_STREAM: false          # Master enable for QGC video output (off by default)
+
+  # === Encoder Selection ===
+  # ENABLE_HARDWARE_ENCODING controls encoder auto-detection:
+  #   true  = try GPU encoder first (NVENC → VAAPI), software fallback if unavailable
+  #   false = always use software x264enc (safe default, works everywhere)
+  ENABLE_HARDWARE_ENCODING: false
+
+  # === Stream Settings ===
+  GSTREAMER_HOST: 127.0.0.1              # UDP destination IP
+  GSTREAMER_PORT: 2000                    # UDP destination port
+  GSTREAMER_BITRATE: 2000                # Encoding bitrate (kbps)
+  GSTREAMER_WIDTH: 1280                   # Output width
+  GSTREAMER_HEIGHT: 720                   # Output height
+  GSTREAMER_FRAMERATE: 15                 # Output framerate
+  GSTREAMER_BUFFER_SIZE: 50000000         # UDP buffer size (bytes)
+
+  # === Encoder Tuning (used by software x264enc) ===
+  GSTREAMER_SPEED_PRESET: ultrafast       # x264 preset (ultrafast/superfast/veryfast/faster/fast)
+  GSTREAMER_KEY_INT_MAX: 30              # Keyframe interval (frames)
+  GSTREAMER_TUNE: zerolatency            # x264 tuning (zerolatency recommended)
+
   # === Video Enhancement ===
   GSTREAMER_CONTRAST: 5.0
   GSTREAMER_BRIGHTNESS: 10

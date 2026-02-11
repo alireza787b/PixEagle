@@ -67,6 +67,7 @@ uvicorn
 python-multipart
 dill
 aiortc
+psutil
 pyyaml
 pymap3d
 

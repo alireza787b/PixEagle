@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Scatter } from 'react-chartjs-2';
 import { Chart, registerables } from 'chart.js';
 import ArrowPlugin from '../plugins/ArrowPlugin';
-import WebRTCStream from './WebRTCStream';
+import VideoStream from './VideoStream';
 import { Button, Typography } from '@mui/material';
 import { videoFeed } from '../services/apiEndpoints';
 
@@ -187,7 +187,7 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
       </Button>
       {showVideo && (
         <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1, pointerEvents: 'none' }}>
-          <WebRTCStream protocol="http" src={videoSrc} style={{ width: '100%', height: '100%', opacity: 0.5, objectFit: 'cover' }} onError={() => setVideoError(true)} />
+          <VideoStream protocol="http" src={videoSrc} />
         </div>
       )}
       {videoError && (

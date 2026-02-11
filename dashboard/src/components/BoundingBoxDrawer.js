@@ -1,6 +1,6 @@
 // dashboard/src/components/BoundingBoxDrawer.js
 import React, { useEffect, useState } from 'react';
-import WebRTCStream from './WebRTCStream';
+import VideoStream from './VideoStream';
 import { sendCommand } from '../services/apiService';
 
 const BoundingBoxDrawer = ({
@@ -96,7 +96,7 @@ const BoundingBoxDrawer = ({
       onTouchEnd={!smartModeActive ? handleTouchEnd : null}
       onClick={smartModeActive ? handleSmartClick : null}
     >
-      <WebRTCStream protocol={protocol} src={videoSrc} />
+      <VideoStream protocol={protocol} src={videoSrc} />
       {isDrawing && !smartModeActive && (
         <>
           <div

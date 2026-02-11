@@ -454,11 +454,6 @@ sections:
         min: 0
         max: 100
         reload_tier: system_restart
-      ENABLE_HARDWARE_ENCODING:
-        type: boolean
-        default: false
-        description: Use hardware encoder if available
-        reload_tier: system_restart
       FRAME_DIFFERENCE_THRESHOLD:
         type: integer
         default: 5
@@ -466,29 +461,137 @@ sections:
         min: 0
         max: 100
         reload_tier: system_restart
-      ENABLE_H264_STREAM:
-        type: boolean
-        default: false
-        description: Enable H.264/WebRTC streaming
-        reload_tier: system_restart
-      H264_BITRATE:
+      WS_HEARTBEAT_INTERVAL:
         type: integer
-        default: 1000000
-        description: H.264 bitrate (bps)
-        min: 0
-        max: 1000000
-        unit: bps
+        default: 30
+        description: WebSocket heartbeat interval in seconds
+        min: 5
+        max: 300
+        unit: seconds
         reload_tier: system_restart
-      H264_PROFILE:
-        type: string
-        default: baseline
-        description: H.264 profile (baseline/main/high)
-        unit: baseline/main/high
+      WS_STALE_TIMEOUT_MULTIPLIER:
+        type: integer
+        default: 2
+        description: Multiplier for heartbeat interval to detect stale clients
+        min: 1
+        max: 10
         reload_tier: system_restart
-      H264_PRESET:
+      MAX_FRAME_CACHE_SIZE:
+        type: integer
+        default: 10
+        description: Maximum number of cached encoded frames
+        min: 1
+        max: 100
+        reload_tier: system_restart
+      QUALITY_STEP_ADAPTIVE:
+        type: integer
+        default: 5
+        description: Quality step size for adaptive engine adjustments
+        min: 1
+        max: 20
+        reload_tier: system_restart
+      BANDWIDTH_EWMA_ALPHA:
+        type: float
+        default: 0.3
+        description: EWMA smoothing factor for bandwidth (0=stable, 1=reactive)
+        min: 0.01
+        max: 1.0
+        reload_tier: system_restart
+      ENCODING_EWMA_ALPHA:
+        type: float
+        default: 0.2
+        description: EWMA smoothing factor for encoding time
+        min: 0.01
+        max: 1.0
+        reload_tier: system_restart
+      QUALITY_COOLDOWN_SECONDS:
+        type: float
+        default: 2.0
+        description: Minimum seconds between quality adjustments per client
+        min: 0.5
+        max: 30.0
+        unit: seconds
+        reload_tier: system_restart
+      TARGET_BANDWIDTH_LOW_KBPS:
+        type: integer
+        default: 50
+        description: Bandwidth below this triggers quality reduction (kbps)
+        min: 10
+        max: 10000
+        unit: kbps
+        reload_tier: system_restart
+      TARGET_BANDWIDTH_HIGH_KBPS:
+        type: integer
+        default: 200
+        description: Bandwidth above this allows quality increase (kbps)
+        min: 10
+        max: 10000
+        unit: kbps
+        reload_tier: system_restart
+      CPU_THRESHOLD_HIGH:
+        type: integer
+        default: 80
+        description: CPU percentage that triggers quality reduction
+        min: 10
+        max: 100
+        unit: '%'
+        reload_tier: system_restart
+      CPU_THRESHOLD_LOW:
+        type: integer
+        default: 60
+        description: CPU percentage below which quality can increase
+        min: 10
+        max: 100
+        unit: '%'
+        reload_tier: system_restart
+      ENCODING_TIME_THRESHOLD_MS:
+        type: integer
+        default: 20
+        description: Encoding time in ms that triggers quality reduction
+        min: 1
+        max: 1000
+        unit: ms
+        reload_tier: system_restart
+      WEBRTC_MAX_CONNECTIONS:
+        type: integer
+        default: 3
+        description: Maximum concurrent WebRTC peer connections
+        min: 1
+        max: 20
+        reload_tier: system_restart
+      WEBRTC_STUN_SERVER:
         type: string
-        default: ultrafast
-        description: Encoding preset
+        default: 'stun:stun.l.google.com:19302'
+        description: STUN server URL for WebRTC ICE
+        reload_tier: system_restart
+      WEBRTC_TURN_SERVER:
+        type: string
+        default: ''
+        description: TURN server URL for WebRTC relay (optional)
+        reload_tier: system_restart
+      WEBRTC_TURN_USERNAME:
+        type: string
+        default: ''
+        description: TURN server username (optional)
+        reload_tier: system_restart
+      WEBRTC_TURN_CREDENTIAL:
+        type: string
+        default: ''
+        description: TURN server credential (optional)
+        reload_tier: system_restart
+      DEFAULT_PROTOCOL:
+        type: string
+        default: auto
+        description: Default streaming protocol (auto/webrtc/websocket/http)
+        options:
+        - value: auto
+          label: Auto (Best Available)
+        - value: webrtc
+          label: WebRTC (Low Latency)
+        - value: websocket
+          label: WebSocket
+        - value: http
+          label: HTTP (Fallback)
         reload_tier: system_restart
   Tracking:
     display_name: Tracking Settings
@@ -4997,7 +5100,12 @@ sections:
       ENABLE_GSTREAMER_STREAM:
         type: boolean
         default: false
-        description: 📹 Optional GStreamer pipeline for external streaming
+        description: Enable secondary H.264/RTP/UDP output for ground control stations
+        reload_tier: system_restart
+      ENABLE_HARDWARE_ENCODING:
+        type: boolean
+        default: false
+        description: Auto-detect GPU encoder (NVENC/VAAPI). false = always software x264enc
         reload_tier: system_restart
       GSTREAMER_HOST:
         type: string

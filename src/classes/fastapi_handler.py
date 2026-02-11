@@ -19,6 +19,8 @@ from classes.config_service import ConfigService
 import uvicorn
 from classes.webrtc_manager import WebRTCManager
 from classes.setpoint_handler import SetpointHandler
+from classes.frame_publisher import FramePublisher
+from classes.adaptive_quality_engine import AdaptiveQualityEngine
 from classes.follower import FollowerFactory
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.yolo_model_manager import YOLOModelManager, AI_AVAILABLE
@@ -136,77 +138,78 @@ class RateLimiter:
 
 
 class StreamingOptimizer:
-    """Optimized streaming with caching and adaptive quality."""
-    
+    """
+    Optimized frame encoding with frame_id-based caching.
+
+    Uses monotonic frame_id from FramePublisher instead of MD5 hashing
+    (zero hash overhead). The encoding lock only protects the cache dict,
+    not cv2.imencode itself (which is thread-safe for independent buffers).
+    """
+
     def __init__(self, max_cache_size: int = 10):
         self.frame_cache: Dict[str, CachedFrame] = {}
         self.max_cache_size = max_cache_size
         self.encoder_pool = ThreadPoolExecutor(max_workers=Parameters.ENCODING_THREADS)
-        self.last_frame_hash: Optional[str] = None
-        self.encoding_lock = threading.Lock()
-        
-    def get_frame_hash(self, frame: np.ndarray) -> str:
-        """Generate hash for frame comparison."""
-        # Downsample for faster hashing
-        small = cv2.resize(frame, (64, 64))
-        return hashlib.md5(small.tobytes()).hexdigest()
-    
-    def encode_frame_cached(self, frame: np.ndarray, quality: int) -> bytes:
-        """Encode frame with caching."""
-        # Generate frame hash
-        frame_hash = self.get_frame_hash(frame)
-        
-        # Check if frame is identical to last
-        if Parameters.SKIP_IDENTICAL_FRAMES and frame_hash == self.last_frame_hash:
-            cache_key = f"{frame_hash}_{quality}"
-            if cache_key in self.frame_cache:
-                cached = self.frame_cache[cache_key]
-                if time.time() - cached.timestamp < Parameters.CACHE_TTL_MS / 1000:
-                    return cached.data
-        
-        self.last_frame_hash = frame_hash
-        
-        # Check cache
-        cache_key = f"{frame_hash}_{quality}"
-        if Parameters.ENABLE_FRAME_CACHE and cache_key in self.frame_cache:
-            cached = self.frame_cache[cache_key]
-            if time.time() - cached.timestamp < Parameters.CACHE_TTL_MS / 1000:
-                return cached.data
-        
-        # Encode frame
-        with self.encoding_lock:
-            ret, buffer = cv2.imencode('.jpg', frame, 
-                                       [cv2.IMWRITE_JPEG_QUALITY, quality])
-            if not ret:
-                raise ValueError("Failed to encode frame")
-            
-            frame_bytes = buffer.tobytes()
-        
+        self._cache_lock = threading.Lock()
+        self._last_frame_id: int = -1
+
+    def encode_frame_for_id(self, frame: np.ndarray, frame_id: int, quality: int) -> bytes:
+        """
+        Encode frame using frame_id for dedup instead of MD5 hash.
+
+        If the same frame_id + quality was already encoded, returns cached bytes.
+        cv2.imencode runs without any lock (thread-safe for independent buffers).
+        """
+        cache_key = f"{frame_id}_{quality}"
+
+        # Check cache (lightweight lock on dict only)
+        if getattr(Parameters, 'ENABLE_FRAME_CACHE', True):
+            with self._cache_lock:
+                if cache_key in self.frame_cache:
+                    cached = self.frame_cache[cache_key]
+                    if time.time() - cached.timestamp < getattr(Parameters, 'CACHE_TTL_MS', 100) / 1000:
+                        return cached.data
+
+        # Skip identical frames
+        if getattr(Parameters, 'SKIP_IDENTICAL_FRAMES', True) and frame_id == self._last_frame_id:
+            with self._cache_lock:
+                # Return any cached version at this quality
+                if cache_key in self.frame_cache:
+                    return self.frame_cache[cache_key].data
+        self._last_frame_id = frame_id
+
+        # Encode without lock (cv2.imencode is thread-safe)
+        ret, buffer = cv2.imencode('.jpg', frame,
+                                   [cv2.IMWRITE_JPEG_QUALITY, quality])
+        if not ret:
+            raise ValueError("Failed to encode frame")
+
+        frame_bytes = buffer.tobytes()
+
         # Update cache
-        if Parameters.ENABLE_FRAME_CACHE:
-            self.frame_cache[cache_key] = CachedFrame(
-                data=frame_bytes,
-                timestamp=time.time(),
-                hash=frame_hash,
-                quality=quality
-            )
-            
-            # Cleanup old cache entries
-            if len(self.frame_cache) > self.max_cache_size:
-                oldest_key = min(self.frame_cache.keys(), 
-                               key=lambda k: self.frame_cache[k].timestamp)
-                del self.frame_cache[oldest_key]
-        
+        if getattr(Parameters, 'ENABLE_FRAME_CACHE', True):
+            with self._cache_lock:
+                self.frame_cache[cache_key] = CachedFrame(
+                    data=frame_bytes,
+                    timestamp=time.time(),
+                    hash=str(frame_id),
+                    quality=quality,
+                )
+                # Evict oldest if over limit
+                if len(self.frame_cache) > self.max_cache_size:
+                    oldest_key = min(self.frame_cache.keys(),
+                                    key=lambda k: self.frame_cache[k].timestamp)
+                    del self.frame_cache[oldest_key]
+
         return frame_bytes
-    
-    async def encode_frame_async(self, frame: np.ndarray, quality: int) -> bytes:
+
+    async def encode_frame_async(self, frame: np.ndarray, frame_id: int, quality: int) -> bytes:
         """Async wrapper for frame encoding."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
-            self.encoder_pool, 
-            self.encode_frame_cached, 
-            frame, 
-            quality
+            self.encoder_pool,
+            self.encode_frame_for_id,
+            frame, frame_id, quality,
         )
 
 
@@ -222,15 +225,23 @@ class FastAPIHandler:
         self.app_controller = app_controller
         self.video_handler = app_controller.video_handler
         self.telemetry_handler = app_controller.telemetry_handler
-        
-        # Streaming optimization
-        self.stream_optimizer = StreamingOptimizer()
+
+        # Thread-safe frame publisher (shared with app_controller)
+        self.frame_publisher: FramePublisher = app_controller.frame_publisher
+
+        # Streaming optimization (frame_id-based, no MD5 hashing)
+        self.stream_optimizer = StreamingOptimizer(
+            max_cache_size=getattr(Parameters, 'MAX_FRAME_CACHE_SIZE', 10)
+        )
+
+        # Unified adaptive quality engine (EWMA bandwidth + CPU + encoding time)
+        self.quality_engine = AdaptiveQualityEngine()
 
         # Rate limiter for config write endpoints (10 requests per minute)
         self.config_rate_limiter = RateLimiter(max_requests=60, window_seconds=60)  # 1/sec average for private system
 
-        # WebRTC Manager
-        self.webrtc_manager = WebRTCManager(self.video_handler)
+        # WebRTC Manager (uses FramePublisher instead of direct video_handler access)
+        self.webrtc_manager = WebRTCManager(self.frame_publisher)
 
         # YOLO Model Manager
         self.yolo_model_manager = YOLOModelManager()
@@ -276,12 +287,6 @@ class FastAPIHandler:
         # Frame timing for rate limiting
         self.last_http_send_time = 0.0
         self.last_ws_send_time = 0.0
-        
-        # Frame lock for thread-safe frame access
-        self.frame_lock = asyncio.Lock()
-        
-        # OSD processing flag
-        self.processed_osd = Parameters.STREAM_PROCESSED_OSD
     
     def _setup_middleware(self):
         """Configure middleware with security best practices."""
@@ -301,6 +306,9 @@ class FastAPIHandler:
         self.app.websocket("/ws/video_feed")(self.video_feed_websocket_optimized)
         self.app.websocket("/ws/webrtc_signaling")(self.webrtc_manager.signaling_handler)
         
+        # Streaming status API
+        self.app.get("/api/streaming/status")(self.get_streaming_status)
+
         # Telemetry
         self.app.get("/telemetry/tracker_data")(self.tracker_data)
         self.app.get("/telemetry/follower_data")(self.follower_data)
@@ -374,6 +382,10 @@ class FastAPIHandler:
         self.app.get("/api/osd/presets")(self.get_osd_presets)
         self.app.post("/api/osd/preset/{preset_name}")(self.load_osd_preset)
 
+        # GStreamer QGC Output API endpoints
+        self.app.get("/api/gstreamer/status")(self.get_gstreamer_status)
+        self.app.post("/api/gstreamer/toggle")(self.toggle_gstreamer)
+
         # Safety configuration API endpoints (v3.5.0+)
         self.app.get("/api/safety/config")(self.get_safety_config)
         self.app.get("/api/safety/limits/{follower_name}")(self.get_follower_safety_limits)
@@ -429,73 +441,85 @@ class FastAPIHandler:
     async def video_feed(self):
         """Optimized HTTP MJPEG streaming with adaptive quality."""
         client_id = f"http_{time.time()}"
-        
+
         # Check connection limit
         async with self.connection_lock:
             if len(self.http_connections) >= Parameters.HTTP_MAX_CONNECTIONS:
                 raise HTTPException(status_code=503, detail="Max connections reached")
             self.http_connections.add(client_id)
-        
+
+        # Register with frame publisher and quality engine
+        self.frame_publisher.register_client()
+        self.quality_engine.register_client(client_id, Parameters.STREAM_QUALITY)
+
         async def generate():
-            """Optimized frame generator."""
+            """Frame generator using FramePublisher and AdaptiveQualityEngine."""
             quality = Parameters.STREAM_QUALITY
-            last_send_time = 0
-            frame_count = 0
-            start_time = time.time()
-            
+            last_send_time = 0.0
+            last_frame_id = -1
+
             try:
                 while not self.is_shutting_down:
                     current_time = time.time()
-                    
-                    # Frame rate limiting
-                    if (current_time - last_send_time) < self.frame_interval:
-                        await asyncio.sleep(0.001)
+
+                    # Precise sleep instead of busy-wait
+                    remaining = self.frame_interval - (current_time - last_send_time)
+                    if remaining > 0:
+                        await asyncio.sleep(remaining)
                         continue
-                    
-                    # Get frame
-                    frame = (self.video_handler.current_resized_osd_frame
-                            if Parameters.STREAM_PROCESSED_OSD
-                            else self.video_handler.current_resized_raw_frame)
-                    
-                    if frame is None:
+
+                    # Get frame from thread-safe publisher
+                    stamped = self.frame_publisher.get_latest(
+                        prefer_osd=Parameters.STREAM_PROCESSED_OSD
+                    )
+                    if stamped is None:
                         await asyncio.sleep(0.01)
                         continue
-                    
-                    # Adaptive quality based on frame rate
-                    if Parameters.ENABLE_ADAPTIVE_QUALITY:
-                        actual_fps = frame_count / max(1, current_time - start_time)
-                        if actual_fps < self.frame_rate * 0.8:
-                            quality = max(Parameters.MIN_QUALITY, quality - Parameters.QUALITY_STEP)
-                        elif actual_fps > self.frame_rate * 0.95:
-                            quality = min(Parameters.MAX_QUALITY, quality + Parameters.QUALITY_STEP)
-                    
-                    # Encode with caching
+
+                    # Skip identical frames (using frame_id, not MD5)
+                    if stamped.frame_id == last_frame_id:
+                        await asyncio.sleep(0.005)
+                        continue
+
+                    # Encode with frame_id-based caching
                     try:
-                        frame_bytes = await self.stream_optimizer.encode_frame_async(frame, quality)
-                        
-                        # Send frame
+                        encode_start = time.monotonic()
+                        frame_bytes = await self.stream_optimizer.encode_frame_async(
+                            stamped.frame, stamped.frame_id, quality
+                        )
+                        encode_time = time.monotonic() - encode_start
+
+                        # Adaptive quality (unified engine)
+                        if Parameters.ENABLE_ADAPTIVE_QUALITY:
+                            quality = self.quality_engine.report_frame_sent(
+                                client_id, len(frame_bytes), encode_time
+                            )
+
+                        # Send MJPEG frame
                         yield (b'--frame\r\n'
-                              b'Content-Type: image/jpeg\r\n'
-                              b'Content-Length: ' + str(len(frame_bytes)).encode() + b'\r\n'
-                              b'\r\n' + frame_bytes + b'\r\n')
-                        
-                        last_send_time = current_time
-                        frame_count += 1
+                               b'Content-Type: image/jpeg\r\n'
+                               b'Content-Length: ' + str(len(frame_bytes)).encode() + b'\r\n'
+                               b'\r\n' + frame_bytes + b'\r\n')
+
+                        last_send_time = time.time()
+                        last_frame_id = stamped.frame_id
                         self.stats['frames_sent'] += 1
                         self.stats['total_bandwidth'] += len(frame_bytes)
-                        
+
                     except Exception as e:
                         self.logger.error(f"Frame encoding error: {e}")
                         self.stats['frames_dropped'] += 1
-                        
+
             finally:
                 # Cleanup
+                self.quality_engine.unregister_client(client_id)
+                self.frame_publisher.unregister_client()
                 async with self.connection_lock:
                     self.http_connections.discard(client_id)
                     self.stats['active_connections'] = len(self.http_connections) + len(self.ws_connections)
-        
+
         return StreamingResponse(
-            generate(), 
+            generate(),
             media_type='multipart/x-mixed-replace; boundary=frame',
             headers={'Cache-Control': 'no-cache'}
         )
@@ -503,15 +527,15 @@ class FastAPIHandler:
     async def video_feed_websocket_optimized(self, websocket: WebSocket):
         """Optimized WebSocket streaming with adaptive quality and queuing."""
         await websocket.accept()
-        
+
         client_id = f"ws_{id(websocket)}_{time.time()}"
-        
+
         # Check connection limit
         async with self.connection_lock:
             if len(self.ws_connections) >= Parameters.WS_MAX_CONNECTIONS:
                 await websocket.close(code=1008, reason="Max connections reached")
                 return
-            
+
             # Register client
             self.ws_connections[client_id] = ClientConnection(
                 id=client_id,
@@ -522,148 +546,173 @@ class FastAPIHandler:
                 bandwidth_estimate=0,
                 frame_queue=deque(maxlen=Parameters.MAX_FRAME_QUEUE)
             )
-        
+
+        # Register with frame publisher and quality engine
+        self.frame_publisher.register_client()
+        self.quality_engine.register_client(client_id, Parameters.STREAM_QUALITY)
         self.logger.info(f"WebSocket connected: {client_id}")
-        
+
         try:
             client = self.ws_connections[client_id]
             send_task = asyncio.create_task(self._ws_send_frames(websocket, client))
             receive_task = asyncio.create_task(self._ws_receive_messages(websocket, client))
-            
+
             # Wait for either task to complete
             done, pending = await asyncio.wait(
                 [send_task, receive_task],
                 return_when=asyncio.FIRST_COMPLETED
             )
-            
+
             # Cancel remaining tasks
             for task in pending:
                 task.cancel()
-                
+
         except WebSocketDisconnect:
             self.logger.info(f"WebSocket disconnected: {client_id}")
         except Exception as e:
             self.logger.error(f"WebSocket error: {e}")
         finally:
             # Cleanup
+            self.quality_engine.unregister_client(client_id)
+            self.frame_publisher.unregister_client()
             async with self.connection_lock:
                 self.ws_connections.pop(client_id, None)
                 self.stats['active_connections'] = len(self.http_connections) + len(self.ws_connections)
     
     async def _ws_send_frames(self, websocket: WebSocket, client: ClientConnection):
-        """Send frames to WebSocket client with adaptive quality."""
-        last_send_time = 0
-        bytes_sent = 0
-        time_window_start = time.time()
-        
+        """Send frames to WebSocket client with unified adaptive quality."""
+        last_send_time = 0.0
+        last_frame_id = -1
+        consecutive_errors = 0
+
         while not self.is_shutting_down:
             current_time = time.time()
-            
-            # Frame rate limiting
-            if (current_time - last_send_time) < self.frame_interval:
-                await asyncio.sleep(0.001)
+
+            # Precise sleep instead of busy-wait
+            remaining = self.frame_interval - (current_time - last_send_time)
+            if remaining > 0:
+                await asyncio.sleep(remaining)
                 continue
-            
-            # Get frame
-            frame = (self.video_handler.current_resized_osd_frame
-                    if Parameters.STREAM_PROCESSED_OSD
-                    else self.video_handler.current_resized_raw_frame)
-            
-            if frame is None:
+
+            # Get frame from thread-safe publisher
+            stamped = self.frame_publisher.get_latest(
+                prefer_osd=Parameters.STREAM_PROCESSED_OSD
+            )
+            if stamped is None:
                 await asyncio.sleep(0.01)
                 continue
-            
-            # Adaptive quality based on bandwidth
-            if Parameters.ENABLE_ADAPTIVE_QUALITY and current_time - time_window_start > 1.0:
-                # Calculate bandwidth
-                bandwidth = bytes_sent / (current_time - time_window_start)
-                client.bandwidth_estimate = bandwidth
-                
-                # Adjust quality
-                target_bytes_per_frame = bandwidth / self.frame_rate
-                if target_bytes_per_frame < 10000:  # Less than 10KB per frame
-                    client.quality = max(Parameters.MIN_QUALITY, client.quality - Parameters.QUALITY_STEP)
-                elif target_bytes_per_frame > 50000:  # More than 50KB per frame
-                    client.quality = min(Parameters.MAX_QUALITY, client.quality + Parameters.QUALITY_STEP)
-                
-                # Reset measurement window
-                bytes_sent = 0
-                time_window_start = current_time
-            
+
+            # Skip identical frames
+            if stamped.frame_id == last_frame_id:
+                await asyncio.sleep(0.005)
+                continue
+
             try:
-                # Encode frame
-                frame_bytes = await self.stream_optimizer.encode_frame_async(frame, client.quality)
-                
+                # Encode frame with frame_id-based caching
+                encode_start = time.monotonic()
+                frame_bytes = await self.stream_optimizer.encode_frame_async(
+                    stamped.frame, stamped.frame_id, client.quality
+                )
+                encode_time = time.monotonic() - encode_start
+
+                # Adaptive quality (unified engine)
+                if Parameters.ENABLE_ADAPTIVE_QUALITY:
+                    client.quality = self.quality_engine.report_frame_sent(
+                        client.id, len(frame_bytes), encode_time
+                    )
+
                 # Send frame with metadata
                 message = {
                     'type': 'frame',
                     'timestamp': current_time,
                     'quality': client.quality,
-                    'size': len(frame_bytes)
+                    'size': len(frame_bytes),
+                    'frame_id': stamped.frame_id,
                 }
-                
-                # Send metadata first
+
+                # Send metadata then binary frame
                 await websocket.send_json(message)
-                # Send binary frame
                 await websocket.send_bytes(frame_bytes)
-                
-                last_send_time = current_time
-                bytes_sent += len(frame_bytes)
-                client.last_frame_time = current_time
-                
+
+                last_send_time = time.time()
+                last_frame_id = stamped.frame_id
+                client.last_frame_time = last_send_time
+                consecutive_errors = 0
+
                 self.stats['frames_sent'] += 1
                 self.stats['total_bandwidth'] += len(frame_bytes)
-                
+
             except Exception as e:
-                self.logger.error(f"Failed to send frame: {e}")
+                consecutive_errors += 1
+                if consecutive_errors >= 3:
+                    self.logger.error(f"WebSocket stream terminated after {consecutive_errors} send errors: {e}")
+                    client.frame_drops += consecutive_errors
+                    self.stats['frames_dropped'] += consecutive_errors
+                    break
+                self.logger.warning(f"WebSocket send error ({consecutive_errors}/3): {e}")
                 client.frame_drops += 1
                 self.stats['frames_dropped'] += 1
-                break
+                await asyncio.sleep(0.1)
     
     async def _ws_receive_messages(self, websocket: WebSocket, client: ClientConnection):
         """Handle incoming WebSocket messages."""
         try:
             while not self.is_shutting_down:
                 message = await websocket.receive_json()
-                
+
+                msg_type = message.get('type')
+
                 # Handle quality adjustment requests
-                if message.get('type') == 'quality':
+                if msg_type == 'quality':
                     requested_quality = message.get('quality')
-                    if Parameters.MIN_QUALITY <= requested_quality <= Parameters.MAX_QUALITY:
-                        client.quality = requested_quality
-                        self.logger.debug(f"Client {client.id} requested quality: {requested_quality}")
-                
-                # Handle heartbeat
-                elif message.get('type') == 'ping':
-                    await websocket.send_json({'type': 'pong', 'timestamp': time.time()})
-                    
+                    if isinstance(requested_quality, (int, float)):
+                        requested_quality = int(requested_quality)
+                        if Parameters.MIN_QUALITY <= requested_quality <= Parameters.MAX_QUALITY:
+                            self.quality_engine.set_client_quality(client.id, requested_quality)
+                            client.quality = requested_quality
+                            self.logger.debug(f"Client {client.id} requested quality: {requested_quality}")
+
+                # Handle heartbeat (echo client_timestamp for RTT-based latency)
+                elif msg_type == 'ping':
+                    await websocket.send_json({
+                        'type': 'pong',
+                        'timestamp': time.time(),
+                        'client_timestamp': message.get('client_timestamp', 0),
+                    })
+
         except WebSocketDisconnect:
             pass
         except Exception as e:
             self.logger.error(f"Error receiving WebSocket message: {e}")
     
     async def _heartbeat_task(self):
-        """Send periodic heartbeats to WebSocket clients."""
+        """Check for stale WebSocket connections periodically."""
+        heartbeat_interval = getattr(Parameters, 'WS_HEARTBEAT_INTERVAL', 30)
+        stale_multiplier = getattr(Parameters, 'WS_STALE_TIMEOUT_MULTIPLIER', 2)
+
         while not self.is_shutting_down:
-            await asyncio.sleep(Parameters.WS_HEARTBEAT_INTERVAL)
-            
+            await asyncio.sleep(heartbeat_interval)
+
             # Check for stale connections
             current_time = time.time()
+            stale_timeout = heartbeat_interval * stale_multiplier
             async with self.connection_lock:
                 stale_clients = [
                     client_id for client_id, client in self.ws_connections.items()
-                    if current_time - client.last_frame_time > Parameters.WS_HEARTBEAT_INTERVAL * 2
+                    if client.last_frame_time > 0 and current_time - client.last_frame_time > stale_timeout
                 ]
-                
+
                 for client_id in stale_clients:
                     self.logger.warning(f"Removing stale client: {client_id}")
+                    self.quality_engine.unregister_client(client_id)
+                    self.frame_publisher.unregister_client()
                     self.ws_connections.pop(client_id, None)
     
     async def _stats_reporter(self):
         """Report streaming statistics periodically."""
         while not self.is_shutting_down:
             await asyncio.sleep(30)  # Report every 30 seconds
-            
+
             if self.stats['frames_sent'] > 0:
                 self.logger.info(
                     f"Streaming stats - Frames sent: {self.stats['frames_sent']}, "
@@ -671,7 +720,56 @@ class FastAPIHandler:
                     f"Bandwidth: {self.stats['total_bandwidth'] / 1024 / 1024:.2f} MB, "
                     f"Connections: {self.stats['active_connections']}"
                 )
-    
+
+    async def _cpu_monitor_task(self):
+        """Monitor CPU load for adaptive quality engine."""
+        try:
+            import psutil
+        except ImportError:
+            self.logger.warning("psutil not available — CPU-based quality adaptation disabled")
+            return
+
+        while not self.is_shutting_down:
+            try:
+                cpu = psutil.cpu_percent(interval=None)
+                self.quality_engine.update_cpu_load(cpu)
+            except Exception:
+                pass
+            await asyncio.sleep(5)
+
+    async def get_streaming_status(self):
+        """Report current streaming method, quality, FPS, adaptation status."""
+        quality_states = self.quality_engine.get_all_states()
+        webrtc_count = len(self.webrtc_manager.peer_connections) if hasattr(self.webrtc_manager, 'peer_connections') else 0
+
+        # GStreamer encoder status (if available)
+        gstreamer_info = None
+        if hasattr(self.app_controller, 'gstreamer_handler') and self.app_controller.gstreamer_handler:
+            gstreamer_info = self.app_controller.gstreamer_handler.encoder_status
+
+        return JSONResponse(content={
+            'active_method': (
+                'webrtc' if webrtc_count > 0 else
+                'websocket' if self.ws_connections else
+                'http' if self.http_connections else 'none'
+            ),
+            'http_clients': len(self.http_connections),
+            'websocket_clients': len(self.ws_connections),
+            'webrtc_clients': webrtc_count,
+            'adaptive_quality_enabled': getattr(Parameters, 'ENABLE_ADAPTIVE_QUALITY', True),
+            'quality_engine': quality_states,
+            'gstreamer': gstreamer_info,
+            'config': {
+                'stream_fps': Parameters.STREAM_FPS,
+                'stream_width': Parameters.STREAM_WIDTH,
+                'stream_height': Parameters.STREAM_HEIGHT,
+                'min_quality': getattr(Parameters, 'MIN_QUALITY', 20),
+                'max_quality': getattr(Parameters, 'MAX_QUALITY', 95),
+                'default_protocol': getattr(Parameters, 'DEFAULT_PROTOCOL', 'auto'),
+            },
+            'timestamp': time.time(),
+        })
+
     async def get_streaming_stats(self):
         """Get current streaming statistics."""
         ws_clients_info = []
@@ -1271,16 +1369,20 @@ class FastAPIHandler:
     async def _start_background_tasks(self):
         """Start background tasks now that we have an event loop."""
         self.background_tasks = []
-        
+
         # Start heartbeat task
         heartbeat_task = asyncio.create_task(self._heartbeat_task())
         self.background_tasks.append(heartbeat_task)
-        
+
         # Start stats reporter task
         stats_task = asyncio.create_task(self._stats_reporter())
         self.background_tasks.append(stats_task)
-        
-        self.logger.info("Started background tasks: heartbeat and stats reporter")
+
+        # Start CPU monitoring for adaptive quality
+        cpu_task = asyncio.create_task(self._cpu_monitor_task())
+        self.background_tasks.append(cpu_task)
+
+        self.logger.info("Started background tasks: heartbeat, stats reporter, CPU monitor")
 
     async def start(self, host='0.0.0.0', port=None):
         """Start the FastAPI server."""
@@ -3710,6 +3812,93 @@ class FastAPIHandler:
             raise
         except Exception as e:
             self.logger.error(f"Error loading OSD preset: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # ==================== GStreamer QGC Output API Endpoints ====================
+
+    async def get_gstreamer_status(self):
+        """Get GStreamer QGC output stream status and configuration."""
+        try:
+            handler = getattr(self.app_controller, 'gstreamer_handler', None)
+            is_active = handler is not None and handler.out is not None
+
+            return JSONResponse(content={
+                'available': True,
+                'enabled': is_active,
+                'config_enabled': bool(getattr(Parameters, 'ENABLE_GSTREAMER_STREAM', False)),
+                'encoder': handler.encoder_info.encoder if handler else None,
+                'hardware_accelerated': handler.encoder_info.hardware if handler else False,
+                'host': str(getattr(Parameters, 'GSTREAMER_HOST', '127.0.0.1')),
+                'port': int(getattr(Parameters, 'GSTREAMER_PORT', 2000)),
+                'resolution': f"{getattr(Parameters, 'GSTREAMER_WIDTH', 1280)}x{getattr(Parameters, 'GSTREAMER_HEIGHT', 720)}",
+                'framerate': int(getattr(Parameters, 'GSTREAMER_FRAMERATE', 15)),
+                'bitrate_kbps': int(getattr(Parameters, 'GSTREAMER_BITRATE', 2000)),
+                'qgc_setup_hint': 'In QGC: Application Settings > Video > UDP Video Stream, port '
+                                  + str(int(getattr(Parameters, 'GSTREAMER_PORT', 2000))),
+                'timestamp': time.time(),
+            })
+        except Exception as e:
+            self.logger.error(f"Error getting GStreamer status: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def toggle_gstreamer(self):
+        """Toggle GStreamer QGC output stream on or off at runtime."""
+        try:
+            handler = getattr(self.app_controller, 'gstreamer_handler', None)
+            was_active = handler is not None and handler.out is not None
+
+            if was_active:
+                # Stop the stream
+                handler.release()
+                self.logger.info("GStreamer QGC output stopped via API")
+                Parameters.ENABLE_GSTREAMER_STREAM = False
+                return JSONResponse(content={
+                    'status': 'success',
+                    'enabled': False,
+                    'action': 'stopped',
+                    'message': 'GStreamer QGC output stream stopped',
+                    'timestamp': time.time(),
+                })
+            else:
+                # Start the stream
+                from classes.gstreamer_handler import GStreamerHandler
+                if handler is None:
+                    handler = GStreamerHandler()
+                    self.app_controller.gstreamer_handler = handler
+                handler.initialize_stream()
+                Parameters.ENABLE_GSTREAMER_STREAM = True
+
+                is_open = handler.out is not None and handler.out.isOpened()
+                if is_open:
+                    self.logger.info(
+                        f"GStreamer QGC output started via API "
+                        f"(encoder={handler.encoder_info.encoder}, "
+                        f"hardware={'yes' if handler.encoder_info.hardware else 'no'})"
+                    )
+                    return JSONResponse(content={
+                        'status': 'success',
+                        'enabled': True,
+                        'action': 'started',
+                        'encoder': handler.encoder_info.encoder,
+                        'hardware_accelerated': handler.encoder_info.hardware,
+                        'message': f'GStreamer QGC output started ({handler.encoder_info.encoder})',
+                        'qgc_setup_hint': 'In QGC: Application Settings > Video > UDP Video Stream, port '
+                                          + str(int(getattr(Parameters, 'GSTREAMER_PORT', 2000))),
+                        'timestamp': time.time(),
+                    })
+                else:
+                    self.logger.warning("GStreamer pipeline failed to open")
+                    Parameters.ENABLE_GSTREAMER_STREAM = False
+                    return JSONResponse(content={
+                        'status': 'error',
+                        'enabled': False,
+                        'action': 'failed',
+                        'message': 'GStreamer pipeline failed to open. Check GStreamer installation.',
+                        'timestamp': time.time(),
+                    }, status_code=500)
+
+        except Exception as e:
+            self.logger.error(f"Error toggling GStreamer: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     # ==================== Safety Configuration API Endpoints (v3.5.0+) ====================

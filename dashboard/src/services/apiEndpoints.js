@@ -58,6 +58,10 @@ export const endpoints = {
   osdPresets: `${protocol}://${apiHost}:${apiPort}/api/osd/presets`,
   loadOsdPreset: (presetName) => `${protocol}://${apiHost}:${apiPort}/api/osd/preset/${presetName}`,
 
+  // GStreamer QGC Output endpoints
+  gstreamerStatus: `${protocol}://${apiHost}:${apiPort}/api/gstreamer/status`,
+  toggleGstreamer: `${protocol}://${apiHost}:${apiPort}/api/gstreamer/toggle`,
+
   // YOLO Model Management endpoints
   yoloModels: `${protocol}://${apiHost}:${apiPort}/api/yolo/models`,
   yoloActiveModel: `${protocol}://${apiHost}:${apiPort}/api/yolo/active-model`,
@@ -117,6 +121,9 @@ export const websocketVideoFeed = `${wsProtocol}://${apiHost}:${apiPort}/ws/vide
 
 // WebRTC Signaling Endpoint
 export const webrtcSignalingEndpoint = `${wsProtocol}://${apiHost}:${apiPort}/ws/webrtc_signaling`;
+
+// Streaming status endpoint
+export const streamingStatus = `${protocol}://${apiHost}:${apiPort}/api/streaming/status`;
 
 // Export config for debugging/logging
 export const apiConfig = { apiHost, apiPort, protocol, wsProtocol };

@@ -23,6 +23,7 @@ from classes.osd_handler import OSDHandler
 from classes.osd_pipeline import OSDPipeline
 from classes.gstreamer_handler import GStreamerHandler
 from classes.mavlink_data_manager import MavlinkDataManager
+from classes.frame_publisher import FramePublisher
 from classes.frame_preprocessor import FramePreprocessor
 from classes.estimators.estimator_factory import create_estimator
 from classes.detectors.detector_factory import create_detector
@@ -140,6 +141,9 @@ class AppController:
 
         # Initialize telemetry handler with tracker and follower
         self.telemetry_handler = TelemetryHandler(self, lambda: self.tracking_started)
+
+        # Thread-safe frame publisher for streaming consumers
+        self.frame_publisher = FramePublisher()
 
         # Initialize the FastAPI handler
         logging.debug("Initializing FastAPIHandler...")
@@ -567,9 +571,19 @@ class AppController:
                     self.video_handler.current_osd_frame = frame
 
                 self.video_handler.current_resized_osd_frame = stream_osd_frame
+                # Publish to thread-safe frame publisher for streaming consumers
+                self.frame_publisher.publish(
+                    osd_frame=stream_osd_frame,
+                    raw_frame=self.video_handler.current_resized_raw_frame,
+                )
             else:
                 self.video_handler.current_osd_frame = frame
                 self.video_handler.current_resized_osd_frame = None
+                # Publish raw frame when OSD is disabled
+                self.frame_publisher.publish(
+                    osd_frame=None,
+                    raw_frame=self.video_handler.current_resized_raw_frame,
+                )
 
             # Optional secondary GStreamer output
             if Parameters.ENABLE_GSTREAMER_STREAM and hasattr(self, 'gstreamer_handler'):
