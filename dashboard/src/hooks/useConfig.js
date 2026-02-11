@@ -284,36 +284,77 @@ export const useConfigSection = (sectionName) => {
 };
 
 /**
- * Hook for configuration search
+ * Hook for configuration search with debounce and request cancellation
  */
 export const useConfigSearch = () => {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const debounceRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
-  const search = useCallback(async (query) => {
+  const search = useCallback((query) => {
+    // Clear any pending debounce timer
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+
     if (!query || query.length < 2) {
       setResults([]);
+      setLoading(false);
       return;
     }
 
+    // Show loading immediately for responsiveness
     setLoading(true);
-    setError(null);
 
-    try {
-      const response = await axios.get(`${endpoints.configSearch}?q=${encodeURIComponent(query)}`);
-      if (response.data.success) {
-        setResults(response.data.results);
+    // Debounce the actual API call by 300ms
+    debounceRef.current = setTimeout(async () => {
+      // Cancel any in-flight request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
       }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+      abortControllerRef.current = new AbortController();
+
+      setError(null);
+
+      try {
+        const response = await axios.get(
+          `${endpoints.configSearch}?q=${encodeURIComponent(query)}`,
+          { signal: abortControllerRef.current.signal }
+        );
+        if (response.data.success) {
+          setResults(response.data.results);
+        }
+      } catch (err) {
+        if (!axios.isCancel(err)) {
+          setError(err.message);
+        }
+      } finally {
+        setLoading(false);
+      }
+    }, 300);
   }, []);
 
   const clearResults = useCallback(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
     setResults([]);
+    setLoading(false);
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
   }, []);
 
   return { results, loading, error, search, clearResults };

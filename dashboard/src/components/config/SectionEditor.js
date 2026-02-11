@@ -490,6 +490,7 @@ const ParameterCard = ({
   return (
     <Card
       variant="outlined"
+      data-param={param}
       sx={{
         mb: 2,
         bgcolor: isModified ? 'action.selected' : 'background.paper',
@@ -569,7 +570,7 @@ const ParameterCard = ({
   );
 };
 
-const SectionEditor = ({ sectionName, onRebootRequired, onMessage, autoSaveEnabled = true }) => {
+const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete = null, onRebootRequired, onMessage, autoSaveEnabled = true }) => {
   const {
     config,
     defaultConfig,
@@ -592,6 +593,31 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage, autoSaveEnabl
   const [saveStatuses, setSaveStatuses] = useState({}); // 'saving' | 'saved' | 'error' | null
   const [pendingChanges, setPendingChanges] = useState({}); // Track unsaved changes
   const [selectedParam, setSelectedParam] = useState(null); // For detail dialog
+  const containerRef = useRef(null);
+
+  // Scroll to and highlight a parameter when highlightParam changes
+  useEffect(() => {
+    if (!highlightParam || loading) return;
+
+    const timer = setTimeout(() => {
+      const targetEl = containerRef.current?.querySelector(
+        `[data-param="${highlightParam}"]`
+      );
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        targetEl.classList.add('param-highlight');
+        const cleanup = setTimeout(() => {
+          targetEl.classList.remove('param-highlight');
+          onHighlightComplete?.();
+        }, 2000);
+        return () => clearTimeout(cleanup);
+      } else {
+        onHighlightComplete?.();
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [highlightParam, loading, onHighlightComplete]);
 
   // Clear save statuses after delay
   useEffect(() => {
@@ -757,7 +783,22 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage, autoSaveEnabl
   };
 
   return (
-    <Paper sx={{ p: { xs: 2, md: 3 } }}>
+    <Paper
+      ref={containerRef}
+      sx={{
+        p: { xs: 2, md: 3 },
+        '& .param-highlight': {
+          animation: 'paramFlash 2s ease-in-out',
+        },
+        '@keyframes paramFlash': {
+          '0%':   { backgroundColor: 'transparent' },
+          '15%':  { backgroundColor: 'rgba(25, 118, 210, 0.15)' },
+          '30%':  { backgroundColor: 'rgba(25, 118, 210, 0.25)' },
+          '60%':  { backgroundColor: 'rgba(25, 118, 210, 0.15)' },
+          '100%': { backgroundColor: 'transparent' },
+        }
+      }}
+    >
       {/* Header */}
       <Box sx={{
         display: 'flex',
@@ -869,6 +910,7 @@ const SectionEditor = ({ sectionName, onRebootRequired, onMessage, autoSaveEnabl
               return (
                 <TableRow
                   key={param}
+                  data-param={param}
                   sx={{
                     bgcolor: modified ? 'action.selected' : undefined,
                     '&:hover': { bgcolor: 'action.hover' }
@@ -1017,6 +1059,10 @@ ParameterInput.propTypes = {
 SectionEditor.propTypes = {
   /** The section name to edit (e.g., 'Tracker', 'Follower') */
   sectionName: PropTypes.string.isRequired,
+  /** Parameter name to scroll to and highlight (from search navigation) */
+  highlightParam: PropTypes.string,
+  /** Callback when highlight animation completes */
+  onHighlightComplete: PropTypes.func,
   /** Callback when reboot/restart is required after parameter change */
   onRebootRequired: PropTypes.func,
   /** Callback for displaying messages (toast notifications) */
@@ -1026,6 +1072,8 @@ SectionEditor.propTypes = {
 };
 
 SectionEditor.defaultProps = {
+  highlightParam: null,
+  onHighlightComplete: null,
   onRebootRequired: null,
   onMessage: null,
   autoSaveEnabled: true,

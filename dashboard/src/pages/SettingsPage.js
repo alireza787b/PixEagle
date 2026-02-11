@@ -4,12 +4,12 @@ import {
   Box, Container, Typography, CircularProgress, Alert, Paper, Divider,
   List, ListItemButton, ListItemIcon, ListItemText,
   Collapse, TextField, InputAdornment, Chip, Tooltip,
-  Snackbar, Drawer, Fab, Switch, FormControlLabel, Button
+  Snackbar, Drawer, Fab, Switch, FormControlLabel, Button, IconButton
 } from '@mui/material';
 import {
   Settings, Search, ExpandLess, ExpandMore, Videocam, Router,
   GpsFixed, Navigation, Shield, Tune, AutoFixHigh, Tv,
-  Menu as MenuIcon, FlightTakeoff, Visibility, VisibilityOff, Save
+  Menu as MenuIcon, FlightTakeoff, Visibility, VisibilityOff, Save, Close
 } from '@mui/icons-material';
 
 import { useConfigSections, useConfigSearch, useConfigDiff, useCurrentFollowerMode, useRelevantSections } from '../hooks/useConfig';
@@ -44,7 +44,7 @@ const categoryOrder = ['video', 'network', 'tracking', 'detection', 'follower', 
 // Inner component that uses global state
 const SettingsPageContent = () => {
   const { sections, categories, groupedSections, loading: sectionsLoading, error: sectionsError, refetch } = useConfigSections();
-  const { results: searchResults, search, clearResults } = useConfigSearch();
+  const { results: searchResults, loading: searchLoading, search, clearResults } = useConfigSearch();
   const { diff, refetch: refetchDiff } = useConfigDiff();
   const { isMobile, isTablet, isDesktop } = useResponsive();
   // Global state available for ConfigStatusBanner
@@ -66,6 +66,9 @@ const SettingsPageContent = () => {
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
   const [videoHealth, setVideoHealth] = useState(null);
   const [reconnectingVideo, setReconnectingVideo] = useState(false);
+  const [highlightParam, setHighlightParam] = useState(null);
+  const [searchActiveIndex, setSearchActiveIndex] = useState(-1);
+  const searchResultsRef = useRef(null);
 
   // Sync with defaults tracking (v5.4.1+)
   const { counts: syncCounts, refresh: refreshSyncCounts } = useDefaultsSync();
@@ -143,6 +146,7 @@ const SettingsPageContent = () => {
 
   const handleSectionSelect = (section) => {
     setSelectedSection(section);
+    setHighlightParam(null);
     clearResults();
     setSearchQuery('');
     // Close drawer on mobile after selection
@@ -154,6 +158,7 @@ const SettingsPageContent = () => {
   const handleSearch = (e) => {
     const query = e.target.value;
     setSearchQuery(query);
+    setSearchActiveIndex(-1);
     if (query.length >= 2) {
       search(query);
     } else {
@@ -161,11 +166,71 @@ const SettingsPageContent = () => {
     }
   };
 
-  const handleSearchResultClick = (result) => {
+  const handleSearchClear = useCallback(() => {
+    setSearchQuery('');
+    setSearchActiveIndex(-1);
+    clearResults();
+  }, [clearResults]);
+
+  const handleSearchResultClick = useCallback((result) => {
+    // 1. Select the section
     setSelectedSection(result.section);
+
+    // 2. Ensure section is visible even if filtered out by mode-relevance
+    setShowAllSections(true);
+
+    // 3. Expand the parent category so the section appears in the sidebar
+    const sectionMeta = sections.find(s => s.name === result.section);
+    if (sectionMeta?.category) {
+      setExpandedCategories(prev => ({ ...prev, [sectionMeta.category]: true }));
+    }
+
+    // 4. Set the parameter to highlight in SectionEditor
+    setHighlightParam(result.parameter);
+
+    // 5. Clear search state
     clearResults();
     setSearchQuery('');
-  };
+    setSearchActiveIndex(-1);
+
+    // 6. Close drawer on mobile after selection
+    if (isMobile) {
+      setDrawerOpen(false);
+    }
+
+    // 7. Scroll sidebar to the selected section item after render
+    setTimeout(() => {
+      const sidebarItem = document.querySelector(
+        `[data-section="${result.section}"]`
+      );
+      if (sidebarItem) {
+        sidebarItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 150);
+  }, [sections, clearResults, isMobile]);
+
+  const handleSearchKeyDown = useCallback((e) => {
+    const visibleResults = searchResults.slice(0, 10);
+    if (visibleResults.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSearchActiveIndex(prev =>
+        prev < visibleResults.length - 1 ? prev + 1 : 0
+      );
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSearchActiveIndex(prev =>
+        prev > 0 ? prev - 1 : visibleResults.length - 1
+      );
+    } else if (e.key === 'Enter' && searchActiveIndex >= 0) {
+      e.preventDefault();
+      handleSearchResultClick(visibleResults[searchActiveIndex]);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      handleSearchClear();
+    }
+  }, [searchResults, searchActiveIndex, handleSearchResultClick, handleSearchClear]);
 
   const handleRebootRequired = (section, param) => {
     setPendingRestartParams(prev => {
@@ -442,38 +507,100 @@ const SettingsPageContent = () => {
           const sidebarContent = (
             <Box sx={{ width: { xs: 280, sm: 300 }, height: '100%' }}>
               {/* Search */}
-              <Box sx={{ p: 2, position: 'sticky', top: 0, bgcolor: 'background.paper', zIndex: 1 }}>
+              <Box sx={{ p: 2, position: 'sticky', top: 0, bgcolor: 'background.paper', zIndex: 2 }}>
                 <TextField
                   fullWidth
                   size="small"
                   placeholder="Search parameters..."
                   value={searchQuery}
                   onChange={handleSearch}
+                  onKeyDown={handleSearchKeyDown}
+                  role="combobox"
+                  aria-expanded={searchResults.length > 0 || searchLoading}
+                  aria-controls="search-results-listbox"
+                  aria-activedescendant={
+                    searchActiveIndex >= 0 ? `search-result-${searchActiveIndex}` : undefined
+                  }
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
-                        <Search />
+                        {searchLoading ? (
+                          <CircularProgress size={20} />
+                        ) : (
+                          <Search />
+                        )}
                       </InputAdornment>
-                    )
+                    ),
+                    endAdornment: searchQuery ? (
+                      <InputAdornment position="end">
+                        <IconButton
+                          size="small"
+                          onClick={handleSearchClear}
+                          aria-label="Clear search"
+                          edge="end"
+                        >
+                          <Close fontSize="small" />
+                        </IconButton>
+                      </InputAdornment>
+                    ) : null
                   }}
                 />
 
-                {/* Search Results */}
-                {searchResults.length > 0 && (
-                  <Paper elevation={3} sx={{ mt: 1, maxHeight: 300, overflow: 'auto' }}>
-                    <List dense>
-                      {searchResults.slice(0, 10).map((result, idx) => (
-                        <ListItemButton
-                          key={idx}
-                          onClick={() => handleSearchResultClick(result)}
-                        >
-                          <ListItemText
-                            primary={result.parameter}
-                            secondary={`${result.section} - ${result.description?.slice(0, 50)}...`}
-                          />
-                        </ListItemButton>
-                      ))}
-                    </List>
+                {/* Search Results Dropdown */}
+                {(searchResults.length > 0 || (searchQuery.length >= 2 && !searchLoading)) && (
+                  <Paper
+                    elevation={8}
+                    ref={searchResultsRef}
+                    sx={{
+                      mt: 1,
+                      maxHeight: 300,
+                      overflow: 'auto',
+                      position: 'relative',
+                      zIndex: 1300
+                    }}
+                  >
+                    {searchResults.length > 0 ? (
+                      <List
+                        dense
+                        id="search-results-listbox"
+                        role="listbox"
+                        aria-label="Search results"
+                      >
+                        {searchResults.slice(0, 10).map((result, idx) => (
+                          <ListItemButton
+                            key={`${result.section}-${result.parameter}`}
+                            id={`search-result-${idx}`}
+                            role="option"
+                            aria-selected={idx === searchActiveIndex}
+                            selected={idx === searchActiveIndex}
+                            onClick={() => handleSearchResultClick(result)}
+                          >
+                            <ListItemText
+                              primary={
+                                <Typography
+                                  variant="body2"
+                                  sx={{ fontFamily: 'monospace', fontWeight: 500 }}
+                                >
+                                  {result.parameter}
+                                </Typography>
+                              }
+                              secondary={
+                                <Typography variant="caption" color="text.secondary" noWrap>
+                                  {result.section}
+                                  {result.description ? ` \u2014 ${result.description.slice(0, 50)}` : ''}
+                                </Typography>
+                              }
+                            />
+                          </ListItemButton>
+                        ))}
+                      </List>
+                    ) : (
+                      <Box sx={{ p: 2, textAlign: 'center' }}>
+                        <Typography variant="body2" color="text.secondary">
+                          No parameters found for &ldquo;{searchQuery}&rdquo;
+                        </Typography>
+                      </Box>
+                    )}
                   </Paper>
                 )}
               </Box>
@@ -507,6 +634,7 @@ const SettingsPageContent = () => {
                             return (
                               <ListItemButton
                                 key={section.name}
+                                data-section={section.name}
                                 sx={{ pl: 4 }}
                                 selected={selectedSection === section.name}
                                 onClick={() => handleSectionSelect(section.name)}
@@ -602,6 +730,8 @@ const SettingsPageContent = () => {
           {selectedSection ? (
             <SectionEditor
               sectionName={selectedSection}
+              highlightParam={highlightParam}
+              onHighlightComplete={() => setHighlightParam(null)}
               onRebootRequired={handleRebootRequired}
               onMessage={handleSnackbar}
               autoSaveEnabled={autoSaveEnabled}
