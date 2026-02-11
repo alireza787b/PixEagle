@@ -903,13 +903,13 @@ const SafetyLimitsEditor = ({
             ) : (
               // Desktop: Table layout with more information density
               <Paper variant="outlined" sx={{ overflowX: 'auto' }}>
-                <Table size="small" sx={{ minWidth: 400 }}>
+                <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
                   <TableHead>
                     <TableRow>
-                      <TableCell sx={{ minWidth: 150 }}>Property</TableCell>
-                      <TableCell sx={{ minWidth: 120 }}>Value</TableCell>
-                      {isOverrides && <TableCell sx={{ minWidth: 100 }}>Global Value</TableCell>}
-                      <TableCell align="right" sx={{ minWidth: 80, whiteSpace: 'nowrap' }}>Actions</TableCell>
+                      <TableCell sx={{ width: isOverrides ? '30%' : '40%' }}>Property</TableCell>
+                      <TableCell sx={{ width: isOverrides ? '25%' : '35%' }}>Value</TableCell>
+                      {isOverrides && <TableCell sx={{ width: '25%' }}>Global Value</TableCell>}
+                      <TableCell align="right" sx={{ width: isOverrides ? '20%' : '25%', whiteSpace: 'nowrap' }}>Actions</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>

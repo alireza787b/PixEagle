@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import {
   Box, Typography, Paper, Chip, Checkbox,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  IconButton, Tooltip, TextField, InputAdornment
+  IconButton, Tooltip, TextField, InputAdornment,
 } from '@mui/material';
 import {
   Add, Remove, Edit, ExpandMore, ExpandLess, Search,
@@ -272,22 +272,22 @@ const DiffViewer = ({
         <Table
           size="small"
           sx={{
-            minWidth: compact ? 0 : 620,
-            tableLayout: compact ? 'auto' : 'fixed'
+            tableLayout: 'fixed',
+            width: '100%'
           }}
         >
           <TableHead>
             <TableRow>
-              {selectable && <TableCell padding="checkbox" />}
+              {selectable && <TableCell padding="checkbox" sx={{ width: 42 }} />}
               <TableCell sx={{ fontWeight: 'bold', width: 40, whiteSpace: 'nowrap' }}>Type</TableCell>
-              <TableCell sx={{ fontWeight: 'bold', width: compact ? 'auto' : '22%' }}>Parameter</TableCell>
+              <TableCell sx={{ fontWeight: 'bold', width: compact ? (onRevert ? '60%' : '70%') : (onRevert ? '28%' : '32%') }}>Parameter</TableCell>
               {!compact && (
                 <>
-                  <TableCell sx={{ fontWeight: 'bold', width: '34%' }}>Current Value</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold', width: '34%' }}>Default Value</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', width: onRevert ? '28%' : '32%' }}>Current Value</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', width: onRevert ? '28%' : '32%' }}>Default Value</TableCell>
                 </>
               )}
-              {onRevert && <TableCell sx={{ fontWeight: 'bold', width: 60 }}>Action</TableCell>}
+              {onRevert && <TableCell sx={{ fontWeight: 'bold', width: 50, whiteSpace: 'nowrap' }}>Action</TableCell>}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -357,51 +357,58 @@ const DiffViewer = ({
                           {getChangeIcon(diff.change_type)}
                         </Tooltip>
                       </TableCell>
-                      <TableCell>
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            fontFamily: 'monospace',
-                            pl: 2,
-                            overflowWrap: 'anywhere',
-                            wordBreak: 'break-word'
-                          }}
-                        >
-                          {diff.parameter}
-                        </Typography>
+                      <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <Tooltip title={diff.parameter} placement="top-start">
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              fontFamily: 'monospace',
+                              pl: 2,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap'
+                            }}
+                          >
+                            {diff.parameter}
+                          </Typography>
+                        </Tooltip>
                       </TableCell>
                       {!compact && (
                         <>
-                          <TableCell>
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                fontFamily: 'monospace',
-                                color: diff.change_type === 'added' ? 'text.disabled' : 'error.main',
-                                textDecoration: diff.change_type !== 'added' ? 'line-through' : 'none',
-                                opacity: diff.change_type === 'added' ? 0.5 : 1,
-                                whiteSpace: 'normal',
-                                overflowWrap: 'anywhere',
-                                wordBreak: 'break-word'
-                              }}
-                            >
-                              {diff.change_type === 'added' ? '-' : formatValue(diff.new_value)}
-                            </Typography>
+                          <TableCell sx={{ overflow: 'hidden' }}>
+                            <Tooltip title={diff.change_type === 'added' ? '-' : String(formatValue(diff.new_value))} placement="top">
+                              <Typography
+                                variant="body2"
+                                noWrap
+                                sx={{
+                                  fontFamily: 'monospace',
+                                  color: diff.change_type === 'added' ? 'text.disabled' : 'error.main',
+                                  textDecoration: diff.change_type !== 'added' ? 'line-through' : 'none',
+                                  opacity: diff.change_type === 'added' ? 0.5 : 1,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis'
+                                }}
+                              >
+                                {diff.change_type === 'added' ? '-' : formatValue(diff.new_value)}
+                              </Typography>
+                            </Tooltip>
                           </TableCell>
-                          <TableCell>
-                            <Typography
-                              variant="body2"
-                              sx={{
-                                fontFamily: 'monospace',
-                                color: diff.change_type === 'removed' ? 'text.disabled' : 'success.main',
-                                opacity: diff.change_type === 'removed' ? 0.5 : 1,
-                                whiteSpace: 'normal',
-                                overflowWrap: 'anywhere',
-                                wordBreak: 'break-word'
-                              }}
-                            >
-                              {diff.change_type === 'removed' ? '-' : formatValue(diff.old_value)}
-                            </Typography>
+                          <TableCell sx={{ overflow: 'hidden' }}>
+                            <Tooltip title={diff.change_type === 'removed' ? '-' : String(formatValue(diff.old_value))} placement="top">
+                              <Typography
+                                variant="body2"
+                                noWrap
+                                sx={{
+                                  fontFamily: 'monospace',
+                                  color: diff.change_type === 'removed' ? 'text.disabled' : 'success.main',
+                                  opacity: diff.change_type === 'removed' ? 0.5 : 1,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis'
+                                }}
+                              >
+                                {diff.change_type === 'removed' ? '-' : formatValue(diff.old_value)}
+                              </Typography>
+                            </Tooltip>
                           </TableCell>
                         </>
                       )}

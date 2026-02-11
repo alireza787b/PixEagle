@@ -20,8 +20,10 @@ import {
   TextField,
   MenuItem,
   CircularProgress,
-  Tooltip
+  Tooltip,
+  useMediaQuery,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import {
   Close as CloseIcon,
   Refresh as RefreshIcon,
@@ -78,6 +80,8 @@ function truncateValue(value, maxLen = 30) {
 }
 
 export default function AuditLogDialog({ open, onClose }) {
+  const theme = useTheme();
+  const fullScreen = useMediaQuery(theme.breakpoints.down('md'));
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -145,7 +149,8 @@ export default function AuditLogDialog({ open, onClose }) {
       onClose={onClose}
       maxWidth="lg"
       fullWidth
-      PaperProps={{ sx: { minHeight: '70vh' } }}
+      fullScreen={fullScreen}
+      PaperProps={{ sx: { minHeight: fullScreen ? '100vh' : '70vh' } }}
     >
       <DialogTitle>
         <Box display="flex" alignItems="center" justifyContent="space-between">
@@ -162,14 +167,14 @@ export default function AuditLogDialog({ open, onClose }) {
       </DialogTitle>
 
       <DialogContent dividers>
-        <Box sx={{ mb: 2, display: 'flex', gap: 2 }}>
+        <Box sx={{ mb: 2, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
           <TextField
             select
             label="Section"
             value={sectionFilter}
             onChange={(e) => { setSectionFilter(e.target.value); setPage(0); }}
             size="small"
-            sx={{ minWidth: 150 }}
+            sx={{ minWidth: 120, flexShrink: 0 }}
           >
             <MenuItem value="">All Sections</MenuItem>
             {sections.map((s) => (
@@ -182,7 +187,7 @@ export default function AuditLogDialog({ open, onClose }) {
             value={actionFilter}
             onChange={(e) => { setActionFilter(e.target.value); setPage(0); }}
             size="small"
-            sx={{ minWidth: 120 }}
+            sx={{ minWidth: 100, flexShrink: 0 }}
           >
             <MenuItem value="">All Actions</MenuItem>
             <MenuItem value="update">Update</MenuItem>
@@ -204,17 +209,17 @@ export default function AuditLogDialog({ open, onClose }) {
             <Typography color="text.secondary">No audit entries found</Typography>
           </Box>
         ) : (
-          <TableContainer component={Paper} variant="outlined">
-            <Table size="small">
+          <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto' }}>
+            <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
               <TableHead>
                 <TableRow>
-                  <TableCell>Time</TableCell>
-                  <TableCell>Action</TableCell>
-                  <TableCell>Section</TableCell>
-                  <TableCell>Parameter</TableCell>
-                  <TableCell>Old Value</TableCell>
-                  <TableCell>New Value</TableCell>
-                  <TableCell>Source</TableCell>
+                  <TableCell sx={{ width: '12%' }}>Time</TableCell>
+                  <TableCell sx={{ width: '10%' }}>Action</TableCell>
+                  <TableCell sx={{ width: '14%' }}>Section</TableCell>
+                  <TableCell sx={{ width: '18%' }}>Parameter</TableCell>
+                  <TableCell sx={{ width: '18%' }}>Old Value</TableCell>
+                  <TableCell sx={{ width: '18%' }}>New Value</TableCell>
+                  <TableCell sx={{ width: '10%' }}>Source</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -236,32 +241,32 @@ export default function AuditLogDialog({ open, onClose }) {
                         variant="outlined"
                       />
                     </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" fontFamily="monospace">
+                    <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <Typography variant="body2" fontFamily="monospace" noWrap>
                         {entry.section}
                       </Typography>
                     </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" fontFamily="monospace">
+                    <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <Typography variant="body2" fontFamily="monospace" noWrap>
                         {entry.parameter || '-'}
                       </Typography>
                     </TableCell>
-                    <TableCell>
+                    <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       <Tooltip title={formatValue(entry.old_value)}>
-                        <Typography variant="body2" sx={{ color: 'error.main' }}>
+                        <Typography variant="body2" noWrap sx={{ color: 'error.main' }}>
                           {truncateValue(entry.old_value)}
                         </Typography>
                       </Tooltip>
                     </TableCell>
-                    <TableCell>
+                    <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       <Tooltip title={formatValue(entry.new_value)}>
-                        <Typography variant="body2" sx={{ color: 'success.main' }}>
+                        <Typography variant="body2" noWrap sx={{ color: 'success.main' }}>
                           {truncateValue(entry.new_value)}
                         </Typography>
                       </Tooltip>
                     </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color="text.secondary">
+                    <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <Typography variant="body2" color="text.secondary" noWrap>
                         {entry.source}
                       </Typography>
                     </TableCell>

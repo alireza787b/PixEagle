@@ -72,6 +72,9 @@ const ChangesDrawer = ({
   const [tabIndex, setTabIndex] = useState(0);
   const theme = useTheme();
   const useFullWidthDrawer = useMediaQuery(theme.breakpoints.down('lg'));
+  const isNarrowViewport = useMediaQuery(theme.breakpoints.down('md'));
+  // Use compact diff when drawer is narrow (non-fullwidth mode on desktops, or narrow viewports)
+  const useCompactDiff = !useFullWidthDrawer || isNarrowViewport;
   const globalState = useConfigGlobalState();
   const { diff: modifiedFromDefaults, refetch: refetchDiff } = useConfigDiff();
 
@@ -270,7 +273,7 @@ const ChangesDrawer = ({
                 differences={modifiedFromDefaults || []}
                 selectable={false}
                 showFilter={true}
-                compact={false}
+                compact={useCompactDiff}
                 onRevert={handleRevert}
               />
             </>
