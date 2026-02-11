@@ -139,6 +139,7 @@ class TestMatchById:
 
     def test_wrong_class_not_matched(self, tracking_manager):
         """Test wrong class is not matched."""
+        tracking_manager.class_match_flexible = False
         detections = [
             [110, 110, 210, 210, 1, 0.85, 1]  # Same ID, wrong class
         ]

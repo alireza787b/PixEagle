@@ -1,5 +1,7 @@
 from pathlib import Path
+from unittest.mock import MagicMock
 
+import numpy as np
 from classes.parameters import Parameters
 from classes.smart_tracker import SmartTracker
 import classes.smart_tracker as smart_tracker_module
@@ -143,3 +145,51 @@ def test_switch_model_cpu_uses_pt_when_ncnn_missing(monkeypatch, tmp_path):
     assert result["success"] is True
     assert result["model_info"]["backend"] == "cpu_torch"
     assert tracker.get_runtime_info()["model_path"] == str(next_pt.as_posix())
+
+
+def test_track_and_draw_handles_loss_report_without_track_id(monkeypatch, tmp_path):
+    base_pt = tmp_path / "base.pt"
+    base_pt.write_bytes(b"base")
+    base_ncnn = _make_ncnn_dir(tmp_path, "base_ncnn_model")
+
+    _configure(monkeypatch, gpu_path=base_pt, cpu_path=base_ncnn, use_gpu=False, fallback_to_cpu=True)
+    monkeypatch.setattr(SmartTracker, "_cuda_available", lambda self: False)
+
+    tracker = SmartTracker(DummyAppController())
+
+    frame = np.zeros((96, 96, 3), dtype=np.uint8)
+    detections = [
+        smart_tracker_module.NormalizedDetection(
+            track_id=7,
+            class_id=0,
+            confidence=0.9,
+            aabb_xyxy=(10, 10, 36, 36),
+            center_xy=(23, 23),
+            geometry_type="aabb",
+        )
+    ]
+
+    monkeypatch.setattr(
+        smart_tracker_module,
+        "normalize_results",
+        lambda results, allow_mixed=False: ("detect", detections),
+    )
+
+    tracker.tracking_manager.selected_track_id = 7
+    tracker.tracking_manager.update_tracking = MagicMock(
+        return_value=(False, {"need_reselection": True, "loss_reason": "occluded"})
+    )
+    tracker.tracking_manager.clear = MagicMock()
+
+    tracker.selected_object_id = 7
+    tracker.selected_class_id = 0
+    tracker.selected_bbox = (10, 10, 36, 36)
+    tracker.selected_center = (23, 23)
+
+    output = tracker.track_and_draw(frame)
+
+    assert output.shape == frame.shape
+    assert tracker.app_controller.tracking_started is False
+    assert tracker.selected_object_id is None
+    assert tracker.selected_bbox is None
+    tracker.tracking_manager.clear.assert_called_once()

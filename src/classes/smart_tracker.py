@@ -1029,6 +1029,26 @@ class SmartTracker:
             frame  # Pass frame for appearance matching
         )
 
+        # Bridge TrackingStateManager result schema to local drawing logic safely.
+        # Some manager states (e.g., terminal loss reports) intentionally omit track_id.
+        selected_track_id: Optional[int] = None
+        if isinstance(selected_detection, dict):
+            raw_selected_track_id = selected_detection.get('track_id')
+            if raw_selected_track_id is not None:
+                try:
+                    selected_track_id = int(raw_selected_track_id)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        f"[SMART] Ignoring invalid selected track id value: {raw_selected_track_id}"
+                    )
+
+            if selected_detection.get('need_reselection'):
+                loss_reason = selected_detection.get('loss_reason', 'unknown')
+                logger.info(f"[SMART] Tracking exhausted; reselection required (reason={loss_reason})")
+                self.tracking_manager.clear()
+                selected_track_id = None
+                is_tracking_active = False
+
         # Compute HUD scale factors once per frame
         s = self._hud_scale(frame.shape[0])
         show_passive_labels = self.config.get('SMART_TRACKER_SHOW_PASSIVE_LABELS', True)
@@ -1039,8 +1059,7 @@ class SmartTracker:
             track_id = int(det.track_id)
             class_id = int(det.class_id)
 
-            is_selected = (selected_detection is not None and
-                          track_id == selected_detection['track_id'])
+            is_selected = (selected_track_id is not None and track_id == selected_track_id)
             if is_selected:
                 continue  # Draw active target in pass 2
 
@@ -1070,8 +1089,7 @@ class SmartTracker:
             class_id = int(det.class_id)
             conf = float(det.confidence)
 
-            is_selected = (selected_detection is not None and
-                          track_id == selected_detection['track_id'])
+            is_selected = (selected_track_id is not None and track_id == selected_track_id)
             if not is_selected:
                 continue
 
