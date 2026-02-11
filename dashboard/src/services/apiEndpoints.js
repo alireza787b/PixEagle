@@ -68,6 +68,7 @@ export const endpoints = {
   yoloModelLabels: (modelId) => `${protocol}://${apiHost}:${apiPort}/api/yolo/models/${encodeURIComponent(modelId)}/labels`,
   yoloSwitchModel: `${protocol}://${apiHost}:${apiPort}/api/yolo/switch-model`,
   yoloUpload: `${protocol}://${apiHost}:${apiPort}/api/yolo/upload`,
+  yoloDownload: `${protocol}://${apiHost}:${apiPort}/api/yolo/download`,
   yoloDelete: (modelId) => `${protocol}://${apiHost}:${apiPort}/api/yolo/delete/${modelId}`,
 
   // Safety configuration endpoints (v3.5.0+)

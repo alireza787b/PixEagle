@@ -340,6 +340,70 @@ export const useUploadYOLOModel = () => {
 };
 
 /**
+ * Hook to download a YOLO model by name or URL
+ * @returns {Object} { downloadModel, downloading, downloadError, resetDownload }
+ */
+export const useDownloadYOLOModel = () => {
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState(null);
+
+  const downloadModel = useCallback(async (modelName, downloadUrl = null, autoExportNcnn = true) => {
+    setDownloading(true);
+    setDownloadError(null);
+
+    try {
+      const response = await axios.post(`${API_URL}/api/yolo/download`, {
+        model_name: modelName,
+        download_url: downloadUrl || undefined,
+        auto_export_ncnn: autoExportNcnn,
+      });
+
+      if (response.data.status === 'success') {
+        setDownloading(false);
+        return {
+          success: true,
+          message: response.data.message,
+          modelName: response.data.model_name,
+          ncnnExported: response.data.ncnn_exported,
+          ncnnExport: response.data.ncnn_export || null,
+        };
+      } else {
+        setDownloadError(response.data.error || 'Download failed');
+        setDownloading(false);
+        return {
+          success: false,
+          error: response.data.error,
+          suggestedUrls: response.data.suggested_urls || [],
+        };
+      }
+    } catch (err) {
+      console.error('Error downloading YOLO model:', err);
+      const errorData = err.response?.data;
+      const errorMsg = errorData?.error || errorData?.detail || err.message || 'Download failed';
+      const suggestedUrls = errorData?.suggested_urls || [];
+      setDownloadError(errorMsg);
+      setDownloading(false);
+      return { success: false, error: errorMsg, suggestedUrls };
+    }
+  }, []);
+
+  const resetDownload = useCallback(() => {
+    setDownloading(false);
+    setDownloadError(null);
+  }, []);
+
+  return useMemo(
+    () => ({
+      downloadModel,
+      downloading,
+      downloadError,
+      resetDownload
+    }),
+    [downloadModel, downloading, downloadError, resetDownload]
+  );
+};
+
+/**
  * Hook to delete a YOLO model
  * @returns {Object} { deleteModel, deleting, deleteError }
  */

@@ -367,6 +367,7 @@ class FastAPIHandler:
         self.app.get("/api/yolo/models/{model_id}/labels")(self.get_yolo_model_labels)
         self.app.post("/api/yolo/switch-model")(self.switch_yolo_model)
         self.app.post("/api/yolo/upload")(self.upload_yolo_model)
+        self.app.post("/api/yolo/download")(self.download_yolo_model)
         self.app.post("/api/yolo/delete/{model_id}")(self.delete_yolo_model)
 
         # Circuit breaker API endpoints
@@ -2639,6 +2640,77 @@ class FastAPIHandler:
             raise
         except Exception as e:
             self.logger.error(f"Error uploading YOLO model: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def download_yolo_model(self, request: Request):
+        """
+        Download a YOLO model by name or URL.
+
+        Wraps YOLOModelManager.download_model() which supports:
+        - Automatic download from Ultralytics hub (YOLOv5, YOLO8, YOLO11, YOLO26+)
+        - Custom URL download
+        - GitHub release URL fallback
+
+        Args:
+            request: JSON body with model_name, optional download_url, optional auto_export_ncnn
+
+        Returns:
+            JSONResponse: Download result with model metadata
+        """
+        try:
+            body = await request.json()
+            model_name = body.get('model_name', '').strip()
+            download_url = body.get('download_url', '').strip() or None
+            auto_export_ncnn = body.get('auto_export_ncnn', True)
+
+            if not model_name:
+                raise HTTPException(status_code=400, detail="model_name is required")
+            if not model_name.endswith('.pt'):
+                model_name += '.pt'
+
+            # download_model() is sync — run in executor to avoid blocking the event loop
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None, self.yolo_model_manager.download_model, model_name, download_url
+            )
+
+            if result['success']:
+                # Optionally export to NCNN
+                ncnn_result = None
+                if auto_export_ncnn:
+                    try:
+                        ncnn_result = await self.yolo_model_manager._export_async(Path(result['path']))
+                    except Exception as e:
+                        self.logger.warning(f"NCNN export after download failed: {e}")
+                        ncnn_result = {"success": False, "error": str(e)}
+
+                self.logger.info(f"YOLO model downloaded via API: {model_name}")
+
+                return JSONResponse(content={
+                    'status': 'success',
+                    'action': 'model_downloaded',
+                    'model_name': model_name,
+                    'path': result['path'],
+                    'message': result.get('message', f'{model_name} downloaded successfully'),
+                    'ncnn_exported': bool(ncnn_result and ncnn_result.get('success')),
+                    'ncnn_export': ncnn_result,
+                })
+            else:
+                error_msg = result.get('error', 'Download failed')
+                self.logger.warning(f"YOLO model download failed for {model_name}: {error_msg}")
+
+                return JSONResponse(content={
+                    'status': 'error',
+                    'action': 'download_failed',
+                    'model_name': model_name,
+                    'error': error_msg,
+                    'suggested_urls': result.get('suggested_urls', []),
+                }, status_code=422)
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error downloading YOLO model: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     async def delete_yolo_model(self, model_id: str):

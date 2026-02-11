@@ -45,6 +45,8 @@ import {
   LinearProgress,
   FormControlLabel,
   TextField,
+  Tab,
+  Tabs,
 } from '@mui/material';
 import {
   SwapHoriz,
@@ -63,6 +65,7 @@ import {
   useYOLOModels,
   useSwitchYOLOModel,
   useUploadYOLOModel,
+  useDownloadYOLOModel,
   useDeleteYOLOModel,
   useYOLOModelLabels,
 } from '../hooks/useYOLOModels';
@@ -102,6 +105,7 @@ const YOLOModelSelector = memo(() => {
   } = useYOLOModels();
   const { switchModel, switching, switchError } = useSwitchYOLOModel();
   const { uploadModel, uploading, uploadError, uploadProgress, resetUpload } = useUploadYOLOModel();
+  const { downloadModel, downloading, downloadError, resetDownload } = useDownloadYOLOModel();
   const { deleteModel, deleting, deleteError } = useDeleteYOLOModel();
   const { fetchLabels, loading: labelsLoading, error: labelsError } = useYOLOModelLabels();
 
@@ -109,6 +113,10 @@ const YOLOModelSelector = memo(() => {
   const [selectedModel, setSelectedModel] = useState('');
   const [selectedDevice, setSelectedDevice] = useState('auto');
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [addDialogTab, setAddDialogTab] = useState(0);
+  const [downloadModelName, setDownloadModelName] = useState('');
+  const [downloadUrl, setDownloadUrl] = useState('');
+  const [suggestedUrls, setSuggestedUrls] = useState([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [modelToDelete, setModelToDelete] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -339,6 +347,55 @@ const YOLOModelSelector = memo(() => {
     }
   }, [selectedFile, autoExportNcnn, uploadModel, resetUpload, refetch]);
 
+  // Handle download by name/URL
+  const handleDownload = useCallback(async () => {
+    if (!downloadModelName.trim()) return;
+
+    setSuggestedUrls([]);
+    const result = await downloadModel(
+      downloadModelName.trim(),
+      downloadUrl.trim() || null,
+      autoExportNcnn
+    );
+
+    if (result.success) {
+      const exportSummary = result.ncnnExported
+        ? ' NCNN export ready.'
+        : ' Downloaded without NCNN export.';
+      setActionFeedback({
+        type: 'success',
+        message: `${result.modelName || downloadModelName} downloaded.${exportSummary}`
+      });
+      setUploadDialogOpen(false);
+      setDownloadModelName('');
+      setDownloadUrl('');
+      setSuggestedUrls([]);
+      resetDownload();
+      setTimeout(() => refetch(), 500);
+    } else {
+      if (result.suggestedUrls?.length > 0) {
+        setSuggestedUrls(result.suggestedUrls);
+      }
+      setActionFeedback({
+        type: 'error',
+        message: result.error || 'Download failed'
+      });
+    }
+  }, [downloadModelName, downloadUrl, autoExportNcnn, downloadModel, resetDownload, refetch]);
+
+  // Handle add dialog close
+  const handleAddDialogClose = useCallback(() => {
+    if (uploading || downloading) return;
+    setUploadDialogOpen(false);
+    setAddDialogTab(0);
+    setSelectedFile(null);
+    setDownloadModelName('');
+    setDownloadUrl('');
+    setSuggestedUrls([]);
+    resetUpload();
+    resetDownload();
+  }, [uploading, downloading, resetUpload, resetDownload]);
+
   // Handle delete confirmation
   const handleDeleteClick = useCallback((modelId) => {
     setModelToDelete(modelId);
@@ -425,7 +482,7 @@ const YOLOModelSelector = memo(() => {
             <Typography variant="h6">
               YOLO Model Selector
             </Typography>
-            <Tooltip title="Upload new model">
+            <Tooltip title="Add model">
               <IconButton size="small" onClick={() => setUploadDialogOpen(true)}>
                 <CloudUpload />
               </IconButton>
@@ -762,81 +819,189 @@ const YOLOModelSelector = memo(() => {
         </DialogActions>
       </Dialog>
 
-      {/* Upload Dialog */}
-      <Dialog open={uploadDialogOpen} onClose={() => setUploadDialogOpen(false)}>
-        <DialogTitle>Upload YOLO Model</DialogTitle>
+      {/* Add Model Dialog (Upload / Download) */}
+      <Dialog open={uploadDialogOpen} onClose={handleAddDialogClose} maxWidth="sm" fullWidth>
+        <DialogTitle>Add YOLO Model</DialogTitle>
         <DialogContent>
-          <Box sx={{ minWidth: 400, pt: 2 }}>
-            <input
-              accept=".pt"
-              style={{ display: 'none' }}
-              id="model-file-input"
-              type="file"
-              onChange={handleFileSelect}
-            />
-            <label htmlFor="model-file-input">
-              <Button
-                variant="outlined"
-                component="span"
+          <Tabs
+            value={addDialogTab}
+            onChange={(_, v) => setAddDialogTab(v)}
+            sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
+          >
+            <Tab label="Upload File" icon={<CloudUpload />} iconPosition="start" sx={{ minHeight: 48 }} />
+            <Tab label="Download by Name" icon={<CloudDownload />} iconPosition="start" sx={{ minHeight: 48 }} />
+          </Tabs>
+
+          {/* Tab 0: Upload File (existing UI) */}
+          {addDialogTab === 0 && (
+            <Box sx={{ minWidth: 400, pt: 1 }}>
+              <input
+                accept=".pt"
+                style={{ display: 'none' }}
+                id="model-file-input"
+                type="file"
+                onChange={handleFileSelect}
+              />
+              <label htmlFor="model-file-input">
+                <Button
+                  variant="outlined"
+                  component="span"
+                  fullWidth
+                  startIcon={<CloudUpload />}
+                  sx={{ mb: 2 }}
+                >
+                  Select .pt File
+                </Button>
+              </label>
+
+              {selectedFile && (
+                <Alert severity="info" size="small" sx={{ mb: 2 }}>
+                  <Typography variant="caption">
+                    Selected: {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
+                  </Typography>
+                </Alert>
+              )}
+
+              <FormControlLabel
+                control={
+                  <input
+                    type="checkbox"
+                    checked={autoExportNcnn}
+                    onChange={(e) => setAutoExportNcnn(e.target.checked)}
+                  />
+                }
+                label={
+                  <Typography variant="caption">
+                    Auto-export to NCNN format (recommended for CPU)
+                  </Typography>
+                }
+              />
+
+              {uploading && (
+                <Box sx={{ mt: 2 }}>
+                  <LinearProgress variant="determinate" value={uploadProgress} />
+                  <Typography variant="caption" color="textSecondary" sx={{ mt: 1 }}>
+                    Uploading... {uploadProgress}%
+                  </Typography>
+                </Box>
+              )}
+
+              {uploadError && (
+                <Alert severity="error" size="small" sx={{ mt: 2 }}>
+                  {uploadError}
+                </Alert>
+              )}
+            </Box>
+          )}
+
+          {/* Tab 1: Download by Name */}
+          {addDialogTab === 1 && (
+            <Box sx={{ pt: 1 }}>
+              <TextField
+                label="Model Name"
+                placeholder="yolo26n.pt"
+                value={downloadModelName}
+                onChange={(e) => setDownloadModelName(e.target.value)}
                 fullWidth
-                startIcon={<CloudDownload />}
+                size="small"
+                helperText="e.g., yolo11n.pt, yolov5s.pt, yolo26n.pt"
+                disabled={downloading}
                 sx={{ mb: 2 }}
-              >
-                Select .pt File
-              </Button>
-            </label>
+              />
 
-            {selectedFile && (
-              <Alert severity="info" size="small" sx={{ mb: 2 }}>
+              <TextField
+                label="Download URL (optional)"
+                placeholder="https://github.com/.../model.pt"
+                value={downloadUrl}
+                onChange={(e) => setDownloadUrl(e.target.value)}
+                fullWidth
+                size="small"
+                helperText="Leave empty for automatic download from Ultralytics hub"
+                disabled={downloading}
+                sx={{ mb: 2 }}
+              />
+
+              <FormControlLabel
+                control={
+                  <input
+                    type="checkbox"
+                    checked={autoExportNcnn}
+                    onChange={(e) => setAutoExportNcnn(e.target.checked)}
+                  />
+                }
+                label={
+                  <Typography variant="caption">
+                    Auto-export to NCNN format (recommended for CPU)
+                  </Typography>
+                }
+              />
+
+              {downloading && (
+                <Box sx={{ mt: 2 }}>
+                  <LinearProgress />
+                  <Typography variant="caption" color="textSecondary" sx={{ mt: 1 }}>
+                    Downloading... This may take a moment.
+                  </Typography>
+                </Box>
+              )}
+
+              {downloadError && (
+                <Alert severity="error" size="small" sx={{ mt: 2 }}>
+                  {downloadError}
+                </Alert>
+              )}
+
+              {suggestedUrls.length > 0 && (
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="caption" color="textSecondary" sx={{ display: 'block', mb: 1 }}>
+                    Try one of these URLs:
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {suggestedUrls.map((url, i) => (
+                      <Chip
+                        key={i}
+                        label={url.split('/').pop() || url}
+                        size="small"
+                        variant="outlined"
+                        onClick={() => setDownloadUrl(url)}
+                        sx={{ maxWidth: '100%', cursor: 'pointer' }}
+                      />
+                    ))}
+                  </Box>
+                </Box>
+              )}
+
+              <Alert severity="info" size="small" sx={{ mt: 2 }}>
                 <Typography variant="caption">
-                  Selected: {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
+                  Supports official YOLO models (v5, 8, 11, 26+). Auto-downloads from Ultralytics hub or GitHub releases.
                 </Typography>
               </Alert>
-            )}
-
-            <FormControlLabel
-              control={
-                <input
-                  type="checkbox"
-                  checked={autoExportNcnn}
-                  onChange={(e) => setAutoExportNcnn(e.target.checked)}
-                />
-              }
-              label={
-                <Typography variant="caption">
-                  Auto-export to NCNN format (recommended for CPU)
-                </Typography>
-              }
-            />
-
-            {uploading && (
-              <Box sx={{ mt: 2 }}>
-                <LinearProgress variant="determinate" value={uploadProgress} />
-                <Typography variant="caption" color="textSecondary" sx={{ mt: 1 }}>
-                  Uploading... {uploadProgress}%
-                </Typography>
-              </Box>
-            )}
-
-            {uploadError && (
-              <Alert severity="error" size="small" sx={{ mt: 2 }}>
-                {uploadError}
-              </Alert>
-            )}
-          </Box>
+            </Box>
+          )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setUploadDialogOpen(false)} disabled={uploading}>
+          <Button onClick={handleAddDialogClose} disabled={uploading || downloading}>
             Cancel
           </Button>
-          <Button
-            onClick={handleUpload}
-            variant="contained"
-            disabled={!selectedFile || uploading}
-            startIcon={uploading ? <CircularProgress size={16} /> : <CloudUpload />}
-          >
-            Upload
-          </Button>
+          {addDialogTab === 0 ? (
+            <Button
+              onClick={handleUpload}
+              variant="contained"
+              disabled={!selectedFile || uploading}
+              startIcon={uploading ? <CircularProgress size={16} /> : <CloudUpload />}
+            >
+              Upload
+            </Button>
+          ) : (
+            <Button
+              onClick={handleDownload}
+              variant="contained"
+              disabled={!downloadModelName.trim() || downloading}
+              startIcon={downloading ? <CircularProgress size={16} /> : <CloudDownload />}
+            >
+              Download
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 
