@@ -319,6 +319,15 @@ check_prerequisites() {
         log_success "Disk space: ${available_gb}GB available"
     fi
 
+    # Detect platform FIRST — needed for CUDA-aware memory budget below
+    detect_platform
+    log_info "Platform: ${PLATFORM} (${ARCH})"
+    if [[ "$IS_JETSON" == true ]]; then
+        log_info "NVIDIA Jetson detected — CUDA ${CUDA_ARCH}, NEON enabled"
+    elif [[ "$IS_RPI" == true ]]; then
+        log_info "Raspberry Pi detected — NEON + VFPv3 enabled"
+    fi
+
     # Check RAM and calculate safe parallel jobs.
     # Parallelism is based on RAM only (swap is too slow for parallel GCC).
     local total_ram_mb
@@ -344,15 +353,6 @@ check_prerequisites() {
     else
         log_success "RAM: ${total_ram_mb}MB + ${swap_mb}MB swap"
         LOW_RAM_MODE=false
-    fi
-
-    # Detect platform (Jetson, RPi, ARM, x86)
-    detect_platform
-    log_info "Platform: ${PLATFORM} (${ARCH})"
-    if [[ "$IS_JETSON" == true ]]; then
-        log_info "NVIDIA Jetson detected — CUDA ${CUDA_ARCH}, NEON enabled"
-    elif [[ "$IS_RPI" == true ]]; then
-        log_info "Raspberry Pi detected — NEON + VFPv3 enabled"
     fi
 
     # Check PixEagle venv
@@ -685,27 +685,36 @@ configure_cmake() {
 
     # Platform-specific CMake flags
     if [[ "$IS_JETSON" == true ]]; then
-        log_info "Adding Jetson CUDA + NEON flags (CUDA arch ${CUDA_ARCH})"
-        cmake_args+=(
-            -D WITH_CUDA=ON
-            -D CUDA_ARCH_BIN="${CUDA_ARCH}"
-            -D CUDA_ARCH_PTX=""
-            -D WITH_CUDNN=ON
-            -D ENABLE_NEON=ON
-            -D CUDA_FAST_MATH=ON
-            -D WITH_CUBLAS=ON
-        )
-        # OPENCV_DNN_CUDA compiles custom CUDA kernels for every DNN layer type,
-        # requiring 3-5GB RAM per nvcc process and ~30 min extra build time.
-        # PixEagle uses ultralytics (PyTorch) for inference, not OpenCV DNN,
-        # so this is disabled by default.  Set OPENCV_DNN_CUDA=1 env var to enable.
-        if [[ "${OPENCV_DNN_CUDA:-0}" == "1" ]]; then
-            log_info "OPENCV_DNN_CUDA enabled (env override) — expect higher memory usage"
-            cmake_args+=( -D OPENCV_DNN_CUDA=ON )
+        # CUDA is opt-in because:
+        #   - This script's purpose is GStreamer support, not CUDA
+        #   - CUDA compilation adds 30-60 min and needs 2-3x more RAM per job
+        #   - PixEagle uses PyTorch (ultralytics) for inference, not OpenCV CUDA
+        #   - OpenCV CUDA is for cv2.cuda functions (resize, threshold, etc.)
+        # Enable with: OPENCV_CUDA=1 bash scripts/setup/build-opencv.sh
+        if [[ "${OPENCV_CUDA:-0}" == "1" ]]; then
+            log_info "Adding Jetson CUDA flags (CUDA arch ${CUDA_ARCH}) — opt-in via OPENCV_CUDA=1"
+            cmake_args+=(
+                -D WITH_CUDA=ON
+                -D CUDA_ARCH_BIN="${CUDA_ARCH}"
+                -D CUDA_ARCH_PTX=""
+                -D WITH_CUDNN=ON
+                -D CUDA_FAST_MATH=ON
+                -D WITH_CUBLAS=ON
+            )
+            # DNN CUDA is a further opt-in (extremely memory-heavy)
+            if [[ "${OPENCV_DNN_CUDA:-0}" == "1" ]]; then
+                log_info "OPENCV_DNN_CUDA enabled — expect 3-5GB/job peak memory"
+                cmake_args+=( -D OPENCV_DNN_CUDA=ON )
+            else
+                cmake_args+=( -D OPENCV_DNN_CUDA=OFF )
+            fi
         else
-            log_info "OPENCV_DNN_CUDA disabled (PixEagle uses PyTorch for inference)"
-            cmake_args+=( -D OPENCV_DNN_CUDA=OFF )
+            log_info "Jetson detected but CUDA disabled (not needed for GStreamer)"
+            log_detail "To enable: OPENCV_CUDA=1 bash scripts/setup/build-opencv.sh"
+            HAS_CUDA=false  # Override so memory budget uses GCC values
         fi
+        # Always enable NEON on Jetson (ARM optimization, no extra memory cost)
+        cmake_args+=( -D ENABLE_NEON=ON )
     elif [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "armv7l" ]]; then
         log_info "Adding ARM NEON optimization flags"
         cmake_args+=(
