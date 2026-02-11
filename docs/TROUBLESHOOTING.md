@@ -38,6 +38,19 @@ curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 chmod +x scripts/*.sh scripts/**/*.sh
 ```
 
+### YAML Parse Error in config.yaml
+
+**Problem**: `yaml.scanner.ScannerError: could not find expected ':'` when starting PixEagle
+
+**Why it happens**: The `configs/config.yaml` file has invalid YAML syntax. This can occur if the "Sync with Defaults" feature removed all parameters from a config section, leaving a bare `{}` at the wrong indentation.
+
+**Solution**:
+```bash
+make reset-config      # Backs up current config and resets to defaults
+```
+
+This creates a timestamped backup of your existing config before resetting.
+
 ## Video Feed Issues
 
 ### Camera Not Detected

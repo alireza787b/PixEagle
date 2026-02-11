@@ -553,6 +553,13 @@ class ConfigService:
         ):
             del self._config_raw[section][param]
 
+        # Clean up empty sections to prevent ruamel.yaml writing bare '{}'
+        # which produces invalid YAML when comments are preserved.
+        if isinstance(section_data, dict) and len(section_data) == 0:
+            del self._config[section]
+            if self._config_raw is not None and section in self._config_raw:
+                del self._config_raw[section]
+
         return True
 
     def archive_and_remove_parameter(

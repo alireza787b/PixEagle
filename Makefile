@@ -17,9 +17,9 @@
 #   scripts\run.bat
 # ============================================================================
 
-.PHONY: help init run dev stop clean sync update status logs download-binaries \
-        service-install service-uninstall service-enable service-disable \
-        service-status service-logs service-attach
+.PHONY: help init run dev stop clean sync update reset-config status logs \
+        download-binaries service-install service-uninstall service-enable \
+        service-disable service-status service-logs service-attach
 
 # Default target
 .DEFAULT_GOAL := help
@@ -68,6 +68,7 @@ help:
 	@echo ""
 	@echo "  Maintenance:"
 	@echo "    make clean             Clean build artifacts and caches"
+	@echo "    make reset-config      Reset config.yaml and dashboard/.env to defaults"
 	@echo "    make test              Run tests"
 	@echo ""
 	@echo "  Windows Users:"
@@ -213,6 +214,40 @@ update: sync
 # ============================================================================
 # Maintenance
 # ============================================================================
+reset-config:
+	@echo ""
+	@echo "  Resetting Configuration Files"
+	@echo "  ═══════════════════════════════════════════════════════════════"
+	@echo ""
+	@if [ -f configs/config.yaml ]; then \
+		BACKUP="configs/config.yaml.backup.$$(date +%Y%m%d_%H%M%S)"; \
+		cp configs/config.yaml "$$BACKUP"; \
+		echo "  Backed up: $$BACKUP"; \
+	fi
+	@cp configs/config_default.yaml configs/config.yaml
+	@echo "  Reset: configs/config.yaml"
+	@if [ -f dashboard/.env ]; then \
+		BACKUP="dashboard/.env.backup.$$(date +%Y%m%d_%H%M%S)"; \
+		cp dashboard/.env "$$BACKUP"; \
+		echo "  Backed up: $$BACKUP"; \
+	fi
+	@if [ -f dashboard/env_default.yaml ] && [ -f venv/bin/activate ]; then \
+		. venv/bin/activate && python3 -c "\
+import yaml; \
+with open('dashboard/env_default.yaml') as f: config = yaml.safe_load(f); \
+lines = [f'{k}={v}' for k, v in config.items()]; \
+open('dashboard/.env', 'w').write('\n'.join(lines) + '\n')"; \
+		echo "  Reset: dashboard/.env"; \
+	elif [ -f dashboard/env_default.yaml ]; then \
+		echo "  Warning: venv not found, skipping dashboard/.env conversion"; \
+	else \
+		echo "  Skipped: dashboard/env_default.yaml not found"; \
+	fi
+	@echo ""
+	@echo "  Config files reset to defaults. Your backups are preserved."
+	@echo "  ═══════════════════════════════════════════════════════════════"
+	@echo ""
+
 clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf dashboard/build dashboard/.pixeagle_cache

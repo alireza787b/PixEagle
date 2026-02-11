@@ -214,6 +214,7 @@ make run                # Full system (recommended)
 make dev                # Development mode with hot-reload
 make stop               # Stop all services
 make sync               # Pull latest updates safely
+make reset-config       # Reset config files to defaults
 make status             # Show service status
 make logs               # Attach to tmux session
 make help               # Show all commands
