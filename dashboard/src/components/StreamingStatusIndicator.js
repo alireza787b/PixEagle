@@ -6,6 +6,7 @@ import {
 import {
   FiberManualRecord, ExpandMore, ExpandLess, Speed, Memory
 } from '@mui/icons-material';
+import { alpha } from '@mui/material/styles';
 import axios from 'axios';
 import { streamingStatus as streamingStatusEndpoint } from '../services/apiEndpoints';
 
@@ -95,7 +96,16 @@ const StreamingStatusIndicator = () => {
 
       {/* Expanded detail panel */}
       <Collapse in={expanded}>
-        <Box sx={{ mt: 1, p: 1.5, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'grey.200' }}>
+        <Box
+          sx={{
+            mt: 1,
+            p: 1.5,
+            bgcolor: (theme) => alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.72 : 0.9),
+            borderRadius: 1,
+            border: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
           {fetchError ? (
             <Typography variant="caption" color="error">
               Unable to fetch streaming status

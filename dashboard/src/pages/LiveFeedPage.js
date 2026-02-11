@@ -9,16 +9,75 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Card,
+  CardContent,
+  Grid,
+  Chip,
+  Divider,
 } from '@mui/material';
 import VideoStream from '../components/VideoStream';
 import OSDToggle from '../components/OSDToggle';
 import StreamingStatusIndicator from '../components/StreamingStatusIndicator';
 import GStreamerQGCPanel from '../components/GStreamerQGCPanel';
+import StreamingStats from '../components/StreamingStats';
 import { videoFeed } from '../services/apiEndpoints';
 
 const LiveFeedPage = () => {
   const [loading, setLoading] = useState(true);
   const [streamingProtocol, setStreamingProtocol] = useState('auto'); // Default to 'auto'
+  const [streamDebug, setStreamDebug] = useState({
+    requestedProtocol: 'auto',
+    effectiveProtocol: 'websocket',
+    isConnecting: false,
+    hasReceivedFrame: false,
+    error: null,
+    reconnectAttempts: 0,
+    qualitySetting: 60,
+    fps: 0,
+    streamQuality: 60,
+    bandwidthKbps: 0,
+    latencyMs: 0,
+    frameCount: 0,
+    lastFrameTime: 0,
+    websocketReadyState: null,
+    webrtcIceState: null,
+    updatedAt: null,
+  });
+
+  const formatBandwidth = (kbps) => {
+    if (!Number.isFinite(kbps) || kbps <= 0) {
+      return '0 kbps';
+    }
+    if (kbps >= 1024) {
+      return `${(kbps / 1024).toFixed(2)} Mbps`;
+    }
+    return `${Math.round(kbps)} kbps`;
+  };
+
+  const getConnectionState = () => {
+    if (streamDebug.error) {
+      return { label: 'Degraded', color: 'error' };
+    }
+    if (streamDebug.isConnecting) {
+      return { label: 'Connecting', color: 'warning' };
+    }
+    if (streamDebug.hasReceivedFrame) {
+      return { label: 'Live', color: 'success' };
+    }
+    return { label: 'Idle', color: 'default' };
+  };
+
+  const wsStateLabel = (() => {
+    const map = {
+      0: 'CONNECTING',
+      1: 'OPEN',
+      2: 'CLOSING',
+      3: 'CLOSED',
+    };
+    return map[streamDebug.websocketReadyState] || 'N/A';
+  })();
+
+  const connectionState = getConnectionState();
 
   useEffect(() => {
     if (streamingProtocol === 'websocket' || streamingProtocol === 'webrtc' || streamingProtocol === 'auto') {
@@ -101,7 +160,95 @@ const LiveFeedPage = () => {
           src={videoFeed}
           showStats={true}          // Show FPS, bandwidth, latency
           showQualityControl={true} // Show quality adjustment slider
+          onStreamDebugUpdate={setStreamDebug}
         />
+
+        <Box sx={{ mt: 2 }}>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <StreamingStats />
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Card variant="outlined" sx={{ height: '100%' }}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                    <Typography variant="h6">Stream Diagnostics</Typography>
+                    <Chip label={connectionState.label} color={connectionState.color} size="small" />
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                    Runtime transport and player-side telemetry for quick troubleshooting.
+                  </Typography>
+
+                  <Grid container spacing={1}>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">Requested Protocol</Typography>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                        {String(streamDebug.requestedProtocol || 'n/a').toUpperCase()}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">Active Protocol</Typography>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                        {String(streamDebug.effectiveProtocol || 'n/a').toUpperCase()}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">WebSocket State</Typography>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                        {wsStateLabel}
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">WebRTC ICE State</Typography>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                        {streamDebug.webrtcIceState || 'N/A'}
+                      </Typography>
+                    </Grid>
+                  </Grid>
+
+                  <Divider sx={{ my: 1.5 }} />
+
+                  <Grid container spacing={1}>
+                    <Grid item xs={4}>
+                      <Typography variant="caption" color="text.secondary">FPS</Typography>
+                      <Typography variant="body2">{streamDebug.fps || 0}</Typography>
+                    </Grid>
+                    <Grid item xs={4}>
+                      <Typography variant="caption" color="text.secondary">Quality</Typography>
+                      <Typography variant="body2">
+                        {streamDebug.streamQuality || 0} (set {streamDebug.qualitySetting || 0})
+                      </Typography>
+                    </Grid>
+                    <Grid item xs={4}>
+                      <Typography variant="caption" color="text.secondary">Latency</Typography>
+                      <Typography variant="body2">{streamDebug.latencyMs || 0} ms</Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">Bandwidth</Typography>
+                      <Typography variant="body2">{formatBandwidth(streamDebug.bandwidthKbps)}</Typography>
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Typography variant="caption" color="text.secondary">Frames Rendered</Typography>
+                      <Typography variant="body2">{(streamDebug.frameCount || 0).toLocaleString()}</Typography>
+                    </Grid>
+                  </Grid>
+
+                  <Divider sx={{ my: 1.5 }} />
+
+                  <Typography variant="caption" color="text.secondary">Source</Typography>
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all', mb: 0.5 }}>
+                    {videoFeed}
+                  </Typography>
+                  {streamDebug.error && (
+                    <Typography variant="body2" color="error">
+                      Last Error: {streamDebug.error}
+                    </Typography>
+                  )}
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+        </Box>
         </Box>
       )}
     </Container>

@@ -3,8 +3,16 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { websocketVideoFeed, webrtcSignalingEndpoint } from '../services/apiEndpoints';
 import { Box, Typography, Chip, IconButton, Slider, CircularProgress } from '@mui/material';
 import { SignalCellular4Bar, SignalCellular2Bar, SignalCellular0Bar, Settings, Videocam } from '@mui/icons-material';
+import { alpha, useTheme } from '@mui/material/styles';
 
-const VideoStream = ({ protocol = 'http', src, showStats = false, showQualityControl = false }) => {
+const VideoStream = ({
+  protocol = 'http',
+  src,
+  showStats = false,
+  showQualityControl = false,
+  onStreamDebugUpdate,
+}) => {
+  const theme = useTheme();
   // Auto protocol resolution: try WebRTC if available, fallback to WebSocket
   const [autoResolvedProtocol, setAutoResolvedProtocol] = useState(null);
   const autoTimeoutRef = useRef(null);
@@ -72,6 +80,49 @@ const VideoStream = ({ protocol = 'http', src, showStats = false, showQualityCon
   const pcRef = useRef(null);
   const sigWsRef = useRef(null);
   const videoRef = useRef(null);
+
+  const reportDebugInfo = useCallback(() => {
+    if (typeof onStreamDebugUpdate !== 'function') {
+      return;
+    }
+
+    onStreamDebugUpdate({
+      requestedProtocol: protocol,
+      effectiveProtocol,
+      isConnecting,
+      hasReceivedFrame,
+      error,
+      reconnectAttempts: reconnectAttempts.current,
+      qualitySetting: quality,
+      fps: streamStats.fps,
+      streamQuality: streamStats.quality,
+      bandwidthKbps: streamStats.bandwidth,
+      latencyMs: streamStats.latency,
+      frameCount: streamStats.frameCount,
+      lastFrameTime: streamStats.lastFrameTime,
+      websocketReadyState: wsRef.current ? wsRef.current.readyState : null,
+      webrtcIceState: pcRef.current ? pcRef.current.iceConnectionState : null,
+      updatedAt: Date.now(),
+    });
+  }, [
+    onStreamDebugUpdate,
+    protocol,
+    effectiveProtocol,
+    isConnecting,
+    hasReceivedFrame,
+    error,
+    quality,
+    streamStats.fps,
+    streamStats.quality,
+    streamStats.bandwidth,
+    streamStats.latency,
+    streamStats.frameCount,
+    streamStats.lastFrameTime,
+  ]);
+
+  useEffect(() => {
+    reportDebugInfo();
+  }, [reportDebugInfo]);
 
   // Calculate FPS from frame timestamps
   const updateFPS = useCallback(() => {
@@ -520,7 +571,10 @@ const VideoStream = ({ protocol = 'http', src, showStats = false, showQualityCon
           position: 'absolute',
           top: 8,
           right: 8,
-          backgroundColor: 'rgba(0, 0, 0, 0.7)',
+          backgroundColor: alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.72 : 0.82),
+          border: '1px solid',
+          borderColor: 'divider',
+          backdropFilter: 'blur(6px)',
           borderRadius: 1,
           p: 1,
         }}
@@ -528,14 +582,14 @@ const VideoStream = ({ protocol = 'http', src, showStats = false, showQualityCon
         <IconButton
           size="small"
           onClick={() => setShowSettings(!showSettings)}
-          sx={{ color: 'white' }}
+          sx={{ color: 'text.primary' }}
         >
           <Settings />
         </IconButton>
 
         {showSettings && (
           <Box sx={{ width: 200, p: 1 }}>
-            <Typography variant="caption" sx={{ color: 'white' }}>
+            <Typography variant="caption" sx={{ color: 'text.primary' }}>
               Quality: {quality}
             </Typography>
             <Slider
@@ -546,7 +600,15 @@ const VideoStream = ({ protocol = 'http', src, showStats = false, showQualityCon
               max={95}
               step={5}
               size="small"
-              sx={{ color: 'white' }}
+              sx={{
+                color: 'primary.main',
+                '& .MuiSlider-valueLabel': {
+                  bgcolor: 'background.paper',
+                  color: 'text.primary',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                },
+              }}
             />
           </Box>
         )}
