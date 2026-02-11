@@ -9,7 +9,7 @@
 #   - Professional UX with progress indicators and colors
 #   - Pre-flight checks (disk space, RAM, dependencies)
 #   - Automatic temporary swap creation on low-memory systems (cleaned up after build)
-#   - Memory-aware parallelism (1.5GB per job, auto-scales to available RAM+swap)
+#   - Memory-aware parallelism (2-2.5GB per job based on RAM, CUDA-aware)
 #   - Platform auto-detection: Jetson (CUDA), Raspberry Pi (NEON), ARM, x86
 #   - GStreamer and Qt support for video streaming
 #   - Installs into PixEagle virtual environment
@@ -41,7 +41,7 @@ VENV_DIR="$PIXEAGLE_DIR/venv"
 OPENCV_VERSION="4.13.0"
 REQUIRED_DISK_GB=10
 REQUIRED_RAM_GB=2
-VERSION="2.2.0"
+VERSION="2.3.0"
 
 # Fix CRLF line endings
 [[ -f "$SCRIPTS_DIR/lib/common.sh" ]] && grep -q $'\r' "$SCRIPTS_DIR/lib/common.sh" 2>/dev/null && \
@@ -327,10 +327,12 @@ check_prerequisites() {
     swap_mb=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')
     local total_memory_mb=$((total_ram_mb + swap_mb))
 
-    # Budget 2GB per job from RAM (not swap), reserving 1GB for OS
+    # Budget per job from RAM (not swap), reserving 1GB for OS.
+    # CUDA builds (nvcc) use more memory than pure GCC builds.
     local available_ram_mb=$((total_ram_mb - 1024))
     [[ $available_ram_mb -lt 1500 ]] && available_ram_mb=1500
     local mem_per_job_mb=2000
+    [[ "$HAS_CUDA" == true ]] && mem_per_job_mb=2500
     local safe_jobs=$((available_ram_mb / mem_per_job_mb))
     [[ $safe_jobs -lt 1 ]] && safe_jobs=1
 
@@ -689,11 +691,21 @@ configure_cmake() {
             -D CUDA_ARCH_BIN="${CUDA_ARCH}"
             -D CUDA_ARCH_PTX=""
             -D WITH_CUDNN=ON
-            -D OPENCV_DNN_CUDA=ON
             -D ENABLE_NEON=ON
             -D CUDA_FAST_MATH=ON
             -D WITH_CUBLAS=ON
         )
+        # OPENCV_DNN_CUDA compiles custom CUDA kernels for every DNN layer type,
+        # requiring 3-5GB RAM per nvcc process and ~30 min extra build time.
+        # PixEagle uses ultralytics (PyTorch) for inference, not OpenCV DNN,
+        # so this is disabled by default.  Set OPENCV_DNN_CUDA=1 env var to enable.
+        if [[ "${OPENCV_DNN_CUDA:-0}" == "1" ]]; then
+            log_info "OPENCV_DNN_CUDA enabled (env override) — expect higher memory usage"
+            cmake_args+=( -D OPENCV_DNN_CUDA=ON )
+        else
+            log_info "OPENCV_DNN_CUDA disabled (PixEagle uses PyTorch for inference)"
+            cmake_args+=( -D OPENCV_DNN_CUDA=OFF )
+        fi
     elif [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "armv7l" ]]; then
         log_info "Adding ARM NEON optimization flags"
         cmake_args+=(
@@ -736,7 +748,6 @@ compile_opencv() {
     # Calculate safe parallelism based on PHYSICAL RAM only.
     # Swap prevents OOM-kill but is ~100x slower than RAM — running many
     # parallel GCC jobs backed by swap causes thrashing and eventual failure.
-    # We budget 2GB per job (some OpenCV DNN/template TUs spike to 2-3GB).
     local make_jobs
     local total_ram_mb
     total_ram_mb=$(free -m 2>/dev/null | awk '/^Mem:/ {print $2}')
@@ -747,14 +758,21 @@ compile_opencv() {
     local available_ram_mb=$((total_ram_mb - 1024))
     [[ $available_ram_mb -lt 1500 ]] && available_ram_mb=1500
 
+    # nvcc (CUDA compiler) uses 2-3GB per compilation unit vs ~1.5-2GB for gcc.
+    # Budget accordingly based on whether CUDA is enabled.
     local mem_per_job_mb=2000
+    if [[ "$HAS_CUDA" == true ]]; then
+        mem_per_job_mb=2500
+        log_info "CUDA build detected — using ${mem_per_job_mb}MB/job budget (nvcc is memory-heavy)"
+    fi
+
     local mem_safe_jobs=$((available_ram_mb / mem_per_job_mb))
     [[ $mem_safe_jobs -lt 1 ]] && mem_safe_jobs=1
 
     # Use the lesser of CPU cores and memory-safe jobs
     if [[ $mem_safe_jobs -lt $cpu_cores ]]; then
         make_jobs=$mem_safe_jobs
-        log_warn "Memory-limited build: -j${make_jobs} (${total_ram_mb}MB RAM, ${swap_mb}MB swap, ~${mem_per_job_mb}MB per job)"
+        log_warn "Memory-limited build: -j${make_jobs} (${total_ram_mb}MB RAM, ${swap_mb}MB swap, ~${mem_per_job_mb}MB/job)"
         if [[ $make_jobs -eq 1 ]]; then
             log_info "This will be SLOW (~2-3 hours) but should complete without OOM"
         fi
@@ -772,8 +790,11 @@ compile_opencv() {
 
     echo -e "        ${CYAN}Build progress:${NC}"
 
+    # Save full build output for diagnostics on failure
+    local build_log="build_output.log"
+
     # Compile with appropriate parallelism
-    if make -j"$make_jobs" 2>&1 | while IFS= read -r line; do
+    if make -j"$make_jobs" 2>&1 | tee "$build_log" | while IFS= read -r line; do
         # Parse make output for progress
         if [[ "$line" =~ ^\[\ *([0-9]+)%\] ]]; then
             local percent="${BASH_REMATCH[1]}"
@@ -785,8 +806,22 @@ compile_opencv() {
     else
         echo ""
         log_error "Compilation failed"
-        log_detail "Check build output for errors"
-        log_detail "If OOM killed, try adding more swap or use -j1"
+        # Check if OOM killer was involved
+        if dmesg 2>/dev/null | tail -20 | grep -qi "out of memory\|oom-kill\|killed process"; then
+            log_error "OOM killer detected — not enough RAM for -j${make_jobs}"
+            log_detail "Your system ran out of memory during compilation."
+            if [[ "$HAS_CUDA" == true ]] && [[ "${OPENCV_DNN_CUDA:-0}" == "1" ]]; then
+                log_detail "Try without DNN CUDA: unset OPENCV_DNN_CUDA and re-run"
+            fi
+        fi
+        # Show last few error lines from the build log
+        if [[ -f "$build_log" ]]; then
+            log_detail "Last lines of build output:"
+            tail -10 "$build_log" | while IFS= read -r errline; do
+                log_detail "  $errline"
+            done
+            log_detail "Full log: $(pwd)/$build_log"
+        fi
         exit 1
     fi
 
