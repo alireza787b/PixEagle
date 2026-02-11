@@ -1,6 +1,6 @@
 # Building OpenCV with GStreamer Support for PixEagle
 
-> **Recommended**: Use the automated script for a streamlined installation:
+> **Recommended (Linux)**: Use the automated script for a streamlined installation:
 > ```bash
 > bash scripts/setup/build-opencv.sh
 > ```
@@ -8,24 +8,49 @@
 
 ---
 
-## Overview
+## Do I Need GStreamer?
 
-This document provides detailed instructions on building OpenCV with GStreamer support to ensure compatibility with CSI cameras for the PixEagle project. Follow these steps if you encounter issues with CSI camera feeds.
+**Most users do NOT need a custom OpenCV build.** The standard `pip install opencv-python` works
+for all dashboard streaming (HTTP, WebSocket, WebRTC) and all tracking/detection features.
 
-## Steps to Build OpenCV with GStreamer Support
+You only need OpenCV with GStreamer if you enable either of these in `configs/config.yaml`:
+
+| Config Key | Section | Purpose | Needs GStreamer? |
+|------------|---------|---------|-----------------|
+| `USE_GSTREAMER: true` | `VideoSource:` | Read frames from cameras via GStreamer pipelines (RTSP, CSI, USB) | **Yes** |
+| `ENABLE_GSTREAMER_STREAM: true` | `GStreamer:` | Send H.264/RTP/UDP video to QGroundControl | **Yes** |
+
+If both are `false` (the defaults), skip this guide entirely.
+
+### Platform Notes
+
+- **Linux (Raspberry Pi, Jetson, Ubuntu)**: Run `bash scripts/setup/build-opencv.sh` — builds OpenCV 4.13 with GStreamer from source (~1-2 hours).
+- **Windows**: See [Windows section](#windows) below. No automated build script yet.
+- **macOS**: GStreamer builds are possible but rarely needed. Use Homebrew: `brew install gstreamer` then build from source.
+
+---
+
+## Linux: Automated Build (Recommended)
+
+```bash
+bash scripts/setup/build-opencv.sh
+```
+
+This builds OpenCV 4.13.0 with GStreamer, Qt, OpenGL, and FFMPEG support. It:
+- Checks disk space (10GB+) and RAM (4GB+)
+- Installs all dependencies automatically
+- Builds into the PixEagle virtual environment
+- Verifies GStreamer support after build
+
+---
+
+## Linux: Manual Build
 
 ### 1. Install GStreamer and Development Libraries
-
-First, ensure your repositories are up to date.
 
 ```bash
 sudo apt-get update
 sudo apt-get upgrade -y
-```
-
-Ensure that GStreamer and its development libraries are installed globally on your system:
-
-```bash
 sudo apt-get install -y build-essential cmake git pkg-config libgtk2.0-dev \
                         libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
                         gstreamer1.0-tools gstreamer1.0-libav gstreamer1.0-gl \
@@ -35,8 +60,6 @@ sudo apt-get install -y build-essential cmake git pkg-config libgtk2.0-dev \
 
 ### 2. Set Up Environment Variables
 
-Ensure the paths to the GStreamer libraries are set correctly:
-
 ```bash
 export PKG_CONFIG_PATH=/usr/lib/pkgconfig
 export GST_PLUGIN_PATH=/usr/lib/gstreamer-1.0
@@ -44,28 +67,24 @@ export GST_PLUGIN_PATH=/usr/lib/gstreamer-1.0
 
 ### 3. Download OpenCV and OpenCV Contrib Source Code
 
-Clone the OpenCV and OpenCV Contrib repositories:
-
 ```bash
 cd ~/PixEagle
 git clone https://github.com/opencv/opencv.git
 git clone https://github.com/opencv/opencv_contrib.git
 cd opencv
-git checkout 4.9.0
+git checkout 4.13.0
 cd ../opencv_contrib
-git checkout 4.9.0
+git checkout 4.13.0
 ```
 
 ### 4. Activate the venv Python environment
-
-If you are using a venv (which I recommend doing), activate your Python environment
 
 ```bash
 cd ~/PixEagle/
 source venv/bin/activate
 ```
 
-If you have previously installed OpenCV using pip, make sure to uninstall it.
+If you have previously installed OpenCV using pip, uninstall it first:
 
 ```bash
 pip uninstall opencv-python opencv-contrib-python
@@ -73,24 +92,14 @@ pip uninstall opencv-python opencv-contrib-python
 
 ### 5. Create a Build Directory
 
-If you have previously cloned OpenCV and tried to build, remove the build directory to start clean.
-
 ```bash
 cd ~/PixEagle/opencv
 rm -rf build
-```
-
-Create a build directory inside the OpenCV folder:
-
-```bash
-cd ~/PixEagle/opencv
 mkdir build
 cd build
 ```
 
 ### 6. Configure the Build with CMake
-
-Configure the build to use GStreamer and point to the Python interpreter in your virtual environment:
 
 ```bash
 cmake -D CMAKE_BUILD_TYPE=Release \
@@ -109,8 +118,6 @@ cmake -D CMAKE_BUILD_TYPE=Release \
 
 ### 7. Compile and Install
 
-Compile and install OpenCV:
-
 ```bash
 make -j$(nproc)
 make install
@@ -118,13 +125,61 @@ make install
 
 ### 8. Verify GStreamer Support
 
-Verify that GStreamer support is enabled in OpenCV:
-
 ```bash
-python -c "import cv2; print(cv2.getBuildInformation())"
+python -c "import cv2; print(cv2.getBuildInformation())" | grep GStreamer
 ```
 
-Look for `GStreamer: YES` in the output.
+You should see `GStreamer: YES`.
+
+---
+
+## Windows
+
+The standard `pip install opencv-python` on Windows does **not** include GStreamer.
+There are no official pre-built wheels with GStreamer support on any platform.
+
+### Option A: Sensing-Dev PowerShell Installer (Easiest)
+
+A community-maintained PowerShell script that builds OpenCV with GStreamer:
+
+```powershell
+# Download the installer
+Invoke-WebRequest -Uri https://github.com/Sensing-Dev/sensing-dev-installer/releases/download/v25.01.02/opencv_python_installer.ps1 -OutFile opencv_python_installer.ps1
+
+# Run it (builds OpenCV with GStreamer in your active Python environment)
+powershell.exe -ExecutionPolicy Bypass -File .\opencv_python_installer.ps1
+```
+
+> **Warning**: This overwrites any existing `opencv-python` pip installation.
+
+### Option B: Build from Source with CMake
+
+1. Install [GStreamer runtime + development](https://gstreamer.freedesktop.org/download/) (both the runtime and dev MSI packages)
+2. Install Visual Studio Build Tools with C++ workload
+3. Clone and build:
+
+```cmd
+git clone https://github.com/opencv/opencv-python.git
+cd opencv-python
+set CMAKE_ARGS=-DWITH_GSTREAMER=ON
+set ENABLE_CONTRIB=1
+pip wheel --no-binary opencv-python .
+pip install opencv_contrib_python-4.13.0-*.whl
+```
+
+### Option C: Skip GStreamer on Windows
+
+If you only use the dashboard (HTTP/WebSocket/WebRTC streaming) and don't need:
+- QGC video output (`ENABLE_GSTREAMER_STREAM`)
+- GStreamer input capture (`USE_GSTREAMER`)
+
+Then the standard pip install works perfectly:
+
+```bash
+pip install opencv-contrib-python>=4.10.0
+```
+
+All tracking, detection, OSD, and dashboard streaming features work without GStreamer.
 
 ---
 
@@ -132,27 +187,30 @@ Look for `GStreamer: YES` in the output.
 
 ### OpenCV Installation Issues
 
-If you encounter errors related to OpenCV installation, such as recursive import errors, ensure that any existing OpenCV installations are removed from your virtual environment:
+If you encounter recursive import errors, remove existing OpenCV from your venv:
 
 ```bash
 rm -rf ~/PixEagle/venv/lib/python*/site-packages/cv2
 ```
 
-This command removes any existing `cv2` modules from your virtual environment, regardless of the Python version.
-
 ### Check OpenCV Build Information
 
-Use the provided Python command to verify if GStreamer is enabled:
-
 ```bash
-python -c "import cv2; print(cv2.getBuildInformation())"
+python -c "import cv2; print(cv2.getBuildInformation())" | grep -E "GStreamer|Video I/O"
 ```
 
-Look for `GStreamer: YES` in the output.
+### GStreamer Pipeline Test
+
+Test that GStreamer is working with a simple pipeline:
+
+```bash
+gst-launch-1.0 videotestsrc ! videoconvert ! autovideosink
+```
 
 ### Global vs. Virtual Environment
 
 Ensure you are using the correct Python interpreter (`python` in the virtual environment).
+A custom-built OpenCV in the venv takes priority over any system-wide installation.
 
 ### Environment Variables
 
@@ -160,4 +218,5 @@ Make sure the environment variables are set correctly before building OpenCV.
 
 ---
 
-By following these steps, you will ensure that OpenCV is rebuilt with GStreamer support in your virtual environment, allowing your application to access the CSI camera or use GStreamer in streaming or reading video processes.
+By following these steps, you will ensure that OpenCV is built with GStreamer support, enabling
+CSI camera input, RTSP streaming via GStreamer, and H.264/RTP output to QGroundControl.

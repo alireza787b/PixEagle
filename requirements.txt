@@ -16,8 +16,10 @@ mavsdk  >= 3.9.0
 protobuf
 
 # OpenCV for computer vision and tracking
-opencv-python >= 4.8.0  # Flexible for ARM/Raspberry Pi compatibility
-opencv-contrib-python >= 4.8.0  # For extra features including tracking algorithms
+# NOTE: pip wheels do NOT include GStreamer. For GStreamer support (RTSP input,
+# QGC H.264 output), build from source: bash scripts/setup/build-opencv.sh
+opencv-python >= 4.10.0  # Min 4.10 for stability; pip resolves to latest (4.13+)
+opencv-contrib-python >= 4.10.0  # Tracking algorithms (CSRT, KCF, etc.)
 # dlib - OPTIONAL: For fast correlation filter tracker, run: bash scripts/install_dlib.sh
 ultralytics >= 8.3.114, < 9.0
 ncnn

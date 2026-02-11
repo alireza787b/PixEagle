@@ -123,7 +123,7 @@ check_error() {
 }
 
 # Configuration
-OPENCV_VERSION="4.9.0"
+OPENCV_VERSION="4.13.0"
 BASE_DIR="$HOME/PixEagle"
 OPENCV_DIR="$BASE_DIR/opencv"
 OPENCV_CONTRIB_DIR="$BASE_DIR/opencv_contrib"
