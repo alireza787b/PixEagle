@@ -154,6 +154,45 @@ SKIP_CONFIRM=false
 LOW_RAM_MODE=false
 
 # ============================================================================
+# Platform Detection
+# ============================================================================
+# Detect Jetson, Raspberry Pi, or generic ARM vs x86
+detect_platform() {
+    PLATFORM="generic"
+    ARCH="$(uname -m)"
+    HAS_CUDA=false
+    IS_JETSON=false
+    IS_RPI=false
+
+    # Detect NVIDIA Jetson (Nano, TX2, Xavier, Orin)
+    if [[ -f /etc/nv_tegra_release ]] || [[ -d /usr/local/cuda ]] && [[ "$ARCH" == "aarch64" ]]; then
+        IS_JETSON=true
+        HAS_CUDA=true
+        PLATFORM="jetson"
+        # Detect Jetson model for CUDA arch
+        CUDA_ARCH=""
+        if grep -qi "nano" /proc/device-tree/model 2>/dev/null; then
+            CUDA_ARCH="5.3"      # Maxwell (Nano)
+        elif grep -qi "tx2" /proc/device-tree/model 2>/dev/null; then
+            CUDA_ARCH="6.2"      # Pascal (TX2)
+        elif grep -qi "xavier" /proc/device-tree/model 2>/dev/null; then
+            CUDA_ARCH="7.2"      # Volta (Xavier NX/AGX)
+        elif grep -qi "orin" /proc/device-tree/model 2>/dev/null; then
+            CUDA_ARCH="8.7"      # Ampere (Orin)
+        else
+            CUDA_ARCH="5.3"      # Safe default for unknown Jetson
+        fi
+    # Detect Raspberry Pi
+    elif grep -qi "raspberry" /proc/device-tree/model 2>/dev/null; then
+        IS_RPI=true
+        PLATFORM="rpi"
+    # Detect generic ARM
+    elif [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "armv7l" ]]; then
+        PLATFORM="arm"
+    fi
+}
+
+# ============================================================================
 # Sudo Password Prompt
 # ============================================================================
 prompt_sudo() {
@@ -204,33 +243,43 @@ check_prerequisites() {
         log_success "Disk space: ${available_gb}GB available"
     fi
 
-    # Check RAM
-    local total_ram_gb
-    total_ram_gb=$(free -g 2>/dev/null | awk '/^Mem:/ {print $2}')
+    # Check RAM + swap and calculate safe parallel jobs
     local total_ram_mb
     total_ram_mb=$(free -m 2>/dev/null | awk '/^Mem:/ {print $2}')
-
-    # Check swap
     local swap_mb
     swap_mb=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')
+    local total_memory_mb=$((total_ram_mb + swap_mb))
 
-    if [[ -n "$total_ram_gb" ]] && [[ "$total_ram_gb" -lt "$REQUIRED_RAM_GB" ]]; then
-        log_warn "Low RAM: ${total_ram_mb}MB (${REQUIRED_RAM_GB}GB+ recommended)"
+    # Each GCC process needs ~1.5GB for OpenCV C++ templates
+    local mem_per_job_mb=1500
+    local safe_jobs=$((total_memory_mb / mem_per_job_mb))
+    [[ $safe_jobs -lt 1 ]] && safe_jobs=1
+
+    if [[ $total_memory_mb -lt 6000 ]]; then
         LOW_RAM_MODE=true
+        log_warn "Limited memory: ${total_ram_mb}MB RAM + ${swap_mb}MB swap = ${total_memory_mb}MB total"
+        log_detail "Safe parallel jobs: -j${safe_jobs} (1.5GB per job)"
 
-        # Check if we have enough swap
-        local total_memory_mb=$((total_ram_mb + swap_mb))
-        if [[ $total_memory_mb -lt 3000 ]]; then
-            log_warn "Total memory (RAM+Swap): ${total_memory_mb}MB"
-            log_detail "Will use single-threaded build (-j1) to prevent OOM"
-            log_detail "Consider adding swap: sudo dphys-swapfile swapoff && sudo sed -i 's/CONF_SWAPSIZE=.*/CONF_SWAPSIZE=2048/' /etc/dphys-swapfile && sudo dphys-swapfile setup && sudo dphys-swapfile swapon"
-        else
-            log_info "Swap available: ${swap_mb}MB (total: ${total_memory_mb}MB)"
-            log_detail "Will use limited parallelism (-j2) for build"
+        if [[ $total_memory_mb -lt 3500 ]]; then
+            log_warn "Very low memory — build may fail even with -j1"
+            log_detail "Add swap space first:"
+            log_detail "  sudo fallocate -l 4G /swapfile"
+            log_detail "  sudo chmod 600 /swapfile"
+            log_detail "  sudo mkswap /swapfile && sudo swapon /swapfile"
+            log_detail "Then re-run this script."
         fi
     else
-        log_success "RAM: ${total_ram_gb}GB available"
+        log_success "RAM: ${total_ram_mb}MB + ${swap_mb}MB swap (${total_memory_mb}MB total)"
         LOW_RAM_MODE=false
+    fi
+
+    # Detect platform (Jetson, RPi, ARM, x86)
+    detect_platform
+    log_info "Platform: ${PLATFORM} (${ARCH})"
+    if [[ "$IS_JETSON" == true ]]; then
+        log_info "NVIDIA Jetson detected — CUDA ${CUDA_ARCH}, NEON enabled"
+    elif [[ "$IS_RPI" == true ]]; then
+        log_info "Raspberry Pi detected — NEON + VFPv3 enabled"
     fi
 
     # Check PixEagle venv
@@ -547,6 +596,8 @@ configure_cmake() {
         -D WITH_GSTREAMER=ON
         -D WITH_QT=ON
         -D WITH_OPENGL=ON
+        -D WITH_FFMPEG=ON
+        -D WITH_V4L=ON
         -D BUILD_EXAMPLES=OFF
         -D BUILD_TESTS=OFF
         -D BUILD_PERF_TESTS=OFF
@@ -558,6 +609,30 @@ configure_cmake() {
         -D Python3_FIND_IMPLEMENTATIONS=CPython
         -D Python3_FIND_STRATEGY=LOCATION
     )
+
+    # Platform-specific CMake flags
+    if [[ "$IS_JETSON" == true ]]; then
+        log_info "Adding Jetson CUDA + NEON flags (CUDA arch ${CUDA_ARCH})"
+        cmake_args+=(
+            -D WITH_CUDA=ON
+            -D CUDA_ARCH_BIN="${CUDA_ARCH}"
+            -D CUDA_ARCH_PTX=""
+            -D WITH_CUDNN=ON
+            -D OPENCV_DNN_CUDA=ON
+            -D ENABLE_NEON=ON
+            -D CUDA_FAST_MATH=ON
+            -D WITH_CUBLAS=ON
+        )
+    elif [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "armv7l" ]]; then
+        log_info "Adding ARM NEON optimization flags"
+        cmake_args+=(
+            -D ENABLE_NEON=ON
+            -D ENABLE_VFPV3=ON
+        )
+        if [[ "$ARCH" == "armv7l" ]]; then
+            cmake_args+=( -D CPU_BASELINE=NEON )
+        fi
+    fi
 
     start_spinner "Running CMake configuration..."
     if cmake .. "${cmake_args[@]}" > cmake_output.log 2>&1; then
@@ -587,22 +662,22 @@ compile_opencv() {
     local cpu_cores
     cpu_cores=$(nproc 2>/dev/null || echo "1")
 
-    # Adjust parallelism for low RAM systems
+    # Calculate safe parallelism based on available memory
     local make_jobs
-    if [[ "$LOW_RAM_MODE" == true ]]; then
-        local total_ram_mb
-        total_ram_mb=$(free -m 2>/dev/null | awk '/^Mem:/ {print $2}')
-        local swap_mb
-        swap_mb=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')
-        local total_memory_mb=$((total_ram_mb + swap_mb))
+    local total_ram_mb
+    total_ram_mb=$(free -m 2>/dev/null | awk '/^Mem:/ {print $2}')
+    local swap_mb
+    swap_mb=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')
+    local total_memory_mb=$((total_ram_mb + swap_mb))
+    local mem_safe_jobs=$((total_memory_mb / 1500))
+    [[ $mem_safe_jobs -lt 1 ]] && mem_safe_jobs=1
 
-        if [[ $total_memory_mb -lt 3000 ]]; then
-            make_jobs=1
-            log_warn "Using single-threaded build (-j1) due to low memory"
-            log_info "This will be SLOW but should complete without OOM errors"
-        else
-            make_jobs=2
-            log_info "Using limited parallelism (-j2) for low RAM system"
+    # Use the lesser of CPU cores and memory-safe jobs
+    if [[ $mem_safe_jobs -lt $cpu_cores ]]; then
+        make_jobs=$mem_safe_jobs
+        log_warn "Memory-limited build: -j${make_jobs} (${total_memory_mb}MB total / 1.5GB per job)"
+        if [[ $make_jobs -eq 1 ]]; then
+            log_info "This will be SLOW (~2-3 hours) but should complete without OOM"
         fi
     else
         make_jobs="$cpu_cores"
