@@ -728,15 +728,16 @@ configure_cmake() {
         fi
         # Always enable NEON on Jetson (ARM optimization, no extra memory cost)
         cmake_args+=( -D ENABLE_NEON=ON )
-    elif [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "armv7l" ]]; then
-        log_info "Adding ARM NEON optimization flags"
+    elif [[ "$ARCH" == "aarch64" ]]; then
+        log_info "Adding ARM64 NEON optimization flags"
+        cmake_args+=( -D ENABLE_NEON=ON )
+    elif [[ "$ARCH" == "armv7l" ]]; then
+        log_info "Adding ARM32 NEON + VFPv3 optimization flags"
         cmake_args+=(
             -D ENABLE_NEON=ON
             -D ENABLE_VFPV3=ON
+            -D CPU_BASELINE=NEON
         )
-        if [[ "$ARCH" == "armv7l" ]]; then
-            cmake_args+=( -D CPU_BASELINE=NEON )
-        fi
     fi
 
     start_spinner "Running CMake configuration..."
