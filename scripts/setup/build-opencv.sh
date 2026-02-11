@@ -169,14 +169,15 @@ LOW_RAM_MODE=false
 # ============================================================================
 # Automatic Swap Management
 # ============================================================================
-# Creates a temporary swap file if total memory (RAM+swap) is too low for the
-# build.  The swap is cleaned up automatically on exit (success, failure, or
-# Ctrl-C) via the trap registered above.
+# Creates a temporary swap file if total memory (RAM+swap) is below 6GB.
+# The swap is a safety net against OOM-kill, NOT a performance tool — actual
+# build parallelism is calculated from RAM only (see compile_opencv).
+# Cleaned up automatically on exit (success, failure, Ctrl-C) via trap.
 #
 # Design decisions:
 #   - Never touches existing swap — only adds when needed
-#   - Swap size is calculated dynamically: enough for at least 2 parallel jobs
-#   - Uses /var/tmp (persistent across reboots) so the file survives a stall
+#   - Swap size calculated dynamically (target: 6GB total RAM+swap)
+#   - Uses /var/tmp so the file persists if the script is interrupted
 #   - Requires sudo (already acquired for apt-get earlier in the flow)
 ensure_build_memory() {
     local total_ram_mb
@@ -185,10 +186,11 @@ ensure_build_memory() {
     existing_swap_mb=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')
     local total_mb=$((total_ram_mb + existing_swap_mb))
 
-    # Target: enough total memory for at least 2 parallel jobs (3000MB) plus
-    # ~1GB headroom for the OS and other processes = 4000MB minimum.
-    # On systems with plenty of RAM this is a no-op.
-    local target_mb=4000
+    # Target: RAM + swap should be at least 6GB total.  This ensures the OOM
+    # killer stays away even if a few GCC processes spike simultaneously.
+    # The actual parallelism is capped by RAM (see compile_opencv), so this
+    # swap is a safety net, not a performance boost.
+    local target_mb=6000
 
     if [[ $total_mb -ge $target_mb ]]; then
         return 0  # Already enough memory
@@ -317,25 +319,28 @@ check_prerequisites() {
         log_success "Disk space: ${available_gb}GB available"
     fi
 
-    # Check RAM + swap and calculate safe parallel jobs
+    # Check RAM and calculate safe parallel jobs.
+    # Parallelism is based on RAM only (swap is too slow for parallel GCC).
     local total_ram_mb
     total_ram_mb=$(free -m 2>/dev/null | awk '/^Mem:/ {print $2}')
     local swap_mb
     swap_mb=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')
     local total_memory_mb=$((total_ram_mb + swap_mb))
 
-    # Each GCC process needs ~1.5GB for OpenCV C++ templates
-    local mem_per_job_mb=1500
-    local safe_jobs=$((total_memory_mb / mem_per_job_mb))
+    # Budget 2GB per job from RAM (not swap), reserving 1GB for OS
+    local available_ram_mb=$((total_ram_mb - 1024))
+    [[ $available_ram_mb -lt 1500 ]] && available_ram_mb=1500
+    local mem_per_job_mb=2000
+    local safe_jobs=$((available_ram_mb / mem_per_job_mb))
     [[ $safe_jobs -lt 1 ]] && safe_jobs=1
 
-    if [[ $total_memory_mb -lt 6000 ]]; then
+    if [[ $total_ram_mb -lt 6000 ]]; then
         LOW_RAM_MODE=true
-        log_warn "Limited memory: ${total_ram_mb}MB RAM + ${swap_mb}MB swap = ${total_memory_mb}MB total"
-        log_detail "Safe parallel jobs: -j${safe_jobs} (1.5GB per job)"
+        log_warn "Limited RAM: ${total_ram_mb}MB RAM + ${swap_mb}MB swap"
+        log_detail "Parallel jobs limited to -j${safe_jobs} (based on RAM, not swap)"
         log_detail "Temporary swap will be created automatically if needed"
     else
-        log_success "RAM: ${total_ram_mb}MB + ${swap_mb}MB swap (${total_memory_mb}MB total)"
+        log_success "RAM: ${total_ram_mb}MB + ${swap_mb}MB swap"
         LOW_RAM_MODE=false
     fi
 
@@ -728,26 +733,34 @@ compile_opencv() {
     local cpu_cores
     cpu_cores=$(nproc 2>/dev/null || echo "1")
 
-    # Calculate safe parallelism based on available memory
+    # Calculate safe parallelism based on PHYSICAL RAM only.
+    # Swap prevents OOM-kill but is ~100x slower than RAM — running many
+    # parallel GCC jobs backed by swap causes thrashing and eventual failure.
+    # We budget 2GB per job (some OpenCV DNN/template TUs spike to 2-3GB).
     local make_jobs
     local total_ram_mb
     total_ram_mb=$(free -m 2>/dev/null | awk '/^Mem:/ {print $2}')
     local swap_mb
     swap_mb=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')
-    local total_memory_mb=$((total_ram_mb + swap_mb))
-    local mem_safe_jobs=$((total_memory_mb / 1500))
+
+    # Reserve ~1GB for the OS and other processes
+    local available_ram_mb=$((total_ram_mb - 1024))
+    [[ $available_ram_mb -lt 1500 ]] && available_ram_mb=1500
+
+    local mem_per_job_mb=2000
+    local mem_safe_jobs=$((available_ram_mb / mem_per_job_mb))
     [[ $mem_safe_jobs -lt 1 ]] && mem_safe_jobs=1
 
     # Use the lesser of CPU cores and memory-safe jobs
     if [[ $mem_safe_jobs -lt $cpu_cores ]]; then
         make_jobs=$mem_safe_jobs
-        log_warn "Memory-limited build: -j${make_jobs} (${total_memory_mb}MB total / 1.5GB per job)"
+        log_warn "Memory-limited build: -j${make_jobs} (${total_ram_mb}MB RAM, ${swap_mb}MB swap, ~${mem_per_job_mb}MB per job)"
         if [[ $make_jobs -eq 1 ]]; then
             log_info "This will be SLOW (~2-3 hours) but should complete without OOM"
         fi
     else
         make_jobs="$cpu_cores"
-        log_info "Using ${make_jobs} CPU cores for parallel build"
+        log_info "Using ${make_jobs} parallel jobs (${total_ram_mb}MB RAM available)"
     fi
 
     log_info "Go grab a coffee... ${VIDEO}"
