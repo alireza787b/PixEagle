@@ -145,6 +145,25 @@ class AppController:
         # Thread-safe frame publisher for streaming consumers
         self.frame_publisher = FramePublisher()
 
+        # Pipeline performance metrics (updated by FlowController, read by API)
+        self._pipeline_metrics = {
+            'preprocess_ms': 0.0,
+            'tracking_ms': 0.0,
+            'osd_ms': 0.0,
+            'publish_ms': 0.0,
+            'total_processing_ms': 0.0,
+            'frame_pacing_ms': 0.0,
+            'loop_total_ms': 0.0,
+            'fps_actual': 0.0,
+            'fps_target': 0.0,
+            'budget_utilization': 0.0,
+            'pipeline_mode': str(getattr(Parameters, 'PIPELINE_MODE', 'REALTIME')),
+            'capture_mode': '',
+            'frame_id': 0,
+            'overrun_count': 0,
+            'total_frames': 0,
+        }
+
         # Initialize the FastAPI handler
         logging.debug("Initializing FastAPIHandler...")
         self.api_handler = FastAPIHandler(self)
@@ -406,18 +425,22 @@ class AppController:
             self._frame_count_debug = 0
         self._frame_count_debug += 1
         if self._frame_count_debug % 100 == 0:
-            logging.info(f"🎬 UPDATE_LOOP RUNNING: Frame #{self._frame_count_debug}")
+            logging.info(f"UPDATE_LOOP RUNNING: Frame #{self._frame_count_debug}")
 
         try:
+            # Per-stage timing instrumentation
+            _t0 = time.monotonic()
+
             # Periodic system status update
             current_time = time.time()
             if current_time - self.last_system_status_time > self.system_status_interval:
                 self._log_system_status()
                 self.last_system_status_time = current_time
-            
+
             # Preprocess the frame if enabled
             if Parameters.ENABLE_PREPROCESSING and self.preprocessor:
                 frame = self.preprocessor.preprocess(frame)
+            _t_preprocess = time.monotonic()
             
             # Apply segmentation if active (applies regardless of mode)
             if self.segmentation_active:
@@ -532,6 +555,8 @@ class AppController:
                                 self.tracking_failure_start_time = None
 
 
+            _t_track = time.monotonic()
+
             # Telemetry handling
             if self.telemetry_handler.should_send_telemetry():
                 self.telemetry_handler.send_telemetry()
@@ -585,10 +610,20 @@ class AppController:
                     raw_frame=self.video_handler.current_resized_raw_frame,
                 )
 
+            _t_osd = time.monotonic()
+
             # Optional secondary GStreamer output
             if Parameters.ENABLE_GSTREAMER_STREAM and hasattr(self, 'gstreamer_handler'):
                 gstreamer_frame = capture_osd_frame if capture_osd_frame is not None else frame
                 self.gstreamer_handler.stream_frame(gstreamer_frame)
+
+            _t_publish = time.monotonic()
+
+            # Update per-stage pipeline metrics
+            self._pipeline_metrics['preprocess_ms'] = round((_t_preprocess - _t0) * 1000, 2)
+            self._pipeline_metrics['tracking_ms'] = round((_t_track - _t_preprocess) * 1000, 2)
+            self._pipeline_metrics['osd_ms'] = round((_t_osd - _t_track) * 1000, 2)
+            self._pipeline_metrics['publish_ms'] = round((_t_publish - _t_osd) * 1000, 2)
 
         except Exception as e:
             logging.exception(f"Error in update_loop: {e}")

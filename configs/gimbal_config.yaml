@@ -29,7 +29,13 @@ VideoSource:
   CAPTURE_HEIGHT: 480         # Height in pixels 
   CAPTURE_FPS: 30            # Target FPS (actual may vary by source)
   DEFAULT_FPS: 30            # Fallback if source doesn't report FPS
-  
+
+  # === Pipeline Timing Mode ===
+  # REALTIME: Process at source FPS (default for live cameras)
+  # MAX_THROUGHPUT: No delay, process as fast as possible (offline analysis)
+  # DETERMINISTIC_REPLAY: Pace by source timestamps (testing/debugging)
+  PIPELINE_MODE: "REALTIME"
+
   # === Performance Optimization ===
   # Enable for Raspberry Pi, Jetson, or low-power systems
   USE_GSTREAMER: true        # true = Use GStreamer pipelines (better for embedded)
@@ -59,6 +65,15 @@ VideoSource:
   #   - 500: More stable for unreliable connections
   #   - 0: Minimum latency (may cause decoding errors, not recommended)
   RTSP_LATENCY: 200
+
+  # === Connection Recovery Settings ===
+  # Automatic reconnection for network streams. Safe defaults.
+  RTSP_MAX_CONSECUTIVE_FAILURES: 10
+  RTSP_CONNECTION_TIMEOUT: 5.0
+  RTSP_MAX_RECOVERY_ATTEMPTS: 3
+  RTSP_FRAME_CACHE_SIZE: 5
+  RTSP_RECOVERY_BACKOFF_BASE: 1.0
+  RTSP_RECOVERY_BACKOFF_MAX: 10.0
 
   UDP_URL: udp://192.168.144.110:5000
   HTTP_URL: http://192.168.144.110:8100

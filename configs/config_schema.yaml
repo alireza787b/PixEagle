@@ -101,6 +101,16 @@ sections:
         min: 0
         max: 1000
         unit: fps
+      PIPELINE_MODE:
+        type: string
+        default: REALTIME
+        description: 'Controls frame pacing behavior. REALTIME: process at source FPS (live cameras). MAX_THROUGHPUT: no
+          delay, process as fast as possible (offline analysis). DETERMINISTIC_REPLAY: pace by source timestamps (testing).'
+        reboot_required: true
+        options:
+          - REALTIME
+          - MAX_THROUGHPUT
+          - DETERMINISTIC_REPLAY
       USE_GSTREAMER:
         type: boolean
         default: false
@@ -141,6 +151,51 @@ sections:
         min: 0
         max: 10000
         unit: may cause decoding errors, not recommended
+      RTSP_MAX_CONSECUTIVE_FAILURES:
+        type: integer
+        default: 10
+        description: Number of consecutive failed frame reads before attempting connection recovery
+        reboot_required: false
+        min: 1
+        max: 100
+      RTSP_CONNECTION_TIMEOUT:
+        type: number
+        default: 5.0
+        description: Seconds without a successful frame before triggering connection recovery
+        reboot_required: false
+        min: 1.0
+        max: 60.0
+        unit: seconds
+      RTSP_MAX_RECOVERY_ATTEMPTS:
+        type: integer
+        default: 3
+        description: Maximum reconnection attempts per failure event
+        reboot_required: false
+        min: 1
+        max: 20
+      RTSP_FRAME_CACHE_SIZE:
+        type: integer
+        default: 5
+        description: Number of good frames cached for graceful degradation during connection loss
+        reboot_required: false
+        min: 1
+        max: 30
+      RTSP_RECOVERY_BACKOFF_BASE:
+        type: number
+        default: 1.0
+        description: Initial retry delay in seconds (doubles with each attempt)
+        reboot_required: false
+        min: 0.1
+        max: 10.0
+        unit: seconds
+      RTSP_RECOVERY_BACKOFF_MAX:
+        type: number
+        default: 10.0
+        description: Maximum retry delay cap in seconds
+        reboot_required: false
+        min: 1.0
+        max: 60.0
+        unit: seconds
       UDP_URL:
         type: string
         default: udp://172.21.144.1:5000
@@ -680,26 +735,10 @@ sections:
         reboot_required: false
         min: 0
         max: 100
-      CONFIDENCE_THRESHOLD:
-        type: float
-        default: 0.6
-        description: '⚠️ Deprecated: Use tracker-specific'
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-      APPEARANCE_THRESHOLD:
-        type: float
-        default: 0.3
-        description: APPEARANCE_THRESHOLD parameter
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
       APPEARANCE_CONFIDENCE_THRESHOLD:
         type: float
         default: 0.5
-        description: APPEARANCE_CONFIDENCE_THRESHOLD parameter
+        description: Minimum confidence for appearance match validation in detectors
         reboot_required: false
         min: 0.0
         max: 1.0
@@ -707,7 +746,7 @@ sections:
       MOTION_CONFIDENCE_WEIGHT:
         type: float
         default: 0.5
-        description: MOTION_CONFIDENCE_WEIGHT parameter
+        description: Weight for motion-based confidence in classic tracker blending
         reboot_required: false
         min: 0.0
         max: 1.0
@@ -715,7 +754,7 @@ sections:
       APPEARANCE_CONFIDENCE_WEIGHT:
         type: float
         default: 0.5
-        description: APPEARANCE_CONFIDENCE_WEIGHT parameter
+        description: Weight for appearance-based confidence in classic tracker blending
         reboot_required: false
         min: 0.0
         max: 1.0

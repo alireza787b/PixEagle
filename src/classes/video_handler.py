@@ -976,7 +976,7 @@ class VideoHandler:
                 # Successful frame capture
                 frame = self._apply_frame_orientation(frame)
                 self.current_raw_frame = frame
-                self.frame_history.append(frame)
+                self.frame_history.append(frame.copy())  # Copy: downstream drawing modifies in-place
                 self._reset_failure_counters()
                 return frame
             else:
@@ -1079,7 +1079,7 @@ class VideoHandler:
                         frame = self._apply_frame_orientation(frame)
                         logger.info("Connection recovered without reconnect")
                         self.current_raw_frame = frame
-                        self.frame_history.append(frame)
+                        self.frame_history.append(frame.copy())
                         self._reset_failure_counters()
                         return frame
             
@@ -1094,7 +1094,7 @@ class VideoHandler:
                     frame = self._apply_frame_orientation(frame)
                     logger.info("Full reconnection successful")
                     self.current_raw_frame = frame
-                    self.frame_history.append(frame)
+                    self.frame_history.append(frame.copy())
                     self._reset_failure_counters()
                     return frame
             
@@ -1152,7 +1152,7 @@ class VideoHandler:
                 if ret and frame is not None:
                     frame = self._apply_frame_orientation(frame)
                     self.current_raw_frame = frame
-                    self.frame_history.append(frame)
+                    self.frame_history.append(frame.copy())
                     self._reset_failure_counters()
                     return frame
                 else:

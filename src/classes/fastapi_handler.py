@@ -748,6 +748,9 @@ class FastAPIHandler:
         if hasattr(self.app_controller, 'gstreamer_handler') and self.app_controller.gstreamer_handler:
             gstreamer_info = self.app_controller.gstreamer_handler.encoder_status
 
+        # Pipeline performance metrics (from FlowController instrumentation)
+        pipeline_metrics = getattr(self.app_controller, '_pipeline_metrics', {})
+
         return JSONResponse(content={
             'active_method': (
                 'webrtc' if webrtc_count > 0 else
@@ -760,6 +763,7 @@ class FastAPIHandler:
             'adaptive_quality_enabled': getattr(Parameters, 'ENABLE_ADAPTIVE_QUALITY', True),
             'quality_engine': quality_states,
             'gstreamer': gstreamer_info,
+            'pipeline': pipeline_metrics,
             'config': {
                 'stream_fps': Parameters.STREAM_FPS,
                 'stream_width': Parameters.STREAM_WIDTH,
@@ -767,6 +771,7 @@ class FastAPIHandler:
                 'min_quality': getattr(Parameters, 'MIN_QUALITY', 20),
                 'max_quality': getattr(Parameters, 'MAX_QUALITY', 95),
                 'default_protocol': getattr(Parameters, 'DEFAULT_PROTOCOL', 'auto'),
+                'pipeline_mode': getattr(Parameters, 'PIPELINE_MODE', 'REALTIME'),
             },
             'timestamp': time.time(),
         })

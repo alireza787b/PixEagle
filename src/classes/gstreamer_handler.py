@@ -1,8 +1,10 @@
 import cv2
 import numpy as np
 import logging
+import queue
 import shutil
 import subprocess
+import threading
 from dataclasses import dataclass
 from typing import Optional
 from classes.parameters import Parameters
@@ -112,6 +114,7 @@ class GStreamerHandler:
       - appsrc pushes BGR frames from OpenCV into the pipeline
       - Bitrate, preset, and tuning are configurable via YAML
       - Frame orientation is handled upstream in VideoHandler
+      - stream_frame() is non-blocking: frames are queued for a background writer thread
     """
 
     def __init__(self):
@@ -125,6 +128,12 @@ class GStreamerHandler:
         self.encoder_info = EncoderDetector.detect(allow_hardware=allow_hw)
 
         self.pipeline = self._create_pipeline()
+
+        # Non-blocking writer thread + bounded queue
+        self._frame_queue: queue.Queue = queue.Queue(maxsize=2)
+        self._writer_thread: Optional[threading.Thread] = None
+        self._writer_stop = threading.Event()
+        self._queue_drops = 0
 
     def _create_pipeline(self) -> str:
         """
@@ -212,25 +221,69 @@ class GStreamerHandler:
             logger.error(f"Error initializing GStreamer pipeline: {e}")
             self.out = None
 
+        # Start the background writer thread if pipeline is ready
+        if self.out is not None:
+            self._writer_stop.clear()
+            self._writer_thread = threading.Thread(
+                target=self._writer_loop, name="gstreamer-writer", daemon=True
+            )
+            self._writer_thread.start()
+            logger.info("GStreamer writer thread started")
+
+    def _writer_loop(self):
+        """Background thread that pulls frames from queue and writes to pipeline."""
+        while not self._writer_stop.is_set():
+            try:
+                frame = self._frame_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            try:
+                if self.out and self.out.isOpened():
+                    self.out.write(frame)
+            except Exception as e:
+                logger.error("Error writing frame to GStreamer pipeline: %s", e)
+
     def stream_frame(self, frame: np.ndarray):
         """
-        Stream a video frame to the GStreamer pipeline.
+        Queue a video frame for the GStreamer writer thread (non-blocking).
+
+        If the queue is full, the oldest frame is dropped and replaced.
+        This ensures the main processing loop is never blocked by encoding.
 
         Args:
             frame: BGR uint8 frame from OpenCV.
         """
-        if self.out:
+        if self.out is None:
+            return
+
+        try:
+            if frame.dtype != np.uint8:
+                frame = frame.astype(np.uint8)
+            if len(frame.shape) == 2 or frame.shape[2] != 3:
+                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+        except Exception as e:
+            logger.error("Error preparing frame for GStreamer: %s", e)
+            return
+
+        try:
+            self._frame_queue.put_nowait(frame)
+        except queue.Full:
+            # Drop oldest frame, insert new one
             try:
-                if frame.dtype != np.uint8:
-                    frame = frame.astype(np.uint8)
-                if len(frame.shape) == 2 or frame.shape[2] != 3:
-                    frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-                self.out.write(frame)
-            except Exception as e:
-                logger.error(f"Error streaming frame to GStreamer pipeline: {e}")
+                self._frame_queue.get_nowait()
+            except queue.Empty:
+                pass
+            self._frame_queue.put_nowait(frame)
+            self._queue_drops += 1
 
     def release(self):
-        """Release the GStreamer pipeline and associated resources."""
+        """Release the GStreamer pipeline and stop the writer thread."""
+        # Stop writer thread
+        self._writer_stop.set()
+        if self._writer_thread is not None:
+            self._writer_thread.join(timeout=2.0)
+            self._writer_thread = None
+
         if self.out:
             self.out.release()
             logger.debug("GStreamer pipeline released.")
@@ -244,4 +297,5 @@ class GStreamerHandler:
             'hardware_accelerated': self.encoder_info.hardware,
             'host': str(Parameters.GSTREAMER_HOST),
             'port': int(Parameters.GSTREAMER_PORT),
+            'queue_drops': self._queue_drops,
         }

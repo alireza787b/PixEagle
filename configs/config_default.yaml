@@ -30,7 +30,27 @@ VideoSource:
   CAPTURE_HEIGHT: 480         # Height in pixels 
   CAPTURE_FPS: 30            # Target FPS (actual may vary by source)
   DEFAULT_FPS: 30            # Fallback if source doesn't report FPS
-  
+
+  # === Pipeline Timing Mode ===
+  # Controls how frame pacing works. Critical for different use cases:
+  #
+  # REALTIME (default):
+  #   Process frames at source FPS. Frame delay accounts for processing time.
+  #   Best for: Live cameras, RTSP streams, real-time drone tracking.
+  #
+  # MAX_THROUGHPUT:
+  #   No artificial delay. Process frames as fast as hardware allows.
+  #   Best for: Offline video analysis, batch processing, benchmarking.
+  #   Warning: CPU/GPU will run at 100% utilization.
+  #
+  # DETERMINISTIC_REPLAY:
+  #   Pace frames based on source video timestamps (PTS).
+  #   Ensures identical timing regardless of hardware speed.
+  #   Best for: Regression testing, debugging, deterministic replay.
+  #   Note: Only meaningful for VIDEO_FILE source type.
+  #
+  PIPELINE_MODE: "REALTIME"    # Options: REALTIME | MAX_THROUGHPUT | DETERMINISTIC_REPLAY
+
   # === Performance Optimization ===
   # USE_GSTREAMER controls how frames are READ from cameras (input capture).
   # Set true for Raspberry Pi, Jetson, or embedded systems with GStreamer support.
@@ -63,6 +83,25 @@ VideoSource:
   #   - 500: More stable for unreliable connections
   #   - 0: Minimum latency (may cause decoding errors, not recommended)
   RTSP_LATENCY: 200
+
+  # === Connection Recovery Settings ===
+  # Controls automatic reconnection when a video source drops frames.
+  # Applies primarily to RTSP/network streams but also used by file/camera sources.
+  # These are safe defaults — increase timeouts for unstable networks.
+  #
+  # How recovery works:
+  #   1. After RTSP_MAX_CONSECUTIVE_FAILURES failed reads, recovery starts
+  #   2. OR if no frame received for RTSP_CONNECTION_TIMEOUT seconds
+  #   3. System serves cached frames during recovery (RTSP_FRAME_CACHE_SIZE)
+  #   4. Reconnect attempts use exponential backoff (BASE * 2^attempt)
+  #   5. Backoff caps at RTSP_RECOVERY_BACKOFF_MAX seconds
+  #
+  RTSP_MAX_CONSECUTIVE_FAILURES: 10   # Failed frame reads before recovery attempt
+  RTSP_CONNECTION_TIMEOUT: 5.0        # Seconds without a good frame before recovery
+  RTSP_MAX_RECOVERY_ATTEMPTS: 3       # Reconnect attempts per failure event
+  RTSP_FRAME_CACHE_SIZE: 5            # Cached good frames for graceful degradation
+  RTSP_RECOVERY_BACKOFF_BASE: 1.0     # Initial retry delay (seconds)
+  RTSP_RECOVERY_BACKOFF_MAX: 10.0     # Maximum retry delay cap (seconds)
 
   UDP_URL: udp://172.21.144.1:5000
   HTTP_URL: http://172.21.144.1:8100
@@ -237,12 +276,13 @@ Tracking:
   TRACKING_FAILURE_TIMEOUT: 5.0            # Seconds before re-detection
   REDETECTION_ATTEMPTS: 5                  # Max re-detection attempts
 
-  # === Legacy Appearance Model (Deprecated - use tracker-specific configs) ===
-  CONFIDENCE_THRESHOLD: 0.6                # ⚠️ Deprecated: Use tracker-specific
-  APPEARANCE_THRESHOLD: 0.3
-  APPEARANCE_CONFIDENCE_THRESHOLD: 0.5
-  MOTION_CONFIDENCE_WEIGHT: 0.5
-  APPEARANCE_CONFIDENCE_WEIGHT: 0.5
+  # === Confidence Blending (Classic Trackers) ===
+  # Used by BaseTracker to blend motion and appearance confidence scores.
+  # Also used by detectors (TemplateMatchingDetector, BaseDetector) for
+  # appearance validation during re-detection.
+  APPEARANCE_CONFIDENCE_THRESHOLD: 0.5     # Min confidence for appearance match
+  MOTION_CONFIDENCE_WEIGHT: 0.5            # Weight for motion-based confidence
+  APPEARANCE_CONFIDENCE_WEIGHT: 0.5        # Weight for appearance-based confidence
 
 
   # Motion consistency threshold for base tracker
