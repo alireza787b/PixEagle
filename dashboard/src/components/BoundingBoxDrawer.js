@@ -69,7 +69,6 @@ const BoundingBoxDrawer = ({
   const isDrawing = (startPos && currentPos) || boundingBox;
 
   let left, top, width, height;
-  let overlays = [];
 
   if (isDrawing && containerDimensions.width && containerDimensions.height) {
     left = boundingBox ? boundingBox.left : Math.min(startPos.x, currentPos.x);
@@ -84,13 +83,6 @@ const BoundingBoxDrawer = ({
     top = Math.max(0, top);
     width = Math.min(width, containerWidth - left);
     height = Math.min(height, containerHeight - top);
-
-    overlays = [
-      { top: 0, left: 0, width: containerWidth, height: top },
-      { top: top + height, left: 0, width: containerWidth, height: containerHeight - (top + height) },
-      { top: top, left: 0, width: left, height: height },
-      { top: top, left: left + width, width: containerWidth - (left + width), height: height },
-    ];
   }
 
   // Smart Mode Click Handler with visual feedback
@@ -185,33 +177,19 @@ const BoundingBoxDrawer = ({
 
       {/* Classic Mode Bounding Box Drawing */}
       {isDrawing && !smartModeActive && (
-        <>
-          <div
-            style={{
-              position: 'absolute',
-              border: '2px dashed red',
-              left: left,
-              top: top,
-              width: width,
-              height: height,
-              pointerEvents: 'none',
-            }}
-          />
-          {overlays.map((overlay, index) => (
-            <div
-              key={index}
-              style={{
-                position: 'absolute',
-                top: overlay.top,
-                left: overlay.left,
-                width: overlay.width,
-                height: overlay.height,
-                backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                pointerEvents: 'none',
-              }}
-            />
-          ))}
-        </>
+        <div
+          style={{
+            position: 'absolute',
+            border: '3px solid #ff5722',
+            borderRadius: '2px',
+            left: left,
+            top: top,
+            width: width,
+            height: height,
+            pointerEvents: 'none',
+            boxShadow: '0 0 0 2px rgba(255, 87, 34, 0.2), 0 0 8px rgba(255, 87, 34, 0.4)',
+          }}
+        />
       )}
     </div>
   );

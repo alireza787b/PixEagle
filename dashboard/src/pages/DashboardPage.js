@@ -285,15 +285,24 @@ const DashboardPage = () => {
 
                       {/* Streaming Settings - Horizontal Below Video */}
                       <Card variant="outlined">
-                        <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                          <Grid container spacing={2}>
+                        <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                          <Grid container spacing={3}>
                             {/* Stream Settings Section */}
                             <Grid item xs={12} md={7}>
-                              <Box sx={{ mb: 0.5 }}>
-                                <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                                  Stream
-                                </Typography>
-                              </Box>
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  display: 'block',
+                                  fontWeight: 700,
+                                  color: 'text.secondary',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: 1,
+                                  mb: 1.5,
+                                  fontSize: 11
+                                }}
+                              >
+                                Stream
+                              </Typography>
                               <Grid container spacing={2} alignItems="center">
                                 {/* Protocol Selector */}
                                 <Grid item xs={12} sm={6}>
@@ -321,11 +330,20 @@ const DashboardPage = () => {
 
                             {/* OSD Section */}
                             <Grid item xs={12} md={5}>
-                              <Box sx={{ mb: 0.5 }}>
-                                <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                                  On-Screen Display
-                                </Typography>
-                              </Box>
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  display: 'block',
+                                  fontWeight: 700,
+                                  color: 'text.secondary',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: 1,
+                                  mb: 1.5,
+                                  fontSize: 11
+                                }}
+                              >
+                                On-Screen Display
+                              </Typography>
                               <OSDToggle />
                             </Grid>
                           </Grid>
