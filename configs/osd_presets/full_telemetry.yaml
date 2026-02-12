@@ -10,6 +10,7 @@
 # - Compact but readable fonts (minimum 0.38x = ~9px @ 480p)
 # - Tighter margins (3%) for extra space
 # - Two-column layout (navigation left, altitude/speed right)
+# - Short aviation labels for compact display
 # - 18px minimum vertical gap between stacked items
 #
 # Color roles: Elements specify color_role for day/night/amber palette switching.
@@ -73,6 +74,7 @@ ELEMENTS:
     fields:
       # === LEFT COLUMN - Navigation & Position (x=5, 20px spacing) ===
       flight_mode:
+        display_name: "MODE"
         anchor: "top-left"
         offset: [5, 30]
         font_scale: 0.45
@@ -82,6 +84,7 @@ ELEMENTS:
 
       # Attitude
       roll:
+        display_name: "ROLL"
         anchor: "center-left"
         offset: [5, -130]
         font_scale: 0.4
@@ -90,6 +93,7 @@ ELEMENTS:
         style: "outlined"
 
       pitch:
+        display_name: "PITCH"
         anchor: "center-left"
         offset: [5, -110]
         font_scale: 0.4
@@ -98,6 +102,7 @@ ELEMENTS:
         style: "outlined"
 
       heading:
+        display_name: "HDG"
         anchor: "center-left"
         offset: [5, -90]
         font_scale: 0.4
@@ -107,6 +112,7 @@ ELEMENTS:
 
       # GPS & Navigation
       satellites_visible:
+        display_name: "SAT"
         anchor: "center-left"
         offset: [5, -62]
         font_scale: 0.4
@@ -115,6 +121,7 @@ ELEMENTS:
         style: "outlined"
 
       hdop:
+        display_name: "HDOP"
         anchor: "center-left"
         offset: [5, -42]
         font_scale: 0.4
@@ -123,6 +130,7 @@ ELEMENTS:
         style: "outlined"
 
       vdop:
+        display_name: "VDOP"
         anchor: "center-left"
         offset: [5, -22]
         font_scale: 0.4
@@ -131,6 +139,7 @@ ELEMENTS:
         style: "outlined"
 
       latitude:
+        display_name: "LAT"
         anchor: "bottom-left"
         offset: [5, -82]
         font_scale: 0.38
@@ -139,6 +148,7 @@ ELEMENTS:
         style: "outlined"
 
       longitude:
+        display_name: "LON"
         anchor: "bottom-left"
         offset: [5, -62]
         font_scale: 0.38
@@ -148,6 +158,7 @@ ELEMENTS:
 
       # Power
       voltage:
+        display_name: "BAT"
         anchor: "bottom-left"
         offset: [5, -36]
         font_scale: 0.5
@@ -156,6 +167,7 @@ ELEMENTS:
         style: "plate"
 
       throttle:
+        display_name: "THR"
         anchor: "bottom-left"
         offset: [5, -12]
         font_scale: 0.4
@@ -166,6 +178,7 @@ ELEMENTS:
       # === RIGHT COLUMN - Altitude & Speed (x=-5, 22px spacing) ===
       # AGL altitude — prominent even in dense layout
       altitude_agl:
+        display_name: "AGL"
         anchor: "center-right"
         offset: [-5, -130]
         font_scale: 0.6
@@ -174,6 +187,7 @@ ELEMENTS:
         style: "plate"
 
       altitude_msl:
+        display_name: "MSL"
         anchor: "center-right"
         offset: [-5, -106]
         font_scale: 0.4
@@ -183,6 +197,7 @@ ELEMENTS:
 
       # Speed data
       airspeed:
+        display_name: "IAS"
         anchor: "center-right"
         offset: [-5, -78]
         font_scale: 0.4
@@ -191,6 +206,7 @@ ELEMENTS:
         style: "outlined"
 
       groundspeed:
+        display_name: "GS"
         anchor: "center-right"
         offset: [-5, -58]
         font_scale: 0.4
@@ -199,6 +215,7 @@ ELEMENTS:
         style: "outlined"
 
       climb:
+        display_name: "VS"
         anchor: "center-right"
         offset: [-5, -38]
         font_scale: 0.4
@@ -207,6 +224,7 @@ ELEMENTS:
         style: "outlined"
 
       flight_path_angle:
+        display_name: "FPA"
         anchor: "center-right"
         offset: [-5, -18]
         font_scale: 0.4

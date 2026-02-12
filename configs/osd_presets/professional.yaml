@@ -11,6 +11,7 @@
 # - Safe zones: 5% margins (aviation standard)
 # - Minimal center obstruction
 # - High contrast outlines for all lighting conditions
+# - Short aviation labels (HDG, IAS, GS, AGL, MSL, VS, etc.)
 # - 30px minimum vertical gap between stacked items
 #
 # Color roles: Elements specify color_role for day/night/amber palette switching.
@@ -85,6 +86,7 @@ ELEMENTS:
     fields:
       # === TOP CENTER - Flight Mode ===
       flight_mode:
+        display_name: "MODE"
         anchor: "top-center"
         offset: [0, 10]
         font_scale: 0.7
@@ -95,6 +97,7 @@ ELEMENTS:
 
       # === LEFT COLUMN - Navigation (x=12, 32px spacing) ===
       heading:
+        display_name: "HDG"
         anchor: "center-left"
         offset: [12, -80]
         font_scale: 0.6
@@ -103,6 +106,7 @@ ELEMENTS:
         style: "outlined"
 
       airspeed:
+        display_name: "IAS"
         anchor: "center-left"
         offset: [12, -48]
         font_scale: 0.55
@@ -111,6 +115,7 @@ ELEMENTS:
         style: "outlined"
 
       groundspeed:
+        display_name: "GS"
         anchor: "center-left"
         offset: [12, -18]
         font_scale: 0.55
@@ -119,6 +124,7 @@ ELEMENTS:
         style: "outlined"
 
       throttle:
+        display_name: "THR"
         anchor: "center-left"
         offset: [12, 14]
         font_scale: 0.5
@@ -129,6 +135,7 @@ ELEMENTS:
       # === RIGHT COLUMN - Altitude Cluster (x=-12) ===
       # AGL is the most critical value — largest font + plate background
       altitude_agl:
+        display_name: "AGL"
         anchor: "center-right"
         offset: [-12, -80]
         font_scale: 0.9
@@ -137,6 +144,7 @@ ELEMENTS:
         style: "plate"
 
       altitude_msl:
+        display_name: "MSL"
         anchor: "center-right"
         offset: [-12, -42]
         font_scale: 0.5
@@ -145,6 +153,7 @@ ELEMENTS:
         style: "outlined"
 
       climb:
+        display_name: "VS"
         anchor: "center-right"
         offset: [-12, -14]
         font_scale: 0.55
@@ -154,6 +163,7 @@ ELEMENTS:
 
       # === BOTTOM LEFT - GPS & Battery (x=12, 22px spacing) ===
       satellites_visible:
+        display_name: "SAT"
         anchor: "bottom-left"
         offset: [12, -98]
         font_scale: 0.5
@@ -162,6 +172,7 @@ ELEMENTS:
         style: "outlined"
 
       hdop:
+        display_name: "HDOP"
         anchor: "bottom-left"
         offset: [12, -76]
         font_scale: 0.45
@@ -170,6 +181,7 @@ ELEMENTS:
         style: "outlined"
 
       latitude:
+        display_name: "LAT"
         anchor: "bottom-left"
         offset: [12, -56]
         font_scale: 0.4
@@ -178,6 +190,7 @@ ELEMENTS:
         style: "outlined"
 
       longitude:
+        display_name: "LON"
         anchor: "bottom-left"
         offset: [12, -38]
         font_scale: 0.4
@@ -187,6 +200,7 @@ ELEMENTS:
 
       # Battery voltage — prominent with plate background
       voltage:
+        display_name: "BAT"
         anchor: "bottom-left"
         offset: [12, -12]
         font_scale: 0.7

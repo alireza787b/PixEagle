@@ -8,6 +8,7 @@
 # - Only critical data (altitude, battery)
 # - Maximum screen clarity (no attitude indicator)
 # - Subtle, non-intrusive text
+# - Short aviation labels for compact display
 # - Uses professional 1/20th font sizing formula
 #
 # Color roles: Elements specify color_role for day/night/amber palette switching.
@@ -63,6 +64,7 @@ ELEMENTS:
     fields:
       # AGL altitude — most prominent element on screen
       altitude_agl:
+        display_name: "AGL"
         anchor: "center-right"
         offset: [-12, -20]
         font_scale: 0.85
@@ -72,6 +74,7 @@ ELEMENTS:
 
       # Battery voltage — critical safety
       voltage:
+        display_name: "BAT"
         anchor: "bottom-left"
         offset: [12, -12]
         font_scale: 0.7

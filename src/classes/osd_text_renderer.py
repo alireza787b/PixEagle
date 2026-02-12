@@ -410,8 +410,23 @@ class OSDTextRenderer:
             ]
             self.overlay_draw.rectangle(plate_box, fill=plate_color)
 
-            # Draw text on plate
-            self.overlay_draw.text((x, y), text, font=font, fill=text_color_rgba)
+            # Draw outlined text on plate for maximum readability
+            if self.performance_mode == PerformanceMode.BALANCED:
+                self.overlay_draw.text(
+                    (x, y), text, font=font, fill=text_color_rgba,
+                    stroke_width=outline_thickness,
+                    stroke_fill=(0, 0, 0, 255)
+                )
+            else:
+                outline_color = (0, 0, 0, 255)
+                for offset_x in range(-outline_thickness, outline_thickness + 1):
+                    for offset_y in range(-outline_thickness, outline_thickness + 1):
+                        if offset_x != 0 or offset_y != 0:
+                            self.overlay_draw.text(
+                                (x + offset_x, y + offset_y), text,
+                                font=font, fill=outline_color
+                            )
+                self.overlay_draw.text((x, y), text, font=font, fill=text_color_rgba)
 
         elif style == TextStyle.SHADOWED:
             # Draw shadow
@@ -494,7 +509,17 @@ class OSDTextRenderer:
                 y + text_height + background_padding[1]
             ]
             draw.rectangle(plate_box, fill=plate_color)
-            draw.text((x, y), text, font=font, fill=text_color_rgba)
+            # Outlined text on plate for readability
+            if self.performance_mode == PerformanceMode.BALANCED:
+                draw.text((x, y), text, font=font, fill=text_color_rgba,
+                         stroke_width=outline_thickness, stroke_fill=(0, 0, 0, 255))
+            else:
+                outline_color = (0, 0, 0, 255)
+                for offset_x in range(-outline_thickness, outline_thickness + 1):
+                    for offset_y in range(-outline_thickness, outline_thickness + 1):
+                        if offset_x != 0 or offset_y != 0:
+                            draw.text((x + offset_x, y + offset_y), text, font=font, fill=outline_color)
+                draw.text((x, y), text, font=font, fill=text_color_rgba)
 
         elif style == TextStyle.SHADOWED:
             shadow_x = x + shadow_offset[0]
@@ -556,8 +581,8 @@ class OSDTextRenderer:
                 thickness, line_type
             )
 
-        elif style == TextStyle.OUTLINED:
-            # Draw outline
+        elif style in (TextStyle.OUTLINED, TextStyle.PLATE):
+            # Draw outline (PLATE also gets outline for readability)
             cv2.putText(
                 frame, text, (x, y),
                 font, font_scale * 0.6, (0, 0, 0),
@@ -636,7 +661,7 @@ class OSDTextRenderer:
 
         # Measure text bounds including effects
         use_stroke = (
-            style == TextStyle.OUTLINED
+            style in (TextStyle.OUTLINED, TextStyle.PLATE)
             and self.performance_mode == PerformanceMode.BALANCED
         )
         stroke_w = outline_thickness if use_stroke else 0
@@ -658,10 +683,12 @@ class OSDTextRenderer:
             bx1 = min(bx1, bx1 + shadow_offset[0])
             by1 = min(by1, by1 + shadow_offset[1])
         elif style == TextStyle.PLATE:
-            bx1 -= background_padding[0]
-            by1 -= background_padding[1]
-            bx2 += background_padding[0]
-            by2 += background_padding[1]
+            # Plate needs padding for background + space for outline on text
+            ot_extra = outline_thickness if not use_stroke else 0
+            bx1 -= background_padding[0] + ot_extra
+            by1 -= background_padding[1] + ot_extra
+            bx2 += background_padding[0] + ot_extra
+            by2 += background_padding[1] + ot_extra
 
         # Sprite dimensions (add 2px safety margin)
         sprite_w = max(1, bx2 - bx1 + 2)
@@ -678,7 +705,22 @@ class OSDTextRenderer:
         if style == TextStyle.PLATE:
             plate_color = (20, 20, 20, int(255 * background_opacity))
             draw.rectangle([0, 0, sprite_w - 1, sprite_h - 1], fill=plate_color)
-            draw.text((draw_x, draw_y), text, font=font, fill=text_color_rgba)
+            # Outlined text on plate for readability
+            if use_stroke:
+                draw.text(
+                    (draw_x, draw_y), text, font=font, fill=text_color_rgba,
+                    stroke_width=outline_thickness, stroke_fill=(0, 0, 0, 255),
+                )
+            else:
+                outline_color = (0, 0, 0, 255)
+                for ox in range(-outline_thickness, outline_thickness + 1):
+                    for oy in range(-outline_thickness, outline_thickness + 1):
+                        if ox != 0 or oy != 0:
+                            draw.text(
+                                (draw_x + ox, draw_y + oy), text,
+                                font=font, fill=outline_color,
+                            )
+                draw.text((draw_x, draw_y), text, font=font, fill=text_color_rgba)
         elif style == TextStyle.SHADOWED:
             shadow_color = (0, 0, 0, int(255 * shadow_opacity))
             draw.text(
@@ -752,8 +794,8 @@ class OSDTextRenderer:
         thickness = max(1, int(2 * font_scale))
         actual_scale = font_scale * 0.6
 
-        # Measure text bounds (including outline if applicable)
-        ot = (outline_thickness if style == TextStyle.OUTLINED else 0)
+        # Measure text bounds (including outline if applicable — PLATE also uses outline)
+        ot = (outline_thickness if style in (TextStyle.OUTLINED, TextStyle.PLATE) else 0)
         (tw, th), baseline = cv2.getTextSize(
             text, font, actual_scale, thickness + ot,
         )
@@ -782,7 +824,8 @@ class OSDTextRenderer:
                     (text_pos[0] + shadow_offset[0], text_pos[1] + shadow_offset[1]),
                     font, actual_scale, (0, 0, 0), thickness, cv2.LINE_AA,
                 )
-            elif style == TextStyle.OUTLINED:
+            elif style in (TextStyle.OUTLINED, TextStyle.PLATE):
+                # PLATE also gets outline stroke for readability
                 cv2.putText(
                     buf, text, text_pos, font, actual_scale, (0, 0, 0),
                     thickness + outline_thickness, cv2.LINE_AA,
