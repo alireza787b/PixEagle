@@ -48,8 +48,15 @@ const BoundingBoxDrawer = ({
 
     updateDimensions();
     window.addEventListener('resize', updateDimensions);
-    return () => window.removeEventListener('resize', updateDimensions);
-  }, [imageRef]);
+
+    // Update dimensions after a short delay to account for video loading
+    const timeout = setTimeout(updateDimensions, 100);
+
+    return () => {
+      window.removeEventListener('resize', updateDimensions);
+      clearTimeout(timeout);
+    };
+  }, [imageRef, protocol]);
 
   // Clear click feedback after animation
   useEffect(() => {

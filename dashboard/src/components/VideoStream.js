@@ -632,7 +632,7 @@ const VideoStream = ({
           alignItems: 'center',
           justifyContent: 'center',
           color: 'grey.400',
-          minHeight: 300,
+          minHeight: 200,
           zIndex: 1
         }}
       >
@@ -663,7 +663,7 @@ const VideoStream = ({
   // --- WebSocket protocol ---
   if (effectiveProtocol === 'websocket') {
     return (
-      <Box sx={{ position: 'relative', width: '100%', minHeight: 300, bgcolor: 'grey.900' }}>
+      <Box sx={{ position: 'relative', width: '100%', bgcolor: 'grey.900', lineHeight: 0 }}>
         {/* Loading/Connecting Placeholder */}
         {renderLoadingPlaceholder()}
 
@@ -710,7 +710,7 @@ const VideoStream = ({
   // --- WebRTC protocol ---
   if (effectiveProtocol === 'webrtc') {
     return (
-      <Box sx={{ position: 'relative', width: '100%', minHeight: 300, bgcolor: 'grey.900' }}>
+      <Box sx={{ position: 'relative', width: '100%', bgcolor: 'grey.900', lineHeight: 0 }}>
         {/* Loading/Connecting Placeholder */}
         {renderLoadingPlaceholder()}
 
@@ -760,7 +760,7 @@ const VideoStream = ({
   // --- HTTP protocol ---
   if (effectiveProtocol === 'http') {
     return (
-      <Box sx={{ position: 'relative', width: '100%', minHeight: 300, bgcolor: 'grey.900' }}>
+      <Box sx={{ position: 'relative', width: '100%', bgcolor: 'grey.900', lineHeight: 0 }}>
         {/* Loading spinner before image loads */}
         {!hasReceivedFrame && (
           <Box
@@ -775,7 +775,7 @@ const VideoStream = ({
               alignItems: 'center',
               justifyContent: 'center',
               color: 'grey.400',
-              minHeight: 300,
+              minHeight: 200,
               zIndex: 1
             }}
           >

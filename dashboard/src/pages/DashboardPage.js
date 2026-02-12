@@ -286,31 +286,46 @@ const DashboardPage = () => {
                       {/* Streaming Settings - Horizontal Below Video */}
                       <Card variant="outlined">
                         <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                          <Grid container spacing={2} alignItems="center">
-                            {/* Protocol Selector */}
-                            <Grid item xs={12} sm={6} md={3}>
-                              <FormControl variant="outlined" fullWidth size="small">
-                                <InputLabel>Protocol</InputLabel>
-                                <Select
-                                  value={streamingProtocol}
-                                  onChange={(e) => setStreamingProtocol(e.target.value)}
-                                  label="Protocol"
-                                >
-                                  <MenuItem value="auto">Auto</MenuItem>
-                                  <MenuItem value="webrtc">WebRTC</MenuItem>
-                                  <MenuItem value="websocket">WebSocket</MenuItem>
-                                  <MenuItem value="http">HTTP</MenuItem>
-                                </Select>
-                              </FormControl>
+                          <Grid container spacing={2}>
+                            {/* Stream Settings Section */}
+                            <Grid item xs={12} md={7}>
+                              <Box sx={{ mb: 0.5 }}>
+                                <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                  Stream
+                                </Typography>
+                              </Box>
+                              <Grid container spacing={2} alignItems="center">
+                                {/* Protocol Selector */}
+                                <Grid item xs={12} sm={6}>
+                                  <FormControl variant="outlined" fullWidth size="small">
+                                    <InputLabel>Protocol</InputLabel>
+                                    <Select
+                                      value={streamingProtocol}
+                                      onChange={(e) => setStreamingProtocol(e.target.value)}
+                                      label="Protocol"
+                                    >
+                                      <MenuItem value="auto">Auto</MenuItem>
+                                      <MenuItem value="webrtc">WebRTC</MenuItem>
+                                      <MenuItem value="websocket">WebSocket</MenuItem>
+                                      <MenuItem value="http">HTTP</MenuItem>
+                                    </Select>
+                                  </FormControl>
+                                </Grid>
+
+                                {/* Streaming Status */}
+                                <Grid item xs={12} sm={6}>
+                                  <StreamingStatusIndicator />
+                                </Grid>
+                              </Grid>
                             </Grid>
 
-                            {/* Streaming Status */}
-                            <Grid item xs={12} sm={6} md={4}>
-                              <StreamingStatusIndicator />
-                            </Grid>
-
-                            {/* OSD Toggle */}
-                            <Grid item xs={12} sm={12} md={5}>
+                            {/* OSD Section */}
+                            <Grid item xs={12} md={5}>
+                              <Box sx={{ mb: 0.5 }}>
+                                <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                  On-Screen Display
+                                </Typography>
+                              </Box>
                               <OSDToggle />
                             </Grid>
                           </Grid>
