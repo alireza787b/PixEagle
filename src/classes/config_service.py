@@ -447,6 +447,20 @@ class ConfigService:
             if not isinstance(value, dict):
                 errors.append(f"Expected object, got {type(value).__name__}")
 
+        # Recommended range warnings (soft limits — do not block save)
+        if expected_type in ('integer', 'float') and not errors:
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                rec_min = param_schema.get('recommended_min')
+                rec_max = param_schema.get('recommended_max')
+                if rec_min is not None and value < rec_min:
+                    warnings.append(
+                        f"Value {value} is below recommended minimum {rec_min}"
+                    )
+                if rec_max is not None and value > rec_max:
+                    warnings.append(
+                        f"Value {value} is above recommended maximum {rec_max}"
+                    )
+
         # Check if value is different from default
         default_value = self.get_default_parameter(section, param)
         if value != default_value:

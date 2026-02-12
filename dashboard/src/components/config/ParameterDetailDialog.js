@@ -720,6 +720,29 @@ const ParameterDetailDialog = ({
               </Box>
             )}
 
+            {/* Recommended range warning */}
+            {(() => {
+              const recMin = paramSchema?.recommended_min;
+              const recMax = paramSchema?.recommended_max;
+              if (recMin == null && recMax == null) return null;
+              const val = localValue;
+              if (typeof val !== 'number') return null;
+              const belowRec = recMin != null && val < recMin;
+              const aboveRec = recMax != null && val > recMax;
+              if (!belowRec && !aboveRec) return null;
+              const rangeStr = recMin != null && recMax != null
+                ? `${recMin}–${recMax}`
+                : recMin != null ? `>= ${recMin}` : `<= ${recMax}`;
+              return (
+                <Alert severity="warning" icon={<Warning />} sx={{ mb: 2 }}>
+                  <Typography variant="body2">
+                    Value is outside recommended range ({rangeStr}).
+                    The system will still work but may behave unexpectedly.
+                  </Typography>
+                </Alert>
+              );
+            })()}
+
             {/* Current/Default - Secondary info */}
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
               Reference Values

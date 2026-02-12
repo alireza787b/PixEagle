@@ -163,6 +163,27 @@ class TestConfigServiceValidation:
         assert result.valid is True  # No schema = allow
         assert len(result.warnings) > 0
 
+    def test_validate_recommended_range_warning(self, service):
+        """Value outside recommended range should produce warning, not error."""
+        # SMART_TRACKER_CONFIDENCE_THRESHOLD has recommended_min=0.15, recommended_max=0.7
+        result = service.validate_value(
+            'SmartTracker', 'SMART_TRACKER_CONFIDENCE_THRESHOLD', 0.05
+        )
+        # Should be valid (within hard limits 0.0-1.0)
+        assert result.valid is True
+        # Should have a recommended range warning
+        rec_warnings = [w for w in result.warnings if 'recommended' in w.lower()]
+        assert len(rec_warnings) > 0, "Should warn about being below recommended minimum"
+
+    def test_validate_within_recommended_range_no_warning(self, service):
+        """Value within recommended range should not trigger recommended warnings."""
+        result = service.validate_value(
+            'SmartTracker', 'SMART_TRACKER_CONFIDENCE_THRESHOLD', 0.3
+        )
+        assert result.valid is True
+        rec_warnings = [w for w in result.warnings if 'recommended' in w.lower()]
+        assert len(rec_warnings) == 0, "No recommended range warning expected"
+
 
 class TestConfigServiceWrite:
     """Test config write methods."""

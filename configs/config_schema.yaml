@@ -1,8 +1,8 @@
 schema_version: 1.0.0
 meta:
   project: PixEagle
-  generated_from: C:\Users\Alireza\PixEagle\configs\config_default.yaml
-  generated_at: '2026-02-12T01:23:30.523855'
+  generated_from: c:\Users\Alireza\PixEagle\configs\config_default.yaml
+  generated_at: '2026-02-12T10:24:03.529836'
   description: Auto-generated schema for PixEagle configuration
 categories:
   video:
@@ -91,7 +91,7 @@ sections:
         description: Target FPS (actual may vary by source)
         reboot_required: true
         min: 0
-        max: 100
+        max: 1000
         unit: actual may vary by source
       DEFAULT_FPS:
         type: integer
@@ -99,7 +99,7 @@ sections:
         description: Fallback if source doesn't report FPS
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
         unit: fps
       USE_GSTREAMER:
         type: boolean
@@ -119,7 +119,7 @@ sections:
         description: 0=first camera, 1=second, etc.
         reboot_required: true
         min: 0
-        max: 100
+        max: 10000
       RTSP_URL:
         type: string
         default: rtsp://192.168.0.108:554/stream=0
@@ -157,19 +157,38 @@ sections:
         description: Usually 0 for first CSI port
         reboot_required: true
         min: 0
-        max: 100
+        max: 10000
       FRAME_ROTATION_DEG:
         type: integer
         default: 0
-        description: 'Allowed: 0, 90, 180, 270'
+        description: Frame rotation angle (must match cv2.rotate preset)
         reboot_required: false
         min: 0
-        max: 100
+        max: 270
+        options:
+        - value: 0
+          label: 0°
+        - value: 90
+          label: 90°
+        - value: 180
+          label: 180°
+        - value: 270
+          label: 270°
+        unit: deg
       FRAME_FLIP_MODE:
         type: string
         default: none
-        description: 'Allowed: none, horizontal, vertical, both'
+        description: Frame flip mode applied after rotation
         reboot_required: false
+        options:
+        - value: none
+          label: None
+        - value: horizontal
+          label: Horizontal
+        - value: vertical
+          label: Vertical
+        - value: both
+          label: Both
       CUSTOM_PIPELINE:
         type: string
         default: ''
@@ -212,7 +231,7 @@ sections:
         description: 1=lowest latency, 3=smoother
         reboot_required: false
         min: 0
-        max: 100
+        max: 10000
       OPENCV_FOURCC:
         type: string
         default: ''
@@ -229,7 +248,7 @@ sections:
         description: Camera sensor ID
         reboot_required: false
         min: 0
-        max: 100
+        max: 10000
   PX4:
     display_name: PX4 Connection
     category: network
@@ -348,7 +367,7 @@ sections:
         description: Target FPS (actual may vary)
         reboot_required: false
         min: 0
-        max: 100
+        max: 200
         unit: actual may vary
       STREAM_QUALITY:
         type: integer
@@ -356,7 +375,7 @@ sections:
         description: Default JPEG quality (0-100)
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
         unit: 0-100
       STREAM_PROCESSED_OSD:
         type: boolean
@@ -374,7 +393,7 @@ sections:
         description: Minimum JPEG quality (1-100)
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
         unit: 1-100
       MAX_QUALITY:
         type: integer
@@ -382,7 +401,7 @@ sections:
         description: Maximum JPEG quality (1-100)
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
         unit: 1-100
       QUALITY_STEP:
         type: integer
@@ -390,7 +409,7 @@ sections:
         description: Quality adjustment step size
         reboot_required: false
         min: 0
-        max: 100
+        max: 200
       ENABLE_FRAME_CACHE:
         type: boolean
         default: true
@@ -402,7 +421,7 @@ sections:
         description: Cache time-to-live in milliseconds
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
       SKIP_IDENTICAL_FRAMES:
         type: boolean
         default: true
@@ -414,14 +433,14 @@ sections:
         description: Max concurrent HTTP streams
         reboot_required: true
         min: 0
-        max: 100
+        max: 1000
       WS_MAX_CONNECTIONS:
         type: integer
         default: 10
         description: Max concurrent WebSocket clients
         reboot_required: false
         min: 0
-        max: 100
+        max: 200
       MAX_FRAME_QUEUE:
         type: integer
         default: 3
@@ -456,7 +475,7 @@ sections:
         description: Seconds between WebSocket heartbeat checks
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
         unit: s
       WS_STALE_TIMEOUT_MULTIPLIER:
         type: integer
@@ -504,7 +523,7 @@ sections:
         description: 'Below this: reduce quality'
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
       TARGET_BANDWIDTH_HIGH_KBPS:
         type: integer
         default: 200
@@ -518,21 +537,21 @@ sections:
         description: CPU% triggers quality reduction
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
       CPU_THRESHOLD_LOW:
         type: integer
         default: 60
         description: CPU% allows quality increase
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
       ENCODING_TIME_THRESHOLD_MS:
         type: integer
         default: 20
         description: Encoding > this triggers reduction (ms)
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
         unit: ms
       MAX_FRAME_CACHE_SIZE:
         type: integer
@@ -540,7 +559,7 @@ sections:
         description: Maximum cached encoded frames
         reboot_required: false
         min: 0
-        max: 100
+        max: 200
       WEBRTC_MAX_CONNECTIONS:
         type: integer
         default: 3
@@ -636,7 +655,7 @@ sections:
         description: Trail length
         reboot_required: false
         min: 0
-        max: 100
+        max: 200
       MAX_DISPLACEMENT_THRESHOLD:
         type: float
         default: 0.25
@@ -802,7 +821,7 @@ sections:
         description: Edge detection params
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
       PF_CANNY_THRESHOLD2:
         type: integer
         default: 150
@@ -848,7 +867,7 @@ sections:
         description: Distance threshold for "near boundary" detection
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
       ENABLE_BOUNDARY_PENALTY:
         type: boolean
         default: true
@@ -869,7 +888,7 @@ sections:
     description: Global access for base_tracker.py
     reboot_required: false
     min: 0
-    max: 100
+    max: 1000
   ClassicTracker_Common:
     display_name: Classic Tracker Common
     category: tracking
@@ -913,7 +932,7 @@ sections:
         description: Performance logging interval (frames between logs)
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
         unit: frames between logs
       confidence_ema_alpha:
         type: float
@@ -944,7 +963,7 @@ sections:
         description: Consecutive failures before declaring lost
         reboot_required: false
         min: 0
-        max: 100
+        max: 140
       confidence_smoothing:
         type: float
         default: 0.6
@@ -1096,7 +1115,7 @@ sections:
         description: Grace period before validation starts
         reboot_required: false
         min: 0
-        max: 100
+        max: 200
       max_scale_change_per_frame:
         type: float
         default: 0.5
@@ -1150,7 +1169,7 @@ sections:
         description: Scale pyramid levels (33 for finer scale precision)
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
         unit: 33 for finer scale precision
       scale_step:
         type: float
@@ -1241,7 +1260,7 @@ sections:
         description: Grace period before validation starts
         reboot_required: false
         min: 0
-        max: 100
+        max: 200
       max_scale_change_per_frame:
         type: float
         default: 0.5
@@ -1369,6 +1388,8 @@ sections:
         max: 1.0
         step: 0.01
         unit: 0.0-1.0
+        recommended_min: 0.15
+        recommended_max: 0.7
       SMART_TRACKER_IOU_THRESHOLD:
         type: float
         default: 0.3
@@ -1378,13 +1399,15 @@ sections:
         max: 1.0
         step: 0.01
         unit: 0.0-1.0
+        recommended_min: 0.2
+        recommended_max: 0.6
       SMART_TRACKER_MAX_DETECTIONS:
         type: integer
         default: 20
         description: Max objects per frame
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
       SMART_TRACKER_MODEL_TASK_POLICY:
         type: string
         default: auto
@@ -1432,7 +1455,7 @@ sections:
         description: Graceful cap for OBB-heavy scenes
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
       SMART_TRACKER_DISABLE_OBB_GLOBALLY:
         type: boolean
         default: false
@@ -1466,9 +1489,15 @@ sections:
       SMART_TRACKER_HUD_STYLE:
         type: string
         default: military
-        description: '"military" (new) or "classic" (legacy)'
+        description: HUD rendering style for Smart Tracker overlay
         reboot_required: false
-        unit: legacy
+        options:
+        - value: military
+          label: Military
+          description: Modern military-grade HUD style
+        - value: classic
+          label: Classic
+          description: Legacy HUD style
       SMART_TRACKER_ACTIVE_COLOR:
         type: array
         default:
@@ -1500,6 +1529,8 @@ sections:
         max: 1.0
         step: 0.01
         unit: 0.0-1.0
+        recommended_min: 0.4
+        recommended_max: 0.9
       SMART_TRACKER_SHOW_PASSIVE_LABELS:
         type: boolean
         default: true
@@ -1508,10 +1539,21 @@ sections:
       TRACKER_TYPE:
         type: string
         default: botsort_reid
-        description: 'botsort         | -3-5%      | Low          | ✓       | No         | Any version botsort_reid    | -5-8%      |
-          Excellent    | ✗       | Recommended| Required custom_reid     | -8-12%     | Good         | ✓       | No         |
-          Any version Options:'
+        description: Tracking algorithm selection
         reboot_required: false
+        options:
+        - value: bytetrack
+          label: ByteTrack
+          description: Fast, no ReID, geometric matching only
+        - value: botsort
+          label: BoT-SORT
+          description: Better persistence, no ReID
+        - value: botsort_reid
+          label: BoT-SORT + ReID
+          description: Ultralytics native ReID (recommended for GPU)
+        - value: custom_reid
+          label: Custom ReID
+          description: Lightweight histogram/HOG ReID (recommended for CPU/offline)
       BOTSORT_REID_MODEL:
         type: string
         default: auto
@@ -1542,7 +1584,7 @@ sections:
           (uses more memory) Recommended: 30-120 frames 30 ≈ 1 second, 60 ≈ 2 seconds, 120 ≈ 4 seconds at 30 FPS'
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
         unit: s
       BOTSORT_MATCH_THRESH:
         type: float
@@ -1602,12 +1644,15 @@ sections:
       ID_LOSS_TOLERANCE_FRAMES:
         type: integer
         default: 5
-        description: 'Number of frames to maintain tracking after losing track ID Useful when object is briefly occluded or
-          detector misses 1-2 frames Higher = more forgiving, Lower = stricter (re-select needed sooner) Recommended: 5-10
-          frames for drone tracking'
+        description: ID_LOSS_TOLERANCE_FRAMES parameter
         reboot_required: false
         min: 0
         max: 100
+        options:
+        - value: Number
+          label: Number
+        - value: detector
+          label: detector
       ENABLE_GRACEFUL_DEGRADATION:
         type: boolean
         default: true
@@ -1619,7 +1664,7 @@ sections:
         description: Additional frames beyond ID_LOSS_TOLERANCE
         reboot_required: false
         min: 0
-        max: 100
+        max: 200
       TRACK_CONFIDENCE_DECAY_RATE:
         type: float
         default: 0.05
@@ -1635,7 +1680,7 @@ sections:
         description: Maximum objects in re-ID memory
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
       SPATIAL_IOU_THRESHOLD:
         type: float
         default: 0.35
@@ -1711,7 +1756,7 @@ sections:
         description: Number of recent class observations to remember
         reboot_required: false
         min: 0
-        max: 100
+        max: 200
       SEARCH_EXPANSION_RATE:
         type: float
         default: 0.2
@@ -1827,7 +1872,7 @@ sections:
           Lower = faster cleanup of lost tracks Default: 30, Recommended for robust tracking: 50'
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
       BYTETRACK_MATCH_THRESH:
         type: float
         default: 0.8
@@ -1900,7 +1945,7 @@ sections:
           (balanced) - 150 frames: ~5 seconds (long occlusions, uses more memory)'
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
         unit: long occlusions, uses more memory
       APPEARANCE_ADAPTIVE_LEARNING:
         type: boolean
@@ -1966,7 +2011,7 @@ sections:
         description: Number of orientation bins (1-180 degrees)
         reboot_required: false
         min: 0
-        max: 100
+        max: 180
         unit: 1-180 degrees
       HIST_H_BINS:
         type: integer
@@ -1974,7 +2019,7 @@ sections:
         description: Hue channel bins (H in HSV)
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
         unit: h in hsv
       HIST_S_BINS:
         type: integer
@@ -1982,7 +2027,7 @@ sections:
         description: Saturation channel bins (S in HSV)
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
         unit: s in hsv
       ENABLE_APPEARANCE_PROFILING:
         type: boolean
@@ -2035,7 +2080,7 @@ sections:
         description: Warning threshold for consecutive data reception failures
         reboot_required: false
         min: 0
-        max: 100
+        max: 200
   GIMBAL_UDP_HOST:
     type: string
     default: 192.168.0.108
@@ -2174,32 +2219,25 @@ sections:
       ROI_SELECTION_MODE:
         type: string
         default: MANUAL
-        description: MANUAL or AUTO
+        description: ROI_SELECTION_MODE parameter
         reboot_required: false
+        options:
+        - value: MANUAL
+          label: MANUAL
+        - value: AUTO
+          label: AUTO
       TARGET_POSITION_MODE:
         type: string
         default: center
-        description: center, top, bottom
+        description: TARGET_POSITION_MODE parameter
         reboot_required: false
         options:
-        - value: mc_velocity_ground
-          label: mc_velocity_ground
-        - value: mc_velocity_distance
-          label: mc_velocity_distance
-        - value: mc_velocity_position
-          label: mc_velocity_position
-        - value: mc_velocity_chase
-          label: mc_velocity_chase
-        - value: mc_velocity
-          label: mc_velocity
-        - value: mc_attitude_rate
-          label: mc_attitude_rate
-        - value: fw_attitude_rate
-          label: fw_attitude_rate
-        - value: gm_pid_pursuit
-          label: gm_pid_pursuit
-        - value: gm_velocity_vector
-          label: gm_velocity_vector
+        - value: center
+          label: center
+        - value: top
+          label: top
+        - value: bottom
+          label: bottom
       FOLLOWER_MODE:
         type: string
         default: mc_velocity_position
@@ -2237,8 +2275,13 @@ sections:
       TRACKED_BBOX_STYLE:
         type: string
         default: fancy
-        description: simple or fancy
+        description: TRACKED_BBOX_STYLE parameter
         reboot_required: false
+        options:
+        - value: simple
+          label: simple
+        - value: fancy
+          label: fancy
       FOLLOWER_ACTIVE_COLOR:
         type: array
         default:
@@ -2288,14 +2331,14 @@ sections:
         description: CROSSHAIR_ARM_LENGTH parameter
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
       BBOX_CORNER_ARM_LENGTH:
         type: integer
         default: 20
         description: BBOX_CORNER_ARM_LENGTH parameter
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
       OVERLAY_OPACITY:
         type: integer
         default: 128
@@ -2998,12 +3041,16 @@ sections:
       MIN_FORWARD_VELOCITY_THRESHOLD:
         type: float
         default: 0.2
-        description: m/s - minimum velocity to maintain (important if using a fixedwing or VTOL)
+        description: MIN_FORWARD_VELOCITY_THRESHOLD parameter
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: important if using a fixedwing or vtol
+        options:
+        - value: m
+          label: m
+        - value: VTOL
+          label: VTOL
       RAMP_UPDATE_RATE:
         type: float
         default: 10.0
@@ -3043,7 +3090,7 @@ sections:
         description: Frames to ignore on startup (5-15)
         reboot_required: false
         min: 0
-        max: 100
+        max: 200
         unit: 5-15
       ADAPTIVE_RATE_THRESHOLD:
         type: float
@@ -4353,7 +4400,7 @@ sections:
         description: Frames between template updates
         reboot_required: false
         min: 0
-        max: 100
+        max: 200
       TEMPLATE_APPEARANCE_LEARNING_RATE:
         type: float
         default: 0.002
@@ -4422,7 +4469,7 @@ sections:
         description: ORB_MIN_MATCH_COUNT parameter
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
       RANSAC_REPROJECTION_THRESHOLD:
         type: float
         default: 10.0
@@ -4450,7 +4497,7 @@ sections:
         description: MIN_SEARCH_RADIUS parameter
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
       UNCERTAINTY_SCALE_FACTOR:
         type: float
         default: 2.0
@@ -4667,7 +4714,7 @@ sections:
         description: Grid size (1-10)
         reboot_required: false
         min: 0
-        max: 100
+        max: 160
         unit: 1-10
       PREPROCESSING_COLOR_SPACE:
         type: string
@@ -4730,7 +4777,7 @@ sections:
         description: EROSION_ITERATIONS parameter
         reboot_required: false
         min: 0
-        max: 100
+        max: 10000
       SEGMENTATION_GRABCUT_ITER:
         type: integer
         default: 5
@@ -4876,7 +4923,7 @@ sections:
         description: m/s
         reboot_required: false
         min: 0
-        max: 100
+        max: 10000
         unit: m/s
       MAX_GROUND_SPEED:
         type: integer
@@ -4884,7 +4931,7 @@ sections:
         description: m/s
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
         unit: m/s
       TARGET_SPEED:
         type: integer
@@ -4892,7 +4939,7 @@ sections:
         description: m/s
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
         unit: m/s
       MAX_BANK_ANGLE:
         type: integer
@@ -4900,7 +4947,7 @@ sections:
         description: degrees
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
         unit: deg
       YAW_ERROR_CHECK_ENABLED:
         type: boolean
@@ -4913,7 +4960,7 @@ sections:
         description: degrees
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
         unit: deg
       ALTITUDE_FAILSAFE_ENABLED:
         type: boolean
@@ -5342,7 +5389,7 @@ sections:
         description: Camera mounting offset (degrees)
         reboot_required: true
         min: 0
-        max: 100
+        max: 10000
         unit: deg
       SETPOINT_PUBLISH_RATE_S:
         type: float
@@ -5473,7 +5520,7 @@ sections:
         description: Output framerate
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
       GSTREAMER_BUFFER_SIZE:
         type: integer
         default: 50000000
@@ -5494,7 +5541,7 @@ sections:
         description: Keyframe interval (frames)
         reboot_required: false
         min: 0
-        max: 100
+        max: 1000
         unit: frames
       GSTREAMER_TUNE:
         type: string
@@ -5516,7 +5563,7 @@ sections:
         description: GSTREAMER_BRIGHTNESS parameter
         reboot_required: false
         min: 0
-        max: 100
+        max: 200
       GSTREAMER_SATURATION:
         type: integer
         default: 5
@@ -5583,14 +5630,14 @@ sections:
         description: Update cadence for telemetry/status overlays
         reboot_required: false
         min: 0
-        max: 100
+        max: 200
       OSD_DATETIME_FPS:
         type: integer
         default: 1
         description: Lower cadence for clock text updates
         reboot_required: false
         min: 0
-        max: 100
+        max: 10000
       OSD_MAX_RENDER_BUDGET_MS:
         type: float
         default: 25.0

@@ -69,6 +69,7 @@ const SettingsPageContent = () => {
   const [highlightParam, setHighlightParam] = useState(null);
   const [searchActiveIndex, setSearchActiveIndex] = useState(-1);
   const searchResultsRef = useRef(null);
+  const searchInputRef = useRef(null);
 
   // Sync with defaults tracking (v5.4.1+)
   const { counts: syncCounts, refresh: refreshSyncCounts } = useDefaultsSync();
@@ -110,6 +111,21 @@ const SettingsPageContent = () => {
       }
     }
   }, [sections]);
+
+  // Close search dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (
+        searchResultsRef.current && !searchResultsRef.current.contains(e.target) &&
+        searchInputRef.current && !searchInputRef.current.contains(e.target)
+      ) {
+        clearResults();
+        setSearchActiveIndex(-1);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [clearResults]);
 
   // Filter sections based on mode if not showing all
   const filteredGroupedSections = useMemo(() => {
@@ -509,6 +525,7 @@ const SettingsPageContent = () => {
               {/* Search */}
               <Box sx={{ p: 2, position: 'sticky', top: 0, bgcolor: 'background.paper', zIndex: 2 }}>
                 <TextField
+                  inputRef={searchInputRef}
                   fullWidth
                   size="small"
                   placeholder="Search parameters..."
@@ -555,7 +572,9 @@ const SettingsPageContent = () => {
                       mt: 1,
                       maxHeight: 300,
                       overflow: 'auto',
-                      position: 'relative',
+                      position: 'absolute',
+                      left: 16,
+                      right: 16,
                       zIndex: 1300
                     }}
                   >

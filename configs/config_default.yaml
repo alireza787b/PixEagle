@@ -71,8 +71,8 @@ VideoSource:
   CSI_SENSOR_ID: 0          # Usually 0 for first CSI port
 
   # Universal frame orientation (applies to all source types/backends)
-  FRAME_ROTATION_DEG: 0     # Allowed: 0, 90, 180, 270
-  FRAME_FLIP_MODE: none     # Allowed: none, horizontal, vertical, both
+  FRAME_ROTATION_DEG: 0     # Options: 0, 90, 180, 270
+  FRAME_FLIP_MODE: none     # Options: none, horizontal, vertical, both
   
   # Custom GStreamer pipeline (advanced users)
   # Example: "videotestsrc ! video/x-raw,width=640,height=480 ! videoconvert ! appsink"
@@ -776,7 +776,7 @@ SmartTracker:
   SMART_TRACKER_SHOW_FPS: false
 
   # === HUD Style ===
-  SMART_TRACKER_HUD_STYLE: "military"         # "military" (new) or "classic" (legacy)
+  SMART_TRACKER_HUD_STYLE: "military"         # Options: military, classic
   SMART_TRACKER_ACTIVE_COLOR: [0, 255, 100]   # BGR green for active target
   SMART_TRACKER_PASSIVE_COLOR: [140, 140, 140] # BGR grey for untracked
   SMART_TRACKER_LABEL_PLATE_OPACITY: 0.70     # Background plate opacity (0.0-1.0)
@@ -1214,8 +1214,8 @@ Follower:
   FOLLOWER_DATA_REFRESH_RATE: 5             # Hz
 
   # === Target Selection ===
-  ROI_SELECTION_MODE: MANUAL                # MANUAL or AUTO
-  TARGET_POSITION_MODE: center              # center, top, bottom
+  ROI_SELECTION_MODE: MANUAL                # Options: MANUAL, AUTO
+  TARGET_POSITION_MODE: center              # Options: center, top, bottom
 
   # === Following Mode ===
   # Options: mc_velocity_ground, mc_velocity_distance, mc_velocity_position, mc_velocity_chase, mc_velocity, mc_attitude_rate, fw_attitude_rate, gm_pid_pursuit, gm_velocity_vector

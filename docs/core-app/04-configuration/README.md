@@ -60,10 +60,63 @@ sections:
 | `type` | string | `integer`, `float`, `boolean`, `string`, `array`, `object` |
 | `description` | string | Human-readable description |
 | `default` | any | Default value |
-| `min` | number | Minimum value (numeric types) |
-| `max` | number | Maximum value (numeric types) |
+| `min` | number | Hard minimum (validation error if exceeded) |
+| `max` | number | Hard maximum (validation error if exceeded) |
+| `recommended_min` | number | Soft minimum (warning only, save still allowed) |
+| `recommended_max` | number | Soft maximum (warning only, save still allowed) |
 | `step` | number | UI increment step |
+| `unit` | string | Unit label (e.g., `deg`, `m/s`, `px`, `fps`) |
+| `options` | array | Dropdown options: `[{value, label, description?}]` |
 | `reload_tier` | string | When changes take effect (see [Hot-Reload Guide](hot-reload-guide.md)) |
+| `reboot_required` | boolean | Whether a system restart is needed |
+
+### Dropdown Options
+
+Parameters with an `options` field render as dropdowns in the dashboard. Options are auto-extracted from YAML comments or manually defined in `SCHEMA_OVERRIDES`:
+
+```yaml
+# Auto-extracted from comment:
+VIDEO_SOURCE_TYPE: VIDEO_FILE   # Options: VIDEO_FILE, USB_CAMERA, RTSP, UDP
+
+# Manual override in generate_schema.py:
+FRAME_ROTATION_DEG: 0           # Options: 0, 90, 180, 270
+```
+
+Comment patterns recognized by the schema generator:
+- `Options: val1, val2, val3` (comma-separated)
+- `Options: val1 | val2 | val3` (pipe-separated)
+- `Allowed: val1, val2, val3` (same as Options:)
+- `val1 or val2 or val3` (or-separated)
+- `"val1" - desc "val2" - desc` (quoted with descriptions)
+
+### Recommended Ranges (Soft Validation)
+
+Some parameters have recommended ranges alongside hard limits. Values outside the recommended range trigger warnings but save normally:
+
+```yaml
+SMART_TRACKER_CONFIDENCE_THRESHOLD:
+  type: float
+  min: 0.0               # Hard limit (error)
+  max: 1.0               # Hard limit (error)
+  recommended_min: 0.15   # Soft limit (warning)
+  recommended_max: 0.7    # Soft limit (warning)
+```
+
+Recommended ranges are defined in `RECOMMENDED_RANGES` dict in `scripts/generate_schema.py`.
+
+### Schema Overrides
+
+For parameters where comment parsing is ambiguous, manual overrides in `SCHEMA_OVERRIDES` take highest priority:
+
+```python
+# scripts/generate_schema.py
+SCHEMA_OVERRIDES = {
+    'VideoSource.FRAME_ROTATION_DEG': {
+        'options': [...],
+        'min': 0, 'max': 270, 'unit': 'deg',
+    },
+}
+```
 
 ### Reload Tiers (v5.3.0+)
 

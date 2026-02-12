@@ -167,11 +167,18 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
     }
   };
 
+  // Check if numeric value is outside recommended range (soft warning)
+  const isOutsideRecommended = isNumericType && typeof value === 'number' && (
+    (paramSchema.recommended_min != null && value < paramSchema.recommended_min) ||
+    (paramSchema.recommended_max != null && value > paramSchema.recommended_max)
+  );
+
   // Determine border color based on save status
   const getBorderColor = () => {
     if (saveStatus === 'saving') return 'info.main';
     if (saveStatus === 'saved') return 'success.main';
     if (saveStatus === 'error') return 'error.main';
+    if (isOutsideRecommended) return '#ed6c02'; // amber/orange for recommended range warning
     if (isModified) return 'warning.main';
     return undefined;
   };

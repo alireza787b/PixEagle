@@ -8,7 +8,10 @@ Parses config_default.yaml and generates config_schema.yaml with:
 - Description extraction from comments
 - Constraint inference (min/max for numbers, options for enums)
 - Grouping by category
-- reboot_required flag placeholder
+- reboot_required flag from pattern matching
+- Dropdown options from comment patterns (Options:, Allowed:, or-separated, pipe-separated)
+- Recommended ranges (soft validation limits) from RECOMMENDED_RANGES dict
+- Manual overrides from SCHEMA_OVERRIDES dict (highest priority)
 
 Usage:
     python scripts/generate_schema.py
@@ -100,6 +103,61 @@ CATEGORIES = {
     'display': {'display_name': 'Display & Debug', 'icon': 'tv', 'order': 9},
 }
 
+# Manual schema overrides for parameters where comment parsing is ambiguous.
+# Applied AFTER auto-generation. Keys are "SectionName.PARAM_NAME".
+SCHEMA_OVERRIDES = {
+    'VideoSource.FRAME_ROTATION_DEG': {
+        'options': [
+            {'value': 0, 'label': '0\u00b0'},
+            {'value': 90, 'label': '90\u00b0'},
+            {'value': 180, 'label': '180\u00b0'},
+            {'value': 270, 'label': '270\u00b0'},
+        ],
+        'min': 0, 'max': 270, 'unit': 'deg',
+        'description': 'Frame rotation angle (must match cv2.rotate preset)',
+    },
+    'VideoSource.FRAME_FLIP_MODE': {
+        'options': [
+            {'value': 'none', 'label': 'None'},
+            {'value': 'horizontal', 'label': 'Horizontal'},
+            {'value': 'vertical', 'label': 'Vertical'},
+            {'value': 'both', 'label': 'Both'},
+        ],
+        'description': 'Frame flip mode applied after rotation',
+    },
+    'SmartTracker.TRACKER_TYPE': {
+        'options': [
+            {'value': 'bytetrack', 'label': 'ByteTrack',
+             'description': 'Fast, no ReID, geometric matching only'},
+            {'value': 'botsort', 'label': 'BoT-SORT',
+             'description': 'Better persistence, no ReID'},
+            {'value': 'botsort_reid', 'label': 'BoT-SORT + ReID',
+             'description': 'Ultralytics native ReID (recommended for GPU)'},
+            {'value': 'custom_reid', 'label': 'Custom ReID',
+             'description': 'Lightweight histogram/HOG ReID (recommended for CPU/offline)'},
+        ],
+        'description': 'Tracking algorithm selection',
+    },
+    'SmartTracker.SMART_TRACKER_HUD_STYLE': {
+        'options': [
+            {'value': 'military', 'label': 'Military',
+             'description': 'Modern military-grade HUD style'},
+            {'value': 'classic', 'label': 'Classic',
+             'description': 'Legacy HUD style'},
+        ],
+        'description': 'HUD rendering style for Smart Tracker overlay',
+    },
+}
+
+# Recommended ranges for parameters (soft limits that trigger warnings, not errors).
+# Keys are "SectionName.PARAM_NAME".
+RECOMMENDED_RANGES = {
+    'SmartTracker.SMART_TRACKER_CONFIDENCE_THRESHOLD': {'recommended_min': 0.15, 'recommended_max': 0.7},
+    'SmartTracker.SMART_TRACKER_IOU_THRESHOLD': {'recommended_min': 0.2, 'recommended_max': 0.6},
+    'SmartTracker.SMART_TRACKER_LABEL_PLATE_OPACITY': {'recommended_min': 0.4, 'recommended_max': 0.9},
+    'Streaming.JPEG_QUALITY': {'recommended_min': 50, 'recommended_max': 95},
+}
+
 # Parameters that require app restart
 REBOOT_REQUIRED_PATTERNS = [
     r'^VIDEO_SOURCE',
@@ -127,11 +185,17 @@ def infer_type(value: Any) -> Tuple[str, Dict]:
     if isinstance(value, bool):
         return 'boolean', constraints
     elif isinstance(value, int):
-        # Determine reasonable constraints
+        # Determine reasonable constraints based on default value
         if value >= 0:
             constraints['min'] = 0
-        if value <= 100 and value >= 0:
-            constraints['max'] = 100
+        # Smarter max inference: avoid blanket max=100 for small defaults
+        if value <= 1:
+            # Default 0 or 1 — we can't infer intent, use generous range
+            constraints['max'] = 10000
+        elif value <= 10:
+            constraints['max'] = max(value * 20, 100)
+        elif value <= 100:
+            constraints['max'] = max(value * 5, 1000)
         elif value <= 1000:
             constraints['max'] = 10000
         else:
@@ -206,7 +270,10 @@ def extract_options(description: str) -> Tuple[Optional[List[Dict]], str]:
     Supported patterns:
     - "Options: val1, val2, val3" - comma separated
     - "Options: val1 | val2 | val3" - pipe separated
+    - "Allowed: val1, val2, val3" - "Allowed:" prefix (same as Options:)
     - "Options: val1 (description), val2 (fast)" - with parenthetical descriptions
+    - "val1 or val2 or val3" - or-separated values
+    - '"val1" (desc) or "val2" (desc)' - quoted with or-separator
     - "val1, val2, val3" - trailing comma-separated values (implicit options)
     - '"val1", "val2"' - quoted values
 
@@ -221,8 +288,11 @@ def extract_options(description: str) -> Tuple[Optional[List[Dict]], str]:
     options = []
     cleaned = description
 
-    # Pattern 1: "Options: ..." with pipe separator
-    pipe_match = re.search(r'Options:\s*([^#\n]+\|[^#\n]+)', description, re.IGNORECASE)
+    # Unified prefix pattern: recognize both "Options:" and "Allowed:" identically
+    PREFIX = r'(?:Options|Allowed)'
+
+    # Pattern 1: "Options:/Allowed: ..." with pipe separator
+    pipe_match = re.search(PREFIX + r':\s*([^#\n]+\|[^#\n]+)', description, re.IGNORECASE)
     if pipe_match:
         options_str = pipe_match.group(1).strip()
         for opt in options_str.split('|'):
@@ -230,8 +300,8 @@ def extract_options(description: str) -> Tuple[Optional[List[Dict]], str]:
             if opt and re.match(r'^[a-zA-Z0-9_]+$', opt):
                 options.append({'value': opt, 'label': opt})
         if options:
-            # Clean the Options: ... part from description
-            cleaned = re.sub(r'\s*Options:\s*[^#\n]+\|[^#\n]+', '', description, flags=re.IGNORECASE)
+            # Clean the Options:/Allowed: ... part from description
+            cleaned = re.sub(r'\s*(?:Options|Allowed):\s*[^#\n]+\|[^#\n]+', '', description, flags=re.IGNORECASE)
             cleaned = re.sub(r'\s+', ' ', cleaned).strip()
             if not cleaned or cleaned in [':', '.', '-']:
                 cleaned = ''
@@ -252,9 +322,9 @@ def extract_options(description: str) -> Tuple[Optional[List[Dict]], str]:
         if options:
             return options, ''
 
-    # Pattern 2: "Options: val1 (desc), val2 (desc), ..." with parenthetical descriptions
-    # Capture everything after "Options:" that may include parens
-    paren_match = re.search(r'Options:\s*([A-Za-z0-9_]+\s*\([^)]+\)(?:\s*,\s*[A-Za-z0-9_]+(?:\s*\([^)]*\))?)+)', description, re.IGNORECASE)
+    # Pattern 2: "Options:/Allowed: val1 (desc), val2 (desc), ..." with parenthetical descriptions
+    # Capture everything after prefix that may include parens
+    paren_match = re.search(PREFIX + r':\s*([A-Za-z0-9_]+\s*\([^)]+\)(?:\s*,\s*[A-Za-z0-9_]+(?:\s*\([^)]*\))?)+)', description, re.IGNORECASE)
     if paren_match:
         options_str = paren_match.group(1).strip()
         # Extract option names and optional parenthetical descriptions.
@@ -267,15 +337,15 @@ def extract_options(description: str) -> Tuple[Optional[List[Dict]], str]:
                     opt_entry['description'] = opt_desc
                 options.append(opt_entry)
         if options:
-            cleaned = re.sub(r'\s*Options:\s*[A-Za-z0-9_]+\s*\([^)]+\)(?:\s*,\s*[A-Za-z0-9_]+(?:\s*\([^)]*\))?)+', '', description, flags=re.IGNORECASE)
+            cleaned = re.sub(r'\s*(?:Options|Allowed):\s*[A-Za-z0-9_]+\s*\([^)]+\)(?:\s*,\s*[A-Za-z0-9_]+(?:\s*\([^)]*\))?)+', '', description, flags=re.IGNORECASE)
             cleaned = re.sub(r'\s+', ' ', cleaned).strip()
             if not cleaned or cleaned in [':', '.', '-']:
                 cleaned = ''
             return options, cleaned
 
-    # Pattern 3: "Options: val1, val2, val3" simple comma separated
-    # Also handle quoted values like "HORIZONTAL", "VERTICAL"
-    simple_match = re.search(r'Options:\s*(["\']?[A-Za-z0-9_]+["\']?(?:\s*,\s*["\']?[A-Za-z0-9_]+["\']?)+)', description, re.IGNORECASE)
+    # Pattern 3: "Options:/Allowed: val1, val2, val3" simple comma separated
+    # Also handle quoted values like "HORIZONTAL", "VERTICAL" and numeric values like 0, 90, 180
+    simple_match = re.search(PREFIX + r':\s*(["\']?[A-Za-z0-9_]+["\']?(?:\s*,\s*["\']?[A-Za-z0-9_]+["\']?)+)', description, re.IGNORECASE)
     if simple_match:
         options_str = simple_match.group(1).strip()
         for opt in options_str.split(','):
@@ -283,13 +353,31 @@ def extract_options(description: str) -> Tuple[Optional[List[Dict]], str]:
             if opt and re.match(r'^[a-zA-Z0-9_]+$', opt):
                 options.append({'value': opt, 'label': opt})
         if options:
-            cleaned = re.sub(r'\s*Options:\s*["\']?[A-Za-z0-9_]+["\']?(?:\s*,\s*["\']?[A-Za-z0-9_]+["\']?)+', '', description, flags=re.IGNORECASE)
+            cleaned = re.sub(r'\s*(?:Options|Allowed):\s*["\']?[A-Za-z0-9_]+["\']?(?:\s*,\s*["\']?[A-Za-z0-9_]+["\']?)+', '', description, flags=re.IGNORECASE)
             # Also clean up Deprecated patterns
             cleaned = re.sub(r'\s*Deprecated\s*\([^)]*\)\s*:\s*[a-zA-Z0-9_,\s]+', '', cleaned, flags=re.IGNORECASE)
             cleaned = re.sub(r'\s+', ' ', cleaned).strip()
             if not cleaned or cleaned in [':', '.', '-']:
                 cleaned = ''
             return options, cleaned
+
+    # Pattern 3b: "or"-separated values (e.g., "MANUAL or AUTO", "center or top or bottom")
+    # Also handles: "val1" (desc) or "val2" (desc)
+    or_match = re.findall(r'["\']?([A-Za-z0-9_]+)["\']?(?:\s*\([^)]*\))?\s+or\s+', description, re.IGNORECASE)
+    if or_match:
+        # Get all values including the last one after the final "or"
+        # Re-parse to get all values correctly
+        or_parts = re.split(r'\s+or\s+', description.strip(), flags=re.IGNORECASE)
+        or_options = []
+        for part in or_parts:
+            # Extract the value: strip quotes and parenthetical descriptions
+            val_match = re.match(r'["\']?([A-Za-z0-9_]+)["\']?', part.strip())
+            if val_match:
+                opt = val_match.group(1)
+                if opt and re.match(r'^[a-zA-Z0-9_]+$', opt):
+                    or_options.append({'value': opt, 'label': opt})
+        if len(or_options) >= 2:
+            return or_options, ''
 
     # Pattern 4: Trailing comma-separated uppercase values (implicit options, no "Options:" prefix)
     # e.g., "# DEBUG, INFO, WARNING, ERROR" at end of description
@@ -371,10 +459,10 @@ def parse_config_with_comments(config_path: str) -> Tuple[Dict, Dict[str, str]]:
                 elif prev_line:
                     break
 
-            # Look for Options: on following lines (up to 3 lines)
-            # This handles cases where Options: is on its own comment line after the value
+            # Look for Options: on following lines (up to 8 lines)
+            # Extended range to capture TRACKER_TYPE's "Options:" which is 5+ lines after the key
             following_options = ''
-            for j in range(i + 1, min(len(lines), i + 4)):
+            for j in range(i + 1, min(len(lines), i + 9)):
                 follow_line = lines[j].strip()
                 # Stop if we hit another key definition or non-comment line
                 if re.match(r'^(\s*)\w+:\s*', lines[j]):
@@ -407,8 +495,16 @@ def parse_config_with_comments(config_path: str) -> Tuple[Dict, Dict[str, str]]:
     return config, comments
 
 
-def generate_parameter_schema(key: str, value: Any, description: str = '') -> Dict:
-    """Generate schema entry for a parameter."""
+def generate_parameter_schema(key: str, value: Any, description: str = '',
+                               full_path: str = '') -> Dict:
+    """Generate schema entry for a parameter.
+
+    Args:
+        key: Parameter name (e.g., 'FRAME_ROTATION_DEG')
+        value: Default value from config
+        description: Extracted description from comments
+        full_path: Full dotted path (e.g., 'VideoSource.FRAME_ROTATION_DEG') for override lookup
+    """
     param_type, constraints = infer_type(value)
 
     # Extract options from description (e.g., "Options: val1, val2, val3")
@@ -427,11 +523,28 @@ def generate_parameter_schema(key: str, value: Any, description: str = '') -> Di
     # Add options if found (for dropdown display)
     if options:
         schema['options'] = options
+        # For integer options, derive min/max from option values
+        if param_type == 'integer' and all(
+            isinstance(o.get('value'), (int, str)) and str(o['value']).isdigit()
+            for o in options
+        ):
+            int_vals = [int(o['value']) for o in options]
+            schema['min'] = min(int_vals)
+            schema['max'] = max(int_vals)
 
     # Extract unit from description
     unit = extract_unit(cleaned_description)
     if unit:
         schema['unit'] = unit
+
+    # Apply recommended ranges if defined
+    lookup_key = full_path or key
+    if lookup_key in RECOMMENDED_RANGES:
+        schema.update(RECOMMENDED_RANGES[lookup_key])
+
+    # Apply manual overrides (highest priority — overwrites auto-generated values)
+    if lookup_key in SCHEMA_OVERRIDES:
+        schema.update(SCHEMA_OVERRIDES[lookup_key])
 
     return schema
 
@@ -465,7 +578,8 @@ def process_section(section_name: str, section_data: Any, comments: Dict[str, st
 
             if isinstance(value, dict) and not any(isinstance(v, dict) for v in value.values()):
                 # Simple nested dict (like PID_GAINS entries)
-                params[key] = generate_parameter_schema(key, value, desc)
+                params[key] = generate_parameter_schema(key, value, desc,
+                                                         full_path=full_key)
             elif isinstance(value, dict):
                 # Complex nested structure - keep as object
                 params[key] = {
@@ -475,7 +589,8 @@ def process_section(section_name: str, section_data: Any, comments: Dict[str, st
                     'properties': process_params(value, full_key)
                 }
             else:
-                params[key] = generate_parameter_schema(key, value, desc)
+                params[key] = generate_parameter_schema(key, value, desc,
+                                                         full_path=full_key)
 
         return params
 
@@ -521,7 +636,7 @@ def generate_schema(config_path: str, output_path: str):
         if 'parameters' in section:
             total_params += len(section['parameters'])
 
-    print(f"\n✅ Schema generated successfully!")
+    print(f"\nSchema generated successfully!")
     print(f"   Sections: {len(schema['sections'])}")
     print(f"   Parameters: {total_params}")
     print(f"   Categories: {len(CATEGORIES)}")
