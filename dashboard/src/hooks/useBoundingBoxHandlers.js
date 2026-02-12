@@ -96,7 +96,8 @@ const useBoundingBoxHandlers = (isTracking, setIsTracking, smartModeActive = fal
     const distance = getDistance(startPos, currentPos);
     let bbox;
 
-    if (distance < 5) {
+    const dragThreshold = Math.max(5, (window.devicePixelRatio || 1) * 5);
+    if (distance < dragThreshold) {
       const centerX = startPos.x;
       const centerY = startPos.y;
       const width = rect.width * defaultBoundingBoxSize;

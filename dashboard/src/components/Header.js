@@ -45,11 +45,12 @@ const Header = ({ handleDrawerToggle }) => {
             color="inherit"
             aria-label="menu"
             onClick={handleDrawerToggle}
+            sx={{ display: { lg: 'none' } }}
           >
             <MenuIcon />
           </IconButton>
           <Typography variant="h6" style={{ flexGrow: 1 }}>
-            Tracker App
+            PixEagle
           </Typography>
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
