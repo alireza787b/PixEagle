@@ -1,24 +1,26 @@
 # ==============================================================================
 # PixEagle OSD Preset - MINIMAL
 # ==============================================================================
-# Clean, uncluttered OSD for racing/FPV applications
-# Only essential information displayed - perfect for FPV/racing focus
+# Clean, uncluttered OSD for racing/FPV applications.
+# Only essential information displayed — perfect for FPV/racing focus.
 #
 # Design Principles:
 # - Only critical data (altitude, battery)
 # - Maximum screen clarity (no attitude indicator)
 # - Subtle, non-intrusive text
 # - Uses professional 1/20th font sizing formula
+#
+# Color roles: Elements specify color_role for day/night/amber palette switching.
 # ==============================================================================
 
 GLOBAL_SETTINGS:
-  base_font_scale: 0.9           # Slightly smaller for minimalism (uses 1/20th formula)
-  text_style: "outlined"         # Clear outlines for readability
+  base_font_scale: 0.9
+  text_style: "outlined"
   outline_thickness: 2
   shadow_offset: [2, 2]
   shadow_opacity: 0.5
   background_opacity: 0.6
-  safe_zone_margin: 5.0          # 5% margins for clean racing/FPV view
+  safe_zone_margin: 5.0
 
 ELEMENTS:
   # System watermark
@@ -28,8 +30,9 @@ ELEMENTS:
     text: "PixEagle"
     anchor: "top-left"
     offset: [10, 10]
-    font_scale: 0.7           # Small and subtle
-    color: [200, 200, 200]    # Subtle grey
+    font_scale: 0.7
+    color: [200, 200, 200]
+    color_role: "secondary"
     style: "outlined"
 
   # Timestamp
@@ -38,8 +41,9 @@ ELEMENTS:
     layer: slow_dynamic
     anchor: "top-right"
     offset: [-10, 10]
-    font_scale: 0.4           # Small and subtle
+    font_scale: 0.4
     color: [200, 200, 200]
+    color_role: "muted"
     style: "outlined"
     alignment: "right"
 
@@ -47,7 +51,8 @@ ELEMENTS:
   crosshair:
     enabled: true
     layer: static
-    color: [0, 255, 0]      # Green
+    color: [0, 255, 0]
+    color_role: "crosshair"
     thickness: 2
     length: 12
 
@@ -56,30 +61,33 @@ ELEMENTS:
     enabled: true
     layer: dynamic
     fields:
-      # Altitude (most important for drones)
+      # AGL altitude — most prominent element on screen
       altitude_agl:
         anchor: "center-right"
-        offset: [-10, -30]
-        font_scale: 0.75      # Large for critical info
-        color: [50, 255, 120] # Bright green
-        style: "plate"        # Background plate for visibility
-
-      # Battery voltage (critical safety)
-      voltage:
-        anchor: "bottom-left"
-        offset: [10, -10]
-        font_scale: 0.65      # Large for critical info
-        color: [255, 200, 50] # Yellow/orange
+        offset: [-12, -20]
+        font_scale: 0.85
+        color: [50, 255, 120]
+        color_role: "critical"
         style: "plate"
 
-  # Tracker status (minimal)
+      # Battery voltage — critical safety
+      voltage:
+        anchor: "bottom-left"
+        offset: [12, -12]
+        font_scale: 0.7
+        color: [255, 200, 50]
+        color_role: "warning"
+        style: "plate"
+
+  # Tracker status
   tracker_status:
     enabled: true
     layer: dynamic
     anchor: "bottom-right"
-    offset: [-10, -10]
+    offset: [-12, -12]
     font_scale: 0.45
-    color: [255, 255, 0]      # Yellow
+    color: [255, 255, 0]
+    color_role: "accent"
     style: "outlined"
 
   # Attitude indicator - DISABLED for minimal

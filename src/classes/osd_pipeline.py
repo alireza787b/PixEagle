@@ -59,6 +59,7 @@ class OSDPipeline:
         self._last_renderer_id: Optional[int] = None
         self._last_enabled: Optional[bool] = None
         self._last_preset: Optional[str] = None
+        self._last_color_mode: Optional[str] = None
 
         # Update cadence
         self._last_slow_update_ts = 0.0
@@ -134,6 +135,11 @@ class OSDPipeline:
         preset = str(getattr(Parameters, "OSD_PRESET", "professional"))
         renderer_id = id(renderer)
 
+        # Detect color mode change via renderer's color system
+        color_mode = ""
+        if hasattr(renderer, "_get_color_mode_tag"):
+            color_mode = renderer._get_color_mode_tag()
+
         invalidation_reasons = []
         if self._last_shape != shape:
             invalidation_reasons.append("shape_change")
@@ -143,6 +149,8 @@ class OSDPipeline:
             invalidation_reasons.append("enabled_changed")
         if self._last_preset != preset:
             invalidation_reasons.append("preset_changed")
+        if self._last_color_mode != color_mode:
+            invalidation_reasons.append("color_mode_changed")
 
         if invalidation_reasons:
             self.invalidate_cache(",".join(invalidation_reasons))
@@ -151,6 +159,7 @@ class OSDPipeline:
         self._last_renderer_id = renderer_id
         self._last_enabled = enabled
         self._last_preset = preset
+        self._last_color_mode = color_mode
 
     def _build_layer_overlay(
         self,

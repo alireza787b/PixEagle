@@ -43,15 +43,15 @@ _PALETTES: Dict[ColorMode, Dict[str, BGR]] = {
         "muted":         (120, 130, 120),    # Dim grey — tertiary info
     },
     ColorMode.NIGHT: {
-        "primary":       (0, 140, 60),       # Dim green — NVIS safe
-        "secondary":     (80, 85, 80),       # Very dim grey
-        "critical":      (0, 160, 50),       # Dim bright green
-        "warning":       (0, 100, 140),      # Dim amber
-        "alert":         (40, 40, 160),      # Dim red
-        "accent":        (120, 100, 30),     # Dim teal
-        "plate_bg":      (10, 12, 10),       # Deep black
-        "crosshair":     (0, 120, 40),       # Dim green
-        "muted":         (50, 55, 50),       # Barely visible grey
+        "primary":       (0, 160, 70),       # Dim green — NVIS safe, still readable
+        "secondary":     (60, 100, 60),      # Dim green-grey
+        "critical":      (0, 190, 60),       # Brighter green — critical data stays visible
+        "warning":       (0, 120, 170),      # Dim amber — caution still visible
+        "alert":         (40, 40, 180),      # Dim red
+        "accent":        (0, 140, 50),       # Green accent (NVIS monochrome)
+        "plate_bg":      (8, 14, 8),         # Deep green-black
+        "crosshair":     (0, 140, 50),       # Dim green crosshair
+        "muted":         (40, 70, 40),       # Very dim green
     },
     ColorMode.AMBER: {
         "primary":       (50, 190, 240),     # Amber (A-10/Apache style)

@@ -1,26 +1,28 @@
 # ==============================================================================
 # PixEagle OSD Preset - FULL TELEMETRY
 # ==============================================================================
-# Maximum information display for testing, debugging, and data logging
-# Shows all available telemetry fields
-# WARNING: May be cluttered - use for analysis/debugging only
+# Maximum information display for testing, debugging, and data logging.
+# Shows all available telemetry fields.
+# WARNING: May be cluttered — use for analysis/debugging only.
 #
 # Design Principles:
 # - Maximum data density
-# - Smaller fonts to fit all fields (0.35x to 0.5x)
+# - Compact but readable fonts (minimum 0.38x = ~9px @ 480p)
 # - Tighter margins (3%) for extra space
-# - Uses professional 1/20th font sizing formula
 # - Two-column layout (navigation left, altitude/speed right)
+# - 18px minimum vertical gap between stacked items
+#
+# Color roles: Elements specify color_role for day/night/amber palette switching.
 # ==============================================================================
 
 GLOBAL_SETTINGS:
-  base_font_scale: 0.85          # Smaller fonts to fit more data (uses 1/20th formula)
+  base_font_scale: 0.85
   text_style: "outlined"
-  outline_thickness: 1           # Thinner outlines to reduce clutter
+  outline_thickness: 1
   shadow_offset: [1, 1]
   shadow_opacity: 0.4
   background_opacity: 0.65
-  safe_zone_margin: 3.0          # Tighter margins for max space (debugging mode)
+  safe_zone_margin: 3.0
 
 ELEMENTS:
   # System info
@@ -32,6 +34,7 @@ ELEMENTS:
     offset: [5, 5]
     font_scale: 1.0
     color: [220, 220, 220]
+    color_role: "secondary"
     style: "outlined"
 
   datetime:
@@ -41,6 +44,7 @@ ELEMENTS:
     offset: [-5, 5]
     font_scale: 0.45
     color: [220, 220, 220]
+    color_role: "muted"
     style: "outlined"
     alignment: "right"
 
@@ -48,6 +52,7 @@ ELEMENTS:
     enabled: true
     layer: static
     color: [0, 255, 0]
+    color_role: "crosshair"
     thickness: 1
     length: 10
 
@@ -55,164 +60,177 @@ ELEMENTS:
     enabled: true
     layer: dynamic
     position: [50, 50]
-    size: [10, 10]          # Small to save space (10% not 50%!)
+    size: [10, 10]
     horizon_color: [255, 255, 255]
+    horizon_color_role: "primary"
     grid_color: [160, 160, 160]
+    grid_color_role: "muted"
     thickness: 1
-
-  # ===========================================================================
-  # MAVLINK TELEMETRY DATA
-  # ===========================================================================
-  # All MAVLink fields consolidated into a single element with multiple fields
 
   mavlink_data:
     enabled: true
     layer: dynamic
     fields:
-      # === LEFT COLUMN - Navigation & Position ===
-      # Flight mode
+      # === LEFT COLUMN - Navigation & Position (x=5, 20px spacing) ===
       flight_mode:
         anchor: "top-left"
         offset: [5, 30]
-        font_scale: 0.4
+        font_scale: 0.45
         color: [100, 150, 255]
-        style: "outlined"
+        color_role: "accent"
+        style: "plate"
 
       # Attitude
       roll:
         anchor: "center-left"
-        offset: [5, -140]
+        offset: [5, -130]
         font_scale: 0.4
         color: [220, 220, 220]
+        color_role: "primary"
         style: "outlined"
 
       pitch:
         anchor: "center-left"
-        offset: [5, -120]
+        offset: [5, -110]
         font_scale: 0.4
         color: [220, 220, 220]
+        color_role: "primary"
         style: "outlined"
 
       heading:
         anchor: "center-left"
-        offset: [5, -100]
+        offset: [5, -90]
         font_scale: 0.4
         color: [220, 220, 220]
+        color_role: "primary"
         style: "outlined"
 
       # GPS & Navigation
       satellites_visible:
         anchor: "center-left"
-        offset: [5, -70]
+        offset: [5, -62]
         font_scale: 0.4
         color: [220, 220, 220]
+        color_role: "secondary"
         style: "outlined"
 
       hdop:
         anchor: "center-left"
-        offset: [5, -50]
+        offset: [5, -42]
         font_scale: 0.4
         color: [220, 220, 220]
+        color_role: "secondary"
         style: "outlined"
 
       vdop:
         anchor: "center-left"
-        offset: [5, -30]
+        offset: [5, -22]
         font_scale: 0.4
         color: [220, 220, 220]
+        color_role: "secondary"
         style: "outlined"
 
       latitude:
         anchor: "bottom-left"
-        offset: [5, -90]
-        font_scale: 0.35
+        offset: [5, -82]
+        font_scale: 0.38
         color: [200, 200, 200]
+        color_role: "muted"
         style: "outlined"
 
       longitude:
         anchor: "bottom-left"
-        offset: [5, -70]
-        font_scale: 0.35
+        offset: [5, -62]
+        font_scale: 0.38
         color: [200, 200, 200]
+        color_role: "muted"
         style: "outlined"
 
       # Power
       voltage:
         anchor: "bottom-left"
-        offset: [5, -45]
-        font_scale: 0.45
+        offset: [5, -36]
+        font_scale: 0.5
         color: [255, 200, 50]
+        color_role: "warning"
         style: "plate"
 
       throttle:
         anchor: "bottom-left"
-        offset: [5, -20]
+        offset: [5, -12]
         font_scale: 0.4
         color: [220, 220, 220]
+        color_role: "secondary"
         style: "outlined"
 
-      # === RIGHT COLUMN - Altitude & Speed ===
+      # === RIGHT COLUMN - Altitude & Speed (x=-5, 22px spacing) ===
+      # AGL altitude — prominent even in dense layout
       altitude_agl:
         anchor: "center-right"
-        offset: [-5, -140]
-        font_scale: 0.5
+        offset: [-5, -130]
+        font_scale: 0.6
         color: [50, 255, 120]
+        color_role: "critical"
         style: "plate"
 
       altitude_msl:
         anchor: "center-right"
-        offset: [-5, -115]
+        offset: [-5, -106]
         font_scale: 0.4
         color: [220, 220, 220]
+        color_role: "secondary"
         style: "outlined"
 
       # Speed data
       airspeed:
         anchor: "center-right"
-        offset: [-5, -85]
+        offset: [-5, -78]
         font_scale: 0.4
         color: [220, 220, 220]
+        color_role: "primary"
         style: "outlined"
 
       groundspeed:
         anchor: "center-right"
-        offset: [-5, -65]
+        offset: [-5, -58]
         font_scale: 0.4
         color: [220, 220, 220]
+        color_role: "primary"
         style: "outlined"
 
       climb:
         anchor: "center-right"
-        offset: [-5, -45]
+        offset: [-5, -38]
         font_scale: 0.4
         color: [220, 220, 220]
+        color_role: "secondary"
         style: "outlined"
 
       flight_path_angle:
         anchor: "center-right"
-        offset: [-5, -25]
+        offset: [-5, -18]
         font_scale: 0.4
         color: [220, 220, 220]
+        color_role: "secondary"
         style: "outlined"
 
-  # ===========================================================================
-  # BOTTOM ROW - System Status
-  # ===========================================================================
-
+  # System Status
   tracker_status:
     enabled: true
     layer: dynamic
     anchor: "bottom-right"
-    offset: [-5, -45]
+    offset: [-5, -36]
     font_scale: 0.45
     color: [255, 255, 0]
+    color_role: "accent"
     style: "outlined"
 
   follower_status:
     enabled: true
     layer: dynamic
     anchor: "bottom-right"
-    offset: [-5, -20]
+    offset: [-5, -12]
     font_scale: 0.45
     color: [255, 255, 0]
+    color_role: "accent"
     style: "outlined"

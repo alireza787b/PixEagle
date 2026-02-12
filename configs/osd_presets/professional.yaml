@@ -1,26 +1,30 @@
 # ==============================================================================
 # PixEagle OSD Preset - PROFESSIONAL (DEFAULT)
 # ==============================================================================
-# Aviation-grade HUD layout following professional drone OSD best practices
-# Based on real-world aerial systems (DJI, Autel, Skydio, ArduPilot, PX4)
+# Aviation-grade HUD layout following professional drone OSD best practices.
+# Based on real-world aerial systems (DJI, Autel, Skydio, ArduPilot, PX4).
 #
 # Design Principles:
 # - Critical data at edges (eyes naturally scan periphery)
 # - Symmetric left/right balance
 # - Larger fonts for critical info (altitude, battery)
-# - Safe zones: 8% margins (aviation standard)
+# - Safe zones: 5% margins (aviation standard)
 # - Minimal center obstruction
-# - High contrast with outlines for all lighting conditions
+# - High contrast outlines for all lighting conditions
+# - 30px minimum vertical gap between stacked items
+#
+# Color roles: Elements specify color_role for day/night/amber palette switching.
+# The hardcoded "color" serves as fallback when no color system is active.
 # ==============================================================================
 
 GLOBAL_SETTINGS:
-  base_font_scale: 1.0           # Professional 1/20th formula (24px @ 480p)
-  text_style: "outlined"         # Professional outlined text for all conditions
-  outline_thickness: 2           # Clear visibility
+  base_font_scale: 1.0
+  text_style: "outlined"
+  outline_thickness: 2
   shadow_offset: [2, 2]
   shadow_opacity: 0.6
   background_opacity: 0.75
-  safe_zone_margin: 5.0          # 5% margins (closer to edges for better use of space)
+  safe_zone_margin: 5.0
 
 ELEMENTS:
   # ===========================================================================
@@ -32,8 +36,9 @@ ELEMENTS:
     text: "PixEagle"
     anchor: "top-left"
     offset: [10, 10]
-    font_scale: 1.0                # Slightly larger for branding
+    font_scale: 1.0
     color: [200, 200, 200]
+    color_role: "secondary"
     style: "outlined"
 
   # ===========================================================================
@@ -43,150 +48,171 @@ ELEMENTS:
     enabled: true
     layer: slow_dynamic
     anchor: "top-right"
-    offset: [0, 10]                # Anchor handles right alignment automatically
-    font_scale: 0.5                # Slightly larger, more readable
+    offset: [0, 10]
+    font_scale: 0.5
     color: [200, 200, 200]
+    color_role: "secondary"
     style: "outlined"
 
   # ===========================================================================
-  # CENTER - Minimal Crosshair + Compact Attitude Indicator
+  # CENTER - Crosshair + Compact Attitude Indicator
   # ===========================================================================
   crosshair:
     enabled: true
     layer: static
-    color: [0, 255, 0]             # Green
-    thickness: 1                   # Thin and subtle
-    length: 8                      # Short
+    color: [0, 255, 0]
+    color_role: "crosshair"
+    thickness: 1
+    length: 8
 
   attitude_indicator:
     enabled: true
     layer: dynamic
-    position: [48, 50]             # Slightly left of center
-    size: [8, 8]                   # MUCH smaller (8% not 60%!)
+    position: [48, 50]
+    size: [8, 8]
     horizon_color: [255, 255, 255]
+    horizon_color_role: "primary"
     grid_color: [160, 160, 160]
-    thickness: 1                   # Thin lines
+    grid_color_role: "muted"
+    thickness: 1
 
   # ===========================================================================
-  # MAVLINK TELEMETRY DATA - All fields consolidated
+  # MAVLINK TELEMETRY DATA
   # ===========================================================================
   mavlink_data:
     enabled: true
     layer: dynamic
     fields:
-      # === TOP CENTER - Flight Mode (Most Critical) ===
+      # === TOP CENTER - Flight Mode ===
       flight_mode:
         anchor: "top-center"
         offset: [0, 10]
-        font_scale: 0.7            # Prominent
-        color: [100, 200, 255]     # Sky blue
+        font_scale: 0.7
+        color: [100, 200, 255]
+        color_role: "accent"
         style: "plate"
         alignment: "center"
 
-      # === LEFT COLUMN - Navigation & Flight Data ===
+      # === LEFT COLUMN - Navigation (x=12, 32px spacing) ===
       heading:
         anchor: "center-left"
-        offset: [10, -90]
+        offset: [12, -80]
         font_scale: 0.6
         color: [220, 220, 220]
+        color_role: "primary"
         style: "outlined"
 
       airspeed:
         anchor: "center-left"
-        offset: [10, -55]
+        offset: [12, -48]
         font_scale: 0.55
         color: [220, 220, 220]
+        color_role: "primary"
         style: "outlined"
 
       groundspeed:
         anchor: "center-left"
-        offset: [10, -25]
+        offset: [12, -18]
         font_scale: 0.55
         color: [220, 220, 220]
+        color_role: "primary"
         style: "outlined"
 
       throttle:
         anchor: "center-left"
-        offset: [10, 10]
+        offset: [12, 14]
         font_scale: 0.5
         color: [220, 220, 220]
+        color_role: "secondary"
         style: "outlined"
 
-      # === RIGHT COLUMN - Altitude Cluster (CRITICAL) ===
+      # === RIGHT COLUMN - Altitude Cluster (x=-12) ===
+      # AGL is the most critical value — largest font + plate background
       altitude_agl:
         anchor: "center-right"
-        offset: [-10, -90]
-        font_scale: 0.8              # Larger - most critical
-        color: [50, 255, 50]         # Bright green
+        offset: [-12, -80]
+        font_scale: 0.9
+        color: [50, 255, 50]
+        color_role: "critical"
         style: "plate"
 
       altitude_msl:
         anchor: "center-right"
-        offset: [-10, -50]
+        offset: [-12, -42]
         font_scale: 0.5
         color: [220, 220, 220]
+        color_role: "secondary"
         style: "outlined"
 
       climb:
         anchor: "center-right"
-        offset: [-10, -20]
+        offset: [-12, -14]
         font_scale: 0.55
         color: [220, 220, 220]
+        color_role: "secondary"
         style: "outlined"
 
-      # === BOTTOM LEFT - GPS & Battery ===
+      # === BOTTOM LEFT - GPS & Battery (x=12, 22px spacing) ===
       satellites_visible:
         anchor: "bottom-left"
-        offset: [10, -90]
+        offset: [12, -98]
         font_scale: 0.5
         color: [220, 220, 220]
+        color_role: "secondary"
         style: "outlined"
 
       hdop:
         anchor: "bottom-left"
-        offset: [10, -65]
+        offset: [12, -76]
         font_scale: 0.45
         color: [220, 220, 220]
+        color_role: "secondary"
         style: "outlined"
 
       latitude:
         anchor: "bottom-left"
-        offset: [10, -45]
+        offset: [12, -56]
         font_scale: 0.4
         color: [180, 180, 180]
+        color_role: "muted"
         style: "outlined"
 
       longitude:
         anchor: "bottom-left"
-        offset: [10, -25]
+        offset: [12, -38]
         font_scale: 0.4
         color: [180, 180, 180]
+        color_role: "muted"
         style: "outlined"
 
+      # Battery voltage — prominent with plate background
       voltage:
         anchor: "bottom-left"
-        offset: [10, -5]
-        font_scale: 0.7              # Larger - critical
-        color: [255, 200, 50]        # Yellow-orange
+        offset: [12, -12]
+        font_scale: 0.7
+        color: [255, 200, 50]
+        color_role: "warning"
         style: "plate"
 
   # ===========================================================================
-  # BOTTOM RIGHT - System Status
+  # BOTTOM RIGHT - System Status (x=-12)
   # ===========================================================================
   tracker_status:
     enabled: true
     layer: dynamic
     anchor: "bottom-right"
-    offset: [-10, -30]
+    offset: [-12, -36]
     font_scale: 0.5
-    color: [255, 255, 0]             # Yellow (changes to green when active)
+    color: [255, 255, 0]
+    color_role: "accent"
     style: "outlined"
 
   follower_status:
     enabled: true
     layer: dynamic
     anchor: "bottom-right"
-    offset: [-10, -5]
+    offset: [-12, -12]
     font_scale: 0.5
-    color: [255, 255, 0]             # Yellow (changes to green when active)
+    color: [255, 255, 0]
+    color_role: "accent"
     style: "outlined"

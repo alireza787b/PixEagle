@@ -6,10 +6,13 @@
 #
 # Design Principles:
 # - Every available field visible
-# - Compact fonts for maximum data density
+# - Compact but readable fonts (minimum 0.38x = ~9px @ 480p)
 # - Tight margins (3%) for extra screen space
 # - Two-column layout (navigation left, altitude/speed right)
-# - Color-coded by category (nav=grey, critical=green, power=amber)
+# - Color-coded by category (nav=primary, critical=green, power=amber)
+# - 18px minimum vertical gap between stacked items
+#
+# Color roles: Elements specify color_role for day/night/amber palette switching.
 # ==============================================================================
 
 GLOBAL_SETTINGS:
@@ -31,6 +34,7 @@ ELEMENTS:
     offset: [5, 5]
     font_scale: 0.8
     color: [50, 200, 255]
+    color_role: "accent"
     style: "outlined"
 
   datetime:
@@ -40,6 +44,7 @@ ELEMENTS:
     offset: [-5, 5]
     font_scale: 0.4
     color: [200, 200, 200]
+    color_role: "muted"
     style: "outlined"
     alignment: "right"
 
@@ -47,6 +52,7 @@ ELEMENTS:
     enabled: true
     layer: static
     color: [0, 255, 0]
+    color_role: "crosshair"
     thickness: 1
     length: 8
 
@@ -56,7 +62,9 @@ ELEMENTS:
     position: [50, 50]
     size: [8, 8]
     horizon_color: [255, 255, 255]
+    horizon_color_role: "primary"
     grid_color: [160, 160, 160]
+    grid_color_role: "muted"
     thickness: 1
 
   mavlink_data:
@@ -69,6 +77,7 @@ ELEMENTS:
         offset: [5, 28]
         font_scale: 0.45
         color: [100, 200, 255]
+        color_role: "accent"
         style: "plate"
 
       arm_status:
@@ -76,123 +85,141 @@ ELEMENTS:
         offset: [0, 8]
         font_scale: 0.5
         color: [50, 200, 255]
+        color_role: "accent"
         style: "plate"
         alignment: "center"
 
-      # --- LEFT COLUMN: Attitude & Navigation ---
+      # --- LEFT COLUMN: Attitude & Navigation (x=5, 20px spacing) ---
       roll:
         anchor: "center-left"
-        offset: [5, -130]
+        offset: [5, -120]
         font_scale: 0.38
         color: [200, 200, 200]
+        color_role: "primary"
         style: "outlined"
 
       pitch:
         anchor: "center-left"
-        offset: [5, -112]
+        offset: [5, -100]
         font_scale: 0.38
         color: [200, 200, 200]
+        color_role: "primary"
         style: "outlined"
 
       heading:
         anchor: "center-left"
-        offset: [5, -94]
+        offset: [5, -80]
         font_scale: 0.38
         color: [200, 200, 200]
+        color_role: "primary"
         style: "outlined"
 
       # GPS cluster
       satellites_visible:
         anchor: "center-left"
-        offset: [5, -68]
+        offset: [5, -52]
         font_scale: 0.38
         color: [200, 200, 200]
+        color_role: "secondary"
         style: "outlined"
 
       hdop:
         anchor: "center-left"
-        offset: [5, -50]
+        offset: [5, -32]
         font_scale: 0.38
         color: [200, 200, 200]
+        color_role: "secondary"
         style: "outlined"
 
       vdop:
         anchor: "center-left"
-        offset: [5, -32]
+        offset: [5, -12]
         font_scale: 0.38
         color: [200, 200, 200]
+        color_role: "secondary"
         style: "outlined"
 
       latitude:
         anchor: "bottom-left"
-        offset: [5, -90]
-        font_scale: 0.35
+        offset: [5, -78]
+        font_scale: 0.38
         color: [180, 180, 180]
+        color_role: "muted"
         style: "outlined"
 
       longitude:
         anchor: "bottom-left"
-        offset: [5, -72]
-        font_scale: 0.35
+        offset: [5, -58]
+        font_scale: 0.38
         color: [180, 180, 180]
+        color_role: "muted"
         style: "outlined"
 
       # Power
       voltage:
         anchor: "bottom-left"
-        offset: [5, -48]
-        font_scale: 0.45
+        offset: [5, -32]
+        font_scale: 0.5
         color: [255, 200, 50]
+        color_role: "warning"
         style: "plate"
 
       throttle:
         anchor: "bottom-left"
-        offset: [5, -28]
+        offset: [5, -10]
         font_scale: 0.38
         color: [200, 200, 200]
+        color_role: "secondary"
         style: "outlined"
 
-      # --- RIGHT COLUMN: Altitude & Speed ---
+      # --- RIGHT COLUMN: Altitude & Speed (x=-5, 20px spacing) ---
+      # AGL altitude — still prominent even in debug
       altitude_agl:
         anchor: "center-right"
-        offset: [-5, -130]
-        font_scale: 0.5
+        offset: [-5, -120]
+        font_scale: 0.6
         color: [50, 255, 120]
+        color_role: "critical"
         style: "plate"
 
       altitude_msl:
         anchor: "center-right"
-        offset: [-5, -108]
+        offset: [-5, -96]
         font_scale: 0.38
         color: [200, 200, 200]
+        color_role: "secondary"
         style: "outlined"
 
       airspeed:
         anchor: "center-right"
-        offset: [-5, -82]
+        offset: [-5, -70]
         font_scale: 0.38
         color: [200, 200, 200]
+        color_role: "primary"
         style: "outlined"
 
       groundspeed:
         anchor: "center-right"
-        offset: [-5, -64]
+        offset: [-5, -50]
         font_scale: 0.38
         color: [200, 200, 200]
+        color_role: "primary"
         style: "outlined"
 
       climb:
         anchor: "center-right"
-        offset: [-5, -46]
+        offset: [-5, -30]
         font_scale: 0.38
         color: [200, 200, 200]
+        color_role: "secondary"
         style: "outlined"
 
       flight_path_angle:
         anchor: "center-right"
-        offset: [-5, -28]
+        offset: [-5, -10]
         font_scale: 0.38
         color: [200, 200, 200]
+        color_role: "secondary"
         style: "outlined"
 
   # System status
@@ -200,16 +227,18 @@ ELEMENTS:
     enabled: true
     layer: dynamic
     anchor: "bottom-right"
-    offset: [-5, -45]
+    offset: [-5, -36]
     font_scale: 0.42
     color: [255, 255, 0]
+    color_role: "accent"
     style: "outlined"
 
   follower_status:
     enabled: true
     layer: dynamic
     anchor: "bottom-right"
-    offset: [-5, -25]
+    offset: [-5, -12]
     font_scale: 0.42
     color: [255, 255, 0]
+    color_role: "accent"
     style: "outlined"

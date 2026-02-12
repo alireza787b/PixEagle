@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, Iterable, List
 from .osd_text_renderer import OSDTextRenderer, OSDSprite, TextStyle
 from .osd_layout_manager import OSDLayoutManager, Anchor
+from .osd_colors import OSDColorSystem
 from .parameters import Parameters
 
 logger = logging.getLogger(__name__)
@@ -515,11 +516,12 @@ class OSDRenderer:
         """Helper: create a single text sprite with content-hash from config."""
         font_scale = config.get("font_scale", config.get("font_size", 0.7))
         if color is None:
-            color = tuple(config.get("color", [255, 255, 255]))
+            color = self._resolve_color(config)
         style = self._get_text_style(config)
 
         x, y = self._calculate_position(config, text, font_scale)
-        content_hash = f"{text}|{x},{y}|{color}|{style.value}|{font_scale}"
+        cm = self._get_color_mode_tag()
+        content_hash = f"{text}|{x},{y}|{color}|{style.value}|{font_scale}|{cm}"
 
         sp = self.text_renderer.render_text_sprite(
             text, (x, y),
@@ -549,7 +551,7 @@ class OSDRenderer:
             return {}
         active = self.app_controller.tracking_started
         status = "Active" if active else "Not Active"
-        color = (0, 255, 0) if active else tuple(config.get("color", [255, 255, 0]))
+        color = (0, 255, 0) if active else self._resolve_color(config, default=(255, 255, 0))
         return self._make_text_sprite("tracker_status", f"Tracker: {status}", config, color)
 
     def _sprite_follower_status(self, config: Dict[str, Any]) -> Dict[str, OSDSprite]:
@@ -557,7 +559,7 @@ class OSDRenderer:
             return {}
         active = self.app_controller.following_active
         status = "Active" if active else "Not Active"
-        color = (0, 255, 0) if active else tuple(config.get("color", [255, 255, 0]))
+        color = (0, 255, 0) if active else self._resolve_color(config, default=(255, 255, 0))
         return self._make_text_sprite("follower_status", f"Follower: {status}", config, color)
 
     def _sprite_mavlink_data(self, config: Dict[str, Any]) -> Dict[str, OSDSprite]:
@@ -701,6 +703,43 @@ class OSDRenderer:
         style_str = config.get('style', self.default_style).lower()
         return self.style_map.get(style_str, TextStyle.OUTLINED)
 
+    # ── Color system integration ─────────────────────────────────────
+
+    def _get_color_system(self) -> Optional[OSDColorSystem]:
+        """Get the active OSDColorSystem from the mode manager, if available."""
+        if self.app_controller:
+            mgr = getattr(self.app_controller, "osd_mode_manager", None)
+            if mgr:
+                return mgr.color_system
+        return None
+
+    def _get_color_mode_tag(self) -> str:
+        """Return current color mode name for cache-hash differentiation."""
+        cs = self._get_color_system()
+        return cs.mode_name if cs else ""
+
+    def _resolve_color(
+        self,
+        config: Dict[str, Any],
+        default: Tuple[int, int, int] = (255, 255, 255),
+        role_key: str = "color_role",
+        color_key: str = "color",
+    ) -> Tuple[int, int, int]:
+        """Resolve color: prefer color_role via OSDColorSystem, fallback to config color.
+
+        Elements specify ``color_role: "primary"`` (or critical/warning/accent/etc.)
+        in their preset YAML.  When a color system is active the semantic role is
+        resolved to the palette BGR tuple for the current mode (day/night/amber).
+        If no role is set or no color system exists, the hardcoded ``color`` value
+        from the YAML is used as-is.
+        """
+        color_role = config.get(role_key)
+        if color_role:
+            cs = self._get_color_system()
+            if cs:
+                return cs.get(color_role)
+        return tuple(config.get(color_key, list(default)))
+
     def _calculate_position(self, config: Dict[str, Any], text: str = "", font_scale: float = 1.0) -> Tuple[int, int]:
         """
         Calculate position for an element using modern or legacy positioning.
@@ -749,7 +788,7 @@ class OSDRenderer:
         """Draw system name/watermark."""
         text = config.get("text", "PixEagle")
         font_scale = config.get("font_scale", config.get("font_size", 0.7))
-        color = tuple(config.get("color", [255, 255, 255]))
+        color = self._resolve_color(config)
         style = self._get_text_style(config)
 
         x, y = self._calculate_position(config, text, font_scale)
@@ -766,7 +805,7 @@ class OSDRenderer:
         """Draw current date and time."""
         datetime_str = time.strftime("%Y-%m-%d %H:%M:%S")
         font_scale = config.get("font_scale", config.get("font_size", 0.6))
-        color = tuple(config.get("color", [255, 255, 255]))
+        color = self._resolve_color(config)
         style = self._get_text_style(config)
 
         # Calculate position - anchor system handles text width automatically
@@ -784,7 +823,7 @@ class OSDRenderer:
         """Draw center crosshair."""
         center_x = self.frame_width // 2
         center_y = self.frame_height // 2
-        color = tuple(config.get("color", [0, 255, 0]))
+        color = self._resolve_color(config, default=(0, 255, 0))
         thickness = config.get("thickness", 2)
         length = config.get("length", 15)
 
@@ -800,7 +839,7 @@ class OSDRenderer:
             return frame
 
         status = "Active" if self.app_controller.tracking_started else "Not Active"
-        color = tuple([0, 255, 0] if self.app_controller.tracking_started else config.get("color", [255, 255, 0]))
+        color = (0, 255, 0) if self.app_controller.tracking_started else self._resolve_color(config, default=(255, 255, 0))
         font_scale = config.get("font_scale", config.get("font_size", 0.4))
         style = self._get_text_style(config)
 
@@ -821,7 +860,7 @@ class OSDRenderer:
             return frame
 
         status = "Active" if self.app_controller.following_active else "Not Active"
-        color = tuple([0, 255, 0] if self.app_controller.following_active else config.get("color", [255, 255, 0]))
+        color = (0, 255, 0) if self.app_controller.following_active else self._resolve_color(config, default=(255, 255, 0))
         font_scale = config.get("font_scale", config.get("font_size", 0.4))
         style = self._get_text_style(config)
 
@@ -884,7 +923,7 @@ class OSDRenderer:
 
                 # Get rendering configuration
                 font_scale = field_config.get("font_size", field_config.get("font_scale", 0.4))
-                color = tuple(field_config.get("color", [255, 255, 255]))
+                color = self._resolve_color(field_config)
                 style = self._get_text_style(field_config)
 
                 # Build display text (field name + value)
@@ -932,9 +971,15 @@ class OSDRenderer:
         size_x = int(self.frame_width * size[0] / 100)
         size_y = int(self.frame_height * size[1] / 100)
 
-        # Colors
-        horizon_color = tuple(config.get("horizon_color", [255, 255, 255]))
-        grid_color = tuple(config.get("grid_color", [200, 200, 200]))
+        # Colors (resolve via color system when roles are specified)
+        horizon_color = self._resolve_color(
+            config, default=(255, 255, 255),
+            role_key="horizon_color_role", color_key="horizon_color",
+        )
+        grid_color = self._resolve_color(
+            config, default=(200, 200, 200),
+            role_key="grid_color_role", color_key="grid_color",
+        )
         thickness = config.get("thickness", 2)
 
         # Calculate horizon line position based on pitch

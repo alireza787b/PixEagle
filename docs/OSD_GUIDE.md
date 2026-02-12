@@ -180,6 +180,46 @@ mavlink_data:
 
 **That's it!** Now read the full guide below for deep dive into each concept.
 
+### Color Roles (Day/Night/Amber Mode Support)
+
+Elements can use **`color_role`** instead of hardcoded `color` values to automatically adapt
+to the active color mode (day / night / amber). This is the recommended approach.
+
+**Available roles:**
+
+| Role | Purpose | Day | Night | Amber |
+|------|---------|-----|-------|-------|
+| `primary` | Main data (heading, airspeed) | Green | Dim green | Amber |
+| `secondary` | Supporting data (name, throttle) | Grey | Dim green-grey | Warm grey |
+| `critical` | Most important (AGL altitude) | Bright green | Brighter green | Bright amber |
+| `warning` | Safety alerts (voltage) | Amber | Dim amber | Deep amber |
+| `accent` | Labels, status indicators | Teal | Green | Light amber |
+| `muted` | Low priority (coordinates) | Dim grey | Very dim green | Dim warm grey |
+| `crosshair` | Crosshair element | Green | Dim green | Amber |
+
+**Usage in presets:**
+```yaml
+altitude_agl:
+  anchor: "center-right"
+  offset: [-12, -80]
+  font_scale: 0.9
+  color: [50, 255, 50]       # Fallback when no color system active
+  color_role: "critical"     # Auto-adapts to day/night/amber palette
+  style: "plate"
+```
+
+For attitude indicators, use `horizon_color_role` and `grid_color_role`:
+```yaml
+attitude_indicator:
+  horizon_color: [255, 255, 255]
+  horizon_color_role: "primary"
+  grid_color: [160, 160, 160]
+  grid_color_role: "muted"
+```
+
+When `color_role` is set, the renderer resolves colors through the active palette.
+The `color` field serves as fallback for backward compatibility.
+
 ---
 
 ## Overview
