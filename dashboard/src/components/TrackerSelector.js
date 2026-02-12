@@ -114,7 +114,6 @@ const TrackerSelector = memo(() => {
 
   // Local state
   const [selectedTracker, setSelectedTracker] = useState('');
-  const [showDetails, setShowDetails] = useState(false);
 
   // Track pending user selection to prevent polling from overwriting it
   // This fixes the race condition where 2-second polling would reset user's dropdown choice
@@ -268,204 +267,94 @@ const TrackerSelector = memo(() => {
   const statusInfo = getStatusInfo();
 
   return (
-    <Card sx={{ height: '100%', opacity: switching ? 0.7 : 1, transition: 'opacity 0.3s' }}>
-      <CardContent>
-        {/* Header */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h6">
-            Classic Tracker
-          </Typography>
-          <Tooltip title="Select tracking algorithm">
-            <IconButton size="small">
-              <TrackChanges />
-            </IconButton>
-          </Tooltip>
-        </Box>
+    <>
+      {/* Header */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+          Classic Tracker
+        </Typography>
+        <Tooltip title="Select tracking algorithm">
+          <IconButton size="small">
+            <TrackChanges fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
 
-        {/* Current Status Chips */}
-        {currentTrackerInfo && (
-          <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-            <Chip
-              label={statusInfo.label}
-              color={statusInfo.color}
-              size="small"
-              icon={statusInfo.icon}
-            />
-            <Chip
-              label={`${currentTrackerInfo.icon} ${currentTrackerInfo.displayName}`}
-              color="primary"
-              size="small"
-            />
-            {currentTrackerInfo.performanceCategory && currentTrackerInfo.performanceCategory !== 'unknown' && (
-              <Chip
-                label={currentTrackerInfo.performanceCategory.replace(/_/g, ' ')}
-                size="small"
-                sx={{
-                  bgcolor: getPerformanceCategoryColor(currentTrackerInfo.performanceCategory),
-                  color: 'white'
-                }}
-                icon={<Speed fontSize="small" />}
-              />
-            )}
-          </Box>
-        )}
-
-        {/* Tracker Selection Dropdown */}
-        <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-          <InputLabel id="tracker-select-label">Tracker Algorithm</InputLabel>
-          <Select
-            labelId="tracker-select-label"
-            value={selectedTracker}
-            onChange={handleTrackerChange}
-            label="Tracker Algorithm"
-            disabled={switching || loadingTrackers}
-          >
-            {trackerOptions.map((option) => (
-              <MenuItem key={option.value} value={option.value}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <span>{option.icon}</span>
-                  <Box>
-                    <Typography variant="body2">{option.label}</Typography>
-                    <Typography variant="caption" color="textSecondary">
-                      {option.description}
-                    </Typography>
-                  </Box>
-                </Box>
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-
-        {/* Switch Button */}
-        <Button
-          fullWidth
-          variant="contained"
-          color="primary"
-          startIcon={switching ? <CircularProgress size={16} color="inherit" /> : <SwapHoriz />}
-          onClick={handleSwitch}
-          disabled={isSwitchDisabled}
-          sx={{ mb: 2 }}
-        >
-          {switching ? 'Switching...' : 'Switch Tracker'}
-        </Button>
-
-        {/* Safety Warning - Block switching while following */}
-        {currentTracker?.following_active && (
-          <Alert severity="warning" size="small" sx={{ mb: 2 }}>
-            <Typography variant="caption">
-              Cannot switch tracker while following is active. Stop following first.
-            </Typography>
-          </Alert>
-        )}
-
-        {/* Switch Error/Info Alert */}
-        {switchError && (
-          <Alert
-            severity={switchError.includes('Stop tracking') ? 'info' : 'error'}
+      {/* Current Status Chips */}
+      {currentTrackerInfo && (
+        <Box sx={{ display: 'flex', gap: 0.5, mb: 1.5, flexWrap: 'wrap' }}>
+          <Chip
+            label={statusInfo.label}
+            color={statusInfo.color}
             size="small"
-            sx={{ mb: 2 }}
-          >
-            <Typography variant="caption">
-              {switchError}
-            </Typography>
-          </Alert>
-        )}
+            icon={statusInfo.icon}
+            sx={{ height: 22, fontSize: 11 }}
+          />
+          <Chip
+            label={`${currentTrackerInfo.icon} ${currentTrackerInfo.displayName}`}
+            color="primary"
+            size="small"
+            sx={{ height: 22, fontSize: 11 }}
+          />
+        </Box>
+      )}
 
-        {/* Switching Progress */}
-        {switching && (
-          <Box sx={{ mb: 2 }}>
-            <CircularProgress size={20} />
-            <Typography variant="caption" color="textSecondary" sx={{ ml: 1 }}>
-              Switching tracker...
-            </Typography>
-          </Box>
-        )}
-
-        {/* Tracker Details Expandable Section */}
-        {currentTrackerInfo && (
-          <>
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                cursor: 'pointer',
-                pt: 1,
-                borderTop: '1px solid',
-                borderColor: 'divider'
-              }}
-              onClick={() => setShowDetails(!showDetails)}
-            >
-              <Typography variant="caption" color="textSecondary">
-                {showDetails ? 'Hide Details' : 'Show Details'}
-              </Typography>
-              <IconButton size="small">
-                {showDetails ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
-              </IconButton>
-            </Box>
-
-            <Collapse in={showDetails}>
-              <Box sx={{ mt: 1, pt: 1 }}>
-                {/* Description */}
-                <Typography variant="caption" color="textSecondary" paragraph>
-                  {currentTrackerInfo.description}
-                </Typography>
-
-                {/* Capabilities */}
-                {currentTrackerInfo.capabilities.length > 0 && (
-                  <Box sx={{ mb: 1 }}>
-                    <Typography variant="caption" fontWeight="bold" display="block">
-                      Capabilities:
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
-                      {currentTrackerInfo.capabilities.map((capability) => (
-                        <Chip
-                          key={capability}
-                          label={capability.replace(/_/g, ' ')}
-                          size="small"
-                          variant="outlined"
-                          sx={{ height: 20, fontSize: '0.65rem' }}
-                        />
-                      ))}
-                    </Box>
-                  </Box>
-                )}
-
-                {/* Suitable For */}
-                {currentTrackerInfo.suitableFor.length > 0 && (
-                  <Box>
-                    <Typography variant="caption" fontWeight="bold" display="block">
-                      Suitable For:
-                    </Typography>
-                    <Box component="ul" sx={{ m: 0, pl: 2, mt: 0.5 }}>
-                      {currentTrackerInfo.suitableFor.map((item, index) => (
-                        <Typography
-                          key={index}
-                          component="li"
-                          variant="caption"
-                          color="textSecondary"
-                        >
-                          {item}
-                        </Typography>
-                      ))}
-                    </Box>
-                  </Box>
-                )}
+      {/* Tracker Selection Dropdown */}
+      <FormControl fullWidth size="small" sx={{ mb: 1 }}>
+        <InputLabel id="tracker-select-label">Tracker Algorithm</InputLabel>
+        <Select
+          labelId="tracker-select-label"
+          value={selectedTracker}
+          onChange={handleTrackerChange}
+          label="Tracker Algorithm"
+          disabled={switching || loadingTrackers}
+        >
+          {trackerOptions.map((option) => (
+            <MenuItem key={option.value} value={option.value}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <span>{option.icon}</span>
+                <Typography variant="body2">{option.label}</Typography>
               </Box>
-            </Collapse>
-          </>
-        )}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
 
-        {/* Info Message */}
-        <Alert severity="info" size="small" sx={{ mt: 2 }}>
+      {/* Switch Button */}
+      <Button
+        fullWidth
+        variant="contained"
+        color="primary"
+        size="small"
+        startIcon={switching ? <CircularProgress size={16} color="inherit" /> : <SwapHoriz />}
+        onClick={handleSwitch}
+        disabled={isSwitchDisabled}
+      >
+        {switching ? 'Switching...' : 'Switch Tracker'}
+      </Button>
+
+      {/* Safety Warning - Block switching while following */}
+      {currentTracker?.following_active && (
+        <Alert severity="warning" size="small" sx={{ mt: 1 }}>
           <Typography variant="caption">
-            {currentTrackerInfo?.isTracking
-              ? "Tracker is actively tracking. Switch to change algorithm instantly."
-              : "Configured tracker will be used when tracking starts. Switch trackers anytime."}
+            Cannot switch while following is active.
           </Typography>
         </Alert>
-      </CardContent>
-    </Card>
+      )}
+
+      {/* Switch Error/Info Alert */}
+      {switchError && (
+        <Alert
+          severity={switchError.includes('Stop tracking') ? 'info' : 'error'}
+          size="small"
+          sx={{ mt: 1 }}
+        >
+          <Typography variant="caption">
+            {switchError}
+          </Typography>
+        </Alert>
+      )}
+    </>
   );
 });
 

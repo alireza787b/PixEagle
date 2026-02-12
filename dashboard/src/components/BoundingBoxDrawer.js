@@ -111,7 +111,7 @@ const BoundingBoxDrawer = ({
       ref={imageRef}
       style={{
         position: 'relative',
-        display: 'inline-block',
+        display: 'block',
         width: '100%',
         touchAction: 'none',
         cursor: smartModeActive ? 'crosshair' : (startPos ? 'crosshair' : 'cell'),

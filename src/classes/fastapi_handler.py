@@ -38,6 +38,8 @@ from contextlib import asynccontextmanager
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import subprocess
+import os
 
 # Models
 class BoundingBox(BaseModel):
@@ -5316,8 +5318,48 @@ class FastAPIHandler:
 
         This endpoint provides configuration values that the frontend may need
         at runtime, supporting dynamic host detection and network configuration.
+        Includes version and git metadata for dashboard display.
         """
         try:
+            # Get git metadata (gracefully fallback if git unavailable)
+            git_info = {}
+            try:
+                project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+
+                commit_hash = subprocess.check_output(
+                    ['git', 'rev-parse', '--short', 'HEAD'],
+                    cwd=project_root,
+                    stderr=subprocess.DEVNULL,
+                    text=True
+                ).strip()
+
+                commit_date = subprocess.check_output(
+                    ['git', 'log', '-1', '--format=%cd', '--date=short'],
+                    cwd=project_root,
+                    stderr=subprocess.DEVNULL,
+                    text=True
+                ).strip()
+
+                branch = subprocess.check_output(
+                    ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+                    cwd=project_root,
+                    stderr=subprocess.DEVNULL,
+                    text=True
+                ).strip()
+
+                git_info = {
+                    'commit': commit_hash,
+                    'date': commit_date,
+                    'branch': branch
+                }
+            except (subprocess.CalledProcessError, FileNotFoundError, Exception):
+                # Git not available or not a git repo - provide minimal info
+                git_info = {
+                    'commit': 'unknown',
+                    'date': 'unknown',
+                    'branch': 'unknown'
+                }
+
             return JSONResponse(content={
                 'success': True,
                 'config': {
@@ -5325,6 +5367,7 @@ class FastAPIHandler:
                     'websocket_port': Parameters.HTTP_STREAM_PORT,
                     'version': PIXEAGLE_VERSION,
                     'api_host': Parameters.HTTP_STREAM_HOST,
+                    'git': git_info
                 },
                 'timestamp': time.time()
             })

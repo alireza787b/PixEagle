@@ -1,5 +1,5 @@
 // dashboard/src/components/NavigationDrawer.js
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Drawer,
   List,
@@ -13,15 +13,24 @@ import {
   Typography,
   useMediaQuery,
   useTheme,
+  Tooltip,
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
 } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import LiveTvIcon from '@mui/icons-material/LiveTv';
 import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
 import SettingsIcon from '@mui/icons-material/Settings';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { Link, useLocation } from 'react-router-dom';
 import { useTrackerStatus, useFollowerStatus } from '../hooks/useStatuses';
 import QuitButton from './QuitButton';
+import { endpoints } from '../services/apiEndpoints';
 
 export const DRAWER_WIDTH = 220;
 
@@ -56,7 +65,33 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
   const isTracking = useTrackerStatus(3000);
   const isFollowing = useFollowerStatus(3000);
 
+  const [versionInfo, setVersionInfo] = useState(null);
+  const [showVersionDialog, setShowVersionDialog] = useState(false);
+
   const currentPath = location.pathname === '/' ? '/dashboard' : location.pathname;
+
+  // Fetch version info
+  useEffect(() => {
+    const fetchVersion = async () => {
+      try {
+        const response = await fetch(endpoints.systemConfig);
+        const data = await response.json();
+        if (data.success && data.config) {
+          setVersionInfo({
+            version: data.config.version || 'unknown',
+            git: data.config.git || {},
+          });
+        }
+      } catch (error) {
+        console.error('Failed to fetch version info:', error);
+      }
+    };
+
+    fetchVersion();
+    // Refresh version info every 5 minutes
+    const interval = setInterval(fetchVersion, 300000);
+    return () => clearInterval(interval);
+  }, []);
 
   const drawer = (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', pt: 1 }}>
@@ -146,10 +181,116 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
       </Box>
 
       {/* Quit Button */}
-      <Box sx={{ px: 2, pb: 2 }}>
+      <Box sx={{ px: 2, pb: 1.5 }}>
         <QuitButton fullWidth />
       </Box>
+
+      {/* Version Info Footer */}
+      {versionInfo && (
+        <>
+          <Divider />
+          <Box
+            sx={{
+              px: 2,
+              py: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              bgcolor: 'action.hover',
+            }}
+          >
+            <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+              <Typography variant="caption" sx={{ fontSize: 10, fontWeight: 600, color: 'text.secondary' }}>
+                v{versionInfo.version}
+              </Typography>
+              <Typography
+                variant="caption"
+                sx={{
+                  fontSize: 9,
+                  color: 'text.disabled',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {versionInfo.git.commit !== 'unknown' ? `${versionInfo.git.commit}` : 'dev build'}
+              </Typography>
+            </Box>
+            <Tooltip title="Version Info">
+              <IconButton size="small" onClick={() => setShowVersionDialog(true)} sx={{ p: 0.5 }}>
+                <InfoOutlinedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        </>
+      )}
     </Box>
+  );
+
+  // Version info dialog
+  const versionDialog = versionInfo && (
+    <Dialog open={showVersionDialog} onClose={() => setShowVersionDialog(false)} maxWidth="xs" fullWidth>
+      <DialogTitle>PixEagle Version Info</DialogTitle>
+      <DialogContent>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
+          <Box>
+            <Typography variant="caption" color="text.secondary" display="block">
+              Version
+            </Typography>
+            <Typography variant="body2" fontWeight={600}>
+              {versionInfo.version}
+            </Typography>
+          </Box>
+          {versionInfo.git.commit !== 'unknown' && (
+            <>
+              <Box>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Commit
+                </Typography>
+                <Typography variant="body2" fontFamily="monospace">
+                  {versionInfo.git.commit}
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Branch
+                </Typography>
+                <Typography variant="body2" fontFamily="monospace">
+                  {versionInfo.git.branch}
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  Date
+                </Typography>
+                <Typography variant="body2">
+                  {versionInfo.git.date}
+                </Typography>
+              </Box>
+            </>
+          )}
+          <Divider />
+          <Box>
+            <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
+              Project
+            </Typography>
+            <Typography variant="body2">
+              <a
+                href="https://github.com/alireza787b/PixEagle"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: theme.palette.primary.main, textDecoration: 'none' }}
+              >
+                github.com/alireza787b/PixEagle
+              </a>
+            </Typography>
+          </Box>
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setShowVersionDialog(false)}>Close</Button>
+      </DialogActions>
+    </Dialog>
   );
 
   return (
@@ -187,6 +328,9 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
       >
         {drawer}
       </Drawer>
+
+      {/* Version Info Dialog */}
+      {versionDialog}
     </Box>
   );
 };
