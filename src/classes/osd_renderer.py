@@ -1000,7 +1000,10 @@ class OSDRenderer:
             elif field in ["Altitude Msl", "Altitude Agl"]:
                 return f"{float(value):.1f} m" if "agl" in field.lower() else f"{int(float(value))} m"
             elif field == "Voltage":
-                return f"{float(value):.1f} V"
+                v = float(value)
+                if v > 100:
+                    v = v / 1000.0
+                return f"{v:.1f} V"
             elif field in ["Latitude", "Longitude"]:
                 return f"{float(value):.6f}"
             elif field in ["Hdop", "Vdop"]:

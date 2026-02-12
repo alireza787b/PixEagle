@@ -382,6 +382,9 @@ class FastAPIHandler:
         self.app.post("/api/osd/toggle")(self.toggle_osd)
         self.app.get("/api/osd/presets")(self.get_osd_presets)
         self.app.post("/api/osd/preset/{preset_name}")(self.load_osd_preset)
+        self.app.get("/api/osd/color-modes")(self.get_osd_color_modes)
+        self.app.post("/api/osd/color-mode/{mode}")(self.set_osd_color_mode)
+        self.app.get("/api/osd/modes")(self.get_osd_modes)
 
         # GStreamer QGC Output API endpoints
         self.app.get("/api/gstreamer/status")(self.get_gstreamer_status)
@@ -3706,6 +3709,10 @@ class FastAPIHandler:
             # Get preset name
             current_preset = getattr(Parameters, 'OSD_PRESET', 'professional')
 
+            # Get color mode from mode manager
+            mgr = getattr(self.app_controller, 'osd_mode_manager', None)
+            color_mode = mgr.color_mode if mgr else 'day'
+
             return JSONResponse(content={
                 'available': True,
                 'enabled': is_enabled,
@@ -3713,6 +3720,7 @@ class FastAPIHandler:
                 'configuration': {
                     'enabled_parameter': Parameters.OSD_ENABLED,
                     'current_preset': current_preset,
+                    'color_mode': color_mode,
                     'presets_location': 'configs/osd_presets/',
                     'pipeline_mode': getattr(Parameters, 'OSD_PIPELINE_MODE', 'layered_realtime'),
                     'target_resolution': getattr(Parameters, 'OSD_TARGET_LAYER_RESOLUTION', 'stream'),
@@ -3889,6 +3897,80 @@ class FastAPIHandler:
             raise
         except Exception as e:
             self.logger.error(f"Error loading OSD preset: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    # ==================== OSD Color Mode & Mode Management ====================
+
+    async def get_osd_color_modes(self):
+        """Get available OSD color modes and current selection."""
+        try:
+            mgr = getattr(self.app_controller, 'osd_mode_manager', None)
+            if mgr is None:
+                raise HTTPException(status_code=503, detail="OSD mode manager not available")
+
+            from classes.osd_colors import VALID_COLOR_MODES
+            return JSONResponse(content={
+                'available_modes': VALID_COLOR_MODES,
+                'current': mgr.color_mode,
+                'timestamp': time.time(),
+            })
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error getting OSD color modes: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def set_osd_color_mode(self, mode: str):
+        """Switch OSD color mode (day/night/amber)."""
+        try:
+            mgr = getattr(self.app_controller, 'osd_mode_manager', None)
+            if mgr is None:
+                raise HTTPException(status_code=503, detail="OSD mode manager not available")
+
+            from classes.osd_colors import VALID_COLOR_MODES
+            if mode not in VALID_COLOR_MODES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid color mode '{mode}'. Valid: {VALID_COLOR_MODES}"
+                )
+
+            old_mode = mgr.color_mode
+            success = mgr.switch_color_mode(mode)
+
+            if not success:
+                raise HTTPException(status_code=500, detail="Failed to switch color mode")
+
+            self.logger.info(f"OSD color mode switched: '{old_mode}' -> '{mode}'")
+
+            return JSONResponse(content={
+                'status': 'success',
+                'old_mode': old_mode,
+                'new_mode': mode,
+                'message': f"Color mode switched to '{mode}'",
+                'timestamp': time.time(),
+            })
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error setting OSD color mode: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_osd_modes(self):
+        """Get full OSD mode status (presets + color mode)."""
+        try:
+            mgr = getattr(self.app_controller, 'osd_mode_manager', None)
+            if mgr is None:
+                raise HTTPException(status_code=503, detail="OSD mode manager not available")
+
+            return JSONResponse(content={
+                'status': 'success',
+                **mgr.get_status(),
+                'timestamp': time.time(),
+            })
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error getting OSD modes: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     # ==================== GStreamer QGC Output API Endpoints ====================

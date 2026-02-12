@@ -2175,30 +2175,33 @@ OSD:
 
   # === Preset Selection ===
   OSD_PRESET: "professional"             # Active preset filename (without .yaml)
-                                         # Options: minimal | professional | full_telemetry
-                                         # Or your custom preset name
+                                         # Options: minimal | professional | military | full_telemetry | debug
 
   # === Performance Mode ===
-  # Choose rendering mode based on your hardware:
-  # "fast"     - OpenCV rendering (2-3ms/frame) - For Raspberry Pi, Jetson Nano
-  # "balanced" - PIL with native stroke (5-8ms/frame) - RECOMMENDED for most systems
-  # "quality"  - PIL with manual outline (50-80ms/frame) - For high-end desktops/recording
-  OSD_PERFORMANCE_MODE: "balanced"
+  OSD_PERFORMANCE_MODE: "balanced"        # Rendering quality vs speed tradeoff
+                                          # Options: fast | balanced | quality
 
   # === Real-Time OSD Pipeline ===
-  # "layered_realtime" uses cached static/dynamic overlays for lower latency
-  # "legacy" keeps per-frame monolithic OSD rendering for compatibility
-  OSD_PIPELINE_MODE: "layered_realtime"
-  OSD_TARGET_LAYER_RESOLUTION: "stream"   # stream | capture
+  OSD_PIPELINE_MODE: "layered_realtime"   # OSD rendering pipeline strategy
+                                          # Options: layered_realtime | legacy
+  OSD_TARGET_LAYER_RESOLUTION: "stream"   # Options: stream | capture
   OSD_DYNAMIC_FPS: 10                     # Update cadence for telemetry/status overlays
   OSD_DATETIME_FPS: 1                     # Lower cadence for clock text updates
   OSD_MAX_RENDER_BUDGET_MS: 25.0          # Dynamic layer render budget
   OSD_AUTO_DEGRADE: true                  # Auto-lower OSD mode when over budget
-  OSD_AUTO_DEGRADE_MIN_MODE: "fast"       # quality/balanced -> fast on constrained hardware
-  OSD_COMPOSITOR: "cv2_alpha"             # cv2_alpha | legacy_pil_composite
+  OSD_AUTO_DEGRADE_MIN_MODE: "fast"       # Minimum quality floor for auto-degradation
+                                          # Options: fast | balanced | quality
+  OSD_COMPOSITOR: "cv2_alpha"             # Overlay compositing method
+                                          # Options: cv2_alpha | legacy_pil_composite
+
+  # === Color Mode ===
+  OSD_COLOR_MODE: "day"                   # Runtime color palette for OSD elements
+                                          # Options: day | night | amber
 
   # ℹ️ NOTE: All element configurations are loaded from the preset file
   # ℹ️ See configs/osd_presets/{OSD_PRESET}.yaml for layout and styling
+  # ℹ️ Available presets: minimal | professional | military | full_telemetry | debug
+  # ℹ️ Color mode and preset can be switched at runtime via API or dashboard
 
 # ==============================================================================
 # DEBUGGING & LOGGING

@@ -17,7 +17,8 @@ import {
 import InfoIcon from '@mui/icons-material/Info';
 import { endpoints } from '../services/apiEndpoints';
 
-const DEFAULT_PRESETS = ['minimal', 'professional', 'full_telemetry'];
+const DEFAULT_PRESETS = ['minimal', 'professional', 'military', 'full_telemetry', 'debug'];
+const DEFAULT_COLOR_MODES = ['day', 'night', 'amber'];
 const STATUS_POLL_INTERVAL_MS = 2000;
 const NO_STORE_HEADERS = {
   'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -72,10 +73,12 @@ const OSDToggle = () => {
   const [osdEnabled, setOsdEnabled] = useState(false);
   const [currentPreset, setCurrentPreset] = useState('professional');
   const [availablePresets, setAvailablePresets] = useState(DEFAULT_PRESETS);
+  const [currentColorMode, setCurrentColorMode] = useState('day');
   const [initialLoading, setInitialLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [toggleLoading, setToggleLoading] = useState(false);
   const [presetLoading, setPresetLoading] = useState(false);
+  const [colorModeLoading, setColorModeLoading] = useState(false);
   const [error, setError] = useState(null);
 
   const currentPresetRef = useRef('professional');
@@ -93,9 +96,18 @@ const OSDToggle = () => {
 
   // Preset descriptions for tooltips
   const presetDescriptions = {
-    minimal: 'Racing/FPV - Minimal distraction with only essential data (6 elements)',
-    professional: 'Default - Balanced layout for general operations (15-18 elements)',
-    full_telemetry: 'Debugging - Maximum telemetry data for analysis (25+ elements)',
+    minimal: 'Racing/FPV - Minimal distraction with only essential data',
+    professional: 'Default - Balanced aviation-grade layout',
+    military: 'Tactical - MIL-STD inspired defense HUD',
+    full_telemetry: 'Analysis - Maximum telemetry data density',
+    debug: 'Engineering - All fields + debug info',
+  };
+
+  // Color mode descriptions
+  const colorModeDescriptions = {
+    day: 'Green phosphor - Standard daylight operations',
+    night: 'NVIS compatible - Night vision safe (dim green)',
+    amber: 'Amber HUD - A-10/Apache style warm tones',
   };
 
   const syncState = useCallback(async ({ includePresets = false, silent = false, suppressError = false } = {}) => {
@@ -140,11 +152,17 @@ const OSDToggle = () => {
       setCurrentPreset(resolvedPreset);
       currentPresetRef.current = resolvedPreset;
       setOsdEnabled(Boolean(statusData?.enabled));
+
+      // Sync color mode from status
+      const colorMode = statusData?.configuration?.color_mode || 'day';
+      setCurrentColorMode(colorMode);
+
       setError(null);
 
       return {
         enabled: Boolean(statusData?.enabled),
         preset: resolvedPreset,
+        colorMode,
       };
     } catch (syncError) {
       if (!suppressError) {
@@ -262,6 +280,30 @@ const OSDToggle = () => {
     }
   };
 
+  /**
+   * Change OSD color mode and reconcile with backend status.
+   */
+  const handleColorModeChange = async (event) => {
+    const newMode = String(event.target.value);
+    setColorModeLoading(true);
+    setError(null);
+
+    try {
+      await fetchJsonNoStore(endpoints.setOsdColorMode(newMode), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      await syncState({ silent: true, suppressError: true });
+    } catch (colorError) {
+      console.error('Failed to change color mode:', colorError);
+      setError('Failed to switch color mode. Please try again.');
+      await syncState({ silent: true, suppressError: true });
+    } finally {
+      setColorModeLoading(false);
+    }
+  };
+
   const switchBusy = initialLoading || toggleLoading || syncing;
 
   return (
@@ -342,10 +384,48 @@ const OSDToggle = () => {
         </Box>
       )}
 
+      {/* Color Mode Selector */}
+      <FormControl fullWidth sx={{ mt: 2 }} disabled={!osdEnabled || colorModeLoading || initialLoading}>
+        <InputLabel id="osd-color-mode-label">Color Mode</InputLabel>
+        <Select
+          labelId="osd-color-mode-label"
+          id="osd-color-mode-select"
+          value={currentColorMode}
+          label="Color Mode"
+          onChange={handleColorModeChange}
+        >
+          {DEFAULT_COLOR_MODES.map((mode) => {
+            const displayName = mode.charAt(0).toUpperCase() + mode.slice(1);
+
+            return (
+              <MenuItem key={mode} value={mode}>
+                <Tooltip title={colorModeDescriptions[mode] || ''} placement="right" arrow>
+                  <Box sx={{ width: '100%' }}>
+                    {displayName}
+                    {mode === 'day' && ' (Default)'}
+                  </Box>
+                </Tooltip>
+              </MenuItem>
+            );
+          })}
+        </Select>
+      </FormControl>
+
+      {/* Color mode loading indicator */}
+      {colorModeLoading && (
+        <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
+          <CircularProgress size={16} sx={{ mr: 1 }} />
+          <Typography variant="caption" color="text.secondary">
+            Switching color mode...
+          </Typography>
+        </Box>
+      )}
+
       {/* Current status display */}
       {currentPreset && (
         <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-          Active Preset: {currentPreset.charAt(0).toUpperCase() + currentPreset.slice(1).replace('_', ' ')}
+          Preset: {currentPreset.charAt(0).toUpperCase() + currentPreset.slice(1).replace('_', ' ')}
+          {' | '}Color: {currentColorMode.charAt(0).toUpperCase() + currentColorMode.slice(1)}
         </Typography>
       )}
     </Box>

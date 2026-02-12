@@ -21,6 +21,7 @@ from classes.fastapi_handler import FastAPIHandler  # Correct import
 from typing import Dict, Optional, Tuple, Any
 from classes.osd_handler import OSDHandler
 from classes.osd_pipeline import OSDPipeline
+from classes.osd_mode_manager import OSDModeManager
 from classes.gstreamer_handler import GStreamerHandler
 from classes.mavlink_data_manager import MavlinkDataManager
 from classes.frame_publisher import FramePublisher
@@ -172,6 +173,7 @@ class AppController:
         # Initialize OSD handler for overlay graphics
         self.osd_handler = OSDHandler(self)
         self.osd_pipeline = OSDPipeline(self.osd_handler)
+        self.osd_mode_manager = OSDModeManager(self)
         
         # Initialize GStreamer streaming if enabled
         if Parameters.ENABLE_GSTREAMER_STREAM:
@@ -728,6 +730,12 @@ class AppController:
             await self.disconnect_px4()
         elif key == ord('c'):
             self.cancel_activities()
+        elif key == ord('o'):
+            new_preset = self.osd_mode_manager.cycle_preset()
+            self.logger.info(f"OSD preset cycled to: {new_preset}")
+        elif key == ord('n'):
+            new_mode = self.osd_mode_manager.cycle_color_mode()
+            self.logger.info(f"OSD color mode cycled to: {new_mode}")
 
     def handle_key_input(self, key: int, frame: np.ndarray):
         """

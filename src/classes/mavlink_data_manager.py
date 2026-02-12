@@ -119,7 +119,6 @@ class MavlinkDataManager:
                     else:
                         value = self._extract_data_from_json(json_data, json_path)
                         if value is None:
-                            #self.logger.warning(f"Failed to retrieve data for {point_name} using path {json_path}. Assigning 'N/A'.")
                             value = "N/A"
                         else:
                             if point_name in ["latitude", "longitude"]:
@@ -127,6 +126,14 @@ class MavlinkDataManager:
                                     value = float(value) / 1e7
                                 except (ValueError, TypeError) as e:
                                     self.logger.error(f"Failed to convert {point_name} value to float for division: {e}")
+                                    value = "N/A"
+                            elif point_name == "voltage":
+                                try:
+                                    # SYS_STATUS.voltage_battery is in millivolts per MAVLink spec
+                                    mv = float(value)
+                                    value = mv / 1000.0
+                                except (ValueError, TypeError) as e:
+                                    self.logger.error(f"Failed to convert voltage from millivolts: {e}")
                                     value = "N/A"
                         self.data[point_name] = value
 

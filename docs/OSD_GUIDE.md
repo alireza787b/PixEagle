@@ -108,21 +108,49 @@ curl http://localhost:5000/api/osd/status  # Check enabled: true
 # Increase offset spacing or reduce font_scale
 ```
 
+### Runtime Controls
+
+**Dashboard**: OSD panel in Dashboard and Live Feed pages
+- Toggle OSD on/off
+- Switch preset (instant, no restart)
+- Switch color mode (day/night/amber)
+
+**Keyboard shortcuts** (local video window):
+- `O` — Cycle OSD preset
+- `N` — Cycle color mode (day → night → amber)
+
+**API endpoints**:
+```bash
+GET  /api/osd/status              # Full OSD status
+POST /api/osd/toggle              # Enable/disable OSD
+GET  /api/osd/presets             # List available presets
+POST /api/osd/preset/{name}       # Switch preset
+GET  /api/osd/color-modes         # List color modes
+POST /api/osd/color-mode/{mode}   # Switch color mode (day/night/amber)
+GET  /api/osd/modes               # Full mode manager status
+```
+
 ### File Locations Reference
 
 ```
 configs/
-  ├── config_default.yaml          # Master config (OSD.PRESET setting here)
+  ├── config_default.yaml          # Master config (OSD section)
   └── osd_presets/
-      ├── professional.yaml        # Default - balanced (15-18 elements)
-      ├── minimal.yaml             # Racing - clean (6 elements)
-      ├── full_telemetry.yaml      # Debugging - maximum data (25+ elements)
+      ├── professional.yaml        # Default - balanced aviation layout
+      ├── minimal.yaml             # Racing/FPV - essentials only
+      ├── military.yaml            # Tactical - MIL-STD inspired defense HUD
+      ├── full_telemetry.yaml      # Analysis - maximum data density
+      ├── debug.yaml               # Engineering - all fields + debug info
       └── my_preset.yaml           # Your custom preset
 
 src/classes/
-  ├── osd_renderer.py              # Main rendering engine (617 lines)
-  ├── osd_text_renderer.py         # PIL/Pillow font rendering (431 lines)
-  └── osd_layout_manager.py        # Anchor & collision system (436 lines)
+  ├── osd_renderer.py              # Main rendering engine
+  ├── osd_text_renderer.py         # PIL/Pillow font rendering
+  ├── osd_layout_manager.py        # Anchor & collision system
+  ├── osd_pipeline.py              # Layered caching pipeline
+  ├── osd_handler.py               # Backward compatibility wrapper
+  ├── osd_colors.py                # Color system (day/night/amber palettes)
+  └── osd_mode_manager.py          # Runtime preset & color switching
 
 resources/fonts/
   ├── RobotoMono-Regular.ttf       # Primary font (preferred)

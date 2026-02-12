@@ -57,6 +57,9 @@ export const endpoints = {
   toggleOsd: `${protocol}://${apiHost}:${apiPort}/api/osd/toggle`,
   osdPresets: `${protocol}://${apiHost}:${apiPort}/api/osd/presets`,
   loadOsdPreset: (presetName) => `${protocol}://${apiHost}:${apiPort}/api/osd/preset/${presetName}`,
+  osdColorModes: `${protocol}://${apiHost}:${apiPort}/api/osd/color-modes`,
+  setOsdColorMode: (mode) => `${protocol}://${apiHost}:${apiPort}/api/osd/color-mode/${mode}`,
+  osdModes: `${protocol}://${apiHost}:${apiPort}/api/osd/modes`,
 
   // GStreamer QGC Output endpoints
   gstreamerStatus: `${protocol}://${apiHost}:${apiPort}/api/gstreamer/status`,

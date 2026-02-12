@@ -2,7 +2,7 @@ schema_version: 1.0.0
 meta:
   project: PixEagle
   generated_from: c:\Users\Alireza\PixEagle\configs\config_default.yaml
-  generated_at: '2026-02-12T10:24:03.529836'
+  generated_at: '2026-02-12T18:40:30.828043'
   description: Auto-generated schema for PixEagle configuration
 categories:
   video:
@@ -104,13 +104,15 @@ sections:
       PIPELINE_MODE:
         type: string
         default: REALTIME
-        description: 'Controls frame pacing behavior. REALTIME: process at source FPS (live cameras). MAX_THROUGHPUT: no
-          delay, process as fast as possible (offline analysis). DETERMINISTIC_REPLAY: pace by source timestamps (testing).'
-        reboot_required: true
+        description: PIPELINE_MODE parameter
+        reboot_required: false
         options:
-          - REALTIME
-          - MAX_THROUGHPUT
-          - DETERMINISTIC_REPLAY
+        - value: REALTIME
+          label: REALTIME
+        - value: MAX_THROUGHPUT
+          label: MAX_THROUGHPUT
+        - value: DETERMINISTIC_REPLAY
+          label: DETERMINISTIC_REPLAY
       USE_GSTREAMER:
         type: boolean
         default: false
@@ -154,48 +156,51 @@ sections:
       RTSP_MAX_CONSECUTIVE_FAILURES:
         type: integer
         default: 10
-        description: Number of consecutive failed frame reads before attempting connection recovery
-        reboot_required: false
-        min: 1
-        max: 100
+        description: Failed frame reads before recovery attempt
+        reboot_required: true
+        min: 0
+        max: 200
       RTSP_CONNECTION_TIMEOUT:
-        type: number
+        type: float
         default: 5.0
-        description: Seconds without a successful frame before triggering connection recovery
-        reboot_required: false
-        min: 1.0
-        max: 60.0
-        unit: seconds
+        description: Seconds without a good frame before recovery
+        reboot_required: true
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: s
       RTSP_MAX_RECOVERY_ATTEMPTS:
         type: integer
         default: 3
-        description: Maximum reconnection attempts per failure event
-        reboot_required: false
-        min: 1
-        max: 20
+        description: Reconnect attempts per failure event
+        reboot_required: true
+        min: 0
+        max: 100
       RTSP_FRAME_CACHE_SIZE:
         type: integer
         default: 5
-        description: Number of good frames cached for graceful degradation during connection loss
-        reboot_required: false
-        min: 1
-        max: 30
+        description: Cached good frames for graceful degradation
+        reboot_required: true
+        min: 0
+        max: 100
       RTSP_RECOVERY_BACKOFF_BASE:
-        type: number
+        type: float
         default: 1.0
-        description: Initial retry delay in seconds (doubles with each attempt)
-        reboot_required: false
-        min: 0.1
-        max: 10.0
-        unit: seconds
+        description: Initial retry delay (seconds)
+        reboot_required: true
+        min: 0.0
+        max: 1.0
+        step: 0.01
+        unit: s
       RTSP_RECOVERY_BACKOFF_MAX:
-        type: number
+        type: float
         default: 10.0
-        description: Maximum retry delay cap in seconds
-        reboot_required: false
-        min: 1.0
-        max: 60.0
-        unit: seconds
+        description: Maximum retry delay cap (seconds)
+        reboot_required: true
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: s
       UDP_URL:
         type: string
         default: udp://172.21.144.1:5000
@@ -738,7 +743,7 @@ sections:
       APPEARANCE_CONFIDENCE_THRESHOLD:
         type: float
         default: 0.5
-        description: Minimum confidence for appearance match validation in detectors
+        description: Min confidence for appearance match
         reboot_required: false
         min: 0.0
         max: 1.0
@@ -746,7 +751,7 @@ sections:
       MOTION_CONFIDENCE_WEIGHT:
         type: float
         default: 0.5
-        description: Weight for motion-based confidence in classic tracker blending
+        description: Weight for motion-based confidence
         reboot_required: false
         min: 0.0
         max: 1.0
@@ -754,7 +759,7 @@ sections:
       APPEARANCE_CONFIDENCE_WEIGHT:
         type: float
         default: 0.5
-        description: Weight for appearance-based confidence in classic tracker blending
+        description: Weight for appearance-based confidence
         reboot_required: false
         min: 0.0
         max: 1.0
@@ -5630,15 +5635,17 @@ sections:
           label: minimal
         - value: professional
           label: professional
+        - value: military
+          label: military
         - value: full_telemetry
           label: full_telemetry
+        - value: debug
+          label: debug
         unit: without .yaml
       OSD_PERFORMANCE_MODE:
         type: string
         default: balanced
-        description: 'Choose rendering mode based on your hardware: "fast"     - OpenCV rendering (2-3ms/frame) - For Raspberry
-          Pi, Jetson Nano "balanced" - PIL with native stroke (5-8ms/frame) - RECOMMENDED for most systems "quality"  - PIL
-          with manual outline (50-80ms/frame) - For high-end desktops/recording'
+        description: Rendering quality vs speed tradeoff
         reboot_required: false
         options:
         - value: fast
@@ -5650,9 +5657,13 @@ sections:
       OSD_PIPELINE_MODE:
         type: string
         default: layered_realtime
-        description: '"layered_realtime" uses cached static/dynamic overlays for lower latency "legacy" keeps per-frame monolithic
-          OSD rendering for compatibility'
+        description: OSD rendering pipeline strategy
         reboot_required: false
+        options:
+        - value: layered_realtime
+          label: layered_realtime
+        - value: legacy
+          label: legacy
       OSD_TARGET_LAYER_RESOLUTION:
         type: string
         default: stream
@@ -5693,18 +5704,37 @@ sections:
       OSD_AUTO_DEGRADE_MIN_MODE:
         type: string
         default: fast
-        description: quality/balanced -> fast on constrained hardware
+        description: Minimum quality floor for auto-degradation
         reboot_required: false
+        options:
+        - value: fast
+          label: fast
+        - value: balanced
+          label: balanced
+        - value: quality
+          label: quality
       OSD_COMPOSITOR:
         type: string
         default: cv2_alpha
-        description: OSD_COMPOSITOR parameter
+        description: Overlay compositing method
         reboot_required: false
         options:
         - value: cv2_alpha
           label: cv2_alpha
         - value: legacy_pil_composite
           label: legacy_pil_composite
+      OSD_COLOR_MODE:
+        type: string
+        default: day
+        description: Runtime color palette for OSD elements
+        reboot_required: false
+        options:
+        - value: day
+          label: day
+        - value: night
+          label: night
+        - value: amber
+          label: amber
   Debugging:
     display_name: Debugging
     category: display

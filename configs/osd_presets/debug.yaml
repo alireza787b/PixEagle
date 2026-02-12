@@ -1,0 +1,215 @@
+# ==============================================================================
+# PixEagle OSD Preset - DEBUG / ENGINEERING
+# ==============================================================================
+# Maximum data density for development, debugging, and system analysis.
+# Shows all available telemetry fields plus engineering info.
+#
+# Design Principles:
+# - Every available field visible
+# - Compact fonts for maximum data density
+# - Tight margins (3%) for extra screen space
+# - Two-column layout (navigation left, altitude/speed right)
+# - Color-coded by category (nav=grey, critical=green, power=amber)
+# ==============================================================================
+
+GLOBAL_SETTINGS:
+  base_font_scale: 0.85
+  text_style: "outlined"
+  outline_thickness: 1
+  shadow_offset: [1, 1]
+  shadow_opacity: 0.4
+  background_opacity: 0.65
+  safe_zone_margin: 3.0
+
+ELEMENTS:
+  # System banner
+  name:
+    enabled: true
+    layer: static
+    text: "PIXEAGLE [DEBUG]"
+    anchor: "top-left"
+    offset: [5, 5]
+    font_scale: 0.8
+    color: [50, 200, 255]
+    style: "outlined"
+
+  datetime:
+    enabled: true
+    layer: slow_dynamic
+    anchor: "top-right"
+    offset: [-5, 5]
+    font_scale: 0.4
+    color: [200, 200, 200]
+    style: "outlined"
+    alignment: "right"
+
+  crosshair:
+    enabled: true
+    layer: static
+    color: [0, 255, 0]
+    thickness: 1
+    length: 8
+
+  attitude_indicator:
+    enabled: true
+    layer: dynamic
+    position: [50, 50]
+    size: [8, 8]
+    horizon_color: [255, 255, 255]
+    grid_color: [160, 160, 160]
+    thickness: 1
+
+  mavlink_data:
+    enabled: true
+    layer: dynamic
+    fields:
+      # --- TOP: Flight Mode + Arm Status ---
+      flight_mode:
+        anchor: "top-left"
+        offset: [5, 28]
+        font_scale: 0.45
+        color: [100, 200, 255]
+        style: "plate"
+
+      arm_status:
+        anchor: "top-center"
+        offset: [0, 8]
+        font_scale: 0.5
+        color: [50, 200, 255]
+        style: "plate"
+        alignment: "center"
+
+      # --- LEFT COLUMN: Attitude & Navigation ---
+      roll:
+        anchor: "center-left"
+        offset: [5, -130]
+        font_scale: 0.38
+        color: [200, 200, 200]
+        style: "outlined"
+
+      pitch:
+        anchor: "center-left"
+        offset: [5, -112]
+        font_scale: 0.38
+        color: [200, 200, 200]
+        style: "outlined"
+
+      heading:
+        anchor: "center-left"
+        offset: [5, -94]
+        font_scale: 0.38
+        color: [200, 200, 200]
+        style: "outlined"
+
+      # GPS cluster
+      satellites_visible:
+        anchor: "center-left"
+        offset: [5, -68]
+        font_scale: 0.38
+        color: [200, 200, 200]
+        style: "outlined"
+
+      hdop:
+        anchor: "center-left"
+        offset: [5, -50]
+        font_scale: 0.38
+        color: [200, 200, 200]
+        style: "outlined"
+
+      vdop:
+        anchor: "center-left"
+        offset: [5, -32]
+        font_scale: 0.38
+        color: [200, 200, 200]
+        style: "outlined"
+
+      latitude:
+        anchor: "bottom-left"
+        offset: [5, -90]
+        font_scale: 0.35
+        color: [180, 180, 180]
+        style: "outlined"
+
+      longitude:
+        anchor: "bottom-left"
+        offset: [5, -72]
+        font_scale: 0.35
+        color: [180, 180, 180]
+        style: "outlined"
+
+      # Power
+      voltage:
+        anchor: "bottom-left"
+        offset: [5, -48]
+        font_scale: 0.45
+        color: [255, 200, 50]
+        style: "plate"
+
+      throttle:
+        anchor: "bottom-left"
+        offset: [5, -28]
+        font_scale: 0.38
+        color: [200, 200, 200]
+        style: "outlined"
+
+      # --- RIGHT COLUMN: Altitude & Speed ---
+      altitude_agl:
+        anchor: "center-right"
+        offset: [-5, -130]
+        font_scale: 0.5
+        color: [50, 255, 120]
+        style: "plate"
+
+      altitude_msl:
+        anchor: "center-right"
+        offset: [-5, -108]
+        font_scale: 0.38
+        color: [200, 200, 200]
+        style: "outlined"
+
+      airspeed:
+        anchor: "center-right"
+        offset: [-5, -82]
+        font_scale: 0.38
+        color: [200, 200, 200]
+        style: "outlined"
+
+      groundspeed:
+        anchor: "center-right"
+        offset: [-5, -64]
+        font_scale: 0.38
+        color: [200, 200, 200]
+        style: "outlined"
+
+      climb:
+        anchor: "center-right"
+        offset: [-5, -46]
+        font_scale: 0.38
+        color: [200, 200, 200]
+        style: "outlined"
+
+      flight_path_angle:
+        anchor: "center-right"
+        offset: [-5, -28]
+        font_scale: 0.38
+        color: [200, 200, 200]
+        style: "outlined"
+
+  # System status
+  tracker_status:
+    enabled: true
+    layer: dynamic
+    anchor: "bottom-right"
+    offset: [-5, -45]
+    font_scale: 0.42
+    color: [255, 255, 0]
+    style: "outlined"
+
+  follower_status:
+    enabled: true
+    layer: dynamic
+    anchor: "bottom-right"
+    offset: [-5, -25]
+    font_scale: 0.42
+    color: [255, 255, 0]
+    style: "outlined"
