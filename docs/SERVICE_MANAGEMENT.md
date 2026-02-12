@@ -137,6 +137,28 @@ pixeagle-service login-hint status --user
 pixeagle-service login-hint status --system
 ```
 
+## Updates and Maintenance
+
+Pull latest upstream changes (auto-stashes local edits, quiet output):
+
+```bash
+pixeagle-service sync
+pixeagle-service sync --remote upstream --branch develop
+```
+
+Reset config files to defaults (creates timestamped backups):
+
+```bash
+pixeagle-service reset-config
+```
+
+Both commands are also available via Makefile:
+
+```bash
+make sync
+make reset-config
+```
+
 ## Recovery Patterns
 
 Service inactive after boot:

@@ -52,6 +52,9 @@ Commands:
   disable               Disable + remove auto-start service (requires sudo)
   logs [-f] [-n LINES]  View service logs (journald)
   attach                Attach to tmux session
+  sync [options]        Pull latest upstream changes (auto-stash, quiet)
+                         Options: --remote <name>, --branch <name>
+  reset-config          Reset config files to defaults (creates backups)
   login-hint <action>   Manage SSH login hint (enable|disable|status)
                          Options: --system (all users), --user (current/default user)
   help                  Show this message
@@ -60,6 +63,9 @@ Examples:
   pixeagle-service start
   pixeagle-service status
   pixeagle-service logs -f
+  pixeagle-service sync
+  pixeagle-service sync --remote upstream --branch develop
+  pixeagle-service reset-config
   sudo pixeagle-service enable
   pixeagle-service login-hint enable
   sudo pixeagle-service login-hint enable --system
@@ -166,6 +172,57 @@ logs_command() {
     show_service_logs "$lines" "$follow"
 }
 
+sync_command() {
+    if ! detect_service_user; then
+        return 1
+    fi
+
+    local sync_script="$PROJECT_ROOT/scripts/lib/sync.sh"
+    if [ ! -f "$sync_script" ]; then
+        print_status "error" "Sync script not found: $sync_script"
+        return 1
+    fi
+
+    # Parse --remote / --branch flags
+    local sync_remote=""
+    local sync_branch=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --remote)
+                shift
+                sync_remote="${1:-}"
+                ;;
+            --branch)
+                shift
+                sync_branch="${1:-}"
+                ;;
+            *)
+                print_status "error" "Unknown sync option: $1"
+                return 1
+                ;;
+        esac
+        shift
+    done
+
+    cd "$PROJECT_ROOT" || return 1
+    SYNC_REMOTE="$sync_remote" SYNC_BRANCH="$sync_branch" bash "$sync_script"
+}
+
+reset_config_command() {
+    if ! detect_service_user; then
+        return 1
+    fi
+
+    local reset_script="$PROJECT_ROOT/scripts/lib/reset-config.sh"
+    if [ ! -f "$reset_script" ]; then
+        print_status "error" "Reset-config script not found: $reset_script"
+        return 1
+    fi
+
+    cd "$PROJECT_ROOT" || return 1
+    PIXEAGLE_ROOT="$PROJECT_ROOT" bash "$reset_script"
+}
+
 login_hint_command() {
     local action="${1:-status}"
     local scope="user"
@@ -236,6 +293,12 @@ main() {
             ;;
         attach)
             attach_to_session
+            ;;
+        sync|update)
+            sync_command "$@"
+            ;;
+        reset-config)
+            reset_config_command "$@"
             ;;
         login-hint)
             login_hint_command "$@"

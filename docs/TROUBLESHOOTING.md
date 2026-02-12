@@ -46,7 +46,9 @@ chmod +x scripts/*.sh scripts/**/*.sh
 
 **Solution**:
 ```bash
-make reset-config      # Backs up current config and resets to defaults
+make reset-config                  # Backs up current config and resets to defaults
+# or on embedded Linux:
+pixeagle-service reset-config      # Same thing via the service CLI
 ```
 
 This creates a timestamped backup of your existing config before resetting.
