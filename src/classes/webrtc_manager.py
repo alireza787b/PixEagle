@@ -97,9 +97,16 @@ class WebRTCManager:
         self.logger.setLevel(logging.INFO)
 
     async def signaling_handler(self, websocket: WebSocket):
-        """Handle incoming signaling messages over WebSocket."""
+        """
+        Handle incoming signaling messages over WebSocket.
+
+        One peer connection per WebSocket session. The peer_id is assigned once
+        on the first message (or taken from the client if provided) and reused
+        for all subsequent messages on the same connection.
+        """
         await websocket.accept()
         peer_id = None
+        registered = False  # Track whether we registered with FramePublisher
 
         # Check connection limit before proceeding
         if len(self.peer_connections) >= self.max_connections:
@@ -115,27 +122,30 @@ class WebRTCManager:
                 data = json.loads(message)
                 msg_type = data.get("type")
                 payload = data.get("payload")
-                peer_id = data.get("peer_id")
 
-                if not peer_id:
-                    # Assign a unique peer_id if not provided
-                    peer_id = f"peer_{int(time.time() * 1000)}"
+                # Create peer connection once per WebSocket session
+                if peer_id is None:
+                    peer_id = data.get("peer_id") or f"peer_{int(time.time() * 1000)}"
                     self.peer_connections[peer_id] = RTCPeerConnection()
                     self.frame_publisher.register_client()
+                    registered = True
                     self.logger.info(f"Created RTCPeerConnection for {peer_id}")
 
                     # Handle ICE candidates from server side
                     @self.peer_connections[peer_id].on("icecandidate")
                     async def on_icecandidate(event, _peer_id=peer_id):
                         if event.candidate:
-                            await websocket.send_text(json.dumps({
-                                "type": "ice-candidate",
-                                "peer_id": _peer_id,
-                                "payload": {
-                                    "candidate": event.candidate.to_json()
-                                }
-                            }))
-                            self.logger.debug(f"Sent ICE candidate to {_peer_id}")
+                            try:
+                                await websocket.send_text(json.dumps({
+                                    "type": "ice-candidate",
+                                    "peer_id": _peer_id,
+                                    "payload": {
+                                        "candidate": event.candidate.to_json()
+                                    }
+                                }))
+                                self.logger.debug(f"Sent ICE candidate to {_peer_id}")
+                            except Exception:
+                                pass  # WebSocket may already be closed
 
                     @self.peer_connections[peer_id].on("connectionstatechange")
                     async def on_connectionstatechange(_peer_id=peer_id):
@@ -143,11 +153,8 @@ class WebRTCManager:
                         if pc:
                             state = pc.connectionState
                             self.logger.info(f"Connection state for {_peer_id}: {state}")
-                            if state == "failed":
-                                await pc.close()
-                                self.frame_publisher.unregister_client()
-                                self.peer_connections.pop(_peer_id, None)
-                                self.logger.info(f"RTCPeerConnection for {_peer_id} failed and closed.")
+                            if state in ("failed", "closed"):
+                                await self._cleanup_peer(_peer_id)
 
                 pc = self.peer_connections.get(peer_id)
 
@@ -174,11 +181,22 @@ class WebRTCManager:
         except Exception as e:
             self.logger.error(f"Error in signaling_handler: {e}")
         finally:
-            if peer_id and peer_id in self.peer_connections:
-                await self.peer_connections[peer_id].close()
+            if peer_id:
+                await self._cleanup_peer(peer_id)
+            elif registered:
+                # Edge case: registered but peer_id somehow lost
                 self.frame_publisher.unregister_client()
-                del self.peer_connections[peer_id]
-                self.logger.info(f"Closed and removed RTCPeerConnection for {peer_id}")
+
+    async def _cleanup_peer(self, peer_id: str):
+        """Close and remove a peer connection, unregister from FramePublisher."""
+        pc = self.peer_connections.pop(peer_id, None)
+        if pc is not None:
+            try:
+                await pc.close()
+            except Exception:
+                pass
+            self.frame_publisher.unregister_client()
+            self.logger.info(f"Cleaned up RTCPeerConnection for {peer_id}")
 
     async def handle_offer(self, pc: RTCPeerConnection, offer: Dict, websocket: WebSocket, peer_id: str):
         """Handle WebRTC offer from the client."""
