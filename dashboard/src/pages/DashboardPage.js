@@ -255,53 +255,68 @@ const DashboardPage = () => {
                           <FollowerQuickControl />
                         </CardContent>
                       </Card>
-
-                      {/* Streaming Settings */}
-                      <Card variant="outlined">
-                        <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-                          <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 600 }}>Streaming</Typography>
-                          <FormControl variant="outlined" fullWidth size="small">
-                            <InputLabel>Protocol</InputLabel>
-                            <Select
-                              value={streamingProtocol}
-                              onChange={(e) => setStreamingProtocol(e.target.value)}
-                              label="Protocol"
-                            >
-                              <MenuItem value="auto">Auto</MenuItem>
-                              <MenuItem value="webrtc">WebRTC</MenuItem>
-                              <MenuItem value="websocket">WebSocket</MenuItem>
-                              <MenuItem value="http">HTTP</MenuItem>
-                            </Select>
-                          </FormControl>
-                          <StreamingStatusIndicator />
-                          <OSDToggle />
-                        </CardContent>
-                      </Card>
                     </Box>
                   </Grid>
 
-                  {/* Main Video Feed */}
+                  {/* Main Video Feed + Streaming Settings */}
                   <Grid item xs={12} lg={9}>
-                    <Card variant="outlined" sx={{ bgcolor: 'background.paper', minHeight: 400 }}>
-                      <CardContent sx={{ p: 1 }}>
-                        <BoundingBoxDrawer
-                          isTracking={isTracking}
-                          imageRef={imageRef}
-                          startPos={startPos}
-                          currentPos={currentPos}
-                          boundingBox={boundingBox}
-                          handleMouseDown={handleMouseDown}
-                          handleMouseMove={handleMouseMove}
-                          handleMouseUp={handleMouseUp}
-                          handleTouchStart={handleTouchStart}
-                          handleTouchMove={handleTouchMove}
-                          handleTouchEnd={handleTouchEnd}
-                          videoSrc={videoFeed}
-                          protocol={streamingProtocol}
-                          smartModeActive={smartModeActive}
-                        />
-                      </CardContent>
-                    </Card>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {/* Video Feed */}
+                      <Card variant="outlined" sx={{ bgcolor: 'background.paper', minHeight: 400 }}>
+                        <CardContent sx={{ p: 1 }}>
+                          <BoundingBoxDrawer
+                            isTracking={isTracking}
+                            imageRef={imageRef}
+                            startPos={startPos}
+                            currentPos={currentPos}
+                            boundingBox={boundingBox}
+                            handleMouseDown={handleMouseDown}
+                            handleMouseMove={handleMouseMove}
+                            handleMouseUp={handleMouseUp}
+                            handleTouchStart={handleTouchStart}
+                            handleTouchMove={handleTouchMove}
+                            handleTouchEnd={handleTouchEnd}
+                            videoSrc={videoFeed}
+                            protocol={streamingProtocol}
+                            smartModeActive={smartModeActive}
+                          />
+                        </CardContent>
+                      </Card>
+
+                      {/* Streaming Settings - Horizontal Below Video */}
+                      <Card variant="outlined">
+                        <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                          <Grid container spacing={2} alignItems="center">
+                            {/* Protocol Selector */}
+                            <Grid item xs={12} sm={6} md={3}>
+                              <FormControl variant="outlined" fullWidth size="small">
+                                <InputLabel>Protocol</InputLabel>
+                                <Select
+                                  value={streamingProtocol}
+                                  onChange={(e) => setStreamingProtocol(e.target.value)}
+                                  label="Protocol"
+                                >
+                                  <MenuItem value="auto">Auto</MenuItem>
+                                  <MenuItem value="webrtc">WebRTC</MenuItem>
+                                  <MenuItem value="websocket">WebSocket</MenuItem>
+                                  <MenuItem value="http">HTTP</MenuItem>
+                                </Select>
+                              </FormControl>
+                            </Grid>
+
+                            {/* Streaming Status */}
+                            <Grid item xs={12} sm={6} md={4}>
+                              <StreamingStatusIndicator />
+                            </Grid>
+
+                            {/* OSD Toggle */}
+                            <Grid item xs={12} sm={12} md={5}>
+                              <OSDToggle />
+                            </Grid>
+                          </Grid>
+                        </CardContent>
+                      </Card>
+                    </Box>
                   </Grid>
                 </Grid>
               </CardContent>

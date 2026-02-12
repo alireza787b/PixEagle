@@ -11,9 +11,11 @@ import {
   Button,
   Alert,
   CircularProgress,
-  Chip
+  Chip,
+  Tooltip,
+  IconButton
 } from '@mui/material';
-import { SwapHoriz, Speed, ControlCamera, PowerSettingsNew, PowerOff } from '@mui/icons-material';
+import { SwapHoriz, Speed, ControlCamera, PowerSettingsNew, PowerOff, FlightTakeoff } from '@mui/icons-material';
 import { useFollowerProfiles, useCurrentFollowerProfile } from '../hooks/useFollowerSchema';
 
 const FollowerQuickControl = () => {
@@ -78,7 +80,7 @@ const FollowerQuickControl = () => {
   };
 
   const isEngaged = currentProfile?.status === 'engaged';
-  const switchAction = isEngaged ? 'Switch Active' : 'Configure';
+  const switchAction = isEngaged ? 'Switch Active' : 'Switch Follower';
 
   return (
     <>
@@ -86,6 +88,11 @@ const FollowerQuickControl = () => {
         <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
           Follower Profile
         </Typography>
+        <Tooltip title="Select follower profile">
+          <IconButton size="small">
+            <FlightTakeoff fontSize="small" />
+          </IconButton>
+        </Tooltip>
       </Box>
 
       {/* Current Profile Status */}
