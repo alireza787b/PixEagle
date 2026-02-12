@@ -70,7 +70,7 @@ const formatValue = (value) => {
   return String(value);
 };
 
-const SyncWithDefaultsDialog = ({ open, onClose, onMessage }) => {
+const SyncWithDefaultsDialog = ({ open, onClose, onMessage, onRebootRequired }) => {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('md'));
   const {
@@ -158,6 +158,16 @@ const SyncWithDefaultsDialog = ({ open, onClose, onMessage }) => {
     const skipped = result.result?.skipped_count || 0;
     onMessage?.(`Config sync applied (${applied} applied, ${skipped} skipped)`, 'success');
     setPlanResult(null);
+
+    // Notify parent about parameters that require restart
+    if (onRebootRequired) {
+      const appliedOps = result.result?.applied_operations || [];
+      appliedOps.forEach((op) => {
+        if (op.reload_tier && op.reload_tier !== 'immediate') {
+          onRebootRequired(op.section, op.parameter, op.reload_tier);
+        }
+      });
+    }
   };
 
   const renderList = (grouped, selectedSet, setter, variant) => (
@@ -412,6 +422,7 @@ SyncWithDefaultsDialog.propTypes = {
   open: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
   onMessage: PropTypes.func,
+  onRebootRequired: PropTypes.func,
 };
 
 export default SyncWithDefaultsDialog;

@@ -790,6 +790,7 @@ const SettingsPageContent = () => {
           refetchDiff();
         }}
         onMessage={handleSnackbar}
+        onRebootRequired={handleRebootRequired}
       />
 
       {/* Snackbar - Enhanced with 6s duration, persistent for safety params */}
