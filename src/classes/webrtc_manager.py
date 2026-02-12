@@ -220,7 +220,8 @@ class WebRTCManager:
             await websocket.send_text(json.dumps({
                 "type": pc.localDescription.type,
                 "payload": {
-                    "sdp": pc.localDescription.sdp
+                    "sdp": pc.localDescription.sdp,
+                    "type": pc.localDescription.type
                 },
                 "peer_id": peer_id
             }))
