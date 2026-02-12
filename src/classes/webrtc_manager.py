@@ -8,6 +8,7 @@ with the main capture loop).
 """
 
 from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
+from aiortc.sdp import candidate_from_sdp
 from av import VideoFrame
 from fastapi import WebSocket, WebSocketDisconnect
 import asyncio
@@ -229,15 +230,14 @@ class WebRTCManager:
         """Handle ICE candidate from the client."""
         try:
             if candidate:
-                ice_candidate = candidate.get("candidate")
+                ice_candidate_str = candidate.get("candidate")
                 sdp_mid = candidate.get("sdpMid")
                 sdp_m_line_index = candidate.get("sdpMLineIndex")
-                if ice_candidate and sdp_mid and sdp_m_line_index is not None:
-                    await pc.addIceCandidate({
-                        "candidate": ice_candidate,
-                        "sdpMid": sdp_mid,
-                        "sdpMLineIndex": sdp_m_line_index
-                    })
+                if ice_candidate_str and sdp_mid and sdp_m_line_index is not None:
+                    rtc_candidate = candidate_from_sdp(ice_candidate_str)
+                    rtc_candidate.sdpMid = sdp_mid
+                    rtc_candidate.sdpMLineIndex = sdp_m_line_index
+                    await pc.addIceCandidate(rtc_candidate)
                     self.logger.info(f"Added ICE candidate for {peer_id}")
         except Exception as e:
             self.logger.error(f"Error handling ICE candidate for {peer_id}: {e}")
