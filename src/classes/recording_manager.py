@@ -68,7 +68,9 @@ class RecordingMetadata:
 @dataclass
 class RecordingStats:
     """Runtime statistics for the current recording session."""
-    frames_written: int = 0
+    frames_written: int = 0      # total frames written to file (includes duplicates)
+    frames_received: int = 0     # unique frames received from pipeline
+    frames_duplicated: int = 0   # extra writes from frame pacing duplication
     frames_dropped: int = 0
     queue_drops: int = 0
     file_size_bytes: int = 0
@@ -123,6 +125,15 @@ class RecordingManager:
         # Pause tracking
         self._pause_start: Optional[float] = None
         self._total_paused: float = 0.0
+
+        # Frame pacing: monotonic-clock frame duplication for real-time playback
+        self._recording_start_mono: float = 0.0
+        self._total_paused_mono: float = 0.0
+        self._pause_start_mono: Optional[float] = None
+        self._target_fps: float = 30.0
+        self._max_duplication: int = int(getattr(
+            Parameters, 'RECORDING_MAX_FRAME_DUPLICATION', 5
+        ))
 
         # Ensure output directory exists
         Path(self._output_dir).mkdir(parents=True, exist_ok=True)
@@ -246,6 +257,12 @@ class RecordingManager:
                 except queue.Empty:
                     break
 
+            # Initialize frame pacing (monotonic-clock frame duplication)
+            self._target_fps = fps
+            self._recording_start_mono = time.monotonic()
+            self._total_paused_mono = 0.0
+            self._pause_start_mono = None
+
             # Start background writer thread
             self._writer_stop.clear()
             self._writer_thread = threading.Thread(
@@ -272,6 +289,7 @@ class RecordingManager:
                 return {'status': 'error', 'message': 'Not currently recording'}
             self._state = RecordingState.PAUSED
             self._pause_start = time.time()
+            self._pause_start_mono = time.monotonic()
             logger.info("Recording paused")
             return {'status': 'success', 'message': 'Recording paused'}
 
@@ -287,6 +305,9 @@ class RecordingManager:
         if self._pause_start is not None:
             self._total_paused += time.time() - self._pause_start
             self._pause_start = None
+        if self._pause_start_mono is not None:
+            self._total_paused_mono += time.monotonic() - self._pause_start_mono
+            self._pause_start_mono = None
         self._state = RecordingState.RECORDING
         logger.info("Recording resumed")
         return {'status': 'success', 'message': 'Recording resumed'}
@@ -318,10 +339,18 @@ class RecordingManager:
         with self._state_lock:
             self._state = RecordingState.IDLE
 
+        duration = metadata.get('duration_seconds', 1) or 1
+        received = self._stats.frames_received
+        written = self._stats.frames_written
+        duplicated = self._stats.frames_duplicated
+        avg_dup = written / max(received, 1)
+        eff_fps = written / max(duration, 0.1)
         logger.info(
             f"Recording stopped: {metadata.get('filename', 'unknown')} "
-            f"({metadata.get('duration_seconds', 0):.1f}s, "
-            f"{metadata.get('frame_count', 0)} frames, "
+            f"({duration:.1f}s, {received} unique frames, "
+            f"{written} total written [{duplicated} duplicated], "
+            f"avg dup: {avg_dup:.2f}x, effective FPS: {eff_fps:.1f}, "
+            f"target FPS: {self._target_fps:.1f}, "
             f"{metadata.get('file_size_mb', 0):.1f}MB)"
         )
         return {'status': 'success', **metadata}
@@ -351,15 +380,16 @@ class RecordingManager:
             if meta and (frame.shape[1] != meta.width or frame.shape[0] != meta.height):
                 frame = cv2.resize(frame, (meta.width, meta.height))
 
-            # Non-blocking queue (identical to GStreamerHandler pattern)
+            # Non-blocking queue with capture timestamp for frame pacing
+            item = (frame, time.monotonic())
             try:
-                self._frame_queue.put_nowait(frame)
+                self._frame_queue.put_nowait(item)
             except queue.Full:
                 try:
                     self._frame_queue.get_nowait()  # Drop oldest
                 except queue.Empty:
                     pass
-                self._frame_queue.put_nowait(frame)
+                self._frame_queue.put_nowait(item)
                 self._stats.queue_drops += 1
 
         except Exception as e:
@@ -501,6 +531,8 @@ class RecordingManager:
             'filename': self._current_metadata.filename if self._current_metadata else None,
             'elapsed_seconds': round(max(0, elapsed), 1),
             'frames_written': self._stats.frames_written,
+            'frames_received': self._stats.frames_received,
+            'frames_duplicated': self._stats.frames_duplicated,
             'frames_dropped': self._stats.queue_drops,
             'file_size_bytes': self._stats.file_size_bytes,
             'file_size_mb': round(self._stats.file_size_bytes / (1024 * 1024), 2),
@@ -508,6 +540,7 @@ class RecordingManager:
             'container': self._container,
             'include_osd': self._include_osd,
             'output_dir': self._output_dir,
+            'target_fps': self._target_fps if self.is_active else None,
         }
 
     # =========================================================================
@@ -517,36 +550,64 @@ class RecordingManager:
     def _writer_loop(self):
         """
         Background thread: pull frames from queue, write to VideoWriter.
-        Mirrors GStreamerHandler._writer_loop().
+
+        Frame pacing: for each dequeued frame, compute how many frames
+        SHOULD have been written by its capture timestamp (based on target
+        FPS and recording elapsed time). If behind, duplicate the frame to
+        fill the deficit. This ensures the video plays at real-time speed
+        regardless of actual pipeline throughput — even when FPS changes
+        mid-recording (e.g., tracker enable/disable).
         """
         while not self._writer_stop.is_set():
             try:
-                frame = self._frame_queue.get(timeout=0.5)
+                item = self._frame_queue.get(timeout=0.5)
             except queue.Empty:
                 continue
 
             try:
                 if self._writer and self._writer.isOpened():
-                    self._writer.write(frame)
-                    self._stats.frames_written += 1
-                    # Update file size periodically (every 30 frames to minimize I/O)
-                    if self._stats.frames_written % 30 == 0:
+                    frame, frame_mono = item
+
+                    # Calculate recording-elapsed time at capture, excluding pauses
+                    paused = self._total_paused_mono
+                    if self._pause_start_mono is not None:
+                        paused += frame_mono - self._pause_start_mono
+                    elapsed = max(0.0, frame_mono - self._recording_start_mono - paused)
+
+                    # How many frames should exist at this elapsed time?
+                    target_count = int(elapsed * self._target_fps) + 1
+                    deficit = target_count - self._stats.frames_written
+
+                    # Always write at least 1; cap to prevent bloat from stalls
+                    writes = max(1, min(deficit, self._max_duplication))
+
+                    for _ in range(writes):
+                        self._writer.write(frame)
+
+                    self._stats.frames_received += 1
+                    self._stats.frames_written += writes
+                    if writes > 1:
+                        self._stats.frames_duplicated += writes - 1
+
+                    # Update file size periodically (every 30 received frames)
+                    if self._stats.frames_received % 30 == 0:
                         self._update_file_size()
             except Exception as e:
                 logger.error(f"Error writing frame to recording: {e}")
                 self._stats.frames_dropped += 1
 
-        # Drain remaining frames from queue before exiting
+        # Drain remaining frames (write once each, no duplication during flush)
         while not self._frame_queue.empty():
             try:
-                frame = self._frame_queue.get_nowait()
+                item = self._frame_queue.get_nowait()
                 if self._writer and self._writer.isOpened():
+                    frame, _ = item
                     self._writer.write(frame)
+                    self._stats.frames_received += 1
                     self._stats.frames_written += 1
             except (queue.Empty, Exception):
                 break
 
-        # Final file size update
         self._update_file_size()
 
     def _update_file_size(self):
@@ -594,6 +655,8 @@ class RecordingManager:
             'filename': meta.filename,
             'duration_seconds': meta.duration_seconds,
             'frame_count': meta.frame_count,
+            'frames_received': self._stats.frames_received,
+            'frames_duplicated': self._stats.frames_duplicated,
             'file_size_bytes': meta.file_size_bytes,
             'file_size_mb': round(meta.file_size_bytes / (1024 * 1024), 2),
             'message': f'Recording saved: {meta.filename}',

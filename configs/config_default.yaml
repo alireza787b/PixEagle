@@ -2479,6 +2479,7 @@ Recording:
   RECORDING_HEIGHT: 0                      # 0 = match source frame height
   RECORDING_INCLUDE_OSD: true              # Record OSD overlays on frames
   RECORDING_QUEUE_SIZE: 5                  # Writer thread queue depth (frames)
+  RECORDING_MAX_FRAME_DUPLICATION: 5       # Max frame copies per delivery (real-time pacing cap)
   RECORDING_MAX_FILE_SIZE_MB: 0            # 0 = unlimited
 
   # === Crash Recovery ===
