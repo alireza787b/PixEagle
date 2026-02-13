@@ -2,7 +2,7 @@ schema_version: 1.0.0
 meta:
   project: PixEagle
   generated_from: c:\Users\Alireza\PixEagle\configs\config_default.yaml
-  generated_at: '2026-02-12T18:40:30.828043'
+  generated_at: '2026-02-13T11:10:27.947716'
   description: Auto-generated schema for PixEagle configuration
 categories:
   video:
@@ -5615,6 +5615,112 @@ sections:
         reboot_required: false
         min: 0
         max: 100
+  Recording:
+    display_name: Video Recording
+    category: video
+    icon: fiber_manual_record
+    parameters:
+      ENABLE_RECORDING:
+        type: boolean
+        default: true
+        description: Allow recording via API/keyboard (R key)
+        reboot_required: false
+      RECORDING_OUTPUT_DIR:
+        type: string
+        default: recordings
+        description: Directory relative to project root
+        reboot_required: false
+      RECORDING_CODEC:
+        type: string
+        default: avc1
+        description: 'H.264 codec — browser-playable (fallback: mp4v)'
+        reboot_required: false
+        options:
+        - value: avc1
+          label: avc1 (H.264)
+        - value: mp4v
+          label: mp4v (MPEG-4)
+        - value: XVID
+          label: XVID
+        - value: MJPG
+          label: MJPG
+      RECORDING_CONTAINER:
+        type: string
+        default: mp4
+        description: File extension/container format
+        reboot_required: false
+      RECORDING_FPS:
+        type: integer
+        default: 0
+        description: 0 = match source video FPS
+        reboot_required: false
+        min: 0
+        max: 10000
+        unit: fps
+      RECORDING_WIDTH:
+        type: integer
+        default: 0
+        description: 0 = match source frame width
+        reboot_required: false
+        min: 0
+        max: 10000
+      RECORDING_HEIGHT:
+        type: integer
+        default: 0
+        description: 0 = match source frame height
+        reboot_required: false
+        min: 0
+        max: 10000
+      RECORDING_INCLUDE_OSD:
+        type: boolean
+        default: true
+        description: Record OSD overlays on frames
+        reboot_required: false
+      RECORDING_QUEUE_SIZE:
+        type: integer
+        default: 5
+        description: Writer thread queue depth (frames)
+        reboot_required: false
+        min: 0
+        max: 100
+        unit: frames
+      RECORDING_MAX_FILE_SIZE_MB:
+        type: integer
+        default: 0
+        description: 0 = unlimited
+        reboot_required: false
+        min: 0
+        max: 10000
+      RECORDING_AUTO_RECOVERY:
+        type: boolean
+        default: true
+        description: Finalize .tmp files on startup
+        reboot_required: false
+      STORAGE_WARNING_THRESHOLD_MB:
+        type: integer
+        default: 500
+        description: Warn when free space below this (MB)
+        reboot_required: false
+        min: 0
+        max: 10000
+        unit: mb
+      STORAGE_CRITICAL_THRESHOLD_MB:
+        type: integer
+        default: 100
+        description: Auto-stop recording below this (MB)
+        reboot_required: false
+        min: 0
+        max: 1000
+        unit: mb
+      STORAGE_POLL_INTERVAL:
+        type: float
+        default: 10.0
+        description: Seconds between disk space checks
+        reboot_required: false
+        min: 0.0
+        max: 100.0
+        step: 0.1
+        unit: s
   OSD:
     display_name: On-Screen Display
     category: display

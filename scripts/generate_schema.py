@@ -34,6 +34,9 @@ SECTION_CATEGORIES = {
     'USBCamera': {'category': 'video', 'display_name': 'USB Camera', 'icon': 'usb'},
     'CSICamera': {'category': 'video', 'display_name': 'CSI Camera', 'icon': 'camera'},
 
+    # Recording
+    'Recording': {'category': 'video', 'display_name': 'Video Recording', 'icon': 'fiber_manual_record'},
+
     # Network
     'PX4': {'category': 'network', 'display_name': 'PX4 Connection', 'icon': 'flight'},
     'MAVLink': {'category': 'network', 'display_name': 'MAVLink Telemetry', 'icon': 'router'},

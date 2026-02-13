@@ -182,18 +182,36 @@ class RecordingManager:
             temp_filename = filename + self.TEMP_SUFFIX
             filepath = str(Path(self._output_dir) / temp_filename)
 
-            # Create cv2.VideoWriter with FOURCC codec (fallback to mp4v if preferred codec fails)
+            # Create cv2.VideoWriter — try H.264 variants then fall back to mp4v
+            # avc1: macOS/QuickTime, H264: Windows MSMF/ffmpeg, mp4v: universal fallback
             codec_to_use = self._codec
-            fourcc = cv2.VideoWriter_fourcc(*codec_to_use)
-            writer = cv2.VideoWriter(filepath, fourcc, fps, (width, height))
-            if not writer.isOpened() and codec_to_use != 'mp4v':
-                logger.warning(f"Codec '{codec_to_use}' failed, falling back to 'mp4v'")
-                codec_to_use = 'mp4v'
-                fourcc = cv2.VideoWriter_fourcc(*codec_to_use)
-                writer = cv2.VideoWriter(filepath, fourcc, fps, (width, height))
-            if not writer.isOpened():
+            fallback_codecs = []
+            if codec_to_use in ('avc1', 'H264'):
+                fallback_codecs = ['avc1', 'H264', 'mp4v']
+            elif codec_to_use != 'mp4v':
+                fallback_codecs = [codec_to_use, 'mp4v']
+            else:
+                fallback_codecs = ['mp4v']
+
+            writer = None
+            for codec in fallback_codecs:
+                try:
+                    fourcc = cv2.VideoWriter_fourcc(*codec)
+                    w = cv2.VideoWriter(filepath, fourcc, fps, (width, height))
+                    if w.isOpened():
+                        writer = w
+                        codec_to_use = codec
+                        if codec != self._codec:
+                            logger.warning(f"Codec '{self._codec}' unavailable, using '{codec}'")
+                        break
+                    else:
+                        w.release()
+                except Exception:
+                    pass
+
+            if writer is None or not writer.isOpened():
                 logger.error(f"Failed to open VideoWriter: {filepath} "
-                           f"(codec={codec_to_use}, {width}x{height}@{fps}fps)")
+                           f"(tried codecs: {fallback_codecs}, {width}x{height}@{fps}fps)")
                 self._state = RecordingState.ERROR
                 return {'status': 'error', 'message': 'Failed to initialize video writer'}
 
