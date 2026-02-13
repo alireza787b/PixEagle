@@ -478,24 +478,39 @@ const RecordingsPage = () => {
         <DialogTitle>{playDialog.filename}</DialogTitle>
         <DialogContent>
           {playDialog.url && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
               <video
                 src={playDialog.url}
                 controls
                 autoPlay
-                style={{ maxWidth: '100%', maxHeight: '70vh' }}
-                onError={() => setActionError(
-                  'Playback failed — codec may not be supported by your browser. Try downloading the file instead, or change RECORDING_CODEC to avc1 in config.'
-                )}
+                style={{ maxWidth: '100%', maxHeight: '60vh' }}
+                onError={(e) => {
+                  // Hide the broken video element on error
+                  e.target.style.display = 'none';
+                }}
               >
                 <source src={playDialog.url} type="video/mp4" />
-                Your browser does not support video playback.
               </video>
+              <Alert severity="info" sx={{ width: '100%' }}>
+                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
+                  If playback doesn't work in the browser:
+                </Typography>
+                <Typography variant="body2">
+                  Download the file and open it in VLC, Windows Media Player, or any desktop video player.
+                  The default mp4v codec is universally compatible with desktop players but may not
+                  play inline in all browsers.
+                </Typography>
+              </Alert>
             </Box>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => handleDownload(playDialog.filename)} startIcon={<DownloadIcon />}>
+          <Button
+            onClick={() => handleDownload(playDialog.filename)}
+            startIcon={<DownloadIcon />}
+            variant="contained"
+            color="primary"
+          >
             Download
           </Button>
           <Button onClick={() => setPlayDialog({ open: false, url: null, filename: null })}>

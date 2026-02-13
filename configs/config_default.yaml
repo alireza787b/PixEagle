@@ -2471,8 +2471,8 @@ Recording:
 
   # === Output Settings ===
   RECORDING_OUTPUT_DIR: recordings         # Directory relative to project root
-  # Options: avc1 | mp4v | XVID | MJPG
-  RECORDING_CODEC: avc1                    # H.264 codec — browser-playable (fallback: mp4v)
+  # Options: mp4v | XVID | MJPG | avc1
+  RECORDING_CODEC: mp4v                    # Universal reliable codec (download to play in VLC/WMP)
   RECORDING_CONTAINER: mp4                 # File extension/container format
   RECORDING_FPS: 0                         # 0 = match source video FPS
   RECORDING_WIDTH: 0                       # 0 = match source frame width

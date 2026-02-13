@@ -5632,18 +5632,18 @@ sections:
         reboot_required: false
       RECORDING_CODEC:
         type: string
-        default: avc1
-        description: 'H.264 codec — browser-playable (fallback: mp4v)'
+        default: mp4v
+        description: Universal reliable codec (download to play in VLC/WMP)
         reboot_required: false
         options:
-        - value: avc1
-          label: avc1 (H.264)
         - value: mp4v
-          label: mp4v (MPEG-4)
+          label: mp4v (Recommended)
         - value: XVID
           label: XVID
         - value: MJPG
           label: MJPG
+        - value: avc1
+          label: avc1 (H.264, may not work on all systems)
       RECORDING_CONTAINER:
         type: string
         default: mp4

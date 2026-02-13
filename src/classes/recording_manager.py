@@ -182,32 +182,40 @@ class RecordingManager:
             temp_filename = filename + self.TEMP_SUFFIX
             filepath = str(Path(self._output_dir) / temp_filename)
 
-            # Create cv2.VideoWriter — try H.264 variants then fall back to mp4v
-            # avc1: macOS/QuickTime, H264: Windows MSMF/ffmpeg, mp4v: universal fallback
+            # Create cv2.VideoWriter with robust codec validation.
+            #
+            # IMPORTANT: On Windows with pip-installed OpenCV, H.264 codecs
+            # (avc1, H264) may pass isOpened() but produce corrupt/empty files.
+            # We validate each codec by writing+releasing a test frame and
+            # checking the output file size before committing to it.
             codec_to_use = self._codec
-            fallback_codecs = []
-            if codec_to_use in ('avc1', 'H264'):
-                fallback_codecs = ['avc1', 'H264', 'mp4v']
-            elif codec_to_use != 'mp4v':
-                fallback_codecs = [codec_to_use, 'mp4v']
-            else:
-                fallback_codecs = ['mp4v']
+            fallback_codecs = [codec_to_use]
+            if codec_to_use != 'mp4v':
+                fallback_codecs.append('mp4v')  # Always fall back to mp4v
 
             writer = None
+            validated_codec = None
             for codec in fallback_codecs:
-                try:
-                    fourcc = cv2.VideoWriter_fourcc(*codec)
-                    w = cv2.VideoWriter(filepath, fourcc, fps, (width, height))
-                    if w.isOpened():
-                        writer = w
-                        codec_to_use = codec
-                        if codec != self._codec:
-                            logger.warning(f"Codec '{self._codec}' unavailable, using '{codec}'")
-                        break
-                    else:
-                        w.release()
-                except Exception:
-                    pass
+                if self._validate_codec(codec, fps, width, height):
+                    try:
+                        fourcc = cv2.VideoWriter_fourcc(*codec)
+                        w = cv2.VideoWriter(filepath, fourcc, fps, (width, height))
+                        if w.isOpened():
+                            writer = w
+                            validated_codec = codec
+                            if codec != self._codec:
+                                logger.warning(
+                                    f"Codec '{self._codec}' failed validation, "
+                                    f"using '{codec}' instead"
+                                )
+                            break
+                        else:
+                            w.release()
+                    except Exception:
+                        pass
+
+            if validated_codec:
+                codec_to_use = validated_codec
 
             if writer is None or not writer.isOpened():
                 logger.error(f"Failed to open VideoWriter: {filepath} "
@@ -496,7 +504,7 @@ class RecordingManager:
             'frames_dropped': self._stats.queue_drops,
             'file_size_bytes': self._stats.file_size_bytes,
             'file_size_mb': round(self._stats.file_size_bytes / (1024 * 1024), 2),
-            'codec': self._codec,
+            'codec': (self._current_metadata.codec if self._current_metadata else self._codec),
             'container': self._container,
             'include_osd': self._include_osd,
             'output_dir': self._output_dir,
@@ -593,6 +601,71 @@ class RecordingManager:
 
         self._current_metadata = None
         return result
+
+    def _validate_codec(self, codec: str, fps: float, width: int,
+                        height: int) -> bool:
+        """
+        Validate a codec by writing a test frame and checking output.
+
+        Some codecs (notably avc1/H264 on Windows with pip OpenCV) pass
+        isOpened() but produce corrupt/empty files. This method writes a
+        single black frame, releases the writer, and checks whether the
+        output file has meaningful size (> 100 bytes).
+
+        Args:
+            codec: FOURCC codec string (e.g., 'mp4v', 'avc1')
+            fps: Recording FPS
+            width: Frame width
+            height: Frame height
+
+        Returns:
+            True if the codec produces valid output.
+        """
+        # mp4v is known-good — skip the test to save time
+        if codec == 'mp4v':
+            return True
+
+        test_path = Path(self._output_dir) / f".codec_test_{codec}.mp4"
+        try:
+            fourcc = cv2.VideoWriter_fourcc(*codec)
+            test_writer = cv2.VideoWriter(
+                str(test_path), fourcc, fps, (width, height)
+            )
+            if not test_writer.isOpened():
+                return False
+
+            # Write a test frame (black)
+            test_frame = np.zeros((height, width, 3), dtype=np.uint8)
+            test_writer.write(test_frame)
+            test_writer.release()
+
+            # Check output size — a valid codec produces > 100 bytes
+            # for even a single black frame (mp4 header alone is ~40 bytes)
+            if test_path.exists():
+                size = test_path.stat().st_size
+                if size > 100:
+                    logger.debug(
+                        f"Codec '{codec}' validated OK "
+                        f"(test file: {size} bytes)"
+                    )
+                    return True
+                else:
+                    logger.warning(
+                        f"Codec '{codec}' produces corrupt output "
+                        f"(test file: {size} bytes) — skipping"
+                    )
+                    return False
+            else:
+                logger.warning(f"Codec '{codec}' failed to create output file")
+                return False
+        except Exception as e:
+            logger.warning(f"Codec '{codec}' validation error: {e}")
+            return False
+        finally:
+            try:
+                test_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _recover_incomplete_recordings(self) -> List[str]:
         """
