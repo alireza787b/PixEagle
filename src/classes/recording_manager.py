@@ -172,20 +172,28 @@ class RecordingManager:
             height = max(1, int(height))
             fps = max(1.0, float(fps))
 
-            # Generate filename: PixEagle_<ISO8601_UTC>_<short_uuid>.<ext>
+            # Generate filename: PixEagle_<date>_<time>_<uuid>.<ext>
+            # Human-readable format with UUID suffix for uniqueness
             now = time.time()
-            iso_str = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime(now))
+            date_str = time.strftime('%Y-%m-%d', time.gmtime(now))
+            time_str = time.strftime('%H-%M-%S', time.gmtime(now))
             short_id = uuid.uuid4().hex[:8]
-            filename = f"PixEagle_{iso_str}_{short_id}.{self._container}"
+            filename = f"PixEagle_{date_str}_{time_str}_{short_id}.{self._container}"
             temp_filename = filename + self.TEMP_SUFFIX
             filepath = str(Path(self._output_dir) / temp_filename)
 
-            # Create cv2.VideoWriter with FOURCC codec
-            fourcc = cv2.VideoWriter_fourcc(*self._codec)
+            # Create cv2.VideoWriter with FOURCC codec (fallback to mp4v if preferred codec fails)
+            codec_to_use = self._codec
+            fourcc = cv2.VideoWriter_fourcc(*codec_to_use)
             writer = cv2.VideoWriter(filepath, fourcc, fps, (width, height))
+            if not writer.isOpened() and codec_to_use != 'mp4v':
+                logger.warning(f"Codec '{codec_to_use}' failed, falling back to 'mp4v'")
+                codec_to_use = 'mp4v'
+                fourcc = cv2.VideoWriter_fourcc(*codec_to_use)
+                writer = cv2.VideoWriter(filepath, fourcc, fps, (width, height))
             if not writer.isOpened():
                 logger.error(f"Failed to open VideoWriter: {filepath} "
-                           f"(codec={self._codec}, {width}x{height}@{fps}fps)")
+                           f"(codec={codec_to_use}, {width}x{height}@{fps}fps)")
                 self._state = RecordingState.ERROR
                 return {'status': 'error', 'message': 'Failed to initialize video writer'}
 
@@ -194,11 +202,11 @@ class RecordingManager:
                 filename=filename,
                 filepath=filepath,
                 started_at=now,
-                started_at_iso=iso_str,
+                started_at_iso=f"{date_str}T{time_str}Z",
                 width=width,
                 height=height,
                 fps=fps,
-                codec=self._codec,
+                codec=codec_to_use,
                 short_uuid=short_id,
             )
             self._stats = RecordingStats()
@@ -368,9 +376,15 @@ class RecordingManager:
 
             try:
                 stat = f.stat()
-                # Parse timestamp from filename: PixEagle_YYYYMMDDTHHMMSSZ_uuid.ext
+                # Parse timestamp from filename: PixEagle_YYYY-MM-DD_HH-MM-SS_uuid.ext
                 name_parts = f.stem.split('_')
-                iso_str = name_parts[1] if len(name_parts) >= 2 else ""
+                # Reconstruct date+time as ISO-like string
+                if len(name_parts) >= 3:
+                    iso_str = f"{name_parts[1]}T{name_parts[2]}Z"
+                elif len(name_parts) >= 2:
+                    iso_str = name_parts[1]
+                else:
+                    iso_str = ""
 
                 # Determine status
                 status = "completed"

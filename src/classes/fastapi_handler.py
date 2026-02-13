@@ -4203,10 +4203,10 @@ class FastAPIHandler:
             self.logger.error(f"Error listing recordings: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def download_recording(self, filename: str):
-        """Download a recording file."""
+    async def download_recording(self, filename: str, request: Request = None):
+        """Download/stream a recording file with range request support for browser playback."""
         try:
-            from fastapi.responses import FileResponse
+            from fastapi.responses import FileResponse, StreamingResponse
             from pathlib import Path
 
             manager = getattr(self.app_controller, 'recording_manager', None)
@@ -4220,10 +4220,52 @@ class FastAPIHandler:
             if not filepath.exists() or not filepath.is_file():
                 raise HTTPException(status_code=404, detail=f'Recording not found: {safe_name}')
 
+            file_size = filepath.stat().st_size
+            suffix = filepath.suffix.lower()
+            media_type = {
+                '.mp4': 'video/mp4', '.avi': 'video/x-msvideo',
+                '.mkv': 'video/x-matroska',
+            }.get(suffix, 'video/mp4')
+
+            # Support HTTP Range requests for browser video seeking/playback
+            range_header = request.headers.get('range') if request else None
+            if range_header:
+                # Parse "bytes=start-end"
+                range_spec = range_header.replace('bytes=', '')
+                parts = range_spec.split('-')
+                start = int(parts[0]) if parts[0] else 0
+                end = int(parts[1]) if len(parts) > 1 and parts[1] else file_size - 1
+                end = min(end, file_size - 1)
+                length = end - start + 1
+
+                def iter_range():
+                    with open(str(filepath), 'rb') as f:
+                        f.seek(start)
+                        remaining = length
+                        while remaining > 0:
+                            chunk = f.read(min(65536, remaining))
+                            if not chunk:
+                                break
+                            remaining -= len(chunk)
+                            yield chunk
+
+                return StreamingResponse(
+                    iter_range(),
+                    status_code=206,
+                    media_type=media_type,
+                    headers={
+                        'Content-Range': f'bytes {start}-{end}/{file_size}',
+                        'Accept-Ranges': 'bytes',
+                        'Content-Length': str(length),
+                    },
+                )
+
+            # Full file response with Accept-Ranges header
             return FileResponse(
                 path=str(filepath),
-                media_type='video/mp4',
+                media_type=media_type,
                 filename=safe_name,
+                headers={'Accept-Ranges': 'bytes'},
             )
         except HTTPException:
             raise

@@ -42,9 +42,13 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StorageIcon from '@mui/icons-material/Storage';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import SettingsIcon from '@mui/icons-material/Settings';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Switch from '@mui/material/Switch';
 
 import { useRecording, useRecordingsList } from '../hooks/useRecording';
+import { endpoints } from '../services/apiEndpoints';
 
 /**
  * Format bytes into human-readable size.
@@ -71,19 +75,29 @@ const formatDuration = (seconds) => {
 };
 
 /**
- * Parse ISO timestamp from filename.
+ * Parse timestamp from filename.
+ * Handles both old (YYYYMMDDTHHMMSSZ) and new (YYYY-MM-DDTHH-MM-SSZ) formats.
  */
 const parseTimestamp = (isoStr) => {
-  if (!isoStr || isoStr.length < 15) return '--';
+  if (!isoStr) return '--';
   try {
-    // Format: YYYYMMDDTHHMMSSZ
-    const year = isoStr.substring(0, 4);
-    const month = isoStr.substring(4, 6);
-    const day = isoStr.substring(6, 8);
-    const hour = isoStr.substring(9, 11);
-    const min = isoStr.substring(11, 13);
-    const sec = isoStr.substring(13, 15);
-    return `${year}-${month}-${day} ${hour}:${min}:${sec} UTC`;
+    // New format: YYYY-MM-DDTHH-MM-SSZ → YYYY-MM-DD HH:MM:SS UTC
+    if (isoStr.includes('-') && isoStr.includes('T')) {
+      const [datePart, timePart] = isoStr.replace('Z', '').split('T');
+      const time = timePart.replace(/-/g, ':');
+      return `${datePart} ${time} UTC`;
+    }
+    // Old format: YYYYMMDDTHHMMSSZ
+    if (isoStr.length >= 15) {
+      const year = isoStr.substring(0, 4);
+      const month = isoStr.substring(4, 6);
+      const day = isoStr.substring(6, 8);
+      const hour = isoStr.substring(9, 11);
+      const min = isoStr.substring(11, 13);
+      const sec = isoStr.substring(13, 15);
+      return `${year}-${month}-${day} ${hour}:${min}:${sec} UTC`;
+    }
+    return isoStr;
   } catch {
     return isoStr;
   }
@@ -231,8 +245,69 @@ const RecordingsPage = () => {
           </Card>
         </Grid>
 
+        {/* Recording Settings Card */}
+        <Grid item xs={12} md={4}>
+          <Card variant="outlined">
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <SettingsIcon color="primary" sx={{ fontSize: 20 }} />
+                <Typography variant="subtitle2" fontWeight={600}>
+                  Recording Settings
+                </Typography>
+              </Box>
+
+              <FormControlLabel
+                control={
+                  <Switch
+                    size="small"
+                    checked={recordingStatus?.include_osd !== false}
+                    onChange={async (e) => {
+                      try {
+                        await fetch(endpoints.recordingIncludeOsd(e.target.checked), { method: 'POST' });
+                      } catch (err) {
+                        console.error('Failed to toggle OSD recording:', err);
+                      }
+                    }}
+                    disabled={isRecording}
+                  />
+                }
+                label={
+                  <Typography variant="body2">
+                    Include OSD in recordings
+                  </Typography>
+                }
+                sx={{ ml: 0, '& .MuiSwitch-root': { mr: 1 } }}
+              />
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 5.5, mt: -0.5 }}>
+                Burn mavlink data, battery, GPS overlays into video
+              </Typography>
+
+              <Box sx={{ mt: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Typography variant="caption" color="text.secondary">Codec</Typography>
+                  <Typography variant="caption" fontFamily="monospace" fontWeight={600}>
+                    {recordingStatus?.codec?.toUpperCase() || '--'}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                  <Typography variant="caption" color="text.secondary">Format</Typography>
+                  <Typography variant="caption" fontFamily="monospace">
+                    {recordingStatus?.container?.toUpperCase() || '--'}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Typography variant="caption" color="text.secondary">Output</Typography>
+                  <Typography variant="caption" fontFamily="monospace" sx={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {recordingStatus?.output_dir || '--'}
+                  </Typography>
+                </Box>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
         {/* Recording Info Card */}
-        <Grid item xs={12} md={8}>
+        <Grid item xs={12} md={4}>
           <Card variant="outlined">
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -403,18 +478,24 @@ const RecordingsPage = () => {
         <DialogTitle>{playDialog.filename}</DialogTitle>
         <DialogContent>
           {playDialog.url && (
-            <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
               <video
                 src={playDialog.url}
                 controls
                 autoPlay
                 style={{ maxWidth: '100%', maxHeight: '70vh' }}
-              />
+                onError={() => setActionError(
+                  'Playback failed — codec may not be supported by your browser. Try downloading the file instead, or change RECORDING_CODEC to avc1 in config.'
+                )}
+              >
+                <source src={playDialog.url} type="video/mp4" />
+                Your browser does not support video playback.
+              </video>
             </Box>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => handleDownload(playDialog.filename)}>
+          <Button onClick={() => handleDownload(playDialog.filename)} startIcon={<DownloadIcon />}>
             Download
           </Button>
           <Button onClick={() => setPlayDialog({ open: false, url: null, filename: null })}>

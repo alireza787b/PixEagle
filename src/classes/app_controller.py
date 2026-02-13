@@ -633,8 +633,17 @@ class AppController:
 
             # Optional local video recording (non-blocking)
             if hasattr(self, 'recording_manager') and self.recording_manager and self.recording_manager.is_recording:
-                if self.recording_manager._include_osd and capture_osd_frame is not None:
-                    self.recording_manager.write_frame(capture_osd_frame)
+                if self.recording_manager._include_osd:
+                    if capture_osd_frame is not None:
+                        # OSD already composed at capture resolution
+                        self.recording_manager.write_frame(capture_osd_frame)
+                    elif stream_processed and hasattr(self, 'osd_pipeline'):
+                        # OSD was composed at stream resolution only — compose
+                        # at capture resolution for recording
+                        rec_frame = self.osd_pipeline.compose(frame.copy())
+                        self.recording_manager.write_frame(rec_frame)
+                    else:
+                        self.recording_manager.write_frame(frame)
                 else:
                     self.recording_manager.write_frame(frame)
 

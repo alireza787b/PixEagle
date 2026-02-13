@@ -207,14 +207,17 @@ class TestFilenaming:
         filename = result['filename']
         assert filename.startswith('PixEagle_')
         assert filename.endswith('.mp4')
-        # Should contain ISO timestamp and UUID
+        # Format: PixEagle_YYYY-MM-DD_HH-MM-SS_uuid8.mp4
         parts = filename.replace('.mp4', '').split('_')
-        assert len(parts) >= 3
-        # ISO timestamp part
-        assert 'T' in parts[1]
-        assert parts[1].endswith('Z')
-        # UUID part (8 hex chars)
+        assert len(parts) >= 4
+        # Date part (YYYY-MM-DD)
+        assert '-' in parts[1]
+        assert len(parts[1]) == 10
+        # Time part (HH-MM-SS)
+        assert '-' in parts[2]
         assert len(parts[2]) == 8
+        # UUID part (8 hex chars)
+        assert len(parts[3]) == 8
 
     def test_unique_filenames(self, mock_params, temp_output_dir):
         """Two recordings should produce different filenames."""

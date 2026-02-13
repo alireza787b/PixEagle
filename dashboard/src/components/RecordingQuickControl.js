@@ -20,15 +20,13 @@ import {
   Tooltip,
   Alert,
   CircularProgress,
-  FormControlLabel,
-  Switch,
 } from '@mui/material';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import StopIcon from '@mui/icons-material/Stop';
 import PauseIcon from '@mui/icons-material/Pause';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import KeyboardIcon from '@mui/icons-material/Keyboard';
 import { useRecording } from '../hooks/useRecording';
-import { endpoints } from '../services/apiEndpoints';
 
 /**
  * Format seconds into HH:MM:SS display.
@@ -221,29 +219,13 @@ const RecordingQuickControl = () => {
         )}
       </Box>
 
-      {/* OSD Toggle */}
-      <FormControlLabel
-        control={
-          <Switch
-            size="small"
-            checked={recordingStatus?.include_osd !== false}
-            onChange={async (e) => {
-              try {
-                await fetch(endpoints.recordingIncludeOsd(e.target.checked), { method: 'POST' });
-              } catch (err) {
-                console.error('Failed to toggle OSD recording:', err);
-              }
-            }}
-            disabled={isActive}
-          />
-        }
-        label={
-          <Typography variant="caption" sx={{ fontSize: 11 }}>
-            Include OSD
-          </Typography>
-        }
-        sx={{ mt: 0.5, ml: 0, '& .MuiSwitch-root': { mr: 0.5 } }}
-      />
+      {/* Keyboard hint */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+        <KeyboardIcon sx={{ fontSize: 12, color: 'text.disabled' }} />
+        <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
+          Press <b>R</b> to {isActive ? 'stop' : 'start'}
+        </Typography>
+      </Box>
 
       {/* Storage Warning */}
       {storageWarning && storageWarning !== 'ok' && (

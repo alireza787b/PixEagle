@@ -2471,8 +2471,8 @@ Recording:
 
   # === Output Settings ===
   RECORDING_OUTPUT_DIR: recordings         # Directory relative to project root
-  # Options: mp4v | XVID | MJPG
-  RECORDING_CODEC: mp4v                    # FOURCC codec for cv2.VideoWriter
+  # Options: avc1 | mp4v | XVID | MJPG
+  RECORDING_CODEC: avc1                    # H.264 codec — browser-playable (fallback: mp4v)
   RECORDING_CONTAINER: mp4                 # File extension/container format
   RECORDING_FPS: 0                         # 0 = match source video FPS
   RECORDING_WIDTH: 0                       # 0 = match source frame width
