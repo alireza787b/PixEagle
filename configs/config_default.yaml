@@ -2449,6 +2449,47 @@ GStreamer:
   GSTREAMER_SATURATION: 5
 
 # ==============================================================================
+# VIDEO RECORDING
+# ==============================================================================
+# Saves video frames to local files for post-flight review and analysis.
+# Independent of streaming (GStreamer QGC output and dashboard streaming).
+# Uses cv2.VideoWriter with FOURCC codecs for maximum cross-platform compatibility.
+#
+# Recording does NOT affect:
+#   - Dashboard streaming (HTTP/WebSocket/WebRTC) — continues as normal
+#   - GStreamer QGC output — continues as normal
+#   - Pipeline performance — non-blocking writer thread with bounded queue
+#
+# Crash Safety:
+#   Files are written with .tmp suffix during recording. On clean stop, the file
+#   is renamed to its final name. If the application crashes mid-recording, the
+#   .tmp file is automatically finalized on next startup (RECORDING_AUTO_RECOVERY).
+#
+# ==============================================================================
+Recording:
+  ENABLE_RECORDING: true                   # Allow recording via API/keyboard (R key)
+
+  # === Output Settings ===
+  RECORDING_OUTPUT_DIR: recordings         # Directory relative to project root
+  # Options: mp4v | XVID | MJPG
+  RECORDING_CODEC: mp4v                    # FOURCC codec for cv2.VideoWriter
+  RECORDING_CONTAINER: mp4                 # File extension/container format
+  RECORDING_FPS: 0                         # 0 = match source video FPS
+  RECORDING_WIDTH: 0                       # 0 = match source frame width
+  RECORDING_HEIGHT: 0                      # 0 = match source frame height
+  RECORDING_INCLUDE_OSD: true              # Record OSD overlays on frames
+  RECORDING_QUEUE_SIZE: 5                  # Writer thread queue depth (frames)
+  RECORDING_MAX_FILE_SIZE_MB: 0            # 0 = unlimited
+
+  # === Crash Recovery ===
+  RECORDING_AUTO_RECOVERY: true            # Finalize .tmp files on startup
+
+  # === Storage Monitoring ===
+  STORAGE_WARNING_THRESHOLD_MB: 500        # Warn when free space below this (MB)
+  STORAGE_CRITICAL_THRESHOLD_MB: 100       # Auto-stop recording below this (MB)
+  STORAGE_POLL_INTERVAL: 10.0              # Seconds between disk space checks
+
+# ==============================================================================
 # OSD (ON-SCREEN DISPLAY)
 # ==============================================================================
 # 📺 Professional On-Screen Display System

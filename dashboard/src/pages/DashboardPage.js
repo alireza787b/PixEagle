@@ -21,6 +21,8 @@ import SafetyConfigCard from '../components/SafetyConfigCard';
 import StreamingStatusIndicator from '../components/StreamingStatusIndicator';
 import OperationalStatusBar from '../components/OperationalStatusBar';
 import QuickConfigDrawer from '../components/QuickConfigDrawer';
+import RecordingQuickControl from '../components/RecordingQuickControl';
+import RecordingIndicator from '../components/RecordingIndicator';
 
 import { videoFeed, endpoints } from '../services/apiEndpoints';
 import {
@@ -262,7 +264,8 @@ const DashboardPage = () => {
                   <Grid item xs={12} lg={9}>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                       {/* Video Feed */}
-                      <Card variant="outlined" sx={{ bgcolor: 'background.paper', minHeight: 400 }}>
+                      <Card variant="outlined" sx={{ bgcolor: 'background.paper', minHeight: 400, position: 'relative' }}>
+                        <RecordingIndicator />
                         <CardContent sx={{ p: 1 }}>
                           <BoundingBoxDrawer
                             isTracking={isTracking}
@@ -288,7 +291,7 @@ const DashboardPage = () => {
                         <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
                           <Grid container spacing={3}>
                             {/* Stream Settings Section */}
-                            <Grid item xs={12} md={7}>
+                            <Grid item xs={12} md={4}>
                               <Typography
                                 variant="caption"
                                 sx={{
@@ -329,7 +332,7 @@ const DashboardPage = () => {
                             </Grid>
 
                             {/* OSD Section */}
-                            <Grid item xs={12} md={5}>
+                            <Grid item xs={12} md={4}>
                               <Typography
                                 variant="caption"
                                 sx={{
@@ -345,6 +348,25 @@ const DashboardPage = () => {
                                 On-Screen Display
                               </Typography>
                               <OSDToggle />
+                            </Grid>
+
+                            {/* Recording Section */}
+                            <Grid item xs={12} md={4}>
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  display: 'block',
+                                  fontWeight: 700,
+                                  color: 'text.secondary',
+                                  textTransform: 'uppercase',
+                                  letterSpacing: 1,
+                                  mb: 1.5,
+                                  fontSize: 11
+                                }}
+                              >
+                                Recording
+                              </Typography>
+                              <RecordingQuickControl />
                             </Grid>
                           </Grid>
                         </CardContent>

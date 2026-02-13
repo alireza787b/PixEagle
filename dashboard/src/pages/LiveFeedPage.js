@@ -20,6 +20,8 @@ import OSDToggle from '../components/OSDToggle';
 import StreamingStatusIndicator from '../components/StreamingStatusIndicator';
 import GStreamerQGCPanel from '../components/GStreamerQGCPanel';
 import StreamingStats from '../components/StreamingStats';
+import RecordingQuickControl from '../components/RecordingQuickControl';
+import RecordingIndicator from '../components/RecordingIndicator';
 import { videoFeed } from '../services/apiEndpoints';
 
 const LiveFeedPage = () => {
@@ -155,6 +157,8 @@ const LiveFeedPage = () => {
         </Box>
       ) : (
         <Box>
+        <Box sx={{ position: 'relative' }}>
+          <RecordingIndicator />
         <VideoStream
           protocol={streamingProtocol}
           src={videoFeed}
@@ -162,6 +166,30 @@ const LiveFeedPage = () => {
           showQualityControl={true} // Show quality adjustment slider
           onStreamDebugUpdate={setStreamDebug}
         />
+        </Box>
+
+        {/* Recording Quick Controls */}
+        <Box sx={{ mt: 2 }}>
+          <Card variant="outlined">
+            <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+              <Typography
+                variant="caption"
+                sx={{
+                  display: 'block',
+                  fontWeight: 700,
+                  color: 'text.secondary',
+                  textTransform: 'uppercase',
+                  letterSpacing: 1,
+                  mb: 1,
+                  fontSize: 11,
+                }}
+              >
+                Recording
+              </Typography>
+              <RecordingQuickControl />
+            </CardContent>
+          </Card>
+        </Box>
 
         <Box sx={{ mt: 2 }}>
           <Grid container spacing={2}>

@@ -65,6 +65,19 @@ export const endpoints = {
   gstreamerStatus: `${protocol}://${apiHost}:${apiPort}/api/gstreamer/status`,
   toggleGstreamer: `${protocol}://${apiHost}:${apiPort}/api/gstreamer/toggle`,
 
+  // Recording endpoints
+  recordingStart: `${protocol}://${apiHost}:${apiPort}/api/recording/start`,
+  recordingPause: `${protocol}://${apiHost}:${apiPort}/api/recording/pause`,
+  recordingResume: `${protocol}://${apiHost}:${apiPort}/api/recording/resume`,
+  recordingStop: `${protocol}://${apiHost}:${apiPort}/api/recording/stop`,
+  recordingStatus: `${protocol}://${apiHost}:${apiPort}/api/recording/status`,
+  recordingToggle: `${protocol}://${apiHost}:${apiPort}/api/recording/toggle`,
+  recordingsList: `${protocol}://${apiHost}:${apiPort}/api/recordings`,
+  recordingDownload: (filename) => `${protocol}://${apiHost}:${apiPort}/api/recordings/${encodeURIComponent(filename)}`,
+  recordingDelete: (filename) => `${protocol}://${apiHost}:${apiPort}/api/recordings/${encodeURIComponent(filename)}`,
+  storageStatus: `${protocol}://${apiHost}:${apiPort}/api/storage/status`,
+  recordingIncludeOsd: (enabled) => `${protocol}://${apiHost}:${apiPort}/api/recording/include-osd/${enabled}`,
+
   // YOLO Model Management endpoints
   yoloModels: `${protocol}://${apiHost}:${apiPort}/api/yolo/models`,
   yoloActiveModel: `${protocol}://${apiHost}:${apiPort}/api/yolo/active-model`,

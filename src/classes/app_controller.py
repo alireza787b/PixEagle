@@ -23,6 +23,8 @@ from classes.osd_handler import OSDHandler
 from classes.osd_pipeline import OSDPipeline
 from classes.osd_mode_manager import OSDModeManager
 from classes.gstreamer_handler import GStreamerHandler
+from classes.recording_manager import RecordingManager
+from classes.storage_manager import StorageManager
 from classes.mavlink_data_manager import MavlinkDataManager
 from classes.frame_publisher import FramePublisher
 from classes.frame_preprocessor import FramePreprocessor
@@ -179,6 +181,16 @@ class AppController:
         if Parameters.ENABLE_GSTREAMER_STREAM:
             self.gstreamer_handler = GStreamerHandler()
             self.gstreamer_handler.initialize_stream()
+
+        # Initialize recording system if enabled
+        if getattr(Parameters, 'ENABLE_RECORDING', False):
+            self.recording_manager = RecordingManager()
+            self.storage_manager = StorageManager(self.recording_manager)
+            self.storage_manager.start_monitoring()
+            logging.info("Recording system initialized")
+        else:
+            self.recording_manager = None
+            self.storage_manager = None
 
         logging.info("AppController initialized.")
 
@@ -619,6 +631,13 @@ class AppController:
                 gstreamer_frame = capture_osd_frame if capture_osd_frame is not None else frame
                 self.gstreamer_handler.stream_frame(gstreamer_frame)
 
+            # Optional local video recording (non-blocking)
+            if hasattr(self, 'recording_manager') and self.recording_manager and self.recording_manager.is_recording:
+                if self.recording_manager._include_osd and capture_osd_frame is not None:
+                    self.recording_manager.write_frame(capture_osd_frame)
+                else:
+                    self.recording_manager.write_frame(frame)
+
             _t_publish = time.monotonic()
 
             # Update per-stage pipeline metrics
@@ -736,6 +755,18 @@ class AppController:
         elif key == ord('n'):
             new_mode = self.osd_mode_manager.cycle_color_mode()
             self.logger.info(f"OSD color mode cycled to: {new_mode}")
+        elif key == ord('r'):
+            if hasattr(self, 'recording_manager') and self.recording_manager:
+                if self.recording_manager.is_active:
+                    result = self.recording_manager.stop()
+                    self.logger.info(f"Recording stopped via keyboard: {result.get('message', '')}")
+                else:
+                    source_fps = self.video_handler.fps if hasattr(self.video_handler, 'fps') else 30
+                    cap = self.video_handler.cap if hasattr(self.video_handler, 'cap') else None
+                    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) if cap else 640
+                    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) if cap else 480
+                    result = self.recording_manager.start(source_fps or 30, w, h)
+                    self.logger.info(f"Recording via keyboard: {result.get('message', '')}")
 
     def handle_key_input(self, key: int, frame: np.ndarray):
         """
@@ -1329,6 +1360,24 @@ class AppController:
                 logging.error(f"Error releasing video handler: {e}")
                 result["errors"].append(f"Video handler release error: {e}")
             
+            # Stop recording if active
+            try:
+                if hasattr(self, 'recording_manager') and self.recording_manager:
+                    self.recording_manager.release()
+                    result["steps"].append("Recording manager released")
+            except Exception as e:
+                logging.error(f"Error stopping recording: {e}")
+                result["errors"].append(f"Recording stop error: {e}")
+
+            # Stop storage monitoring
+            try:
+                if hasattr(self, 'storage_manager') and self.storage_manager:
+                    self.storage_manager.stop_monitoring()
+                    result["steps"].append("Storage monitor stopped")
+            except Exception as e:
+                logging.error(f"Error stopping storage monitor: {e}")
+                result["errors"].append(f"Storage monitor stop error: {e}")
+
             # Additional cleanup for new components
             try:
                 # Clear follower reference
