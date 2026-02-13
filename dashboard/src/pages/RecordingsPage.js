@@ -389,6 +389,7 @@ const RecordingsPage = () => {
                               label={rec.status || 'completed'}
                               size="small"
                               color={
+                                rec.status === 'transcoding' ? 'info' :
                                 rec.status === 'recovered' ? 'warning' :
                                 rec.status === 'error' ? 'error' : 'success'
                               }
@@ -492,13 +493,9 @@ const RecordingsPage = () => {
                 <source src={playDialog.url} type="video/mp4" />
               </video>
               <Alert severity="info" sx={{ width: '100%' }}>
-                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
-                  If playback doesn't work in the browser:
-                </Typography>
                 <Typography variant="body2">
-                  Download the file and open it in VLC, Windows Media Player, or any desktop video player.
-                  The default mp4v codec is universally compatible with desktop players but may not
-                  play inline in all browsers.
+                  If playback doesn't work, download the file and open it in VLC or any desktop player.
+                  Videos are auto-transcoded to H.264 for browser playback when FFmpeg is available.
                 </Typography>
               </Alert>
             </Box>

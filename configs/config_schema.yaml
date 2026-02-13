@@ -5684,6 +5684,18 @@ sections:
         min: 0
         max: 100
         unit: frames
+      RECORDING_MAX_FRAME_DUPLICATION:
+        type: integer
+        default: 5
+        description: Max frame copies per delivery (real-time pacing cap)
+        reboot_required: false
+        min: 1
+        max: 20
+      RECORDING_TRANSCODE_H264:
+        type: boolean
+        default: true
+        description: Auto-transcode to H.264 after stop (requires FFmpeg)
+        reboot_required: false
       RECORDING_MAX_FILE_SIZE_MB:
         type: integer
         default: 0

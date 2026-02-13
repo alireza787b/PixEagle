@@ -2480,6 +2480,7 @@ Recording:
   RECORDING_INCLUDE_OSD: true              # Record OSD overlays on frames
   RECORDING_QUEUE_SIZE: 5                  # Writer thread queue depth (frames)
   RECORDING_MAX_FRAME_DUPLICATION: 5       # Max frame copies per delivery (real-time pacing cap)
+  RECORDING_TRANSCODE_H264: true           # Auto-transcode to H.264 after stop (requires FFmpeg)
   RECORDING_MAX_FILE_SIZE_MB: 0            # 0 = unlimited
 
   # === Crash Recovery ===

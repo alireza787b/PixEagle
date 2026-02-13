@@ -22,13 +22,15 @@ Author: PixEagle Recording System
 import cv2
 import logging
 import queue
+import shutil
+import subprocess
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import numpy as np
 
@@ -125,6 +127,12 @@ class RecordingManager:
         # Pause tracking
         self._pause_start: Optional[float] = None
         self._total_paused: float = 0.0
+
+        # H.264 post-processing for browser playback
+        self._transcode_h264 = bool(getattr(
+            Parameters, 'RECORDING_TRANSCODE_H264', True
+        ))
+        self._transcoding_files: Set[str] = set()
 
         # Frame pacing: monotonic-clock frame duplication for real-time playback
         self._recording_start_mono: float = 0.0
@@ -353,6 +361,18 @@ class RecordingManager:
             f"target FPS: {self._target_fps:.1f}, "
             f"{metadata.get('file_size_mb', 0):.1f}MB)"
         )
+
+        # Background H.264 transcode for browser playback
+        filepath = metadata.get('filepath', '')
+        if self._transcode_h264 and filepath and Path(filepath).exists():
+            t = threading.Thread(
+                target=self._transcode_to_h264,
+                args=(filepath,),
+                name="recording-transcode",
+                daemon=True,
+            )
+            t.start()
+
         return {'status': 'success', **metadata}
 
     def write_frame(self, frame: np.ndarray):
@@ -443,9 +463,10 @@ class RecordingManager:
                     iso_str = ""
 
                 # Determine status
-                status = "completed"
-                # Check for recovered files (those without expected PixEagle prefix
-                # or with other anomalies could be flagged, but for now all are "completed")
+                if f.name in self._transcoding_files:
+                    status = "transcoding"
+                else:
+                    status = "completed"
 
                 recordings.append({
                     'filename': f.name,
@@ -653,6 +674,7 @@ class RecordingManager:
 
         result = {
             'filename': meta.filename,
+            'filepath': meta.filepath,
             'duration_seconds': meta.duration_seconds,
             'frame_count': meta.frame_count,
             'frames_received': self._stats.frames_received,
@@ -664,6 +686,80 @@ class RecordingManager:
 
         self._current_metadata = None
         return result
+
+    def _transcode_to_h264(self, filepath: str):
+        """
+        Background transcode from mp4v to browser-playable H.264.
+
+        Uses FFmpeg to re-encode with libx264. The original mp4v file is
+        replaced with the H.264 version via atomic rename. If FFmpeg is
+        not installed, logs a warning and leaves the mp4v file as-is
+        (still playable in VLC/WMP, just not in browsers).
+
+        Args:
+            filepath: Absolute path to the finalized .mp4 file.
+        """
+        if not shutil.which('ffmpeg'):
+            logger.info(
+                "FFmpeg not found — skipping H.264 transcode. "
+                "Recording plays in VLC/WMP but not in browsers. "
+                "Install FFmpeg for browser playback support."
+            )
+            return
+
+        filename = Path(filepath).name
+        self._transcoding_files.add(filename)
+        temp_h264 = filepath + '.h264.tmp'
+
+        try:
+            cmd = [
+                'ffmpeg', '-y',
+                '-i', filepath,
+                '-c:v', 'libx264',
+                '-preset', 'ultrafast',
+                '-crf', '23',
+                '-pix_fmt', 'yuv420p',
+                '-movflags', '+faststart',
+                '-an',  # no audio track
+                temp_h264,
+            ]
+            logger.info(f"Transcoding to H.264: {filename}")
+            result = subprocess.run(
+                cmd, capture_output=True, timeout=600,
+            )
+
+            if result.returncode == 0 and Path(temp_h264).exists():
+                original_size = Path(filepath).stat().st_size
+                h264_size = Path(temp_h264).stat().st_size
+                Path(temp_h264).replace(filepath)
+                logger.info(
+                    f"H.264 transcode complete: {filename} "
+                    f"({original_size / 1048576:.1f}MB → "
+                    f"{h264_size / 1048576:.1f}MB)"
+                )
+            else:
+                stderr = result.stderr.decode(errors='replace')[-200:]
+                logger.error(
+                    f"FFmpeg transcode failed for {filename}: {stderr}"
+                )
+                try:
+                    Path(temp_h264).unlink(missing_ok=True)
+                except OSError:
+                    pass
+        except subprocess.TimeoutExpired:
+            logger.error(f"FFmpeg transcode timed out for {filename}")
+            try:
+                Path(temp_h264).unlink(missing_ok=True)
+            except OSError:
+                pass
+        except Exception as e:
+            logger.error(f"H.264 transcode error for {filename}: {e}")
+            try:
+                Path(temp_h264).unlink(missing_ok=True)
+            except OSError:
+                pass
+        finally:
+            self._transcoding_files.discard(filename)
 
     def _validate_codec(self, codec: str, fps: float, width: int,
                         height: int) -> bool:
