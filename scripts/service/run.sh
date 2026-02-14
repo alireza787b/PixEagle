@@ -114,12 +114,46 @@ monitor_tmux_session() {
     done
 }
 
+log_startup_info() {
+    local ip
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    local hostname_local
+    hostname_local="$(hostname 2>/dev/null).local"
+    local dashboard_port="${PIXEAGLE_DEFAULT_DASHBOARD_PORT:-3040}"
+    local api_port="${PIXEAGLE_DEFAULT_BACKEND_PORT:-5077}"
+    local branch
+    branch="$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')"
+    local commit
+    commit="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
+
+    log_message "INFO" "──────────────────────────────────────────"
+    log_message "INFO" "PixEagle Vision Tracking Service"
+    log_message "INFO" "  Install:   $PROJECT_ROOT"
+    log_message "INFO" "  Version:   $branch @ $commit"
+
+    if [ -n "$ip" ]; then
+        log_message "INFO" "  Dashboard: http://$ip:$dashboard_port"
+        log_message "INFO" "  API:       http://$ip:$api_port"
+    fi
+
+    # Detect if running behind a platform proxy (e.g., ARK-OS nginx)
+    if [ -f "$PROJECT_ROOT/dashboard/.env.production.local" ]; then
+        log_message "INFO" "  Proxy:     http://$hostname_local/pixeagle/"
+        log_message "INFO" "  Proxy API: http://$hostname_local/pixeagle-api/"
+    fi
+
+    log_message "INFO" "  tmux:      tmux attach -t $TMUX_SESSION_NAME"
+    log_message "INFO" "  Logs:      journalctl --user -u pixeagle -f"
+    log_message "INFO" "──────────────────────────────────────────"
+}
+
 main() {
     cd "$PROJECT_ROOT"
     log_message "INFO" "PixEagle service supervisor starting"
 
     check_prerequisites
     start_stack
+    log_startup_info
     monitor_tmux_session
 }
 
