@@ -10,6 +10,13 @@ import SettingsPage from './pages/SettingsPage';
 import RecordingsPage from './pages/RecordingsPage';
 import { ThemeProvider, ThemeContext } from './context/ThemeContext';
 
+// Auto-detect base path for reverse proxy support (e.g., ARK-OS serves at /pixeagle/)
+const detectBasePath = () => {
+  const path = window.location.pathname;
+  const match = path.match(/^(\/pixeagle)/);
+  return match ? match[1] : '';
+};
+
 const AppContent = () => {
   const { theme } = useContext(ThemeContext);
 
@@ -22,7 +29,7 @@ const AppContent = () => {
   return (
     <MuiThemeProvider theme={muiTheme}>
       <CssBaseline />
-      <Router>
+      <Router basename={detectBasePath()}>
         <Routes>
           <Route path="/" element={<Layout />}>
             <Route index element={<Navigate to="/dashboard" />} />

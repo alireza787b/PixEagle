@@ -154,6 +154,12 @@ ask_yes_no() {
     local default="${2:-y}"  # Default to yes
     local reply=""
 
+    # Non-interactive mode: always use default (for automated installs, e.g., ARK-OS)
+    if [[ "${PIXEAGLE_NONINTERACTIVE:-}" == "1" ]]; then
+        printf "%b (auto: %s)\n" "$prompt" "$default"
+        [[ "$default" =~ ^[Yy] ]] && return 0 || return 1
+    fi
+
     # Print prompt (use %b so color escape sequences render correctly)
     printf "%b" "$prompt"
 
@@ -235,6 +241,15 @@ display_banner() {
 # Sudo Password Prompt
 # ============================================================================
 prompt_sudo() {
+    # Non-interactive mode: skip the fancy prompt, just validate sudo
+    if [[ "${PIXEAGLE_NONINTERACTIVE:-}" == "1" ]]; then
+        if ! sudo -v 2>/dev/null; then
+            log_error "sudo authentication required but running in non-interactive mode"
+            exit 1
+        fi
+        return
+    fi
+
     echo ""
     echo -e "${YELLOW}+==========================================================================+${NC}"
     echo -e "${YELLOW}|${NC}                                                                          ${YELLOW}|${NC}"
@@ -263,6 +278,25 @@ select_installation_profile() {
     DETECTED_ARCH=$(uname -m)
     IS_ARM_PLATFORM=false
     [[ "$DETECTED_ARCH" == "arm"* || "$DETECTED_ARCH" == "aarch64" ]] && IS_ARM_PLATFORM=true
+
+    # Non-interactive mode: use PIXEAGLE_INSTALL_PROFILE env var (for automated installs, e.g., ARK-OS)
+    if [[ -n "${PIXEAGLE_INSTALL_PROFILE:-}" ]]; then
+        case "${PIXEAGLE_INSTALL_PROFILE,,}" in
+            core|1)
+                INSTALL_PROFILE="core"
+                log_success "Non-interactive: Core installation profile selected"
+                return
+                ;;
+            full|2)
+                INSTALL_PROFILE="full"
+                log_success "Non-interactive: Full installation profile selected"
+                return
+                ;;
+            *)
+                log_warn "Unknown PIXEAGLE_INSTALL_PROFILE='$PIXEAGLE_INSTALL_PROFILE', falling through to interactive"
+                ;;
+        esac
+    fi
 
     echo ""
     echo -e "${CYAN}+==========================================================================+${NC}"

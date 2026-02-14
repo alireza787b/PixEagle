@@ -1,10 +1,11 @@
 // dashboard/src/services/apiEndpoints.js
-// Dynamic host detection with optional override for reverse proxy/special deployments
+// Dynamic host detection with reverse proxy support (e.g., ARK-OS at /pixeagle/)
 
 /**
  * Get API configuration with smart defaults
  * - Auto-detects host from browser URL (works for localhost, LAN, remote)
  * - Supports explicit override via REACT_APP_API_HOST_OVERRIDE
+ * - Detects reverse proxy mode when served behind /pixeagle/ subpath
  * - Detects protocol (http/https) from current page
  */
 const getApiConfig = () => {
@@ -27,120 +28,138 @@ const getApiConfig = () => {
   const protocol = isHttps ? 'https' : 'http';
   const wsProtocol = isHttps ? 'wss' : 'ws';
 
-  return { apiHost, apiPort, protocol, wsProtocol };
+  // Detect reverse proxy mode (e.g., ARK-OS serves dashboard at /pixeagle/)
+  // When behind proxy, route API calls through /pixeagle-api/ instead of direct port
+  const isBehindProxy = typeof window !== 'undefined'
+    && window.location.pathname.startsWith('/pixeagle');
+
+  let apiBaseUrl, wsBaseUrl;
+
+  if (isBehindProxy) {
+    // Behind reverse proxy: use nginx proxy path (no direct port access needed)
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    apiBaseUrl = `${origin}/pixeagle-api`;
+    wsBaseUrl = `${wsProtocol}://${typeof window !== 'undefined' ? window.location.host : 'localhost'}/pixeagle-api`;
+  } else {
+    // Standalone mode: direct connection to API port
+    apiBaseUrl = `${protocol}://${apiHost}:${apiPort}`;
+    wsBaseUrl = `${wsProtocol}://${apiHost}:${apiPort}`;
+  }
+
+  return { apiBaseUrl, wsBaseUrl, apiHost, apiPort, protocol, wsProtocol, isBehindProxy };
 };
 
-const { apiHost, apiPort, protocol, wsProtocol } = getApiConfig();
+const { apiBaseUrl, wsBaseUrl, apiHost, apiPort, protocol, wsProtocol, isBehindProxy } = getApiConfig();
 
 // HTTP endpoints (using dynamic protocol for HTTPS support)
 export const endpoints = {
-  startTracking: `${protocol}://${apiHost}:${apiPort}/commands/start_tracking`,
-  stopTracking: `${protocol}://${apiHost}:${apiPort}/commands/stop_tracking`,
-  redetect: `${protocol}://${apiHost}:${apiPort}/commands/redetect`,
-  cancelActivities: `${protocol}://${apiHost}:${apiPort}/commands/cancel_activities`,
-  toggleSegmentation: `${protocol}://${apiHost}:${apiPort}/commands/toggle_segmentation`,
-  startOffboardMode: `${protocol}://${apiHost}:${apiPort}/commands/start_offboard_mode`,
-  stopOffboardMode: `${protocol}://${apiHost}:${apiPort}/commands/stop_offboard_mode`,
-  quit: `${protocol}://${apiHost}:${apiPort}/commands/quit`,
-  status: `${protocol}://${apiHost}:${apiPort}/status`,
-  toggleSmartMode: `${protocol}://${apiHost}:${apiPort}/commands/toggle_smart_mode`,
-  smartClick: `${protocol}://${apiHost}:${apiPort}/commands/smart_click`,
+  startTracking: `${apiBaseUrl}/commands/start_tracking`,
+  stopTracking: `${apiBaseUrl}/commands/stop_tracking`,
+  redetect: `${apiBaseUrl}/commands/redetect`,
+  cancelActivities: `${apiBaseUrl}/commands/cancel_activities`,
+  toggleSegmentation: `${apiBaseUrl}/commands/toggle_segmentation`,
+  startOffboardMode: `${apiBaseUrl}/commands/start_offboard_mode`,
+  stopOffboardMode: `${apiBaseUrl}/commands/stop_offboard_mode`,
+  quit: `${apiBaseUrl}/commands/quit`,
+  status: `${apiBaseUrl}/status`,
+  toggleSmartMode: `${apiBaseUrl}/commands/toggle_smart_mode`,
+  smartClick: `${apiBaseUrl}/commands/smart_click`,
 
   // Circuit breaker endpoints
-  circuitBreakerStatus: `${protocol}://${apiHost}:${apiPort}/api/circuit-breaker/status`,
-  toggleCircuitBreaker: `${protocol}://${apiHost}:${apiPort}/api/circuit-breaker/toggle`,
-  toggleCircuitBreakerSafety: `${protocol}://${apiHost}:${apiPort}/api/circuit-breaker/toggle-safety`,
-  circuitBreakerStats: `${protocol}://${apiHost}:${apiPort}/api/circuit-breaker/statistics`,
+  circuitBreakerStatus: `${apiBaseUrl}/api/circuit-breaker/status`,
+  toggleCircuitBreaker: `${apiBaseUrl}/api/circuit-breaker/toggle`,
+  toggleCircuitBreakerSafety: `${apiBaseUrl}/api/circuit-breaker/toggle-safety`,
+  circuitBreakerStats: `${apiBaseUrl}/api/circuit-breaker/statistics`,
 
   // OSD endpoints
-  osdStatus: `${protocol}://${apiHost}:${apiPort}/api/osd/status`,
-  toggleOsd: `${protocol}://${apiHost}:${apiPort}/api/osd/toggle`,
-  osdPresets: `${protocol}://${apiHost}:${apiPort}/api/osd/presets`,
-  loadOsdPreset: (presetName) => `${protocol}://${apiHost}:${apiPort}/api/osd/preset/${presetName}`,
-  osdColorModes: `${protocol}://${apiHost}:${apiPort}/api/osd/color-modes`,
-  setOsdColorMode: (mode) => `${protocol}://${apiHost}:${apiPort}/api/osd/color-mode/${mode}`,
-  osdModes: `${protocol}://${apiHost}:${apiPort}/api/osd/modes`,
+  osdStatus: `${apiBaseUrl}/api/osd/status`,
+  toggleOsd: `${apiBaseUrl}/api/osd/toggle`,
+  osdPresets: `${apiBaseUrl}/api/osd/presets`,
+  loadOsdPreset: (presetName) => `${apiBaseUrl}/api/osd/preset/${presetName}`,
+  osdColorModes: `${apiBaseUrl}/api/osd/color-modes`,
+  setOsdColorMode: (mode) => `${apiBaseUrl}/api/osd/color-mode/${mode}`,
+  osdModes: `${apiBaseUrl}/api/osd/modes`,
 
   // GStreamer QGC Output endpoints
-  gstreamerStatus: `${protocol}://${apiHost}:${apiPort}/api/gstreamer/status`,
-  toggleGstreamer: `${protocol}://${apiHost}:${apiPort}/api/gstreamer/toggle`,
+  gstreamerStatus: `${apiBaseUrl}/api/gstreamer/status`,
+  toggleGstreamer: `${apiBaseUrl}/api/gstreamer/toggle`,
 
   // Recording endpoints
-  recordingStart: `${protocol}://${apiHost}:${apiPort}/api/recording/start`,
-  recordingPause: `${protocol}://${apiHost}:${apiPort}/api/recording/pause`,
-  recordingResume: `${protocol}://${apiHost}:${apiPort}/api/recording/resume`,
-  recordingStop: `${protocol}://${apiHost}:${apiPort}/api/recording/stop`,
-  recordingStatus: `${protocol}://${apiHost}:${apiPort}/api/recording/status`,
-  recordingToggle: `${protocol}://${apiHost}:${apiPort}/api/recording/toggle`,
-  recordingsList: `${protocol}://${apiHost}:${apiPort}/api/recordings`,
-  recordingDownload: (filename) => `${protocol}://${apiHost}:${apiPort}/api/recordings/${encodeURIComponent(filename)}`,
-  recordingDelete: (filename) => `${protocol}://${apiHost}:${apiPort}/api/recordings/${encodeURIComponent(filename)}`,
-  storageStatus: `${protocol}://${apiHost}:${apiPort}/api/storage/status`,
-  recordingIncludeOsd: (enabled) => `${protocol}://${apiHost}:${apiPort}/api/recording/include-osd/${enabled}`,
+  recordingStart: `${apiBaseUrl}/api/recording/start`,
+  recordingPause: `${apiBaseUrl}/api/recording/pause`,
+  recordingResume: `${apiBaseUrl}/api/recording/resume`,
+  recordingStop: `${apiBaseUrl}/api/recording/stop`,
+  recordingStatus: `${apiBaseUrl}/api/recording/status`,
+  recordingToggle: `${apiBaseUrl}/api/recording/toggle`,
+  recordingsList: `${apiBaseUrl}/api/recordings`,
+  recordingDownload: (filename) => `${apiBaseUrl}/api/recordings/${encodeURIComponent(filename)}`,
+  recordingDelete: (filename) => `${apiBaseUrl}/api/recordings/${encodeURIComponent(filename)}`,
+  storageStatus: `${apiBaseUrl}/api/storage/status`,
+  recordingIncludeOsd: (enabled) => `${apiBaseUrl}/api/recording/include-osd/${enabled}`,
 
   // YOLO Model Management endpoints
-  yoloModels: `${protocol}://${apiHost}:${apiPort}/api/yolo/models`,
-  yoloActiveModel: `${protocol}://${apiHost}:${apiPort}/api/yolo/active-model`,
-  yoloModelLabels: (modelId) => `${protocol}://${apiHost}:${apiPort}/api/yolo/models/${encodeURIComponent(modelId)}/labels`,
-  yoloSwitchModel: `${protocol}://${apiHost}:${apiPort}/api/yolo/switch-model`,
-  yoloUpload: `${protocol}://${apiHost}:${apiPort}/api/yolo/upload`,
-  yoloDownload: `${protocol}://${apiHost}:${apiPort}/api/yolo/download`,
-  yoloDelete: (modelId) => `${protocol}://${apiHost}:${apiPort}/api/yolo/delete/${modelId}`,
+  yoloModels: `${apiBaseUrl}/api/yolo/models`,
+  yoloActiveModel: `${apiBaseUrl}/api/yolo/active-model`,
+  yoloModelLabels: (modelId) => `${apiBaseUrl}/api/yolo/models/${encodeURIComponent(modelId)}/labels`,
+  yoloSwitchModel: `${apiBaseUrl}/api/yolo/switch-model`,
+  yoloUpload: `${apiBaseUrl}/api/yolo/upload`,
+  yoloDownload: `${apiBaseUrl}/api/yolo/download`,
+  yoloDelete: (modelId) => `${apiBaseUrl}/api/yolo/delete/${modelId}`,
 
   // Safety configuration endpoints (v3.5.0+)
-  safetyConfig: `${protocol}://${apiHost}:${apiPort}/api/safety/config`,
-  safetyLimits: (followerName) => `${protocol}://${apiHost}:${apiPort}/api/safety/limits/${followerName}`,
+  safetyConfig: `${apiBaseUrl}/api/safety/config`,
+  safetyLimits: (followerName) => `${apiBaseUrl}/api/safety/limits/${followerName}`,
 
   // Enhanced safety/config endpoints (v5.0.0+)
-  effectiveLimits: (followerName) => `${protocol}://${apiHost}:${apiPort}/api/config/effective-limits${followerName ? `?follower_name=${followerName}` : ''}`,
-  relevantSections: (followerMode) => `${protocol}://${apiHost}:${apiPort}/api/config/sections/relevant${followerMode ? `?follower_mode=${followerMode}` : ''}`,
-  currentFollowerMode: `${protocol}://${apiHost}:${apiPort}/api/follower/current-mode`,
+  effectiveLimits: (followerName) => `${apiBaseUrl}/api/config/effective-limits${followerName ? `?follower_name=${followerName}` : ''}`,
+  relevantSections: (followerMode) => `${apiBaseUrl}/api/config/sections/relevant${followerMode ? `?follower_mode=${followerMode}` : ''}`,
+  currentFollowerMode: `${apiBaseUrl}/api/follower/current-mode`,
 
   // Configuration management endpoints (v4.0.0+)
-  configSchema: `${protocol}://${apiHost}:${apiPort}/api/config/schema`,
-  configSectionSchema: (section) => `${protocol}://${apiHost}:${apiPort}/api/config/schema/${section}`,
-  configSections: `${protocol}://${apiHost}:${apiPort}/api/config/sections`,
-  configCategories: `${protocol}://${apiHost}:${apiPort}/api/config/categories`,
-  configCurrent: `${protocol}://${apiHost}:${apiPort}/api/config/current`,
-  configCurrentSection: (section) => `${protocol}://${apiHost}:${apiPort}/api/config/current/${section}`,
-  configDefault: `${protocol}://${apiHost}:${apiPort}/api/config/default`,
-  configDefaultSection: (section) => `${protocol}://${apiHost}:${apiPort}/api/config/default/${section}`,
-  configUpdateParameter: (section, param) => `${protocol}://${apiHost}:${apiPort}/api/config/${section}/${param}`,
-  configUpdateSection: (section) => `${protocol}://${apiHost}:${apiPort}/api/config/${section}`,
-  configValidate: `${protocol}://${apiHost}:${apiPort}/api/config/validate`,
-  configDiff: `${protocol}://${apiHost}:${apiPort}/api/config/diff`,
-  configDefaultsSync: `${protocol}://${apiHost}:${apiPort}/api/config/defaults-sync`,
-  configDefaultsSyncPlan: `${protocol}://${apiHost}:${apiPort}/api/config/defaults-sync/plan`,
-  configDefaultsSyncApply: `${protocol}://${apiHost}:${apiPort}/api/config/defaults-sync/apply`,
-  configRevert: `${protocol}://${apiHost}:${apiPort}/api/config/revert`,
-  configRevertSection: (section) => `${protocol}://${apiHost}:${apiPort}/api/config/revert/${section}`,
-  configRevertParameter: (section, param) => `${protocol}://${apiHost}:${apiPort}/api/config/revert/${section}/${param}`,
-  configHistory: `${protocol}://${apiHost}:${apiPort}/api/config/history`,
-  configRestore: (backupId) => `${protocol}://${apiHost}:${apiPort}/api/config/restore/${backupId}`,
-  configExport: `${protocol}://${apiHost}:${apiPort}/api/config/export`,
-  configImport: `${protocol}://${apiHost}:${apiPort}/api/config/import`,
-  configSearch: `${protocol}://${apiHost}:${apiPort}/api/config/search`,
-  configAudit: `${protocol}://${apiHost}:${apiPort}/api/config/audit`,
+  configSchema: `${apiBaseUrl}/api/config/schema`,
+  configSectionSchema: (section) => `${apiBaseUrl}/api/config/schema/${section}`,
+  configSections: `${apiBaseUrl}/api/config/sections`,
+  configCategories: `${apiBaseUrl}/api/config/categories`,
+  configCurrent: `${apiBaseUrl}/api/config/current`,
+  configCurrentSection: (section) => `${apiBaseUrl}/api/config/current/${section}`,
+  configDefault: `${apiBaseUrl}/api/config/default`,
+  configDefaultSection: (section) => `${apiBaseUrl}/api/config/default/${section}`,
+  configUpdateParameter: (section, param) => `${apiBaseUrl}/api/config/${section}/${param}`,
+  configUpdateSection: (section) => `${apiBaseUrl}/api/config/${section}`,
+  configValidate: `${apiBaseUrl}/api/config/validate`,
+  configDiff: `${apiBaseUrl}/api/config/diff`,
+  configDefaultsSync: `${apiBaseUrl}/api/config/defaults-sync`,
+  configDefaultsSyncPlan: `${apiBaseUrl}/api/config/defaults-sync/plan`,
+  configDefaultsSyncApply: `${apiBaseUrl}/api/config/defaults-sync/apply`,
+  configRevert: `${apiBaseUrl}/api/config/revert`,
+  configRevertSection: (section) => `${apiBaseUrl}/api/config/revert/${section}`,
+  configRevertParameter: (section, param) => `${apiBaseUrl}/api/config/revert/${section}/${param}`,
+  configHistory: `${apiBaseUrl}/api/config/history`,
+  configRestore: (backupId) => `${apiBaseUrl}/api/config/restore/${backupId}`,
+  configExport: `${apiBaseUrl}/api/config/export`,
+  configImport: `${apiBaseUrl}/api/config/import`,
+  configSearch: `${apiBaseUrl}/api/config/search`,
+  configAudit: `${apiBaseUrl}/api/config/audit`,
 
   // System management endpoints (v4.0.0+)
-  systemStatus: `${protocol}://${apiHost}:${apiPort}/api/system/status`,
-  systemRestart: `${protocol}://${apiHost}:${apiPort}/api/system/restart`,
-  systemConfig: `${protocol}://${apiHost}:${apiPort}/api/system/config`,
-  videoHealth: `${protocol}://${apiHost}:${apiPort}/api/video/health`,
-  videoReconnect: `${protocol}://${apiHost}:${apiPort}/api/video/reconnect`,
+  systemStatus: `${apiBaseUrl}/api/system/status`,
+  systemRestart: `${apiBaseUrl}/api/system/restart`,
+  systemConfig: `${apiBaseUrl}/api/system/config`,
+  videoHealth: `${apiBaseUrl}/api/video/health`,
+  videoReconnect: `${apiBaseUrl}/api/video/reconnect`,
 };
 
 // Video feed endpoint
-export const videoFeed = `${protocol}://${apiHost}:${apiPort}/video_feed`;
+export const videoFeed = `${apiBaseUrl}/video_feed`;
 
 // WebSocket endpoints (using dynamic wsProtocol for WSS support)
-export const websocketVideoFeed = `${wsProtocol}://${apiHost}:${apiPort}/ws/video_feed`;
+export const websocketVideoFeed = `${wsBaseUrl}/ws/video_feed`;
 
 // WebRTC Signaling Endpoint
-export const webrtcSignalingEndpoint = `${wsProtocol}://${apiHost}:${apiPort}/ws/webrtc_signaling`;
+export const webrtcSignalingEndpoint = `${wsBaseUrl}/ws/webrtc_signaling`;
 
 // Streaming status endpoint
-export const streamingStatus = `${protocol}://${apiHost}:${apiPort}/api/streaming/status`;
+export const streamingStatus = `${apiBaseUrl}/api/streaming/status`;
 
 // Export config for debugging/logging
-export const apiConfig = { apiHost, apiPort, protocol, wsProtocol };
+export const apiConfig = { apiHost, apiPort, protocol, wsProtocol, isBehindProxy };
