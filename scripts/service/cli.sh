@@ -131,6 +131,15 @@ enable_command() {
         return 1
     fi
 
+    # Detect externally-managed user-level service (e.g., ARK-OS).
+    # A system-level service would conflict with it.
+    if sudo -u "${SUDO_USER:-$USER}" systemctl --user cat "${SERVICE_NAME}.service" &>/dev/null 2>&1; then
+        print_status "error" "User-level ${SERVICE_NAME}.service already exists (managed by external system, e.g., ARK-OS)"
+        print_status "note" "Cannot create system-level service — it would conflict"
+        print_status "note" "Manage via: systemctl --user {start|stop|enable|disable} ${SERVICE_NAME}"
+        return 1
+    fi
+
     create_service_file
     systemctl daemon-reload
     systemctl enable "${SERVICE_NAME}.service"

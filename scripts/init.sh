@@ -1289,6 +1289,23 @@ configure_service_autostart() {
         return 0
     fi
 
+    # Non-interactive mode: skip service setup entirely.
+    # The caller (e.g., ARK-OS, Docker, CI) manages the service lifecycle.
+    if [[ "${PIXEAGLE_NONINTERACTIVE:-}" == "1" ]]; then
+        log_info "Non-interactive mode: skipping service setup (managed externally)"
+        log_detail "To set up standalone service later: sudo bash scripts/service/install.sh"
+        return 0
+    fi
+
+    # Detect externally-managed user-level service (e.g., ARK-OS).
+    # Avoid creating a conflicting system-level service.
+    if systemctl --user cat pixeagle.service &>/dev/null 2>&1; then
+        log_info "User-level pixeagle.service detected (managed by external system)"
+        log_detail "Skipping system-level service setup to avoid conflict"
+        log_detail "Manage via: systemctl --user {start|stop|status} pixeagle"
+        return 0
+    fi
+
     local installer="$SCRIPTS_DIR/service/install.sh"
     local service_cmd_installed=false
     local auto_start_enabled=false
