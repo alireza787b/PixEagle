@@ -161,24 +161,74 @@ RECOMMENDED_RANGES = {
     'Streaming.JPEG_QUALITY': {'recommended_min': 50, 'recommended_max': 95},
 }
 
-# Parameters that require app restart
-REBOOT_REQUIRED_PATTERNS = [
-    r'^VIDEO_SOURCE',
-    r'^CAPTURE_',
-    r'^RTSP_',
-    r'^UDP_',
-    r'^HTTP_',
-    r'^CSI_',
-    r'^CAMERA_',
-    r'^USE_GSTREAMER',
-    r'^SYSTEM_ADDRESS',
-    r'^MAVLINK_HOST',
-    r'^MAVLINK_PORT',
-    r'^HTTP_STREAM_HOST',
-    r'^HTTP_STREAM_PORT',
-    r'^SMART_TRACKER_.*MODEL',
-    r'^SMART_TRACKER_USE_GPU',
-]
+# Reload tier mapping: section-level defaults.
+# Tiers: 'immediate', 'follower_restart', 'tracker_restart', 'system_restart'
+SECTION_RELOAD_TIERS = {
+    # immediate — visual/display settings, read every frame
+    'OSD': 'immediate',
+    'Debugging': 'immediate',
+    'FrameEstimation': 'immediate',
+
+    # follower_restart — follower/control params, need follower reinit
+    'Follower': 'follower_restart',
+    'PID': 'follower_restart',
+    'GainScheduling': 'follower_restart',
+    'Safety': 'follower_restart',
+    'ChaseFollower': 'follower_restart',
+    'YawControl': 'follower_restart',
+    'AdaptiveControl': 'follower_restart',
+    'Gimbal': 'follower_restart',
+    'MC_VELOCITY': 'follower_restart',
+    'MC_VELOCITY_CHASE': 'follower_restart',
+    'MC_VELOCITY_POSITION': 'follower_restart',
+    'MC_VELOCITY_DISTANCE': 'follower_restart',
+    'MC_VELOCITY_GROUND': 'follower_restart',
+    'MC_ATTITUDE_RATE': 'follower_restart',
+    'GM_PID_PURSUIT': 'follower_restart',
+    'GM_VELOCITY_VECTOR': 'follower_restart',
+    'FW_ATTITUDE_RATE': 'follower_restart',
+
+    # tracker_restart — tracker/detection params, need tracker reinit
+    'Tracking': 'tracker_restart',
+    'TrackerSafety': 'tracker_restart',
+    'SmartTracker': 'tracker_restart',
+    'ClassicTracker_Common': 'tracker_restart',
+    'CSRT_Tracker': 'tracker_restart',
+    'KCF_Tracker': 'tracker_restart',
+    'DLIB_Tracker': 'tracker_restart',
+    'GimbalTracker': 'tracker_restart',
+    'GimbalTrackerSettings': 'tracker_restart',
+    'Detector': 'tracker_restart',
+    'Estimator': 'tracker_restart',
+    'FramePreprocessor': 'tracker_restart',
+    'Segmentation': 'tracker_restart',
+    'VerticalErrorRecalculation': 'tracker_restart',
+    'Setpoint': 'tracker_restart',
+
+    # system_restart — video/network/hardware, need full restart
+    'VideoSource': 'system_restart',
+    'USBCamera': 'system_restart',
+    'CSICamera': 'system_restart',
+    'Recording': 'system_restart',
+    'PX4': 'system_restart',
+    'MAVLink': 'system_restart',
+    'Streaming': 'system_restart',
+    'GStreamer': 'system_restart',
+    'GStreamerPipelines': 'system_restart',
+    'Telemetry': 'system_restart',
+}
+
+# Parameter-level reload tier overrides (highest priority, keyed by "Section.PARAM").
+RELOAD_TIER_OVERRIDES = {
+    # SmartTracker model/GPU params require system restart (loads YOLO model at init)
+    'SmartTracker.SMART_TRACKER_USE_GPU': 'system_restart',
+    'SmartTracker.SMART_TRACKER_GPU_MODEL_PATH': 'system_restart',
+    'SmartTracker.SMART_TRACKER_CPU_MODEL_PATH': 'system_restart',
+    'SmartTracker.SMART_TRACKER_MODEL_TASK_POLICY': 'system_restart',
+    # SmartTracker display settings can change immediately
+    'SmartTracker.SMART_TRACKER_HUD_STYLE': 'immediate',
+    'SmartTracker.SMART_TRACKER_LABEL_PLATE_OPACITY': 'immediate',
+}
 
 
 def infer_type(value: Any) -> Tuple[str, Dict]:
@@ -236,12 +286,19 @@ def infer_type(value: Any) -> Tuple[str, Dict]:
     return 'any', constraints
 
 
-def is_reboot_required(param_name: str) -> bool:
-    """Check if parameter requires app restart to take effect."""
-    for pattern in REBOOT_REQUIRED_PATTERNS:
-        if re.match(pattern, param_name, re.IGNORECASE):
-            return True
-    return False
+def get_reload_tier(full_path: str) -> str:
+    """Determine reload tier for a parameter.
+
+    Resolution order:
+    1. Parameter-level override (RELOAD_TIER_OVERRIDES)
+    2. Section-level default (SECTION_RELOAD_TIERS)
+    3. Safe fallback: 'system_restart'
+    """
+    if full_path in RELOAD_TIER_OVERRIDES:
+        return RELOAD_TIER_OVERRIDES[full_path]
+
+    section = full_path.split('.')[0] if '.' in full_path else full_path
+    return SECTION_RELOAD_TIERS.get(section, 'system_restart')
 
 
 def extract_unit(description: str) -> Optional[str]:
@@ -513,11 +570,15 @@ def generate_parameter_schema(key: str, value: Any, description: str = '',
     # Extract options from description (e.g., "Options: val1, val2, val3")
     options, cleaned_description = extract_options(description)
 
+    lookup_key = full_path or key
+    reload_tier = get_reload_tier(lookup_key)
+
     schema = {
         'type': param_type,
         'default': value,
         'description': cleaned_description or f'{key} parameter',
-        'reboot_required': is_reboot_required(key),
+        'reload_tier': reload_tier,
+        'reboot_required': reload_tier == 'system_restart',
     }
 
     # Add constraints
@@ -541,7 +602,6 @@ def generate_parameter_schema(key: str, value: Any, description: str = '',
         schema['unit'] = unit
 
     # Apply recommended ranges if defined
-    lookup_key = full_path or key
     if lookup_key in RECOMMENDED_RANGES:
         schema.update(RECOMMENDED_RANGES[lookup_key])
 
