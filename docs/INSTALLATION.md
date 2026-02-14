@@ -268,16 +268,13 @@ Binaries are downloaded to the `bin/` directory.
 
 ## Service Management
 
-Production startup on Linux/systemd (Raspberry Pi/Jetson):
+### Standalone Installations
 
-`make init` now includes guided prompts for:
-- installing `pixeagle-service`
+For standalone Linux deployments, `make init` includes guided prompts for:
+- installing `pixeagle-service` CLI
 - enabling boot auto-start
 - enabling system-wide SSH login hints
 - optional immediate service start and optional reboot validation
-
-After enabling SSH login hints in `make init`, open a new SSH session to validate
-the startup guide output.
 
 ```bash
 # Install command wrapper
@@ -295,33 +292,24 @@ sudo pixeagle-service disable
 
 # Inspect logs
 pixeagle-service logs -f
-
-# Optional SSH login summary
-pixeagle-service login-hint enable
-
-# System-wide SSH login summary (all users)
-sudo pixeagle-service login-hint enable --system
-
-# Reboot validation (recommended after enabling auto-start)
-sudo reboot
-# after reconnect:
-pixeagle-service status
 ```
 
-What the SSH login hint includes:
-- PixEagle ASCII banner
-- service status + boot enablement
-- dashboard/backend URLs for each detected IPv4 interface
-- repo metadata (branch, commit, commit date, origin)
+### Platform-Managed Installations (ARK-OS, etc.)
 
-If your login still shows the old short 3-line hint after updating:
+When installed through a platform like ARK-OS, service management is handled by the
+platform. `make init` automatically skips standalone service setup in this case.
+
+Use the platform's web UI or:
 
 ```bash
-sudo pixeagle-service login-hint disable --system
-sudo pixeagle-service login-hint enable --system
+systemctl --user start pixeagle
+systemctl --user stop pixeagle
+systemctl --user status pixeagle
+journalctl --user -u pixeagle -f
 ```
 
-tmux session name: `pixeagle`
+> **Note**: Standalone and platform-managed modes are mutually exclusive.
+> PixEagle auto-detects and prevents conflicts between the two.
 
 See [Service Management Runbook](SERVICE_MANAGEMENT.md) for full operational guidance.
 

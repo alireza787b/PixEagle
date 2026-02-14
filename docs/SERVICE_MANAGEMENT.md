@@ -3,7 +3,25 @@
 Production operations guide for running PixEagle on Linux/systemd platforms
 (Raspberry Pi, Jetson, and similar embedded Linux systems).
 
-## Architecture
+## Service Modes
+
+PixEagle supports two mutually exclusive service modes:
+
+| Mode | Service Level | Managed By | When Used |
+|------|--------------|------------|-----------|
+| **Standalone** | System (`/etc/systemd/system/`) | `pixeagle-service` CLI | Direct installs on any Linux |
+| **Platform-managed** | User (`~/.config/systemd/user/`) | Platform (e.g., ARK-OS) | Installed through a platform |
+
+PixEagle auto-detects the active mode:
+- `make init` skips standalone service setup when running non-interactively (platform install)
+- `make init` skips standalone service setup when a user-level service already exists
+- `pixeagle-service enable` refuses to create a system-level service if a user-level one exists
+- Platform installers automatically disable any pre-existing standalone service
+
+**If you're using ARK-OS or another platform**, skip this guide and use the platform's
+web UI or `systemctl --user {start|stop|status} pixeagle` instead.
+
+## Architecture (Standalone Mode)
 
 - `systemd` controls lifecycle and restart policy (`pixeagle.service`)
 - `scripts/service/run.sh` is the systemd supervisor

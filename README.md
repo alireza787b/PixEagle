@@ -254,6 +254,10 @@ Use `--mode gpu` (strict GPU) or `--mode cpu` (force CPU) when needed.
 
 ## Service Management
 
+PixEagle supports two service management modes:
+
+### Standalone Mode
+
 Production auto-start (Raspberry Pi/Jetson/Linux with systemd):
 
 ```bash
@@ -296,15 +300,25 @@ sudo pixeagle-service login-hint disable --system
 sudo pixeagle-service login-hint enable --system
 ```
 
-Tmux session name is standardized to: `pixeagle`.
+Tmux session name: `pixeagle`.
 
-During `make init` on Linux/systemd, PixEagle now prompts for:
+During `make init` on Linux/systemd, PixEagle prompts for:
 - auto-start enablement
 - system-wide SSH login hint
 - optional immediate start and optional reboot validation
 
-When SSH login hint is enabled, open a new SSH session to verify the startup guide output
-(ASCII banner, per-interface URLs, and version metadata).
+### Platform-Managed Mode (ARK-OS, etc.)
+
+When installed through a platform like [ARK-OS](https://github.com/ARK-Electronics/ARK-OS),
+the platform manages the service lifecycle:
+
+- Runs as a **user-level** systemd service managed by the platform
+- `make init` automatically **skips** standalone service setup (no conflict)
+- Use the platform's web UI or `systemctl --user {start|stop|status} pixeagle`
+- Dashboard accessible at `http://<host>/pixeagle/` through the platform's nginx
+
+> **Note**: Standalone and platform-managed modes are mutually exclusive.
+> PixEagle auto-detects the active mode and prevents conflicts.
 
 > **More Info**: [Service Management Runbook](docs/SERVICE_MANAGEMENT.md) | [Installation Guide](docs/INSTALLATION.md)
 

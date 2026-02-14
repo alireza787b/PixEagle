@@ -49,6 +49,10 @@ Commands:
   (no args)  Install pixeagle-service wrapper command
   uninstall  Remove wrapper command and remove pixeagle.service unit
   help       Show this help message
+
+Note: If PixEagle is managed by an external platform (e.g., ARK-OS),
+      the platform handles service lifecycle. This installer is only
+      needed for standalone deployments.
 EOF
 }
 
@@ -160,6 +164,21 @@ main() {
     require_root
     validate_environment
     validate_project_files
+
+    # Warn if a user-level service exists (platform-managed mode)
+    local target_user="${SUDO_USER:-$USER}"
+    if sudo -u "$target_user" systemctl --user cat pixeagle.service &>/dev/null 2>&1; then
+        print_status "warning" "User-level pixeagle.service detected (managed by external platform)"
+        print_status "warning" "Installing the standalone CLI may cause confusion"
+        print_status "info" "The platform manages PixEagle via: systemctl --user {start|stop|status} pixeagle"
+        echo
+        read -rp "Continue with standalone CLI install anyway? [y/N]: " confirm
+        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+            print_status "info" "Installation cancelled"
+            exit 0
+        fi
+    fi
+
     install_wrapper
     show_completion
 }
