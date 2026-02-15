@@ -295,9 +295,8 @@ const VideoStream = ({
             img.src = URL.createObjectURL(blob);
           }
         } else {
-          // This is JSON metadata
-          const text = await event.data.text();
-          const data = JSON.parse(text);
+          // This is JSON metadata (text WebSocket frames arrive as string)
+          const data = JSON.parse(event.data);
 
           if (data.type === 'frame') {
             // Store metadata for next binary frame
