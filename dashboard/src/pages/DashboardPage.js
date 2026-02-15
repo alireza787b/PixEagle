@@ -12,7 +12,7 @@ import BoundingBoxDrawer from '../components/BoundingBoxDrawer';
 import FollowerStatusCard from '../components/FollowerStatusCard';
 import TrackerStatusCard from '../components/TrackerStatusCard';
 import TrackerSelector from '../components/TrackerSelector';
-import YOLOModelSelector from '../components/YOLOModelSelector';
+import ModelQuickControl from '../components/ModelQuickControl';
 import FollowerQuickControl from '../components/FollowerQuickControl';
 import StreamingStats from '../components/StreamingStats';
 import CircuitBreakerStatusCard from '../components/CircuitBreakerStatusCard';
@@ -413,7 +413,10 @@ const DashboardPage = () => {
                 <StreamingStats />
               </Grid>
               <Grid item xs={12} md={4}>
-                <YOLOModelSelector />
+                <Card><CardContent>
+                  <Typography variant="subtitle2" gutterBottom>Detection Model</Typography>
+                  <ModelQuickControl />
+                </CardContent></Card>
               </Grid>
             </Grid>
           </Grid>

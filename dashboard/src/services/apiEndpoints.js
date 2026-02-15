@@ -97,14 +97,14 @@ export const endpoints = {
   storageStatus: `${apiBaseUrl}/api/storage/status`,
   recordingIncludeOsd: (enabled) => `${apiBaseUrl}/api/recording/include-osd/${enabled}`,
 
-  // YOLO Model Management endpoints
-  yoloModels: `${apiBaseUrl}/api/yolo/models`,
-  yoloActiveModel: `${apiBaseUrl}/api/yolo/active-model`,
-  yoloModelLabels: (modelId) => `${apiBaseUrl}/api/yolo/models/${encodeURIComponent(modelId)}/labels`,
-  yoloSwitchModel: `${apiBaseUrl}/api/yolo/switch-model`,
-  yoloUpload: `${apiBaseUrl}/api/yolo/upload`,
-  yoloDownload: `${apiBaseUrl}/api/yolo/download`,
-  yoloDelete: (modelId) => `${apiBaseUrl}/api/yolo/delete/${modelId}`,
+  // Detection Model Management endpoints
+  models: `${apiBaseUrl}/api/models`,
+  activeModel: `${apiBaseUrl}/api/models/active`,
+  modelLabels: (modelId) => `${apiBaseUrl}/api/models/${encodeURIComponent(modelId)}/labels`,
+  switchModel: `${apiBaseUrl}/api/models/switch`,
+  modelUpload: `${apiBaseUrl}/api/models/upload`,
+  modelDownload: `${apiBaseUrl}/api/models/download`,
+  modelDelete: (modelId) => `${apiBaseUrl}/api/models/${modelId}`,
 
   // Safety configuration endpoints (v3.5.0+)
   safetyConfig: `${apiBaseUrl}/api/safety/config`,

@@ -134,7 +134,7 @@ const ActionButtons = ({
 
         {/* Segmentation */}
         <Grid item xs={12}>
-          <Tooltip title="Toggle YOLO segmentation overlay">
+          <Tooltip title="Toggle AI segmentation overlay">
             <Button
               variant="outlined"
               color="secondary"
