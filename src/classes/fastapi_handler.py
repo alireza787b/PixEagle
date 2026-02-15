@@ -363,14 +363,22 @@ class FastAPIHandler:
         self.app.post("/api/tracker/switch")(self.switch_tracker)
         self.app.post("/api/tracker/restart")(self.restart_tracker)  # Hot-reload: reinitialize tracker with fresh config
 
-        # YOLO Model Management API
-        self.app.get("/api/yolo/models")(self.get_yolo_models)
-        self.app.get("/api/yolo/active-model")(self.get_yolo_active_model)
-        self.app.get("/api/yolo/models/{model_id}/labels")(self.get_yolo_model_labels)
-        self.app.post("/api/yolo/switch-model")(self.switch_yolo_model)
-        self.app.post("/api/yolo/upload")(self.upload_yolo_model)
-        self.app.post("/api/yolo/download")(self.download_yolo_model)
-        self.app.post("/api/yolo/delete/{model_id}")(self.delete_yolo_model)
+        # Detection Model Management API
+        self.app.get("/api/models")(self.get_models)
+        self.app.get("/api/models/active")(self.get_active_model)
+        self.app.get("/api/models/{model_id}/labels")(self.get_model_labels)
+        self.app.post("/api/models/switch")(self.switch_model)
+        self.app.post("/api/models/upload")(self.upload_model)
+        self.app.post("/api/models/download")(self.download_model)
+        self.app.delete("/api/models/{model_id}")(self.delete_model)
+        # Backward-compat aliases (deprecated — use /api/models/* instead)
+        self.app.get("/api/yolo/models")(self.get_models)
+        self.app.get("/api/yolo/active-model")(self.get_active_model)
+        self.app.get("/api/yolo/models/{model_id}/labels")(self.get_model_labels)
+        self.app.post("/api/yolo/switch-model")(self.switch_model)
+        self.app.post("/api/yolo/upload")(self.upload_model)
+        self.app.post("/api/yolo/download")(self.download_model)
+        self.app.post("/api/yolo/delete/{model_id}")(self.delete_model)
 
         # Circuit breaker API endpoints
         self.app.get("/api/circuit-breaker/status")(self.get_circuit_breaker_status)
@@ -2275,9 +2283,9 @@ class FastAPIHandler:
             "source": source,
         }
 
-    async def get_yolo_models(self):
+    async def get_models(self):
         """
-        Get list of available YOLO models in yolo/ folder.
+        Get list of available detection models in models/ folder.
 
         Returns:
             JSONResponse: {
@@ -2331,7 +2339,7 @@ class FastAPIHandler:
             self.logger.error(f"Error getting YOLO models: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def get_yolo_active_model(self):
+    async def get_active_model(self):
         """
         Get compact, UI-focused metadata for the active/configured YOLO model.
         """
@@ -2367,7 +2375,7 @@ class FastAPIHandler:
             self.logger.error(f"Error getting active YOLO model metadata: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def get_yolo_model_labels(self, model_id: str, request: Request):
+    async def get_model_labels(self, model_id: str, request: Request):
         """
         Get paginated/searchable labels for a specific YOLO model.
         """
@@ -2482,9 +2490,9 @@ class FastAPIHandler:
             "configured_cpu_model_path": str(effective_cpu),
         }
 
-    async def switch_yolo_model(self, request: Request):
+    async def switch_model(self, request: Request):
         """
-        Switch YOLO model in SmartTracker without restart.
+        Switch detection model in SmartTracker without restart.
 
         Args:
             request: Should contain {
@@ -2598,7 +2606,7 @@ class FastAPIHandler:
             self.logger.error(f"Error switching YOLO model: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def upload_yolo_model(self, request: Request):
+    async def upload_model(self, request: Request):
         """
         Upload a new YOLO model file (.pt).
 
@@ -2665,7 +2673,7 @@ class FastAPIHandler:
             self.logger.error(f"Error uploading YOLO model: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def download_yolo_model(self, request: Request):
+    async def download_model(self, request: Request):
         """
         Download a YOLO model by name or URL.
 
@@ -2736,7 +2744,7 @@ class FastAPIHandler:
             self.logger.error(f"Error downloading YOLO model: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def delete_yolo_model(self, model_id: str):
+    async def delete_model(self, model_id: str):
         """
         Delete a YOLO model file.
 
