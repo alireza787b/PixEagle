@@ -60,9 +60,15 @@ pytest_debug.log
 
 #configs
 configs/config.yaml
+configs/config.yaml.backup.*
 configs/audit_log.json
 configs/backups/
+configs/config_sync_meta.json
 dashboard/.env
+dashboard/.env.backup.*
+
+# Recordings (local media, large files)
+recordings/
 
 # Downloaded binaries (auto-downloaded by scripts/init.sh)
 # Binaries are stored in bin/ directory

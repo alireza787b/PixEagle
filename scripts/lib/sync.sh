@@ -72,8 +72,15 @@ do_sync() {
 
     # Fetch
     log_info "Fetching updates..."
-    if ! git fetch --quiet "$remote" 2>/dev/null; then
+    local fetch_err
+    if ! fetch_err="$(git fetch "$remote" 2>&1)"; then
         log_error "Fetch failed from ${remote}"
+        # Detect common clock-related SSL failures (embedded boards without RTC)
+        if echo "$fetch_err" | grep -qi "ssl\|certificate\|not yet valid\|expired"; then
+            log_warn "This may be a system clock issue (common on Jetson/Pi without RTC)"
+            log_detail "Current system time: $(date)"
+            log_detail "Fix: sudo date -s \"$(date -u +'%Y-%m-%d %H:%M:%S' 2>/dev/null || echo '2026-01-01 00:00:00')\" or sudo timedatectl set-ntp true"
+        fi
         if [[ "$stashed" -eq 1 ]]; then
             git stash pop --quiet 2>/dev/null || true
             log_warn "Restored stashed changes"
