@@ -122,7 +122,7 @@ class AppController:
         # Start periodic system summary logging
         self._start_system_summary_thread()
 
-        # Flags and attributes for Smart Mode (YOLO-based)
+        # Flags and attributes for Smart Mode (AI-based)
         self.smart_mode_active = False
         self.smart_tracker: Optional[SmartTracker] = None
         self.selected_bbox: Optional[Tuple[int, int, int, int]] = None
@@ -201,7 +201,7 @@ class AppController:
     def on_mouse_click(self, event: int, x: int, y: int, flags: int, param: any):
         """
         Mouse callback for user interactions.
-        In smart mode, selects the closest YOLO detection.
+        In smart mode, selects the closest AI detection.
         Otherwise, handles segmentation click events.
         """
         if event == cv2.EVENT_LBUTTONDOWN:
@@ -213,7 +213,7 @@ class AppController:
 
     def handle_smart_click(self, x: int, y: int):
         """
-        Handles user click during smart mode. Selects the closest YOLO detection and activates override.
+        Handles user click during smart mode. Selects the closest AI detection and activates override.
         """
         if self.current_frame is None or self.smart_tracker is None:
             logging.warning("SmartTracker unavailable or frame not ready.")
@@ -233,7 +233,7 @@ class AppController:
             )
             logging.info(f"Smart tracking override activated with bbox: {self.selected_bbox}")
         else:
-            logging.info("No YOLO detection selected. Override not applied.")
+            logging.info("No AI detection selected. Override not applied.")
 
 
     def toggle_tracking(self, frame: np.ndarray):
@@ -261,7 +261,7 @@ class AppController:
 
     def toggle_smart_mode(self):
         """
-        Toggles the YOLO-based smart tracking mode.
+        Toggles the AI-based smart tracking mode.
         If enabling for the first time, initializes SmartTracker (with GPU/CPU config + fallback).
         """
         if not self.smart_mode_active:
@@ -280,7 +280,7 @@ class AppController:
             if self.smart_tracker is None:
                 try:
                     self.smart_tracker = SmartTracker(app_controller=self)
-                    logging.info("SMART TRACKER MODE: Activated (YOLO-based multi-target tracking)")
+                    logging.info("SMART TRACKER MODE: Activated (AI-based multi-target tracking)")
                 except Exception as e:
                     logging.error(f"Failed to activate SmartTracker: {e}")
                     self.smart_mode_active = False
@@ -436,7 +436,7 @@ class AppController:
         """
         Main update loop for processing each video frame.
         In classic mode, runs the usual tracker and estimator logic.
-        In smart mode, runs YOLO detection and draws bounding boxes.
+        In smart mode, runs AI detection and draws bounding boxes.
         """
         # DEBUG: Log every 100th frame to verify update_loop is running
         if not hasattr(self, '_frame_count_debug'):
