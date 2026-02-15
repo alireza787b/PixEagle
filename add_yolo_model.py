@@ -45,12 +45,12 @@ import os
 import sys
 from pathlib import Path
 
-# Import the YOLOModelManager class (refactored core logic)
-from src.classes.yolo_model_manager import YOLOModelManager
+# Import the ModelManager class
+from src.classes.model_manager import ModelManager
 
 def main():
     """
-    Main CLI entry point - now uses YOLOModelManager for consistency with web API.
+    Main CLI entry point - uses ModelManager for consistency with web API.
     Maintains backward compatibility with original script usage.
     """
     parser = argparse.ArgumentParser(
@@ -84,11 +84,11 @@ def main():
     print("  YOLO Model Manager - CLI")
     print("="*60)
 
-    # Initialize YOLOModelManager (uses clean class)
-    manager = YOLOModelManager()
-    model_path = manager.yolo_folder / model_name
+    # Initialize ModelManager
+    manager = ModelManager()
+    model_path = manager.models_folder / model_name
 
-    print(f"\n[INFO] YOLO folder: '{manager.yolo_folder}'")
+    print(f"\n[INFO] Models folder: '{manager.models_folder}'")
     print(f"[INFO] Checking for model: '{model_name}'...")
 
     # Check if model exists locally first

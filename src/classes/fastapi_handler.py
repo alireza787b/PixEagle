@@ -23,7 +23,7 @@ from classes.frame_publisher import FramePublisher
 from classes.adaptive_quality_engine import AdaptiveQualityEngine
 from classes.follower import FollowerFactory
 from classes.tracker_output import TrackerOutput, TrackerDataType
-from classes.yolo_model_manager import YOLOModelManager, AI_AVAILABLE
+from classes.model_manager import ModelManager, AI_AVAILABLE
 from classes.app_version import PIXEAGLE_VERSION
 
 # Import circuit breaker with error handling
@@ -246,7 +246,7 @@ class FastAPIHandler:
         self.webrtc_manager = WebRTCManager(self.frame_publisher)
 
         # YOLO Model Manager
-        self.yolo_model_manager = YOLOModelManager()
+        self.model_manager = ModelManager()
 
         # FastAPI app
         self.app = FastAPI(title="PixEagle API", version=PIXEAGLE_VERSION)
@@ -2224,7 +2224,7 @@ class FastAPIHandler:
 
     def _resolve_model_entry(self, models: Dict[str, Dict[str, Any]], model_identifier: Optional[str]) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """Resolve a discovered model entry from model id, filename, or path-like identifier."""
-        normalized_model_id = self.yolo_model_manager.normalize_model_id(model_identifier)
+        normalized_model_id = self.model_manager.normalize_model_id(model_identifier)
         if normalized_model_id and normalized_model_id in models:
             return normalized_model_id, models[normalized_model_id]
 
@@ -2296,8 +2296,8 @@ class FastAPIHandler:
             }
         """
         try:
-            # Discover models using YOLOModelManager
-            models = self.yolo_model_manager.discover_models(force_rescan=False)
+            # Discover models using ModelManager
+            models = self.model_manager.discover_models(force_rescan=False)
 
             current_model, smart_tracker_runtime = self._get_smart_tracker_runtime_context()
             configured_model, configured_gpu_model, configured_cpu_model = self._get_configured_yolo_models()
@@ -2336,7 +2336,7 @@ class FastAPIHandler:
         Get compact, UI-focused metadata for the active/configured YOLO model.
         """
         try:
-            models = self.yolo_model_manager.discover_models(force_rescan=False)
+            models = self.model_manager.discover_models(force_rescan=False)
             current_model, smart_tracker_runtime = self._get_smart_tracker_runtime_context()
             configured_model, configured_gpu_model, configured_cpu_model = self._get_configured_yolo_models()
 
@@ -2390,8 +2390,8 @@ class FastAPIHandler:
             # Keep payload bounded for production UI traffic.
             limit = min(limit, 500)
 
-            normalized_model_id = self.yolo_model_manager.normalize_model_id(model_id)
-            model_info, labels = self.yolo_model_manager.get_model_labels(
+            normalized_model_id = self.model_manager.normalize_model_id(model_id)
+            model_info, labels = self.model_manager.get_model_labels(
                 model_identifier=normalized_model_id,
                 force_rescan=force_rescan,
             )
@@ -2513,7 +2513,7 @@ class FastAPIHandler:
                 raise HTTPException(status_code=404, detail=f"Model file not found: {model_path}")
 
             # Validate model capabilities before switching
-            validation = self.yolo_model_manager.validate_model(full_path)
+            validation = self.model_manager.validate_model(full_path)
             if not validation.get("valid", False):
                 raise HTTPException(
                     status_code=400,
@@ -2629,8 +2629,8 @@ class FastAPIHandler:
             # Auto-export NCNN by default (can be made configurable)
             auto_export = form.get('auto_export_ncnn', 'true').lower() == 'true'
 
-            # Upload via YOLOModelManager
-            result = await self.yolo_model_manager.upload_model(
+            # Upload via ModelManager
+            result = await self.model_manager.upload_model(
                 file_data=file_data,
                 filename=filename,
                 auto_export_ncnn=auto_export
@@ -2669,7 +2669,7 @@ class FastAPIHandler:
         """
         Download a YOLO model by name or URL.
 
-        Wraps YOLOModelManager.download_model() which supports:
+        Wraps ModelManager.download_model() which supports:
         - Automatic download from Ultralytics hub (YOLOv5, YOLO8, YOLO11, YOLO26+)
         - Custom URL download
         - GitHub release URL fallback
@@ -2694,7 +2694,7 @@ class FastAPIHandler:
             # download_model() is sync — run in executor to avoid blocking the event loop
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
-                None, self.yolo_model_manager.download_model, model_name, download_url
+                None, self.model_manager.download_model, model_name, download_url
             )
 
             if result['success']:
@@ -2702,7 +2702,7 @@ class FastAPIHandler:
                 ncnn_result = None
                 if auto_export_ncnn:
                     try:
-                        ncnn_result = await self.yolo_model_manager._export_async(Path(result['path']))
+                        ncnn_result = await self.model_manager._export_async(Path(result['path']))
                     except Exception as e:
                         self.logger.warning(f"NCNN export after download failed: {e}")
                         ncnn_result = {"success": False, "error": str(e)}
@@ -2747,8 +2747,8 @@ class FastAPIHandler:
             JSONResponse: Deletion result
         """
         try:
-            # Delete via YOLOModelManager
-            result = self.yolo_model_manager.delete_model(model_id, delete_ncnn=True)
+            # Delete via ModelManager
+            result = self.model_manager.delete_model(model_id, delete_ncnn=True)
 
             if result['success']:
                 self.logger.info(f"YOLO model deleted via API: {model_id}")

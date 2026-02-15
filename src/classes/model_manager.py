@@ -1,13 +1,13 @@
-# src/classes/yolo_model_manager.py
+# src/classes/model_manager.py
 
 """
-YOLOModelManager - Clean, single class for all YOLO model operations
+ModelManager - Clean, single class for all detection model operations
 
 Handles:
-- Model discovery (scan yolo/ folder)
+- Model discovery (scan models/ folder)
 - Validation (check .pt files, extract metadata, detect custom models)
 - Upload handling (save, validate, auto-export)
-- NCNN export (refactored from add_yolo_model.py)
+- NCNN export
 - Model deletion
 - Metadata caching
 
@@ -60,30 +60,30 @@ except Exception as e:
 AI_AVAILABLE = TORCH_AVAILABLE and ULTRALYTICS_AVAILABLE
 
 
-class YOLOModelManager:
+class ModelManager:
     """
-    Centralized manager for YOLO model operations.
+    Centralized manager for detection model operations.
 
     Features:
-    - Auto-discovery of models in yolo/ folder
+    - Auto-discovery of models in models/ folder
     - Validation with custom model detection
     - Upload handling with auto-NCNN export
     - Model switching support
     - Metadata caching for performance
     """
 
-    def __init__(self, yolo_folder: str = "models"):
+    def __init__(self, models_folder: str = "models"):
         """
-        Initialize YOLO Model Manager
+        Initialize Model Manager
 
         Args:
-            yolo_folder: Path to folder containing detection models (default: "models")
+            models_folder: Path to folder containing detection models (default: "models")
         """
-        self.yolo_folder = Path(yolo_folder)
-        self.yolo_folder.mkdir(exist_ok=True)
+        self.models_folder = Path(models_folder)
+        self.models_folder.mkdir(exist_ok=True)
 
         # Metadata cache file
-        self.metadata_file = self.yolo_folder / ".models.json"
+        self.metadata_file = self.models_folder / ".models.json"
 
         # Logging
         self.logger = logging.getLogger(__name__)
@@ -92,10 +92,10 @@ class YOLOModelManager:
         self.cache = self._load_cache()
 
         # Monkey-patch torch.load for PyTorch 2.6+ compatibility
-        # (Required for loading YOLO checkpoints - same as add_yolo_model.py)
+        # (Required for loading YOLO checkpoints)
         self._patch_torch_load()
 
-        self.logger.info(f"YOLOModelManager initialized (folder: {self.yolo_folder})")
+        self.logger.info(f"ModelManager initialized (folder: {self.models_folder})")
 
     # ==================== MODEL DISCOVERY ====================
 
@@ -128,7 +128,7 @@ class YOLOModelManager:
 
         try:
             # Scan for .pt files
-            pt_files = list(self.yolo_folder.glob("*.pt"))
+            pt_files = list(self.models_folder.glob("*.pt"))
 
             for pt_file in pt_files:
                 model_id = pt_file.stem
@@ -446,7 +446,7 @@ class YOLOModelManager:
 
             # Get model ID
             model_id = Path(filename).stem
-            model_path = self.yolo_folder / filename
+            model_path = self.models_folder / filename
 
             # Check if file already exists
             if model_path.exists():
@@ -610,7 +610,7 @@ class YOLOModelManager:
                         # Try relative to current working directory
                         possible_ncnn_paths.append(Path.cwd() / export_path)
                         # Try as-is (might be relative to yolo folder)
-                        possible_ncnn_paths.append(self.yolo_folder / export_path)
+                        possible_ncnn_paths.append(self.models_folder / export_path)
                     else:
                         possible_ncnn_paths.append(export_path)
                 elif hasattr(export_result, 'path'):
@@ -618,7 +618,7 @@ class YOLOModelManager:
                     if not export_path.is_absolute():
                         possible_ncnn_paths.append(pt_file.parent / export_path)
                         possible_ncnn_paths.append(Path.cwd() / export_path)
-                        possible_ncnn_paths.append(self.yolo_folder / export_path)
+                        possible_ncnn_paths.append(self.models_folder / export_path)
                     else:
                         possible_ncnn_paths.append(export_path)
             
@@ -632,8 +632,8 @@ class YOLOModelManager:
             possible_ncnn_paths.append(Path.cwd() / f"{model_stem}_ncnn_model")
             
             # 4. Check in the yolo folder (if pt_file is elsewhere)
-            if pt_file.parent != self.yolo_folder:
-                possible_ncnn_paths.append(self.yolo_folder / f"{model_stem}_ncnn_model")
+            if pt_file.parent != self.models_folder:
+                possible_ncnn_paths.append(self.models_folder / f"{model_stem}_ncnn_model")
             
             # Find the actual NCNN export location
             ncnn_folder = None
@@ -714,7 +714,7 @@ class YOLOModelManager:
                 "suggested_urls": Optional[List[str]]  # URLs to try if auto-download fails
             }
         """
-        destination = self.yolo_folder / model_name
+        destination = self.models_folder / model_name
 
         # Check if model already exists locally
         if destination.exists():
@@ -1036,14 +1036,14 @@ class YOLOModelManager:
             deleted = []
 
             # Delete .pt file
-            pt_file = self.yolo_folder / f"{model_id}.pt"
+            pt_file = self.models_folder / f"{model_id}.pt"
             if pt_file.exists():
                 pt_file.unlink()
                 deleted.append(str(pt_file))
 
             # Delete NCNN folder
             if delete_ncnn:
-                ncnn_folder = self.yolo_folder / f"{model_id}_ncnn_model"
+                ncnn_folder = self.models_folder / f"{model_id}_ncnn_model"
                 if ncnn_folder.exists():
                     shutil.rmtree(ncnn_folder)
                     deleted.append(str(ncnn_folder))
@@ -1110,3 +1110,7 @@ class YOLOModelManager:
 
         torch.load = patched_torch_load
         self.logger.debug("torch.load patched for PyTorch 2.6+ compatibility")
+
+
+# Backward-compatibility alias (deprecated — use ModelManager directly)
+YOLOModelManager = ModelManager
