@@ -1,5 +1,5 @@
 // dashboard/src/pages/LiveFeedPage.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container,
   Typography,
@@ -22,7 +22,7 @@ import GStreamerQGCPanel from '../components/GStreamerQGCPanel';
 import StreamingStats from '../components/StreamingStats';
 import RecordingQuickControl from '../components/RecordingQuickControl';
 import RecordingIndicator from '../components/RecordingIndicator';
-import { videoFeed } from '../services/apiEndpoints';
+import { videoFeed, endpoints } from '../services/apiEndpoints';
 
 const LiveFeedPage = () => {
   const [loading, setLoading] = useState(true);
@@ -80,6 +80,23 @@ const LiveFeedPage = () => {
   })();
 
   const connectionState = getConnectionState();
+
+  // Keyboard shortcut: R = toggle recording
+  const handleKeyboardShortcut = useCallback((e) => {
+    const tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+    if (e.key.toLowerCase() === 'r') {
+      fetch(endpoints.recordingToggle, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }).catch((err) => console.error('Recording toggle failed:', err));
+    }
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyboardShortcut);
+    return () => window.removeEventListener('keydown', handleKeyboardShortcut);
+  }, [handleKeyboardShortcut]);
 
   useEffect(() => {
     if (streamingProtocol === 'websocket' || streamingProtocol === 'webrtc' || streamingProtocol === 'auto') {

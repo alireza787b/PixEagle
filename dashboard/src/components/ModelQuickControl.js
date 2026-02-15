@@ -11,10 +11,11 @@
  * Design: Matches RecordingQuickControl / OSDToggle pattern.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box, Chip, Select, MenuItem, FormControl, InputLabel, IconButton,
   Typography, Tooltip, CircularProgress, Button,
+  Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz';
@@ -23,14 +24,16 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import MemoryIcon from '@mui/icons-material/Memory';
 import KeyboardIcon from '@mui/icons-material/Keyboard';
 import { Link } from 'react-router-dom';
-import { useActiveModel, useModels, useSwitchModel } from '../hooks/useModels';
+import { useActiveModel, useModels, useSwitchModel, useModelLabels } from '../hooks/useModels';
 
 const ModelQuickControl = () => {
   const { activeModel, runtime, loading: activeLoading } = useActiveModel(5000);
   const { models, loading: modelsLoading } = useModels(15000);
   const { switchModel, switching } = useSwitchModel();
+  const { fetchLabels, loading: labelsLoading } = useModelLabels();
   const [selectedModelPath, setSelectedModelPath] = useState('');
   const [selectedDevice, setSelectedDevice] = useState('auto');
+  const [labelsDialog, setLabelsDialog] = useState({ open: false, labels: [], modelName: '' });
 
   // activeModel is the full active_model_summary object from /api/models/active
   const modelName = runtime?.model_name || activeModel?.model_name || 'None';
@@ -44,10 +47,26 @@ const ModelQuickControl = () => {
 
   const modelList = models ? Object.entries(models) : [];
 
+  // Pre-select the active model in the dropdown when it changes
+  const activeModelPath = activeModel?.model_path || '';
+  useEffect(() => {
+    if (activeModelPath) {
+      setSelectedModelPath(activeModelPath);
+    }
+  }, [activeModelPath]);
+
   const handleSwitch = async () => {
     if (!selectedModelPath) return;
     await switchModel(selectedModelPath, selectedDevice);
-    setSelectedModelPath('');
+  };
+
+  const handleViewLabels = async () => {
+    const modelId = activeModel?.model_id;
+    if (!modelId) return;
+    const result = await fetchLabels(modelId);
+    if (result.success) {
+      setLabelsDialog({ open: true, labels: result.labels, modelName: modelName });
+    }
   };
 
   if (activeLoading) {
@@ -110,9 +129,20 @@ const ModelQuickControl = () => {
         <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
           Task: <b>{task}</b>
         </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10 }}>
-          Classes: <b>{numLabels}</b>
-        </Typography>
+        <Tooltip title={hasModel ? 'Click to view class labels' : ''}>
+          <Typography
+            variant="caption"
+            color={hasModel ? 'primary' : 'text.secondary'}
+            onClick={hasModel ? handleViewLabels : undefined}
+            sx={{
+              fontSize: 10,
+              cursor: hasModel ? 'pointer' : 'default',
+              '&:hover': hasModel ? { textDecoration: 'underline' } : {},
+            }}
+          >
+            Classes: <b>{labelsLoading ? '...' : numLabels}</b>
+          </Typography>
+        </Tooltip>
       </Box>
 
       {/* Quick Switch Row */}
@@ -184,6 +214,37 @@ const ModelQuickControl = () => {
           </Typography>
         </Tooltip>
       </Box>
+
+      {/* Labels Dialog */}
+      <Dialog
+        open={labelsDialog.open}
+        onClose={() => setLabelsDialog({ open: false, labels: [], modelName: '' })}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Labels: {labelsDialog.modelName}</DialogTitle>
+        <DialogContent dividers>
+          {labelsDialog.labels.length === 0 ? (
+            <Typography color="text.secondary">No labels available.</Typography>
+          ) : (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+              {labelsDialog.labels.map((item, idx) => (
+                <Chip
+                  key={idx}
+                  label={typeof item === 'object' ? `${item.class_id}: ${item.label}` : `${idx}: ${item}`}
+                  size="small"
+                  variant="outlined"
+                />
+              ))}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLabelsDialog({ open: false, labels: [], modelName: '' })}>
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

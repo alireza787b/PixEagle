@@ -1,5 +1,5 @@
 // dashboard/src/pages/DashboardPage.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container, Typography, CircularProgress, Box, Grid, Snackbar, Alert,
   FormControl, InputLabel, Select, MenuItem, Card, CardContent,
@@ -182,6 +182,27 @@ const DashboardPage = () => {
   };
 
   const handleSnackbarClose = () => setSnackbarOpen(false);
+
+  // Keyboard shortcuts: M = toggle smart mode, R = toggle recording
+  const handleKeyboardShortcut = useCallback((e) => {
+    const tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+
+    const key = e.key.toLowerCase();
+    if (key === 'm') {
+      handleToggleSmartMode();
+    } else if (key === 'r') {
+      fetch(endpoints.recordingToggle, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }).catch((err) => console.error('Recording toggle failed:', err));
+    }
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyboardShortcut);
+    return () => window.removeEventListener('keydown', handleKeyboardShortcut);
+  }, [handleKeyboardShortcut]);
 
   useEffect(() => {
     if (streamingProtocol === 'websocket' || streamingProtocol === 'webrtc' || streamingProtocol === 'auto') {
