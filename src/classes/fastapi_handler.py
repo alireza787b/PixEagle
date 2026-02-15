@@ -2209,8 +2209,8 @@ class FastAPIHandler:
         configured_cpu_model = None
 
         try:
-            gpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo26n.pt')
-            cpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo26n_ncnn_model')
+            gpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_GPU_MODEL_PATH', 'models/yolo26n.pt')
+            cpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_CPU_MODEL_PATH', 'models/yolo26n_ncnn_model')
             configured_gpu_model = Path(gpu_model_path).name
             configured_cpu_model = Path(cpu_model_path).name
 
@@ -2284,7 +2284,7 @@ class FastAPIHandler:
                 "models": {
                     "model_id": {
                         "name": "YOLO26n",
-                        "path": "yolo/yolo26n.pt",
+                        "path": "models/yolo26n.pt",
                         "type": "gpu",
                         "num_classes": 80,
                         "is_custom": false,
@@ -2488,7 +2488,7 @@ class FastAPIHandler:
 
         Args:
             request: Should contain {
-                'model_path': 'yolo/yolo26n.pt',
+                'model_path': 'models/yolo26n.pt',
                 'device': 'auto' | 'gpu' | 'cpu'  (optional, default='auto')
             }
 

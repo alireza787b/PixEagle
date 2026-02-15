@@ -1581,13 +1581,13 @@ sections:
         reboot_required: false
       SMART_TRACKER_GPU_MODEL_PATH:
         type: string
-        default: yolo/yolo26n.pt
+        default: models/yolo26n.pt
         description: PyTorch model
         reload_tier: system_restart
         reboot_required: true
       SMART_TRACKER_CPU_MODEL_PATH:
         type: string
-        default: yolo/yolo26n_ncnn_model
+        default: models/yolo26n_ncnn_model
         description: Optimized for ARM
         reload_tier: system_restart
         reboot_required: true

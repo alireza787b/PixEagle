@@ -796,8 +796,8 @@ SmartTracker:
   # === Model Paths ===
   # 📁 Use add_yolo_model.py to download/convert models
   # Simply replace these paths with your custom-trained YOLO model
-  SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo26n.pt"          # PyTorch model
-  SMART_TRACKER_CPU_MODEL_PATH: "yolo/yolo26n_ncnn_model"  # Optimized for ARM
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"          # PyTorch model
+  SMART_TRACKER_CPU_MODEL_PATH: "models/yolo26n_ncnn_model"  # Optimized for ARM
 
   # === Detection Parameters ===
   SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.3   # Min detection confidence (0.0-1.0)

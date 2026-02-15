@@ -213,7 +213,7 @@ opencv/
 opencv_contrib/
 
 
-yolo/
+models/
 
 dashboard/package.json  
 dashboard/package-lock.json  

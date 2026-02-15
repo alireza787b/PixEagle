@@ -72,12 +72,12 @@ class YOLOModelManager:
     - Metadata caching for performance
     """
 
-    def __init__(self, yolo_folder: str = "yolo"):
+    def __init__(self, yolo_folder: str = "models"):
         """
         Initialize YOLO Model Manager
 
         Args:
-            yolo_folder: Path to folder containing YOLO models (default: "yolo")
+            yolo_folder: Path to folder containing detection models (default: "models")
         """
         self.yolo_folder = Path(yolo_folder)
         self.yolo_folder.mkdir(exist_ok=True)
@@ -111,7 +111,7 @@ class YOLOModelManager:
             {
                 "model_id": {
                     "name": "YOLO26n",
-                    "path": "yolo/yolo26n.pt",
+                    "path": "models/yolo26n.pt",
                     "type": "gpu",  # gpu | cpu
                     "format": "pt",  # pt | ncnn
                     "size_mb": 5.35,
@@ -119,7 +119,7 @@ class YOLOModelManager:
                     "class_names": ["person", "car", ...],
                     "is_custom": False,
                     "has_ncnn": True,
-                    "ncnn_path": "yolo/yolo26n_ncnn_model",
+                    "ncnn_path": "models/yolo26n_ncnn_model",
                     "last_modified": 1234567890.0
                 }
             }
@@ -186,8 +186,8 @@ class YOLOModelManager:
         Accepts values such as:
         - "yolo26n"
         - "yolo26n.pt"
-        - "yolo/yolo26n.pt"
-        - "yolo/yolo26n_ncnn_model"
+        - "models/yolo26n.pt"
+        - "models/yolo26n_ncnn_model"
         """
         if not model_identifier:
             return ""
