@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-add_yolo_model.py - CLI for adding YOLO models
+add_model.py - CLI for adding detection models
 
-This script manages YOLO model files with a robust, user-friendly download system.
+This script manages detection model files with a robust, user-friendly download system.
 
 Features:
   - Automatic local model detection (uses existing models if found)
@@ -15,11 +15,11 @@ Features:
   - Automatic NCNN export for CPU inference
   - Full integration with PixEagle web dashboard
 
-REFACTORED: Now uses YOLOModelManager class for consistency with web API.
+Uses ModelManager class for consistency with web API.
 
 Usage examples:
-    python add_yolo_model.py --model_name yolov5s.pt
-    python add_yolo_model.py --model_name yolo26n.pt
+    python add_model.py --model_name yolov5s.pt
+    python add_model.py --model_name yolo26n.pt
 
 Dependencies:
     - Python 3.x
@@ -54,9 +54,9 @@ def main():
     Maintains backward compatibility with original script usage.
     """
     parser = argparse.ArgumentParser(
-        description="Add and export a YOLO model to NCNN format (CLI interface)"
+        description="Add and export a detection model to NCNN format (CLI interface)"
     )
-    parser.add_argument("--model_name", type=str, help="Name of the YOLO model file (e.g., yolov5s.pt or yolo26n.pt)")
+    parser.add_argument("--model_name", type=str, help="Name of the model file (e.g., yolov5s.pt or yolo26n.pt)")
     parser.add_argument("--download_url", type=str, help="Optional custom download URL for non-YOLOv5 models")
     parser.add_argument("--skip_export", action="store_true", help="Skip NCNN export (download only)")
     args = parser.parse_args()
@@ -66,22 +66,22 @@ def main():
         model_name = args.model_name.strip()
     else:
         print("\n" + "="*60)
-        print("  YOLO Model Manager - CLI")
+        print("  Detection Model Manager - CLI")
         print("="*60)
-        print("\n[INFO] Supported YOLO models:")
+        print("\n[INFO] Supported models:")
         print("  • YOLOv5: yolov5s.pt, yolov5m.pt, yolov5l.pt, yolov5x.pt")
         print("  • YOLO8:  yolov8n.pt, yolov8s.pt, yolov8m.pt, yolov8l.pt, yolov8x.pt")
         print("  • YOLO11: yolo11n.pt, yolo11s.pt, yolo11m.pt, yolo11l.pt, yolo11x.pt")
         print("  • YOLO26: yolo26n.pt, yolo26s.pt, yolo26m.pt, yolo26l.pt, yolo26x.pt")
         print("  • Future versions (yolo12, yolo13, etc.) are also supported!")
         print()
-        model_name = input("Please enter the YOLO model file name (e.g., yolo26n.pt): ").strip()
+        model_name = input("Please enter the model file name (e.g., yolo26n.pt): ").strip()
         if not model_name:
             print("[ERROR] No model name provided. Exiting.")
             sys.exit(1)
 
     print("\n" + "="*60)
-    print("  YOLO Model Manager - CLI")
+    print("  Detection Model Manager - CLI")
     print("="*60)
 
     # Initialize ModelManager
@@ -140,7 +140,7 @@ def main():
             
             if user_url.lower() == 'q':
                 print("\n[INFO] Download aborted. You can:")
-                print("   1. Download the model manually and place it in the 'yolo' folder")
+                print("   1. Download the model manually and place it in the 'models' folder")
                 print("   2. Run this script again with: --download_url <URL>")
                 print("   3. Use the web dashboard to upload the model")
                 sys.exit(0)
@@ -166,7 +166,7 @@ def main():
                 print("   • Check if the URL is correct and accessible")
                 print("   • Verify your internet connection")
                 print("   • Try downloading the model manually from the Ultralytics website")
-                print("   • Place the .pt file in the 'yolo' folder and run this script again")
+                print("   • Place the .pt file in the 'models' folder and run this script again")
                 sys.exit(1)
 
     # Validate model
