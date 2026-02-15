@@ -28,8 +28,8 @@ VIDEO_SOURCE: 0  # Webcam index, file path, or RTSP URL
 SmartTracker:
   SMART_TRACKER_ENABLED: true
   SMART_TRACKER_USE_GPU: true
-  SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo26n.pt"
-  SMART_TRACKER_CPU_MODEL_PATH: "yolo/yolo26n_ncnn_model"
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"
+  SMART_TRACKER_CPU_MODEL_PATH: "models/yolo26n_ncnn_model"
   TRACKER_TYPE: "botsort_reid"  # bytetrack, botsort, botsort_reid, custom_reid
   DETECTION_CONFIDENCE: 0.5
   IOU_THRESHOLD: 0.45

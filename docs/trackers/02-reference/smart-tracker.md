@@ -1,8 +1,8 @@
 # SmartTracker
 
-> YOLO-based AI tracking with multi-object support and re-identification
+> AI-powered tracking with multi-object support and re-identification
 
-SmartTracker combines YOLO object detection with ByteTrack/BoT-SORT for AI-powered multi-target tracking. Located at `src/classes/smart_tracker.py`.
+SmartTracker combines deep-learning object detection (Ultralytics YOLO) with ByteTrack/BoT-SORT for AI-powered multi-target tracking. Located at `src/classes/smart_tracker.py`.
 
 ---
 
@@ -16,7 +16,7 @@ SmartTracker combines YOLO object detection with ByteTrack/BoT-SORT for AI-power
 - GPU-accelerated systems
 
 **Key Features:**
-- YOLO v8/v11 object detection
+- Ultralytics YOLO v8/v11 object detection
 - ByteTrack or BoT-SORT tracking
 - Native or custom Re-ID
 - Motion prediction during occlusion
@@ -27,7 +27,7 @@ SmartTracker combines YOLO object detection with ByteTrack/BoT-SORT for AI-power
 ```
 Frame
   ↓
-YOLO Detection → Bounding boxes + class labels
+Detection Model → Bounding boxes + class labels
   ↓
 ByteTrack/BoT-SORT → Track IDs + associations
   ↓
@@ -47,7 +47,7 @@ TrackerOutput (MULTI_TARGET or POSITION_2D)
 SmartTracker operates as an **overlay** on classic trackers:
 
 1. **Always runs in background** when enabled
-2. **Provides YOLO detections** to override classic tracker
+2. **Provides detections** to override classic tracker
 3. **Handles target selection** from multiple objects
 4. **Re-acquires targets** after occlusion or ID loss
 
@@ -71,8 +71,8 @@ SmartTracker:
   ENABLE_SMART_TRACKER: true
 
   # Model selection
-  SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo11n.pt"
-  SMART_TRACKER_CPU_MODEL_PATH: "yolo/yolo11n_ncnn_model"
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo11n.pt"
+  SMART_TRACKER_CPU_MODEL_PATH: "models/yolo11n_ncnn_model"
   SMART_TRACKER_USE_GPU: true
   SMART_TRACKER_FALLBACK_TO_CPU: true
 
@@ -305,18 +305,18 @@ smart_tracker.select_target_by_class("person")
 
 ---
 
-## YOLO Model Selection
+## Model Selection
 
 ```yaml
 # Nano models (fastest)
-SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo11n.pt"
-SMART_TRACKER_CPU_MODEL_PATH: "yolo/yolo11n_ncnn_model"
+SMART_TRACKER_GPU_MODEL_PATH: "models/yolo11n.pt"
+SMART_TRACKER_CPU_MODEL_PATH: "models/yolo11n_ncnn_model"
 
 # Small models (better accuracy)
-SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo11s.pt"
+SMART_TRACKER_GPU_MODEL_PATH: "models/yolo11s.pt"
 
 # Custom trained models
-SMART_TRACKER_GPU_MODEL_PATH: "yolo/custom_model.pt"
+SMART_TRACKER_GPU_MODEL_PATH: "models/custom_model.pt"
 ```
 
 ---
@@ -330,7 +330,7 @@ Classic Tracker (CSRT, KCF, dlib)
         ↑
         │ Override when SmartTracker active
         │
-SmartTracker (YOLO + ByteTrack)
+SmartTracker (Detection + ByteTrack)
         │
         │ Provides:
         │ - More robust detection
@@ -344,7 +344,7 @@ Follower System
 
 ## Related
 
-- [YOLO Detection](../03-ai-concepts/yolo-detection.md) - Detection details
+- [Detection Backends](../03-ai-concepts/detection-backends.md) - Detection details
 - [ByteTrack/BoT-SORT](../03-ai-concepts/bytetrack-botsort.md) - Tracking algorithms
 - [Motion Prediction](../03-ai-concepts/motion-prediction.md) - Occlusion handling
 - [Configuration](../04-configuration/README.md) - Parameter tuning

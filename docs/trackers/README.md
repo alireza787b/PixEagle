@@ -2,7 +2,7 @@
 
 > Comprehensive guide to PixEagle's object tracking system for autonomous target following
 
-The tracker system provides the visual perception layer of PixEagle, detecting and tracking targets to feed position data to the follower system. It supports classic correlation trackers, AI-powered detection (YOLO), and external data sources (gimbal angles).
+The tracker system provides the visual perception layer of PixEagle, detecting and tracking targets to feed position data to the follower system. It supports classic correlation trackers, AI-powered detection (Ultralytics YOLO), and external data sources (gimbal angles).
 
 ---
 
@@ -12,7 +12,7 @@ The tracker system provides the visual perception layer of PixEagle, detecting a
 |---------|-------------|
 | [Architecture](01-architecture/README.md) | System design, BaseTracker, factory pattern |
 | [Tracker Reference](02-reference/README.md) | All 5 tracker implementations |
-| [AI Concepts](03-ai-concepts/README.md) | YOLO, ByteTrack, motion prediction |
+| [AI Concepts](03-ai-concepts/README.md) | Detection models, ByteTrack, motion prediction |
 | [Configuration](04-configuration/README.md) | Schema system, parameters, tuning |
 | [Development Guide](05-development/README.md) | Creating custom trackers |
 | [Integration](06-integration/README.md) | Follower and external system integration |
@@ -33,7 +33,7 @@ The tracker system provides the visual perception layer of PixEagle, detecting a
 
 | Tracker | Speed | Use Case |
 |---------|-------|----------|
-| [SmartTracker (YOLO)](02-reference/smart-tracker.md) | Fast (GPU) | Multi-target, object classification |
+| [SmartTracker](02-reference/smart-tracker.md) | Fast (GPU) | Multi-target, object classification |
 
 ### External Data Tracker
 
@@ -102,7 +102,7 @@ Each tracker supports specific data types:
         ▼                   ▼                   ▼
 ┌───────────────┐   ┌───────────────┐   ┌───────────────┐
 │ Classic       │   │ SmartTracker  │   │ GimbalTracker │
-│ (CSRT, KCF,   │   │ (YOLO +       │   │ (External     │
+│ (CSRT, KCF,   │   │ (Detection +  │   │ (External     │
 │  dlib)        │   │  ByteTrack)   │   │  angles)      │
 └───────────────┘   └───────────────┘   └───────────────┘
 ```
@@ -123,7 +123,7 @@ TRACKING_ALGORITHM: "CSRT"  # Options: CSRT, KCF, dlib, Gimbal
 
 ```yaml
 ENABLE_SMART_TRACKER: true
-YOLO_MODEL: "yolov8n.pt"
+SMART_TRACKER_GPU_MODEL_PATH: "models/yolov8n.pt"
 ```
 
 ### 3. Run PixEagle
@@ -185,7 +185,7 @@ if tracker.is_near_boundary():
 
 | File | Purpose |
 |------|---------|
-| `configs/config.yaml` | Main configuration (TRACKING_ALGORITHM, YOLO settings) |
+| `configs/config.yaml` | Main configuration (TRACKING_ALGORITHM, SmartTracker settings) |
 | `configs/tracker_schemas.yaml` | Tracker schema definitions, UI metadata |
 | `configs/config_schema.yaml` | Schema validation for config |
 
@@ -207,5 +207,5 @@ if tracker.is_near_boundary():
 | `src/classes/trackers/tracker_factory.py` | Factory pattern registry |
 | `src/classes/tracker_output.py` | TrackerOutput dataclass |
 | `src/classes/trackers/*.py` | Individual tracker implementations |
-| `src/classes/smart_tracker.py` | YOLO + ByteTrack SmartTracker |
+| `src/classes/smart_tracker.py` | Detection + ByteTrack SmartTracker |
 | `configs/tracker_schemas.yaml` | Schema definitions |

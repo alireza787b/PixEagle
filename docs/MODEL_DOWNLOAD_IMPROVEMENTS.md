@@ -1,11 +1,11 @@
-# YOLO Model Download - Implementation Summary
+# Model Download - Implementation Summary
 
 ## ✅ What Was Improved
 
 ### 1. **Robust Fallback Chain**
 The download system now uses a smart 7-step fallback process:
 
-1. **Local Check** → Uses existing model if found in `yolo/` folder
+1. **Local Check** → Uses existing model if found in `models/` folder
 2. **User URL** → Uses provided `--download_url` if available
 3. **Auto-Download YOLOv5** → Uses `torch.hub` (existing method)
 4. **Auto-Download YOLO8/11+** → Uses Ultralytics `YOLO()` class (NEW)
@@ -35,7 +35,7 @@ The download system now uses a smart 7-step fallback process:
 
 ## 📋 Files Modified
 
-### 1. `src/classes/yolo_model_manager.py`
+### 1. `src/classes/model_manager.py`
 **Changes:**
 - Enhanced `download_model()` with robust fallback chain
 - Added `_download_via_yolo_class()` for YOLO8/11+ auto-download
@@ -58,7 +58,7 @@ def _get_suggested_urls(model_name) -> List[str]
     # Generates helpful URLs for user
 ```
 
-### 2. `add_yolo_model.py`
+### 2. `add_model.py`
 **Changes:**
 - Enhanced user prompts with model information
 - Added URL suggestion display
@@ -71,7 +71,7 @@ def _get_suggested_urls(model_name) -> List[str]
 
 ### Scenario 1: Model Exists Locally
 ```
-[INFO] ✅ Model file found locally: yolo\yolo11n.pt
+[INFO] ✅ Model file found locally: models\yolo11n.pt
 [INFO] File size: 5.35 MB
 [INFO] Skipping download - using existing model file.
 ```
@@ -80,7 +80,7 @@ def _get_suggested_urls(model_name) -> List[str]
 ```
 [INFO] Attempting automatic download...
 [INFO] Downloading yolo11n.pt via Ultralytics YOLO class...
-[INFO] ✅ Model downloaded successfully: yolo\yolo11n.pt
+[INFO] ✅ Model downloaded successfully: models\yolo11n.pt
 ```
 
 ### Scenario 3: Auto-Download Failed - URL Suggestions
@@ -123,7 +123,7 @@ Enter download URL (or 'q' to quit):
 
 ### PixEagle Integration:
 - ✅ Web Dashboard: Models appear automatically after download
-- ✅ API: `/api/yolo/models` endpoint works unchanged
+- ✅ API: `/api/models/models` endpoint works unchanged
 - ✅ Config: Models can be configured in `config_default.yaml`
 - ✅ SmartTracker: Can switch models via API
 
@@ -136,8 +136,8 @@ Enter download URL (or 'q' to quit):
 ## 📚 Documentation
 
 Created comprehensive documentation:
-- `docs/YOLO_MODEL_DOWNLOAD_USER_EXPERIENCE.md` - User experience guide
-- Updated `add_yolo_model.py` docstring with new features
+- `docs/MODEL_DOWNLOAD_USER_EXPERIENCE.md` - User experience guide
+- Updated `add_model.py` docstring with new features
 - Inline code comments for future maintainability
 
 ## 🚀 Ready for Publish
@@ -176,23 +176,23 @@ Created comprehensive documentation:
 
 ### Basic (Auto-download):
 ```bash
-python add_yolo_model.py --model_name yolo11n.pt
+python add_model.py --model_name yolo11n.pt
 ```
 
 ### With Custom URL:
 ```bash
-python add_yolo_model.py --model_name custom.pt --download_url https://example.com/model.pt
+python add_model.py --model_name custom.pt --download_url https://example.com/model.pt
 ```
 
 ### Interactive Mode:
 ```bash
-python add_yolo_model.py
+python add_model.py
 # Shows supported models and prompts for input
 ```
 
 ### Skip NCNN Export:
 ```bash
-python add_yolo_model.py --model_name yolo11n.pt --skip_export
+python add_model.py --model_name yolo11n.pt --skip_export
 ```
 
 ---

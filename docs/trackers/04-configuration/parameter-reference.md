@@ -172,8 +172,8 @@ SmartTracker:
   ENABLE_SMART_TRACKER: true
 
   # Model selection
-  SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo11n.pt"
-  SMART_TRACKER_CPU_MODEL_PATH: "yolo/yolo11n_ncnn_model"
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo11n.pt"
+  SMART_TRACKER_CPU_MODEL_PATH: "models/yolo11n_ncnn_model"
   SMART_TRACKER_USE_GPU: true
   SMART_TRACKER_FALLBACK_TO_CPU: true
 

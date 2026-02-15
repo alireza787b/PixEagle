@@ -152,16 +152,16 @@ bash scripts/setup/check-ai-runtime.sh
 If the runtime check reports healthy `torch/ultralytics/lap`, restart PixEagle and re-enable SmartTracker.
 If NCNN auto-export on model upload fails, also verify `pnnx` is installed in the same venv.
 
-### YOLO Model Not Loading
+### Detection Model Not Loading
 
 **Check model exists**:
 ```bash
-ls yolo/*.pt
+ls models/*.pt
 ```
 
 **Download model**:
 ```bash
-python add_yolo_model.py --model_name yolo26n.pt
+python add_model.py --model_name yolo26n.pt
 ```
 
 ### GPU Not Detected

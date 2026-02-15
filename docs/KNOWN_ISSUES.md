@@ -25,7 +25,7 @@ This file tracks verified, user-facing issues that are not fully solved yet.
   - Unify terminology between telemetry socket port and video WebSocket endpoint.
   - Update `pixeagle-service status` checks to report both endpoints clearly.
 
-### 3) Higher YOLO model load can trigger board instability on constrained setups
+### 3) Higher detection model load can trigger board instability on constrained setups
 - **Status**: Open (environment + workload risk)
 - **Observed**: Under heavier models (for example `yolo26s`) some runs may trigger abrupt reboot/reset on constrained power/thermal setups.
 - **Scope**: Jetson deployment stability under peak load.

@@ -1,14 +1,14 @@
-# YOLO Detection
+# Detection Backends
 
 > Real-time object detection powering SmartTracker
 
-YOLO (You Only Look Once) provides the detection backbone for SmartTracker, identifying objects and their classes in real-time.
+The detection backend (currently Ultralytics YOLO) provides the detection backbone for SmartTracker, identifying objects and their classes in real-time.
 
 ---
 
 ## Overview
 
-SmartTracker uses Ultralytics YOLO for:
+SmartTracker uses Ultralytics for:
 
 - **Object detection** - Bounding boxes with confidence scores
 - **Classification** - Object class identification (person, vehicle, etc.)
@@ -47,8 +47,8 @@ For CPU inference:
 # configs/config.yaml
 SmartTracker:
   # Model paths
-  SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo11n.pt"
-  SMART_TRACKER_CPU_MODEL_PATH: "yolo/yolo11n_ncnn_model"
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo11n.pt"
+  SMART_TRACKER_CPU_MODEL_PATH: "models/yolo11n_ncnn_model"
 
   # Device selection
   SMART_TRACKER_USE_GPU: true
@@ -65,7 +65,7 @@ SmartTracker:
 ## Detection Pipeline
 
 ```python
-# SmartTracker YOLO inference
+# SmartTracker detection inference
 def detect(self, frame):
     results = self.model.track(
         frame,
@@ -145,7 +145,7 @@ SmartTracker:
 
 ```yaml
 SmartTracker:
-  SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo11n.pt"  # Nano model
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo11n.pt"  # Nano model
   SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.4         # Higher threshold
   SMART_TRACKER_MAX_DETECTIONS: 10                # Fewer detections
 ```
@@ -154,7 +154,7 @@ SmartTracker:
 
 ```yaml
 SmartTracker:
-  SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo11m.pt"  # Medium model
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo11m.pt"  # Medium model
   SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.2          # Lower threshold
   SMART_TRACKER_IOU_THRESHOLD: 0.4                 # Stricter NMS
 ```
@@ -163,7 +163,7 @@ SmartTracker:
 
 ## Custom Models
 
-Train custom YOLO models for specific targets:
+Train custom detection models for specific targets:
 
 ```python
 # Training custom model
@@ -177,7 +177,7 @@ Use custom model:
 
 ```yaml
 SmartTracker:
-  SMART_TRACKER_GPU_MODEL_PATH: "yolo/custom_drone_detector.pt"
+  SMART_TRACKER_GPU_MODEL_PATH: "models/custom_drone_detector.pt"
 ```
 
 ---

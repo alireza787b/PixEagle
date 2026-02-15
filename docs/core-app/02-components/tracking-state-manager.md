@@ -14,7 +14,7 @@ Robust object tracking state management with multiple fallback strategies.
 
 ## Problem Solved
 
-YOLO trackers (ByteTrack, BoT-SORT) can experience:
+Multi-object trackers (ByteTrack, BoT-SORT) can experience:
 
 - **ID switches**: Same object gets different track ID
 - **Brief occlusions**: Target hidden for 1-5 frames
@@ -320,8 +320,8 @@ class SmartTracker:
         )
 
     def update(self, frame):
-        # Get YOLO detections
-        detections = self.yolo_model.track(frame)
+        # Get detections from model
+        detections = self.detection_model.track(frame)
 
         # Update tracking state
         is_active, detection = self.state_manager.update_tracking(

@@ -1,7 +1,7 @@
-# YOLO Model Download - User Experience Guide
+# Model Download - User Experience Guide
 
 ## Overview
-The `add_yolo_model.py` script provides a robust, user-friendly way to add YOLO models to PixEagle with automatic fallback mechanisms.
+The `add_model.py` script provides a robust, user-friendly way to add detection models to PixEagle with automatic fallback mechanisms.
 
 ## User Experience Flow
 
@@ -9,12 +9,12 @@ The `add_yolo_model.py` script provides a robust, user-friendly way to add YOLO 
 **What the user sees:**
 ```
 ============================================================
-  YOLO Model Manager - CLI
+  Model Manager - CLI
 ============================================================
 
-[INFO] YOLO folder: 'yolo'
+[INFO] Models folder: 'models'
 [INFO] Checking for model: 'yolo11n.pt'...
-[INFO] ✅ Model file found locally: yolo\yolo11n.pt
+[INFO] ✅ Model file found locally: models\yolo11n.pt
 [INFO] File size: 5.35 MB
 [INFO] Skipping download - using existing model file.
 
@@ -26,15 +26,15 @@ The `add_yolo_model.py` script provides a robust, user-friendly way to add YOLO 
 
 [INFO] Exporting model to NCNN format...
 [INFO] ✅ NCNN export successful!
-       NCNN Folder: yolo\yolo11n_ncnn_model
+       NCNN Folder: models\yolo11n_ncnn_model
        Export Time: 12.34s
 
 ============================================================
   ✅ All operations completed successfully!
 ============================================================
 
-[INFO] Model ready: yolo\yolo11n.pt
-[INFO] NCNN export available: yolo\yolo11n_ncnn_model
+[INFO] Model ready: models\yolo11n.pt
+[INFO] NCNN export available: models\yolo11n_ncnn_model
 
 [INFO] You can now use this model in PixEagle!
        • Use the web dashboard to switch models
@@ -50,8 +50,8 @@ Do you want to download the model? (y/n): y
 
 [INFO] Attempting automatic download...
 [INFO] Downloading yolov5s.pt from Ultralytics hub...
-[INFO] ✅ Model downloaded: yolo\yolov5s.pt
-[INFO] ✅ Model downloaded successfully: yolo\yolov5s.pt
+[INFO] ✅ Model downloaded: models\yolov5s.pt
+[INFO] ✅ Model downloaded successfully: models\yolov5s.pt
 
 [INFO] Validating model file...
 [INFO] ✅ Model validation successful...
@@ -65,8 +65,8 @@ Do you want to download the model? (y/n): y
 
 [INFO] Attempting automatic download...
 [INFO] Downloading yolo11n.pt via Ultralytics YOLO class...
-[INFO] ✅ Model downloaded from C:\Users\...\yolo11n.pt to yolo\yolo11n.pt
-[INFO] ✅ Model downloaded successfully: yolo\yolo11n.pt
+[INFO] ✅ Model downloaded from C:\Users\...\yolo11n.pt to models\yolo11n.pt
+[INFO] ✅ Model downloaded successfully: models\yolo11n.pt
 ```
 
 ### Scenario 4: Automatic Download Failed - URL Suggestions 💡
@@ -104,8 +104,8 @@ Enter download URL (or 'q' to quit): https://github.com/ultralytics/assets/relea
 [INFO] Downloading from provided URL: https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo12n.pt
 [INFO] This may take a few moments depending on file size...
 [INFO] Downloading model from https://github.com/ultralytics/assets/releases/download/v0.0.0/yolo12n.pt...
-[INFO] ✅ Download successful: yolo\yolo12n.pt
-[INFO] ✅ Model downloaded successfully: yolo\yolo12n.pt
+[INFO] ✅ Download successful: models\yolo12n.pt
+[INFO] ✅ Model downloaded successfully: models\yolo12n.pt
 ```
 
 ### Scenario 6: User Cancels Download
@@ -114,7 +114,7 @@ Enter download URL (or 'q' to quit): https://github.com/ultralytics/assets/relea
 Enter download URL (or 'q' to quit): q
 
 [INFO] Download aborted. You can:
-   1. Download the model manually and place it in the 'yolo' folder
+   1. Download the model manually and place it in the 'models' folder
    2. Run this script again with: --download_url <URL>
    3. Use the web dashboard to upload the model
 ```
@@ -133,7 +133,7 @@ Enter download URL (or 'q' to quit): invalid-url
    • Check if the URL is correct and accessible
    • Verify your internet connection
    • Try downloading the model manually from the Ultralytics website
-   • Place the .pt file in the 'yolo' folder and run this script again
+   • Place the .pt file in the 'models' folder and run this script again
 ```
 
 ## Interactive Mode (No Arguments)
@@ -142,33 +142,33 @@ When run without arguments, the script provides helpful guidance:
 
 ```
 ============================================================
-  YOLO Model Manager - CLI
+  Model Manager - CLI
 ============================================================
 
-[INFO] Supported YOLO models:
+[INFO] Supported models:
   • YOLOv5: yolov5s.pt, yolov5m.pt, yolov5l.pt, yolov5x.pt
   • YOLO8:  yolov8n.pt, yolov8s.pt, yolov8m.pt, yolov8l.pt, yolov8x.pt
   • YOLO11: yolo11n.pt, yolo11s.pt, yolo11m.pt, yolo11l.pt, yolo11x.pt
   • Future versions (yolo12, yolo13, etc.) are also supported!
 
-Please enter the YOLO model file name (e.g., yolo11n.pt): 
+Please enter the model file name (e.g., yolo11n.pt):
 ```
 
 ## Command-Line Usage
 
 ### Basic Usage
 ```bash
-python add_yolo_model.py --model_name yolo11n.pt
+python add_model.py --model_name yolo11n.pt
 ```
 
 ### With Custom URL
 ```bash
-python add_yolo_model.py --model_name yolo12n.pt --download_url https://example.com/yolo12n.pt
+python add_model.py --model_name yolo12n.pt --download_url https://example.com/yolo12n.pt
 ```
 
 ### Skip NCNN Export
 ```bash
-python add_yolo_model.py --model_name yolo11n.pt --skip_export
+python add_model.py --model_name yolo11n.pt --skip_export
 ```
 
 ## Robust Fallback Chain
@@ -196,7 +196,7 @@ The implementation automatically handles:
 
 After adding a model:
 - ✅ Model appears in web dashboard
-- ✅ Can be switched via API: `/api/yolo/switch-model`
+- ✅ Can be switched via API: `/api/models/switch-model`
 - ✅ Can be configured in `config_default.yaml`
 - ✅ NCNN export available for CPU inference
 

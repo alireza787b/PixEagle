@@ -2,7 +2,7 @@
 
 > Deep learning and multi-object tracking algorithms used in SmartTracker
 
-This section covers the AI/ML concepts powering PixEagle's SmartTracker, including YOLO object detection, ByteTrack/BoT-SORT multi-object tracking, and motion prediction.
+This section covers the AI/ML concepts powering PixEagle's SmartTracker, including object detection (Ultralytics YOLO), ByteTrack/BoT-SORT multi-object tracking, and motion prediction.
 
 ---
 
@@ -10,7 +10,7 @@ This section covers the AI/ML concepts powering PixEagle's SmartTracker, includi
 
 | Document | Description |
 |----------|-------------|
-| [YOLO Detection](yolo-detection.md) | YOLO model integration and inference |
+| [Detection Backends](detection-backends.md) | Detection model integration and inference |
 | [ByteTrack/BoT-SORT](bytetrack-botsort.md) | Multi-object tracking algorithms |
 | [Motion Prediction](motion-prediction.md) | MotionPredictor component |
 | [Appearance Model](appearance-model.md) | ReID and appearance matching |
@@ -23,38 +23,38 @@ The SmartTracker combines multiple AI components:
 
 ```
 Video Frame
-    │
-    ▼
-┌──────────────────┐
-│ YOLO Detection   │ ◄─── Object detection (person, vehicle, etc.)
-│ (YOLOv8/v11)     │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ ByteTrack/BoT-   │ ◄─── Multi-object association
-│ SORT Tracker     │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Motion Predictor │ ◄─── Trajectory prediction
-│ + Appearance     │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│ Target Selection │ ◄─── Select primary tracking target
-└──────────────────┘
+    |
+    v
++------------------+
+| Detection Model  | <--- Object detection (person, vehicle, etc.)
+| (Ultralytics)    |
++--------+---------+
+         |
+         v
++------------------+
+| ByteTrack/BoT-   | <--- Multi-object association
+| SORT Tracker     |
++--------+---------+
+         |
+         v
++------------------+
+| Motion Predictor | <--- Trajectory prediction
+| + Appearance     |
++--------+---------+
+         |
+         v
++------------------+
+| Target Selection | <--- Select primary tracking target
++------------------+
 ```
 
 ---
 
 ## Key Concepts
 
-### Object Detection (YOLO)
+### Object Detection
 
-YOLO (You Only Look Once) provides real-time object detection:
+The detection backend (currently Ultralytics YOLO) provides real-time object detection:
 
 - **Models**: YOLOv8n, YOLOv8s, YOLOv8m, YOLOv11
 - **Output**: Bounding boxes, class labels, confidence scores
@@ -83,10 +83,10 @@ The MotionPredictor handles:
 ```yaml
 # SmartTracker settings in config.yaml
 ENABLE_SMART_TRACKER: true
-YOLO_MODEL: "yolov8n.pt"           # Model selection
-YOLO_CONFIDENCE_THRESHOLD: 0.5     # Detection threshold
-YOLO_IOU_THRESHOLD: 0.45           # NMS threshold
-YOLO_MAX_DETECTIONS: 100           # Max objects per frame
+SMART_TRACKER_GPU_MODEL_PATH: "models/yolov8n.pt"  # Model selection
+SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.5             # Detection threshold
+SMART_TRACKER_IOU_THRESHOLD: 0.45                   # NMS threshold
+SMART_TRACKER_MAX_DETECTIONS: 100                   # Max objects per frame
 ```
 
 ---

@@ -42,7 +42,7 @@ CSRT_Tracker:
 SmartTracker:
   ENABLE_SMART_TRACKER: true
   TRACKER_TYPE: "botsort_reid"
-  SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo11s.pt"
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo11s.pt"
 ```
 
 ### Balanced (Default)
@@ -146,7 +146,7 @@ KCF_Tracker:
 SmartTracker:
   ENABLE_SMART_TRACKER: true
   SMART_TRACKER_USE_GPU: false
-  SMART_TRACKER_CPU_MODEL_PATH: "yolo/yolo11n_ncnn_model"
+  SMART_TRACKER_CPU_MODEL_PATH: "models/yolo11n_ncnn_model"
   SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.4  # Higher threshold
   SMART_TRACKER_MAX_DETECTIONS: 10
 ```
@@ -159,7 +159,7 @@ TRACKING_ALGORITHM: "KCF"
 SmartTracker:
   ENABLE_SMART_TRACKER: true
   SMART_TRACKER_USE_GPU: true
-  SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo11n.pt"
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo11n.pt"
 ```
 
 ### Desktop GPU (RTX 3060+)
@@ -173,7 +173,7 @@ CSRT_Tracker:
 SmartTracker:
   ENABLE_SMART_TRACKER: true
   SMART_TRACKER_USE_GPU: true
-  SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo11s.pt"  # Larger model
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo11s.pt"  # Larger model
   TRACKER_TYPE: "botsort_reid"
 ```
 

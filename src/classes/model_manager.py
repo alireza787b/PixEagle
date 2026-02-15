@@ -543,12 +543,12 @@ class ModelManager:
                 "error": str(e)
             }
 
-    # ==================== NCNN EXPORT (Refactored from add_yolo_model.py) ====================
+    # ==================== NCNN EXPORT (Refactored from add_model.py) ====================
 
     def export_to_ncnn(self, pt_file: Path) -> Dict:
         """
         Export YOLO model to NCNN format
-        (Refactored from add_yolo_model.py export_model_to_ncnn function)
+        (Refactored from add_model.py export_model_to_ncnn function)
 
         Args:
             pt_file: Path to .pt file
@@ -692,7 +692,7 @@ class ModelManager:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self.export_to_ncnn, pt_file)
 
-    # ==================== MODEL DOWNLOAD (Refactored from add_yolo_model.py) ====================
+    # ==================== MODEL DOWNLOAD (Refactored from add_model.py) ====================
 
     def download_model(self, model_name: str, download_url: Optional[str] = None) -> Dict:
         """
@@ -785,7 +785,7 @@ class ModelManager:
             }
 
     def _download_from_url(self, url: str, destination: Path) -> Dict:
-        """Download model from URL (refactored from add_yolo_model.py)"""
+        """Download model from URL (refactored from add_model.py)"""
         try:
             self.logger.info(f"Downloading model from {url}...")
 
@@ -814,7 +814,7 @@ class ModelManager:
             }
 
     def _download_from_ultralytics(self, model_name: str, destination: Path) -> Dict:
-        """Download YOLOv5 model from Ultralytics hub (refactored from add_yolo_model.py)"""
+        """Download YOLOv5 model from Ultralytics hub (refactored from add_model.py)"""
         if not TORCH_AVAILABLE:
             return {
                 "success": False,
@@ -1092,7 +1092,7 @@ class ModelManager:
     def _patch_torch_load(self):
         """
         Apply torch.load monkey-patch for PyTorch 2.6+ compatibility
-        (Same as add_yolo_model.py - required for loading YOLO checkpoints)
+        (Same as add_model.py - required for loading YOLO checkpoints)
 
         SECURITY NOTE:
         This bypasses PyTorch's weights_only=True safety mechanism.

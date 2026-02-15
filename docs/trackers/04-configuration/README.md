@@ -39,7 +39,7 @@ TRACKING_ALGORITHM: "CSRT"  # CSRT, KCF, dlib, Gimbal
 
 # SmartTracker (AI-powered)
 ENABLE_SMART_TRACKER: true
-YOLO_MODEL: "yolov8n.pt"
+SMART_TRACKER_GPU_MODEL_PATH: "models/yolov8n.pt"
 ```
 
 ### Confidence Settings
@@ -101,7 +101,7 @@ tracker_data_types:
 ## Parameter Categories
 
 ### Performance Parameters
-- Model selection (YOLO variant)
+- Model selection (detection model variant)
 - Frame processing rate
 - Detection thresholds
 
