@@ -34,7 +34,11 @@ from classes.tracker_output import TrackerOutput, TrackerDataType
 
 # Import the SmartTracker module (conditional - may not be available without AI packages)
 try:
-    from classes.smart_tracker import SmartTracker, ULTRALYTICS_AVAILABLE
+    from classes.smart_tracker import SmartTracker
+    try:
+        from classes.backends.ultralytics_backend import ULTRALYTICS_AVAILABLE
+    except ImportError:
+        ULTRALYTICS_AVAILABLE = False
     SMART_TRACKER_AVAILABLE = ULTRALYTICS_AVAILABLE
 except ImportError:
     SmartTracker = None

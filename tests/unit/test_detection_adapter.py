@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
-from classes.detection_adapter import detect_result_mode, normalize_results, to_tracking_state_rows
+from classes.detection_adapter import NormalizedDetection, to_tracking_state_rows
+from classes.backends.ultralytics_backend import UltralyticsBackend
 
 
 def _fake_boxes_result():
@@ -26,18 +27,22 @@ def _fake_obb_result():
     return SimpleNamespace(boxes=None, obb=obb)
 
 
+# Use UltralyticsBackend's static parsing methods for testing result normalization.
+_backend = UltralyticsBackend.__new__(UltralyticsBackend)
+
+
 def test_detect_result_mode_detect():
     r = _fake_boxes_result()
-    assert detect_result_mode(r) == "detect"
+    assert _backend._detect_result_mode(r) == "detect"
 
 
 def test_detect_result_mode_obb():
     r = _fake_obb_result()
-    assert detect_result_mode(r) == "obb"
+    assert _backend._detect_result_mode(r) == "obb"
 
 
 def test_normalize_detect_results():
-    mode, detections = normalize_results([_fake_boxes_result()])
+    mode, detections = _backend._normalize_results([_fake_boxes_result()])
     assert mode == "detect"
     assert len(detections) == 1
     d = detections[0]
@@ -48,7 +53,7 @@ def test_normalize_detect_results():
 
 
 def test_normalize_obb_results():
-    mode, detections = normalize_results([_fake_obb_result()])
+    mode, detections = _backend._normalize_results([_fake_obb_result()])
     assert mode == "obb"
     assert len(detections) == 1
     d = detections[0]
@@ -59,7 +64,7 @@ def test_normalize_obb_results():
 
 
 def test_to_tracking_state_rows():
-    _, detections = normalize_results([_fake_boxes_result()])
+    _, detections = _backend._normalize_results([_fake_boxes_result()])
     rows = to_tracking_state_rows(detections)
     assert len(rows) == 1
     assert rows[0][4] == 1
