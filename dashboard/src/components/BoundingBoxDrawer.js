@@ -23,12 +23,9 @@ const BoundingBoxDrawer = ({
   startPos,
   currentPos,
   boundingBox,
-  handleMouseDown,
-  handleMouseMove,
-  handleMouseUp,
-  handleTouchStart,
-  handleTouchMove,
-  handleTouchEnd,
+  handlePointerDown,
+  handlePointerMove,
+  handlePointerUp,
   videoSrc,
   protocol,
   smartModeActive,
@@ -68,13 +65,13 @@ const BoundingBoxDrawer = ({
 
   const isDrawing = (startPos && currentPos) || boundingBox;
 
-  let left, top, width, height;
+  let left = 0, top = 0, width = 0, height = 0;
 
   if (isDrawing && containerDimensions.width && containerDimensions.height) {
-    left = boundingBox ? boundingBox.left : Math.min(startPos.x, currentPos.x);
-    top = boundingBox ? boundingBox.top : Math.min(startPos.y, currentPos.y);
-    width = boundingBox ? boundingBox.width : Math.abs(currentPos.x - startPos.x);
-    height = boundingBox ? boundingBox.height : Math.abs(currentPos.y - startPos.y);
+    left = boundingBox ? boundingBox.left : Math.round(Math.min(startPos.x, currentPos.x));
+    top = boundingBox ? boundingBox.top : Math.round(Math.min(startPos.y, currentPos.y));
+    width = boundingBox ? boundingBox.width : Math.round(Math.abs(currentPos.x - startPos.x));
+    height = boundingBox ? boundingBox.height : Math.round(Math.abs(currentPos.y - startPos.y));
 
     const containerWidth = containerDimensions.width;
     const containerHeight = containerDimensions.height;
@@ -113,15 +110,14 @@ const BoundingBoxDrawer = ({
         display: 'block',
         width: '100%',
         touchAction: 'none',
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
         cursor: smartModeActive ? 'crosshair' : (startPos ? 'crosshair' : 'cell'),
       }}
-      onMouseDown={!smartModeActive ? handleMouseDown : null}
-      onMouseMove={!smartModeActive ? handleMouseMove : null}
-      onMouseUp={!smartModeActive ? handleMouseUp : null}
-      onTouchStart={!smartModeActive ? handleTouchStart : null}
-      onTouchMove={!smartModeActive ? handleTouchMove : null}
-      onTouchEnd={!smartModeActive ? handleTouchEnd : null}
-      onClick={smartModeActive ? handleSmartClick : null}
+      onPointerDown={!smartModeActive ? handlePointerDown : undefined}
+      onPointerMove={!smartModeActive ? handlePointerMove : undefined}
+      onPointerUp={!smartModeActive ? handlePointerUp : undefined}
+      onClick={smartModeActive ? handleSmartClick : undefined}
     >
       <VideoStream protocol={protocol} src={videoSrc} />
 
@@ -180,14 +176,16 @@ const BoundingBoxDrawer = ({
         <div
           style={{
             position: 'absolute',
-            border: '3px solid #ff5722',
-            borderRadius: '2px',
-            left: left,
-            top: top,
-            width: width,
-            height: height,
+            left,
+            top,
+            width,
+            height,
+            border: '2px solid #ff5722',
+            borderRadius: 1,
+            backgroundColor: 'rgba(255, 87, 34, 0.08)',
             pointerEvents: 'none',
-            boxShadow: '0 0 0 2px rgba(255, 87, 34, 0.2), 0 0 8px rgba(255, 87, 34, 0.4)',
+            zIndex: 5,
+            boxShadow: '0 0 0 1px rgba(255, 87, 34, 0.3)',
           }}
         />
       )}

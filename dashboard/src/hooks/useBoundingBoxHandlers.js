@@ -1,22 +1,27 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { endpoints } from '../services/apiEndpoints';
 
+/**
+ * Hook for bounding-box drag drawing (classic tracker) and smart-click (AI tracker).
+ *
+ * Uses Pointer Events with pointer capture so the rectangle tracks cleanly
+ * even when the cursor/finger leaves the video container during a drag.
+ */
 const useBoundingBoxHandlers = (isTracking, setIsTracking, smartModeActive = false) => {
   const [startPos, setStartPos] = useState(null);
   const [currentPos, setCurrentPos] = useState(null);
   const [boundingBox, setBoundingBox] = useState(null);
-  const imageRef = useRef();
+  const imageRef = useRef(null);
 
   const defaultBoundingBoxSize =
     parseFloat(process.env.REACT_APP_DEFAULT_BOUNDING_BOX_SIZE) || 0.2;
 
   const timeoutRef = useRef(null);
+  const draggingRef = useRef(false);
 
   useEffect(() => {
     return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
 
@@ -26,7 +31,7 @@ const useBoundingBoxHandlers = (isTracking, setIsTracking, smartModeActive = fal
     return Math.sqrt(dx * dx + dy * dy);
   };
 
-  const startTracking = async (bbox) => {
+  const startTracking = useCallback(async (bbox) => {
     try {
       if (isTracking) {
         await fetch(endpoints.stopTracking, {
@@ -46,60 +51,65 @@ const useBoundingBoxHandlers = (isTracking, setIsTracking, smartModeActive = fal
     } catch (error) {
       console.error('Error:', error);
     }
-  };
+  }, [isTracking, setIsTracking]);
 
-  const sendSmartClick = async (normX, normY) => {
-    try {
-      const res = await fetch(endpoints.smartClick, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ x: normX, y: normY }),
-      });
-      const data = await res.json();
-      console.log('Smart click sent:', data);
-    } catch (err) {
-      console.error('Failed to send smart click:', err);
-    }
-  };
+  // ── Pointer handlers (unified mouse + touch + pen) ─────────────────
 
-  const handleStart = (clientX, clientY) => {
+  const handlePointerDown = useCallback((e) => {
+    if (smartModeActive) return;       // smart mode uses onClick instead
+    if (e.button !== 0) return;        // left button only
+
+    e.preventDefault();
+    e.target.setPointerCapture(e.pointerId);
+    draggingRef.current = true;
+
     const rect = imageRef.current.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const y = clientY - rect.top;
-
-    if (smartModeActive) {
-      // Send normalized smart click
-      const normX = x / rect.width;
-      const normY = y / rect.height;
-      sendSmartClick(normX, normY);
-      return;
-    }
+    const x = Math.round(e.clientX - rect.left);
+    const y = Math.round(e.clientY - rect.top);
 
     setStartPos({ x, y });
     setCurrentPos({ x, y });
     setBoundingBox(null);
-  };
+  }, [smartModeActive]);
 
-  const handleMove = (clientX, clientY) => {
-    if (startPos && !smartModeActive) {
-      const rect = imageRef.current.getBoundingClientRect();
-      const x = clientX - rect.left;
-      const y = clientY - rect.top;
-      setCurrentPos({ x, y });
-    }
-  };
-
-  const handleEnd = async () => {
-    if (!startPos || !currentPos || smartModeActive) return;
+  const handlePointerMove = useCallback((e) => {
+    if (!draggingRef.current || smartModeActive) return;
+    if (!imageRef.current) return;
 
     const rect = imageRef.current.getBoundingClientRect();
-    const distance = getDistance(startPos, currentPos);
+    // Clamp to container bounds for clean drawing
+    const x = Math.round(Math.max(0, Math.min(e.clientX - rect.left, rect.width)));
+    const y = Math.round(Math.max(0, Math.min(e.clientY - rect.top, rect.height)));
+
+    setCurrentPos({ x, y });
+  }, [smartModeActive]);
+
+  const handlePointerUp = useCallback(async (e) => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+
+    if (e.target.hasPointerCapture(e.pointerId)) {
+      e.target.releasePointerCapture(e.pointerId);
+    }
+
+    // Read refs for the final computation
+    const start = startPos;
+    const current = currentPos;
+    if (!start || !current || smartModeActive) {
+      setStartPos(null);
+      setCurrentPos(null);
+      return;
+    }
+
+    const rect = imageRef.current.getBoundingClientRect();
+    const distance = getDistance(start, current);
     let bbox;
 
     const dragThreshold = Math.max(5, (window.devicePixelRatio || 1) * 5);
     if (distance < dragThreshold) {
-      const centerX = startPos.x;
-      const centerY = startPos.y;
+      // Click-to-center: create default-size box around click point
+      const centerX = start.x;
+      const centerY = start.y;
       const width = rect.width * defaultBoundingBoxSize;
       const height = rect.height * defaultBoundingBoxSize;
       const left = centerX - width / 2;
@@ -112,12 +122,18 @@ const useBoundingBoxHandlers = (isTracking, setIsTracking, smartModeActive = fal
         height: defaultBoundingBoxSize,
       };
 
-      setBoundingBox({ left, top, width, height });
+      setBoundingBox({
+        left: Math.round(left),
+        top: Math.round(top),
+        width: Math.round(width),
+        height: Math.round(height),
+      });
     } else {
-      const x1 = startPos.x / rect.width;
-      const y1 = startPos.y / rect.height;
-      const x2 = currentPos.x / rect.width;
-      const y2 = currentPos.y / rect.height;
+      // Drag: compute normalized bbox
+      const x1 = start.x / rect.width;
+      const y1 = start.y / rect.height;
+      const x2 = current.x / rect.width;
+      const y2 = current.y / rect.height;
 
       bbox = {
         x: Math.min(x1, x2),
@@ -127,10 +143,10 @@ const useBoundingBoxHandlers = (isTracking, setIsTracking, smartModeActive = fal
       };
 
       setBoundingBox({
-        left: Math.min(startPos.x, currentPos.x),
-        top: Math.min(startPos.y, currentPos.y),
-        width: Math.abs(currentPos.x - startPos.x),
-        height: Math.abs(currentPos.y - startPos.y),
+        left: Math.round(Math.min(start.x, current.x)),
+        top: Math.round(Math.min(start.y, current.y)),
+        width: Math.round(Math.abs(current.x - start.x)),
+        height: Math.round(Math.abs(current.y - start.y)),
       });
     }
 
@@ -143,38 +159,16 @@ const useBoundingBoxHandlers = (isTracking, setIsTracking, smartModeActive = fal
 
     setStartPos(null);
     setCurrentPos(null);
-  };
-
-  const handleMouseDown = (e) => handleStart(e.clientX, e.clientY);
-  const handleMouseMove = (e) => handleMove(e.clientX, e.clientY);
-  const handleMouseUp = handleEnd;
-
-  const handleTouchStart = (e) => {
-    e.preventDefault();
-    handleStart(e.touches[0].clientX, e.touches[0].clientY);
-  };
-
-  const handleTouchMove = (e) => {
-    e.preventDefault();
-    handleMove(e.touches[0].clientX, e.touches[0].clientY);
-  };
-
-  const handleTouchEnd = (e) => {
-    e.preventDefault();
-    handleEnd();
-  };
+  }, [startPos, currentPos, smartModeActive, defaultBoundingBoxSize, startTracking]);
 
   return {
     imageRef,
     startPos,
     currentPos,
     boundingBox,
-    handleMouseDown,
-    handleMouseMove,
-    handleMouseUp,
-    handleTouchStart,
-    handleTouchMove,
-    handleTouchEnd,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
   };
 };
 

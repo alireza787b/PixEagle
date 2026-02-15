@@ -88,12 +88,9 @@ const DashboardPage = () => {
     startPos,
     currentPos,
     boundingBox,
-    handleMouseDown,
-    handleMouseMove,
-    handleMouseUp,
-    handleTouchStart,
-    handleTouchMove,
-    handleTouchEnd,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
   } = useBoundingBoxHandlers(isTracking, setIsTracking, smartModeActive);
 
   const handleTrackingToggle = async () => {
@@ -294,12 +291,9 @@ const DashboardPage = () => {
                             startPos={startPos}
                             currentPos={currentPos}
                             boundingBox={boundingBox}
-                            handleMouseDown={handleMouseDown}
-                            handleMouseMove={handleMouseMove}
-                            handleMouseUp={handleMouseUp}
-                            handleTouchStart={handleTouchStart}
-                            handleTouchMove={handleTouchMove}
-                            handleTouchEnd={handleTouchEnd}
+                            handlePointerDown={handlePointerDown}
+                            handlePointerMove={handlePointerMove}
+                            handlePointerUp={handlePointerUp}
                             videoSrc={videoFeed}
                             protocol={streamingProtocol}
                             smartModeActive={smartModeActive}
