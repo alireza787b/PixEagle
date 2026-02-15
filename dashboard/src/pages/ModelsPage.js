@@ -54,6 +54,7 @@ import StorageIcon from '@mui/icons-material/Storage';
 import LabelIcon from '@mui/icons-material/Label';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import SyncIcon from '@mui/icons-material/Sync';
+import DownloadIcon from '@mui/icons-material/Download';
 
 import {
   useModels,
@@ -63,6 +64,7 @@ import {
   useDownloadModel,
   useDeleteModel,
 } from '../hooks/useModels';
+import { endpoints } from '../services/apiEndpoints';
 
 /** Format file size in bytes to a human-readable string. */
 const formatSize = (bytes) => {
@@ -410,6 +412,16 @@ const ModelsPage = () => {
                                   onClick={() => handleViewLabels(m.id, m.name || m.id)}
                                 >
                                   <LabelIcon sx={{ fontSize: 18 }} />
+                                </IconButton>
+                              </Tooltip>
+                              <Tooltip title="Download .pt file">
+                                <IconButton
+                                  size="small"
+                                  component="a"
+                                  href={endpoints.modelFile(m.id)}
+                                  download
+                                >
+                                  <DownloadIcon sx={{ fontSize: 18 }} />
                                 </IconButton>
                               </Tooltip>
                               <Tooltip title={isActive ? 'Already active' : 'Activate'}>

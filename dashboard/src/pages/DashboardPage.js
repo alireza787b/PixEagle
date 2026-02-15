@@ -170,7 +170,7 @@ const DashboardPage = () => {
       const syncedMode = await refreshSmartModeStatus({ suppressErrors: true });
       const activeMode = typeof syncedMode === 'boolean' ? syncedMode : smartModeActive;
 
-      setSnackbarMessage(`Switched to ${activeMode ? 'Smart Tracker (YOLO)' : 'Classic Tracker'}`);
+      setSnackbarMessage(`Switched to ${activeMode ? 'Smart Tracker (AI)' : 'Classic Tracker'}`);
       setSnackbarSeverity('info');
       setSnackbarOpen(true);
     } catch (err) {

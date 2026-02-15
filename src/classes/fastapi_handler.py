@@ -370,6 +370,7 @@ class FastAPIHandler:
         self.app.post("/api/models/switch")(self.switch_model)
         self.app.post("/api/models/upload")(self.upload_model)
         self.app.post("/api/models/download")(self.download_model)
+        self.app.get("/api/models/{model_id}/file")(self.download_model_file)
         self.app.delete("/api/models/{model_id}")(self.delete_model)
         # Backward-compat aliases (deprecated — use /api/models/* instead)
         self.app.get("/api/yolo/models")(self.get_models)
@@ -2499,6 +2500,42 @@ class FastAPIHandler:
             "configured_gpu_model_path": str(effective_gpu),
             "configured_cpu_model_path": str(effective_cpu),
         }
+
+    async def download_model_file(self, model_id: str):
+        """
+        Download a model's .pt file from the device.
+
+        GET /api/models/{model_id}/file
+
+        Returns the model file as a binary download attachment.
+        """
+        try:
+            models = self.model_manager.discover_models(force_rescan=False)
+            if model_id not in models:
+                raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found")
+
+            model_info = models[model_id]
+            model_path = Path(model_info.get('path', ''))
+            if not model_path.is_absolute():
+                model_path = Path(self.model_manager.folder) / model_path.name
+                if not model_path.exists():
+                    model_path = Path(model_info.get('path', ''))
+
+            if not model_path.exists():
+                raise HTTPException(status_code=404, detail=f"Model file not found on disk: {model_path}")
+
+            from fastapi.responses import FileResponse
+            return FileResponse(
+                path=str(model_path),
+                filename=model_path.name,
+                media_type='application/octet-stream',
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.logger.error(f"Error downloading model file: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
 
     async def switch_model(self, request: Request):
         """

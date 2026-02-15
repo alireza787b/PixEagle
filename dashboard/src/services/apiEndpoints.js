@@ -104,6 +104,7 @@ export const endpoints = {
   switchModel: `${apiBaseUrl}/api/models/switch`,
   modelUpload: `${apiBaseUrl}/api/models/upload`,
   modelDownload: `${apiBaseUrl}/api/models/download`,
+  modelFile: (modelId) => `${apiBaseUrl}/api/models/${encodeURIComponent(modelId)}/file`,
   modelDelete: (modelId) => `${apiBaseUrl}/api/models/${modelId}`,
 
   // Safety configuration endpoints (v3.5.0+)
