@@ -52,19 +52,20 @@ export const useModels = (refreshInterval = 10000) => {
   const fetchModels = useCallback(async () => {
     try {
       const response = await axios.get(endpoints.models, buildNoCacheRequestConfig());
+      const data = response.data || {};
 
-      const dataString = JSON.stringify(response.data);
+      const dataString = JSON.stringify(data);
       if (dataString !== JSON.stringify(lastSuccessfulData.current)) {
-        setModels(response.data.models || {});
-        setCurrentModel(response.data.current_model || null);
-        setConfiguredModel(response.data.configured_model || null);
-        setConfiguredGpuModel(response.data.configured_gpu_model || null);
-        setConfiguredCpuModel(response.data.configured_cpu_model || null);
-        setRuntime(response.data.runtime || null);
-        setActiveModelId(response.data.active_model_id || null);
-        setActiveModelSource(response.data.active_model_source || 'none');
-        setActiveModelSummary(response.data.active_model_summary || null);
-        lastSuccessfulData.current = response.data;
+        setModels(data.models || {});
+        setCurrentModel(data.current_model || null);
+        setConfiguredModel(data.configured_model || null);
+        setConfiguredGpuModel(data.configured_gpu_model || null);
+        setConfiguredCpuModel(data.configured_cpu_model || null);
+        setRuntime(data.runtime || null);
+        setActiveModelId(data.active_model_id || null);
+        setActiveModelSource(data.active_model_source || 'none');
+        setActiveModelSummary(data.active_model_summary || null);
+        lastSuccessfulData.current = data;
       }
 
       setError(null);
@@ -74,15 +75,16 @@ export const useModels = (refreshInterval = 10000) => {
       setError(err.message);
 
       if (lastSuccessfulData.current) {
-        setModels(lastSuccessfulData.current.models || {});
-        setCurrentModel(lastSuccessfulData.current.current_model || null);
-        setConfiguredModel(lastSuccessfulData.current.configured_model || null);
-        setConfiguredGpuModel(lastSuccessfulData.current.configured_gpu_model || null);
-        setConfiguredCpuModel(lastSuccessfulData.current.configured_cpu_model || null);
-        setRuntime(lastSuccessfulData.current.runtime || null);
-        setActiveModelId(lastSuccessfulData.current.active_model_id || null);
-        setActiveModelSource(lastSuccessfulData.current.active_model_source || 'none');
-        setActiveModelSummary(lastSuccessfulData.current.active_model_summary || null);
+        const data = lastSuccessfulData.current;
+        setModels(data.models || {});
+        setCurrentModel(data.current_model || null);
+        setConfiguredModel(data.configured_model || null);
+        setConfiguredGpuModel(data.configured_gpu_model || null);
+        setConfiguredCpuModel(data.configured_cpu_model || null);
+        setRuntime(data.runtime || null);
+        setActiveModelId(data.active_model_id || null);
+        setActiveModelSource(data.active_model_source || 'none');
+        setActiveModelSummary(data.active_model_summary || null);
       }
 
       setLoading(false);
@@ -94,6 +96,34 @@ export const useModels = (refreshInterval = 10000) => {
     const interval = setInterval(fetchModels, refreshInterval);
     return () => clearInterval(interval);
   }, [fetchModels, refreshInterval]);
+
+  // Force rescan: re-discovers model files on disk, ignoring .models.json cache.
+  // Use when model files were added/removed/moved outside the API (e.g., manual scp).
+  const rescan = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await axios.get(endpoints.models, {
+        ...buildNoCacheRequestConfig(),
+        params: { force_rescan: 'true', _t: Date.now() },
+      });
+      const data = response.data || {};
+      setModels(data.models || {});
+      setCurrentModel(data.current_model || null);
+      setConfiguredModel(data.configured_model || null);
+      setConfiguredGpuModel(data.configured_gpu_model || null);
+      setConfiguredCpuModel(data.configured_cpu_model || null);
+      setRuntime(data.runtime || null);
+      setActiveModelId(data.active_model_id || null);
+      setActiveModelSource(data.active_model_source || 'none');
+      setActiveModelSummary(data.active_model_summary || null);
+      lastSuccessfulData.current = data;
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   return useMemo(
     () => ({
@@ -109,9 +139,10 @@ export const useModels = (refreshInterval = 10000) => {
       loading,
       error,
       refetch: fetchModels,
+      rescan,
     }),
     [models, currentModel, configuredModel, configuredGpuModel, configuredCpuModel,
-     runtime, activeModelId, activeModelSource, activeModelSummary, loading, error, fetchModels]
+     runtime, activeModelId, activeModelSource, activeModelSummary, loading, error, fetchModels, rescan]
   );
 };
 
@@ -128,8 +159,10 @@ export const useActiveModel = (refreshInterval = 5000) => {
   const fetchActive = useCallback(async () => {
     try {
       const response = await axios.get(endpoints.activeModel, buildNoCacheRequestConfig());
-      setActiveModel(response.data.active_model || null);
-      setRuntime(response.data.runtime || null);
+      const data = response.data || {};
+      // active_model_summary contains model_name, model_id, task, device, backend, etc.
+      setActiveModel(data.active_model_summary || null);
+      setRuntime(data.runtime || null);
       setError(null);
       setLoading(false);
     } catch (err) {

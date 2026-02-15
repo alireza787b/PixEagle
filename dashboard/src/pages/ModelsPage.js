@@ -53,6 +53,7 @@ import MemoryIcon from '@mui/icons-material/Memory';
 import StorageIcon from '@mui/icons-material/Storage';
 import LabelIcon from '@mui/icons-material/Label';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import SyncIcon from '@mui/icons-material/Sync';
 
 import {
   useModels,
@@ -73,6 +74,20 @@ const formatSize = (bytes) => {
 
 const POPULAR_MODELS = ['yolo11n.pt', 'yolo11s.pt', 'yolov8n.pt'];
 
+/** Detect model architecture from filename/id. */
+const detectModelType = (name) => {
+  const n = (name || '').toLowerCase();
+  if (/yolo\s*v?\s*12/.test(n)) return 'YOLOv12';
+  if (/yolo\s*2[6-9]|yolo\s*v?26/.test(n)) return 'YOLO26';
+  if (/yolo\s*11|yolo\s*v?11/.test(n)) return 'YOLO11';
+  if (/yolov?10/.test(n)) return 'YOLOv10';
+  if (/yolov?9/.test(n)) return 'YOLOv9';
+  if (/yolov?8/.test(n)) return 'YOLOv8';
+  if (/yolov?5/.test(n)) return 'YOLOv5';
+  if (/yolo/i.test(n)) return 'YOLO';
+  return 'Custom';
+};
+
 const ModelsPage = () => {
   const {
     models,
@@ -85,6 +100,7 @@ const ModelsPage = () => {
     loading,
     error,
     refetch,
+    rescan,
   } = useModels(10000);
 
   const { switchModel, switching } = useSwitchModel();
@@ -175,13 +191,14 @@ const ModelsPage = () => {
     }
   };
 
-  // Active model derived info
-  const activeBackend = runtime?.backend || activeModelSummary?.backend || '--';
-  const activeDevice = runtime?.device || activeModelSummary?.device || '--';
-  const activeTask = activeModelSummary?.task || currentModel?.task || '--';
-  const activeName = activeModelSummary?.name || currentModel?.name || currentModel || '--';
-  const activeLabelCount = activeModelSummary?.num_classes ?? currentModel?.num_classes ?? '--';
-  const fallbackOccurred = runtime?.fallback_occurred === true;
+  // Active model derived info — runtime is populated once SmartTracker loads a model,
+  // activeModelSummary comes from /api/models/active and is always available
+  const activeBackend = runtime?.backend || activeModelSummary?.backend || 'ultralytics';
+  const activeDevice = runtime?.effective_device || activeModelSummary?.device || '--';
+  const activeTask = activeModelSummary?.task || '--';
+  const activeName = activeModelSummary?.model_name || currentModel || '--';
+  const activeLabelCount = activeModelSummary?.num_labels ?? '--';
+  const fallbackOccurred = runtime?.fallback_occurred === true || activeModelSummary?.fallback_occurred === true;
   const fallbackEnabled = runtime?.gpu_to_cpu_fallback !== undefined ? runtime.gpu_to_cpu_fallback : '--';
   const isCuda = typeof activeDevice === 'string' && activeDevice.toLowerCase().includes('cuda');
 
@@ -194,6 +211,11 @@ const ModelsPage = () => {
           Detection Models
         </Typography>
         <Box sx={{ flex: 1 }} />
+        <Tooltip title="Rescan disk (rebuilds model registry from files on disk)">
+          <IconButton onClick={() => { rescan(); showSnackbar('Rescanning model files...', 'info'); }} size="small">
+            <SyncIcon />
+          </IconButton>
+        </Tooltip>
         <Tooltip title="Refresh">
           <IconButton onClick={refetch} size="small">
             <RefreshIcon />
@@ -320,7 +342,8 @@ const ModelsPage = () => {
                   <TableHead>
                     <TableRow>
                       <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Name</TableCell>
-                      <TableCell sx={{ fontWeight: 700, fontSize: 12 }} align="right">Size (MB)</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Type</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: 12 }} align="right">Size</TableCell>
                       <TableCell sx={{ fontWeight: 700, fontSize: 12 }} align="right">Classes</TableCell>
                       <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>Task</TableCell>
                       <TableCell sx={{ fontWeight: 700, fontSize: 12 }}>NCNN</TableCell>
@@ -345,6 +368,15 @@ const ModelsPage = () => {
                                 <Chip label="active" size="small" color="success" sx={{ fontSize: 10, height: 18 }} />
                               )}
                             </Box>
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              label={detectModelType(m.name || m.id)}
+                              size="small"
+                              variant="outlined"
+                              color={detectModelType(m.name || m.id) === 'Custom' ? 'secondary' : 'info'}
+                              sx={{ fontSize: 10, height: 20 }}
+                            />
                           </TableCell>
                           <TableCell align="right">
                             <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: 12 }}>
@@ -554,8 +586,13 @@ const ModelsPage = () => {
             <Typography color="text.secondary">No labels available.</Typography>
           ) : (
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-              {labelsDialog.labels.map((label, idx) => (
-                <Chip key={idx} label={`${idx}: ${label}`} size="small" variant="outlined" />
+              {labelsDialog.labels.map((item, idx) => (
+                <Chip
+                  key={idx}
+                  label={typeof item === 'object' ? `${item.class_id}: ${item.label}` : `${idx}: ${item}`}
+                  size="small"
+                  variant="outlined"
+                />
               ))}
             </Box>
           )}

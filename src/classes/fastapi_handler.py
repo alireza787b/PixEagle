@@ -2283,9 +2283,13 @@ class FastAPIHandler:
             "source": source,
         }
 
-    async def get_models(self):
+    async def get_models(self, request: Request = None):
         """
         Get list of available detection models in models/ folder.
+
+        Query params:
+            force_rescan: If 'true', ignore cache and rescan all model files on disk.
+                          Use this if .models.json is out of sync (e.g., after manual file moves).
 
         Returns:
             JSONResponse: {
@@ -2304,8 +2308,14 @@ class FastAPIHandler:
             }
         """
         try:
+            # Support force_rescan query param for when registry is out of sync
+            force_rescan = False
+            if request is not None:
+                query_params = dict(request.query_params)
+                force_rescan = (query_params.get('force_rescan') or 'false').strip().lower() == 'true'
+
             # Discover models using ModelManager
-            models = self.model_manager.discover_models(force_rescan=False)
+            models = self.model_manager.discover_models(force_rescan=force_rescan)
 
             current_model, smart_tracker_runtime = self._get_smart_tracker_runtime_context()
             configured_model, configured_gpu_model, configured_cpu_model = self._get_configured_yolo_models()

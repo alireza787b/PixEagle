@@ -19,10 +19,11 @@ const ModelQuickControl = () => {
   const [selectedModelPath, setSelectedModelPath] = useState('');
   const [selectedDevice, setSelectedDevice] = useState('auto');
 
-  const modelName = runtime?.model_name || activeModel || 'None';
-  const device = runtime?.effective_device || 'unknown';
-  const fallback = runtime?.fallback_occurred || false;
-  const backend = runtime?.backend || '';
+  // activeModel is now the full active_model_summary object from /api/models/active
+  const modelName = runtime?.model_name || activeModel?.model_name || 'None';
+  const device = runtime?.effective_device || activeModel?.device || 'unknown';
+  const fallback = runtime?.fallback_occurred || activeModel?.fallback_occurred || false;
+  const backend = runtime?.backend || activeModel?.backend || '';
 
   const modelList = models ? Object.entries(models) : [];
 
