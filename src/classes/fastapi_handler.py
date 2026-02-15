@@ -871,8 +871,10 @@ class FastAPIHandler:
             # Start tracking using the app controller
             await self.app_controller.start_tracking(bbox_pixels)
             return {"status": "Tracking started", "bbox": bbox_pixels}
+        except HTTPException:
+            raise
         except Exception as e:
-            self.logger.error(f"Error in start_tracking: {e}")
+            self.logger.error(f"Error in start_tracking: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
     async def stop_tracking(self):
@@ -940,8 +942,10 @@ class FastAPIHandler:
             self.app_controller.handle_smart_click(x_px, y_px)
             return {"status": "Click processed", "x": x_px, "y": y_px}
 
+        except HTTPException:
+            raise
         except Exception as e:
-            self.logger.error(f"Error in smart_click: {e}")
+            self.logger.error(f"Error in smart_click: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
         

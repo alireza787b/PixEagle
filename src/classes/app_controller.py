@@ -220,8 +220,8 @@ class AppController:
             return
 
 
-        if self.smart_tracker.last_results is None:
-            logging.warning("SmartTracker has no results yet. Please wait for detection.")
+        if not self.smart_tracker.last_detections:
+            logging.warning("SmartTracker has no detections yet. Please wait for detection.")
             return
         self.smart_tracker.select_object_by_click(x, y)
 
