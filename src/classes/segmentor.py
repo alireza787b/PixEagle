@@ -3,7 +3,7 @@ import numpy as np
 from .parameters import Parameters
 import logging
 
-# Conditional AI imports - allows app to run without ultralytics/torch
+# Conditional AI imports - segmentor uses Ultralytics directly for inference
 try:
     from ultralytics import YOLO
     ULTRALYTICS_AVAILABLE = True
@@ -26,7 +26,7 @@ class Segmentor:
         self.model = None
         if 'yolov8' in self.algorithm:
             if not ULTRALYTICS_AVAILABLE:
-                logger.warning("YOLO segmentation requested but ultralytics not installed. Using generic segmentation.")
+                logger.warning("AI segmentation requested but ultralytics not installed. Using generic segmentation.")
                 self.algorithm = 'generic'
             else:
                 self.model = YOLO(f"{self.algorithm}.pt")

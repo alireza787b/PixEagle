@@ -213,7 +213,7 @@ Choose when:
 
 ## Related
 
-- [YOLO Detection](yolo-detection.md) - Detection that feeds MOT
+- [Detection Backends](detection-backends.md) - Detection that feeds MOT
 - [Motion Prediction](motion-prediction.md) - PixEagle's motion prediction
 - [Appearance Model](appearance-model.md) - Custom ReID features
 - [SmartTracker](../02-reference/smart-tracker.md) - Full integration

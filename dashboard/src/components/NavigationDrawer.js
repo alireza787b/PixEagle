@@ -27,6 +27,7 @@ import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
 import SettingsIcon from '@mui/icons-material/Settings';
 import VideocamIcon from '@mui/icons-material/Videocam';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { Link, useLocation } from 'react-router-dom';
 import { useTrackerStatus, useFollowerStatus } from '../hooks/useStatuses';
@@ -42,6 +43,7 @@ const NAV_SECTIONS = [
       { path: '/dashboard', label: 'Dashboard', icon: DashboardIcon },
       { path: '/live-feed', label: 'Live Feed', icon: LiveTvIcon },
       { path: '/recordings', label: 'Recordings', icon: VideocamIcon },
+      { path: '/models', label: 'Models', icon: SmartToyIcon },
     ],
   },
   {

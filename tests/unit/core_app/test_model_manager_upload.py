@@ -1,12 +1,12 @@
 import pytest
 
-from classes.yolo_model_manager import YOLOModelManager
-import classes.yolo_model_manager as yolo_model_manager_module
+from classes.model_manager import ModelManager
+import classes.model_manager as model_manager_module
 
 
 @pytest.mark.asyncio
 async def test_upload_model_returns_consistent_response_shape(tmp_path, monkeypatch):
-    manager = YOLOModelManager(yolo_folder=str(tmp_path))
+    manager = ModelManager(models_folder=str(tmp_path))
 
     validation = {
         "valid": True,
@@ -58,7 +58,7 @@ async def test_upload_model_returns_consistent_response_shape(tmp_path, monkeypa
 
 
 def test_export_to_ncnn_restores_cuda_visible_devices_on_failure(tmp_path, monkeypatch):
-    manager = YOLOModelManager(yolo_folder=str(tmp_path))
+    manager = ModelManager(models_folder=str(tmp_path))
     pt_file = tmp_path / "demo.pt"
     pt_file.write_bytes(b"pt")
 
@@ -73,8 +73,8 @@ def test_export_to_ncnn_restores_cuda_visible_devices_on_failure(tmp_path, monke
             os.environ["CUDA_VISIBLE_DEVICES"] = ""
             raise RuntimeError("forced export failure")
 
-    monkeypatch.setattr(yolo_model_manager_module, "ULTRALYTICS_AVAILABLE", True)
-    monkeypatch.setattr(yolo_model_manager_module, "YOLO", FakeYOLO)
+    monkeypatch.setattr(model_manager_module, "ULTRALYTICS_AVAILABLE", True)
+    monkeypatch.setattr(model_manager_module, "YOLO", FakeYOLO)
     monkeypatch.setattr(manager, "_pnnx_available", lambda: True)
 
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
@@ -82,15 +82,15 @@ def test_export_to_ncnn_restores_cuda_visible_devices_on_failure(tmp_path, monke
 
     assert result["success"] is False
     assert "forced export failure" in result["error"]
-    assert yolo_model_manager_module.os.environ.get("CUDA_VISIBLE_DEVICES") == "0"
+    assert model_manager_module.os.environ.get("CUDA_VISIBLE_DEVICES") == "0"
 
 
 def test_export_to_ncnn_returns_clear_error_when_pnnx_missing(tmp_path, monkeypatch):
-    manager = YOLOModelManager(yolo_folder=str(tmp_path))
+    manager = ModelManager(models_folder=str(tmp_path))
     pt_file = tmp_path / "demo.pt"
     pt_file.write_bytes(b"pt")
 
-    monkeypatch.setattr(yolo_model_manager_module, "ULTRALYTICS_AVAILABLE", True)
+    monkeypatch.setattr(model_manager_module, "ULTRALYTICS_AVAILABLE", True)
     monkeypatch.setattr(manager, "_pnnx_available", lambda: False)
 
     result = manager.export_to_ncnn(pt_file)
@@ -100,7 +100,7 @@ def test_export_to_ncnn_returns_clear_error_when_pnnx_missing(tmp_path, monkeypa
 
 
 def test_model_identifier_helpers_resolve_pt_and_ncnn_identifiers(tmp_path, monkeypatch):
-    manager = YOLOModelManager(yolo_folder=str(tmp_path))
+    manager = ModelManager(models_folder=str(tmp_path))
     discovered = {
         "demo": {
             "name": "DEMO",
@@ -121,7 +121,7 @@ def test_model_identifier_helpers_resolve_pt_and_ncnn_identifiers(tmp_path, monk
 
 
 def test_get_model_labels_returns_cleaned_labels(tmp_path, monkeypatch):
-    manager = YOLOModelManager(yolo_folder=str(tmp_path))
+    manager = ModelManager(models_folder=str(tmp_path))
     discovered = {
         "demo": {
             "name": "DEMO",

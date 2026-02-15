@@ -2,7 +2,7 @@ schema_version: 1.0.0
 meta:
   project: PixEagle
   generated_from: C:\Users\Alireza\PixEagle\configs\config_default.yaml
-  generated_at: '2026-02-14T18:44:10.795123'
+  generated_at: '2026-02-15T11:01:46.807384'
   description: Auto-generated schema for PixEagle configuration
 categories:
   video:
@@ -1563,7 +1563,13 @@ sections:
       SMART_TRACKER_ENABLED:
         type: boolean
         default: true
-        description: 🤖 Enable AI-powered object tracking
+        description: '🤖 Enable AI-powered object tracking Options: ultralytics'
+        reload_tier: tracker_restart
+        reboot_required: false
+      DETECTION_BACKEND:
+        type: string
+        default: ultralytics
+        description: 'Which inference engine to use for object detection. Options: ultralytics'
         reload_tier: tracker_restart
         reboot_required: false
       SMART_TRACKER_USE_GPU:
@@ -1581,13 +1587,13 @@ sections:
         reboot_required: false
       SMART_TRACKER_GPU_MODEL_PATH:
         type: string
-        default: yolo/yolo26n.pt
+        default: models/yolo26n.pt
         description: PyTorch model
         reload_tier: system_restart
         reboot_required: true
       SMART_TRACKER_CPU_MODEL_PATH:
         type: string
-        default: yolo/yolo26n_ncnn_model
+        default: models/yolo26n_ncnn_model
         description: Optimized for ARM
         reload_tier: system_restart
         reboot_required: true

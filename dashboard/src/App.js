@@ -8,6 +8,7 @@ import DashboardPage from './pages/DashboardPage';
 import LiveFeedPage from './pages/LiveFeedPage';
 import SettingsPage from './pages/SettingsPage';
 import RecordingsPage from './pages/RecordingsPage';
+import ModelsPage from './pages/ModelsPage';
 import { ThemeProvider, ThemeContext } from './context/ThemeContext';
 
 // Auto-detect base path for reverse proxy support (e.g., ARK-OS serves at /pixeagle/)
@@ -38,6 +39,7 @@ const AppContent = () => {
             <Route path="follower" element={<FollowerPage />} />
             <Route path="live-feed" element={<LiveFeedPage />} />
             <Route path="recordings" element={<RecordingsPage />} />
+            <Route path="models" element={<ModelsPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
         </Routes>

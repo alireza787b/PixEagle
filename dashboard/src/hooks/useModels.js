@@ -1,15 +1,16 @@
-// dashboard/src/hooks/useYOLOModels.js
+// dashboard/src/hooks/useModels.js
 
 /**
- * React hooks for YOLO Model Management
+ * React hooks for Detection Model Management
  *
  * Provides hooks for:
- * - Fetching available YOLO models
+ * - Fetching available detection models
+ * - Fetching active model status (lightweight)
  * - Switching models in SmartTracker
  * - Uploading new models
+ * - Downloading models by name
  * - Deleting models
- *
- * Mirrors the pattern from useTrackerSchema.js and useFollowerSchema.js
+ * - Fetching model labels
  *
  * Project: PixEagle
  * Author: Alireza Ghaderi
@@ -18,9 +19,8 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
-import { apiConfig } from '../services/apiEndpoints';
+import { endpoints } from '../services/apiEndpoints';
 
-const API_URL = `${apiConfig.protocol}://${apiConfig.apiHost}:${apiConfig.apiPort}`;
 const NO_CACHE_HEADERS = {
   'Cache-Control': 'no-cache, no-store, must-revalidate',
   Pragma: 'no-cache',
@@ -32,11 +32,10 @@ const buildNoCacheRequestConfig = () => ({
 });
 
 /**
- * Hook to fetch available YOLO models
- * @param {number} refreshInterval - Polling interval in milliseconds (default: 10000)
- * @returns {Object} { models, currentModel, configuredModel, loading, error, refetch }
+ * Hook to fetch all available detection models (full inventory).
+ * @param {number} refreshInterval - Polling interval in ms (default: 10000)
  */
-export const useYOLOModels = (refreshInterval = 10000) => {
+export const useModels = (refreshInterval = 10000) => {
   const [models, setModels] = useState(null);
   const [currentModel, setCurrentModel] = useState(null);
   const [configuredModel, setConfiguredModel] = useState(null);
@@ -52,9 +51,8 @@ export const useYOLOModels = (refreshInterval = 10000) => {
 
   const fetchModels = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/yolo/models`, buildNoCacheRequestConfig());
+      const response = await axios.get(endpoints.models, buildNoCacheRequestConfig());
 
-      // Only update if data actually changed
       const dataString = JSON.stringify(response.data);
       if (dataString !== JSON.stringify(lastSuccessfulData.current)) {
         setModels(response.data.models || {});
@@ -72,10 +70,9 @@ export const useYOLOModels = (refreshInterval = 10000) => {
       setError(null);
       setLoading(false);
     } catch (err) {
-      console.error('Error fetching YOLO models:', err);
+      console.error('Error fetching detection models:', err);
       setError(err.message);
 
-      // Keep previous successful data on error
       if (lastSuccessfulData.current) {
         setModels(lastSuccessfulData.current.models || {});
         setCurrentModel(lastSuccessfulData.current.current_model || null);
@@ -94,7 +91,6 @@ export const useYOLOModels = (refreshInterval = 10000) => {
 
   useEffect(() => {
     fetchModels();
-
     const interval = setInterval(fetchModels, refreshInterval);
     return () => clearInterval(interval);
   }, [fetchModels, refreshInterval]);
@@ -112,58 +108,71 @@ export const useYOLOModels = (refreshInterval = 10000) => {
       activeModelSummary,
       loading,
       error,
-      refetch: fetchModels
+      refetch: fetchModels,
     }),
-    [
-      models,
-      currentModel,
-      configuredModel,
-      configuredGpuModel,
-      configuredCpuModel,
-      runtime,
-      activeModelId,
-      activeModelSource,
-      activeModelSummary,
-      loading,
-      error,
-      fetchModels
-    ]
+    [models, currentModel, configuredModel, configuredGpuModel, configuredCpuModel,
+     runtime, activeModelId, activeModelSource, activeModelSummary, loading, error, fetchModels]
   );
 };
 
 /**
- * Hook to fetch model label metadata on demand (for detail dialogs, search, etc.).
- * @returns {Object} { fetchLabels, loading, error }
+ * Lightweight hook for dashboard — fetches only the active model status.
+ * @param {number} refreshInterval - Polling interval in ms (default: 5000)
  */
-export const useYOLOModelLabels = () => {
+export const useActiveModel = (refreshInterval = 5000) => {
+  const [activeModel, setActiveModel] = useState(null);
+  const [runtime, setRuntime] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchActive = useCallback(async () => {
+    try {
+      const response = await axios.get(endpoints.activeModel, buildNoCacheRequestConfig());
+      setActiveModel(response.data.active_model || null);
+      setRuntime(response.data.runtime || null);
+      setError(null);
+      setLoading(false);
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchActive();
+    const interval = setInterval(fetchActive, refreshInterval);
+    return () => clearInterval(interval);
+  }, [fetchActive, refreshInterval]);
+
+  return useMemo(
+    () => ({ activeModel, runtime, loading, error, refetch: fetchActive }),
+    [activeModel, runtime, loading, error, fetchActive]
+  );
+};
+
+/**
+ * Hook to fetch model labels on demand.
+ */
+export const useModelLabels = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   const fetchLabels = useCallback(async (modelId, options = {}) => {
-    const {
-      offset = 0,
-      limit = 500,
-      search = '',
-      forceRescan = false,
-    } = options;
-
+    const { offset = 0, limit = 500, search = '', forceRescan = false } = options;
     setLoading(true);
     setError(null);
 
     try {
-      const response = await axios.get(
-        `${API_URL}/api/yolo/models/${encodeURIComponent(modelId)}/labels`,
-        {
-          ...buildNoCacheRequestConfig(),
-          params: {
-            offset,
-            limit,
-            search: search || undefined,
-            force_rescan: forceRescan ? 'true' : 'false',
-            _t: Date.now(),
-          },
-        }
-      );
+      const response = await axios.get(endpoints.modelLabels(modelId), {
+        ...buildNoCacheRequestConfig(),
+        params: {
+          offset,
+          limit,
+          search: search || undefined,
+          force_rescan: forceRescan ? 'true' : 'false',
+          _t: Date.now(),
+        },
+      });
 
       const payload = response.data || {};
       if (payload.status !== 'success') {
@@ -183,31 +192,19 @@ export const useYOLOModelLabels = () => {
     } catch (err) {
       const errorMsg = err.response?.data?.detail || err.message || 'Failed to fetch model labels';
       setError(errorMsg);
-      return {
-        success: false,
-        error: errorMsg,
-        labels: [],
-      };
+      return { success: false, error: errorMsg, labels: [] };
     } finally {
       setLoading(false);
     }
   }, []);
 
-  return useMemo(
-    () => ({
-      fetchLabels,
-      loading,
-      error,
-    }),
-    [fetchLabels, loading, error]
-  );
+  return useMemo(() => ({ fetchLabels, loading, error }), [fetchLabels, loading, error]);
 };
 
 /**
- * Hook to switch YOLO model in SmartTracker
- * @returns {Object} { switchModel, switching, switchError }
+ * Hook to switch the active detection model.
  */
-export const useSwitchYOLOModel = () => {
+export const useSwitchModel = () => {
   const [switching, setSwitching] = useState(false);
   const [switchError, setSwitchError] = useState(null);
 
@@ -216,9 +213,9 @@ export const useSwitchYOLOModel = () => {
     setSwitchError(null);
 
     try {
-      const response = await axios.post(`${API_URL}/api/yolo/switch-model`, {
+      const response = await axios.post(endpoints.switchModel, {
         model_path: modelPath,
-        device: device
+        device,
       });
 
       if (response.data.status === 'success') {
@@ -232,38 +229,26 @@ export const useSwitchYOLOModel = () => {
       } else {
         setSwitchError(response.data.error || 'Failed to switch model');
         setSwitching(false);
-        return {
-          success: false,
-          error: response.data.error
-        };
+        return { success: false, error: response.data.error };
       }
     } catch (err) {
-      console.error('Error switching YOLO model:', err);
       const errorMsg = err.response?.data?.detail || err.message || 'Failed to switch model';
       setSwitchError(errorMsg);
       setSwitching(false);
-      return {
-        success: false,
-        error: errorMsg
-      };
+      return { success: false, error: errorMsg };
     }
   }, []);
 
   return useMemo(
-    () => ({
-      switchModel,
-      switching,
-      switchError
-    }),
+    () => ({ switchModel, switching, switchError }),
     [switchModel, switching, switchError]
   );
 };
 
 /**
- * Hook to upload a new YOLO model
- * @returns {Object} { uploadModel, uploading, uploadError, uploadProgress }
+ * Hook to upload a new detection model.
  */
-export const useUploadYOLOModel = () => {
+export const useUploadModel = () => {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -278,14 +263,12 @@ export const useUploadYOLOModel = () => {
       formData.append('file', file);
       formData.append('auto_export_ncnn', autoExportNcnn ? 'true' : 'false');
 
-      const response = await axios.post(`${API_URL}/api/yolo/upload`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        },
+      const response = await axios.post(endpoints.modelUpload, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
         onUploadProgress: (progressEvent) => {
-          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          setUploadProgress(percentCompleted);
-        }
+          const pct = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setUploadProgress(pct);
+        },
       });
 
       if (response.data.status === 'success') {
@@ -303,21 +286,14 @@ export const useUploadYOLOModel = () => {
         setUploadError(response.data.error || 'Upload failed');
         setUploading(false);
         setUploadProgress(0);
-        return {
-          success: false,
-          error: response.data.error
-        };
+        return { success: false, error: response.data.error };
       }
     } catch (err) {
-      console.error('Error uploading YOLO model:', err);
       const errorMsg = err.response?.data?.detail || err.message || 'Upload failed';
       setUploadError(errorMsg);
       setUploading(false);
       setUploadProgress(0);
-      return {
-        success: false,
-        error: errorMsg
-      };
+      return { success: false, error: errorMsg };
     }
   }, []);
 
@@ -328,22 +304,15 @@ export const useUploadYOLOModel = () => {
   }, []);
 
   return useMemo(
-    () => ({
-      uploadModel,
-      uploading,
-      uploadError,
-      uploadProgress,
-      resetUpload
-    }),
+    () => ({ uploadModel, uploading, uploadError, uploadProgress, resetUpload }),
     [uploadModel, uploading, uploadError, uploadProgress, resetUpload]
   );
 };
 
 /**
- * Hook to download a YOLO model by name or URL
- * @returns {Object} { downloadModel, downloading, downloadError, resetDownload }
+ * Hook to download a detection model by name or URL.
  */
-export const useDownloadYOLOModel = () => {
+export const useDownloadModel = () => {
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState(null);
 
@@ -352,7 +321,7 @@ export const useDownloadYOLOModel = () => {
     setDownloadError(null);
 
     try {
-      const response = await axios.post(`${API_URL}/api/yolo/download`, {
+      const response = await axios.post(endpoints.modelDownload, {
         model_name: modelName,
         download_url: downloadUrl || undefined,
         auto_export_ncnn: autoExportNcnn,
@@ -377,7 +346,6 @@ export const useDownloadYOLOModel = () => {
         };
       }
     } catch (err) {
-      console.error('Error downloading YOLO model:', err);
       const errorData = err.response?.data;
       const errorMsg = errorData?.error || errorData?.detail || err.message || 'Download failed';
       const suggestedUrls = errorData?.suggested_urls || [];
@@ -393,21 +361,15 @@ export const useDownloadYOLOModel = () => {
   }, []);
 
   return useMemo(
-    () => ({
-      downloadModel,
-      downloading,
-      downloadError,
-      resetDownload
-    }),
+    () => ({ downloadModel, downloading, downloadError, resetDownload }),
     [downloadModel, downloading, downloadError, resetDownload]
   );
 };
 
 /**
- * Hook to delete a YOLO model
- * @returns {Object} { deleteModel, deleting, deleteError }
+ * Hook to delete a detection model.
  */
-export const useDeleteYOLOModel = () => {
+export const useDeleteModel = () => {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
 
@@ -416,40 +378,26 @@ export const useDeleteYOLOModel = () => {
     setDeleteError(null);
 
     try {
-      const response = await axios.post(`${API_URL}/api/yolo/delete/${modelId}`);
+      const response = await axios.delete(endpoints.modelDelete(modelId));
 
       if (response.data.status === 'success') {
         setDeleting(false);
-        return {
-          success: true,
-          message: response.data.message
-        };
+        return { success: true, message: response.data.message };
       } else {
         setDeleteError(response.data.error || 'Delete failed');
         setDeleting(false);
-        return {
-          success: false,
-          error: response.data.error
-        };
+        return { success: false, error: response.data.error };
       }
     } catch (err) {
-      console.error('Error deleting YOLO model:', err);
       const errorMsg = err.response?.data?.detail || err.message || 'Delete failed';
       setDeleteError(errorMsg);
       setDeleting(false);
-      return {
-        success: false,
-        error: errorMsg
-      };
+      return { success: false, error: errorMsg };
     }
   }, []);
 
   return useMemo(
-    () => ({
-      deleteModel,
-      deleting,
-      deleteError
-    }),
+    () => ({ deleteModel, deleting, deleteError }),
     [deleteModel, deleting, deleteError]
   );
 };

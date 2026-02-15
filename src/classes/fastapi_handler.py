@@ -23,7 +23,7 @@ from classes.frame_publisher import FramePublisher
 from classes.adaptive_quality_engine import AdaptiveQualityEngine
 from classes.follower import FollowerFactory
 from classes.tracker_output import TrackerOutput, TrackerDataType
-from classes.yolo_model_manager import YOLOModelManager, AI_AVAILABLE
+from classes.model_manager import ModelManager, AI_AVAILABLE
 from classes.app_version import PIXEAGLE_VERSION
 
 # Import circuit breaker with error handling
@@ -245,8 +245,8 @@ class FastAPIHandler:
         # WebRTC Manager (uses FramePublisher instead of direct video_handler access)
         self.webrtc_manager = WebRTCManager(self.frame_publisher)
 
-        # YOLO Model Manager
-        self.yolo_model_manager = YOLOModelManager()
+        # Detection Model Manager
+        self.model_manager = ModelManager()
 
         # FastAPI app
         self.app = FastAPI(title="PixEagle API", version=PIXEAGLE_VERSION)
@@ -363,14 +363,22 @@ class FastAPIHandler:
         self.app.post("/api/tracker/switch")(self.switch_tracker)
         self.app.post("/api/tracker/restart")(self.restart_tracker)  # Hot-reload: reinitialize tracker with fresh config
 
-        # YOLO Model Management API
-        self.app.get("/api/yolo/models")(self.get_yolo_models)
-        self.app.get("/api/yolo/active-model")(self.get_yolo_active_model)
-        self.app.get("/api/yolo/models/{model_id}/labels")(self.get_yolo_model_labels)
-        self.app.post("/api/yolo/switch-model")(self.switch_yolo_model)
-        self.app.post("/api/yolo/upload")(self.upload_yolo_model)
-        self.app.post("/api/yolo/download")(self.download_yolo_model)
-        self.app.post("/api/yolo/delete/{model_id}")(self.delete_yolo_model)
+        # Detection Model Management API
+        self.app.get("/api/models")(self.get_models)
+        self.app.get("/api/models/active")(self.get_active_model)
+        self.app.get("/api/models/{model_id}/labels")(self.get_model_labels)
+        self.app.post("/api/models/switch")(self.switch_model)
+        self.app.post("/api/models/upload")(self.upload_model)
+        self.app.post("/api/models/download")(self.download_model)
+        self.app.delete("/api/models/{model_id}")(self.delete_model)
+        # Backward-compat aliases (deprecated — use /api/models/* instead)
+        self.app.get("/api/yolo/models")(self.get_models)
+        self.app.get("/api/yolo/active-model")(self.get_active_model)
+        self.app.get("/api/yolo/models/{model_id}/labels")(self.get_model_labels)
+        self.app.post("/api/yolo/switch-model")(self.switch_model)
+        self.app.post("/api/yolo/upload")(self.upload_model)
+        self.app.post("/api/yolo/download")(self.download_model)
+        self.app.post("/api/yolo/delete/{model_id}")(self.delete_model)
 
         # Circuit breaker API endpoints
         self.app.get("/api/circuit-breaker/status")(self.get_circuit_breaker_status)
@@ -883,7 +891,7 @@ class FastAPIHandler:
 
     async def toggle_smart_mode(self):
         """
-        Toggles the YOLO-based smart tracking mode.
+        Toggles the AI-based smart tracking mode.
 
         Returns:
             dict: Smart mode status.
@@ -1039,7 +1047,7 @@ class FastAPIHandler:
 
     async def toggle_segmentation(self):
         """
-        Endpoint to toggle segmentation state (enable/disable YOLO).
+        Endpoint to toggle segmentation state (enable/disable AI segmentation).
 
         Returns:
             dict: Status of the operation and the current state of segmentation.
@@ -2159,7 +2167,7 @@ class FastAPIHandler:
             self.logger.error(f"Error restarting tracker: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    # ==================== YOLO Model Management API Endpoints ====================
+    # ==================== Detection Model Management API Endpoints ====================
 
     def _resolve_runtime_model_name(self, runtime_model_path: Optional[str]) -> Optional[str]:
         """Map runtime model paths to UI-compatible model filenames."""
@@ -2209,8 +2217,8 @@ class FastAPIHandler:
         configured_cpu_model = None
 
         try:
-            gpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_GPU_MODEL_PATH', 'yolo/yolo26n.pt')
-            cpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_CPU_MODEL_PATH', 'yolo/yolo26n_ncnn_model')
+            gpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_GPU_MODEL_PATH', 'models/yolo26n.pt')
+            cpu_model_path = Parameters.SmartTracker.get('SMART_TRACKER_CPU_MODEL_PATH', 'models/yolo26n_ncnn_model')
             configured_gpu_model = Path(gpu_model_path).name
             configured_cpu_model = Path(cpu_model_path).name
 
@@ -2224,7 +2232,7 @@ class FastAPIHandler:
 
     def _resolve_model_entry(self, models: Dict[str, Dict[str, Any]], model_identifier: Optional[str]) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """Resolve a discovered model entry from model id, filename, or path-like identifier."""
-        normalized_model_id = self.yolo_model_manager.normalize_model_id(model_identifier)
+        normalized_model_id = self.model_manager.normalize_model_id(model_identifier)
         if normalized_model_id and normalized_model_id in models:
             return normalized_model_id, models[normalized_model_id]
 
@@ -2275,16 +2283,16 @@ class FastAPIHandler:
             "source": source,
         }
 
-    async def get_yolo_models(self):
+    async def get_models(self):
         """
-        Get list of available YOLO models in yolo/ folder.
+        Get list of available detection models in models/ folder.
 
         Returns:
             JSONResponse: {
                 "models": {
                     "model_id": {
                         "name": "YOLO26n",
-                        "path": "yolo/yolo26n.pt",
+                        "path": "models/yolo26n.pt",
                         "type": "gpu",
                         "num_classes": 80,
                         "is_custom": false,
@@ -2296,8 +2304,8 @@ class FastAPIHandler:
             }
         """
         try:
-            # Discover models using YOLOModelManager
-            models = self.yolo_model_manager.discover_models(force_rescan=False)
+            # Discover models using ModelManager
+            models = self.model_manager.discover_models(force_rescan=False)
 
             current_model, smart_tracker_runtime = self._get_smart_tracker_runtime_context()
             configured_model, configured_gpu_model, configured_cpu_model = self._get_configured_yolo_models()
@@ -2328,15 +2336,15 @@ class FastAPIHandler:
             })
 
         except Exception as e:
-            self.logger.error(f"Error getting YOLO models: {e}")
+            self.logger.error(f"Error getting Detection models: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def get_yolo_active_model(self):
+    async def get_active_model(self):
         """
-        Get compact, UI-focused metadata for the active/configured YOLO model.
+        Get compact, UI-focused metadata for the active/configured Detection model.
         """
         try:
-            models = self.yolo_model_manager.discover_models(force_rescan=False)
+            models = self.model_manager.discover_models(force_rescan=False)
             current_model, smart_tracker_runtime = self._get_smart_tracker_runtime_context()
             configured_model, configured_gpu_model, configured_cpu_model = self._get_configured_yolo_models()
 
@@ -2364,12 +2372,12 @@ class FastAPIHandler:
                 'timestamp': time.time(),
             })
         except Exception as e:
-            self.logger.error(f"Error getting active YOLO model metadata: {e}")
+            self.logger.error(f"Error getting active Detection model metadata: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def get_yolo_model_labels(self, model_id: str, request: Request):
+    async def get_model_labels(self, model_id: str, request: Request):
         """
-        Get paginated/searchable labels for a specific YOLO model.
+        Get paginated/searchable labels for a specific Detection model.
         """
         try:
             query_params = request.query_params
@@ -2390,8 +2398,8 @@ class FastAPIHandler:
             # Keep payload bounded for production UI traffic.
             limit = min(limit, 500)
 
-            normalized_model_id = self.yolo_model_manager.normalize_model_id(model_id)
-            model_info, labels = self.yolo_model_manager.get_model_labels(
+            normalized_model_id = self.model_manager.normalize_model_id(model_id)
+            model_info, labels = self.model_manager.get_model_labels(
                 model_identifier=normalized_model_id,
                 force_rescan=force_rescan,
             )
@@ -2432,7 +2440,7 @@ class FastAPIHandler:
         except HTTPException:
             raise
         except Exception as e:
-            self.logger.error(f"Error getting YOLO model labels for '{model_id}': {e}")
+            self.logger.error(f"Error getting Detection model labels for '{model_id}': {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     def _resolve_standby_cpu_model_path(self, model_path: Path) -> str:
@@ -2482,13 +2490,13 @@ class FastAPIHandler:
             "configured_cpu_model_path": str(effective_cpu),
         }
 
-    async def switch_yolo_model(self, request: Request):
+    async def switch_model(self, request: Request):
         """
-        Switch YOLO model in SmartTracker without restart.
+        Switch detection model in SmartTracker without restart.
 
         Args:
             request: Should contain {
-                'model_path': 'yolo/yolo26n.pt',
+                'model_path': 'models/yolo26n.pt',
                 'device': 'auto' | 'gpu' | 'cpu'  (optional, default='auto')
             }
 
@@ -2513,7 +2521,7 @@ class FastAPIHandler:
                 raise HTTPException(status_code=404, detail=f"Model file not found: {model_path}")
 
             # Validate model capabilities before switching
-            validation = self.yolo_model_manager.validate_model(full_path)
+            validation = self.model_manager.validate_model(full_path)
             if not validation.get("valid", False):
                 raise HTTPException(
                     status_code=400,
@@ -2532,7 +2540,7 @@ class FastAPIHandler:
             smart_tracker = getattr(self.app_controller, 'smart_tracker', None)
             if smart_tracker is None:
                 standby_result = self._persist_standby_model_selection(full_path, device)
-                self.logger.info(f"YOLO standby model configured via API: {model_path} (device={device})")
+                self.logger.info(f"Standby model configured via API: {model_path} (device={device})")
                 return JSONResponse(content={
                     'status': 'success',
                     'action': 'model_configured',
@@ -2563,10 +2571,10 @@ class FastAPIHandler:
                 except HTTPException as cfg_error:
                     standby_warning = getattr(cfg_error, "detail", str(cfg_error))
                     self.logger.warning(
-                        "YOLO live switch succeeded but standby config persist failed: %s",
+                        "Live model switch succeeded but standby config persist failed: %s",
                         standby_warning,
                     )
-                self.logger.info(f"YOLO model switched via API: {model_path} (device={device})")
+                self.logger.info(f"Detection model switched via API: {model_path} (device={device})")
 
                 return JSONResponse(content={
                     'status': 'success',
@@ -2583,7 +2591,7 @@ class FastAPIHandler:
             else:
                 # Switch failed
                 error_msg = result.get('message', 'Unknown error during model switch')
-                self.logger.error(f"YOLO model switch failed: {error_msg}")
+                self.logger.error(f"Detection model switch failed: {error_msg}")
 
                 return JSONResponse(content={
                     'status': 'error',
@@ -2595,12 +2603,12 @@ class FastAPIHandler:
         except HTTPException:
             raise
         except Exception as e:
-            self.logger.error(f"Error switching YOLO model: {e}")
+            self.logger.error(f"Error switching Detection model: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def upload_yolo_model(self, request: Request):
+    async def upload_model(self, request: Request):
         """
-        Upload a new YOLO model file (.pt).
+        Upload a new Detection model file (.pt).
 
         Args:
             request: Multipart form with file field
@@ -2629,15 +2637,15 @@ class FastAPIHandler:
             # Auto-export NCNN by default (can be made configurable)
             auto_export = form.get('auto_export_ncnn', 'true').lower() == 'true'
 
-            # Upload via YOLOModelManager
-            result = await self.yolo_model_manager.upload_model(
+            # Upload via ModelManager
+            result = await self.model_manager.upload_model(
                 file_data=file_data,
                 filename=filename,
                 auto_export_ncnn=auto_export
             )
 
             if result['success']:
-                self.logger.info(f"YOLO model uploaded via API: {filename}")
+                self.logger.info(f"Detection model uploaded via API: {filename}")
 
                 return JSONResponse(content={
                     'status': 'success',
@@ -2650,7 +2658,7 @@ class FastAPIHandler:
                 })
             else:
                 error_msg = result.get('error', 'Unknown error during upload')
-                self.logger.error(f"YOLO model upload failed: {error_msg}")
+                self.logger.error(f"Detection model upload failed: {error_msg}")
 
                 return JSONResponse(content={
                     'status': 'error',
@@ -2662,14 +2670,14 @@ class FastAPIHandler:
         except HTTPException:
             raise
         except Exception as e:
-            self.logger.error(f"Error uploading YOLO model: {e}")
+            self.logger.error(f"Error uploading Detection model: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def download_yolo_model(self, request: Request):
+    async def download_model(self, request: Request):
         """
-        Download a YOLO model by name or URL.
+        Download a Detection model by name or URL.
 
-        Wraps YOLOModelManager.download_model() which supports:
+        Wraps ModelManager.download_model() which supports:
         - Automatic download from Ultralytics hub (YOLOv5, YOLO8, YOLO11, YOLO26+)
         - Custom URL download
         - GitHub release URL fallback
@@ -2694,7 +2702,7 @@ class FastAPIHandler:
             # download_model() is sync — run in executor to avoid blocking the event loop
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
-                None, self.yolo_model_manager.download_model, model_name, download_url
+                None, self.model_manager.download_model, model_name, download_url
             )
 
             if result['success']:
@@ -2702,12 +2710,12 @@ class FastAPIHandler:
                 ncnn_result = None
                 if auto_export_ncnn:
                     try:
-                        ncnn_result = await self.yolo_model_manager._export_async(Path(result['path']))
+                        ncnn_result = await self.model_manager._export_async(Path(result['path']))
                     except Exception as e:
                         self.logger.warning(f"NCNN export after download failed: {e}")
                         ncnn_result = {"success": False, "error": str(e)}
 
-                self.logger.info(f"YOLO model downloaded via API: {model_name}")
+                self.logger.info(f"Detection model downloaded via API: {model_name}")
 
                 return JSONResponse(content={
                     'status': 'success',
@@ -2720,7 +2728,7 @@ class FastAPIHandler:
                 })
             else:
                 error_msg = result.get('error', 'Download failed')
-                self.logger.warning(f"YOLO model download failed for {model_name}: {error_msg}")
+                self.logger.warning(f"Detection model download failed for {model_name}: {error_msg}")
 
                 return JSONResponse(content={
                     'status': 'error',
@@ -2733,12 +2741,12 @@ class FastAPIHandler:
         except HTTPException:
             raise
         except Exception as e:
-            self.logger.error(f"Error downloading YOLO model: {e}")
+            self.logger.error(f"Error downloading Detection model: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def delete_yolo_model(self, model_id: str):
+    async def delete_model(self, model_id: str):
         """
-        Delete a YOLO model file.
+        Delete a Detection model file.
 
         Args:
             model_id: Model identifier (filename without extension or full filename)
@@ -2747,11 +2755,11 @@ class FastAPIHandler:
             JSONResponse: Deletion result
         """
         try:
-            # Delete via YOLOModelManager
-            result = self.yolo_model_manager.delete_model(model_id, delete_ncnn=True)
+            # Delete via ModelManager
+            result = self.model_manager.delete_model(model_id, delete_ncnn=True)
 
             if result['success']:
-                self.logger.info(f"YOLO model deleted via API: {model_id}")
+                self.logger.info(f"Detection model deleted via API: {model_id}")
 
                 return JSONResponse(content={
                     'status': 'success',
@@ -2761,7 +2769,7 @@ class FastAPIHandler:
                 })
             else:
                 error_msg = result.get('error', 'Unknown error during deletion')
-                self.logger.error(f"YOLO model deletion failed: {error_msg}")
+                self.logger.error(f"Detection model deletion failed: {error_msg}")
 
                 return JSONResponse(content={
                     'status': 'error',
@@ -2771,7 +2779,7 @@ class FastAPIHandler:
                 }, status_code=404 if 'not found' in error_msg.lower() else 500)
 
         except Exception as e:
-            self.logger.error(f"Error deleting YOLO model: {e}")
+            self.logger.error(f"Error deleting Detection model: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     # ==================== Enhanced Tracker Schema API Endpoints ====================
@@ -3175,8 +3183,8 @@ class FastAPIHandler:
                 },
                 'SmartTracker': {
                     'name': 'SmartTracker',
-                    'display_name': 'Smart Tracker (YOLO)',
-                    'description': 'AI-powered YOLO-based smart tracking system',
+                    'display_name': 'Smart Tracker (AI)',
+                    'description': 'AI-powered multi-backend smart tracking system',
                     'data_type': 'BBOX_CONFIDENCE',
                     'smart_mode': True,
                     'suitable_for': ['Multiple targets', 'AI detection', 'Complex scenarios'],

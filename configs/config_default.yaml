@@ -783,21 +783,26 @@ DLIB_Tracker:
   # ==============================================================================
 
 # ==============================================================================
-# SMART TRACKER (YOLO-based AI Tracking)
+# SMART TRACKER (AI Detection Backend)
 # ==============================================================================
 SmartTracker:
   # 🤖 Enable AI-powered object tracking
   SMART_TRACKER_ENABLED: true
+
+  # === Detection Backend ===
+  # Which inference engine to use for object detection.
+  # Options: ultralytics
+  DETECTION_BACKEND: "ultralytics"
 
   # === Hardware Selection ===
   SMART_TRACKER_USE_GPU: true              # Try GPU first (CUDA)
   SMART_TRACKER_FALLBACK_TO_CPU: true      # Fall back if GPU fails
 
   # === Model Paths ===
-  # 📁 Use add_yolo_model.py to download/convert models
-  # Simply replace these paths with your custom-trained YOLO model
-  SMART_TRACKER_GPU_MODEL_PATH: "yolo/yolo26n.pt"          # PyTorch model
-  SMART_TRACKER_CPU_MODEL_PATH: "yolo/yolo26n_ncnn_model"  # Optimized for ARM
+  # 📁 Use add_model.py to download/convert models
+  # Simply replace these paths with your custom-trained detection model
+  SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"          # PyTorch model
+  SMART_TRACKER_CPU_MODEL_PATH: "models/yolo26n_ncnn_model"  # Optimized for ARM
 
   # === Detection Parameters ===
   SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.3   # Min detection confidence (0.0-1.0)
