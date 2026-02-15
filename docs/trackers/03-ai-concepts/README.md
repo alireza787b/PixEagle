@@ -2,7 +2,7 @@
 
 > Deep learning and multi-object tracking algorithms used in SmartTracker
 
-This section covers the AI/ML concepts powering PixEagle's SmartTracker, including object detection (Ultralytics YOLO), ByteTrack/BoT-SORT multi-object tracking, and motion prediction.
+This section covers the AI/ML concepts powering PixEagle's SmartTracker, including pluggable detection backends (Ultralytics YOLO, with support for adding ONNX Runtime, TensorRT, RT-DETR, etc.), ByteTrack/BoT-SORT multi-object tracking, and motion prediction.
 
 ---
 
@@ -10,7 +10,7 @@ This section covers the AI/ML concepts powering PixEagle's SmartTracker, includi
 
 | Document | Description |
 |----------|-------------|
-| [Detection Backends](detection-backends.md) | Detection model integration and inference |
+| [Detection Backends](detection-backends.md) | Backend architecture, supported models, and guide to adding new backends |
 | [ByteTrack/BoT-SORT](bytetrack-botsort.md) | Multi-object tracking algorithms |
 | [Motion Prediction](motion-prediction.md) | MotionPredictor component |
 | [Appearance Model](appearance-model.md) | ReID and appearance matching |
@@ -26,8 +26,8 @@ Video Frame
     |
     v
 +------------------+
-| Detection Model  | <--- Object detection (person, vehicle, etc.)
-| (Ultralytics)    |
+| DetectionBackend | <--- Pluggable backend (Ultralytics, ONNX, TensorRT...)
+| (ABC interface)  |
 +--------+---------+
          |
          v
@@ -54,11 +54,12 @@ Video Frame
 
 ### Object Detection
 
-The detection backend (currently Ultralytics YOLO) provides real-time object detection:
+The pluggable detection backend provides real-time object detection:
 
-- **Models**: YOLOv8n, YOLOv8s, YOLOv8m, YOLOv11
-- **Output**: Bounding boxes, class labels, confidence scores
-- **Speed**: 15-60+ FPS depending on model and GPU
+- **Default backend**: Ultralytics (YOLO v5–v12, 11, 26, OBB, VisDrone)
+- **Extensible**: Add ONNX Runtime, TensorRT, RT-DETR, OpenVINO via one Python class
+- **Output**: `NormalizedDetection` — universal schema consumed by all downstream components
+- **Speed**: 15-100+ FPS depending on model, backend, and device
 
 ### Multi-Object Tracking (MOT)
 
@@ -83,7 +84,8 @@ The MotionPredictor handles:
 ```yaml
 # SmartTracker settings in config.yaml
 ENABLE_SMART_TRACKER: true
-SMART_TRACKER_GPU_MODEL_PATH: "models/yolov8n.pt"  # Model selection
+DETECTION_BACKEND: "ultralytics"                    # Backend selection
+SMART_TRACKER_GPU_MODEL_PATH: "models/yolo26n.pt"   # Model selection
 SMART_TRACKER_CONFIDENCE_THRESHOLD: 0.5             # Detection threshold
 SMART_TRACKER_IOU_THRESHOLD: 0.45                   # NMS threshold
 SMART_TRACKER_MAX_DETECTIONS: 100                   # Max objects per frame
