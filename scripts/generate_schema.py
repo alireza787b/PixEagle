@@ -203,6 +203,22 @@ SCHEMA_OVERRIDES = {
     'FW_ATTITUDE_RATE.L1_MAX_DISTANCE': {'min': 5.0,  'max': 1000.0, 'step': 5.0, 'unit': 'm',
         'description': 'Maximum L1 lookahead distance at high speed (meters)'},
 
+    # FW_ATTITUDE_RATE — pitch/bank angle limits (float in [0,100] auto-infers max=100, wrong)
+    'FW_ATTITUDE_RATE.MAX_PITCH_ANGLE': {'min': 0.0, 'max': 90.0, 'step': 1.0, 'unit': 'deg',
+        'description': 'Maximum pitch up angle structural limit (degrees)'},
+    'FW_ATTITUDE_RATE.MIN_PITCH_ANGLE': {'min': -90.0, 'max': 0.0, 'step': 1.0, 'unit': 'deg',
+        'description': 'Maximum pitch down angle structural limit (degrees)'},
+    'FW_ATTITUDE_RATE.MAX_BANK_ANGLE': {'min': 0.0, 'max': 90.0, 'step': 1.0, 'unit': 'deg',
+        'description': 'Maximum bank angle for coordinated turns (degrees)'},
+
+    # MC_ATTITUDE_RATE — same issue for pitch/bank/roll angle limits
+    'MC_ATTITUDE_RATE.MAX_PITCH_ANGLE': {'min': 0.0, 'max': 90.0, 'step': 1.0, 'unit': 'deg',
+        'description': 'Maximum pitch angle limit (degrees)'},
+    'MC_ATTITUDE_RATE.MAX_ROLL_ANGLE': {'min': 0.0, 'max': 90.0, 'step': 1.0, 'unit': 'deg',
+        'description': 'Maximum roll angle limit (degrees)'},
+    'MC_ATTITUDE_RATE.MAX_BANK_ANGLE': {'min': 0.0, 'max': 90.0, 'step': 1.0, 'unit': 'deg',
+        'description': 'Maximum bank angle for coordinated turns (degrees)'},
+
     # FW_ATTITUDE_RATE — keys absent from schema before v6.0.2 audit
     'FW_ATTITUDE_RATE.L1_LATERAL_SCALE': {'type': 'float', 'default': 50.0,
         'min': 0.0, 'max': 500.0, 'step': 1.0, 'unit': 'm',
@@ -543,21 +559,23 @@ def extract_options(description: str) -> Tuple[Optional[List[Dict]], str]:
 
 
 def _extract_comment_text(ca_item) -> str:
-    """Extract raw comment string from a ruamel.yaml CommentToken list.
+    """Extract inline (EOL) comment string from a ruamel.yaml CommentToken list.
 
     ruamel.yaml stores comment tokens in a list: [pre_comment, key_comment, eol_comment, post_comment].
-    We collect all non-None tokens and join them, stripping the leading '#' marker.
+    Index 2 is the EOL comment — the inline comment on the same line as the value.
+    We use only this token to avoid merging block/pre-comments with inline comments.
     """
     if ca_item is None:
         return ''
-    tokens = ca_item if isinstance(ca_item, list) else [ca_item]
-    parts = []
-    for token in tokens:
+    if isinstance(ca_item, list) and len(ca_item) > 2:
+        token = ca_item[2]
         if token is not None and hasattr(token, 'value'):
-            v = token.value.strip().lstrip('#').strip()
-            if v:
-                parts.append(v)
-    return ' '.join(parts)
+            return token.value.strip().lstrip('#').strip()
+        return ''
+    # Fallback for non-list (single token)
+    if hasattr(ca_item, 'value'):
+        return ca_item.value.strip().lstrip('#').strip()
+    return ''
 
 
 def _collect_comments(mapping: RuamelCommentedMap, prefix: str, result: Dict[str, str]) -> None:
@@ -655,7 +673,14 @@ def generate_parameter_schema(key: str, value: Any, description: str = '',
     if unit:
         schema['unit'] = unit
 
-    # Apply recommended ranges if defined
+    # Extract [N..M] recommended range from description (soft advisory, not a hard limit)
+    # e.g., "JPEG quality [50..95]" → recommended_min=50, recommended_max=95
+    range_match = re.search(r'\[(\d+\.?\d*)\s*\.{2,3}\s*(\d+\.?\d*)\]', description)
+    if range_match:
+        schema['recommended_min'] = float(range_match.group(1))
+        schema['recommended_max'] = float(range_match.group(2))
+
+    # Apply recommended ranges from RECOMMENDED_RANGES dict (overrides [N..M] if present)
     if lookup_key in RECOMMENDED_RANGES:
         schema.update(RECOMMENDED_RANGES[lookup_key])
 

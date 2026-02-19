@@ -168,10 +168,10 @@ const ScalarArrayRenderer = ({
 
   // Range for sliders (detect from existing values or schema)
   const range = useMemo(() => ({
-    min: schema?.minimum ?? Math.min(0, ...arr.filter(v => typeof v === 'number')),
-    max: schema?.maximum ?? Math.max(100, ...arr.filter(v => typeof v === 'number')),
+    min: schema?.min ?? Math.min(0, ...arr.filter(v => typeof v === 'number')),
+    max: schema?.max ?? Math.max(100, ...arr.filter(v => typeof v === 'number')),
     step: schema?.step ?? 1
-  }), [schema?.minimum, schema?.maximum, schema?.step, arr]);
+  }), [schema?.min, schema?.max, schema?.step, arr]);
 
   const handleItemChange = useCallback((index, newValue) => {
     const newArr = [...arr];

@@ -50,8 +50,8 @@ const NumberField = ({
   const [localValue, setLocalValue] = useState(String(value ?? 0));
   const [isFocused, setIsFocused] = useState(false);
 
-  const min = schema?.minimum ?? 0;
-  const max = schema?.maximum ?? 100;
+  const min = schema?.min ?? 0;
+  const max = schema?.max ?? 100;
   const step = schema?.step ?? (schema?.type === 'integer' ? 1 : 0.1);
 
   useEffect(() => {

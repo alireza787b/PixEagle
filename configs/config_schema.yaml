@@ -2,7 +2,7 @@ schema_version: 1.0.0
 meta:
   project: PixEagle
   generated_from: C:\Users\Alireza\PixEagle\configs\config_default.yaml
-  generated_at: '2026-02-19T11:35:32.190667'
+  generated_at: '2026-02-19T12:09:38.600864'
   description: Auto-generated schema for PixEagle configuration
 categories:
   video:
@@ -4231,12 +4231,12 @@ sections:
       MAX_BANK_ANGLE:
         type: float
         default: 35.0
-        description: degrees - coordinated turn limit
+        description: Maximum bank angle for coordinated turns (degrees)
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
-        max: 100.0
-        step: 0.1
+        max: 90.0
+        step: 1.0
         unit: deg
       MAX_LOAD_FACTOR:
         type: float
@@ -4250,25 +4250,22 @@ sections:
       MAX_PITCH_ANGLE:
         type: float
         default: 25.0
-        description: degrees - pitch up limit
+        description: Maximum pitch up angle structural limit (degrees)
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
-        max: 100.0
-        step: 0.1
+        max: 90.0
+        step: 1.0
         unit: deg
       MIN_PITCH_ANGLE:
         type: float
         default: -20.0
-        description: "degrees - pitch down limit\n\n  # RATE LIMITS: MAX_ROLL_RATE, MAX_PITCH_RATE, MAX_YAW_RATE now from\n\
-          \  # Safety.GlobalLimits / Safety.FollowerOverrides.FW_ATTITUDE_RATE\n\n  # === L1 NAVIGATION (Lateral Guidance)\
-          \ ===\n  # L1 provides smooth, stable lateral guidance using a lookahead distance\n  # Larger L1 = smoother but\
-          \ slower response; Smaller L1 = faster but more aggressive"
+        description: Maximum pitch down angle structural limit (degrees)
         reload_tier: follower_restart
         reboot_required: false
-        min: -10000.0
-        max: 10000.0
-        step: 0.1
+        min: -90.0
+        max: 0.0
+        step: 1.0
         unit: deg
       L1_DISTANCE:
         type: float
@@ -4621,33 +4618,32 @@ sections:
       MAX_PITCH_ANGLE:
         type: float
         default: 35.0
-        description: degrees - max pitch (nose down)
+        description: Maximum pitch angle limit (degrees)
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: nose down
+        max: 90.0
+        step: 1.0
+        unit: deg
       MAX_ROLL_ANGLE:
         type: float
         default: 35.0
-        description: degrees - max roll (bank)
+        description: Maximum roll angle limit (degrees)
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: bank
+        max: 90.0
+        step: 1.0
+        unit: deg
       MAX_BANK_ANGLE:
         type: float
         default: 30.0
-        description: "degrees - max bank for coordinated turns\n\n  # === THRUST MANAGEMENT ===\n  # Critical: attitude_rate\
-          \ control requires explicit thrust management\n  # Unlike velocity control, there is NO automatic altitude hold"
+        description: Maximum bank angle for coordinated turns (degrees)
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
-        max: 100.0
-        step: 0.1
+        max: 90.0
+        step: 1.0
         unit: deg
       HOVER_THRUST:
         type: float

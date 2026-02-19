@@ -12,9 +12,8 @@ repos:
     hooks:
       - id: schema-sync-check
         name: Config schema must be up-to-date
-        language: python
-        additional_dependencies: [pyyaml, ruamel.yaml]
-        entry: python scripts/generate_schema.py
+        language: system
+        entry: bash scripts/check_schema.sh
         pass_filenames: false
         files: '^configs/config_default\.yaml$'
         stages: [commit]

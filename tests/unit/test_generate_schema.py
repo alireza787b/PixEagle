@@ -164,14 +164,37 @@ def test_recommended_range_in_schema():
     assert schema.get('recommended_max') == 0.7
 
 
+def test_recommended_range_from_bracket_notation():
+    """[N..M] notation in comment should be extracted as recommended_min/max."""
+    schema = generate_parameter_schema(
+        'JPEG_QUALITY', 80,
+        description='JPEG compression quality [50..95]',
+        full_path='Streaming.JPEG_QUALITY'
+    )
+    assert schema.get('recommended_min') == 50.0
+    assert schema.get('recommended_max') == 95.0
+
+
+def test_recommended_range_bracket_three_dots():
+    """[N...M] with three dots should also be parsed."""
+    schema = generate_parameter_schema(
+        'SOME_PARAM', 30,
+        description='Frame rate target [15...60]',
+        full_path='VideoSource.SOME_PARAM'
+    )
+    assert schema.get('recommended_min') == 15.0
+    assert schema.get('recommended_max') == 60.0
+
+
 # ---- Frame rotation end-to-end ----
 
 def test_frame_rotation_schema_end_to_end():
     """FRAME_ROTATION_DEG should get strict preset options 0/90/180/270."""
     import yaml
+    import pytest
     schema_path = os.path.join(PROJECT_ROOT, 'configs', 'config_schema.yaml')
     if not os.path.exists(schema_path):
-        return  # Skip if schema not generated yet
+        pytest.skip("config_schema.yaml not generated yet")
 
     with open(schema_path, 'r', encoding='utf-8') as f:
         schema = yaml.safe_load(f)
@@ -188,9 +211,10 @@ def test_frame_rotation_schema_end_to_end():
 def test_tracker_type_options_in_schema():
     """TRACKER_TYPE should have 4 options in generated schema."""
     import yaml
+    import pytest
     schema_path = os.path.join(PROJECT_ROOT, 'configs', 'config_schema.yaml')
     if not os.path.exists(schema_path):
-        return  # Skip if schema not generated yet
+        pytest.skip("config_schema.yaml not generated yet")
 
     with open(schema_path, 'r', encoding='utf-8') as f:
         schema = yaml.safe_load(f)
@@ -238,9 +262,10 @@ def test_extract_unit_none_for_plain_description():
 
 def test_parse_config_reads_comments():
     """parse_config_with_comments should extract inline comments from config_default.yaml."""
+    import pytest
     config_path = os.path.join(PROJECT_ROOT, 'configs', 'config_default.yaml')
     if not os.path.exists(config_path):
-        return  # Skip if file not present
+        pytest.skip("config_default.yaml not present")
 
     config, comments = parse_config_with_comments(config_path)
 
@@ -260,9 +285,10 @@ def test_parse_config_reads_comments():
 
 def test_parse_config_options_comment_extracted():
     """Comments with Options: pattern should be captured for later parsing."""
+    import pytest
     config_path = os.path.join(PROJECT_ROOT, 'configs', 'config_default.yaml')
     if not os.path.exists(config_path):
-        return
+        pytest.skip("config_default.yaml not present")
 
     config, comments = parse_config_with_comments(config_path)
 
@@ -357,11 +383,12 @@ def test_validate_safety_config_skips_missing_sections():
 def test_validate_safety_config_passes_real_config():
     """Validation should pass against the actual config_default.yaml."""
     import yaml
+    import pytest
     from classes.config_validator import validate_safety_config
 
     config_path = os.path.join(PROJECT_ROOT, 'configs', 'config_default.yaml')
     if not os.path.exists(config_path):
-        return  # Skip if file not present
+        pytest.skip("config_default.yaml not present")
 
     with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)

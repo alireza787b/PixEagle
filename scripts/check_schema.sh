@@ -28,7 +28,10 @@ if $FIX_MODE; then
     exit 0
 fi
 
-if git -C "$PROJECT_ROOT" diff --exit-code configs/config_schema.yaml > /dev/null 2>&1; then
+UNTRACKED=$(git -C "$PROJECT_ROOT" ls-files --others --exclude-standard configs/config_schema.yaml)
+MODIFIED=$(git -C "$PROJECT_ROOT" diff --name-only configs/config_schema.yaml)
+
+if [ -z "$UNTRACKED" ] && [ -z "$MODIFIED" ]; then
     echo "Schema is up-to-date."
     exit 0
 else

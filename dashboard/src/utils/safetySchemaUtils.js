@@ -62,7 +62,7 @@ export const SAFETY_LIMIT_PROPERTIES = [
     description: 'Maximum total velocity magnitude',
     category: 'velocity',
     min: 0,
-    max: 50,
+    max: 30,
     step: 0.1,
     default: 1.0
   },

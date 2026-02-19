@@ -241,8 +241,8 @@ const PIDRenderer = ({
     const smartRange = initialRangesRef.current[key];
 
     return {
-      min: propSchema?.minimum ?? smartRange.min,
-      max: propSchema?.maximum ?? smartRange.max,
+      min: propSchema?.min ?? smartRange.min,
+      max: propSchema?.max ?? smartRange.max,
       step: propSchema?.step ?? smartRange.step
     };
   }, [schema?.properties]);
