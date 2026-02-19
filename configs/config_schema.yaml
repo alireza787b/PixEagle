@@ -2879,7 +2879,7 @@ sections:
         reboot_required: false
         min: -90.0
         max: 90.0
-        step: 0.01
+        step: 0.5
         unit: deg
       PITCH_VELOCITY_SCALING:
         type: float
@@ -3175,7 +3175,7 @@ sections:
         reboot_required: false
         min: -180.0
         max: 180.0
-        step: 0.01
+        step: 0.5
         unit: deg
       MOUNT_PITCH_OFFSET_DEG:
         type: float
@@ -3185,7 +3185,7 @@ sections:
         reboot_required: false
         min: -180.0
         max: 180.0
-        step: 0.01
+        step: 0.5
         unit: deg
       MOUNT_YAW_OFFSET_DEG:
         type: float
@@ -3195,7 +3195,7 @@ sections:
         reboot_required: false
         min: -180.0
         max: 180.0
-        step: 0.01
+        step: 0.5
         unit: deg
       INVERT_GIMBAL_ROLL:
         type: boolean
@@ -3911,21 +3911,21 @@ sections:
       L1_LATERAL_SCALE:
         type: float
         default: 50.0
-        min: 1.0
+        min: 0.0
         max: 500.0
         step: 1.0
-        unit: "m"
-        description: "L1 lateral scale factor for guidance law"
+        unit: m
+        description: "L1 guidance lateral scale factor (m)"
         reload_tier: follower_restart
         reboot_required: false
       TECS_ALTITUDE_SCALE:
         type: float
         default: 20.0
-        min: 1.0
+        min: 0.0
         max: 200.0
         step: 1.0
-        unit: "m"
-        description: "TECS altitude error scale factor"
+        unit: m
+        description: "TECS altitude error scale (m)"
         reload_tier: follower_restart
         reboot_required: false
       TECS_MAX_INTEGRAL:
@@ -3934,7 +3934,7 @@ sections:
         min: 0.0
         max: 500.0
         step: 1.0
-        description: "TECS energy integrator clamp"
+        description: "TECS maximum integral term"
         reload_tier: follower_restart
         reboot_required: false
       FALLBACK_ALTITUDE_PITCH_GAIN:
@@ -3943,7 +3943,7 @@ sections:
         min: 0.0
         max: 10.0
         step: 0.01
-        description: "Pitch gain for altitude fallback when TECS unavailable"
+        description: "Fallback altitude pitch gain when TECS unavailable"
         reload_tier: follower_restart
         reboot_required: false
       ENABLE_TECS:
