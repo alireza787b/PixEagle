@@ -142,6 +142,77 @@ SCHEMA_OVERRIDES = {
         ],
         'description': 'HUD rendering style for Smart Tracker overlay',
     },
+
+    # =========================================================
+    # FOLLOWER / SAFETY SCHEMA OVERRIDES
+    # These fix auto-generator limitations: wrong type inference,
+    # over-restrictive max values, missing units, better descriptions.
+    # WORKFLOW: always add fixes here (not directly to config_schema.yaml)
+    # then run: python scripts/generate_schema.py
+    # =========================================================
+
+    # VideoSource — RTSP backoff base is in seconds, not 0-1
+    'VideoSource.RTSP_RECOVERY_BACKOFF_BASE': {'max': 30.0, 'unit': 's',
+        'description': 'Exponential backoff base interval for RTSP reconnect (seconds)'},
+
+    # TARGET_LOSS_COORDINATE_THRESHOLD — was mistyped as int=990; correct is float in [0,5]
+    'FW_ATTITUDE_RATE.TARGET_LOSS_COORDINATE_THRESHOLD': {
+        'type': 'float', 'default': 1.5, 'min': 0.0, 'max': 5.0, 'step': 0.1,
+        'description': 'Normalized pixel threshold for target loss detection (0-2 range typical)'},
+    'MC_ATTITUDE_RATE.TARGET_LOSS_COORDINATE_THRESHOLD': {
+        'type': 'float', 'default': 1.5, 'min': 0.0, 'max': 5.0, 'step': 0.1,
+        'description': 'Normalized pixel threshold for target loss detection (0-2 range typical)'},
+
+    # GM_VELOCITY_CHASE — degree/angle params wrongly capped at 1.0
+    'GM_VELOCITY_CHASE.NEUTRAL_PITCH_ANGLE': {
+        'min': -90.0, 'max': 90.0, 'step': 0.5, 'unit': 'deg',
+        'description': 'Neutral pitch angle for HORIZONTAL mount only (degrees)'},
+
+    # GM_VELOCITY_VECTOR — mount offset angles wrongly capped at 1.0
+    'GM_VELOCITY_VECTOR.MOUNT_ROLL_OFFSET_DEG':  {'min': -180.0, 'max': 180.0, 'step': 0.5, 'unit': 'deg',
+        'description': 'Roll offset to correct physical gimbal mount misalignment (degrees)'},
+    'GM_VELOCITY_VECTOR.MOUNT_PITCH_OFFSET_DEG': {'min': -180.0, 'max': 180.0, 'step': 0.5, 'unit': 'deg',
+        'description': 'Pitch offset to correct physical gimbal mount misalignment (degrees)'},
+    'GM_VELOCITY_VECTOR.MOUNT_YAW_OFFSET_DEG':   {'min': -180.0, 'max': 180.0, 'step': 0.5, 'unit': 'deg',
+        'description': 'Yaw offset to correct physical gimbal mount misalignment (degrees)'},
+
+    # GM_VELOCITY_VECTOR — velocity/acceleration params wrongly capped at 1.0
+    'GM_VELOCITY_VECTOR.RAMP_ACCELERATION':  {'min': 0.0, 'max': 20.0, 'step': 0.05, 'unit': 'm/s²',
+        'description': 'Velocity ramp-up acceleration rate (m/s²)'},
+    'GM_VELOCITY_VECTOR.INITIAL_VELOCITY':   {'min': 0.0, 'max': 30.0, 'step': 0.1,  'unit': 'm/s',
+        'description': 'Initial forward velocity when target acquired (m/s)'},
+    'GM_VELOCITY_VECTOR.ALTITUDE_CHECK_INTERVAL': {'min': 0.01, 'max': 60.0, 'step': 0.1, 'unit': 's',
+        'description': 'How often to check altitude safety (seconds)'},
+
+    # MC_VELOCITY_CHASE — velocity/acceleration params wrongly capped at 1.0
+    'MC_VELOCITY_CHASE.FORWARD_RAMP_RATE': {'min': 0.0, 'max': 20.0, 'step': 0.05, 'unit': 'm/s²',
+        'description': 'Forward velocity ramp-up acceleration rate (m/s²)'},
+    'MC_VELOCITY_CHASE.INITIAL_FORWARD_VELOCITY': {'min': 0.0, 'max': 30.0, 'step': 0.1, 'unit': 'm/s',
+        'description': 'Initial forward velocity when target acquired (m/s)'},
+    'MC_VELOCITY_CHASE.TARGET_LOSS_STOP_VELOCITY': {'min': 0.0, 'max': 30.0, 'step': 0.1, 'unit': 'm/s',
+        'description': 'Forward velocity to hold when target is temporarily lost (m/s)'},
+    'MC_VELOCITY_CHASE.MIN_FORWARD_VELOCITY_THRESHOLD': {'min': 0.0, 'max': 20.0, 'step': 0.05, 'unit': 'm/s',
+        'description': 'Minimum forward velocity to maintain (m/s). Critical for VTOL or fixed-wing configurations.'},
+
+    # FW_ATTITUDE_RATE — orbit/L1 params wrongly capped at 100m
+    'FW_ATTITUDE_RATE.ORBIT_RADIUS':    {'min': 10.0, 'max': 2000.0, 'step': 5.0, 'unit': 'm',
+        'description': 'Loiter orbit radius on target loss (meters)'},
+    'FW_ATTITUDE_RATE.L1_MAX_DISTANCE': {'min': 5.0,  'max': 1000.0, 'step': 5.0, 'unit': 'm',
+        'description': 'Maximum L1 lookahead distance at high speed (meters)'},
+
+    # FW_ATTITUDE_RATE — keys absent from schema before v6.0.2 audit
+    'FW_ATTITUDE_RATE.L1_LATERAL_SCALE': {'type': 'float', 'default': 50.0,
+        'min': 0.0, 'max': 500.0, 'step': 1.0, 'unit': 'm',
+        'description': 'L1 guidance lateral scale factor (m)'},
+    'FW_ATTITUDE_RATE.TECS_ALTITUDE_SCALE': {'type': 'float', 'default': 20.0,
+        'min': 0.0, 'max': 200.0, 'step': 1.0, 'unit': 'm',
+        'description': 'TECS altitude error scale (m)'},
+    'FW_ATTITUDE_RATE.TECS_MAX_INTEGRAL': {'type': 'float', 'default': 50.0,
+        'min': 0.0, 'max': 500.0, 'step': 1.0,
+        'description': 'TECS maximum integral term'},
+    'FW_ATTITUDE_RATE.FALLBACK_ALTITUDE_PITCH_GAIN': {'type': 'float', 'default': 0.5,
+        'min': 0.0, 'max': 10.0, 'step': 0.01,
+        'description': 'Fallback altitude pitch gain when TECS unavailable'},
 }
 
 # Recommended ranges for parameters (soft limits that trigger warnings, not errors).
