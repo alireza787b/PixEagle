@@ -164,9 +164,10 @@ vel_fwd = min(vel_fwd, 10.0)
 
 ```python
 def follow_target(self, tracker_data):
-    # Check altitude before proceeding
-    if not self._check_altitude_safety():
-        logger.error("Altitude violation")
+    # Check safety before proceeding (returns SafetyStatus NamedTuple)
+    status = self.check_safety()
+    if not status.safe:
+        logger.error(f"Safety violation: {status.reason}")
         return False
 
     # ... rest of logic

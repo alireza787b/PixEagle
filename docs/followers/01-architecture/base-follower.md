@@ -140,20 +140,18 @@ Safety limits are dynamic properties that read fresh from SafetyManager:
 ```python
 @property
 def velocity_limits(self):
-    """Get velocity limits - dynamic from SafetyManager or fallback."""
-    if self.safety_manager:
-        return self.safety_manager.get_velocity_limits(self._follower_config_name)
-    return self._legacy_velocity_limits
+    """Get velocity limits from SafetyManager (v5.0.0+: single source of truth)."""
+    return self.safety_manager.get_velocity_limits(self._follower_config_name)
 
 @property
 def altitude_limits(self):
-    """Get altitude limits - dynamic from SafetyManager."""
-    # Same pattern
+    """Get altitude limits from SafetyManager."""
+    return self.safety_manager.get_altitude_limits(self._follower_config_name)
 
 @property
 def rate_limits(self):
-    """Get rate limits - dynamic from SafetyManager."""
-    # Same pattern
+    """Get rate limits from SafetyManager."""
+    return self.safety_manager.get_rate_limits(self._follower_config_name)
 ```
 
 ### clamp_velocity
