@@ -1,5 +1,6 @@
 """
-Tests for schema generation option extraction behavior.
+Tests for schema generation: option extraction, unit extraction, comment parsing,
+Pydantic config validation, and end-to-end schema correctness.
 """
 
 import os
@@ -11,8 +12,10 @@ sys.path.insert(0, PROJECT_ROOT)
 
 from scripts.generate_schema import (  # noqa: E402
     extract_options,
+    extract_unit,
     infer_type,
     generate_parameter_schema,
+    parse_config_with_comments,
     SCHEMA_OVERRIDES,
     RECOMMENDED_RANGES,
 )
@@ -198,3 +201,170 @@ def test_tracker_type_options_in_schema():
     values = [o['value'] for o in param['options']]
     assert 'bytetrack' in values
     assert 'botsort_reid' in values
+
+
+# ---- extract_unit() tests ----
+
+def test_extract_unit_false_positive_prevented():
+    """Parenthetical with '=' should NOT be extracted as a unit."""
+    assert extract_unit('Width in pixels (lower = less CPU)') == 'px'
+    # ↑ 'px' comes from well-known keyword 'pixels', NOT from the parenthetical ✓
+    # The parenthetical '(lower = less CPU)' is rejected by the = guard
+    assert extract_unit('Some value (0 = disabled)') is None
+    assert extract_unit('A flag (0 = off, 1 = on)') is None
+
+
+def test_extract_unit_valid_parenthetical():
+    """Short, unit-like parenthetical should be extracted."""
+    assert extract_unit('Speed limit (m/s)') == 'm/s'
+    assert extract_unit('Maximum bank angle (degrees)') == 'deg'  # normalised
+    assert extract_unit('Frame rate (fps)') == 'fps'
+
+
+def test_extract_unit_well_known_keywords():
+    """Well-known unit keywords should be extracted from description body."""
+    assert extract_unit('Distance threshold in m') == 'm'
+    assert extract_unit('Interval in seconds') == 's'  # normalised from 'seconds'
+    assert extract_unit('Width in pixels') == 'px'     # normalised from 'pixels'
+
+
+def test_extract_unit_none_for_plain_description():
+    """Plain description without unit keywords should return None."""
+    assert extract_unit('Enable altitude hold mode') is None
+    assert extract_unit('Number of consecutive frames') is None
+
+
+# ---- parse_config_with_comments() end-to-end ----
+
+def test_parse_config_reads_comments():
+    """parse_config_with_comments should extract inline comments from config_default.yaml."""
+    config_path = os.path.join(PROJECT_ROOT, 'configs', 'config_default.yaml')
+    if not os.path.exists(config_path):
+        return  # Skip if file not present
+
+    config, comments = parse_config_with_comments(config_path)
+
+    # Config should have sections
+    assert isinstance(config, dict)
+    assert 'VideoSource' in config
+    assert 'Safety' in config
+
+    # Comments should be non-empty
+    assert len(comments) > 0
+
+    # At least some comments should be present for common keys
+    # (not asserting specific text — comment content may change)
+    video_comments = {k: v for k, v in comments.items() if k.startswith('VideoSource.')}
+    assert len(video_comments) > 0, "Expected at least one VideoSource comment"
+
+
+def test_parse_config_options_comment_extracted():
+    """Comments with Options: pattern should be captured for later parsing."""
+    config_path = os.path.join(PROJECT_ROOT, 'configs', 'config_default.yaml')
+    if not os.path.exists(config_path):
+        return
+
+    config, comments = parse_config_with_comments(config_path)
+
+    # TARGET_LOSS_ACTION should have an Options: comment
+    # (present in multiple follower sections)
+    options_comments = {
+        k: v for k, v in comments.items()
+        if 'Options:' in v and 'TARGET_LOSS_ACTION' in k
+    }
+    assert len(options_comments) > 0, "Expected Options: comment on TARGET_LOSS_ACTION"
+
+
+# ---- config_validator.py tests ----
+
+def test_validate_safety_config_passes_valid():
+    """validate_safety_config should return True for a valid config."""
+    from classes.config_validator import validate_safety_config
+
+    # Field names match actual config_default.yaml Safety.GlobalLimits
+    config = {
+        'Safety': {
+            'GlobalLimits': {
+                'MAX_VELOCITY': 10.0,
+                'MAX_VELOCITY_FORWARD': 5.0,
+                'MAX_VELOCITY_LATERAL': 5.0,
+                'MAX_YAW_RATE': 45.0,
+                'MAX_ALTITUDE': 120.0,
+                'MIN_ALTITUDE': 0.5,
+            },
+            'FollowerOverrides': {},
+        },
+        'VideoSource': {
+            'VIDEO_SOURCE_TYPE': 'USB',
+            'CAPTURE_FPS': 30.0,
+            'CAPTURE_WIDTH': 1280,
+            'CAPTURE_HEIGHT': 720,
+        },
+    }
+    result = validate_safety_config(config)
+    assert result is True
+
+
+def test_validate_safety_config_fails_high_velocity():
+    """MAX_VELOCITY > 30 m/s should fail validation."""
+    from classes.config_validator import validate_safety_config
+
+    config = {
+        'Safety': {
+            'GlobalLimits': {
+                'MAX_VELOCITY': 50.0,  # Exceeds 30.0 m/s hard limit
+                'MAX_YAW_RATE': 45.0,
+                'MAX_ALTITUDE': 120.0,
+                'MIN_ALTITUDE': 0.5,
+            },
+        },
+    }
+    result = validate_safety_config(config)
+    assert result is False
+
+
+def test_validate_safety_config_fails_invalid_altitude():
+    """MIN_ALTITUDE > 100 should fail validation."""
+    from classes.config_validator import validate_safety_config
+
+    config = {
+        'Safety': {
+            'GlobalLimits': {
+                'MAX_VELOCITY': 10.0,
+                'MAX_YAW_RATE': 45.0,
+                'MAX_ALTITUDE': 120.0,
+                'MIN_ALTITUDE': 200.0,   # Exceeds 100.0 ceiling
+            },
+        },
+    }
+    result = validate_safety_config(config)
+    assert result is False
+
+
+def test_validate_safety_config_skips_missing_sections():
+    """Missing Safety/VideoSource sections should not cause errors (returns True)."""
+    from classes.config_validator import validate_safety_config
+
+    # No Safety or VideoSource sections → nothing to validate → passes
+    result = validate_safety_config({})
+    assert result is True
+
+    # Only unrelated sections → still passes
+    result = validate_safety_config({'Tracking': {'SOME_KEY': True}})
+    assert result is True
+
+
+def test_validate_safety_config_passes_real_config():
+    """Validation should pass against the actual config_default.yaml."""
+    import yaml
+    from classes.config_validator import validate_safety_config
+
+    config_path = os.path.join(PROJECT_ROOT, 'configs', 'config_default.yaml')
+    if not os.path.exists(config_path):
+        return  # Skip if file not present
+
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+
+    result = validate_safety_config(config)
+    assert result is True, "config_default.yaml should pass safety validation"

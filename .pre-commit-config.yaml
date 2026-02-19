@@ -1,0 +1,32 @@
+# .pre-commit-config.yaml
+# Pre-commit hooks for PixEagle
+#
+# Install: pip install pre-commit && pre-commit install
+# Run manually: pre-commit run --all-files
+#
+# Schema sync hook: runs generate_schema.py whenever config_default.yaml changes.
+# If the schema is out of date, the commit is blocked with an error message.
+
+repos:
+  - repo: local
+    hooks:
+      - id: schema-sync-check
+        name: Config schema must be up-to-date
+        language: python
+        additional_dependencies: [pyyaml, ruamel.yaml]
+        entry: python scripts/generate_schema.py
+        pass_filenames: false
+        files: '^configs/config_default\.yaml$'
+        stages: [commit]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '^docs/'
+      - id: end-of-file-fixer
+        exclude: '^docs/'
+      - id: check-yaml
+        args: [--unsafe]  # Allow YAML with anchors/aliases
+      - id: check-json
+      - id: check-merge-conflict

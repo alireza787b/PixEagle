@@ -26,6 +26,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple, Optional
 from datetime import datetime
 
+from ruamel.yaml import YAML as RuamelYAML
+from ruamel.yaml.comments import CommentedMap as RuamelCommentedMap
+
 
 # Define categories for sections
 SECTION_CATEGORIES = {
@@ -357,25 +360,40 @@ def get_reload_tier(full_path: str) -> str:
 
 
 def extract_unit(description: str) -> Optional[str]:
-    """Extract unit from description if present."""
-    unit_patterns = [
-        (r'\(([^)]+)\)\s*$', 1),  # (m/s) at end
-        (r'\b(m/s|m|ms|px|pixels|fps|Hz|degrees|deg|deg/s|rad|rad/s|seconds|sec|s|%)\b', 1),
-    ]
+    """Extract unit from description if present.
 
-    for pattern, group in unit_patterns:
-        match = re.search(pattern, description, re.IGNORECASE)
-        if match:
-            unit = match.group(group).lower()
-            # Normalize units
-            unit_map = {
-                'pixels': 'px',
-                'degrees': 'deg',
-                'seconds': 's',
-                'sec': 's',
-                'milliseconds': 'ms',
-            }
+    Pattern 1: trailing parenthetical e.g. (m/s), (degrees) — validated to look like a real unit.
+    Pattern 2: well-known unit keywords anywhere in the description.
+
+    False positive guard: parenthetical must be short (≤15 chars), contain no '=' sign,
+    and start with a letter/°/%. This prevents extracting phrases like '(lower = less CPU)'.
+    """
+    unit_map = {
+        'pixels': 'px',
+        'degrees': 'deg',
+        'seconds': 's',
+        'sec': 's',
+        'milliseconds': 'ms',
+    }
+
+    # Pattern 1: trailing parenthetical like (m/s), (degrees), (px)
+    trail_match = re.search(r'\(([^)]+)\)\s*$', description, re.IGNORECASE)
+    if trail_match:
+        candidate = trail_match.group(1).strip()
+        # Validate: real units are short, have no '=' sign, and use unit-like chars only
+        if (len(candidate) <= 15
+                and '=' not in candidate
+                and re.match(r'^[a-zA-Z°/%²³][a-zA-Z0-9°/%²³·/\- ]{0,14}$', candidate)):
+            unit = candidate.lower()
             return unit_map.get(unit, unit)
+
+    # Pattern 2: well-known unit keyword in description (fallback)
+    well_known = r'\b(m/s|m/s²|m|ms|px|pixels|fps|Hz|degrees|deg|deg/s|rad|rad/s|seconds|sec|s|%)\b'
+    match = re.search(well_known, description, re.IGNORECASE)
+    if match:
+        unit = match.group(1).lower()
+        return unit_map.get(unit, unit)
+
     return None
 
 
@@ -524,88 +542,69 @@ def extract_options(description: str) -> Tuple[Optional[List[Dict]], str]:
     return None, description
 
 
+def _extract_comment_text(ca_item) -> str:
+    """Extract raw comment string from a ruamel.yaml CommentToken list.
+
+    ruamel.yaml stores comment tokens in a list: [pre_comment, key_comment, eol_comment, post_comment].
+    We collect all non-None tokens and join them, stripping the leading '#' marker.
+    """
+    if ca_item is None:
+        return ''
+    tokens = ca_item if isinstance(ca_item, list) else [ca_item]
+    parts = []
+    for token in tokens:
+        if token is not None and hasattr(token, 'value'):
+            v = token.value.strip().lstrip('#').strip()
+            if v:
+                parts.append(v)
+    return ' '.join(parts)
+
+
+def _collect_comments(mapping: RuamelCommentedMap, prefix: str, result: Dict[str, str]) -> None:
+    """Recursively collect inline comments from a ruamel.yaml CommentedMap.
+
+    Stores comments keyed by their full dotted path (e.g., 'SmartTracker.CONFIDENCE_THRESHOLD').
+    This matches the key format expected by process_params() in process_section().
+    """
+    if not isinstance(mapping, RuamelCommentedMap):
+        return
+    for key in mapping:
+        full_key = f"{prefix}.{key}" if prefix else str(key)
+        ca_item = mapping.ca.items.get(key)
+        comment_text = _extract_comment_text(ca_item)
+        if comment_text:
+            result[full_key] = comment_text
+        # Recurse into nested mappings
+        sub = mapping[key]
+        if isinstance(sub, RuamelCommentedMap):
+            _collect_comments(sub, full_key, result)
+
+
 def parse_config_with_comments(config_path: str) -> Tuple[Dict, Dict[str, str]]:
     """Parse config file and extract comments for descriptions.
 
-    Extracts comments from:
-    - Inline comments (same line as key)
-    - Previous lines (up to 5 lines before)
-    - Following lines (up to 3 lines after, for Options: patterns)
+    Uses ruamel.yaml to preserve comments natively (avoids fragile regex line scanning).
+    ruamel.yaml attaches CommentToken objects directly to mapping nodes, so comment
+    extraction is a simple recursive traversal — no look-ahead/look-behind needed.
+
+    Returns:
+        (config, comments) where:
+        - config: plain Python dict (via yaml.safe_load for pure types)
+        - comments: dict mapping 'Section.KEY' → comment string
     """
+    # Load with ruamel.yaml to get comment-annotated mapping
+    ryaml = RuamelYAML()
+    ryaml.preserve_quotes = True
     with open(config_path, 'r', encoding='utf-8') as f:
-        content = f.read()
+        ruamel_data = ryaml.load(f)
 
-    # Parse YAML
-    config = yaml.safe_load(content)
+    # Also load with PyYAML for plain Python types (avoids ruamel scalar subclasses)
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
 
-    # Extract comments keyed by full YAML path (e.g., "MC_VELOCITY.LATERAL_GUIDANCE_MODE")
-    # to avoid collisions when repeated key names appear in different sections.
-    comments = {}
-    lines = content.split('\n')
-    path_stack: List[Tuple[int, str]] = []
-
-    for i, line in enumerate(lines):
-        # Find key definitions
-        key_match = re.match(r'^(\s*)(\w+):\s*(.*)$', line)
-        if key_match:
-            indent, key, value_part = key_match.groups()
-            indent_len = len(indent)
-
-            # Maintain parent key stack based on indentation level
-            while path_stack and path_stack[-1][0] >= indent_len:
-                path_stack.pop()
-
-            full_path = '.'.join([k for _, k in path_stack] + [key])
-
-            # Look for comment on same line
-            inline_comment = ''
-            if '#' in value_part:
-                _, inline_comment = value_part.split('#', 1)
-                inline_comment = inline_comment.strip()
-
-            # Look for comment on previous lines
-            prev_comments = []
-            for j in range(i - 1, max(0, i - 5), -1):
-                prev_line = lines[j].strip()
-                if prev_line.startswith('#') and not prev_line.startswith('# ==='):
-                    comment = prev_line.lstrip('#').strip()
-                    if comment and not comment.startswith('='):
-                        prev_comments.insert(0, comment)
-                elif prev_line:
-                    break
-
-            # Look for Options: on following lines (up to 8 lines)
-            # Extended range to capture TRACKER_TYPE's "Options:" which is 5+ lines after the key
-            following_options = ''
-            for j in range(i + 1, min(len(lines), i + 9)):
-                follow_line = lines[j].strip()
-                # Stop if we hit another key definition or non-comment line
-                if re.match(r'^(\s*)\w+:\s*', lines[j]):
-                    break
-                if follow_line.startswith('#'):
-                    follow_comment = follow_line.lstrip('#').strip()
-                    # Look for Options: pattern
-                    if 'Options:' in follow_comment or 'options:' in follow_comment:
-                        following_options = follow_comment
-                        break
-                elif follow_line and not follow_line.startswith('#'):
-                    break
-
-            # Combine comments: inline + following options, or prev_comments
-            if inline_comment:
-                description = inline_comment
-                if following_options:
-                    description += ' ' + following_options
-            else:
-                description = ' '.join(prev_comments)
-                if following_options:
-                    description += ' ' + following_options
-
-            if description:
-                comments[full_path] = description
-
-            # Track current key as a potential parent for nested keys
-            path_stack.append((indent_len, key))
+    # Collect comments recursively from the ruamel-annotated tree
+    comments: Dict[str, str] = {}
+    _collect_comments(ruamel_data, '', comments)
 
     return config, comments
 

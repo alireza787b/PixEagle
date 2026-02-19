@@ -118,6 +118,17 @@ class Parameters:
                     # Simple values (not dict) - set directly
                     setattr(cls, section, params)
 
+        # Validate safety-critical sections (non-blocking — logs warning on failure)
+        try:
+            from classes.config_validator import validate_safety_config
+            if not validate_safety_config(config):
+                logger.warning(
+                    "Config validation found issues in safety-critical sections. "
+                    "Review logged errors before flight."
+                )
+        except Exception as e:
+            logger.debug("Config validator unavailable: %s", e)
+
         # Initialize SafetyManager with the loaded config
         try:
             safety_manager = _get_safety_manager()

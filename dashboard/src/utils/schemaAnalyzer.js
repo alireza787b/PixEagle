@@ -231,8 +231,8 @@ export function generateFieldConfigs(schema, value) {
       value: value?.[key] ?? propSchema.default,
       description: propSchema.description,
       required: propSchema.required || false,
-      min: propSchema.minimum,
-      max: propSchema.maximum,
+      min: propSchema.min,
+      max: propSchema.max,
       step: propSchema.step,
       options: propSchema.options,
       default: propSchema.default

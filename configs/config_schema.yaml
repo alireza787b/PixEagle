@@ -2,7 +2,7 @@ schema_version: 1.0.0
 meta:
   project: PixEagle
   generated_from: C:\Users\Alireza\PixEagle\configs\config_default.yaml
-  generated_at: '2026-02-19T09:48:20.798122'
+  generated_at: '2026-02-19T11:35:32.190667'
   description: Auto-generated schema for PixEagle configuration
 categories:
   video:
@@ -50,26 +50,10 @@ sections:
       VIDEO_SOURCE_TYPE:
         type: string
         default: VIDEO_FILE
-        description: Primary video source selection
+        description: "=== Universal Capture Parameters (Applied to ALL sources) ===\n  # \U0001F527 These ensure consistent\
+          \ processing regardless of input type"
         reload_tier: system_restart
         reboot_required: true
-        options:
-        - value: VIDEO_FILE
-          label: VIDEO_FILE
-        - value: USB_CAMERA
-          label: USB_CAMERA
-        - value: RTSP_OPENCV
-          label: RTSP_OPENCV
-        - value: RTSP_STREAM
-          label: RTSP_STREAM
-        - value: UDP_STREAM
-          label: UDP_STREAM
-        - value: HTTP_STREAM
-          label: HTTP_STREAM
-        - value: CSI_CAMERA
-          label: CSI_CAMERA
-        - value: CUSTOM_GSTREAMER
-          label: CUSTOM_GSTREAMER
       CAPTURE_WIDTH:
         type: integer
         default: 640
@@ -78,7 +62,7 @@ sections:
         reboot_required: true
         min: 0
         max: 10000
-        unit: lower = less cpu
+        unit: px
       CAPTURE_HEIGHT:
         type: integer
         default: 480
@@ -96,11 +80,18 @@ sections:
         reboot_required: true
         min: 0
         max: 1000
-        unit: actual may vary by source
+        unit: fps
       DEFAULT_FPS:
         type: integer
         default: 30
-        description: Fallback if source doesn't report FPS
+        description: "Fallback if source doesn't report FPS\n\n  # === Pipeline Timing Mode ===\n  # Controls how frame pacing\
+          \ works. Critical for different use cases:\n  #\n  # REALTIME (default):\n  #   Process frames at source FPS. Frame\
+          \ delay accounts for processing time.\n  #   Best for: Live cameras, RTSP streams, real-time drone tracking.\n \
+          \ #\n  # MAX_THROUGHPUT:\n  #   No artificial delay. Process frames as fast as hardware allows.\n  #   Best for:\
+          \ Offline video analysis, batch processing, benchmarking.\n  #   Warning: CPU/GPU will run at 100% utilization.\n\
+          \  #\n  # DETERMINISTIC_REPLAY:\n  #   Pace frames based on source video timestamps (PTS).\n  #   Ensures identical\
+          \ timing regardless of hardware speed.\n  #   Best for: Regression testing, debugging, deterministic replay.\n \
+          \ #   Note: Only meaningful for VIDEO_FILE source type.\n  #"
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -109,7 +100,10 @@ sections:
       PIPELINE_MODE:
         type: string
         default: REALTIME
-        description: PIPELINE_MODE parameter
+        description: '# === Performance Optimization === # USE_GSTREAMER controls how frames are READ from cameras (input
+          capture). # Set true for Raspberry Pi, Jetson, or embedded systems with GStreamer support. # NOTE: This is completely
+          separate from ENABLE_GSTREAMER_STREAM (in GStreamer # section below) which controls OUTPUT streaming to QGC/ground
+          stations.'
         reload_tier: system_restart
         reboot_required: true
         options:
@@ -122,21 +116,20 @@ sections:
       USE_GSTREAMER:
         type: boolean
         default: false
-        description: 'USE_GSTREAMER controls how frames are READ from cameras (input capture). Set true for Raspberry Pi,
-          Jetson, or embedded systems with GStreamer support. NOTE: This is completely separate from ENABLE_GSTREAMER_STREAM
-          (in GStreamer section below) which controls OUTPUT streaming to QGC/ground stations.'
+        description: "=== Source-Specific Parameters ===\n  # Video file source"
         reload_tier: system_restart
         reboot_required: true
       VIDEO_FILE_PATH:
         type: string
         default: resources/test4.mp4
-        description: Video file source
+        description: USB Camera (webcam)
         reload_tier: system_restart
         reboot_required: true
+        unit: webcam
       CAMERA_INDEX:
         type: integer
         default: 0
-        description: 0=first camera, 1=second, etc.
+        description: "0=first camera, 1=second, etc.\n  # Network streams"
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -144,27 +137,36 @@ sections:
       RTSP_URL:
         type: string
         default: rtsp://192.168.0.108:554/stream=0
-        description: Network streams
+        description: RTSP_URL parameter
         reload_tier: system_restart
         reboot_required: true
+        options:
+        - value: RTSP
+          label: RTSP
+        - value: 'no'
+          label: 'no'
       RTSP_PROTOCOL:
         type: string
         default: tcp
-        description: '- tcp: More reliable, prevents packet loss (RECOMMENDED for most setups) - udp: Lower latency but may
-          have packet loss on congested networks - auto: Let GStreamer choose (may fall back to UDP which can cause issues)
-          If you see "Invalid input packet" or "no frame!" errors, switch to tcp'
+        description: "RTSP_LATENCY: Buffer time in milliseconds\n  #   - 200: Recommended for stable streaming (good balance)\n\
+          \  #   - 100: Lower latency, may drop frames on slow networks\n  #   - 500: More stable for unreliable connections\n\
+          \  #   - 0: Minimum latency (may cause decoding errors, not recommended)"
         reload_tier: system_restart
         reboot_required: true
       RTSP_LATENCY:
         type: integer
         default: 200
-        description: '- 200: Recommended for stable streaming (good balance) - 100: Lower latency, may drop frames on slow
-          networks - 500: More stable for unreliable connections - 0: Minimum latency (may cause decoding errors, not recommended)'
+        description: "=== Connection Recovery Settings ===\n  # Controls automatic reconnection when a video source drops\
+          \ frames.\n  # Applies primarily to RTSP/network streams but also used by file/camera sources.\n  # These are safe\
+          \ defaults — increase timeouts for unstable networks.\n  #\n  # How recovery works:\n  #   1. After RTSP_MAX_CONSECUTIVE_FAILURES\
+          \ failed reads, recovery starts\n  #   2. OR if no frame received for RTSP_CONNECTION_TIMEOUT seconds\n  #   3.\
+          \ System serves cached frames during recovery (RTSP_FRAME_CACHE_SIZE)\n  #   4. Reconnect attempts use exponential\
+          \ backoff (BASE * 2^attempt)\n  #   5. Backoff caps at RTSP_RECOVERY_BACKOFF_MAX seconds\n  #"
         reload_tier: system_restart
         reboot_required: true
         min: 0
         max: 10000
-        unit: may cause decoding errors, not recommended
+        unit: s
       RTSP_MAX_CONSECUTIVE_FAILURES:
         type: integer
         default: 10
@@ -228,13 +230,13 @@ sections:
       HTTP_URL:
         type: string
         default: http://172.21.144.1:8100
-        description: HTTP_URL parameter
+        description: CSI Camera (Raspberry Pi/Jetson camera)
         reload_tier: system_restart
         reboot_required: true
       CSI_SENSOR_ID:
         type: integer
         default: 0
-        description: Usually 0 for first CSI port
+        description: "Usually 0 for first CSI port\n\n  # Universal frame orientation (applies to all source types/backends)"
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -275,14 +277,21 @@ sections:
       CUSTOM_PIPELINE:
         type: string
         default: ''
-        description: 'Custom GStreamer pipeline (advanced users) Example: "videotestsrc ! video/x-raw,width=640,height=480
-          ! videoconvert ! appsink"'
+        description: "=== Legacy Parameters (kept for compatibility) ===\n  # DEPRECATED: Use CAPTURE_WIDTH/HEIGHT instead\
+          \ of CSI_WIDTH/HEIGHT"
         reload_tier: system_restart
         reboot_required: true
       STORE_LAST_FRAMES:
         type: integer
         default: 5
-        description: Frame history buffer size
+        description: 'Frame history buffer size
+
+
+          # ==============================================================================
+
+          # USB CAMERA OPTIMIZATION
+
+          # =============================================================================='
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -295,18 +304,16 @@ sections:
       DEVICE_PATH:
         type: string
         default: /dev/video0
-        description: Device path for Linux GStreamer (ignored on Windows)
+        description: "Pixel format selection (impacts CPU usage)\n  # YUYV = uncompressed (moderate CPU)\n  # MJPG = compressed\
+          \ (lowest CPU, recommended for RPi)"
         reload_tier: system_restart
         reboot_required: true
-        unit: ignored on windows
       PIXEL_FORMAT:
         type: string
         default: YUYV
-        description: Pixel format selection (impacts CPU usage) YUYV = uncompressed (moderate CPU) MJPG = compressed (lowest
-          CPU, recommended for RPi)
+        description: OpenCV backend optimizations (when USE_GSTREAMER=false)
         reload_tier: system_restart
         reboot_required: true
-        unit: lowest cpu, recommended for rpi
       USE_V4L2_BACKEND:
         type: boolean
         default: false
@@ -324,7 +331,14 @@ sections:
       OPENCV_FOURCC:
         type: string
         default: ''
-        description: 'Force codec: "MJPG", "H264", etc.'
+        description: 'Force codec: "MJPG", "H264", etc.
+
+
+          # ==============================================================================
+
+          # CSI CAMERA CONFIGURATION (Raspberry Pi/Jetson)
+
+          # =============================================================================='
         reload_tier: system_restart
         reboot_required: true
   CSICamera:
@@ -335,7 +349,14 @@ sections:
       SENSOR_ID:
         type: integer
         default: 0
-        description: Camera sensor ID
+        description: 'Camera sensor ID
+
+
+          # ==============================================================================
+
+          # NETWORK CONFIGURATION (Connection Settings)
+
+          # =============================================================================='
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -348,17 +369,17 @@ sections:
       EXTERNAL_MAVSDK_SERVER:
         type: boolean
         default: true
-        description: 🚁 PX4 Autopilot connection via MAVSDK
-        reload_tier: system_restart
-        reboot_required: true
-      SYSTEM_ADDRESS:
-        type: string
-        default: udp://127.0.0.1:14540
-        description: 'For SITL: udp://127.0.0.1:14540 For companion computer: udp://127.0.0.1:14540 For WSL: udp://172.21.148.30:14540
-          (use your WSL IP)'
+        description: "For SITL: udp://127.0.0.1:14540\n  # For companion computer: udp://127.0.0.1:14540  \n  # For WSL: udp://172.21.148.30:14540\
+          \ (use your WSL IP)"
         reload_tier: system_restart
         reboot_required: true
         unit: use your wsl ip
+      SYSTEM_ADDRESS:
+        type: string
+        default: udp://127.0.0.1:14540
+        description: SYSTEM_ADDRESS parameter
+        reload_tier: system_restart
+        reboot_required: true
   MAVLink:
     display_name: MAVLink Telemetry
     category: network
@@ -367,17 +388,16 @@ sections:
       MAVLINK_ENABLED:
         type: boolean
         default: true
-        description: 📡 MAVLink telemetry data source (MAVLink2REST)
-        reload_tier: system_restart
-        reboot_required: true
-        unit: mavlink2rest
-      MAVLINK_HOST:
-        type: string
-        default: 127.0.0.1
-        description: 'For local: 127.0.0.1 For WSL: 172.21.148.30 (your WSL IP)'
+        description: "For local: 127.0.0.1\n  # For WSL: 172.21.148.30 (your WSL IP)"
         reload_tier: system_restart
         reboot_required: true
         unit: your wsl ip
+      MAVLINK_HOST:
+        type: string
+        default: 127.0.0.1
+        description: MAVLINK_HOST parameter
+        reload_tier: system_restart
+        reboot_required: true
       MAVLINK_PORT:
         type: integer
         default: 8088
@@ -389,7 +409,7 @@ sections:
       MAVLINK_POLLING_INTERVAL:
         type: float
         default: 0.5
-        description: Data refresh rate in seconds
+        description: "Data refresh rate in seconds\n  # Data points to fetch from MAVLink2REST API"
         reload_tier: system_restart
         reboot_required: true
         min: 0.0
@@ -420,7 +440,7 @@ sections:
           satellites_visible: /vehicles/1/components/1/messages/GPS_RAW_INT/message/satellites_visible
           flight_mode: /vehicles/1/components/1/messages/HEARTBEAT/message/custom_mode
           arm_status: /vehicles/1/components/1/messages/HEARTBEAT/message/base_mode
-        description: Data points to fetch from MAVLink2REST API
+        description: MAVLINK_DATA_POINTS parameter
         reload_tier: system_restart
         reboot_required: true
   Streaming:
@@ -431,7 +451,7 @@ sections:
       ENABLE_STREAMING:
         type: boolean
         default: true
-        description: 🖥️ Enable HTTP/WebSocket video streaming to web dashboard
+        description: === Server Settings ===
         reload_tier: system_restart
         reboot_required: true
       HTTP_STREAM_HOST:
@@ -443,7 +463,7 @@ sections:
       HTTP_STREAM_PORT:
         type: integer
         default: 5077
-        description: Web dashboard port
+        description: "Web dashboard port\n  # === Stream Quality Settings ==="
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -481,11 +501,10 @@ sections:
         reboot_required: true
         min: 0
         max: 1000
-        unit: 0-100
       STREAM_PROCESSED_OSD:
         type: boolean
         default: true
-        description: Include overlays
+        description: "Include overlays\n  # Adaptive Quality Control"
         reload_tier: system_restart
         reboot_required: true
       ENABLE_ADAPTIVE_QUALITY:
@@ -502,7 +521,6 @@ sections:
         reboot_required: true
         min: 0
         max: 1000
-        unit: 1-100
       MAX_QUALITY:
         type: integer
         default: 85
@@ -511,11 +529,10 @@ sections:
         reboot_required: true
         min: 0
         max: 1000
-        unit: 1-100
       QUALITY_STEP:
         type: integer
         default: 10
-        description: Quality adjustment step size
+        description: "Quality adjustment step size\n  # Frame Caching (reduces CPU usage)"
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -537,7 +554,7 @@ sections:
       SKIP_IDENTICAL_FRAMES:
         type: boolean
         default: true
-        description: Skip encoding if frame unchanged
+        description: "Skip encoding if frame unchanged\n  # Connection Limits"
         reload_tier: system_restart
         reboot_required: true
       HTTP_MAX_CONNECTIONS:
@@ -567,7 +584,7 @@ sections:
       HTTP_CHUNK_SIZE:
         type: integer
         default: 65536
-        description: Chunk size for streaming
+        description: "Chunk size for streaming\n\n  # === Performance ==="
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -583,7 +600,7 @@ sections:
       FRAME_DIFFERENCE_THRESHOLD:
         type: integer
         default: 5
-        description: Pixel difference threshold
+        description: "Pixel difference threshold\n  # === Heartbeat & Connection Health ==="
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -600,7 +617,7 @@ sections:
       WS_STALE_TIMEOUT_MULTIPLIER:
         type: integer
         default: 2
-        description: Client stale after interval * multiplier
+        description: "Client stale after interval * multiplier\n\n  # === Adaptive Quality Engine ==="
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -622,7 +639,6 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0=stable, 1=reactive
       ENCODING_EWMA_ALPHA:
         type: float
         default: 0.2
@@ -686,7 +702,7 @@ sections:
       MAX_FRAME_CACHE_SIZE:
         type: integer
         default: 10
-        description: Maximum cached encoded frames
+        description: "Maximum cached encoded frames\n\n  # === WebRTC Settings ==="
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -726,18 +742,17 @@ sections:
       DEFAULT_PROTOCOL:
         type: string
         default: auto
-        description: DEFAULT_PROTOCOL parameter
+        description: 'auto | webrtc | websocket | http
+
+
+
+          # ==============================================================================
+
+          # 🎯 TRACKING MODE CONFIGURATION
+
+          # =============================================================================='
         reload_tier: system_restart
         reboot_required: true
-        options:
-        - value: auto
-          label: auto
-        - value: webrtc
-          label: webrtc
-        - value: websocket
-          label: websocket
-        - value: http
-          label: http
   Tracking:
     display_name: Tracking Settings
     category: tracking
@@ -746,25 +761,9 @@ sections:
       DEFAULT_TRACKING_ALGORITHM:
         type: string
         default: CSRT
-        description: 'CSRT: Best for drone circling, rotation, perspective changes (15-20 FPS, 85% accuracy) KCF: Fast alternative
-          for high-speed scenarios (25-30 FPS, 75% accuracy) dlib: Very fast correlation filter with PSR confidence (25-30
-          FPS, 85% accuracy)'
+        description: === Global Visualization ===
         reload_tier: tracker_restart
         reboot_required: false
-        options:
-        - value: CSRT
-          label: CSRT
-          description: recommended for rotation
-        - value: KCF
-          label: KCF
-          description: fast
-        - value: dlib
-          label: dlib
-          description: very fast
-        - value: Gimbal
-          label: Gimbal
-          description: external
-        unit: 25-30 fps, 85% accuracy
       TRACKING_RECTANGLE_COLOR:
         type: array
         default:
@@ -792,7 +791,7 @@ sections:
       CENTER_HISTORY_LENGTH:
         type: integer
         default: 10
-        description: Trail length
+        description: "Trail length\n\n  # === Global Tracking Limits ==="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -819,7 +818,9 @@ sections:
       REDETECTION_ATTEMPTS:
         type: integer
         default: 5
-        description: Max re-detection attempts
+        description: "Max re-detection attempts\n\n  # === Confidence Blending (Classic Trackers) ===\n  # Used by BaseTracker\
+          \ to blend motion and appearance confidence scores.\n  # Also used by detectors (TemplateMatchingDetector, BaseDetector)\
+          \ for\n  # appearance validation during re-detection."
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -845,7 +846,7 @@ sections:
       APPEARANCE_CONFIDENCE_WEIGHT:
         type: float
         default: 0.5
-        description: Weight for appearance-based confidence
+        description: "Weight for appearance-based confidence\n\n\n  # Motion consistency threshold for base tracker"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -854,7 +855,7 @@ sections:
       MOTION_CONFIDENCE_THRESHOLD:
         type: float
         default: 0.7
-        description: Minimum confidence from motion consistency check
+        description: "Minimum confidence from motion consistency check\n  # === Particle Filter Parameters (if using) ==="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -986,7 +987,7 @@ sections:
       PF_RANDOM_PARTICLE_RATIO:
         type: float
         default: 0.1
-        description: Random resampling ratio
+        description: "Random resampling ratio\n\n  # === Target Aim Point ==="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -997,13 +998,21 @@ sections:
         default:
         - 0
         - 0
-        description: Desired aim point in frame [x, y] (normalized)
+        description: 'Desired aim point in frame [x, y] (normalized)
+
+
+          # ==============================================================================
+
+          # TRACKER SAFETY PARAMETERS (Global Settings)
+
+          # ==============================================================================
+
+          # Applied to ALL trackers for edge-case handling and robustness'
         reload_tier: tracker_restart
         reboot_required: false
         item_type: number
         min_items: 0
         max_items: 20
-        unit: normalized
   TrackerSafety:
     display_name: Tracker Safety
     category: tracking
@@ -1012,7 +1021,8 @@ sections:
       BOUNDARY_MARGIN_PIXELS:
         type: integer
         default: 15
-        description: Distance threshold for "near boundary" detection
+        description: "Distance threshold for \"near boundary\" detection\n                                         # Research:\
+          \ 10-20px margin recommended for 640x480\n\n  # Confidence penalty for boundary targets"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -1026,17 +1036,32 @@ sections:
       BOUNDARY_PENALTY_MIN:
         type: float
         default: 0.5
-        description: Minimum confidence multiplier at edge (0.0-1.0)
+        description: 'Minimum confidence multiplier at edge (0.0-1.0)
+
+
+          # Global boundary margin (for backward compatibility)'
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
   BOUNDARY_MARGIN_PIXELS:
     type: integer
     default: 15
-    description: Global access for base_tracker.py
+    description: 'Global access for base_tracker.py
+
+
+      # ==============================================================================
+
+      # CLASSIC TRACKER COMMON SETTINGS
+
+      # ==============================================================================
+
+      # Shared defaults for all classic trackers (CSRT, KCF, dlib).
+
+      # Individual tracker sections (CSRT_Tracker, KCF_Tracker, DLIB_Tracker)
+
+      # override these values when set.'
     reload_tier: system_restart
     reboot_required: true
     min: 0
@@ -1049,7 +1074,7 @@ sections:
       appearance_update_min_confidence:
         type: float
         default: 0.55
-        description: Minimum confidence to consider appearance update safe
+        description: Maximum bbox scale change per frame before rejecting as invalid
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1058,15 +1083,6 @@ sections:
       max_scale_change_per_frame:
         type: float
         default: 0.4
-        description: Maximum bbox scale change per frame before rejecting as invalid
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-      motion_consistency_threshold:
-        type: float
-        default: 0.5
         description: Maximum motion as fraction of frame diagonal (for validation)
         reload_tier: tracker_restart
         reboot_required: false
@@ -1074,10 +1090,19 @@ sections:
         max: 1.0
         step: 0.01
         unit: for validation
+      motion_consistency_threshold:
+        type: float
+        default: 0.5
+        description: Pixel margin from frame edge for out-of-frame detection
+        reload_tier: tracker_restart
+        reboot_required: false
+        min: 0.0
+        max: 1.0
+        step: 0.01
       exit_edge_margin_pixels:
         type: integer
         default: 5
-        description: Pixel margin from frame edge for out-of-frame detection
+        description: Performance logging interval (frames between logs)
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -1085,22 +1110,45 @@ sections:
       performance_log_interval:
         type: integer
         default: 30
-        description: Performance logging interval (frames between logs)
+        description: EMA alpha for confidence smoothing (0=very smooth, 1=no smoothing)
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
         max: 1000
-        unit: frames between logs
       confidence_ema_alpha:
         type: float
         default: 0.7
-        description: EMA alpha for confidence smoothing (0=very smooth, 1=no smoothing)
+        description: '==============================================================================
+
+          # 🎯 KCF TRACKER CONFIGURATION (Kernelized Correlation Filter + Kalman)
+
+          # ==============================================================================
+
+          # Best for: High-speed tracking, CPU-limited systems, fast targets
+
+          # Performance: 25-30 FPS, ~75% success rate
+
+          # Limitations: Poor rotation invariance, moderate scale changes only
+
+          #
+
+          # Tuning Guide:
+
+          # - Target lost easily? → ↓ confidence_threshold, ↑ failure_threshold
+
+          # - Tracker too slow? → ↓ appearance_learning_rate
+
+          # - Rotation issues? → ↑ appearance_learning_rate, ↑ max_scale_change
+
+          # - Jittery tracking? → ↓ confidence_smoothing (more smoothing)
+
+          # =============================================================================='
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0=very smooth, 1=no smoothing
+        unit: fps
   KCF_Tracker:
     display_name: KCF Tracker
     category: tracking
@@ -1109,17 +1157,21 @@ sections:
       confidence_threshold:
         type: float
         default: 0.15
-        description: Min confidence to accept (0.0-1.0)
+        description: "Min confidence to accept (0.0-1.0)\n                                         # Research: 0.15-0.25 optimal\
+          \ for aerial KCF tracking\n                                         # KCF confidence scoring is less calibrated\
+          \ than CSRT\n                                         # ✅ TUNED: 0.15 (very tolerant) for fast race car tracking"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
       failure_threshold:
         type: integer
         default: 7
-        description: Consecutive failures before declaring lost
+        description: "Consecutive failures before declaring lost\n                                         # Research: 5-10\
+          \ frames optimal for KCF UAV tracking\n                                         # KCF suffers from boundary effects\
+          \ and filter corruption\n                                         # ✅ TUNED: 7 frames (~233ms at 30fps) handles\
+          \ boundary effects"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -1127,56 +1179,67 @@ sections:
       confidence_smoothing:
         type: float
         default: 0.6
-        description: EMA alpha (0.0-1.0)
+        description: "EMA alpha (0.0-1.0)\n                                         # Research: 0.5-0.7 optimal for KCF (more\
+          \ smoothing than CSRT)\n                                         # Lower = more stable (filters noise), higher =\
+          \ more responsive\n                                         # ✅ TUNED: 0.6 for heavy smoothing of noisy KCF confidence\n\
+          \n  # === Validation Limits ==="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
       max_scale_change_per_frame:
         type: float
         default: 0.6
-        description: Max size change per frame (0.0-1.0)
+        description: "Max size change per frame (0.0-1.0)\n                                         # Research: KCF requires\
+          \ aggressive scale adaptation\n                                         # 0.6 = 60% scale change allowed (generous\
+          \ for zoom)\n                                         # ✅ TUNED: 0.6 compensates for KCF's scale limitations"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
+        unit: s
       max_motion_per_frame:
         type: float
         default: 0.7
-        description: Max motion as fraction of frame diagonal
+        description: "Max motion as fraction of frame diagonal\n                                         # Research: 0.6-0.8\
+          \ optimal for high-speed aerial tracking\n                                         # KCF's expanded search region\
+          \ (2.5x target size) allows this\n                                         # ✅ TUNED: 0.7 for high-speed targets\
+          \ with expanded search\n\n  # === Appearance Adaptation ==="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
+        unit: s
       appearance_learning_rate:
         type: float
         default: 0.18
-        description: Adaptive learning speed (0.0-1.0)
+        description: "Adaptive learning speed (0.0-1.0)\n                                         # Research: 0.15-0.25 optimal\
+          \ for KCF aerial tracking\n                                         # Higher = faster adaptation (compensates for\
+          \ rotation)\n                                         # ✅ TUNED: 0.18 (aggressive) for rotation tolerance\n\n  #\
+          \ === Internal Kalman Filter Parameters ===\n  # These control the internal 4D Kalman filter (state: x, y, vx, vy)"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
       kalman_process_noise:
         type: float
         default: 0.1
-        description: Process noise (Q matrix multiplier)
+        description: "Process noise (Q matrix multiplier)\n                                         # Lower = trust motion\
+          \ model more, higher = trust measurements"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: q matrix multiplier
       kalman_velocity_noise_factor:
         type: float
         default: 0.5
-        description: Velocity noise relative to position noise
+        description: "Velocity noise relative to position noise\n                                         # Lower = smoother\
+          \ velocity estimates"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1185,27 +1248,30 @@ sections:
       kalman_measurement_noise:
         type: float
         default: 5.0
-        description: Measurement noise (R matrix, ~pixels)
+        description: "Measurement noise (R matrix, ~pixels)\n                                         # Typical sensor uncertainty\
+          \ in pixels"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 100.0
         step: 0.1
-        unit: r matrix, ~pixels
+        unit: px
       kalman_initial_covariance:
         type: float
         default: 10.0
-        description: Initial state covariance (P matrix)
+        description: "Initial state covariance (P matrix)\n                                         # Higher = less confident\
+          \ in initial state\n\n  # === Motion Consistency Threshold (Research-Optimized) ==="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 100.0
         step: 0.1
-        unit: p matrix
       motion_consistency_threshold:
         type: float
         default: 0.15
-        description: Max motion as fraction of frame diagonal
+        description: "Max motion as fraction of frame diagonal\n                                         # Research: 0.7 (1541px\
+          \ on 640x480) is 6x too permissive\n                                         # ✅ TUNED: 0.15 (~120px) for accurate\
+          \ frame-to-frame validation\n\n  # === Velocity-Based Occlusion Recovery ==="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1214,19 +1280,20 @@ sections:
       use_velocity_during_occlusion:
         type: boolean
         default: true
-        description: Use Kalman velocity for position extrapolation
+        description: "Use Kalman velocity for position extrapolation\n                                         # Improves\
+          \ recovery accuracy by 15-25%"
         reload_tier: tracker_restart
         reboot_required: false
       occlusion_velocity_factor:
         type: float
         default: 0.5
-        description: Conservative extrapolation (50% of velocity)
+        description: "Conservative extrapolation (50% of velocity)\n                                         # Prevents overshooting\
+          \ during occlusion\n\n  # === Asymmetric Kalman Initial Covariance ==="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 50% of velocity
       kalman_initial_position_covariance:
         type: float
         default: 10.0
@@ -1240,13 +1307,39 @@ sections:
       kalman_initial_velocity_covariance:
         type: float
         default: 100.0
-        description: 'Velocity: low confidence (unknown at start)'
+        description: "Velocity: low confidence (unknown at start)\n\n  # === Research-Based Tuning Presets ===\n  # \U0001F3CE\
+          ️ HIGH-SPEED RACE CARS (Current Config - Optimized):\n  #   confidence_threshold: 0.15, failure_threshold: 7, appearance_learning_rate:\
+          \ 0.18\n  #   confidence_smoothing: 0.6, max_motion_per_frame: 0.7\n  #\n  # \U0001F681 DRONE-TO-DRONE TRACKING:\n\
+          \  #   confidence_threshold: 0.12, failure_threshold: 10, appearance_learning_rate: 0.20\n  #   max_scale_change_per_frame:\
+          \ 0.7, max_motion_per_frame: 0.8\n  #\n  # \U0001F4BB CPU-LIMITED (Raspberry Pi):\n  #   confidence_threshold: 0.20,\
+          \ failure_threshold: 5, appearance_learning_rate: 0.12\n  #   confidence_smoothing: 0.5\n\n# ==============================================================================\n\
+          # \U0001F3AF CSRT TRACKER CONFIGURATION (Channel and Spatial Reliability Tracker)\n# ==============================================================================\n\
+          # Best for: Rotation, perspective changes, drone circling targets\n# Performance: 15-20 FPS, ~85% success rate\n\
+          # Strengths: Rotation-invariant, excellent scale adaptation, occlusion handling\n#\n# ==============================================================================\n\
+          # \U0001F680 SIMPLE PERFORMANCE MODE - Choose based on your system:\n# ==============================================================================\n\
+          #\n# \"legacy\"    - ORIGINAL CSRT (15-20 FPS) \U0001F527 CLASSIC\n#               ✅ Exact original implementation\
+          \ (proven stable)\n#               ✅ Zero overhead, maximum compatibility\n#               ✅ Always starts reliably\
+          \ when you click\n#               ⚠️ May lose track during fast rotation/occlusions\n#               Best for: Want\
+          \ original behavior, maximum speed\n#\n# \"balanced\"  - RECOMMENDED (12-18 FPS) ⭐ DEFAULT\n#               ✅ Reliable\
+          \ startup with grace period\n#               ✅ Smooth confidence tracking (EMA filtering)\n#               ✅ Good\
+          \ for drone circling targets\n#               ✅ Best speed/accuracy trade-off\n#               Best for: Most use\
+          \ cases, general purpose\n#\n# \"robust\"    - PROFESSIONAL (10-15 FPS) \U0001F4AA ADVANCED\n#               ✅ Multi-frame\
+          \ failure tolerance\n#               ✅ Motion/scale validation against Kalman estimator\n#               ✅ Adaptive\
+          \ appearance learning\n#               ✅ Maximum stability during challenging scenarios\n#               ⚠️ Requires\
+          \ more CPU resources\n#               Best for: Critical missions, powerful hardware\n#\n# =============================================================================="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 100.0
         step: 0.1
-        unit: unknown at start
+        options:
+        - value: legacy
+          label: legacy
+        - value: balanced
+          label: balanced
+        - value: robust
+          label: robust
+        unit: fps
   CSRT_Tracker:
     display_name: CSRT Tracker
     category: tracking
@@ -1255,23 +1348,29 @@ sections:
       performance_mode:
         type: string
         default: robust
-        description: 'Choose: "legacy", "balanced", or "robust"'
+        description: "Choose: \"legacy\", \"balanced\", or \"robust\"\n                                         # ⭐ OPTIMIZED\
+          \ FOR: Aerial drone tracking race cars\n\n  # === Advanced Parameters (Research-Optimized for Aerial Tracking) ===\n\
+          \  # ℹ️ Based on IEEE 2020-2024 aerial tracking research\n  # ✅ Optimized for: Ground vehicles from aerial view,\
+          \ perspective changes"
         reload_tier: tracker_restart
         reboot_required: false
       confidence_threshold:
         type: float
         default: 0.45
-        description: Min confidence to accept (0.0-1.0)
+        description: "Min confidence to accept (0.0-1.0)\n                                         # Research: 0.4-0.5 optimal\
+          \ for aerial ground targets\n                                         # Auto: legacy=0.6, balanced=0.5, robust=0.4\n\
+          \                                         # ✅ TUNED: 0.45 for race car tracking (moderate tolerance)"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
       failure_threshold:
         type: integer
         default: 5
-        description: Consecutive failures before declaring lost
+        description: "Consecutive failures before declaring lost\n                                         # Research: 3-7\
+          \ frames optimal for UAV tracking\n                                         # ✅ TUNED: 5 frames (~166ms at 30fps)\
+          \ handles transient occlusions"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -1279,17 +1378,19 @@ sections:
       confidence_smoothing:
         type: float
         default: 0.7
-        description: EMA alpha (0.0-1.0)
+        description: "EMA alpha (0.0-1.0)\n                                         # Research: 0.6-0.8 optimal for aerial\
+          \ platforms\n                                         # ✅ TUNED: 0.7 balances responsiveness with stability"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
       validation_start_frame:
         type: integer
         default: 10
-        description: Grace period before validation starts
+        description: "Grace period before validation starts\n                                         # Research: 5-15 frames\
+          \ needed for filter convergence\n                                         # ⚠️ Critical for reliable lock-on from\
+          \ user ROI selection\n                                         # ✅ TUNED: 10 frames (~333ms) for stable initialization"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -1297,17 +1398,20 @@ sections:
       max_scale_change_per_frame:
         type: float
         default: 0.5
-        description: Max size change per frame (0.0-1.0)
+        description: "Max size change per frame (0.0-1.0)\n                                         # Research: 0.4-0.6 optimal\
+          \ for aerial zoom changes\n                                         # ✅ TUNED: 0.5 (50% change) handles altitude\
+          \ variations"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
       max_motion_per_frame:
         type: float
         default: 0.6
-        description: Max motion as fraction of frame diagonal
+        description: "Max motion as fraction of frame diagonal\n                                         # Research: 0.5-0.7\
+          \ optimal for fast-moving targets\n                                         # Accounts for: race car speed + drone\
+          \ camera motion\n                                         # ✅ TUNED: 0.6 for high-speed race car tracking"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1316,27 +1420,27 @@ sections:
       appearance_learning_rate:
         type: float
         default: 0.1
-        description: Adaptive learning speed (0.0-1.0)
+        description: "Adaptive learning speed (0.0-1.0)\n                                         # Research: 0.08-0.15 optimal\
+          \ for aerial tracking\n                                         # ✅ TUNED: 0.10 for gradual appearance adaptation\n\
+          \n  # === OpenCV CSRT Advanced Parameters (CVPR 2017 Research-Optimized) ===\n  # These configure the internal OpenCV\
+          \ CSRT algorithm for improved accuracy"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
       use_color_names:
         type: boolean
         default: true
         description: ColorNames features (+5-8% accuracy for colored targets)
         reload_tier: tracker_restart
         reboot_required: false
-        unit: +5-8% accuracy for colored targets
       use_hog:
         type: boolean
         default: true
         description: HOG features (essential for shape-based tracking)
         reload_tier: tracker_restart
         reboot_required: false
-        unit: essential for shape-based tracking
       csrt_learning_rate:
         type: float
         default: 0.02
@@ -1346,7 +1450,6 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.02 faster than default 0.015
       number_of_scales:
         type: integer
         default: 33
@@ -1355,7 +1458,6 @@ sections:
         reboot_required: false
         min: 0
         max: 1000
-        unit: 33 for finer scale precision
       scale_step:
         type: float
         default: 1.02
@@ -1365,17 +1467,17 @@ sections:
         min: 0.0
         max: 100.0
         step: 0.1
-        unit: 1.02 for smooth adaptation
       use_segmentation:
         type: boolean
         default: true
-        description: Foreground/background segmentation
+        description: "Foreground/background segmentation\n\n  # === Appearance Model Drift Protection ==="
         reload_tier: tracker_restart
         reboot_required: false
       appearance_update_min_confidence:
         type: float
         default: 0.55
-        description: Only update appearance when conf > this
+        description: "Only update appearance when conf > this\n                                         # Prevents template\
+          \ corruption during occlusions\n\n  # === Multi-Frame Validation Consensus ==="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1390,11 +1492,96 @@ sections:
       validation_consensus_frames:
         type: integer
         default: 3
-        description: Frames required for consensus
+        description: 'Frames required for consensus
+
+
+          # ==============================================================================
+
+          # 🎯 DLIB TRACKER CONFIGURATION (dlib Correlation Filter Tracker)
+
+          # ==============================================================================
+
+          # Best for: Fast tracking, high FPS requirements, CPU-constrained systems
+
+          # Performance: 25-30 FPS, ~85% success rate
+
+          # Strengths: Fast correlation filter, good out-of-the-box performance, PSR confidence
+
+          # Limitations: Limited rotation invariance, moderate occlusion handling
+
+          #
+
+          # Algorithm: Based on Danelljan et al. 2014 DSST (Discriminative Scale Space Tracker)
+
+          #            Built on Bolme et al. 2010 MOSSE (Minimum Output Sum of Squared Error)
+
+          #
+
+          # ==============================================================================
+
+          # 🚀 SIMPLE PERFORMANCE MODE - Choose based on your needs:
+
+          # ==============================================================================
+
+          #
+
+          # "fast"      - MAXIMUM SPEED (25-30 FPS) ⚡ HIGH-FPS
+
+          #               ✅ Minimal validation overhead
+
+          #               ✅ Direct PSR-based confidence
+
+          #               ✅ Best for high-speed targets
+
+          #               ⚠️ May lose track on rapid rotation
+
+          #               Best for: High FPS requirements, fast-moving targets
+
+          #
+
+          # "balanced"  - RECOMMENDED (18-25 FPS) ⭐ DEFAULT
+
+          #               ✅ PSR confidence monitoring with smoothing
+
+          #               ✅ Startup grace period for reliable tracking
+
+          #               ✅ Good accuracy/speed trade-off
+
+          #               ✅ Works well with aerial drone tracking
+
+          #               Best for: Most use cases, general purpose
+
+          #
+
+          # "robust"    - MAXIMUM STABILITY (12-18 FPS) 💪 ADVANCED
+
+          #               ✅ Full motion/scale validation
+
+          #               ✅ Kalman estimator cross-validation
+
+          #               ✅ Adaptive appearance learning
+
+          #               ✅ Best for challenging scenarios
+
+          #               ⚠️ Requires more CPU resources
+
+          #               Best for: Critical missions, powerful hardware
+
+          #
+
+          # =============================================================================='
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
         max: 100
+        options:
+        - value: fast
+          label: fast
+        - value: balanced
+          label: balanced
+        - value: robust
+          label: robust
+        unit: fps
   DLIB_Tracker:
     display_name: dlib Tracker
     category: tracking
@@ -1403,13 +1590,23 @@ sections:
       performance_mode:
         type: string
         default: robust
-        description: 'Choose: "fast", "balanced", or "robust"'
+        description: performance_mode parameter
         reload_tier: tracker_restart
         reboot_required: false
+        options:
+        - value: Choose
+          label: Choose
+        - value: robust
+          label: robust
+        - value: loss
+          label: loss
       psr_confidence_threshold:
         type: float
         default: 7.0
-        description: Min PSR for reliable tracking
+        description: "Min PSR for reliable tracking\n                                         # Research: PSR = 7.0 recommended\
+          \ by Bolme et al. (CVPR 2010)\n                                         # Aerial tracking: 5.0-8.0 optimal range\n\
+          \                                         # Auto: fast=5.0, balanced=7.0, robust=7.0\n                         \
+          \                # ✅ TUNED: 7.0 (research standard) for balanced reliability"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1418,7 +1615,9 @@ sections:
       psr_high_confidence:
         type: float
         default: 20.0
-        description: PSR above this = excellent tracking
+        description: "PSR above this = excellent tracking\n                                         # Research: PSR > 20 indicates\
+          \ very strong correlation peak\n                                         # ✅ TUNED: 20.0 (research standard) for\
+          \ normalization"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1427,16 +1626,23 @@ sections:
       psr_low_confidence:
         type: float
         default: 5.0
-        description: PSR below this = poor tracking
+        description: psr_low_confidence parameter
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 100.0
         step: 0.1
+        options:
+        - value: PSR
+          label: PSR
+        - value: tracking
+          label: tracking
       failure_threshold:
         type: integer
         default: 5
-        description: Consecutive failures before declaring lost
+        description: "Consecutive failures before declaring lost\n                                         # Research: 3-7\
+          \ frames optimal for correlation filters\n                                         # Auto: fast=3, balanced=5, robust=5\n\
+          \                                         # ✅ TUNED: 5 frames (balances robustness with responsiveness)"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -1444,7 +1650,10 @@ sections:
       confidence_smoothing_alpha:
         type: float
         default: 0.7
-        description: EMA (Exponential Moving Average) alpha
+        description: "EMA (Exponential Moving Average) alpha\n                                         # Research: 0.6-0.8\
+          \ optimal for aerial platforms\n                                         # Only used in balanced/robust modes\n\
+          \                                         # ✅ TUNED: 0.7 for balanced PSR smoothing\n\n  # === Validation & Robustness\
+          \ (Robust Mode Only) ==="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1453,7 +1662,10 @@ sections:
       validation_start_frame:
         type: integer
         default: 10
-        description: Grace period before validation starts
+        description: "Grace period before validation starts\n                                         # Research: 5-15 frames\
+          \ for MOSSE/DSST convergence\n                                         # ⚠️ Critical for reliable startup!\n   \
+          \                                      # Auto: fast=999999, balanced=10, robust=5\n                            \
+          \             # ✅ TUNED: 10 frames (~333ms at 30fps)"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -1461,42 +1673,60 @@ sections:
       max_scale_change_per_frame:
         type: float
         default: 0.5
-        description: Max size change per frame (0.0-1.0)
+        description: "Max size change per frame (0.0-1.0)\n                                         # Research: 0.4-0.6 optimal\
+          \ for aerial tracking\n                                         # DSST uses 33 scale levels with factor a=1.02 (research\
+          \ std)\n                                         # ✅ TUNED: 0.5 for moderate aerial zoom tolerance"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
       max_motion_per_frame:
         type: float
         default: 0.6
-        description: Max motion as fraction of frame diagonal
+        description: "Max motion as fraction of frame diagonal\n                                         # Research: 0.5-0.7\
+          \ optimal for fast targets\n                                         # MOSSE achieves hundreds of FPS, can handle\
+          \ fast motion\n                                         # ✅ TUNED: 0.6 for high-speed race car tracking\n\n  # ===\
+          \ Appearance Adaptation ==="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
+        unit: fps
       appearance_learning_rate:
         type: float
         default: 0.08
-        description: Template update learning rate (0.0-1.0)
+        description: "Template update learning rate (0.0-1.0)\n                                         # Research: 0.08-0.15\
+          \ optimal for aerial tracking\n                                         # DSST research: spatial filter η=0.012,\
+          \ scale filter η=0.025\n                                         # Auto: fast=0.08, balanced=0.08, robust=0.08\n\
+          \                                         # ✅ TUNED: 0.08 for balanced adaptation (slightly conservative)\n\n  #\
+          \ === Template Matching Re-detection Integration ==="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
       enable_template_redetection:
         type: boolean
         default: true
-        description: Use template matching for recovery
+        description: "Use template matching for recovery\n                                         # Research: Multi-scale\
+          \ NCC for re-detection (UAV tracking papers)\n                                         # ✅ RECOMMENDED: true for\
+          \ robust tracking"
         reload_tier: tracker_restart
         reboot_required: false
       redetection_psr_threshold:
         type: float
         default: 5.0
-        description: Trigger re-detection below this PSR
+        description: "Trigger re-detection below this PSR\n                                         # Research: Should match\
+          \ psr_low_confidence threshold\n                                         # ✅ TUNED: 5.0 (matches research standard\
+          \ for failure)\n\n  # ==============================================================================\n  # \U0001F52C\
+          \ ADVANCED FEATURES (Enhanced Robustness & Adaptability)\n  # ==============================================================================\n\
+          \  # The following features implement state-of-the-art correlation filter techniques\n  # based on recent research\
+          \ in adaptive tracking and template management\n\n  # === Adaptive PSR System (Dynamic Threshold Adjustment) ===\n\
+          \  # Automatically adjusts PSR thresholds based on tracking history\n  # Research: Adaptive thresholding improves\
+          \ robustness in varying conditions\n  # Reference: Zhang et al. \"Adaptive Correlation Filters with Long-Term and\
+          \ Short-Term Memory\" IJCV 2018"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1509,9 +1739,7 @@ sections:
           psr_dynamic_scaling: true
           adapt_rate: 0.15
           psr_margin: 1.5
-        description: 'Automatically adjusts PSR thresholds based on tracking history Research: Adaptive thresholding improves
-          robustness in varying conditions Reference: Zhang et al. "Adaptive Correlation Filters with Long-Term and Short-Term
-          Memory" IJCV 2018'
+        description: adaptive parameter
         reload_tier: tracker_restart
         reboot_required: false
       appearance:
@@ -1523,9 +1751,7 @@ sections:
           - 0.15
           freeze_on_low_confidence: true
           reference_update_interval: 30
-        description: 'Advanced template update strategies for long-term tracking stability Research: Adaptive learning prevents
-          template drift and corruption Reference: Danelljan et al. "Learning Spatially Regularized Correlation Filters" ICCV
-          2015'
+        description: appearance parameter
         reload_tier: tracker_restart
         reboot_required: false
       motion:
@@ -1535,8 +1761,7 @@ sections:
           velocity_normalize_by_size: true
           max_velocity_target_factor: 2.0
           stabilization_alpha: 0.3
-        description: 'Advanced motion filtering and validation for smooth, reliable tracking Research: Temporal consistency
-          improves tracking in noisy conditions'
+        description: motion parameter
         reload_tier: tracker_restart
         reboot_required: false
       validation:
@@ -1544,7 +1769,7 @@ sections:
         default:
           reinit_on_loss: true
           cooldown_after_reinit: 5
-        description: Smart validation and recovery mechanisms for handling tracking loss
+        description: validation parameter
         reload_tier: tracker_restart
         reboot_required: false
       debug:
@@ -1552,7 +1777,7 @@ sections:
         default:
           enable_visual_feedback: true
           show_motion_vectors: false
-        description: Visual feedback for tracking quality monitoring
+        description: debug parameter
         reload_tier: tracker_restart
         reboot_required: false
   SmartTracker:
@@ -1563,13 +1788,13 @@ sections:
       SMART_TRACKER_ENABLED:
         type: boolean
         default: true
-        description: '🤖 Enable AI-powered object tracking Options: ultralytics'
+        description: "=== Detection Backend ===\n  # Which inference engine to use for object detection.\n  # Options: ultralytics"
         reload_tier: tracker_restart
         reboot_required: false
       DETECTION_BACKEND:
         type: string
         default: ultralytics
-        description: 'Which inference engine to use for object detection. Options: ultralytics'
+        description: === Hardware Selection ===
         reload_tier: tracker_restart
         reboot_required: false
       SMART_TRACKER_USE_GPU:
@@ -1582,7 +1807,8 @@ sections:
       SMART_TRACKER_FALLBACK_TO_CPU:
         type: boolean
         default: true
-        description: Fall back if GPU fails
+        description: "Fall back if GPU fails\n\n  # === Model Paths ===\n  # \U0001F4C1 Use add_model.py to download/convert\
+          \ models\n  # Simply replace these paths with your custom-trained detection model"
         reload_tier: tracker_restart
         reboot_required: false
       SMART_TRACKER_GPU_MODEL_PATH:
@@ -1594,7 +1820,7 @@ sections:
       SMART_TRACKER_CPU_MODEL_PATH:
         type: string
         default: models/yolo26n_ncnn_model
-        description: Optimized for ARM
+        description: "Optimized for ARM\n\n  # === Detection Parameters ==="
         reload_tier: system_restart
         reboot_required: true
       SMART_TRACKER_CONFIDENCE_THRESHOLD:
@@ -1606,7 +1832,6 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
         recommended_min: 0.15
         recommended_max: 0.7
       SMART_TRACKER_IOU_THRESHOLD:
@@ -1618,7 +1843,6 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
         recommended_min: 0.2
         recommended_max: 0.6
       SMART_TRACKER_MAX_DETECTIONS:
@@ -1691,7 +1915,7 @@ sections:
       SMART_TRACKER_OBB_AUTO_DISABLE_ERROR_RATE:
         type: float
         default: 0.001
-        description: Circuit breaker threshold
+        description: "Circuit breaker threshold\n\n  # === Visual Settings ==="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1709,11 +1933,10 @@ sections:
         item_type: number
         min_items: 0
         max_items: 20
-        unit: legacy, unused in military hud
       SMART_TRACKER_SHOW_FPS:
         type: boolean
         default: false
-        description: SMART_TRACKER_SHOW_FPS parameter
+        description: === HUD Style ===
         reload_tier: tracker_restart
         reboot_required: false
       SMART_TRACKER_HUD_STYLE:
@@ -1762,15 +1985,27 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
         recommended_min: 0.4
         recommended_max: 0.9
       SMART_TRACKER_SHOW_PASSIVE_LABELS:
         type: boolean
         default: true
-        description: Labels on untracked detections
+        description: "Labels on untracked detections\n\n  # ==============================================================================\n\
+          \  # \U0001F3AF TRACKER TYPE SELECTION (Choose Your Tracking Strategy)\n  # ==============================================================================\n\
+          \  #\n  # \U0001F4CA DECISION GUIDE:\n  #\n  # GPU System + Internet Access + Long Occlusions:\n  #   → Use \"botsort_reid\"\
+          \ (best accuracy, Ultralytics native ReID)\n  #\n  # CPU System / Raspberry Pi + Long Occlusions:\n  #   → Use \"\
+          custom_reid\" (lightweight, works offline, good re-ID on CPU)\n  #\n  # Air-gapped / Offline Drone:\n  #   → Use\
+          \ \"custom_reid\" (no internet needed, fully offline)\n  #\n  # High FPS Required (>30 FPS):\n  #   → Use \"bytetrack\"\
+          \ (fastest, disable ReID for maximum speed)\n  #\n  # Balanced Performance + Better Persistence:\n  #   → Use \"\
+          botsort\" (better than ByteTrack, no ReID overhead)\n  #\n  # \U0001F4CA PERFORMANCE COMPARISON:\n  #\n  # Tracker\
+          \ Type    | FPS Impact | ReID Quality | Offline | GPU Needed | Ultralytics v8.3.114+\n  # ----------------|------------|--------------|---------|------------|----------------------\n\
+          \  # bytetrack       | 0%         | None         | ✓       | No         | Any version\n  # botsort         | -3-5%\
+          \      | Low          | ✓       | No         | Any version\n  # botsort_reid    | -5-8%      | Excellent    | ✗\
+          \       | Recommended| Required\n  # custom_reid     | -8-12%     | Good         | ✓       | No         | Any version\n\
+          \  #"
         reload_tier: tracker_restart
         reboot_required: false
+        unit: fps
       TRACKER_TYPE:
         type: string
         default: botsort_reid
@@ -1793,15 +2028,16 @@ sections:
       BOTSORT_REID_MODEL:
         type: string
         default: auto
-        description: 'ReID embedding model selection "auto": Uses native YOLO features (fastest, zero overhead, RECOMMENDED)
-          "yolo11n-cls.pt": Classification model (better accuracy, +2-5ms latency) Custom path: Your own ReID embedding model'
+        description: "Appearance similarity threshold for ReID matching\n  # Lower = stricter matching (fewer false positives,\
+          \ may miss correct matches)\n  # Higher = more lenient (more false positives, better recall)\n  # ⚠️ NOTE: Opposite\
+          \ direction from APPEARANCE_MATCH_THRESHOLD!\n  # Recommended: 0.20-0.30"
         reload_tier: tracker_restart
         reboot_required: false
       BOTSORT_APPEARANCE_THRESH:
         type: float
         default: 0.25
-        description: 'Lower = stricter matching (fewer false positives, may miss correct matches) Higher = more lenient (more
-          false positives, better recall) ⚠️ NOTE: Opposite direction from APPEARANCE_MATCH_THRESHOLD! Recommended: 0.20-0.30'
+        description: "IoU (geometric proximity) threshold for matching\n  # Works alongside appearance threshold\n  # Recommended:\
+          \ 0.4-0.6"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1810,27 +2046,28 @@ sections:
       BOTSORT_PROXIMITY_THRESH:
         type: float
         default: 0.5
-        description: 'IoU (geometric proximity) threshold for matching Works alongside appearance threshold Recommended: 0.4-0.6'
+        description: "Number of frames to remember lost tracks (for re-identification)\n  # Higher = can recover after longer\
+          \ occlusions (uses more memory)\n  # Recommended: 30-120 frames\n  # 30 ≈ 1 second, 60 ≈ 2 seconds, 120 ≈ 4 seconds\
+          \ at 30 FPS"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
+        unit: s
       BOTSORT_TRACK_BUFFER:
         type: integer
         default: 60
-        description: 'Number of frames to remember lost tracks (for re-identification) Higher = can recover after longer occlusions
-          (uses more memory) Recommended: 30-120 frames 30 ≈ 1 second, 60 ≈ 2 seconds, 120 ≈ 4 seconds at 30 FPS'
+        description: "IoU threshold for matching detections to existing tracks\n  # Higher = stricter (fewer ID switches)\n\
+          \  # Lower = more lenient (better recovery)\n  # Recommended: 0.7-0.9"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
         max: 1000
-        unit: s
       BOTSORT_MATCH_THRESH:
         type: float
         default: 0.8
-        description: 'IoU threshold for matching detections to existing tracks Higher = stricter (fewer ID switches) Lower
-          = more lenient (better recovery) Recommended: 0.7-0.9'
+        description: "High confidence detection threshold (first association pass)\n  # Recommended: 0.20-0.30"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1839,7 +2076,7 @@ sections:
       BOTSORT_TRACK_HIGH_THRESH:
         type: float
         default: 0.25
-        description: 'High confidence detection threshold (first association pass) Recommended: 0.20-0.30'
+        description: "Low confidence detection threshold (recovery pass)\n  # Recommended: 0.05-0.15"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1848,7 +2085,8 @@ sections:
       BOTSORT_TRACK_LOW_THRESH:
         type: float
         default: 0.1
-        description: 'Low confidence detection threshold (recovery pass) Recommended: 0.05-0.15'
+        description: "Minimum confidence for creating new tracks\n  # Lower = easier to start tracking\n  # Higher = only\
+          \ track high-confidence objects\n  # Recommended: 0.20-0.30"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1857,8 +2095,8 @@ sections:
       BOTSORT_NEW_TRACK_THRESH:
         type: float
         default: 0.25
-        description: 'Minimum confidence for creating new tracks Lower = easier to start tracking Higher = only track high-confidence
-          objects Recommended: 0.20-0.30'
+        description: "Fuse detection confidence with IoU during matching\n  # true = better discrimination (recommended)\n\
+          \  # false = pure geometric matching"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1867,40 +2105,40 @@ sections:
       BOTSORT_FUSE_SCORE:
         type: boolean
         default: true
-        description: Fuse detection confidence with IoU during matching true = better discrimination (recommended) false =
-          pure geometric matching
+        description: "Camera motion compensation method\n  # \"sparseOptFlow\": Optical flow-based (recommended)\n  # \"none\"\
+          : Disable (use if camera is stationary)"
         reload_tier: tracker_restart
         reboot_required: false
       BOTSORT_CMC_METHOD:
         type: string
         default: sparseOptFlow
-        description: 'Camera motion compensation method "sparseOptFlow": Optical flow-based (recommended) "none": Disable
-          (use if camera is stationary)'
-        reload_tier: tracker_restart
-        reboot_required: false
-        unit: use if camera is stationary
-      TRACKING_STRATEGY:
-        type: string
-        default: hybrid
-        description: 'How to match tracked object across frames when ID changes - "id_only": Strict ID matching (fastest,
-          but loses track on ID change) - "spatial_only": Position-based matching using IoU (works without IDs) - "hybrid":
-          ID first, falls back to spatial matching (RECOMMENDED)'
+        description: "==============================================================================\n  # \U0001F3AF ID TRACKING\
+          \ ROBUSTNESS (Hybrid Strategy - Works with All Tracker Types)\n  # ==============================================================================\n\
+          \  # These parameters make tracking more robust when objects temporarily disappear\n  # or when YOLO assigns new\
+          \ IDs to the same object\n\n  # === Tracking Strategy ===\n  # How to match tracked object across frames when ID\
+          \ changes\n  # - \"id_only\": Strict ID matching (fastest, but loses track on ID change)\n  # - \"spatial_only\"\
+          : Position-based matching using IoU (works without IDs)\n  # - \"hybrid\": ID first, falls back to spatial matching\
+          \ (RECOMMENDED)"
         reload_tier: tracker_restart
         reboot_required: false
         unit: recommended
+      TRACKING_STRATEGY:
+        type: string
+        default: hybrid
+        description: "=== ID Loss Tolerance ===\n  # Number of frames to maintain tracking after losing track ID\n  # Useful\
+          \ when object is briefly occluded or detector misses 1-2 frames\n  # Higher = more forgiving, Lower = stricter (re-select\
+          \ needed sooner)\n  # Recommended: 5-10 frames for drone tracking"
+        reload_tier: tracker_restart
+        reboot_required: false
       ID_LOSS_TOLERANCE_FRAMES:
         type: integer
         default: 5
-        description: ID_LOSS_TOLERANCE_FRAMES parameter
+        description: "=== Graceful Degradation (Robustness Enhancement) ===\n  # Multi-level fallback strategy when YOLO detection\
+          \ fails"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
         max: 100
-        options:
-        - value: Number
-          label: Number
-        - value: detector
-          label: detector
       ENABLE_GRACEFUL_DEGRADATION:
         type: boolean
         default: true
@@ -1910,7 +2148,8 @@ sections:
       EXTENDED_TOLERANCE_FRAMES:
         type: integer
         default: 10
-        description: Additional frames beyond ID_LOSS_TOLERANCE
+        description: "Additional frames beyond ID_LOSS_TOLERANCE\n                                         # During this period:\
+          \ lenient matching + prediction-only mode\n\n  # === Track Confidence Aging ==="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -1918,17 +2157,20 @@ sections:
       TRACK_CONFIDENCE_DECAY_RATE:
         type: float
         default: 0.05
-        description: Decay rate per frame without detection (5%)
+        description: "Decay rate per frame without detection (5%)\n                                         # Old unconfirmed\
+          \ tracks have lower confidence\n\n  # === Appearance Model Memory Cap ==="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 5%
       MAX_LOST_OBJECTS_CACHED:
         type: integer
         default: 100
-        description: Maximum objects in re-ID memory
+        description: "Maximum objects in re-ID memory\n                                         # Prevents unbounded memory\
+          \ growth\n\n  # === Spatial Matching ===\n  # IoU threshold for matching by position when ID is lost\n  # Higher\
+          \ = stricter matching (less false positives)\n  # Lower = more lenient (might match wrong object)\n  # Range: 0.0-1.0,\
+          \ Recommended: 0.3-0.5"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -1936,8 +2178,9 @@ sections:
       SPATIAL_IOU_THRESHOLD:
         type: float
         default: 0.35
-        description: 'IoU threshold for matching by position when ID is lost Higher = stricter matching (less false positives)
-          Lower = more lenient (might match wrong object) Range: 0.0-1.0, Recommended: 0.3-0.5'
+        description: "=== Motion Prediction ===\n  # Use velocity-based prediction to estimate object location during occlusion\n\
+          \  # Helps find object even if it moves while temporarily invisible\n  # true = more robust to occlusions, false\
+          \ = simpler/faster"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1946,15 +2189,17 @@ sections:
       ENABLE_PREDICTION_BUFFER:
         type: boolean
         default: true
-        description: Use velocity-based prediction to estimate object location during occlusion Helps find object even if
-          it moves while temporarily invisible true = more robust to occlusions, false = simpler/faster
+        description: "=== Confidence Smoothing ===\n  # Apply exponential moving average to detection confidence\n  # Reduces\
+          \ jitter from frame-to-frame confidence variations\n  # Higher = more smoothing, Lower = more responsive\n  # Range:\
+          \ 0.0-1.0, Recommended: 0.7-0.9"
         reload_tier: tracker_restart
         reboot_required: false
       CONFIDENCE_SMOOTHING_ALPHA:
         type: float
         default: 0.8
-        description: 'Apply exponential moving average to detection confidence Reduces jitter from frame-to-frame confidence
-          variations Higher = more smoothing, Lower = more responsive Range: 0.0-1.0, Recommended: 0.7-0.9'
+        description: "=== Kalman Filter State Estimator ===\n  # Replaces simple motion prediction with a proper Kalman filter\
+          \ for continuous\n  # position estimation during occlusion. Uses the same constant-velocity model\n  # as SORT,\
+          \ DeepSORT, and ByteTrack. Provides continuous prediction without\n  # the 5-frame limit of the legacy MotionPredictor."
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -1963,9 +2208,7 @@ sections:
       ENABLE_KALMAN_FILTER:
         type: boolean
         default: true
-        description: Replaces simple motion prediction with a proper Kalman filter for continuous position estimation during
-          occlusion. Uses the same constant-velocity model as SORT, DeepSORT, and ByteTrack. Provides continuous prediction
-          without the 5-frame limit of the legacy MotionPredictor.
+        description: ENABLE_KALMAN_FILTER parameter
         reload_tier: tracker_restart
         reboot_required: false
       KALMAN_PROCESS_NOISE:
@@ -1977,28 +2220,29 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: higher = trust model less
       KALMAN_MEASUREMENT_NOISE:
         type: float
         default: 1.0
-        description: Measurement noise scale (higher = trust detections less)
+        description: "Measurement noise scale (higher = trust detections less)\n\n  # === Center-Distance Matching ===\n \
+          \ # Fallback when IoU is zero (fast-moving objects that displaced beyond overlap).\n  # Matches by Euclidean center\
+          \ distance normalized to object diagonal.\n  # Threshold is adaptive: expands with frames_lost * SEARCH_EXPANSION_RATE"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: higher = trust detections less
       ENABLE_CENTER_DISTANCE_MATCHING:
         type: boolean
         default: true
-        description: 'Fallback when IoU is zero (fast-moving objects that displaced beyond overlap). Matches by Euclidean
-          center distance normalized to object diagonal. Threshold is adaptive: expands with frames_lost * SEARCH_EXPANSION_RATE'
+        description: ENABLE_CENTER_DISTANCE_MATCHING parameter
         reload_tier: tracker_restart
         reboot_required: false
       CENTER_DISTANCE_THRESHOLD:
         type: float
         default: 2.0
-        description: Max center distance as multiple of object diagonal
+        description: "Max center distance as multiple of object diagonal\n\n  # === Class Flexibility ===\n  # YOLO frequently\
+          \ flickers between similar classes (car<->truck, person<->pedestrian).\n  # When enabled, tracking continues even\
+          \ if class_id changes, as long as it appeared\n  # in the recent class history buffer."
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -2007,14 +2251,15 @@ sections:
       CLASS_MATCH_FLEXIBLE:
         type: boolean
         default: true
-        description: YOLO frequently flickers between similar classes (car<->truck, person<->pedestrian). When enabled, tracking
-          continues even if class_id changes, as long as it appeared in the recent class history buffer.
+        description: CLASS_MATCH_FLEXIBLE parameter
         reload_tier: tracker_restart
         reboot_required: false
       CLASS_HISTORY_SIZE:
         type: integer
         default: 10
-        description: Number of recent class observations to remember
+        description: "Number of recent class observations to remember\n\n  # === Search Expansion During Loss ===\n  # When\
+          \ the target is lost, gradually expand the spatial search radius per frame.\n  # This handles cases where the object\
+          \ took an unpredictable path during occlusion.\n  # Expansion = min(frames_lost * rate, cap)"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -2022,7 +2267,9 @@ sections:
       SEARCH_EXPANSION_RATE:
         type: float
         default: 0.2
-        description: Bbox/distance expansion rate per frame
+        description: "Bbox/distance expansion rate per frame\n\n  # === Appearance Position Gating ===\n  # Limits appearance\
+          \ (ReID) matching to candidates within plausible distance from\n  # the predicted position. Prevents false matches\
+          \ with similar objects far away.\n  # Gate distance = object_diagonal * factor * (1 + frames_lost * expansion)"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -2031,30 +2278,33 @@ sections:
       APPEARANCE_DISTANCE_GATE_FACTOR:
         type: float
         default: 3.0
-        description: Limits appearance (ReID) matching to candidates within plausible distance from the predicted position.
-          Prevents false matches with similar objects far away. Gate distance = object_diagonal * factor * (1 + frames_lost
-          * expansion)
+        description: "==============================================================================\n  # \U0001F510 RE-ACQUISITION\
+          \ & IDENTITY VERIFICATION\n  # ==============================================================================\n\
+          \  # Controls how strictly the tracker verifies identity when re-acquiring a target\n  # after extended loss. Prevents\
+          \ false tracking of wrong objects.\n  #\n  # \"aggressive\": Accept any compatible-class match immediately (fastest\
+          \ recovery,\n  #               best when tracking generic class like \"any car\")\n  # \"balanced\":   Require size\
+          \ consistency + appearance check for distance matches\n  #               after long loss (DEFAULT — good for most\
+          \ scenarios)\n  # \"strict\":     Require appearance confirmation for ALL re-acquisitions after\n  #           \
+          \    long loss (best when tracking a specific individual)"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 100.0
         step: 0.1
-        unit: 1 + frames_lost * expansion
       REACQUISITION_MODE:
         type: string
         default: balanced
-        description: '"balanced":   Require size consistency + appearance check for distance matches after long loss (DEFAULT
-          — good for most scenarios) "strict":     Require appearance confirmation for ALL re-acquisitions after long loss
-          (best when tracking a specific individual)'
+        description: "Maximum area ratio change allowed for re-acquisition size consistency check.\n  # Detection area / reference\
+          \ area must be within [1/ratio, ratio].\n  # 2.5 = allows up to 250% area change (handles scale variation from distance)\n\
+          \  # Range: 1.5-5.0, Recommended: 2.0-3.0"
         reload_tier: tracker_restart
         reboot_required: false
-        unit: best when tracking a specific individual
       MAX_SIZE_CHANGE_RATIO:
         type: float
         default: 2.5
-        description: 'Maximum area ratio change allowed for re-acquisition size consistency check. Detection area / reference
-          area must be within [1/ratio, ratio]. 2.5 = allows up to 250% area change (handles scale variation from distance)
-          Range: 1.5-5.0, Recommended: 2.0-3.0'
+        description: "Consecutive frames a re-acquired target must be detected before confirming.\n  # Prevents committing\
+          \ to a wrong target after a single frame match.\n  # Only applies in \"balanced\" and \"strict\" modes after long\
+          \ loss.\n  # Range: 1-10, Recommended: 2-5"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -2063,9 +2313,8 @@ sections:
       REACQUISITION_CONFIRM_FRAMES:
         type: integer
         default: 3
-        description: 'Consecutive frames a re-acquired target must be detected before confirming. Prevents committing to a
-          wrong target after a single frame match. Only applies in "balanced" and "strict" modes after long loss. Range: 1-10,
-          Recommended: 2-5'
+        description: "Fraction of frame dimension to consider \"near the exit edge\" for out-of-frame return.\n  # 0.15 =\
+          \ within 15% of frame width/height from the edge where target exited.\n  # Range: 0.05-0.30, Recommended: 0.10-0.20"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -2073,8 +2322,10 @@ sections:
       EXIT_EDGE_MARGIN:
         type: float
         default: 0.15
-        description: 'Fraction of frame dimension to consider "near the exit edge" for out-of-frame return. 0.15 = within
-          15% of frame width/height from the edge where target exited. Range: 0.05-0.30, Recommended: 0.10-0.20'
+        description: "==============================================================================\n  # \U0001F527 SEARCH\
+          \ & RECOVERY TUNING\n  # ==============================================================================\n\n  # Max\
+          \ search expansion multiplier for normal spatial matching.\n  # Expansion = min(frames_lost * SEARCH_EXPANSION_RATE,\
+          \ this cap)\n  # Range: 1.0-5.0, Recommended: 1.5-3.0"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -2083,8 +2334,8 @@ sections:
       SEARCH_EXPANSION_CAP:
         type: float
         default: 2.0
-        description: 'Max search expansion multiplier for normal spatial matching. Expansion = min(frames_lost * SEARCH_EXPANSION_RATE,
-          this cap) Range: 1.0-5.0, Recommended: 1.5-3.0'
+        description: "Max search expansion multiplier for lenient recovery matching.\n  # Used during extended tolerance period\
+          \ (after ID_LOSS_TOLERANCE_FRAMES).\n  # Range: 2.0-8.0, Recommended: 2.5-4.0"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -2093,8 +2344,8 @@ sections:
       LENIENT_SEARCH_EXPANSION_CAP:
         type: float
         default: 3.0
-        description: 'Max search expansion multiplier for lenient recovery matching. Used during extended tolerance period
-          (after ID_LOSS_TOLERANCE_FRAMES). Range: 2.0-8.0, Recommended: 2.5-4.0'
+        description: "Scale factor applied to SPATIAL_IOU_THRESHOLD for lenient matching.\n  # Lenient IoU = max(LENIENT_IOU_FLOOR,\
+          \ SPATIAL_IOU_THRESHOLD * this)\n  # Range: 0.2-0.6, Recommended: 0.3-0.5"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -2103,8 +2354,8 @@ sections:
       LENIENT_IOU_SCALE:
         type: float
         default: 0.4
-        description: 'Scale factor applied to SPATIAL_IOU_THRESHOLD for lenient matching. Lenient IoU = max(LENIENT_IOU_FLOOR,
-          SPATIAL_IOU_THRESHOLD * this) Range: 0.2-0.6, Recommended: 0.3-0.5'
+        description: "Minimum IoU threshold floor during lenient recovery.\n  # Prevents threshold from dropping to near-zero.\n\
+          \  # Range: 0.05-0.20, Recommended: 0.08-0.15"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -2113,8 +2364,8 @@ sections:
       LENIENT_IOU_FLOOR:
         type: float
         default: 0.1
-        description: 'Minimum IoU threshold floor during lenient recovery. Prevents threshold from dropping to near-zero.
-          Range: 0.05-0.20, Recommended: 0.08-0.15'
+        description: "Floor confidence value in prediction-only mode (no detection, Kalman only).\n  # Prevents confidence\
+          \ from reaching zero during extended prediction.\n  # Range: 0.05-0.20, Recommended: 0.08-0.15"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -2123,8 +2374,8 @@ sections:
       MIN_PREDICTION_CONFIDENCE:
         type: float
         default: 0.1
-        description: 'Floor confidence value in prediction-only mode (no detection, Kalman only). Prevents confidence from
-          reaching zero during extended prediction. Range: 0.05-0.20, Recommended: 0.08-0.15'
+        description: "Only log re-acquisition events when target was lost for more than this many frames.\n  # Reduces log\
+          \ noise from normal 1-2 frame detection gaps.\n  # Range: 1-10, Recommended: 2-5"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -2133,17 +2384,23 @@ sections:
       REACQUISITION_LOG_THRESHOLD:
         type: integer
         default: 3
-        description: 'Only log re-acquisition events when target was lost for more than this many frames. Reduces log noise
-          from normal 1-2 frame detection gaps. Range: 1-10, Recommended: 2-5'
+        description: "==============================================================================\n  # \U0001F527 BYTETRACK\
+          \ ADVANCED TUNING\n  # ==============================================================================\n  # These\
+          \ parameters control ByteTrack's internal tracking behavior\n  # Normally you don't need to change these, but they're\
+          \ here for fine-tuning\n\n  # === Track Persistence ===\n  # Number of frames to keep track alive after losing detection\n\
+          \  # Higher = tracks survive longer occlusions\n  # Lower = faster cleanup of lost tracks\n  # Default: 30, Recommended\
+          \ for robust tracking: 50"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
         max: 100
+        unit: s
       BYTETRACK_TRACK_BUFFER:
         type: integer
         default: 50
-        description: 'Number of frames to keep track alive after losing detection Higher = tracks survive longer occlusions
-          Lower = faster cleanup of lost tracks Default: 30, Recommended for robust tracking: 50'
+        description: "=== Track Matching ===\n  # IoU threshold for matching detections to existing tracks\n  # Higher = stricter\
+          \ matching (less ID switches)\n  # Lower = more lenient (may cause ID switches)\n  # Range: 0.0-1.0, Recommended:\
+          \ 0.8"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -2151,8 +2408,9 @@ sections:
       BYTETRACK_MATCH_THRESH:
         type: float
         default: 0.8
-        description: 'IoU threshold for matching detections to existing tracks Higher = stricter matching (less ID switches)
-          Lower = more lenient (may cause ID switches) Range: 0.0-1.0, Recommended: 0.8'
+        description: "=== New Track Creation ===\n  # Confidence threshold for creating new tracks from detections\n  # Lower\
+          \ = easier to start tracking new objects (good for re-acquisition)\n  # Higher = only track high-confidence detections\
+          \ (fewer false positives)\n  # Range: 0.0-1.0, Recommended: 0.20-0.25"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -2161,9 +2419,9 @@ sections:
       BYTETRACK_NEW_TRACK_THRESH:
         type: float
         default: 0.2
-        description: 'Confidence threshold for creating new tracks from detections Lower = easier to start tracking new objects
-          (good for re-acquisition) Higher = only track high-confidence detections (fewer false positives) Range: 0.0-1.0,
-          Recommended: 0.20-0.25'
+        description: "=== High/Low Confidence Thresholds ===\n  # ByteTrack uses two-stage association (high conf → low conf)\n\
+          \  # High threshold: First association pass (confident detections)\n  # Low threshold: Second association pass (recover\
+          \ lost tracks)"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -2172,18 +2430,17 @@ sections:
       BYTETRACK_TRACK_HIGH_THRESH:
         type: float
         default: 0.25
-        description: 'ByteTrack uses two-stage association (high conf → low conf) High threshold: First association pass (confident
-          detections) Low threshold: Second association pass (recover lost tracks)'
+        description: BYTETRACK_TRACK_HIGH_THRESH parameter
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: recover lost tracks
       BYTETRACK_TRACK_LOW_THRESH:
         type: float
         default: 0.1
-        description: BYTETRACK_TRACK_LOW_THRESH parameter
+        description: "=== Score Fusion ===\n  # Combine detection confidence with IoU distance during matching\n  # true =\
+          \ better handling of similar objects\n  # false = pure geometric matching"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -2192,59 +2449,75 @@ sections:
       BYTETRACK_FUSE_SCORE:
         type: boolean
         default: true
-        description: Combine detection confidence with IoU distance during matching true = better handling of similar objects
-          false = pure geometric matching
+        description: "==============================================================================\n  # \U0001F3A8 APPEARANCE-BASED\
+          \ RE-IDENTIFICATION (Advanced Feature)\n  # ==============================================================================\n\
+          \  # Enables object re-identification after long occlusions using visual appearance\n  # Useful when object disappears\
+          \ for >5 frames and returns with different ID\n  # Maintains original track ID even after long disappearances\n\n\
+          \  # === Feature Toggle ===\n  # Set to false on low-performance boards (Raspberry Pi Zero, older ARM)\n  # Adds\
+          \ ~5-10ms per frame overhead on modern hardware"
         reload_tier: tracker_restart
         reboot_required: false
       ENABLE_APPEARANCE_MODEL:
         type: boolean
         default: true
-        description: Set to false on low-performance boards (Raspberry Pi Zero, older ARM) Adds ~5-10ms per frame overhead
-          on modern hardware
+        description: "=== Similarity Threshold ===\n  # How similar appearances must be to consider a match (0.0-1.0)\n  #\
+          \ Higher = stricter matching (fewer false positives, may miss correct matches)\n  # Lower = more lenient (more false\
+          \ positives, better recall)\n  # Recommended values:\n  #   - 0.8-0.9: Very strict (use when objects look very similar)\n\
+          \  #   - 0.6-0.7: Balanced (recommended for most scenarios)\n  #   - 0.4-0.5: Lenient (use when lighting/angle changes\
+          \ dramatically)"
         reload_tier: tracker_restart
         reboot_required: false
       APPEARANCE_MATCH_THRESHOLD:
         type: float
         default: 0.7
-        description: 'Recommended values: - 0.8-0.9: Very strict (use when objects look very similar) - 0.6-0.7: Balanced
-          (recommended for most scenarios) - 0.4-0.5: Lenient (use when lighting/angle changes dramatically)'
+        description: "=== Feature Extraction Method ===\n  # Determines what visual features are used for matching\n  # \"\
+          histogram\": Fast, color-based matching\n  #   - Best for: Objects with distinct colors\n  #   - Speed: Fastest\
+          \ (~2-3ms per object)\n  #   - Accuracy: Good for color-distinct objects\n  #   - Recommended for: Embedded systems,\
+          \ colored targets\n  #\n  # \"hog\": Shape/texture-based matching (Histogram of Oriented Gradients)\n  #   - Best\
+          \ for: Similar colors but different shapes\n  #   - Speed: Moderate (~5-7ms per object)\n  #   - Accuracy: Better\
+          \ for shape discrimination\n  #   - Recommended for: Monochrome or similar-colored objects\n  #\n  # \"hybrid\"\
+          : Combines histogram + HOG features\n  #   - Best for: Maximum accuracy in challenging scenarios\n  #   - Speed:\
+          \ Slower (~8-10ms per object)\n  #   - Accuracy: Highest overall\n  #   - Recommended for: Powerful hardware, critical\
+          \ applications"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: use when lighting/angle changes dramatically
       APPEARANCE_FEATURE_TYPE:
         type: string
         default: histogram
-        description: '- Best for: Maximum accuracy in challenging scenarios - Speed: Slower (~8-10ms per object) - Accuracy:
-          Highest overall - Recommended for: Powerful hardware, critical applications'
+        description: "=== Memory Window ===\n  # How long to remember lost objects (in frames)\n  # Object features are stored\
+          \ for this duration after losing track\n  # Higher = can re-identify after longer occlusions (uses more memory ~1KB\
+          \ per object)\n  # Lower = faster cleanup, less memory usage\n  # Recommended values:\n  #   - 30 frames: ~1 second\
+          \ at 30 FPS (good for brief occlusions)\n  #   - 60 frames: ~2 seconds (balanced)\n  #   - 150 frames: ~5 seconds\
+          \ (long occlusions, uses more memory)"
         reload_tier: tracker_restart
         reboot_required: false
+        unit: fps
       MAX_REIDENTIFICATION_FRAMES:
         type: integer
         default: 30
-        description: 'Recommended values: - 30 frames: ~1 second at 30 FPS (good for brief occlusions) - 60 frames: ~2 seconds
-          (balanced) - 150 frames: ~5 seconds (long occlusions, uses more memory)'
+        description: "=== Adaptive Learning ===\n  # Update appearance model during successful tracking\n  # Helps adapt to\
+          \ gradual changes in lighting, viewing angle, or object appearance\n  # true = model adapts over time (better for\
+          \ changing conditions)\n  # false = uses initial appearance only (more consistent but rigid)"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
         max: 1000
-        unit: long occlusions, uses more memory
       APPEARANCE_ADAPTIVE_LEARNING:
         type: boolean
         default: true
-        description: Update appearance model during successful tracking Helps adapt to gradual changes in lighting, viewing
-          angle, or object appearance true = model adapts over time (better for changing conditions) false = uses initial
-          appearance only (more consistent but rigid)
+        description: "Learning rate for adaptive updates (0.0-1.0)\n  # Higher = faster adaptation to changes (may drift from\
+          \ original appearance)\n  # Lower = slower adaptation (more stable, less responsive to changes)\n  # Recommended:\
+          \ 0.05-0.15"
         reload_tier: tracker_restart
         reboot_required: false
-        unit: more consistent but rigid
       APPEARANCE_LEARNING_RATE:
         type: float
         default: 0.1
-        description: 'Learning rate for adaptive updates (0.0-1.0) Higher = faster adaptation to changes (may drift from original
-          appearance) Lower = slower adaptation (more stable, less responsive to changes) Recommended: 0.05-0.15'
+        description: "=== HOG Feature Parameters ===\n  # Only used when APPEARANCE_FEATURE_TYPE = \"hog\" or \"hybrid\"\n\
+          \  # Histogram of Oriented Gradients configuration for shape-based matching"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -2261,7 +2534,6 @@ sections:
         item_type: number
         min_items: 0
         max_items: 20
-        unit: width, height
       HOG_BLOCK_SIZE:
         type: array
         default:
@@ -2298,12 +2570,16 @@ sections:
       HOG_NBINS:
         type: integer
         default: 9
-        description: Number of orientation bins (1-180 degrees)
+        description: HOG_NBINS parameter
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
         max: 180
-        unit: 1-180 degrees
+        options:
+        - value: Number
+          label: Number
+        - value: hybrid
+          label: hybrid
       HIST_H_BINS:
         type: integer
         default: 30
@@ -2316,16 +2592,25 @@ sections:
       HIST_S_BINS:
         type: integer
         default: 32
-        description: Saturation channel bins (S in HSV)
+        description: "Saturation channel bins (S in HSV)\n\n  # === Performance Profiling ===\n  # Enable profiling to measure\
+          \ feature extraction and matching performance"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
         max: 1000
-        unit: s in hsv
+        unit: s
       ENABLE_APPEARANCE_PROFILING:
         type: boolean
         default: false
-        description: true = log timing metrics to console
+        description: 'true = log timing metrics to console
+
+
+
+          # ==============================================================================
+
+          # GIMBAL TRACKER CONFIGURATION (New Feature)
+
+          # =============================================================================='
         reload_tier: tracker_restart
         reboot_required: false
   GimbalTracker:
@@ -2336,7 +2621,7 @@ sections:
       ENABLED:
         type: boolean
         default: true
-        description: Enable/disable gimbal tracker
+        description: Network configuration for gimbal UDP communication
         reload_tier: tracker_restart
         reboot_required: false
       UDP_HOST:
@@ -2356,7 +2641,7 @@ sections:
       CONNECTION_TIMEOUT:
         type: float
         default: 5.0
-        description: Connection timeout in seconds
+        description: "Connection timeout in seconds\n\n  # Data quality and recovery parameters"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -2376,7 +2661,10 @@ sections:
       max_consecutive_failures:
         type: integer
         default: 10
-        description: Warning threshold for consecutive data reception failures
+        description: 'Warning threshold for consecutive data reception failures
+
+
+          # Global gimbal parameters (accessed by GimbalTracker and GimbalInterface)'
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -2415,7 +2703,7 @@ sections:
       COORDINATE_SYSTEM:
         type: string
         default: GIMBAL_BODY
-        description: COORDINATE_SYSTEM parameter
+        description: '# Camera mount offsets (degrees relative to aircraft body frame)'
         reload_tier: tracker_restart
         reboot_required: false
         options:
@@ -2423,6 +2711,7 @@ sections:
           label: GIMBAL_BODY
         - value: SPATIAL_FIXED
           label: SPATIAL_FIXED
+        unit: deg
       CAMERA_MOUNT_OFFSET_ROLL:
         type: float
         default: 0.0
@@ -2441,17 +2730,15 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: + = nose down from aircraft
       CAMERA_MOUNT_OFFSET_YAW:
         type: float
         default: 0.0
-        description: Yaw offset (+ = right from aircraft nose)
+        description: "Yaw offset (+ = right from aircraft nose)\n\n  # Validation limits"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: + = right from aircraft nose
       YAW_LIMIT:
         type: float
         default: 180.0
@@ -2475,7 +2762,7 @@ sections:
       ROLL_LIMIT:
         type: float
         default: 180.0
-        description: Maximum roll angle (degrees)
+        description: "Maximum roll angle (degrees)\n\n  # Processing configuration"
         reload_tier: tracker_restart
         reboot_required: false
         min: -10000.0
@@ -2488,25 +2775,30 @@ sections:
         description: Disable image detector (not needed for gimbal)
         reload_tier: tracker_restart
         reboot_required: false
-        unit: not needed for gimbal
       SUPPRESS_PREDICTOR:
         type: boolean
         default: true
         description: Disable predictor (not needed for gimbal)
         reload_tier: tracker_restart
         reboot_required: false
-        unit: not needed for gimbal
       DISABLE_ESTIMATOR:
         type: boolean
         default: true
-        description: Disable Kalman estimator (gimbal provides direct data)
+        description: "Disable Kalman estimator (gimbal provides direct data)\n\n  # Data quality parameters"
         reload_tier: tracker_restart
         reboot_required: false
-        unit: gimbal provides direct data
       MAX_DATA_AGE:
         type: float
         default: 5.0
-        description: Maximum age of data to consider valid (seconds)
+        description: 'Maximum age of data to consider valid (seconds)
+
+
+
+          # ==============================================================================
+
+          # FOLLOWER MODE (Drone Following Behavior)
+
+          # =============================================================================='
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -2527,7 +2819,7 @@ sections:
       FOLLOWER_DATA_REFRESH_RATE:
         type: integer
         default: 5
-        description: Hz
+        description: "Hz\n\n  # === Target Selection ==="
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -2547,28 +2839,8 @@ sections:
       TARGET_POSITION_MODE:
         type: string
         default: center
-        description: TARGET_POSITION_MODE parameter
-        reload_tier: system_restart
-        reboot_required: true
-        options:
-        - value: mc_velocity_distance
-          label: mc_velocity_distance
-        - value: mc_velocity_position
-          label: mc_velocity_position
-        - value: mc_velocity_chase
-          label: mc_velocity_chase
-        - value: mc_attitude_rate
-          label: mc_attitude_rate
-        - value: fw_attitude_rate
-          label: fw_attitude_rate
-        - value: gm_velocity_chase
-          label: gm_velocity_chase
-        - value: gm_velocity_vector
-          label: gm_velocity_vector
-      FOLLOWER_MODE:
-        type: string
-        default: mc_velocity_position
-        description: FOLLOWER_MODE parameter
+        description: 'Options: center, top, bottom # === Following Mode === # # Deprecated (still work): ground_view, constant_distance,
+          constant_position, body_velocity_chase, gimbal_vector_body'
         reload_tier: system_restart
         reboot_required: true
         options:
@@ -2586,6 +2858,14 @@ sections:
           label: fw_attitude_rate
         - value: gm_velocity_chase
           label: gm_velocity_chase
+        - value: gm_velocity_vector
+          label: gm_velocity_vector
+      FOLLOWER_MODE:
+        type: string
+        default: mc_velocity_position
+        description: === Visualization ===
+        reload_tier: system_restart
+        reboot_required: true
       SHOW_TRACKING_WINDOW:
         type: boolean
         default: false
@@ -2676,7 +2956,11 @@ sections:
       OVERLAY_OPACITY:
         type: integer
         default: 128
-        description: OVERLAY_OPACITY parameter
+        description: '=== Circuit Breaker (Safety & Testing) ===
+
+          # SAFETY FIRST: Global circuit breaker for follower testing without drone commands
+
+          # Default: true (SAFE) - Only set to false when you explicitly want to send real commands'
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -2691,10 +2975,17 @@ sections:
   CIRCUIT_BREAKER_DISABLE_SAFETY:
     type: boolean
     default: false
-    description: Skip ALL safety checks in CB test mode (set true for ground testing only)
+    description: 'Skip ALL safety checks in CB test mode (set true for ground testing only)
+
+
+
+      # ==============================================================================
+
+      # GIMBAL PID PURSUIT FOLLOWER CONFIGURATION
+
+      # =============================================================================='
     reload_tier: system_restart
     reboot_required: true
-    unit: set true for ground testing only
   GM_VELOCITY_CHASE:
     display_name: Gimbal Velocity Chase
     category: follower
@@ -2725,7 +3016,7 @@ sections:
       ROLL_RIGHT_SIGN:
         type: string
         default: NEGATIVE
-        description: ROLL_RIGHT_SIGN parameter
+        description: '# === Required Tracker Fields ==='
         reload_tier: follower_restart
         reboot_required: false
         options:
@@ -2735,7 +3026,8 @@ sections:
         type: array
         default:
         - angular
-        description: Must have angular data from gimbal
+        description: "Must have angular data from gimbal\n\n  # === Forward Velocity Control System ===\n  # Based on 2024\
+          \ guidance control research for reliable target interception\n  # NOTE: Max velocity limits are now in Safety.GlobalLimits"
         reload_tier: follower_restart
         reboot_required: false
         item_type: string
@@ -2766,7 +3058,7 @@ sections:
       FORWARD_ACCELERATION:
         type: float
         default: 2.0
-        description: Ramp rate from current to target speed (m/s²)
+        description: "Ramp rate from current to target speed (m/s²)\n\n  # === Lateral Guidance Mode ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -2793,7 +3085,9 @@ sections:
       GUIDANCE_MODE_SWITCH_VELOCITY:
         type: float
         default: 3.0
-        description: Switch velocity threshold (m/s)
+        description: "Switch velocity threshold (m/s)\n\n  # === Yaw Rate Smoothing (Enterprise-Grade) ===\n  # MAX_YAW_RATE\
+          \ now sourced from Safety.GlobalLimits (deg/s → rad/s via SafetyManager)\n  # Configurable smoothing pipeline for\
+          \ smooth, professional yaw control\n  # All parameters are configurable - no hardcoded values"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -2811,11 +3105,9 @@ sections:
           MIN_SPEED_THRESHOLD: 0.5
           MAX_SPEED_THRESHOLD: 5.0
           LOW_SPEED_YAW_FACTOR: 0.5
-        description: MAX_YAW_RATE now sourced from Safety.GlobalLimits (deg/s → rad/s via SafetyManager) Configurable smoothing
-          pipeline for smooth, professional yaw control All parameters are configurable - no hardcoded values
+        description: YAW_SMOOTHING parameter
         reload_tier: follower_restart
         reboot_required: false
-        unit: deg
       MODE_SWITCH_HYSTERESIS:
         type: float
         default: 0.5
@@ -2829,7 +3121,7 @@ sections:
       MIN_MODE_SWITCH_INTERVAL:
         type: float
         default: 2.0
-        description: seconds - minimum time between mode switches
+        description: "seconds - minimum time between mode switches\n\n  # === Target Loss Handling ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -2855,7 +3147,7 @@ sections:
       SAFETY_RETURN_SPEED:
         type: float
         default: 3.0
-        description: Velocity when returning to safe altitude (m/s)
+        description: "Velocity when returning to safe altitude (m/s)\n\n  # === Coordinate Transformation ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -2865,7 +3157,9 @@ sections:
       ANGLE_DEADZONE:
         type: float
         default: 2.0
-        description: Ignore gimbal movements below this (degrees)
+        description: "Ignore gimbal movements below this (degrees)\n\n  # === Enhanced Transformation Parameters ===\n  #\
+          \ NOTE: NEUTRAL_PITCH_ANGLE is now handled automatically based on MOUNT_TYPE\n  # VERTICAL mount: neutral = 90°\
+          \ (level), HORIZONTAL mount: uses configured value"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -2930,13 +3224,14 @@ sections:
       INVERT_VERTICAL_CONTROL:
         type: boolean
         default: true
-        description: Invert vertical control for different gimbal orientations
+        description: "Invert vertical control for different gimbal orientations\n\n  # === Default Values for Optional Features\
+          \ ==="
         reload_tier: follower_restart
         reboot_required: false
       DEFAULT_THRUST:
         type: float
         default: 0.5
-        description: Default thrust for attitude rate control mode
+        description: "Default thrust for attitude rate control mode\n\n  # === Performance ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -2961,13 +3256,23 @@ sections:
       SMOOTHING_FACTOR:
         type: float
         default: 0.8
-        description: Smoothing coefficient (0-1)
+        description: 'Smoothing coefficient (0-1)
+
+
+          # ==============================================================================
+
+          # GIMBAL VECTOR BODY FOLLOWER CONFIGURATION
+
+          # ==============================================================================
+
+          # Direct vector pursuit using gimbal angles transformed to body-frame velocity
+
+          # No PID tuning required - deterministic geometric control'
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0-1
   GM_VELOCITY_VECTOR:
     display_name: Gimbal Velocity Vector
     category: follower
@@ -2976,7 +3281,8 @@ sections:
       MOUNT_TYPE:
         type: string
         default: HORIZONTAL
-        description: MOUNT_TYPE parameter
+        description: '# === Velocity Scaling (Linear Ramp) === # Direct vector pursuit: gimbal angle → unit vector → scaled
+          velocity # NOTE: Max velocity limits are now in Safety.GlobalLimits (single source of truth)'
         reload_tier: follower_restart
         reboot_required: false
         options:
@@ -3015,7 +3321,10 @@ sections:
       YAW_RATE_GAIN:
         type: float
         default: 0.5
-        description: Yaw rate proportional gain for coordinated_turn mode
+        description: "Yaw rate proportional gain for coordinated_turn mode\n\n  # === LATERAL GUIDANCE MODES (v5.6.0) ===\n\
+          \  # Two strategies for lateral target tracking:\n  # - sideslip: Direct lateral velocity (v_right from gimbal,\
+          \ yaw_rate = 0)\n  #   Best for: Precision hovering, close proximity, confined spaces\n  # - coordinated_turn: Turn-to-track\
+          \ (v_right = 0, yaw_rate from gimbal yaw)\n  #   Best for: Forward flight efficiency, natural behavior, wind resistance"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -3024,14 +3333,10 @@ sections:
       LATERAL_GUIDANCE_MODE:
         type: string
         default: sideslip
-        description: LATERAL_GUIDANCE_MODE parameter
+        description: "sideslip | coordinated_turn\n\n  # === Auto Mode Switching (Optional) ===\n  # Automatically switch\
+          \ between modes based on forward velocity"
         reload_tier: follower_restart
         reboot_required: false
-        options:
-        - value: sideslip
-          label: sideslip
-        - value: coordinated_turn
-          label: coordinated_turn
       ENABLE_AUTO_MODE_SWITCHING:
         type: boolean
         default: false
@@ -3042,7 +3347,8 @@ sections:
       GUIDANCE_MODE_SWITCH_VELOCITY:
         type: float
         default: 3.0
-        description: m/s - switch threshold
+        description: "m/s - switch threshold\n\n  # === Mode Switch Hysteresis ===\n  # Prevents oscillation when velocity\
+          \ is near the mode switch threshold"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -3062,7 +3368,9 @@ sections:
       MIN_MODE_SWITCH_INTERVAL:
         type: float
         default: 2.0
-        description: seconds - minimum time between mode switches
+        description: "seconds - minimum time between mode switches\n\n  # === Yaw Rate Smoothing (Enterprise-Grade) ===\n\
+          \  # Configurable smoothing pipeline for smooth, professional yaw control\n  # Applied in coordinated_turn mode\
+          \ for smooth heading changes"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -3080,8 +3388,7 @@ sections:
           MIN_SPEED_THRESHOLD: 0.5
           MAX_SPEED_THRESHOLD: 5.0
           LOW_SPEED_YAW_FACTOR: 0.5
-        description: Configurable smoothing pipeline for smooth, professional yaw control Applied in coordinated_turn mode
-          for smooth heading changes
+        description: YAW_SMOOTHING parameter
         reload_tier: follower_restart
         reboot_required: false
       ANGLE_DEADZONE_DEG:
@@ -3097,13 +3404,19 @@ sections:
       ANGLE_SMOOTHING_ALPHA:
         type: float
         default: 0.7
-        description: EMA filter coefficient (0-1, higher = smoother)
+        description: "EMA filter coefficient (0-1, higher = smoother)\n                                          # Recommended:\
+          \ 0.6-0.8 for typical gimbals\n\n  # === Altitude Safety (Optional Enforcement) ===\n  # Enable altitude monitoring\
+          \ and enforcement\n  # Uses unified naming: MIN_ALTITUDE, MAX_ALTITUDE (overrides Safety.GlobalLimits if set)\n\
+          \  # Resolution: Follower Override → Safety.GlobalLimits → Hardcoded Fallbacks\n  # ALTITUDE_SAFETY_ENABLED, RTL_ON_ALTITUDE_VIOLATION,\
+          \ EMERGENCY_STOP_ENABLED, MAX_SAFETY_VIOLATIONS\n  # are now sourced from Safety.GlobalLimits (with per-follower\
+          \ overrides in Safety.FollowerOverrides)\n  # MIN_ALTITUDE: 3.0                     # Override global minimum altitude\
+          \ (meters)\n  # MAX_ALTITUDE: 120.0                   # Override global maximum altitude (meters)"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0-1, higher = smoother
+        unit: meters
       ALTITUDE_CHECK_INTERVAL:
         type: float
         default: 1.0
@@ -3133,13 +3446,13 @@ sections:
       VELOCITY_DECAY_RATE:
         type: float
         default: 0.5
-        description: m/s² - deceleration rate during target loss
+        description: "m/s² - deceleration rate during target loss\n\n  # === Performance ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: m
+        unit: m/s²
       CONTROL_UPDATE_RATE:
         type: float
         default: 20.0
@@ -3159,13 +3472,14 @@ sections:
       SMOOTHING_FACTOR:
         type: float
         default: 0.8
-        description: Smoothing coefficient (0-1)
+        description: "Smoothing coefficient (0-1)\n\n  # === Advanced: Mount Calibration Overrides (Expert Users Only) ===\n\
+          \  # Leave at 0.0 to use preset transformations from MOUNT_TYPE\n  # Only adjust if gimbal is mounted at non-standard\
+          \ angles"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0-1
       MOUNT_ROLL_OFFSET_DEG:
         type: float
         default: 0.0
@@ -3248,7 +3562,8 @@ sections:
       TARGET_LOSS_TIMEOUT:
         type: float
         default: 2.0
-        description: seconds before ramp down starts
+        description: "seconds before ramp down starts\n  # Target loss stop velocity: ramp to this when target lost (0.0 =\
+          \ full stop)"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -3268,7 +3583,12 @@ sections:
       TARGET_LOSS_COORDINATE_THRESHOLD:
         type: float
         default: 1.5
-        description: 'v5.7.0: Fixed from 990 (broken) to normalized range'
+        description: "v5.7.0: Fixed from 990 (broken) to normalized range\n\n  # === Control Enablement ===\n  #\n  # ⚠️ ALTITUDE\
+          \ CONTROL BEHAVIOR:\n  # - ENABLE_ALTITUDE_CONTROL: Controls whether follower CALCULATES altitude commands\n  #\
+          \   * true: Actively tracks target in 3D space (follows target up/down)\n  #   * false: Altitude commands remain\
+          \ 0, drone maintains current altitude\n  #\n  # For SITL/Flight Testing:\n  #   Set ENABLE_ALTITUDE_CONTROL: true\
+          \ (to chase target in 3D)\n  #\n  # For Ground Testing:\n  #   ENABLE_ALTITUDE_CONTROL: false (keeps altitude at\
+          \ 0 - safe for ground)\n  #"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -3277,7 +3597,10 @@ sections:
       ENABLE_ALTITUDE_CONTROL:
         type: boolean
         default: false
-        description: Disabled by default for ground testing
+        description: "Disabled by default for ground testing\n\n  # === \U0001F9ED LATERAL GUIDANCE MODES ===\n  # Two guidance\
+          \ strategies for lateral target tracking:\n  # - coordinated_turn: Turn-to-track (v_right = 0, yaw_rate ≠ 0)\n \
+          \ #   RECOMMENDED for fixed camera tracking (keeps target centered more reliably)\n  # - sideslip: Direct lateral\
+          \ velocity (v_right ≠ 0, yaw_rate = 0)\n  #   ADVANCED: allowed for expert use, but may lose target with fixed camera"
         reload_tier: follower_restart
         reboot_required: false
       LATERAL_GUIDANCE_MODE:
@@ -3306,19 +3629,30 @@ sections:
       ENABLE_AUTO_MODE_SWITCHING:
         type: boolean
         default: false
-        description: Auto-switch based on forward velocity
+        description: "Auto-switch based on forward velocity\n  # === \U0001F6E1️ ALTITUDE SAFETY (Overrides Safety.GlobalLimits)\
+          \ ===\n  #\n  # ⚠️ IMPORTANT - Two Different Altitude Flags:\n  #\n  # 1. ENABLE_ALTITUDE_CONTROL (above) - Controls\
+          \ altitude COMMAND generation\n  #    - false: Follower never sends altitude commands (vel_down = 0 always)\n  #\
+          \    - true: Follower calculates and sends altitude commands\n  #\n  # 2. ALTITUDE_SAFETY_ENABLED (below) - Controls\
+          \ altitude LIMIT enforcement\n  #    - false: No altitude boundary checks (useful for ground testing)\n  #    -\
+          \ true: Enforces MIN_ALTITUDE/MAX_ALTITUDE bounds, triggers RTL on violation\n  #\n  # Typical Configurations:\n\
+          \  # - Ground Testing: ENABLE_ALTITUDE_CONTROL=false, ALTITUDE_SAFETY_ENABLED=false\n  # - SITL Testing: ENABLE_ALTITUDE_CONTROL=true,\
+          \ ALTITUDE_SAFETY_ENABLED=true\n  # - Flight Testing: ENABLE_ALTITUDE_CONTROL=true, ALTITUDE_SAFETY_ENABLED=true\n\
+          \  #\n  # Altitude limits now defined in Safety.FollowerOverrides.MC_VELOCITY_CHASE\n  # Resolution: FollowerOverrides\
+          \ -> GlobalLimits -> Hardcoded Fallbacks\n  # ALTITUDE_SAFETY_ENABLED, RTL_ON_ALTITUDE_VIOLATION, EMERGENCY_STOP_ENABLED\
+          \ now from\n  # Safety.GlobalLimits / Safety.FollowerOverrides.GM_VELOCITY_CHASE"
         reload_tier: follower_restart
         reboot_required: false
       ALTITUDE_CHECK_INTERVAL:
         type: float
         default: 0.1
-        description: seconds - 100ms check frequency (fast safety checks)
+        description: "seconds - 100ms check frequency (fast safety checks)\n\n  # === Safety Limits (Additional to Schema\
+          \ Limits) ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: fast safety checks
+        unit: s
       MAX_TRACKING_ERROR:
         type: float
         default: 1.5
@@ -3337,13 +3671,12 @@ sections:
       SMOOTHING_FACTOR:
         type: float
         default: 0.8
-        description: Smoothing coefficient (0-1)
+        description: "Smoothing coefficient (0-1)\n  # === Performance Tuning ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0-1
       MIN_FORWARD_VELOCITY_THRESHOLD:
         type: float
         default: 0.2
@@ -3372,7 +3705,13 @@ sections:
       PID_UPDATE_RATE:
         type: float
         default: 20.0
-        description: Hz - tracking PID update frequency
+        description: "Hz - tracking PID update frequency\n\n  # === \U0001F3AF ADAPTIVE DIVE/CLIMB CONTROL (Advanced Feature)\
+          \ ===\n  # Vertical-rate-based dive/climb angle adaptation for optimal target intercept\n  # Addresses early descent\
+          \ (far target) and late descent (close target) scenarios\n  # Uses visual feedback to adaptively adjust v_fwd and\
+          \ v_down balance\n  #\n  # When to Enable:\n  # - Target distance varies significantly (near/far scenarios)\n  #\
+          \ - Prefer slant approach trajectories vs early descent\n  # - Have high-confidence, stable tracking (confidence\
+          \ > 0.6)\n  #\n  # When to Disable:\n  # - Noisy visual tracking (causes oscillations)\n  # - Low framerate (<15\
+          \ FPS) - rate estimation unreliable\n  # - Simple scenarios with consistent target distance\n  #"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -3382,33 +3721,37 @@ sections:
       ENABLE_ADAPTIVE_DIVE_CLIMB:
         type: boolean
         default: false
-        description: Master enable/disable (off by default for stability)
+        description: "Master enable/disable (off by default for stability)\n\n  # === Rate Estimation & Filtering ==="
         reload_tier: follower_restart
         reboot_required: false
-        unit: off by default for stability
       ADAPTIVE_SMOOTHING_ALPHA:
         type: float
         default: 0.2
-        description: EMA smoothing factor (0.1-0.5)
+        description: "EMA smoothing factor (0.1-0.5)\n                                         # Lower = more filtering (stable,\
+          \ slower response)\n                                         # Higher = less filtering (responsive, noisier)\n \
+          \                                        # Recommended: 0.15-0.25 for 20-30 FPS tracking"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.1-0.5
+        unit: fps
       ADAPTIVE_WARMUP_FRAMES:
         type: integer
         default: 10
-        description: Frames to ignore on startup (5-15)
+        description: "Frames to ignore on startup (5-15)\n                                         # Allows rate estimator\
+          \ to stabilize\n                                         # Higher = safer startup, slower activation"
         reload_tier: follower_restart
         reboot_required: false
         min: 0
         max: 200
-        unit: 5-15
       ADAPTIVE_RATE_THRESHOLD:
         type: float
         default: 5.0
-        description: Pixels/sec error threshold to trigger correction
+        description: "Pixels/sec error threshold to trigger correction\n                                         # Dead-zone\
+          \ to prevent over-reaction to noise\n                                         # Adjust based on image resolution\
+          \ and framerate\n                                         # Recommended: 3-8 px/s for 640x480 @ 30fps\n\n  # ===\
+          \ Correction Authority ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -3418,7 +3761,9 @@ sections:
       ADAPTIVE_MAX_CORRECTION:
         type: float
         default: 1.0
-        description: Maximum velocity correction (m/s)
+        description: "Maximum velocity correction (m/s)\n                                         # Limits how much adaptive\
+          \ mode can change v_down/v_fwd\n                                         # Lower = gentler adjustments, higher =\
+          \ more aggressive\n                                         # Recommended: 0.5-1.5 m/s"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -3428,44 +3773,52 @@ sections:
       ADAPTIVE_CORRECTION_GAIN:
         type: float
         default: 0.3
-        description: Proportional gain on rate error (0.1-0.8)
+        description: "Proportional gain on rate error (0.1-0.8)\n                                         # Lower = gentle\
+          \ corrections, higher = aggressive\n                                         # Start conservative (0.2-0.3), increase\
+          \ if response too slow"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.1-0.8
       ADAPTIVE_MIN_CONFIDENCE:
         type: float
         default: 0.6
-        description: Minimum tracker confidence to activate (0.0-1.0)
+        description: "Minimum tracker confidence to activate (0.0-1.0)\n                                         # Higher\
+          \ = only activates with high-quality tracking\n                                         # Recommended: 0.5-0.7\n\
+          \n  # === Forward Velocity Coupling (Advanced) ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
       ADAPTIVE_FWD_COUPLING_ENABLED:
         type: boolean
         default: false
-        description: Allow v_fwd adjustments (in addition to v_down)
+        description: "Allow v_fwd adjustments (in addition to v_down)\n                                         # true = Adjust\
+          \ both v_fwd and v_down for faster response\n                                         # false = Only adjust v_down\
+          \ (safer, simpler)\n                                         # Recommend: false initially, enable after tuning"
         reload_tier: follower_restart
         reboot_required: false
-        unit: in addition to v_down
       ADAPTIVE_FWD_COUPLING_GAIN:
         type: float
         default: 0.1
-        description: v_fwd adjustment gain (0.05-0.2)
+        description: "v_fwd adjustment gain (0.05-0.2)\n                                         # Only used if ADAPTIVE_FWD_COUPLING_ENABLED\
+          \ = true\n                                         # Lower values recommended to maintain chase velocity\n\n  #\
+          \ === Calibration ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.05-0.2
       PIXEL_TO_RATE_CALIBRATION:
         type: float
         default: 0.05
-        description: 'Calibration factor: meters/sec per pixels/sec'
+        description: "Calibration factor: meters/sec per pixels/sec\n                                         # Platform-specific,\
+          \ requires field tuning\n                                         # Depends on: camera FOV, altitude, image resolution\n\
+          \                                         # Start with 0.03-0.08, adjust based on observed behavior\n          \
+          \                               # Higher = more aggressive response to visual rate changes\n\n  # === Safety & Monitoring\
+          \ ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -3491,7 +3844,9 @@ sections:
       ADAPTIVE_DIVERGENCE_TIMEOUT:
         type: float
         default: 5.0
-        description: Seconds - disable if error grows despite corrections
+        description: "Seconds - disable if error grows despite corrections\n\n  # === \U0001F3AF PITCH ANGLE COMPENSATION\
+          \ (Advanced Feature) ===\n  # Compensates for camera pitch-induced vertical image shifts during forward flight\n\
+          \  # See config.yaml for comprehensive documentation and calibration guide"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -3504,7 +3859,6 @@ sections:
         description: Master enable/disable (off by default for safety)
         reload_tier: follower_restart
         reboot_required: false
-        unit: off by default for safety
       PITCH_COMPENSATION_MODEL:
         type: string
         default: linear_velocity
@@ -3527,7 +3881,6 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.01-0.15 typical
       PITCH_DATA_SMOOTHING_ALPHA:
         type: float
         default: 0.7
@@ -3537,7 +3890,6 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.6-0.8 recommended
       PITCH_DATA_MAX_AGE:
         type: float
         default: 0.5
@@ -3587,17 +3939,20 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
       PITCH_COMPENSATION_ADAPTIVE_GAIN:
         type: boolean
         default: false
-        description: 'Future: adaptive gain tuning'
+        description: "Future: adaptive gain tuning\n\n  # === v5.7.0: Configurable Parameters (Enterprise Hardening) ===\n\
+          \  # These were previously hardcoded values - now configurable for different platforms\n\n  # Camera resolution\
+          \ height for adaptive rate calculations\n  # Adjust based on your camera's actual resolution for accurate rate estimation"
         reload_tier: follower_restart
         reboot_required: false
+        unit: s
       VIDEO_HEIGHT_PIXELS:
         type: float
         default: 480.0
-        description: Default 480p, change for 720/1080/etc
+        description: "Default 480p, change for 720/1080/etc\n\n  # Velocity deadzone for forward ramping logic\n  # Values\
+          \ below this threshold are considered \"at target\" - prevents jitter"
         reload_tier: follower_restart
         reboot_required: false
         min: -10000.0
@@ -3606,17 +3961,18 @@ sections:
       FORWARD_VELOCITY_DEADZONE:
         type: float
         default: 0.01
-        description: m/s - default 0.01 (1 cm/s)
+        description: "m/s - default 0.01 (1 cm/s)\n\n  # v5.7.1: Target validation thresholds for enhanced tracking\n  # Confidence\
+          \ threshold - targets with lower confidence are considered lost"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 1 cm/s
+        unit: m/s
       TARGET_CONFIDENCE_THRESHOLD:
         type: float
         default: 0.5
-        description: Range 0-1, default 0.5
+        description: "Range 0-1, default 0.5\n  # Maximum reasonable target velocity - reject outliers from tracker noise"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -3625,7 +3981,11 @@ sections:
       MAX_REASONABLE_TARGET_VELOCITY:
         type: float
         default: 50.0
-        description: pixels/frame, default 50.0
+        description: "pixels/frame, default 50.0\n\n  # === \U0001F3AF YAW RATE SMOOTHING (v5.7.0) ===\n  # Enterprise-grade\
+          \ yaw rate smoothing with deadzone, rate limiting, and EMA\n  # Prevents jitter on yaw commands from small tracking\
+          \ errors\n  #\n  # FIXED CAMERA NOTE: MC_VELOCITY_CHASE uses fixed camera (no gimbal), so\n  # the drone MUST yaw\
+          \ to keep target centered. Sideslip mode is incompatible\n  # and will be auto-converted to coordinated_turn with\
+          \ a warning.\n  #"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -3643,8 +4003,7 @@ sections:
           MIN_SPEED_THRESHOLD: 0.5
           MAX_SPEED_THRESHOLD: 5.0
           LOW_SPEED_YAW_FACTOR: 0.5
-        description: 'FIXED CAMERA NOTE: MC_VELOCITY_CHASE uses fixed camera (no gimbal), so the drone MUST yaw to keep target
-          centered. Sideslip mode is incompatible and will be auto-converted to coordinated_turn with a warning.'
+        description: YAW_SMOOTHING parameter
         reload_tier: follower_restart
         reboot_required: false
   MC_VELOCITY_POSITION:
@@ -3661,19 +4020,20 @@ sections:
       ENABLE_YAW_CONTROL:
         type: boolean
         default: true
-        description: Always enabled for this mode
+        description: "Always enabled for this mode\n\n  # === Altitude Parameters ===\n  # NOTE: All safety limits (min/max\
+          \ altitude, velocity limits) are now in\n  # Safety.GlobalLimits (single source of truth). Use FollowerOverrides\
+          \ for custom values.\n\n  # === Yaw Control ===\n  # MAX_YAW_RATE now in Safety.FollowerOverrides.MC_VELOCITY_POSITION"
         reload_tier: follower_restart
         reboot_required: false
       YAW_CONTROL_THRESHOLD:
         type: float
         default: 0.02
-        description: Dead zone threshold (normalized)
+        description: "Dead zone threshold (normalized)\n\n  # === Safety & Performance ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: normalized
       TARGET_LOSS_TIMEOUT:
         type: float
         default: 3.0
@@ -3703,13 +4063,19 @@ sections:
       SMOOTHING_FACTOR:
         type: float
         default: 0.8
-        description: Smoothing coefficient (0-1)
+        description: 'Smoothing coefficient (0-1)
+
+
+          # ==============================================================================
+
+          # CONSTANT DISTANCE FOLLOWER CONFIGURATION
+
+          # =============================================================================='
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0-1
   MC_VELOCITY_DISTANCE:
     display_name: MC Velocity Distance
     category: follower
@@ -3724,19 +4090,20 @@ sections:
       ENABLE_ALTITUDE_CONTROL:
         type: boolean
         default: false
-        description: Disabled by default for ground testing
+        description: "Disabled by default for ground testing\n\n  # === Altitude Parameters ===\n  # NOTE: All safety limits\
+          \ (min/max altitude, velocity limits) are now in\n  # Safety.GlobalLimits (single source of truth). Use FollowerOverrides\
+          \ for custom values.\n\n  # === Lateral Control ===\n\n  # === Yaw Control ===\n  # MAX_YAW_RATE now in Safety.FollowerOverrides.MC_VELOCITY_DISTANCE"
         reload_tier: follower_restart
         reboot_required: false
       YAW_CONTROL_THRESHOLD:
         type: float
         default: 0.3
-        description: Dead zone threshold (normalized)
+        description: "Dead zone threshold (normalized)\n\n  # === Safety & Performance ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: normalized
       TARGET_LOSS_TIMEOUT:
         type: float
         default: 3.0
@@ -3766,13 +4133,12 @@ sections:
       SMOOTHING_FACTOR:
         type: float
         default: 0.8
-        description: Smoothing coefficient (0-1)
+        description: "Smoothing coefficient (0-1)\n\n  # === Distance Maintenance ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0-1
       DISTANCE_HOLD_ENABLED:
         type: boolean
         default: true
@@ -3782,13 +4148,41 @@ sections:
       DISTANCE_HOLD_TOLERANCE:
         type: float
         default: 0.1
-        description: Distance tolerance (normalized)
+        description: 'Distance tolerance (normalized)
+
+
+          # ==============================================================================
+
+          # FIXED-WING FOLLOWER CONFIGURATION
+
+          # ==============================================================================
+
+          # Professional fixed-wing target following with L1 navigation and TECS energy management
+
+          # Uses attitude rate commands (the ONLY offboard mode supported by PX4 for fixed-wing)
+
+          #
+
+          # Control Architecture:
+
+          # - L1 Navigation: Lateral guidance (cross-track error → yaw rate)
+
+          # - TECS: Longitudinal control (altitude/speed errors → pitch rate, throttle)
+
+          # - Coordinated Turn: Bank angle calculation from yaw rate
+
+          #
+
+          # CRITICAL: PX4 fixed-wing IGNORES velocity body commands in offboard mode!
+
+          # This follower MUST use attitude_rate control type.
+
+          # =============================================================================='
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: normalized
   FW_ATTITUDE_RATE:
     display_name: Fixed-Wing Attitude Rate
     category: follower
@@ -3827,7 +4221,7 @@ sections:
       STALL_MARGIN_BUFFER:
         type: float
         default: 3.0
-        description: m/s - safety buffer above stall speed
+        description: "m/s - safety buffer above stall speed\n\n  # === STRUCTURAL LIMITS ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -3866,7 +4260,10 @@ sections:
       MIN_PITCH_ANGLE:
         type: float
         default: -20.0
-        description: degrees - pitch down limit
+        description: "degrees - pitch down limit\n\n  # RATE LIMITS: MAX_ROLL_RATE, MAX_PITCH_RATE, MAX_YAW_RATE now from\n\
+          \  # Safety.GlobalLimits / Safety.FollowerOverrides.FW_ATTITUDE_RATE\n\n  # === L1 NAVIGATION (Lateral Guidance)\
+          \ ===\n  # L1 provides smooth, stable lateral guidance using a lookahead distance\n  # Larger L1 = smoother but\
+          \ slower response; Smaller L1 = faster but more aggressive"
         reload_tier: follower_restart
         reboot_required: false
         min: -10000.0
@@ -3892,7 +4289,6 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.7-1.0 recommended
       ENABLE_L1_ADAPTIVE:
         type: boolean
         default: false
@@ -3928,6 +4324,11 @@ sections:
         min: 0.0
         max: 500.0
         step: 1.0
+        options:
+        - value: Scale
+          label: Scale
+        - value: vice
+          label: vice
         unit: m
       ENABLE_TECS:
         type: boolean
@@ -3973,7 +4374,6 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: '>1 = altitude priority'
       TECS_ALTITUDE_SCALE:
         type: float
         default: 20.0
@@ -4002,7 +4402,7 @@ sections:
         min: 0.0
         max: 10.0
         step: 0.01
-        unit: when tecs disabled
+        unit: deg
       MIN_THRUST:
         type: float
         default: 0.2
@@ -4012,7 +4412,6 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: idle - never below for fixed-wing!
       MAX_THRUST:
         type: float
         default: 1.0
@@ -4034,13 +4433,13 @@ sections:
       THRUST_SLEW_RATE:
         type: float
         default: 0.5
-        description: max throttle change per second (smooth transitions)
+        description: "max throttle change per second (smooth transitions)\n\n  # === COORDINATED TURN ===\n  # Ensures proper\
+          \ bank angle for zero-sideslip turns"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: smooth transitions
       ENABLE_COORDINATED_TURN:
         type: boolean
         default: true
@@ -4057,11 +4456,11 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 1.0 = standard
       SLIP_ANGLE_LIMIT:
         type: float
         default: 5.0
-        description: degrees - max sideslip allowed
+        description: "degrees - max sideslip allowed\n\n  # === ALTITUDE SAFETY ===\n  # ENABLE_ALTITUDE_SAFETY, RTL_ON_ALTITUDE_VIOLATION\
+          \ now from Safety.GlobalLimits\n  # Per-follower overrides in Safety.FollowerOverrides.FW_ATTITUDE_RATE"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -4071,7 +4470,8 @@ sections:
       ALTITUDE_CHECK_INTERVAL:
         type: float
         default: 0.1
-        description: seconds between checks
+        description: "seconds between checks\n\n  # === STALL PROTECTION ===\n  # Critical for fixed-wing safety - monitors\
+          \ airspeed and initiates recovery"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -4097,12 +4497,17 @@ sections:
       STALL_RECOVERY_THROTTLE:
         type: float
         default: 1.0
-        description: full throttle for energy recovery
+        description: STALL_RECOVERY_THROTTLE parameter
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
+        options:
+        - value: full
+          label: full
+        - value: RTL
+          label: RTL
       TARGET_LOSS_TIMEOUT:
         type: float
         default: 3.0
@@ -4151,13 +4556,55 @@ sections:
       SMOOTHING_FACTOR:
         type: float
         default: 0.85
-        description: EMA coefficient (0-1, higher = more smooth)
+        description: 'EMA coefficient (0-1, higher = more smooth)
+
+
+          # ==============================================================================
+
+          # MULTICOPTER ATTITUDE RATE FOLLOWER CONFIGURATION
+
+          # ==============================================================================
+
+          # Professional multicopter target follower using pure attitude rate control.
+
+          # Unlike velocity-based control, this provides direct attitude rate commands
+
+          # (roll rate, pitch rate, yaw rate, thrust) for aggressive, responsive tracking.
+
+          #
+
+          # Key Characteristics:
+
+          # - Uses set_attitude_rate() offboard command (rollspeed, pitchspeed, yawspeed, thrust)
+
+          # - Requires explicit thrust management (no automatic altitude hold)
+
+          # - Faster response than velocity cascade (direct rate control)
+
+          # - GPS-independent operation possible
+
+          # - Compatible with PNG/IBVS guidance laws
+
+          # - Target loss action: HOVER (rates=0, hover thrust)
+
+          #
+
+          # When to Use:
+
+          # - Aggressive target interception
+
+          # - GPS-denied environments
+
+          # - High-bandwidth tracking maneuvers
+
+          # - Vision-based servoing (IBVS)
+
+          # =============================================================================='
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0-1, higher = more smooth
   MC_ATTITUDE_RATE:
     display_name: MC Attitude Rate
     category: follower
@@ -4166,14 +4613,11 @@ sections:
       GUIDANCE_MODE:
         type: string
         default: direct_rate
-        description: GUIDANCE_MODE parameter
+        description: "direct_rate | png\n\n  # RATE LIMITS: MAX_PITCH_RATE, MAX_ROLL_RATE now from Safety.GlobalLimits\n \
+          \ # MAX_YAW_RATE: 60.0 set in Safety.FollowerOverrides.MC_ATTITUDE_RATE (higher than default 45)\n\n  # === ANGLE\
+          \ LIMITS (safety) ===\n  # Prevents excessive attitude angles that could cause instability"
         reload_tier: follower_restart
         reboot_required: false
-        options:
-        - value: direct_rate
-          label: direct_rate
-        - value: png
-          label: png
       MAX_PITCH_ANGLE:
         type: float
         default: 35.0
@@ -4197,7 +4641,8 @@ sections:
       MAX_BANK_ANGLE:
         type: float
         default: 30.0
-        description: degrees - max bank for coordinated turns
+        description: "degrees - max bank for coordinated turns\n\n  # === THRUST MANAGEMENT ===\n  # Critical: attitude_rate\
+          \ control requires explicit thrust management\n  # Unlike velocity control, there is NO automatic altitude hold"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -4213,7 +4658,6 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
       MIN_THRUST:
         type: float
         default: 0.1
@@ -4233,7 +4677,6 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: motor protection
       ENABLE_PITCH_THRUST_COMPENSATION:
         type: boolean
         default: true
@@ -4243,13 +4686,13 @@ sections:
       PITCH_COMPENSATION_GAIN:
         type: float
         default: 0.5
-        description: Compensation aggressiveness (0.0-1.0)
+        description: "Compensation aggressiveness (0.0-1.0)\n\n  # === ALTITUDE CONTROL ===\n  # Explicit altitude hold using\
+          \ thrust PID"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
       ENABLE_ALTITUDE_HOLD:
         type: boolean
         default: true
@@ -4278,13 +4721,13 @@ sections:
       ALTITUDE_PID_MAX_OUTPUT:
         type: float
         default: 0.3
-        description: Max altitude PID correction (thrust units)
+        description: "Max altitude PID correction (thrust units)\n\n  # === PROPORTIONAL NAVIGATION PARAMETERS ===\n  # PNG\
+          \ Law: a_cmd = N * V_c * LOS_rate\n  # Used when GUIDANCE_MODE: png"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: thrust units
       PN_NAVIGATION_CONSTANT:
         type: float
         default: 4.0
@@ -4294,7 +4737,6 @@ sections:
         min: 0.0
         max: 100.0
         step: 0.1
-        unit: 3-5 typical for intercept
       PN_LOS_SMOOTHING_ALPHA:
         type: float
         default: 0.3
@@ -4307,7 +4749,8 @@ sections:
       PN_CLOSING_VELOCITY:
         type: float
         default: 5.0
-        description: m/s - assumed closing velocity
+        description: "m/s - assumed closing velocity\n\n  # === YAW ERROR GATING ===\n  # Safety: Don't pitch down until yaw\
+          \ is aligned with target\n  # Prevents diving when target is to the side"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -4329,11 +4772,11 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0.0-1.0
       YAW_GATING_PITCH_SCALE:
         type: float
         default: 0.3
-        description: Pitch scaling when yaw misaligned
+        description: "Pitch scaling when yaw misaligned\n\n  # === COORDINATED TURNS ===\n  # Generate roll rate from yaw\
+          \ rate for smooth turns"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -4348,7 +4791,9 @@ sections:
       TURN_COORDINATION_GAIN:
         type: float
         default: 1.0
-        description: Coordination aggressiveness
+        description: "Coordination aggressiveness\n\n  # === TARGET LOSS HANDLING ===\n  # Key advantage: multicopters can\
+          \ HOVER (unlike fixed-wing orbit)\n  # TARGET_LOSS_ACTION: hover — sourced from Safety.GlobalLimits (default is\
+          \ hover)"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -4376,7 +4821,9 @@ sections:
       RAMP_DOWN_ON_TARGET_LOSS:
         type: boolean
         default: true
-        description: Gradually reduce rates on loss
+        description: "Gradually reduce rates on loss\n\n  # === ALTITUDE SAFETY ===\n  # ENABLE_ALTITUDE_SAFETY, RTL_ON_ALTITUDE_VIOLATION\
+          \ now from Safety.GlobalLimits\n  # Altitude limits in Safety.FollowerOverrides.MC_ATTITUDE_RATE if needed\n\n \
+          \ # === COMMAND SMOOTHING ==="
         reload_tier: follower_restart
         reboot_required: false
       COMMAND_SMOOTHING_ENABLED:
@@ -4388,17 +4835,16 @@ sections:
       SMOOTHING_FACTOR:
         type: float
         default: 0.85
-        description: EMA coefficient (0-1, higher=smoother)
+        description: "EMA coefficient (0-1, higher=smoother)\n\n  # === SAFETY ===\n  # EMERGENCY_STOP_ENABLED now from Safety.GlobalLimits"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: 0-1, higher=smoother
       MAX_TRACKING_ERROR:
         type: float
         default: 1.5
-        description: Max normalized error before limiting
+        description: "Max normalized error before limiting\n\n  # === CONTROL CONFIGURATION ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -4407,7 +4853,14 @@ sections:
       CONTROL_UPDATE_RATE:
         type: float
         default: 50.0
-        description: Hz - higher for attitude rate control
+        description: 'Hz - higher for attitude rate control
+
+
+          # ==============================================================================
+
+          # GROUND VIEW FOLLOWER CONFIGURATION
+
+          # =============================================================================='
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -4422,7 +4875,7 @@ sections:
       TARGET_POSITION_MODE:
         type: string
         default: center
-        description: TARGET_POSITION_MODE parameter
+        description: '# === Velocity Limits === # NOTE: MAX_VELOCITY_X/Y now in Safety.GlobalLimits as MAX_VELOCITY_LATERAL/FORWARD'
         reload_tier: follower_restart
         reboot_required: false
         options:
@@ -4433,7 +4886,9 @@ sections:
       MAX_RATE_OF_DESCENT:
         type: float
         default: 1.0
-        description: Max descent rate (m/s) - operational parameter
+        description: "Max descent rate (m/s) - operational parameter\n\n  # === Descent Control ===\n  # Altitude limits now\
+          \ defined in Safety.FollowerOverrides.MC_VELOCITY_GROUND\n  # Resolution: FollowerOverrides -> GlobalLimits -> Hardcoded\
+          \ Fallbacks"
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -4443,7 +4898,7 @@ sections:
       ENABLE_DESCEND_TO_TARGET:
         type: boolean
         default: false
-        description: Enable automatic descent to target
+        description: "Enable automatic descent to target\n\n  # === Gimbal Corrections ==="
         reload_tier: follower_restart
         reboot_required: false
       IS_CAMERA_GIMBALED:
@@ -4465,17 +4920,16 @@ sections:
       BASE_ADJUSTMENT_FACTOR_Y:
         type: float
         default: 0.1
-        description: Base correction factor for pitch (Y-axis)
+        description: "Base correction factor for pitch (Y-axis)\n\n  # === Altitude Adjustments ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 1.0
         step: 0.01
-        unit: y-axis
       ALTITUDE_FACTOR:
         type: float
         default: 0.005
-        description: Altitude scaling factor for distance compensation
+        description: "Altitude scaling factor for distance compensation\n\n  # === Performance Tuning ==="
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -4500,7 +4954,14 @@ sections:
       ERROR_LOGGING_ENABLED:
         type: boolean
         default: true
-        description: Enable detailed error logging
+        description: 'Enable detailed error logging
+
+
+          # ==============================================================================
+
+          # DETECTOR CONFIGURATION
+
+          # =============================================================================='
         reload_tier: follower_restart
         reboot_required: false
   Detector:
@@ -4511,13 +4972,16 @@ sections:
       USE_DETECTOR:
         type: boolean
         default: true
-        description: 🔍 Object detection for tracker initialization/recovery
+        description: USE_DETECTOR parameter
         reload_tier: tracker_restart
         reboot_required: false
       DETECTION_ALGORITHM:
         type: string
         default: TemplateMatching
-        description: or FeatureMatching, YOLO
+        description: "or FeatureMatching, YOLO\n  # ==============================================================================\n\
+          \  # \U0001F50D TEMPLATE MATCHING (Re-detection for all trackers)\n  # ==============================================================================\n\
+          \  # Used when tracker loses target - attempts to re-detect using template matching\n  # Multi-scale search allows\
+          \ finding target at different sizes (zoom in/out)\n  # =============================================================================="
         reload_tier: tracker_restart
         reboot_required: false
       TEMPLATE_MATCHING_METHOD:
@@ -4537,7 +5001,7 @@ sections:
       TEMPLATE_APPEARANCE_LEARNING_RATE:
         type: float
         default: 0.002
-        description: Template adaptation speed
+        description: "Template adaptation speed\n\n  # Multi-scale search (0.5x to 2x target size for drone scenarios)"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -4555,13 +5019,12 @@ sections:
         - 1.2
         - 1.5
         - 2.0
-        description: Multi-scale search (0.5x to 2x target size for drone scenarios)
+        description: TEMPLATE_MATCHING_SCALES parameter
         reload_tier: tracker_restart
         reboot_required: false
         item_type: number
         min_items: 0
         max_items: 20
-        unit: 0.5x to 2x target size for drone scenarios
       TEMPLATE_MATCHING_THRESHOLD:
         type: float
         default: 0.7
@@ -4583,7 +5046,7 @@ sections:
       TRACKER_CONFIDENCE_THRESHOLD_FOR_TEMPLATE_UPDATE:
         type: float
         default: 0.8
-        description: TRACKER_CONFIDENCE_THRESHOLD_FOR_TEMPLATE_UPDATE parameter
+        description: === Feature Matching ===
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -4614,7 +5077,7 @@ sections:
       RANSAC_REPROJECTION_THRESHOLD:
         type: float
         default: 10.0
-        description: RANSAC_REPROJECTION_THRESHOLD parameter
+        description: === Re-detection Parameters ===
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -4655,12 +5118,21 @@ sections:
       ESTIMATOR_UNCERTAINTY_THRESHOLD:
         type: float
         default: 1000.0
-        description: ESTIMATOR_UNCERTAINTY_THRESHOLD parameter
+        description: '==============================================================================
+
+          # GSTREAMER PIPELINE TEMPLATES
+
+          # ==============================================================================
+
+          # 🔧 Advanced users can edit these templates
+
+          # Variables: {width}, {height}, {fps}, {device_id}, {url}, {latency}'
         reload_tier: tracker_restart
         reboot_required: false
         min: -10000.0
         max: 10000.0
         step: 0.1
+        unit: fps
   GStreamerPipelines:
     display_name: GStreamer Pipelines
     category: network
@@ -4670,35 +5142,35 @@ sections:
         type: string
         default: v4l2src device=/dev/video{device_id} ! video/x-raw,format=YUY2,width={width},height={height},framerate={fps}/1
           ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true max-buffers=1 sync=false
-        description: USB camera pipelines
+        description: USB_YUYV parameter
         reload_tier: system_restart
         reboot_required: true
       USB_MJPEG:
         type: string
         default: v4l2src device=/dev/video{device_id} ! image/jpeg,width={width},height={height},framerate={fps}/1 ! jpegdec
           ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true max-buffers=1 sync=false
-        description: USB_MJPEG parameter
+        description: CSI camera pipelines
         reload_tier: system_restart
         reboot_required: true
       CSI_NVIDIA:
         type: string
         default: nvarguscamerasrc sensor-id={sensor_id} ! video/x-raw(memory:NVMM),width={width},height={height},format=NV12,framerate={fps}/1
           ! nvvidconv ! video/x-raw,format=BGRx ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true sync=false
-        description: CSI camera pipelines
+        description: CSI_NVIDIA parameter
         reload_tier: system_restart
         reboot_required: true
       CSI_RPI:
         type: string
         default: libcamerasrc ! video/x-raw,width={width},height={height},framerate={fps}/1 ! videoconvert ! video/x-raw,format=BGR
           ! appsink drop=true sync=false
-        description: CSI_RPI parameter
+        description: Network stream pipelines
         reload_tier: system_restart
         reboot_required: true
       RTSP:
         type: string
         default: rtspsrc location={url} latency={latency} ! decodebin ! videoconvert ! video/x-raw,format=BGR ! videoscale
           ! video/x-raw,width={width},height={height} ! appsink drop=true sync=false
-        description: Network stream pipelines
+        description: RTSP parameter
         reload_tier: system_restart
         reboot_required: true
       UDP:
@@ -4712,7 +5184,11 @@ sections:
         type: string
         default: souphttpsrc location={url} ! decodebin ! videoconvert ! video/x-raw,format=BGR ! videoscale ! video/x-raw,width={width},height={height}
           ! appsink drop=true sync=false
-        description: HTTP parameter
+        description: '==============================================================================
+
+          # FRAME WINDOW & DISPLAY
+
+          # =============================================================================='
         reload_tier: system_restart
         reboot_required: true
   FrameEstimation:
@@ -4729,7 +5205,9 @@ sections:
       SHOW_VIDEO_WINDOW:
         type: boolean
         default: false
-        description: true for debugging with display
+        description: "true for debugging with display\n  # Note: Use VideoSource.DEFAULT_FPS for frame rate settings\n\n#\
+          \ ==============================================================================\n# ESTIMATOR (Kalman Filter for\
+          \ Tracking)\n# =============================================================================="
         reload_tier: immediate
         reboot_required: false
   Estimator:
@@ -4757,7 +5235,7 @@ sections:
       ESTIMATOR_HISTORY_LENGTH:
         type: integer
         default: 5
-        description: State history buffer
+        description: "State history buffer\n  # === Kalman Filter Parameters ==="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -4774,7 +5252,7 @@ sections:
       ESTIMATOR_MEASUREMENT_NOISE_VARIANCE:
         type: float
         default: 1.0
-        description: Sensor noise
+        description: "Sensor noise\n  # Initial covariance: [x, y, dx, dy, ddx, ddy]"
         reload_tier: tracker_restart
         reboot_required: false
         min: 0.0
@@ -4789,7 +5267,7 @@ sections:
         - 50
         - 100
         - 100
-        description: 'Initial covariance: [x, y, dx, dy, ddx, ddy]'
+        description: ESTIMATOR_INITIAL_STATE_COVARIANCE parameter
         reload_tier: tracker_restart
         reboot_required: false
         item_type: number
@@ -4798,7 +5276,7 @@ sections:
       USE_ESTIMATOR_FOR_FOLLOWING:
         type: boolean
         default: true
-        description: Use predictions for control
+        description: "Use predictions for control\n  # === Visualization ==="
         reload_tier: tracker_restart
         reboot_required: false
       ESTIMATED_POSITION_COLOR:
@@ -4819,7 +5297,14 @@ sections:
         - 0
         - 165
         - 255
-        description: 'Orange: prediction only'
+        description: 'Orange: prediction only
+
+
+          # ==============================================================================
+
+          # FRAME PREPROCESSING
+
+          # =============================================================================='
         reload_tier: tracker_restart
         reboot_required: false
         item_type: number
@@ -4833,7 +5318,7 @@ sections:
       ENABLE_PREPROCESSING:
         type: boolean
         default: true
-        description: 🎨 Image enhancement for better tracking
+        description: === Blur (noise reduction) ===
         reload_tier: tracker_restart
         reboot_required: false
       PREPROCESSING_USE_BLUR:
@@ -4850,7 +5335,6 @@ sections:
         reboot_required: false
         min: 0
         max: 100
-        unit: 3, 5, 7...
       PREPROCESSING_USE_MEDIAN_BLUR:
         type: boolean
         default: false
@@ -4860,7 +5344,7 @@ sections:
       PREPROCESSING_MEDIAN_BLUR_KERNEL_SIZE:
         type: integer
         default: 5
-        description: PREPROCESSING_MEDIAN_BLUR_KERNEL_SIZE parameter
+        description: === Contrast Enhancement ===
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -4883,16 +5367,15 @@ sections:
       PREPROCESSING_CLAHE_TILE_GRID_SIZE:
         type: integer
         default: 8
-        description: Grid size (1-10)
+        description: "Grid size (1-10)\n  # === Color Space ==="
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
         max: 160
-        unit: 1-10
       PREPROCESSING_COLOR_SPACE:
         type: string
         default: BGR
-        description: PREPROCESSING_COLOR_SPACE parameter
+        description: '# ============================================================================== # SEGMENTATION # =============================================================================='
         reload_tier: tracker_restart
         reboot_required: false
         options:
@@ -4918,7 +5401,7 @@ sections:
         - yolov8n-oiv7
         - yolov8s-obb
         - yolov11n
-        description: 🎭 Object segmentation for precise tracking
+        description: SEGMENTATION_ALGORITHMS parameter
         reload_tier: tracker_restart
         reboot_required: false
         item_type: string
@@ -4931,7 +5414,7 @@ sections:
       USE_SEGMENTATION_FOR_TRACKING:
         type: boolean
         default: true
-        description: USE_SEGMENTATION_FOR_TRACKING parameter
+        description: === Morphological Operations ===
         reload_tier: tracker_restart
         reboot_required: false
       MORPHOLOGICAL_KERNEL_SIZE:
@@ -4953,7 +5436,7 @@ sections:
       EROSION_ITERATIONS:
         type: integer
         default: 1
-        description: EROSION_ITERATIONS parameter
+        description: === GrabCut Parameters ===
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -4969,7 +5452,19 @@ sections:
       SEGMENTATION_MIN_AREA:
         type: integer
         default: 500
-        description: Min segment area in pixels
+        description: 'Min segment area in pixels
+
+
+          # Sections removed in v6.0 (orphaned — no code reads these):
+
+          # YawControl, VerticalErrorRecalculation, Gimbal, AdaptiveControl, ChaseFollower
+
+
+          # ==============================================================================
+
+          # PID CONTROLLER
+
+          # =============================================================================='
         reload_tier: tracker_restart
         reboot_required: false
         min: 0
@@ -4982,8 +5477,7 @@ sections:
     parameters:
       PID_GAINS:
         type: object
-        description: '⚙️ Unified PID gains — single flat table, platform-prefixed mc_ = Multicopter (also used by GM followers
-          since GM runs on MC airframe) fw_ = Fixed-Wing Each entry: {p: proportional, i: integral, d: derivative}'
+        description: PID_GAINS settings
         reboot_required: false
         properties:
           mc_yawspeed_deg_s:
@@ -5035,14 +5529,15 @@ sections:
             description: '[m/s]   — position-tracking lateral (distance+ground)'
             reload_tier: follower_restart
             reboot_required: false
-            unit: distance+ground
+            unit: m/s
           mc_altitude:
             type: object
             default:
               p: 2.0
               i: 0.03
               d: 0.05
-            description: '[m]     — altitude via velocity command'
+            description: "[m]     — altitude via velocity command\n\n    # ── MC: Attitude Rate Control ────────────────────────────\n\
+              \    # Used by: mc_attitude_rate only"
             reload_tier: follower_restart
             reboot_required: false
             unit: m
@@ -5082,7 +5577,8 @@ sections:
               p: 2.0
               i: 0.3
               d: 0.5
-            description: '[m]     — altitude via thrust'
+            description: "[m]     — altitude via thrust\n\n    # ── FW: L1 + TECS Cascade ────────────────────────────────\n\
+              \    # Used by: fw_attitude_rate only"
             reload_tier: follower_restart
             reboot_required: false
             unit: m
@@ -5092,7 +5588,8 @@ sections:
               p: 2.0
               i: 0.3
               d: 0.2
-            description: '[deg]   — L1 outer loop bank angle'
+            description: "[deg]   — L1 outer loop bank angle\n    # fw_roll_rate: removed — inner roll-rate loop not implemented;\
+              \ L1 outer loop uses fw_bank_angle PID"
             reload_tier: follower_restart
             reboot_required: false
             unit: deg
@@ -5122,7 +5619,7 @@ sections:
               p: 0.4
               i: 0.2
               d: 0.1
-            description: '[0-1]   — TECS throttle'
+            description: "[0-1]   — TECS throttle\n\n  # === Advanced PID Features ==="
             reload_tier: follower_restart
             reboot_required: false
       PROPORTIONAL_ON_MEASUREMENT:
@@ -5140,7 +5637,24 @@ sections:
       ANTI_WINDUP_BACK_CALC_COEFF:
         type: float
         default: 0.1
-        description: Back-calculation coefficient
+        description: 'Back-calculation coefficient
+
+
+          # ==============================================================================
+
+          # SAFETY CONFIGURATION (v3.6.0+)
+
+          # ==============================================================================
+
+          # Single source of truth for all safety limits.
+
+          # All followers use GlobalLimits unless overridden in FollowerOverrides.
+
+          #
+
+          # Resolution Order: FollowerOverrides -> GlobalLimits -> Hardcoded Fallbacks
+
+          # =============================================================================='
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -5181,10 +5695,9 @@ sections:
             type: object
             default:
               RTL_ON_VIOLATION: false
-            description: 'GM followers: conservative defaults (no RTL, allow ground testing)'
+            description: GM_VELOCITY_VECTOR parameter
             reload_tier: follower_restart
             reboot_required: false
-            unit: no rtl, allow ground testing
           GM_VELOCITY_CHASE:
             type: object
             default:
@@ -5199,14 +5712,14 @@ sections:
               MAX_PITCH_RATE: 20.0
               MAX_YAW_RATE: 25.0
               TARGET_LOSS_ACTION: orbit
-            description: 'Fixed-wing: different rate limits and target-loss behavior'
+            description: FW_ATTITUDE_RATE parameter
             reload_tier: follower_restart
             reboot_required: false
           MC_ATTITUDE_RATE:
             type: object
             default:
               MAX_YAW_RATE: 60.0
-            description: 'MC attitude: higher yaw rate for agility'
+            description: MC_ATTITUDE_RATE parameter
             reload_tier: follower_restart
             reboot_required: false
           MC_VELOCITY_POSITION:
@@ -5250,7 +5763,14 @@ sections:
       ENABLE_SETPOINT_DEBUGGING:
         type: boolean
         default: false
-        description: Debug output
+        description: 'Debug output
+
+
+          # ==============================================================================
+
+          # TELEMETRY
+
+          # =============================================================================='
         reload_tier: tracker_restart
         reboot_required: false
   Telemetry:
@@ -5261,7 +5781,7 @@ sections:
       ENABLE_TELEMETRY:
         type: boolean
         default: true
-        description: 📊 Telemetry data distribution
+        description: ENABLE_TELEMETRY parameter
         reload_tier: system_restart
         reboot_required: true
       TELEMETRY_SEND_RATE:
@@ -5276,7 +5796,7 @@ sections:
       TELEMETRY_FLASK_ENDPOINT:
         type: string
         default: /telemetry
-        description: REST endpoint
+        description: "REST endpoint\n  # === UDP Telemetry ==="
         reload_tier: system_restart
         reboot_required: true
       ENABLE_UDP_STREAM:
@@ -5294,7 +5814,7 @@ sections:
       UDP_PORT:
         type: integer
         default: 5550
-        description: UDP_PORT parameter
+        description: === WebSocket Telemetry ===
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -5308,7 +5828,7 @@ sections:
       WEBSOCK_PORT:
         type: integer
         default: 5551
-        description: WEBSOCK_PORT parameter
+        description: === Data Selection ===
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -5316,7 +5836,60 @@ sections:
       ENABLE_FOLLOWER_TELEMETRY:
         type: boolean
         default: true
-        description: Include follower status
+        description: 'Include follower status
+
+
+          # ==============================================================================
+
+          # GSTREAMER OUTPUT STREAM (Secondary H.264 Output for QGC/Ground Stations)
+
+          # ==============================================================================
+
+          # Streams video as H.264/RTP/UDP — the format required by QGroundControl (QGC),
+
+          # Mission Planner, and other MAVLink-based ground control stations.
+
+          #
+
+          # IMPORTANT — Two separate GStreamer configs exist in this file:
+
+          #   1. USE_GSTREAMER (in VideoSource above) = how frames are READ from cameras
+
+          #      - Only affects input capture (RTSP, CSI, USB via GStreamer pipelines)
+
+          #      - Has NO effect on output streaming
+
+          #   2. ENABLE_GSTREAMER_STREAM (this section) = how frames are SENT to QGC
+
+          #      - Creates a secondary H.264/RTP/UDP output alongside the dashboard
+
+          #      - Dashboard streaming (HTTP/WebSocket/WebRTC) works independently
+
+          #
+
+          # When ENABLE_GSTREAMER_STREAM is false (default):
+
+          #   - Dashboard streaming works normally via HTTP, WebSocket, or WebRTC
+
+          #   - No H.264 encoding overhead, no UDP output
+
+          #   - QGC will NOT receive video (use dashboard instead)
+
+          #
+
+          # When ENABLE_GSTREAMER_STREAM is true:
+
+          #   - Dashboard streaming continues as before (unaffected)
+
+          #   - Additionally, H.264/RTP frames are sent to GSTREAMER_HOST:GSTREAMER_PORT
+
+          #   - QGC receives video at the configured UDP endpoint
+
+          #   - In QGC: Application Settings → Video → UDP Video Stream, port 2000
+
+          #
+
+          # =============================================================================='
         reload_tier: system_restart
         reboot_required: true
   GStreamer:
@@ -5327,18 +5900,17 @@ sections:
       ENABLE_GSTREAMER_STREAM:
         type: boolean
         default: false
-        description: Master enable for QGC video output (off by default)
+        description: "Master enable for QGC video output (off by default)\n\n  # === Encoder Selection ===\n  # ENABLE_HARDWARE_ENCODING\
+          \ controls encoder auto-detection:\n  #   true  = try GPU encoder first (NVENC → VAAPI), software fallback if unavailable\n\
+          \  #   false = always use software x264enc (safe default, works everywhere)"
         reload_tier: system_restart
         reboot_required: true
-        unit: off by default
       ENABLE_HARDWARE_ENCODING:
         type: boolean
         default: false
-        description: 'ENABLE_HARDWARE_ENCODING controls encoder auto-detection: true  = try GPU encoder first (NVENC → VAAPI),
-          software fallback if unavailable false = always use software x264enc (safe default, works everywhere)'
+        description: === Stream Settings ===
         reload_tier: system_restart
         reboot_required: true
-        unit: safe default, works everywhere
       GSTREAMER_HOST:
         type: string
         default: 127.0.0.1
@@ -5389,19 +5961,17 @@ sections:
       GSTREAMER_BUFFER_SIZE:
         type: integer
         default: 50000000
-        description: UDP buffer size (bytes)
+        description: "UDP buffer size (bytes)\n\n  # === Encoder Tuning (used by software x264enc) ==="
         reload_tier: system_restart
         reboot_required: true
         min: 0
         max: 1000000
-        unit: bytes
       GSTREAMER_SPEED_PRESET:
         type: string
         default: ultrafast
         description: x264 preset (ultrafast/superfast/veryfast/faster/fast)
         reload_tier: system_restart
         reboot_required: true
-        unit: ultrafast/superfast/veryfast/faster/fast
       GSTREAMER_KEY_INT_MAX:
         type: integer
         default: 30
@@ -5414,10 +5984,9 @@ sections:
       GSTREAMER_TUNE:
         type: string
         default: zerolatency
-        description: x264 tuning (zerolatency recommended)
+        description: "x264 tuning (zerolatency recommended)\n\n  # === Video Enhancement ==="
         reload_tier: system_restart
         reboot_required: true
-        unit: zerolatency recommended
       GSTREAMER_CONTRAST:
         type: float
         default: 5.0
@@ -5438,7 +6007,41 @@ sections:
       GSTREAMER_SATURATION:
         type: integer
         default: 5
-        description: GSTREAMER_SATURATION parameter
+        description: '==============================================================================
+
+          # VIDEO RECORDING
+
+          # ==============================================================================
+
+          # Saves video frames to local files for post-flight review and analysis.
+
+          # Independent of streaming (GStreamer QGC output and dashboard streaming).
+
+          # Uses cv2.VideoWriter with FOURCC codecs for maximum cross-platform compatibility.
+
+          #
+
+          # Recording does NOT affect:
+
+          #   - Dashboard streaming (HTTP/WebSocket/WebRTC) — continues as normal
+
+          #   - GStreamer QGC output — continues as normal
+
+          #   - Pipeline performance — non-blocking writer thread with bounded queue
+
+          #
+
+          # Crash Safety:
+
+          #   Files are written with .tmp suffix during recording. On clean stop, the file
+
+          #   is renamed to its final name. If the application crashes mid-recording, the
+
+          #   .tmp file is automatically finalized on next startup (RECORDING_AUTO_RECOVERY).
+
+          #
+
+          # =============================================================================='
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -5451,14 +6054,13 @@ sections:
       ENABLE_RECORDING:
         type: boolean
         default: true
-        description: Allow recording via API/keyboard (R key)
+        description: "Allow recording via API/keyboard (R key)\n\n  # === Output Settings ==="
         reload_tier: system_restart
         reboot_required: true
-        unit: r key
       RECORDING_OUTPUT_DIR:
         type: string
         default: recordings
-        description: Directory relative to project root
+        description: 'Directory relative to project root #'
         reload_tier: system_restart
         reboot_required: true
         options:
@@ -5476,7 +6078,6 @@ sections:
         description: Universal reliable codec (download to play in VLC/WMP)
         reload_tier: system_restart
         reboot_required: true
-        unit: download to play in vlc/wmp
       RECORDING_CONTAINER:
         type: string
         default: mp4
@@ -5531,7 +6132,6 @@ sections:
         reboot_required: true
         min: 0
         max: 100
-        unit: real-time pacing cap
       RECORDING_TRANSCODE_H264:
         type: boolean
         default: true
@@ -5542,7 +6142,7 @@ sections:
       RECORDING_MAX_FILE_SIZE_MB:
         type: integer
         default: 0
-        description: 0 = unlimited
+        description: "0 = unlimited\n\n  # === Crash Recovery ==="
         reload_tier: system_restart
         reboot_required: true
         min: 0
@@ -5550,7 +6150,7 @@ sections:
       RECORDING_AUTO_RECOVERY:
         type: boolean
         default: true
-        description: Finalize .tmp files on startup
+        description: "Finalize .tmp files on startup\n\n  # === Storage Monitoring ==="
         reload_tier: system_restart
         reboot_required: true
       STORAGE_WARNING_THRESHOLD_MB:
@@ -5574,7 +6174,68 @@ sections:
       STORAGE_POLL_INTERVAL:
         type: float
         default: 10.0
-        description: Seconds between disk space checks
+        description: 'Seconds between disk space checks
+
+
+          # ==============================================================================
+
+          # OSD (ON-SCREEN DISPLAY)
+
+          # ==============================================================================
+
+          # 📺 Professional On-Screen Display System
+
+          #
+
+          # Configuration Philosophy:
+
+          # - This section contains ONLY general OSD settings
+
+          # - All element configurations (what, where, how) are in preset files
+
+          # - Presets are located in: configs/osd_presets/
+
+          #
+
+          # Available Presets:
+
+          # - minimal.yaml: Essential info only (altitude, battery, status)
+
+          # - professional.yaml: Balanced aviation-standard layout (RECOMMENDED)
+
+          # - full_telemetry.yaml: All available data (testing/debugging)
+
+          #
+
+          # Adding Custom Presets:
+
+          # 1. Create new YAML file in configs/osd_presets/
+
+          # 2. Copy structure from existing preset
+
+          # 3. Set OSD_PRESET below to your filename (without .yaml)
+
+          # 4. All MAVLink data points are automatically available
+
+          #
+
+          # Adding New MAVLink Fields to OSD:
+
+          # 1. Ensure field exists in MAVLink.MAVLINK_DATA_POINTS section above
+
+          # 2. Open your chosen preset file (e.g., professional.yaml)
+
+          # 3. Add field to mavlink_data.fields section with positioning/styling
+
+          # 4. Available fields: heading, altitude_agl, altitude_msl, airspeed,
+
+          #    groundspeed, voltage, satellites_visible, hdop, vdop, latitude,
+
+          #    longitude, roll, pitch, throttle, climb, flight_mode, etc.
+
+          #
+
+          # =============================================================================='
         reload_tier: system_restart
         reboot_required: true
         min: 0.0
@@ -5589,13 +6250,13 @@ sections:
       OSD_ENABLED:
         type: boolean
         default: true
-        description: Master enable/disable for OSD
+        description: "Master enable/disable for OSD\n\n  # === Preset Selection ==="
         reload_tier: immediate
         reboot_required: false
       OSD_PRESET:
         type: string
         default: professional
-        description: Active preset filename (without .yaml)
+        description: 'Active preset filename (without .yaml) # # === Performance Mode ==='
         reload_tier: immediate
         reboot_required: false
         options:
@@ -5609,11 +6270,10 @@ sections:
           label: full_telemetry
         - value: debug
           label: debug
-        unit: without .yaml
       OSD_PERFORMANCE_MODE:
         type: string
         default: balanced
-        description: Rendering quality vs speed tradeoff
+        description: 'Rendering quality vs speed tradeoff # # === Real-Time OSD Pipeline ==='
         reload_tier: immediate
         reboot_required: false
         options:
@@ -5626,7 +6286,7 @@ sections:
       OSD_PIPELINE_MODE:
         type: string
         default: layered_realtime
-        description: OSD rendering pipeline strategy
+        description: 'OSD rendering pipeline strategy #'
         reload_tier: immediate
         reboot_required: false
         options:
@@ -5679,7 +6339,7 @@ sections:
       OSD_AUTO_DEGRADE_MIN_MODE:
         type: string
         default: fast
-        description: Minimum quality floor for auto-degradation
+        description: 'Minimum quality floor for auto-degradation #'
         reload_tier: immediate
         reboot_required: false
         options:
@@ -5692,7 +6352,7 @@ sections:
       OSD_COMPOSITOR:
         type: string
         default: cv2_alpha
-        description: Overlay compositing method
+        description: 'Overlay compositing method # # === Color Mode ==='
         reload_tier: immediate
         reboot_required: false
         options:
@@ -5703,7 +6363,10 @@ sections:
       OSD_COLOR_MODE:
         type: string
         default: day
-        description: Runtime color palette for OSD elements
+        description: 'Runtime color palette for OSD elements # # ℹ️ NOTE: All element configurations are loaded from the preset
+          file # ℹ️ See configs/osd_presets/{OSD_PRESET}.yaml for layout and styling # ℹ️ Available presets: minimal | professional
+          | military | full_telemetry | debug # ℹ️ Color mode and preset can be switched at runtime via API or dashboard #
+          ============================================================================== # DEBUGGING & LOGGING # =============================================================================='
         reload_tier: immediate
         reboot_required: false
         options:
@@ -5721,7 +6384,7 @@ sections:
       ENABLE_DEBUGGING:
         type: boolean
         default: true
-        description: 🐛 Debug and logging configuration
+        description: ENABLE_DEBUGGING parameter
         reload_tier: immediate
         reboot_required: false
       LOG_FILE_PATH:
@@ -5754,6 +6417,34 @@ sections:
       DEBUG_FRAME_PATH:
         type: string
         default: debug_frames/
-        description: Debug frame storage
+        description: 'Debug frame storage
+
+
+          # ==============================================================================
+
+          # END OF CONFIGURATION
+
+          # ==============================================================================
+
+          # ✅ Configuration v4.0.0 - Cleaned and unified
+
+          #
+
+          # Key sections:
+
+          # - VideoSource: All video input settings (use CAPTURE_WIDTH/HEIGHT/FPS)
+
+          # - Safety.GlobalLimits: Single source of truth for all safety limits
+
+          # - Follower sections: Per-follower overrides (optional)
+
+          # - Tracker sections: Per-tracker configuration
+
+          #
+
+          # For schema-driven editing, see configs/config_schema.yaml
+
+          # =============================================================================='
         reload_tier: immediate
         reboot_required: false
+        unit: fps
