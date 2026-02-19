@@ -195,7 +195,7 @@ class TestSetpointHandlerProfileNormalization:
     def test_normalize_lowercase(self):
         """Test lowercase conversion."""
         from classes.setpoint_handler import SetpointHandler
-        assert SetpointHandler.normalize_profile_name('MC_VELOCITY') == 'mc_velocity'
+        assert SetpointHandler.normalize_profile_name('MC_VELOCITY_CHASE') == 'mc_velocity_chase'
 
     def test_normalize_spaces_to_underscores(self):
         """Test space to underscore conversion."""

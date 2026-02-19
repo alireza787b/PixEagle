@@ -46,6 +46,7 @@ from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
 import numpy as np
 import time
+from math import degrees
 from enum import Enum
 from typing import Tuple, Optional, Dict, Any, Deque
 from datetime import datetime
@@ -125,12 +126,11 @@ class MCAttitudeRateFollower(BaseFollower):
         guidance_mode_str = config.get('GUIDANCE_MODE', 'direct_rate')
         self.guidance_mode = self._parse_guidance_mode(guidance_mode_str)
 
-        # === RATE LIMITS (rad/s internally, matches velocity follower pattern) ===
-        from math import radians, degrees
-        self.max_pitch_rate_rad = radians(config.get('MAX_PITCH_RATE', 45.0))
-        self.max_roll_rate_rad = radians(config.get('MAX_ROLL_RATE', 45.0))
-        self.max_yaw_rate_rad = radians(config.get('MAX_YAW_RATE', 60.0))
-        self._degrees = degrees  # Store for use in update_control()
+        # === RATE LIMITS (rad/s internally; from SafetyManager — single source of truth) ===
+        _rate_limits = self.rate_limits
+        self.max_pitch_rate_rad = _rate_limits.pitch
+        self.max_roll_rate_rad = _rate_limits.roll
+        self.max_yaw_rate_rad = _rate_limits.yaw
 
         # === ANGLE LIMITS (safety) ===
         self.max_pitch_angle = config.get('MAX_PITCH_ANGLE', 35.0)
@@ -147,6 +147,8 @@ class MCAttitudeRateFollower(BaseFollower):
         # === ALTITUDE CONTROL ===
         self.enable_altitude_hold = config.get('ENABLE_ALTITUDE_HOLD', True)
         self.target_altitude_offset = config.get('TARGET_ALTITUDE_OFFSET', 0.0)
+        self.altitude_pid_min_output = config.get('ALTITUDE_PID_MIN_OUTPUT', -0.3)
+        self.altitude_pid_max_output = config.get('ALTITUDE_PID_MAX_OUTPUT', 0.3)
         self.initial_altitude = None  # Set on first update
 
         # === PROPORTIONAL NAVIGATION PARAMETERS ===
@@ -164,23 +166,23 @@ class MCAttitudeRateFollower(BaseFollower):
 
         # === TARGET LOSS HANDLING ===
         self.target_loss_timeout = config.get('TARGET_LOSS_TIMEOUT', 2.0)
-        target_loss_action_str = config.get('TARGET_LOSS_ACTION', 'hover')
-        self.target_loss_action = self._parse_target_loss_action(target_loss_action_str)
-        self.target_loss_coord_threshold = config.get('TARGET_LOSS_COORDINATE_THRESHOLD', 990)
+        # TARGET_LOSS_ACTION delegated to SafetyManager (GlobalLimits → FollowerOverrides)
+        self.target_loss_action = self.safety_manager.get_safety_behavior(self._follower_config_name).target_loss_action
+        self.target_loss_coord_threshold = config.get('TARGET_LOSS_COORDINATE_THRESHOLD', 1.5)
 
-        # === ALTITUDE SAFETY (use base class cached limits via SafetyManager) ===
-        self.enable_altitude_safety = config.get('ENABLE_ALTITUDE_SAFETY', True)
+        # === ALTITUDE SAFETY (limits from SafetyManager; per-follower flag via is_altitude_safety_enabled()) ===
         self.min_altitude_limit = self.altitude_limits.min_altitude
         self.max_altitude_limit = self.altitude_limits.max_altitude
         self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 0.1)
-        self.rtl_on_altitude_violation = config.get('RTL_ON_ALTITUDE_VIOLATION', True)
+        _safety_behavior = self.safety_manager.get_safety_behavior(self._follower_config_name)
+        self.rtl_on_altitude_violation = _safety_behavior.rtl_on_violation
 
         # === COMMAND SMOOTHING ===
-        self.rate_smoothing_enabled = config.get('RATE_SMOOTHING_ENABLED', True)
+        self.command_smoothing_enabled = config.get('COMMAND_SMOOTHING_ENABLED', True)
         self.smoothing_factor = config.get('SMOOTHING_FACTOR', 0.85)
 
-        # === SAFETY ===
-        self.emergency_stop_enabled = config.get('EMERGENCY_STOP_ENABLED', True)
+        # === SAFETY (from SafetyManager — single source of truth) ===
+        self.emergency_stop_enabled = _safety_behavior.emergency_stop_enabled
 
         # === PERFORMANCE ===
         self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 50.0)
@@ -233,8 +235,9 @@ class MCAttitudeRateFollower(BaseFollower):
         logger.info(f"MCAttitudeRateFollower initialized with attitude rate control")
         logger.info(f"Guidance mode: {self.guidance_mode.value}")
         logger.info(f"Target loss action: {self.target_loss_action.value}")
-        logger.debug(f"Rate limits - Pitch: {self.max_pitch_rate}°/s, Yaw: {self.max_yaw_rate}°/s, "
-                    f"Roll: {self.max_roll_rate}°/s")
+        logger.debug(f"Rate limits - Pitch: {degrees(self.max_pitch_rate_rad):.1f}°/s, "
+                    f"Yaw: {degrees(self.max_yaw_rate_rad):.1f}°/s, "
+                    f"Roll: {degrees(self.max_roll_rate_rad):.1f}°/s")
         logger.debug(f"Thrust management - Hover: {self.hover_thrust}, Range: [{self.min_thrust}, {self.max_thrust}]")
 
     # ==================== Mode Parsing ====================
@@ -278,37 +281,37 @@ class MCAttitudeRateFollower(BaseFollower):
 
             # Pitch Rate Controller - Vertical Tracking (rad/s internally, deg/s on output)
             self.pid_pitch_rate = CustomPID(
-                *self._get_pid_gains('mcar_pitchspeed_deg_s'),
+                *self._get_pid_gains('mc_pitchspeed_deg_s'),
                 setpoint=setpoint_y,
                 output_limits=(-self.max_pitch_rate_rad, self.max_pitch_rate_rad)  # rad/s limits
             )
-            logger.debug(f"Pitch rate PID initialized with gains {self._get_pid_gains('mcar_pitchspeed_deg_s')}")
+            logger.debug(f"Pitch rate PID initialized with gains {self._get_pid_gains('mc_pitchspeed_deg_s')}")
 
             # Yaw Rate Controller - Horizontal Tracking (rad/s internally, deg/s on output)
             self.pid_yaw_rate = CustomPID(
-                *self._get_pid_gains('mcar_yawspeed_deg_s'),
+                *self._get_pid_gains('mc_att_yawspeed_deg_s'),
                 setpoint=setpoint_x,
                 output_limits=(-self.max_yaw_rate_rad, self.max_yaw_rate_rad)  # rad/s limits
             )
-            logger.debug(f"Yaw rate PID initialized with gains {self._get_pid_gains('mcar_yawspeed_deg_s')}")
+            logger.debug(f"Yaw rate PID initialized with gains {self._get_pid_gains('mc_att_yawspeed_deg_s')}")
 
             # Roll Rate Controller - Coordinated Turns (rad/s internally, deg/s on output)
             self.pid_roll_rate = CustomPID(
-                *self._get_pid_gains('mcar_rollspeed_deg_s'),
+                *self._get_pid_gains('mc_rollspeed_deg_s'),
                 setpoint=0.0,  # Updated dynamically based on bank angle
                 output_limits=(-self.max_roll_rate_rad, self.max_roll_rate_rad)  # rad/s limits
             )
-            logger.debug(f"Roll rate PID initialized with gains {self._get_pid_gains('mcar_rollspeed_deg_s')}")
+            logger.debug(f"Roll rate PID initialized with gains {self._get_pid_gains('mc_rollspeed_deg_s')}")
 
             # Altitude Controller - Height Hold (thrust output)
             self.pid_altitude = None
             if self.enable_altitude_hold:
                 self.pid_altitude = CustomPID(
-                    *self._get_pid_gains('mcar_altitude'),
+                    *self._get_pid_gains('mc_att_altitude'),
                     setpoint=0.0,  # Set when initial altitude is captured
-                    output_limits=(-0.3, 0.3)  # Altitude correction bounds
+                    output_limits=(self.altitude_pid_min_output, self.altitude_pid_max_output)
                 )
-                logger.debug(f"Altitude PID initialized with gains {self._get_pid_gains('mcar_altitude')}")
+                logger.debug(f"Altitude PID initialized with gains {self._get_pid_gains('mc_att_altitude')}")
 
             logger.info("All PID controllers initialized for MCAttitudeRateFollower")
 
@@ -321,41 +324,29 @@ class MCAttitudeRateFollower(BaseFollower):
         Retrieves PID gains for the specified control axis.
 
         Args:
-            axis (str): Control axis name with mcar_ prefix.
+            axis (str): Control axis name (mc_pitchspeed_deg_s, mc_att_yawspeed_deg_s, etc.)
 
         Returns:
             Tuple[float, float, float]: (P, I, D) gains.
+
+        Raises:
+            KeyError: If the specified axis is not configured.
         """
         try:
             gains = Parameters.PID_GAINS[axis]
             return gains['p'], gains['i'], gains['d']
-        except KeyError:
-            # Fallback to generic attitude rate gains
-            fallback_map = {
-                'mcar_pitchspeed_deg_s': 'pitchspeed_deg_s',
-                'mcar_yawspeed_deg_s': 'yawspeed_deg_s',
-                'mcar_rollspeed_deg_s': 'rollspeed_deg_s',
-                'mcar_thrust': 'thrust',
-                'mcar_altitude': 'z',
-            }
-            fallback = fallback_map.get(axis, axis)
-            try:
-                gains = Parameters.PID_GAINS[fallback]
-                logger.debug(f"Using fallback PID gains '{fallback}' for axis '{axis}'")
-                return gains['p'], gains['i'], gains['d']
-            except KeyError:
-                logger.error(f"PID gains not found for axis '{axis}' or fallback")
-                # Return safe defaults
-                return (1.0, 0.1, 0.1)
+        except KeyError as e:
+            logger.error(f"PID gains not found for axis '{axis}': {e}")
+            raise KeyError(f"Invalid PID axis '{axis}'. Check Parameters.PID_GAINS configuration.")
 
     def _update_pid_gains(self) -> None:
         """Updates all PID gains from current configuration."""
         try:
-            self.pid_pitch_rate.tunings = self._get_pid_gains('mcar_pitchspeed_deg_s')
-            self.pid_yaw_rate.tunings = self._get_pid_gains('mcar_yawspeed_deg_s')
-            self.pid_roll_rate.tunings = self._get_pid_gains('mcar_rollspeed_deg_s')
+            self.pid_pitch_rate.tunings = self._get_pid_gains('mc_pitchspeed_deg_s')
+            self.pid_yaw_rate.tunings = self._get_pid_gains('mc_att_yawspeed_deg_s')
+            self.pid_roll_rate.tunings = self._get_pid_gains('mc_rollspeed_deg_s')
             if self.pid_altitude:
-                self.pid_altitude.tunings = self._get_pid_gains('mcar_altitude')
+                self.pid_altitude.tunings = self._get_pid_gains('mc_att_altitude')
             logger.debug("PID gains updated for MCAttitudeRateFollower")
         except Exception as e:
             logger.error(f"Failed to update PID gains: {e}")
@@ -392,13 +383,13 @@ class MCAttitudeRateFollower(BaseFollower):
                     logger.info(f"Initial altitude captured: {current_altitude:.1f}m, "
                                f"target: {target_altitude:.1f}m")
 
-                # Calculate altitude error and correction
-                altitude_error = self.pid_altitude.setpoint - current_altitude
-                altitude_correction = self.pid_altitude(altitude_error)
+                # Pass raw measurement; PID computes setpoint - current_altitude internally
+                altitude_correction = self.pid_altitude(current_altitude)
                 thrust += altitude_correction
 
                 logger.debug(f"Altitude control - Target: {self.pid_altitude.setpoint:.1f}m, "
-                            f"Current: {current_altitude:.1f}m, Correction: {altitude_correction:.3f}")
+                            f"Current: {current_altitude:.1f}m, Error: {self.pid_altitude.setpoint - current_altitude:.3f}m, "
+                            f"Correction: {altitude_correction:.3f}")
 
             # Apply pitch angle compensation
             # As pitch increases, vertical thrust component decreases: Tv = T * cos(pitch)
@@ -497,19 +488,19 @@ class MCAttitudeRateFollower(BaseFollower):
                     self.smoothed_los_rate = alpha * np.sqrt(los_rate_h**2 + los_rate_v**2) + \
                                             (1 - alpha) * self.smoothed_los_rate
 
-                    # PNG acceleration command
-                    # a_cmd = N * V_c * LOS_rate
+                    # PNG rate command: a_cmd = N * V_c * LOS_rate (acceleration)
+                    # Convert to rate: omega = a_cmd / V_c = N * LOS_rate
                     N = self.pn_navigation_constant
-                    V_c = self.pn_closing_velocity
 
-                    # Convert acceleration to rate commands
-                    # For multicopter: pitch_rate ~ vertical acceleration, yaw_rate ~ lateral acceleration
-                    yaw_rate = N * V_c * los_rate_h * np.rad2deg(1.0)  # Convert to deg/s
-                    pitch_rate = N * V_c * los_rate_v * np.rad2deg(1.0)
+                    # Rate commands in deg/s (V_c cancels in accel-to-rate conversion)
+                    yaw_rate = N * los_rate_h * np.rad2deg(1.0)
+                    pitch_rate = N * los_rate_v * np.rad2deg(1.0)
 
-                    # Clamp to limits
-                    pitch_rate = np.clip(pitch_rate, -self.max_pitch_rate, self.max_pitch_rate)
-                    yaw_rate = np.clip(yaw_rate, -self.max_yaw_rate, self.max_yaw_rate)
+                    # Clamp to limits (convert rad/s limits to deg/s)
+                    max_pitch_deg = degrees(self.max_pitch_rate_rad)
+                    max_yaw_deg = degrees(self.max_yaw_rate_rad)
+                    pitch_rate = np.clip(pitch_rate, -max_pitch_deg, max_pitch_deg)
+                    yaw_rate = np.clip(yaw_rate, -max_yaw_deg, max_yaw_deg)
 
                     # Store for next iteration
                     self.last_los_angle = (los_angle_h, los_angle_v)
@@ -636,7 +627,6 @@ class MCAttitudeRateFollower(BaseFollower):
             if is_valid:
                 if self.target_lost:
                     logger.info("Target recovered after loss")
-                    self.target_loss_events += 1
                 self.target_lost = False
                 self.target_loss_start_time = None
                 self.last_valid_target_coords = target_coords
@@ -671,7 +661,7 @@ class MCAttitudeRateFollower(BaseFollower):
         except ImportError:
             pass  # Circuit breaker not available, continue with normal safety checks
 
-        if not self.enable_altitude_safety:
+        if not self.is_altitude_safety_enabled():
             return True
 
         try:
@@ -699,19 +689,7 @@ class MCAttitudeRateFollower(BaseFollower):
             logger.error(f"Altitude safety check error: {e}")
             return True
 
-    def _trigger_rtl(self, reason: str) -> None:
-        """Triggers Return to Launch."""
-        try:
-            logger.critical(f"Triggering RTL: {reason}")
-            if self.px4_controller and hasattr(self.px4_controller, 'trigger_return_to_launch'):
-                import asyncio
-                try:
-                    loop = asyncio.get_running_loop()
-                    asyncio.create_task(self.px4_controller.trigger_return_to_launch())
-                except RuntimeError:
-                    asyncio.run(self.px4_controller.trigger_return_to_launch())
-        except Exception as e:
-            logger.error(f"RTL trigger failed: {e}")
+    # _trigger_rtl() is inherited from BaseFollower (WP9 consolidation)
 
     # ==================== Main Control Methods ====================
 
@@ -758,7 +736,7 @@ class MCAttitudeRateFollower(BaseFollower):
             roll_rate = self._calculate_coordinated_roll_rate(yaw_rate, current_speed, current_roll)
 
             # Apply smoothing
-            if self.rate_smoothing_enabled:
+            if self.command_smoothing_enabled:
                 sf = self.smoothing_factor
                 self.smoothed_pitch_rate = sf * self.smoothed_pitch_rate + (1 - sf) * pitch_rate
                 self.smoothed_yaw_rate = sf * self.smoothed_yaw_rate + (1 - sf) * yaw_rate
@@ -775,9 +753,9 @@ class MCAttitudeRateFollower(BaseFollower):
                 thrust = self.hover_thrust
 
             # Set commands via schema (convert rad/s → deg/s)
-            self.set_command_field('pitchspeed_deg_s', self._degrees(pitch_rate))
-            self.set_command_field('yawspeed_deg_s', self._degrees(yaw_rate))
-            self.set_command_field('rollspeed_deg_s', self._degrees(roll_rate))
+            self.set_command_field('pitchspeed_deg_s', degrees(pitch_rate))
+            self.set_command_field('yawspeed_deg_s', degrees(yaw_rate))
+            self.set_command_field('rollspeed_deg_s', degrees(roll_rate))
             self.set_command_field('thrust', thrust)
 
             self.total_commands_issued += 1
@@ -787,8 +765,8 @@ class MCAttitudeRateFollower(BaseFollower):
             self.update_telemetry_metadata('dive_started', self.dive_started)
             self.update_telemetry_metadata('last_thrust', thrust)
 
-            logger.debug(f"Attitude rate commands - Pitch: {self._degrees(pitch_rate):.2f}, "
-                        f"Yaw: {self._degrees(yaw_rate):.2f}, Roll: {self._degrees(roll_rate):.2f} deg/s, "
+            logger.debug(f"Attitude rate commands - Pitch: {degrees(pitch_rate):.2f}, "
+                        f"Yaw: {degrees(yaw_rate):.2f}, Roll: {degrees(roll_rate):.2f} deg/s, "
                         f"Thrust: {thrust:.3f}")
 
         except Exception as e:
@@ -866,7 +844,9 @@ class MCAttitudeRateFollower(BaseFollower):
                 'target_loss_events': self.target_loss_events,
                 'initial_altitude': self.initial_altitude,
                 'config': {
-                    'max_rates': [self.max_pitch_rate, self.max_yaw_rate, self.max_roll_rate],
+                    'max_rates': [degrees(self.max_pitch_rate_rad),
+                                  degrees(self.max_yaw_rate_rad),
+                                  degrees(self.max_roll_rate_rad)],
                     'hover_thrust': self.hover_thrust,
                     'altitude_hold_enabled': self.enable_altitude_hold,
                     'yaw_error_gating_enabled': self.enable_yaw_error_gating,

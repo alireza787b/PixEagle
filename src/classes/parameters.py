@@ -60,11 +60,10 @@ class Parameters:
     # Grouped sections that should NOT be flattened
     _GROUPED_SECTIONS = [
         'Safety',        # Unified safety config (v5.0.0+)
-        'Followers',     # Unified follower configs
         # Follower sections
         'MC_VELOCITY_POSITION', 'MC_VELOCITY_DISTANCE', 'MC_VELOCITY_GROUND',
-        'MC_VELOCITY_CHASE', 'MC_VELOCITY', 'MC_ATTITUDE_RATE',
-        'GM_VELOCITY_VECTOR', 'GM_PID_PURSUIT',
+        'MC_VELOCITY_CHASE', 'MC_ATTITUDE_RATE',
+        'GM_VELOCITY_VECTOR', 'GM_VELOCITY_CHASE',
         'FW_ATTITUDE_RATE',
         # Tracker sections
         'GimbalTracker', 'GimbalTrackerSettings',
@@ -285,8 +284,8 @@ class Parameters:
 
         FOLLOWER_SECTIONS = [
             'MC_VELOCITY_CHASE', 'MC_VELOCITY_POSITION', 'MC_VELOCITY_DISTANCE',
-            'MC_VELOCITY_GROUND', 'MC_VELOCITY', 'MC_ATTITUDE_RATE',
-            'GM_PID_PURSUIT', 'GM_VELOCITY_VECTOR', 'FW_ATTITUDE_RATE'
+            'MC_VELOCITY_GROUND', 'MC_ATTITUDE_RATE',
+            'GM_VELOCITY_CHASE', 'GM_VELOCITY_VECTOR', 'FW_ATTITUDE_RATE'
         ]
 
         # Check for deprecated top-level sections

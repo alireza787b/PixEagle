@@ -195,7 +195,7 @@ control_type = handler.get_control_type()
 ### Follower Integration
 
 ```python
-class MCVelocityFollower(BaseFollower):
+class MCVelocityChaseFollower(BaseFollower):
     def __init__(self):
         self.setpoint_handler = SetpointHandler('mc_velocity_offboard')
 

@@ -175,7 +175,7 @@ compatibility:
       incompatible_schemas:
         - GIMBAL_ANGLES
 
-    GMPIDPursuitFollower:
+    GMVelocityChaseFollower:
       required_schemas:
         - GIMBAL_ANGLES
       compatible_schemas:

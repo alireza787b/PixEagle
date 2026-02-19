@@ -77,9 +77,7 @@ from classes.followers.base_follower import BaseFollower
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.parameters import Parameters
 
-# Import YawRateSmoother from GMPIDPursuitFollower for enterprise-grade yaw control
-# This provides deadzone, rate limiting, EMA smoothing, and speed-adaptive scaling
-from classes.followers.gm_pid_pursuit_follower import YawRateSmoother
+from classes.followers.yaw_rate_smoother import YawRateSmoother  # WP9: canonical import
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +133,7 @@ class GMVelocityVectorFollower(BaseFollower):
         # === Mount Configuration ===
         # IMPORTANT: Set mount_type BEFORE super().__init__() because BaseFollower.__init__()
         # calls get_display_name() which needs self.mount_type to be available
-        self.mount_type = self.config.get('MOUNT_TYPE', 'VERTICAL')
+        self.mount_type = self.config.get('MOUNT_TYPE', 'HORIZONTAL')
 
         # Initialize base follower (safe to call now that mount_type is set)
         super().__init__(px4_controller, self.setpoint_profile)
@@ -146,12 +144,11 @@ class GMVelocityVectorFollower(BaseFollower):
         # v5.0.0: Use SafetyManager for velocity limits (single source of truth)
         self.min_velocity = 0.0  # Minimum can be 0 (hover)
         self.max_velocity = self.velocity_limits.forward
-        self.ramp_acceleration = self.config.get('RAMP_ACCELERATION', 2.0)
+        self.ramp_acceleration = self.config.get('RAMP_ACCELERATION', 0.25)
         self.current_velocity_magnitude = self.config.get('INITIAL_VELOCITY', 0.0)
 
         # === Control Enablement ===
         self.enable_altitude_control = self.config.get('ENABLE_ALTITUDE_CONTROL', False)
-        self.enable_yaw_control = self.config.get('ENABLE_YAW_CONTROL', False)
         self.yaw_rate_gain = self.config.get('YAW_RATE_GAIN', 0.5)
 
         # === Lateral Guidance Mode (v5.6.0) ===
@@ -182,19 +179,15 @@ class GMVelocityVectorFollower(BaseFollower):
         self.angle_smoothing_alpha = self.config.get('ANGLE_SMOOTHING_ALPHA', 0.7)
         self.filtered_angles = None  # (yaw, pitch, roll) in degrees
 
-        # === Altitude Safety (use base class cached limits via SafetyManager) ===
-        self.altitude_safety_enabled = self.config.get('ALTITUDE_SAFETY_ENABLED', False)
+        # === Altitude Safety (limits from SafetyManager; per-follower flag via is_altitude_safety_enabled()) ===
         self.min_altitude_safety = self.altitude_limits.min_altitude
         self.max_altitude_safety = self.altitude_limits.max_altitude
         self.altitude_check_interval = self.config.get('ALTITUDE_CHECK_INTERVAL', 1.0)
-        self.rtl_on_altitude_violation = self.config.get('RTL_ON_ALTITUDE_VIOLATION', False)
         self.altitude_warning_buffer = self.altitude_limits.warning_buffer
         self.altitude_violation_count = 0
         self.last_altitude_check_time = 0.0
 
-        # === General Safety ===
-        self.emergency_stop_enabled = self.config.get('EMERGENCY_STOP_ENABLED', True)
-        self.max_safety_violations = self.config.get('MAX_SAFETY_VIOLATIONS', 5)
+        # === General Safety (from SafetyManager — single source of truth) ===
         self.safety_violations_count = 0
 
         # === Target Loss ===
@@ -205,7 +198,7 @@ class GMVelocityVectorFollower(BaseFollower):
         self.last_velocity_vector: Optional[Vector3D] = None
 
         # === Performance ===
-        self.update_rate = self.config.get('UPDATE_RATE', 20.0)
+        self.update_rate = self.config.get('CONTROL_UPDATE_RATE', 20.0)
         self.command_smoothing_enabled = self.config.get('COMMAND_SMOOTHING_ENABLED', True)
         self.smoothing_factor = self.config.get('SMOOTHING_FACTOR', 0.8)
         self.last_command_vector: Optional[Vector3D] = None
@@ -285,7 +278,13 @@ class GMVelocityVectorFollower(BaseFollower):
 
             # Apply altitude control flag
             if not self.enable_altitude_control:
-                velocity_vector.z = 0.0  # Zero vertical velocity (horizontal-only)
+                # Zero vertical velocity and re-normalize horizontal to maintain speed
+                horiz_mag = math.sqrt(velocity_vector.x**2 + velocity_vector.y**2)
+                if horiz_mag > 1e-6:
+                    scale = self.current_velocity_magnitude / horiz_mag
+                    velocity_vector.x *= scale
+                    velocity_vector.y *= scale
+                velocity_vector.z = 0.0
 
             # Apply minimum velocity threshold (prevent stalling)
             # If total velocity magnitude is below min_velocity, scale up to min_velocity
@@ -757,7 +756,7 @@ class GMVelocityVectorFollower(BaseFollower):
             }
 
         # Safety violation accumulation
-        if self.safety_violations_count >= self.max_safety_violations:
+        if self.safety_violations_count >= self.safety_manager.get_safety_behavior(self._follower_config_name).max_safety_violations:
             return {
                 'safe_to_proceed': False,
                 'reason': 'excessive_safety_violations',
@@ -787,7 +786,7 @@ class GMVelocityVectorFollower(BaseFollower):
             pass  # Circuit breaker not available, continue with normal safety checks
 
         # Skip check if altitude safety is disabled
-        if not self.altitude_safety_enabled:
+        if not self.is_altitude_safety_enabled():
             return {'safe': True, 'reason': 'altitude_safety_disabled'}
 
         try:
@@ -872,7 +871,7 @@ class GMVelocityVectorFollower(BaseFollower):
             'configuration': {
                 'mount_type': self.mount_type,
                 'altitude_control': self.enable_altitude_control,
-                'yaw_control': self.enable_yaw_control,
+                'lateral_guidance_mode': self.active_lateral_mode,
                 'velocity_range': [self.min_velocity, self.max_velocity]
             },
             'current_state': {

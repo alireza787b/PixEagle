@@ -104,7 +104,7 @@ PID_GAINS:
 
 ## When NOT to Use
 
-- General-purpose tracking (use `mc_velocity` variants)
+- General-purpose tracking (use `mc_velocity_chase` variants)
 - Precision following (velocity control is smoother)
 - Inexperienced operators (aggressive response)
 

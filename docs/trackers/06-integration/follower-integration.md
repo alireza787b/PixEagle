@@ -66,7 +66,7 @@ def follow_target(self, tracker_output: TrackerOutput) -> None:
 Gimbal followers consume `GIMBAL_ANGLES`:
 
 ```python
-# In GMPIDPursuitFollower
+# In GMVelocityChaseFollower
 def follow_target(self, tracker_output: TrackerOutput) -> None:
     if tracker_output.data_type != TrackerDataType.GIMBAL_ANGLES:
         logger.warning("Expected GIMBAL_ANGLES")
@@ -92,7 +92,7 @@ def follow_target(self, tracker_output: TrackerOutput) -> None:
 | CSRT | POSITION_2D | MCVelocity*, FWAttitudeRate |
 | KCF | VELOCITY_AWARE | MCVelocity*, FWAttitudeRate |
 | dlib | POSITION_2D | MCVelocity*, FWAttitudeRate |
-| Gimbal | GIMBAL_ANGLES | GMPIDPursuit, GMVelocityVector |
+| Gimbal | GIMBAL_ANGLES | GMVelocityChase, GMVelocityVector |
 | SmartTracker | MULTI_TARGET | MCVelocity* |
 
 *MCVelocity includes all MC followers: Chase, Position, Distance, Ground

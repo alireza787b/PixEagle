@@ -69,7 +69,7 @@ Gimbal followers require `GIMBAL_ANGLES`:
 - GimbalTracker → GIMBAL_ANGLES
 
 # Compatible followers
-- GMPIDPursuitFollower
+- GMVelocityChaseFollower
 - GMVelocityVectorFollower
 ```
 

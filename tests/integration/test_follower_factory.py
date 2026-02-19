@@ -81,7 +81,6 @@ class TestRegistryInitialization:
         FollowerFactory._initialize_registry()
 
         expected_profiles = [
-            'mc_velocity',
             'mc_velocity_chase',
             'mc_velocity_position',
             'mc_velocity_distance',
@@ -89,7 +88,7 @@ class TestRegistryInitialization:
             'mc_attitude_rate',
             'fw_attitude_rate',
             'gm_velocity_vector',
-            'gm_pid_pursuit',
+            'gm_velocity_chase',
         ]
 
         for profile in expected_profiles:
@@ -175,7 +174,7 @@ class TestFollowerInfo:
         """get_follower_info returns a dictionary."""
         from classes.follower import FollowerFactory
 
-        info = FollowerFactory.get_follower_info('mc_velocity')
+        info = FollowerFactory.get_follower_info('mc_velocity_chase')
         assert isinstance(info, dict)
 
     @pytest.mark.integration
@@ -183,7 +182,7 @@ class TestFollowerInfo:
         """Follower info has implementation_available field."""
         from classes.follower import FollowerFactory
 
-        info = FollowerFactory.get_follower_info('mc_velocity')
+        info = FollowerFactory.get_follower_info('mc_velocity_chase')
         assert 'implementation_available' in info
 
     @pytest.mark.integration
@@ -210,7 +209,7 @@ class TestFollowerCreation:
 
         try:
             follower = FollowerFactory.create_follower(
-                'mc_velocity',
+                'mc_velocity_chase',
                 mock_px4_controller,
                 (0.0, 0.0)
             )
@@ -259,16 +258,6 @@ class TestFollowerClassRegistration:
     """Test follower class types in registry."""
 
     @pytest.mark.integration
-    def test_mc_velocity_class(self, reset_factory):
-        """MC Velocity class is registered."""
-        from classes.follower import FollowerFactory
-        from classes.followers.mc_velocity_follower import MCVelocityFollower
-
-        FollowerFactory._initialize_registry()
-
-        assert FollowerFactory._follower_registry.get('mc_velocity') == MCVelocityFollower
-
-    @pytest.mark.integration
     def test_mc_velocity_chase_class(self, reset_factory):
         """MC Velocity Chase class is registered."""
         from classes.follower import FollowerFactory
@@ -289,14 +278,14 @@ class TestFollowerClassRegistration:
         assert FollowerFactory._follower_registry.get('fw_attitude_rate') == FWAttitudeRateFollower
 
     @pytest.mark.integration
-    def test_gm_pid_pursuit_class(self, reset_factory):
-        """GM PID Pursuit class is registered."""
+    def test_gm_velocity_chase_class(self, reset_factory):
+        """GM Velocity Chase class is registered."""
         from classes.follower import FollowerFactory
-        from classes.followers.gm_pid_pursuit_follower import GMPIDPursuitFollower
+        from classes.followers.gm_velocity_chase_follower import GMVelocityChaseFollower
 
         FollowerFactory._initialize_registry()
 
-        assert FollowerFactory._follower_registry.get('gm_pid_pursuit') == GMPIDPursuitFollower
+        assert FollowerFactory._follower_registry.get('gm_velocity_chase') == GMVelocityChaseFollower
 
     @pytest.mark.integration
     def test_gm_velocity_vector_class(self, reset_factory):

@@ -153,79 +153,57 @@ class TestErrorAggregator:
 # =============================================================================
 
 class TestFollowerConfigNameDerivation:
-    """Test _derive_follower_config_name method."""
+    """
+    Test _derive_follower_config_name by calling the REAL production method.
+
+    Uses __new__ to bypass __init__ so we test the actual CamelCase→UPPER_SNAKE_CASE
+    conversion logic without requiring PX4 controllers or config files.
+    """
+
+    def _derive(self, follower_class) -> str:
+        """Call the real _derive_follower_config_name on a bare stub instance."""
+        instance = follower_class.__new__(follower_class)
+        return instance._derive_follower_config_name()
 
     def test_mc_velocity_chase_follower(self):
         """MCVelocityChaseFollower -> MC_VELOCITY_CHASE."""
-        # We need to test the logic without instantiating the full class
-        class_name = "MCVelocityChaseFollower"
+        from classes.followers.mc_velocity_chase_follower import MCVelocityChaseFollower
+        assert self._derive(MCVelocityChaseFollower) == "MC_VELOCITY_CHASE"
 
-        # Remove 'Follower' suffix
-        name = class_name[:-8] if class_name.endswith('Follower') else class_name
+    def test_mc_velocity_ground_follower(self):
+        """MCVelocityGroundFollower -> MC_VELOCITY_GROUND."""
+        from classes.followers.mc_velocity_ground_follower import MCVelocityGroundFollower
+        assert self._derive(MCVelocityGroundFollower) == "MC_VELOCITY_GROUND"
 
-        # Manual conversion for test
-        result = self._convert_to_snake_case(name)
-        assert result == "MC_VELOCITY_CHASE"
+    def test_mc_velocity_distance_follower(self):
+        """MCVelocityDistanceFollower -> MC_VELOCITY_DISTANCE."""
+        from classes.followers.mc_velocity_distance_follower import MCVelocityDistanceFollower
+        assert self._derive(MCVelocityDistanceFollower) == "MC_VELOCITY_DISTANCE"
 
-    def test_fw_attitude_rate_follower(self):
-        """FWAttitudeRateFollower -> FW_ATTITUDE_RATE."""
-        class_name = "FWAttitudeRateFollower"
-        name = class_name[:-8]
-        result = self._convert_to_snake_case(name)
-        assert result == "FW_ATTITUDE_RATE"
-
-    def test_gm_velocity_vector_follower(self):
-        """GMVelocityVectorFollower -> GM_VELOCITY_VECTOR."""
-        class_name = "GMVelocityVectorFollower"
-        name = class_name[:-8]
-        result = self._convert_to_snake_case(name)
-        assert result == "GM_VELOCITY_VECTOR"
-
-    def test_mc_velocity_follower(self):
-        """MCVelocityFollower -> MC_VELOCITY."""
-        class_name = "MCVelocityFollower"
-        name = class_name[:-8]
-        result = self._convert_to_snake_case(name)
-        assert result == "MC_VELOCITY"
+    def test_mc_velocity_position_follower(self):
+        """MCVelocityPositionFollower -> MC_VELOCITY_POSITION."""
+        from classes.followers.mc_velocity_position_follower import MCVelocityPositionFollower
+        assert self._derive(MCVelocityPositionFollower) == "MC_VELOCITY_POSITION"
 
     def test_mc_attitude_rate_follower(self):
         """MCAttitudeRateFollower -> MC_ATTITUDE_RATE."""
-        class_name = "MCAttitudeRateFollower"
-        name = class_name[:-8]
-        result = self._convert_to_snake_case(name)
-        assert result == "MC_ATTITUDE_RATE"
+        from classes.followers.mc_attitude_rate_follower import MCAttitudeRateFollower
+        assert self._derive(MCAttitudeRateFollower) == "MC_ATTITUDE_RATE"
 
-    def _convert_to_snake_case(self, class_name: str) -> str:
-        """Helper to convert CamelCase to UPPER_SNAKE_CASE."""
-        result = []
-        i = 0
-        while i < len(class_name):
-            char = class_name[i]
+    def test_gm_velocity_chase_follower(self):
+        """GMVelocityChaseFollower -> GM_VELOCITY_CHASE."""
+        from classes.followers.gm_velocity_chase_follower import GMVelocityChaseFollower
+        assert self._derive(GMVelocityChaseFollower) == "GM_VELOCITY_CHASE"
 
-            if char.isupper():
-                acronym = char
-                j = i + 1
-                while j < len(class_name) and class_name[j].isupper():
-                    if j + 1 < len(class_name) and class_name[j + 1].islower():
-                        break
-                    acronym += class_name[j]
-                    j += 1
+    def test_gm_velocity_vector_follower(self):
+        """GMVelocityVectorFollower -> GM_VELOCITY_VECTOR."""
+        from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
+        assert self._derive(GMVelocityVectorFollower) == "GM_VELOCITY_VECTOR"
 
-                if len(acronym) > 1:
-                    if result:
-                        result.append('_')
-                    result.append(acronym)
-                    i = j
-                else:
-                    if result and result[-1] != '_':
-                        result.append('_')
-                    result.append(char)
-                    i += 1
-            else:
-                result.append(char.upper())
-                i += 1
-
-        return ''.join(result)
+    def test_fw_attitude_rate_follower(self):
+        """FWAttitudeRateFollower -> FW_ATTITUDE_RATE."""
+        from classes.followers.fw_attitude_rate_follower import FWAttitudeRateFollower
+        assert self._derive(FWAttitudeRateFollower) == "FW_ATTITUDE_RATE"
 
 
 # =============================================================================

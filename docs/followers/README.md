@@ -11,7 +11,7 @@ The follower system is the control core of PixEagle, translating tracker output 
 | Section | Description |
 |---------|-------------|
 | [Architecture](01-architecture/README.md) | System design, inheritance, factory pattern |
-| [Follower Reference](02-reference/README.md) | All 10 follower implementations |
+| [Follower Reference](02-reference/README.md) | All 8 follower implementations |
 | [GNC Concepts](03-gnc-concepts/README.md) | Proportional Navigation, L1, TECS, PID |
 | [Configuration](04-configuration/README.md) | Parameters, schema, tuning |
 | [Development Guide](05-development/README.md) | Creating new followers |
@@ -26,7 +26,6 @@ The follower system is the control core of PixEagle, translating tracker output 
 
 | Follower | Control Type | Use Case |
 |----------|--------------|----------|
-| [mc_velocity](02-reference/mc-velocity.md) | velocity_body_offboard | Dual-mode lateral guidance with hover |
 | [mc_velocity_chase](02-reference/mc-velocity-chase.md) | velocity_body_offboard | Proportional Navigation pursuit |
 | [mc_velocity_ground](02-reference/mc-velocity-ground.md) | velocity_body | Ground target tracking |
 | [mc_velocity_distance](02-reference/mc-velocity-distance.md) | velocity_body_offboard | Constant distance maintenance |
@@ -43,7 +42,7 @@ The follower system is the control core of PixEagle, translating tracker output 
 
 | Follower | Control Type | Use Case |
 |----------|--------------|----------|
-| [gm_pid_pursuit](02-reference/gm-pid-pursuit.md) | velocity_body_offboard | PID-based pursuit from gimbal angles |
+| [gm_velocity_chase](02-reference/gm-velocity-chase.md) | velocity_body_offboard | Velocity chase from gimbal angles |
 | [gm_velocity_vector](02-reference/gm-velocity-vector.md) | velocity_body_offboard | Direct vector pursuit |
 
 ---
@@ -79,7 +78,7 @@ attitude_rate          - Angular rate commands (rollspeed, pitchspeed, yawspeed,
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      FollowerFactory                             │
-│  - Registry pattern (10 implementations + 15 aliases)           │
+│  - Registry pattern (8 implementations + 15 aliases)            │
 │  - Lazy initialization                                          │
 │  - Profile validation                                           │
 └───────────────────────────┬─────────────────────────────────────┘
@@ -97,7 +96,7 @@ attitude_rate          - Angular rate commands (rollspeed, pitchspeed, yawspeed,
         ▼                   ▼                   ▼
 ┌───────────────┐   ┌───────────────┐   ┌───────────────┐
 │ MC Followers  │   │ FW Followers  │   │ GM Followers  │
-│ (6 variants)  │   │ (1 variant)   │   │ (2 variants)  │
+│ (5 variants)  │   │ (1 variant)   │   │ (2 variants)  │
 └───────────────┘   └───────────────┘   └───────────────┘
 ```
 
@@ -116,11 +115,12 @@ FOLLOWER_MODE: "mc_velocity_chase"  # Proportional Navigation pursuit
 ### 2. Configure Safety Limits
 
 ```yaml
-SafetyLimits:
-  MAX_VELOCITY_FORWARD: 10.0   # m/s
-  MAX_VELOCITY_LATERAL: 5.0    # m/s
-  MAX_VELOCITY_VERTICAL: 3.0   # m/s
-  MAX_YAW_RATE: 45.0           # deg/s
+Safety:
+  GlobalLimits:
+    MAX_VELOCITY_FORWARD: 10.0   # m/s
+    MAX_VELOCITY_LATERAL: 5.0    # m/s
+    MAX_VELOCITY_VERTICAL: 3.0   # m/s
+    MAX_YAW_RATE: 45.0           # deg/s
 ```
 
 ### 3. Run PixEagle

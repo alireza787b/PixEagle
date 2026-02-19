@@ -260,24 +260,6 @@ def conservative_pid_gains():
 # =============================================================================
 
 @pytest.fixture
-def mc_velocity_config():
-    """Configuration for MC Velocity follower testing."""
-    return {
-        'Follower': {
-            'PROFILE': 'mc_velocity',
-            'GAINS': {
-                'YAW_KP': 30.0,
-                'YAW_KI': 0.5,
-                'YAW_KD': 0.1,
-                'VERTICAL_KP': 2.0,
-                'VERTICAL_KI': 0.1,
-                'VERTICAL_KD': 0.05
-            }
-        }
-    }
-
-
-@pytest.fixture
 def mc_velocity_chase_config():
     """Configuration for MC Velocity Chase follower testing."""
     return {

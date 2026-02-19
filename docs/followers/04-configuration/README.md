@@ -39,7 +39,8 @@ FOLLOWER_MODE: "mc_velocity_chase"
 ### 2. Set Safety Limits
 
 ```yaml
-SafetyLimits:
+Safety:
+  GlobalLimits:
   MAX_VELOCITY_FORWARD: 10.0
   MAX_VELOCITY_LATERAL: 5.0
   MAX_VELOCITY_VERTICAL: 3.0

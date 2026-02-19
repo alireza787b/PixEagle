@@ -58,7 +58,7 @@ Available modes:
 - `mc_velocity_position` - Position hold with altitude control
 - `mc_velocity_chase` - Body velocity chase
 - `mc_velocity_distance` - Fixed distance tracking
-- `gm_pid_pursuit` - Gimbal PID pursuit
+- `gm_velocity_chase` - Gimbal velocity chase
 - `gm_velocity_vector` - Gimbal vector pursuit
 - `fw_attitude_rate` - Fixed-wing tracking
 

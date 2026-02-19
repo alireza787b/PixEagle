@@ -210,7 +210,6 @@ FIELD_LIMIT_MAP = {
 
 | Follower | Control Type | Reason |
 |----------|--------------|--------|
-| MCVelocityFollower | velocity_body_offboard | Direct velocity mapping |
 | MCVelocityChaseFollower | velocity_body_offboard | Pursuit geometry |
 | FWAttitudeRateFollower | attitude_rate | Fixed-wing control |
 | GMVelocityVectorFollower | velocity_body_offboard | Gimbal + velocity |

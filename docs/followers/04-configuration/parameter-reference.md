@@ -14,33 +14,32 @@ Selects the active follower:
 FOLLOWER_MODE: "mc_velocity_chase"
 ```
 
-**Options**: `mc_velocity`, `mc_velocity_chase`, `mc_velocity_ground`, `mc_velocity_distance`, `mc_velocity_position`, `mc_attitude_rate`, `fw_attitude_rate`, `gm_pid_pursuit`, `gm_velocity_vector`
+**Options**: `mc_velocity_chase`, `mc_velocity_ground`, `mc_velocity_distance`, `mc_velocity_position`, `mc_attitude_rate`, `fw_attitude_rate`, `gm_velocity_chase`, `gm_velocity_vector`
 
 ---
 
 ## Safety Limits
 
-### SafetyLimits Section
+### Safety.GlobalLimits Section
 
 ```yaml
-SafetyLimits:
-  # Velocity limits (m/s)
-  MAX_VELOCITY_FORWARD: 10.0
-  MAX_VELOCITY_LATERAL: 5.0
-  MAX_VELOCITY_VERTICAL: 3.0
-  MIN_VELOCITY_FORWARD: 0.0
-  DEFAULT_VELOCITY_FORWARD: 5.0
+Safety:
+  GlobalLimits:
+    # Velocity limits (m/s)
+    MAX_VELOCITY_FORWARD: 10.0
+    MAX_VELOCITY_LATERAL: 5.0
+    MAX_VELOCITY_VERTICAL: 3.0
 
-  # Rate limits (deg/s)
-  MAX_YAW_RATE: 45.0
-  MAX_PITCH_RATE: 30.0
-  MAX_ROLL_RATE: 60.0
+    # Rate limits (deg/s)
+    MAX_YAW_RATE: 45.0
+    MAX_PITCH_RATE: 30.0
+    MAX_ROLL_RATE: 60.0
 
-  # Altitude limits (m)
-  MIN_ALTITUDE: 5.0
-  MAX_ALTITUDE: 120.0
-  ALTITUDE_WARNING_BUFFER: 5.0
-  USE_HOME_RELATIVE_ALTITUDE: true
+    # Altitude limits (m)
+    MIN_ALTITUDE: 5.0
+    MAX_ALTITUDE: 120.0
+    ALTITUDE_WARNING_BUFFER: 5.0
+    USE_HOME_RELATIVE_ALTITUDE: true
 ```
 
 ---
@@ -128,7 +127,7 @@ MC_VELOCITY_CHASE:
   MAX_TRACKING_ERROR: 1.5
 
   # Smoothing
-  VELOCITY_SMOOTHING_ENABLED: true
+  COMMAND_SMOOTHING_ENABLED: true
   SMOOTHING_FACTOR: 0.8
 
   # Adaptive dive/climb (optional)
@@ -173,8 +172,6 @@ MC_VELOCITY_GROUND:
   BASE_ADJUSTMENT_FACTOR_X: 0.1
   BASE_ADJUSTMENT_FACTOR_Y: 0.1
   ALTITUDE_FACTOR: 0.005
-  ENABLE_GAIN_SCHEDULING: false
-  GAIN_SCHEDULING_PARAMETER: "current_altitude"
   CONTROL_UPDATE_RATE: 20.0
   COORDINATE_CORRECTIONS_ENABLED: true
 ```
@@ -244,13 +241,13 @@ FW_ATTITUDE_RATE:
 
 ## Gimbal Followers
 
-### GM_PID_PURSUIT Section
+### GM_VELOCITY_CHASE Section
 
 ```yaml
-GM_PID_PURSUIT:
+GM_VELOCITY_CHASE:
   MOUNT_TYPE: "VERTICAL"
   CONTROL_MODE: "VELOCITY"
-  UPDATE_RATE: 20.0
+  CONTROL_UPDATE_RATE: 20.0
   COMMAND_SMOOTHING_ENABLED: true
   SMOOTHING_FACTOR: 0.8
   EMERGENCY_STOP_ENABLED: true
@@ -283,10 +280,11 @@ GM_VELOCITY_VECTOR:
 ## Per-Follower Safety Overrides
 
 ```yaml
-FOLLOWER_OVERRIDES:
-  MC_VELOCITY_CHASE:
-    MAX_VELOCITY_FORWARD: 12.0       # Override global limit
-    MAX_VELOCITY_VERTICAL: 4.0
-  FW_ATTITUDE_RATE:
-    MAX_VELOCITY_FORWARD: 30.0       # Higher for fixed-wing
+Safety:
+  FollowerOverrides:
+    MC_VELOCITY_CHASE:
+      MAX_VELOCITY_FORWARD: 12.0       # Override global limit
+      MAX_VELOCITY_VERTICAL: 4.0
+    FW_ATTITUDE_RATE:
+      MAX_VELOCITY_FORWARD: 30.0       # Higher for fixed-wing
 ```

@@ -12,7 +12,7 @@ schema_version: "1.0.0"
 # Command Field Definitions
 # ==============================================================================
 # All possible command fields that can be used by any follower mode
-# NOTE: Velocity/altitude limits are now defined in config_default.yaml SafetyLimits section
+# NOTE: Velocity/altitude limits are from Safety.GlobalLimits in config_default.yaml
 # This schema only defines field types, units, and descriptions.
 # Clamping behavior is still defined here (clamp: true/false).
 command_fields:
@@ -22,7 +22,7 @@ command_fields:
     default: 0.0
     unit: "m/s"
     description: "Body frame X velocity (forward/backward)"
-    # Limits defined in config_default.yaml SafetyLimits.MAX_VELOCITY_FORWARD
+    # Limits from Safety.GlobalLimits in config_default.yaml
     clamp: true
 
   vel_y:
@@ -30,7 +30,7 @@ command_fields:
     default: 0.0
     unit: "m/s"
     description: "Body frame Y velocity (left/right)"
-    # Limits defined in config_default.yaml SafetyLimits.MAX_VELOCITY_LATERAL
+    # Limits from Safety.GlobalLimits in config_default.yaml
     clamp: true
 
   vel_z:
@@ -38,7 +38,7 @@ command_fields:
     default: 0.0
     unit: "m/s"
     description: "Body frame Z velocity (up/down)"
-    # Limits defined in config_default.yaml SafetyLimits.MAX_VELOCITY_VERTICAL
+    # Limits from Safety.GlobalLimits in config_default.yaml
     clamp: true
 
   # DEPRECATED: Use yawspeed_deg_s instead (deg/s standard)
@@ -58,7 +58,7 @@ command_fields:
     default: 0.0
     unit: "m/s"
     description: "Body frame forward velocity (positive = forward)"
-    # Limits defined in config_default.yaml SafetyLimits.MAX_VELOCITY_FORWARD
+    # Limits from Safety.GlobalLimits in config_default.yaml
     clamp: true
 
   vel_body_right:
@@ -66,7 +66,7 @@ command_fields:
     default: 0.0
     unit: "m/s"
     description: "Body frame right velocity (positive = right)"
-    # Limits defined in config_default.yaml SafetyLimits.MAX_VELOCITY_LATERAL
+    # Limits from Safety.GlobalLimits in config_default.yaml
     clamp: true
 
   vel_body_down:
@@ -74,7 +74,7 @@ command_fields:
     default: 0.0
     unit: "m/s"
     description: "Body frame down velocity (positive = down)"
-    # Limits defined in config_default.yaml SafetyLimits.MAX_VELOCITY_VERTICAL
+    # Limits from Safety.GlobalLimits in config_default.yaml
     clamp: true
 
   yawspeed_deg_s:
@@ -82,7 +82,7 @@ command_fields:
     default: 0.0
     unit: "deg/s"
     description: "Yaw angular rate in degrees/second (positive = clockwise)"
-    # Limits defined in config_default.yaml SafetyLimits.MAX_YAW_RATE
+    # Limits from Safety.GlobalLimits in config_default.yaml
     clamp: true
 
   # === Gimbal-specific Command Fields ===
@@ -110,7 +110,7 @@ command_fields:
     default: 0.0
     unit: "deg/s"
     description: "Roll angular rate in degrees/second"
-    # Limits defined in config_default.yaml SafetyLimits
+    # Limits from Safety.GlobalLimits in config_default.yaml
     clamp: true
 
   pitchspeed_deg_s:
@@ -118,7 +118,7 @@ command_fields:
     default: 0.0
     unit: "deg/s"
     description: "Pitch angular rate in degrees/second"
-    # Limits defined in config_default.yaml SafetyLimits
+    # Limits from Safety.GlobalLimits in config_default.yaml
     clamp: true
 
   thrust:
@@ -151,8 +151,8 @@ follower_profiles:
   mc_velocity_ground:
     display_name: "MC Velocity Ground"
     description: "Full velocity control for tracking ground targets"
-    control_type: "velocity_body"
-    required_fields: ["vel_x", "vel_y", "vel_z"]
+    control_type: "velocity_body_offboard"
+    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
     optional_fields: []
     ui_category: "velocity"
     # Schema-driven tracker data requirements
@@ -193,7 +193,7 @@ follower_profiles:
     optional_tracker_data: ["BBOX_CONFIDENCE", "VELOCITY_AWARE", "MULTI_TARGET"]
 
   # GM PID Pursuit Follower - PID-based pursuit with coordinated turn guidance
-  gm_pid_pursuit:
+  gm_velocity_chase:
     display_name: "GM PID Pursuit"
     description: "PID-based pursuit control with coordinated turn guidance from gimbal angles"
     control_type: "velocity_body_offboard"  # Use body velocity offboard for body frame commands
@@ -233,21 +233,6 @@ follower_profiles:
     required_tracker_data: ["POSITION_2D"]
     optional_tracker_data: ["GIMBAL_ANGLES", "BBOX_CONFIDENCE"]
 
-  # MC Velocity Follower - Professional dual-mode lateral guidance
-  # Supports: YAW_TO_TARGET (turn to face) and CRAB_STRAFE (lateral strafe)
-  # Key advantage: Can HOVER on target loss (unlike fixed-wing orbit)
-  mc_velocity:
-    display_name: "MC Velocity"
-    description: "Professional multicopter following with dual-mode lateral guidance"
-    control_type: "velocity_body_offboard"
-    # Uses body velocity offboard - most stable for multicopters
-    required_fields: ["vel_body_fwd", "vel_body_right", "vel_body_down", "yawspeed_deg_s"]
-    optional_fields: []
-    ui_category: "velocity"
-    # Schema-driven tracker data requirements
-    required_tracker_data: ["POSITION_2D"]
-    optional_tracker_data: ["BBOX_CONFIDENCE", "VELOCITY_AWARE"]
-
   # MC Attitude Rate Follower - Aggressive tracking with direct attitude rate control
   # Uses pure attitude_rate commands (roll/pitch/yaw rates + thrust) for responsive tracking.
   # Key differences from velocity-based multicopter:
@@ -279,10 +264,10 @@ deprecated_profile_aliases:
   attitude_rate: mc_attitude_rate
   chase_follower: mc_attitude_rate
   body_velocity_chase: mc_velocity_chase
-  gimbal_unified: gm_pid_pursuit
+  gimbal_unified: gm_velocity_chase
   gimbal_vector_body: gm_velocity_vector
   fixed_wing: fw_attitude_rate
-  multicopter: mc_velocity
+  multicopter: mc_velocity_chase
   multicopter_attitude_rate: mc_attitude_rate
 
 # ==============================================================================
@@ -340,7 +325,7 @@ ui_config:
       fields: ["yaw_angle_deg", "yawspeed_deg_s"]
       color: "#9C27B0"
 
-  profile_display_order: ["mc_velocity_ground", "mc_velocity_distance", "mc_velocity_position", "mc_velocity_chase", "mc_velocity", "mc_attitude_rate", "gm_pid_pursuit", "gm_velocity_vector", "fw_attitude_rate"]
+  profile_display_order: ["mc_velocity_ground", "mc_velocity_distance", "mc_velocity_position", "mc_velocity_chase", "mc_attitude_rate", "gm_velocity_chase", "gm_velocity_vector", "fw_attitude_rate"]
 
 # ==============================================================================
 # Validation Rules

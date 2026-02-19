@@ -65,7 +65,7 @@ def _load_schema(cls):
 @classmethod
 def get_available_profiles(cls) -> List[str]:
     """Returns all profile names from schema."""
-    # ['mc_velocity', 'mc_velocity_chase', 'fw_attitude_rate', ...]
+    # ['mc_velocity_chase', 'mc_velocity_ground', 'fw_attitude_rate', ...]
 ```
 
 ### get_profile_info (class method)
@@ -145,7 +145,7 @@ def _validate_field_limits(self, field_name: str, value: float) -> float:
     Validate and clamp field value.
 
     Priority:
-    1. Config-based limits (Parameters.SafetyLimits)
+    1. Runtime limits from SafetyManager.get_velocity_limits()
     2. Schema-based limits (e.g., thrust 0.0-1.0)
 
     If clamp=true (default): Clamp and warn
@@ -354,7 +354,11 @@ class BaseFollower(ABC):
         self.px4_controller.setpoint_handler = self.setpoint_handler
 
     def set_command_field(self, field_name: str, value: float) -> bool:
-        """Wrapper with error handling."""
+        """Wrapper with NaN/Inf guard and error handling."""
+        # NaN/Inf guard: rejects non-finite values before they can corrupt setpoints
+        if not math.isfinite(value):
+            logger.error(f"Rejecting non-finite value for {field_name}: {value!r}")
+            return False
         try:
             self.setpoint_handler.set_field(field_name, value)
             return True

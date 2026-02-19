@@ -1,10 +1,10 @@
-# src/classes/followers/gm_pid_pursuit_follower.py
+# src/classes/followers/gm_velocity_chase_follower.py
 
 """
-GMPIDPursuitFollower Module - Clean Architecture Implementation
-========================================================
+GMVelocityChaseFollower Module - Clean Architecture Implementation
+==================================================================
 
-Modern, clean implementation of GMPIDPursuitFollower using PID-based pursuit control
+Modern, clean implementation of GMVelocityChaseFollower using PID-based velocity chase control
 with coordinated turn guidance. Designed for maintainability,
 testability, and full integration with PixEagle safety systems.
 
@@ -31,127 +31,9 @@ from dataclasses import dataclass, field
 
 from classes.followers.base_follower import BaseFollower
 
-
-# ==============================================================================
-# YAW RATE SMOOTHER - Enterprise-Grade Yaw Control
-# ==============================================================================
-# Configurable smoothing pipeline for smooth, professional yaw control.
-# All parameters loaded from config - no hardcoded values.
-# ==============================================================================
-
-@dataclass
-class YawRateSmoother:
-    """
-    Enterprise-grade yaw rate smoothing with deadzone, rate limiting, and EMA.
-
-    Features:
-    - Configurable deadzone to prevent jitter at low rates
-    - Rate-of-change limiting for smooth acceleration (prevents jerky movements)
-    - EMA smoothing for noise reduction
-    - Speed-adaptive scaling (works with slow AND fast forward speeds)
-
-    All parameters are configurable via YAML - no hardcoded values.
-    """
-
-    # Configuration (loaded from YAML)
-    enabled: bool = True
-    deadzone_deg_s: float = 0.5           # deg/s - ignore rates below this
-    max_rate_change_deg_s2: float = 90.0  # deg/s² - max yaw acceleration
-    smoothing_alpha: float = 0.7          # EMA coefficient (0-1)
-    enable_speed_scaling: bool = True     # Scale based on forward speed
-    min_speed_threshold: float = 0.5      # m/s - below this, reduce authority
-    max_speed_threshold: float = 5.0      # m/s - above this, full authority
-    low_speed_yaw_factor: float = 0.5     # Reduce yaw by this at low speed
-
-    # Internal state (not from config)
-    last_yaw_rate: float = field(default=0.0, init=False)
-    filtered_yaw_rate: float = field(default=0.0, init=False)
-
-    @classmethod
-    def from_config(cls, config: Dict[str, Any]) -> 'YawRateSmoother':
-        """Create a YawRateSmoother from configuration dictionary."""
-        return cls(
-            enabled=config.get('ENABLED', True),
-            deadzone_deg_s=config.get('DEADZONE_DEG_S', 0.5),
-            max_rate_change_deg_s2=config.get('MAX_RATE_CHANGE_DEG_S2', 90.0),
-            smoothing_alpha=config.get('SMOOTHING_ALPHA', 0.7),
-            enable_speed_scaling=config.get('ENABLE_SPEED_SCALING', True),
-            min_speed_threshold=config.get('MIN_SPEED_THRESHOLD', 0.5),
-            max_speed_threshold=config.get('MAX_SPEED_THRESHOLD', 5.0),
-            low_speed_yaw_factor=config.get('LOW_SPEED_YAW_FACTOR', 0.5),
-        )
-
-    def apply(self, raw_yaw_rate: float, dt: float, forward_speed: float = 0.0) -> float:
-        """
-        Apply full smoothing pipeline to yaw rate command.
-
-        Args:
-            raw_yaw_rate: Raw PID output (deg/s)
-            dt: Time delta since last call (seconds)
-            forward_speed: Current forward velocity (m/s) for speed-adaptive scaling
-
-        Returns:
-            Smoothed yaw rate (deg/s)
-        """
-        if not self.enabled:
-            return raw_yaw_rate
-
-        # 1. Apply deadzone (prevents jitter at low rates)
-        yaw_rate = self._apply_deadzone(raw_yaw_rate)
-
-        # 2. Apply speed-adaptive scaling (works with slow AND fast speeds)
-        if self.enable_speed_scaling:
-            yaw_rate = self._apply_speed_scaling(yaw_rate, forward_speed)
-
-        # 3. Apply rate-of-change limiting (prevents jerky movements)
-        yaw_rate = self._apply_rate_limiting(yaw_rate, dt)
-
-        # 4. Apply EMA smoothing (noise reduction)
-        yaw_rate = self._apply_ema_smoothing(yaw_rate)
-
-        return yaw_rate
-
-    def _apply_deadzone(self, rate: float) -> float:
-        """Apply deadzone with smooth transition (not abrupt)."""
-        if abs(rate) < self.deadzone_deg_s:
-            return 0.0
-        # Smooth transition out of deadzone
-        sign = 1.0 if rate > 0 else -1.0
-        return sign * (abs(rate) - self.deadzone_deg_s)
-
-    def _apply_speed_scaling(self, rate: float, speed: float) -> float:
-        """Scale yaw authority based on forward speed (works for slow AND fast)."""
-        if speed >= self.max_speed_threshold:
-            return rate  # Full authority at high speed
-        if speed <= self.min_speed_threshold:
-            return rate * self.low_speed_yaw_factor  # Reduced at low speed
-        # Linear interpolation between thresholds
-        t = (speed - self.min_speed_threshold) / (self.max_speed_threshold - self.min_speed_threshold)
-        factor = self.low_speed_yaw_factor + t * (1.0 - self.low_speed_yaw_factor)
-        return rate * factor
-
-    def _apply_rate_limiting(self, target_rate: float, dt: float) -> float:
-        """Limit rate-of-change for smooth yaw acceleration."""
-        if dt <= 0:
-            return target_rate
-        max_change = self.max_rate_change_deg_s2 * dt
-        delta = target_rate - self.last_yaw_rate
-        if abs(delta) > max_change:
-            limited_rate = self.last_yaw_rate + (max_change if delta > 0 else -max_change)
-        else:
-            limited_rate = target_rate
-        self.last_yaw_rate = limited_rate
-        return limited_rate
-
-    def _apply_ema_smoothing(self, rate: float) -> float:
-        """Apply exponential moving average smoothing."""
-        self.filtered_yaw_rate = self.smoothing_alpha * rate + (1 - self.smoothing_alpha) * self.filtered_yaw_rate
-        return self.filtered_yaw_rate
-
-    def reset(self):
-        """Reset internal state (call when tracking starts/stops)."""
-        self.last_yaw_rate = 0.0
-        self.filtered_yaw_rate = 0.0
+# WP9: YawRateSmoother extracted to yaw_rate_smoother.py; re-exported here
+# for backward compatibility with existing imports.
+from classes.followers.yaw_rate_smoother import YawRateSmoother  # noqa: F401
 
 
 from classes.tracker_output import TrackerOutput, TrackerDataType
@@ -195,9 +77,9 @@ try:
 except ImportError:
     CIRCUIT_BREAKER_AVAILABLE = False
 
-class GMPIDPursuitFollower(BaseFollower):
+class GMVelocityChaseFollower(BaseFollower):
     """
-    Modern GMPIDPursuitFollower implementation using clean architecture.
+    Modern GMVelocityChaseFollower implementation using clean architecture.
 
     Integrates mount-aware transformations, unified target loss handling,
     and comprehensive safety systems for professional drone control.
@@ -205,27 +87,30 @@ class GMPIDPursuitFollower(BaseFollower):
 
     def __init__(self, px4_controller, initial_target_coords: Tuple[float, float]):
         """
-        Initialize GMPIDPursuitFollower with new architecture.
+        Initialize GMVelocityChaseFollower with new architecture.
 
         Args:
             px4_controller: PX4 interface for drone control
             initial_target_coords: Initial target coordinates (required by factory interface)
         """
-        self.setpoint_profile = "gm_pid_pursuit"  # GMPIDPursuitFollower always uses gm_pid_pursuit profile
-        self.follower_name = "GMPIDPursuitFollower"
+        self.setpoint_profile = "gm_velocity_chase"  # GMVelocityChaseFollower always uses gm_velocity_chase profile
+        self.follower_name = "GMVelocityChaseFollower"
         self.initial_target_coords = initial_target_coords
 
         # Load configuration from Parameters (needed for display name)
-        self.config = getattr(Parameters, 'GM_PID_PURSUIT', {})
+        self.config = getattr(Parameters, 'GM_VELOCITY_CHASE', {})
         if not self.config:
-            raise ValueError("GM_PID_PURSUIT configuration section not found in Parameters")
+            raise ValueError("GM_VELOCITY_CHASE configuration section not found in Parameters")
 
         # Set basic attributes needed for display name
-        self.mount_type = self.config.get('MOUNT_TYPE', 'VERTICAL')
-        self.control_mode = self.config.get('CONTROL_MODE', 'VELOCITY')
+        self.mount_type = self.config.get('MOUNT_TYPE', 'HORIZONTAL')
+        self.control_mode = self.config.get('CONTROL_MODE', 'BODY')
 
         # Initialize base follower with gimbal_unified setpoint profile
         super().__init__(px4_controller, self.setpoint_profile)
+
+        # State flags
+        self.velocity_continuation_active = False
 
         # Initialize target loss handler (optional advanced feature)
         self.target_loss_handler = None
@@ -252,20 +137,20 @@ class GMPIDPursuitFollower(BaseFollower):
         # This follower: rate_limits.yaw (rad/s) → * 57.2958 → max_yaw_rate (deg/s)
         self.max_yaw_rate = self.rate_limits.yaw * 57.2958  # rad/s → deg/s
 
-        # Safety parameters from base class cached limits
-        self.emergency_stop_enabled = self.config.get('EMERGENCY_STOP_ENABLED', True)
-        self.altitude_safety_enabled = self.config.get('ALTITUDE_SAFETY_ENABLED', True)  # Matches vector follower
+        # Safety parameters from SafetyManager (single source of truth)
+        _safety_behavior = self.safety_manager.get_safety_behavior(self._follower_config_name)
+        self.emergency_stop_enabled = _safety_behavior.emergency_stop_enabled
         self.min_altitude_safety = self.altitude_limits.min_altitude
         self.max_altitude_safety = self.altitude_limits.max_altitude
-        self.max_safety_violations = self.config.get('MAX_SAFETY_VIOLATIONS', 5)
 
         # Performance parameters
-        self.update_rate = self.config.get('UPDATE_RATE', 20.0)
+        self.update_rate = self.config.get('CONTROL_UPDATE_RATE', 20.0)
         self.command_smoothing_enabled = self.config.get('COMMAND_SMOOTHING_ENABLED', True)
         self.smoothing_factor = self.config.get('SMOOTHING_FACTOR', 0.8)
 
         # State tracking
         self.last_velocity_command: Optional[VelocityCommand] = None
+        self.last_tracker_output: Optional[TrackerOutput] = None
         self.last_update_time = time.time()
         self.following_active = False
         self.emergency_stop_active = False
@@ -323,7 +208,7 @@ class GMPIDPursuitFollower(BaseFollower):
         # Initialize PID controllers based on mount configuration and mode
         self._initialize_pid_controllers()
 
-        logger.info(f"GMPIDPursuitFollower initialized: {self.mount_type} mount, {self.control_mode} control, {self.active_lateral_mode} guidance")
+        logger.info(f"GMVelocityChaseFollower initialized: {self.mount_type} mount, {self.control_mode} control, {self.active_lateral_mode} guidance")
 
     def _cache_config_parameters(self):
         """Cache frequently accessed configuration parameters for performance optimization."""
@@ -334,7 +219,7 @@ class GMPIDPursuitFollower(BaseFollower):
         self.max_roll_angle = self.config.get('MAX_ROLL_ANGLE', 90.0)
         self.max_pitch_angle = self.config.get('MAX_PITCH_ANGLE', 90.0)
         self.lateral_invert = self.config.get('INVERT_LATERAL_CONTROL', False)
-        self.vertical_invert = self.config.get('INVERT_VERTICAL_CONTROL', False)
+        self.vertical_invert = self.config.get('INVERT_VERTICAL_CONTROL', True)
 
         # Performance optimization flags
         self.debug_logging_enabled = logger.isEnabledFor(logging.DEBUG)
@@ -356,7 +241,7 @@ class GMPIDPursuitFollower(BaseFollower):
 
             # Initialize vertical PID controller (used in both modes)
             self.pid_down = CustomPID(
-                *self._get_pid_gains('vel_body_down'),
+                *self._get_pid_gains('mc_vel_body_down'),
                 setpoint=setpoint_y,
                 output_limits=(-self.max_velocity_vertical, self.max_velocity_vertical)  # From config
             )
@@ -364,11 +249,11 @@ class GMPIDPursuitFollower(BaseFollower):
             if self.active_lateral_mode == 'sideslip':
                 # Sideslip Mode: Direct lateral velocity control
                 self.pid_right = CustomPID(
-                    *self._get_pid_gains('vel_body_right'),
+                    *self._get_pid_gains('mc_vel_body_right'),
                     setpoint=setpoint_x,
                     output_limits=(-self.max_velocity_lateral, self.max_velocity_lateral)  # From config
                 )
-                logger.debug(f"Sideslip mode PID initialized with gains {self._get_pid_gains('vel_body_right')}")
+                logger.debug(f"Sideslip mode PID initialized with gains {self._get_pid_gains('mc_vel_body_right')}")
 
             elif self.active_lateral_mode == 'coordinated_turn':
                 # Coordinated Turn Mode: Yaw rate control
@@ -377,11 +262,11 @@ class GMPIDPursuitFollower(BaseFollower):
                 # Output: yaw rate in deg/s, clamped to ±max_yaw_rate
                 # Command: yawspeed_deg_s field (MAVSDK expects deg/s)
                 self.pid_yaw_speed = CustomPID(
-                    *self._get_pid_gains('yawspeed_deg_s'),
+                    *self._get_pid_gains('mc_yawspeed_deg_s'),
                     setpoint=setpoint_x,
                     output_limits=(-self.max_yaw_rate, self.max_yaw_rate)  # deg/s
                 )
-                logger.debug(f"Coordinated turn mode PID initialized with gains {self._get_pid_gains('yawspeed_deg_s')} (deg/s output)")
+                logger.debug(f"Coordinated turn mode PID initialized with gains {self._get_pid_gains('mc_yawspeed_deg_s')} (deg/s output)")
 
             if self.debug_logging_enabled:
                 logger.debug(f"PID controllers initialized for {self.active_lateral_mode} mode")
@@ -392,39 +277,23 @@ class GMPIDPursuitFollower(BaseFollower):
 
     def _get_pid_gains(self, control_field: str) -> Tuple[float, float, float]:
         """
-        Get PID gains for a specific control field from global PID configuration.
+        Retrieves PID gains for the specified control field from Parameters.PID_GAINS.
 
-        Uses unified PID system - same as other PixEagle followers.
+        Args:
+            control_field (str): PID key (mc_vel_body_down, mc_vel_body_right, mc_yawspeed_deg_s).
+
+        Returns:
+            Tuple[float, float, float]: (P, I, D) gains.
+
+        Raises:
+            KeyError: If the specified field is not configured.
         """
         try:
-            # Get PID gains from the global PID section (unified system)
-            pid_config = getattr(Parameters, 'PID', None)
-            if not pid_config:
-                logger.warning("PID configuration not found in Parameters - using defaults")
-                return 1.0, 0.0, 0.1
-
-            pid_gains = pid_config.get('PID_GAINS', {})
-            if not pid_gains:
-                logger.warning("PID_GAINS section not found in PID configuration - using defaults")
-                return 1.0, 0.0, 0.1
-
-            # Use unified PID gains (same as other followers)
-            gains = pid_gains.get(control_field)
-            if not gains:
-                logger.warning(f"PID gains for {control_field} not found - using defaults")
-                return 1.0, 0.0, 0.1
-
-            # Handle both uppercase and lowercase key formats
-            p_gain = gains.get('p', gains.get('P', 1.0))
-            i_gain = gains.get('i', gains.get('I', 0.0))
-            d_gain = gains.get('d', gains.get('D', 0.1))
-
-            logger.debug(f"PID gains for {control_field}: P={p_gain}, I={i_gain}, D={d_gain}")
-            return p_gain, i_gain, d_gain
-
-        except Exception as e:
-            logger.error(f"Error getting PID gains for {control_field}: {e}")
-            return 1.0, 0.0, 0.1  # Safe defaults
+            gains = Parameters.PID_GAINS[control_field]
+            return gains['p'], gains['i'], gains['d']
+        except KeyError as e:
+            logger.error(f"PID gains not found for '{control_field}': {e}")
+            raise KeyError(f"Invalid PID key '{control_field}'. Check Parameters.PID_GAINS configuration.")
 
     # === MOUNT-AWARE COORDINATE TRANSFORMATION FUNCTIONS ===
     #
@@ -537,7 +406,7 @@ class GMPIDPursuitFollower(BaseFollower):
         vertical_error = max(-1.0, min(1.0, vertical_error))
 
         if self.debug_logging_enabled:
-            logger.debug(f"🏔️ VERTICAL transform: P={pitch_deg:.1f}°(err={pitch_error:.1f}°) R={roll_deg:.1f}°(err={roll_error:.1f}°×{roll_direction_multiplier}) → lat={lateral_error:.3f} vert={vertical_error:.3f}")
+            logger.debug(f"VERTICAL transform: P={pitch_deg:.1f}deg(err={pitch_error:.1f}deg) R={roll_deg:.1f}deg(err={roll_error:.1f}deg x{roll_direction_multiplier}) -> lat={lateral_error:.3f} vert={vertical_error:.3f}")
 
         return lateral_error, vertical_error
 
@@ -840,7 +709,7 @@ class GMPIDPursuitFollower(BaseFollower):
             if new_mode == 'sideslip' and self.pid_right is None:
                 # Initialize sideslip PID controller
                 self.pid_right = CustomPID(
-                    *self._get_pid_gains('vel_body_right'),
+                    *self._get_pid_gains('mc_vel_body_right'),
                     setpoint=setpoint_x,
                     output_limits=(-self.max_velocity_lateral, self.max_velocity_lateral)  # From config
                 )
@@ -849,7 +718,7 @@ class GMPIDPursuitFollower(BaseFollower):
             elif new_mode == 'coordinated_turn' and self.pid_yaw_speed is None:
                 # Initialize coordinated turn PID controller
                 self.pid_yaw_speed = CustomPID(
-                    *self._get_pid_gains('yawspeed_deg_s'),
+                    *self._get_pid_gains('mc_yawspeed_deg_s'),
                     setpoint=setpoint_x,
                     output_limits=(-self.max_yaw_rate, self.max_yaw_rate)  # From config
                 )
@@ -903,9 +772,7 @@ class GMPIDPursuitFollower(BaseFollower):
 
                     # Trigger RTL if not blocked by circuit breaker
                     if not response_data.get('circuit_breaker_blocked', False):
-                        # This would integrate with PX4 RTL functionality
-                        # self.px4_controller.trigger_return_to_launch()
-                        pass
+                        self.trigger_return_to_launch(reason="target_loss_timeout", altitude=rtl_altitude)
 
                     return True
                 return False
@@ -1164,7 +1031,7 @@ class GMPIDPursuitFollower(BaseFollower):
         try:
             # DEBUG: Log normal tracking processing (only when debug enabled)
             if self.debug_logging_enabled:
-                logger.debug(f"🔄 Processing normal tracking - data_type: {tracker_output.data_type}, angular: {tracker_output.angular}")
+                logger.debug(f"Processing normal tracking - data_type: {tracker_output.data_type}, angular: {tracker_output.angular}")
 
             # === GIMBAL HEALTH VALIDATION ===
             # Check gimbal connection health from tracker raw_data (if available)
@@ -1513,7 +1380,7 @@ class GMPIDPursuitFollower(BaseFollower):
             }
 
         # 4. Safety violation accumulation check
-        if self.safety_violations_count >= self.max_safety_violations:
+        if self.safety_violations_count >= self.safety_manager.get_safety_behavior(self._follower_config_name).max_safety_violations:
             return {
                 'safe_to_proceed': False,
                 'reason': 'excessive_safety_violations',
@@ -1550,7 +1417,7 @@ class GMPIDPursuitFollower(BaseFollower):
             pass  # Circuit breaker not available, continue with normal safety checks
 
         # Skip check if altitude safety is disabled in config (matches vector follower)
-        if not self.altitude_safety_enabled:
+        if not self.is_altitude_safety_enabled():
             return {'safe': True, 'reason': 'altitude_safety_disabled'}
 
         try:
@@ -1590,7 +1457,7 @@ class GMPIDPursuitFollower(BaseFollower):
 
     def trigger_emergency_stop(self, reason: str = "manual_trigger"):
         """Enhanced emergency stop with comprehensive state reset."""
-        logger.critical(f"🚨 EMERGENCY STOP: {reason}")
+        logger.critical(f"EMERGENCY STOP: {reason}")
 
         self.emergency_stop_active = True
         self.following_active = False
@@ -1607,7 +1474,8 @@ class GMPIDPursuitFollower(BaseFollower):
             logger.error(f"Failed to apply emergency velocity commands: {e}")
 
         # Reset target loss handler
-        self.target_loss_handler.reset_state()
+        if self.target_loss_handler:
+            self.target_loss_handler.reset_state()
 
         # Log emergency event
         self.log_follower_event("emergency_stop", reason=reason,
@@ -1654,7 +1522,7 @@ class GMPIDPursuitFollower(BaseFollower):
 
     def reset_safety_state(self) -> None:
         """Reset all safety-related state variables."""
-        logger.info("Resetting safety state for GMPIDPursuitFollower")
+        logger.info("Resetting safety state for GMVelocityChaseFollower")
 
         self.emergency_stop_active = False
         self.altitude_safety_active = False
@@ -1681,7 +1549,7 @@ class GMPIDPursuitFollower(BaseFollower):
             mode_changed = self.last_logged_mode != self.active_lateral_mode
 
             if velocity_changed or mode_changed:
-                logger.info(f"🚁 Gimbal→Velocity [{self.active_lateral_mode}]: fwd={current_velocity[0]} right={current_velocity[1]} down={current_velocity[2]} yaw={current_velocity[3]}°/s")
+                logger.info(f"Gimbal->Velocity [{self.active_lateral_mode}]: fwd={current_velocity[0]} right={current_velocity[1]} down={current_velocity[2]} yaw={current_velocity[3]}deg/s")
                 self.last_logged_velocity = current_velocity
                 self.last_logged_mode = self.active_lateral_mode
 
@@ -1696,7 +1564,7 @@ class GMPIDPursuitFollower(BaseFollower):
     def get_status_info(self) -> Dict[str, Any]:
         """Get comprehensive status information."""
         return {
-            'follower_type': 'GMPIDPursuitFollower',
+            'follower_type': 'GMVelocityChaseFollower',
             'display_name': self.get_display_name(),
             'following_active': self.following_active,
             'emergency_stop_active': self.emergency_stop_active,
@@ -1711,7 +1579,7 @@ class GMPIDPursuitFollower(BaseFollower):
                 'control_mode': self.control_mode,
                 'lateral_guidance_mode': self.active_lateral_mode
             },
-            'target_loss_handler': self.target_loss_handler.get_statistics(),
+            'target_loss_handler': self.target_loss_handler.get_statistics() if self.target_loss_handler else {},
             'statistics': {
                 'total_follow_calls': self.total_follow_calls,
                 'successful_transformations': self.successful_transformations,
@@ -1790,4 +1658,4 @@ class GMPIDPursuitFollower(BaseFollower):
 
     def __str__(self) -> str:
         """String representation for debugging."""
-        return f"GMPIDPursuitFollower(mount={self.mount_type}, control={self.control_mode}, active={self.following_active})"
+        return f"GMVelocityChaseFollower(mount={self.mount_type}, control={self.control_mode}, active={self.following_active})"

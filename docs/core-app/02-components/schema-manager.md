@@ -102,7 +102,7 @@ tracker_types:
 
 compatibility:
   followers:
-    mc_velocity_follower:
+    mc_velocity_chase_follower:
       required_schemas:
         - POSITION_2D
       preferred_schemas:
@@ -363,7 +363,7 @@ is_valid, errors = validate_tracker_data('POSITION_2D', data)
 
 # Check compatibility
 compat = manager.check_follower_compatibility(
-    'mc_velocity_follower',
+    'mc_velocity_chase_follower',
     'POSITION_2D'
 )
 print(f"Compatibility: {compat}")  # 'required'

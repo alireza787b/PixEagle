@@ -61,9 +61,10 @@ if current_altitude < safety_limits.MIN_ALTITUDE:
 ### Per-Follower Overrides
 
 ```yaml
-FOLLOWER_OVERRIDES:
-  MC_VELOCITY_CHASE:
-    MAX_VELOCITY_FORWARD: 12.0  # Override global 10.0
+Safety:
+  FollowerOverrides:
+    MC_VELOCITY_CHASE:
+      MAX_VELOCITY_FORWARD: 12.0  # Override global 10.0
 ```
 
 ---
@@ -71,11 +72,12 @@ FOLLOWER_OVERRIDES:
 ## Quick Configuration
 
 ```yaml
-SafetyLimits:
-  MAX_VELOCITY_FORWARD: 10.0
-  MAX_VELOCITY_LATERAL: 5.0
-  MAX_VELOCITY_VERTICAL: 3.0
-  MAX_YAW_RATE: 45.0
-  MIN_ALTITUDE: 5.0
-  MAX_ALTITUDE: 120.0
+Safety:
+  GlobalLimits:
+    MAX_VELOCITY_FORWARD: 10.0
+    MAX_VELOCITY_LATERAL: 5.0
+    MAX_VELOCITY_VERTICAL: 3.0
+    MAX_YAW_RATE: 45.0
+    MIN_ALTITUDE: 5.0
+    MAX_ALTITUDE: 120.0
 ```

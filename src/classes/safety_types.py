@@ -132,7 +132,6 @@ FIELD_LIMIT_MAPPING = {
 # Safety limits come from GlobalLimits, not per-vehicle profiles.
 FOLLOWER_VEHICLE_TYPE = {
     # Multicopter followers
-    'MC_VELOCITY': VehicleType.MULTICOPTER,
     'MC_VELOCITY_CHASE': VehicleType.MULTICOPTER,
     'MC_VELOCITY_POSITION': VehicleType.MULTICOPTER,
     'MC_VELOCITY_DISTANCE': VehicleType.MULTICOPTER,
@@ -140,7 +139,7 @@ FOLLOWER_VEHICLE_TYPE = {
     'MC_ATTITUDE_RATE': VehicleType.MULTICOPTER,
     # Gimbal followers
     'GM_VELOCITY_VECTOR': VehicleType.GIMBAL,
-    'GM_PID_PURSUIT': VehicleType.GIMBAL,
+    'GM_VELOCITY_CHASE': VehicleType.GIMBAL,
     # Fixed-wing followers
     'FW_ATTITUDE_RATE': VehicleType.FIXED_WING,
 }

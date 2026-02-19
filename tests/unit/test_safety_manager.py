@@ -159,8 +159,8 @@ class TestLimitResolutionHierarchy:
         """Global limit used when no follower override exists."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        # MC_VELOCITY has no overrides
-        result = safety_manager.get_limit('MAX_VELOCITY_FORWARD', 'MC_VELOCITY')
+        # MC_VELOCITY_GROUND has no per-follower overrides — uses global
+        result = safety_manager.get_limit('MAX_VELOCITY_FORWARD', 'MC_VELOCITY_GROUND')
         assert result == 10.0  # Global value
 
     def test_fallback_used_when_not_configured(self, safety_manager):
@@ -233,14 +233,15 @@ class TestVelocityLimits:
         """get_velocity_limits returns VelocityLimits."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        limits = safety_manager.get_velocity_limits('MC_VELOCITY')
+        limits = safety_manager.get_velocity_limits('MC_VELOCITY_CHASE')
         assert isinstance(limits, VelocityLimits)
 
     def test_velocity_limits_values(self, safety_manager, config_with_global_limits):
-        """Velocity limits have correct values."""
+        """Velocity limits have correct values from global limits."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        limits = safety_manager.get_velocity_limits('MC_VELOCITY')
+        # Use a follower without overrides to test global values
+        limits = safety_manager.get_velocity_limits('MC_VELOCITY_GROUND')
         assert limits.forward == 10.0
         assert limits.lateral == 6.0
         assert limits.vertical == 4.0
@@ -267,14 +268,14 @@ class TestAltitudeLimits:
         """get_altitude_limits returns AltitudeLimits."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        limits = safety_manager.get_altitude_limits('MC_VELOCITY')
+        limits = safety_manager.get_altitude_limits('MC_VELOCITY_CHASE')
         assert isinstance(limits, AltitudeLimits)
 
     def test_altitude_limits_values(self, safety_manager, config_with_global_limits):
         """Altitude limits have correct values."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        limits = safety_manager.get_altitude_limits('MC_VELOCITY')
+        limits = safety_manager.get_altitude_limits('MC_VELOCITY_CHASE')
         assert limits.min_altitude == 5.0
         assert limits.max_altitude == 100.0
         assert limits.warning_buffer == 3.0
@@ -292,14 +293,14 @@ class TestRateLimits:
         """get_rate_limits returns RateLimits."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        limits = safety_manager.get_rate_limits('MC_VELOCITY')
+        limits = safety_manager.get_rate_limits('MC_VELOCITY_CHASE')
         assert isinstance(limits, RateLimits)
 
     def test_rate_limits_converted_to_radians(self, safety_manager, config_with_global_limits):
         """Rate limits are converted from deg/s to rad/s."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        limits = safety_manager.get_rate_limits('MC_VELOCITY')
+        limits = safety_manager.get_rate_limits('MC_VELOCITY_CHASE')
         assert limits.yaw == pytest.approx(radians(60.0))
         assert limits.pitch == pytest.approx(radians(45.0))
         assert limits.roll == pytest.approx(radians(90.0))
@@ -317,9 +318,9 @@ class TestCaching:
         safety_manager.load_from_config(config_with_global_limits)
 
         # First call populates cache
-        limits1 = safety_manager.get_velocity_limits('MC_VELOCITY')
+        limits1 = safety_manager.get_velocity_limits('MC_VELOCITY_CHASE')
         # Second call should return same object
-        limits2 = safety_manager.get_velocity_limits('MC_VELOCITY')
+        limits2 = safety_manager.get_velocity_limits('MC_VELOCITY_CHASE')
 
         assert limits1 is limits2
 
@@ -327,7 +328,7 @@ class TestCaching:
         """clear_cache clears the cache."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        _ = safety_manager.get_velocity_limits('MC_VELOCITY')
+        _ = safety_manager.get_velocity_limits('MC_VELOCITY_CHASE')
         assert len(safety_manager._cache) > 0
 
         safety_manager.clear_cache()
@@ -336,14 +337,14 @@ class TestCaching:
     def test_load_from_config_clears_cache(self, safety_manager, config_with_global_limits):
         """Loading config clears existing cache."""
         safety_manager.load_from_config(config_with_global_limits)
-        _ = safety_manager.get_velocity_limits('MC_VELOCITY')
+        _ = safety_manager.get_velocity_limits('MC_VELOCITY_CHASE')
 
         # Load new config
         new_config = {'Safety': {'GlobalLimits': {'MAX_VELOCITY_FORWARD': 20.0}}}
         safety_manager.load_from_config(new_config)
 
         # Cache should be cleared
-        limits = safety_manager.get_velocity_limits('MC_VELOCITY')
+        limits = safety_manager.get_velocity_limits('MC_VELOCITY_CHASE')
         assert limits.forward == 20.0
 
 
@@ -358,7 +359,7 @@ class TestAltitudeSafetyChecks:
         """Normal altitude returns safe status."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        status = safety_manager.check_altitude_safety(50.0, 'MC_VELOCITY')
+        status = safety_manager.check_altitude_safety(50.0, 'MC_VELOCITY_CHASE')
         assert status.safe is True
         assert status.action == SafetyAction.NONE
 
@@ -366,7 +367,7 @@ class TestAltitudeSafetyChecks:
         """Altitude below minimum returns violation."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        status = safety_manager.check_altitude_safety(2.0, 'MC_VELOCITY')  # Below 5.0
+        status = safety_manager.check_altitude_safety(2.0, 'MC_VELOCITY_CHASE')  # Below 5.0
         assert status.safe is False
         assert 'too_low' in status.reason
 
@@ -374,7 +375,7 @@ class TestAltitudeSafetyChecks:
         """Altitude above maximum returns violation."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        status = safety_manager.check_altitude_safety(150.0, 'MC_VELOCITY')  # Above 100.0
+        status = safety_manager.check_altitude_safety(150.0, 'MC_VELOCITY_CHASE')  # Above 100.0
         assert status.safe is False
         assert 'too_high' in status.reason
 
@@ -382,7 +383,7 @@ class TestAltitudeSafetyChecks:
         """Altitude near minimum returns warning."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        status = safety_manager.check_altitude_safety(6.0, 'MC_VELOCITY')  # Near 5.0 + 3.0 buffer
+        status = safety_manager.check_altitude_safety(6.0, 'MC_VELOCITY_CHASE')  # Near 5.0 + 3.0 buffer
         assert status.safe is True
         assert status.action == SafetyAction.WARN
 
@@ -390,7 +391,7 @@ class TestAltitudeSafetyChecks:
         """Altitude near maximum returns warning."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        status = safety_manager.check_altitude_safety(98.0, 'MC_VELOCITY')  # Near 100.0 - 3.0 buffer
+        status = safety_manager.check_altitude_safety(98.0, 'MC_VELOCITY_CHASE')  # Near 100.0 - 3.0 buffer
         assert status.safe is True
         assert status.action == SafetyAction.WARN
 
@@ -415,28 +416,29 @@ class TestCommandValidation:
         """Value within limits unchanged."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        result = safety_manager.validate_command('vel_body_fwd', 5.0, 'MC_VELOCITY')
+        result = safety_manager.validate_command('vel_body_fwd', 5.0, 'MC_VELOCITY_GROUND')
         assert result == 5.0
 
     def test_validate_command_exceeds_positive(self, safety_manager, config_with_global_limits):
         """Value exceeding positive limit is clamped."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        result = safety_manager.validate_command('vel_body_fwd', 15.0, 'MC_VELOCITY')
-        assert result == 10.0  # MAX_VELOCITY_FORWARD
+        # Use follower without overrides to test global limit clamping
+        result = safety_manager.validate_command('vel_body_fwd', 15.0, 'MC_VELOCITY_GROUND')
+        assert result == 10.0  # MAX_VELOCITY_FORWARD (global)
 
     def test_validate_command_exceeds_negative(self, safety_manager, config_with_global_limits):
         """Value exceeding negative limit is clamped."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        result = safety_manager.validate_command('vel_body_fwd', -15.0, 'MC_VELOCITY')
-        assert result == -10.0  # -MAX_VELOCITY_FORWARD
+        result = safety_manager.validate_command('vel_body_fwd', -15.0, 'MC_VELOCITY_GROUND')
+        assert result == -10.0  # -MAX_VELOCITY_FORWARD (global)
 
     def test_validate_command_unknown_field(self, safety_manager, config_with_global_limits):
         """Unknown field returns value unchanged."""
         safety_manager.load_from_config(config_with_global_limits)
 
-        result = safety_manager.validate_command('unknown_field', 100.0, 'MC_VELOCITY')
+        result = safety_manager.validate_command('unknown_field', 100.0, 'MC_VELOCITY_GROUND')
         assert result == 100.0
 
 
@@ -496,7 +498,7 @@ class TestSafetyTypes:
         """FOLLOWER_VEHICLE_TYPE contains expected mappings."""
         assert FOLLOWER_VEHICLE_TYPE['MC_VELOCITY_CHASE'] == VehicleType.MULTICOPTER
         assert FOLLOWER_VEHICLE_TYPE['FW_ATTITUDE_RATE'] == VehicleType.FIXED_WING
-        assert FOLLOWER_VEHICLE_TYPE['GM_PID_PURSUIT'] == VehicleType.GIMBAL
+        assert FOLLOWER_VEHICLE_TYPE['GM_VELOCITY_CHASE'] == VehicleType.GIMBAL
 
     def test_field_limit_mapping(self):
         """FIELD_LIMIT_MAPPING contains expected mappings."""

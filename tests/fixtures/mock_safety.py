@@ -194,12 +194,6 @@ TEST_SCHEMA_CACHE = {
         'thrust': {'type': 'float', 'default': 0.5, 'unit': '', 'min': 0.0, 'max': 1.0, 'clamp': True}
     },
     'follower_profiles': {
-        'mc_velocity': {
-            'display_name': 'MC Velocity',
-            'control_type': 'velocity_body_offboard',
-            'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down'],
-            'optional_fields': ['yawspeed_deg_s']
-        },
         'mc_velocity_chase': {
             'display_name': 'MC Velocity Chase',
             'control_type': 'velocity_body_offboard',
@@ -236,8 +230,8 @@ TEST_SCHEMA_CACHE = {
             'required_fields': ['rollspeed_deg_s', 'pitchspeed_deg_s', 'yawspeed_deg_s', 'thrust'],
             'optional_fields': []
         },
-        'gm_pid_pursuit': {
-            'display_name': 'GM PID Pursuit',
+        'gm_velocity_chase': {
+            'display_name': 'GM Velocity Chase',
             'control_type': 'velocity_body_offboard',
             'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down'],
             'optional_fields': ['yawspeed_deg_s']

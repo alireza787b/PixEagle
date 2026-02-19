@@ -101,13 +101,20 @@ class MCVelocityDistanceFollower(BaseFollower):
         # Internal rad/s; use base class cached rate limits
         self.max_yaw_rate = self.rate_limits.yaw  # Already in rad/s from SafetyManager
         self.yaw_control_threshold = config.get('YAW_CONTROL_THRESHOLD', 0.3)
-        self.target_lost_timeout = config.get('TARGET_LOST_TIMEOUT', 3.0)
+        self.target_lost_timeout = config.get('TARGET_LOSS_TIMEOUT', 3.0)
         self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
         self.command_smoothing_enabled = config.get('COMMAND_SMOOTHING_ENABLED', True)
         self.smoothing_factor = config.get('SMOOTHING_FACTOR', 0.8)
+        # NOTE: distance_hold is not yet implemented — X-axis is always fixed at zero
+        # These params are loaded for future use / status reporting only
         self.distance_hold_enabled = config.get('DISTANCE_HOLD_ENABLED', True)
         self.distance_hold_tolerance = config.get('DISTANCE_HOLD_TOLERANCE', 0.1)
-        
+
+        # Smoothing state for EMA (initialized to 0; updated each control cycle)
+        self._last_vel_right = 0.0
+        self._last_vel_down = 0.0
+        self._last_yawspeed = 0.0
+
         # Initialize control system components
         self._initialize_pid_controllers()
         
@@ -144,14 +151,14 @@ class MCVelocityDistanceFollower(BaseFollower):
             
             # Initialize Y-axis PID controller (lateral movement)
             self.pid_y = CustomPID(
-                *self._get_pid_gains('y'),
+                *self._get_pid_gains('mc_vel_lateral'),
                 setpoint=setpoint_x,  # X coordinate controls Y movement
                 output_limits=(-self.max_lateral_velocity, self.max_lateral_velocity)
             )
 
             # Initialize Z-axis PID controller (altitude control)
             self.pid_z = CustomPID(
-                *self._get_pid_gains('z'),
+                *self._get_pid_gains('mc_altitude'),
                 setpoint=setpoint_y,  # Y coordinate controls Z movement
                 output_limits=(-self.max_vertical_velocity, self.max_vertical_velocity)
             )
@@ -160,7 +167,7 @@ class MCVelocityDistanceFollower(BaseFollower):
             # Uses yawspeed_deg_s gains (deg/s MAVSDK standard)
             if self.yaw_enabled:
                 self.pid_yaw_rate = CustomPID(
-                    *self._get_pid_gains('yawspeed_deg_s'),
+                    *self._get_pid_gains('mc_yawspeed_deg_s'),
                     setpoint=setpoint_x,  # X coordinate controls yaw
                     output_limits=(-self.max_yaw_rate, self.max_yaw_rate)
                 )
@@ -220,11 +227,11 @@ class MCVelocityDistanceFollower(BaseFollower):
         """
         try:
             # Use base class method for consistent PID gain updates
-            self._update_pid_gains_from_config(self.pid_y, 'y', 'MC Velocity Distance')
-            self._update_pid_gains_from_config(self.pid_z, 'z', 'MC Velocity Distance')
+            self._update_pid_gains_from_config(self.pid_y, 'mc_vel_lateral', 'MC Velocity Distance')
+            self._update_pid_gains_from_config(self.pid_z, 'mc_altitude', 'MC Velocity Distance')
 
             if self.yaw_enabled and self.pid_yaw_rate is not None:
-                self._update_pid_gains_from_config(self.pid_yaw_rate, 'yawspeed_deg_s', 'MC Velocity Distance')
+                self._update_pid_gains_from_config(self.pid_yaw_rate, 'mc_yawspeed_deg_s', 'MC Velocity Distance')
 
             logger.debug("PID gains updated successfully for MCVelocityDistanceFollower")
 
@@ -368,6 +375,16 @@ class MCVelocityDistanceFollower(BaseFollower):
             # This matches NED/body frame convention directly - no negation needed
             vel_body_down = vel_z
             yawspeed_deg_s = degrees(yaw_rate)
+
+            # Apply EMA smoothing if enabled
+            if self.command_smoothing_enabled:
+                alpha = self.smoothing_factor
+                vel_body_right = alpha * self._last_vel_right + (1.0 - alpha) * vel_body_right
+                vel_body_down = alpha * self._last_vel_down + (1.0 - alpha) * vel_body_down
+                yawspeed_deg_s = alpha * self._last_yawspeed + (1.0 - alpha) * yawspeed_deg_s
+                self._last_vel_right = vel_body_right
+                self._last_vel_down = vel_body_down
+                self._last_yawspeed = yawspeed_deg_s
 
             success_x = self.set_command_field('vel_body_fwd', vel_body_fwd)
             success_y = self.set_command_field('vel_body_right', vel_body_right)
@@ -537,18 +554,18 @@ class MCVelocityDistanceFollower(BaseFollower):
             
             return {
                 'command_magnitudes': {
-                    'vel_x': abs(current_commands.get('vel_x', 0)),
-                    'vel_y': abs(current_commands.get('vel_y', 0)),
-                    'vel_z': abs(current_commands.get('vel_z', 0)),
-                    'yaw_rate': abs(current_commands.get('yaw_rate', 0))
+                    'vel_body_fwd': abs(current_commands.get('vel_body_fwd', 0)),
+                    'vel_body_right': abs(current_commands.get('vel_body_right', 0)),
+                    'vel_body_down': abs(current_commands.get('vel_body_down', 0)),
+                    'yawspeed_deg_s': abs(current_commands.get('yawspeed_deg_s', 0))
                 },
-                'total_velocity': sum(abs(v) for k, v in current_commands.items() 
+                'total_velocity': sum(abs(v) for k, v in current_commands.items()
                                     if k.startswith('vel_')),
-                'active_axes': sum(1 for k, v in current_commands.items() 
+                'active_axes': sum(1 for k, v in current_commands.items()
                                  if abs(v) > 0.001),
                 'control_active': any(abs(v) > 0.001 for v in current_commands.values()),
-                'yaw_control_active': abs(current_commands.get('yaw_rate', 0)) > 0.001,
-                'altitude_control_active': abs(current_commands.get('vel_z', 0)) > 0.001
+                'yaw_control_active': abs(current_commands.get('yawspeed_deg_s', 0)) > 0.001,
+                'altitude_control_active': abs(current_commands.get('vel_body_down', 0)) > 0.001
             }
         except Exception as e:
             logger.error(f"Error calculating performance metrics: {e}")

@@ -2578,8 +2578,8 @@ sections:
           label: mc_attitude_rate
         - value: fw_attitude_rate
           label: fw_attitude_rate
-        - value: gm_pid_pursuit
-          label: gm_pid_pursuit
+        - value: gm_velocity_chase
+          label: gm_velocity_chase
         - value: gm_velocity_vector
           label: gm_velocity_vector
       SHOW_TRACKING_WINDOW:
@@ -2691,7 +2691,7 @@ sections:
     reload_tier: system_restart
     reboot_required: true
     unit: set true for ground testing only
-  GM_PID_PURSUIT:
+  GM_VELOCITY_CHASE:
     display_name: Gimbal PID Pursuit
     category: follower
     icon: control_camera
@@ -2726,36 +2726,6 @@ sections:
         reload_tier: follower_restart
         reboot_required: false
         item_type: string
-      BASE_VELOCITY:
-        type: float
-        default: 2.0
-        description: Base following velocity (m/s)
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: m/s
-      VELOCITY_RAMP_RATE:
-        type: float
-        default: 0.5
-        description: Acceleration rate (m/s²) - smooth ramp
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-        unit: m
-      VELOCITY_FILTER_ALPHA:
-        type: float
-        default: 0.7
-        description: Velocity smoothing filter coefficient (0-1)
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-        unit: 0-1
       FORWARD_VELOCITY_MODE:
         type: string
         default: CONSTANT
@@ -2912,12 +2882,6 @@ sections:
         max: 100.0
         step: 0.1
         unit: deg
-      TRANSFORMATION_VALIDATION:
-        type: boolean
-        default: true
-        description: Validate coordinate transformations
-        reload_tier: follower_restart
-        reboot_required: false
       NEUTRAL_PITCH_ANGLE:
         type: float
         default: 0.0
@@ -2979,12 +2943,6 @@ sections:
         description: Invert vertical control for different gimbal orientations
         reload_tier: follower_restart
         reboot_required: false
-      ROLL_RIGHT_SIGN:
-        type: string
-        default: POSITIVE
-        description: '"POSITIVE" if look_right=positive_roll, "NEGATIVE" if look_right=negative_roll'
-        reload_tier: follower_restart
-        reboot_required: false
       DEFAULT_THRUST:
         type: float
         default: 0.5
@@ -2994,7 +2952,7 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-      UPDATE_RATE:
+      CONTROL_UPDATE_RATE:
         type: float
         default: 20.0
         description: Control loop frequency (Hz)
@@ -3064,13 +3022,6 @@ sections:
         description: true = 3D vector pursuit, false = horizontal only
         reload_tier: follower_restart
         reboot_required: false
-      ENABLE_YAW_CONTROL:
-        type: boolean
-        default: false
-        description: 'Optional: yaw drone toward target (DEPRECATED: use LATERAL_GUIDANCE_MODE)'
-        reload_tier: follower_restart
-        reboot_required: false
-        unit: 'deprecated: use lateral_guidance_mode'
       YAW_RATE_GAIN:
         type: float
         default: 0.5
@@ -3228,7 +3179,7 @@ sections:
         max: 1.0
         step: 0.01
         unit: m
-      UPDATE_RATE:
+      CONTROL_UPDATE_RATE:
         type: float
         default: 20.0
         description: Hz - control loop frequency
@@ -3437,7 +3388,7 @@ sections:
         min: 0.0
         max: 100.0
         step: 0.1
-      VELOCITY_SMOOTHING_ENABLED:
+      COMMAND_SMOOTHING_ENABLED:
         type: boolean
         default: true
         description: Enable velocity command smoothing
@@ -3772,16 +3723,7 @@ sections:
         description: Always enabled for this mode
         reload_tier: follower_restart
         reboot_required: false
-      MAX_YAW_RATE:
-        type: float
-        default: 10.0
-        description: Max yaw rate (deg/s)
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: deg/s
+      # MAX_YAW_RATE moved to Safety.FollowerOverrides.MC_VELOCITY_POSITION
       YAW_CONTROL_THRESHOLD:
         type: float
         default: 0.02
@@ -3792,7 +3734,7 @@ sections:
         max: 1.0
         step: 0.01
         unit: normalized
-      TARGET_LOST_TIMEOUT:
+      TARGET_LOSS_TIMEOUT:
         type: float
         default: 3.0
         description: Target loss timeout (seconds)
@@ -3845,16 +3787,7 @@ sections:
         description: Disabled by default for ground testing
         reload_tier: follower_restart
         reboot_required: false
-      MAX_YAW_RATE:
-        type: float
-        default: 10.0
-        description: Max yaw rate (deg/s)
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: deg/s
+      # MAX_YAW_RATE moved to Safety.FollowerOverrides.MC_VELOCITY_DISTANCE
       YAW_CONTROL_THRESHOLD:
         type: float
         default: 0.3
@@ -3865,7 +3798,7 @@ sections:
         max: 1.0
         step: 0.01
         unit: normalized
-      TARGET_LOST_TIMEOUT:
+      TARGET_LOSS_TIMEOUT:
         type: float
         default: 3.0
         description: Target loss timeout (seconds)
@@ -4285,7 +4218,7 @@ sections:
         max: 100.0
         step: 0.1
         unit: hz
-      ENABLE_COMMAND_SMOOTHING:
+      COMMAND_SMOOTHING_ENABLED:
         type: boolean
         default: true
         description: Apply EMA smoothing to commands
@@ -4301,239 +4234,6 @@ sections:
         max: 1.0
         step: 0.01
         unit: 0-1, higher = more smooth
-  MC_VELOCITY:
-    display_name: MC Velocity
-    category: follower
-    icon: speed
-    parameters:
-      LATERAL_GUIDANCE_MODE:
-        type: string
-        default: yaw_to_target
-        description: LATERAL_GUIDANCE_MODE parameter
-        reload_tier: follower_restart
-        reboot_required: false
-        options:
-        - value: yaw_to_target
-          label: yaw_to_target
-        - value: crab_strafe
-          label: crab_strafe
-      ENABLE_AUTO_MODE_SWITCHING:
-        type: boolean
-        default: false
-        description: Auto-switch based on LOS rate/distance
-        reload_tier: follower_restart
-        reboot_required: false
-      AUTO_SWITCH_DISTANCE_THRESHOLD:
-        type: float
-        default: 20.0
-        description: meters - close = crab_strafe
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-      FORWARD_VELOCITY_MODE:
-        type: string
-        default: constant
-        description: FORWARD_VELOCITY_MODE parameter
-        reload_tier: follower_restart
-        reboot_required: false
-        options:
-        - value: constant
-          label: constant
-        - value: pn
-          label: pn
-        - value: los
-          label: los
-      INITIAL_FORWARD_VELOCITY:
-        type: float
-        default: 0.0
-        description: m/s - starting velocity
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-        unit: m/s
-      FORWARD_RAMP_RATE:
-        type: float
-        default: 0.5
-        description: m/s^2 - acceleration rate (smooth 4s ramp)
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-        unit: smooth 4s ramp
-      PN_NAVIGATION_CONSTANT:
-        type: float
-        default: 4.0
-        description: N (3-5 typical for intercept)
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: 3-5 typical for intercept
-      PN_BASE_VELOCITY:
-        type: float
-        default: 2.0
-        description: m/s - base velocity for PN mode (conservative)
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: conservative
-      PN_LOS_SMOOTHING_ALPHA:
-        type: float
-        default: 0.3
-        description: EMA filter for LOS rate
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-      PN_MAX_VELOCITY_SCALE:
-        type: float
-        default: 2.0
-        description: Maximum velocity multiplier
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-      LOS_DISTANCE_GAIN:
-        type: float
-        default: 0.5
-        description: Velocity gain for distance
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-      TARGET_LOSS_TIMEOUT:
-        type: float
-        default: 2.0
-        description: seconds - before executing action
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: s
-      TARGET_LOSS_ACTION:
-        type: string
-        default: hover
-        description: TARGET_LOSS_ACTION parameter
-        reload_tier: follower_restart
-        reboot_required: false
-        options:
-        - value: hover
-          label: hover
-        - value: rtl
-          label: rtl
-        - value: slow_forward
-          label: slow_forward
-      TARGET_LOSS_COORDINATE_THRESHOLD:
-        type: integer
-        default: 990
-        description: Threshold for lost target detection
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0
-        max: 10000
-      RAMP_DOWN_ON_TARGET_LOSS:
-        type: boolean
-        default: true
-        description: Decelerate on target loss
-        reload_tier: follower_restart
-        reboot_required: false
-      SLOW_FORWARD_VELOCITY:
-        type: float
-        default: 1.0
-        description: m/s - velocity for slow_forward action
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-        unit: m/s
-      ENABLE_ALTITUDE_SAFETY:
-        type: boolean
-        default: true
-        description: Enable altitude monitoring
-        reload_tier: follower_restart
-        reboot_required: false
-      ALTITUDE_CHECK_INTERVAL:
-        type: float
-        default: 0.1
-        description: seconds - 100ms safety checks
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-        unit: s
-      RTL_ON_ALTITUDE_VIOLATION:
-        type: boolean
-        default: true
-        description: Trigger RTL on violation
-        reload_tier: follower_restart
-        reboot_required: false
-      ENABLE_VELOCITY_MAGNITUDE_LIMIT:
-        type: boolean
-        default: true
-        description: Enable magnitude limiting
-        reload_tier: follower_restart
-        reboot_required: false
-      VELOCITY_SMOOTHING_ENABLED:
-        type: boolean
-        default: true
-        description: Enable velocity command smoothing
-        reload_tier: follower_restart
-        reboot_required: false
-      SMOOTHING_FACTOR:
-        type: float
-        default: 0.8
-        description: EMA coefficient (0-1)
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-        unit: 0-1
-      EMERGENCY_STOP_ENABLED:
-        type: boolean
-        default: true
-        description: Enable emergency velocity zeroing
-        reload_tier: follower_restart
-        reboot_required: false
-      MAX_TRACKING_ERROR:
-        type: float
-        default: 1.5
-        description: Max normalized error before limiting
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-      ENABLE_ALTITUDE_CONTROL:
-        type: boolean
-        default: true
-        description: Enable vertical velocity control
-        reload_tier: follower_restart
-        reboot_required: false
-      CONTROL_UPDATE_RATE:
-        type: float
-        default: 20.0
-        description: Hz - control loop frequency
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: hz
   MC_ATTITUDE_RATE:
     display_name: MC Attitude Rate
     category: follower
@@ -4662,19 +4362,28 @@ sections:
         description: Enable altitude PID for hover
         reload_tier: follower_restart
         reboot_required: false
-      TARGET_ALTITUDE:
+      TARGET_ALTITUDE_OFFSET:
         type: float
         default: 15.0
-        description: meters - default target altitude
+        description: meters — offset from initial capture altitude
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
         max: 100.0
         step: 0.1
-      ALTITUDE_TOLERANCE:
+      ALTITUDE_PID_MIN_OUTPUT:
         type: float
-        default: 1.0
-        description: meters - acceptable altitude error
+        default: -0.3
+        description: Minimum thrust PID correction [0-1 thrust units]
+        reload_tier: follower_restart
+        reboot_required: false
+        min: -1.0
+        max: 0.0
+        step: 0.01
+      ALTITUDE_PID_MAX_OUTPUT:
+        type: float
+        default: 0.3
+        description: Maximum thrust PID correction [0-1 thrust units]
         reload_tier: follower_restart
         reboot_required: false
         min: 0.0
@@ -4709,26 +4418,6 @@ sections:
         max: 100.0
         step: 0.1
         unit: m/s
-      PN_MIN_ACCELERATION:
-        type: float
-        default: 0.5
-        description: m/s² - minimum command
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-        unit: m
-      PN_MAX_ACCELERATION:
-        type: float
-        default: 15.0
-        description: m/s² - maximum command
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: m
       ENABLE_YAW_ERROR_GATING:
         type: boolean
         default: true
@@ -4816,7 +4505,7 @@ sections:
         description: Trigger RTL on violation
         reload_tier: follower_restart
         reboot_required: false
-      RATE_SMOOTHING_ENABLED:
+      COMMAND_SMOOTHING_ENABLED:
         type: boolean
         default: true
         description: Enable rate command smoothing
@@ -4919,18 +4608,6 @@ sections:
         min: 0.0
         max: 1.0
         step: 0.01
-      ENABLE_GAIN_SCHEDULING:
-        type: boolean
-        default: false
-        description: Enable adaptive gain scheduling
-        reload_tier: follower_restart
-        reboot_required: false
-      GAIN_SCHEDULING_PARAMETER:
-        type: string
-        default: current_altitude
-        description: Parameter for gain scheduling
-        reload_tier: follower_restart
-        reboot_required: false
       CONTROL_UPDATE_RATE:
         type: float
         default: 20.0
@@ -5425,200 +5102,8 @@ sections:
         min: 0
         max: 10000
         unit: px
-  YawControl:
-    display_name: Yaw Control
-    category: control
-    icon: rotate_right
-    parameters:
-      ENABLE_YAW_CONTROL:
-        type: boolean
-        default: false
-        description: 🔄 Drone yaw (heading) control
-        reload_tier: follower_restart
-        reboot_required: false
-      YAW_CONTROL_THRESHOLD:
-        type: float
-        default: 0.3
-        description: Activation threshold
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-      YAW_LATERAL_BLEND_FACTOR:
-        type: float
-        default: 0.5
-        description: Blend yaw with lateral motion
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-      YAW_DEAD_ZONE:
-        type: float
-        default: 0.2
-        description: Ignore small errors
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-  VerticalErrorRecalculation:
-    display_name: Vertical Error
-    category: processing
-    icon: height
-    parameters:
-      VERTICAL_RECALC_DELAY:
-        type: float
-        default: 0.1
-        description: Seconds
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-        unit: s
-      YAW_PITCH_SYNC_FACTOR:
-        type: float
-        default: 0.5
-        description: Coupling factor
-        reload_tier: tracker_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-  Gimbal:
-    display_name: Gimbal Control
-    category: control
-    icon: control_camera
-    parameters:
-      ENABLE_GIMBAL_PRIORITY:
-        type: boolean
-        default: true
-        description: Gimbal overrides body motion
-        reload_tier: follower_restart
-        reboot_required: false
-  AdaptiveControl:
-    display_name: Adaptive Control
-    category: control
-    icon: auto_fix_high
-    parameters:
-      ADAPTIVE_YAW_CONTROL:
-        type: boolean
-        default: false
-        description: Auto-tune yaw gains
-        reload_tier: follower_restart
-        reboot_required: false
-  ChaseFollower:
-    display_name: Chase Follower Limits
-    category: control
-    icon: speed
-    parameters:
-      MAX_ROLL_RATE:
-        type: float
-        default: 20.0
-        description: deg/s
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: deg
-      MAX_PITCH_RATE:
-        type: float
-        default: 10.0
-        description: deg/s
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: deg
-      MAX_YAW_RATE:
-        type: float
-        default: 10.0
-        description: deg/s
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 100.0
-        step: 0.1
-        unit: deg
-      MAX_THRUST:
-        type: float
-        default: 1.0
-        description: 0-1
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-      MIN_THRUST:
-        type: float
-        default: 0.3
-        description: 0-1
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0.0
-        max: 1.0
-        step: 0.01
-      MIN_GROUND_SPEED:
-        type: integer
-        default: 0
-        description: m/s
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0
-        max: 10000
-        unit: m/s
-      MAX_GROUND_SPEED:
-        type: integer
-        default: 100
-        description: m/s
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0
-        max: 1000
-        unit: m/s
-      TARGET_SPEED:
-        type: integer
-        default: 60
-        description: m/s
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0
-        max: 1000
-        unit: m/s
-      MAX_BANK_ANGLE:
-        type: integer
-        default: 20
-        description: degrees
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0
-        max: 1000
-        unit: deg
-      YAW_ERROR_CHECK_ENABLED:
-        type: boolean
-        default: true
-        description: YAW_ERROR_CHECK_ENABLED parameter
-        reload_tier: follower_restart
-        reboot_required: false
-      YAW_ERROR_THRESHOLD:
-        type: integer
-        default: 20
-        description: degrees
-        reload_tier: follower_restart
-        reboot_required: false
-        min: 0
-        max: 1000
-        unit: deg
-      ALTITUDE_FAILSAFE_ENABLED:
-        type: boolean
-        default: false
-        description: ALTITUDE_FAILSAFE_ENABLED parameter
-        reload_tier: follower_restart
-        reboot_required: false
+  # Sections removed in v6.0 (orphaned — no code reads these):
+  # YawControl, VerticalErrorRecalculation, Gimbal, AdaptiveControl, ChaseFollower
   PID:
     display_name: PID Controller
     category: control
@@ -5626,219 +5111,150 @@ sections:
     parameters:
       PID_GAINS:
         type: object
-        description: ⚙️ PID gains for each control axis All angular rates in deg/s (MAVSDK standard) One PID gain set per
-          physical axis - no duplicates
+        description: Unified PID gains - mc_ for multicopter/gimbal, fw_ for fixed-wing
         reboot_required: false
         properties:
-          x:
-            type: object
-            default:
-              p: 4.5
-              i: 0.1
-              d: 1.5
-            description: Lateral position
-            reload_tier: follower_restart
-            reboot_required: false
-          y:
-            type: object
-            default:
-              p: 4.5
-              i: 0.1
-              d: 1.5
-            description: Longitudinal position
-            reload_tier: follower_restart
-            reboot_required: false
-          z:
-            type: object
-            default:
-              p: 2
-              i: 0.03
-              d: 0.05
-            description: Vertical position
-            reload_tier: follower_restart
-            reboot_required: false
-          rollspeed_deg_s:
-            type: object
-            default:
-              p: 1
-              i: 0.05
-              d: 0.2
-            description: Roll rate (deg/s)
-            reload_tier: follower_restart
-            reboot_required: false
-            unit: deg/s
-          pitchspeed_deg_s:
-            type: object
-            default:
-              p: 20
-              i: 0.1
-              d: 0.4
-            description: Pitch rate (deg/s)
-            reload_tier: follower_restart
-            reboot_required: false
-            unit: deg/s
-          yawspeed_deg_s:
+          mc_yawspeed_deg_s:
             type: object
             default:
               p: 12.0
               i: 0.5
               d: 1.5
-            description: Yaw rate (deg/s) - conservative for safe demo
+            description: MC visual tracking yaw rate [deg/s]
             reload_tier: follower_restart
             reboot_required: false
-            unit: deg
-          thrust:
-            type: object
-            default:
-              p: 0.1
-              i: 3
-              d: 1
-            description: thrust parameter
-            reload_tier: follower_restart
-            reboot_required: false
-          vel_body_right:
+            unit: deg/s
+          mc_vel_body_right:
             type: object
             default:
               p: 1.5
               i: 0.08
               d: 0.2
-            description: Lateral velocity - conservative for safe demo
+            description: MC pursuit lateral velocity [m/s]
             reload_tier: follower_restart
             reboot_required: false
-          vel_body_down:
+            unit: m/s
+          mc_vel_body_down:
             type: object
             default:
               p: 1.0
               i: 0.08
               d: 0.15
-            description: Vertical velocity - conservative for safe demo
+            description: MC pursuit vertical velocity [m/s]
             reload_tier: follower_restart
             reboot_required: false
-          fw_roll_rate:
+            unit: m/s
+          mc_vel_forward:
             type: object
             default:
-              p: 0.8
+              p: 4.5
               i: 0.1
+              d: 1.5
+            description: MC position-tracking forward velocity [m/s]
+            reload_tier: follower_restart
+            reboot_required: false
+            unit: m/s
+          mc_vel_lateral:
+            type: object
+            default:
+              p: 4.5
+              i: 0.1
+              d: 1.5
+            description: MC position-tracking lateral velocity [m/s]
+            reload_tier: follower_restart
+            reboot_required: false
+            unit: m/s
+          mc_altitude:
+            type: object
+            default:
+              p: 2.0
+              i: 0.03
               d: 0.05
-            description: Roll rate inner loop
+            description: MC altitude via velocity command [m]
             reload_tier: follower_restart
             reboot_required: false
-          fw_pitch_rate:
+            unit: m
+          mc_pitchspeed_deg_s:
             type: object
             default:
-              p: 0.6
+              p: 18.0
               i: 0.15
-              d: 0.03
-            description: Pitch rate (TECS output)
+              d: 0.4
+            description: MC attitude rate pitch [deg/s]
             reload_tier: follower_restart
             reboot_required: false
-            unit: tecs output
-          fw_yaw_rate:
+            unit: deg/s
+          mc_rollspeed_deg_s:
             type: object
             default:
-              p: 0.5
-              i: 0.05
-              d: 0.02
-            description: Yaw rate (L1 output)
+              p: 1.5
+              i: 0.08
+              d: 0.25
+            description: MC attitude rate roll [deg/s]
             reload_tier: follower_restart
             reboot_required: false
-            unit: l1 output
-          fw_throttle:
+            unit: deg/s
+          mc_att_yawspeed_deg_s:
             type: object
             default:
-              p: 0.4
-              i: 0.2
-              d: 0.1
-            description: Throttle (TECS energy)
+              p: 12.0
+              i: 0.1
+              d: 0.3
+            description: MC attitude rate yaw [deg/s]
             reload_tier: follower_restart
             reboot_required: false
-            unit: tecs energy
+            unit: deg/s
+          mc_att_altitude:
+            type: object
+            default:
+              p: 2.0
+              i: 0.3
+              d: 0.5
+            description: MC altitude via thrust [m]
+            reload_tier: follower_restart
+            reboot_required: false
+            unit: m
           fw_bank_angle:
             type: object
             default:
               p: 2.0
               i: 0.3
               d: 0.2
-            description: Bank angle outer loop
+            description: FW L1 bank angle outer loop [deg]
             reload_tier: follower_restart
             reboot_required: false
-          mc_yawspeed_deg_s:
+            unit: deg
+          # fw_roll_rate: removed — inner roll-rate loop not implemented; L1 outer loop uses fw_bank_angle PID
+          fw_pitch_rate:
             type: object
             default:
-              p: 15.0
-              i: 0.5
-              d: 2.0
-            description: Yaw rate for YAW_TO_TARGET mode
-            reload_tier: follower_restart
-            reboot_required: false
-          mc_vel_body_right:
-            type: object
-            default:
-              p: 8.0
-              i: 0.2
-              d: 1.0
-            description: Lateral velocity for CRAB_STRAFE mode
-            reload_tier: follower_restart
-            reboot_required: false
-          mc_vel_body_down:
-            type: object
-            default:
-              p: 5.0
-              i: 0.3
-              d: 0.8
-            description: Vertical velocity control
-            reload_tier: follower_restart
-            reboot_required: false
-          mcar_pitchspeed_deg_s:
-            type: object
-            default:
-              p: 18.0
+              p: 0.6
               i: 0.15
-              d: 0.4
-            description: Pitch rate (aggressive response)
+              d: 0.03
+            description: FW TECS pitch rate [deg/s]
             reload_tier: follower_restart
             reboot_required: false
-            unit: aggressive response
-          mcar_yawspeed_deg_s:
+            unit: deg/s
+          fw_yaw_rate:
             type: object
             default:
-              p: 12.0
-              i: 0.1
-              d: 0.3
-            description: Yaw rate (turn to target)
+              p: 0.5
+              i: 0.05
+              d: 0.02
+            description: FW coordinated yaw rate [deg/s]
             reload_tier: follower_restart
             reboot_required: false
-            unit: turn to target
-          mcar_rollspeed_deg_s:
+            unit: deg/s
+          fw_throttle:
             type: object
             default:
-              p: 1.5
-              i: 0.08
-              d: 0.25
-            description: Roll rate (coordinated turns)
+              p: 0.4
+              i: 0.2
+              d: 0.1
+            description: FW TECS throttle [0-1]
             reload_tier: follower_restart
             reboot_required: false
-            unit: coordinated turns
-          mcar_thrust:
-            type: object
-            default:
-              p: 0.15
-              i: 0.5
-              d: 0.2
-            description: Thrust (altitude hold)
-            reload_tier: follower_restart
-            reboot_required: false
-            unit: altitude hold
-          mcar_altitude:
-            type: object
-            default:
-              p: 2.0
-              i: 0.3
-              d: 0.5
-            description: Altitude (explicit control)
-            reload_tier: follower_restart
-            reboot_required: false
-            unit: explicit control
+            unit: normalized
       PROPORTIONAL_ON_MEASUREMENT:
         type: boolean
         default: false
@@ -5892,188 +5308,6 @@ sections:
         description: Empty - all followers use GlobalLimits
         reload_tier: follower_restart
         reboot_required: false
-  GainScheduling:
-    display_name: Gain Scheduling
-    category: control
-    icon: timeline
-    parameters:
-      ENABLE_GAIN_SCHEDULING:
-        type: boolean
-        default: false
-        description: 📈 Altitude-based gain adjustment
-        reload_tier: follower_restart
-        reboot_required: false
-      GAIN_SCHEDULING_PARAMETER:
-        type: string
-        default: current_altitude
-        description: GAIN_SCHEDULING_PARAMETER parameter
-        reload_tier: follower_restart
-        reboot_required: false
-      ALTITUDE_GAIN_SCHEDULE:
-        type: object
-        description: Altitude ranges and corresponding gains
-        reboot_required: false
-        properties:
-          (0, 20):
-            type: object
-            description: (0, 20) settings
-            reboot_required: false
-            properties:
-              x:
-                type: object
-                default:
-                  p: 5.5
-                  i: 0.2
-                  d: 0.4
-                description: x parameter
-                reload_tier: follower_restart
-                reboot_required: false
-              y:
-                type: object
-                default:
-                  p: 5.5
-                  i: 0.2
-                  d: 0.4
-                description: y parameter
-                reload_tier: follower_restart
-                reboot_required: false
-              z:
-                type: object
-                default:
-                  p: 1
-                  i: 0.01
-                  d: 0.1
-                description: z parameter
-                reload_tier: follower_restart
-                reboot_required: false
-          (20, 50):
-            type: object
-            description: (20, 50) settings
-            reboot_required: false
-            properties:
-              x:
-                type: object
-                default:
-                  p: 6
-                  i: 0.25
-                  d: 0.5
-                description: x parameter
-                reload_tier: follower_restart
-                reboot_required: false
-              y:
-                type: object
-                default:
-                  p: 6
-                  i: 0.25
-                  d: 0.5
-                description: y parameter
-                reload_tier: follower_restart
-                reboot_required: false
-              z:
-                type: object
-                default:
-                  p: 1
-                  i: 0.015
-                  d: 0.15
-                description: z parameter
-                reload_tier: follower_restart
-                reboot_required: false
-          (50, 100):
-            type: object
-            description: (50, 100) settings
-            reboot_required: false
-            properties:
-              x:
-                type: object
-                default:
-                  p: 6.5
-                  i: 0.3
-                  d: 0.6
-                description: x parameter
-                reload_tier: follower_restart
-                reboot_required: false
-              y:
-                type: object
-                default:
-                  p: 6.5
-                  i: 0.3
-                  d: 0.6
-                description: y parameter
-                reload_tier: follower_restart
-                reboot_required: false
-              z:
-                type: object
-                default:
-                  p: 1
-                  i: 0.02
-                  d: 0.2
-                description: z parameter
-                reload_tier: follower_restart
-                reboot_required: false
-          (100, 150):
-            type: object
-            description: (100, 150) settings
-            reboot_required: false
-            properties:
-              x:
-                type: object
-                default:
-                  p: 6
-                  i: 0.3
-                  d: 1.0
-                description: x parameter
-                reload_tier: follower_restart
-                reboot_required: false
-              y:
-                type: object
-                default:
-                  p: 6
-                  i: 0.3
-                  d: 1.0
-                description: y parameter
-                reload_tier: follower_restart
-                reboot_required: false
-              z:
-                type: object
-                default:
-                  p: 1
-                  i: 0.01
-                  d: 0.01
-                description: z parameter
-                reload_tier: follower_restart
-                reboot_required: false
-          (150, 200):
-            type: object
-            description: (150, 200) settings
-            reboot_required: false
-            properties:
-              x:
-                type: object
-                default:
-                  p: 5.5
-                  i: 0.25
-                  d: 0.8
-                description: x parameter
-                reload_tier: follower_restart
-                reboot_required: false
-              y:
-                type: object
-                default:
-                  p: 5.5
-                  i: 0.25
-                  d: 0.8
-                description: y parameter
-                reload_tier: follower_restart
-                reboot_required: false
-              z:
-                type: object
-                default:
-                  p: 1
-                  i: 0.01
-                  d: 0.05
-                description: z parameter
-                reload_tier: follower_restart
-                reboot_required: false
   Setpoint:
     display_name: Setpoint Config
     category: processing

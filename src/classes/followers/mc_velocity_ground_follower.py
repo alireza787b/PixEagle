@@ -108,11 +108,9 @@ class MCVelocityGroundFollower(BaseFollower):
         self.base_adjustment_factor_x = config.get('BASE_ADJUSTMENT_FACTOR_X', 0.1)
         self.base_adjustment_factor_y = config.get('BASE_ADJUSTMENT_FACTOR_Y', 0.1)
         self.altitude_factor = config.get('ALTITUDE_FACTOR', 0.005)
-        self.enable_gain_scheduling = config.get('ENABLE_GAIN_SCHEDULING', False)
-        self.gain_scheduling_parameter = config.get('GAIN_SCHEDULING_PARAMETER', 'current_altitude')
+        # GainScheduling removed in v6.0 — all gains from PID.PID_GAINS
         self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
         self.coordinate_corrections_enabled = config.get('COORDINATE_CORRECTIONS_ENABLED', True)
-        self.error_logging_enabled = config.get('ERROR_LOGGING_ENABLED', True)
         
         # Initialize control system components
         self._initialize_pid_controllers()
@@ -149,21 +147,21 @@ class MCVelocityGroundFollower(BaseFollower):
             
             # Initialize X-axis PID controller (lateral movement)
             self.pid_x = CustomPID(
-                *self._get_pid_gains('x'),
+                *self._get_pid_gains('mc_vel_forward'),
                 setpoint=setpoint_x,
                 output_limits=(-self.max_velocity_x, self.max_velocity_x)
             )
 
             # Initialize Y-axis PID controller (longitudinal movement)
             self.pid_y = CustomPID(
-                *self._get_pid_gains('y'),
+                *self._get_pid_gains('mc_vel_lateral'),
                 setpoint=setpoint_y,
                 output_limits=(-self.max_velocity_y, self.max_velocity_y)
             )
 
             # Initialize Z-axis PID controller (altitude control)
             self.pid_z = CustomPID(
-                *self._get_pid_gains('z'),
+                *self._get_pid_gains('mc_altitude'),
                 setpoint=self.min_descent_height,
                 output_limits=(-self.max_rate_of_descent, self.max_rate_of_descent)
             )
@@ -179,64 +177,23 @@ class MCVelocityGroundFollower(BaseFollower):
     
     def _get_pid_gains(self, axis: str) -> Tuple[float, float, float]:
         """
-        Retrieve PID gains for specified axis with optional gain scheduling.
-        
-        This method implements adaptive gain scheduling based on current flight conditions.
-        When gain scheduling is enabled, it selects appropriate gains based on the
-        configured scheduling parameter (typically altitude).
-        
+        Retrieve PID gains for specified axis from global PID_GAINS.
+
         Args:
-            axis (str): Control axis identifier ('x', 'y', or 'z')
-            
+            axis (str): Control axis identifier ('mc_vel_forward', 'mc_vel_lateral', 'mc_altitude')
+
         Returns:
             Tuple[float, float, float]: PID gains as (P, I, D) tuple
-            
+
         Raises:
             KeyError: If axis is not found in PID_GAINS configuration
-            ValueError: If gain scheduling parameter is invalid
-            
-        Note:
-            Gain scheduling provides adaptive control by adjusting PID parameters
-            based on flight conditions, improving performance across different
-            operational scenarios.
         """
         try:
-            # Check if gain scheduling is enabled
-            if self.enable_gain_scheduling:
-                current_value = getattr(
-                    self.px4_controller,
-                    self.gain_scheduling_parameter,
-                    None
-                )
-
-                if current_value is None:
-                    logger.warning(
-                        f"Gain scheduling parameter '{self.gain_scheduling_parameter}' "
-                        f"not available in PX4Controller. Using default gains."
-                    )
-                else:
-                    # Search for appropriate gain schedule
-                    for (lower_bound, upper_bound), gains in Parameters.ALTITUDE_GAIN_SCHEDULE.items():
-                        if lower_bound <= current_value < upper_bound:
-                            logger.debug(f"Using scheduled gains for {axis} axis "
-                                       f"(parameter: {current_value})")
-                            return gains[axis]['p'], gains[axis]['i'], gains[axis]['d']
-            
-            # Use default gains
-            default_gains = (
-                Parameters.PID_GAINS[axis]['p'],
-                Parameters.PID_GAINS[axis]['i'], 
-                Parameters.PID_GAINS[axis]['d']
-            )
-            logger.debug(f"Using default gains for {axis} axis: {default_gains}")
-            return default_gains
-            
+            gains = Parameters.PID_GAINS[axis]
+            return gains['p'], gains['i'], gains['d']
         except KeyError as e:
             logger.error(f"PID gains not found for axis '{axis}': {e}")
             raise
-        except Exception as e:
-            logger.error(f"Error retrieving PID gains for axis '{axis}': {e}")
-            raise ValueError(f"Invalid gain configuration for axis '{axis}': {e}")
     
     def _update_pid_gains(self) -> None:
         """
@@ -251,9 +208,9 @@ class MCVelocityGroundFollower(BaseFollower):
             The method includes error handling to ensure system stability.
         """
         try:
-            self.pid_x.tunings = self._get_pid_gains('x')
-            self.pid_y.tunings = self._get_pid_gains('y')
-            self.pid_z.tunings = self._get_pid_gains('z')
+            self.pid_x.tunings = self._get_pid_gains('mc_vel_forward')
+            self.pid_y.tunings = self._get_pid_gains('mc_vel_lateral')
+            self.pid_z.tunings = self._get_pid_gains('mc_altitude')
             
             logger.debug("PID gains updated successfully for MCVelocityGroundFollower")
             
@@ -332,6 +289,10 @@ class MCVelocityGroundFollower(BaseFollower):
             - Provides altitude-invariant tracking behavior
         """
         try:
+            # Skip corrections if disabled
+            if not self.coordinate_corrections_enabled:
+                return target_x, target_y
+
             current_altitude = self.px4_controller.current_altitude
             if current_altitude is None or current_altitude < 0:
                 logger.warning(f"Invalid altitude reading: {current_altitude} - "
@@ -344,9 +305,9 @@ class MCVelocityGroundFollower(BaseFollower):
             adj_factor_y = (self.base_adjustment_factor_y /
                            (1 + self.altitude_factor * current_altitude))
             
-            # Apply adjustments
-            adjusted_x = target_x + adj_factor_x
-            adjusted_y = target_y + adj_factor_y
+            # Scale error based on altitude (multiplicative, not additive)
+            adjusted_x = target_x * (1.0 + adj_factor_x)
+            adjusted_y = target_y * (1.0 + adj_factor_y)
             
             logger.debug(f"Applied altitude adjustments - "
                         f"Altitude: {current_altitude:.1f}m, "
@@ -391,7 +352,7 @@ class MCVelocityGroundFollower(BaseFollower):
             # Check altitude limits
             if current_altitude > self.min_descent_height:
                 # Calculate descent command using PID controller
-                descent_command = self.pid_z(-current_altitude)
+                descent_command = self.pid_z(current_altitude)
                 logger.debug(f"Descent command: {descent_command:.3f} m/s")
                 return descent_command
             else:
@@ -458,13 +419,14 @@ class MCVelocityGroundFollower(BaseFollower):
             vel_y = self.pid_x(error_x)  # Left/right motion
             vel_z = self._control_descent()  # Altitude control
             
-            # Update command fields using schema-aware interface
-            success_x = self.set_command_field('vel_x', vel_x)
-            success_y = self.set_command_field('vel_y', vel_y)
-            success_z = self.set_command_field('vel_z', vel_z)
-            
+            # Update command fields using current velocity_body_offboard interface
+            success_fwd = self.set_command_field('vel_body_fwd', vel_x)
+            success_right = self.set_command_field('vel_body_right', vel_y)
+            success_down = self.set_command_field('vel_body_down', vel_z)
+            success_yaw = self.set_command_field('yawspeed_deg_s', 0.0)  # No yaw control
+
             # Validate command updates
-            if not all([success_x, success_y, success_z]):
+            if not all([success_fwd, success_right, success_down, success_yaw]):
                 logger.warning("Some command fields failed to update")
             
             # Log control status
@@ -472,7 +434,7 @@ class MCVelocityGroundFollower(BaseFollower):
                         f"Target: {target_coords}, "
                         f"Adjusted: ({adjusted_x:.3f}, {adjusted_y:.3f}), "
                         f"Errors: ({error_x:.3f}, {error_y:.3f}), "
-                        f"Commands: vel_x={vel_x:.3f}, vel_y={vel_y:.3f}, vel_z={vel_z:.3f}")
+                        f"Commands: fwd={vel_x:.3f}, right={vel_y:.3f}, down={vel_z:.3f}")
             
             # Update telemetry metadata
             self.update_telemetry_metadata('last_control_update', datetime.utcnow().isoformat())
@@ -572,7 +534,6 @@ class MCVelocityGroundFollower(BaseFollower):
                 'configuration': {
                     'target_position_mode': self.target_position_mode,
                     'initial_target_coords': self.initial_target_coords,
-                    'gain_scheduling_enabled': self.enable_gain_scheduling,
                     'gimbal_corrections_enabled': not self.is_camera_gimbaled,
                     'descent_enabled': self.enable_descend_to_target,
                     'velocity_limits': {
@@ -602,9 +563,10 @@ class MCVelocityGroundFollower(BaseFollower):
             
             return {
                 'command_magnitudes': {
-                    'vel_x': abs(current_commands.get('vel_x', 0)),
-                    'vel_y': abs(current_commands.get('vel_y', 0)),
-                    'vel_z': abs(current_commands.get('vel_z', 0))
+                    'vel_body_fwd': abs(current_commands.get('vel_body_fwd', 0)),
+                    'vel_body_right': abs(current_commands.get('vel_body_right', 0)),
+                    'vel_body_down': abs(current_commands.get('vel_body_down', 0)),
+                    'yawspeed_deg_s': abs(current_commands.get('yawspeed_deg_s', 0))
                 },
                 'total_velocity': sum(abs(v) for v in current_commands.values()),
                 'active_axes': sum(1 for v in current_commands.values() if abs(v) > 0.001),

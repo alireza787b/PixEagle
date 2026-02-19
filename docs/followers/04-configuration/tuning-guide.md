@@ -83,7 +83,8 @@ MC_VELOCITY_CHASE:
 ### Lateral Velocity
 
 ```yaml
-SafetyLimits:
+Safety:
+  GlobalLimits:
   MAX_VELOCITY_LATERAL: 3.0     # Conservative start
 ```
 
@@ -92,7 +93,8 @@ SafetyLimits:
 ### Vertical Velocity
 
 ```yaml
-SafetyLimits:
+Safety:
+  GlobalLimits:
   MAX_VELOCITY_VERTICAL: 2.0    # Smooth altitude changes
 ```
 
@@ -120,7 +122,8 @@ PID_GAINS:
 ### Rate Limit
 
 ```yaml
-SafetyLimits:
+Safety:
+  GlobalLimits:
   MAX_YAW_RATE: 30.0    # deg/s - start conservative
 ```
 
@@ -172,7 +175,8 @@ SafetyLimits:
 ### Start Conservative
 
 ```yaml
-SafetyLimits:
+Safety:
+  GlobalLimits:
   MAX_VELOCITY_FORWARD: 5.0
   MAX_VELOCITY_LATERAL: 3.0
   MAX_VELOCITY_VERTICAL: 2.0
@@ -186,7 +190,8 @@ SafetyLimits:
 After successful flights, increase limits by 20-30%:
 
 ```yaml
-SafetyLimits:
+Safety:
+  GlobalLimits:
   MAX_VELOCITY_FORWARD: 8.0    # +60%
   MAX_VELOCITY_LATERAL: 5.0    # +67%
 ```

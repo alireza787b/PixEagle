@@ -148,12 +148,6 @@ export const KNOWN_FOLLOWERS = [
     type: 'multicopter'
   },
   {
-    name: 'MC_VELOCITY',
-    label: 'MC Velocity',
-    description: 'Basic velocity follower',
-    type: 'multicopter'
-  },
-  {
     name: 'MC_VELOCITY_DISTANCE',
     label: 'MC Velocity Distance',
     description: 'Distance-maintaining velocity follower',
@@ -180,9 +174,9 @@ export const KNOWN_FOLLOWERS = [
 
   // Gimbal followers
   {
-    name: 'GM_PID_PURSUIT',
-    label: 'Gimbal PID Pursuit',
-    description: 'PID-based gimbal pursuit tracking',
+    name: 'GM_VELOCITY_CHASE',
+    label: 'Gimbal Velocity Chase',
+    description: 'PID-based gimbal velocity chase tracking',
     type: 'gimbal'
   },
   {

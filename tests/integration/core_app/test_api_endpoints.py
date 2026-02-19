@@ -95,7 +95,7 @@ def test_app(mock_controller):
         return {"status": "success" if success else "failed"}
 
     @app.post("/api/follower/start")
-    async def start_follower(follower_type: str = "mc_velocity"):
+    async def start_follower(follower_type: str = "mc_velocity_chase"):
         success = mock_controller.start_follower(follower_type)
         return {"status": "success" if success else "failed"}
 
@@ -217,16 +217,16 @@ class TestFollowerEndpoints:
 
     def test_start_follower(self, client, mock_controller):
         """Test POST /api/follower/start."""
-        response = client.post("/api/follower/start?follower_type=mc_velocity")
+        response = client.post("/api/follower/start?follower_type=mc_velocity_chase")
         assert response.status_code == 200
         assert response.json()['status'] == 'success'
         assert mock_controller.follower_active is True
-        assert mock_controller.current_follower == 'mc_velocity'
+        assert mock_controller.current_follower == 'mc_velocity_chase'
 
     def test_stop_follower(self, client, mock_controller):
         """Test POST /api/follower/stop."""
         mock_controller.follower_active = True
-        mock_controller.current_follower = 'mc_velocity'
+        mock_controller.current_follower = 'mc_velocity_chase'
 
         response = client.post("/api/follower/stop")
         assert response.status_code == 200
@@ -235,7 +235,7 @@ class TestFollowerEndpoints:
 
     def test_follower_type_selection(self, client, mock_controller):
         """Test different follower types can be started."""
-        follower_types = ['mc_velocity', 'mc_position', 'gm_velocity']
+        follower_types = ['mc_velocity_chase', 'mc_position', 'gm_velocity']
 
         for follower_type in follower_types:
             client.post(f"/api/follower/start?follower_type={follower_type}")

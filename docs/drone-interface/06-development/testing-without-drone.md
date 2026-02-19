@@ -83,7 +83,7 @@ if FollowerCircuitBreaker.is_active():
 if FollowerCircuitBreaker.is_active():
     FollowerCircuitBreaker.log_command_instead_of_execute(
         command_type="velocity_body",
-        follower_name="MCVelocityFollower",
+        follower_name="MCVelocityChaseFollower",
         fields={
             'vel_body_fwd': 3.0,
             'vel_body_right': 0.0,
@@ -191,7 +191,7 @@ client.set_altitude(relative=10.0, amsl=50.0)
 When `log_commands: true`:
 
 ```
-[INFO] CIRCUIT_BREAKER: Blocked velocity_body command from MCVelocityFollower
+[INFO] CIRCUIT_BREAKER: Blocked velocity_body command from MCVelocityChaseFollower
 [INFO]   vel_body_fwd: 3.00 m/s
 [INFO]   vel_body_right: 0.00 m/s
 [INFO]   vel_body_down: -0.50 m/s

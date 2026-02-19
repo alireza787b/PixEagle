@@ -70,13 +70,14 @@ Configuration:
 
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
-from classes.followers.gm_pid_pursuit_follower import YawRateSmoother  # v5.7.0: Reuse enterprise-grade yaw smoothing
+from classes.followers.yaw_rate_smoother import YawRateSmoother  # WP9: canonical import
 from classes.parameters import Parameters
 from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
 import numpy as np
 import time
 import asyncio
+from math import degrees
 from typing import Tuple, Optional, Dict, Any, List, Deque
 from datetime import datetime
 from collections import deque
@@ -153,28 +154,30 @@ class MCVelocityChaseFollower(BaseFollower):
         self.initial_forward_velocity = config.get('INITIAL_FORWARD_VELOCITY', 0.0)
         # v5.0.0: Use SafetyManager for velocity limits (single source of truth)
         self.max_forward_velocity = self.velocity_limits.forward
-        self.forward_ramp_rate = config.get('FORWARD_RAMP_RATE', 2.0)
+        self.forward_ramp_rate = config.get('FORWARD_RAMP_RATE', 0.5)
         self.ramp_down_on_target_loss = config.get('RAMP_DOWN_ON_TARGET_LOSS', True)
         self.target_loss_timeout = config.get('TARGET_LOSS_TIMEOUT', 2.0)
-        self.enable_altitude_control = config.get('ENABLE_ALTITUDE_CONTROL', True)
+        self.enable_altitude_control = config.get('ENABLE_ALTITUDE_CONTROL', False)
         self.lateral_guidance_mode = config.get('LATERAL_GUIDANCE_MODE', 'coordinated_turn')
         self.guidance_mode_switch_velocity = config.get('GUIDANCE_MODE_SWITCH_VELOCITY', 3.0)
         self.enable_auto_mode_switching = config.get('ENABLE_AUTO_MODE_SWITCHING', False)
         self.mode_switch_hysteresis = config.get('MODE_SWITCH_HYSTERESIS', 0.5)
         self.min_mode_switch_interval = config.get('MIN_MODE_SWITCH_INTERVAL', 2.0)
         self.last_mode_switch_time = 0.0
-        self.altitude_safety_enabled = config.get('ALTITUDE_SAFETY_ENABLED', False)
+        # v5.x: altitude_safety_enabled, rtl_on_altitude_violation, emergency_stop_enabled
+        # are now delegated to SafetyManager (via base class). Use:
+        #   self.is_altitude_safety_enabled()
+        #   self.safety_manager.get_safety_behavior(self._follower_config_name).rtl_on_violation
+        #   self.safety_manager.get_safety_behavior(self._follower_config_name).emergency_stop_enabled
         # Use base class cached altitude limits (via SafetyManager)
         self.min_altitude_limit = self.altitude_limits.min_altitude
         self.max_altitude_limit = self.altitude_limits.max_altitude
         self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 0.1)  # 100ms for safety
-        self.rtl_on_altitude_violation = config.get('RTL_ON_ALTITUDE_VIOLATION', True)
         self.altitude_warning_buffer = self.altitude_limits.warning_buffer
-        self.emergency_stop_enabled = config.get('EMERGENCY_STOP_ENABLED', True)
         self.max_tracking_error = config.get('MAX_TRACKING_ERROR', 1.5)
-        self.velocity_smoothing_enabled = config.get('VELOCITY_SMOOTHING_ENABLED', True)
+        self.velocity_smoothing_enabled = config.get('COMMAND_SMOOTHING_ENABLED', True)
         self.smoothing_factor = config.get('SMOOTHING_FACTOR', 0.8)
-        self.min_forward_velocity_threshold = config.get('MIN_FORWARD_VELOCITY_THRESHOLD', 0.5)
+        self.min_forward_velocity_threshold = config.get('MIN_FORWARD_VELOCITY_THRESHOLD', 0.2)
         # Target loss stop velocity: velocity to ramp to when target is lost (0.0 = full stop)
         self.target_loss_stop_velocity = config.get('TARGET_LOSS_STOP_VELOCITY', 0.0)
         # Coordinate threshold for detecting lost target (abs value > this = lost)
@@ -184,9 +187,7 @@ class MCVelocityChaseFollower(BaseFollower):
         self.pid_update_rate = config.get('PID_UPDATE_RATE', 20.0)
 
         # Max yaw rate in radians for PID limit (from base class cached limits)
-        from math import degrees
         self.max_yaw_rate_rad = self.rate_limits.yaw  # Already in rad/s from SafetyManager
-        self._degrees = degrees  # Store for use in update_control()
 
         # Load adaptive dive/climb parameters
         self.adaptive_mode_enabled = config.get('ENABLE_ADAPTIVE_DIVE_CLIMB', False)
@@ -300,7 +301,7 @@ class MCVelocityChaseFollower(BaseFollower):
             'pitch_compensation' if self.pitch_compensation_enabled else None
         ])
         self.update_telemetry_metadata('forward_ramping_enabled', True)
-        self.update_telemetry_metadata('altitude_safety_enabled', self.altitude_safety_enabled)
+        self.update_telemetry_metadata('altitude_safety_enabled', self.is_altitude_safety_enabled())
         self.update_telemetry_metadata('adaptive_dive_climb_enabled', self.adaptive_mode_enabled)
         self.update_telemetry_metadata('pitch_compensation_enabled', self.pitch_compensation_enabled)
         
@@ -339,30 +340,30 @@ class MCVelocityChaseFollower(BaseFollower):
             if self.active_lateral_mode == 'sideslip':
                 # Sideslip Mode: Direct lateral velocity control (use base class cached limits)
                 self.pid_right = CustomPID(
-                    *self._get_pid_gains('vel_body_right'),
+                    *self._get_pid_gains('mc_vel_body_right'),
                     setpoint=setpoint_x,
                     output_limits=(-self.velocity_limits.lateral, self.velocity_limits.lateral)
                 )
-                logger.debug(f"Sideslip mode PID initialized with gains {self._get_pid_gains('vel_body_right')}")
+                logger.debug(f"Sideslip mode PID initialized with gains {self._get_pid_gains('mc_vel_body_right')}")
 
             elif self.active_lateral_mode == 'coordinated_turn':
                 # Coordinated Turn Mode: Yaw rate control (rad/s internally, converted to deg/s on output)
                 self.pid_yaw_speed = CustomPID(
-                    *self._get_pid_gains('yawspeed_deg_s'),
+                    *self._get_pid_gains('mc_yawspeed_deg_s'),
                     setpoint=setpoint_x,
                     output_limits=(-self.max_yaw_rate_rad, self.max_yaw_rate_rad)  # rad/s limits
                 )
-                logger.debug(f"Coordinated turn mode PID initialized with gains {self._get_pid_gains('yawspeed_deg_s')}")
+                logger.debug(f"Coordinated turn mode PID initialized with gains {self._get_pid_gains('mc_yawspeed_deg_s')}")
 
             # Down Velocity Controller - Vertical Control (if enabled, use base class cached limits)
             self.pid_down = None
             if self.enable_altitude_control:
                 self.pid_down = CustomPID(
-                    *self._get_pid_gains('vel_body_down'),
+                    *self._get_pid_gains('mc_vel_body_down'),
                     setpoint=setpoint_y,
                     output_limits=(-self.velocity_limits.vertical, self.velocity_limits.vertical)
                 )
-                logger.debug(f"Down velocity PID initialized with gains {self._get_pid_gains('vel_body_down')}")
+                logger.debug(f"Down velocity PID initialized with gains {self._get_pid_gains('mc_vel_body_down')}")
             else:
                 logger.debug("Altitude control disabled - no down velocity PID controller created")
             
@@ -452,13 +453,14 @@ class MCVelocityChaseFollower(BaseFollower):
             
             old_mode = self.active_lateral_mode
             self.active_lateral_mode = new_mode
-            
-            setpoint_x, _ = self.initial_target_coords
+
+            # Use 0.0 as setpoint (consistent with init: center-tracking behavior)
+            setpoint_x = 0.0
             
             if new_mode == 'sideslip' and self.pid_right is None:
                 # Initialize sideslip PID controller (use base class cached limits)
                 self.pid_right = CustomPID(
-                    *self._get_pid_gains('vel_body_right'),
+                    *self._get_pid_gains('mc_vel_body_right'),
                     setpoint=setpoint_x,
                     output_limits=(-self.velocity_limits.lateral, self.velocity_limits.lateral)
                 )
@@ -467,7 +469,7 @@ class MCVelocityChaseFollower(BaseFollower):
             elif new_mode == 'coordinated_turn' and self.pid_yaw_speed is None:
                 # Initialize coordinated turn PID controller (rad/s internally, converted to deg/s on output)
                 self.pid_yaw_speed = CustomPID(
-                    *self._get_pid_gains('yawspeed_deg_s'),
+                    *self._get_pid_gains('mc_yawspeed_deg_s'),
                     setpoint=setpoint_x,
                     output_limits=(-self.max_yaw_rate_rad, self.max_yaw_rate_rad)  # rad/s limits
                 )
@@ -515,13 +517,13 @@ class MCVelocityChaseFollower(BaseFollower):
         try:
             # Use base class method for consistent PID gain updates
             if self.pid_right is not None:
-                self._update_pid_gains_from_config(self.pid_right, 'vel_body_right', 'MC Velocity Chase')
+                self._update_pid_gains_from_config(self.pid_right, 'mc_vel_body_right', 'MC Velocity Chase')
 
             if self.pid_yaw_speed is not None:
-                self._update_pid_gains_from_config(self.pid_yaw_speed, 'yawspeed_deg_s', 'MC Velocity Chase')
+                self._update_pid_gains_from_config(self.pid_yaw_speed, 'mc_yawspeed_deg_s', 'MC Velocity Chase')
 
             if self.pid_down is not None:
-                self._update_pid_gains_from_config(self.pid_down, 'vel_body_down', 'MC Velocity Chase')
+                self._update_pid_gains_from_config(self.pid_down, 'mc_vel_body_down', 'MC Velocity Chase')
 
             logger.debug(f"PID gains updated for MCVelocityChaseFollower - Mode: {self.active_lateral_mode}")
 
@@ -650,37 +652,31 @@ class MCVelocityChaseFollower(BaseFollower):
             # NOTE: PID output (yaw_speed) is in RAD/S - converted to deg/s via _degrees() below
             # Calculate vertical command (same for both modes)
             down_velocity = self.pid_down(error_y) if self.pid_down else 0.0
-            
-            # Apply velocity smoothing if enabled
-            if self.velocity_smoothing_enabled:
-                smoothing_factor = self.smoothing_factor
-                
-                # Smooth right velocity (sideslip mode)
-                self.smoothed_right_velocity = (smoothing_factor * self.smoothed_right_velocity + 
-                                               (1 - smoothing_factor) * right_velocity)
-                
-                # Smooth down velocity
-                self.smoothed_down_velocity = (smoothing_factor * self.smoothed_down_velocity + 
-                                              (1 - smoothing_factor) * down_velocity)
-                
-                # Smooth yaw speed (coordinated turn mode)
-                self.smoothed_yaw_speed = (smoothing_factor * self.smoothed_yaw_speed + 
-                                          (1 - smoothing_factor) * yaw_speed)
-                
-                # Apply smoothed values
-                right_velocity = self.smoothed_right_velocity
-                down_velocity = self.smoothed_down_velocity
-                yaw_speed = self.smoothed_yaw_speed
-            
-            # Apply emergency limits based on tracking error magnitude
+
+            # Apply emergency limits BEFORE smoothing (prevents smoothed state divergence)
             max_error = self.max_tracking_error
             if abs(error_x) > max_error or abs(error_y) > max_error:
-                # Reduce commands when tracking error is excessive
                 reduction_factor = 0.5
                 right_velocity *= reduction_factor
                 down_velocity *= reduction_factor
                 yaw_speed *= reduction_factor
                 logger.debug(f"Large tracking error detected, reducing commands by {reduction_factor}")
+
+            # Apply velocity smoothing if enabled (yaw is handled by YawRateSmoother)
+            if self.velocity_smoothing_enabled:
+                smoothing_factor = self.smoothing_factor
+
+                # Smooth right velocity (sideslip mode)
+                self.smoothed_right_velocity = (smoothing_factor * self.smoothed_right_velocity +
+                                               (1 - smoothing_factor) * right_velocity)
+
+                # Smooth down velocity
+                self.smoothed_down_velocity = (smoothing_factor * self.smoothed_down_velocity +
+                                              (1 - smoothing_factor) * down_velocity)
+
+                # Apply smoothed values (yaw_speed not smoothed here — YawRateSmoother handles it)
+                right_velocity = self.smoothed_right_velocity
+                down_velocity = self.smoothed_down_velocity
             
             logger.debug(f"Tracking commands ({self.active_lateral_mode}) - "
                         f"Right: {right_velocity:.2f} m/s, Down: {down_velocity:.2f} m/s, "
@@ -691,19 +687,6 @@ class MCVelocityChaseFollower(BaseFollower):
         except Exception as e:
             logger.error(f"Error calculating tracking commands: {e}")
             return 0.0, 0.0, 0.0  # Safe fallback
-
-    def _calculate_tracking_velocities(self, target_coords: Tuple[float, float]) -> Tuple[float, float]:
-        """
-        Legacy method wrapper for backward compatibility.
-        
-        Args:
-            target_coords (Tuple[float, float]): Normalized target coordinates from vision system.
-            
-        Returns:
-            Tuple[float, float]: (right_velocity, down_velocity) - yaw_speed handled separately
-        """
-        right_velocity, down_velocity, _ = self._calculate_tracking_commands(target_coords)
-        return right_velocity, down_velocity
 
     def _handle_target_loss(self, target_coords: Tuple[float, float]) -> bool:
         """
@@ -1286,46 +1269,48 @@ class MCVelocityChaseFollower(BaseFollower):
         except ImportError:
             pass  # Circuit breaker not available, continue with normal safety checks
 
-        # Skip if disabled in follower config
-        if not self.altitude_safety_enabled:
+        # Skip if disabled via SafetyManager
+        if not self.is_altitude_safety_enabled():
             return True
 
         try:
+            # Cache safety behavior for this method (avoids repeated lookups)
+            safety = self.safety_manager.get_safety_behavior(self._follower_config_name)
+
             current_time = time.time()
             check_interval = self.altitude_check_interval
-            
+
             # Only check at specified intervals to avoid excessive processing
             if (current_time - self.last_altitude_check_time) < check_interval:
                 return True
-            
+
             self.last_altitude_check_time = current_time
-            
+
             # Get current altitude from PX4 controller
             current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)
             min_altitude = self.min_altitude_limit
             max_altitude = self.max_altitude_limit
             warning_buffer = self.altitude_warning_buffer
-            
+
             # Check for violations
             altitude_violation = (current_altitude < min_altitude or current_altitude > max_altitude)
             altitude_warning = (
-                current_altitude < (min_altitude + warning_buffer) or 
+                current_altitude < (min_altitude + warning_buffer) or
                 current_altitude > (max_altitude - warning_buffer)
             )
-            
+
             if altitude_violation:
                 self.altitude_violation_count += 1
                 logger.critical(f"ALTITUDE SAFETY VIOLATION! Current: {current_altitude:.1f}m, "
                               f"Limits: [{min_altitude}-{max_altitude}]m, "
                               f"Violation count: {self.altitude_violation_count}")
-                
-                # Trigger RTL if enabled
-                if self.rtl_on_altitude_violation:
+
+                # Trigger RTL if enabled via SafetyManager
+                if safety.rtl_on_violation:
                     logger.critical("Triggering Return to Launch due to altitude violation")
                     try:
                         # Actually trigger RTL via PX4 controller
                         if self.px4_controller and hasattr(self.px4_controller, 'trigger_return_to_launch'):
-                            import asyncio
                             try:
                                 loop = asyncio.get_running_loop()
                                 asyncio.create_task(self.px4_controller.trigger_return_to_launch())
@@ -1451,7 +1436,7 @@ class MCVelocityChaseFollower(BaseFollower):
             self.set_command_field('vel_body_down', down_velocity)
 
             # v5.7.0: Apply enterprise-grade yaw rate smoothing (deadzone, rate limiting, EMA)
-            raw_yaw_rate_deg_s = self._degrees(yaw_speed)  # rad/s → deg/s
+            raw_yaw_rate_deg_s = degrees(yaw_speed)  # rad/s → deg/s
             smoothed_yaw_rate = self.yaw_smoother.apply(raw_yaw_rate_deg_s, dt, forward_velocity)
             self.set_command_field('yawspeed_deg_s', smoothed_yaw_rate)
             
@@ -1566,7 +1551,7 @@ class MCVelocityChaseFollower(BaseFollower):
                 # Safety Status
                 'emergency_stop_active': self.emergency_stop_active,
                 'altitude_violation_count': self.altitude_violation_count,
-                'altitude_safety_enabled': self.altitude_safety_enabled,
+                'altitude_safety_enabled': self.is_altitude_safety_enabled(),
                 
                 # PID States
                 'pid_states': {

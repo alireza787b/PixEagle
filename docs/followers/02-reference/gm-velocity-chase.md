@@ -1,16 +1,16 @@
-# GM PID Pursuit Follower
+# GM Velocity Chase Follower
 
-> Gimbal-based pursuit control with PID guidance
+> Gimbal-based velocity chase control
 
-**Profile**: `gm_pid_pursuit`
+**Profile**: `gm_velocity_chase`
 **Control Type**: `velocity_body_offboard`
-**Source**: `src/classes/followers/gm_pid_pursuit_follower.py`
+**Source**: `src/classes/followers/gm_velocity_chase_follower.py`
 
 ---
 
 ## Overview
 
-The GM PID Pursuit Follower uses gimbal angles to derive vehicle velocity commands. The gimbal tracks the target, and the drone follows the gimbal's pointing direction.
+The GM Velocity Chase Follower uses gimbal angles to derive vehicle velocity commands. The gimbal tracks the target, and the drone follows the gimbal's pointing direction.
 
 Key features:
 - Mount-aware coordinate transformations
@@ -56,20 +56,20 @@ lateral <- gimbal_tilt
 
 ## Configuration
 
-### Config Section: `GM_PID_PURSUIT`
+### Config Section: `GM_VELOCITY_CHASE`
 
 ```yaml
-GM_PID_PURSUIT:
+GM_VELOCITY_CHASE:
   # Mount configuration
   MOUNT_TYPE: "VERTICAL"             # or "HORIZONTAL"
   CONTROL_MODE: "VELOCITY"           # Velocity commands
 
   # Velocity control (via SafetyManager cached limits)
   # MAX_VELOCITY, MAX_VELOCITY_LATERAL, MAX_VELOCITY_VERTICAL
-  # are automatically derived from SafetyLimits
+  # are automatically derived from Safety.GlobalLimits
 
   # Performance
-  UPDATE_RATE: 20.0                  # Hz
+  CONTROL_UPDATE_RATE: 20.0          # Hz
   COMMAND_SMOOTHING_ENABLED: true
   SMOOTHING_FACTOR: 0.8
 
@@ -171,7 +171,7 @@ status = follower.get_pursuit_status()
 ## When NOT to Use
 
 - No gimbal on vehicle
-- Tracker provides image coordinates (use `mc_velocity` variants)
+- Tracker provides image coordinates (use `mc_velocity_chase` variants)
 - Fixed camera mount
 
 ---

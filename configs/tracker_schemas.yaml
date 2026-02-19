@@ -466,7 +466,7 @@ compatibility:
         - POSITION_3D  # 3D helps with ground projection
       optional_schemas:
         - EXTERNAL
-    GMPIDPursuitFollower:
+    GMVelocityChaseFollower:
       required_schemas:
         - GIMBAL_ANGLES
       compatible_schemas:
@@ -485,18 +485,6 @@ compatibility:
         - GIMBAL_ANGLES  # Designed specifically for gimbal data
       optional_schemas:
         - VELOCITY_AWARE  # Enhances tracking with velocity estimation
-    MCVelocityFollower:
-      required_schemas:
-        - POSITION_2D
-      compatible_schemas:
-        - POSITION_3D  # Works because 3D includes 2D projection
-        - VELOCITY_AWARE  # Enhances tracking with velocity data
-        - MULTI_TARGET  # SmartTracker provides position_2d for selected target
-      preferred_schemas:
-        - VELOCITY_AWARE  # Prefers velocity-aware tracking for smooth following
-      optional_schemas:
-        - BBOX_CONFIDENCE  # Confidence data for adaptive behavior
-        - ANGULAR  # Angular data for orientation tracking
     FWAttitudeRateFollower:
       required_schemas:
         - POSITION_2D

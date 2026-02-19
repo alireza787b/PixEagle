@@ -10,7 +10,7 @@
 
 ## Overview
 
-The GM Velocity Vector Follower converts gimbal pointing angles directly into velocity vectors for pursuit. Similar to `gm_pid_pursuit` but uses direct vector math instead of PID control.
+The GM Velocity Vector Follower converts gimbal pointing angles directly into velocity vectors for pursuit. Similar to `gm_velocity_chase` but uses direct vector math instead of PID control.
 
 Key features:
 - Direct angle-to-velocity conversion
@@ -85,10 +85,10 @@ GM_VELOCITY_VECTOR:
 
 ---
 
-## Comparison with GM PID Pursuit
+## Comparison with GM Velocity Chase
 
-| Feature | GM PID Pursuit | GM Velocity Vector |
-|---------|---------------|-------------------|
+| Feature | GM Velocity Chase | GM Velocity Vector |
+|---------|------------------|-------------------|
 | Control Law | PID feedback | Direct vector |
 | Tuning | PID gains | Velocity gains |
 | Response | Smoother | Faster |
@@ -112,7 +112,7 @@ GM_VELOCITY_VECTOR:
 
 ## When NOT to Use
 
-- Precision following required (use `gm_pid_pursuit`)
+- Precision following required (use `gm_velocity_chase`)
 - Noisy gimbal data (PID provides filtering)
 - Complex pursuit patterns
 

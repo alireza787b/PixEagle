@@ -127,7 +127,7 @@ follower_profiles:
 
 ```python
 # Follower (Application Layer)
-class MCVelocityFollower(BaseFollower):
+class MCVelocityChaseFollower(BaseFollower):
     def follow_target(self, tracker_output: TrackerOutput) -> FollowResult:
         # Calculate control commands
         fwd_velocity = self._calculate_forward_velocity(error)
@@ -249,7 +249,7 @@ Each boundary can be tested in isolation:
 # Test Follower with mock SetpointHandler
 def test_follower_sets_velocity():
     mock_handler = MockSetpointHandler()
-    follower = MCVelocityFollower(setpoint_handler=mock_handler)
+    follower = MCVelocityChaseFollower(setpoint_handler=mock_handler)
 
     follower.follow_target(tracker_output)
 

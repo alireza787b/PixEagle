@@ -19,7 +19,7 @@ The follower system uses a layered architecture with schema-driven configuration
 │                           Core Framework                                 │
 │  BaseFollower (ABC) ← SetpointHandler ← follower_commands.yaml         │
 │         ↓                                                               │
-│  SafetyManager ← config.yaml (SafetyLimits section)                    │
+│  SafetyManager ← config.yaml (Safety.GlobalLimits section)             │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -157,14 +157,13 @@ Flight Controller                 # PX4 autopilot
 
 ```
 BaseFollower (ABC)
-├── MCVelocityFollower
 ├── MCVelocityChaseFollower
 ├── MCVelocityGroundFollower
 ├── MCVelocityDistanceFollower
 ├── MCVelocityPositionFollower
 ├── MCAttitudeRateFollower
 ├── FWAttitudeRateFollower
-├── GMPIDPursuitFollower
+├── GMVelocityChaseFollower
 └── GMVelocityVectorFollower
 ```
 
@@ -190,6 +189,8 @@ def follow_target(self, tracker_data: TrackerOutput) -> bool:
 |------|-------|-------------|
 | `src/classes/followers/base_follower.py` | 1,142 | Abstract base class |
 | `src/classes/follower.py` | 521 | Factory and manager |
+| `src/classes/follower_types.py` | ~40 | `FollowerType` enum (WP9) |
+| `src/classes/followers/yaw_rate_smoother.py` | ~130 | `YawRateSmoother` (WP9) |
 | `src/classes/setpoint_handler.py` | ~300 | Schema configuration |
 | `src/classes/safety_manager.py` | ~400 | Centralized limits |
 | `configs/follower_commands.yaml` | 368 | Profile definitions |

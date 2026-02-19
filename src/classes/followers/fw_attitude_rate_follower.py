@@ -138,10 +138,11 @@ class FWAttitudeRateFollower(BaseFollower):
         self.max_pitch_angle = config.get('MAX_PITCH_ANGLE', 25.0)
         self.min_pitch_angle = config.get('MIN_PITCH_ANGLE', -20.0)
 
-        # === Rate Limits (deg/s) ===
-        self.max_roll_rate = config.get('MAX_ROLL_RATE', 45.0)
-        self.max_pitch_rate = config.get('MAX_PITCH_RATE', 20.0)
-        self.max_yaw_rate = config.get('MAX_YAW_RATE', 25.0)
+        # === Rate Limits (deg/s; from SafetyManager — single source of truth) ===
+        _rate_limits = self.rate_limits
+        self.max_roll_rate = math.degrees(_rate_limits.roll)
+        self.max_pitch_rate = math.degrees(_rate_limits.pitch)
+        self.max_yaw_rate = math.degrees(_rate_limits.yaw)
 
         # === L1 Navigation Parameters ===
         self.l1_distance = config.get('L1_DISTANCE', 50.0)
@@ -149,6 +150,7 @@ class FWAttitudeRateFollower(BaseFollower):
         self.enable_l1_adaptive = config.get('ENABLE_L1_ADAPTIVE', False)
         self.l1_min_distance = config.get('L1_MIN_DISTANCE', 20.0)
         self.l1_max_distance = config.get('L1_MAX_DISTANCE', 100.0)
+        self.l1_lateral_scale = config.get('L1_LATERAL_SCALE', 50.0)
 
         # === TECS Parameters ===
         self.enable_tecs = config.get('ENABLE_TECS', True)
@@ -156,6 +158,9 @@ class FWAttitudeRateFollower(BaseFollower):
         self.tecs_pitch_damping = config.get('TECS_PITCH_DAMPING', 1.0)
         self.tecs_throttle_damping = config.get('TECS_THROTTLE_DAMPING', 0.5)
         self.tecs_spe_weight = config.get('TECS_SPE_WEIGHT', 1.0)
+        self.tecs_altitude_scale = config.get('TECS_ALTITUDE_SCALE', 20.0)
+        self.tecs_max_integral = config.get('TECS_MAX_INTEGRAL', 50.0)
+        self.fallback_altitude_pitch_gain = config.get('FALLBACK_ALTITUDE_PITCH_GAIN', 0.5)
 
         # === Thrust Control ===
         self.min_thrust = config.get('MIN_THRUST', 0.2)
@@ -168,12 +173,12 @@ class FWAttitudeRateFollower(BaseFollower):
         self.turn_coordination_gain = config.get('TURN_COORDINATION_GAIN', 1.0)
         self.slip_angle_limit = config.get('SLIP_ANGLE_LIMIT', 5.0)
 
-        # === Altitude Safety (use base class cached limits via SafetyManager) ===
-        self.altitude_safety_enabled = config.get('ENABLE_ALTITUDE_SAFETY', True)
+        # === Altitude Safety (limits from SafetyManager; per-follower flag via is_altitude_safety_enabled()) ===
         self.min_altitude_limit = self.altitude_limits.min_altitude
         self.max_altitude_limit = self.altitude_limits.max_altitude
         self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 0.1)
-        self.rtl_on_altitude_violation = config.get('RTL_ON_ALTITUDE_VIOLATION', True)
+        _safety_behavior = self.safety_manager.get_safety_behavior(self._follower_config_name)
+        self.rtl_on_altitude_violation = _safety_behavior.rtl_on_violation
 
         # === Stall Protection ===
         self.stall_protection_enabled = config.get('ENABLE_STALL_PROTECTION', True)
@@ -182,14 +187,14 @@ class FWAttitudeRateFollower(BaseFollower):
 
         # === Target Loss Handling ===
         self.target_loss_timeout = config.get('TARGET_LOSS_TIMEOUT', 3.0)
-        target_loss_action_str = config.get('TARGET_LOSS_ACTION', 'orbit')
-        self.target_loss_action = TargetLossAction(target_loss_action_str)
+        # TARGET_LOSS_ACTION delegated to SafetyManager (GlobalLimits → FollowerOverrides)
+        self.target_loss_action = _safety_behavior.target_loss_action
         self.orbit_radius = config.get('ORBIT_RADIUS', 100.0)
-        self.target_loss_coord_threshold = config.get('TARGET_LOSS_COORDINATE_THRESHOLD', 990)
+        self.target_loss_coord_threshold = config.get('TARGET_LOSS_COORDINATE_THRESHOLD', 1.5)
 
         # === Performance Tuning ===
         self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
-        self.enable_command_smoothing = config.get('ENABLE_COMMAND_SMOOTHING', True)
+        self.enable_command_smoothing = config.get('COMMAND_SMOOTHING_ENABLED', True)
         self.smoothing_factor = config.get('SMOOTHING_FACTOR', 0.85)
 
         # === State Variables ===
@@ -232,7 +237,7 @@ class FWAttitudeRateFollower(BaseFollower):
         # Altitude monitoring state
         self.last_altitude_check_time = 0.0
         self.altitude_violation_count = 0
-        self.rtl_triggered = False
+        # self.rtl_triggered is initialized by BaseFollower.__init__()
 
         # Command smoothing state
         self.smoothed_roll_rate = 0.0
@@ -262,6 +267,7 @@ class FWAttitudeRateFollower(BaseFollower):
         self.ske_error = 0.0          # Speed error (energy equivalent)
         self.ste_error = 0.0          # Total energy error
         self.seb_error = 0.0          # Energy balance error
+        self.prev_seb_error = 0.0     # Previous SEB error for D-term
 
         # Integrated errors for PI control
         self.ste_error_integral = 0.0
@@ -288,13 +294,6 @@ class FWAttitudeRateFollower(BaseFollower):
             self.pid_bank_angle = CustomPID(
                 *self._get_pid_gains('fw_bank_angle'),
                 setpoint=0.0,  # Updated dynamically based on L1 guidance
-                output_limits=(-self.max_roll_rate, self.max_roll_rate)
-            )
-
-            # Roll Rate Controller - Inner loop (feeds from bank angle error)
-            self.pid_roll_rate = CustomPID(
-                *self._get_pid_gains('fw_roll_rate'),
-                setpoint=0.0,
                 output_limits=(-self.max_roll_rate, self.max_roll_rate)
             )
 
@@ -336,22 +335,15 @@ class FWAttitudeRateFollower(BaseFollower):
 
         Returns:
             Tuple[float, float, float]: (P, I, D) gains.
+
+        Raises:
+            KeyError: If the specified axis is not configured.
         """
         try:
             gains = Parameters.PID_GAINS[axis]
             return gains['p'], gains['i'], gains['d']
-        except KeyError:
-            # Fallback to reasonable defaults if not configured
-            defaults = {
-                'fw_roll_rate': (0.8, 0.1, 0.05),
-                'fw_pitch_rate': (0.6, 0.15, 0.03),
-                'fw_yaw_rate': (0.5, 0.05, 0.02),
-                'fw_throttle': (0.4, 0.2, 0.1),
-                'fw_bank_angle': (2.0, 0.3, 0.2)
-            }
-            if axis in defaults:
-                logger.warning(f"Using default PID gains for {axis}")
-                return defaults[axis]
+        except KeyError as e:
+            logger.error(f"PID gains not found for axis '{axis}': {e}")
             raise KeyError(f"Invalid PID axis '{axis}'. Check Parameters.PID_GAINS configuration.")
 
     # ==================== L1 Navigation ====================
@@ -397,7 +389,7 @@ class FWAttitudeRateFollower(BaseFollower):
         # Simplified L1 for visual tracking (cross_track_error is normalized)
         # Scale cross_track_error to approximate lateral offset
         # In visual tracking, cross_track_error is typically [-1, 1] normalized
-        lateral_scale = 50.0  # Scale factor: 1.0 normalized ≈ 50m offset
+        lateral_scale = self.l1_lateral_scale
 
         # L1 lateral acceleration command
         a_lat_cmd = eta * (safe_airspeed ** 2 / self.effective_l1_distance) * \
@@ -489,9 +481,8 @@ class FWAttitudeRateFollower(BaseFollower):
         self.seb_error_integral += self.seb_error * dt
 
         # Anti-windup: limit integral terms
-        max_integral = 50.0
-        self.ste_error_integral = np.clip(self.ste_error_integral, -max_integral, max_integral)
-        self.seb_error_integral = np.clip(self.seb_error_integral, -max_integral, max_integral)
+        self.ste_error_integral = np.clip(self.ste_error_integral, -self.tecs_max_integral, self.tecs_max_integral)
+        self.seb_error_integral = np.clip(self.seb_error_integral, -self.tecs_max_integral, self.tecs_max_integral)
 
         # Throttle command from total energy error
         # Throttle increases total energy
@@ -507,8 +498,9 @@ class FWAttitudeRateFollower(BaseFollower):
         kp_pitch = 1.0 / self.tecs_time_const
         kd_pitch = self.tecs_pitch_damping
 
-        # Energy balance derivative (approximated)
-        seb_rate = self.seb_error / dt if dt > 0 else 0.0
+        # Energy balance derivative (proper rate of change)
+        seb_rate = (self.seb_error - self.prev_seb_error) / dt if dt > 0 else 0.0
+        self.prev_seb_error = self.seb_error
 
         pitch_rate_cmd = kp_pitch * self.seb_error + kd_pitch * seb_rate
 
@@ -537,7 +529,7 @@ class FWAttitudeRateFollower(BaseFollower):
             Tuple[float, float]: (pitch_rate_deg_s, thrust_command)
         """
         # Simple proportional pitch control
-        pitch_rate_deg = 0.5 * altitude_error  # 0.5 deg/s per meter error
+        pitch_rate_deg = self.fallback_altitude_pitch_gain * altitude_error
         pitch_rate_deg = np.clip(pitch_rate_deg, -self.max_pitch_rate, self.max_pitch_rate)
 
         return pitch_rate_deg, self.cruise_thrust
@@ -723,7 +715,7 @@ class FWAttitudeRateFollower(BaseFollower):
         except ImportError:
             pass  # Circuit breaker not available, continue with normal safety checks
 
-        if not self.altitude_safety_enabled:
+        if not self.is_altitude_safety_enabled():
             return True
 
         current_time = time.time()
@@ -744,32 +736,7 @@ class FWAttitudeRateFollower(BaseFollower):
 
         return True
 
-    def _trigger_rtl(self, reason: str) -> None:
-        """
-        Trigger Return to Launch mode.
-
-        Args:
-            reason (str): Reason for RTL trigger.
-        """
-        if self.rtl_triggered:
-            return
-
-        self.rtl_triggered = True
-        logger.critical(f"TRIGGERING RTL - Reason: {reason}")
-
-        try:
-            if self.px4_controller and hasattr(self.px4_controller, 'trigger_return_to_launch'):
-                import asyncio
-                try:
-                    loop = asyncio.get_running_loop()
-                    asyncio.create_task(self.px4_controller.trigger_return_to_launch())
-                except RuntimeError:
-                    asyncio.run(self.px4_controller.trigger_return_to_launch())
-                logger.critical("RTL command issued successfully")
-        except Exception as e:
-            logger.error(f"Failed to trigger RTL: {e}")
-
-        self.log_follower_event('rtl_triggered', reason=reason)
+    # _trigger_rtl() is inherited from BaseFollower (WP9 consolidation)
 
     # ==================== Target Loss Handling ====================
 
@@ -940,8 +907,7 @@ class FWAttitudeRateFollower(BaseFollower):
         # === TECS Longitudinal Control ===
         # Altitude error from target y coordinate (normalized to altitude)
         # In visual tracking, y > 0 means target is above center (need to climb)
-        altitude_scale = 20.0  # Scale: 1.0 normalized ≈ 20m altitude adjustment
-        altitude_error = target_coords[1] * altitude_scale  # Positive = need to climb
+        altitude_error = target_coords[1] * self.tecs_altitude_scale  # Positive = need to climb
 
         pitch_rate, thrust = self._calculate_tecs_commands(altitude_error, airspeed)
 
@@ -1149,7 +1115,6 @@ class FWAttitudeRateFollower(BaseFollower):
 
             # Reset PID controllers
             self.pid_bank_angle.reset()
-            self.pid_roll_rate.reset()
             self.pid_pitch_rate.reset()
             self.pid_yaw_rate.reset()
             self.pid_throttle.reset()

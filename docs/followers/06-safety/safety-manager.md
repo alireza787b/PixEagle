@@ -37,13 +37,11 @@ altitude_limits = safety_manager.get_altitude_limits()
 ### VelocityLimits
 
 ```python
-@dataclass
-class VelocityLimits:
-    forward: float     # Max forward velocity (m/s)
-    lateral: float     # Max lateral velocity (m/s)
-    vertical: float    # Max vertical velocity (m/s)
-    min_forward: float # Min forward velocity (m/s)
-    default_forward: float  # Default forward velocity
+class VelocityLimits(NamedTuple):
+    forward: float        # Max forward velocity (m/s)
+    lateral: float        # Max lateral velocity (m/s)
+    vertical: float       # Max vertical velocity (m/s)
+    max_magnitude: float  # Overall magnitude limit (m/s)
 ```
 
 ### AltitudeLimits
@@ -67,14 +65,15 @@ class RateLimits:
     roll: float   # Max roll rate (rad/s)
 ```
 
-### GlobalLimits
+### FollowerLimits
 
 ```python
-@dataclass
-class GlobalLimits:
+class FollowerLimits(NamedTuple):
     velocity: VelocityLimits
     altitude: AltitudeLimits
-    rate: RateLimits
+    rates: RateLimits
+    behavior: SafetyBehavior
+    vehicle_type: VehicleType
 ```
 
 ---
@@ -84,24 +83,23 @@ class GlobalLimits:
 SafetyManager loads from `config.yaml`:
 
 ```yaml
-SafetyLimits:
-  # Velocity
-  MAX_VELOCITY_FORWARD: 10.0
-  MAX_VELOCITY_LATERAL: 5.0
-  MAX_VELOCITY_VERTICAL: 3.0
-  MIN_VELOCITY_FORWARD: 0.0
-  DEFAULT_VELOCITY_FORWARD: 5.0
+Safety:
+  GlobalLimits:
+    # Velocity
+    MAX_VELOCITY_FORWARD: 10.0
+    MAX_VELOCITY_LATERAL: 5.0
+    MAX_VELOCITY_VERTICAL: 3.0
 
-  # Rate (converted to rad/s internally)
-  MAX_YAW_RATE: 45.0      # deg/s in config
-  MAX_PITCH_RATE: 30.0
-  MAX_ROLL_RATE: 60.0
+    # Rate (converted to rad/s internally)
+    MAX_YAW_RATE: 45.0      # deg/s in config
+    MAX_PITCH_RATE: 30.0
+    MAX_ROLL_RATE: 60.0
 
-  # Altitude
-  MIN_ALTITUDE: 5.0
-  MAX_ALTITUDE: 120.0
-  ALTITUDE_WARNING_BUFFER: 5.0
-  USE_HOME_RELATIVE_ALTITUDE: true
+    # Altitude
+    MIN_ALTITUDE: 5.0
+    MAX_ALTITUDE: 120.0
+    ALTITUDE_WARNING_BUFFER: 5.0
+    USE_HOME_RELATIVE_ALTITUDE: true
 ```
 
 ---
@@ -111,16 +109,17 @@ SafetyLimits:
 Followers can have custom limits:
 
 ```yaml
-FOLLOWER_OVERRIDES:
-  MC_VELOCITY_CHASE:
-    MAX_VELOCITY_FORWARD: 12.0   # Higher than global
-    MAX_VELOCITY_VERTICAL: 4.0
+Safety:
+  FollowerOverrides:
+    MC_VELOCITY_CHASE:
+      MAX_VELOCITY_FORWARD: 12.0   # Higher than global
+      MAX_VELOCITY_VERTICAL: 4.0
 
-  FW_ATTITUDE_RATE:
-    MAX_VELOCITY_FORWARD: 30.0   # Much higher for fixed-wing
+    FW_ATTITUDE_RATE:
+      MAX_VELOCITY_FORWARD: 30.0   # Much higher for fixed-wing
 
-  GM_PID_PURSUIT:
-    MAX_VELOCITY_FORWARD: 8.0    # Lower for gimbal mode
+    GM_VELOCITY_CHASE:
+      MAX_VELOCITY_FORWARD: 8.0    # Lower for gimbal mode
 ```
 
 ---

@@ -46,7 +46,6 @@ Follower names follow the pattern: `{vehicle}_{control}_{behavior}`
 | `distance` | Distance maintenance |
 | `position` | Position hold |
 | `vector` | Direct vector pursuit |
-| `pid_pursuit` | PID-based pursuit |
 
 ---
 
@@ -61,10 +60,9 @@ def _initialize_registry(cls):
     if cls._registry_initialized:
         return
 
-    # Primary registry (10 implementations)
+    # Primary registry (8 implementations)
     cls._follower_registry = {
         # Multicopter - Velocity Control
-        'mc_velocity': MCVelocityFollower,
         'mc_velocity_chase': MCVelocityChaseFollower,
         'mc_velocity_ground': MCVelocityGroundFollower,
         'mc_velocity_distance': MCVelocityDistanceFollower,
@@ -77,7 +75,7 @@ def _initialize_registry(cls):
         'fw_attitude_rate': FWAttitudeRateFollower,
 
         # Gimbal
-        'gm_pid_pursuit': GMPIDPursuitFollower,
+        'gm_velocity_chase': GMVelocityChaseFollower,
         'gm_velocity_vector': GMVelocityVectorFollower,
     }
 
@@ -98,20 +96,20 @@ _deprecated_aliases = {
     'attitude_rate': 'mc_attitude_rate',
     'chase_follower': 'mc_attitude_rate',
     'body_velocity_chase': 'mc_velocity_chase',
-    'gimbal_unified': 'gm_pid_pursuit',
-    'gm_velocity_unified': 'gm_pid_pursuit',
+    'gimbal_unified': 'gm_velocity_chase',
+    'gm_velocity_unified': 'gm_velocity_chase',
     'gimbal_vector_body': 'gm_velocity_vector',
     'fixed_wing': 'fw_attitude_rate',
-    'multicopter': 'mc_velocity',
+    'multicopter': 'mc_velocity_chase',
     'multicopter_attitude_rate': 'mc_attitude_rate',
 }
 ```
 
-Using deprecated names logs a warning:
+Using deprecated names raises a `ValueError` with a migration hint:
 
 ```
-DEPRECATED: Follower mode 'ground_view' is deprecated.
-Please update to 'mc_velocity_ground'. Old names will be removed in a future version.
+ValueError: Follower mode 'ground_view' has been removed.
+Use 'mc_velocity_ground' instead.
 ```
 
 ---
@@ -165,7 +163,7 @@ def get_available_modes(cls) -> List[str]:
     Returns primary mode names only (excludes deprecated aliases).
 
     Returns:
-        ['mc_velocity', 'mc_velocity_chase', 'fw_attitude_rate', ...]
+        ['mc_velocity_chase', 'mc_velocity_ground', 'fw_attitude_rate', ...]
     """
 ```
 
@@ -260,7 +258,7 @@ from classes.follower import FollowerFactory
 
 # Get available modes
 modes = FollowerFactory.get_available_modes()
-# ['mc_velocity', 'mc_velocity_chase', ...]
+# ['mc_velocity_chase', 'mc_velocity_ground', ...]
 
 # Create specific follower
 chase_follower = FollowerFactory.create_follower(
@@ -312,7 +310,7 @@ _initialize_registry()         # Lazy load if needed
 normalize_profile_name()       # Case normalization
        │
        ▼
-Check deprecated aliases       # Log warning if old name
+Check deprecated aliases       # Raise ValueError with migration hint if old name
        │
        ▼
 Validate profile in schema     # SetpointHandler.get_available_profiles()
@@ -332,7 +330,7 @@ Instantiate follower class     # follower_class(px4_controller, coords)
 # Invalid profile
 FollowerFactory.create_follower('nonexistent', px4, (0, 0))
 # ValueError: Invalid follower profile 'nonexistent'.
-#             Available profiles: ['mc_velocity', ...]
+#             Available profiles: ['mc_velocity_chase', ...]
 
 # No implementation
 FollowerFactory.create_follower('schema_only_profile', px4, (0, 0))

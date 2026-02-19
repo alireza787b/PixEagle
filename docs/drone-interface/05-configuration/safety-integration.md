@@ -77,7 +77,7 @@ if FollowerCircuitBreaker.is_active():
     # Log instead of send
     FollowerCircuitBreaker.log_command_instead_of_execute(
         command_type="velocity_body",
-        follower_name="MCVelocityFollower",
+        follower_name="MCVelocityChaseFollower",
         fields={'vel_body_fwd': 3.0}
     )
 ```

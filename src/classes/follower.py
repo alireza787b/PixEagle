@@ -26,11 +26,13 @@ class FollowerFactory:
         'attitude_rate': 'mc_attitude_rate',
         'chase_follower': 'mc_attitude_rate',
         'body_velocity_chase': 'mc_velocity_chase',
-        'gimbal_unified': 'gm_pid_pursuit',
-        'gm_velocity_unified': 'gm_pid_pursuit',
+        'gimbal_unified': 'gm_velocity_chase',
+        'gm_velocity_unified': 'gm_velocity_chase',
+        'gm_pid_pursuit': 'gm_velocity_chase',
         'gimbal_vector_body': 'gm_velocity_vector',
         'fixed_wing': 'fw_attitude_rate',
-        'multicopter': 'mc_velocity',
+        'multicopter': 'mc_velocity_chase',
+        'mc_velocity': 'mc_velocity_chase',
         'multicopter_attitude_rate': 'mc_attitude_rate',
     }
 
@@ -54,16 +56,14 @@ class FollowerFactory:
             from classes.followers.mc_velocity_distance_follower import MCVelocityDistanceFollower
             from classes.followers.mc_velocity_position_follower import MCVelocityPositionFollower
             from classes.followers.mc_velocity_chase_follower import MCVelocityChaseFollower
-            from classes.followers.mc_velocity_follower import MCVelocityFollower
             from classes.followers.mc_attitude_rate_follower import MCAttitudeRateFollower
-            from classes.followers.gm_pid_pursuit_follower import GMPIDPursuitFollower
+            from classes.followers.gm_velocity_chase_follower import GMVelocityChaseFollower
             from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
             from classes.followers.fw_attitude_rate_follower import FWAttitudeRateFollower
 
             # Primary registry with new naming convention
             cls._follower_registry = {
                 # Multicopter - Velocity Control
-                'mc_velocity': MCVelocityFollower,
                 'mc_velocity_chase': MCVelocityChaseFollower,
                 'mc_velocity_ground': MCVelocityGroundFollower,
                 'mc_velocity_distance': MCVelocityDistanceFollower,
@@ -76,7 +76,7 @@ class FollowerFactory:
                 'fw_attitude_rate': FWAttitudeRateFollower,
 
                 # Gimbal - Velocity Control
-                'gm_pid_pursuit': GMPIDPursuitFollower,
+                'gm_velocity_chase': GMVelocityChaseFollower,
                 'gm_velocity_vector': GMVelocityVectorFollower,
             }
 
@@ -330,7 +330,7 @@ class Follower:
                 'error': str(e),
                 'manager_mode': self.mode,
                 'manager_status': 'error',
-                'timestamp': self.follower.get_follower_telemetry().get('timestamp', 'unknown')
+                'timestamp': 'unknown'
             }
     
     # ==================== Schema-Aware Control Methods ====================
@@ -503,14 +503,3 @@ class Follower:
             logger.error(f"Error validating current mode: {e}")
             return False
     
-    # ==================== Backward Compatibility ====================
-    
-    def get_follower_mode(self):
-        """
-        Backward compatibility method for legacy code.
-        
-        Returns:
-            BaseFollower: The current follower instance.
-        """
-        logger.warning("get_follower_mode() is deprecated, use .follower property directly")
-        return self.follower

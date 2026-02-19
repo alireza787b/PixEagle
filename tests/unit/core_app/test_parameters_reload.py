@@ -47,17 +47,18 @@ class TestParametersReloadConfig:
         # First ensure config is loaded
         Parameters.reload_config()
 
-        # Get current value of an attribute that should exist
-        assert hasattr(Parameters, 'ALTITUDE_FAILSAFE_ENABLED')
-        original_value = Parameters.ALTITUDE_FAILSAFE_ENABLED
+        # Get current value of a stable attribute that must always exist
+        # (DEFAULT_FPS is a core VideoSource parameter — always present)
+        assert hasattr(Parameters, 'DEFAULT_FPS')
+        original_value = Parameters.DEFAULT_FPS
 
         # Reload should work
         result = Parameters.reload_config()
         assert result is True
 
         # Value should still be accessible (and same since we didn't change file)
-        assert hasattr(Parameters, 'ALTITUDE_FAILSAFE_ENABLED')
-        assert Parameters.ALTITUDE_FAILSAFE_ENABLED == original_value
+        assert hasattr(Parameters, 'DEFAULT_FPS')
+        assert Parameters.DEFAULT_FPS == original_value
 
     def test_reload_config_is_thread_safe(self):
         """Multiple concurrent reload calls should not cause race conditions."""

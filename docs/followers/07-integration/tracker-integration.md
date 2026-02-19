@@ -160,7 +160,7 @@ follower_profiles:
       - BBOX_CONFIDENCE
       - VELOCITY_AWARE
 
-  gm_pid_pursuit:
+  gm_velocity_chase:
     required_tracker_data:
       - GIMBAL_ANGLES
 ```

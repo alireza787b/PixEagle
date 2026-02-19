@@ -216,7 +216,7 @@ ANGLE_SMOOTHING_ALPHA: 0.7      # EMA filter (0-1, higher = smoother)
 
 ### **Expected Performance**:
 - **Latency**: <50ms (gimbal UDP → velocity command)
-- **Update Rate**: 20 Hz (configurable via `UPDATE_RATE`)
+- **Update Rate**: 20 Hz (configurable via `CONTROL_UPDATE_RATE`)
 - **CPU Usage**: <2% (minimal computation vs PID)
 - **Memory**: <1MB (stateless vector math)
 - **Response Time**: Immediate (no PID settling time)

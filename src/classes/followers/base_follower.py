@@ -25,6 +25,7 @@ from typing import Tuple, Dict, Any, List, Optional, Union
 from classes.setpoint_handler import SetpointHandler
 from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
+import math
 import time
 from datetime import datetime
 
@@ -226,6 +227,8 @@ class BaseFollower(ABC):
         self._safety_violation_count = 0
         self._last_safety_check_time = 0.0
         self._safety_check_interval = 0.05  # 20Hz safety checks
+        self._last_safety_result = None  # Cache real result (not hardcoded ok) for rate-limited checks
+        self.rtl_triggered = False  # Deduplicate RTL calls (WP9)
 
         # v5.0.0: SafetyManager is now required (single source of truth)
         if not SAFETY_MANAGER_AVAILABLE:
@@ -341,6 +344,14 @@ class BaseFollower(ABC):
         Returns:
             bool: True if successful, False otherwise.
         """
+        # NaN/Inf guard: reject non-finite values before they corrupt the setpoint (WP9)
+        if not math.isfinite(value):
+            logger.error(
+                f"Rejecting non-finite command value for {field_name}: {value!r} "
+                f"(follower={self.__class__.__name__})"
+            )
+            return False
+
         try:
             self.setpoint_handler.set_field(field_name, value)
             logger.debug(f"Successfully set {field_name} = {value:.3f} for {self.get_display_name()}")
@@ -411,14 +422,14 @@ class BaseFollower(ABC):
 
         Args:
             pid_controller: CustomPID instance to update (must have Kp, Ki, Kd attributes)
-            axis: PID axis name (e.g., 'yawspeed_deg_s', 'vel_body_down', 'z', 'y')
+            axis: PID axis name (e.g., 'mc_yawspeed_deg_s', 'mc_vel_body_down', 'fw_roll_rate')
             profile_name: Follower profile name for logging (e.g., 'MC Velocity Position')
 
         Raises:
             ValueError: If axis not found in Parameters.PID_GAINS or gains are invalid
 
         Example:
-            self._update_pid_gains_from_config(self.pid_yaw_rate, 'yawspeed_deg_s', 'MC Velocity Chase')
+            self._update_pid_gains_from_config(self.pid_yaw_rate, 'mc_yawspeed_deg_s', 'MC Velocity Chase')
         """
         try:
             from classes.parameters import Parameters
@@ -543,7 +554,9 @@ class BaseFollower(ABC):
 
         # Rate-limit safety checks to avoid overhead
         if current_time - self._last_safety_check_time < self._safety_check_interval:
-            # Return cached OK status for performance
+            # Return the last real result so violations remain visible within the cache window
+            if self._last_safety_result is not None:
+                return self._last_safety_result
             if SAFETY_MANAGER_AVAILABLE:
                 return SafetyStatus.ok()
             else:
@@ -563,9 +576,12 @@ class BaseFollower(ABC):
                     )
                     if not alt_status.safe:
                         self._handle_safety_violation(alt_status)
+                        self._last_safety_result = alt_status
                         return alt_status
 
-                return SafetyStatus.ok()
+                ok_status = SafetyStatus.ok()
+                self._last_safety_result = ok_status
+                return ok_status
 
             except Exception as e:
                 logger.warning(f"Safety check error: {e}")
@@ -1080,3 +1096,34 @@ class BaseFollower(ABC):
         except Exception as e:
             logger.error(f"Error in legacy follow_target: {e}")
             return False
+
+    def _trigger_rtl(self, reason: str) -> None:
+        """
+        Trigger Return to Launch mode (WP9: consolidated from fw/mc_attitude_rate).
+
+        Deduplicates calls via self.rtl_triggered flag so rapid safety checks
+        do not spam multiple RTL commands.
+
+        Args:
+            reason (str): Human-readable reason string for logs/events.
+        """
+        if self.rtl_triggered:
+            return
+
+        self.rtl_triggered = True
+        logger.critical(f"TRIGGERING RTL [{self.__class__.__name__}] — Reason: {reason}")
+
+        try:
+            if self.px4_controller and hasattr(self.px4_controller, 'trigger_return_to_launch'):
+                import asyncio
+                try:
+                    loop = asyncio.get_running_loop()  # noqa: F841 (kept for exception branch)
+                    asyncio.create_task(self.px4_controller.trigger_return_to_launch())
+                except RuntimeError:
+                    asyncio.run(self.px4_controller.trigger_return_to_launch())
+                logger.critical("RTL command issued successfully")
+        except Exception as e:
+            logger.error(f"Failed to trigger RTL: {e}")
+
+        if hasattr(self, 'log_follower_event'):
+            self.log_follower_event('rtl_triggered', reason=reason)

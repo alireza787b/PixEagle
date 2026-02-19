@@ -1472,9 +1472,11 @@ class FastAPIHandler:
             dict: Complete schema including all fields and profiles.
         """
         try:
-            # Read the schema file directly
+            # Read the schema file directly (absolute path for Linux/Windows deployment compat)
             import yaml
-            with open('configs/follower_commands.yaml', 'r') as f:
+            from pathlib import Path
+            _schema_path = Path(__file__).parent.parent.parent / 'configs' / 'follower_commands.yaml'
+            with open(_schema_path, 'r') as f:
                 schema = yaml.safe_load(f)
             return JSONResponse(content=schema)
         except Exception as e:
@@ -4604,9 +4606,8 @@ class FastAPIHandler:
                 'mc_velocity_position': ['Follower', 'MC_VELOCITY_POSITION', 'Safety', 'PID', 'Tracking', 'OSD'],
                 'mc_velocity_distance': ['Follower', 'MC_VELOCITY_DISTANCE', 'Safety', 'PID', 'Tracking', 'OSD'],
                 'mc_velocity_ground': ['Follower', 'MC_VELOCITY_GROUND', 'Safety', 'PID', 'Tracking', 'OSD'],
-                'mc_velocity': ['Follower', 'MC_VELOCITY', 'Safety', 'PID', 'Tracking', 'OSD'],
                 'mc_attitude_rate': ['Follower', 'MC_ATTITUDE_RATE', 'Safety', 'PID', 'Tracking', 'OSD'],
-                'gm_pid_pursuit': ['Follower', 'GM_PID_PURSUIT', 'Safety', 'GimbalTracker', 'GimbalTrackerSettings', 'PID', 'Tracking', 'Gimbal', 'OSD'],
+                'gm_velocity_chase': ['Follower', 'GM_VELOCITY_CHASE', 'Safety', 'GimbalTracker', 'GimbalTrackerSettings', 'PID', 'Tracking', 'Gimbal', 'OSD'],
                 'gm_velocity_vector': ['Follower', 'GM_VELOCITY_VECTOR', 'Safety', 'GimbalTracker', 'GimbalTrackerSettings', 'PID', 'Tracking', 'Gimbal', 'OSD'],
                 'fw_attitude_rate': ['Follower', 'FW_ATTITUDE_RATE', 'Safety', 'PID', 'Tracking', 'OSD'],
             }

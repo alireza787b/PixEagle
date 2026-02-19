@@ -278,7 +278,7 @@ GimbalTracker requires GIMBAL_ANGLES-compatible followers:
 
 | Follower | Compatibility |
 |----------|--------------|
-| GMPIDPursuitFollower | Primary (designed for gimbal) |
+| GMVelocityChaseFollower | Primary (designed for gimbal) |
 | GMVelocityVectorFollower | Primary (designed for gimbal) |
 
 ---
