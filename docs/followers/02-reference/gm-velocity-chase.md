@@ -26,30 +26,30 @@ Key features:
 ### Gimbal to Velocity Conversion
 
 ```python
-# Gimbal angles (normalized or degrees)
-gimbal_pan = tracker_data.gimbal_pan
-gimbal_tilt = tracker_data.gimbal_tilt
+# Gimbal angles from angular tuple (yaw_deg, pitch_deg, roll_deg)
+yaw_deg = tracker_data.angular[0]
+pitch_deg = tracker_data.angular[1]
 
 # Convert to velocity commands
-vel_fwd = pid_forward(gimbal_tilt)   # Follow gimbal pitch
-vel_right = pid_lateral(gimbal_pan)   # Follow gimbal yaw
-yawspeed = pid_yaw(gimbal_pan)        # Turn toward gimbal
+vel_fwd = pid_forward(pitch_deg)   # Follow gimbal pitch
+vel_right = pid_lateral(yaw_deg)   # Follow gimbal yaw
+yawspeed = pid_yaw(yaw_deg)        # Turn toward gimbal
 ```
 
 ### Mount Types
 
-**VERTICAL Mount** (camera below, pointing forward)
+**VERTICAL Mount** (camera pointing downward at neutral; neutral pitch = 90°, roll = 0°)
 ```python
 # Standard mapping
-forward <- gimbal_tilt
-lateral <- gimbal_pan
+forward <- gimbal_pitch (deviation from 90°)
+lateral <- gimbal_yaw
 ```
 
 **HORIZONTAL Mount** (camera on side)
 ```python
 # Rotated mapping
-forward <- gimbal_pan
-lateral <- gimbal_tilt
+forward <- gimbal_yaw
+lateral <- gimbal_pitch
 ```
 
 ---
@@ -62,7 +62,7 @@ lateral <- gimbal_tilt
 GM_VELOCITY_CHASE:
   # Mount configuration
   MOUNT_TYPE: "VERTICAL"             # or "HORIZONTAL"
-  CONTROL_MODE: "VELOCITY"           # Velocity commands
+  CONTROL_MODE: "BODY"               # Options: BODY | NED
 
   # Velocity control (via SafetyManager cached limits)
   # MAX_VELOCITY, MAX_VELOCITY_LATERAL, MAX_VELOCITY_VERTICAL
@@ -109,13 +109,12 @@ PID_GAINS:
 
 **Required**: `GIMBAL_ANGLES`
 
-The tracker must provide gimbal pan/tilt angles:
+The tracker must provide gimbal angles via the `angular` tuple:
 
 ```python
 TrackerOutput(
     data_type=TrackerDataType.GIMBAL_ANGLES,
-    gimbal_pan=0.15,    # Normalized or degrees
-    gimbal_tilt=-0.05,
+    angular=(0.15, -0.05, 0.0),  # (yaw_deg, pitch_deg, roll_deg)
     confidence=0.95
 )
 ```
@@ -149,11 +148,11 @@ if circuit_breaker.is_active():
 ## Telemetry
 
 ```python
-status = follower.get_pursuit_status()
+status = follower.get_status_info()
 # {
 #     'mount_type': 'VERTICAL',
 #     'following_active': True,
-#     'gimbal_angles': {'pan': 5.2, 'tilt': -2.1},
+#     'gimbal_angles': {'yaw': 5.2, 'pitch': -2.1},
 #     'velocity_command': {'fwd': 3.1, 'right': 0.5, 'yaw': 12.3},
 #     'target_loss_handler_active': False,
 #     'emergency_stop_active': False

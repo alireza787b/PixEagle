@@ -69,7 +69,9 @@ GM_VELOCITY_VECTOR:
 
   # Yaw control
   YAW_GAIN: 30.0                     # deg/s per unit pan
-  MAX_YAW_RATE: 45.0                 # deg/s limit
+  # Rate limits are NOT configured here.
+  # Set MAX_YAW_RATE, MAX_PITCH_RATE, MAX_ROLL_RATE in Safety.GlobalLimits
+  # (or Safety.FollowerOverrides.GM_VELOCITY_VECTOR for per-follower overrides).
 
   # Vertical control
   ENABLE_VERTICAL_PURSUIT: true
@@ -121,7 +123,7 @@ GM_VELOCITY_VECTOR:
 ## Telemetry
 
 ```python
-status = follower.get_vector_status()
+status = follower.get_status_info()
 # {
 #     'gimbal_vector': {'pan': 5.2, 'tilt': -2.1},
 #     'velocity_vector': {'fwd': 4.8, 'right': 0.45, 'down': -0.18},

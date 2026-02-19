@@ -48,22 +48,15 @@ from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
 from classes.tracker_output import TrackerOutput, TrackerDataType
+from classes.safety_types import TargetLossAction  # authoritative enum — avoids cross-type == always False
 import logging
 import numpy as np
 import math
 import time
 from typing import Tuple, Optional, Dict, Any, List
 from datetime import datetime
-from enum import Enum
 
 logger = logging.getLogger(__name__)
-
-
-class TargetLossAction(Enum):
-    """Actions to take when target is lost."""
-    ORBIT = "orbit"
-    RTL = "rtl"
-    CONTINUE_LAST = "continue_last"
 
 
 class FWAttitudeRateFollower(BaseFollower):
@@ -237,7 +230,7 @@ class FWAttitudeRateFollower(BaseFollower):
         # Altitude monitoring state
         self.last_altitude_check_time = 0.0
         self.altitude_violation_count = 0
-        # self.rtl_triggered is initialized by BaseFollower.__init__()
+        self.rtl_triggered = False  # reset dedup flag on state reset (BaseFollower init sets it initially)
 
         # Command smoothing state
         self.smoothed_roll_rate = 0.0
@@ -638,8 +631,10 @@ class FWAttitudeRateFollower(BaseFollower):
         Returns:
             float: Roll rate command in deg/s.
         """
-        bank_error = target_bank - current_bank
-        roll_rate = self.pid_bank_angle(bank_error)
+        # Update setpoint dynamically and pass measurement so PID computes
+        # error = target_bank - current_bank → positive roll rate when target > current.
+        self.pid_bank_angle.setpoint = target_bank
+        roll_rate = self.pid_bank_angle(current_bank)
 
         return np.clip(roll_rate, -self.max_roll_rate, self.max_roll_rate)
 
@@ -789,7 +784,7 @@ class FWAttitudeRateFollower(BaseFollower):
             self._execute_orbit()
         elif self.target_loss_action == TargetLossAction.RTL:
             self._trigger_rtl("target_loss_timeout")
-        elif self.target_loss_action == TargetLossAction.CONTINUE_LAST:
+        elif self.target_loss_action == TargetLossAction.CONTINUE:
             # Continue with last valid target (do nothing special)
             logger.info("Continuing with last valid target position")
 

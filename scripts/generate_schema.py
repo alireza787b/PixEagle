@@ -60,7 +60,6 @@ SECTION_CATEGORIES = {
     'Detector': {'category': 'detection', 'display_name': 'Object Detector', 'icon': 'search'},
 
     # Followers
-    'Follower': {'category': 'follower', 'display_name': 'Follower Settings', 'icon': 'navigation'},
     'MC_VELOCITY_CHASE': {'category': 'follower', 'display_name': 'MC Velocity Chase', 'icon': 'sports_motorsports'},
     'MC_VELOCITY_POSITION': {'category': 'follower', 'display_name': 'MC Velocity Position', 'icon': 'place'},
     'MC_VELOCITY_DISTANCE': {'category': 'follower', 'display_name': 'MC Velocity Distance', 'icon': 'straighten'},
@@ -73,17 +72,12 @@ SECTION_CATEGORIES = {
     # Safety & Control
     'Safety': {'category': 'safety', 'display_name': 'Safety Limits', 'icon': 'shield'},
     'PID': {'category': 'control', 'display_name': 'PID Controller', 'icon': 'tune'},
-    'ChaseFollower': {'category': 'control', 'display_name': 'Chase Follower Limits', 'icon': 'speed'},
-    'YawControl': {'category': 'control', 'display_name': 'Yaw Control', 'icon': 'rotate_right'},
-    'AdaptiveControl': {'category': 'control', 'display_name': 'Adaptive Control', 'icon': 'auto_fix_high'},
-    'Gimbal': {'category': 'control', 'display_name': 'Gimbal Control', 'icon': 'control_camera'},
 
     # Processing
     'FrameEstimation': {'category': 'processing', 'display_name': 'Frame Display', 'icon': 'picture_in_picture'},
     'Estimator': {'category': 'processing', 'display_name': 'State Estimator', 'icon': 'insights'},
     'FramePreprocessor': {'category': 'processing', 'display_name': 'Frame Preprocessor', 'icon': 'auto_fix_high'},
     'Segmentation': {'category': 'processing', 'display_name': 'Segmentation', 'icon': 'crop'},
-    'VerticalErrorRecalculation': {'category': 'processing', 'display_name': 'Vertical Error', 'icon': 'height'},
     'Setpoint': {'category': 'processing', 'display_name': 'Setpoint Config', 'icon': 'my_location'},
 
     # Display
@@ -168,13 +162,8 @@ SECTION_RELOAD_TIERS = {
     'FrameEstimation': 'immediate',
 
     # follower_restart — follower/control params, need follower reinit
-    'Follower': 'follower_restart',
     'PID': 'follower_restart',
     'Safety': 'follower_restart',
-    'ChaseFollower': 'follower_restart',
-    'YawControl': 'follower_restart',
-    'AdaptiveControl': 'follower_restart',
-    'Gimbal': 'follower_restart',
     'MC_VELOCITY_CHASE': 'follower_restart',
     'MC_VELOCITY_POSITION': 'follower_restart',
     'MC_VELOCITY_DISTANCE': 'follower_restart',
@@ -198,7 +187,6 @@ SECTION_RELOAD_TIERS = {
     'Estimator': 'tracker_restart',
     'FramePreprocessor': 'tracker_restart',
     'Segmentation': 'tracker_restart',
-    'VerticalErrorRecalculation': 'tracker_restart',
     'Setpoint': 'tracker_restart',
 
     # system_restart — video/network/hardware, need full restart

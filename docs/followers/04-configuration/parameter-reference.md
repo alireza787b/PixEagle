@@ -78,7 +78,7 @@ PID_GAINS:
     i: 1.5
     d: 8.0
 
-  # Legacy velocity (ground view)
+  # Legacy NED velocity fields (used by mc_velocity_ground in velocity_body mode)
   x:
     p: 2.0
     i: 0.1
@@ -268,7 +268,9 @@ GM_VELOCITY_VECTOR:
   FORWARD_SPEED: 5.0
   SPEED_GAIN: 1.0
   YAW_GAIN: 30.0
-  MAX_YAW_RATE: 45.0
+  # Rate limits are NOT configured here.
+  # Set MAX_YAW_RATE, MAX_PITCH_RATE, MAX_ROLL_RATE in Safety.GlobalLimits
+  # (or Safety.FollowerOverrides.GM_VELOCITY_VECTOR for per-follower overrides).
   ENABLE_VERTICAL_PURSUIT: true
   VERTICAL_GAIN: 0.5
   COMMAND_SMOOTHING_ENABLED: true

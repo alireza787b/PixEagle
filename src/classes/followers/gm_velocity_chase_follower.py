@@ -456,7 +456,7 @@ class GMVelocityChaseFollower(BaseFollower):
         vertical_error = max(-1.0, min(1.0, vertical_error))
 
         if self.debug_logging_enabled:
-            logger.debug(f"📐 HORIZONTAL transform: P={pitch_deg:.1f}°(err={pitch_error:.1f}°) R={roll_deg:.1f}°(err={roll_error:.1f}°×{roll_direction_multiplier}) → lat={lateral_error:.3f} vert={vertical_error:.3f}")
+            logger.debug(f"HORIZONTAL transform: P={pitch_deg:.1f}deg(err={pitch_error:.1f}deg) R={roll_deg:.1f}deg(err={roll_error:.1f}deg x{roll_direction_multiplier}) -> lat={lateral_error:.3f} vert={vertical_error:.3f}")
 
         return lateral_error, vertical_error
 
@@ -700,7 +700,7 @@ class GMVelocityChaseFollower(BaseFollower):
             if self.debug_logging_enabled:
                 logger.debug(f"Switching lateral guidance mode: {self.active_lateral_mode} → {new_mode}")
             else:
-                logger.info(f"📐 Guidance mode: {new_mode}")
+                logger.info(f"Guidance mode: {new_mode}")
             self.active_lateral_mode = new_mode
 
             # Initialize PID controllers for the new mode
@@ -925,7 +925,6 @@ class GMVelocityChaseFollower(BaseFollower):
                 pitch_rate_rad, yaw_rate_rad = angular_data[0], angular_data[1]
 
                 # Convert rad/s to deg/s (MAVSDK standard)
-                import math
                 pitch_deg_s = math.degrees(pitch_rate_rad)
                 yaw_deg_s = math.degrees(yaw_rate_rad)
 
@@ -1489,7 +1488,7 @@ class GMVelocityChaseFollower(BaseFollower):
 
         rtl_altitude = altitude or self.config.get('TARGET_LOSS_HANDLING', {}).get('RTL_ALTITUDE', 50.0)
 
-        logger.warning(f"🏠 RTL triggered: {reason} (alt: {rtl_altitude}m)")
+        logger.warning(f"RTL triggered: {reason} (alt: {rtl_altitude}m)")
 
         # Circuit breaker check
         try:

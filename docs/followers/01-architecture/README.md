@@ -77,7 +77,7 @@ cls._follower_registry = {
 Benefits:
 - Lazy loading prevents circular imports
 - Easy to add new followers
-- Deprecated aliases supported
+- Removed aliases raise ValueError with v5.0.0 migration hint
 
 ### 3. Centralized Safety
 

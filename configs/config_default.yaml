@@ -1294,6 +1294,7 @@ GM_VELOCITY_CHASE:
   # === Mount Configuration ===
   MOUNT_TYPE: "HORIZONTAL"                  # Options: "HORIZONTAL", "VERTICAL"
   CONTROL_MODE: "BODY"                      # Options: "NED", "BODY"
+  ROLL_RIGHT_SIGN: "NEGATIVE"               # Options: NEGATIVE | POSITIVE — sign convention for roll-right direction
 
   # === Required Tracker Fields ===
   REQUIRED_TRACKER_FIELDS: ["angular"]     # Must have angular data from gimbal
@@ -1928,7 +1929,7 @@ MC_ATTITUDE_RATE:
 # ==============================================================================
 MC_VELOCITY_GROUND:
   # === Target Position Mode ===
-  TARGET_POSITION_MODE: center          # Target positioning: "center", "initial"
+  TARGET_POSITION_MODE: center          # Options: center | initial
 
   # === Velocity Limits ===
   # NOTE: MAX_VELOCITY_X/Y now in Safety.GlobalLimits as MAX_VELOCITY_LATERAL/FORWARD
@@ -2164,7 +2165,7 @@ Safety:
     # Safety Behavior
     EMERGENCY_STOP_ENABLED: true
     RTL_ON_VIOLATION: true
-    TARGET_LOSS_ACTION: hover            # hover, orbit, stop, rtl, continue
+    TARGET_LOSS_ACTION: hover            # Options: hover | orbit | stop | rtl | continue
     MAX_SAFETY_VIOLATIONS: 5
 
   # ===========================================================================

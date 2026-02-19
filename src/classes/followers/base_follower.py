@@ -27,6 +27,7 @@ from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
 import math
 import time
+import numpy as np
 from datetime import datetime
 
 # Initialize logger early (before any try/except blocks that might use it)
@@ -432,7 +433,7 @@ class BaseFollower(ABC):
             self._update_pid_gains_from_config(self.pid_yaw_rate, 'mc_yawspeed_deg_s', 'MC Velocity Chase')
         """
         try:
-            from classes.parameters import Parameters
+            from classes.parameters import Parameters  # noqa: PLC0415 — lazy import to avoid circular dep
 
             # Validate axis exists
             if axis not in Parameters.PID_GAINS:
@@ -660,8 +661,6 @@ class BaseFollower(ABC):
         Returns:
             tuple: (clamped_fwd, clamped_right, clamped_down)
         """
-        import numpy as np
-
         clamped_fwd = np.clip(vel_fwd, -self.velocity_limits.forward, self.velocity_limits.forward)
         clamped_right = np.clip(vel_right, -self.velocity_limits.lateral, self.velocity_limits.lateral)
         clamped_down = np.clip(vel_down, -self.velocity_limits.vertical, self.velocity_limits.vertical)
@@ -679,8 +678,6 @@ class BaseFollower(ABC):
         Returns:
             float: Clamped rate in rad/s
         """
-        import numpy as np
-
         limit = getattr(self.rate_limits, rate_type, self.rate_limits.yaw)
         return float(np.clip(rate_value, -limit, limit))
 
@@ -1117,7 +1114,7 @@ class BaseFollower(ABC):
             if self.px4_controller and hasattr(self.px4_controller, 'trigger_return_to_launch'):
                 import asyncio
                 try:
-                    loop = asyncio.get_running_loop()  # noqa: F841 (kept for exception branch)
+                    asyncio.get_running_loop()  # raises RuntimeError when no loop is running
                     asyncio.create_task(self.px4_controller.trigger_return_to_launch())
                 except RuntimeError:
                     asyncio.run(self.px4_controller.trigger_return_to_launch())

@@ -47,22 +47,22 @@ class VelocityLimits(NamedTuple):
 ### AltitudeLimits
 
 ```python
-@dataclass
-class AltitudeLimits:
-    min_altitude: float       # Minimum safe altitude (m)
-    max_altitude: float       # Maximum altitude (m)
-    warning_buffer: float     # Warning zone buffer (m)
-    home_relative: bool       # Use home-relative altitude
+class AltitudeLimits(NamedTuple):
+    """Altitude limits in meters."""
+    min_altitude: float        # MIN_ALTITUDE
+    max_altitude: float        # MAX_ALTITUDE
+    warning_buffer: float      # ALTITUDE_WARNING_BUFFER
+    safety_enabled: bool = True
 ```
 
 ### RateLimits
 
 ```python
-@dataclass
-class RateLimits:
-    yaw: float    # Max yaw rate (rad/s)
-    pitch: float  # Max pitch rate (rad/s)
-    roll: float   # Max roll rate (rad/s)
+class RateLimits(NamedTuple):
+    """Rate limits in rad/s (converted from deg/s in config)."""
+    yaw: float    # MAX_YAW_RATE in rad/s
+    pitch: float  # MAX_PITCH_RATE in rad/s
+    roll: float   # MAX_ROLL_RATE in rad/s
 ```
 
 ### FollowerLimits
@@ -144,8 +144,14 @@ def get_velocity_limits(self, follower_name: str = None) -> VelocityLimits:
 ### get_altitude_limits
 
 ```python
-def get_altitude_limits(self) -> AltitudeLimits:
-    """Get altitude limits (no per-follower overrides)."""
+def get_altitude_limits(self, follower_name: str = None) -> AltitudeLimits:
+    """
+    Get altitude limits, optionally with per-follower overrides applied.
+
+    Args:
+        follower_name: Config section name (e.g., 'MC_VELOCITY_CHASE').
+                       If None, returns global limits.
+    """
 ```
 
 ### get_rate_limits
@@ -171,18 +177,14 @@ def reload_config(self) -> bool:
 
 ## Integration with BaseFollower
 
-BaseFollower caches limits via properties:
+BaseFollower accesses limits via properties:
 
 ```python
 class BaseFollower(ABC):
     @property
     def velocity_limits(self):
-        """Dynamic velocity limits from SafetyManager."""
-        if self.safety_manager:
-            return self.safety_manager.get_velocity_limits(
-                self._follower_config_name
-            )
-        return self._legacy_velocity_limits
+        """Get velocity limits from SafetyManager (v5.0.0+: single source of truth)."""
+        return self.safety_manager.get_velocity_limits(self._follower_config_name)
 
     @property
     def altitude_limits(self):
@@ -219,28 +221,31 @@ def clamp_velocity(self, vel_fwd, vel_right, vel_down):
 
 ---
 
-## Altitude Safety Check
+## Safety Check
 
 ```python
-def check_altitude_safety(self) -> bool:
+def check_safety(self) -> SafetyStatus:
     """
-    Check if current altitude is within limits.
+    Centralized safety check — validates altitude and velocity limits.
 
     Returns:
-        True if safe, False if violation
+        SafetyStatus: NamedTuple with .safe (bool), .reason (str),
+                      .action (SafetyAction), .details (Optional[Dict])
+
+    Use SafetyStatus.ok() classmethod to create a passing result.
     """
-    current = self.px4_controller.current_altitude
-    limits = self.altitude_limits
+```
 
-    if current < limits.min_altitude:
-        logger.critical(f"Below minimum altitude: {current}m")
-        return False
+---
 
-    if current > limits.max_altitude:
-        logger.critical(f"Above maximum altitude: {current}m")
-        return False
+## Field-to-Limit Mapping
 
-    return True
+SetpointHandler uses `_FIELD_TO_LIMIT_NAME` to resolve which limit applies to each field:
+
+```python
+'yawspeed_deg_s': 'MAX_YAW_RATE',
+'pitchspeed_deg_s': 'MAX_PITCH_RATE',
+'rollspeed_deg_s': 'MAX_ROLL_RATE',
 ```
 
 ---
@@ -287,17 +292,11 @@ class SafetyManager:
 
 ---
 
-## Fallback Behavior
+## v5.0.0 Requirement
 
-If SafetyManager unavailable, followers use legacy limits:
+SafetyManager is required in v5.0.0+. If `get_safety_manager()` cannot be
+imported, `BaseFollower.__init__` raises `RuntimeError`:
 
-```python
-# In BaseFollower.__init__
-try:
-    from classes.safety_manager import get_safety_manager
-    self.safety_manager = get_safety_manager()
-except ImportError:
-    logger.warning("SafetyManager not available, using legacy limits")
-    self.safety_manager = None
-    self._legacy_velocity_limits = VelocityLimits(...)
-```
+    RuntimeError: SafetyManager is required in v5.0.0+. Check your imports.
+
+There is no fallback mode. Ensure `src/classes/safety_manager.py` is present.

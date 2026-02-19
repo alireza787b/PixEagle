@@ -17,11 +17,12 @@ PixEagle implements multiple safety layers:
 
 ```yaml
 # config_default.yaml
-safety:
-  max_velocity_forward: 8.0    # m/s
-  max_velocity_lateral: 5.0    # m/s
-  max_velocity_vertical: 3.0   # m/s
-  max_yaw_rate: 45.0           # deg/s
+Safety:
+  GlobalLimits:
+    MAX_VELOCITY_FORWARD: 8.0    # m/s
+    MAX_VELOCITY_LATERAL: 5.0    # m/s
+    MAX_VELOCITY_VERTICAL: 3.0   # m/s
+    MAX_YAW_RATE: 45.0           # deg/s
 ```
 
 ### Implementation
@@ -174,10 +175,11 @@ Follower.follow_target()
 circuit_breaker:
   active: true
 
-safety:
-  max_velocity_forward: 3.0   # Reduced
-  max_velocity_lateral: 2.0
-  max_velocity_vertical: 1.0
+Safety:
+  GlobalLimits:
+    MAX_VELOCITY_FORWARD: 3.0   # Reduced
+    MAX_VELOCITY_LATERAL: 2.0
+    MAX_VELOCITY_VERTICAL: 1.0
 ```
 
 ### Testing (SITL)
@@ -186,10 +188,11 @@ safety:
 circuit_breaker:
   active: false
 
-safety:
-  max_velocity_forward: 5.0
-  max_velocity_lateral: 3.0
-  max_velocity_vertical: 2.0
+Safety:
+  GlobalLimits:
+    MAX_VELOCITY_FORWARD: 5.0
+    MAX_VELOCITY_LATERAL: 3.0
+    MAX_VELOCITY_VERTICAL: 2.0
 ```
 
 ### Production
@@ -198,10 +201,11 @@ safety:
 circuit_breaker:
   active: false
 
-safety:
-  max_velocity_forward: 8.0
-  max_velocity_lateral: 5.0
-  max_velocity_vertical: 3.0
+Safety:
+  GlobalLimits:
+    MAX_VELOCITY_FORWARD: 8.0
+    MAX_VELOCITY_LATERAL: 5.0
+    MAX_VELOCITY_VERTICAL: 3.0
 ```
 
 ## Status Reporting

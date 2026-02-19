@@ -19,9 +19,8 @@ class TrackerOutput:
     position_2d: Optional[Tuple[float, float]] = None
     position_3d: Optional[Tuple[float, float, float]] = None
 
-    # Gimbal data
-    gimbal_pan: Optional[float] = None
-    gimbal_tilt: Optional[float] = None
+    # Angular data (gimbal or bearing)
+    angular: Optional[Tuple[float, ...]] = None  # 2D (bearing, elevation) or 3D gimbal (yaw_deg, pitch_deg, roll_deg)
 
     # Tracking metadata
     tracking_active: bool = False
@@ -44,6 +43,9 @@ class TrackerDataType(Enum):
     GIMBAL_ANGLES = "gimbal_angles"
     BBOX_CONFIDENCE = "bbox_confidence"
     VELOCITY_AWARE = "velocity_aware"
+    ANGULAR = "angular"
+    MULTI_TARGET = "multi_target"
+    EXTERNAL = "external"
 ```
 
 ---
@@ -95,7 +97,7 @@ def normalize_coordinates(x_px, y_px, width, height):
 YOLO + ByteTrack/BoT-SORT:
 
 ```python
-from classes.tracker import SmartTracker
+from classes.smart_tracker import SmartTracker
 
 tracker = SmartTracker()
 
@@ -126,8 +128,7 @@ For gimbal-based tracking:
 # Gimbal angles instead of image position
 tracker_output = TrackerOutput(
     data_type=TrackerDataType.GIMBAL_ANGLES,
-    gimbal_pan=5.2,   # degrees
-    gimbal_tilt=-2.1,
+    angular=(5.2, -2.1, 0.0),  # (yaw_deg, pitch_deg, roll_deg)
     tracking_active=True
 )
 ```

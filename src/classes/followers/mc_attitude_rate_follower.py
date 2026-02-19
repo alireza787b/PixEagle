@@ -51,6 +51,7 @@ from enum import Enum
 from typing import Tuple, Optional, Dict, Any, Deque
 from datetime import datetime
 from collections import deque
+from classes.safety_types import TargetLossAction  # authoritative enum — avoids cross-type == always False
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +60,6 @@ class GuidanceMode(Enum):
     """Guidance mode enumeration for attitude rate control."""
     DIRECT_RATE = "direct_rate"           # Direct PID-based rate control
     PROPORTIONAL_NAVIGATION = "png"        # Military-standard PNG guidance
-
-
-class TargetLossAction(Enum):
-    """Action to take when target is lost."""
-    HOVER = "hover"                        # Hover in place (rates=0, hover thrust)
-    RTL = "rtl"                            # Return to launch
 
 
 class MCAttitudeRateFollower(BaseFollower):
@@ -146,7 +141,7 @@ class MCAttitudeRateFollower(BaseFollower):
 
         # === ALTITUDE CONTROL ===
         self.enable_altitude_hold = config.get('ENABLE_ALTITUDE_HOLD', True)
-        self.target_altitude_offset = config.get('TARGET_ALTITUDE_OFFSET', 0.0)
+        self.target_altitude_offset = config.get('TARGET_ALTITUDE_OFFSET', 15.0)
         self.altitude_pid_min_output = config.get('ALTITUDE_PID_MIN_OUTPUT', -0.3)
         self.altitude_pid_max_output = config.get('ALTITUDE_PID_MAX_OUTPUT', 0.3)
         self.initial_altitude = None  # Set on first update
@@ -251,14 +246,6 @@ class MCAttitudeRateFollower(BaseFollower):
             'proportional_navigation': GuidanceMode.PROPORTIONAL_NAVIGATION,
         }
         return mode_map.get(mode_str.lower(), GuidanceMode.DIRECT_RATE)
-
-    def _parse_target_loss_action(self, action_str: str) -> TargetLossAction:
-        """Parses target loss action string to enum."""
-        action_map = {
-            'hover': TargetLossAction.HOVER,
-            'rtl': TargetLossAction.RTL,
-        }
-        return action_map.get(action_str.lower(), TargetLossAction.HOVER)
 
     # ==================== PID Initialization ====================
 

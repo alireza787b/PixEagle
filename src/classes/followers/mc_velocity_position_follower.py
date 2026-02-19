@@ -119,7 +119,7 @@ class MCVelocityPositionFollower(BaseFollower):
         self.max_vertical_velocity = self.velocity_limits.vertical
         # Internal unit is rad/s; use base class cached rate limits
         self.max_yaw_rate = self.rate_limits.yaw  # Already in rad/s from SafetyManager
-        self.yaw_control_threshold = config.get('YAW_CONTROL_THRESHOLD', 0.05)
+        self.yaw_control_threshold = config.get('YAW_CONTROL_THRESHOLD', 0.02)
         self.target_lost_timeout = config.get('TARGET_LOSS_TIMEOUT', 3.0)
         self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
         self.command_smoothing_enabled = config.get('COMMAND_SMOOTHING_ENABLED', True)
@@ -366,7 +366,7 @@ class MCVelocityPositionFollower(BaseFollower):
         """
         try:
             # Get current altitude for safety checks
-            current_altitude = getattr(self.px4_controller, 'current_altitude', 0.0)
+            current_altitude = getattr(self.px4_controller, 'current_altitude', None)
 
             # Safety check: Ensure altitude data is available
             if current_altitude is None:

@@ -84,12 +84,12 @@ def _initialize_registry(cls):
 
 ---
 
-## Deprecated Aliases
+## Removed Aliases
 
-For backward compatibility, old names map to new implementations:
+These names were removed in v5.0.0. Using them raises `ValueError` with a migration hint — they do NOT silently redirect.
 
 ```python
-_deprecated_aliases = {
+_REMOVED_ALIASES = {
     'ground_view': 'mc_velocity_ground',
     'constant_distance': 'mc_velocity_distance',
     'constant_position': 'mc_velocity_position',
@@ -102,14 +102,16 @@ _deprecated_aliases = {
     'fixed_wing': 'fw_attitude_rate',
     'multicopter': 'mc_velocity_chase',
     'multicopter_attitude_rate': 'mc_attitude_rate',
+    'gm_pid_pursuit': 'gm_velocity_chase',
+    'mc_velocity': 'mc_velocity_chase',
 }
 ```
 
-Using deprecated names raises a `ValueError` with a migration hint:
+Removed aliases raise ValueError with v5.0.0 migration hint:
 
 ```
-ValueError: Follower mode 'ground_view' has been removed.
-Use 'mc_velocity_ground' instead.
+ValueError: Follower mode 'ground_view' was removed in v5.0.0.
+Please update your configuration to use 'mc_velocity_ground' instead.
 ```
 
 ---
@@ -160,7 +162,7 @@ def register_follower(cls, profile_name: str, follower_class: Type) -> bool:
 @classmethod
 def get_available_modes(cls) -> List[str]:
     """
-    Returns primary mode names only (excludes deprecated aliases).
+    Returns primary mode names only (excludes removed aliases).
 
     Returns:
         ['mc_velocity_chase', 'mc_velocity_ground', 'fw_attitude_rate', ...]
@@ -310,7 +312,7 @@ _initialize_registry()         # Lazy load if needed
 normalize_profile_name()       # Case normalization
        │
        ▼
-Check deprecated aliases       # Raise ValueError with migration hint if old name
+Check _REMOVED_ALIASES         # Raise ValueError with v5.0.0 migration hint if old name
        │
        ▼
 Validate profile in schema     # SetpointHandler.get_available_profiles()

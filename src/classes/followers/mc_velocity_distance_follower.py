@@ -37,6 +37,7 @@ from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
 from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
+import math
 from typing import Tuple, Dict, Optional, Any
 from datetime import datetime
 
@@ -90,7 +91,7 @@ class MCVelocityDistanceFollower(BaseFollower):
 
         # Store configuration parameters
         self.yaw_enabled = config.get('ENABLE_YAW_CONTROL', False)
-        self.altitude_control_enabled = config.get('ENABLE_ALTITUDE_CONTROL', True)
+        self.altitude_control_enabled = config.get('ENABLE_ALTITUDE_CONTROL', False)
         self.initial_target_coords = initial_target_coords
 
         # Use base class cached limits (via SafetyManager)
@@ -368,13 +369,12 @@ class MCVelocityDistanceFollower(BaseFollower):
             yaw_rate = self._calculate_yaw_control(error_x)  # Optional yaw control (rad/s internal)
             
             # Update command fields using schema-aware interface (body offboard with deg/s yaw)
-            from math import degrees
             vel_body_fwd = 0.0
             vel_body_right = vel_y
             # Altitude sign convention: _control_altitude_bidirectional() returns positive=down, negative=up
             # This matches NED/body frame convention directly - no negation needed
             vel_body_down = vel_z
-            yawspeed_deg_s = degrees(yaw_rate)
+            yawspeed_deg_s = math.degrees(yaw_rate)
 
             # Apply EMA smoothing if enabled
             if self.command_smoothing_enabled:

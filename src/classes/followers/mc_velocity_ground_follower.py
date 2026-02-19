@@ -100,7 +100,7 @@ class MCVelocityGroundFollower(BaseFollower):
         # v5.0.0: Use SafetyManager for velocity limits (single source of truth)
         self.max_velocity_x = self.velocity_limits.lateral
         self.max_velocity_y = self.velocity_limits.forward
-        self.max_rate_of_descent = config.get('MAX_RATE_OF_DESCENT', 2.0)  # Operational parameter
+        self.max_rate_of_descent = config.get('MAX_RATE_OF_DESCENT', 1.0)  # Operational parameter
         self.enable_descend_to_target = config.get('ENABLE_DESCEND_TO_TARGET', False)
         # Use base class cached limits (via SafetyManager)
         self.min_descent_height = self.altitude_limits.min_altitude
@@ -159,11 +159,14 @@ class MCVelocityGroundFollower(BaseFollower):
                 output_limits=(-self.max_velocity_y, self.max_velocity_y)
             )
 
-            # Initialize Z-axis PID controller (altitude control)
+            # Initialize Z-axis PID controller (descent-to-target control).
+            # setpoint=0: input is (current_altitude - min_descent_height), negated so
+            # PID error = 0 - (-height_above_floor) = +height → positive = descent.
+            # output_limits clamped to (0, max) so PID never commands climb.
             self.pid_z = CustomPID(
                 *self._get_pid_gains('mc_altitude'),
-                setpoint=self.min_descent_height,
-                output_limits=(-self.max_rate_of_descent, self.max_rate_of_descent)
+                setpoint=0.0,
+                output_limits=(0.0, self.max_rate_of_descent)
             )
             
             # Log successful initialization
@@ -351,9 +354,10 @@ class MCVelocityGroundFollower(BaseFollower):
 
             # Check altitude limits
             if current_altitude > self.min_descent_height:
-                # Calculate descent command using PID controller
-                descent_command = self.pid_z(current_altitude)
-                logger.debug(f"Descent command: {descent_command:.3f} m/s")
+                # Pass negative height-above-floor so PID error (0 - input) is positive → descent
+                height_above_floor = current_altitude - self.min_descent_height
+                descent_command = self.pid_z(-height_above_floor)
+                logger.debug(f"Descent command: {descent_command:.3f} m/s (height above floor: {height_above_floor:.1f}m)")
                 return descent_command
             else:
                 logger.debug("At or below minimum descent height - descent halted")
@@ -491,7 +495,7 @@ class MCVelocityGroundFollower(BaseFollower):
             self.update_telemetry_metadata('last_follow_update', datetime.utcnow().isoformat())
             self.update_telemetry_metadata('current_target', target_coords)
             
-            logger.info(f"Successfully following target at: {target_coords}")
+            logger.debug(f"Successfully following target at: {target_coords}")
             return True
             
         except Exception as e:

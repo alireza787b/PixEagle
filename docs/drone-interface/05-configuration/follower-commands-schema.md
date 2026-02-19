@@ -15,7 +15,7 @@ schema_version: "2.0"
 
 follower_profiles:
   # Profile definitions
-  mc_velocity_offboard:
+  mc_velocity_chase:
     control_type: velocity_body_offboard
     # ...
 
@@ -35,9 +35,9 @@ validation_rules:
 
 ```yaml
 follower_profiles:
-  mc_velocity_offboard:
+  mc_velocity_chase:
     control_type: velocity_body_offboard
-    display_name: "MC Velocity Offboard"
+    display_name: "MC Velocity Chase"
     description: "Body-frame velocity control for multicopters"
     required_fields:
       - vel_body_fwd
@@ -51,10 +51,14 @@ follower_profiles:
 
 | Profile | Control Type | Use Case |
 |---------|--------------|----------|
-| mc_velocity_offboard | velocity_body_offboard | Multicopter velocity |
+| mc_velocity_chase | velocity_body_offboard | Multicopter chase/pursuit mode |
 | mc_velocity_position | velocity_body_offboard | Position-based velocity |
-| mc_velocity_chase | velocity_body_offboard | Chase/pursuit mode |
+| mc_velocity_distance | velocity_body_offboard | Constant distance maintenance |
+| mc_velocity_ground | velocity_body | Ground target tracking |
+| mc_attitude_rate | attitude_rate | Aggressive rate-based control |
 | fw_attitude_rate | attitude_rate | Fixed-wing control |
+| gm_velocity_chase | velocity_body_offboard | Gimbal-based chase |
+| gm_velocity_vector | velocity_body_offboard | Direct vector pursuit |
 
 ### Profile Naming Convention
 
@@ -177,7 +181,7 @@ validation_rules:
 from classes.setpoint_handler import SetpointHandler
 
 # Create handler with profile
-handler = SetpointHandler('mc_velocity_offboard')
+handler = SetpointHandler('mc_velocity_chase')
 
 # Set fields
 handler.set_field('vel_body_fwd', 3.0)
@@ -196,8 +200,9 @@ control_type = handler.get_control_type()
 
 ```python
 class MCVelocityChaseFollower(BaseFollower):
-    def __init__(self):
-        self.setpoint_handler = SetpointHandler('mc_velocity_offboard')
+    def __init__(self, px4_controller, initial_target_coords):
+        # SetpointHandler is initialized by BaseFollower.__init__
+        super().__init__(px4_controller, 'mc_velocity_chase')
 
     def follow_target(self, target):
         # Calculate velocities

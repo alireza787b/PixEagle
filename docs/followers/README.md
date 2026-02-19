@@ -78,7 +78,7 @@ attitude_rate          - Angular rate commands (rollspeed, pitchspeed, yawspeed,
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      FollowerFactory                             │
-│  - Registry pattern (8 implementations + 15 aliases)            │
+│  - Registry pattern (8 implementations + 14 removed aliases)    │
 │  - Lazy initialization                                          │
 │  - Profile validation                                           │
 └───────────────────────────┬─────────────────────────────────────┘
@@ -186,7 +186,7 @@ clamped = follower.clamp_velocity(15.0, 8.0, 5.0)
 
 ## Related Documentation
 
-- [Tracker & Follower Schema Guide](../Tracker_and_Follower_Schema_Developer_Guide.md)
+- [Tracker & Follower Schema Guide](../developers/SCHEMA_DRIVEN_DEVELOPMENT_GUIDE.md)
 - [SmartTracker Guide](../trackers/02-reference/smart-tracker.md)
 - [Configuration Guide](../CONFIGURATION.md)
 - [Main README](../../README.md)

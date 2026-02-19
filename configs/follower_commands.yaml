@@ -269,6 +269,8 @@ deprecated_profile_aliases:
   fixed_wing: fw_attitude_rate
   multicopter: mc_velocity_chase
   multicopter_attitude_rate: mc_attitude_rate
+  gm_pid_pursuit: gm_velocity_chase      # Renamed in v5.0.0
+  gm_velocity_unified: gm_velocity_chase # Renamed in v5.0.0
 
 # ==============================================================================
 # Control Type Definitions

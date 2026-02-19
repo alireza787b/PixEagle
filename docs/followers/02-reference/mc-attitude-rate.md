@@ -51,10 +51,9 @@ Thrust is normalized (0.0-1.0).
 
 ```yaml
 MC_ATTITUDE_RATE:
-  # Rate limits (deg/s)
-  MAX_ROLL_RATE: 90.0
-  MAX_PITCH_RATE: 60.0
-  MAX_YAW_RATE: 120.0
+  # Rate limits are NOT configured here.
+  # Set MAX_YAW_RATE, MAX_PITCH_RATE, MAX_ROLL_RATE in Safety.GlobalLimits
+  # (or Safety.FollowerOverrides.MC_ATTITUDE_RATE for per-follower overrides).
 
   # Thrust control
   BASE_THRUST: 0.5
@@ -128,7 +127,7 @@ PID_GAINS:
 ## Telemetry
 
 ```python
-status = follower.get_rate_status()
+status = follower.get_follower_status()
 # {
 #     'current_rates': {
 #         'roll': 15.2,

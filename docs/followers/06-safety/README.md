@@ -54,7 +54,7 @@ vel_fwd, vel_right, vel_down = self.clamp_velocity(15.0, 8.0, 5.0)
 
 ```python
 # Altitude check
-if current_altitude < safety_limits.MIN_ALTITUDE:
+if current_altitude < safety_limits.min_altitude:
     # Trigger RTL or halt descent
 ```
 
