@@ -33,7 +33,6 @@ except ImportError:
 
 # Use ruamel.yaml for round-trip YAML (comment preservation)
 from ruamel.yaml import YAML
-from deepdiff import DeepDiff
 
 logger = logging.getLogger(__name__)
 
@@ -461,10 +460,8 @@ class ConfigService:
                         f"Value {value} is above recommended maximum {rec_max}"
                     )
 
-        # Check if value is different from default
-        default_value = self.get_default_parameter(section, param)
-        if value != default_value:
-            warnings.append("Value differs from default")
+        # Note: "differs from default" is informational provenance, not a warning.
+        # The UI can show this via the default_value field in parameter metadata.
 
         # Check reboot requirement
         if param_schema.get('reboot_required', False):
@@ -668,9 +665,15 @@ class ConfigService:
                 default_section = self.get_default(section)
                 if default_section:
                     self._config[section] = default_section.copy()
+                    # Keep _config_raw in sync for round-trip YAML
+                    if self._config_raw is not None and section in self._config_raw:
+                        for key, value in default_section.items():
+                            self._config_raw[section][key] = value
             else:
                 # Revert everything
                 self._config = self._default.copy()
+                # Reload _config_raw from default file for full round-trip sync
+                self._config_raw = None
 
             logger.info(f"Reverted to default: section={section}, param={param}")
             return True

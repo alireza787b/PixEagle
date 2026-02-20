@@ -35,9 +35,12 @@ Control Strategy:
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
+from classes.follower_config_manager import get_follower_config_manager
+from classes.followers.yaw_rate_smoother import YawRateSmoother
 from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
 import math
+import time
 from typing import Tuple, Dict, Optional, Any
 from datetime import datetime
 
@@ -91,8 +94,16 @@ class MCVelocityDistanceFollower(BaseFollower):
 
         # Store configuration parameters
         self.yaw_enabled = config.get('ENABLE_YAW_CONTROL', False)
-        self.altitude_control_enabled = config.get('ENABLE_ALTITUDE_CONTROL', False)
         self.initial_target_coords = initial_target_coords
+
+        # Shared params from FollowerConfigManager (General → FollowerOverrides → Fallback)
+        fcm = get_follower_config_manager()
+        _fn = 'MC_VELOCITY_DISTANCE'
+        self.altitude_control_enabled = fcm.get_param('ENABLE_ALTITUDE_CONTROL', _fn)
+        self.target_lost_timeout = fcm.get_param('TARGET_LOSS_TIMEOUT', _fn)
+        self.control_update_rate = fcm.get_param('CONTROL_UPDATE_RATE', _fn)
+        self.command_smoothing_enabled = fcm.get_param('COMMAND_SMOOTHING_ENABLED', _fn)
+        self.smoothing_factor = fcm.get_param('SMOOTHING_FACTOR', _fn)
 
         # Use base class cached limits (via SafetyManager)
         self.min_descent_height = self.altitude_limits.min_altitude
@@ -102,19 +113,19 @@ class MCVelocityDistanceFollower(BaseFollower):
         # Internal rad/s; use base class cached rate limits
         self.max_yaw_rate = self.rate_limits.yaw  # Already in rad/s from SafetyManager
         self.yaw_control_threshold = config.get('YAW_CONTROL_THRESHOLD', 0.3)
-        self.target_lost_timeout = config.get('TARGET_LOSS_TIMEOUT', 3.0)
-        self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
-        self.command_smoothing_enabled = config.get('COMMAND_SMOOTHING_ENABLED', True)
-        self.smoothing_factor = config.get('SMOOTHING_FACTOR', 0.8)
         # NOTE: distance_hold is not yet implemented — X-axis is always fixed at zero
         # These params are loaded for future use / status reporting only
         self.distance_hold_enabled = config.get('DISTANCE_HOLD_ENABLED', True)
         self.distance_hold_tolerance = config.get('DISTANCE_HOLD_TOLERANCE', 0.1)
 
-        # Smoothing state for EMA (initialized to 0; updated each control cycle)
+        # YawRateSmoother (4-stage pipeline: deadzone → speed-scaling → rate-limiting → EMA)
+        yaw_smoothing_config = fcm.get_yaw_smoothing_config(_fn)
+        self.yaw_smoother = YawRateSmoother.from_config(yaw_smoothing_config)
+
+        # Smoothing state for velocity EMA (initialized to 0; updated each control cycle)
         self._last_vel_right = 0.0
         self._last_vel_down = 0.0
-        self._last_yawspeed = 0.0
+        self._last_update_time = time.time()
 
         # Initialize control system components
         self._initialize_pid_controllers()
@@ -376,15 +387,19 @@ class MCVelocityDistanceFollower(BaseFollower):
             vel_body_down = vel_z
             yawspeed_deg_s = math.degrees(yaw_rate)
 
-            # Apply EMA smoothing if enabled
+            # Apply velocity EMA smoothing if enabled
             if self.command_smoothing_enabled:
                 alpha = self.smoothing_factor
                 vel_body_right = alpha * self._last_vel_right + (1.0 - alpha) * vel_body_right
                 vel_body_down = alpha * self._last_vel_down + (1.0 - alpha) * vel_body_down
-                yawspeed_deg_s = alpha * self._last_yawspeed + (1.0 - alpha) * yawspeed_deg_s
                 self._last_vel_right = vel_body_right
                 self._last_vel_down = vel_body_down
-                self._last_yawspeed = yawspeed_deg_s
+
+            # Apply YawRateSmoother (deadzone + rate-limiting + speed-scaling + EMA)
+            now = time.time()
+            dt = now - self._last_update_time
+            self._last_update_time = now
+            yawspeed_deg_s = self.yaw_smoother.apply(yawspeed_deg_s, dt)
 
             success_x = self.set_command_field('vel_body_fwd', vel_body_fwd)
             success_y = self.set_command_field('vel_body_right', vel_body_right)

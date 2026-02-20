@@ -38,6 +38,7 @@ from classes.followers.yaw_rate_smoother import YawRateSmoother  # noqa: F401
 
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.parameters import Parameters
+from classes.follower_config_manager import get_follower_config_manager
 from classes.followers.custom_pid import CustomPID
 
 # Initialize logger before imports that might fail
@@ -143,10 +144,12 @@ class GMVelocityChaseFollower(BaseFollower):
         self.min_altitude_safety = self.altitude_limits.min_altitude
         self.max_altitude_safety = self.altitude_limits.max_altitude
 
-        # Performance parameters
-        self.update_rate = self.config.get('CONTROL_UPDATE_RATE', 20.0)
-        self.command_smoothing_enabled = self.config.get('COMMAND_SMOOTHING_ENABLED', True)
-        self.smoothing_factor = self.config.get('SMOOTHING_FACTOR', 0.8)
+        # Performance parameters (from FollowerConfigManager)
+        fcm = get_follower_config_manager()
+        _fn = 'GM_VELOCITY_CHASE'
+        self.update_rate = fcm.get_param('CONTROL_UPDATE_RATE', _fn)
+        self.command_smoothing_enabled = fcm.get_param('COMMAND_SMOOTHING_ENABLED', _fn)
+        self.smoothing_factor = fcm.get_param('SMOOTHING_FACTOR', _fn)
 
         # State tracking
         self.last_velocity_command: Optional[VelocityCommand] = None
@@ -179,19 +182,19 @@ class GMVelocityChaseFollower(BaseFollower):
         self.forward_acceleration = self.config.get('FORWARD_ACCELERATION', 2.0)
         self.last_ramp_update_time = time.time()
 
-        # === Lateral guidance configuration ===
-        self.lateral_guidance_mode = self.config.get('LATERAL_GUIDANCE_MODE', 'coordinated_turn')
-        self.enable_auto_mode_switching = self.config.get('ENABLE_AUTO_MODE_SWITCHING', False)
-        self.guidance_mode_switch_velocity = self.config.get('GUIDANCE_MODE_SWITCH_VELOCITY', 3.0)
+        # === Lateral guidance configuration (from FollowerConfigManager) ===
+        self.lateral_guidance_mode = fcm.get_param('LATERAL_GUIDANCE_MODE', _fn)
+        self.enable_auto_mode_switching = fcm.get_param('ENABLE_AUTO_MODE_SWITCHING', _fn)
+        self.guidance_mode_switch_velocity = fcm.get_param('GUIDANCE_MODE_SWITCH_VELOCITY', _fn)
         self.active_lateral_mode = self.lateral_guidance_mode
 
-        # === Mode Switch Hysteresis (prevents oscillation) ===
-        self.mode_switch_hysteresis = self.config.get('MODE_SWITCH_HYSTERESIS', 0.5)
-        self.min_mode_switch_interval = self.config.get('MIN_MODE_SWITCH_INTERVAL', 2.0)
+        # === Mode Switch Hysteresis (from FollowerConfigManager) ===
+        self.mode_switch_hysteresis = fcm.get_param('MODE_SWITCH_HYSTERESIS', _fn)
+        self.min_mode_switch_interval = fcm.get_param('MIN_MODE_SWITCH_INTERVAL', _fn)
         self.last_mode_switch_time = 0.0
 
-        # === Yaw Rate Smoother (enterprise-grade smoothing) ===
-        yaw_smoothing_config = self.config.get('YAW_SMOOTHING', {})
+        # === Yaw Rate Smoother (from FollowerConfigManager) ===
+        yaw_smoothing_config = fcm.get_yaw_smoothing_config(_fn)
         self.yaw_smoother = YawRateSmoother.from_config(yaw_smoothing_config)
         logger.debug(f"YawRateSmoother initialized: enabled={self.yaw_smoother.enabled}, "
                      f"deadzone={self.yaw_smoother.deadzone_deg_s}°/s, "

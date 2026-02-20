@@ -419,6 +419,10 @@ class FastAPIHandler:
         self.app.get("/api/safety/limits/{follower_name}")(self.get_follower_safety_limits)
         # Note: /api/safety/vehicle-profiles removed in v4.0.0 (was deprecated in v3.6.0)
 
+        # Follower configuration API endpoints (v6.1.0+)
+        self.app.get("/api/follower/config/general")(self.get_follower_config_general)
+        self.app.get("/api/follower/config/{follower_name}")(self.get_follower_config_effective)
+
         # Enhanced safety/config endpoints (v5.0.0+)
         self.app.get("/api/config/effective-limits")(self.get_effective_limits)
         self.app.get("/api/config/sections/relevant")(self.get_relevant_sections)
@@ -4541,6 +4545,55 @@ class FastAPIHandler:
 
     # Note: get_vehicle_profiles() removed in v4.0.0 (was deprecated in v3.6.0)
 
+    # ==================== Follower Config API Endpoints (v6.1.0+) ====================
+
+    async def get_follower_config_general(self):
+        """
+        Get Follower.General configuration values.
+
+        Returns:
+            dict: General follower config and available followers with overrides
+        """
+        try:
+            from classes.follower_config_manager import get_follower_config_manager
+            fcm = get_follower_config_manager()
+
+            return JSONResponse(content={
+                'available': True,
+                'general': fcm._general,
+                'follower_overrides': fcm._overrides,
+                'available_followers': fcm.get_available_followers(),
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error getting follower config general: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_follower_config_effective(self, follower_name: str):
+        """
+        Get per-parameter provenance for a specific follower.
+
+        Args:
+            follower_name: Name of the follower (e.g., 'MC_VELOCITY_CHASE')
+
+        Returns:
+            dict: Per-param effective value, source, override status
+        """
+        try:
+            from classes.follower_config_manager import get_follower_config_manager
+            fcm = get_follower_config_manager()
+
+            summary = fcm.get_effective_config_summary(follower_name)
+
+            return JSONResponse(content={
+                'follower_name': follower_name,
+                'params': summary,
+                'timestamp': time.time()
+            })
+        except Exception as e:
+            self.logger.error(f"Error getting follower config for {follower_name}: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
     # ==================== Enhanced Safety/Config API Endpoints (v5.0.0+) ====================
 
     async def get_effective_limits(self, follower_name: str = None):
@@ -4607,8 +4660,8 @@ class FastAPIHandler:
                 'mc_velocity_distance': ['Follower', 'MC_VELOCITY_DISTANCE', 'Safety', 'PID', 'Tracking', 'OSD'],
                 'mc_velocity_ground': ['Follower', 'MC_VELOCITY_GROUND', 'Safety', 'PID', 'Tracking', 'OSD'],
                 'mc_attitude_rate': ['Follower', 'MC_ATTITUDE_RATE', 'Safety', 'PID', 'Tracking', 'OSD'],
-                'gm_velocity_chase': ['Follower', 'GM_VELOCITY_CHASE', 'Safety', 'GimbalTracker', 'GimbalTrackerSettings', 'PID', 'Tracking', 'Gimbal', 'OSD'],
-                'gm_velocity_vector': ['Follower', 'GM_VELOCITY_VECTOR', 'Safety', 'GimbalTracker', 'GimbalTrackerSettings', 'PID', 'Tracking', 'Gimbal', 'OSD'],
+                'gm_velocity_chase': ['Follower', 'GM_VELOCITY_CHASE', 'Safety', 'GimbalTracker', 'PID', 'Tracking', 'Gimbal', 'OSD'],
+                'gm_velocity_vector': ['Follower', 'GM_VELOCITY_VECTOR', 'Safety', 'GimbalTracker', 'PID', 'Tracking', 'Gimbal', 'OSD'],
                 'fw_attitude_rate': ['Follower', 'FW_ATTITUDE_RATE', 'Safety', 'PID', 'Tracking', 'OSD'],
             }
 
@@ -5470,6 +5523,13 @@ class FastAPIHandler:
         try:
             service = self._get_config_service()
             success = service.restore_backup(backup_id)
+
+            # Reload Parameters + managers so runtime reflects the restored config
+            if success:
+                try:
+                    Parameters.reload_config()
+                except Exception as e:
+                    self.logger.error(f"Failed to reload after backup restore: {e}")
 
             return JSONResponse(content={
                 'success': success,

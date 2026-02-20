@@ -5,7 +5,8 @@ Parameters Module - Central Configuration Management
 
 This module provides the Parameters class for loading and accessing
 configuration values from YAML files. It integrates with SafetyManager
-for unified safety limit management.
+for unified safety limit management and FollowerConfigManager for
+centralized follower operational config.
 
 Project Information:
 - Project Name: PixEagle
@@ -16,6 +17,12 @@ Safety Limit Resolution (v5.0.0+ via SafetyManager):
     1. Safety.FollowerOverrides (per-follower limits)
     2. Safety.GlobalLimits (single source of truth)
     3. Hardcoded fallback (for safety)
+
+Follower Config Resolution (v6.1.0+ via FollowerConfigManager):
+    1. Follower.FollowerOverrides (per-follower operational params)
+    2. Follower.General (single source of truth for shared params)
+    3. Legacy per-follower section (deprecated, emits warning)
+    4. Hardcoded fallback
 """
 
 import yaml
@@ -29,8 +36,9 @@ logger = logging.getLogger(__name__)
 # Thread lock for config reload operations
 _config_reload_lock = threading.Lock()
 
-# Lazy import to avoid circular dependency
+# Lazy imports to avoid circular dependencies
 _safety_manager = None
+_follower_config_manager = None
 
 def _get_safety_manager():
     """Lazy load SafetyManager to avoid circular import."""
@@ -39,6 +47,14 @@ def _get_safety_manager():
         from classes.safety_manager import SafetyManager
         _safety_manager = SafetyManager.get_instance()
     return _safety_manager
+
+def _get_follower_config_manager():
+    """Lazy load FollowerConfigManager to avoid circular import."""
+    global _follower_config_manager
+    if _follower_config_manager is None:
+        from classes.follower_config_manager import FollowerConfigManager
+        _follower_config_manager = FollowerConfigManager.get_instance()
+    return _follower_config_manager
 
 
 class Parameters:
@@ -60,13 +76,14 @@ class Parameters:
     # Grouped sections that should NOT be flattened
     _GROUPED_SECTIONS = [
         'Safety',        # Unified safety config (v5.0.0+)
-        # Follower sections
+        'Follower',      # Unified follower config (v6.1.0+)
+        # Per-follower sections (unique params only)
         'MC_VELOCITY_POSITION', 'MC_VELOCITY_DISTANCE', 'MC_VELOCITY_GROUND',
         'MC_VELOCITY_CHASE', 'MC_ATTITUDE_RATE',
         'GM_VELOCITY_VECTOR', 'GM_VELOCITY_CHASE',
         'FW_ATTITUDE_RATE',
         # Tracker sections
-        'GimbalTracker', 'GimbalTrackerSettings',
+        'GimbalTracker',
         'ClassicTracker_Common',
         'CSRT_Tracker', 'KCF_Tracker', 'DLIB_Tracker', 'SmartTracker'
     ]
@@ -136,6 +153,14 @@ class Parameters:
             logger.info("SafetyManager initialized with configuration")
         except Exception as e:
             logger.warning(f"Could not initialize SafetyManager: {e}")
+
+        # Initialize FollowerConfigManager with the loaded config
+        try:
+            fcm = _get_follower_config_manager()
+            fcm.load_from_config(config)
+            logger.info("FollowerConfigManager initialized with configuration")
+        except Exception as e:
+            logger.warning(f"Could not initialize FollowerConfigManager: {e}")
 
     @classmethod
     def get_section(cls, section_name: str) -> dict:
@@ -268,6 +293,16 @@ class Parameters:
                     logger.error(f"❌ Failed to reload SafetyManager: {e}")
                     # Continue - config was loaded, safety manager will use stale data
                     # but this is better than crashing
+
+                # Notify FollowerConfigManager to reload
+                try:
+                    fcm = _get_follower_config_manager()
+                    if hasattr(fcm, 'load_from_config') and cls._raw_config:
+                        fcm.load_from_config(cls._raw_config)
+                        fcm.clear_cache()
+                        logger.info("✅ FollowerConfigManager reloaded with new configuration")
+                except Exception as e:
+                    logger.error(f"❌ Failed to reload FollowerConfigManager: {e}")
 
                 logger.info("✅ Configuration reloaded successfully")
                 return True

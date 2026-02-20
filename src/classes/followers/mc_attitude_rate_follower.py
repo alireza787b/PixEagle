@@ -42,6 +42,7 @@ Key Differences from MulticopterFollower (velocity-based):
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
+from classes.follower_config_manager import get_follower_config_manager
 from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
 import numpy as np
@@ -159,28 +160,30 @@ class MCAttitudeRateFollower(BaseFollower):
         self.enable_coordinated_turns = config.get('ENABLE_COORDINATED_TURNS', True)
         self.turn_coordination_gain = config.get('TURN_COORDINATION_GAIN', 1.0)
 
-        # === TARGET LOSS HANDLING ===
-        self.target_loss_timeout = config.get('TARGET_LOSS_TIMEOUT', 2.0)
+        # === TARGET LOSS HANDLING (shared params from FollowerConfigManager) ===
+        fcm = get_follower_config_manager()
+        _fn = 'MC_ATTITUDE_RATE'
+        self.target_loss_timeout = fcm.get_param('TARGET_LOSS_TIMEOUT', _fn)
         # TARGET_LOSS_ACTION delegated to SafetyManager (GlobalLimits → FollowerOverrides)
         self.target_loss_action = self.safety_manager.get_safety_behavior(self._follower_config_name).target_loss_action
-        self.target_loss_coord_threshold = config.get('TARGET_LOSS_COORDINATE_THRESHOLD', 1.5)
+        self.target_loss_coord_threshold = fcm.get_param('TARGET_LOSS_COORDINATE_THRESHOLD', _fn)
 
         # === ALTITUDE SAFETY (limits from SafetyManager; per-follower flag via is_altitude_safety_enabled()) ===
         self.min_altitude_limit = self.altitude_limits.min_altitude
         self.max_altitude_limit = self.altitude_limits.max_altitude
-        self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 0.1)
+        self.altitude_check_interval = fcm.get_param('ALTITUDE_CHECK_INTERVAL', _fn)
         _safety_behavior = self.safety_manager.get_safety_behavior(self._follower_config_name)
         self.rtl_on_altitude_violation = _safety_behavior.rtl_on_violation
 
-        # === COMMAND SMOOTHING ===
-        self.command_smoothing_enabled = config.get('COMMAND_SMOOTHING_ENABLED', True)
-        self.smoothing_factor = config.get('SMOOTHING_FACTOR', 0.85)
+        # === COMMAND SMOOTHING (from FollowerConfigManager) ===
+        self.command_smoothing_enabled = fcm.get_param('COMMAND_SMOOTHING_ENABLED', _fn)
+        self.smoothing_factor = fcm.get_param('SMOOTHING_FACTOR', _fn)
 
         # === SAFETY (from SafetyManager — single source of truth) ===
         self.emergency_stop_enabled = _safety_behavior.emergency_stop_enabled
 
-        # === PERFORMANCE ===
-        self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 50.0)
+        # === PERFORMANCE (from FollowerConfigManager) ===
+        self.control_update_rate = fcm.get_param('CONTROL_UPDATE_RATE', _fn)
 
         # === RUNTIME STATE ===
 

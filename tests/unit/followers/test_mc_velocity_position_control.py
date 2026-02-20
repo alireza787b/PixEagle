@@ -20,6 +20,7 @@ Control conventions (mc_velocity_position profile):
 import math
 import os
 import sys
+import time
 from unittest.mock import MagicMock, patch, call
 
 # Add src to path for imports
@@ -77,6 +78,11 @@ def _build_position_stub(
     follower.smoothing_factor = smoothing_factor
     follower._last_yaw_command = 0.0
     follower._last_vel_z_command = 0.0
+    follower._last_update_time = time.time()
+
+    # YawRateSmoother stub (disabled — tests verify PID/threshold logic, not smoother)
+    from classes.followers.yaw_rate_smoother import YawRateSmoother
+    follower.yaw_smoother = YawRateSmoother(enabled=False)
 
     # --- Velocity limits --------------------------------------------------
     follower.max_yaw_rate = max_yaw_rate

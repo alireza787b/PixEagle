@@ -35,6 +35,7 @@ Control Strategy:
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
+from classes.follower_config_manager import get_follower_config_manager
 from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
 from typing import Tuple, Dict, Optional, Any
@@ -109,7 +110,8 @@ class MCVelocityGroundFollower(BaseFollower):
         self.base_adjustment_factor_y = config.get('BASE_ADJUSTMENT_FACTOR_Y', 0.1)
         self.altitude_factor = config.get('ALTITUDE_FACTOR', 0.005)
         # GainScheduling removed in v6.0 — all gains from PID.PID_GAINS
-        self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
+        fcm = get_follower_config_manager()
+        self.control_update_rate = fcm.get_param('CONTROL_UPDATE_RATE', 'MC_VELOCITY_GROUND')
         self.coordinate_corrections_enabled = config.get('COORDINATE_CORRECTIONS_ENABLED', True)
         
         # Initialize control system components

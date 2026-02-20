@@ -53,8 +53,11 @@ Technical Details:
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
+from classes.follower_config_manager import get_follower_config_manager
+from classes.followers.yaw_rate_smoother import YawRateSmoother
 from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
+import time
 from typing import Tuple, Optional, Dict, Any
 from datetime import datetime
 
@@ -111,7 +114,15 @@ class MCVelocityPositionFollower(BaseFollower):
 
         # Control configuration
         self.yaw_control_enabled = config.get('ENABLE_YAW_CONTROL', True)  # Always enabled for this mode
-        self.altitude_control_enabled = config.get('ENABLE_ALTITUDE_CONTROL', False)
+
+        # Shared params from FollowerConfigManager (General → FollowerOverrides → Fallback)
+        fcm = get_follower_config_manager()
+        _fn = 'MC_VELOCITY_POSITION'
+        self.altitude_control_enabled = fcm.get_param('ENABLE_ALTITUDE_CONTROL', _fn)
+        self.target_lost_timeout = fcm.get_param('TARGET_LOSS_TIMEOUT', _fn)
+        self.control_update_rate = fcm.get_param('CONTROL_UPDATE_RATE', _fn)
+        self.command_smoothing_enabled = fcm.get_param('COMMAND_SMOOTHING_ENABLED', _fn)
+        self.smoothing_factor = fcm.get_param('SMOOTHING_FACTOR', _fn)
 
         # Use base class cached limits (via SafetyManager)
         self.min_descent_height = self.altitude_limits.min_altitude
@@ -120,14 +131,15 @@ class MCVelocityPositionFollower(BaseFollower):
         # Internal unit is rad/s; use base class cached rate limits
         self.max_yaw_rate = self.rate_limits.yaw  # Already in rad/s from SafetyManager
         self.yaw_control_threshold = config.get('YAW_CONTROL_THRESHOLD', 0.02)
-        self.target_lost_timeout = config.get('TARGET_LOSS_TIMEOUT', 3.0)
-        self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
-        self.command_smoothing_enabled = config.get('COMMAND_SMOOTHING_ENABLED', True)
-        self.smoothing_factor = config.get('SMOOTHING_FACTOR', 0.8)
+
+        # YawRateSmoother (4-stage pipeline: deadzone → speed-scaling → rate-limiting → EMA)
+        yaw_smoothing_config = fcm.get_yaw_smoothing_config(_fn)
+        self.yaw_smoother = YawRateSmoother.from_config(yaw_smoothing_config)
 
         # Command smoothing state
         self._last_yaw_command = 0.0
         self._last_vel_z_command = 0.0
+        self._last_update_time = time.time()
 
         # Performance tracking
         self._control_statistics = {
@@ -286,28 +298,22 @@ class MCVelocityPositionFollower(BaseFollower):
             # Calculate horizontal error for dead zone check
             yaw_error = self.pid_yaw_rate.setpoint - target_x
 
-            # Apply yaw control with dead zone to prevent unnecessary oscillation
+            # Apply yaw control with PID dead zone gating
             if abs(yaw_error) > self.yaw_control_threshold:
                 # Pass measurement directly — PID computes error = setpoint - target_x internally
                 yaw_rate_raw = self.pid_yaw_rate(target_x)
-
-                # Apply smoothing if enabled
-                if self.command_smoothing_enabled:
-                    yaw_rate_command = (self.smoothing_factor * self._last_yaw_command +
-                                       (1 - self.smoothing_factor) * yaw_rate_raw)
-                else:
-                    yaw_rate_command = yaw_rate_raw
-
-                self._last_yaw_command = yaw_rate_command
-                logger.debug(f"Yaw control active: error={yaw_error:.3f}, command={yaw_rate_command:.3f}")
             else:
-                # Decay smoothly toward 0 instead of snapping (prevents micro-oscillations at boundary)
-                if self.command_smoothing_enabled:
-                    yaw_rate_command = self.smoothing_factor * self._last_yaw_command
-                else:
-                    yaw_rate_command = 0.0
-                self._last_yaw_command = yaw_rate_command
-                logger.debug(f"Yaw within dead zone: error={yaw_error:.3f}, decaying command={yaw_rate_command:.3f}")
+                # Within dead zone — pass zero to smoother (it will decay smoothly)
+                yaw_rate_raw = 0.0
+                logger.debug(f"Yaw within dead zone: error={yaw_error:.3f}")
+
+            # Apply YawRateSmoother (deadzone + rate-limiting + speed-scaling + EMA)
+            now = time.time()
+            dt = now - self._last_update_time
+            self._last_update_time = now
+            yaw_rate_command = self.yaw_smoother.apply(yaw_rate_raw, dt)
+            self._last_yaw_command = yaw_rate_command
+            logger.debug(f"Yaw command: raw={yaw_rate_raw:.3f}, smoothed={yaw_rate_command:.3f}")
             
             # === ALTITUDE CONTROL CALCULATION ===
             vel_z_command = 0.0

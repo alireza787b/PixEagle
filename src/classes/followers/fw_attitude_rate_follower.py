@@ -47,6 +47,7 @@ Control Architecture:
 from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.parameters import Parameters
+from classes.follower_config_manager import get_follower_config_manager
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.safety_types import TargetLossAction  # authoritative enum — avoids cross-type == always False
 import logging
@@ -166,10 +167,14 @@ class FWAttitudeRateFollower(BaseFollower):
         self.turn_coordination_gain = config.get('TURN_COORDINATION_GAIN', 1.0)
         self.slip_angle_limit = config.get('SLIP_ANGLE_LIMIT', 5.0)
 
+        # === Shared params from FollowerConfigManager (General → FollowerOverrides → Fallback) ===
+        fcm = get_follower_config_manager()
+        _fn = 'FW_ATTITUDE_RATE'
+
         # === Altitude Safety (limits from SafetyManager; per-follower flag via is_altitude_safety_enabled()) ===
         self.min_altitude_limit = self.altitude_limits.min_altitude
         self.max_altitude_limit = self.altitude_limits.max_altitude
-        self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 0.1)
+        self.altitude_check_interval = fcm.get_param('ALTITUDE_CHECK_INTERVAL', _fn)
         _safety_behavior = self.safety_manager.get_safety_behavior(self._follower_config_name)
         self.rtl_on_altitude_violation = _safety_behavior.rtl_on_violation
 
@@ -179,16 +184,16 @@ class FWAttitudeRateFollower(BaseFollower):
         self.stall_recovery_throttle = config.get('STALL_RECOVERY_THROTTLE', 1.0)
 
         # === Target Loss Handling ===
-        self.target_loss_timeout = config.get('TARGET_LOSS_TIMEOUT', 3.0)
+        self.target_loss_timeout = fcm.get_param('TARGET_LOSS_TIMEOUT', _fn)
         # TARGET_LOSS_ACTION delegated to SafetyManager (GlobalLimits → FollowerOverrides)
         self.target_loss_action = _safety_behavior.target_loss_action
         self.orbit_radius = config.get('ORBIT_RADIUS', 100.0)
-        self.target_loss_coord_threshold = config.get('TARGET_LOSS_COORDINATE_THRESHOLD', 1.5)
+        self.target_loss_coord_threshold = fcm.get_param('TARGET_LOSS_COORDINATE_THRESHOLD', _fn)
 
-        # === Performance Tuning ===
-        self.control_update_rate = config.get('CONTROL_UPDATE_RATE', 20.0)
-        self.enable_command_smoothing = config.get('COMMAND_SMOOTHING_ENABLED', True)
-        self.smoothing_factor = config.get('SMOOTHING_FACTOR', 0.85)
+        # === Performance Tuning (from FollowerConfigManager) ===
+        self.control_update_rate = fcm.get_param('CONTROL_UPDATE_RATE', _fn)
+        self.enable_command_smoothing = fcm.get_param('COMMAND_SMOOTHING_ENABLED', _fn)
+        self.smoothing_factor = fcm.get_param('SMOOTHING_FACTOR', _fn)
 
         # === State Variables ===
         self._init_state_variables()

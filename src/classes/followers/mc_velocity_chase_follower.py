@@ -72,6 +72,7 @@ from classes.followers.base_follower import BaseFollower
 from classes.followers.custom_pid import CustomPID
 from classes.followers.yaw_rate_smoother import YawRateSmoother  # WP9: canonical import
 from classes.parameters import Parameters
+from classes.follower_config_manager import get_follower_config_manager
 from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
 import numpy as np
@@ -156,13 +157,16 @@ class MCVelocityChaseFollower(BaseFollower):
         self.max_forward_velocity = self.velocity_limits.forward
         self.forward_ramp_rate = config.get('FORWARD_RAMP_RATE', 0.5)
         self.ramp_down_on_target_loss = config.get('RAMP_DOWN_ON_TARGET_LOSS', True)
-        self.target_loss_timeout = config.get('TARGET_LOSS_TIMEOUT', 2.0)
-        self.enable_altitude_control = config.get('ENABLE_ALTITUDE_CONTROL', False)
-        self.lateral_guidance_mode = config.get('LATERAL_GUIDANCE_MODE', 'coordinated_turn')
-        self.guidance_mode_switch_velocity = config.get('GUIDANCE_MODE_SWITCH_VELOCITY', 3.0)
-        self.enable_auto_mode_switching = config.get('ENABLE_AUTO_MODE_SWITCHING', False)
-        self.mode_switch_hysteresis = config.get('MODE_SWITCH_HYSTERESIS', 0.5)
-        self.min_mode_switch_interval = config.get('MIN_MODE_SWITCH_INTERVAL', 2.0)
+        # Shared params from FollowerConfigManager (General → FollowerOverrides → Fallback)
+        fcm = get_follower_config_manager()
+        _fn = 'MC_VELOCITY_CHASE'
+        self.target_loss_timeout = fcm.get_param('TARGET_LOSS_TIMEOUT', _fn)
+        self.enable_altitude_control = fcm.get_param('ENABLE_ALTITUDE_CONTROL', _fn)
+        self.lateral_guidance_mode = fcm.get_param('LATERAL_GUIDANCE_MODE', _fn)
+        self.guidance_mode_switch_velocity = fcm.get_param('GUIDANCE_MODE_SWITCH_VELOCITY', _fn)
+        self.enable_auto_mode_switching = fcm.get_param('ENABLE_AUTO_MODE_SWITCHING', _fn)
+        self.mode_switch_hysteresis = fcm.get_param('MODE_SWITCH_HYSTERESIS', _fn)
+        self.min_mode_switch_interval = fcm.get_param('MIN_MODE_SWITCH_INTERVAL', _fn)
         self.last_mode_switch_time = 0.0
         # v5.x: altitude_safety_enabled, rtl_on_altitude_violation, emergency_stop_enabled
         # are now delegated to SafetyManager (via base class). Use:
@@ -172,17 +176,17 @@ class MCVelocityChaseFollower(BaseFollower):
         # Use base class cached altitude limits (via SafetyManager)
         self.min_altitude_limit = self.altitude_limits.min_altitude
         self.max_altitude_limit = self.altitude_limits.max_altitude
-        self.altitude_check_interval = config.get('ALTITUDE_CHECK_INTERVAL', 0.1)  # 100ms for safety
+        self.altitude_check_interval = fcm.get_param('ALTITUDE_CHECK_INTERVAL', _fn)
         self.altitude_warning_buffer = self.altitude_limits.warning_buffer
         self.max_tracking_error = config.get('MAX_TRACKING_ERROR', 1.5)
-        self.velocity_smoothing_enabled = config.get('COMMAND_SMOOTHING_ENABLED', True)
-        self.smoothing_factor = config.get('SMOOTHING_FACTOR', 0.8)
+        self.velocity_smoothing_enabled = fcm.get_param('COMMAND_SMOOTHING_ENABLED', _fn)
+        self.smoothing_factor = fcm.get_param('SMOOTHING_FACTOR', _fn)
         self.min_forward_velocity_threshold = config.get('MIN_FORWARD_VELOCITY_THRESHOLD', 0.2)
         # Target loss stop velocity: velocity to ramp to when target is lost (0.0 = full stop)
         self.target_loss_stop_velocity = config.get('TARGET_LOSS_STOP_VELOCITY', 0.0)
         # Coordinate threshold for detecting lost target (abs value > this = lost)
         # v5.7.1: Fallback 1.5 matches normalized coords [-1,1] - target at edge = near loss
-        self.target_loss_coord_threshold = config.get('TARGET_LOSS_COORDINATE_THRESHOLD', 1.5)
+        self.target_loss_coord_threshold = fcm.get_param('TARGET_LOSS_COORDINATE_THRESHOLD', _fn)
         self.ramp_update_rate = config.get('RAMP_UPDATE_RATE', 10.0)
         self.pid_update_rate = config.get('PID_UPDATE_RATE', 20.0)
 
@@ -213,8 +217,8 @@ class MCVelocityChaseFollower(BaseFollower):
         self.target_confidence_threshold = config.get('TARGET_CONFIDENCE_THRESHOLD', 0.5)
         self.max_reasonable_target_velocity = config.get('MAX_REASONABLE_TARGET_VELOCITY', 50.0)
 
-        # === v5.7.0: YawRateSmoother configuration ===
-        yaw_smoothing_config = config.get('YAW_SMOOTHING', {})
+        # === v5.7.0: YawRateSmoother configuration (from FollowerConfigManager) ===
+        yaw_smoothing_config = fcm.get_yaw_smoothing_config(_fn)
         self.yaw_smoother = YawRateSmoother.from_config(yaw_smoothing_config)
         logger.debug(f"YawRateSmoother initialized: enabled={self.yaw_smoother.enabled}, "
                     f"deadzone={self.yaw_smoother.deadzone_deg_s}°/s")

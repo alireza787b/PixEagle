@@ -76,6 +76,7 @@ from dataclasses import dataclass
 from classes.followers.base_follower import BaseFollower
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.parameters import Parameters
+from classes.follower_config_manager import get_follower_config_manager
 
 from classes.followers.yaw_rate_smoother import YawRateSmoother  # WP9: canonical import
 
@@ -147,29 +148,30 @@ class GMVelocityVectorFollower(BaseFollower):
         self.ramp_acceleration = self.config.get('RAMP_ACCELERATION', 0.25)
         self.current_velocity_magnitude = self.config.get('INITIAL_VELOCITY', 0.0)
 
+        # === Shared params from FollowerConfigManager (General → FollowerOverrides → Fallback) ===
+        fcm = get_follower_config_manager()
+        _fn = 'GM_VELOCITY_VECTOR'
+
         # === Control Enablement ===
-        self.enable_altitude_control = self.config.get('ENABLE_ALTITUDE_CONTROL', False)
+        self.enable_altitude_control = fcm.get_param('ENABLE_ALTITUDE_CONTROL', _fn)
         self.yaw_rate_gain = self.config.get('YAW_RATE_GAIN', 0.5)
 
-        # === Lateral Guidance Mode (v5.6.0) ===
-        # Two strategies for lateral target tracking:
-        # - sideslip: Direct lateral velocity (v_right from gimbal, yaw_rate = 0)
-        # - coordinated_turn: Turn-to-track (v_right = 0, yaw_rate from gimbal yaw)
-        self.lateral_guidance_mode = self.config.get('LATERAL_GUIDANCE_MODE', 'sideslip')
+        # === Lateral Guidance Mode (from FollowerConfigManager) ===
+        self.lateral_guidance_mode = fcm.get_param('LATERAL_GUIDANCE_MODE', _fn)
         self.active_lateral_mode = self.lateral_guidance_mode
         logger.info(f"Lateral guidance mode: {self.lateral_guidance_mode}")
 
-        # === Auto Mode Switching (optional) ===
-        self.enable_auto_mode_switching = self.config.get('ENABLE_AUTO_MODE_SWITCHING', False)
-        self.guidance_mode_switch_velocity = self.config.get('GUIDANCE_MODE_SWITCH_VELOCITY', 3.0)
+        # === Auto Mode Switching (from FollowerConfigManager) ===
+        self.enable_auto_mode_switching = fcm.get_param('ENABLE_AUTO_MODE_SWITCHING', _fn)
+        self.guidance_mode_switch_velocity = fcm.get_param('GUIDANCE_MODE_SWITCH_VELOCITY', _fn)
 
-        # === Mode Switch Hysteresis (prevents oscillation) ===
-        self.mode_switch_hysteresis = self.config.get('MODE_SWITCH_HYSTERESIS', 0.5)
-        self.min_mode_switch_interval = self.config.get('MIN_MODE_SWITCH_INTERVAL', 2.0)
+        # === Mode Switch Hysteresis (from FollowerConfigManager) ===
+        self.mode_switch_hysteresis = fcm.get_param('MODE_SWITCH_HYSTERESIS', _fn)
+        self.min_mode_switch_interval = fcm.get_param('MIN_MODE_SWITCH_INTERVAL', _fn)
         self.last_mode_switch_time = 0.0
 
-        # === Yaw Rate Smoother (enterprise-grade smoothing for coordinated_turn) ===
-        yaw_smoothing_config = self.config.get('YAW_SMOOTHING', {})
+        # === Yaw Rate Smoother (from FollowerConfigManager) ===
+        yaw_smoothing_config = fcm.get_yaw_smoothing_config(_fn)
         self.yaw_smoother = YawRateSmoother.from_config(yaw_smoothing_config)
         logger.debug(f"YawRateSmoother: enabled={self.yaw_smoother.enabled}, "
                     f"deadzone={self.yaw_smoother.deadzone_deg_s} deg/s")
@@ -182,7 +184,7 @@ class GMVelocityVectorFollower(BaseFollower):
         # === Altitude Safety (limits from SafetyManager; per-follower flag via is_altitude_safety_enabled()) ===
         self.min_altitude_safety = self.altitude_limits.min_altitude
         self.max_altitude_safety = self.altitude_limits.max_altitude
-        self.altitude_check_interval = self.config.get('ALTITUDE_CHECK_INTERVAL', 1.0)
+        self.altitude_check_interval = fcm.get_param('ALTITUDE_CHECK_INTERVAL', _fn)
         self.altitude_warning_buffer = self.altitude_limits.warning_buffer
         self.altitude_violation_count = 0
         self.last_altitude_check_time = 0.0
@@ -191,16 +193,16 @@ class GMVelocityVectorFollower(BaseFollower):
         self.safety_violations_count = 0
 
         # === Target Loss ===
-        self.target_loss_timeout = self.config.get('TARGET_LOSS_TIMEOUT', 3.0)
+        self.target_loss_timeout = fcm.get_param('TARGET_LOSS_TIMEOUT', _fn)
         self.enable_velocity_decay = self.config.get('ENABLE_VELOCITY_DECAY', True)
         self.velocity_decay_rate = self.config.get('VELOCITY_DECAY_RATE', 0.5)
         self.last_valid_time = time.time()
         self.last_velocity_vector: Optional[Vector3D] = None
 
-        # === Performance ===
-        self.update_rate = self.config.get('CONTROL_UPDATE_RATE', 20.0)
-        self.command_smoothing_enabled = self.config.get('COMMAND_SMOOTHING_ENABLED', True)
-        self.smoothing_factor = self.config.get('SMOOTHING_FACTOR', 0.8)
+        # === Performance (from FollowerConfigManager) ===
+        self.update_rate = fcm.get_param('CONTROL_UPDATE_RATE', _fn)
+        self.command_smoothing_enabled = fcm.get_param('COMMAND_SMOOTHING_ENABLED', _fn)
+        self.smoothing_factor = fcm.get_param('SMOOTHING_FACTOR', _fn)
         self.last_command_vector: Optional[Vector3D] = None
 
         # === Advanced: Mount Offsets ===
