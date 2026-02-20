@@ -76,7 +76,6 @@ class Parameters:
     # Grouped sections that should NOT be flattened
     _GROUPED_SECTIONS = [
         'Safety',        # Unified safety config (v5.0.0+)
-        'Follower',      # Unified follower config (v6.1.0+)
         # Per-follower sections (unique params only)
         'MC_VELOCITY_POSITION', 'MC_VELOCITY_DISTANCE', 'MC_VELOCITY_GROUND',
         'MC_VELOCITY_CHASE', 'MC_ATTITUDE_RATE',
@@ -86,6 +85,15 @@ class Parameters:
         'GimbalTracker',
         'ClassicTracker_Common',
         'CSRT_Tracker', 'KCF_Tracker', 'DLIB_Tracker', 'SmartTracker'
+    ]
+
+    # Hybrid sections: stored as grouped dict AND flat params flattened to class attrs.
+    # Use for sections that have both simple values (accessed as Parameters.ATTR)
+    # and nested sub-sections (accessed as Parameters.Section['SubSection']).
+    _HYBRID_SECTIONS = [
+        'Follower',      # Unified follower config (v6.1.0+)
+                         # Flat: FOLLOWER_MODE, USE_MAVLINK2REST, visualization params, etc.
+                         # Nested: General, FollowerOverrides (for FollowerConfigManager)
     ]
 
     # Axis name to limit name mapping for get_velocity_limit()
@@ -122,8 +130,17 @@ class Parameters:
             if params:  # Check if params is not None
                 # Check if this section should be kept as a group
                 if section in cls._GROUPED_SECTIONS:
-                    # Keep as grouped section for followers, trackers, and safety limits
+                    # Keep as grouped section for trackers and safety limits
                     setattr(cls, section, params)
+                elif section in cls._HYBRID_SECTIONS:
+                    # Hybrid: store grouped dict AND flatten non-dict values
+                    # e.g. Follower section has flat params (FOLLOWER_MODE) and
+                    # nested sub-sections (General, FollowerOverrides)
+                    setattr(cls, section, params)
+                    if isinstance(params, dict):
+                        for key, value in params.items():
+                            if not isinstance(value, dict):
+                                setattr(cls, key.upper(), value)
                 elif isinstance(params, dict):
                     # Flatten other sections (legacy behavior)
                     for key, value in params.items():
