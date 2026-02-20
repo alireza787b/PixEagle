@@ -2965,6 +2965,16 @@ sections:
         reboot_required: true
         min: 0
         max: 10000
+      General:
+        type: object
+        description: Shared follower operational defaults (v6.1.0+)
+        reload_tier: follower_restart
+        reboot_required: false
+      FollowerOverrides:
+        type: object
+        description: Per-follower operational config overrides (sparse)
+        reload_tier: follower_restart
+        reboot_required: false
   FOLLOWER_CIRCUIT_BREAKER:
     type: boolean
     default: true

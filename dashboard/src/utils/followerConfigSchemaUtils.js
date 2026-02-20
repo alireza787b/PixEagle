@@ -147,6 +147,152 @@ export const FOLLOWER_CONFIG_PROPERTIES = [
 ];
 
 /**
+ * YAW_SMOOTHING sub-properties (separate array to avoid name collisions with ENABLED)
+ */
+export const YAW_SMOOTHING_PROPERTIES = [
+  {
+    name: 'ENABLED',
+    type: 'boolean',
+    unit: '',
+    description: 'Master enable for yaw smoothing pipeline',
+    category: 'yaw_smoothing',
+    default: true
+  },
+  {
+    name: 'DEADZONE_DEG_S',
+    type: 'number',
+    unit: 'deg/s',
+    description: 'Ignore yaw rates below this threshold',
+    category: 'yaw_smoothing',
+    min: 0,
+    max: 10,
+    step: 0.1,
+    default: 0.5
+  },
+  {
+    name: 'MAX_RATE_CHANGE_DEG_S2',
+    type: 'number',
+    unit: 'deg/s\u00B2',
+    description: 'Maximum yaw acceleration',
+    category: 'yaw_smoothing',
+    min: 1,
+    max: 360,
+    step: 1,
+    default: 90.0
+  },
+  {
+    name: 'SMOOTHING_ALPHA',
+    type: 'number',
+    unit: '',
+    description: 'EMA coefficient (0=max smoothing, 1=no smoothing)',
+    category: 'yaw_smoothing',
+    min: 0,
+    max: 1,
+    step: 0.01,
+    default: 0.7
+  },
+  {
+    name: 'ENABLE_SPEED_SCALING',
+    type: 'boolean',
+    unit: '',
+    description: 'Scale yaw authority based on forward speed',
+    category: 'yaw_smoothing',
+    default: true
+  },
+  {
+    name: 'MIN_SPEED_THRESHOLD',
+    type: 'number',
+    unit: 'm/s',
+    description: 'Below this speed, reduce yaw authority',
+    category: 'yaw_smoothing',
+    min: 0,
+    max: 10,
+    step: 0.1,
+    default: 0.5
+  },
+  {
+    name: 'MAX_SPEED_THRESHOLD',
+    type: 'number',
+    unit: 'm/s',
+    description: 'Above this speed, full yaw authority',
+    category: 'yaw_smoothing',
+    min: 0,
+    max: 30,
+    step: 0.5,
+    default: 5.0
+  },
+  {
+    name: 'LOW_SPEED_YAW_FACTOR',
+    type: 'number',
+    unit: '',
+    description: 'Yaw rate reduction factor at low speed',
+    category: 'yaw_smoothing',
+    min: 0,
+    max: 1,
+    step: 0.01,
+    default: 0.5
+  }
+];
+
+/**
+ * Default values for all 12 General flat properties
+ */
+export const GENERAL_DEFAULTS = {
+  CONTROL_UPDATE_RATE: 20.0,
+  COMMAND_SMOOTHING_ENABLED: true,
+  SMOOTHING_FACTOR: 0.8,
+  TARGET_LOSS_TIMEOUT: 3.0,
+  TARGET_LOSS_COORDINATE_THRESHOLD: 1.5,
+  LATERAL_GUIDANCE_MODE: 'coordinated_turn',
+  ENABLE_AUTO_MODE_SWITCHING: false,
+  GUIDANCE_MODE_SWITCH_VELOCITY: 3.0,
+  MODE_SWITCH_HYSTERESIS: 0.5,
+  MIN_MODE_SWITCH_INTERVAL: 2.0,
+  ENABLE_ALTITUDE_CONTROL: false,
+  ALTITUDE_CHECK_INTERVAL: 0.1
+};
+
+/**
+ * Default values for YAW_SMOOTHING sub-properties
+ */
+export const YAW_SMOOTHING_DEFAULTS = {
+  ENABLED: true,
+  DEADZONE_DEG_S: 0.5,
+  MAX_RATE_CHANGE_DEG_S2: 90.0,
+  SMOOTHING_ALPHA: 0.7,
+  ENABLE_SPEED_SCALING: true,
+  MIN_SPEED_THRESHOLD: 0.5,
+  MAX_SPEED_THRESHOLD: 5.0,
+  LOW_SPEED_YAW_FACTOR: 0.5
+};
+
+/**
+ * Registry of nested sub-sections within the Follower config.
+ * Each entry describes a config key whose value is a nested object
+ * with its own property schema and defaults.
+ * The FollowerConfigEditor renders these generically as collapsible accordions.
+ * To add a new nested sub-section, add an entry here — no editor code changes needed.
+ */
+export const NESTED_SUBSECTIONS = {
+  YAW_SMOOTHING: {
+    label: 'Yaw Smoothing Pipeline',
+    category: 'yaw_smoothing',
+    properties: YAW_SMOOTHING_PROPERTIES,
+    defaults: YAW_SMOOTHING_DEFAULTS,
+    statusKey: 'ENABLED',
+  }
+};
+
+/**
+ * Get property metadata for a nested sub-section by key and property name
+ */
+export function getSubsectionPropertyByName(subsectionKey, propName) {
+  const subsection = NESTED_SUBSECTIONS[subsectionKey];
+  if (!subsection) return undefined;
+  return subsection.properties.find(p => p.name === propName);
+}
+
+/**
  * Known follower modes — reused from safetySchemaUtils.js
  */
 export { KNOWN_FOLLOWERS, FOLLOWER_TYPES } from './safetySchemaUtils';
@@ -171,6 +317,21 @@ export function getPropertiesByCategory(category) {
 export function getAddableProperties(currentProperties) {
   const setKeys = Object.keys(currentProperties || {});
   return FOLLOWER_CONFIG_PROPERTIES.filter(p => !setKeys.includes(p.name));
+}
+
+/**
+ * Get YAW_SMOOTHING property metadata by name
+ */
+export function getYawSmoothingPropertyByName(name) {
+  return YAW_SMOOTHING_PROPERTIES.find(p => p.name === name);
+}
+
+/**
+ * Get YAW_SMOOTHING properties not yet set
+ */
+export function getAddableYawSmoothingProperties(currentProperties) {
+  const setKeys = Object.keys(currentProperties || {});
+  return YAW_SMOOTHING_PROPERTIES.filter(p => !setKeys.includes(p.name));
 }
 
 /**
@@ -223,15 +384,27 @@ export const PROPERTY_CATEGORIES = {
     label: 'Altitude Control',
     icon: 'Height',
     color: 'success'
+  },
+  yaw_smoothing: {
+    label: 'Yaw Smoothing Pipeline',
+    icon: 'RotateRight',
+    color: 'secondary'
   }
 };
 
 const followerConfigSchemaUtils = {
   FOLLOWER_CONFIG_PROPERTIES,
+  YAW_SMOOTHING_PROPERTIES,
+  GENERAL_DEFAULTS,
+  YAW_SMOOTHING_DEFAULTS,
+  NESTED_SUBSECTIONS,
   PROPERTY_CATEGORIES,
   getPropertyByName,
   getPropertiesByCategory,
   getAddableProperties,
+  getYawSmoothingPropertyByName,
+  getAddableYawSmoothingProperties,
+  getSubsectionPropertyByName,
   getFollowerByName,
   getFollowersByType
 };

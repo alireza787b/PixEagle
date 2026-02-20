@@ -3,738 +3,262 @@
  * FollowerConfigEditor - Specialized editor for Follower operational config
  *
  * Provides a unified, schema-driven interface for editing:
- * - General: Default operational params for all followers
- * - FollowerOverrides: Per-follower operational overrides
+ * - General: Default operational params for all followers (non-removable)
+ * - FollowerOverrides: Per-follower operational overrides (sparse)
  *
- * Mirrors SafetyLimitsEditor pattern exactly for UI consistency.
+ * Uses shared components from PropertyEditorShared for consistent UX.
  *
  * Features:
- * - Schema-driven property suggestions
- * - Follower selector for overrides
- * - Add/Edit/Remove properties
- * - Visual comparison with General defaults
- * - Enum and boolean type support
+ * - Schema-driven property suggestions via followerConfigSchemaUtils
+ * - Generic nested sub-section rendering (driven by NESTED_SUBSECTIONS registry)
+ * - Non-removable properties in General mode
+ * - Override left border + badge for FollowerOverrides
+ * - Collapsible inherited-from-General summary
+ * - Enum, boolean, and number type support
  */
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
-  Box, Typography, Paper, Alert, Chip, Divider,
+  Box, Typography, Paper, Alert, Chip, Divider, Collapse,
   Table, TableBody, TableCell, TableHead, TableRow,
-  TextField, IconButton, Tooltip, Button, Switch,
-  Dialog, DialogTitle, DialogContent, DialogActions,
-  FormControl, InputLabel, Select, MenuItem, ListSubheader,
-  InputAdornment, Slider, Card, CardContent
+  IconButton, Tooltip, Button
 } from '@mui/material';
 import {
   Add, Delete, Info, Speed, Height, Tune,
-  GpsOff, Navigation, FlightTakeoff, CameraAlt, Flight,
-  Warning, Edit
+  GpsOff, Navigation, RotateRight,
+  KeyboardArrowDown, KeyboardArrowUp
 } from '@mui/icons-material';
 
 import {
   PROPERTY_CATEGORIES,
+  GENERAL_DEFAULTS,
+  NESTED_SUBSECTIONS,
   getAddableProperties,
   getPropertyByName,
+  getSubsectionPropertyByName,
   getFollowersByType
 } from '../../utils/followerConfigSchemaUtils';
 import { FOLLOWER_TYPES } from '../../utils/safetySchemaUtils';
-import { clampNumericValue, parseCommittedNumeric } from '../../utils/numericInput';
 import { useResponsive } from '../../hooks/useResponsive';
+import {
+  PropertyRow, PropertyCard, AddPropertyDialog,
+  FollowerSelector, EmptyFollowerState
+} from './PropertyEditorShared';
 
-// Category icons mapping
+// Category icons (Follower-specific)
 const categoryIcons = {
   timing: <Speed fontSize="small" color="primary" />,
   smoothing: <Tune fontSize="small" color="info" />,
   target_loss: <GpsOff fontSize="small" color="error" />,
   guidance: <Navigation fontSize="small" color="warning" />,
-  altitude: <Height fontSize="small" color="success" />
+  altitude: <Height fontSize="small" color="success" />,
+  yaw_smoothing: <RotateRight fontSize="small" color="secondary" />
 };
 
-// Follower type icons
-const followerTypeIcons = {
-  multicopter: <FlightTakeoff fontSize="small" />,
-  gimbal: <CameraAlt fontSize="small" />,
-  fixed_wing: <Flight fontSize="small" />
-};
+// Static label maps derived from schema constants
+const propertyCategoryLabels = Object.fromEntries(
+  Object.entries(PROPERTY_CATEGORIES).map(([k, v]) => [k, v.label])
+);
+const followerTypeLabels = Object.fromEntries(
+  Object.entries(FOLLOWER_TYPES).map(([k, v]) => [k, v.label])
+);
+
+// Pre-compute the set of nested subsection keys for filtering
+const nestedSubsectionKeys = new Set(Object.keys(NESTED_SUBSECTIONS));
 
 /**
- * Single property row with inline editing
+ * NestedSubsection - Generic collapsible accordion for a nested object sub-section.
+ * Driven entirely by the NESTED_SUBSECTIONS registry — no hardcoded key names.
  */
-const PropertyRow = ({
-  propertyName,
-  value,
-  generalValue,
+const NestedSubsection = ({
+  subsectionKey,
+  data,
+  referenceData,
   onChange,
   onRemove,
   showComparison,
-  disabled
+  removable = true,
+  disabled,
+  useCardLayout
 }) => {
-  const propMeta = getPropertyByName(propertyName);
-  const [localValue, setLocalValue] = useState(() => String(value ?? ''));
-  const [isFocused, setIsFocused] = useState(false);
+  const [expanded, setExpanded] = useState(true);
+  const config = NESTED_SUBSECTIONS[subsectionKey];
 
-  const isCustomProperty = !propMeta;
-  const min = propMeta?.min ?? 0;
-  const max = propMeta?.max ?? 1000;
-  const step = propMeta?.step ?? 0.1;
+  // Merge with schema defaults so all sub-properties are always visible
+  const mergedData = useMemo(() => ({
+    ...config.defaults,
+    ...(data || {})
+  }), [data, config.defaults]);
 
-  useEffect(() => {
-    if (!isFocused) {
-      setLocalValue(String(value ?? ''));
-    }
-  }, [value, isFocused]);
+  // Sparse write-back: only persist the changed key on top of original sparse data
+  const handlePropChange = useCallback((propName, newValue) => {
+    onChange({ ...(data || {}), [propName]: newValue });
+  }, [data, onChange]);
 
-  // Boolean type
-  if (propMeta?.type === 'boolean') {
-    return (
-      <TableRow hover>
-        <TableCell>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {categoryIcons[propMeta?.category]}
-            <Box>
-              <Typography variant="body2" fontWeight="medium">
-                {propertyName}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {propMeta?.description}
-              </Typography>
-            </Box>
-          </Box>
-        </TableCell>
-        <TableCell>
-          <Switch
-            checked={Boolean(value)}
-            onChange={(e) => onChange(propertyName, e.target.checked)}
-            disabled={disabled}
-            size="small"
-          />
-        </TableCell>
-        {showComparison && (
-          <TableCell>
-            <Chip
-              label={generalValue !== undefined ? (generalValue ? 'ON' : 'OFF') : 'N/A'}
-              size="small"
-              variant="outlined"
-              color={generalValue ? 'success' : 'default'}
-            />
-          </TableCell>
-        )}
-        <TableCell align="right">
-          <Tooltip title="Remove this override">
-            <IconButton size="small" onClick={() => onRemove(propertyName)} disabled={disabled}>
-              <Delete fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </TableCell>
-      </TableRow>
-    );
-  }
+  const entries = Object.entries(mergedData);
+  const statusValue = config.statusKey ? mergedData[config.statusKey] : null;
 
-  // Enum type
-  if (propMeta?.type === 'enum') {
-    return (
-      <TableRow hover>
-        <TableCell>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {categoryIcons[propMeta?.category]}
-            <Box>
-              <Typography variant="body2" fontWeight="medium">
-                {propertyName}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {propMeta?.description}
-              </Typography>
-            </Box>
-          </Box>
-        </TableCell>
-        <TableCell>
-          <Select
-            size="small"
-            value={value || ''}
-            onChange={(e) => onChange(propertyName, e.target.value)}
-            disabled={disabled}
-            sx={{ minWidth: 160 }}
-          >
-            {(propMeta.options || []).map(opt => (
-              <MenuItem key={opt} value={opt}>{opt}</MenuItem>
-            ))}
-          </Select>
-        </TableCell>
-        {showComparison && (
-          <TableCell>
-            <Chip
-              label={generalValue !== undefined ? generalValue : 'N/A'}
-              size="small"
-              variant="outlined"
-            />
-          </TableCell>
-        )}
-        <TableCell align="right">
-          <Tooltip title="Remove this override">
-            <IconButton size="small" onClick={() => onRemove(propertyName)} disabled={disabled}>
-              <Delete fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        </TableCell>
-      </TableRow>
-    );
-  }
-
-  // Number type (default)
   return (
-    <TableRow hover>
-      <TableCell>
+    <Paper variant="outlined" sx={{ mt: 2 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          px: 2,
+          py: 1.5,
+          cursor: 'pointer',
+          '&:hover': { bgcolor: 'action.hover' }
+        }}
+        onClick={() => setExpanded(!expanded)}
+      >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {isCustomProperty ? <Edit fontSize="small" color="action" /> : categoryIcons[propMeta?.category]}
-          <Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <Typography variant="body2" fontWeight="medium">
-                {propertyName}
-              </Typography>
-              {isCustomProperty && (
-                <Chip label="Custom" size="small" variant="outlined" color="default" sx={{ height: 16, fontSize: '0.6rem' }} />
-              )}
+          {categoryIcons[config.category]}
+          <Typography variant="subtitle2" color="secondary">
+            {config.label}
+          </Typography>
+          {config.statusKey && (
+            <Chip
+              label={statusValue ? 'Active' : 'Disabled'}
+              size="small"
+              color={statusValue ? 'success' : 'default'}
+              sx={{ height: 20, fontSize: '0.65rem' }}
+            />
+          )}
+          {showComparison && (
+            <Chip label="Override" size="small" color="warning" sx={{ height: 18, fontSize: '0.6rem' }} />
+          )}
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {removable && onRemove && (
+            <Tooltip title={`Remove ${config.label} override`}>
+              <IconButton
+                size="small"
+                onClick={(e) => { e.stopPropagation(); onRemove(); }}
+                disabled={disabled}
+              >
+                <Delete fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
+          {expanded ? <KeyboardArrowUp fontSize="small" /> : <KeyboardArrowDown fontSize="small" />}
+        </Box>
+      </Box>
+
+      <Collapse in={expanded}>
+        <Divider />
+        <Box sx={{ p: useCardLayout ? 1 : 0 }}>
+          {useCardLayout ? (
+            <Box sx={{ pt: 1 }}>
+              {entries.map(([propName, propValue]) => (
+                <PropertyCard
+                  key={propName}
+                  propertyName={propName}
+                  value={propValue}
+                  referenceValue={referenceData?.[propName]}
+                  onChange={handlePropChange}
+                  showComparison={showComparison}
+                  removable={false}
+                  disabled={disabled}
+                  propMetaOverride={getSubsectionPropertyByName(subsectionKey, propName)}
+                  categoryIcons={categoryIcons}
+                  referenceLabel="General"
+                />
+              ))}
             </Box>
-            <Typography variant="caption" color="text.secondary">
-              {isCustomProperty ? 'Custom property (not validated)' : propMeta?.description}
-            </Typography>
-          </Box>
+          ) : (
+            <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ width: showComparison ? '30%' : '40%' }}>Property</TableCell>
+                  <TableCell sx={{ width: showComparison ? '25%' : '35%' }}>Value</TableCell>
+                  {showComparison && <TableCell sx={{ width: '25%' }}>General Value</TableCell>}
+                  <TableCell align="right" sx={{ width: showComparison ? '20%' : '25%' }}>&nbsp;</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {entries.map(([propName, propValue]) => (
+                  <PropertyRow
+                    key={propName}
+                    propertyName={propName}
+                    value={propValue}
+                    referenceValue={referenceData?.[propName]}
+                    onChange={handlePropChange}
+                    showComparison={showComparison}
+                    removable={false}
+                    disabled={disabled}
+                    propMetaOverride={getSubsectionPropertyByName(subsectionKey, propName)}
+                    categoryIcons={categoryIcons}
+                    referenceLabel="General"
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </Box>
-      </TableCell>
-      <TableCell>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 200 }}>
-          <TextField
-            size="small"
-            type="number"
-            value={localValue}
-            onChange={(e) => setLocalValue(e.target.value)}
-            onFocus={() => {
-              setIsFocused(true);
-              setLocalValue(String(value ?? ''));
-            }}
-            onBlur={() => {
-              setIsFocused(false);
-              const parsed = parseCommittedNumeric(localValue, 'float');
-              if (!parsed.valid) {
-                setLocalValue(String(value ?? ''));
-                return;
-              }
-              const boundedValue = clampNumericValue(parsed.value, min, max);
-              setLocalValue(String(boundedValue));
-              if (boundedValue !== value) {
-                onChange(propertyName, boundedValue);
-              }
-            }}
-            disabled={disabled}
-            inputProps={{ min, max, step }}
-            sx={{ width: 100 }}
-            InputProps={{
-              endAdornment: propMeta?.unit && (
-                <InputAdornment position="end">
-                  <Typography variant="caption" color="text.secondary">
-                    {propMeta.unit}
-                  </Typography>
-                </InputAdornment>
-              )
-            }}
-          />
-          <Slider
-            size="small"
-            value={typeof value === 'number' ? value : 0}
-            onChange={(_, newValue) => {
-              onChange(propertyName, newValue);
-              setLocalValue(String(newValue));
-            }}
-            min={min}
-            max={max}
-            step={step}
-            disabled={disabled}
-            sx={{ flex: 1, minWidth: 80 }}
-          />
-        </Box>
-      </TableCell>
-      {showComparison && (
-        <TableCell>
-          <Chip
-            label={generalValue !== undefined ? `${generalValue} ${propMeta?.unit || ''}` : 'N/A'}
-            size="small"
-            variant="outlined"
-          />
-        </TableCell>
-      )}
-      <TableCell align="right">
-        <Tooltip title="Remove this override">
-          <IconButton size="small" onClick={() => onRemove(propertyName)} disabled={disabled}>
-            <Delete fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      </TableCell>
-    </TableRow>
+      </Collapse>
+    </Paper>
   );
 };
 
 /**
- * Property Card for mobile/tablet view
+ * Collapsible Inherited Properties Summary for FollowerOverrides.
+ * Shows properties inherited from General that are NOT overridden.
+ * Collapsed by default — expands on click.
  */
-const PropertyCard = ({
-  propertyName,
-  value,
-  generalValue,
-  onChange,
-  onRemove,
-  showComparison,
-  disabled
-}) => {
-  const propMeta = getPropertyByName(propertyName);
-  const [localValue, setLocalValue] = useState(() => String(value ?? ''));
-  const [isFocused, setIsFocused] = useState(false);
+const InheritedSummary = ({ generalDefaults, overrideKeys }) => {
+  const [expanded, setExpanded] = useState(false);
 
-  const isCustomProperty = !propMeta;
-  const min = propMeta?.min ?? 0;
-  const max = propMeta?.max ?? 1000;
-  const step = propMeta?.step ?? 0.1;
+  const inheritedEntries = useMemo(() => {
+    const allGeneral = { ...GENERAL_DEFAULTS, ...generalDefaults };
+    return Object.entries(allGeneral).filter(
+      ([key]) => !overrideKeys.includes(key) && !nestedSubsectionKeys.has(key)
+    );
+  }, [generalDefaults, overrideKeys]);
 
-  useEffect(() => {
-    if (!isFocused) {
-      setLocalValue(String(value ?? ''));
-    }
-  }, [value, isFocused]);
+  if (inheritedEntries.length === 0) return null;
 
   return (
-    <Card variant="outlined" sx={{ mb: 2 }}>
-      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-        {/* Header */}
-        <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1.5 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
-            {isCustomProperty ? <Edit fontSize="small" color="action" /> : categoryIcons[propMeta?.category]}
-            <Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
-                <Typography variant="body2" fontWeight="medium">
-                  {propertyName}
-                </Typography>
-                {isCustomProperty && (
-                  <Chip label="Custom" size="small" variant="outlined" sx={{ height: 18, fontSize: '0.6rem' }} />
-                )}
-              </Box>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                {isCustomProperty ? 'Custom property' : propMeta?.description}
-              </Typography>
-            </Box>
-          </Box>
-          <IconButton size="small" onClick={() => onRemove(propertyName)} disabled={disabled} color="error">
-            <Delete fontSize="small" />
-          </IconButton>
+    <Paper variant="outlined" sx={{ mt: 2, bgcolor: 'action.hover' }}>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          px: 2,
+          py: 1.5,
+          cursor: 'pointer',
+          '&:hover': { bgcolor: 'action.selected' }
+        }}
+        onClick={() => setExpanded(!expanded)}
+      >
+        <Typography variant="subtitle2" color="text.secondary">
+          Inherited from General ({inheritedEntries.length} properties)
+        </Typography>
+        {expanded ? <KeyboardArrowUp fontSize="small" /> : <KeyboardArrowDown fontSize="small" />}
+      </Box>
+      <Collapse in={expanded}>
+        <Box sx={{ px: 2, pb: 2, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+          {inheritedEntries.map(([key, val]) => {
+            const meta = getPropertyByName(key);
+            const displayVal = meta?.type === 'boolean'
+              ? (val ? 'ON' : 'OFF')
+              : meta?.type === 'enum'
+                ? String(val)
+                : `${val}${meta?.unit ? ' ' + meta.unit : ''}`;
+            return (
+              <Chip
+                key={key}
+                label={`${key}: ${displayVal}`}
+                size="small"
+                variant="outlined"
+                color="default"
+                sx={{ fontSize: '0.7rem' }}
+              />
+            );
+          })}
         </Box>
-
-        {/* Value editor */}
-        {propMeta?.type === 'boolean' ? (
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Typography variant="body2">Enabled</Typography>
-            <Switch
-              checked={Boolean(value)}
-              onChange={(e) => onChange(propertyName, e.target.checked)}
-              disabled={disabled}
-            />
-          </Box>
-        ) : propMeta?.type === 'enum' ? (
-          <Select
-            fullWidth
-            size="small"
-            value={value || ''}
-            onChange={(e) => onChange(propertyName, e.target.value)}
-            disabled={disabled}
-          >
-            {(propMeta.options || []).map(opt => (
-              <MenuItem key={opt} value={opt}>{opt}</MenuItem>
-            ))}
-          </Select>
-        ) : (
-          <Box>
-            <TextField
-              fullWidth
-              size="small"
-              type="number"
-              label="Value"
-              value={localValue}
-              onChange={(e) => setLocalValue(e.target.value)}
-              onFocus={() => {
-                setIsFocused(true);
-                setLocalValue(String(value ?? ''));
-              }}
-              onBlur={() => {
-                setIsFocused(false);
-                const parsed = parseCommittedNumeric(localValue, 'float');
-                if (!parsed.valid) {
-                  setLocalValue(String(value ?? ''));
-                  return;
-                }
-                const boundedValue = clampNumericValue(parsed.value, min, max);
-                setLocalValue(String(boundedValue));
-                if (boundedValue !== value) {
-                  onChange(propertyName, boundedValue);
-                }
-              }}
-              disabled={disabled}
-              inputProps={{ min, max, step }}
-              InputProps={{
-                endAdornment: propMeta?.unit && (
-                  <InputAdornment position="end">
-                    <Typography variant="caption" color="text.secondary">
-                      {propMeta.unit}
-                    </Typography>
-                  </InputAdornment>
-                )
-              }}
-              sx={{ mb: 1 }}
-            />
-            <Slider
-              size="small"
-              value={typeof value === 'number' ? value : 0}
-              onChange={(_, newValue) => {
-                onChange(propertyName, newValue);
-                setLocalValue(String(newValue));
-              }}
-              min={min}
-              max={max}
-              step={step}
-              disabled={disabled}
-              valueLabelDisplay="auto"
-            />
-          </Box>
-        )}
-
-        {/* General comparison */}
-        {showComparison && generalValue !== undefined && (
-          <Box sx={{ mt: 1.5, pt: 1.5, borderTop: 1, borderColor: 'divider' }}>
-            <Typography variant="caption" color="text.secondary">
-              General: {propMeta?.type === 'boolean'
-                ? (generalValue ? 'ON' : 'OFF')
-                : propMeta?.type === 'enum'
-                  ? generalValue
-                  : `${generalValue} ${propMeta?.unit || ''}`}
-            </Typography>
-          </Box>
-        )}
-      </CardContent>
-    </Card>
-  );
-};
-
-/**
- * Add Property Dialog
- */
-const AddPropertyDialog = ({
-  open,
-  onClose,
-  onAdd,
-  existingProperties,
-  generalDefaults,
-  showComparison,
-  isOverrides = false,
-  selectedFollower = '',
-  onFollowerChange,
-  followersByType = {}
-}) => {
-  const [dialogFollower, setDialogFollower] = useState(selectedFollower || '');
-  const [selectedProperty, setSelectedProperty] = useState('');
-  const [propertyValue, setPropertyValue] = useState('');
-  const [isCustomMode, setIsCustomMode] = useState(false);
-  const [customPropertyName, setCustomPropertyName] = useState('');
-
-  const addableProperties = useMemo(() =>
-    getAddableProperties(existingProperties || {}),
-    [existingProperties]
-  );
-
-  const groupedProperties = useMemo(() => {
-    const groups = {};
-    addableProperties.forEach(prop => {
-      if (!groups[prop.category]) {
-        groups[prop.category] = [];
-      }
-      groups[prop.category].push(prop);
-    });
-    return groups;
-  }, [addableProperties]);
-
-  const selectedMeta = selectedProperty && !isCustomMode ? getPropertyByName(selectedProperty) : null;
-
-  const handleAdd = () => {
-    const propName = isCustomMode ? customPropertyName.trim() : selectedProperty;
-    const effectiveFollower = isOverrides ? dialogFollower : null;
-
-    if (propName && propertyValue !== '' && (!isOverrides || effectiveFollower)) {
-      let value;
-      if (selectedMeta?.type === 'boolean') {
-        value = propertyValue === 'true';
-      } else if (selectedMeta?.type === 'enum') {
-        value = propertyValue;
-      } else {
-        const parsed = parseCommittedNumeric(propertyValue, 'float');
-        if (!parsed.valid) return;
-        value = clampNumericValue(parsed.value, selectedMeta?.min, selectedMeta?.max);
-      }
-
-      if (isOverrides && onFollowerChange && effectiveFollower !== selectedFollower) {
-        onFollowerChange(effectiveFollower);
-      }
-
-      onAdd(propName, value, effectiveFollower);
-      setSelectedProperty('');
-      setPropertyValue('');
-      setIsCustomMode(false);
-      setCustomPropertyName('');
-      setDialogFollower('');
-      onClose();
-    }
-  };
-
-  const handlePropertySelect = (propName) => {
-    if (propName === '__custom__') {
-      setIsCustomMode(true);
-      setSelectedProperty('');
-      setPropertyValue('0');
-    } else {
-      setIsCustomMode(false);
-      setSelectedProperty(propName);
-      const meta = getPropertyByName(propName);
-      const defaultVal = generalDefaults?.[propName] ?? meta?.default ?? 0;
-      setPropertyValue(String(defaultVal));
-    }
-  };
-
-  const handleClose = () => {
-    setSelectedProperty('');
-    setPropertyValue('');
-    setIsCustomMode(false);
-    setCustomPropertyName('');
-    onClose();
-  };
-
-  const isCustomNameValid = customPropertyName.trim() &&
-    !existingProperties?.[customPropertyName.trim()] &&
-    /^[A-Z][A-Z0-9_]*$/.test(customPropertyName.trim());
-
-  const hasFollower = !isOverrides || dialogFollower;
-
-  const canAdd = hasFollower && (isCustomMode
-    ? (isCustomNameValid && propertyValue !== '')
-    : (selectedProperty && propertyValue !== ''));
-
-  const followerList = useMemo(() => {
-    const list = [];
-    Object.entries(followersByType || {}).forEach(([type, followers]) => {
-      if (followers && followers.length > 0) {
-        list.push({ type, followers });
-      }
-    });
-    return list;
-  }, [followersByType]);
-
-  const showPropertySelector = !isOverrides || dialogFollower;
-
-  return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
-      <DialogTitle>
-        {isOverrides ? 'Add Follower Config Override' : 'Add Follower Config Property'}
-      </DialogTitle>
-      <DialogContent>
-        <Box sx={{ pt: 1 }}>
-          {/* Step 1: Follower selector (FollowerOverrides only) */}
-          {isOverrides && (
-            <Box sx={{ mb: 3 }}>
-              <Typography variant="subtitle2" color="primary" sx={{ mb: 1 }}>
-                Step 1: Select Follower
-              </Typography>
-              <FormControl fullWidth>
-                <InputLabel id="follower-config-dialog-select">Follower</InputLabel>
-                <Select
-                  labelId="follower-config-dialog-select"
-                  value={dialogFollower}
-                  onChange={(e) => setDialogFollower(e.target.value)}
-                  label="Follower"
-                >
-                  <MenuItem value="">
-                    <em>-- Select a follower --</em>
-                  </MenuItem>
-                  {followerList.map(({ type, followers }) => [
-                    <ListSubheader key={`header-${type}`}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        {followerTypeIcons[type]}
-                        <span>{FOLLOWER_TYPES[type]?.label || type}</span>
-                      </Box>
-                    </ListSubheader>,
-                    ...followers.map(f => (
-                      <MenuItem key={f.name} value={f.name}>
-                        <Box>
-                          <Typography variant="body2">{f.label || f.name}</Typography>
-                          {f.description && (
-                            <Typography variant="caption" color="text.secondary">
-                              {f.description}
-                            </Typography>
-                          )}
-                        </Box>
-                      </MenuItem>
-                    ))
-                  ])}
-                </Select>
-              </FormControl>
-              {!dialogFollower && (
-                <Alert severity="info" sx={{ mt: 1 }} icon={<Info />}>
-                  Select a follower to add config overrides
-                </Alert>
-              )}
-            </Box>
-          )}
-
-          {/* Step 2: Property selector */}
-          {showPropertySelector && (
-            <Box>
-              {isOverrides && (
-                <Typography variant="subtitle2" color="primary" sx={{ mb: 1 }}>
-                  Step 2: Select Property
-                </Typography>
-              )}
-
-              {isCustomMode ? (
-                <Box>
-                  <TextField
-                    fullWidth
-                    label="Property Name"
-                    value={customPropertyName}
-                    onChange={(e) => setCustomPropertyName(e.target.value.toUpperCase())}
-                    placeholder="MY_CUSTOM_PARAM"
-                    helperText={
-                      customPropertyName && !isCustomNameValid
-                        ? 'Use UPPER_SNAKE_CASE (e.g., MY_CUSTOM_PARAM)'
-                        : 'Custom properties are not validated. Use with caution.'
-                    }
-                    error={customPropertyName && !isCustomNameValid}
-                    sx={{ mb: 2 }}
-                  />
-                  <TextField
-                    fullWidth
-                    label="Value"
-                    type="number"
-                    value={propertyValue}
-                    onChange={(e) => setPropertyValue(e.target.value)}
-                    inputProps={{ step: 0.1 }}
-                    helperText="Numeric value for this custom property"
-                  />
-                  <Button
-                    size="small"
-                    onClick={() => {
-                      setIsCustomMode(false);
-                      setCustomPropertyName('');
-                    }}
-                    sx={{ mt: 1 }}
-                  >
-                    &larr; Back to property list
-                  </Button>
-                </Box>
-              ) : (
-                <>
-                  <FormControl fullWidth sx={{ mb: 2 }}>
-                    <InputLabel>Property</InputLabel>
-                    <Select
-                      value={selectedProperty}
-                      onChange={(e) => handlePropertySelect(e.target.value)}
-                      label="Property"
-                    >
-                      {Object.entries(groupedProperties).map(([category, props]) => [
-                        <ListSubheader key={`header-${category}`}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            {categoryIcons[category]}
-                            {PROPERTY_CATEGORIES[category]?.label || category}
-                          </Box>
-                        </ListSubheader>,
-                        ...props.map(prop => (
-                          <MenuItem key={prop.name} value={prop.name}>
-                            <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                              <Typography variant="body2">{prop.name}</Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {prop.description} ({prop.unit || prop.type})
-                              </Typography>
-                            </Box>
-                          </MenuItem>
-                        ))
-                      ])}
-                      <Divider />
-                      <MenuItem value="__custom__">
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Edit fontSize="small" color="primary" />
-                          <Typography color="primary" fontStyle="italic" variant="body2">
-                            Enter custom property...
-                          </Typography>
-                        </Box>
-                      </MenuItem>
-                    </Select>
-                  </FormControl>
-
-                  {selectedMeta && (
-                    <Box>
-                      {selectedMeta.type === 'boolean' ? (
-                        <FormControl fullWidth>
-                          <InputLabel>Value</InputLabel>
-                          <Select
-                            value={propertyValue}
-                            onChange={(e) => setPropertyValue(e.target.value)}
-                            label="Value"
-                          >
-                            <MenuItem value="true">Enabled (ON)</MenuItem>
-                            <MenuItem value="false">Disabled (OFF)</MenuItem>
-                          </Select>
-                        </FormControl>
-                      ) : selectedMeta.type === 'enum' ? (
-                        <FormControl fullWidth>
-                          <InputLabel>Value</InputLabel>
-                          <Select
-                            value={propertyValue}
-                            onChange={(e) => setPropertyValue(e.target.value)}
-                            label="Value"
-                          >
-                            {(selectedMeta.options || []).map(opt => (
-                              <MenuItem key={opt} value={opt}>{opt}</MenuItem>
-                            ))}
-                          </Select>
-                        </FormControl>
-                      ) : (
-                        <TextField
-                          fullWidth
-                          label="Value"
-                          type="number"
-                          value={propertyValue}
-                          onChange={(e) => setPropertyValue(e.target.value)}
-                          inputProps={{
-                            min: selectedMeta.min,
-                            max: selectedMeta.max,
-                            step: selectedMeta.step
-                          }}
-                          helperText={
-                            showComparison && generalDefaults?.[selectedProperty] !== undefined
-                              ? `General: ${generalDefaults[selectedProperty]} ${selectedMeta.unit || ''}`
-                              : `Range: ${selectedMeta.min} - ${selectedMeta.max} ${selectedMeta.unit || ''}`
-                          }
-                        />
-                      )}
-                    </Box>
-                  )}
-                </>
-              )}
-            </Box>
-          )}
-        </Box>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={handleClose}>Cancel</Button>
-        <Button
-          onClick={handleAdd}
-          variant="contained"
-          disabled={!canAdd}
-        >
-          Add Property
-        </Button>
-      </DialogActions>
-    </Dialog>
+      </Collapse>
+    </Paper>
   );
 };
 
@@ -757,52 +281,78 @@ const FollowerConfigEditor = ({
 
   const followersByType = useMemo(() => getFollowersByType(), []);
 
-  // Get current properties being edited
-  const currentProperties = useMemo(() => {
-    if (isOverrides) {
-      return selectedFollower ? (value?.[selectedFollower] || {}) : {};
+  // Build effective value: merge GENERAL_DEFAULTS + all nested subsection defaults
+  const effectiveValue = useMemo(() => {
+    if (!isOverrides) {
+      const base = { ...GENERAL_DEFAULTS };
+      Object.entries(NESTED_SUBSECTIONS).forEach(([key, config]) => {
+        base[key] = { ...config.defaults };
+      });
+      return { ...base, ...(value || {}) };
     }
     return value || {};
-  }, [isOverrides, selectedFollower, value]);
+  }, [isOverrides, value]);
 
-  // Count overrides per follower
+  const currentProperties = useMemo(() => {
+    if (isOverrides) {
+      return selectedFollower ? (effectiveValue?.[selectedFollower] || {}) : {};
+    }
+    return effectiveValue;
+  }, [isOverrides, selectedFollower, effectiveValue]);
+
+  // Separate flat properties from nested sub-sections (schema-driven)
+  const { flatProperties, activeSubsections } = useMemo(() => {
+    const flat = {};
+    const nested = {};
+    Object.entries(currentProperties).forEach(([key, val]) => {
+      if (nestedSubsectionKeys.has(key) && typeof val === 'object' && val !== null && !Array.isArray(val)) {
+        nested[key] = val;
+      } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+        // Skip unknown nested objects to prevent corruption
+      } else {
+        flat[key] = val;
+      }
+    });
+    return { flatProperties: flat, activeSubsections: nested };
+  }, [currentProperties]);
+
   const followerOverrideCounts = useMemo(() => {
-    if (!isOverrides || !value) return {};
+    if (!isOverrides || !effectiveValue) return {};
     const counts = {};
-    Object.entries(value).forEach(([follower, props]) => {
+    Object.entries(effectiveValue).forEach(([follower, props]) => {
       counts[follower] = Object.keys(props || {}).length;
     });
     return counts;
-  }, [isOverrides, value]);
+  }, [isOverrides, effectiveValue]);
 
   const handlePropertyChange = useCallback((propName, newValue) => {
     if (isOverrides) {
       if (!selectedFollower) return;
-      const followerProps = { ...(value?.[selectedFollower] || {}), [propName]: newValue };
-      onChange({ ...value, [selectedFollower]: followerProps });
+      const followerProps = { ...(effectiveValue?.[selectedFollower] || {}), [propName]: newValue };
+      onChange({ ...effectiveValue, [selectedFollower]: followerProps });
     } else {
-      onChange({ ...value, [propName]: newValue });
+      onChange({ ...effectiveValue, [propName]: newValue });
     }
-  }, [isOverrides, selectedFollower, value, onChange]);
+  }, [isOverrides, selectedFollower, effectiveValue, onChange]);
 
   const handlePropertyRemove = useCallback((propName) => {
     if (isOverrides) {
       if (!selectedFollower) return;
-      const followerProps = { ...(value?.[selectedFollower] || {}) };
+      const followerProps = { ...(effectiveValue?.[selectedFollower] || {}) };
       delete followerProps[propName];
       if (Object.keys(followerProps).length === 0) {
-        const newValue = { ...value };
+        const newValue = { ...effectiveValue };
         delete newValue[selectedFollower];
         onChange(newValue);
       } else {
-        onChange({ ...value, [selectedFollower]: followerProps });
+        onChange({ ...effectiveValue, [selectedFollower]: followerProps });
       }
     } else {
-      const newValue = { ...value };
+      const newValue = { ...effectiveValue };
       delete newValue[propName];
       onChange(newValue);
     }
-  }, [isOverrides, selectedFollower, value, onChange]);
+  }, [isOverrides, selectedFollower, effectiveValue, onChange]);
 
   const handlePropertyAdd = useCallback((propName, propValue, followerFromDialog) => {
     if (isOverrides) {
@@ -811,23 +361,68 @@ const FollowerConfigEditor = ({
       if (followerFromDialog && followerFromDialog !== selectedFollower) {
         setSelectedFollower(followerFromDialog);
       }
-      const followerProps = { ...(value?.[targetFollower] || {}), [propName]: propValue };
-      onChange({ ...value, [targetFollower]: followerProps });
+      const followerProps = { ...(effectiveValue?.[targetFollower] || {}), [propName]: propValue };
+      onChange({ ...effectiveValue, [targetFollower]: followerProps });
     } else {
-      onChange({ ...value, [propName]: propValue });
+      onChange({ ...effectiveValue, [propName]: propValue });
     }
-  }, [isOverrides, selectedFollower, value, onChange]);
+  }, [isOverrides, selectedFollower, effectiveValue, onChange]);
+
+  // Generic handler for any nested sub-section change
+  const handleSubsectionChange = useCallback((subsectionKey, newData) => {
+    if (isOverrides) {
+      if (!selectedFollower) return;
+      const followerProps = { ...(effectiveValue?.[selectedFollower] || {}), [subsectionKey]: newData };
+      onChange({ ...effectiveValue, [selectedFollower]: followerProps });
+    } else {
+      onChange({ ...effectiveValue, [subsectionKey]: newData });
+    }
+  }, [isOverrides, selectedFollower, effectiveValue, onChange]);
+
+  // Generic handler for removing any nested sub-section override
+  const handleSubsectionRemove = useCallback((subsectionKey) => {
+    if (isOverrides) {
+      if (!selectedFollower) return;
+      const followerProps = { ...(effectiveValue?.[selectedFollower] || {}) };
+      delete followerProps[subsectionKey];
+      if (Object.keys(followerProps).length === 0) {
+        const newValue = { ...effectiveValue };
+        delete newValue[selectedFollower];
+        onChange(newValue);
+      } else {
+        onChange({ ...effectiveValue, [selectedFollower]: followerProps });
+      }
+    }
+  }, [isOverrides, selectedFollower, effectiveValue, onChange]);
 
   const handleRemoveFollower = useCallback(() => {
     if (!selectedFollower || !isOverrides) return;
-    const newValue = { ...value };
+    const newValue = { ...effectiveValue };
     delete newValue[selectedFollower];
     onChange(newValue);
     setSelectedFollower('');
-  }, [selectedFollower, isOverrides, value, onChange]);
+  }, [selectedFollower, isOverrides, effectiveValue, onChange]);
 
-  const propertyEntries = Object.entries(currentProperties);
-  const hasProperties = propertyEntries.length > 0;
+  const flatEntries = Object.entries(flatProperties);
+  const hasFlatProperties = flatEntries.length > 0;
+  const hasActiveSubsections = Object.keys(activeSubsections).length > 0;
+  const hasAnyContent = hasFlatProperties || hasActiveSubsections;
+
+  const overrideKeys = useMemo(() => Object.keys(currentProperties), [currentProperties]);
+
+  // Determine which sub-sections are missing (for "Add Override" buttons)
+  const missingSubsections = useMemo(() => {
+    if (!isOverrides || !selectedFollower) return [];
+    return Object.entries(NESTED_SUBSECTIONS)
+      .filter(([key]) => !(key in activeSubsections))
+      .map(([key, config]) => ({ key, config }));
+  }, [isOverrides, selectedFollower, activeSubsections]);
+
+  // Reference data for nested sub-sections in overrides mode
+  const getSubsectionReferenceData = useCallback((subsectionKey) => {
+    if (!isOverrides) return null;
+    return generalDefaults?.[subsectionKey] || NESTED_SUBSECTIONS[subsectionKey]?.defaults;
+  }, [isOverrides, generalDefaults]);
 
   return (
     <Box>
@@ -858,96 +453,42 @@ const FollowerConfigEditor = ({
 
       {/* Follower Selector (FollowerOverrides only) */}
       {isOverrides && (
-        <Box sx={{ mb: 3 }}>
-          <FormControl fullWidth>
-            <InputLabel>Select Follower to Configure</InputLabel>
-            <Select
-              value={selectedFollower}
-              onChange={(e) => setSelectedFollower(e.target.value)}
-              label="Select Follower to Configure"
-            >
-              <MenuItem value="">
-                <em>-- Select Follower --</em>
-              </MenuItem>
-              {Object.entries(followersByType).map(([type, followers]) => [
-                <ListSubheader key={`type-${type}`}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    {followerTypeIcons[type]}
-                    {FOLLOWER_TYPES[type]?.label || type}
-                  </Box>
-                </ListSubheader>,
-                ...followers.map(f => (
-                  <MenuItem key={f.name} value={f.name}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                      <Box>
-                        <Typography variant="body2">{f.label}</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {f.description}
-                        </Typography>
-                      </Box>
-                      {followerOverrideCounts[f.name] > 0 && (
-                        <Chip
-                          size="small"
-                          label={`${followerOverrideCounts[f.name]} overrides`}
-                          color="warning"
-                          sx={{ ml: 1 }}
-                        />
-                      )}
-                    </Box>
-                  </MenuItem>
-                ))
-              ])}
-            </Select>
-          </FormControl>
-
-          {/* Summary of all overrides */}
-          {Object.keys(followerOverrideCounts).length > 0 && (
-            <Box sx={{ mt: 1, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
-                Configured:
-              </Typography>
-              {Object.entries(followerOverrideCounts).map(([follower, count]) => (
-                <Chip
-                  key={follower}
-                  label={`${follower.replace(/_/g, ' ')} (${count})`}
-                  size="small"
-                  variant={selectedFollower === follower ? 'filled' : 'outlined'}
-                  color={selectedFollower === follower ? 'primary' : 'default'}
-                  onClick={() => setSelectedFollower(follower)}
-                  sx={{ cursor: 'pointer' }}
-                />
-              ))}
-            </Box>
-          )}
-        </Box>
+        <FollowerSelector
+          selectedFollower={selectedFollower}
+          onFollowerChange={setSelectedFollower}
+          followersByType={followersByType}
+          followerOverrideCounts={followerOverrideCounts}
+          followerTypeLabels={followerTypeLabels}
+        />
       )}
 
       {/* Properties Display */}
       {(isOverrides && !selectedFollower) ? (
-        <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}>
-          <Warning sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-          <Typography color="text.secondary">
-            Select a follower above to configure overrides
-          </Typography>
-          <Typography variant="caption" color="text.disabled">
-            Or the FollowerOverrides section is empty (using General defaults for all)
-          </Typography>
-        </Paper>
+        <EmptyFollowerState
+          message="Select a follower above to configure overrides"
+          hint="Or the FollowerOverrides section is empty (using General defaults for all)"
+        />
       ) : (
         <Box>
-          {hasProperties ? (
+          {/* Flat properties */}
+          {hasFlatProperties ? (
             useCardLayout ? (
               <Box>
-                {propertyEntries.map(([propName, propValue]) => (
+                {flatEntries.map(([propName, propValue]) => (
                   <PropertyCard
                     key={propName}
                     propertyName={propName}
                     value={propValue}
-                    generalValue={generalDefaults?.[propName]}
+                    referenceValue={generalDefaults?.[propName]}
                     onChange={handlePropertyChange}
                     onRemove={handlePropertyRemove}
                     showComparison={isOverrides}
+                    removable={isOverrides}
+                    isOverride={isOverrides}
                     disabled={disabled}
+                    getPropertyMeta={getPropertyByName}
+                    categoryIcons={categoryIcons}
+                    referenceLabel="General"
                   />
                 ))}
               </Box>
@@ -959,27 +500,34 @@ const FollowerConfigEditor = ({
                       <TableCell sx={{ width: isOverrides ? '30%' : '40%' }}>Property</TableCell>
                       <TableCell sx={{ width: isOverrides ? '25%' : '35%' }}>Value</TableCell>
                       {isOverrides && <TableCell sx={{ width: '25%' }}>General Value</TableCell>}
-                      <TableCell align="right" sx={{ width: isOverrides ? '20%' : '25%', whiteSpace: 'nowrap' }}>Actions</TableCell>
+                      <TableCell align="right" sx={{ width: isOverrides ? '20%' : '25%', whiteSpace: 'nowrap' }}>
+                        {isOverrides ? 'Actions' : ''}
+                      </TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {propertyEntries.map(([propName, propValue]) => (
+                    {flatEntries.map(([propName, propValue]) => (
                       <PropertyRow
                         key={propName}
                         propertyName={propName}
                         value={propValue}
-                        generalValue={generalDefaults?.[propName]}
+                        referenceValue={generalDefaults?.[propName]}
                         onChange={handlePropertyChange}
                         onRemove={handlePropertyRemove}
                         showComparison={isOverrides}
+                        removable={isOverrides}
+                        isOverride={isOverrides}
                         disabled={disabled}
+                        getPropertyMeta={getPropertyByName}
+                        categoryIcons={categoryIcons}
+                        referenceLabel="General"
                       />
                     ))}
                   </TableBody>
                 </Table>
               </Paper>
             )
-          ) : (
+          ) : !hasActiveSubsections ? (
             <Paper variant="outlined" sx={{ p: 3, textAlign: 'center' }}>
               <Typography color="text.secondary" sx={{ mb: 1 }}>
                 {isOverrides
@@ -990,20 +538,59 @@ const FollowerConfigEditor = ({
                 Click "Add Property" below to add config parameters.
               </Typography>
             </Paper>
+          ) : null}
+
+          {/* Nested sub-sections (schema-driven) */}
+          {Object.entries(activeSubsections).map(([key, data]) => (
+            <NestedSubsection
+              key={key}
+              subsectionKey={key}
+              data={data}
+              referenceData={getSubsectionReferenceData(key)}
+              onChange={(newData) => handleSubsectionChange(key, newData)}
+              onRemove={isOverrides ? () => handleSubsectionRemove(key) : undefined}
+              showComparison={isOverrides}
+              removable={isOverrides}
+              disabled={disabled}
+              useCardLayout={useCardLayout}
+            />
+          ))}
+
+          {/* Inherited from General summary (FollowerOverrides only) */}
+          {isOverrides && selectedFollower && (
+            <InheritedSummary
+              generalDefaults={generalDefaults}
+              overrideKeys={overrideKeys}
+            />
           )}
 
           {/* Action Buttons */}
           <Box sx={{ mt: 2, display: 'flex', gap: 1, justifyContent: 'flex-start', flexWrap: 'wrap' }}>
-            <Button
-              variant="outlined"
-              startIcon={<Add />}
-              onClick={() => setAddDialogOpen(true)}
-              disabled={disabled}
-            >
-              Add Property
-            </Button>
+            {isOverrides && (
+              <Button
+                variant="outlined"
+                startIcon={<Add />}
+                onClick={() => setAddDialogOpen(true)}
+                disabled={disabled}
+              >
+                Add Property
+              </Button>
+            )}
 
-            {isOverrides && selectedFollower && hasProperties && (
+            {/* Add override buttons for missing nested sub-sections */}
+            {missingSubsections.map(({ key, config }) => (
+              <Button
+                key={key}
+                variant="outlined"
+                startIcon={categoryIcons[config.category]}
+                onClick={() => handleSubsectionChange(key, {})}
+                disabled={disabled}
+              >
+                Add {config.label} Override
+              </Button>
+            ))}
+
+            {isOverrides && selectedFollower && hasAnyContent && (
               <Button
                 variant="outlined"
                 color="error"
@@ -1024,13 +611,20 @@ const FollowerConfigEditor = ({
           open={addDialogOpen}
           onClose={() => setAddDialogOpen(false)}
           onAdd={handlePropertyAdd}
-          existingProperties={currentProperties}
-          generalDefaults={generalDefaults}
+          existingProperties={flatProperties}
+          referenceDefaults={generalDefaults}
           showComparison={isOverrides}
           isOverrides={isOverrides}
           selectedFollower={selectedFollower}
           onFollowerChange={setSelectedFollower}
           followersByType={followersByType}
+          getAddableProperties={getAddableProperties}
+          getPropertyMeta={getPropertyByName}
+          categoryIcons={categoryIcons}
+          propertyCategoryLabels={propertyCategoryLabels}
+          dialogTitle={isOverrides ? 'Add Follower Config Override' : 'Add Follower Config Property'}
+          referenceLabel="General"
+          followerTypeLabels={followerTypeLabels}
         />
       )}
     </Box>
