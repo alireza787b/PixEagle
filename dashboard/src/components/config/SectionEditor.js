@@ -18,6 +18,7 @@ import { parseCommittedNumeric } from '../../utils/numericInput';
 import ParameterDetailDialog from './ParameterDetailDialog';
 import SmartValueEditor from './SmartValueEditor';
 import SafetyLimitsEditor from './SafetyLimitsEditor';
+import FollowerConfigEditor from './FollowerConfigEditor';
 import { ReloadTierChip } from './ReloadTierBadge';
 
 /**
@@ -198,7 +199,8 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
   };
 
   // Special handling for Safety section GlobalLimits and FollowerOverrides
-  const isSafetyParameter = param === 'GlobalLimits' || param === 'FollowerOverrides';
+  // Disambiguate from Follower section's FollowerOverrides using configValues keys
+  const isSafetyParameter = (param === 'GlobalLimits' || (param === 'FollowerOverrides' && 'GlobalLimits' in configValues));
   if (isSafetyParameter && type === 'object') {
     const safetyType = param === 'GlobalLimits' ? 'GlobalLimits' : 'FollowerOverrides';
     const globalLimits = param === 'FollowerOverrides' ? (configValues.GlobalLimits || {}) : {};
@@ -213,6 +215,34 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
             setTimeout(() => onSave(param, newVal), 100);
           }}
           globalLimits={globalLimits}
+          disabled={saveStatus === 'saving'}
+        />
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+          {saveStatus === 'saving' && <CircularProgress size={16} />}
+          {saveStatus === 'saved' && <Check color="success" fontSize="small" />}
+          {saveStatus === 'error' && <ErrorIcon color="error" fontSize="small" />}
+        </Box>
+      </Box>
+    );
+  }
+
+  // Special handling for Follower section General and FollowerOverrides
+  const isFollowerConfigParameter = (param === 'General' && 'General' in configValues) ||
+    (param === 'FollowerOverrides' && 'General' in configValues);
+  if (isFollowerConfigParameter && type === 'object') {
+    const followerType = param === 'General' ? 'General' : 'FollowerOverrides';
+    const generalDefaults = param === 'FollowerOverrides' ? (configValues.General || {}) : {};
+
+    return (
+      <Box sx={{ width: '100%' }}>
+        <FollowerConfigEditor
+          type={followerType}
+          value={value || {}}
+          onChange={(newVal) => {
+            onChange(param, newVal);
+            setTimeout(() => onSave(param, newVal), 100);
+          }}
+          generalDefaults={generalDefaults}
           disabled={saveStatus === 'saving'}
         />
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
@@ -593,9 +623,10 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
   const { isMobile, isTablet, isCompactDesktop, compactTable } = useResponsive();
   const globalState = useConfigGlobalState();
 
-  // Use card layout on mobile/tablet/compact-desktop, OR always for Safety section
+  // Use card layout on mobile/tablet/compact-desktop, OR always for Safety/Follower sections
   const isSafetySection = sectionName === 'Safety' || sectionName === 'SafetyLimits';
-  const useCardLayout = isMobile || isTablet || isCompactDesktop || isSafetySection;
+  const isFollowerSection = sectionName === 'Follower';
+  const useCardLayout = isMobile || isTablet || isCompactDesktop || isSafetySection || isFollowerSection;
 
   const [localValues, setLocalValues] = useState({});
   const [saveStatuses, setSaveStatuses] = useState({}); // 'saving' | 'saved' | 'error' | null
