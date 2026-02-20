@@ -156,8 +156,32 @@ if not exist "%BUILD_DIR%\index.html" (
     goto :do_build
 )
 
-echo [32m   [OK] Using cached build[0m
-goto :serve_build
+REM Auto-detect source changes: compare git commit hash to cached build hash
+set "BUILD_HASH_FILE=%CACHE_DIR%\build_hash"
+set "CURRENT_HASH="
+set "CACHED_HASH="
+
+REM Get current git hash of dashboard source
+for /f "tokens=*" %%H in ('git -C "%PIXEAGLE_DIR%" log -1 --format^=%%H -- dashboard/src/ dashboard/public/ dashboard/package.json 2^>nul') do set "CURRENT_HASH=%%H"
+
+REM Read cached hash from last build
+if exist "%BUILD_HASH_FILE%" (
+    for /f "tokens=*" %%H in ('type "%BUILD_HASH_FILE%" 2^>nul') do set "CACHED_HASH=%%H"
+)
+
+if "!CURRENT_HASH!"=="" (
+    echo    [*] Could not determine source hash, using cached build
+    goto :serve_build
+)
+
+if "!CURRENT_HASH!"=="!CACHED_HASH!" (
+    echo [32m   [OK] Build is up-to-date ^(hash: !CURRENT_HASH:~0,8!^)[0m
+    goto :serve_build
+)
+
+echo [33m   [*] Source changed since last build ^(!CACHED_HASH:~0,8! -^> !CURRENT_HASH:~0,8!^)[0m
+echo    [*] Auto-rebuilding dashboard...
+goto :do_build
 
 :do_build
 echo    [*] Building dashboard (this may take a moment)...
@@ -166,6 +190,11 @@ if errorlevel 1 (
     echo [31m[ERROR] Build failed[0m
     pause
     exit /b 1
+)
+REM Save build hash for future change detection
+if not "!CURRENT_HASH!"=="" (
+    echo !CURRENT_HASH!> "%BUILD_HASH_FILE%"
+    echo    [*] Build hash saved: !CURRENT_HASH:~0,8!
 )
 echo [32m   [OK] Build complete[0m
 
