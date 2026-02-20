@@ -71,7 +71,33 @@ class FlowController:
 
         # Start the FastAPI server using the async start method
         def run_server():
-            asyncio.run(fastapi_handler.start(
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            # Suppress Windows ProactorEventLoop ConnectionResetError noise.
+            # On Windows, the Proactor transport fires _call_connection_lost
+            # when clients disconnect (browser tab close, WebSocket drop).
+            # The socket is already dead — the cleanup error is harmless.
+            if platform.system() == "Windows":
+                _default_handler = loop.get_exception_handler()
+
+                def _windows_exception_handler(loop, context):
+                    exception = context.get("exception")
+                    if isinstance(exception, ConnectionResetError):
+                        logger.debug(
+                            "Suppressed Windows Proactor connection cleanup: %s",
+                            context.get("message", ""),
+                        )
+                        return
+                    # Delegate everything else to the default handler
+                    if _default_handler is not None:
+                        _default_handler(loop, context)
+                    else:
+                        loop.default_exception_handler(context)
+
+                loop.set_exception_handler(_windows_exception_handler)
+
+            loop.run_until_complete(fastapi_handler.start(
                 host=Parameters.HTTP_STREAM_HOST,
                 port=Parameters.HTTP_STREAM_PORT
             ))
