@@ -1215,20 +1215,16 @@ GimbalTracker:
   # Network configuration for gimbal UDP communication
   UDP_HOST: "192.168.0.108"      # Gimbal IP address
   UDP_PORT: 9003                # Gimbal UDP port
+  LISTEN_PORT: 9004             # Port for listening to gimbal data
   CONNECTION_TIMEOUT: 5.0       # Connection timeout in seconds
+
+  # Coordinate system and estimator
+  COORDINATE_SYSTEM: "GIMBAL_BODY"  # Coordinate system preference
+  DISABLE_ESTIMATOR: true           # Disable Kalman estimator for gimbal
 
   # Data quality and recovery parameters
   data_timeout_seconds: 5.0     # Show cached data for up to N seconds when connection lost
   max_consecutive_failures: 10  # Warning threshold for consecutive data reception failures
-
-# Global gimbal parameters (accessed by GimbalTracker and GimbalInterface)
-GIMBAL_UDP_HOST: "192.168.0.108"      # Gimbal IP address
-GIMBAL_LISTEN_PORT: 9004               # Port for listening to gimbal data
-GIMBAL_COORDINATE_SYSTEM: "GIMBAL_BODY"  # Coordinate system preference
-GIMBAL_DISABLE_ESTIMATOR: true         # Disable Kalman estimator for gimbal
-
-# GimbalTrackerSettings: removed in v6.1.0 — no code read this section.
-# Gimbal settings are in the GimbalTracker section and global GIMBAL_* params above.
 
 
 # ==============================================================================
@@ -1305,6 +1301,9 @@ Follower:
     GM_VELOCITY_VECTOR:
       LATERAL_GUIDANCE_MODE: sideslip        # Direct lateral velocity for gimbal vector
       ALTITUDE_CHECK_INTERVAL: 1.0           # Slower checks for gimbal-only mode
+    MC_VELOCITY_GROUND:
+      YAW_SMOOTHING:
+        ENABLED: false                       # Ground follower: no yaw tracking
 
 # === Circuit Breaker (Safety & Testing) ===
 # SAFETY FIRST: Global circuit breaker for follower testing without drone commands

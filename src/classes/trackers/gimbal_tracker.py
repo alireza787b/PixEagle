@@ -119,12 +119,29 @@ class GimbalTracker(BaseTracker):
         self.is_external_tracker = True  # Flag for AppController to handle differently
 
         # Initialize gimbal interface with configurable parameters
+        # v6.1.0: Read from grouped GimbalTracker section (with deprecated flat-attr fallback)
+        gimbal_cfg = getattr(Parameters, 'GimbalTracker', {})
+
+        def _gimbal_param(key, flat_key, default):
+            """Read from GimbalTracker section first, then deprecated flat attr."""
+            val = gimbal_cfg.get(key)
+            if val is not None:
+                return val
+            flat_val = getattr(Parameters, flat_key, None)
+            if flat_val is not None:
+                logger.warning(
+                    f"DEPRECATED: '{flat_key}' flat config param. "
+                    f"Use 'GimbalTracker.{key}' instead."
+                )
+                return flat_val
+            return default
+
         self.CONFIG = {
-            'listen_port': getattr(Parameters, 'GIMBAL_LISTEN_PORT', 9004),
-            'gimbal_ip': getattr(Parameters, 'GIMBAL_UDP_HOST', '192.168.0.108'),
-            'control_port': getattr(Parameters, 'GimbalTracker', {}).get('UDP_PORT', 9003),
-            'coordinate_system': getattr(Parameters, 'GIMBAL_COORDINATE_SYSTEM', 'GIMBAL_BODY'),
-            'disable_estimator': getattr(Parameters, 'GIMBAL_DISABLE_ESTIMATOR', True)
+            'listen_port': _gimbal_param('LISTEN_PORT', 'GIMBAL_LISTEN_PORT', 9004),
+            'gimbal_ip': _gimbal_param('UDP_HOST', 'GIMBAL_UDP_HOST', '192.168.0.108'),
+            'control_port': gimbal_cfg.get('UDP_PORT', 9003),
+            'coordinate_system': _gimbal_param('COORDINATE_SYSTEM', 'GIMBAL_COORDINATE_SYSTEM', 'GIMBAL_BODY'),
+            'disable_estimator': _gimbal_param('DISABLE_ESTIMATOR', 'GIMBAL_DISABLE_ESTIMATOR', True)
         }
 
         self.gimbal_interface = GimbalInterface(

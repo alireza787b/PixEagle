@@ -5,7 +5,7 @@ Configuration Service - Schema-Driven Config Management
 Provides centralized configuration management with:
 - YAML persistence with backup and comment preservation
 - Schema-based validation
-- Diff comparison using deepdiff
+- Diff comparison and structural validation
 - Import/export functionality
 
 Project: PixEagle

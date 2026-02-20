@@ -57,40 +57,59 @@ class CSRTTracker(BaseTracker):
         logger.info(f"{self.tracker_name} initialized in '{self.performance_mode}' mode")
 
     def _configure_performance_mode(self):
-        """Configure tracker based on performance mode."""
-        if self.performance_mode == 'legacy':
-            self.enable_validation = False
-            self.enable_ema_smoothing = False
-            self.confidence_threshold = Parameters.CONFIDENCE_THRESHOLD
-            self.failure_threshold = 3
-            self.validation_start_frame = 999999
-            logger.info("CSRT Mode: LEGACY - Original behavior, maximum speed")
+        """Configure tracker based on performance mode.
 
-        elif self.performance_mode == 'balanced':
-            self.enable_validation = False
-            self.enable_ema_smoothing = True
-            self.confidence_threshold = 0.5
-            self.failure_threshold = 5
-            self.validation_start_frame = 10
-            self.confidence_ema_alpha = 0.7
-            logger.info("CSRT Mode: BALANCED - Light enhancements, good trade-off")
+        Mode-specific defaults are used as fallbacks; YAML values in
+        CSRT_Tracker section take priority (making config authoritative).
+        """
+        csrt_config = getattr(Parameters, 'CSRT_Tracker', {})
 
-        elif self.performance_mode == 'robust':
-            self.enable_validation = True
-            self.enable_ema_smoothing = True
-            self.confidence_threshold = 0.4
-            self.failure_threshold = 5
-            self.validation_start_frame = 5
-            self.confidence_ema_alpha = 0.7
-            self.max_scale_change = 0.4
-            self.motion_consistency_threshold = 0.5
-            self.appearance_learning_rate = 0.08
-            logger.info("CSRT Mode: ROBUST - Full validation, maximum stability")
+        # Per-mode defaults (used when YAML doesn't specify a value)
+        MODE_DEFAULTS = {
+            'legacy': {
+                'enable_validation': False,
+                'enable_ema_smoothing': False,
+                'confidence_threshold': getattr(Parameters, 'CONFIDENCE_THRESHOLD', 0.3),
+                'failure_threshold': 3,
+                'validation_start_frame': 999999,
+            },
+            'balanced': {
+                'enable_validation': False,
+                'enable_ema_smoothing': True,
+                'confidence_threshold': 0.5,
+                'failure_threshold': 5,
+                'validation_start_frame': 10,
+                'confidence_ema_alpha': 0.7,
+            },
+            'robust': {
+                'enable_validation': True,
+                'enable_ema_smoothing': True,
+                'confidence_threshold': 0.4,
+                'failure_threshold': 5,
+                'validation_start_frame': 5,
+                'confidence_ema_alpha': 0.7,
+                'max_scale_change': 0.4,
+                'motion_consistency_threshold': 0.5,
+                'appearance_learning_rate': 0.08,
+            },
+        }
 
-        else:
+        if self.performance_mode not in MODE_DEFAULTS:
             logger.warning(f"Unknown performance mode '{self.performance_mode}', using 'balanced'")
             self.performance_mode = 'balanced'
-            self._configure_performance_mode()
+
+        defaults = MODE_DEFAULTS[self.performance_mode]
+
+        # Apply each param: YAML value takes priority, mode default as fallback
+        for attr, default_val in defaults.items():
+            setattr(self, attr, csrt_config.get(attr, default_val))
+
+        labels = {
+            'legacy': "LEGACY - Original behavior, maximum speed",
+            'balanced': "BALANCED - Light enhancements, good trade-off",
+            'robust': "ROBUST - Full validation, maximum stability",
+        }
+        logger.info(f"CSRT Mode: {labels[self.performance_mode]}")
 
     def _create_tracker(self):
         """Creates OpenCV CSRT tracker with optimized parameters."""
