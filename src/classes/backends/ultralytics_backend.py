@@ -354,7 +354,9 @@ class UltralyticsBackend(DetectionBackend):
 
     @staticmethod
     def _normalize_model_path(model_path: str) -> str:
-        return str(Path(model_path).as_posix())
+        # Replace Windows backslashes before Path() so Linux doesn't treat
+        # them as literal filename characters.
+        return str(Path(model_path.replace("\\", "/")).as_posix())
 
     @staticmethod
     def _is_valid_ncnn_dir(model_path: str) -> bool:
