@@ -9,7 +9,7 @@ import {
 import {
   Settings, Search, ExpandLess, ExpandMore, Videocam, Router,
   GpsFixed, Navigation, Shield, Tune, AutoFixHigh, Tv,
-  Menu as MenuIcon, FlightTakeoff, Visibility, VisibilityOff, Save, Close
+  Menu as MenuIcon, FlightTakeoff, Save, Close
 } from '@mui/icons-material';
 
 import { useConfigSections, useConfigSearch, useConfigDiff, useCurrentFollowerMode, useRelevantSections } from '../hooks/useConfig';
@@ -60,7 +60,6 @@ const SettingsPageContent = () => {
   const [pendingRestartParams, setPendingRestartParams] = useState([]);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info', persistent: false });
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [showAllSections, setShowAllSections] = useState(false);
   const [changesDrawerOpen, setChangesDrawerOpen] = useState(false);
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
@@ -96,9 +95,6 @@ const SettingsPageContent = () => {
       // Select the section
       setSelectedSection(sectionName);
 
-      // Show all sections to ensure the target is visible
-      setShowAllSections(true);
-
       // Expand the category containing this section
       const sectionMeta = sections.find(s => s.name === sectionName);
       if (sectionMeta?.category) {
@@ -111,6 +107,18 @@ const SettingsPageContent = () => {
       }
     }
   }, [sections]);
+
+  // Auto-expand the category containing the active mode section
+  useEffect(() => {
+    if (modeSpecificSections.length > 0 && Object.keys(expandedCategories).length === 0) {
+      for (const [category, catSections] of Object.entries(groupedSections)) {
+        if (catSections.some(s => modeSpecificSections.includes(s.name))) {
+          setExpandedCategories(prev => ({ ...prev, [category]: true }));
+          break;
+        }
+      }
+    }
+  }, [modeSpecificSections, groupedSections]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close search dropdown on outside click
   useEffect(() => {
@@ -127,27 +135,23 @@ const SettingsPageContent = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [clearResults]);
 
-  // Filter sections based on mode if not showing all
-  const filteredGroupedSections = useMemo(() => {
-    if (showAllSections || activeSections.length === 0) {
-      return groupedSections;
-    }
-
-    // Filter each category to only include active sections
-    const filtered = {};
+  // Sort mode-relevant sections to top within each category
+  const sortedGroupedSections = useMemo(() => {
+    const sorted = {};
     for (const [category, catSections] of Object.entries(groupedSections)) {
-      const relevantSections = catSections.filter(s => activeSections.includes(s.name));
-      if (relevantSections.length > 0) {
-        filtered[category] = relevantSections;
-      }
+      sorted[category] = [...catSections].sort((a, b) => {
+        const aRelevant = activeSections.includes(a.name) ? 0 : 1;
+        const bRelevant = activeSections.includes(b.name) ? 0 : 1;
+        return aRelevant - bRelevant;
+      });
     }
-    return filtered;
-  }, [groupedSections, activeSections, showAllSections]);
+    return sorted;
+  }, [groupedSections, activeSections]);
 
   // Sort categories by order
   const sortedCategories = useMemo(() => {
-    return categoryOrder.filter(cat => filteredGroupedSections[cat]?.length > 0);
-  }, [filteredGroupedSections]);
+    return categoryOrder.filter(cat => sortedGroupedSections[cat]?.length > 0);
+  }, [sortedGroupedSections]);
 
   const toggleCategory = (category) => {
     setExpandedCategories(prev => ({
@@ -192,29 +196,26 @@ const SettingsPageContent = () => {
     // 1. Select the section
     setSelectedSection(result.section);
 
-    // 2. Ensure section is visible even if filtered out by mode-relevance
-    setShowAllSections(true);
-
-    // 3. Expand the parent category so the section appears in the sidebar
+    // 2. Expand the parent category so the section appears in the sidebar
     const sectionMeta = sections.find(s => s.name === result.section);
     if (sectionMeta?.category) {
       setExpandedCategories(prev => ({ ...prev, [sectionMeta.category]: true }));
     }
 
-    // 4. Set the parameter to highlight in SectionEditor
+    // 3. Set the parameter to highlight in SectionEditor
     setHighlightParam(result.parameter);
 
-    // 5. Clear search state
+    // 4. Clear search state
     clearResults();
     setSearchQuery('');
     setSearchActiveIndex(-1);
 
-    // 6. Close drawer on mobile after selection
+    // 5. Close drawer on mobile after selection
     if (isMobile) {
       setDrawerOpen(false);
     }
 
-    // 7. Scroll sidebar to the selected section item after render
+    // 6. Scroll sidebar to the selected section item after render
     setTimeout(() => {
       const sidebarItem = document.querySelector(
         `[data-section="${result.section}"]`
@@ -465,37 +466,6 @@ const SettingsPageContent = () => {
             />
           </Tooltip>
 
-          <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
-
-          {/* Show All Sections Toggle */}
-          <FormControlLabel
-            control={
-              <Switch
-                checked={showAllSections}
-                onChange={(e) => setShowAllSections(e.target.checked)}
-                size="small"
-              />
-            }
-            label={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                {showAllSections ? <Visibility fontSize="small" /> : <VisibilityOff fontSize="small" />}
-                <Typography variant="body2">
-                  {showAllSections ? 'All Sections' : 'Mode-Relevant Only'}
-                </Typography>
-              </Box>
-            }
-            sx={{ m: 0 }}
-          />
-
-          {/* Section Count */}
-          {!showAllSections && activeSections.length > 0 && (
-            <Chip
-              size="small"
-              label={`${sortedCategories.reduce((sum, cat) => sum + (filteredGroupedSections[cat]?.length || 0), 0)} sections`}
-              color="primary"
-              variant="outlined"
-            />
-          )}
         </Box>
       </Box>
 
@@ -629,7 +599,7 @@ const SettingsPageContent = () => {
               {/* Section List */}
               <List dense>
                 {sortedCategories.map((category) => {
-                  const catSections = filteredGroupedSections[category] || [];
+                  const catSections = sortedGroupedSections[category] || [];
                   const catInfo = categories[category] || { display_name: category };
                   const isExpanded = expandedCategories[category] === true; // Default collapsed
 
@@ -662,11 +632,12 @@ const SettingsPageContent = () => {
                                   primary={
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                       {section.display_name}
-                                      {isModeSpecific && !showAllSections && (
+                                      {isModeSpecific && (
                                         <Chip
                                           size="small"
-                                          label="Mode"
-                                          color="primary"
+                                          label="Active"
+                                          color="success"
+                                          variant="outlined"
                                           sx={{ height: 16, fontSize: '0.6rem', ml: 0.5 }}
                                         />
                                       )}

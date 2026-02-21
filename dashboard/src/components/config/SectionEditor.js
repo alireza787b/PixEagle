@@ -54,7 +54,10 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
   const minValue = paramSchema.min;
   const maxValue = paramSchema.max;
   const unitLabel = paramSchema.unit;
-  const isModified = !isDeepEqual(value, defaultValue);
+  // Use schema default as fallback when value is undefined (missing from config)
+  const effectiveValue = value !== undefined ? value : defaultValue;
+  // Only show "Modified" when value is explicitly set and differs from default
+  const isModified = value !== undefined && !isDeepEqual(value, defaultValue);
   const isNumericType = type === 'integer' || type === 'float';
   const formatInputValue = useCallback((nextValue) => {
     if (!isNumericType) return nextValue;
@@ -63,20 +66,20 @@ const ParameterInput = ({ param, schema, value, defaultValue, onChange, onSave, 
   }, [isNumericType]);
 
   // Use ref to track current input value for blur handling (must be called unconditionally)
-  const currentValueRef = useRef(formatInputValue(value));
-  const [localInput, setLocalInput] = useState(() => formatInputValue(value));
+  const currentValueRef = useRef(formatInputValue(effectiveValue));
+  const [localInput, setLocalInput] = useState(() => formatInputValue(effectiveValue));
   const [isFocused, setIsFocused] = useState(false);
   const [validationError, setValidationError] = useState(null);
 
   // Sync local input with prop value when it changes externally
   useEffect(() => {
     if (!isNumericType || !isFocused) {
-      const nextValue = formatInputValue(value);
+      const nextValue = formatInputValue(effectiveValue);
       setLocalInput(nextValue);
       currentValueRef.current = nextValue;
     }
     setValidationError(null);
-  }, [value, isNumericType, formatInputValue, isFocused]);
+  }, [effectiveValue, isNumericType, formatInputValue, isFocused]);
 
   // Validate value based on schema constraints
   const validateValue = useCallback((val) => {
@@ -523,7 +526,8 @@ const ParameterCard = ({
 }) => {
   const { buttonSize } = useResponsive();
   const paramSchema = schema?.parameters?.[param] || {};
-  const isModified = !isDeepEqual(value, defaultValue);
+  // Only show "Modified" when value is explicitly set and differs from default
+  const isModified = value !== undefined && !isDeepEqual(value, defaultValue);
 
   return (
     <Card

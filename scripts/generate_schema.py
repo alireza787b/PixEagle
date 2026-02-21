@@ -63,6 +63,7 @@ SECTION_CATEGORIES = {
     'Detector': {'category': 'detection', 'display_name': 'Object Detector', 'icon': 'search'},
 
     # Followers
+    'Follower': {'category': 'follower', 'display_name': 'Follower Config', 'icon': 'flight_takeoff'},
     'MC_VELOCITY_CHASE': {'category': 'follower', 'display_name': 'MC Velocity Chase', 'icon': 'sports_motorsports'},
     'MC_VELOCITY_POSITION': {'category': 'follower', 'display_name': 'MC Velocity Position', 'icon': 'place'},
     'MC_VELOCITY_DISTANCE': {'category': 'follower', 'display_name': 'MC Velocity Distance', 'icon': 'straighten'},
@@ -253,6 +254,7 @@ SECTION_RELOAD_TIERS = {
 
     # follower_restart — follower/control params, need follower reinit
     'PID': 'follower_restart',
+    'Follower': 'follower_restart',
     'Safety': 'follower_restart',
     'MC_VELOCITY_CHASE': 'follower_restart',
     'MC_VELOCITY_POSITION': 'follower_restart',
@@ -638,6 +640,10 @@ def generate_parameter_schema(key: str, value: Any, description: str = '',
         full_path: Full dotted path (e.g., 'VideoSource.FRAME_ROTATION_DEG') for override lookup
     """
     param_type, constraints = infer_type(value)
+
+    # Strip comment artifacts from description (e.g., trailing "# === Section ===" blocks)
+    if description:
+        description = re.split(r'\n\s*#', description)[0].strip()
 
     # Extract options from description (e.g., "Options: val1, val2, val3")
     options, cleaned_description = extract_options(description)
