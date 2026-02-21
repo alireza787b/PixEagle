@@ -108,18 +108,6 @@ const SettingsPageContent = () => {
     }
   }, [sections]);
 
-  // Auto-expand the category containing the active mode section
-  useEffect(() => {
-    if (modeSpecificSections.length > 0 && Object.keys(expandedCategories).length === 0) {
-      for (const [category, catSections] of Object.entries(groupedSections)) {
-        if (catSections.some(s => modeSpecificSections.includes(s.name))) {
-          setExpandedCategories(prev => ({ ...prev, [category]: true }));
-          break;
-        }
-      }
-    }
-  }, [modeSpecificSections, groupedSections]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // Close search dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -152,6 +140,14 @@ const SettingsPageContent = () => {
   const sortedCategories = useMemo(() => {
     return categoryOrder.filter(cat => sortedGroupedSections[cat]?.length > 0);
   }, [sortedGroupedSections]);
+
+  // Compute which sections get the green "Active" chip:
+  // Only per-follower sections (MC_*/GM_*/FW_*) + SmartTracker when follower is active
+  const activeChipSections = useMemo(() => {
+    const perFollower = modeSpecificSections.filter(s => /^(MC_|GM_|FW_)/.test(s));
+    if (followerActive) perFollower.push('SmartTracker');
+    return perFollower;
+  }, [modeSpecificSections, followerActive]);
 
   const toggleCategory = (category) => {
     setExpandedCategories(prev => ({
@@ -619,7 +615,7 @@ const SettingsPageContent = () => {
                       <Collapse in={isExpanded} timeout="auto" unmountOnExit>
                         <List component="div" disablePadding dense>
                           {catSections.map((section) => {
-                            const isModeSpecific = modeSpecificSections.includes(section.name);
+                            const isModeSpecific = activeChipSections.includes(section.name);
                             return (
                               <ListItemButton
                                 key={section.name}

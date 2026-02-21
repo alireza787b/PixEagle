@@ -627,10 +627,8 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
   const { isMobile, isTablet, isCompactDesktop, compactTable } = useResponsive();
   const globalState = useConfigGlobalState();
 
-  // Use card layout on mobile/tablet/compact-desktop, OR always for Safety/Follower sections
-  const isSafetySection = sectionName === 'Safety' || sectionName === 'SafetyLimits';
-  const isFollowerSection = sectionName === 'Follower';
-  const useCardLayout = isMobile || isTablet || isCompactDesktop || isSafetySection || isFollowerSection;
+  // Use card layout on mobile/tablet/compact-desktop (responsive breakpoint only)
+  const useCardLayout = isMobile || isTablet || isCompactDesktop;
 
   const [localValues, setLocalValues] = useState({});
   const [saveStatuses, setSaveStatuses] = useState({}); // 'saving' | 'saved' | 'error' | null
@@ -825,6 +823,16 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
     return localValues[param] !== undefined ? localValues[param] : config[param];
   };
 
+  // Identify specialized object params that need full-width rendering (Safety/Follower editors)
+  const isSpecializedParam = (param) => {
+    if (parameters[param]?.type !== 'object') return false;
+    if (param === 'GlobalLimits' || (param === 'FollowerOverrides' && 'GlobalLimits' in config)) return true;
+    if ((param === 'General' || param === 'FollowerOverrides') && 'General' in config) return true;
+    return false;
+  };
+  const simpleParams = paramNames.filter(p => !isSpecializedParam(p));
+  const specializedParams = paramNames.filter(p => isSpecializedParam(p));
+
   return (
     <Paper
       ref={containerRef}
@@ -929,136 +937,159 @@ const SectionEditor = ({ sectionName, highlightParam = null, onHighlightComplete
           ))}
         </Box>
       ) : (
-        // Desktop (>= 900px): Table Layout with responsive overflow
-        <TableContainer sx={{ overflowX: 'auto' }}>
-          <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 'bold', width: compactTable ? '22%' : '20%' }}>Parameter</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', width: compactTable ? '38%' : '35%' }}>Value</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', width: compactTable ? '14%' : '18%' }}>Default</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', width: compactTable ? '12%' : '14%' }}>Info</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', width: compactTable ? '14%' : '13%', whiteSpace: 'nowrap' }}>Actions</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {paramNames.map((param) => {
-              const paramSchema = parameters[param];
-              const currentValue = getValue(param);
-              const defaultValue = defaultConfig[param] ?? paramSchema?.default;
-              const modified = !isDeepEqual(currentValue, defaultValue);
-              const hasPending = param in pendingChanges;
-              const saveStatus = saveStatuses[param];
+        // Desktop: Table for simple params, full-width cards for specialized editors
+        <Box>
+          {/* Table for simple (non-specialized) params */}
+          {simpleParams.length > 0 && (
+            <TableContainer sx={{ overflowX: 'auto' }}>
+              <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 'bold', width: compactTable ? '22%' : '20%' }}>Parameter</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', width: compactTable ? '38%' : '35%' }}>Value</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', width: compactTable ? '14%' : '18%' }}>Default</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', width: compactTable ? '12%' : '14%' }}>Info</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', width: compactTable ? '14%' : '13%', whiteSpace: 'nowrap' }}>Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {simpleParams.map((param) => {
+                  const paramSchema = parameters[param];
+                  const currentValue = getValue(param);
+                  const defaultValue = defaultConfig[param] ?? paramSchema?.default;
+                  const modified = !isDeepEqual(currentValue, defaultValue);
+                  const hasPending = param in pendingChanges;
+                  const saveStatus = saveStatuses[param];
 
-              return (
-                <TableRow
-                  key={param}
-                  data-param={param}
-                  sx={{
-                    bgcolor: modified ? 'action.selected' : undefined,
-                    '&:hover': { bgcolor: 'action.hover' }
-                  }}
-                >
-                  <TableCell sx={{ overflow: 'hidden' }}>
-                    <Box>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {param}
-                      </Typography>
-                      {paramSchema?.description && (
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {paramSchema.description.slice(0, 60)}
-                          {paramSchema.description.length > 60 ? '...' : ''}
-                        </Typography>
-                      )}
-                    </Box>
-                  </TableCell>
-
-                  <TableCell sx={{ overflow: 'hidden' }}>
-                    <ParameterInput
-                      param={param}
-                      schema={schema}
-                      value={currentValue}
-                      defaultValue={defaultValue}
-                      onChange={handleLocalChange}
-                      onSave={handleSave}
-                      saveStatus={saveStatus}
-                      configValues={config}
-                      autoSaveEnabled={autoSaveEnabled}
-                    />
-                  </TableCell>
-
-                  <TableCell sx={{ overflow: 'hidden' }}>
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      noWrap
-                      sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}
+                  return (
+                    <TableRow
+                      key={param}
+                      data-param={param}
+                      sx={{
+                        bgcolor: modified ? 'action.selected' : undefined,
+                        '&:hover': { bgcolor: 'action.hover' }
+                      }}
                     >
-                      {typeof defaultValue === 'object'
-                        ? JSON.stringify(defaultValue).slice(0, 20)
-                        : String(defaultValue)}
-                    </Typography>
-                  </TableCell>
+                      <TableCell sx={{ overflow: 'hidden' }}>
+                        <Box>
+                          <Typography variant="body2" sx={{ fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {param}
+                          </Typography>
+                          {paramSchema?.description && (
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {paramSchema.description.slice(0, 60)}
+                              {paramSchema.description.length > 60 ? '...' : ''}
+                            </Typography>
+                          )}
+                        </Box>
+                      </TableCell>
 
-                  <TableCell>
-                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                      {paramSchema?.reload_tier && (
-                        <ReloadTierChip tier={paramSchema.reload_tier} size="small" />
-                      )}
-                      {paramSchema?.unit && (
-                        <Chip label={paramSchema.unit} size="small" variant="outlined" />
-                      )}
-                      {hasPending && (
-                        <Chip label="Unsaved" size="small" color="info" />
-                      )}
-                      {modified && !hasPending && (
-                        <Chip label="Modified" size="small" color="warning" />
-                      )}
-                    </Box>
-                  </TableCell>
+                      <TableCell sx={{ overflow: 'hidden' }}>
+                        <ParameterInput
+                          param={param}
+                          schema={schema}
+                          value={currentValue}
+                          defaultValue={defaultValue}
+                          onChange={handleLocalChange}
+                          onSave={handleSave}
+                          saveStatus={saveStatus}
+                          configValues={config}
+                          autoSaveEnabled={autoSaveEnabled}
+                        />
+                      </TableCell>
 
-                  <TableCell>
-                    <Box sx={{ display: 'flex', gap: 0.5 }}>
-                      <Tooltip title="Open detail editor">
-                        <IconButton
-                          size="small"
-                          onClick={() => setSelectedParam(param)}
+                      <TableCell sx={{ overflow: 'hidden' }}>
+                        <Typography
+                          variant="body2"
+                          color="text.secondary"
+                          noWrap
+                          sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}
                         >
-                          <OpenInNew fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      {hasPending && (
-                        <Tooltip title="Save this parameter">
-                          <IconButton
-                            size="small"
-                            color="primary"
-                            onClick={() => handleSave(param, currentValue)}
-                            disabled={saveStatus === 'saving'}
-                          >
-                            <Save fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                      {modified && (
-                        <Tooltip title="Revert to default">
-                          <IconButton
-                            size="small"
-                            onClick={() => handleRevert(param)}
-                            disabled={saveStatus === 'saving'}
-                          >
-                            <Undo fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </Box>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )}
+                          {typeof defaultValue === 'object'
+                            ? JSON.stringify(defaultValue).slice(0, 20)
+                            : String(defaultValue)}
+                        </Typography>
+                      </TableCell>
+
+                      <TableCell>
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                          {paramSchema?.reload_tier && (
+                            <ReloadTierChip tier={paramSchema.reload_tier} size="small" />
+                          )}
+                          {paramSchema?.unit && (
+                            <Chip label={paramSchema.unit} size="small" variant="outlined" />
+                          )}
+                          {hasPending && (
+                            <Chip label="Unsaved" size="small" color="info" />
+                          )}
+                          {modified && !hasPending && (
+                            <Chip label="Modified" size="small" color="warning" />
+                          )}
+                        </Box>
+                      </TableCell>
+
+                      <TableCell>
+                        <Box sx={{ display: 'flex', gap: 0.5 }}>
+                          <Tooltip title="Open detail editor">
+                            <IconButton
+                              size="small"
+                              onClick={() => setSelectedParam(param)}
+                            >
+                              <OpenInNew fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          {hasPending && (
+                            <Tooltip title="Save this parameter">
+                              <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={() => handleSave(param, currentValue)}
+                                disabled={saveStatus === 'saving'}
+                              >
+                                <Save fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                          {modified && (
+                            <Tooltip title="Revert to default">
+                              <IconButton
+                                size="small"
+                                onClick={() => handleRevert(param)}
+                                disabled={saveStatus === 'saving'}
+                              >
+                                <Undo fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+
+          {/* Full-width specialized editors (Safety/Follower) */}
+          {specializedParams.map((param) => (
+            <ParameterCard
+              key={param}
+              param={param}
+              schema={schema}
+              value={getValue(param)}
+              defaultValue={defaultConfig[param] ?? parameters[param]?.default}
+              saveStatus={saveStatuses[param]}
+              onLocalChange={handleLocalChange}
+              onSave={handleSave}
+              onRevert={handleRevert}
+              onOpenDetails={() => setSelectedParam(param)}
+              configValues={config}
+              autoSaveEnabled={autoSaveEnabled}
+            />
+          ))}
+        </Box>
+      )}
 
       {paramNames.length === 0 && (
         <Box sx={{ py: 4, textAlign: 'center' }}>
