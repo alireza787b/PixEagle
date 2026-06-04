@@ -28,14 +28,12 @@ import { videoFeed, endpoints } from '../services/apiEndpoints';
 import {
   useTrackerStatus,
   useFollowerStatus,
-  useSmartModeStatus
+  useSmartModeStatus,
+  useTelemetryHealth
 } from '../hooks/useStatuses';
 import { useCurrentFollowerProfile } from '../hooks/useFollowerSchema';
 import useBoundingBoxHandlers from '../hooks/useBoundingBoxHandlers';
 import axios from 'axios';
-import { apiConfig } from '../services/apiEndpoints';
-
-const API_URL = `${apiConfig.protocol}://${apiConfig.apiHost}:${apiConfig.apiPort}`;
 
 const DashboardPage = () => {
   const [isTracking, setIsTracking] = useState(false);
@@ -56,6 +54,7 @@ const DashboardPage = () => {
     smartModeActive,
     refresh: refreshSmartModeStatus,
   } = useSmartModeStatus(checkInterval);
+  const { telemetryStatus } = useTelemetryHealth(checkInterval);
   const { currentProfile } = useCurrentFollowerProfile();
 
   // Unified data fetching for better performance
@@ -63,7 +62,7 @@ const DashboardPage = () => {
     const fetchAllData = async () => {
       try {
         const [followerResponse, circuitBreakerResponse] = await Promise.all([
-          axios.get(`${API_URL}/telemetry/follower_data`).catch(() => ({ data: {} })),
+          axios.get(endpoints.followerData).catch(() => ({ data: {} })),
           axios.get(endpoints.circuitBreakerStatus).catch(() => ({ data: { available: false } }))
         ]);
 
@@ -400,6 +399,7 @@ const DashboardPage = () => {
               smartModeActive={smartModeActive}
               isFollowing={isFollowing}
               circuitBreakerActive={circuitBreakerActive}
+              telemetryStatus={telemetryStatus}
             />
           </Grid>
 

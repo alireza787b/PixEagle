@@ -1,13 +1,27 @@
 // dashboard/src/components/OperationalStatusBar.js
 import React from 'react';
-import { Box, Chip, Stack } from '@mui/material';
+import { Box, Chip, Stack, Tooltip } from '@mui/material';
+import SensorsIcon from '@mui/icons-material/Sensors';
 
 const OperationalStatusBar = ({
   isTracking,
   smartModeActive,
   isFollowing,
   circuitBreakerActive,
+  telemetryStatus,
 }) => {
+  const telemetryTooltip = telemetryStatus
+    ? [
+        telemetryStatus.detail,
+        telemetryStatus.transport?.latestRequestResult
+          ? `latest request: ${telemetryStatus.transport.latestRequestResult}`
+          : null,
+        telemetryStatus.requestFreshness?.fresh !== undefined
+          ? `fresh: ${telemetryStatus.requestFreshness.fresh ? 'yes' : 'no'}`
+          : null,
+      ].filter(Boolean).join(' | ')
+    : 'Telemetry unavailable';
+
   return (
     <Box
       sx={{
@@ -47,6 +61,18 @@ const OperationalStatusBar = ({
             variant="outlined"
             sx={{ fontWeight: 600, fontSize: 12 }}
           />
+        )}
+        {telemetryStatus && (
+          <Tooltip title={telemetryTooltip}>
+            <Chip
+              icon={<SensorsIcon />}
+              label={telemetryStatus.chipLabel}
+              size="small"
+              color={telemetryStatus.color}
+              variant={telemetryStatus.usableForFollowing ? 'filled' : 'outlined'}
+              sx={{ fontWeight: 600, fontSize: 12 }}
+            />
+          </Tooltip>
         )}
       </Stack>
     </Box>

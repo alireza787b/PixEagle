@@ -1,9 +1,8 @@
 //dashboard/src/hooks/useStatuses.js
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
-import { apiConfig } from '../services/apiEndpoints';
+import { endpoints } from '../services/apiEndpoints';
 
-const API_URL = `${apiConfig.protocol}://${apiConfig.apiHost}:${apiConfig.apiPort}`;
 const NO_CACHE_HEADERS = {
   'Cache-Control': 'no-cache, no-store, must-revalidate',
   Pragma: 'no-cache',
@@ -21,7 +20,7 @@ export const useTrackerStatus = (interval = 2000) => {
   useEffect(() => {
     const fetchTrackerStatus = async () => {
       try {
-        const response = await axios.get(`${API_URL}/telemetry/tracker_data`, buildNoCacheRequestConfig());
+        const response = await axios.get(endpoints.trackerData, buildNoCacheRequestConfig());
         const trackerData = response.data;
 
         if (trackerData.tracker_started) {
@@ -31,7 +30,7 @@ export const useTrackerStatus = (interval = 2000) => {
         }
       } catch (error) {
         console.error('Error fetching tracker data:', error);
-        console.log("URI Used is:", `${API_URL}/telemetry/tracker_data`);
+        console.log("URI Used is:", endpoints.trackerData);
         setIsTracking(false);
       }
     };
@@ -51,7 +50,7 @@ export const useFollowerStatus = (interval = 2000) => {
   useEffect(() => {
     const fetchFollowerStatus = async () => {
       try {
-        const response = await axios.get(`${API_URL}/telemetry/follower_data`, buildNoCacheRequestConfig());
+        const response = await axios.get(endpoints.followerData, buildNoCacheRequestConfig());
         const followerData = response.data;
 
         setIsFollowing(followerData.following_active);
@@ -70,6 +69,211 @@ export const useFollowerStatus = (interval = 2000) => {
   return isFollowing;
 };
 
+const TELEMETRY_GUIDANCE = {
+  usable: {
+    label: 'Usable',
+    chipLabel: 'Telemetry: Usable',
+    color: 'success',
+    detail: 'Latest request and cached payload are fresh',
+  },
+  degraded_latest_request_failed: {
+    label: 'Degraded',
+    chipLabel: 'Telemetry: Degraded',
+    color: 'warning',
+    detail: 'Latest request failed while cached payload is still fresh',
+  },
+  stale: {
+    label: 'Stale',
+    chipLabel: 'Telemetry: Stale',
+    color: 'warning',
+    detail: 'Last successful MAVLink2REST sample is stale',
+  },
+  unavailable: {
+    label: 'Unavailable',
+    chipLabel: 'Telemetry: Unavailable',
+    color: 'error',
+    detail: 'No usable MAVLink2REST telemetry sample is available',
+  },
+  disabled: {
+    label: 'Disabled',
+    chipLabel: 'Telemetry: Disabled',
+    color: 'default',
+    detail: 'MAVLink telemetry polling is disabled',
+  },
+  connecting: {
+    label: 'Connecting',
+    chipLabel: 'Telemetry: Connecting',
+    color: 'info',
+    detail: 'MAVLink telemetry polling has not completed a sample yet',
+  },
+};
+
+const formatOptionalValue = (value) => {
+  if (value === null || value === undefined || value === '') {
+    return 'N/A';
+  }
+  return String(value);
+};
+
+const INITIAL_TELEMETRY_HEALTH = {
+  enabled: true,
+  status: 'connecting',
+  consumer_guidance: 'connecting',
+  transport: {
+    latest_request_ok: false,
+    latest_request_result: 'not_attempted',
+  },
+  request_freshness: {
+    fresh: false,
+  },
+  payload: {
+    has_payload: false,
+    fresh: false,
+  },
+};
+
+export const normalizeTelemetryHealth = (health) => {
+  const hasHealth = Boolean(health);
+  const source = health || {};
+  const transport = source.transport || {};
+  const freshness = source.request_freshness || {};
+  const payload = source.payload || {};
+  const guidance = source.consumer_guidance || 'unavailable';
+  const descriptor = TELEMETRY_GUIDANCE[guidance] || TELEMETRY_GUIDANCE.unavailable;
+  const disabled = source.enabled === false || source.status === 'disabled' || guidance === 'disabled';
+  const latestRequestOk = Boolean(transport.latest_request_ok);
+  const requestFresh = disabled ? false : Boolean(freshness.fresh);
+  const payloadFresh = disabled ? false : Boolean(payload.fresh);
+  const enabled = hasHealth ? !disabled : false;
+  const usableForFollowing = (
+    enabled
+    && guidance === 'usable'
+    && latestRequestOk
+    && requestFresh
+    && payloadFresh
+  );
+
+  return {
+    raw: source,
+    schemaVersion: source.schema_version || 1,
+    source: source.source || 'mavlink2rest',
+    enabled,
+    status: source.status || 'disconnected',
+    guidance,
+    label: descriptor.label,
+    chipLabel: descriptor.chipLabel,
+    color: descriptor.color,
+    detail: descriptor.detail,
+    usableForFollowing,
+    transport: {
+      state: transport.state || 'unknown',
+      latestRequestOk,
+      latestRequestResult: transport.latest_request_result || 'not_attempted',
+      latestRequestAgeS: transport.latest_request_age_s ?? null,
+      validationTimeoutActive: Boolean(transport.validation_timeout_active),
+      lastError: transport.last_error || null,
+      endpoint: transport.endpoint || null,
+    },
+    requestFreshness: {
+      fresh: requestFresh,
+      lastSuccessAgeS: freshness.last_success_age_s ?? null,
+      staleTimeoutS: freshness.stale_timeout_s ?? null,
+      lastSuccessMonotonicAvailable: Boolean(freshness.last_success_monotonic_available),
+    },
+    payload: {
+      hasPayload: Boolean(payload.has_payload),
+      fresh: payloadFresh,
+      sampleCount: payload.sample_count || 0,
+      availableKeys: Array.isArray(payload.available_keys) ? payload.available_keys : [],
+      flightModeRaw: payload.flight_mode ?? null,
+      flightModeLabel: formatOptionalValue(payload.flight_mode),
+      armStatusRaw: payload.arm_status ?? null,
+      armStatusLabel: formatOptionalValue(payload.arm_status),
+      payloadAgeS: payload.payload_age_s ?? null,
+    },
+    claimBoundary: source.claim_boundary || '',
+    timestamp: source.timestamp || null,
+  };
+};
+
+export const useTelemetryHealth = (interval = 2000) => {
+  const [telemetryHealth, setTelemetryHealth] = useState(null);
+  const [telemetryStatus, setTelemetryStatus] = useState(() => normalizeTelemetryHealth(INITIAL_TELEMETRY_HEALTH));
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const mountedRef = useRef(false);
+  const requestSequenceRef = useRef(0);
+
+  const refresh = useCallback(async ({ suppressErrors = false } = {}) => {
+    const requestSequence = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestSequence;
+
+    try {
+      const response = await axios.get(endpoints.telemetryHealth, buildNoCacheRequestConfig());
+      if (!mountedRef.current || requestSequence !== requestSequenceRef.current) {
+        return null;
+      }
+      const health = response.data || {};
+      const normalized = normalizeTelemetryHealth(health);
+      setTelemetryHealth(health);
+      setTelemetryStatus(normalized);
+      setError(null);
+      return normalized;
+    } catch (fetchError) {
+      if (!mountedRef.current || requestSequence !== requestSequenceRef.current) {
+        return null;
+      }
+      if (!suppressErrors) {
+        console.error('Error fetching telemetry health:', fetchError);
+      }
+      const unavailableHealth = {
+        enabled: false,
+        status: 'disconnected',
+        consumer_guidance: 'unavailable',
+        transport: {
+          latest_request_ok: false,
+          latest_request_result: 'failure',
+          last_error: fetchError?.message || 'Telemetry health request failed',
+        },
+        request_freshness: { fresh: false },
+        payload: { has_payload: false, fresh: false },
+      };
+      const unavailable = normalizeTelemetryHealth(unavailableHealth);
+      setTelemetryHealth(unavailableHealth);
+      setTelemetryStatus(unavailable);
+      setError(fetchError);
+      return null;
+    } finally {
+      if (mountedRef.current && requestSequence === requestSequenceRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const intervalId = setInterval(() => {
+      refresh({ suppressErrors: true });
+    }, interval);
+
+    refresh();
+
+    return () => {
+      mountedRef.current = false;
+      requestSequenceRef.current += 1;
+      clearInterval(intervalId);
+    };
+  }, [interval, refresh]);
+
+  return {
+    telemetryHealth,
+    telemetryStatus,
+    refresh,
+    loading,
+    error,
+  };
+};
+
 
 export const useSmartModeStatus = (interval = 2000) => {
   const [smartModeActive, setSmartModeActive] = useState(false);
@@ -78,7 +282,7 @@ export const useSmartModeStatus = (interval = 2000) => {
 
   const refresh = useCallback(async ({ suppressErrors = false } = {}) => {
     try {
-      const response = await axios.get(`${API_URL}/status`, buildNoCacheRequestConfig());
+      const response = await axios.get(endpoints.status, buildNoCacheRequestConfig());
       const data = response.data || {};
       const nextState = Boolean(data.smart_mode_active);
       setSmartModeActive(nextState);

@@ -198,6 +198,13 @@ forced false even if PixEagle still has cached payload for diagnostics. Server
 failures use the typed `/api/v1` error envelope with `code`, `detail`, `path`,
 `request_id`, and `timestamp`.
 
+Dashboard clients consume this route through `useTelemetryHealth()` and show a
+compact operational chip: `Telemetry: Usable`, `Telemetry: Degraded`,
+`Telemetry: Stale`, `Telemetry: Unavailable`, `Telemetry: Disabled`, or
+`Telemetry: Connecting`. The dashboard normalizes payload fields such as
+`flight_mode` and `arm_status` into display labels while keeping the raw values
+available for diagnostics.
+
 ---
 
 ## Commands

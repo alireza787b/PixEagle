@@ -62,6 +62,9 @@ export const endpoints = {
   stopOffboardMode: `${apiBaseUrl}/commands/stop_offboard_mode`,
   quit: `${apiBaseUrl}/commands/quit`,
   status: `${apiBaseUrl}/status`,
+  telemetryHealth: `${apiBaseUrl}/api/v1/telemetry/health`,
+  trackerData: `${apiBaseUrl}/telemetry/tracker_data`,
+  followerData: `${apiBaseUrl}/telemetry/follower_data`,
   toggleSmartMode: `${apiBaseUrl}/commands/toggle_smart_mode`,
   smartClick: `${apiBaseUrl}/commands/smart_click`,
 

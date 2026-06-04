@@ -93,6 +93,9 @@ bash scripts/run.sh
 # Check system status
 curl http://127.0.0.1:5077/status
 
+# Check typed MAVLink telemetry health
+curl http://127.0.0.1:5077/api/v1/telemetry/health
+
 # Get telemetry
 curl http://127.0.0.1:5077/telemetry/tracker_data
 
