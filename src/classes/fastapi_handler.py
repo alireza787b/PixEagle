@@ -53,6 +53,9 @@ SITL_MAVSDK_DISCONNECT_INJECTION_PATH = "/api/v1/sitl/injections/mavsdk-disconne
 SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH = (
     "/api/v1/sitl/injections/mavlink2rest-timeout"
 )
+API_V1_ACTION_OFFBOARD_START_PATH = "/api/v1/actions/offboard-start"
+API_V1_ACTION_OPERATOR_ABORT_PATH = "/api/v1/actions/operator-abort"
+API_V1_ACTION_RESOURCE_PREFIX = "/api/v1/actions"
 SITL_VALIDATION_INJECTION_PATHS = {
     SITL_TRACKER_OUTPUT_INJECTION_PATH,
     SITL_VIDEO_STALL_INJECTION_PATH,
@@ -83,6 +86,76 @@ class APIErrorResponse(BaseModel):
     timestamp: int
     path: str
     request_id: str
+
+
+class APIActionRequest(BaseModel):
+    """Typed request envelope for operator or validation control actions."""
+
+    source: str = Field(default="operator", min_length=1, max_length=120)
+    reason: str = Field(default="operator_request", min_length=1, max_length=240)
+    dry_run: bool = False
+    confirm: bool = False
+    idempotency_key: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    class Config:
+        extra = "forbid"
+
+
+class APIActionAuditEvent(BaseModel):
+    """Audit event embedded in typed action resources."""
+
+    event_id: str
+    event_type: str
+    timestamp: float
+    source: str
+    reason: str
+
+
+class APIActionResponse(BaseModel):
+    """Tracked action resource for typed /api/v1 control mutations."""
+
+    action_id: str
+    action_type: Literal["offboard_start", "operator_abort"]
+    status: Literal["validated", "success", "failure"]
+    accepted: bool
+    executed: bool
+    dry_run: bool
+    confirmed: bool
+    idempotency_key: Optional[str] = None
+    idempotent_replay: bool = False
+    source: str
+    reason: str
+    following_active_before: Optional[bool] = None
+    following_active_after: Optional[bool] = None
+    result: Dict[str, Any] = Field(default_factory=dict)
+    error: Optional[str] = None
+    claim_boundary: str
+    audit_event: APIActionAuditEvent
+    timestamp: float
+
+
+ACTION_ERROR_RESPONSES = {
+    status.HTTP_404_NOT_FOUND: {
+        "model": APIErrorResponse,
+        "description": "Action resource was not found.",
+    },
+    status.HTTP_409_CONFLICT: {
+        "model": APIErrorResponse,
+        "description": "Action confirmation or state requirements were not met.",
+    },
+    status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        "model": APIErrorResponse,
+        "description": "Invalid typed action request.",
+    },
+}
+ACTION_ROUTE_RESPONSES = {
+    status.HTTP_200_OK: {
+        "model": APIActionResponse,
+        "description": "Dry-run validation result or idempotent action replay.",
+    },
+    **ACTION_ERROR_RESPONSES,
+}
 
 
 class SITLTrackerOutputInjection(BaseModel):
@@ -596,6 +669,11 @@ class FastAPIHandler:
 
         # Detection Model Manager
         self.model_manager = ModelManager()
+        self._action_records: Dict[str, Dict[str, Any]] = {}
+        self._action_idempotency_index: Dict[Tuple[str, str], str] = {}
+        self._action_history_order: deque[str] = deque()
+        self._action_store_lock = threading.Lock()
+        self._action_key_locks: Dict[Tuple[str, str], asyncio.Lock] = {}
 
         # FastAPI app
         self.app = FastAPI(title="PixEagle API", version=PIXEAGLE_VERSION)
@@ -691,10 +769,46 @@ class FastAPIHandler:
         self.app.post("/commands/stop_tracking")(self.stop_tracking)
         self.app.post("/commands/toggle_segmentation")(self.toggle_segmentation)
         self.app.post("/commands/redetect")(self.redetect)
-        self.app.post("/commands/cancel_activities")(self.cancel_activities)
-        self.app.post("/commands/start_offboard_mode")(self.start_offboard_mode)
+        self.app.post(
+            "/commands/cancel_activities",
+            deprecated=True,
+            operation_id="legacy_cancel_activities",
+            tags=["legacy-commands"],
+        )(self.cancel_activities)
+        self.app.post(
+            "/commands/start_offboard_mode",
+            deprecated=True,
+            operation_id="legacy_start_offboard_mode",
+            tags=["legacy-commands"],
+        )(self.start_offboard_mode)
         self.app.post("/commands/stop_offboard_mode")(self.stop_offboard_mode)
         self.app.post("/commands/quit")(self.quit)
+
+        # Typed /api/v1 action resources. Legacy /commands/* routes remain as
+        # compatibility aliases until the broader API migration removes them.
+        self.app.post(
+            "/api/v1/actions/offboard-start",
+            response_model=APIActionResponse,
+            status_code=status.HTTP_202_ACCEPTED,
+            responses=ACTION_ROUTE_RESPONSES,
+            operation_id="start_offboard_action",
+            tags=["actions"],
+        )(self.start_offboard_action)
+        self.app.post(
+            "/api/v1/actions/operator-abort",
+            response_model=APIActionResponse,
+            status_code=status.HTTP_202_ACCEPTED,
+            responses=ACTION_ROUTE_RESPONSES,
+            operation_id="operator_abort_action",
+            tags=["actions"],
+        )(self.operator_abort_action)
+        self.app.get(
+            "/api/v1/actions/{action_id}",
+            response_model=APIActionResponse,
+            responses=ACTION_ERROR_RESPONSES,
+            operation_id="get_action_resource",
+            tags=["actions"],
+        )(self.get_action_resource)
 
         # Validation-only APIs. Disabled unless PIXEAGLE_ENABLE_SITL_INJECTIONS=1.
         self.app.post(
@@ -1362,6 +1476,36 @@ class FastAPIHandler:
             "on",
         }
 
+    def _api_v1_error_response(
+        self,
+        *,
+        status_code: int,
+        code: str,
+        detail: Any,
+        path: str = SITL_TRACKER_OUTPUT_INJECTION_PATH,
+    ) -> JSONResponse:
+        """Build a typed /api/v1 error envelope."""
+        payload = APIErrorResponse(
+            error=code,
+            code=code,
+            detail=detail,
+            timestamp=int(time.time() * 1000),
+            path=path,
+            request_id=(
+                f"pixeagle-action-{uuid.uuid4()}"
+                if path.startswith(f"{API_V1_ACTION_RESOURCE_PREFIX}/")
+                else f"pixeagle-sitl-{uuid.uuid4()}"
+            ),
+        )
+        return JSONResponse(
+            status_code=status_code,
+            content=(
+                payload.model_dump()
+                if hasattr(payload, "model_dump")
+                else payload.dict()
+            ),
+        )
+
     def _sitl_error_response(
         self,
         *,
@@ -1371,17 +1515,269 @@ class FastAPIHandler:
         path: str = SITL_TRACKER_OUTPUT_INJECTION_PATH,
     ) -> JSONResponse:
         """Build a typed /api/v1 error envelope for SITL validation routes."""
-        payload = APIErrorResponse(
-            error=code,
+        return self._api_v1_error_response(
+            status_code=status_code,
             code=code,
             detail=detail,
-            timestamp=int(time.time() * 1000),
             path=path,
-            request_id=f"pixeagle-sitl-{uuid.uuid4()}",
         )
-        return JSONResponse(
-            status_code=status_code,
-            content=payload.model_dump(),
+
+    @staticmethod
+    def _uses_typed_api_error_envelope(path: str) -> bool:
+        return path in SITL_VALIDATION_INJECTION_PATHS or path.startswith(
+            f"{API_V1_ACTION_RESOURCE_PREFIX}/"
+        )
+
+    def _ensure_action_store(self) -> None:
+        """Initialize action storage for tests that construct via __new__."""
+        if not hasattr(self, "_action_records"):
+            self._action_records = {}
+        if not hasattr(self, "_action_idempotency_index"):
+            self._action_idempotency_index = {}
+        if not hasattr(self, "_action_history_order"):
+            self._action_history_order = deque()
+        if not hasattr(self, "_action_store_lock"):
+            self._action_store_lock = threading.Lock()
+        if not hasattr(self, "_action_key_locks"):
+            self._action_key_locks = {}
+
+    def _action_lock_for_key(
+        self,
+        action_type: str,
+        idempotency_key: Optional[str],
+    ) -> Optional[asyncio.Lock]:
+        """Return a per-idempotency-key async lock for confirmed mutations."""
+        if not idempotency_key:
+            return None
+        self._ensure_action_store()
+        key = (action_type, idempotency_key)
+        with self._action_store_lock:
+            lock = self._action_key_locks.get(key)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._action_key_locks[key] = lock
+            return lock
+
+    def _lookup_idempotent_action(
+        self,
+        action_type: str,
+        idempotency_key: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        if not idempotency_key:
+            return None
+        self._ensure_action_store()
+        with self._action_store_lock:
+            action_id = self._action_idempotency_index.get(
+                (action_type, idempotency_key)
+            )
+            if not action_id:
+                return None
+            record = self._action_records.get(action_id)
+            if not record:
+                return None
+            replay = dict(record)
+            replay["idempotent_replay"] = True
+            return replay
+
+    def _store_action_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        self._ensure_action_store()
+        with self._action_store_lock:
+            action_id = record["action_id"]
+            self._action_records[action_id] = dict(record)
+            self._action_history_order.append(action_id)
+            idempotency_key = record.get("idempotency_key")
+            if idempotency_key and record.get("executed") is True:
+                self._action_idempotency_index[
+                    (record["action_type"], idempotency_key)
+                ] = action_id
+
+            while len(self._action_history_order) > 1000:
+                old_action_id = self._action_history_order.popleft()
+                old_record = self._action_records.pop(old_action_id, None)
+                if (
+                    old_record
+                    and old_record.get("idempotency_key")
+                    and old_record.get("executed") is True
+                ):
+                    lock_key = (old_record["action_type"], old_record["idempotency_key"])
+                    self._action_idempotency_index.pop(
+                        lock_key,
+                        None,
+                    )
+                    self._action_key_locks.pop(lock_key, None)
+        return record
+
+    @staticmethod
+    def _new_api_action_record(
+        *,
+        action_type: Literal["offboard_start", "operator_abort"],
+        request: APIActionRequest,
+        status_value: Literal["validated", "success", "failure"],
+        accepted: bool,
+        executed: bool,
+        following_active_before: Optional[bool],
+        following_active_after: Optional[bool],
+        result: Dict[str, Any],
+        error: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        timestamp = time.time()
+        event = {
+            "event_id": f"pixeagle-action-event-{uuid.uuid4()}",
+            "event_type": f"{action_type}.{status_value}",
+            "timestamp": timestamp,
+            "source": request.source,
+            "reason": request.reason,
+        }
+        return {
+            "action_id": f"pixeagle-action-{uuid.uuid4()}",
+            "action_type": action_type,
+            "status": status_value,
+            "accepted": accepted,
+            "executed": executed,
+            "dry_run": request.dry_run,
+            "confirmed": request.confirm,
+            "idempotency_key": request.idempotency_key,
+            "idempotent_replay": False,
+            "source": request.source,
+            "reason": request.reason,
+            "following_active_before": following_active_before,
+            "following_active_after": following_active_after,
+            "result": result,
+            "error": error,
+            "claim_boundary": (
+                "This action resource records a PixEagle API/control-path "
+                "request only; PX4-observed mode, setpoint cadence, SITL, HIL, "
+                "or field success require separate evidence artifacts."
+            ),
+            "audit_event": event,
+            "timestamp": timestamp,
+        }
+
+    def _attach_legacy_action_audit(
+        self,
+        payload: Dict[str, Any],
+        *,
+        action_type: Literal["offboard_start", "operator_abort"],
+        route: str,
+        following_active_before: Optional[bool],
+        following_active_after: Optional[bool],
+        error: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Attach a process-local action audit record to legacy command routes."""
+        legacy_payload = dict(payload)
+        legacy_payload.pop("action_audit", None)
+        request = APIActionRequest(
+            source="legacy_compatibility",
+            reason=route,
+            confirm=True,
+            metadata={
+                "legacy_route": route,
+                "canonical_route": (
+                    API_V1_ACTION_OFFBOARD_START_PATH
+                    if action_type == "offboard_start"
+                    else API_V1_ACTION_OPERATOR_ABORT_PATH
+                ),
+            },
+        )
+        status_value: Literal["success", "failure"] = (
+            "success" if payload.get("status") == "success" and not error else "failure"
+        )
+        record = self._store_action_record(
+            self._new_api_action_record(
+                action_type=action_type,
+                request=request,
+                status_value=status_value,
+                accepted=True,
+                executed=True,
+                following_active_before=following_active_before,
+                following_active_after=following_active_after,
+                result={
+                    "legacy_compatibility_route": route,
+                    "legacy_result": legacy_payload,
+                },
+                error=error,
+            )
+        )
+        payload["action_audit"] = {
+            "action_id": record["action_id"],
+            "action_type": record["action_type"],
+            "status": record["status"],
+            "canonical_route": request.metadata["canonical_route"],
+            "claim_boundary": record["claim_boundary"],
+        }
+        return payload
+
+    def _action_precondition_failed_response(
+        self,
+        *,
+        action_type: Literal["offboard_start", "operator_abort"],
+        request: APIActionRequest,
+        path: str,
+        code: str,
+        message: str,
+    ) -> JSONResponse:
+        following_current = bool(getattr(self.app_controller, "following_active", False))
+        record = self._store_action_record(
+            self._new_api_action_record(
+                action_type=action_type,
+                request=request,
+                status_value="failure",
+                accepted=False,
+                executed=False,
+                following_active_before=following_current,
+                following_active_after=following_current,
+                result={
+                    "precondition": code,
+                    "metadata": dict(request.metadata or {}),
+                },
+                error=message,
+            )
+        )
+        return self._api_v1_error_response(
+            status_code=status.HTTP_409_CONFLICT,
+            code=code,
+            detail={
+                "message": message,
+                "action_type": action_type,
+                "action_id": record["action_id"],
+            },
+            path=path,
+        )
+
+    def _confirmation_required_response(
+        self,
+        *,
+        action_type: Literal["offboard_start", "operator_abort"],
+        request: APIActionRequest,
+        path: str,
+    ) -> JSONResponse:
+        return self._action_precondition_failed_response(
+            action_type=action_type,
+            request=request,
+            path=path,
+            code="ACTION_CONFIRMATION_REQUIRED",
+            message=(
+                "Set confirm=true to execute this control action, or "
+                "dry_run=true to validate the request without mutation."
+            ),
+        )
+
+    def _idempotency_key_required_response(
+        self,
+        *,
+        action_type: Literal["offboard_start", "operator_abort"],
+        request: APIActionRequest,
+        path: str,
+    ) -> JSONResponse:
+        return self._action_precondition_failed_response(
+            action_type=action_type,
+            request=request,
+            path=path,
+            code="ACTION_IDEMPOTENCY_KEY_REQUIRED",
+            message=(
+                "Set idempotency_key for confirmed control actions so retries "
+                "and concurrent duplicate requests cannot execute the mutation twice."
+            ),
         )
 
     async def _handle_request_validation_error(
@@ -1397,8 +1793,8 @@ class FastAPIHandler:
         """
         errors = jsonable_encoder(exc.errors())
         request_path = str(request.url.path)
-        if request_path in SITL_VALIDATION_INJECTION_PATHS:
-            return self._sitl_error_response(
+        if self._uses_typed_api_error_envelope(request_path):
+            return self._api_v1_error_response(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 code="REQUEST_VALIDATION_ERROR",
                 detail={"validation_errors": errors},
@@ -2079,12 +2475,296 @@ class FastAPIHandler:
         Returns:
             dict: Status of the operation.
         """
+        following_before = bool(getattr(self.app_controller, "following_active", False))
         try:
             result = await self.app_controller.cancel_activities_async()
-            return {"status": "success", "result": result}
+            following_after = bool(getattr(self.app_controller, "following_active", False))
+            return self._attach_legacy_action_audit(
+                {"status": "success", "result": result},
+                action_type="operator_abort",
+                route="/commands/cancel_activities",
+                following_active_before=following_before,
+                following_active_after=following_after,
+            )
         except Exception as e:
+            following_after = bool(getattr(self.app_controller, "following_active", False))
             self.logger.error(f"Error in cancel_activities: {e}")
+            self._attach_legacy_action_audit(
+                {"status": "failure", "error": str(e)},
+                action_type="operator_abort",
+                route="/commands/cancel_activities",
+                following_active_before=following_before,
+                following_active_after=following_after,
+                error=str(e),
+            )
             raise HTTPException(status_code=500, detail=str(e))
+
+    async def start_offboard_action(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        """
+        Typed /api/v1 action resource for starting the PixEagle Offboard path.
+
+        This is the canonical API for validation plans and future MCP/agent
+        callers. It delegates to the existing compatibility handler only after
+        explicit confirmation, and its response does not claim PX4-observed
+        Offboard mode by itself.
+        """
+        if not request.dry_run and request.confirm and not request.idempotency_key:
+            return self._idempotency_key_required_response(
+                action_type="offboard_start",
+                request=request,
+                path=API_V1_ACTION_OFFBOARD_START_PATH,
+            )
+        lock = (
+            None
+            if request.dry_run or not request.confirm
+            else self._action_lock_for_key("offboard_start", request.idempotency_key)
+        )
+        if lock is None:
+            return await self._start_offboard_action_unlocked(request, response)
+        async with lock:
+            return await self._start_offboard_action_unlocked(request, response)
+
+    async def _start_offboard_action_unlocked(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        replay = self._lookup_idempotent_action(
+            "offboard_start",
+            request.idempotency_key,
+        )
+        if replay:
+            response.status_code = status.HTTP_200_OK
+            return replay
+
+        following_before = bool(getattr(self.app_controller, "following_active", False))
+
+        if request.dry_run:
+            response.status_code = status.HTTP_200_OK
+            record = self._new_api_action_record(
+                action_type="offboard_start",
+                request=request,
+                status_value="validated",
+                accepted=True,
+                executed=False,
+                following_active_before=following_before,
+                following_active_after=following_before,
+                result={
+                    "would_call": "/commands/start_offboard_mode",
+                    "message": "Dry-run validated; no Offboard command was executed.",
+                    "metadata": dict(request.metadata or {}),
+                },
+            )
+            return self._store_action_record(record)
+
+        if not request.confirm:
+            return self._confirmation_required_response(
+                action_type="offboard_start",
+                request=request,
+                path=API_V1_ACTION_OFFBOARD_START_PATH,
+            )
+
+        try:
+            legacy_result = await self.start_offboard_mode()
+        except Exception as exc:
+            following_after = bool(getattr(self.app_controller, "following_active", False))
+            response.status_code = status.HTTP_202_ACCEPTED
+            record = self._new_api_action_record(
+                action_type="offboard_start",
+                request=request,
+                status_value="failure",
+                accepted=True,
+                executed=True,
+                following_active_before=following_before,
+                following_active_after=following_after,
+                result={
+                    "legacy_compatibility_route": "/commands/start_offboard_mode",
+                    "metadata": dict(request.metadata or {}),
+                },
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            return self._store_action_record(record)
+
+        following_after = bool(getattr(self.app_controller, "following_active", False))
+        status_value = (
+            "success"
+            if legacy_result.get("status") == "success" and following_after
+            else "failure"
+        )
+        error = None
+        if status_value == "failure":
+            error = (
+                legacy_result.get("error")
+                or "; ".join(legacy_result.get("details", {}).get("errors", []))
+                or "Offboard action did not reach active local state."
+            )
+
+        response.status_code = status.HTTP_202_ACCEPTED
+        record = self._new_api_action_record(
+            action_type="offboard_start",
+            request=request,
+            status_value=status_value,
+            accepted=True,
+            executed=True,
+            following_active_before=following_before,
+            following_active_after=following_after,
+            result={
+                "legacy_compatibility_route": "/commands/start_offboard_mode",
+                "legacy_result": legacy_result,
+                "metadata": dict(request.metadata or {}),
+            },
+            error=error,
+        )
+        self.logger.info(
+            "Typed action %s completed with status=%s executed=%s",
+            record["action_id"],
+            record["status"],
+            record["executed"],
+        )
+        return self._store_action_record(record)
+
+    async def operator_abort_action(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        """
+        Typed /api/v1 action resource for operator abort/cancel.
+
+        The action uses the same safe async cancel path as the legacy route and
+        records following state before and after the abort request.
+        """
+        if not request.dry_run and request.confirm and not request.idempotency_key:
+            return self._idempotency_key_required_response(
+                action_type="operator_abort",
+                request=request,
+                path=API_V1_ACTION_OPERATOR_ABORT_PATH,
+            )
+        lock = (
+            None
+            if request.dry_run or not request.confirm
+            else self._action_lock_for_key("operator_abort", request.idempotency_key)
+        )
+        if lock is None:
+            return await self._operator_abort_action_unlocked(request, response)
+        async with lock:
+            return await self._operator_abort_action_unlocked(request, response)
+
+    async def _operator_abort_action_unlocked(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        replay = self._lookup_idempotent_action(
+            "operator_abort",
+            request.idempotency_key,
+        )
+        if replay:
+            response.status_code = status.HTTP_200_OK
+            return replay
+
+        following_before = bool(getattr(self.app_controller, "following_active", False))
+
+        if request.dry_run:
+            response.status_code = status.HTTP_200_OK
+            record = self._new_api_action_record(
+                action_type="operator_abort",
+                request=request,
+                status_value="validated",
+                accepted=True,
+                executed=False,
+                following_active_before=following_before,
+                following_active_after=following_before,
+                result={
+                    "would_call": "/commands/cancel_activities",
+                    "message": "Dry-run validated; no operator abort was executed.",
+                    "metadata": dict(request.metadata or {}),
+                },
+            )
+            return self._store_action_record(record)
+
+        if not request.confirm:
+            return self._confirmation_required_response(
+                action_type="operator_abort",
+                request=request,
+                path=API_V1_ACTION_OPERATOR_ABORT_PATH,
+            )
+
+        try:
+            legacy_result = await self.cancel_activities()
+        except Exception as exc:
+            following_after = bool(getattr(self.app_controller, "following_active", False))
+            response.status_code = status.HTTP_202_ACCEPTED
+            record = self._new_api_action_record(
+                action_type="operator_abort",
+                request=request,
+                status_value="failure",
+                accepted=True,
+                executed=True,
+                following_active_before=following_before,
+                following_active_after=following_after,
+                result={
+                    "legacy_compatibility_route": "/commands/cancel_activities",
+                    "metadata": dict(request.metadata or {}),
+                },
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            return self._store_action_record(record)
+
+        following_after = bool(getattr(self.app_controller, "following_active", False))
+        result_details = legacy_result.get("result", {})
+        errors = result_details.get("errors", []) if isinstance(result_details, dict) else []
+        status_value = (
+            "success"
+            if legacy_result.get("status") == "success" and not errors and not following_after
+            else "failure"
+        )
+        error = "; ".join(errors) if errors else legacy_result.get("error")
+        if status_value == "failure" and not error and following_after:
+            error = "Operator abort action did not leave local following inactive."
+
+        response.status_code = status.HTTP_202_ACCEPTED
+        record = self._new_api_action_record(
+            action_type="operator_abort",
+            request=request,
+            status_value=status_value,
+            accepted=True,
+            executed=True,
+            following_active_before=following_before,
+            following_active_after=following_after,
+            result={
+                "legacy_compatibility_route": "/commands/cancel_activities",
+                "legacy_result": legacy_result,
+                "metadata": dict(request.metadata or {}),
+            },
+            error=error,
+        )
+        self.logger.info(
+            "Typed action %s completed with status=%s executed=%s",
+            record["action_id"],
+            record["status"],
+            record["executed"],
+        )
+        return self._store_action_record(record)
+
+    async def get_action_resource(self, action_id: str) -> Any:
+        """Return a tracked in-process /api/v1 action resource."""
+        self._ensure_action_store()
+        with self._action_store_lock:
+            record = self._action_records.get(action_id)
+
+        if record is None:
+            return self._api_v1_error_response(
+                status_code=status.HTTP_404_NOT_FOUND,
+                code="ACTION_NOT_FOUND",
+                detail={"action_id": action_id},
+                path=f"{API_V1_ACTION_RESOURCE_PREFIX}/{action_id}",
+            )
+        return record
 
     async def start_offboard_mode(self):
         """
@@ -2120,6 +2800,7 @@ class FastAPIHandler:
         """
         import time
         start_time = time.time()
+        following_before = bool(getattr(self.app_controller, "following_active", False))
 
         try:
             # Log initial state for debugging
@@ -2144,17 +2825,24 @@ class FastAPIHandler:
             if validation_errors:
                 error_msg = f"Pre-flight validation failed: {', '.join(validation_errors)}"
                 self.logger.error(f"❌ {error_msg}")
-                return {
-                    "status": "failure",
-                    "error": error_msg,
-                    "details": {
-                        "steps": [],
-                        "errors": validation_errors,
-                        "auto_stopped": False,
-                        "initial_state": initial_state,
-                        "final_state": initial_state
-                    }
-                }
+                return self._attach_legacy_action_audit(
+                    {
+                        "status": "failure",
+                        "error": error_msg,
+                        "details": {
+                            "steps": [],
+                            "errors": validation_errors,
+                            "auto_stopped": False,
+                            "initial_state": initial_state,
+                            "final_state": initial_state,
+                        },
+                    },
+                    action_type="offboard_start",
+                    route="/commands/start_offboard_mode",
+                    following_active_before=following_before,
+                    following_active_after=following_before,
+                    error=error_msg,
+                )
 
             # Call the controller's connect_px4 method
             # This method handles:
@@ -2183,11 +2871,20 @@ class FastAPIHandler:
                     f"❌ API: Offboard mode start failed "
                     f"({initial_state} → {final_state}, {execution_time_ms:.0f}ms): {error_msg}"
                 )
-                return {
-                    "status": "failure",
-                    "error": error_msg,
-                    "details": result,
-                }
+                return self._attach_legacy_action_audit(
+                    {
+                        "status": "failure",
+                        "error": error_msg,
+                        "details": result,
+                    },
+                    action_type="offboard_start",
+                    route="/commands/start_offboard_mode",
+                    following_active_before=following_before,
+                    following_active_after=bool(
+                        getattr(self.app_controller, "following_active", False)
+                    ),
+                    error=error_msg,
+                )
 
             # Log success with details
             if result.get("auto_stopped", False):
@@ -2201,7 +2898,15 @@ class FastAPIHandler:
                     f"({initial_state} → {final_state}, {execution_time_ms:.0f}ms)"
                 )
 
-            return {"status": "success", "details": result}
+            return self._attach_legacy_action_audit(
+                {"status": "success", "details": result},
+                action_type="offboard_start",
+                route="/commands/start_offboard_mode",
+                following_active_before=following_before,
+                following_active_after=bool(
+                    getattr(self.app_controller, "following_active", False)
+                ),
+            )
 
         except Exception as e:
             execution_time_ms = (time.time() - start_time) * 1000
@@ -2220,19 +2925,28 @@ class FastAPIHandler:
             except:
                 final_state = "unknown"
 
-            return {
-                "status": "failure",
-                "error": error_msg,
-                "details": {
-                    "steps": [],
-                    "errors": [error_msg],
-                    "auto_stopped": False,
-                    "initial_state": initial_state if 'initial_state' in locals() else "unknown",
-                    "final_state": final_state,
-                    "execution_time_ms": round(execution_time_ms, 2),
-                    "exception_type": type(e).__name__
-                }
-            }
+            return self._attach_legacy_action_audit(
+                {
+                    "status": "failure",
+                    "error": error_msg,
+                    "details": {
+                        "steps": [],
+                        "errors": [error_msg],
+                        "auto_stopped": False,
+                        "initial_state": initial_state if 'initial_state' in locals() else "unknown",
+                        "final_state": final_state,
+                        "execution_time_ms": round(execution_time_ms, 2),
+                        "exception_type": type(e).__name__
+                    }
+                },
+                action_type="offboard_start",
+                route="/commands/start_offboard_mode",
+                following_active_before=following_before,
+                following_active_after=(
+                    None if final_state == "unknown" else final_state == "active"
+                ),
+                error=error_msg,
+            )
 
     async def stop_offboard_mode(self):
         """

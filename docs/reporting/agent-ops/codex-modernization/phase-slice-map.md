@@ -62,20 +62,21 @@ it together with:
 | Phase 3 tracker trace artifacts | done | PXE-0038 | `checkpoints/2026-06-04-phase-3-tracker-trace-artifacts.md`; normalized JSONL schema, guarded AppController runtime hook, strict Gazebo trace validation, and deterministic AppController/follower/CommandIntent smoke done |
 | Phase 3 official Gazebo runtime probe | done/incomplete | PXE-0040 partial | `checkpoints/2026-06-04-phase-3-official-gazebo-runtime-probe.md`; Docker access via `sg docker` works, nonexistent `v1.17.0` tag corrected to `v1.17.0-alpha1-1551-g381149fb01` plus repo digest, official image pull/inspect succeeded, container metadata passed in the 45s run, but the 120s official PX4/Gazebo run exited `255` after `Timed out waiting for Gazebo world`; no PixEagle visual SITL pass claimed |
 | Phase 3 official SIH runtime probe and log hardening | done/incomplete | PXE-0039, PXE-0042 | `checkpoints/2026-06-04-phase-3-official-sih-runtime-probe.md`; corrected nonexistent `px4io/px4-sitl:v1.17.0` to `v1.17.0-alpha1-1551-g381149fb01` plus repo digest, official SIH container started and stayed alive through the startup window, image/container metadata passed, params and ULog were collected, PX4 stdout capture was bounded/filtered, and the run correctly stayed incomplete because PixEagle, MAVLink2REST, complete MavlinkAnywhere route/profile evidence, scenario results, PixEagle log, and tlog evidence were absent |
+| Phase 4 SITL typed actions and PX4 observation gate | done | PXE-0042 | `checkpoints/2026-06-04-phase-4-sitl-typed-actions-px4-observation.md`; typed `/api/v1/actions/*` start/abort resources, required idempotency for confirmed control actions, legacy action audit/deprecation metadata, Phase 2 typed scenario actions, and fail-closed `px4/offboard_observation.json` heartbeat/same-system/tlog/window gate done; no runtime PX4/SITL pass claimed |
 
 ## Active Slice
 
-Phase 3/4 boundary. Official Gazebo runtime proof (PXE-0040) is no longer
-blocked by Docker permissions when commands are run through `sg docker`.
-Runtime evidence is still incomplete because the official all-in-one
-PX4/Gazebo container on this VPS/headless path exits with `Timed out waiting
-for Gazebo world` before PixEagle visual evidence can be collected. Official
-SIH L2 probing now starts a pinned PX4 container and collects digest metadata,
-params, ULog, and bounded startup logs, but no accepted PixEagle/PX4 interaction
-pass is claimed until PixEagle, MAVLink2REST, routing, typed scenario actions,
-PX4 tlog/ULog cadence assertions, and safety outcomes are present. Continue
-local validation through reliable L2/L3 layers and proceed to PXE-0042 typed
-SITL control actions and PX4 cadence evidence.
+Phase 4 API/MCP modernization. PXE-0042 is done for typed SITL start/abort
+actions and fail-closed PX4 observation artifacts, but this is still dry-run
+and contract evidence only. Official Gazebo runtime proof (PXE-0040) remains
+open for a native GUI/GPU host, stronger headless runner, or separately proven
+official-image startup workaround. Official SIH L2 probing starts a pinned PX4
+container and collects metadata/params/ULog/bounded logs, but no accepted
+PixEagle/PX4 interaction pass is claimed until PixEagle, MAVLink2REST,
+MavlinkAnywhere routing, typed scenario execution, PX4 observation artifacts,
+and safety outcomes are all present. Continue with typed telemetry-health and
+broader `/api/v1` API/MCP modernization (PXE-0036, PXE-0008, PXE-0022) while
+keeping full runtime L2/L3/L4 validation operator-gated.
 
 Audit artifact:
 
@@ -86,6 +87,7 @@ Audit artifact:
 - `checkpoints/2026-06-04-phase-3-tracker-trace-artifacts.md`
 - `checkpoints/2026-06-04-phase-3-official-gazebo-runtime-probe.md`
 - `checkpoints/2026-06-04-phase-3-official-sih-runtime-probe.md`
+- `checkpoints/2026-06-04-phase-4-sitl-typed-actions-px4-observation.md`
 
 Recently completed Offboard commander follow-up issues:
 
@@ -156,6 +158,12 @@ Recently completed Offboard commander follow-up issues:
   deterministic AppController/follower/CommandIntent smoke, non-finite JSON
   rejection, and tracker docs are implemented. Done in
   `checkpoints/2026-06-04-phase-3-tracker-trace-artifacts.md`.
+- PXE-0042: Phase 2 SITL start/abort actions now use typed `/api/v1/actions/*`
+  resources with confirmation, required idempotency, dry-run/replay semantics,
+  action audit records, legacy deprecation metadata, and `px4/offboard_observation.json`
+  acceptance requiring PX4 heartbeat identity, same-system tlog setpoints, and
+  scenario-local cadence windows. Done in
+  `checkpoints/2026-06-04-phase-4-sitl-typed-actions-px4-observation.md`.
 
 Objective:
 
@@ -206,10 +214,8 @@ Current host boundary:
 | Phase | Slice | Main Issues | Goal |
 | --- | --- | --- | --- |
 | 3 | Official Gazebo visual SITL runtime proof | PXE-0040 | Execute the hardened official Gazebo profile on native Ubuntu GUI/GPU, a stronger headless runner, or a separately proven official-image startup workaround; capture video/tracker/follower/PX4 evidence and keep the manifest incomplete unless artifact and content checks pass. |
-| 3/4 | Lightweight synthetic visual plus SIH evidence | PXE-0038, PXE-0039, PXE-0042 | On this VPS, combine deterministic synthetic video/tracker traces with official PX4 SIH control-plane evidence and typed action contracts without claiming full Gazebo visual SITL. |
 | 3 | X-Plane/Windows SITL disposition | PXE-0020 | Rewrite as maintained evidence workflow or move to historical docs. |
-| 4 | SITL typed control actions and PX4 cadence evidence | PXE-0042 | Replace remaining legacy `/commands/*` SITL actions with typed `/api/v1` command/action resources and add parsed PX4 ULog/tlog or telemetry assertions for Offboard mode and setpoint cadence. |
-| 4 | API/MCP modernization | PXE-0008, PXE-0022, PXE-0036 | Introduce typed `/api/v1`, structured errors, command/action resources, telemetry-health semantics, route migration tests, and companion sidecar standards. |
+| 4 | API/MCP modernization | PXE-0008, PXE-0022, PXE-0036 | Continue typed `/api/v1` migration beyond the initial action resources: telemetry-health semantics, structured errors, route migration tests, command/action resource durability, companion sidecar standards, and FastAPI/OpenAPI client contract tests. |
 | 4 | Dashboard API/client normalization | PXE-0008, PXE-0021, PXE-0024 | Normalize clients, make stale/unusable tracker state operator-visible, and move from CRA to a supported frontend toolchain. |
 | 5 | Gimbal provider expansion | PXE-0023 | Add MAVLink Gimbal v2 or vendor-specific providers when selected hardware/protocol evidence is available. |
 | 5 | Runtime cleanup and docs parity | PXE-0041, remaining open/new issues | Remove redundant legacy code/docs/config after replacements are proven and publish a final no-legacy readiness report. |

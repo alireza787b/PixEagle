@@ -617,20 +617,30 @@ The checked-in plan covers:
 - OffboardCommander publish-failure policy
 
 The current harness validates the scenario plan, captures runtime probes, and
-can execute checked-in scenario actions. Target-loss, video-stall, and
-commander publish-failure injection plus MAVSDK local command-path disconnect
-and MAVLink2REST local timeout injection are automated through PixEagle's
-validation-only `/api/v1/sitl/injections/*` routes. The checked-in plan now has
-zero `manual_fault` actions. The heartbeat and follower-setpoint scenarios now
+can execute checked-in scenario actions. Offboard-start and operator-abort
+control actions use typed `/api/v1/actions/*` resources with confirmation,
+idempotency, local action records, and explicit claim boundaries; legacy
+`/commands/*` routes remain compatibility aliases only. Target-loss,
+video-stall, commander publish-failure injection, MAVSDK local command-path
+disconnect, and MAVLink2REST local timeout injection are automated through
+PixEagle's validation-only `/api/v1/sitl/injections/*` routes. The checked-in
+plan now has zero `manual_fault` actions. The heartbeat and follower-setpoint
+scenarios now
 assert PixEagle commander counters, successful publish metadata, finite command
 rate, finite active setpoint fields, and active publication source where the
 current API exposes them. PX4 params/ULog/tlog collection is automatic where
 the selected container exposes matching files and remains explicitly
-importable otherwise. Accepted PX4/SITL evidence still remains incomplete when
-required route data, logs, params, ULog, tlog, config snapshots, or scenario
-artifacts are missing or placeholders. PX4-level cadence/flight-mode
-conclusions still require reviewing the collected ULog/tlog and are not
-claimed from PixEagle API counters alone.
+importable otherwise. The harness writes `px4/offboard_observation.json` and
+accepts PX4-observed Offboard/cadence evidence only when MAVLink2REST
+HEARTBEAT reports PX4 Offboard mode with the MAVLink custom-mode flag set and
+parsed tlog setpoint cadence targets the same PX4 system/component inside the
+checked-in Offboard-start scenario window. The configured cadence threshold is
+at least 3 setpoint messages over at least 1 second and at least 2 Hz.
+Accepted PX4/SITL evidence still remains incomplete when required route data,
+logs, params, ULog, tlog, config snapshots, scenario artifacts, or PX4
+observation checks are missing, placeholders, mixed across systems, or
+unproven. PX4-level cadence/flight-mode conclusions are not claimed from
+PixEagle API counters alone.
 
 ## Optional Gazebo/Camera Path
 

@@ -111,6 +111,7 @@
     "px4/container_metadata.json",
     "px4/ulog_manifest.json",
     "px4/tlog_manifest.json",
+    "px4/offboard_observation.json",
     "video/generated_receiver_proof_manifest.json",
     "video/gazebo_receiver_pipeline.txt",
     "video/gazebo_frame_hashes.json",

@@ -1,6 +1,7 @@
 """AppController Offboard safety regression tests."""
 
 import asyncio
+import json
 import os
 import sys
 import threading
@@ -8,6 +9,7 @@ import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from fastapi import HTTPException, Response
 import numpy as np
 import pytest
 
@@ -17,7 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'sr
 from classes.app_controller import AppController
 from classes.command_intent import CommandIntent
 from classes.offboard_commander import OffboardCommander
-from classes.fastapi_handler import FastAPIHandler
+from classes.fastapi_handler import APIActionRequest, FastAPIHandler
 from classes.follower import Follower
 from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower, Vector3D
 from classes.followers.mc_attitude_rate_follower import MCAttitudeRateFollower
@@ -1136,6 +1138,311 @@ async def test_start_offboard_mode_api_reports_failure_when_controller_returns_e
     assert result["status"] == "failure"
     assert "OffboardCommander configuration validation failed" in result["error"]
     assert result["details"]["final_state"] == "inactive"
+    assert result["action_audit"]["action_type"] == "offboard_start"
+    assert result["action_audit"]["status"] == "failure"
+    assert result["action_audit"]["canonical_route"] == "/api/v1/actions/offboard-start"
+
+
+@pytest.mark.asyncio
+async def test_legacy_cancel_activities_route_records_action_audit():
+    """Compatibility cancel route should leave a typed action audit record."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    controller = SimpleNamespace(following_active=True)
+
+    async def cancel():
+        controller.following_active = False
+        return {"steps": ["stopped"], "errors": []}
+
+    controller.cancel_activities_async = AsyncMock(side_effect=cancel)
+    handler.app_controller = controller
+
+    result = await handler.cancel_activities()
+    action = await handler.get_action_resource(result["action_audit"]["action_id"])
+
+    assert result["status"] == "success"
+    assert result["action_audit"]["action_type"] == "operator_abort"
+    assert result["action_audit"]["status"] == "success"
+    assert result["action_audit"]["canonical_route"] == "/api/v1/actions/operator-abort"
+    assert action["source"] == "legacy_compatibility"
+    assert action["following_active_before"] is True
+    assert action["following_active_after"] is False
+
+
+@pytest.mark.asyncio
+async def test_api_v1_offboard_action_dry_run_does_not_execute_legacy_route():
+    """Dry-run action requests must validate without starting Offboard."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(following_active=False)
+    handler.start_offboard_mode = AsyncMock()
+    response = Response()
+
+    result = await handler.start_offboard_action(
+        APIActionRequest(dry_run=True, source="sitl_validation"),
+        response,
+    )
+
+    assert response.status_code == 200
+    assert result["action_type"] == "offboard_start"
+    assert result["status"] == "validated"
+    assert result["accepted"] is True
+    assert result["executed"] is False
+    assert result["following_active_before"] is False
+    assert result["following_active_after"] is False
+    assert result["result"]["would_call"] == "/commands/start_offboard_mode"
+    handler.start_offboard_mode.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_offboard_action_requires_confirmation_before_mutation():
+    """Typed control actions require explicit confirmation unless dry-run."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(following_active=False)
+    handler.start_offboard_mode = AsyncMock()
+    response = Response()
+
+    result = await handler.start_offboard_action(APIActionRequest(), response)
+    payload = json.loads(result.body)
+
+    assert result.status_code == 409
+    assert payload["code"] == "ACTION_CONFIRMATION_REQUIRED"
+    assert payload["detail"]["action_type"] == "offboard_start"
+    action = await handler.get_action_resource(payload["detail"]["action_id"])
+    assert action["accepted"] is False
+    assert action["executed"] is False
+    assert action["status"] == "failure"
+    handler.start_offboard_mode.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_offboard_action_requires_idempotency_key_for_confirmed_mutation():
+    """Confirmed dangerous actions must be idempotent before execution."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(following_active=False)
+    handler.start_offboard_mode = AsyncMock()
+
+    result = await handler.start_offboard_action(
+        APIActionRequest(confirm=True, source="operator_test"),
+        Response(),
+    )
+    payload = json.loads(result.body)
+
+    assert result.status_code == 409
+    assert payload["code"] == "ACTION_IDEMPOTENCY_KEY_REQUIRED"
+    assert payload["detail"]["action_type"] == "offboard_start"
+    action = await handler.get_action_resource(payload["detail"]["action_id"])
+    assert action["accepted"] is False
+    assert action["executed"] is False
+    assert action["status"] == "failure"
+    handler.start_offboard_mode.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_offboard_action_executes_once_with_idempotency_key():
+    """Idempotency keys prevent duplicate Offboard-start execution."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    controller = SimpleNamespace(following_active=False)
+    handler.app_controller = controller
+
+    async def start_offboard():
+        controller.following_active = True
+        return {"status": "success", "details": {"final_state": "active"}}
+
+    handler.start_offboard_mode = AsyncMock(side_effect=start_offboard)
+    request = APIActionRequest(
+        confirm=True,
+        idempotency_key="phase2-offboard-entry",
+        source="phase2_follower_validation",
+    )
+
+    first_response = Response()
+    first = await handler.start_offboard_action(request, first_response)
+    second_response = Response()
+    second = await handler.start_offboard_action(request, second_response)
+
+    assert first_response.status_code == 202
+    assert first["status"] == "success"
+    assert first["executed"] is True
+    assert first["following_active_before"] is False
+    assert first["following_active_after"] is True
+    assert second_response.status_code == 200
+    assert second["action_id"] == first["action_id"]
+    assert second["idempotent_replay"] is True
+    assert handler.start_offboard_mode.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_api_v1_offboard_action_serializes_concurrent_idempotent_requests():
+    """Concurrent duplicate action requests must not both execute the mutation."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    controller = SimpleNamespace(following_active=False)
+    handler.app_controller = controller
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def start_offboard():
+        entered.set()
+        await release.wait()
+        controller.following_active = True
+        return {"status": "success", "details": {"final_state": "active"}}
+
+    handler.start_offboard_mode = AsyncMock(side_effect=start_offboard)
+    request = APIActionRequest(
+        confirm=True,
+        idempotency_key="concurrent-start",
+        source="operator_test",
+    )
+    response_one = Response()
+    response_two = Response()
+
+    task_one = asyncio.create_task(handler.start_offboard_action(request, response_one))
+    await entered.wait()
+    task_two = asyncio.create_task(handler.start_offboard_action(request, response_two))
+    await asyncio.sleep(0)
+    assert handler.start_offboard_mode.await_count == 1
+    release.set()
+
+    first, second = await asyncio.gather(task_one, task_two)
+
+    assert first["status"] == "success"
+    assert second["action_id"] == first["action_id"]
+    assert second["idempotent_replay"] is True
+    assert response_one.status_code == 202
+    assert response_two.status_code == 200
+    assert handler.start_offboard_mode.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_api_v1_offboard_action_dry_run_does_not_consume_idempotency_key():
+    """A dry-run preview must not block a later confirmed mutation retry key."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    controller = SimpleNamespace(following_active=False)
+    handler.app_controller = controller
+
+    async def start_offboard():
+        controller.following_active = True
+        return {"status": "success", "details": {"final_state": "active"}}
+
+    handler.start_offboard_mode = AsyncMock(side_effect=start_offboard)
+
+    preview = await handler.start_offboard_action(
+        APIActionRequest(
+            dry_run=True,
+            idempotency_key="operator-start-preview",
+            source="operator_test",
+        ),
+        Response(),
+    )
+    confirmed = await handler.start_offboard_action(
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="operator-start-preview",
+            source="operator_test",
+        ),
+        Response(),
+    )
+
+    assert preview["status"] == "validated"
+    assert preview["executed"] is False
+    assert confirmed["status"] == "success"
+    assert confirmed["executed"] is True
+    assert confirmed["action_id"] != preview["action_id"]
+    handler.start_offboard_mode.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_operator_abort_action_records_safe_cancel_result():
+    """Operator abort action should call the safe cancel route and track state."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    controller = SimpleNamespace(following_active=True)
+    handler.app_controller = controller
+
+    async def cancel():
+        controller.following_active = False
+        return {"status": "success", "result": {"steps": ["stopped"], "errors": []}}
+
+    handler.cancel_activities = AsyncMock(side_effect=cancel)
+    response = Response()
+
+    result = await handler.operator_abort_action(
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="abort-safe-cancel",
+            source="operator_test",
+        ),
+        response,
+    )
+    fetched = await handler.get_action_resource(result["action_id"])
+
+    assert response.status_code == 202
+    assert result["action_type"] == "operator_abort"
+    assert result["status"] == "success"
+    assert result["executed"] is True
+    assert result["following_active_before"] is True
+    assert result["following_active_after"] is False
+    assert fetched["action_id"] == result["action_id"]
+    handler.cancel_activities.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_operator_abort_action_fails_if_following_remains_active():
+    """A successful legacy body is not enough if local following stays active."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    controller = SimpleNamespace(following_active=True)
+    handler.app_controller = controller
+    handler.cancel_activities = AsyncMock(
+        return_value={"status": "success", "result": {"steps": [], "errors": []}}
+    )
+
+    result = await handler.operator_abort_action(
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="abort-remains-active",
+            source="operator_test",
+        ),
+        Response(),
+    )
+
+    assert result["status"] == "failure"
+    assert result["executed"] is True
+    assert result["following_active_after"] is True
+    assert "did not leave local following inactive" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_api_v1_operator_abort_action_wraps_legacy_exception_as_action_record():
+    """Typed action routes must not leak legacy HTTPException bodies."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(following_active=True)
+    handler.cancel_activities = AsyncMock(
+        side_effect=HTTPException(status_code=500, detail="legacy failure")
+    )
+    response = Response()
+
+    result = await handler.operator_abort_action(
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="abort-exception",
+            source="operator_test",
+        ),
+        response,
+    )
+
+    assert response.status_code == 202
+    assert result["status"] == "failure"
+    assert result["executed"] is True
+    assert result["action_type"] == "operator_abort"
+    assert "HTTPException" in result["error"]
+    assert result["idempotency_key"] == "abort-exception"
 
 
 @pytest.mark.asyncio

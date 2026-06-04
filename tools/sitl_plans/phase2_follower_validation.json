@@ -97,7 +97,8 @@
     "px4/params.txt",
     "px4/container_metadata.json",
     "px4/ulog_manifest.json",
-    "px4/tlog_manifest.json"
+    "px4/tlog_manifest.json",
+    "px4/offboard_observation.json"
   ],
   "preconditions": [
     "No real aircraft, HIL rig, or motor-enabled hardware is connected.",
@@ -127,12 +128,24 @@
           "type": "http_request",
           "method": "POST",
           "target": "pixeagle",
-          "path": "/commands/start_offboard_mode",
+          "path": "/api/v1/actions/offboard-start",
           "control_action": true,
-          "expect_status": [200],
+          "expect_status": [202],
+          "json_body": {
+            "source": "phase2_follower_validation.offboard_entry",
+            "reason": "offboard_entry",
+            "confirm": true,
+            "idempotency_key": "phase2-offboard-entry",
+            "metadata": {
+              "scenario": "offboard_entry"
+            }
+          },
           "expect_json": [
+            {"path": "action_type", "equals": "offboard_start"},
             {"path": "status", "equals": "success"},
-            {"path": "details.final_state", "equals": "active"}
+            {"path": "executed", "equals": true},
+            {"path": "following_active_after", "equals": true},
+            {"path": "result.legacy_result.details.final_state", "equals": "active"}
           ]
         },
         {
@@ -151,28 +164,54 @@
       "probes": [
         "GET /status",
         "GET /api/follower/setpoints-status",
-        "MAVSDK telemetry flight_mode (PXE-0042 parsed acceptance)",
-        "MAVLink HEARTBEAT custom_mode (PXE-0042 parsed acceptance)"
+        "MAVLink2REST PX4 autopilot HEARTBEAT custom_mode and base_mode flag in px4/offboard_observation.json",
+        "PX4 setpoint cadence from tlog in px4/offboard_observation.json for the same PX4 system inside the Offboard-start scenario window"
       ],
       "acceptance": [
         "PixEagle reports following_active only after the local MAVSDK Offboard startup path succeeds.",
         "OffboardCommander is running with health_state healthy or degraded, not failed.",
         "Rejected local Offboard entry leaves following_active false and records an error.",
-        "Accepted PX4-observed Offboard mode evidence still requires parsed telemetry, ULog, or tlog assertions under PXE-0042."
+        "Accepted PX4-observed Offboard evidence requires px4/offboard_observation.json to show PX4 autopilot HEARTBEAT Offboard mode with MAVLink custom-mode flag set and parsed tlog setpoint cadence for the same PX4 system inside the Offboard-start scenario window."
       ],
       "evidence": [
         "probes/pixeagle_status.json",
         "probes/pixeagle_follower_setpoints_status.json",
         "logs/px4_sitl.log",
-        "px4/ulog_manifest.json"
+        "px4/ulog_manifest.json",
+        "px4/offboard_observation.json"
       ]
     },
     {
       "id": "offboard_heartbeat",
       "title": "Offboard Commander Local Cadence",
-      "objective": "Verify OffboardCommander reports local publish cadence independent of frame processing; PX4-observed setpoint cadence remains PXE-0042 acceptance evidence.",
+      "objective": "Verify OffboardCommander reports local publish cadence independent of frame processing; PX4-observed setpoint cadence is accepted only through px4/offboard_observation.json.",
       "stimulus": "Enter Offboard with a stable synthetic target, then hold video/tracker updates while the commander remains active.",
       "actions": [
+        {
+          "id": "request_heartbeat_offboard_start",
+          "type": "http_request",
+          "method": "POST",
+          "target": "pixeagle",
+          "path": "/api/v1/actions/offboard-start",
+          "control_action": true,
+          "expect_status": [202],
+          "json_body": {
+            "source": "phase2_follower_validation.offboard_heartbeat",
+            "reason": "offboard_heartbeat_observation",
+            "confirm": true,
+            "idempotency_key": "phase2-offboard-heartbeat",
+            "metadata": {
+              "scenario": "offboard_heartbeat"
+            }
+          },
+          "expect_json": [
+            {"path": "action_type", "equals": "offboard_start"},
+            {"path": "status", "equals": "success"},
+            {"path": "executed", "equals": true},
+            {"path": "following_active_after", "equals": true},
+            {"path": "result.legacy_result.details.final_state", "equals": "active"}
+          ]
+        },
         {
           "id": "status_before_hold",
           "type": "http_request",
@@ -214,19 +253,20 @@
       "probes": [
         "OffboardCommander status",
         "MAVSDK command publication timestamps",
-        "PX4 flight_mode (PXE-0042 parsed acceptance)",
-        "ULog/tlog setpoint cadence (PXE-0042 parsed acceptance)"
+        "PX4 HEARTBEAT mode evidence in px4/offboard_observation.json",
+        "PX4 tlog setpoint cadence evidence in px4/offboard_observation.json for the same PX4 system inside the Offboard-start scenario window"
       ],
       "acceptance": [
         "OffboardCommander reports a finite local command rate and at least one successful MAVSDK send after the observation window.",
-        "Accepted PX4-level cadence evidence still requires parsed ULog/tlog or telemetry assertions for this artifact set.",
+        "Accepted PX4-level cadence evidence requires parsed tlog setpoint cadence for the accepted HEARTBEAT system inside the Offboard-start scenario window.",
         "No per-frame command path sends directly to PX4."
       ],
       "evidence": [
         "probes/pixeagle_status.json",
         "logs/harness.log",
         "px4/ulog_manifest.json",
-        "px4/tlog_manifest.json"
+        "px4/tlog_manifest.json",
+        "px4/offboard_observation.json"
       ]
     },
     {
@@ -479,12 +519,24 @@
           "type": "http_request",
           "method": "POST",
           "target": "pixeagle",
-          "path": "/commands/start_offboard_mode",
+          "path": "/api/v1/actions/offboard-start",
           "control_action": true,
-          "expect_status": [200],
+          "expect_status": [202],
+          "json_body": {
+            "source": "phase2_follower_validation.mavsdk_disconnect",
+            "reason": "ensure_disconnect_following_active",
+            "confirm": true,
+            "idempotency_key": "phase2-mavsdk-disconnect-ensure-active",
+            "metadata": {
+              "scenario": "mavsdk_disconnect"
+            }
+          },
           "expect_json": [
+            {"path": "action_type", "equals": "offboard_start"},
             {"path": "status", "equals": "success"},
-            {"path": "details.final_state", "equals": "active"}
+            {"path": "executed", "equals": true},
+            {"path": "following_active_after", "equals": true},
+            {"path": "result.legacy_result.details.final_state", "equals": "active"}
           ]
         },
         {
@@ -683,12 +735,24 @@
           "type": "http_request",
           "method": "POST",
           "target": "pixeagle",
-          "path": "/commands/start_offboard_mode",
+          "path": "/api/v1/actions/offboard-start",
           "control_action": true,
-          "expect_status": [200],
+          "expect_status": [202],
+          "json_body": {
+            "source": "phase2_follower_validation.operator_abort",
+            "reason": "ensure_abort_following_active",
+            "confirm": true,
+            "idempotency_key": "phase2-operator-abort-ensure-active",
+            "metadata": {
+              "scenario": "operator_abort"
+            }
+          },
           "expect_json": [
+            {"path": "action_type", "equals": "offboard_start"},
             {"path": "status", "equals": "success"},
-            {"path": "details.final_state", "equals": "active"}
+            {"path": "executed", "equals": true},
+            {"path": "following_active_after", "equals": true},
+            {"path": "result.legacy_result.details.final_state", "equals": "active"}
           ]
         },
         {
@@ -708,10 +772,24 @@
           "type": "http_request",
           "method": "POST",
           "target": "pixeagle",
-          "path": "/commands/cancel_activities",
+          "path": "/api/v1/actions/operator-abort",
           "control_action": true,
-          "expect_status": [200],
-          "expect_json": [{"path": "status", "equals": "success"}]
+          "expect_status": [202],
+          "json_body": {
+            "source": "phase2_follower_validation.operator_abort",
+            "reason": "operator_abort",
+            "confirm": true,
+            "idempotency_key": "phase2-operator-abort",
+            "metadata": {
+              "scenario": "operator_abort"
+            }
+          },
+          "expect_json": [
+            {"path": "action_type", "equals": "operator_abort"},
+            {"path": "status", "equals": "success"},
+            {"path": "executed", "equals": true},
+            {"path": "following_active_after", "equals": false}
+          ]
         },
         {
           "id": "post_abort_status",
@@ -732,12 +810,13 @@
       "acceptance": [
         "API response reports the stop result explicitly.",
         "following_active is false after cleanup.",
-        "Final safe publish attempt or Offboard stop attempt is recorded; accepted PX4-observed evidence requires PXE-0042 trace/ULog/tlog assertions."
+        "Final safe publish attempt or Offboard stop attempt is recorded; accepted PX4-observed evidence requires px4/offboard_observation.json and trace/ULog/tlog artifacts."
       ],
       "evidence": [
         "probes/pixeagle_status.json",
         "logs/harness.log",
-        "px4/ulog_manifest.json"
+        "px4/ulog_manifest.json",
+        "px4/offboard_observation.json"
       ]
     },
     {
@@ -751,12 +830,24 @@
           "type": "http_request",
           "method": "POST",
           "target": "pixeagle",
-          "path": "/commands/start_offboard_mode",
+          "path": "/api/v1/actions/offboard-start",
           "control_action": true,
-          "expect_status": [200],
+          "expect_status": [202],
+          "json_body": {
+            "source": "phase2_follower_validation.commander_publish_failure",
+            "reason": "ensure_publish_failure_following_active",
+            "confirm": true,
+            "idempotency_key": "phase2-commander-publish-failure-ensure-active",
+            "metadata": {
+              "scenario": "commander_publish_failure"
+            }
+          },
           "expect_json": [
+            {"path": "action_type", "equals": "offboard_start"},
             {"path": "status", "equals": "success"},
-            {"path": "details.final_state", "equals": "active"}
+            {"path": "executed", "equals": true},
+            {"path": "following_active_after", "equals": true},
+            {"path": "result.legacy_result.details.final_state", "equals": "active"}
           ]
         },
         {

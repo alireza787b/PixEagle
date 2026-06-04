@@ -1,10 +1,12 @@
 """Static contract tests for the PX4/SITL validation harness."""
 
 import importlib.util
+import datetime as dt
 import json
 import os
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 
@@ -57,6 +59,7 @@ def test_phase2_plan_declares_required_evidence_contract():
     assert "px4/tlog_manifest.json" in evidence_contract
     assert "px4/params.txt" in evidence_contract
     assert "px4/container_metadata.json" in evidence_contract
+    assert "px4/offboard_observation.json" in evidence_contract
     assert "route_map/mavlink_anywhere_status.json" in evidence_contract
     assert "route_map/mavlink_anywhere_endpoints.json" in evidence_contract
     assert "scenarios/scenario_results.json" in evidence_contract
@@ -628,6 +631,385 @@ def test_structured_mavlink_anywhere_endpoint_validation_requires_profile_metada
     }
 
 
+def test_px4_offboard_observation_extracts_mavlink2rest_heartbeat_mode():
+    harness = load_harness_module()
+    payload = {
+        "vehicles": {
+            "1": {
+                "components": {
+                    "1": {
+                        "messages": {
+                            "HEARTBEAT": {
+                                "message": {
+                                    "autopilot": harness.PX4_MAV_AUTOPILOT_PX4,
+                                    "base_mode": {"bits": 209},
+                                    "custom_mode": harness.PX4_OFFBOARD_CUSTOM_MODE
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    observations = harness.heartbeat_custom_mode_observations(payload)
+
+    assert observations == [
+        {
+            "path": "vehicles.1.components.1.messages.HEARTBEAT",
+            "system_id": 1,
+            "component_id": 1,
+            "autopilot": harness.PX4_MAV_AUTOPILOT_PX4,
+            "base_mode": {"bits": 209},
+            "base_mode_value": 209,
+            "custom_mode_flag_set": True,
+            "custom_mode": harness.PX4_OFFBOARD_CUSTOM_MODE,
+            "is_offboard": True,
+            "eligible_px4_autopilot_heartbeat": True,
+            "identity_failures": [],
+        }
+    ]
+
+
+def test_px4_offboard_observation_rejects_non_autopilot_heartbeat(tmp_path):
+    harness = load_harness_module()
+    payload = {
+        "vehicles": {
+            "1": {
+                "components": {
+                    "191": {
+                        "messages": {
+                            "HEARTBEAT": {
+                                "message": {
+                                    "autopilot": harness.PX4_MAV_AUTOPILOT_PX4,
+                                    "base_mode": 209,
+                                    "custom_mode": harness.PX4_OFFBOARD_CUSTOM_MODE,
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    probe_results = {
+        "probes/mavlink2rest_mavlink.json": {
+            "raw": {
+                "ok": True,
+                "json": payload,
+            }
+        }
+    }
+
+    status = harness.collect_px4_offboard_observation_artifact(
+        tmp_path,
+        probe_results,
+    )
+    evidence = json.loads(
+        (tmp_path / "px4" / "offboard_observation.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert status["accepted"] is False
+    mode_check = evidence["checks"]["offboard_mode_from_mavlink2rest"]
+    assert mode_check["ok"] is False
+    assert mode_check["observations"][0]["is_offboard"] is True
+    assert mode_check["observations"][0]["eligible_px4_autopilot_heartbeat"] is False
+    assert "component_id must be 1" in mode_check["observations"][0]["identity_failures"][0]
+
+
+def test_px4_offboard_observation_rejects_heartbeat_without_custom_mode_flag():
+    harness = load_harness_module()
+    payload = {
+        "vehicles": {
+            "1": {
+                "components": {
+                    "1": {
+                        "messages": {
+                            "HEARTBEAT": {
+                                "message": {
+                                    "autopilot": harness.PX4_MAV_AUTOPILOT_PX4,
+                                    "base_mode": 0,
+                                    "custom_mode": harness.PX4_OFFBOARD_CUSTOM_MODE,
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    observations = harness.heartbeat_custom_mode_observations(payload)
+
+    assert observations[0]["is_offboard"] is True
+    assert observations[0]["base_mode_value"] == 0
+    assert observations[0]["custom_mode_flag_set"] is False
+    assert observations[0]["eligible_px4_autopilot_heartbeat"] is False
+    assert "CUSTOM_MODE_ENABLED" in observations[0]["identity_failures"][0]
+
+
+def test_px4_offboard_observation_requires_tlog_cadence_for_acceptance(tmp_path):
+    harness = load_harness_module()
+    payload = {
+        "vehicles": {
+            "1": {
+                "components": {
+                    "1": {
+                        "messages": {
+                            "HEARTBEAT": {
+                                "message": {
+                                    "autopilot": harness.PX4_MAV_AUTOPILOT_PX4,
+                                    "base_mode": 209,
+                                    "custom_mode": harness.PX4_OFFBOARD_CUSTOM_MODE
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    probe_results = {
+        "probes/mavlink2rest_mavlink.json": {
+            "raw": {
+                "ok": True,
+                "json": payload,
+            }
+        }
+    }
+
+    status = harness.collect_px4_offboard_observation_artifact(
+        tmp_path,
+        probe_results,
+    )
+    evidence = json.loads(
+        (tmp_path / "px4" / "offboard_observation.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert status["collected"] is False
+    assert status["accepted"] is False
+    assert evidence["accepted"] is False
+    assert evidence["checks"]["offboard_mode_from_mavlink2rest"]["ok"] is True
+    assert evidence["checks"]["setpoint_cadence_from_tlog"]["ok"] is False
+    assert "No tlog files" in evidence["checks"]["setpoint_cadence_from_tlog"]["reason"]
+    assert evidence["checks"]["setpoint_cadence_from_tlog"]["min_rate_hz"] == 2.0
+    assert evidence["checks"]["setpoint_cadence_from_tlog"]["min_duration_s"] == 1.0
+    assert evidence["checks"]["setpoint_cadence_from_tlog"]["min_message_count"] == 3
+
+
+def _write_tlog_manifest(tmp_path: Path) -> None:
+    tlog_file = tmp_path / "px4" / "tlog" / "000-test.tlog"
+    tlog_file.parent.mkdir(parents=True, exist_ok=True)
+    tlog_file.write_bytes(b"fake-tlog")
+    (tmp_path / "px4" / "tlog_manifest.json").write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {
+                        "artifact_path": "px4/tlog/000-test.tlog",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def _write_scenario_results(
+    tmp_path: Path,
+    *,
+    start_epoch: float,
+    finish_epoch: float,
+) -> dict:
+    def iso(epoch: float) -> str:
+        return dt.datetime.fromtimestamp(epoch, tz=dt.timezone.utc).isoformat()
+
+    payload = {
+        "schema_version": 1,
+        "generated_at": iso(start_epoch),
+        "started_at": iso(start_epoch),
+        "finished_at": iso(finish_epoch),
+        "summary": {"result": "pass"},
+        "scenarios": [
+            {
+                "id": "offboard_entry",
+                "title": "Offboard Entry",
+                "started_at": iso(start_epoch),
+                "finished_at": iso(finish_epoch),
+                "result": "pass",
+                "actions": [
+                    {
+                        "id": "request_offboard_start",
+                        "type": "http_request",
+                        "control_action": True,
+                        "method": "POST",
+                        "target": "pixeagle",
+                        "path": "/api/v1/actions/offboard-start",
+                        "started_at": iso(start_epoch),
+                        "finished_at": iso(start_epoch + 0.2),
+                        "result": "pass",
+                    }
+                ],
+            }
+        ],
+    }
+    target = tmp_path / "scenarios" / "scenario_results.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload), encoding="utf-8")
+    return payload
+
+
+def _install_fake_pymavlink(
+    monkeypatch,
+    timestamps,
+    *,
+    parse_error=False,
+    target_system=1,
+    target_component=1,
+) -> None:
+    pymavlink = types.ModuleType("pymavlink")
+    mavutil = types.ModuleType("pymavlink.mavutil")
+
+    class FakeConnection:
+        def __init__(self):
+            self.timestamps = list(timestamps)
+            self.raise_after_messages = parse_error
+
+        def recv_match(self, *, type, blocking):  # noqa: A002 - mimics pymavlink
+            if self.timestamps:
+                return types.SimpleNamespace(
+                    _timestamp=self.timestamps.pop(0),
+                    target_system=target_system,
+                    target_component=target_component,
+                )
+            if self.raise_after_messages:
+                raise RuntimeError("corrupt tlog")
+            return None
+
+    mavutil.mavlink_connection = lambda *args, **kwargs: FakeConnection()
+    pymavlink.mavutil = mavutil
+    monkeypatch.setitem(sys.modules, "pymavlink", pymavlink)
+    monkeypatch.setitem(sys.modules, "pymavlink.mavutil", mavutil)
+
+
+def test_px4_tlog_cadence_accepts_sustained_setpoint_stream(tmp_path, monkeypatch):
+    harness = load_harness_module()
+    _write_tlog_manifest(tmp_path)
+    _install_fake_pymavlink(monkeypatch, [0.0, 0.5, 1.0])
+
+    result = harness.analyze_tlog_setpoint_cadence(tmp_path)
+
+    assert result["ok"] is True
+    assert result["setpoint_message_count"] == 3
+    assert result["rejected_non_px4_target_messages"] == 0
+    assert result["duration_s"] == 1.0
+    assert result["observed_rate_hz"] == 2.0
+
+
+def test_px4_tlog_cadence_rejects_setpoints_for_different_heartbeat_system(
+    tmp_path,
+    monkeypatch,
+):
+    harness = load_harness_module()
+    _write_tlog_manifest(tmp_path)
+    _install_fake_pymavlink(monkeypatch, [0.0, 0.5, 1.0], target_system=2)
+
+    result = harness.analyze_tlog_setpoint_cadence(
+        tmp_path,
+        target_system_ids={1},
+    )
+
+    assert result["ok"] is False
+    assert result["target_system_ids"] == [1]
+    assert result["setpoint_message_count"] == 0
+    assert result["rejected_non_px4_target_messages"] == 3
+
+
+def test_px4_tlog_cadence_rejects_non_px4_target_messages(tmp_path, monkeypatch):
+    harness = load_harness_module()
+    _write_tlog_manifest(tmp_path)
+    _install_fake_pymavlink(
+        monkeypatch,
+        [0.0, 0.5, 1.0],
+        target_system=42,
+        target_component=190,
+    )
+
+    result = harness.analyze_tlog_setpoint_cadence(tmp_path)
+
+    assert result["ok"] is False
+    assert result["setpoint_message_count"] == 0
+    assert result["rejected_non_px4_target_messages"] == 3
+
+
+def test_px4_tlog_cadence_requires_offboard_start_observation_window(
+    tmp_path,
+    monkeypatch,
+):
+    harness = load_harness_module()
+    _write_tlog_manifest(tmp_path)
+    _write_scenario_results(tmp_path, start_epoch=1000.0, finish_epoch=1002.0)
+    _install_fake_pymavlink(monkeypatch, [900.0, 900.5, 901.0])
+
+    window = harness.offboard_start_observation_windows(tmp_path)
+    result = harness.analyze_tlog_setpoint_cadence(
+        tmp_path,
+        target_system_ids={1},
+        observation_window=window,
+        require_observation_window=True,
+    )
+
+    assert window["enforced"] is True
+    assert result["ok"] is False
+    assert result["setpoint_message_count"] == 0
+    assert result["rejected_outside_observation_window_messages"] == 3
+    assert "Offboard-start scenario window" in result["reason"]
+
+
+def test_px4_tlog_cadence_accepts_setpoints_inside_observation_window(
+    tmp_path,
+    monkeypatch,
+):
+    harness = load_harness_module()
+    _write_tlog_manifest(tmp_path)
+    _write_scenario_results(tmp_path, start_epoch=1000.0, finish_epoch=1002.0)
+    _install_fake_pymavlink(monkeypatch, [1000.0, 1000.5, 1001.0])
+
+    window = harness.offboard_start_observation_windows(tmp_path)
+    result = harness.analyze_tlog_setpoint_cadence(
+        tmp_path,
+        target_system_ids={1},
+        observation_window=window,
+        require_observation_window=True,
+    )
+
+    assert window["enforced"] is True
+    assert result["ok"] is True
+    assert result["setpoint_message_count"] == 3
+    assert result["rejected_outside_observation_window_messages"] == 0
+
+
+def test_px4_tlog_cadence_rejects_parse_error_even_with_timestamps(
+    tmp_path,
+    monkeypatch,
+):
+    harness = load_harness_module()
+    _write_tlog_manifest(tmp_path)
+    _install_fake_pymavlink(monkeypatch, [0.0, 0.5, 1.0], parse_error=True)
+
+    result = harness.analyze_tlog_setpoint_cadence(tmp_path)
+
+    assert result["ok"] is False
+    assert result["reason"] == "One or more PX4 tlog files could not be fully parsed."
+    assert result["parse_errors"][0]["parse_error"] == "corrupt tlog"
+    assert result["setpoint_message_count"] == 3
+
+
 def test_phase2_plan_declares_executable_scenario_actions():
     harness = load_harness_module()
     plan = harness.load_plan(PLAN_DIR / "phase2_follower_validation.json")
@@ -638,8 +1020,17 @@ def test_phase2_plan_declares_executable_scenario_actions():
     assert summary["total_actions"] >= len(plan["scenarios"])
     assert summary["control_actions"] >= 2
     assert summary["manual_fault_actions"] == 0
+    legacy_control_paths = {
+        "/commands/start_offboard_mode",
+        "/commands/cancel_activities",
+    }
     for scenario in plan["scenarios"]:
         assert scenario["actions"], f"{scenario['id']} has no scenario actions"
+        assert not any(
+            action.get("path") in legacy_control_paths
+            for action in scenario["actions"]
+            if action["type"] == "http_request"
+        ), f"{scenario['id']} still uses a legacy mutating command path"
         if not any(action["type"] == "manual_fault" for action in scenario["actions"]):
             assert any(
                 harness.action_has_substantive_assertion(action)
@@ -995,8 +1386,23 @@ def test_phase2_mavsdk_disconnect_uses_owned_local_disconnect_injector():
     assert ensure_active["type"] == "http_request"
     assert ensure_active["method"] == "POST"
     assert ensure_active["target"] == "pixeagle"
-    assert ensure_active["path"] == "/commands/start_offboard_mode"
+    assert ensure_active["path"] == "/api/v1/actions/offboard-start"
     assert ensure_active["control_action"] is True
+    assert ensure_active["expect_status"] == [202]
+    assert ensure_active["json_body"]["confirm"] is True
+    assert ensure_active["json_body"]["idempotency_key"] == (
+        "phase2-mavsdk-disconnect-ensure-active"
+    )
+    assert {
+        ("action_type", "offboard_start"),
+        ("status", "success"),
+        ("executed", True),
+        ("following_active_after", True),
+        ("result.legacy_result.details.final_state", "active"),
+    } <= {
+        (expectation.get("path"), expectation.get("equals"))
+        for expectation in ensure_active["expect_json"]
+    }
 
     assert pre_status["path"] == "/status"
     assert {

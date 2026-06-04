@@ -185,12 +185,67 @@ Coordinates are normalized (0-1).
 POST /commands/toggle_smart_mode
 ```
 
-### Start/Stop Offboard
+### Start Offboard
+
+```http
+POST /api/v1/actions/offboard-start
+Content-Type: application/json
+```
+
+```json
+{
+  "source": "operator",
+  "reason": "start_following",
+  "confirm": true,
+  "idempotency_key": "operator-start-001"
+}
+```
+
+The typed action resource records local PixEagle execution and following-state
+before/after. PX4-observed Offboard mode and setpoint cadence still require
+separate SITL, HIL, or field evidence artifacts.
+
+Action semantics:
+
+- `dry_run=true` returns `200` with `status=validated` and executes nothing.
+- Missing `confirm=true` returns a structured `409` error envelope.
+- Confirmed mutations require `idempotency_key`; missing keys return a
+  structured `409` and do not execute.
+- Confirmed first execution returns `202` with `executed=true`.
+- Repeating the same confirmed `idempotency_key` returns `200` with
+  `idempotent_replay=true` and does not execute again.
+- `GET /api/v1/actions/{action_id}` returns the in-process action record;
+  records are process-local and bounded, not durable flight logs.
+
+### Operator Abort
+
+```http
+POST /api/v1/actions/operator-abort
+Content-Type: application/json
+```
+
+```json
+{
+  "source": "operator",
+  "reason": "abort_following",
+  "confirm": true,
+  "idempotency_key": "operator-abort-001"
+}
+```
+
+### Legacy Start/Stop Offboard
 
 ```http
 POST /commands/start_offboard_mode
 POST /commands/stop_offboard_mode
+POST /commands/cancel_activities
 ```
+
+The legacy start/cancel routes execute immediately for backward compatibility
+and include an `action_audit` pointer to the process-local action record. New
+operator, SITL, MCP, and agent integrations should use `/api/v1/actions/*`
+because the legacy routes do not provide confirmation, dry-run, or idempotency
+request fields.
 
 ### Redetect Target
 

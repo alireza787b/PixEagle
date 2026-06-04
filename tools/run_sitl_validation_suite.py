@@ -73,6 +73,7 @@ REQUIRED_EVIDENCE_ARTIFACTS = {
     "px4/container_metadata.json",
     "px4/ulog_manifest.json",
     "px4/tlog_manifest.json",
+    "px4/offboard_observation.json",
 }
 
 MANAGED_CONTAINER_LABEL = "org.pixeagle.sitl.managed"
@@ -116,6 +117,20 @@ MAVLINK_ANYWHERE_ENDPOINT_REQUIRED_FIELDS = {
     "category",
     "enabled",
 }
+API_V1_ACTION_OFFBOARD_START_PATH = "/api/v1/actions/offboard-start"
+PX4_OFFBOARD_CUSTOM_MODE = 393216
+PX4_AUTOPILOT_COMPONENT_ID = 1
+PX4_MAV_AUTOPILOT_PX4 = 12
+MAV_MODE_FLAG_CUSTOM_MODE_ENABLED = 1
+PX4_OBSERVATION_WINDOW_PADDING_S = 0.5
+PX4_SETPOINT_MESSAGE_TYPES = {
+    "SET_POSITION_TARGET_LOCAL_NED",
+    "SET_POSITION_TARGET_GLOBAL_INT",
+    "SET_ATTITUDE_TARGET",
+}
+PX4_MIN_OFFBOARD_SETPOINT_RATE_HZ = 2.0
+PX4_MIN_OFFBOARD_SETPOINT_DURATION_S = 1.0
+PX4_MIN_OFFBOARD_SETPOINT_COUNT = 3
 GAZEBO_VISUAL_EVIDENCE_PATHS = {
     "generated_receiver_proof_manifest": "video/generated_receiver_proof_manifest.json",
     "gazebo_receiver_pipeline": "video/gazebo_receiver_pipeline.txt",
@@ -1749,6 +1764,483 @@ def result_payload(probe_results: dict[str, dict[str, Any]], relative_path: str)
     return result if isinstance(result, dict) else {}
 
 
+def iter_json_paths(data: Any, path: tuple[str, ...] = ()) -> list[tuple[tuple[str, ...], Any]]:
+    items = [(path, data)]
+    if isinstance(data, dict):
+        for key, value in data.items():
+            items.extend(iter_json_paths(value, (*path, str(key))))
+    elif isinstance(data, list):
+        for index, value in enumerate(data):
+            items.extend(iter_json_paths(value, (*path, str(index))))
+    return items
+
+
+def _int_or_none(value: Any) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, dict):
+        for key in ("value", "raw", "number", "id", "bits", "bitmask"):
+            parsed = _int_or_none(value.get(key))
+            if parsed is not None:
+                return parsed
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _path_int_after(path: tuple[str, ...], marker: str) -> int | None:
+    marker_lower = marker.lower()
+    for index, part in enumerate(path[:-1]):
+        if part.lower() == marker_lower:
+            return _int_or_none(path[index + 1])
+    return None
+
+
+def _is_px4_autopilot(value: Any) -> bool:
+    parsed = _int_or_none(value)
+    if parsed is not None:
+        return parsed == PX4_MAV_AUTOPILOT_PX4
+    if isinstance(value, dict):
+        text_values = [
+            str(item)
+            for item in value.values()
+            if isinstance(item, (str, int, float))
+        ]
+        return any("PX4" in item.upper() for item in text_values)
+    if isinstance(value, str):
+        return "PX4" in value.upper()
+    return False
+
+
+def mavlink_message_targets_px4_autopilot(
+    message: Any,
+    *,
+    target_system_ids: set[int] | None = None,
+) -> bool:
+    target_system = _int_or_none(getattr(message, "target_system", None))
+    target_component = _int_or_none(getattr(message, "target_component", None))
+    if (
+        target_system is None
+        or target_system <= 0
+        or target_component != PX4_AUTOPILOT_COMPONENT_ID
+    ):
+        return False
+    if target_system_ids is not None and target_system not in target_system_ids:
+        return False
+    return True
+
+
+def heartbeat_custom_mode_observations(mavlink_payload: Any) -> list[dict[str, Any]]:
+    """Extract HEARTBEAT custom_mode observations from a MAVLink2REST payload."""
+    observations: list[dict[str, Any]] = []
+    for path, value in iter_json_paths(mavlink_payload):
+        if not isinstance(value, dict):
+            continue
+
+        path_has_heartbeat = any(part.upper() == "HEARTBEAT" for part in path)
+        declared_type = str(
+            value.get("message_type")
+            or value.get("type")
+            or value.get("name")
+            or value.get("msgid")
+            or ""
+        ).upper()
+        path_is_heartbeat_record = bool(path) and path[-1].upper() == "HEARTBEAT"
+        if path_has_heartbeat and not path_is_heartbeat_record and declared_type != "HEARTBEAT":
+            continue
+        if not path_has_heartbeat and declared_type != "HEARTBEAT":
+            continue
+
+        message = value.get("message") if isinstance(value.get("message"), dict) else value
+        custom_mode = _int_or_none(message.get("custom_mode"))
+        if custom_mode is None:
+            continue
+        component_id = (
+            _int_or_none(message.get("component_id"))
+            or _int_or_none(message.get("component"))
+            or _int_or_none(value.get("component_id"))
+            or _int_or_none(value.get("component"))
+            or _path_int_after(path, "components")
+        )
+        system_id = (
+            _int_or_none(message.get("system_id"))
+            or _int_or_none(message.get("system"))
+            or _int_or_none(value.get("system_id"))
+            or _int_or_none(value.get("system"))
+            or _path_int_after(path, "vehicles")
+        )
+        autopilot = message.get("autopilot", value.get("autopilot"))
+        base_mode = message.get("base_mode", value.get("base_mode"))
+        base_mode_value = _int_or_none(base_mode)
+        custom_mode_flag_set = (
+            base_mode_value is not None
+            and bool(base_mode_value & MAV_MODE_FLAG_CUSTOM_MODE_ENABLED)
+        )
+        identity_failures = []
+        if component_id != PX4_AUTOPILOT_COMPONENT_ID:
+            identity_failures.append(
+                f"component_id must be {PX4_AUTOPILOT_COMPONENT_ID}, got {component_id!r}"
+            )
+        if not _is_px4_autopilot(autopilot):
+            identity_failures.append(
+                f"autopilot must identify PX4 ({PX4_MAV_AUTOPILOT_PX4}), got {autopilot!r}"
+            )
+        if base_mode_value is None:
+            identity_failures.append("base_mode is missing or not numeric")
+        elif not custom_mode_flag_set:
+            identity_failures.append(
+                "base_mode must include MAV_MODE_FLAG_CUSTOM_MODE_ENABLED"
+            )
+        eligible = not identity_failures
+        observations.append(
+            {
+                "path": ".".join(path),
+                "system_id": system_id,
+                "component_id": component_id,
+                "autopilot": autopilot,
+                "base_mode": base_mode,
+                "base_mode_value": base_mode_value,
+                "custom_mode_flag_set": custom_mode_flag_set,
+                "custom_mode": custom_mode,
+                "is_offboard": custom_mode == PX4_OFFBOARD_CUSTOM_MODE,
+                "eligible_px4_autopilot_heartbeat": eligible,
+                "identity_failures": identity_failures,
+            }
+        )
+    return observations
+
+
+def tlog_files_from_manifest(run_dir: Path) -> list[Path]:
+    manifest_path = run_dir / "px4" / "tlog_manifest.json"
+    if not manifest_path.exists():
+        return []
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    files: list[Path] = []
+    for entry in manifest.get("entries", []):
+        artifact_path = entry.get("artifact_path") if isinstance(entry, dict) else None
+        if not artifact_path:
+            continue
+        path = run_dir / str(artifact_path)
+        if path.exists() and path.is_file():
+            files.append(path)
+    return files
+
+
+def _parse_iso_epoch_seconds(value: Any) -> float | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.timestamp()
+
+
+def offboard_start_observation_windows(run_dir: Path) -> dict[str, Any]:
+    """Return epoch-second windows following accepted Offboard-start actions."""
+    scenario_path = run_dir / "scenarios" / "scenario_results.json"
+    if not scenario_path.exists():
+        return {
+            "required": True,
+            "enforced": False,
+            "reason": "scenarios/scenario_results.json was not available.",
+            "windows": [],
+            "padding_s": PX4_OBSERVATION_WINDOW_PADDING_S,
+        }
+    try:
+        payload = json.loads(scenario_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "required": True,
+            "enforced": False,
+            "reason": f"scenarios/scenario_results.json could not be parsed: {exc}",
+            "windows": [],
+            "padding_s": PX4_OBSERVATION_WINDOW_PADDING_S,
+        }
+
+    windows: list[dict[str, Any]] = []
+    for scenario in payload.get("scenarios", []):
+        if not isinstance(scenario, dict):
+            continue
+        scenario_finished = _parse_iso_epoch_seconds(scenario.get("finished_at"))
+        for action in scenario.get("actions", []):
+            if not isinstance(action, dict):
+                continue
+            if action.get("path") != API_V1_ACTION_OFFBOARD_START_PATH:
+                continue
+            if action.get("result") != "pass":
+                continue
+            started = _parse_iso_epoch_seconds(action.get("started_at"))
+            action_finished = _parse_iso_epoch_seconds(action.get("finished_at"))
+            window_end = scenario_finished or action_finished
+            if started is None or window_end is None or window_end < started:
+                continue
+            windows.append(
+                {
+                    "scenario_id": scenario.get("id"),
+                    "action_id": action.get("id"),
+                    "start_timestamp": round(
+                        started - PX4_OBSERVATION_WINDOW_PADDING_S,
+                        6,
+                    ),
+                    "end_timestamp": round(
+                        window_end + PX4_OBSERVATION_WINDOW_PADDING_S,
+                        6,
+                    ),
+                }
+            )
+
+    return {
+        "required": True,
+        "enforced": bool(windows),
+        "reason": None if windows else "No passed /api/v1/actions/offboard-start scenario window was available.",
+        "windows": windows,
+        "padding_s": PX4_OBSERVATION_WINDOW_PADDING_S,
+    }
+
+
+def timestamp_in_observation_windows(
+    timestamp: float,
+    observation_windows: list[dict[str, Any]],
+) -> bool:
+    return any(
+        float(window["start_timestamp"]) <= timestamp <= float(window["end_timestamp"])
+        for window in observation_windows
+    )
+
+
+def analyze_tlog_setpoint_cadence(
+    run_dir: Path,
+    *,
+    target_system_ids: set[int] | None = None,
+    observation_window: dict[str, Any] | None = None,
+    require_observation_window: bool = False,
+) -> dict[str, Any]:
+    """Analyze PX4-observed setpoint cadence from copied MAVLink tlogs."""
+    observation_window = observation_window or {
+        "required": require_observation_window,
+        "enforced": False,
+        "reason": None,
+        "windows": [],
+        "padding_s": PX4_OBSERVATION_WINDOW_PADDING_S,
+    }
+    observation_windows = observation_window.get("windows", [])
+    tlog_files = tlog_files_from_manifest(run_dir)
+    if not tlog_files:
+        return {
+            "ok": False,
+            "source": "px4/tlog_manifest.json",
+            "reason": "No tlog files were available for PX4-observed setpoint cadence analysis.",
+            "message_types": sorted(PX4_SETPOINT_MESSAGE_TYPES),
+            "min_rate_hz": PX4_MIN_OFFBOARD_SETPOINT_RATE_HZ,
+            "min_duration_s": PX4_MIN_OFFBOARD_SETPOINT_DURATION_S,
+            "min_message_count": PX4_MIN_OFFBOARD_SETPOINT_COUNT,
+            "target_system_ids": sorted(target_system_ids or []),
+            "observation_window": observation_window,
+        }
+
+    try:
+        from pymavlink import mavutil  # type: ignore
+    except Exception as exc:
+        return {
+            "ok": False,
+            "source": "px4/tlog_manifest.json",
+            "reason": "pymavlink is not installed, so tlog cadence could not be parsed.",
+            "import_error": str(exc),
+            "files": [relative_to_run_dir(path, run_dir) for path in tlog_files],
+            "message_types": sorted(PX4_SETPOINT_MESSAGE_TYPES),
+            "min_rate_hz": PX4_MIN_OFFBOARD_SETPOINT_RATE_HZ,
+            "min_duration_s": PX4_MIN_OFFBOARD_SETPOINT_DURATION_S,
+            "min_message_count": PX4_MIN_OFFBOARD_SETPOINT_COUNT,
+            "target_system_ids": sorted(target_system_ids or []),
+            "observation_window": observation_window,
+        }
+
+    per_file: list[dict[str, Any]] = []
+    all_timestamps: list[float] = []
+    rejected_target_count = 0
+    rejected_window_count = 0
+    for path in tlog_files:
+        timestamps: list[float] = []
+        rejected_targets = 0
+        rejected_outside_window = 0
+        parse_error = None
+        try:
+            connection = mavutil.mavlink_connection(str(path), robust_parsing=True)
+            while True:
+                message = connection.recv_match(
+                    type=sorted(PX4_SETPOINT_MESSAGE_TYPES),
+                    blocking=False,
+                )
+                if message is None:
+                    break
+                timestamp = getattr(message, "_timestamp", None)
+                if not mavlink_message_targets_px4_autopilot(
+                    message,
+                    target_system_ids=target_system_ids,
+                ):
+                    rejected_targets += 1
+                    continue
+                if isinstance(timestamp, (int, float)) and math.isfinite(timestamp):
+                    timestamp_f = float(timestamp)
+                    if require_observation_window and (
+                        not observation_window.get("enforced")
+                        or not timestamp_in_observation_windows(
+                            timestamp_f,
+                            observation_windows,
+                        )
+                    ):
+                        rejected_outside_window += 1
+                        continue
+                    timestamps.append(timestamp_f)
+        except Exception as exc:
+            parse_error = str(exc)
+        all_timestamps.extend(timestamps)
+        rejected_target_count += rejected_targets
+        rejected_window_count += rejected_outside_window
+        per_file.append(
+            {
+                "artifact_path": relative_to_run_dir(path, run_dir),
+                "setpoint_message_count": len(timestamps),
+                "rejected_non_px4_target_messages": rejected_targets,
+                "rejected_outside_observation_window_messages": rejected_outside_window,
+                "parse_error": parse_error,
+            }
+        )
+
+    all_timestamps = sorted(all_timestamps)
+    parse_errors = [
+        {"artifact_path": item["artifact_path"], "parse_error": item["parse_error"]}
+        for item in per_file
+        if item.get("parse_error")
+    ]
+    duration_s = (
+        all_timestamps[-1] - all_timestamps[0]
+        if len(all_timestamps) >= 2
+        else 0.0
+    )
+    observed_rate_hz = (
+        (len(all_timestamps) - 1) / duration_s
+        if len(all_timestamps) >= 2 and duration_s > 0
+        else 0.0
+    )
+    ok = (
+        not parse_errors
+        and (not require_observation_window or observation_window.get("enforced"))
+        and len(all_timestamps) >= PX4_MIN_OFFBOARD_SETPOINT_COUNT
+        and duration_s >= PX4_MIN_OFFBOARD_SETPOINT_DURATION_S
+        and observed_rate_hz >= PX4_MIN_OFFBOARD_SETPOINT_RATE_HZ
+    )
+    if parse_errors:
+        reason = "One or more PX4 tlog files could not be fully parsed."
+    elif require_observation_window and not observation_window.get("enforced"):
+        reason = observation_window.get("reason") or "Offboard-start observation window was not available."
+    elif ok:
+        reason = None
+    elif require_observation_window and rejected_window_count:
+        reason = "PX4-observed setpoint cadence was not proven inside the Offboard-start scenario window."
+    else:
+        reason = "PX4-observed setpoint cadence was not proven from tlog data."
+    return {
+        "ok": ok,
+        "source": "px4/tlog_manifest.json",
+        "reason": reason,
+        "message_types": sorted(PX4_SETPOINT_MESSAGE_TYPES),
+        "min_rate_hz": PX4_MIN_OFFBOARD_SETPOINT_RATE_HZ,
+        "min_duration_s": PX4_MIN_OFFBOARD_SETPOINT_DURATION_S,
+        "min_message_count": PX4_MIN_OFFBOARD_SETPOINT_COUNT,
+        "target_system_ids": sorted(target_system_ids or []),
+        "setpoint_message_count": len(all_timestamps),
+        "rejected_non_px4_target_messages": rejected_target_count,
+        "rejected_outside_observation_window_messages": rejected_window_count,
+        "duration_s": round(duration_s, 6),
+        "observed_rate_hz": round(observed_rate_hz, 6),
+        "observation_window": observation_window,
+        "parse_errors": parse_errors,
+        "files": per_file,
+    }
+
+
+def collect_px4_offboard_observation_artifact(
+    run_dir: Path,
+    probe_results: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Write PX4-observed Offboard mode and setpoint cadence evidence."""
+    target = run_dir / "px4" / "offboard_observation.json"
+    mavlink_probe = result_payload(probe_results, "probes/mavlink2rest_mavlink.json")
+    mavlink_payload = mavlink_probe.get("json")
+    heartbeat_observations = heartbeat_custom_mode_observations(mavlink_payload)
+    accepted_heartbeat_observations = [
+        item
+        for item in heartbeat_observations
+        if item["is_offboard"] and item["eligible_px4_autopilot_heartbeat"]
+    ]
+    target_system_ids = {
+        int(item["system_id"])
+        for item in accepted_heartbeat_observations
+        if isinstance(item.get("system_id"), int)
+    }
+    offboard_mode_ok = bool(accepted_heartbeat_observations)
+    observation_window = offboard_start_observation_windows(run_dir)
+    cadence = analyze_tlog_setpoint_cadence(
+        run_dir,
+        target_system_ids=target_system_ids,
+        observation_window=observation_window,
+        require_observation_window=True,
+    )
+    checks = {
+        "offboard_mode_from_mavlink2rest": {
+            "ok": offboard_mode_ok,
+            "source": "probes/mavlink2rest_mavlink.json",
+            "required_custom_mode": PX4_OFFBOARD_CUSTOM_MODE,
+            "required_base_mode_flag": "MAV_MODE_FLAG_CUSTOM_MODE_ENABLED",
+            "accepted_system_ids": sorted(target_system_ids),
+            "observations": heartbeat_observations,
+            "reason": (
+                None
+                if offboard_mode_ok
+                else "MAVLink2REST HEARTBEAT custom_mode did not show PX4 Offboard."
+            ),
+        },
+        "setpoint_cadence_from_tlog": cadence,
+    }
+    accepted = all(item.get("ok") for item in checks.values())
+    reason = None
+    if not mavlink_probe.get("ok"):
+        reason = "MAVLink2REST MAVLink probe was unavailable."
+    elif not offboard_mode_ok:
+        reason = checks["offboard_mode_from_mavlink2rest"]["reason"]
+    elif not cadence.get("ok"):
+        reason = cadence.get("reason")
+
+    evidence = {
+        "schema_version": 1,
+        "generated_at": utc_now().isoformat(),
+        "accepted": accepted,
+        "result": "pass" if accepted else "incomplete",
+        "claim_boundary": (
+            "This artifact is PX4/SITL telemetry evidence only. It does not "
+            "claim HIL, field, deployment, or real-aircraft success."
+        ),
+        "checks": checks,
+        "reason": reason,
+    }
+    write_json(target, evidence)
+    return {
+        "collected": accepted,
+        "placeholder": False,
+        "reason": reason,
+        "accepted": accepted,
+        "artifact": evidence_entry("generated:px4_offboard_observation", target, run_dir),
+    }
+
+
 def endpoint_field(candidate: dict[str, Any], name: str, default: Any = None) -> Any:
     return candidate.get(name, candidate.get(name[:1].upper() + name[1:], default))
 
@@ -2502,6 +2994,9 @@ def collect_probe_artifacts(
         container_ref=px4_container_ref,
         auto_container_artifacts=auto_px4_container_artifacts,
         timeout_s=timeout_s,
+    )
+    artifact_status["px4/offboard_observation.json"] = (
+        collect_px4_offboard_observation_artifact(run_dir, probe_results)
     )
     artifact_status["px4/container_metadata.json"] = collect_px4_container_metadata(
         plan,

@@ -73,6 +73,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/tracker/output"),
     ("GET", "/api/tracker/schema"),
     ("GET", "/api/video/health"),
+    ("GET", "/api/v1/actions/{action_id}"),
     ("GET", "/api/yolo/active-model"),
     ("GET", "/api/yolo/models"),
     ("GET", "/api/yolo/models/{model_id}/labels"),
@@ -114,6 +115,8 @@ EXPECTED_ROUTES = {
     ("POST", "/api/tracker/set-type"),
     ("POST", "/api/tracker/switch"),
     ("POST", "/api/video/reconnect"),
+    ("POST", "/api/v1/actions/offboard-start"),
+    ("POST", "/api/v1/actions/operator-abort"),
     ("POST", "/api/v1/sitl/injections/commander-publish-failure"),
     ("POST", "/api/v1/sitl/injections/mavlink2rest-timeout"),
     ("POST", "/api/v1/sitl/injections/mavsdk-disconnect"),
@@ -206,11 +209,67 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 2,
-        "GET": 65,
-        "POST": 51,
+        "GET": 66,
+        "POST": 53,
         "PUT": 2,
         "WEBSOCKET": 2,
     }
+
+
+def test_api_v1_action_routes_have_typed_api_metadata():
+    """Typed control actions must be explicit /api/v1 resources."""
+    expectations = {
+        "/api/v1/actions/offboard-start": (
+            "start_offboard_action",
+            "APIActionResponse",
+            True,
+            "ACTION_ROUTE_RESPONSES",
+        ),
+        "/api/v1/actions/operator-abort": (
+            "operator_abort_action",
+            "APIActionResponse",
+            True,
+            "ACTION_ROUTE_RESPONSES",
+        ),
+        "/api/v1/actions/{action_id}": (
+            "get_action_resource",
+            "APIActionResponse",
+            False,
+            "ACTION_ERROR_RESPONSES",
+        ),
+    }
+    for path, (
+        operation_id,
+        response_model,
+        expects_accepted,
+        responses_name,
+    ) in expectations.items():
+        route_call = _find_route_registration(path)
+        keywords = {keyword.arg: keyword.value for keyword in route_call.keywords}
+
+        assert keywords["operation_id"].value == operation_id
+        assert keywords["response_model"].id == response_model
+        assert keywords["responses"].id == responses_name
+        assert keywords["tags"].elts[0].value == "actions"
+        if expects_accepted:
+            assert keywords["status_code"].attr == "HTTP_202_ACCEPTED"
+        else:
+            assert "status_code" not in keywords
+
+
+def test_legacy_control_routes_are_deprecated_compatibility_aliases():
+    """Legacy dangerous command routes must be visibly deprecated."""
+    expectations = {
+        "/commands/start_offboard_mode": "legacy_start_offboard_mode",
+        "/commands/cancel_activities": "legacy_cancel_activities",
+    }
+    for path, operation_id in expectations.items():
+        route_call = _find_route_registration(path)
+        keywords = {keyword.arg: keyword.value for keyword in route_call.keywords}
+
+        assert keywords["deprecated"].value is True
+        assert keywords["operation_id"].value == operation_id
+        assert keywords["tags"].elts[0].value == "legacy-commands"
 
 
 def test_sitl_injection_route_has_typed_api_metadata():

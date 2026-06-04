@@ -36,7 +36,12 @@ remains supported so future plans can make unimplemented fault gaps explicit
 instead of hiding them.
 
 Non-GET or explicitly marked control actions are blocked unless the runtime
-command includes `--allow-control-actions`.
+command includes `--allow-control-actions`. Phase 2 Offboard-start and
+operator-abort control actions use typed `/api/v1/actions/offboard-start` and
+`/api/v1/actions/operator-abort` resources with `confirm=true`,
+scenario-scoped idempotency keys, local action records, and explicit claim
+boundaries. Legacy `/commands/*` control paths remain compatibility aliases and
+are not used by the checked-in plan.
 
 The target-loss scenario now uses PixEagle's validation-only
 `POST /api/v1/sitl/injections/tracker-output` route. That route is disabled
@@ -242,6 +247,15 @@ under `px4/ulog/` and `px4/tlog/`; their manifests include size and SHA-256
 checksums. Imported PX4 and PixEagle logs are copied to `logs/px4_sitl.log`
 and `logs/pixeagle.log`. `px4/container_metadata.json` is also required and is
 collected from Docker image/container inspection when available.
+The harness also writes `px4/offboard_observation.json`: accepted evidence
+requires MAVLink2REST HEARTBEAT `custom_mode=393216` for PX4 Offboard with
+the MAVLink custom-mode flag set, then parsed tlog setpoint cadence targeted
+at the same PX4 system/component inside the Offboard-start scenario window.
+The cadence threshold is at least 3 setpoint messages over at least 1 second
+at or above 2 Hz. If tlogs are absent, `pymavlink` is not installed, scenario
+timing is unavailable, or artifacts mix different PX4 system IDs, this
+artifact records the reason and the run remains incomplete instead of treating
+local PixEagle counters as PX4-observed proof.
 
 When the harness starts a PX4 container with
 `--execute --allow-process-start`, it attempts read-only automatic PX4 artifact

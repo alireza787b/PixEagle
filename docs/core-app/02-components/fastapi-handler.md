@@ -70,16 +70,40 @@ class FastAPIHandler:
 | `/status` | GET | System status |
 | `/stats` | GET | Streaming statistics |
 
-### Command Endpoints
+### Typed Action Endpoints
+
+New control-plane callers should use these `/api/v1` action resources. They
+return a tracked action record with confirmation, dry-run, idempotency, local
+following-state before/after, and a claim boundary. The record does not by
+itself prove PX4-observed Offboard mode or setpoint cadence; accepted SITL
+evidence still requires PX4 logs/telemetry artifacts. Confirmed mutations must
+include `confirm=true` and an `idempotency_key`; they return `202` on first
+execution. Dry-run and idempotent replay responses return `200`;
+confirmation/idempotency, validation, and lookup failures use the typed
+`/api/v1` error envelope.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/actions/offboard-start` | POST | Confirmed or dry-run Offboard-start action resource |
+| `/api/v1/actions/operator-abort` | POST | Confirmed or dry-run operator abort/cancel action resource |
+| `/api/v1/actions/{action_id}` | GET | Fetch in-process action record |
+
+### Legacy Command Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/commands/start_tracking` | POST | Start tracking |
 | `/commands/stop_tracking` | POST | Stop tracking |
-| `/commands/start_offboard_mode` | POST | Enable offboard |
+| `/commands/start_offboard_mode` | POST | Compatibility alias for Offboard start; use `/api/v1/actions/offboard-start` for new control-plane integrations |
 | `/commands/stop_offboard_mode` | POST | Disable offboard |
+| `/commands/cancel_activities` | POST | Compatibility alias for operator cancel; use `/api/v1/actions/operator-abort` for new control-plane integrations |
 | `/commands/toggle_smart_mode` | POST | Toggle YOLO tracker |
 | `/commands/smart_click` | POST | Click to track |
+
+The legacy start/cancel command routes are immediate-execution compatibility
+routes for existing UI/scripts. They now attach an `action_audit` pointer to
+the in-process action record, but they are not the MCP-safe contract because
+they do not accept confirmation, dry-run, or idempotency request fields.
 
 ### Configuration Endpoints
 
