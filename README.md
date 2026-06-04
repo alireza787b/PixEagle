@@ -17,7 +17,7 @@
 | Feature | Description | Documentation |
 |---------|-------------|---------------|
 | **Tracker System** | 5 tracker types: CSRT, KCF, YOLO, SmartTracker, Gimbal | [Tracker Docs](docs/trackers/README.md) |
-| **Follower System** | 10 control modes: velocity, position, attitude, gimbal pursuit | [Follower Docs](docs/followers/README.md) |
+| **Follower System** | Active velocity, position, attitude, and gimbal pursuit modes | [Follower Docs](docs/followers/README.md) |
 | **Video & Streaming** | 7 input sources, GStreamer, MJPEG/WebSocket streaming | [Video Docs](docs/video/README.md) |
 | **Professional OSD** | Aviation-grade on-screen display with layered real-time pipeline and TrueType fonts | [OSD Guide](docs/OSD_GUIDE.md) |
 | **Drone Interface** | PX4 integration via MAVSDK & MAVLink2REST | [Drone Docs](docs/drone-interface/README.md) |
@@ -32,7 +32,7 @@
 | System | Description | Guide |
 |--------|-------------|-------|
 | **Trackers** | CSRT, KCF, YOLO, SmartTracker, Gimbal tracking | [docs/trackers/](docs/trackers/README.md) |
-| **Followers** | 10 control modes (velocity, position, attitude) | [docs/followers/](docs/followers/README.md) |
+| **Followers** | Active velocity, position, attitude, and gimbal pursuit modes | [docs/followers/](docs/followers/README.md) |
 | **Video** | 7 input sources, GStreamer, OSD, streaming | [docs/video/](docs/video/README.md) |
 | **Drone Interface** | PX4, MAVLink, MAVSDK setup & troubleshooting | [docs/drone-interface/](docs/drone-interface/README.md) |
 | **Core App** | REST API, WebSocket, configuration system | [docs/core-app/](docs/core-app/README.md) |
@@ -158,12 +158,13 @@ PixEagle/
 
 Most settings can be configured via the **Web Dashboard UI** (Settings page).
 
-For manual configuration, edit `configs/config.yaml`:
+For manual configuration, create a local override only when needed, then edit it:
 ```bash
+cp configs/config_default.yaml configs/config.yaml
 nano configs/config.yaml
 ```
 
-> **Note**: `config.yaml` is gitignored. Default values are in `configs/config_default.yaml`.
+> **Note**: `config.yaml` is gitignored. Clean clones run from checked-in defaults in `configs/config_default.yaml`; `configs/config.yaml` is for local overrides.
 
 > **Detailed Guide**: [Configuration Documentation](docs/CONFIGURATION.md) | [Config Service](docs/core-app/04-configuration/README.md)
 
@@ -194,13 +195,15 @@ PixEagle requires MAVLink communication with PX4.
 | 3040 | Dashboard | Yes |
 | 5077 | Backend API | Yes |
 | 5551 | WebSocket (video) | Yes |
-| 8088 | MAVLink2REST API | For OSD |
+| 8088 | MAVLink2REST API | Local-only by default |
 | 14540 | MAVSDK | For PX4 |
 
 ```bash
-# Ubuntu/Raspbian firewall
-sudo ufw allow 3040/tcp && sudo ufw allow 5077/tcp && sudo ufw allow 5551/tcp && sudo ufw allow 8088/tcp
+# Ubuntu/Raspbian firewall, trusted LAN only
+sudo ufw allow 3040/tcp && sudo ufw allow 5077/tcp
 ```
+
+Keep MAVLink2REST `8088` and MAVLink local endpoints behind localhost, VPN, or SSH tunnels unless the deployment has an explicit network-security plan.
 
 > **Full Guide**: [Port Configuration](docs/drone-interface/04-infrastructure/port-configuration.md)
 
@@ -225,9 +228,10 @@ make help               # Show all commands
 bash scripts/run.sh          # Full system (recommended)
 bash scripts/run.sh --dev    # Development mode with hot-reload
 bash scripts/run.sh --rebuild # Force rebuild
-bash scripts/run.sh -d       # Skip dashboard
+bash scripts/run.sh --no-dashboard # Skip dashboard
 bash scripts/run.sh -p       # Skip Python app
 bash scripts/run.sh -m       # Skip MAVLink2REST
+bash scripts/run.sh -k       # Skip MAVSDK Server
 bash scripts/stop.sh         # Stop all services
 ```
 

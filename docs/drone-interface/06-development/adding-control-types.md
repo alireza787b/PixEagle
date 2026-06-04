@@ -173,11 +173,13 @@ class MCPositionFollower(BaseFollower):
         north, east, down = self.calculate_position(target_data)
         yaw = self.calculate_yaw(target_data)
 
-        # Set fields
-        self.setpoint_handler.set_field('pos_ned_north', north)
-        self.setpoint_handler.set_field('pos_ned_east', east)
-        self.setpoint_handler.set_field('pos_ned_down', down)
-        self.setpoint_handler.set_field('yaw_deg', yaw)
+        # Publish one complete command snapshot
+        return self.set_command_fields({
+            'pos_ned_north': north,
+            'pos_ned_east': east,
+            'pos_ned_down': down,
+            'yaw_deg': yaw,
+        }, reason='position_hold')
 
     def get_control_type(self) -> str:
         return self.setpoint_handler.get_control_type()
@@ -216,10 +218,11 @@ MAX_HORIZONTAL_DISTANCE = 100.0  # meters
 ```yaml
 # configs/config_default.yaml
 
-safety:
-  # Existing limits...
-  max_altitude: 50.0
-  max_horizontal_distance: 100.0
+Safety:
+  GlobalLimits:
+    # Existing limits...
+    MAX_ALTITUDE: 50.0
+    MAX_HORIZONTAL_DISTANCE: 100.0
 ```
 
 ## Step 6: Testing
@@ -245,12 +248,16 @@ class TestPositionControlType:
         assert handler.get_control_type() == 'position_ned_offboard'
 
     def test_position_fields_set(self):
-        """Test position fields can be set."""
+        """Test position fields can be set atomically."""
         from classes.setpoint_handler import SetpointHandler
 
         handler = SetpointHandler('mc_position_hold')
-        handler.set_field('pos_ned_north', 10.0)
-        handler.set_field('pos_ned_east', 5.0)
+        handler.set_fields({
+            'pos_ned_north': 10.0,
+            'pos_ned_east': 5.0,
+            'pos_ned_down': 0.0,
+            'yaw_deg': 0.0,
+        }, source='unit_test')
 
         fields = handler.get_fields()
         assert fields['pos_ned_north'] == 10.0

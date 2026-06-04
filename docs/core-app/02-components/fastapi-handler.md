@@ -106,6 +106,53 @@ class FastAPIHandler:
 | `/api/follower/profiles` | GET | Available profiles |
 | `/api/follower/switch-profile` | POST | Switch follower |
 
+### SITL Validation Endpoint
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/sitl/injections/tracker-output` | POST | Validation-only `TrackerOutput` injection for operator-gated SITL scenarios |
+| `/api/v1/sitl/injections/video-stall` | POST | Validation-only frame-stall metadata injection for operator-gated SITL scenarios |
+| `/api/v1/sitl/injections/commander-publish-failure` | POST | Validation-only OffboardCommander publish-failure policy injection for operator-gated SITL scenarios |
+| `/api/v1/sitl/injections/mavsdk-disconnect` | POST | Validation-only PixEagle-local MAVSDK command-path disconnect injection for operator-gated SITL scenarios |
+| `/api/v1/sitl/injections/mavlink2rest-timeout` | POST | Validation-only PixEagle-local MAVLink2REST client timeout injection for operator-gated SITL scenarios |
+
+The SITL injection endpoints are disabled unless PixEagle starts with
+`PIXEAGLE_ENABLE_SITL_INJECTIONS=1`. They are not a general automation
+surface. The tracker-output and video-stall routes refuse to dispatch unless
+follow mode is already active, then go through the same command-freshness,
+follower, and `OffboardCommander` path used by live tracker output. The
+video-stall route passes frame-status metadata into
+`handle_video_frame_unavailable()`; it does not stop or start cameras,
+GStreamer, PX4, Docker, or routing services. Its response exposes a typed
+frame-status summary with `source`, `status`, `usable_for_following`, `reason`,
+timestamp, injection ID, and optional failure metadata. The commander
+publish-failure route requires an active running `OffboardCommander`, records
+bounded synthetic publish failures inside it, trips the existing local failure
+policy, awaits AppController cleanup, and returns before/after commander
+evidence plus the persisted failure record. It does not synthesize MAVSDK
+setpoint publishes, replace PX4 interfaces, stop services, or mutate MAVLink
+routing; cleanup still uses the normal Offboard stop path. Disabled, invalid,
+unavailable, rejected, or request-validation failures return the `/api/v1`
+error envelope with `error`, `code`, `detail`, `timestamp`, `path`, and
+`request_id`.
+
+The MAVSDK disconnect route marks PixEagle's local `PX4InterfaceManager`
+command path validation-disconnected, records bounded commander publish
+failures, and awaits the same fail-closed cleanup path. Its response exposes
+PX4/MAVSDK connection summaries before and after the local disconnect, the
+commander failure evidence, and the expected failed Offboard stop error. It
+does not stop PX4, Docker, MavlinkAnywhere, MAVLink2REST, the MAVSDK server,
+network interfaces, or MAVLink routes, so it is not evidence of a real
+transport outage or PX4 failsafe by itself.
+
+The MAVLink2REST timeout route records a bounded timeout window inside
+PixEagle's `MavlinkDataManager`. During that window, PixEagle-local
+MAVLink2REST client requests fail before `requests.get()` and `/status`
+reports stale/error `mavlink_telemetry` with
+`validation_timeout_active = true`. It does not stop MAVLink2REST, PX4, Docker,
+MavlinkAnywhere, routing, or network interfaces, and it is not evidence of a
+real transport outage by itself.
+
 ## Video Streaming
 
 ### MJPEG Stream
@@ -368,15 +415,12 @@ async def get_streaming_stats(self):
 
 ```yaml
 # config_default.yaml
-http:
-  host: "0.0.0.0"
-  port: 8000
-
-streaming:
-  fps: 30
-  quality: 85
-  width: 640
-  height: 480
+Streaming:
+  HTTP_STREAM_PORT: 5077
+  STREAM_FPS: 30
+  STREAM_QUALITY: 85
+  STREAM_WIDTH: 640
+  STREAM_HEIGHT: 480
   enable_cache: true
   cache_ttl_ms: 100
   skip_identical_frames: true
@@ -386,4 +430,4 @@ streaming:
 
 - [AppController](app-controller.md) - Command execution
 - [ConfigService](config-service.md) - Config endpoints
-- [WebRTCManager](../../video/02-components/webrtc-manager.md) - WebRTC support
+- [WebRTC](../../video/04-streaming/webrtc.md) - WebRTC support

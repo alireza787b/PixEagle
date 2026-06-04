@@ -150,7 +150,8 @@ The video subsystem includes robust error recovery:
 
 - **Consecutive Failure Tracking**: Counts failed frame reads
 - **Automatic Reconnection**: Attempts recovery after threshold
-- **Frame Caching**: Returns cached frames during recovery
+- **Frame Caching**: Returns cached frames during recovery for display/streaming,
+  while marking them unusable for vision-based command generation
 - **Graceful Degradation**: Falls back to simpler pipelines
 
 See [Error Recovery](01-architecture/error-recovery.md) for details.

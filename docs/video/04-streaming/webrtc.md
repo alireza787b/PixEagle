@@ -221,7 +221,7 @@ class WebRTCClient {
 }
 
 // Usage
-const client = new WebRTCClient('http://localhost:8000');
+const client = new WebRTCClient('http://127.0.0.1:5077');
 client.connect();
 ```
 

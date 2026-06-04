@@ -5,7 +5,8 @@ Tests for configuration loading, saving, validation, and schema management.
 """
 
 import pytest
-from unittest.mock import patch
+import shutil
+from pathlib import Path
 
 from classes.config_service import ConfigService
 
@@ -17,13 +18,30 @@ pytestmark = [pytest.mark.integration, pytest.mark.core_app]
 def reset_singleton():
     """Reset ConfigService singleton between tests."""
     yield
-    # Don't reset to preserve actual config during tests
+    ConfigService._instance = None
 
 
 @pytest.fixture
-def config_service():
-    """Get config service instance."""
-    return ConfigService.get_instance()
+def config_service(tmp_path):
+    """Get an isolated config service instance backed by a temporary project root."""
+    project_root = tmp_path / "project"
+    config_dir = project_root / "configs"
+    config_dir.mkdir(parents=True)
+
+    repo_root = Path(__file__).resolve().parents[3]
+    shutil.copy2(repo_root / "configs" / "config_default.yaml", config_dir / "config_default.yaml")
+    shutil.copy2(repo_root / "configs" / "config_schema.yaml", config_dir / "config_schema.yaml")
+
+    service = object.__new__(ConfigService)
+    service._schema = {}
+    service._config = {}
+    service._config_raw = None
+    service._default = {}
+    service._audit_log = []
+    service._project_root = project_root
+    service._load_all()
+    service._load_audit_log()
+    return service
 
 
 class TestConfigServiceInstance:
@@ -286,22 +304,15 @@ class TestConfigPersistence:
 
     def test_save_config(self, config_service):
         """Test saving configuration."""
-        # Save should work without errors
-        try:
-            config_service.save_config()
-        except Exception as e:
-            # May fail if no changes or permissions issues
-            pass
+        assert config_service.save_config() is True
+        assert (config_service._project_root / "configs" / "config.yaml").exists()
 
     def test_config_persistence_roundtrip(self, config_service):
         """Test config survives save and read."""
         original_config = config_service.get_config()
 
-        # Save
-        try:
-            config_service.save_config()
-        except Exception:
-            pass  # May not be able to save in test environment
+        assert config_service.save_config() is True
+        config_service.reload()
 
         # Read should return same config
         current_config = config_service.get_config()

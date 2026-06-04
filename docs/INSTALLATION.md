@@ -118,10 +118,14 @@ source ~/.nvm/nvm.sh
 nvm install 22
 cd dashboard && npm install
 
-# Create config files
+# Optional: create local override files
 cp configs/config_default.yaml configs/config.yaml
 cp dashboard/env_default.yaml dashboard/.env
 ```
+
+PixEagle can read checked-in defaults from `configs/config_default.yaml` when
+`configs/config.yaml` is absent. Create `configs/config.yaml` only when the host
+needs local overrides.
 
 ## Optional Components
 
@@ -164,9 +168,9 @@ Ensure these ports are accessible for full functionality:
 | 3040 | Dashboard | Yes |
 | 5077 | Backend API | Yes |
 | 5551 | WebSocket (video) | Yes |
-| 8088 | MAVLink2REST API | For OSD/telemetry |
-| 14540 | MAVSDK | For PX4 integration |
-| 14569 | MAVLink2REST input | For PX4 integration |
+| 8088 | MAVLink2REST API | Local-only by default |
+| 14540 | MAVSDK | Local endpoint for PX4 integration |
+| 14569 | MAVLink2REST input | Local endpoint for PX4 integration |
 | 14550 | QGC | Optional |
 | 22 | SSH | For remote access |
 
@@ -177,13 +181,13 @@ Ensure these ports are accessible for full functionality:
 sudo ufw allow 3040/tcp  # Dashboard
 sudo ufw allow 5077/tcp  # Backend API
 sudo ufw allow 5551/tcp  # WebSocket (video)
-sudo ufw allow 8088/tcp  # MAVLink2REST
 
-# For PX4 integration
-sudo ufw allow 14540/udp
-sudo ufw allow 14569/udp
-sudo ufw allow 14550/udp  # QGC (optional)
+# Optional field GCS access
+sudo ufw allow 14550/udp  # QGC
 ```
+
+Do not expose MAVLink2REST `8088`, local MAVLink endpoints `14540`/`14569`, or
+MavlinkAnywhere dashboard `9070` beyond trusted networks, VPN, or SSH tunnels.
 
 ## Verification
 

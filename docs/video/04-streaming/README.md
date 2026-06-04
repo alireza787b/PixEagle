@@ -60,16 +60,16 @@ FastAPI:
 
 ```
 # Dashboard
-http://localhost:8000/
+http://127.0.0.1:5077/
 
 # MJPEG stream (embed in browser)
-http://localhost:8000/video_feed
+http://127.0.0.1:5077/video_feed
 
 # WebSocket (JavaScript)
-ws://localhost:8000/ws/video_feed
+ws://127.0.0.1:5077/ws/video_feed
 
 # WebRTC (requires signaling)
-POST http://localhost:8000/webrtc/offer
+POST http://127.0.0.1:5077/webrtc/offer
 ```
 
 ## Comparison

@@ -5,7 +5,7 @@ Complete reference for PixEagle's FastAPI-based REST API.
 ## Base URL
 
 ```
-http://localhost:8000
+http://127.0.0.1:5077
 ```
 
 ## Endpoints Overview
@@ -34,7 +34,7 @@ Returns multipart MJPEG stream.
 
 **Usage:**
 ```html
-<img src="http://localhost:8000/video_feed" />
+<img src="http://127.0.0.1:5077/video_feed" />
 ```
 
 ### WebSocket Video
@@ -47,7 +47,7 @@ Binary WebSocket stream (JPEG frames).
 
 **Client Example:**
 ```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/video_feed');
+const ws = new WebSocket('ws://127.0.0.1:5077/ws/video_feed');
 ws.binaryType = 'arraybuffer';
 ws.onmessage = (event) => {
   const blob = new Blob([event.data], {type: 'image/jpeg'});
@@ -105,14 +105,41 @@ GET /status
 **Response:**
 ```json
 {
-  "tracking_active": true,
-  "offboard_active": false,
-  "smart_mode": true,
-  "circuit_breaker_active": true,
-  "video_source": "0",
-  "fps": 30.0
+  "smart_mode_active": false,
+  "tracking_started": true,
+  "segmentation_active": false,
+  "following_active": true,
+  "offboard_commander": {
+    "exists": true,
+    "running": true,
+    "health_state": "running",
+    "consecutive_failures": 0,
+    "command_failure_threshold": 3,
+    "failure_policy_triggered": false
+  },
+  "offboard_commander_failure": null,
+  "mavlink_telemetry": {
+    "enabled": true,
+    "status": "fresh",
+    "connection_state": "connected",
+    "fresh": true,
+    "last_success_age_s": 0.12,
+    "stale_timeout_s": 2.0,
+    "request_timeout_s": 5.0,
+    "request_retries": 0,
+    "connection_error_count": 0,
+    "last_error": null,
+    "endpoint": "http://127.0.0.1:8088"
+  },
+  "video_status": "connected",
+  "smart_tracker_runtime": null
 }
 ```
+
+`mavlink_telemetry` is transport/request freshness for MAVLink2REST. It is
+controlled by `MAVLINK_REQUEST_TIMEOUT_S`, `MAVLINK_REQUEST_RETRIES`, and
+`MAVLINK_STALE_TIMEOUT_S`; it does not by itself prove PX4-in-loop follower
+behavior.
 
 ---
 
@@ -287,6 +314,19 @@ GET /api/follower/setpoints-status
   "circuit_breaker": {
     "active": true,
     "commands_blocked": true
+  },
+  "command_publication": {
+    "source": "offboard_commander",
+    "commands_sent_to_px4": true,
+    "last_intent_fresh": true,
+    "failsafe_defaults_active": false,
+    "offboard_commander": {
+      "running": true,
+      "health_state": "running",
+      "consecutive_failures": 0,
+      "command_failure_threshold": 3,
+      "failure_policy_triggered": false
+    }
   }
 }
 ```

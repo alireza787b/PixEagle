@@ -300,9 +300,13 @@ class YourFollower(BaseFollower):
         vel_x = your_control_algorithm(target_coords[0])
         vel_y = your_control_algorithm(target_coords[1])
         
-        # Update commands (schema-validated)
-        self.set_command_field('vel_x', vel_x)
-        self.set_command_field('vel_y', vel_y)
+        # Update commands as one schema-validated intent
+        self.set_command_fields({
+            'vel_x': vel_x,
+            'vel_y': vel_y,
+            'vel_z': 0.0,
+            'yawspeed_deg_s': 0.0,
+        }, reason='normal_tracking')
     
     def follow_target(self, tracker_data: TrackerOutput) -> bool:
         try:
@@ -428,8 +432,8 @@ target_coords = tracker_data.position_2d  # DON'T DO THIS
 python -c "from classes.schema_manager import get_schema_manager; print(get_schema_manager().get_schema_summary())"
 
 # Test API responses
-curl http://localhost:8000/api/tracker/schema
-curl http://localhost:8000/api/follower/schema
+curl http://127.0.0.1:5077/api/tracker/schema
+curl http://127.0.0.1:5077/api/follower/schema
 ```
 
 ---

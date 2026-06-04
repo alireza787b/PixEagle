@@ -31,7 +31,7 @@ class BaseFollower(ABC):
 def __init__(self, px4_controller, profile_name: str):
     """
     Args:
-        px4_controller: PX4Controller instance for vehicle commands
+        px4_controller: PX4InterfaceManager used by the command publication boundary
         profile_name: Schema profile name (e.g., "mc_velocity_chase")
     """
 ```
@@ -95,21 +95,25 @@ def get_available_fields(self) -> List[str]:
     # Example: ['vel_body_fwd', 'vel_body_right', 'vel_body_down', 'yawspeed_deg_s']
 ```
 
-### set_command_field
+### set_command_fields
 
 ```python
-def set_command_field(self, field_name: str, value: float) -> bool:
+def set_command_fields(self, field_values: Dict[str, float], *, reason: str | None = None) -> bool:
     """
-    Set a command field with validation.
+    Atomically set one complete command snapshot.
 
     Args:
-        field_name: Field from schema (e.g., 'vel_body_fwd')
-        value: Value to set
+        field_values: All fields for the active command profile
+        reason: Optional source/reason metadata for telemetry
 
     Returns:
-        bool: True if successful
+        bool: True if the full command intent was accepted
     """
 ```
+
+Concrete followers should use `set_command_fields()` for command output. The
+single-field `set_command_field()` helper remains for legacy/debug paths only;
+it is not the supported publication boundary for new follower logic.
 
 ### get_all_command_fields
 
@@ -405,8 +409,13 @@ class MCVelocityChaseFollower(BaseFollower):
         # Compute velocity command
         vel_fwd = self._compute_forward_velocity(coords)
 
-        # Set with schema validation
-        self.set_command_field("vel_body_fwd", vel_fwd)
+        # Publish a complete schema-validated command intent
+        self.set_command_fields({
+            "vel_body_fwd": vel_fwd,
+            "vel_body_right": 0.0,
+            "vel_body_down": 0.0,
+            "yawspeed_deg_s": 0.0,
+        }, reason="normal_tracking")
 
     def follow_target(self, tracker_data: TrackerOutput) -> bool:
         if not self.validate_tracker_compatibility(tracker_data):

@@ -61,7 +61,7 @@ sudo apt install -y libatomic1
 ```bash
 # Clone repository
 cd ~
-git clone https://github.com/yourusername/PixEagle.git
+git clone https://github.com/alireza787b/PixEagle.git
 cd PixEagle
 
 # Recommended: run guided init
@@ -95,30 +95,12 @@ sudo reboot
 
 ### Autostart Configuration
 
-```ini
-# /etc/systemd/system/pixeagle.service
-
-[Unit]
-Description=PixEagle Tracking System
-After=network.target mavlink-router.service mavlink2rest.service
-
-[Service]
-Type=simple
-User=pi
-WorkingDirectory=/home/pi/PixEagle
-ExecStart=/home/pi/PixEagle/venv/bin/python main.py
-Restart=always
-RestartSec=5
-Environment=DISPLAY=:0
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable service:
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable pixeagle
+cd ~/PixEagle
+sudo bash scripts/service/install.sh
+sudo pixeagle-service enable
+sudo pixeagle-service start
+pixeagle-service logs -f
 ```
 
 ## NVIDIA Jetson Setup
@@ -149,15 +131,17 @@ sudo apt install -y \
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/PixEagle.git
+git clone https://github.com/alireza787b/PixEagle.git
 cd PixEagle
 
 # Create environment
 python3 -m venv venv
 source venv/bin/activate
 
-# Install with CUDA support
-pip install -r requirements-jetson.txt
+# Install accelerator-aware dependencies
+bash scripts/setup/setup-pytorch.sh --mode auto
+bash scripts/setup/install-ai-deps.sh
+bash scripts/setup/check-ai-runtime.sh
 ```
 
 ### Power Mode
@@ -234,14 +218,16 @@ nvgstcapture-1.0  # Test capture
 
 ```yaml
 # config_default.yaml
-video:
-  source: 0  # /dev/video0
-  width: 1280
-  height: 720
-  fps: 30
+VideoSource:
+  VIDEO_SOURCE_TYPE: USB_CAMERA
+  CAMERA_INDEX: 0
+  CAPTURE_WIDTH: 1280
+  CAPTURE_HEIGHT: 720
+  CAPTURE_FPS: 30
 
   # Or for CSI camera on Jetson
-  # source: "nvarguscamerasrc ! video/x-raw(memory:NVMM), width=1280, height=720 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink"
+  # VIDEO_SOURCE_TYPE: CUSTOM_GSTREAMER
+  # CUSTOM_PIPELINE: "nvarguscamerasrc ! video/x-raw(memory:NVMM), width=1280, height=720 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! video/x-raw, format=BGR ! appsink"
 ```
 
 ## Network Configuration
@@ -283,8 +269,8 @@ sudo apt install -y hostapd dnsmasq
 ### Systemd Services Order
 
 ```
-1. mavlink-router.service
-2. mavlink2rest.service
+1. mavlink-router service or MavlinkAnywhere-managed router
+2. MAVLink2REST wrapper bound to 127.0.0.1:8088
 3. pixeagle.service
 ```
 
@@ -302,15 +288,13 @@ mavlink-routerd -c /etc/mavlink-router/main.conf &
 sleep 2
 
 # Start MAVLink2REST
-docker run -d --rm --name mavlink2rest --network host \
-    bluerobotics/mavlink2rest --mavlink udpin:0.0.0.0:14551
+bash scripts/components/mavlink2rest.sh &
 
 sleep 2
 
 # Start PixEagle
 cd /home/pi/PixEagle
-source venv/bin/activate
-python main.py
+bash scripts/run.sh --no-attach
 ```
 
 ## Performance Optimization

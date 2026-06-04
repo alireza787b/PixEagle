@@ -86,7 +86,7 @@ def _initialize_registry(cls):
 
 ## Removed Aliases
 
-These names were removed in v5.0.0. Using them raises `ValueError` with a migration hint — they do NOT silently redirect.
+These names were removed in v5.0.0. Using them raises `ValueError` with a migration hint; they do not silently redirect.
 
 ```python
 _REMOVED_ALIASES = {

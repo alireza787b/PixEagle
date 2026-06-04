@@ -31,6 +31,7 @@ As of degraded-mode hardening, backend startup no longer fails when the video so
 │              ▼                                                      │
 │   ┌─────────────────────────────────┐                              │
 │   │ failures < max_failures?        │──Yes──▶ Return cached frame  │
+│   │                                 │        marked command-stale  │
 │   └──────────────┬──────────────────┘                              │
 │                  │ No                                               │
 │                  ▼                                                  │
@@ -86,7 +87,13 @@ def _handle_frame_failure(self) -> Optional[np.ndarray]:
 **Behavior:**
 - Seamless to application - no visible disruption
 - Cached frame may be 1-5 frames old
-- Suitable for momentary glitches
+- Suitable for momentary operator/video glitches
+- Not suitable for vision-based PX4 command generation
+
+Cached frames are deliberately marked `usable_for_following: false` by
+`VideoHandler.get_frame_status()`. They keep streaming, OSD, and diagnostics
+alive, but `AppController` converts them into inactive fail-closed tracker
+output before follower command dispatch.
 
 ### Level 2: Connection Recovery
 
@@ -185,6 +192,7 @@ def get_connection_health(self) -> dict:
         'connection_open': self.cap.isOpened() if self.cap else False,
         'video_source_type': Parameters.VIDEO_SOURCE_TYPE,
         'use_gstreamer': Parameters.USE_GSTREAMER,
+        'frame_freshness': self.get_frame_status(),
     }
 ```
 
@@ -231,6 +239,29 @@ def _get_cached_frame(self) -> Optional[np.ndarray]:
 - Deep copies prevent mutation issues
 - Oldest frames auto-removed (deque)
 - Size configurable per use case
+- `source: cached` means the image can be displayed or streamed but must not be
+  treated as a fresh target measurement.
+
+## Command Freshness Status
+
+`get_frame_status()` reports the command-freshness state for the most recent
+`get_frame()` result:
+
+```python
+{
+    "source": "fresh" | "cached" | "none",
+    "usable_for_following": bool,
+    "reason": "capture_success" | "using_cached_frame" | "...",
+    "frame_age_seconds": 0.0,
+    "frame_sequence": 42,
+    "consecutive_failures": 0,
+    "cached_frames_available": 5,
+}
+```
+
+Only `source: fresh` is command-usable for video-based trackers. Cached or
+missing frames trigger inactive fail-closed follower input when PX4 following is
+active.
 
 ## Manual Recovery
 

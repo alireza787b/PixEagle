@@ -208,20 +208,59 @@ class TestFollowerCommandsConsistency:
                 f"registered in FollowerFactory. Add it or remove the profile."
             )
 
-    def test_deprecated_aliases_not_registered(self):
-        """Profiles listed in deprecated_profile_aliases must NOT be in the active registry."""
+    def test_removed_aliases_not_registered(self):
+        """Profiles listed in removed_profile_aliases must NOT be in the active registry."""
         data = _load_yaml(FOLLOWER_COMMANDS)
-        deprecated = set(data.get('deprecated_profile_aliases', {}).keys())
+        removed = set(data.get('removed_profile_aliases', {}).keys())
 
         from classes.follower import FollowerFactory
         FollowerFactory._initialize_registry()
         registry_keys = set(FollowerFactory._follower_registry.keys())
 
-        collision = deprecated & registry_keys
+        collision = removed & registry_keys
         assert not collision, (
-            f"Deprecated aliases are also in active registry: {collision}. "
-            "Remove from deprecated_profile_aliases or unregister from factory."
+            f"Removed aliases are also in active registry: {collision}. "
+            "Remove from removed_profile_aliases or unregister from factory."
         )
+
+    def test_test_schema_cache_matches_command_profile_fields(self):
+        """Shared test schema cache must not drift from follower_commands.yaml."""
+        data = _load_yaml(FOLLOWER_COMMANDS)
+        real_profiles = data.get('follower_profiles', {})
+
+        from tests.fixtures.mock_safety import TEST_SCHEMA_CACHE
+
+        cached_profiles = set(TEST_SCHEMA_CACHE['follower_profiles'])
+        real_profile_names = set(real_profiles)
+        missing_profiles = real_profile_names - cached_profiles
+        assert not missing_profiles, (
+            f"TEST_SCHEMA_CACHE is missing real profiles: {sorted(missing_profiles)}"
+        )
+
+        cached_fields = set(TEST_SCHEMA_CACHE['command_fields'])
+        real_fields = set(data.get('command_fields', {}))
+        assert cached_fields == real_fields, (
+            f"TEST_SCHEMA_CACHE command fields differ from follower_commands.yaml: "
+            f"missing={sorted(real_fields - cached_fields)} "
+            f"extra={sorted(cached_fields - real_fields)}"
+        )
+
+        cached_control_types = set(TEST_SCHEMA_CACHE['control_types'])
+        real_control_types = set(data.get('control_types', {}))
+        assert cached_control_types == real_control_types, (
+            f"TEST_SCHEMA_CACHE control types differ from follower_commands.yaml: "
+            f"missing={sorted(real_control_types - cached_control_types)} "
+            f"extra={sorted(cached_control_types - real_control_types)}"
+        )
+
+        for profile_name, test_profile in TEST_SCHEMA_CACHE['follower_profiles'].items():
+            real_profile = real_profiles.get(profile_name)
+            assert real_profile is not None, f"Test schema profile is not real: {profile_name}"
+            for key in ('control_type', 'required_fields', 'optional_fields'):
+                assert test_profile.get(key) == real_profile.get(key), (
+                    f"TEST_SCHEMA_CACHE[{profile_name!r}][{key!r}] is stale: "
+                    f"{test_profile.get(key)!r} != {real_profile.get(key)!r}"
+                )
 
 
 # =============================================================================

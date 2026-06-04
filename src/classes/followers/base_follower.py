@@ -17,11 +17,12 @@ Safety Integration (v5.0.0+):
 - Centralized limits from Safety.GlobalLimits with FollowerOverrides
 - Automatic limit caching per follower
 - check_safety() method for altitude/velocity validation
-- Validated set_command_field() with automatic clamping
+- Atomic set_command_fields() command intents with automatic validation/clamping
 """
 
 from abc import ABC, abstractmethod
 from typing import Tuple, Dict, Any, List, Optional, Union
+from classes.command_intent import CommandIntent
 from classes.setpoint_handler import SetpointHandler
 from classes.tracker_output import TrackerOutput, TrackerDataType
 import logging
@@ -180,7 +181,7 @@ class BaseFollower(ABC):
         Initializes the BaseFollower with schema-aware setpoint management.
 
         Args:
-            px4_controller: Instance of PX4Controller to control the drone.
+            px4_controller: PX4InterfaceManager used by the command boundary.
             profile_name (str): The name of the setpoint profile to use 
                               (e.g., "Ground View", "Constant Position").
         
@@ -364,6 +365,69 @@ class BaseFollower(ABC):
         except Exception as e:
             logger.error(f"Unexpected error setting field {field_name}: {e}")
             return False
+
+    def set_command_fields(
+        self,
+        field_values: Dict[str, float],
+        *,
+        reason: Optional[str] = None,
+        require_all: bool = True,
+    ) -> bool:
+        """
+        Atomically sets a complete command field snapshot.
+
+        Prefer this over repeated ``set_command_field()`` calls for follower
+        command output. The handler validates every field on a staged copy and
+        commits only after the full command is safe, preventing old values from
+        mixing with a partially rejected command.
+        """
+        try:
+            intent = self.setpoint_handler.set_fields(
+                field_values,
+                source=self.__class__.__name__,
+                reason=reason,
+                require_all=require_all,
+            )
+            self._last_command_intent = intent
+            if hasattr(self, '_telemetry_metadata'):
+                self.update_telemetry_metadata(
+                    'last_command_intent',
+                    {
+                        'profile_name': intent.profile_name,
+                        'control_type': intent.control_type,
+                        'source': intent.source,
+                        'reason': intent.reason,
+                        'created_at_utc': intent.created_at_utc,
+                        'fields': intent.fields,
+                    },
+                )
+                self.update_telemetry_metadata('last_command_intent_error', None)
+            display_name = getattr(
+                getattr(self, 'setpoint_handler', None),
+                'profile_name',
+                self.__class__.__name__,
+            )
+            logger.debug(
+                "Command intent accepted for %s: reason=%s fields=%s",
+                display_name,
+                reason,
+                intent.fields,
+            )
+            return True
+        except ValueError as e:
+            logger.warning(f"Failed to set command intent: {e}")
+            if hasattr(self, '_telemetry_metadata'):
+                self.update_telemetry_metadata('last_command_intent_error', str(e))
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error setting command intent: {e}")
+            if hasattr(self, '_telemetry_metadata'):
+                self.update_telemetry_metadata('last_command_intent_error', str(e))
+            return False
+
+    def get_last_command_intent(self) -> Optional[CommandIntent]:
+        """Return the most recent command intent accepted by this follower."""
+        return getattr(self, '_last_command_intent', None)
     
     def get_command_field(self, field_name: str) -> Optional[float]:
         """
@@ -585,11 +649,37 @@ class BaseFollower(ABC):
                 return ok_status
 
             except Exception as e:
-                logger.warning(f"Safety check error: {e}")
-                return SafetyStatus.ok()  # Fail-open for now
+                if self._safety_checks_bypassed_for_testing():
+                    logger.warning(
+                        "Safety check error bypassed in explicit circuit-breaker test mode: %s",
+                        e,
+                    )
+                    ok_status = SafetyStatus.ok()
+                    self._last_safety_result = ok_status
+                    return ok_status
+
+                logger.error(f"Safety check error: {e}")
+                fail_closed_status = SafetyStatus.violation(
+                    reason=f'safety_manager_error:{e}',
+                    action=SafetyAction.EMERGENCY_STOP,
+                    details={'follower': self._follower_config_name}
+                )
+                self._handle_safety_violation(fail_closed_status)
+                self._last_safety_result = fail_closed_status
+                return fail_closed_status
 
         # Legacy safety check
         return self._check_safety_legacy()
+
+    def _safety_checks_bypassed_for_testing(self) -> bool:
+        """Return true only for the explicit circuit-breaker safety bypass."""
+        if not CIRCUIT_BREAKER_AVAILABLE:
+            return False
+        try:
+            return bool(FollowerCircuitBreaker.should_skip_safety_checks())
+        except Exception as e:
+            logger.error("Circuit-breaker safety bypass check failed: %s", e)
+            return False
 
     def _check_safety_legacy(self):
         """Legacy safety check when SafetyManager is not available."""
@@ -998,6 +1088,35 @@ class BaseFollower(ABC):
                 return False
         
         logger.debug(f"Tracker data is compatible with {self.get_display_name()}")
+        return True
+
+    def should_process_inactive_tracker_output(self, tracker_data: TrackerOutput) -> bool:
+        """
+        Return True only when this follower can use inactive tracker output safely.
+
+        The default is fail-closed rejection. Followers that need inactive output
+        to emit a stop/hold command must opt in explicitly.
+        """
+        return False
+
+    def _is_inactive_tracker_output(
+        self,
+        tracker_data: TrackerOutput,
+        allowed_types: Optional[set] = None,
+    ) -> bool:
+        """
+        Shared predicate for target-loss command publication opt-ins.
+
+        Followers use this to tell AppController that inactive tracker output is
+        still a meaningful control input because the follower will hold, coast,
+        orbit, or stop through its target-loss policy.
+        """
+        if not isinstance(tracker_data, TrackerOutput):
+            return False
+        if tracker_data.tracking_active:
+            return False
+        if allowed_types is not None and tracker_data.data_type not in allowed_types:
+            return False
         return True
     
     def _has_required_data(self, tracker_data: TrackerOutput, data_type: TrackerDataType) -> bool:

@@ -150,14 +150,14 @@ DLIB_Tracker:
 ## Gimbal Tracker
 
 ```yaml
-# Gimbal connection
-GIMBAL_UDP_HOST: "192.168.0.108"
-GIMBAL_LISTEN_PORT: 9004
-GIMBAL_COORDINATE_SYSTEM: "GIMBAL_BODY"
-GIMBAL_DISABLE_ESTIMATOR: true
-
 GimbalTracker:
+  ENABLED: true
+  PROVIDER: "topotek_sip_udp"
+  UDP_HOST: "192.168.0.108"
   UDP_PORT: 9003
+  LISTEN_PORT: 9004
+  COORDINATE_SYSTEM: "GIMBAL_BODY"
+  DISABLE_ESTIMATOR: true
   data_timeout_seconds: 5.0
   max_consecutive_failures: 10
 ```

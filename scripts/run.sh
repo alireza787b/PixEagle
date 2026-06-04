@@ -109,12 +109,17 @@ get_config_value() {
     local section="$1"
     local key="$2"
     local default="$3"
+    local source_config="$CONFIG_FILE"
 
-    if [[ -f "$CONFIG_FILE" ]] && command -v python3 &>/dev/null; then
+    if [[ ! -f "$source_config" && -f "$DEFAULT_CONFIG_FILE" ]]; then
+        source_config="$DEFAULT_CONFIG_FILE"
+    fi
+
+    if [[ -f "$source_config" ]] && command -v python3 &>/dev/null; then
         python3 -c "
 import yaml
 try:
-    with open('$CONFIG_FILE', 'r') as f:
+    with open('$source_config', 'r') as f:
         config = yaml.safe_load(f)
     print(config.get('$section', {}).get('$key', '$default'))
 except:
@@ -135,6 +140,7 @@ get_lan_ip() {
 # Paths to component scripts
 VENV_DIR="$PIXEAGLE_DIR/venv"
 CONFIG_FILE="$PIXEAGLE_DIR/configs/config.yaml"
+DEFAULT_CONFIG_FILE="$PIXEAGLE_DIR/configs/config_default.yaml"
 MAVLINK2REST_SCRIPT="$SCRIPTS_DIR/components/mavlink2rest.sh"
 DASHBOARD_SCRIPT="$SCRIPTS_DIR/components/dashboard.sh"
 MAIN_APP_SCRIPT="$SCRIPTS_DIR/components/main.sh"
@@ -210,6 +216,9 @@ show_help() {
     echo -e "      ${GREEN}--no-attach, -n${NC}"
     echo -e "          Start services without attaching to tmux"
     echo ""
+    echo -e "      ${GREEN}--no-dashboard${NC}"
+    echo -e "          Do NOT run the React dashboard"
+    echo ""
     echo -e "      ${GREEN}-m${NC}  Do NOT run MAVLink2REST"
     echo -e "      ${GREEN}-p${NC}  Do NOT run Main Python Application"
     echo -e "      ${GREEN}-k${NC}  Do NOT run MAVSDK Server"
@@ -276,11 +285,18 @@ preflight_checks() {
 
     # 2. Configuration file
     if [[ ! -f "$CONFIG_FILE" ]]; then
-        log_error "Configuration file not found: $CONFIG_FILE"
-        log_detail "Run: make init (or bash scripts/init.sh)"
-        exit 1
+        if [[ -f "$DEFAULT_CONFIG_FILE" ]]; then
+            log_warn "Runtime configuration file not found: $CONFIG_FILE"
+            log_detail "Using checked-in defaults from: $DEFAULT_CONFIG_FILE"
+            log_detail "Create a local override only when needed: cp configs/config_default.yaml configs/config.yaml"
+        else
+            log_error "Configuration defaults not found: $DEFAULT_CONFIG_FILE"
+            log_detail "Run: make init (or bash scripts/init.sh)"
+            exit 1
+        fi
+    else
+        log_success "Configuration file found"
     fi
-    log_success "Configuration file found"
 
     # 3. Core Python dependencies (quick sanity check)
     if ! "$VENV_DIR/bin/python" -c "import cv2, numpy" 2>/dev/null; then
@@ -412,7 +428,7 @@ load_configuration() {
     LAN_IP=$(get_lan_ip)
 
     # Display configured ports with both localhost and LAN IP
-    log_info "MAVLink2REST: http://${LAN_IP}:${MAVLINK2REST_PORT}"
+    log_info "MAVLink2REST: http://localhost:${MAVLINK2REST_PORT} (local-only by default)"
     log_info "Backend API:  http://${LAN_IP}:${BACKEND_PORT}"
     log_info "Dashboard:    http://${LAN_IP}:${DASHBOARD_PORT}"
     log_detail "              (also: http://localhost:${DASHBOARD_PORT})"
@@ -651,7 +667,7 @@ show_final_summary() {
     echo -e "   ${BOLD}Service URLs (Network Access):${NC}"
     echo -e "      Dashboard:     ${CYAN}http://${lan_ip}:${DASHBOARD_PORT}${NC}"
     echo -e "      Backend API:   ${CYAN}http://${lan_ip}:${BACKEND_PORT}${NC}"
-    echo -e "      MAVLink2REST:  ${CYAN}http://${lan_ip}:${MAVLINK2REST_PORT}${NC}"
+    echo -e "      MAVLink2REST:  ${CYAN}http://localhost:${MAVLINK2REST_PORT}${NC} ${DIM}(local-only default)${NC}"
     echo ""
     echo -e "   ${DIM}Local Access: http://localhost:${DASHBOARD_PORT}${NC}"
     echo ""
@@ -703,6 +719,10 @@ parse_arguments() {
                 ;;
             --no-attach|-n)
                 NO_ATTACH=true
+                shift
+                ;;
+            --no-dashboard)
+                RUN_DASHBOARD=false
                 shift
                 ;;
             -h|--help)

@@ -19,7 +19,10 @@
 
 .PHONY: help init run dev stop clean sync update reset-config status logs \
         download-binaries service-install service-uninstall service-enable \
-        service-disable service-status service-logs service-attach
+        service-disable service-status service-logs service-attach phase0-check \
+        sitl-dry-run sitl-probe sitl-sih-dry-run sitl-sih-probe \
+        sitl-sih-execute-px4 sitl-gazebo-dry-run sitl-gazebo-probe \
+        sitl-gazebo-execute-px4 video-udp-proof-dry-run video-udp-proof-execute
 
 # Default target
 .DEFAULT_GOAL := help
@@ -29,6 +32,8 @@ DASHBOARD_PORT ?= $(shell bash scripts/lib/ports.sh --dashboard-port "$(CURDIR)/
 BACKEND_PORT ?= $(shell bash scripts/lib/ports.sh --backend-port "$(CURDIR)/configs/config.yaml" 2>/dev/null || echo 5077)
 MAVLINK2REST_PORT ?= 8088
 WEBSOCKET_PORT ?= 5551
+PYTHON ?= python3
+VIDEO_PROOF_PYTHON ?= python3
 
 # ============================================================================
 # Help
@@ -70,6 +75,23 @@ help:
 	@echo "    make clean             Clean build artifacts and caches"
 	@echo "    make reset-config      Reset config.yaml and dashboard/.env to defaults"
 	@echo "    make test              Run tests"
+	@echo "    make phase0-check      Run Phase 0 guardrails"
+	@echo "    make sitl-dry-run      Validate the PX4/SITL plan without side effects"
+	@echo "    make sitl-probe        Probe an already running PX4/SITL stack"
+	@echo "    make sitl-sih-dry-run  Validate the official PX4 SIH profile without side effects"
+	@echo "    make sitl-sih-probe    Probe an already running PX4 SIH stack"
+	@echo "    make sitl-sih-execute-px4"
+	@echo "                            Start only the guarded PX4 SIH container and collect evidence"
+	@echo "    make sitl-gazebo-dry-run"
+	@echo "                            Validate the official PX4 Gazebo visual profile without side effects"
+	@echo "    make sitl-gazebo-probe"
+	@echo "                            Probe an already running official PX4 Gazebo visual stack"
+	@echo "    make sitl-gazebo-execute-px4"
+	@echo "                            Start only the guarded official PX4 Gazebo container"
+	@echo "    make video-udp-proof-dry-run"
+	@echo "                            Validate generated RTP/UDP receiver contract without side effects"
+	@echo "    make video-udp-proof-execute"
+	@echo "                            Start only a local generated RTP/UDP sender and collect video evidence"
 	@echo ""
 	@echo "  Windows Users:"
 	@echo "    Use scripts\\init.bat and scripts\\run.bat directly"
@@ -179,7 +201,46 @@ clean:
 	@echo "Clean complete."
 
 test:
-	@source venv/bin/activate && python -m pytest tests/ -v
+	@PYTHONPATH=src $(PYTHON) -m pytest tests/ -ra --tb=short -m "not sitl and not px4 and not e2e and not hardware and not manual" --strict-config
+
+phase0-check:
+	@bash scripts/check_schema.sh
+	@bash -n install.sh
+	@bash -n scripts/init.sh
+	@bash -n scripts/run.sh
+	@bash -n scripts/stop.sh
+	@find scripts -name '*.sh' -print0 | xargs -0 -n1 bash -n
+	@PYTHONPATH=src $(PYTHON) -m pytest tests/test_api_route_inventory.py tests/test_test_hygiene.py tests/test_docs_infrastructure_consistency.py tests/unit/core_app/test_config_clean_clone.py tests/unit/core_app/test_parameters_reload.py -ra --tb=short --strict-config
+
+sitl-dry-run:
+	@$(PYTHON) tools/run_sitl_validation_suite.py --plan-name phase2_follower_validation --dry-run
+
+sitl-probe:
+	@$(PYTHON) tools/run_sitl_validation_suite.py --plan-name phase2_follower_validation --probe-only --artifact-root reports/sitl
+
+sitl-sih-dry-run:
+	@PYTHON_BIN="$(PYTHON)" bash scripts/sitl/run_px4_sih_profile.sh --mode dry-run --json
+
+sitl-sih-probe:
+	@PYTHON_BIN="$(PYTHON)" bash scripts/sitl/run_px4_sih_profile.sh --mode probe-only --artifact-root reports/sitl
+
+sitl-sih-execute-px4:
+	@PYTHON_BIN="$(PYTHON)" bash scripts/sitl/run_px4_sih_profile.sh --mode execute-px4 --artifact-root reports/sitl
+
+sitl-gazebo-dry-run:
+	@PYTHON_BIN="$(PYTHON)" bash scripts/sitl/run_px4_gazebo_visual_profile.sh --mode dry-run --json
+
+sitl-gazebo-probe:
+	@PYTHON_BIN="$(PYTHON)" bash scripts/sitl/run_px4_gazebo_visual_profile.sh --mode probe-only --artifact-root reports/sitl
+
+sitl-gazebo-execute-px4:
+	@PYTHON_BIN="$(PYTHON)" bash scripts/sitl/run_px4_gazebo_visual_profile.sh --mode execute-gazebo --artifact-root reports/sitl
+
+video-udp-proof-dry-run:
+	@$(PYTHON) tools/run_udp_video_receiver_proof.py --dry-run --json
+
+video-udp-proof-execute:
+	@$(VIDEO_PROOF_PYTHON) tools/run_udp_video_receiver_proof.py --execute --allow-process-start --artifact-root reports/video --json
 
 # ============================================================================
 # Windows Targets (for nmake or similar)

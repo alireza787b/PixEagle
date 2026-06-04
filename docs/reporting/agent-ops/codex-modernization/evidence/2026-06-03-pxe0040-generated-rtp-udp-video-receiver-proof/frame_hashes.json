@@ -1,0 +1,245 @@
+{
+  "all": [
+    {
+      "index": 0,
+      "sha256": "7ea59dfc68dcea8b17deea9d980a1d7fa84ff0facae3a59862b888f52b899952",
+      "shape": [
+        240,
+        320,
+        3
+      ],
+      "status": {
+        "cached_frames_available": 1,
+        "connection_open": true,
+        "consecutive_failures": 0,
+        "frame_age_seconds": 0.0,
+        "frame_sequence": 1,
+        "is_recovering": false,
+        "last_successful_frame_time": 1780488714.104365,
+        "reason": "capture_success",
+        "recovery_attempts": 0,
+        "source": "fresh",
+        "status": "fresh",
+        "timestamp": 1780488714.131222,
+        "usable_for_following": true
+      }
+    },
+    {
+      "index": 1,
+      "sha256": "4be83c7f061a38e7a1b595d258cd8fc1f4c6d1e26b22ceaaffaf744d9b310ad6",
+      "shape": [
+        240,
+        320,
+        3
+      ],
+      "status": {
+        "cached_frames_available": 2,
+        "connection_open": true,
+        "consecutive_failures": 0,
+        "frame_age_seconds": 0.0,
+        "frame_sequence": 2,
+        "is_recovering": false,
+        "last_successful_frame_time": 1780488714.1644747,
+        "reason": "capture_success",
+        "recovery_attempts": 0,
+        "source": "fresh",
+        "status": "fresh",
+        "timestamp": 1780488714.1653833,
+        "usable_for_following": true
+      }
+    },
+    {
+      "index": 2,
+      "sha256": "162627fa3658bd5285e04544a3530a636c308521c9b07982e5506fa3f0c33cbf",
+      "shape": [
+        240,
+        320,
+        3
+      ],
+      "status": {
+        "cached_frames_available": 4,
+        "connection_open": true,
+        "consecutive_failures": 0,
+        "frame_age_seconds": 0.0,
+        "frame_sequence": 3,
+        "is_recovering": false,
+        "last_successful_frame_time": 1780488714.2308116,
+        "reason": "capture_success",
+        "recovery_attempts": 0,
+        "source": "fresh",
+        "status": "fresh",
+        "timestamp": 1780488714.2330534,
+        "usable_for_following": true
+      }
+    },
+    {
+      "index": 3,
+      "sha256": "36e3903c4664eaa43720a832caf04db538a22e2ae092f3f600441389e808fe9b",
+      "shape": [
+        240,
+        320,
+        3
+      ],
+      "status": {
+        "cached_frames_available": 5,
+        "connection_open": true,
+        "consecutive_failures": 0,
+        "frame_age_seconds": 0.0,
+        "frame_sequence": 4,
+        "is_recovering": false,
+        "last_successful_frame_time": 1780488714.297527,
+        "reason": "capture_success",
+        "recovery_attempts": 0,
+        "source": "fresh",
+        "status": "fresh",
+        "timestamp": 1780488714.3008437,
+        "usable_for_following": true
+      }
+    },
+    {
+      "index": 4,
+      "sha256": "3fee517ed965ebce90222128dea0ca4624922283ea62503e256b1c5d18d01525",
+      "shape": [
+        240,
+        320,
+        3
+      ],
+      "status": {
+        "cached_frames_available": 5,
+        "connection_open": true,
+        "consecutive_failures": 0,
+        "frame_age_seconds": 0.0,
+        "frame_sequence": 5,
+        "is_recovering": false,
+        "last_successful_frame_time": 1780488714.3640268,
+        "reason": "capture_success",
+        "recovery_attempts": 0,
+        "source": "fresh",
+        "status": "fresh",
+        "timestamp": 1780488714.3683352,
+        "usable_for_following": true
+      }
+    },
+    {
+      "index": 5,
+      "sha256": "0baa989798141f4739c2350756c598ce71110725b6b53038a163118afb2d9cc0",
+      "shape": [
+        240,
+        320,
+        3
+      ],
+      "status": {
+        "cached_frames_available": 5,
+        "connection_open": true,
+        "consecutive_failures": 0,
+        "frame_age_seconds": 0.0,
+        "frame_sequence": 6,
+        "is_recovering": false,
+        "last_successful_frame_time": 1780488714.430545,
+        "reason": "capture_success",
+        "recovery_attempts": 0,
+        "source": "fresh",
+        "status": "fresh",
+        "timestamp": 1780488714.4358573,
+        "usable_for_following": true
+      }
+    },
+    {
+      "index": 6,
+      "sha256": "993236d18a8827d9c86714b8744fb81823ecadcee9f06514d60d9f99b8db94b3",
+      "shape": [
+        240,
+        320,
+        3
+      ],
+      "status": {
+        "cached_frames_available": 5,
+        "connection_open": true,
+        "consecutive_failures": 0,
+        "frame_age_seconds": 0.0,
+        "frame_sequence": 7,
+        "is_recovering": false,
+        "last_successful_frame_time": 1780488714.4971712,
+        "reason": "capture_success",
+        "recovery_attempts": 0,
+        "source": "fresh",
+        "status": "fresh",
+        "timestamp": 1780488714.5034678,
+        "usable_for_following": true
+      }
+    },
+    {
+      "index": 7,
+      "sha256": "e258a7fcef6add72dd36d542a00db0ace9f87773d6d2c7888db09ac725c6d0e1",
+      "shape": [
+        240,
+        320,
+        3
+      ],
+      "status": {
+        "cached_frames_available": 5,
+        "connection_open": true,
+        "consecutive_failures": 0,
+        "frame_age_seconds": 0.0,
+        "frame_sequence": 8,
+        "is_recovering": false,
+        "last_successful_frame_time": 1780488714.5638611,
+        "reason": "capture_success",
+        "recovery_attempts": 0,
+        "source": "fresh",
+        "status": "fresh",
+        "timestamp": 1780488714.570863,
+        "usable_for_following": true
+      }
+    }
+  ],
+  "count": 8,
+  "first": {
+    "index": 0,
+    "sha256": "7ea59dfc68dcea8b17deea9d980a1d7fa84ff0facae3a59862b888f52b899952",
+    "shape": [
+      240,
+      320,
+      3
+    ],
+    "status": {
+      "cached_frames_available": 1,
+      "connection_open": true,
+      "consecutive_failures": 0,
+      "frame_age_seconds": 0.0,
+      "frame_sequence": 1,
+      "is_recovering": false,
+      "last_successful_frame_time": 1780488714.104365,
+      "reason": "capture_success",
+      "recovery_attempts": 0,
+      "source": "fresh",
+      "status": "fresh",
+      "timestamp": 1780488714.131222,
+      "usable_for_following": true
+    }
+  },
+  "last": {
+    "index": 7,
+    "sha256": "e258a7fcef6add72dd36d542a00db0ace9f87773d6d2c7888db09ac725c6d0e1",
+    "shape": [
+      240,
+      320,
+      3
+    ],
+    "status": {
+      "cached_frames_available": 5,
+      "connection_open": true,
+      "consecutive_failures": 0,
+      "frame_age_seconds": 0.0,
+      "frame_sequence": 8,
+      "is_recovering": false,
+      "last_successful_frame_time": 1780488714.5638611,
+      "reason": "capture_success",
+      "recovery_attempts": 0,
+      "source": "fresh",
+      "status": "fresh",
+      "timestamp": 1780488714.570863,
+      "usable_for_following": true
+    }
+  }
+}

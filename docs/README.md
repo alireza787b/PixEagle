@@ -58,7 +58,7 @@ Comprehensive documentation for the autonomous following system.
 |-------|-------------|
 | [Follower Overview](followers/README.md) | Complete follower system guide |
 | [Architecture](followers/01-architecture/README.md) | System design and components |
-| [Follower Reference](followers/02-reference/README.md) | All 10 follower implementations |
+| [Follower Reference](followers/02-reference/README.md) | Active follower implementations |
 | [GNC Concepts](followers/03-gnc-concepts/README.md) | PN, L1, TECS, PID algorithms |
 | [Configuration](followers/04-configuration/README.md) | Parameters, schema, tuning |
 | [Development Guide](followers/05-development/README.md) | Creating new followers |
@@ -74,8 +74,7 @@ Internal development guides and technical references.
 | Guide | Description |
 |-------|-------------|
 | [Schema Development Guide](developers/SCHEMA_DRIVEN_DEVELOPMENT_GUIDE.md) | Schema-driven development patterns |
-| [Gimbal Implementation Plan](developers/GIMBAL_FOLLOWER_IMPLEMENTATION_PLAN.md) | Gimbal follower architecture |
-| [Gimbal Vector Implementation](developers/GIMBAL_VECTOR_BODY_IMPLEMENTATION_SUMMARY.md) | Body-frame vector control |
+| [Gimbal Vector Reference](followers/02-reference/gm-velocity-vector.md) | Current `gm_velocity_vector` follower |
 | [Velocity Research](developers/FORWARD_VELOCITY_RESEARCH_GUIDE.md) | Forward velocity control research |
 | [3D Validation Report](developers/position_3d_validation_test_report.md) | Position 3D validation testing |
 
@@ -87,10 +86,8 @@ These documents are for internal reference during development.
 
 | Document | Description |
 |----------|-------------|
-| [Configuration Refactoring](CONFIGURATION_REFACTORING_GUIDE.md) | Config system refactoring notes |
-| [Conflict Check Report](CONFLICT_CHECK_REPORT.md) | Merge conflict resolution report |
-| [YOLO Download Improvements](YOLO_MODEL_DOWNLOAD_IMPROVEMENTS.md) | YOLO model management improvements |
-| [YOLO Download UX](YOLO_MODEL_DOWNLOAD_USER_EXPERIENCE.md) | YOLO download user experience |
+| [Model Download Improvements](MODEL_DOWNLOAD_IMPROVEMENTS.md) | Model management improvements |
+| [Model Download UX](MODEL_DOWNLOAD_USER_EXPERIENCE.md) | Model download user experience |
 
 ---
 
@@ -98,7 +95,8 @@ These documents are for internal reference during development.
 
 Key configuration files:
 
-- `configs/config.yaml` - Main application configuration
+- `configs/config_default.yaml` - Checked-in default configuration
+- `configs/config.yaml` - Optional local override configuration
 - `configs/config_schema.yaml` - Configuration schema definitions
 - `dashboard/.env` - Dashboard environment variables
 

@@ -184,6 +184,15 @@ class TestConfigServiceValidation:
         rec_warnings = [w for w in result.warnings if 'recommended' in w.lower()]
         assert len(rec_warnings) == 0, "No recommended range warning expected"
 
+    def test_mavlink_request_retries_uses_integer_schema_bounds(self, service):
+        """MAVLink retry count must be validated by ConfigService and dashboard editors."""
+        param_schema = service.get_parameter_schema('MAVLink', 'MAVLINK_REQUEST_RETRIES')
+
+        assert param_schema['type'] == 'integer'
+        assert service.validate_value('MAVLink', 'MAVLINK_REQUEST_RETRIES', 1).valid is True
+        assert service.validate_value('MAVLink', 'MAVLINK_REQUEST_RETRIES', 'bad').valid is False
+        assert service.validate_value('MAVLink', 'MAVLINK_REQUEST_RETRIES', 99).valid is False
+
 
 class TestConfigServiceWrite:
     """Test config write methods."""

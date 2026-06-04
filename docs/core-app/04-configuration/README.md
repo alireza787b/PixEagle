@@ -146,12 +146,11 @@ tracker:
   type: "smart"
   confidence_threshold: 0.5
 
-# HTTP server
-http:
-  host: "0.0.0.0"
-  port: 8000
-  stream_fps: 30
-  stream_quality: 85
+# HTTP server / stream settings
+Streaming:
+  HTTP_STREAM_PORT: 5077
+  STREAM_FPS: 30
+  STREAM_QUALITY: 85
 ```
 
 ### config.yaml
@@ -265,20 +264,20 @@ success, diffs = config.import_config(
 
 ```bash
 # Get current config
-curl http://localhost:8000/api/config/current
+curl http://127.0.0.1:5077/api/config/current
 
 # Get section
-curl http://localhost:8000/api/config/current/tracker
+curl http://127.0.0.1:5077/api/config/current/tracker
 
 # Get schema
-curl http://localhost:8000/api/config/schema
+curl http://127.0.0.1:5077/api/config/schema
 ```
 
 ### Update Configuration
 
 ```bash
 # Update parameter
-curl -X PUT http://localhost:8000/api/config/tracker/confidence_threshold \
+curl -X PUT http://127.0.0.1:5077/api/config/tracker/confidence_threshold \
   -H "Content-Type: application/json" \
   -d '{"value": 0.8}'
 ```
@@ -287,13 +286,13 @@ curl -X PUT http://localhost:8000/api/config/tracker/confidence_threshold \
 
 ```bash
 # Revert parameter
-curl -X POST http://localhost:8000/api/config/revert/tracker/confidence_threshold
+curl -X POST http://127.0.0.1:5077/api/config/revert/tracker/confidence_threshold
 
 # Revert section
-curl -X POST http://localhost:8000/api/config/revert/tracker
+curl -X POST http://127.0.0.1:5077/api/config/revert/tracker
 
 # Revert all
-curl -X POST http://localhost:8000/api/config/revert
+curl -X POST http://127.0.0.1:5077/api/config/revert
 ```
 
 ## Audit Logging

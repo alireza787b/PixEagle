@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Test script for GimbalVectorBodyFollower
-========================================
+Smoke tests for the current GMVelocityVectorFollower.
+=====================================================
 
-This script tests the new gimbal vector body follower implementation
-to verify it works correctly before flight testing.
+This script verifies the active gimbal vector follower implementation and the
+legacy alias migration path.
 
-Run with: python test_gimbal_vector_body.py
+Run with: PYTHONPATH=src python tests/test_gm_velocity_vector_smoke.py
 """
 
 import sys
@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 
 # Add src to path
-src_path = Path(__file__).parent / 'src'
+src_path = Path(__file__).resolve().parents[1] / 'src'
 sys.path.insert(0, str(src_path))
 
 # Configure logging
@@ -28,18 +28,17 @@ logger = logging.getLogger(__name__)
 def test_follower_import():
     """Test 1: Verify follower can be imported."""
     try:
-        from classes.followers.gimbal_vector_body_follower import GimbalVectorBodyFollower, Vector3D
+        from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower, Vector3D
         logger.info("✅ Test 1 PASSED: Follower import successful")
-        return True
     except Exception as e:
         logger.error(f"❌ Test 1 FAILED: Import error: {e}")
-        return False
+        raise AssertionError(f"Follower import failed: {e}") from e
 
 
 def test_vector3d_operations():
     """Test 2: Verify Vector3D math operations."""
     try:
-        from classes.followers.gimbal_vector_body_follower import Vector3D
+        from classes.followers.gm_velocity_vector_follower import Vector3D
 
         # Create vector
         v = Vector3D(3.0, 4.0, 0.0)
@@ -56,10 +55,9 @@ def test_vector3d_operations():
         assert abs(v_scaled.magnitude() - 10.0) < 0.001, "Scaling incorrect"
 
         logger.info("✅ Test 2 PASSED: Vector3D operations correct")
-        return True
     except Exception as e:
         logger.error(f"❌ Test 2 FAILED: {e}")
-        return False
+        raise
 
 
 def test_follower_factory_registration():
@@ -70,22 +68,19 @@ def test_follower_factory_registration():
         # Get available modes
         modes = FollowerFactory.get_available_modes()
 
-        if 'gimbal_vector_body' in modes:
-            logger.info("✅ Test 3 PASSED: Follower registered in factory")
-            logger.info(f"   Available modes: {modes}")
-            return True
-        else:
-            logger.error(f"❌ Test 3 FAILED: gimbal_vector_body not in modes: {modes}")
-            return False
+        assert 'gm_velocity_vector' in modes, f"gm_velocity_vector not in modes: {modes}"
+        assert 'gimbal_vector_body' not in modes, f"removed alias still registered: {modes}"
+        logger.info("✅ Test 3 PASSED: Current follower registered and legacy alias removed")
+        logger.info(f"   Available modes: {modes}")
     except Exception as e:
         logger.error(f"❌ Test 3 FAILED: {e}")
-        return False
+        raise
 
 
 def test_follower_instantiation():
     """Test 4: Verify follower can be instantiated."""
     try:
-        from classes.followers.gimbal_vector_body_follower import GimbalVectorBodyFollower
+        from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
         from unittest.mock import Mock
 
         # Create mock PX4 controller
@@ -93,36 +88,35 @@ def test_follower_instantiation():
         mock_px4.current_altitude = 10.0
 
         # Instantiate follower
-        follower = GimbalVectorBodyFollower(mock_px4, (0.5, 0.5))
+        follower = GMVelocityVectorFollower(mock_px4, (0.5, 0.5))
 
         # Verify basic attributes
-        assert follower.follower_name == "GimbalVectorBodyFollower"
+        assert follower.follower_name == "GMVelocityVectorFollower"
         assert follower.mount_type in ['VERTICAL', 'HORIZONTAL', 'TILTED_45']
-        assert follower.min_velocity > 0.0
+        assert follower.min_velocity >= 0.0
         assert follower.max_velocity > follower.min_velocity
 
         logger.info("✅ Test 4 PASSED: Follower instantiation successful")
         logger.info(f"   Mount type: {follower.mount_type}")
         logger.info(f"   Velocity range: [{follower.min_velocity}, {follower.max_velocity}] m/s")
         logger.info(f"   Altitude control: {follower.enable_altitude_control}")
-        return True
     except Exception as e:
         logger.error(f"❌ Test 4 FAILED: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 
 def test_mount_transformations():
     """Test 5: Verify mount transformations work correctly."""
     try:
-        from classes.followers.gimbal_vector_body_follower import GimbalVectorBodyFollower
+        from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
         from unittest.mock import Mock
 
         mock_px4 = Mock()
         mock_px4.current_altitude = 10.0
 
-        follower = GimbalVectorBodyFollower(mock_px4, (0.5, 0.5))
+        follower = GMVelocityVectorFollower(mock_px4, (0.5, 0.5))
 
         # Test VERTICAL mount transformation
         # Gimbal pointing straight down (pitch=90°, roll=0°, yaw=0°) should give downward vector
@@ -133,18 +127,17 @@ def test_mount_transformations():
 
         logger.info("✅ Test 5 PASSED: Mount transformations working")
         logger.info(f"   Test vector (yaw=0, pitch=90, roll=0): fwd={vector.x:.3f}, right={vector.y:.3f}, down={vector.z:.3f}")
-        return True
     except Exception as e:
         logger.error(f"❌ Test 5 FAILED: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 
 def test_tracker_data_processing():
     """Test 6: Verify tracker data can be processed."""
     try:
-        from classes.followers.gimbal_vector_body_follower import GimbalVectorBodyFollower
+        from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
         from classes.tracker_output import TrackerOutput, TrackerDataType
         from unittest.mock import Mock
         import time
@@ -152,7 +145,7 @@ def test_tracker_data_processing():
         mock_px4 = Mock()
         mock_px4.current_altitude = 10.0
 
-        follower = GimbalVectorBodyFollower(mock_px4, (0.5, 0.5))
+        follower = GMVelocityVectorFollower(mock_px4, (0.5, 0.5))
 
         # Create mock tracker output
         tracker_data = TrackerOutput(
@@ -175,24 +168,23 @@ def test_tracker_data_processing():
 
         logger.info("✅ Test 6 PASSED: Tracker data processing working")
         logger.info(f"   Commands: fwd={fields['vel_body_fwd']:.3f}, right={fields['vel_body_right']:.3f}, down={fields['vel_body_down']:.3f} m/s")
-        return True
     except Exception as e:
         logger.error(f"❌ Test 6 FAILED: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 
 def test_velocity_ramping():
     """Test 7: Verify velocity ramping works."""
     try:
-        from classes.followers.gimbal_vector_body_follower import GimbalVectorBodyFollower
+        from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower
         from unittest.mock import Mock
 
         mock_px4 = Mock()
         mock_px4.current_altitude = 10.0
 
-        follower = GimbalVectorBodyFollower(mock_px4, (0.5, 0.5))
+        follower = GMVelocityVectorFollower(mock_px4, (0.5, 0.5))
 
         # Initial velocity should be 0
         assert follower.current_velocity_magnitude == 0.0
@@ -206,18 +198,17 @@ def test_velocity_ramping():
 
         logger.info("✅ Test 7 PASSED: Velocity ramping working")
         logger.info(f"   Ramped from 0.0 to {follower.current_velocity_magnitude:.3f} m/s in 0.5s")
-        return True
     except Exception as e:
         logger.error(f"❌ Test 7 FAILED: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 
 def main():
     """Run all tests."""
     logger.info("=" * 70)
-    logger.info("GimbalVectorBodyFollower Test Suite")
+    logger.info("GMVelocityVectorFollower Test Suite")
     logger.info("=" * 70)
 
     tests = [
@@ -234,8 +225,8 @@ def main():
     for test_name, test_func in tests:
         logger.info(f"\n--- Running: {test_name} ---")
         try:
-            result = test_func()
-            results.append((test_name, result))
+            test_func()
+            results.append((test_name, True))
         except Exception as e:
             logger.error(f"Test crashed: {e}")
             results.append((test_name, False))

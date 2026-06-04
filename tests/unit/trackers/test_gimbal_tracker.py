@@ -50,7 +50,7 @@ def mock_dependencies():
 class TestGimbalInitialization:
     """Tests for GimbalTracker initialization."""
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_initialization_sets_tracker_name(self, mock_transformer, mock_interface, mock_dependencies):
         """Tracker name should be set to 'GimbalTracker'."""
@@ -64,7 +64,7 @@ class TestGimbalInitialization:
 
         assert tracker.tracker_name == "GimbalTracker"
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_initialization_is_external_tracker(self, mock_transformer, mock_interface, mock_dependencies):
         """GimbalTracker should be marked as external tracker."""
@@ -78,7 +78,7 @@ class TestGimbalInitialization:
 
         assert tracker.is_external_tracker is True
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_initialization_monitoring_inactive(self, mock_transformer, mock_interface, mock_dependencies):
         """Monitoring should be inactive initially."""
@@ -92,10 +92,10 @@ class TestGimbalInitialization:
 
         assert tracker.monitoring_active is False
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_initialization_creates_gimbal_interface(self, mock_transformer, mock_interface, mock_dependencies):
-        """Should create GimbalInterface on initialization."""
+        """Should create a gimbal input provider on initialization."""
         mock_interface.return_value = MockGimbalInterface()
         mock_transformer.return_value = MockCoordinateTransformer()
 
@@ -106,12 +106,48 @@ class TestGimbalInitialization:
 
         mock_interface.assert_called()
 
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
+    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
+    def test_initialization_exposes_provider_metadata(self, mock_transformer, mock_provider, mock_dependencies):
+        """Provider identity should be visible in capabilities."""
+        mock_gi = MockGimbalInterface()
+        mock_provider.return_value = mock_gi
+        mock_transformer.return_value = MockCoordinateTransformer()
+
+        from classes.trackers.gimbal_tracker import GimbalTracker
+        video_handler, detector, app_controller = mock_dependencies
+
+        tracker = GimbalTracker(video_handler, detector, app_controller)
+        capabilities = tracker.get_capabilities()
+
+        assert capabilities['gimbal_provider'] == 'topotek_sip_udp'
+        assert 'topotek_sip_udp' in capabilities['supported_gimbal_providers']
+
+    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
+    def test_initialization_rejects_unknown_provider(self, mock_transformer, mock_dependencies, monkeypatch):
+        """Unsupported gimbal providers should fail before runtime IO starts."""
+        from classes.gimbal_provider import UnknownGimbalProviderError
+        from classes.parameters import Parameters
+        from classes.trackers.gimbal_tracker import GimbalTracker
+
+        monkeypatch.setattr(
+            Parameters,
+            'GimbalTracker',
+            {'PROVIDER': 'mavlink_gimbal_v2'},
+            raising=False,
+        )
+        mock_transformer.return_value = MockCoordinateTransformer()
+        video_handler, detector, app_controller = mock_dependencies
+
+        with pytest.raises(UnknownGimbalProviderError):
+            GimbalTracker(video_handler, detector, app_controller)
+
 
 @pytest.mark.unit
 class TestGimbalStartTracking:
     """Tests for GimbalTracker.start_tracking method."""
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_start_tracking_starts_listening(self, mock_transformer, mock_interface, mock_dependencies):
         """start_tracking should start UDP listening."""
@@ -131,7 +167,7 @@ class TestGimbalStartTracking:
 
         assert tracker.monitoring_active is True
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_start_tracking_does_not_set_tracking_started(self, mock_transformer, mock_interface, mock_dependencies):
         """start_tracking should not immediately set tracking_started."""
@@ -152,7 +188,7 @@ class TestGimbalStartTracking:
         # tracking_started should be False until gimbal reports active tracking
         assert tracker.tracking_started is False
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_start_tracking_resets_statistics(self, mock_transformer, mock_interface, mock_dependencies):
         """start_tracking should reset tracking statistics."""
@@ -180,7 +216,7 @@ class TestGimbalStartTracking:
 class TestGimbalUpdate:
     """Tests for GimbalTracker.update method."""
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_update_returns_tuple(self, mock_transformer, mock_interface, mock_dependencies):
         """update should return (bool, TrackerOutput) tuple."""
@@ -204,7 +240,7 @@ class TestGimbalUpdate:
         assert isinstance(result, tuple)
         assert len(result) == 2
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_update_not_monitoring_returns_false(self, mock_transformer, mock_interface, mock_dependencies):
         """update without monitoring should return False."""
@@ -223,7 +259,7 @@ class TestGimbalUpdate:
 
         assert success is False
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_update_increments_total_updates(self, mock_transformer, mock_interface, mock_dependencies):
         """update should increment total_updates counter."""
@@ -244,7 +280,7 @@ class TestGimbalUpdate:
 
         assert tracker.total_updates == initial_updates + 1
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_update_with_active_tracking_data(self, mock_transformer, mock_interface, mock_dependencies):
         """update with active tracking data should succeed."""
@@ -267,8 +303,13 @@ class TestGimbalUpdate:
 
         assert success is True
         assert output is not None
+        assert output.tracking_active is True
+        assert output.raw_data['coordinate_system'] == output.raw_data['system']
+        assert output.raw_data['gimbal_tracking_active'] is True
+        assert output.raw_data['usable_for_following'] is True
+        assert output.raw_data['has_output'] is True
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_update_no_data_returns_cached(self, mock_transformer, mock_interface, mock_dependencies):
         """update with no data should try to return cached data."""
@@ -297,7 +338,7 @@ class TestGimbalUpdate:
 class TestGimbalStateTransitions:
     """Tests for gimbal tracking state transitions."""
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_state_disabled_to_tracking_active(self, mock_transformer, mock_interface, mock_dependencies):
         """Should detect transition from DISABLED to TRACKING_ACTIVE."""
@@ -306,7 +347,6 @@ class TestGimbalStateTransitions:
         mock_transformer.return_value = MockCoordinateTransformer()
 
         from classes.trackers.gimbal_tracker import GimbalTracker
-        from classes.gimbal_interface import TrackingState
         video_handler, detector, app_controller = mock_dependencies
 
         tracker = GimbalTracker(video_handler, detector, app_controller)
@@ -326,7 +366,7 @@ class TestGimbalStateTransitions:
         assert tracker.monitoring_active is True
         assert tracker.tracking_activations >= 0  # May or may not increment
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_state_tracking_to_lost(self, mock_transformer, mock_interface, mock_dependencies):
         """Should detect transition from TRACKING_ACTIVE to TARGET_LOST."""
@@ -358,7 +398,7 @@ class TestGimbalStateTransitions:
         # Deactivations incremented if state transition detected
         assert tracker.tracking_deactivations >= initial_deactivations
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_state_change_logged(self, mock_transformer, mock_interface, mock_dependencies):
         """State changes should be tracked."""
@@ -382,12 +422,48 @@ class TestGimbalStateTransitions:
         from tests.fixtures.mock_gimbal import MockTrackingState
         assert tracker.last_tracking_state == MockTrackingState.TRACKING_ACTIVE
 
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
+    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
+    def test_missing_tracking_status_clears_active_state(self, mock_transformer, mock_interface, mock_dependencies):
+        """Fresh angle packets without fresh status must not leave internal state active."""
+        mock_gi = MockGimbalInterface()
+        mock_interface.return_value = mock_gi
+        mock_transformer.return_value = MockCoordinateTransformer()
+
+        from classes.gimbal_types import TrackingState
+        from classes.trackers.gimbal_tracker import GimbalTracker
+        video_handler, detector, app_controller = mock_dependencies
+
+        tracker = GimbalTracker(video_handler, detector, app_controller)
+        frame = create_mock_test_frame()
+        tracker.start_tracking(frame, (0, 0, 50, 50))
+
+        mock_gi.set_gimbal_data(create_tracking_active_data())
+        success, active_output = tracker.update(frame)
+        assert success is True
+        assert active_output.tracking_active is True
+        assert tracker.tracking_started is True
+
+        mock_gi.set_gimbal_data(
+            MockGimbalData(
+                angles=MockGimbalAngles(yaw=1.0, pitch=-2.0, roll=0.0),
+                tracking_status=None,
+            )
+        )
+        success, inactive_output = tracker.update(frame)
+
+        assert success is True
+        assert inactive_output.tracking_active is False
+        assert inactive_output.raw_data["usable_for_following"] is False
+        assert tracker.tracking_started is False
+        assert tracker.last_tracking_state == TrackingState.DISABLED
+
 
 @pytest.mark.unit
 class TestGimbalAngleValidation:
     """Tests for gimbal angle validation."""
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_valid_angles_accepted(self, mock_transformer, mock_interface, mock_dependencies):
         """Valid angles should be accepted."""
@@ -412,7 +488,7 @@ class TestGimbalAngleValidation:
         if output and output.angular:
             assert len(output.angular) == 3
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_output_contains_yaw_pitch_roll(self, mock_transformer, mock_interface, mock_dependencies):
         """Output should contain yaw, pitch, roll angles."""
@@ -442,7 +518,7 @@ class TestGimbalAngleValidation:
 class TestGimbalConfidence:
     """Tests for confidence calculation."""
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_active_tracking_has_confidence(self, mock_transformer, mock_interface, mock_dependencies):
         """Active tracking should have non-zero confidence."""
@@ -468,7 +544,7 @@ class TestGimbalConfidence:
         if success and output:
             assert output.confidence >= 0.0  # Valid confidence value
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_target_lost_low_confidence(self, mock_transformer, mock_interface, mock_dependencies):
         """Target lost should have lower confidence."""
@@ -491,13 +567,46 @@ class TestGimbalConfidence:
 
         if success and output:
             assert output.confidence < 0.5
+            assert output.tracking_active is False
+            assert output.raw_data['gimbal_tracking_active'] is False
+            assert output.raw_data['usable_for_following'] is False
+            assert output.raw_data['has_output'] is True
+
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
+    @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
+    def test_stale_cached_data_is_not_active_for_following(self, mock_transformer, mock_interface, mock_dependencies):
+        """Cached gimbal angles may be displayed, but must fail closed for following."""
+        mock_gi = MockGimbalInterface()
+        mock_interface.return_value = mock_gi
+        mock_transformer.return_value = MockCoordinateTransformer()
+
+        from classes.trackers.gimbal_tracker import GimbalTracker
+        video_handler, detector, app_controller = mock_dependencies
+
+        tracker = GimbalTracker(video_handler, detector, app_controller)
+
+        frame = create_mock_test_frame()
+        tracker.start_tracking(frame, (0, 0, 50, 50))
+
+        mock_gi.set_gimbal_data(create_tracking_active_data())
+        success, output = tracker.update(frame)
+        assert success is True
+        assert output.tracking_active is True
+
+        mock_gi.clear_data()
+        success, stale_output = tracker.update(frame)
+
+        assert success is True
+        assert stale_output.tracking_active is False
+        assert stale_output.raw_data['data_is_stale'] is True
+        assert stale_output.metadata['usable_for_following'] is False
 
 
 @pytest.mark.unit
 class TestGimbalGetOutput:
     """Tests for get_output method."""
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_get_output_returns_tracker_output(self, mock_transformer, mock_interface, mock_dependencies):
         """get_output should return TrackerOutput."""
@@ -518,7 +627,7 @@ class TestGimbalGetOutput:
 
         assert isinstance(output, TrackerOutput)
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_get_output_data_type_gimbal_angles(self, mock_transformer, mock_interface, mock_dependencies):
         """get_output should have GIMBAL_ANGLES data type."""
@@ -544,7 +653,7 @@ class TestGimbalGetOutput:
 class TestGimbalGetCapabilities:
     """Tests for get_capabilities method."""
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_get_capabilities_external_data_source(self, mock_transformer, mock_interface, mock_dependencies):
         """Should indicate external data source."""
@@ -560,7 +669,7 @@ class TestGimbalGetCapabilities:
 
         assert capabilities['external_data_source'] is True
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_get_capabilities_requires_no_video(self, mock_transformer, mock_interface, mock_dependencies):
         """Should indicate no video requirement."""
@@ -576,7 +685,7 @@ class TestGimbalGetCapabilities:
 
         assert capabilities['requires_video'] is False
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_get_capabilities_angular_data_type(self, mock_transformer, mock_interface, mock_dependencies):
         """Should support ANGULAR data type."""
@@ -591,6 +700,7 @@ class TestGimbalGetCapabilities:
         tracker = GimbalTracker(video_handler, detector, app_controller)
         capabilities = tracker.get_capabilities()
 
+        assert capabilities['data_types'][0] == TrackerDataType.GIMBAL_ANGLES.value
         assert TrackerDataType.ANGULAR.value in capabilities['data_types']
 
 
@@ -598,7 +708,7 @@ class TestGimbalGetCapabilities:
 class TestGimbalStopTracking:
     """Tests for stop_tracking method."""
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_stop_tracking_disables_monitoring(self, mock_transformer, mock_interface, mock_dependencies):
         """stop_tracking should disable monitoring."""
@@ -617,7 +727,7 @@ class TestGimbalStopTracking:
 
         assert tracker.monitoring_active is False
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_stop_tracking_clears_tracking_started(self, mock_transformer, mock_interface, mock_dependencies):
         """stop_tracking should clear tracking_started."""
@@ -643,7 +753,7 @@ class TestGimbalStopTracking:
 class TestGimbalStatistics:
     """Tests for gimbal statistics."""
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_get_gimbal_statistics(self, mock_transformer, mock_interface, mock_dependencies):
         """Should return gimbal statistics dictionary."""
@@ -662,7 +772,7 @@ class TestGimbalStatistics:
         assert 'tracker_stats' in stats
         assert 'gimbal_interface_stats' in stats
 
-    @patch('classes.trackers.gimbal_tracker.GimbalInterface')
+    @patch('classes.trackers.gimbal_tracker.create_gimbal_provider')
     @patch('classes.trackers.gimbal_tracker.CoordinateTransformer')
     def test_statistics_include_activations(self, mock_transformer, mock_interface, mock_dependencies):
         """Statistics should include activation counts."""

@@ -20,8 +20,8 @@ SCRIPTS_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PIXEAGLE_DIR="$(cd "$SCRIPTS_DIR/.." && pwd)"
 
 # Default Configuration
-DEFAULT_MAVLINK_SRC="udpin:127.0.0.1:14569"  # Default MAVLink source (from MAVSDK)
-DEFAULT_SERVER_BIND="0.0.0.0:8088"           # Default server bind address
+DEFAULT_MAVLINK_SRC="udpin:127.0.0.1:14569"  # Default MAVLink source from mavlink-anywhere
+DEFAULT_SERVER_BIND="127.0.0.1:8088"         # Local-only HTTP API by default
 
 # Binary location (check bin/ first, then root for backwards compatibility)
 if [[ -f "$PIXEAGLE_DIR/bin/mavlink2rest" ]]; then
@@ -41,7 +41,8 @@ display_usage() {
     echo "  SERVER_BIND    Server bind address (default: $DEFAULT_SERVER_BIND)"
     echo ""
     echo "Examples:"
-    echo "  $0 \"udpin:0.0.0.0:14550\" \"0.0.0.0:8088\""
+    echo "  $0 \"udpin:127.0.0.1:14569\" \"127.0.0.1:8088\""
+    echo "  $0 \"udpin:127.0.0.1:14569\" \"0.0.0.0:8088\"  # trusted network only"
     echo "  $0 \"serial:/dev/ttyUSB0:115200\" \"127.0.0.1:8088\""
     echo ""
     echo "Installation:"

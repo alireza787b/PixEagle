@@ -7,7 +7,7 @@ import {
   List, ListItem, ListItemText, Divider
 } from '@mui/material';
 import {
-  FileDownload, Description, CompareArrows, AllInclusive
+  FileDownload, CompareArrows, AllInclusive
 } from '@mui/icons-material';
 import axios from 'axios';
 import yaml from 'js-yaml';

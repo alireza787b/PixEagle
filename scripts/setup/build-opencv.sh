@@ -926,7 +926,7 @@ show_summary() {
     echo -e "      1. Enable GStreamer in ${BOLD}configs/config.yaml${NC}:"
     echo -e "         ${DIM}USE_GSTREAMER: true${NC}"
     echo -e "      2. Configure your video source (RTSP, CSI, etc.)"
-    echo -e "      3. Run PixEagle: ${BOLD}bash run_pixeagle.sh${NC}"
+    echo -e "      3. Run PixEagle: ${BOLD}bash scripts/run.sh${NC}"
     echo ""
     echo -e "   ${YELLOW}${BOLD}💡 Test GStreamer support:${NC}"
     echo -e "      ${DIM}source venv/bin/activate${NC}"

@@ -1,14 +1,18 @@
 # SetpointSender
 
-> Threaded command publishing at configurable rates.
+> Threaded setpoint monitoring at a configurable period.
 
 **Source**: `src/classes/setpoint_sender.py` (~182 lines)
 
 ## Overview
 
-SetpointSender runs in a dedicated thread to ensure consistent command publishing rate. It validates configuration and monitors the setpoint state.
+SetpointSender runs in a dedicated thread to validate configuration and monitor
+setpoint state at a fixed period.
 
-**Note**: The actual command sending happens in the main async control loop via `app_controller.follow_target()`. SetpointSender primarily handles rate-limited validation and logging to avoid async loop conflicts.
+**Note**: `SetpointSender` does not publish MAVSDK Offboard commands. Current
+MAVSDK setpoint heartbeat ownership belongs to
+[OffboardCommander](offboard-commander.md), which runs as an async task outside
+the camera/tracker frame loop.
 
 ## Architecture
 
@@ -72,7 +76,7 @@ def run(self):
     """
     Main thread loop.
 
-    Runs at SETPOINT_PUBLISH_RATE_S (e.g., 0.05s = 20 Hz).
+    Runs every SETPOINT_PUBLISH_RATE_S seconds.
     Validates setpoints and logs state periodically.
     """
     while self.running:
@@ -95,8 +99,8 @@ def run(self):
             if Parameters.ENABLE_SETPOINT_DEBUGGING:
                 self._print_current_setpoint()
 
-            # Sleep for configured rate
-            time.sleep(Parameters.SETPOINT_PUBLISH_RATE_S)
+            # Sleep for configured monitor period
+            time.sleep(self.get_loop_period_s())
 
         except Exception as e:
             logger.error(f"Error in main loop: {e}")
@@ -108,10 +112,9 @@ def run(self):
 ```python
 def _send_commands_sync(self) -> bool:
     """
-    Synchronous command preparation.
+    Synchronous setpoint validation/logging.
 
-    NOTE: Does not send commands directly to avoid async conflicts.
-    Actual sending happens in main async loop.
+    NOTE: Does not send MAVSDK commands. OffboardCommander owns publication.
 
     Returns:
         bool: True if setpoints are valid
@@ -221,7 +224,9 @@ def _print_current_setpoint(self):
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `SETPOINT_PUBLISH_RATE_S` | 0.05 | Loop rate (20 Hz) |
+| `SETPOINT_PUBLISH_RATE_S` | 0.1 | Monitor loop period in seconds. This does not publish MAVSDK Offboard commands. |
+| `OFFBOARD_COMMAND_RATE_HZ` | 20.0 | OffboardCommander MAVSDK setpoint heartbeat rate. |
+| `OFFBOARD_COMMAND_TTL_S` | 0.5 | Maximum latest `CommandIntent` age before default setpoints are published. |
 | `ENABLE_SETPOINT_DEBUGGING` | false | Enable debug output |
 
 ## Threading Model
@@ -236,10 +241,10 @@ def _print_current_setpoint(self):
 │  follower.follow_target(tracker_output)                         │
 │       │                                                          │
 │       ▼                                                          │
-│  setpoint_handler.set_field(...)  ◄───────┐                     │
+│  BaseFollower.set_command_fields(...)                           │
 │       │                                    │                     │
 │       ▼                                    │                     │
-│  px4_interface.send_commands_unified()    │ Reads from          │
+│  OffboardCommander.submit_intent(...)     │ Reads from          │
 └─────────────────────────────────────────────────────────────────┘
                                              │
 ┌─────────────────────────────────────────────────────────────────┐
@@ -260,10 +265,11 @@ def _print_current_setpoint(self):
 
 ## Error Handling
 
-- Consecutive error counting with threshold
+- Consecutive monitor error counting with threshold
 - Errors logged but thread continues
 - Graceful shutdown with timeout
-- No fatal errors - always tries to continue
+- Status reports `sends_mavsdk_commands: false` and
+  `command_publication_source: offboard_commander`
 
 ## Usage Example
 

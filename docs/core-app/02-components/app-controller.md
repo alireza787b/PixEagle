@@ -97,9 +97,12 @@ async def update_loop(self, frame: np.ndarray) -> np.ndarray:
     # Update telemetry
     await self.telemetry_handler.update()
 
-    # Update follower if tracking
-    if self.tracking_active and tracker_output.is_tracking:
-        self.follower.follow_target(tracker_output)
+    # Update follower if following is active.
+    # Cached frames, prediction-only tracker output, and inactive tracker output
+    # are rejected unless AppController confirms that the concrete follower
+    # explicitly opts into fail-closed target-loss command publication.
+    if self.following_active:
+        await self.follow_target()
 
     # Render OSD
     frame = self.osd_handler.render(frame, tracker_output)
@@ -212,19 +215,70 @@ tracker_output = self.tracker.update(frame)
 # - position_2d: (x, y) normalized
 # - bbox: (x1, y1, x2, y2)
 # - confidence: float
-# - is_tracking: bool
+# - tracking_active: bool
+# - raw_data / metadata freshness fields:
+#   usable_for_following, data_is_stale, freshness_reason
 ```
 
 ### With Follower
 
 ```python
-# Follower consumes tracker output
-if tracker_output.is_tracking:
-    self.follower.follow_target(tracker_output)
+# AppController first applies command-freshness checks.
+tracker_output = self._apply_command_freshness_contract(tracker_output)
+
+# Follower consumes active output, or inactive fail-closed output only when the
+# concrete follower opts in. Validator success alone cannot bypass this gate.
+if tracker_output.tracking_active or self._should_route_inactive_output_to_follower(tracker_output):
+    await self._dispatch_tracker_output_to_follower(tracker_output)
 
     # Follower generates velocity commands
     # which are sent to drone via PX4InterfaceManager
 ```
+
+External trackers bypass video-frame freshness only when their explicit
+capabilities declare `requires_video: false`. External trackers without that
+capability are treated as vision-dependent by default.
+
+### Validation Injection Hook
+
+SITL and tracker-in-loop validation may call
+`inject_tracker_output_for_validation()` with a typed `TrackerOutput`. The hook
+is not a separate follower implementation: it refuses to dispatch when
+`following_active` is false, applies the same command-freshness contract, then
+uses the normal follower and `OffboardCommander` path. Runtime API access to
+this hook is disabled unless PixEagle is started with
+`PIXEAGLE_ENABLE_SITL_INJECTIONS=1`.
+
+Validation may also call `inject_video_stall_for_validation()` with frame-status
+metadata. That hook does not stop a camera or stream; it reuses
+`handle_video_frame_unavailable()` so video-stall evidence follows the same
+fail-closed path as the main frame loop.
+
+Validation may also call
+`inject_commander_publish_failure_for_validation()` while follow mode and
+`OffboardCommander` are active. That hook records bounded synthetic publish
+failures inside the commander, crosses the configured local failure threshold,
+and awaits `_handle_offboard_commander_failure()` so the response can prove the
+same fail-closed follow-mode cleanup used for real commander publish failures.
+It does not synthesize MAVSDK setpoint publishes, replace PX4 interfaces, stop
+services, or mutate MAVLink routing; cleanup still uses the normal Offboard
+stop path.
+
+Validation may also call `inject_mavsdk_disconnect_for_validation()` while
+follow mode and `OffboardCommander` are active. That hook first marks
+`PX4InterfaceManager`'s local MAVSDK command path validation-disconnected, then
+records bounded commander failures and awaits the same fail-closed cleanup
+handler. The response includes before/after PX4 command-path state, commander
+failure evidence, and the failed Offboard stop error. It does not stop PX4,
+Docker, MavlinkAnywhere, MAVLink2REST, a MAVSDK server, network interfaces, or
+MAVLink routes, so it must be reported as local PixEagle behavior only.
+
+Validation may also call
+`inject_mavlink2rest_timeout_for_validation()` to drive MAVLink2REST telemetry
+freshness/error handling in PixEagle's local client. That hook delegates to
+`MavlinkDataManager.inject_timeout_for_validation()`, records stale/error
+`mavlink_telemetry`, and leaves MAVLink2REST, PX4, Docker, MavlinkAnywhere,
+routing, and network interfaces running.
 
 ## Configuration
 
@@ -240,9 +294,9 @@ follower:
 video:
   source: 0  # Camera index or URL
 
-http:
-  port: 8000
-  stream_fps: 30
+Streaming:
+  HTTP_STREAM_PORT: 5077
+  STREAM_FPS: 30
 ```
 
 ## Error Handling
@@ -272,5 +326,5 @@ async def update_loop(self, frame):
 
 - [FlowController](flow-controller.md) - Manages AppController lifecycle
 - [FastAPIHandler](fastapi-handler.md) - Exposes API endpoints
-- [VideoHandler](../../video/02-components/video-handler.md) - Video capture
-- [SmartTracker](../../trackers/02-components/smart-tracker.md) - YOLO tracking
+- [VideoHandler](../../video/01-architecture/video-handler.md) - Video capture
+- [SmartTracker](../../trackers/02-reference/smart-tracker.md) - YOLO tracking

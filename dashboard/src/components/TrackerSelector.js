@@ -32,7 +32,6 @@ import {
   Chip,
   Alert,
   CircularProgress,
-  Collapse,
   IconButton,
   Tooltip,
   Skeleton
@@ -42,10 +41,7 @@ import {
   SwapHoriz,
   CheckCircle,
   Warning,
-  ExpandMore,
-  ExpandLess,
-  Info,
-  Speed
+  Info
 } from '@mui/icons-material';
 import {
   useAvailableTrackers,
@@ -219,18 +215,6 @@ const TrackerSelector = memo(() => {
       currentTracker?.following_active // Safety: block switching while following active
     );
   }, [selectedTracker, currentTracker, switching, loadingTrackers, loadingCurrent]);
-
-  // Performance category badge color
-  const getPerformanceCategoryColor = (category) => {
-    const categoryColors = {
-      'ultra_fast': '#4CAF50',
-      'very_fast_high_accuracy': '#2196F3',
-      'medium_speed_high_accuracy': '#FF9800',
-      'external_data': '#9C27B0',
-      'ai_powered': '#F44336'
-    };
-    return categoryColors[category] || '#757575';
-  };
 
   // Status icon and color
   const getStatusInfo = () => {

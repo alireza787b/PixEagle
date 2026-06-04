@@ -188,7 +188,10 @@ TEST_SCHEMA_CACHE = {
         'vel_x': {'type': 'float', 'default': 0.0, 'unit': 'm/s', 'clamp': True},
         'vel_y': {'type': 'float', 'default': 0.0, 'unit': 'm/s', 'clamp': True},
         'vel_z': {'type': 'float', 'default': 0.0, 'unit': 'm/s', 'clamp': True},
+        'yaw_rate': {'type': 'float', 'default': 0.0, 'unit': 'rad/s', 'clamp': True},
+        'yaw_angle_deg': {'type': 'float', 'default': 0.0, 'unit': 'deg', 'clamp': True},
         'yawspeed_deg_s': {'type': 'float', 'default': 0.0, 'unit': 'deg/s', 'clamp': True},
+        'yaw_speed_deg_s': {'type': 'float', 'default': 0.0, 'unit': 'deg/s', 'clamp': True},
         'rollspeed_deg_s': {'type': 'float', 'default': 0.0, 'unit': 'deg/s', 'clamp': True},
         'pitchspeed_deg_s': {'type': 'float', 'default': 0.0, 'unit': 'deg/s', 'clamp': True},
         'thrust': {'type': 'float', 'default': 0.5, 'unit': '', 'min': 0.0, 'max': 1.0, 'clamp': True}
@@ -202,21 +205,21 @@ TEST_SCHEMA_CACHE = {
         },
         'mc_velocity_ground': {
             'display_name': 'MC Velocity Ground',
-            'control_type': 'velocity_body',
-            'required_fields': ['vel_x', 'vel_y', 'vel_z'],
+            'control_type': 'velocity_body_offboard',
+            'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down', 'yawspeed_deg_s'],
             'optional_fields': []
         },
         'mc_velocity_distance': {
             'display_name': 'MC Velocity Distance',
             'control_type': 'velocity_body_offboard',
-            'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down'],
-            'optional_fields': ['yawspeed_deg_s']
+            'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down', 'yawspeed_deg_s'],
+            'optional_fields': []
         },
         'mc_velocity_position': {
             'display_name': 'MC Velocity Position',
             'control_type': 'velocity_body_offboard',
-            'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down'],
-            'optional_fields': ['yawspeed_deg_s']
+            'required_fields': ['vel_body_down', 'yawspeed_deg_s'],
+            'optional_fields': []
         },
         'mc_attitude_rate': {
             'display_name': 'MC Attitude Rate',
@@ -255,6 +258,10 @@ TEST_SCHEMA_CACHE = {
         'attitude_rate': {
             'mavsdk_method': 'set_attitude_rate',
             'description': 'Angular rate commands'
+        },
+        'dynamic': {
+            'mavsdk_method': 'dynamic',
+            'description': 'Dynamic control type set at runtime'
         }
     }
 }

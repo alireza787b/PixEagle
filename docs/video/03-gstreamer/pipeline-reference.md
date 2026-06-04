@@ -39,7 +39,8 @@ rtspsrc location=rtsp://host:554/stream latency=200 protocols=tcp
 UDP network source for MAVLink video.
 
 ```
-udpsrc uri=udp://0.0.0.0:5600 caps="application/x-rtp"
+udpsrc uri=udp://0.0.0.0:5600
+  caps="application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000"
 ```
 
 | Property | Description |
@@ -187,7 +188,9 @@ x264enc ! rtph264pay config-interval=1 pt=96
 RTP H.264 depayloader.
 
 ```
-udpsrc ! application/x-rtp ! rtph264depay ! h264parse
+udpsrc uri=udp://0.0.0.0:5600
+  caps="application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000"
+  ! rtph264depay ! h264parse
 ```
 
 ### h264parse
@@ -278,7 +281,7 @@ video/x-raw(memory:NVMM),width=1920,height=1080,framerate=30/1
 ### RTP H.264
 
 ```
-application/x-rtp,media=video,encoding-name=H264,payload=96
+application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000
 ```
 
 ### JPEG

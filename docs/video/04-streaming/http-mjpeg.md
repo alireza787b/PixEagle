@@ -24,13 +24,13 @@ GET /video_feed
 
 ```html
 <!-- Basic video feed -->
-<img src="http://localhost:8000/video_feed" />
+<img src="http://127.0.0.1:5077/video_feed" />
 
 <!-- With OSD overlay -->
-<img src="http://localhost:8000/video_feed?osd=true" />
+<img src="http://127.0.0.1:5077/video_feed?osd=true" />
 
 <!-- Lower quality for bandwidth -->
-<img src="http://localhost:8000/video_feed?quality=60" />
+<img src="http://127.0.0.1:5077/video_feed?quality=60" />
 ```
 
 ## Configuration
@@ -129,7 +129,7 @@ await asyncio.sleep(1/video_handler.fps)
     <title>PixEagle Stream</title>
 </head>
 <body>
-    <img id="stream" src="http://localhost:8000/video_feed" />
+    <img id="stream" src="http://127.0.0.1:5077/video_feed" />
 
     <script>
         // Handle connection errors
@@ -148,7 +148,7 @@ await asyncio.sleep(1/video_handler.fps)
 ```python
 import cv2
 
-cap = cv2.VideoCapture('http://localhost:8000/video_feed')
+cap = cv2.VideoCapture('http://127.0.0.1:5077/video_feed')
 
 while True:
     ret, frame = cap.read()
@@ -168,7 +168,7 @@ import cv2
 import numpy as np
 
 response = requests.get(
-    'http://localhost:8000/video_feed',
+    'http://127.0.0.1:5077/video_feed',
     stream=True
 )
 
@@ -197,7 +197,7 @@ for chunk in response.iter_content(chunk_size=1024):
 
 ```bash
 # Save frames to files
-curl -N http://localhost:8000/video_feed | \
+curl -N http://127.0.0.1:5077/video_feed | \
   csplit -z -f frame_ - '/--frame/' '{*}'
 ```
 
@@ -244,7 +244,7 @@ assert video_handler.current_raw_frame is not None
 
 2. Verify endpoint is accessible:
 ```bash
-curl -I http://localhost:8000/video_feed
+curl -I http://127.0.0.1:5077/video_feed
 ```
 
 ### Choppy Video

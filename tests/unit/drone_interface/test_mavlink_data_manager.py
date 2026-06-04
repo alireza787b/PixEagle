@@ -30,6 +30,9 @@ def mock_parameters():
     """Mock Parameters class."""
     with patch('classes.mavlink_data_manager.Parameters') as mock_params:
         mock_params.get_effective_limit = MagicMock(return_value=10.0)
+        mock_params.MAVLINK_REQUEST_TIMEOUT_S = 5.0
+        mock_params.MAVLINK_REQUEST_RETRIES = 0
+        mock_params.MAVLINK_STALE_TIMEOUT_S = 2.0
         yield mock_params
 
 
@@ -96,6 +99,9 @@ class TestMavlinkDataManagerInitialization:
             assert manager.polling_interval == 0.5
             assert manager.enabled is True
             assert manager.connection_state == "disconnected"
+            assert manager.request_timeout_s == 5.0
+            assert manager.request_retries == 0
+            assert manager.stale_timeout_s == 2.0
 
     def test_init_disabled(self, sample_data_points, mock_parameters):
         """Test initialization with polling disabled."""
@@ -457,6 +463,170 @@ class TestMavlinkDataManagerConnectionState:
 
         assert mavlink_data_manager.connection_state == "error"
         assert mavlink_data_manager.connection_error_count >= 1
+        assert mavlink_data_manager.last_error is not None
+
+    def test_successful_poll_updates_freshness_status(self, mavlink_data_manager, mock_requests):
+        """Successful aggregate polls update telemetry freshness diagnostics."""
+        mock_requests.get.return_value = MagicMock(
+            json=lambda: {
+                'vehicles': {
+                    '1': {
+                        'components': {
+                            '1': {
+                                'messages': {
+                                    'GLOBAL_POSITION_INT': {'message': {'lat': 370000000, 'lon': -1220000000}},
+                                    'ALTITUDE': {'message': {'altitude_relative': 25.0}},
+                                    'LOCAL_POSITION_NED': {'message': {'vx': 1.0, 'vy': 2.0, 'vz': 0.0}},
+                                    'HEARTBEAT': {'message': {'custom_mode': 393216, 'base_mode': {'bits': 128}}},
+                                }
+                            },
+                            '191': {
+                                'messages': {
+                                    'HEARTBEAT': {'message': {'custom_mode': 393216, 'base_mode': {'bits': 128}}},
+                                }
+                            },
+                        }
+                    }
+                }
+            },
+            raise_for_status=lambda: None
+        )
+
+        mavlink_data_manager._fetch_and_parse_all_data()
+
+        status = mavlink_data_manager.get_connection_status()
+        assert status["status"] == "fresh"
+        assert status["fresh"] is True
+        assert status["last_success_age_s"] is not None
+        mock_requests.get.assert_called_with(
+            "http://127.0.0.1:8088/v1/mavlink",
+            timeout=5.0,
+        )
+
+    def test_connection_status_reports_stale_after_timeout(self, mavlink_data_manager):
+        """Telemetry status is stale when cached data exceeds the configured age."""
+        mavlink_data_manager.connection_state = "connected"
+        mavlink_data_manager.last_successful_fetch_monotonic_s = time.monotonic() - 5.0
+
+        status = mavlink_data_manager.get_connection_status()
+
+        assert status["status"] == "stale"
+        assert status["fresh"] is False
+
+    def test_validation_timeout_injection_blocks_local_requests_without_service_changes(
+        self,
+        mavlink_data_manager,
+        mock_requests,
+    ):
+        """Validation timeout state should fail locally before HTTP requests."""
+        mavlink_data_manager.connection_state = "connected"
+        mavlink_data_manager.last_successful_fetch_monotonic_s = time.monotonic()
+
+        result = mavlink_data_manager.inject_timeout_for_validation(
+            failure_count=2,
+            reason="sitl_mavlink2rest_timeout",
+            force_stale=True,
+            timeout_window_s=1.0,
+        )
+
+        status = result["mavlink_telemetry"]
+        assert result["applied_failure_count"] == 2
+        assert status["status"] == "stale"
+        assert status["connection_state"] == "error"
+        assert status["fresh"] is False
+        assert status["last_error"] == "Connection timeout - sitl_mavlink2rest_timeout"
+        assert status["validation_timeout_active"] is True
+        assert status["connection_error_count"] == 2
+
+        with pytest.raises(TimeoutError):
+            mavlink_data_manager._request_json("/v1/mavlink")
+        mock_requests.get.assert_not_called()
+
+        mavlink_data_manager._validation_timeout_until_monotonic_s = time.monotonic() - 0.1
+        mock_requests.get.return_value = MagicMock(
+            json=lambda: {"ok": True},
+            raise_for_status=lambda: None,
+        )
+
+        assert mavlink_data_manager._request_json("/v1/mavlink") == {"ok": True}
+        mock_requests.get.assert_called_once()
+
+    def test_validation_timeout_injection_does_not_fabricate_success_history(
+        self,
+        mavlink_data_manager,
+    ):
+        """Fresh managers without a successful poll report timeout as error."""
+        result = mavlink_data_manager.inject_timeout_for_validation(
+            failure_count=1,
+            reason="sitl_mavlink2rest_timeout",
+            force_stale=True,
+            timeout_window_s=1.0,
+        )
+
+        status = result["mavlink_telemetry"]
+        assert status["status"] == "error"
+        assert status["connection_state"] == "error"
+        assert status["fresh"] is False
+        assert status["last_success_age_s"] is None
+        assert status["last_error"] == "Connection timeout - sitl_mavlink2rest_timeout"
+        assert status["validation_timeout_active"] is True
+
+    def test_config_validation_clamps_retry_and_timeout_values(self, sample_data_points, mock_parameters):
+        """Invalid telemetry freshness config is bounded deterministically."""
+        mock_parameters.MAVLINK_REQUEST_TIMEOUT_S = -1.0
+        mock_parameters.MAVLINK_REQUEST_RETRIES = 99
+        mock_parameters.MAVLINK_STALE_TIMEOUT_S = 120.0
+        with patch('classes.mavlink_data_manager.logging_manager'):
+            from classes.mavlink_data_manager import MavlinkDataManager
+            manager = MavlinkDataManager(
+                mavlink_host='127.0.0.1',
+                mavlink_port=8088,
+                polling_interval=0.5,
+                data_points=sample_data_points,
+                enabled=True
+            )
+
+        assert manager.request_timeout_s == 5.0
+        assert manager.request_retries == 5
+        assert manager.stale_timeout_s == 60.0
+
+    @pytest.mark.asyncio
+    async def test_fetch_data_from_uri_uses_timeout_and_retry_policy(self, mavlink_data_manager, mock_requests):
+        """Per-message fetches use the same timeout/retry path without blocking the event loop."""
+        mavlink_data_manager.request_retries = 1
+        first_response = ConnectionError("temporary")
+        second_response = MagicMock(
+            json=lambda: {'message': {'roll': 0.0}},
+            raise_for_status=lambda: None,
+        )
+        mock_requests.get.side_effect = [first_response, second_response]
+
+        result = await mavlink_data_manager.fetch_data_from_uri("/v1/mavlink/test")
+
+        assert result == {'message': {'roll': 0.0}}
+        assert mock_requests.get.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_fetch_data_from_uri_success_updates_freshness_status(self, mavlink_data_manager, mock_requests):
+        """Per-message telemetry success updates the same freshness truth exposed by /status."""
+        mavlink_data_manager.connection_state = "error"
+        mavlink_data_manager.connection_error_count = 2
+        mavlink_data_manager.last_error = "previous timeout"
+        mock_requests.get.return_value = MagicMock(
+            json=lambda: {'message': {'altitude_relative': 30.0}},
+            raise_for_status=lambda: None,
+        )
+
+        result = await mavlink_data_manager.fetch_data_from_uri("/v1/mavlink/vehicles/1/messages/ALTITUDE")
+        status = mavlink_data_manager.get_connection_status()
+
+        assert result == {'message': {'altitude_relative': 30.0}}
+        assert status["connection_state"] == "connected"
+        assert status["status"] == "fresh"
+        assert status["fresh"] is True
+        assert status["last_success_age_s"] is not None
+        assert status["connection_error_count"] == 0
+        assert status["last_error"] is None
 
 
 class TestMavlinkDataManagerFlightPathAngle:
@@ -537,7 +707,10 @@ class TestMavlinkDataManagerThreadSafety:
         """Test that data access is lock-protected."""
         # Verify lock exists
         assert hasattr(mavlink_data_manager, '_lock')
-        assert isinstance(mavlink_data_manager._lock, type(threading.Lock()))
+        assert hasattr(mavlink_data_manager._lock, "acquire")
+        assert hasattr(mavlink_data_manager._lock, "release")
+        assert mavlink_data_manager._lock.acquire(blocking=False) is True
+        mavlink_data_manager._lock.release()
 
     def test_concurrent_data_access(self, mavlink_data_manager):
         """Test concurrent data access doesn't cause issues."""

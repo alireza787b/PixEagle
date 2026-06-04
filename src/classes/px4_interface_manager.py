@@ -1,9 +1,16 @@
 import asyncio
 import math
 import logging
+import time
+from typing import NamedTuple
 from mavsdk import System
 from classes.parameters import Parameters
 from mavsdk.offboard import OffboardError, VelocityNedYaw, VelocityBodyYawspeed, AttitudeRate
+from classes.command_safety import (
+    CommandValidationError,
+    operator_allows_commands_without_safety_modules,
+    validate_and_clamp_command_values,
+)
 from classes.setpoint_handler import SetpointHandler
 
 # Import circuit breaker for testing support
@@ -16,9 +23,37 @@ except ImportError:
 # Configure logging
 logger = logging.getLogger(__name__)
 
-def _should_block_px4_command(command_type: str, **params) -> bool:
+
+class PX4CommandGateDecision(NamedTuple):
+    """Decision from the PX4 command safety gate."""
+    blocked: bool
+    degraded: bool
+    reason: str
+
+
+def _current_follower_limit_context() -> str:
+    """Return the active follower profile name for safety-limit lookup."""
+    follower_mode = getattr(Parameters, "FOLLOWER_MODE", "")
+    return SetpointHandler.normalize_profile_name(str(follower_mode)).upper()
+
+
+def _validate_px4_command_values(command_type: str, **values):
+    """Validate and clamp command values immediately before PX4 dispatch."""
+    try:
+        return validate_and_clamp_command_values(
+            command_type,
+            values,
+            follower_name=_current_follower_limit_context(),
+            allow_safety_bypass=operator_allows_commands_without_safety_modules(),
+        )
+    except CommandValidationError as exc:
+        logger.error("Blocking %s PX4 command: %s", command_type, exc)
+        return None
+
+
+def _evaluate_px4_command_gate(command_type: str, **params) -> PX4CommandGateDecision:
     """
-    SAFETY FIRST: Determine if PX4 COMMAND should be blocked.
+    SAFETY FIRST: Determine how a PX4 COMMAND should be gated.
 
     BLOCKS (Commands TO drone):
     - start/stop offboard mode
@@ -39,32 +74,92 @@ def _should_block_px4_command(command_type: str, **params) -> bool:
     - If circuit breaker system unavailable, DEFAULT TO SAFE (block all)
 
     Returns:
-        bool: True if command should be blocked (safe default)
+        PX4CommandGateDecision with:
+        - blocked=True when no MAVSDK command should be sent
+        - degraded=True when the block is caused by unavailable/failed safety
+          infrastructure rather than the normal test circuit breaker
     """
-    # If circuit breaker system not available, allow normal operation
-    # (blocking would prevent all drone commands if import fails)
     if not CIRCUIT_BREAKER_AVAILABLE:
-        logger.debug(f"Circuit breaker unavailable - allowing {command_type}")
-        return False
+        if operator_allows_commands_without_safety_modules():
+            logger.critical(
+                "Circuit breaker unavailable, but "
+                "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES is enabled; allowing %s",
+                command_type,
+            )
+            return PX4CommandGateDecision(False, False, "operator_bypass_safety_modules")
+        logger.error("Circuit breaker unavailable; blocking PX4 command %s", command_type)
+        return PX4CommandGateDecision(True, True, "circuit_breaker_unavailable")
 
     # Check circuit breaker status - only allow if explicitly disabled
-    if FollowerCircuitBreaker.is_active():
-        FollowerCircuitBreaker.log_command_instead_of_execute(
+    try:
+        circuit_breaker_active = FollowerCircuitBreaker.is_active()
+    except Exception as exc:
+        if operator_allows_commands_without_safety_modules():
+            logger.critical(
+                "Circuit breaker status check failed for %s (%s), but "
+                "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES is enabled; allowing command",
+                command_type,
+                exc,
+            )
+            return PX4CommandGateDecision(False, False, "operator_bypass_circuit_breaker_status")
+        logger.error("Circuit breaker status check failed for %s; blocking command: %s", command_type, exc)
+        return PX4CommandGateDecision(True, True, "circuit_breaker_status_failed")
+
+    if circuit_breaker_active:
+        try:
+            FollowerCircuitBreaker.log_command_instead_of_execute(
+                command_type=command_type,
+                follower_name="PX4Interface",
+                **params
+            )
+        except Exception as exc:
+            if operator_allows_commands_without_safety_modules():
+                logger.critical(
+                    "Circuit breaker block logging failed for %s (%s), but "
+                    "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES is enabled; allowing command",
+                    command_type,
+                    exc,
+                )
+                return PX4CommandGateDecision(False, False, "operator_bypass_circuit_breaker_block_logging")
+            logger.error("Circuit breaker block logging failed for %s; blocking command: %s", command_type, exc)
+            return PX4CommandGateDecision(True, True, "circuit_breaker_block_logging_failed")
+        return PX4CommandGateDecision(True, False, "circuit_breaker_active")
+
+    # Circuit breaker explicitly disabled - allow command and track it
+    try:
+        FollowerCircuitBreaker.log_command_allowed(
             command_type=command_type,
             follower_name="PX4Interface",
             **params
         )
-        return True
+    except Exception as exc:
+        if operator_allows_commands_without_safety_modules():
+            logger.critical(
+                "Circuit breaker audit logging failed for %s (%s), but "
+                "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES is enabled; allowing command",
+                command_type,
+                exc,
+            )
+            return PX4CommandGateDecision(False, False, "operator_bypass_circuit_breaker_audit")
+        logger.error("Circuit breaker audit logging failed for %s; blocking command: %s", command_type, exc)
+        return PX4CommandGateDecision(True, True, "circuit_breaker_audit_failed")
+    return PX4CommandGateDecision(False, False, "allowed")
 
-    # Circuit breaker explicitly disabled - allow command and track it
-    FollowerCircuitBreaker.log_command_allowed(
-        command_type=command_type,
-        follower_name="PX4Interface",
-        **params
-    )
-    return False
+
+def _should_block_px4_command(command_type: str, **params) -> bool:
+    """Compatibility wrapper for callers that only need the block flag."""
+    return _evaluate_px4_command_gate(command_type, **params).blocked
+
+
+def _blocked_command_result(decision: PX4CommandGateDecision) -> bool:
+    """Return command result for blocked sends: active CB is simulated success, degraded safety is failure."""
+    return not decision.degraded
 
 class PX4InterfaceManager:
+
+    DEFAULT_FOLLOWER_DATA_REFRESH_RATE_HZ = 5.0
+    MIN_FOLLOWER_DATA_REFRESH_RATE_HZ = 0.1
+    MAX_FOLLOWER_DATA_REFRESH_RATE_HZ = 100.0
 
     FLIGHT_MODES = {
         458752: 'Stabilized',
@@ -100,6 +195,11 @@ class PX4InterfaceManager:
         self.active_mode = False
         self.hover_throttle = 0.0
         self.failsafe_active = False
+        self._validation_mavsdk_disconnect_active = False
+        self._validation_mavsdk_disconnect_reason = None
+        self._validation_mavsdk_disconnect_source = None
+        self._validation_mavsdk_disconnect_at_monotonic_s = None
+        self._validation_mavsdk_disconnect_count = 0
 
         # Determine if we are using MAVLink2Rest for telemetry data
         if Parameters.USE_MAVLINK2REST and self.app_controller:
@@ -115,7 +215,15 @@ class PX4InterfaceManager:
             self.drone = System()
             
             
-    async def _safe_mavsdk_call(self, coro_func, *args, **kwargs):
+    async def _safe_mavsdk_call(
+        self,
+        coro_func,
+        *args,
+        _px4_command_type="mavsdk_command",
+        _px4_command_params=None,
+        _px4_gate_checked=False,
+        **kwargs,
+    ):
         """
         Safely execute MAVSDK coroutine-creating function with proper error handling.
 
@@ -135,14 +243,19 @@ class PX4InterfaceManager:
                 velocity_setpoint
             )
         """
-        # Circuit breaker check - block COMMAND operations when testing
-        if CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active():
-            FollowerCircuitBreaker.log_command_instead_of_execute(
-                command_type="mavsdk_command",
-                follower_name="PX4Interface",
-                blocked_call=f"{coro_func.__name__}({args}, {kwargs})"[:100]
+        disconnect_error = self._validation_mavsdk_disconnect_error()
+        if disconnect_error:
+            logger.error("Blocking MAVSDK command during validation disconnect: %s", disconnect_error)
+            return False
+
+        if not _px4_gate_checked:
+            gate_decision = _evaluate_px4_command_gate(
+                _px4_command_type,
+                blocked_call=f"{coro_func.__name__}({args}, {kwargs})"[:100],
+                **(_px4_command_params or {}),
             )
-            return True  # Return success without executing
+            if gate_decision.blocked:
+                return _blocked_command_result(gate_decision)
 
         try:
             await coro_func(*args, **kwargs)  # Create new coroutine
@@ -169,24 +282,103 @@ class PX4InterfaceManager:
         Even when using MAVLink2Rest for telemetry, MAVSDK is still used for offboard control.
         """
         # SAFETY FIRST: Block if circuit breaker active or unavailable
-        if _should_block_px4_command("connect", system_address=Parameters.SYSTEM_ADDRESS):
-            self.active_mode = True  # Set mock active state for testing
-            logger.info("Drone connection blocked by circuit breaker (SAFETY)")
+        gate_decision = _evaluate_px4_command_gate("connect", system_address=Parameters.SYSTEM_ADDRESS)
+        if gate_decision.blocked:
+            self.active_mode = not gate_decision.degraded  # mock active only for normal circuit-breaker testing
+            logger.info("Drone connection blocked by PX4 command gate: %s", gate_decision.reason)
             return
 
+        self.clear_validation_mavsdk_disconnect()
         await self.drone.connect(system_address=Parameters.SYSTEM_ADDRESS)
         self.active_mode = True
         logger.info("Connected to the drone.")
         self.update_task = asyncio.create_task(self.update_drone_data())
 
+    def _validation_mavsdk_disconnect_error(self):
+        if not self._validation_mavsdk_disconnect_active:
+            return None
+        reason = self._validation_mavsdk_disconnect_reason or "sitl_mavsdk_disconnect"
+        return f"MAVSDK disconnected - {reason}"
+
+    def clear_validation_mavsdk_disconnect(self):
+        """Clear validation-only local MAVSDK disconnect state."""
+        self._validation_mavsdk_disconnect_active = False
+        self._validation_mavsdk_disconnect_reason = None
+        self._validation_mavsdk_disconnect_source = None
+        self._validation_mavsdk_disconnect_at_monotonic_s = None
+
+    async def inject_mavsdk_disconnect_for_validation(
+        self,
+        *,
+        reason="sitl_mavsdk_disconnect",
+        source="sitl_validation",
+    ):
+        """
+        Record validation-only local MAVSDK disconnect state.
+
+        This hook does not stop PX4, Docker, MAVLink routing, MAVSDK server, or
+        network interfaces. It marks PixEagle's local PX4 command path as
+        disconnected so command sends and Offboard stop attempts fail locally.
+        """
+        self._validation_mavsdk_disconnect_active = True
+        self._validation_mavsdk_disconnect_reason = str(reason)
+        self._validation_mavsdk_disconnect_source = str(source)
+        self._validation_mavsdk_disconnect_at_monotonic_s = time.monotonic()
+        self._validation_mavsdk_disconnect_count += 1
+        self.active_mode = False
+
+        task = self.update_task
+        if task and not task.done() and task is not asyncio.current_task():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        return self.get_connection_status()
+
+    def get_connection_status(self):
+        """Return local PX4/MAVSDK connection diagnostics."""
+        disconnect_age_s = None
+        if self._validation_mavsdk_disconnect_at_monotonic_s is not None:
+            disconnect_age_s = max(
+                0.0,
+                time.monotonic() - self._validation_mavsdk_disconnect_at_monotonic_s,
+            )
+
+        validation_disconnect = bool(self._validation_mavsdk_disconnect_active)
+        connected = bool(self.active_mode) and not validation_disconnect
+        if validation_disconnect:
+            status = "validation_disconnected"
+            last_error = self._validation_mavsdk_disconnect_error()
+        elif connected:
+            status = "connected"
+            last_error = None
+        else:
+            status = "disconnected"
+            last_error = None
+
+        return {
+            "status": status,
+            "connected": connected,
+            "active_mode": bool(self.active_mode),
+            "validation_disconnect_active": validation_disconnect,
+            "disconnect_reason": self._validation_mavsdk_disconnect_reason,
+            "disconnect_source": self._validation_mavsdk_disconnect_source,
+            "disconnect_age_s": disconnect_age_s,
+            "disconnect_count": self._validation_mavsdk_disconnect_count,
+            "last_error": last_error,
+            "system_address": getattr(Parameters, "SYSTEM_ADDRESS", None),
+            "uses_mavlink2rest": bool(getattr(Parameters, "USE_MAVLINK2REST", False)),
+        }
+
     async def update_drone_data(self):
         """
         Continuously updates the drone's telemetry data using the selected source.
         Uses MAVLink2Rest for telemetry if enabled, otherwise uses MAVSDK.
-        The refresh rate is controlled by FOLLOWER_DATA_REFRESH_RATE.
+        FOLLOWER_DATA_REFRESH_RATE is configured in Hz and converted to seconds
+        before sleeping between telemetry polling iterations.
         """
-        refresh_rate = Parameters.FOLLOWER_DATA_REFRESH_RATE if hasattr(Parameters, 'FOLLOWER_DATA_REFRESH_RATE') else 1
-
         while self.active_mode:
             try:
                 if Parameters.USE_MAVLINK2REST:
@@ -198,7 +390,55 @@ class PX4InterfaceManager:
                 break
             except Exception as e:
                 logger.error(f"Error updating telemetry: {e}")
-            await asyncio.sleep(refresh_rate)  # Use the refresh rate to control the update frequency
+            await asyncio.sleep(self.get_follower_data_refresh_period_s())
+
+    @classmethod
+    def get_follower_data_refresh_rate_hz(cls) -> float:
+        """Return the validated telemetry refresh rate in Hertz."""
+        raw_rate = getattr(
+            Parameters,
+            'FOLLOWER_DATA_REFRESH_RATE',
+            cls.DEFAULT_FOLLOWER_DATA_REFRESH_RATE_HZ,
+        )
+        try:
+            rate_hz = float(raw_rate)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid FOLLOWER_DATA_REFRESH_RATE=%r; using default %.1f Hz",
+                raw_rate,
+                cls.DEFAULT_FOLLOWER_DATA_REFRESH_RATE_HZ,
+            )
+            rate_hz = cls.DEFAULT_FOLLOWER_DATA_REFRESH_RATE_HZ
+
+        if not math.isfinite(rate_hz) or rate_hz <= 0.0:
+            logger.warning(
+                "FOLLOWER_DATA_REFRESH_RATE must be positive Hz, got %r; "
+                "using default %.1f Hz",
+                raw_rate,
+                cls.DEFAULT_FOLLOWER_DATA_REFRESH_RATE_HZ,
+            )
+            rate_hz = cls.DEFAULT_FOLLOWER_DATA_REFRESH_RATE_HZ
+        elif rate_hz < cls.MIN_FOLLOWER_DATA_REFRESH_RATE_HZ:
+            logger.warning(
+                "FOLLOWER_DATA_REFRESH_RATE %.3f Hz is below %.3f Hz; clamping",
+                rate_hz,
+                cls.MIN_FOLLOWER_DATA_REFRESH_RATE_HZ,
+            )
+            rate_hz = cls.MIN_FOLLOWER_DATA_REFRESH_RATE_HZ
+        elif rate_hz > cls.MAX_FOLLOWER_DATA_REFRESH_RATE_HZ:
+            logger.warning(
+                "FOLLOWER_DATA_REFRESH_RATE %.3f Hz is above %.3f Hz; clamping",
+                rate_hz,
+                cls.MAX_FOLLOWER_DATA_REFRESH_RATE_HZ,
+            )
+            rate_hz = cls.MAX_FOLLOWER_DATA_REFRESH_RATE_HZ
+
+        return rate_hz
+
+    @classmethod
+    def get_follower_data_refresh_period_s(cls) -> float:
+        """Return the telemetry polling sleep period in seconds."""
+        return 1.0 / cls.get_follower_data_refresh_rate_hz()
 
     async def _update_telemetry_via_mavlink2rest(self):
         """
@@ -317,7 +557,7 @@ class PX4InterfaceManager:
         try:
             if not hasattr(self, 'setpoint_handler') or self.setpoint_handler is None:
                 logger.error("Setpoint handler not initialized")
-                return
+                return False
                 
             # Verify this is the correct control type
             if self.setpoint_handler.get_control_type() != 'velocity_body_offboard':
@@ -326,7 +566,7 @@ class PX4InterfaceManager:
             setpoint = self.setpoint_handler.get_fields()
             if not setpoint:
                 logger.error("No setpoint data available")
-                return
+                return False
 
             # Extract body velocity fields with safe defaults
             vel_fwd = float(setpoint.get('vel_body_fwd', 0.0))      # Forward velocity
@@ -334,29 +574,49 @@ class PX4InterfaceManager:
             vel_down = float(setpoint.get('vel_body_down', 0.0))    # Down velocity
             yawspeed = float(setpoint.get('yawspeed_deg_s', 0.0))   # Yaw speed in deg/s
 
+            validated = _validate_px4_command_values(
+                "velocity_body_offboard",
+                vel_body_fwd=vel_fwd,
+                vel_body_right=vel_right,
+                vel_body_down=vel_down,
+                yawspeed_deg_s=yawspeed,
+            )
+            if validated is None:
+                return False
+
+            vel_fwd = validated['vel_body_fwd']
+            vel_right = validated['vel_body_right']
+            vel_down = validated['vel_body_down']
+            yawspeed = validated['yawspeed_deg_s']
+
             # Convert yaw speed from degrees/s to radians/s if needed
             # yawspeed_rad = math.radians(yawspeed)
 
             logger.debug(f"Sending VELOCITY_BODY_OFFBOARD: Fwd={vel_fwd:.3f}, Right={vel_right:.3f}, Down={vel_down:.3f}, YawSpeed={yawspeed:.1f}°/s")
 
             # Circuit breaker check - log instead of executing when testing
-            if _should_block_px4_command("velocity_body_offboard", vel_fwd=vel_fwd, vel_right=vel_right, vel_down=vel_down, yawspeed=yawspeed):
-                return
+            gate_decision = _evaluate_px4_command_gate("velocity_body_offboard", vel_body_fwd=vel_fwd, vel_body_right=vel_right, vel_body_down=vel_down, yawspeed_deg_s=yawspeed)
+            if gate_decision.blocked:
+                return _blocked_command_result(gate_decision)
 
             # Send the velocity commands to the drone using MAVSDK VelocityBodyYawspeed
             # Note: VelocityBodyYawspeed expects (forward, right, down, yawspeed_deg_s)
             next_setpoint = VelocityBodyYawspeed(vel_fwd, vel_right, vel_down, yawspeed)
-            await self._safe_mavsdk_call(
+            return await self._safe_mavsdk_call(
                 self.drone.offboard.set_velocity_body,
-                next_setpoint
+                next_setpoint,
+                _px4_gate_checked=True,
             )
 
         except OffboardError as e:
             logger.error(f"MAVSDK offboard velocity_body_offboard command failed: {e}")
+            return False
         except ValueError as e:
             logger.error(f"Invalid setpoint values for velocity_body_offboard command: {e}")
+            return False
         except Exception as e:
             logger.error(f"Unexpected error in send_velocity_body_offboard_commands: {e}")
+            return False
 
 
     def convert_to_ned(self, vel_x, vel_y, yaw):
@@ -373,14 +633,17 @@ class PX4InterfaceManager:
         """
         result = {"steps": [], "errors": []}
 
-        # Circuit breaker check - block ALL PX4 commands when testing
-        if CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active():
-            FollowerCircuitBreaker.log_command_instead_of_execute(
-                command_type="start_offboard_mode",
-                follower_name="PX4Interface",
-                action="start_offboard"
-            )
-            result["steps"].append("Offboard mode start intercepted by circuit breaker")
+        disconnect_error = self._validation_mavsdk_disconnect_error()
+        if disconnect_error:
+            result["errors"].append(disconnect_error)
+            logger.error("Cannot start Offboard during validation disconnect: %s", disconnect_error)
+            return result
+
+        gate_decision = _evaluate_px4_command_gate("start_offboard_mode", action="start_offboard")
+        if gate_decision.blocked:
+            result["steps"].append("Offboard mode start intercepted by PX4 command gate")
+            if gate_decision.degraded:
+                result["errors"].append(f"Offboard mode start blocked: {gate_decision.reason}")
             return result  # Return success without actually starting offboard
 
         try:
@@ -396,14 +659,14 @@ class PX4InterfaceManager:
         """
         Stops offboard mode on the drone using MAVSDK.
         """
-        # Circuit breaker check - block ALL PX4 commands when testing
-        if CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active():
-            FollowerCircuitBreaker.log_command_instead_of_execute(
-                command_type="stop_offboard_mode",
-                follower_name="PX4Interface",
-                action="stop_offboard"
-            )
-            logger.info("Stop offboard mode intercepted by circuit breaker")
+        disconnect_error = self._validation_mavsdk_disconnect_error()
+        if disconnect_error:
+            logger.error("Cannot stop Offboard through MAVSDK during validation disconnect: %s", disconnect_error)
+            raise RuntimeError(disconnect_error)
+
+        gate_decision = _evaluate_px4_command_gate("stop_offboard_mode", action="stop_offboard")
+        if gate_decision.blocked:
+            logger.info("Stop offboard mode intercepted by PX4 command gate: %s", gate_decision.reason)
             return
 
         logger.info("Stopping offboard mode...")
@@ -463,14 +726,9 @@ class PX4InterfaceManager:
         """
         Send Return to Launch as a failsafe action
         """
-        # Circuit breaker check - block ALL MAVSDK operations when testing
-        if CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active():
-            FollowerCircuitBreaker.log_command_instead_of_execute(
-                command_type="return_to_launch",
-                follower_name="PX4Interface",
-                action="RTL"
-            )
-            logger.info("Return to Launch intercepted by circuit breaker")
+        gate_decision = _evaluate_px4_command_gate("return_to_launch", action="RTL")
+        if gate_decision.blocked:
+            logger.info("Return to Launch intercepted by PX4 command gate: %s", gate_decision.reason)
             return
 
         await self.drone.action.return_to_launch()
@@ -491,6 +749,11 @@ class PX4InterfaceManager:
         MAVSDK method based on the current follower's control type from schema.
         """
         try:
+            disconnect_error = self._validation_mavsdk_disconnect_error()
+            if disconnect_error:
+                logger.error("MAVSDK command dispatch blocked: %s", disconnect_error)
+                return False
+
             if not hasattr(self, 'setpoint_handler') or self.setpoint_handler is None:
                 logger.error("Setpoint handler not initialized")
                 return False
@@ -500,16 +763,14 @@ class PX4InterfaceManager:
             
             # Dispatch to appropriate method
             if control_type == 'velocity_body':
-                await self.send_body_velocity_commands()
+                return await self.send_body_velocity_commands()
             elif control_type == 'attitude_rate':
-                await self.send_attitude_rate_commands()
+                return await self.send_attitude_rate_commands()
             elif control_type == 'velocity_body_offboard':
-                await self.send_velocity_body_offboard_commands()
+                return await self.send_velocity_body_offboard_commands()
             else:
                 logger.error(f"Unknown control type from schema: {control_type}")
                 return False
-                
-            return True
             
         except Exception as e:
             logger.error(f"Error in unified command dispatch: {e}")
@@ -527,7 +788,7 @@ class PX4InterfaceManager:
         try:
             if not hasattr(self, 'setpoint_handler') or self.setpoint_handler is None:
                 logger.error("Setpoint handler not initialized")
-                return
+                return False
 
             # Verify this is the correct control type
             if self.setpoint_handler.get_control_type() != 'velocity_body':
@@ -536,7 +797,7 @@ class PX4InterfaceManager:
             setpoint = self.setpoint_handler.get_fields()
             if not setpoint:
                 logger.error("No setpoint data available")
-                return
+                return False
 
             # Extract velocity fields with safe defaults
             vx = float(setpoint.get('vel_x', 0.0))
@@ -551,26 +812,46 @@ class PX4InterfaceManager:
                 yaw_rate = float(setpoint.get('yaw_rate', 0.0))
                 yaw_for_mavsdk = math.degrees(yaw_rate)
 
+            validated = _validate_px4_command_values(
+                "velocity_body",
+                vel_x=vx,
+                vel_y=vy,
+                vel_z=vz,
+                yawspeed_deg_s=yaw_for_mavsdk,
+            )
+            if validated is None:
+                return False
+
+            vx = validated['vel_x']
+            vy = validated['vel_y']
+            vz = validated['vel_z']
+            yaw_for_mavsdk = validated['yawspeed_deg_s']
+
             logger.debug(f"Sending VELOCITY_BODY: Vx={vx:.3f}, Vy={vy:.3f}, Vz={vz:.3f}, Yaw_deg_s={yaw_for_mavsdk:.3f}")
 
             # Circuit breaker check - log instead of executing when testing
-            if _should_block_px4_command("velocity_body", vx=vx, vy=vy, vz=vz, yaw_deg_s=yaw_for_mavsdk):
-                return
+            gate_decision = _evaluate_px4_command_gate("velocity_body", vel_x=vx, vel_y=vy, vel_z=vz, yawspeed_deg_s=yaw_for_mavsdk)
+            if gate_decision.blocked:
+                return _blocked_command_result(gate_decision)
 
             # Send the velocity commands to the drone
             from mavsdk.offboard import VelocityBodyYawspeed, OffboardError
             next_setpoint = VelocityBodyYawspeed(vx, vy, vz, yaw_for_mavsdk)
-            await self._safe_mavsdk_call(
+            return await self._safe_mavsdk_call(
                 self.drone.offboard.set_velocity_body,
-                next_setpoint
+                next_setpoint,
+                _px4_gate_checked=True,
             )
 
         except OffboardError as e:
             logger.error(f"MAVSDK offboard velocity command failed: {e}")
+            return False
         except ValueError as e:
             logger.error(f"Invalid setpoint values for velocity command: {e}")
+            return False
         except Exception as e:
             logger.error(f"Unexpected error in send_body_velocity_commands: {e}")
+            return False
 
     async def send_attitude_rate_commands(self):
         """
@@ -584,7 +865,7 @@ class PX4InterfaceManager:
         try:
             if not hasattr(self, 'setpoint_handler') or self.setpoint_handler is None:
                 logger.error("Setpoint handler not initialized")
-                return
+                return False
 
             # Verify this is the correct control type
             if self.setpoint_handler.get_control_type() != 'attitude_rate':
@@ -593,7 +874,7 @@ class PX4InterfaceManager:
             setpoint = self.setpoint_handler.get_fields()
             if not setpoint:
                 logger.error("No setpoint data available")
-                return
+                return False
 
             # Extract attitude rate fields with deg/s naming convention (MAVSDK standard)
             # Values are already in deg/s - no conversion needed
@@ -602,26 +883,46 @@ class PX4InterfaceManager:
             yaw_deg_s = float(setpoint.get('yawspeed_deg_s', 0.0))
             thrust = float(setpoint.get('thrust', getattr(self, 'hover_throttle', 0.5)))
 
+            validated = _validate_px4_command_values(
+                "attitude_rate",
+                rollspeed_deg_s=roll_deg_s,
+                pitchspeed_deg_s=pitch_deg_s,
+                yawspeed_deg_s=yaw_deg_s,
+                thrust=thrust,
+            )
+            if validated is None:
+                return False
+
+            roll_deg_s = validated['rollspeed_deg_s']
+            pitch_deg_s = validated['pitchspeed_deg_s']
+            yaw_deg_s = validated['yawspeed_deg_s']
+            thrust = validated['thrust']
+
             logger.debug(f"Sending ATTITUDE_RATE (deg/s): Roll={roll_deg_s:.3f}, Pitch={pitch_deg_s:.3f}, Yaw={yaw_deg_s:.3f}, Thrust={thrust:.3f}")
 
             # Circuit breaker check - log instead of executing when testing
-            if _should_block_px4_command("attitude_rate", roll_deg_s=roll_deg_s, pitch_deg_s=pitch_deg_s, yaw_deg_s=yaw_deg_s, thrust=thrust):
-                return
+            gate_decision = _evaluate_px4_command_gate("attitude_rate", rollspeed_deg_s=roll_deg_s, pitchspeed_deg_s=pitch_deg_s, yawspeed_deg_s=yaw_deg_s, thrust=thrust)
+            if gate_decision.blocked:
+                return _blocked_command_result(gate_decision)
 
             # Send the attitude rate commands to the drone (values already in deg/s)
             from mavsdk.offboard import AttitudeRate, OffboardError
             next_setpoint = AttitudeRate(roll_deg_s, pitch_deg_s, yaw_deg_s, thrust)
-            await self._safe_mavsdk_call(
+            return await self._safe_mavsdk_call(
                 self.drone.offboard.set_attitude_rate,
-                next_setpoint
+                next_setpoint,
+                _px4_gate_checked=True,
             )
 
         except OffboardError as e:
             logger.error(f"MAVSDK offboard attitude rate command failed: {e}")
+            return False
         except ValueError as e:
             logger.error(f"Invalid setpoint values for attitude rate command: {e}")
+            return False
         except Exception as e:
             logger.error(f"Unexpected error in send_attitude_rate_commands: {e}")
+            return False
 
     async def send_initial_setpoint(self):
         """
@@ -631,7 +932,7 @@ class PX4InterfaceManager:
         try:
             if not hasattr(self, 'setpoint_handler') or self.setpoint_handler is None:
                 logger.error("Setpoint handler not initialized, cannot send initial setpoint")
-                return
+                return False
                 
             # Get control type directly from setpoint handler schema
             control_type = self.setpoint_handler.get_control_type()
@@ -639,30 +940,41 @@ class PX4InterfaceManager:
             logger.info(f"Sending initial {control_type} setpoint (all zeros)")
 
             # Check circuit breaker before attempting any PX4 commands
-            if CIRCUIT_BREAKER_AVAILABLE and FollowerCircuitBreaker.is_active():
-                logger.info(f"[CIRCUIT BREAKER] Initial setpoint send blocked (testing mode) - control_type: {control_type}")
+            gate_decision = _evaluate_px4_command_gate("initial_setpoint", control_type=control_type)
+            if gate_decision.blocked:
+                logger.info(
+                    "[PX4 COMMAND GATE] Initial setpoint send blocked (%s) - control_type: %s",
+                    gate_decision.reason,
+                    control_type,
+                )
                 # Still reset setpoints for consistency, but don't send to drone
                 self.setpoint_handler.reset_setpoints()
-                return
+                return _blocked_command_result(gate_decision)
 
             # Reset all fields to defaults before sending
             self.setpoint_handler.reset_setpoints()
             
             # Send appropriate command type
             if control_type == 'velocity_body':
-                await self.send_body_velocity_commands()
+                success = await self.send_body_velocity_commands()
             elif control_type == 'attitude_rate':
-                await self.send_attitude_rate_commands()
+                success = await self.send_attitude_rate_commands()
             elif control_type == 'velocity_body_offboard':
-                await self.send_velocity_body_offboard_commands()
+                success = await self.send_velocity_body_offboard_commands()
             else:
                 logger.error(f"Unknown control type from schema: {control_type}")
-                return
+                return False
+
+            if success is False:
+                logger.error(f"Initial {control_type} setpoint send failed")
+                return False
                 
             logger.debug(f"Initial {control_type} setpoint sent successfully")
+            return True
 
         except Exception as e:
             logger.error(f"Error sending initial setpoint: {e}")
+            return False
 
     def validate_setpoint_compatibility(self) -> bool:
         """

@@ -10,11 +10,15 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                        PixEagle                                  │
 │                                                                 │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐        │
-│  │  Follower   │ → │SetpointHdlr │ → │PX4Controller │        │
-│  └─────────────┘    └─────────────┘    └─────────────┘        │
-│                                              │                   │
-└──────────────────────────────────────────────┼───────────────────┘
+│  ┌─────────────┐    ┌─────────────┐    ┌──────────────────┐    │
+│  │  Follower   │ → │CommandIntent│ → │OffboardCommander │    │
+│  └─────────────┘    └─────────────┘    └──────────────────┘    │
+│                                                  │              │
+│                                           ┌─────────────┐       │
+│                                           │PX4Interface │       │
+│                                           └─────────────┘       │
+│                                                  │              │
+└──────────────────────────────────────────────────┼──────────────┘
                                                │
                                                ▼
 ┌─────────────────────────────────────────────────────────────────┐
@@ -57,10 +61,13 @@ async def connect():
 ### In PixEagle
 
 ```python
-from classes.px4_controller import PX4Controller
+from classes.offboard_commander import OffboardCommander
+from classes.px4_interface_manager import PX4InterfaceManager
 
-px4 = PX4Controller()
+px4 = PX4InterfaceManager()
 await px4.connect()
+commander = OffboardCommander(px4, px4.setpoint_handler)
+await commander.start()
 ```
 
 ---
@@ -114,45 +121,15 @@ await drone.offboard.set_attitude_rate(
 
 ---
 
-## PX4Controller
+## PixEagle Command Boundary
 
-### Send Velocity Commands
-
-```python
-async def send_velocity_body_offboard(
-    self,
-    vel_fwd: float,
-    vel_right: float,
-    vel_down: float,
-    yawspeed_deg: float
-):
-    """Send body velocity offboard command."""
-    await self.drone.offboard.set_velocity_body(
-        VelocityBodyYawspeed(
-            vel_fwd, vel_right, vel_down, yawspeed_deg
-        )
-    )
-```
-
-### Send Attitude Rate Commands
+Followers do not call MAVSDK directly. They publish one complete
+`CommandIntent`; `OffboardCommander` owns the fixed-rate MAVSDK Offboard
+heartbeat and calls `PX4InterfaceManager.send_commands_unified()`.
 
 ```python
-async def send_attitude_rate(
-    self,
-    rollspeed_deg: float,
-    pitchspeed_deg: float,
-    yawspeed_deg: float,
-    thrust: float
-):
-    """Send attitude rate command."""
-    await self.drone.offboard.set_attitude_rate(
-        AttitudeRate(
-            rollspeed_deg,
-            pitchspeed_deg,
-            yawspeed_deg,
-            thrust
-        )
-    )
+intent = follower.get_last_command_intent()
+commander.submit_intent(intent)
 ```
 
 ---
@@ -192,14 +169,17 @@ async for velocity in drone.telemetry.velocity_ned():
 
 ### Offboard Timeout
 
-PX4 requires commands at minimum 2Hz. If commands stop, PX4 exits offboard:
+PX4 requires commands at minimum 2 Hz. If commands stop, PX4 exits Offboard.
+PixEagle's `OffboardCommander` owns this loop; the `SetpointSender` monitor is
+not that heartbeat:
 
 ```python
-# Send keepalive commands
-async def keepalive_loop():
+OFFBOARD_COMMAND_PERIOD_S = 1.0 / Parameters.OFFBOARD_COMMAND_RATE_HZ
+
+async def offboard_commander_loop():
     while offboard_active:
         await send_current_setpoint()
-        await asyncio.sleep(0.05)  # 20 Hz
+        await asyncio.sleep(OFFBOARD_COMMAND_PERIOD_S)
 ```
 
 ### RTL Trigger

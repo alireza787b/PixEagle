@@ -143,7 +143,7 @@ log_startup_info() {
     fi
 
     log_message "INFO" "  tmux:      tmux attach -t $TMUX_SESSION_NAME"
-    log_message "INFO" "  Logs:      journalctl --user -u pixeagle -f"
+    log_message "INFO" "  Logs:      pixeagle-service logs -f"
     log_message "INFO" "──────────────────────────────────────────"
 }
 

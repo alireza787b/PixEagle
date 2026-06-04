@@ -5,10 +5,14 @@ Pydantic config validation, and end-to-end schema correctness.
 
 import os
 import sys
+from pathlib import Path
+
+import yaml
 
 # Add project root to import scripts module
 PROJECT_ROOT = os.path.join(os.path.dirname(__file__), '..', '..')
 sys.path.insert(0, PROJECT_ROOT)
+CONFIGS_DIR = Path(PROJECT_ROOT) / "configs"
 
 from scripts.generate_schema import (  # noqa: E402
     extract_options,
@@ -149,6 +153,82 @@ def test_schema_overrides_tracker_type():
     assert len(schema['options']) == 4
     assert schema['options'][0]['value'] == 'bytetrack'
     assert 'description' in schema['options'][0]
+
+
+def test_runtime_rate_schema_overrides_define_units_and_bounds():
+    """Runtime cadence parameters should keep explicit units and safe bounds."""
+    follower_schema = generate_parameter_schema(
+        'FOLLOWER_DATA_REFRESH_RATE', 5.0,
+        description='Telemetry refresh rate (Hz)',
+        full_path='Follower.FOLLOWER_DATA_REFRESH_RATE'
+    )
+    setpoint_schema = generate_parameter_schema(
+        'SETPOINT_PUBLISH_RATE_S', 0.1,
+        description='SetpointSender monitor loop period (seconds)',
+        full_path='Setpoint.SETPOINT_PUBLISH_RATE_S'
+    )
+    failure_threshold_schema = generate_parameter_schema(
+        'OFFBOARD_COMMAND_FAILURE_THRESHOLD', 3,
+        description='Consecutive publish failures before local fail-closed follow stop',
+        full_path='Setpoint.OFFBOARD_COMMAND_FAILURE_THRESHOLD'
+    )
+    mavlink_retry_schema = generate_parameter_schema(
+        'MAVLINK_REQUEST_RETRIES', 0,
+        description='Additional retries after the first request attempt',
+        full_path='MAVLink.MAVLINK_REQUEST_RETRIES'
+    )
+
+    assert follower_schema['type'] == 'float'
+    assert follower_schema['default'] == 5.0
+    assert follower_schema['unit'] == 'hz'
+    assert follower_schema['min'] == 0.1
+    assert setpoint_schema['unit'] == 's'
+    assert setpoint_schema['min'] == 0.001
+    assert 'monitor loop period' in setpoint_schema['description']
+    assert failure_threshold_schema['type'] == 'integer'
+    assert failure_threshold_schema['min'] == 1
+    assert failure_threshold_schema['max'] == 100
+    assert mavlink_retry_schema['type'] == 'integer'
+    assert mavlink_retry_schema['max'] == 5
+
+
+def test_checked_in_runtime_rate_schema_matches_defaults():
+    """Checked-in defaults and generated schema must agree on PXE-0030 timing units."""
+    config_default = yaml.safe_load((CONFIGS_DIR / "config_default.yaml").read_text(encoding="utf-8"))
+    config_schema = yaml.safe_load((CONFIGS_DIR / "config_schema.yaml").read_text(encoding="utf-8"))
+
+    follower_default = config_default["Follower"]["FOLLOWER_DATA_REFRESH_RATE"]
+    follower_schema = config_schema["sections"]["Follower"]["parameters"]["FOLLOWER_DATA_REFRESH_RATE"]
+    control_schema = config_schema["sections"]["Follower"]["parameters"]["General"]["properties"]["CONTROL_UPDATE_RATE"]
+    setpoint_default = config_default["Setpoint"]["SETPOINT_PUBLISH_RATE_S"]
+    setpoint_schema = config_schema["sections"]["Setpoint"]["parameters"]["SETPOINT_PUBLISH_RATE_S"]
+    failure_threshold_default = config_default["Setpoint"]["OFFBOARD_COMMAND_FAILURE_THRESHOLD"]
+    failure_threshold_schema = config_schema["sections"]["Setpoint"]["parameters"]["OFFBOARD_COMMAND_FAILURE_THRESHOLD"]
+    mavlink_retry_schema = config_schema["sections"]["MAVLink"]["parameters"]["MAVLINK_REQUEST_RETRIES"]
+
+    assert follower_default == 5.0
+    assert follower_schema["type"] == "float"
+    assert follower_schema["default"] == follower_default
+    assert follower_schema["unit"] == "hz"
+    assert follower_schema["min"] > 0.0
+    assert follower_schema["max"] == 100.0
+    assert "not MAVSDK Offboard publish cadence" in control_schema["description"]
+
+    assert setpoint_default == 0.1
+    assert setpoint_schema["default"] == setpoint_default
+    assert setpoint_schema["unit"] == "s"
+    assert setpoint_schema["min"] > 0.0
+    assert setpoint_schema["max"] == 1.0
+    assert setpoint_schema["reload_tier"] == "follower_restart"
+    assert "monitor loop period" in setpoint_schema["description"]
+    assert failure_threshold_default == 3
+    assert failure_threshold_schema["type"] == "integer"
+    assert failure_threshold_schema["default"] == failure_threshold_default
+    assert failure_threshold_schema["min"] == 1
+    assert failure_threshold_schema["max"] == 100
+    assert failure_threshold_schema["reload_tier"] == "follower_restart"
+    assert mavlink_retry_schema["type"] == "integer"
+    assert mavlink_retry_schema["max"] == 5
 
 
 # ---- Recommended ranges ----

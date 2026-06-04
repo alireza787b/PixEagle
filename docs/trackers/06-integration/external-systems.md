@@ -8,35 +8,39 @@ This document covers integration with external tracking data sources.
 
 ## Gimbal Integration
 
-### UDP Protocol
+### Current Provider Model
 
-GimbalTracker receives data via UDP:
+GimbalTracker consumes a `GimbalInputProvider` selected by `GimbalTracker.PROVIDER`. The current supported provider is `topotek_sip_udp`, which wraps `GimbalInterface` to query/listen for Topotek SIP-series UDP frames, then emits normalized `TrackerOutput` data:
 
 ```python
-# Message format (JSON over UDP)
-{
-    "timestamp": 1703000000.0,
-    "angles": {
-        "yaw": 45.0,      # degrees
-        "pitch": -10.0,   # degrees
-        "roll": 0.0       # degrees
+TrackerOutput(
+    data_type=TrackerDataType.GIMBAL_ANGLES,
+    angular=(45.0, -10.0, 0.0),
+    tracking_active=True,
+    raw_data={
+        "tracking": "TRACKING_ACTIVE",
+        "system": "gimbal_body",
+        "provider": "topotek_sip_udp",
     },
-    "tracking_status": {
-        "state": 2,       # 0=DISABLED, 1=SELECTING, 2=ACTIVE, 3=LOST
-        "confidence": 0.95
-    },
-    "coordinate_system": "gimbal_body"
-}
+)
 ```
+
+Followers must not depend on vendor packets. New gimbal hardware support should
+be implemented as a provider that returns normalized angles, tracking state,
+freshness, health, and metadata.
 
 ### Configuration
 
 ```yaml
 # configs/config.yaml
 TRACKING_ALGORITHM: "Gimbal"
-GIMBAL_UDP_HOST: "192.168.0.108"
-GIMBAL_LISTEN_PORT: 9004
-GIMBAL_COORDINATE_SYSTEM: "GIMBAL_BODY"
+
+GimbalTracker:
+  PROVIDER: "topotek_sip_udp"
+  UDP_HOST: "192.168.0.108"
+  UDP_PORT: 9003
+  LISTEN_PORT: 9004
+  COORDINATE_SYSTEM: "GIMBAL_BODY"
 ```
 
 ### Tracking States
@@ -190,9 +194,10 @@ telemetry = {
 
 ## API Integration
 
-### FastAPI Endpoints
+### Current Compatibility Endpoints
 
-Tracker data exposed via REST API:
+Current tracker data is still exposed through compatibility REST routes while
+the `/api/v1` migration is pending:
 
 ```
 GET /api/tracker/status
@@ -200,6 +205,9 @@ GET /api/tracker/output
 POST /api/tracker/select/{target_id}
 GET /api/tracker/capabilities
 ```
+
+New public API work must use typed `/api/v1/...` contracts from
+`docs/apis/api-modernization-blueprint.md`.
 
 ### WebSocket Streaming
 
@@ -229,7 +237,7 @@ class GimbalTracker:
         self.DATA_TIMEOUT_SECONDS = 5.0
 
     def update(self, frame=None):
-        data = self.gimbal_interface.get_current_data()
+        data = self.gimbal_provider.get_current_data()
 
         if data:
             self.data_buffer.append(data)
@@ -238,7 +246,9 @@ class GimbalTracker:
 
         # Use buffered data if recent
         if (time.time() - self.last_valid_time) < self.DATA_TIMEOUT_SECONDS:
-            return True, self._get_cached_output()
+            output = self._get_cached_output()
+            output.tracking_active = False
+            return True, output
 
         return False, None
 ```

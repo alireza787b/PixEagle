@@ -1,333 +1,122 @@
-# mavlink-router Setup Guide
+# mavlink-router Manual Setup
 
-mavlink-router routes MAVLink messages between multiple endpoints, enabling simultaneous access by PixEagle, QGroundControl, and other tools.
+Use [MavlinkAnywhere](mavlink-anywhere.md) for normal PixEagle installations.
+This page is for operators who must inspect or hand-maintain `mavlink-router`
+configuration directly.
 
-## Installation
+## Managed Files
 
-### Ubuntu/Debian
+Current MavlinkAnywhere-managed installations use:
 
-```bash
-# From package manager (if available)
-sudo apt install mavlink-router
+| Path | Purpose |
+|------|---------|
+| `/etc/mavlink-router/main.conf` | Effective router configuration |
+| `/etc/default/mavlink-router` | Service environment |
+| `mavlink-router.service` | Router systemd unit |
+| `mavlink-anywhere-dashboard.service` | Optional dashboard systemd unit |
 
-# Or build from source
-git clone https://github.com/mavlink-router/mavlink-router.git
-cd mavlink-router
-git submodule update --init --recursive
-meson setup build .
-ninja -C build
-sudo ninja -C build install
-```
+Do not keep a separate PixEagle-local router config unless the deployment has a
+documented reason. One active router configuration should be the source of
+truth.
 
-### Verify Installation
-
-```bash
-mavlink-routerd --version
-```
-
-## Configuration
-
-### Configuration File Location
-
-```bash
-# System-wide
-/etc/mavlink-router/main.conf
-
-# User-specific
-~/.config/mavlink-router/main.conf
-
-# Project-specific (PixEagle)
-/home/alireza/PixEagle/configs/mavlink-router.conf
-```
-
-### Basic Configuration
+## Canonical PixEagle Endpoints
 
 ```ini
-# /etc/mavlink-router/main.conf
-
 [General]
 TcpServerPort = 5760
 ReportStats = false
-MavlinkDialect = common
 
-# SITL Input
-[UdpEndpoint sitl]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14540
+# Example UART input from a flight controller.
+[UartEndpoint pixhawk]
+Device = /dev/ttyS0
+Baud = 57600
 
-# MAVSDK Output (PixEagle commands)
+# Ad-hoc GCS access. QGC connects to <device-ip>:14550.
+[UdpEndpoint gcs_listen]
+Mode = Server
+Address = 0.0.0.0
+Port = 14550
+
+# PixEagle MAVSDK control endpoint.
 [UdpEndpoint mavsdk]
 Mode = Normal
 Address = 127.0.0.1
-Port = 14541
+Port = 14540
 
-# QGroundControl
-[UdpEndpoint qgc]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14550
-
-# MAVLink2REST
+# MAVLink2REST input endpoint.
 [UdpEndpoint mavlink2rest]
 Mode = Normal
 Address = 127.0.0.1
-Port = 14551
-```
+Port = 14569
 
-### Serial Input Configuration
-
-```ini
-# For USB-connected flight controller
-[UartEndpoint pixhawk]
-Device = /dev/ttyUSB0
-Baud = 921600
-
-# For GPIO serial (Raspberry Pi)
-[UartEndpoint pixhawk_gpio]
-Device = /dev/ttyAMA0
-Baud = 921600
-FlowControl = false
-```
-
-### Ethernet Configuration
-
-```ini
-# Flight controller with Ethernet
-[UdpEndpoint fmu_ethernet]
+# Optional local debug endpoint.
+[UdpEndpoint local_mavlink]
 Mode = Normal
-Address = 192.168.1.10
-Port = 14540
+Address = 127.0.0.1
+Port = 12550
 ```
 
-## Command Line Usage
-
-### Basic Startup
-
-```bash
-# Start with config file
-mavlink-routerd -c /etc/mavlink-router/main.conf
-
-# Start with command-line endpoints
-mavlink-routerd \
-    -e 127.0.0.1:14540 \   # MAVSDK
-    -e 127.0.0.1:14550 \   # QGC
-    -e 127.0.0.1:14551 \   # MAVLink2REST
-    0.0.0.0:14540          # Listen for SITL
-```
-
-### Serial to UDP
-
-```bash
-# Route serial to multiple UDP endpoints
-mavlink-routerd \
-    -e 127.0.0.1:14540 \
-    -e 127.0.0.1:14550 \
-    /dev/ttyUSB0:921600
-```
-
-### Debug Mode
-
-```bash
-# Enable verbose logging
-mavlink-routerd -v -c /etc/mavlink-router/main.conf
-
-# Very verbose
-mavlink-routerd -vv -c /etc/mavlink-router/main.conf
-```
-
-## PixEagle Integration
-
-### Recommended Configuration
+For SITL or UDP input, replace the UART input with:
 
 ```ini
-# /home/alireza/PixEagle/configs/mavlink-router.conf
-
-[General]
-TcpServerPort = 5760
-ReportStats = false
-
-# Input: PX4 SITL or Hardware
-[UdpEndpoint px4_input]
+[UdpEndpoint udp_input]
 Mode = Server
 Address = 0.0.0.0
-Port = 14540
-
-# Output: MAVSDK (PixEagle commands)
-[UdpEndpoint mavsdk_output]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14541
-
-# Output: MAVLink2REST (PixEagle telemetry)
-[UdpEndpoint mavlink2rest_output]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14551
-
-# Output: QGroundControl (monitoring)
-[UdpEndpoint qgc_output]
-Mode = Normal
-Address = 127.0.0.1
 Port = 14550
 ```
 
-### Startup Script
+## Command-Line Equivalent
+
+For temporary debugging only:
 
 ```bash
-#!/bin/bash
-# start_mavlink_router.sh
-
-CONFIG_FILE="${HOME}/PixEagle/configs/mavlink-router.conf"
-
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "Config file not found: $CONFIG_FILE"
-    exit 1
-fi
-
-mavlink-routerd -c "$CONFIG_FILE"
+mavlink-routerd \
+  -e 127.0.0.1:14540 \
+  -e 127.0.0.1:14569 \
+  -e 127.0.0.1:12550 \
+  0.0.0.0:14550
 ```
 
-## Systemd Service
-
-### Create Service File
-
-```ini
-# /etc/systemd/system/mavlink-router.service
-
-[Unit]
-Description=MAVLink Router
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/mavlink-routerd -c /etc/mavlink-router/main.conf
-Restart=always
-RestartSec=5
-User=root
-
-[Install]
-WantedBy=multi-user.target
-```
-
-### Enable Service
+Prefer the managed systemd service for persistent systems:
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable mavlink-router
-sudo systemctl start mavlink-router
-
-# Check status
+sudo systemctl restart mavlink-router
 sudo systemctl status mavlink-router
+sudo journalctl -u mavlink-router -f
 ```
 
-## Message Filtering
+## Endpoint Semantics
 
-### Filter by Message ID
+- `127.0.0.1:14540` is the PixEagle MAVSDK endpoint. PixEagle defaults to
+  `PX4.SYSTEM_ADDRESS: udp://127.0.0.1:14540`.
+- `127.0.0.1:14569` is the MAVLink2REST input endpoint.
+- `0.0.0.0:14550` in server mode is convenient for QGroundControl field access.
+  It tracks the last sender and should not be treated as deterministic
+  multi-client fanout.
+- TCP `5760` is better for dynamic or multiple clients.
 
-```ini
-# Only forward specific messages to an endpoint
-[UdpEndpoint filtered]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14552
-Filter = 0,30,33,74,141  # HEARTBEAT, ATTITUDE, POSITION, VFR_HUD, ALTITUDE
-```
-
-### Rate Limiting
-
-```ini
-# Limit message rate to endpoint
-[UdpEndpoint rate_limited]
-Mode = Normal
-Address = 127.0.0.1
-Port = 14553
-# Note: Rate limiting requires mavlink-router 2.0+
-```
-
-## Troubleshooting
-
-### Check if Running
+## Validation
 
 ```bash
-# Check process
-ps aux | grep mavlink-routerd
+# Router service
+sudo systemctl status mavlink-router
 
-# Check listening ports
-netstat -ulnp | grep mavlink
-# or
-ss -ulnp | grep mavlink
+# Effective config
+sudo sed -n '1,220p' /etc/mavlink-router/main.conf
+
+# Local MAVLink consumers
+ss -ulnp | grep -E '14540|14569|12550|14550'
+ss -tlnp | grep 5760
 ```
 
-### Common Issues
-
-#### "Address already in use"
+Then check PixEagle telemetry:
 
 ```bash
-# Find process using port
-sudo lsof -i :14540
-
-# Kill if necessary
-sudo kill -9 <PID>
+curl http://127.0.0.1:8088/v1/mavlink/vehicles
 ```
 
-#### No Data Received
+## Safety Notes
 
-```bash
-# Check SITL is sending
-tcpdump -i lo udp port 14540
-
-# Verify mavlink-router is receiving
-mavlink-routerd -vv -c main.conf
-```
-
-#### Permission Denied on Serial
-
-```bash
-# Add user to dialout group
-sudo usermod -a -G dialout $USER
-
-# Log out and back in, or:
-newgrp dialout
-```
-
-### Debug Commands
-
-```bash
-# Monitor all MAVLink traffic
-mavlink-routerd -vv ... 2>&1 | grep -i "message"
-
-# Check specific endpoint
-mavlink-routerd -vv ... 2>&1 | grep "14540"
-```
-
-## Performance Tuning
-
-### Buffer Sizes
-
-For high-frequency data:
-
-```ini
-[General]
-# Increase internal buffer
-MaxBuffer = 65536
-```
-
-### Multiple Sources
-
-When routing from multiple sources:
-
-```ini
-# Mark as ground station to differentiate
-[UdpEndpoint source1]
-Mode = Normal
-Address = 192.168.1.10
-Port = 14540
-# System ID filtering prevents conflicts
-```
-
-## Related Documentation
-
-- [MAVLink2REST Setup](mavlink-anywhere.md) - REST API configuration
-- [SITL Setup](sitl-setup.md) - Simulation environment
-- [Port Configuration](port-configuration.md) - Network reference
+Before any hardware test, remove propellers, keep a manual abort path, and
+verify PX4 failsafes. Router connectivity alone is not evidence that PixEagle
+Offboard control is safe or flight-ready.

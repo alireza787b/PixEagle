@@ -1,0 +1,142 @@
+name: PX4 SIH Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Validation mode
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - probe-only
+          - execute-px4
+      px4_image:
+        description: Official PX4 SIH image tag
+        required: true
+        default: px4io/px4-sitl:v1.17.0
+        type: string
+      px4_model:
+        description: PX4_SIM_MODEL
+        required: true
+        default: sihsim_quadx
+        type: string
+      pull_px4_image:
+        description: Pull the selected PX4 image before execute-px4
+        required: true
+        default: false
+        type: boolean
+      run_scenarios:
+        description: Execute checked-in SITL scenario actions
+        required: true
+        default: false
+        type: boolean
+      allow_control_actions:
+        description: Allow gated control/mutation scenario actions
+        required: true
+        default: false
+        type: boolean
+      auto_px4_container_artifacts:
+        description: Probe-only read-only PX4 container artifact discovery
+        required: true
+        default: false
+        type: boolean
+      px4_container_name:
+        description: Existing probe-only container name or execute-px4 container name
+        required: false
+        default: ""
+        type: string
+      px4_container_id:
+        description: Existing probe-only container id/name selector
+        required: false
+        default: ""
+        type: string
+      artifact_root:
+        description: Artifact root directory
+        required: true
+        default: reports/sitl
+        type: string
+  schedule:
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  px4-sih:
+    name: Opt-in PX4 SIH profile
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      SIH_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'dry-run' }}
+      PX4_IMAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.px4_image || 'px4io/px4-sitl:v1.17.0' }}
+      PX4_MODEL: ${{ github.event_name == 'workflow_dispatch' && inputs.px4_model || 'sihsim_quadx' }}
+      PULL_PX4_IMAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.pull_px4_image || 'false' }}
+      RUN_SCENARIOS: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scenarios || 'false' }}
+      ALLOW_CONTROL_ACTIONS: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_control_actions || 'false' }}
+      AUTO_PX4_CONTAINER_ARTIFACTS: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_px4_container_artifacts || 'false' }}
+      PX4_CONTAINER_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.px4_container_name || '' }}
+      PX4_CONTAINER_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.px4_container_id || '' }}
+      ARTIFACT_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.artifact_root || 'reports/sitl' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check SIH profile script syntax
+        run: bash -n scripts/sitl/run_px4_sih_profile.sh
+
+      - name: Print claim boundary
+        run: |
+          echo "PX4 SIH validation is opt-in L2 control-plane evidence only."
+          echo "This workflow does not claim tracker, visual SITL, HIL, field, or real-aircraft success."
+          echo "Normal pull-request CI does not run this workflow."
+
+      - name: Pull selected PX4 image
+        if: env.SIH_MODE == 'execute-px4' && env.PULL_PX4_IMAGE == 'true'
+        run: docker pull "$PX4_IMAGE"
+
+      - name: Run PX4 SIH validation profile
+        shell: bash
+        run: |
+          cmd=(
+            bash scripts/sitl/run_px4_sih_profile.sh
+            --mode "$SIH_MODE"
+            --artifact-root "$ARTIFACT_ROOT"
+            --px4-image "$PX4_IMAGE"
+            --px4-model "$PX4_MODEL"
+            --json
+          )
+
+          if [[ "$RUN_SCENARIOS" == "true" ]]; then
+            cmd+=(--run-scenarios)
+          fi
+          if [[ "$ALLOW_CONTROL_ACTIONS" == "true" ]]; then
+            cmd+=(--allow-control-actions)
+          fi
+          if [[ "$AUTO_PX4_CONTAINER_ARTIFACTS" == "true" ]]; then
+            cmd+=(--auto-px4-container-artifacts)
+          fi
+          if [[ -n "$PX4_CONTAINER_NAME" ]]; then
+            cmd+=(--px4-container-name "$PX4_CONTAINER_NAME")
+          fi
+          if [[ -n "$PX4_CONTAINER_ID" ]]; then
+            cmd+=(--px4-container-id "$PX4_CONTAINER_ID")
+          fi
+
+          "${cmd[@]}"
+
+      - name: Upload SIH evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: px4-sih-validation-${{ github.run_id }}
+          path: ${{ env.ARTIFACT_ROOT }}/**
+          if-no-files-found: ignore
+          retention-days: 14

@@ -1,0 +1,10 @@
+{
+  "VideoSource": {
+    "CAPTURE_FPS": 15,
+    "CAPTURE_HEIGHT": 240,
+    "CAPTURE_WIDTH": 320,
+    "UDP_URL": "udp://127.0.0.1:5636",
+    "USE_GSTREAMER": true,
+    "VIDEO_SOURCE_TYPE": "UDP_STREAM"
+  }
+}

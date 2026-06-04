@@ -228,15 +228,15 @@ OSD:
 ### HTTP MJPEG
 
 ```html
-<img src="http://localhost:8000/video_feed" />
-<img src="http://localhost:8000/video_feed?osd=true" />
-<img src="http://localhost:8000/video_feed?quality=60" />
+<img src="http://127.0.0.1:5077/video_feed" />
+<img src="http://127.0.0.1:5077/video_feed?osd=true" />
+<img src="http://127.0.0.1:5077/video_feed?quality=60" />
 ```
 
 ### WebSocket
 
 ```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/video_feed');
+const ws = new WebSocket('ws://127.0.0.1:5077/ws/video_feed');
 ```
 
 ### QGroundControl

@@ -163,6 +163,9 @@ MAVLink:
   MAVLINK_HOST: 127.0.0.1
   MAVLINK_PORT: 8088
   MAVLINK_POLLING_INTERVAL: 0.5    # Data refresh rate in seconds
+  MAVLINK_REQUEST_TIMEOUT_S: 5.0    # HTTP timeout per MAVLink2REST request
+  MAVLINK_REQUEST_RETRIES: 0        # Additional retries after the first request attempt
+  MAVLINK_STALE_TIMEOUT_S: 2.0      # Mark telemetry stale after this many seconds without a successful request
   
   # Data points to fetch from MAVLink2REST API
   MAVLINK_DATA_POINTS:
@@ -1209,8 +1212,8 @@ SmartTracker:
 # GIMBAL TRACKER CONFIGURATION (New Feature)
 # ==============================================================================
 GimbalTracker:
-  # Enable/disable gimbal tracker
-  ENABLED: true
+  ENABLED: true                # Enable/disable gimbal tracker
+  PROVIDER: "topotek_sip_udp"  # Provider implementation for external gimbal input
 
   # Network configuration for gimbal UDP communication
   UDP_HOST: "192.168.0.108"      # Gimbal IP address
@@ -1233,7 +1236,7 @@ GimbalTracker:
 Follower:
   # === Interface Settings ===
   USE_MAVLINK2REST: true                    # Use REST API for MAVLink
-  FOLLOWER_DATA_REFRESH_RATE: 5             # Hz
+  FOLLOWER_DATA_REFRESH_RATE: 5.0           # Telemetry refresh rate (Hz; runtime sleeps 1/rate)
 
   # === Target Selection ===
   ROI_SELECTION_MODE: MANUAL                # Options: MANUAL, AUTO
@@ -1241,7 +1244,7 @@ Follower:
 
   # === Following Mode ===
   # Options: mc_velocity_ground | mc_velocity_distance | mc_velocity_position | mc_velocity_chase | mc_attitude_rate | fw_attitude_rate | gm_velocity_chase | gm_velocity_vector
-  # Deprecated (still work): ground_view, constant_distance, constant_position, body_velocity_chase, gimbal_vector_body
+  # Removed aliases raise migration errors: ground_view, constant_distance, constant_position, body_velocity_chase, gimbal_vector_body
   FOLLOWER_MODE: mc_velocity_position
   
   # === Visualization ===
@@ -1262,7 +1265,7 @@ Follower:
   # Per-follower differences go in FollowerOverrides below (sparse overrides only).
   # Resolution: FollowerOverrides → General → Hardcoded Fallback
   General:
-    CONTROL_UPDATE_RATE: 20.0               # Hz — control loop frequency
+    CONTROL_UPDATE_RATE: 20.0               # Follower math/update rate (Hz; not MAVSDK Offboard publish cadence)
     COMMAND_SMOOTHING_ENABLED: true          # Enable velocity/rate command EMA smoothing
     SMOOTHING_FACTOR: 0.8                   # EMA coefficient (0–1, higher = more smooth)
     TARGET_LOSS_TIMEOUT: 3.0                # seconds — coast duration before loss action
@@ -1310,6 +1313,7 @@ Follower:
 # Default: true (SAFE) - Only set to false when you explicitly want to send real commands
 FOLLOWER_CIRCUIT_BREAKER: true            # true = SAFE (log only), false = LIVE (send commands)
 CIRCUIT_BREAKER_DISABLE_SAFETY: false     # Skip ALL safety checks in CB test mode (set true for ground testing only)
+FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES: false  # Emergency bench/SITL bypass only; false blocks commands if safety modules fail
 
 
 # ==============================================================================
@@ -1900,7 +1904,7 @@ GStreamerPipelines:
   # Network stream pipelines
   RTSP: "rtspsrc location={url} latency={latency} ! decodebin ! videoconvert ! video/x-raw,format=BGR ! videoscale ! video/x-raw,width={width},height={height} ! appsink drop=true sync=false"
   
-  UDP: "udpsrc uri={url} ! application/x-rtp ! rtph264depay ! avdec_h264 ! videoconvert ! video/x-raw,format=BGR ! videoscale ! video/x-raw,width={width},height={height} ! appsink drop=true sync=false"
+  UDP: "udpsrc uri={url} caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000\" ! rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! video/x-raw,format=BGR ! videoscale ! video/x-raw,width={width},height={height} ! appsink drop=true max-buffers=1 sync=false"
   
   HTTP: "souphttpsrc location={url} ! decodebin ! videoconvert ! video/x-raw,format=BGR ! videoscale ! video/x-raw,width={width},height={height} ! appsink drop=true sync=false"
 
@@ -2102,7 +2106,10 @@ Safety:
 Setpoint:
   # 📍 Position/velocity setpoint configuration
   CAMERA_YAW_OFFSET: 0                     # Camera mounting offset (degrees)
-  SETPOINT_PUBLISH_RATE_S: 0.1             # Setpoint update period (seconds)
+  SETPOINT_PUBLISH_RATE_S: 0.1             # SetpointSender monitor loop period (seconds; not MAVSDK heartbeat)
+  OFFBOARD_COMMAND_RATE_HZ: 20.0           # OffboardCommander MAVSDK setpoint heartbeat rate (Hz)
+  OFFBOARD_COMMAND_TTL_S: 0.5              # Max age of a follower CommandIntent before default setpoints are published
+  OFFBOARD_COMMAND_FAILURE_THRESHOLD: 3     # Consecutive publish failures before local fail-closed follow stop
   ENABLE_SETPOINT_DEBUGGING: false         # Debug output
 
 # ==============================================================================

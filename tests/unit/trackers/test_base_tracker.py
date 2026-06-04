@@ -572,6 +572,36 @@ class TestGetOutput:
 
         assert output.position_2d == (0.5, -0.3)
 
+    def test_get_output_marks_fresh_measurement_usable_for_following(self):
+        """A successful measured target should be command-usable."""
+        tracker = create_test_tracker()
+        tracker.tracking_started = True
+        tracker.normalized_center = (0.0, 0.0)
+        tracker.failure_count = 0
+
+        from classes.trackers.base_tracker import BaseTracker
+        output = BaseTracker.get_output(tracker)
+
+        assert output.raw_data["measurement_source"] == "measurement"
+        assert output.raw_data["usable_for_following"] is True
+        assert output.raw_data["data_is_stale"] is False
+
+    def test_get_output_marks_prediction_only_unusable_for_following(self):
+        """Estimator/prediction-only outputs should remain visible but not command-usable."""
+        tracker = create_test_tracker()
+        tracker.tracking_started = True
+        tracker.normalized_center = (0.0, 0.0)
+        tracker.failure_count = 1
+
+        from classes.trackers.base_tracker import BaseTracker
+        output = BaseTracker.get_output(tracker)
+
+        assert output.tracking_active is True
+        assert output.raw_data["measurement_source"] == "prediction_only"
+        assert output.raw_data["usable_for_following"] is False
+        assert output.raw_data["data_is_stale"] is True
+        assert output.metadata["usable_for_following"] is False
+
 
 @pytest.mark.unit
 class TestGetCapabilities:

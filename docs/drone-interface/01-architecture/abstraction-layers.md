@@ -134,10 +134,14 @@ class MCVelocityChaseFollower(BaseFollower):
         yaw_rate = self._calculate_yaw_rate(angular_error)
 
         # Set via abstraction - no MAVSDK knowledge needed
-        self.setpoint_handler.set_field('vel_body_fwd', fwd_velocity)
-        self.setpoint_handler.set_field('yawspeed_deg_s', yaw_rate)
+        accepted = self.set_command_fields({
+            'vel_body_fwd': fwd_velocity,
+            'vel_body_right': 0.0,
+            'vel_body_down': 0.0,
+            'yawspeed_deg_s': yaw_rate,
+        }, reason='mc_velocity_chase')
 
-        return FollowResult(success=True)
+        return FollowResult(success=accepted)
 ```
 
 ## PX4InterfaceManager: Protocol Translation
@@ -260,9 +264,15 @@ def test_follower_sets_velocity():
 async def test_command_dispatch():
     mock_system = MockMAVSDKSystem()
     px4 = PX4InterfaceManager(drone=mock_system)
+    commander = OffboardCommander(px4, px4.setpoint_handler)
 
-    px4.setpoint_handler.set_field('vel_body_fwd', 2.0)
-    await px4.send_velocity_body_offboard_commands()
+    intent = px4.setpoint_handler.set_fields({
+        'vel_body_fwd': 2.0,
+        'vel_body_right': 0.0,
+        'vel_body_down': 0.0,
+        'yawspeed_deg_s': 0.0,
+    }, source='test')
+    commander.submit_intent(intent)
 
     # Verify MAVSDK calls
     cmd = mock_system.offboard.get_last_command()

@@ -48,10 +48,12 @@ Used by most multicopter followers. Commands sent via MAVSDK `set_velocity_body_
 
 ```python
 # Example usage
-follower.set_command_field('vel_body_fwd', 5.0)      # Forward velocity (m/s)
-follower.set_command_field('vel_body_right', 0.0)   # Right velocity (m/s)
-follower.set_command_field('vel_body_down', 0.5)    # Down velocity (m/s)
-follower.set_command_field('yawspeed_deg_s', 10.0)  # Yaw rate (deg/s)
+follower.set_command_fields({
+    'vel_body_fwd': 5.0,      # Forward velocity (m/s)
+    'vel_body_right': 0.0,    # Right velocity (m/s)
+    'vel_body_down': 0.5,     # Down velocity (m/s)
+    'yawspeed_deg_s': 10.0,   # Yaw rate (deg/s)
+})
 ```
 
 ### attitude_rate
@@ -62,10 +64,12 @@ Used by fixed-wing and aggressive multicopter modes. Direct angular rate command
 
 ```python
 # Example usage
-follower.set_command_field('rollspeed_deg_s', 5.0)   # Roll rate (deg/s)
-follower.set_command_field('pitchspeed_deg_s', 2.0)  # Pitch rate (deg/s)
-follower.set_command_field('yawspeed_deg_s', 0.0)    # Yaw rate (deg/s)
-follower.set_command_field('thrust', 0.65)           # Thrust (0.0-1.0)
+follower.set_command_fields({
+    'rollspeed_deg_s': 5.0,   # Roll rate (deg/s)
+    'pitchspeed_deg_s': 2.0,  # Pitch rate (deg/s)
+    'yawspeed_deg_s': 0.0,    # Yaw rate (deg/s)
+    'thrust': 0.65,           # Thrust (0.0-1.0)
+})
 ```
 
 ### velocity_body (Legacy)

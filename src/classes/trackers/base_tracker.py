@@ -685,12 +685,16 @@ class BaseTracker(ABC):
         data_type = (TrackerDataType.VELOCITY_AWARE if velocity else
                      TrackerDataType.BBOX_CONFIDENCE if self.bbox else
                      TrackerDataType.POSITION_2D)
+        prediction_only = self.failure_count > 0
+        measurement_source = "prediction_only" if prediction_only else "measurement"
+        usable_for_following = bool(self.tracking_started and not prediction_only)
 
         quality_metrics = {
             'motion_consistency': self.compute_motion_confidence() if self.prev_center else 1.0,
             'failure_count': self.failure_count,
             'success_rate': (self.successful_frames / (self.frame_count + 1e-6)
                              if self.frame_count > 0 else 1.0),
+            'data_is_stale': prediction_only,
         }
         if extra_quality:
             quality_metrics.update(extra_quality)
@@ -701,6 +705,11 @@ class BaseTracker(ABC):
             'failed_frames': self.failed_frames,
             'avg_fps': (round(np.mean(self.fps_history[-30:]), 1)
                         if len(self.fps_history) >= 30 else 0.0),
+            'measurement_source': measurement_source,
+            'prediction_only': prediction_only,
+            'data_is_stale': prediction_only,
+            'usable_for_following': usable_for_following,
+            'freshness_reason': measurement_source,
         }
         if extra_raw:
             raw_data.update(extra_raw)
@@ -710,6 +719,9 @@ class BaseTracker(ABC):
             'tracker_algorithm': tracker_algorithm,
             'center_pixel': self.center,
             'bbox_pixel': self.bbox,
+            'measurement_source': measurement_source,
+            'data_is_stale': prediction_only,
+            'usable_for_following': usable_for_following,
         }
         if extra_metadata:
             metadata.update(extra_metadata)

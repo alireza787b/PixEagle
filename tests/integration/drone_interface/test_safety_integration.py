@@ -43,11 +43,13 @@ def mock_schema():
 def mock_parameters():
     """Mock Parameters class with safety limits."""
     mock_params = MagicMock()
-    mock_params.get_effective_limit = MagicMock(side_effect=lambda name: {
+    mock_params.get_effective_limit = MagicMock(side_effect=lambda name, follower_name=None: {
         'MAX_VELOCITY_FORWARD': 8.0,
         'MAX_VELOCITY_LATERAL': 5.0,
         'MAX_VELOCITY_VERTICAL': 3.0,
-        'MAX_YAW_RATE': 45.0
+        'MAX_YAW_RATE': 45.0,
+        'MAX_PITCH_RATE': 45.0,
+        'MAX_ROLL_RATE': 45.0,
     }.get(name, 10.0))
     return mock_params
 
@@ -308,14 +310,30 @@ class TestOffboardModeSafety:
         assert initial_cmd.down_m_s == 0.0
         assert initial_cmd.yawspeed_deg_s == 0.0
 
-    def test_command_rate_minimum(self):
-        """Test that command rate meets minimum requirement."""
+    def test_setpoint_sender_period_is_not_offboard_heartbeat_contract(self):
+        """SetpointSender timing is monitor-only, not a PX4 heartbeat proof."""
         with patch('classes.setpoint_sender.Parameters') as mock_params:
-            mock_params.SETPOINT_PUBLISH_RATE_S = 0.05  # 20 Hz
+            mock_params.SETPOINT_PUBLISH_RATE_S = 0.1
+            mock_params.ENABLE_SETPOINT_DEBUGGING = False
 
-            # PX4 requires at least 2 Hz
-            rate_hz = 1.0 / mock_params.SETPOINT_PUBLISH_RATE_S
-            assert rate_hz >= 2.0
+            mock_px4 = MagicMock()
+            mock_px4.send_commands_unified = MagicMock()
+            mock_handler = MagicMock()
+            mock_handler.get_control_type.return_value = 'velocity_body_offboard'
+            mock_handler.get_display_name.return_value = 'MC Velocity Offboard'
+            mock_handler.get_fields.return_value = {'vel_body_fwd': 0.0}
+
+            from classes.setpoint_sender import SetpointSender
+
+            sender = SetpointSender(mock_px4, mock_handler)
+            status = sender.get_status()
+            result = sender._send_commands_sync()
+
+            assert result is True
+            assert status["loop_period_s"] == 0.1
+            assert status["sends_mavsdk_commands"] is False
+            assert status["command_publication_source"] == "offboard_commander"
+            mock_px4.send_commands_unified.assert_not_called()
 
 
 class TestFlightModeTransitions:
@@ -397,8 +415,8 @@ class TestDataValidation:
                         # If it rejects NaN, that's also safe behavior
                         pass
 
-    def test_inf_values_clamped(self, mock_schema, mock_parameters):
-        """Test that infinity values are clamped safely."""
+    def test_inf_values_rejected(self, mock_schema, mock_parameters):
+        """Infinity values are rejected before they can reach a PX4 command."""
         with patch('classes.setpoint_handler.SetpointHandler._schema_cache', mock_schema):
             with patch('classes.setpoint_handler.SetpointHandler._load_schema'):
                 with patch('classes.parameters.Parameters', mock_parameters):
@@ -407,9 +425,5 @@ class TestDataValidation:
                     SetpointHandler._schema_cache = mock_schema
                     handler = SetpointHandler('mc_velocity_offboard')
 
-                    # Infinity should be clamped, not passed through
-                    handler.set_field('vel_body_fwd', float('inf'))
-                    fields = handler.get_fields()
-
-                    # Should be clamped to max limit
-                    assert fields['vel_body_fwd'] <= 8.0
+                    with pytest.raises(ValueError, match="finite"):
+                        handler.set_field('vel_body_fwd', float('inf'))

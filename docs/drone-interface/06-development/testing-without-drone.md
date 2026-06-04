@@ -19,17 +19,16 @@ PixEagle provides a **Circuit Breaker** system that blocks commands to PX4 while
 ```yaml
 # config_default.yaml
 
-circuit_breaker:
-  active: true           # Block all PX4 commands
-  log_commands: true     # Log what would be sent
+FOLLOWER_CIRCUIT_BREAKER: true  # Block follower PX4 commands and log intent
 ```
 
 ### Configuration Options
 
 | Option | Type | Description |
 |--------|------|-------------|
-| active | boolean | Enable/disable command blocking |
-| log_commands | boolean | Log blocked commands for debugging |
+| `FOLLOWER_CIRCUIT_BREAKER` | boolean | `true` keeps follower commands in log-only mode; `false` allows live PX4 commands |
+| `CIRCUIT_BREAKER_DISABLE_SAFETY` | boolean | Test-only bypass used with the circuit breaker; keep `false` unless a controlled bench test explicitly needs it |
+| `FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES` | boolean | Emergency bench/SITL bypass for unavailable safety-gate modules; keep `false` unless an operator-approved test explicitly needs live commands |
 
 ## How It Works
 
@@ -97,13 +96,17 @@ if FollowerCircuitBreaker.is_active():
 
 ```bash
 # Check circuit breaker status
-curl http://localhost:8000/api/status/circuit_breaker
+curl http://127.0.0.1:5077/api/circuit-breaker/status
 
 # Response
 {
   "active": true,
-  "commands_blocked": 42,
-  "last_blocked": "2024-01-01T12:00:00Z"
+  "status": "testing",
+  "safety_bypass": false,
+  "safety_bypass_effective": false,
+  "configuration": {
+    "parameter_name": "FOLLOWER_CIRCUIT_BREAKER"
+  }
 }
 ```
 
@@ -133,14 +136,13 @@ status = handler.get_fields_with_status()
 Test tracker and follower logic without risk:
 
 ```yaml
-circuit_breaker:
-  active: true
-  log_commands: true
+FOLLOWER_CIRCUIT_BREAKER: true
 
-safety:
-  max_velocity_forward: 3.0   # Reduced limits for safety
-  max_velocity_lateral: 2.0
-  max_velocity_vertical: 1.0
+Safety:
+  GlobalLimits:
+    MAX_VELOCITY_FORWARD: 3.0   # Reduced limits for safety
+    MAX_VELOCITY_LATERAL: 2.0
+    MAX_VELOCITY_VERTICAL: 1.0
 ```
 
 **Test Steps:**
@@ -155,13 +157,13 @@ Verify system behavior before enabling commands:
 
 ```bash
 # Start with circuit breaker
-python main.py  # circuit_breaker.active = true
+bash scripts/run.sh --no-attach  # FOLLOWER_CIRCUIT_BREAKER = true
 
 # Monitor logs
 tail -f logs/pixeagle.log | grep "BLOCKED"
 
-# Check command values
-curl http://localhost:8000/api/follower/commands
+# Check circuit-breaker statistics
+curl http://127.0.0.1:5077/api/circuit-breaker/statistics
 ```
 
 **Validation Checklist:**
@@ -183,6 +185,48 @@ client = MockMAVLink2RESTClient()
 client.set_attitude(roll=0.1, pitch=0.05, yaw=1.57)
 client.set_altitude(relative=10.0, amsl=50.0)
 ```
+
+### 4. PX4-In-Loop Handoff
+
+When follower or Offboard behavior needs a real PX4 state machine, move from
+mock/no-drone tests to the checked-in SITL harness instead of writing a one-off
+script:
+
+```bash
+python3 tools/run_sitl_validation_suite.py \
+  --plan-name phase2_follower_validation \
+  --dry-run
+```
+
+After an operator starts the headless PX4/MavlinkAnywhere/MAVLink2REST/PixEagle
+stack from [SITL Setup](../04-infrastructure/sitl-setup.md), collect probe
+evidence:
+
+```bash
+python3 tools/run_sitl_validation_suite.py \
+  --plan-name phase2_follower_validation \
+  --probe-only \
+  --artifact-root reports/sitl
+```
+
+To execute the checked-in scenario action schedule against that running stack,
+add `--run-scenarios`. Control actions remain blocked unless the operator also
+passes `--allow-control-actions`:
+
+```bash
+python3 tools/run_sitl_validation_suite.py \
+  --plan-name phase2_follower_validation \
+  --probe-only \
+  --run-scenarios \
+  --artifact-root reports/sitl
+```
+
+The probe artifacts are required before describing a PX4-in-loop run as
+successful. Runs with blocked control actions, manual fault placeholders,
+missing PX4 params, missing ULog/tlog manifests, or missing PX4
+image/container metadata remain incomplete. Unit and mock tests remain the
+normal fast gate; SITL is opt-in and uses the `sitl`, `px4`, and `e2e` pytest
+markers.
 
 ## Log Output
 
@@ -234,8 +278,7 @@ The dashboard shows circuit breaker status:
 
 1. **Verify with Circuit Breaker**
    ```yaml
-   circuit_breaker:
-     active: true
+   FOLLOWER_CIRCUIT_BREAKER: true
    ```
    - Test all scenarios
    - Check command values
@@ -243,50 +286,54 @@ The dashboard shows circuit breaker status:
 
 2. **SITL Testing**
    ```yaml
-   circuit_breaker:
-     active: false
-   px4:
-     connection_string: "udp://:14541"
+   FOLLOWER_CIRCUIT_BREAKER: false
+   PX4:
+     SYSTEM_ADDRESS: "udp://127.0.0.1:14540"
    ```
-   - Test with PX4 SITL
-   - Verify mode transitions
-   - Test emergency procedures
+   - Use the checked-in `phase2_follower_validation` plan
+   - Verify mode transitions with saved PixEagle/PX4/MAVLink artifacts
+   - Test emergency procedures only inside the documented SITL stack
 
 3. **Hardware Testing**
    ```yaml
-   circuit_breaker:
-     active: false
-   safety:
-     max_velocity_forward: 3.0  # Start conservative
+   FOLLOWER_CIRCUIT_BREAKER: false
+   Safety:
+     GlobalLimits:
+       MAX_VELOCITY_FORWARD: 3.0  # Start conservative
    ```
+   - Requires explicit operator approval and a documented safety plan
+   - Capture exact config, versions, logs, abort procedure, and post-run evidence
+   - Do not treat SITL success as field readiness
    - Start with low limits
    - Test in open area
    - Gradually increase limits
 
 ## API Endpoints for Testing
 
-### Get Blocked Commands History
+### Get Statistics
 
 ```bash
-curl http://localhost:8000/api/circuit_breaker/history
+curl http://127.0.0.1:5077/api/circuit-breaker/statistics
 ```
 
-### Get Current Setpoints
+### Toggle Circuit-Breaker Safety Bypass
 
 ```bash
-curl http://localhost:8000/api/follower/current_setpoints
+curl -X POST http://127.0.0.1:5077/api/circuit-breaker/toggle-safety
 ```
+
+This bypass only applies while the circuit breaker is active. It is separate
+from `FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES`, which exists only for
+operator-approved bench/SITL cases where safety-gate modules are unavailable.
 
 ### Force Circuit Breaker State
 
 ```bash
-# Enable (for testing)
-curl -X POST http://localhost:8000/api/circuit_breaker/enable
+# Toggle state for controlled testing
+curl -X POST http://127.0.0.1:5077/api/circuit-breaker/toggle
 
-# Disable (requires confirmation)
-curl -X POST http://localhost:8000/api/circuit_breaker/disable \
-  -H "Content-Type: application/json" \
-  -d '{"confirm": true}'
+# Reset statistics
+curl -X POST http://127.0.0.1:5077/api/circuit-breaker/reset-statistics
 ```
 
 ## Best Practices

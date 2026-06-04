@@ -711,7 +711,7 @@ show_usage_instructions() {
     echo -e "   ${YELLOW}  performance_mode: balanced  # fast | balanced | robust${NC}"
     echo ""
     echo -e "${BLUE}Then start PixEagle:${NC}"
-    echo -e "   ${YELLOW}bash run_pixeagle.sh${NC}"
+    echo -e "   ${YELLOW}bash scripts/run.sh${NC}"
     echo ""
     echo -e "${DIM}See configs/config_default.yaml for all dlib parameters${NC}"
     echo ""

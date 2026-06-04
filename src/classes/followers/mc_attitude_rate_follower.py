@@ -99,7 +99,7 @@ class MCAttitudeRateFollower(BaseFollower):
         Initializes the MCAttitudeRateFollower with schema-aware attitude rate control.
 
         Args:
-            px4_controller: Instance of PX4Controller to control the drone.
+            px4_controller: PX4InterfaceManager used by the command boundary.
             initial_target_coords (Tuple[float, float]): Initial target coordinates.
 
         Raises:
@@ -742,11 +742,17 @@ class MCAttitudeRateFollower(BaseFollower):
                 roll_rate = 0.0
                 thrust = self.hover_thrust
 
-            # Set commands via schema (convert rad/s → deg/s)
-            self.set_command_field('pitchspeed_deg_s', degrees(pitch_rate))
-            self.set_command_field('yawspeed_deg_s', degrees(yaw_rate))
-            self.set_command_field('rollspeed_deg_s', degrees(roll_rate))
-            self.set_command_field('thrust', thrust)
+            # Set commands via one atomic schema-aware intent (convert rad/s to deg/s)
+            if not self.set_command_fields(
+                {
+                    'rollspeed_deg_s': degrees(roll_rate),
+                    'pitchspeed_deg_s': degrees(pitch_rate),
+                    'yawspeed_deg_s': degrees(yaw_rate),
+                    'thrust': thrust,
+                },
+                reason='mc_attitude_rate_normal_tracking',
+            ):
+                raise RuntimeError("Failed to apply MC attitude-rate command intent")
 
             self.total_commands_issued += 1
 
@@ -765,10 +771,16 @@ class MCAttitudeRateFollower(BaseFollower):
 
     def _set_hover_commands(self) -> None:
         """Sets hover commands (all rates zero, hover thrust)."""
-        self.set_command_field('pitchspeed_deg_s', 0.0)
-        self.set_command_field('yawspeed_deg_s', 0.0)
-        self.set_command_field('rollspeed_deg_s', 0.0)
-        self.set_command_field('thrust', self.hover_thrust)
+        if not self.set_command_fields(
+            {
+                'rollspeed_deg_s': 0.0,
+                'pitchspeed_deg_s': 0.0,
+                'yawspeed_deg_s': 0.0,
+                'thrust': self.hover_thrust,
+            },
+            reason='mc_attitude_rate_hover',
+        ):
+            raise RuntimeError("Failed to apply MC attitude-rate hover command intent")
 
     def follow_target(self, tracker_data: TrackerOutput) -> bool:
         """
@@ -785,14 +797,22 @@ class MCAttitudeRateFollower(BaseFollower):
                 logger.debug("Emergency stop active")
                 return False
 
+            inactive_output = self.should_process_inactive_tracker_output(tracker_data)
+
             # Validate tracker compatibility (errors are logged by base class with rate limiting)
-            if not self.validate_tracker_compatibility(tracker_data):
+            if (
+                not self.validate_tracker_compatibility(tracker_data) and
+                not inactive_output
+            ):
                 return False
 
             # Perform altitude safety check
             if not self._check_altitude_safety():
                 logger.error("Altitude safety check failed")
                 return False
+
+            if inactive_output:
+                return self._handle_inactive_tracker_output()
 
             # Calculate and apply control commands
             self.calculate_control_commands(tracker_data)
@@ -814,6 +834,36 @@ class MCAttitudeRateFollower(BaseFollower):
             logger.error(f"Unexpected error in {self.__class__.__name__}.follow_target(): {e}")
             self.reset_command_fields()
             return False
+
+    def _handle_inactive_tracker_output(self) -> bool:
+        """Publish hover commands for inactive vision target output."""
+        if not getattr(self, 'target_lost', False):
+            self.target_lost = True
+            self.target_loss_start_time = time.time()
+            self.target_loss_events = getattr(self, 'target_loss_events', 0) + 1
+            logger.warning("Inactive tracker output received - publishing hover command")
+
+        self._set_hover_commands()
+        self.update_telemetry_metadata('target_lost', True)
+        return True
+
+    def should_process_inactive_tracker_output(self, tracker_data: TrackerOutput) -> bool:
+        """
+        Allow inactive position outputs to publish the hover target-loss command.
+
+        Inactive tracker output must not run normal pursuit math even when it
+        carries last-known valid coordinates.
+        """
+        return self._is_inactive_tracker_output(
+            tracker_data,
+            allowed_types={
+                TrackerDataType.POSITION_2D,
+                TrackerDataType.POSITION_3D,
+                TrackerDataType.BBOX_CONFIDENCE,
+                TrackerDataType.VELOCITY_AWARE,
+                TrackerDataType.MULTI_TARGET,
+            },
+        )
 
     # ==================== Status and Telemetry ====================
 

@@ -21,7 +21,6 @@ import {
   PowerSettingsNew,
   PowerOff,
   Security,
-  LocationOn,
   Info,
   CheckCircle,
   Error,
@@ -74,29 +73,6 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
       mode: currentProfile.mode
     };
   }, [currentProfile, followerData]);
-
-  // Memoize expensive target loss state calculations
-  const targetLossInfo = useMemo(() => {
-    if (!followerData.target_loss_handler) return null;
-
-    const state = followerData.target_loss_handler.state;
-    const getStateInfo = (state) => {
-      switch (state) {
-        case 'ACTIVE':
-          return { icon: <CheckCircle fontSize="small" />, color: 'success.main', label: 'Active' };
-        case 'LOST':
-          return { icon: <Warning fontSize="small" />, color: 'warning.main', label: 'Target Lost' };
-        case 'TIMEOUT':
-          return { icon: <Error fontSize="small" />, color: 'error.main', label: 'Timeout' };
-        case 'RECOVERING':
-          return { icon: <PlayArrow fontSize="small" />, color: 'info.main', label: 'Recovering' };
-        default:
-          return { icon: <Info fontSize="small" />, color: 'textSecondary', label: state || 'Unknown' };
-      }
-    };
-
-    return getStateInfo(state);
-  }, [followerData.target_loss_handler]);
 
   // Get key fields to display based on control type
   const keyFields = useMemo(() => {

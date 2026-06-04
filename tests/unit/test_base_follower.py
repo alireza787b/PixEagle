@@ -24,6 +24,7 @@ from classes.followers.base_follower import (
     RateLimitedLogger,
     ErrorAggregator
 )
+from classes.safety_types import SafetyAction
 from classes.tracker_output import TrackerOutput, TrackerDataType
 
 
@@ -204,6 +205,50 @@ class TestFollowerConfigNameDerivation:
         """FWAttitudeRateFollower -> FW_ATTITUDE_RATE."""
         from classes.followers.fw_attitude_rate_follower import FWAttitudeRateFollower
         assert self._derive(FWAttitudeRateFollower) == "FW_ATTITUDE_RATE"
+
+
+# =============================================================================
+# Test: Safety Fail-Closed Behavior
+# =============================================================================
+
+class TestBaseFollowerSafetyFailClosed:
+    """BaseFollower safety checks must not fail open on SafetyManager errors."""
+
+    def _make_stub(self):
+        from classes.followers.mc_velocity_chase_follower import MCVelocityChaseFollower
+
+        stub = MCVelocityChaseFollower.__new__(MCVelocityChaseFollower)
+        stub.px4_controller = MagicMock(current_altitude=20.0)
+        stub.safety_manager = MagicMock()
+        stub.safety_manager.check_altitude_safety.side_effect = RuntimeError("safety manager unavailable")
+        stub._follower_config_name = "MC_VELOCITY_CHASE"
+        stub._last_safety_check_time = 0.0
+        stub._safety_check_interval = 0.0
+        stub._last_safety_result = None
+        stub._handle_safety_violation = MagicMock()
+        return stub
+
+    def test_safety_manager_exception_returns_violation(self):
+        stub = self._make_stub()
+
+        status = stub.check_safety()
+
+        assert status.safe is False
+        assert status.action == SafetyAction.EMERGENCY_STOP
+        assert "safety_manager_error" in status.reason
+        stub._handle_safety_violation.assert_called_once_with(status)
+
+    def test_explicit_circuit_breaker_safety_bypass_keeps_test_mode_open(self):
+        stub = self._make_stub()
+
+        with patch('classes.followers.base_follower.CIRCUIT_BREAKER_AVAILABLE', True):
+            with patch('classes.followers.base_follower.FollowerCircuitBreaker') as mock_cb:
+                mock_cb.should_skip_safety_checks.return_value = True
+
+                status = stub.check_safety()
+
+        assert status.safe is True
+        stub._handle_safety_violation.assert_not_called()
 
 
 # =============================================================================

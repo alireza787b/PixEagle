@@ -67,17 +67,15 @@ async def stop_offboard_mode(self):
 
 ### Safety: Continuous Command Requirement
 
-PX4 requires continuous offboard commands (typically 2+ Hz). If commands stop, PX4 exits offboard mode for safety.
+PX4 requires continuous offboard commands (typically 2+ Hz). If commands stop,
+PX4 exits offboard mode for safety.
 
-```python
-class SetpointSender(threading.Thread):
-    """Continuously sends setpoints to maintain offboard mode."""
-
-    def run(self):
-        while self.running:
-            self._send_commands_sync()
-            time.sleep(Parameters.SETPOINT_PUBLISH_RATE_S)  # e.g., 0.05s = 20Hz
-```
+Current PixEagle MAVSDK setpoint publication is owned by
+`OffboardCommander`, an async heartbeat loop started by `AppController` after
+Offboard mode is entered. `AppController.follow_target()` updates follower math
+and submits atomic `CommandIntent` snapshots; it does not directly publish the
+frame-loop PX4 heartbeat. `SetpointSender` remains a legacy monitor and does not
+send MAVSDK commands.
 
 ## Command Types
 
@@ -234,21 +232,21 @@ async def send_velocity_body_commands(self, fields):
 └──────┬───────┘
        │ Calculates velocities
        ▼
-┌──────────────────┐
-│  SetpointHandler │
-│  set_field()     │◄─── Validates & clamps
-└──────┬───────────┘
-       │ Stores in fields dict
+┌──────────────────────┐
+│  SetpointHandler     │
+│  set_fields(...)     │◄─── Validates full command snapshot
+└──────┬───────────────┘
+       │ Emits CommandIntent
        ▼
-┌──────────────────┐
-│  SetpointSender  │
-│  (Thread loop)   │◄─── 20 Hz continuous
-└──────┬───────────┘
-       │ get_fields()
+┌──────────────────────┐
+│  OffboardCommander   │
+│ fixed-rate heartbeat │◄─── MAVSDK publication owner
+└──────┬───────────────┘
+       │ send_commands_unified()
        ▼
 ┌──────────────────────┐
 │  PX4InterfaceManager │
-│  send_commands_unified│
+│  send_*_commands()   │
 └──────┬───────────────┘
        │ Creates VelocityBodyYawspeed
        ▼
@@ -269,8 +267,12 @@ async def send_velocity_body_commands(self, fields):
 ### Command Rates
 
 - Minimum: 2 Hz (PX4 timeout threshold)
-- Recommended: 10-20 Hz (smoother control)
-- PixEagle default: 20 Hz
+- `OFFBOARD_COMMAND_RATE_HZ` defaults to 20 Hz and is owned by
+  `OffboardCommander`.
+- Tracker/follower updates submit fresh `CommandIntent` snapshots; they are not
+  the MAVSDK heartbeat.
+- SITL/HIL/field evidence is still required before claiming vehicle-level timing
+  success for a specific PX4 setup.
 
 ### Smooth Transitions
 

@@ -504,6 +504,10 @@ class TestSafetyTypes:
         """FIELD_LIMIT_MAPPING contains expected mappings."""
         assert FIELD_LIMIT_MAPPING['vel_body_fwd'] == 'MAX_VELOCITY_FORWARD'
         assert FIELD_LIMIT_MAPPING['yawspeed_deg_s'] == 'MAX_YAW_RATE'
+        assert FIELD_LIMIT_MAPPING['pitchspeed_deg_s'] == 'MAX_PITCH_RATE'
+        assert FIELD_LIMIT_MAPPING['rollspeed_deg_s'] == 'MAX_ROLL_RATE'
+        assert FIELD_LIMIT_MAPPING['yaw_rate'] == 'MAX_YAW_RATE'
+        assert FIELD_LIMIT_MAPPING['yaw_speed_deg_s'] == 'MAX_YAW_RATE'
 
 
 # =============================================================================

@@ -338,6 +338,6 @@ class SmartTracker:
 
 ## Related Components
 
-- [SmartTracker](../../trackers/02-components/smart-tracker.md) - Uses TrackingStateManager
-- [MotionPredictor](../../trackers/02-components/motion-predictor.md) - Prediction support
-- [AppearanceModel](../../trackers/02-components/appearance-model.md) - Re-identification
+- [SmartTracker](../../trackers/02-reference/smart-tracker.md) - Uses TrackingStateManager
+- [Motion Prediction](../../trackers/03-ai-concepts/motion-prediction.md) - Prediction support
+- [Appearance Model](../../trackers/03-ai-concepts/appearance-model.md) - Re-identification

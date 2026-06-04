@@ -46,7 +46,7 @@ def mock_schema():
                 'control_type': 'velocity_body_offboard',
                 'display_name': 'MC Velocity Position',
                 'description': 'Position-based velocity control',
-                'required_fields': ['vel_body_fwd', 'vel_body_right', 'vel_body_down', 'yawspeed_deg_s'],
+                'required_fields': ['vel_body_down', 'yawspeed_deg_s'],
                 'optional_fields': []
             }
         },
@@ -116,11 +116,13 @@ def mock_schema():
 def mock_parameters():
     """Mock Parameters class for testing."""
     mock_params = MagicMock()
-    mock_params.get_effective_limit = MagicMock(side_effect=lambda name: {
+    mock_params.get_effective_limit = MagicMock(side_effect=lambda name, follower_name=None: {
         'MAX_VELOCITY_FORWARD': 8.0,
         'MAX_VELOCITY_LATERAL': 5.0,
         'MAX_VELOCITY_VERTICAL': 3.0,
-        'MAX_YAW_RATE': 45.0
+        'MAX_YAW_RATE': 45.0,
+        'MAX_PITCH_RATE': 30.0,
+        'MAX_ROLL_RATE': 20.0,
     }.get(name, 10.0))
     return mock_params
 
@@ -247,6 +249,75 @@ class TestSetpointHandlerFieldOperations:
         assert 'yawspeed_deg_s' in fields
 
 
+class TestSetpointHandlerAtomicFields:
+    """Tests for atomic command-intent field updates."""
+
+    def test_set_fields_commits_only_after_all_fields_validate(self, setpoint_handler):
+        """An invalid field in a command intent must leave old setpoints intact."""
+        setpoint_handler.set_fields(
+            {
+                'vel_body_fwd': 1.0,
+                'vel_body_right': 2.0,
+                'vel_body_down': -0.5,
+                'yawspeed_deg_s': 10.0,
+            },
+            source='test',
+            reason='baseline',
+        )
+        before = setpoint_handler.get_fields()
+
+        with pytest.raises(ValueError, match="must be finite"):
+            setpoint_handler.set_fields(
+                {
+                    'vel_body_fwd': 3.0,
+                    'vel_body_right': float('nan'),
+                    'vel_body_down': 0.0,
+                    'yawspeed_deg_s': 0.0,
+                },
+                source='test',
+                reason='invalid_nan',
+            )
+
+        assert setpoint_handler.get_fields() == before
+
+    def test_set_fields_requires_complete_profile_by_default(self, setpoint_handler):
+        """Missing fields are rejected so old command fields cannot carry over."""
+        before = setpoint_handler.get_fields()
+
+        with pytest.raises(ValueError, match="missing fields"):
+            setpoint_handler.set_fields(
+                {
+                    'vel_body_fwd': 1.0,
+                    'vel_body_right': 0.0,
+                    'vel_body_down': 0.0,
+                },
+                source='test',
+                reason='missing_yaw',
+            )
+
+        assert setpoint_handler.get_fields() == before
+
+    def test_set_fields_returns_command_intent_metadata(self, setpoint_handler):
+        """Accepted atomic commands expose a typed command intent for telemetry."""
+        intent = setpoint_handler.set_fields(
+            {
+                'vel_body_fwd': 1.0,
+                'vel_body_right': 0.5,
+                'vel_body_down': -0.25,
+                'yawspeed_deg_s': 5.0,
+            },
+            source='unit_test',
+            reason='metadata',
+        )
+
+        assert intent.profile_name == 'mc_velocity_offboard'
+        assert intent.control_type == 'velocity_body_offboard'
+        assert intent.source == 'unit_test'
+        assert intent.reason == 'metadata'
+        assert intent.fields == setpoint_handler.get_fields()
+        assert setpoint_handler.get_last_command_intent() == intent
+
+
 class TestSetpointHandlerClamping:
     """Tests for value clamping and limit enforcement."""
 
@@ -267,6 +338,49 @@ class TestSetpointHandlerClamping:
         # MAX_YAW_RATE is 45.0
         setpoint_handler.set_field('yawspeed_deg_s', 100.0)
         assert setpoint_handler.fields['yawspeed_deg_s'] == 45.0
+
+    def test_pitch_and_roll_use_distinct_rate_limits(self, mock_schema, mock_parameters):
+        """Pitch/roll limits must not silently reuse MAX_YAW_RATE."""
+        with patch('classes.setpoint_handler.SetpointHandler._schema_cache', mock_schema):
+            with patch('classes.setpoint_handler.SetpointHandler._load_schema'):
+                with patch('classes.parameters.Parameters', mock_parameters):
+                    from classes.setpoint_handler import SetpointHandler
+
+                    SetpointHandler._schema_cache = mock_schema
+                    handler = SetpointHandler('fw_attitude_rate')
+
+                    handler.set_field('yawspeed_deg_s', 100.0)
+                    handler.set_field('pitchspeed_deg_s', 100.0)
+                    handler.set_field('rollspeed_deg_s', 100.0)
+
+                    assert handler.fields['yawspeed_deg_s'] == 45.0
+                    assert handler.fields['pitchspeed_deg_s'] == 30.0
+                    assert handler.fields['rollspeed_deg_s'] == 20.0
+
+    def test_runtime_mapping_matches_safety_types(self):
+        """SetpointHandler must use the shared safety field mapping."""
+        from classes.safety_types import FIELD_LIMIT_MAPPING
+        from classes.setpoint_handler import SetpointHandler
+
+        for field_name in [
+            'vel_x',
+            'vel_y',
+            'vel_z',
+            'vel_body_fwd',
+            'vel_body_right',
+            'vel_body_down',
+            'yawspeed_deg_s',
+            'pitchspeed_deg_s',
+            'rollspeed_deg_s',
+            'yaw_rate',
+            'yaw_speed_deg_s',
+        ]:
+            assert SetpointHandler._FIELD_TO_LIMIT_NAME[field_name] == FIELD_LIMIT_MAPPING[field_name]
+
+    def test_non_finite_values_are_rejected(self, setpoint_handler):
+        """SetpointHandler must not store NaN/Inf command values."""
+        with pytest.raises(ValueError, match="finite"):
+            setpoint_handler.set_field('vel_body_fwd', float('nan'))
 
     def test_lateral_velocity_uses_lateral_limit(self, setpoint_handler, mock_parameters):
         """Test that lateral velocity uses its own limit."""

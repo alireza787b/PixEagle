@@ -198,37 +198,37 @@ class TestSmartTrackerDetectionsContract:
 class TestClassicStartTracking:
     """Tests for AppController.start_tracking (classic mode)."""
 
-    def test_start_tracking_normal(self):
+    @pytest.mark.asyncio
+    async def test_start_tracking_normal(self):
         """start_tracking with valid bbox should start the classic tracker."""
-        import asyncio
         ctrl = _make_controller()
         ctrl.tracking_started = False
 
         bbox = {'x': 100, 'y': 100, 'width': 200, 'height': 150}
-        asyncio.get_event_loop().run_until_complete(ctrl.start_tracking(bbox))
+        await ctrl.start_tracking(bbox)
 
         assert ctrl.tracking_started is True
         assert ctrl.tracker.started_bbox == (100, 100, 200, 150)
 
-    def test_start_tracking_already_active(self):
+    @pytest.mark.asyncio
+    async def test_start_tracking_already_active(self):
         """start_tracking when already active should not restart."""
-        import asyncio
         ctrl = _make_controller()
         ctrl.tracking_started = True
 
         bbox = {'x': 50, 'y': 50, 'width': 100, 'height': 100}
-        asyncio.get_event_loop().run_until_complete(ctrl.start_tracking(bbox))
+        await ctrl.start_tracking(bbox)
 
         # Tracker should NOT have started_bbox (was already running)
         assert not hasattr(ctrl.tracker, 'started_bbox')
 
-    def test_start_tracking_external_tracker_skipped(self):
+    @pytest.mark.asyncio
+    async def test_start_tracking_external_tracker_skipped(self):
         """start_tracking with external tracker should skip gracefully."""
-        import asyncio
         ctrl = _make_controller()
         ctrl.tracker.is_external_tracker = True
 
         bbox = {'x': 50, 'y': 50, 'width': 100, 'height': 100}
-        asyncio.get_event_loop().run_until_complete(ctrl.start_tracking(bbox))
+        await ctrl.start_tracking(bbox)
 
         assert ctrl.tracking_started is False

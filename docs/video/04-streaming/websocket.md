@@ -15,7 +15,7 @@ WS /ws/video_feed
 ### Connection
 
 ```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/video_feed');
+const ws = new WebSocket('ws://127.0.0.1:5077/ws/video_feed');
 ws.binaryType = 'arraybuffer';
 ```
 
@@ -134,7 +134,7 @@ class VideoStreamClient {
 }
 
 // Usage
-const client = new VideoStreamClient('ws://localhost:8000/ws/video_feed');
+const client = new VideoStreamClient('ws://127.0.0.1:5077/ws/video_feed');
 client.connect();
 ```
 
@@ -158,7 +158,7 @@ client.connect();
         let frameCount = 0;
         let lastTime = performance.now();
 
-        const ws = new WebSocket('ws://localhost:8000/ws/video_feed');
+        const ws = new WebSocket('ws://127.0.0.1:5077/ws/video_feed');
         ws.binaryType = 'arraybuffer';
 
         ws.onmessage = (event) => {

@@ -1,8 +1,8 @@
 schema_version: 1.0.0
 meta:
   project: PixEagle
-  generated_from: /opt/PixEagle/configs/config_default.yaml
-  generated_at: '2026-02-21T03:32:56.317993'
+  generated_from: configs/config_default.yaml
+  generated_at: null
   description: Auto-generated schema for PixEagle configuration
 categories:
   video:
@@ -359,12 +359,40 @@ sections:
       MAVLINK_POLLING_INTERVAL:
         type: float
         default: 0.5
-        description: Data refresh rate in seconds
+        description: MavlinkDataManager polling interval for the MAVLink2REST aggregate endpoint
         reload_tier: system_restart
         reboot_required: true
-        min: 0.0
-        max: 1.0
-        step: 0.01
+        min: 0.1
+        max: 10.0
+        step: 0.1
+        unit: s
+      MAVLINK_REQUEST_TIMEOUT_S:
+        type: float
+        default: 5.0
+        description: HTTP timeout for each MAVLink2REST request before telemetry is marked degraded
+        reload_tier: system_restart
+        reboot_required: true
+        min: 0.1
+        max: 30.0
+        step: 0.1
+        unit: s
+      MAVLINK_REQUEST_RETRIES:
+        type: integer
+        default: 0
+        description: Additional retry attempts after the initial MAVLink2REST request fails
+        reload_tier: system_restart
+        reboot_required: true
+        min: 0
+        max: 5
+      MAVLINK_STALE_TIMEOUT_S:
+        type: float
+        default: 2.0
+        description: Maximum age since the last successful MAVLink2REST request before telemetry is reported stale
+        reload_tier: system_restart
+        reboot_required: true
+        min: 0.1
+        max: 60.0
+        step: 0.1
         unit: s
       MAVLINK_DATA_POINTS:
         type: object
@@ -2195,9 +2223,19 @@ sections:
       ENABLED:
         type: boolean
         default: true
-        description: Network configuration for gimbal UDP communication
+        description: Enable/disable gimbal tracker
         reload_tier: tracker_restart
         reboot_required: false
+      PROVIDER:
+        type: string
+        default: topotek_sip_udp
+        description: External gimbal input provider implementation
+        reload_tier: tracker_restart
+        reboot_required: false
+        options:
+        - value: topotek_sip_udp
+          label: Topotek SIP UDP
+          description: Topotek SIP-series UDP frames using GAC, GIC, TRC, and OFT
       UDP_HOST:
         type: string
         default: 192.168.0.108
@@ -2207,27 +2245,27 @@ sections:
       UDP_PORT:
         type: integer
         default: 9003
-        description: Gimbal UDP port
+        description: Provider UDP command/query port for topotek_sip_udp
         reload_tier: tracker_restart
         reboot_required: false
-        min: 0
-        max: 1000000
+        min: 1
+        max: 65535
       LISTEN_PORT:
         type: integer
         default: 9004
-        description: Port for listening to gimbal data
+        description: Local UDP listen port for gimbal responses/broadcasts
         reload_tier: tracker_restart
         reboot_required: false
-        min: 0
-        max: 1000000
+        min: 1
+        max: 65535
       CONNECTION_TIMEOUT:
         type: float
         default: 5.0
-        description: Connection timeout in seconds
+        description: Freshness timeout for provider data and tracking state
         reload_tier: tracker_restart
         reboot_required: false
-        min: 0.0
-        max: 100.0
+        min: 0.1
+        max: 30.0
         step: 0.1
         unit: s
       COORDINATE_SYSTEM:
@@ -2272,13 +2310,14 @@ sections:
         reload_tier: follower_restart
         reboot_required: false
       FOLLOWER_DATA_REFRESH_RATE:
-        type: integer
-        default: 5
-        description: Hz
+        type: float
+        default: 5.0
+        description: Telemetry refresh rate in Hz; runtime sleeps 1/rate between polling iterations
         reload_tier: follower_restart
         reboot_required: false
-        min: 0
-        max: 100
+        min: 0.1
+        max: 100.0
+        step: 0.1
         unit: hz
       ROI_SELECTION_MODE:
         type: string
@@ -2413,7 +2452,7 @@ sections:
           CONTROL_UPDATE_RATE:
             type: float
             default: 20.0
-            description: Hz — control loop frequency
+            description: Follower math/update rate (Hz; not MAVSDK Offboard publish cadence)
             reload_tier: follower_restart
             reboot_required: false
             min: 0.0
@@ -2590,6 +2629,12 @@ sections:
     type: boolean
     default: false
     description: Skip ALL safety checks in CB test mode (set true for ground testing only)
+    reload_tier: system_restart
+    reboot_required: true
+  FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES:
+    type: boolean
+    default: false
+    description: Emergency bench/SITL bypass only; false blocks commands if safety modules fail
     reload_tier: system_restart
     reboot_required: true
   GM_VELOCITY_CHASE:
@@ -4084,8 +4129,9 @@ sections:
         reboot_required: true
       UDP:
         type: string
-        default: udpsrc uri={url} ! application/x-rtp ! rtph264depay ! avdec_h264 ! videoconvert ! video/x-raw,format=BGR
-          ! videoscale ! video/x-raw,width={width},height={height} ! appsink drop=true sync=false
+        default: udpsrc uri={url} caps="application/x-rtp,media=video,encoding-name=H264,payload=96,clock-rate=90000" ! rtph264depay
+          ! h264parse ! avdec_h264 ! videoconvert ! video/x-raw,format=BGR ! videoscale ! video/x-raw,width={width},height={height}
+          ! appsink drop=true max-buffers=1 sync=false
         description: UDP parameter
         reload_tier: system_restart
         reboot_required: true
@@ -4617,13 +4663,42 @@ sections:
       SETPOINT_PUBLISH_RATE_S:
         type: float
         default: 0.1
-        description: Setpoint update period (seconds)
-        reload_tier: tracker_restart
+        description: SetpointSender monitor loop period in seconds; does not publish MAVSDK Offboard commands
+        reload_tier: follower_restart
         reboot_required: false
-        min: 0.0
+        min: 0.001
         max: 1.0
         step: 0.01
         unit: s
+      OFFBOARD_COMMAND_RATE_HZ:
+        type: float
+        default: 20.0
+        description: OffboardCommander MAVSDK setpoint heartbeat rate in Hz; independent of camera and tracker cadence
+        reload_tier: follower_restart
+        reboot_required: false
+        min: 2.0
+        max: 100.0
+        step: 1.0
+        unit: hz
+      OFFBOARD_COMMAND_TTL_S:
+        type: float
+        default: 0.5
+        description: Maximum age of the latest follower CommandIntent before OffboardCommander publishes default fail-closed
+          setpoints
+        reload_tier: follower_restart
+        reboot_required: false
+        min: 0.1
+        max: 10.0
+        step: 0.1
+        unit: s
+      OFFBOARD_COMMAND_FAILURE_THRESHOLD:
+        type: integer
+        default: 3
+        description: Consecutive OffboardCommander publish failures before local fail-closed follow stop
+        reload_tier: follower_restart
+        reboot_required: false
+        min: 1
+        max: 100
       ENABLE_SETPOINT_DEBUGGING:
         type: boolean
         default: false

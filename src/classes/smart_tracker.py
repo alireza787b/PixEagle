@@ -131,6 +131,8 @@ class SmartTracker:
         self.selected_center = None
         self.selected_oriented_bbox = None
         self.selected_polygon = None
+        self._last_tracking_state_result: Dict[str, Any] = {}
+        self._last_tracking_state_active = False
         # === Motion Predictor (for occlusion handling)
         # Predicts object position during brief detection loss
         prediction_enabled = self.config.get('ENABLE_PREDICTION_BUFFER', True)
@@ -674,6 +676,11 @@ class SmartTracker:
                 selected_track_id = None
                 is_tracking_active = False
 
+        self._last_tracking_state_result = (
+            dict(selected_detection) if isinstance(selected_detection, dict) else {}
+        )
+        self._last_tracking_state_active = bool(is_tracking_active)
+
         # Compute HUD scale factors once per frame
         s = self._hud_scale(frame.shape[0])
         show_passive_labels = self.config.get('SMART_TRACKER_SHOW_PASSIVE_LABELS', True)
@@ -798,6 +805,30 @@ class SmartTracker:
         tracking_active = (self.selected_object_id is not None and
                           self.selected_bbox is not None and
                           self.selected_center is not None)
+        tracking_state_result = getattr(self, '_last_tracking_state_result', {}) or {}
+        selected_detected_this_frame = (
+            self.selected_object_id is not None and
+            any(int(det.track_id) == int(self.selected_object_id) for det in self.last_detections)
+        )
+        prediction_only = bool(tracking_state_result.get('prediction_only'))
+        tentative = bool(tracking_state_result.get('tentative'))
+        usable_for_following = bool(
+            tracking_active and
+            selected_detected_this_frame and
+            not prediction_only and
+            not tentative
+        )
+        data_is_stale = bool(tracking_active and not usable_for_following)
+        if usable_for_following:
+            freshness_reason = "measurement"
+        elif prediction_only:
+            freshness_reason = "prediction_only"
+        elif tentative:
+            freshness_reason = "tentative_reacquisition"
+        elif tracking_active and not selected_detected_this_frame:
+            freshness_reason = "selected_target_not_detected"
+        else:
+            freshness_reason = "no_active_selection"
 
         # Prepare multi-target data if available
         targets = []
@@ -851,6 +882,7 @@ class SmartTracker:
                 'frame_processing_ms': getattr(self, "last_frame_processing_ms", 0.0),
                 'frame_error_rate': (self._frame_errors / self._frame_count) if self._frame_count else 0.0,
                 'geometry_error_rate': (self._geometry_errors / self._frame_count) if self._frame_count else 0.0,
+                'data_is_stale': data_is_stale,
             },
 
             raw_data={
@@ -876,6 +908,14 @@ class SmartTracker:
                 'model_task': self.model_task,
                 'geometry_mode': self.current_geometry_mode,
                 'obb_auto_disabled': self._obb_auto_disabled,
+                'measurement_source': 'measurement' if usable_for_following else freshness_reason,
+                'usable_for_following': usable_for_following,
+                'data_is_stale': data_is_stale,
+                'prediction_only': prediction_only,
+                'tentative': tentative,
+                'freshness_reason': freshness_reason,
+                'selected_detected_this_frame': selected_detected_this_frame,
+                'tracking_state_result': tracking_state_result,
             },
 
             metadata={
@@ -888,6 +928,13 @@ class SmartTracker:
                 'detection_classes': list(self.labels.keys()) if self.labels else [],
                 'geometry_output_mode': self.geometry_output_mode,
                 'model_task_policy': self.model_task_policy,
+                'measurement_source': 'measurement' if usable_for_following else freshness_reason,
+                'usable_for_following': usable_for_following,
+                'data_is_stale': data_is_stale,
+                'prediction_only': prediction_only,
+                'tentative': tentative,
+                'freshness_reason': freshness_reason,
+                'selected_detected_this_frame': selected_detected_this_frame,
             }
         )
 

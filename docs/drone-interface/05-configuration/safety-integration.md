@@ -36,7 +36,12 @@ def set_field(self, name, value):
     self.fields[name] = clamped_value
 
 # Example
-handler.set_field('vel_body_fwd', 15.0)  # Exceeds limit
+handler.set_fields({
+    'vel_body_fwd': 15.0,  # Exceeds limit
+    'vel_body_right': 0.0,
+    'vel_body_down': 0.0,
+    'yawspeed_deg_s': 0.0,
+}, source='docs_example')
 fields = handler.get_fields()
 # vel_body_fwd = 8.0 (clamped)
 ```
@@ -56,9 +61,9 @@ fields = handler.get_fields()
 ### Configuration
 
 ```yaml
-circuit_breaker:
-  active: true           # Enable test mode
-  log_commands: true     # Log blocked commands
+FOLLOWER_CIRCUIT_BREAKER: true
+CIRCUIT_BREAKER_DISABLE_SAFETY: false
+FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES: false
 ```
 
 ### Behavior
@@ -66,7 +71,12 @@ circuit_breaker:
 When active:
 - **Commands**: Logged but not sent to PX4
 - **Telemetry**: Still received and processed
-- **Safety**: RTL/failsafe still available
+- **Safety**: Treat this as a development/test guard. It is not a replacement
+  for PX4 failsafes, and command-blocking behavior must be verified before
+  depending on it in any scenario.
+- **Unavailable gate modules**: PX4 commands are blocked as degraded failures
+  unless `FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES` is explicitly enabled
+  for an operator-approved bench/SITL procedure.
 
 ### Code Example
 
@@ -85,7 +95,7 @@ if FollowerCircuitBreaker.is_active():
 
 ### Use Cases
 
-- Indoor testing without risk
+- Indoor bench testing with flight outputs blocked
 - Development without drone
 - Validating tracking before flight
 
@@ -136,8 +146,8 @@ async def trigger_return_to_launch(self):
 
 ```python
 async def trigger_failsafe(self):
-    """Trigger failsafe behavior."""
-    await self.drone.action.terminate()
+    """Trigger configured failsafe behavior."""
+    await self.drone.action.return_to_launch()
 ```
 
 ## Safety in Command Flow
@@ -157,7 +167,8 @@ Follower.follow_target()
 │   Circuit Breaker     │
 │   Check               │
 │   ├─ Active: Log only │
-│   └─ Inactive: Pass   │
+│   ├─ Inactive: Pass   │
+│   └─ Unavailable: Block/degrade unless explicit bypass │
 └───────────┬───────────┘
             │
             ▼
@@ -172,8 +183,7 @@ Follower.follow_target()
 ### Development
 
 ```yaml
-circuit_breaker:
-  active: true
+FOLLOWER_CIRCUIT_BREAKER: true
 
 Safety:
   GlobalLimits:
@@ -185,8 +195,7 @@ Safety:
 ### Testing (SITL)
 
 ```yaml
-circuit_breaker:
-  active: false
+FOLLOWER_CIRCUIT_BREAKER: false
 
 Safety:
   GlobalLimits:
@@ -198,8 +207,7 @@ Safety:
 ### Production
 
 ```yaml
-circuit_breaker:
-  active: false
+FOLLOWER_CIRCUIT_BREAKER: false
 
 Safety:
   GlobalLimits:

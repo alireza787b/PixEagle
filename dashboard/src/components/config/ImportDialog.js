@@ -7,7 +7,7 @@ import {
   FormControlLabel, Radio, Chip
 } from '@mui/material';
 import {
-  FileUpload, CloudUpload, Preview, CheckCircle,
+  FileUpload, CloudUpload, CheckCircle,
   Warning, MergeType, SwapHoriz
 } from '@mui/icons-material';
 import axios from 'axios';

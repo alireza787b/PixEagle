@@ -51,7 +51,8 @@ def _build_follower_stub(
     Create a fully-attributed GMVelocityVectorFollower stub for production-code testing.
 
     All attributes consumed by calculate_control_commands() are populated.
-    set_command_field is replaced with MagicMock() to capture velocity commands.
+    set_command_fields is replaced with MagicMock() to capture atomic velocity
+    command intents.
     Uses HORIZONTAL mount (project default) with no filtering/offsets for determinism.
     """
     follower = GMVelocityVectorFollower.__new__(GMVelocityVectorFollower)
@@ -96,7 +97,7 @@ def _build_follower_stub(
     follower.last_velocity_vector = None
 
     # --- capture output ---
-    follower.set_command_field = MagicMock()
+    follower.set_command_fields = MagicMock(return_value=True)
 
     return follower
 
@@ -110,7 +111,7 @@ def _run_normalization(
     """
     Drive the real calculate_control_commands() with given gimbal angles.
 
-    Returns a dict {field_name: last_value} for every set_command_field call.
+    Returns the atomic command field dict passed to set_command_fields().
     """
     tracker_data = TrackerOutput(
         data_type=TrackerDataType.GIMBAL_ANGLES,
@@ -120,11 +121,7 @@ def _run_normalization(
     )
     follower.calculate_control_commands(tracker_data)
 
-    # Collect the most-recent value for each field
-    result: dict = {}
-    for call in follower.set_command_field.call_args_list:
-        result[call.args[0]] = call.args[1]
-    return result
+    return follower.set_command_fields.call_args.args[0]
 
 
 # ---------------------------------------------------------------------------
@@ -286,3 +283,47 @@ def test_horizontal_only_exact_speed_symmetric_vector():
     assert abs(horiz_mag - speed) < 1e-6, (
         f"Symmetric case: expected horizontal magnitude {speed}, got {horiz_mag}"
     )
+
+
+def test_unusable_external_gimbal_output_zeroes_commands_immediately():
+    """Stale/inactive external gimbal data must not coast on old velocity."""
+    follower = _build_follower_stub(
+        enable_altitude_control=False,
+        current_velocity_magnitude=4.0,
+    )
+    follower.total_follow_calls = 0
+    follower.successful_updates = 0
+    follower.failed_updates = 0
+    follower.following_active = True
+    follower.last_valid_time = time.time()
+    follower.last_velocity_vector = Vector3D(4.0, 0.0, 0.0)
+    follower._perform_safety_checks = MagicMock(
+        return_value={'safe_to_proceed': True, 'reason': 'test'}
+    )
+    follower.set_command_fields = MagicMock(return_value=True)
+    follower.log_follower_event = MagicMock()
+
+    tracker_data = TrackerOutput(
+        data_type=TrackerDataType.GIMBAL_ANGLES,
+        timestamp=time.time(),
+        tracking_active=False,
+        angular=(10.0, -5.0, 0.0),
+        raw_data={
+            'data_is_stale': True,
+            'usable_for_following': False,
+            'tracking_status': 'TRACKING_ACTIVE',
+        },
+        metadata={'usable_for_following': False},
+    )
+
+    assert follower.follow_target(tracker_data) is True
+
+    cmds = follower.set_command_fields.call_args.args[0]
+    assert cmds["vel_body_fwd"] == 0.0
+    assert cmds["vel_body_right"] == 0.0
+    assert cmds["vel_body_down"] == 0.0
+    assert cmds["yawspeed_deg_s"] == 0.0
+    assert follower.current_velocity_magnitude == 0.0
+    assert follower.last_velocity_vector is None
+    assert follower.following_active is False
+    assert follower.failed_updates == 1

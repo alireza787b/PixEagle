@@ -253,11 +253,11 @@ follower_profiles:
     optional_tracker_data: ["BBOX_CONFIDENCE", "VELOCITY_AWARE", "GIMBAL_ANGLES"]
 
 # ==============================================================================
-# Deprecated Profile Aliases (for backward compatibility)
+# Removed Profile Aliases (migration reference only)
 # ==============================================================================
-# Old profile names that map to new names. These will be removed in future versions.
-# Use the new names in new code/configs.
-deprecated_profile_aliases:
+# These names are not active profiles and do not redirect at runtime.
+# FollowerFactory raises ValueError with a migration hint if one is used.
+removed_profile_aliases:
   ground_view: mc_velocity_ground
   constant_distance: mc_velocity_distance
   constant_position: mc_velocity_position

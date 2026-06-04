@@ -401,14 +401,16 @@ class MCVelocityDistanceFollower(BaseFollower):
             self._last_update_time = now
             yawspeed_deg_s = self.yaw_smoother.apply(yawspeed_deg_s, dt)
 
-            success_x = self.set_command_field('vel_body_fwd', vel_body_fwd)
-            success_y = self.set_command_field('vel_body_right', vel_body_right)
-            success_z = self.set_command_field('vel_body_down', vel_body_down)
-            success_yaw = self.set_command_field('yawspeed_deg_s', yawspeed_deg_s)
-            
-            # Validate command updates
-            if not all([success_x, success_y, success_z, success_yaw]):
-                logger.warning("Some command fields failed to update")
+            if not self.set_command_fields(
+                {
+                    'vel_body_fwd': vel_body_fwd,
+                    'vel_body_right': vel_body_right,
+                    'vel_body_down': vel_body_down,
+                    'yawspeed_deg_s': yawspeed_deg_s,
+                },
+                reason='mc_velocity_distance_normal_tracking',
+            ):
+                raise RuntimeError("Failed to apply MC velocity distance command intent")
             
             # Log control status
             logger.debug(f"Control commands calculated - "
@@ -452,9 +454,17 @@ class MCVelocityDistanceFollower(BaseFollower):
             - Concurrent safety monitoring
         """
         try:
+            inactive_output = self.should_process_inactive_tracker_output(tracker_data)
+
             # Validate tracker compatibility (errors are logged by base class with rate limiting)
-            if not self.validate_tracker_compatibility(tracker_data):
+            if (
+                not self.validate_tracker_compatibility(tracker_data) and
+                not inactive_output
+            ):
                 return False
+
+            if inactive_output:
+                return self._handle_inactive_tracker_output()
 
             # Extract target coordinates from tracker data
             target_coords = self.extract_target_coordinates(tracker_data)
@@ -490,6 +500,45 @@ class MCVelocityDistanceFollower(BaseFollower):
             logger.error(f"Unexpected error in {self.__class__.__name__}.follow_target(): {e}")
             self.reset_command_fields()
             return False
+
+    def _handle_inactive_tracker_output(self) -> bool:
+        """Publish an explicit stop command for inactive vision target output."""
+        self._last_vel_right = 0.0
+        self._last_vel_down = 0.0
+        self._last_update_time = time.time()
+        if not self.set_command_fields(
+            {
+                'vel_body_fwd': 0.0,
+                'vel_body_right': 0.0,
+                'vel_body_down': 0.0,
+                'yawspeed_deg_s': 0.0,
+            },
+            reason='mc_velocity_distance_inactive_stop',
+        ):
+            return False
+        self.update_telemetry_metadata('target_valid', False)
+        self.update_telemetry_metadata('target_lost', True)
+        self.update_telemetry_metadata('control_active', False)
+        logger.warning("Inactive tracker output received - stopping distance follower command")
+        return True
+
+    def should_process_inactive_tracker_output(self, tracker_data: TrackerOutput) -> bool:
+        """
+        Allow inactive position outputs to publish an explicit stop command.
+
+        Inactive tracker output must not run normal pursuit math even when it
+        carries last-known valid coordinates.
+        """
+        return self._is_inactive_tracker_output(
+            tracker_data,
+            allowed_types={
+                TrackerDataType.POSITION_2D,
+                TrackerDataType.POSITION_3D,
+                TrackerDataType.BBOX_CONFIDENCE,
+                TrackerDataType.VELOCITY_AWARE,
+                TrackerDataType.MULTI_TARGET,
+            },
+        )
     
     # ==================== Enhanced Status and Debug Methods ====================
     

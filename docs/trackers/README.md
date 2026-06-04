@@ -129,7 +129,7 @@ SMART_TRACKER_GPU_MODEL_PATH: "models/yolov8n.pt"
 ### 3. Run PixEagle
 
 ```bash
-bash run_pixeagle.sh
+bash scripts/run.sh
 ```
 
 The tracker automatically initializes and begins processing frames.
@@ -194,7 +194,7 @@ if tracker.is_near_boundary():
 ## Related Documentation
 
 - [Follower System](../followers/README.md) - How followers consume tracker data
-- [Tracker & Follower Schema Guide](../Tracker_and_Follower_Schema_Developer_Guide.md) - Schema details
+- [TrackerOutput Contract](01-architecture/tracker-output.md) - Tracker schema details
 - [Main README](../../README.md) - Project overview
 
 ---

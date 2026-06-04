@@ -18,6 +18,7 @@ import shutil
 import logging
 import threading
 import tempfile
+import copy
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, asdict
@@ -167,7 +168,19 @@ class ConfigService:
             else:
                 logger.warning(f"Schema file not found: {schema_path}")
 
-            # Load current config (with comment preservation for editing)
+            # Load defaults
+            default_path = self._get_path(self.DEFAULT_PATH)
+            if default_path.exists():
+                with open(default_path, 'r', encoding='utf-8') as f:
+                    loaded = yaml.load(f)
+                    self._default = dict(loaded) if loaded else {}
+                logger.info(f"Loaded defaults from {default_path}")
+            else:
+                logger.warning(f"Default config file not found: {default_path}")
+
+            # Load current config (with comment preservation for editing).
+            # Runtime config is gitignored, so clean clones fall back to defaults
+            # until bootstrap or the first save creates configs/config.yaml.
             config_path = self._get_path(self.CONFIG_PATH)
             if config_path.exists():
                 with open(config_path, 'r', encoding='utf-8') as f:
@@ -176,15 +189,13 @@ class ConfigService:
                     self._config_raw = loaded  # Keep raw for round-trip
                 logger.info(f"Loaded config from {config_path}")
             else:
-                logger.warning(f"Config file not found: {config_path}")
-
-            # Load defaults
-            default_path = self._get_path(self.DEFAULT_PATH)
-            if default_path.exists():
-                with open(default_path, 'r', encoding='utf-8') as f:
-                    loaded = yaml.load(f)
-                    self._default = dict(loaded) if loaded else {}
-                logger.info(f"Loaded defaults from {default_path}")
+                self._config = copy.deepcopy(self._default)
+                self._config_raw = None
+                logger.warning(
+                    "Config file not found: %s; using defaults from %s",
+                    config_path,
+                    default_path,
+                )
 
         except Exception as e:
             logger.error(f"Error loading config files: {e}")

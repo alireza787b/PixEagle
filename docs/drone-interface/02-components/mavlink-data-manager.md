@@ -10,9 +10,11 @@ MavlinkDataManager provides telemetry data from the PX4 autopilot via MAVLink2RE
 
 Key responsibilities:
 - Background thread polling of MAVLink2REST endpoints
+- Shared timeout/retry handling for aggregate and per-message requests
 - Data parsing and normalization
 - Flight mode monitoring and offboard exit detection
-- Connection state tracking with error recovery
+- Connection/freshness state tracking with error recovery and `/status`
+  diagnostics exposed as `mavlink_telemetry`
 
 ## Architecture
 
@@ -25,6 +27,9 @@ Key responsibilities:
 │  │ mavlink_host: str       # "127.0.0.1"                    │    │
 │  │ mavlink_port: int       # 8088                           │    │
 │  │ polling_interval: float # seconds                        │    │
+│  │ request_timeout_s: float # MAVLINK_REQUEST_TIMEOUT_S      │    │
+│  │ request_retries: int     # MAVLINK_REQUEST_RETRIES        │    │
+│  │ stale_timeout_s: float   # MAVLINK_STALE_TIMEOUT_S        │    │
 │  │ data_points: dict       # JSON paths to extract          │    │
 │  │ enabled: bool           # polling enabled                │    │
 │  └─────────────────────────────────────────────────────────┘    │
@@ -41,7 +46,7 @@ Key responsibilities:
 │  ┌─────────────────────────────────────────────────────────┐    │
 │  │ _thread: Thread         # polling thread                 │    │
 │  │ _stop_event: Event      # shutdown signal                │    │
-│  │ _lock: Lock             # data access protection         │    │
+│  │ _lock: RLock            # data/status protection         │    │
 │  └─────────────────────────────────────────────────────────┘    │
 ├─────────────────────────────────────────────────────────────────┤
 │  Key Methods:                                                    │
@@ -86,6 +91,54 @@ data_points = {
 }
 ```
 
+## Timeout, Retry, And Freshness
+
+MavlinkDataManager reads these typed config keys from the `MAVLink` section:
+
+```yaml
+MAVLink:
+  MAVLINK_REQUEST_TIMEOUT_S: 5.0
+  MAVLINK_REQUEST_RETRIES: 0
+  MAVLINK_STALE_TIMEOUT_S: 2.0
+```
+
+`MAVLINK_REQUEST_TIMEOUT_S` is the HTTP timeout for each MAVLink2REST request.
+`MAVLINK_REQUEST_RETRIES` is the number of additional attempts after the first
+request fails. `MAVLINK_STALE_TIMEOUT_S` is the maximum age since the last
+successful aggregate or per-message MAVLink2REST request before `/status`
+reports `mavlink_telemetry.fresh = false`.
+
+`get_connection_status()` returns the local request-health view used by the
+legacy `/status` response. It reports `status`, `fresh`,
+`last_success_age_s`, `request_timeout_s`, `request_retries`,
+`stale_timeout_s`, `connection_error_count`, `last_error`, and `endpoint`.
+This is MAVLink2REST transport freshness, not proof that a follower scenario
+has run against PX4.
+
+## Validation Timeout Injection
+
+`inject_timeout_for_validation()` is a SITL-only test hook used through
+`POST /api/v1/sitl/injections/mavlink2rest-timeout` when
+`PIXEAGLE_ENABLE_SITL_INJECTIONS=1`. It records a bounded PixEagle-local
+MAVLink2REST client timeout without stopping MAVLink2REST, PX4, Docker,
+MavlinkAnywhere, routing, or network interfaces.
+
+During the timeout window:
+
+- `_request_json()` raises locally before calling `requests.get()`;
+- `get_connection_status()` reports `connection_state = error`,
+  `status = stale` when a prior successful sample exists, `fresh = false`, and
+  `validation_timeout_active = true`;
+- optional `force_stale` ages the last successful fetch beyond
+  `MAVLINK_STALE_TIMEOUT_S` so follower/status consumers see stale telemetry.
+  It never creates a fake prior success; if no successful MAVLink2REST fetch
+  has happened, the timeout status remains `error` with
+  `last_success_age_s = null`.
+
+This hook proves PixEagle's stale/error telemetry response path. It does not
+prove a real MAVLink2REST process failure, network outage, MAVLink route break,
+or PX4 disconnect.
+
 ## Polling Thread
 
 ### start_polling() / stop_polling()
@@ -128,7 +181,7 @@ def _fetch_and_parse_all_data(self):
 
     Updates:
     - self.data dict (lock-protected)
-    - connection_state
+    - connection_state and last_successful_fetch_monotonic_s
     - flight mode monitoring
     """
 ```
@@ -141,6 +194,9 @@ _fetch_and_parse_all_data()
    GET /v1/mavlink
        │
        ├─► Success
+       │      │
+       │      ▼
+       │   Update freshness diagnostics
        │      │
        │      ▼
        │   Parse JSON paths
@@ -168,6 +224,10 @@ _fetch_and_parse_all_data()
 ## Async Fetch Methods
 
 These methods are used by PX4InterfaceManager for on-demand telemetry:
+
+Per-message fetches call the same timeout/retry helper as the aggregate polling
+thread. A successful per-message request updates `mavlink_telemetry` freshness
+even if the aggregate poll has not run recently.
 
 ### fetch_attitude_data()
 

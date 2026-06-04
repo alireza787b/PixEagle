@@ -72,6 +72,12 @@ class Parameters:
 
     # Raw config storage for SafetyManager initialization
     _raw_config: Dict[str, Any] = {}
+    _loaded_config_file: Optional[str] = None
+
+    # Runtime config is intentionally gitignored. Clean clones should still be
+    # importable by falling back to the checked-in default config for reads.
+    _DEFAULT_CONFIG_FILE = os.path.normpath('configs/config.yaml')
+    _FALLBACK_CONFIG_FILE = os.path.normpath('configs/config_default.yaml')
 
     # Grouped sections that should NOT be flattened
     _GROUPED_SECTIONS = [
@@ -113,17 +119,41 @@ class Parameters:
     }
 
     @classmethod
+    def _resolve_config_file(cls, config_file: str) -> str:
+        """Resolve config path, falling back to config_default.yaml for clean clones."""
+        normalized = os.path.normpath(config_file)
+        if os.path.exists(normalized):
+            return normalized
+
+        if normalized == cls._DEFAULT_CONFIG_FILE and os.path.exists(cls._FALLBACK_CONFIG_FILE):
+            logger.warning(
+                "Runtime config %s not found; loading checked-in defaults from %s. "
+                "Run the bootstrap/config workflow before editing runtime config.",
+                cls._DEFAULT_CONFIG_FILE,
+                cls._FALLBACK_CONFIG_FILE,
+            )
+            return cls._FALLBACK_CONFIG_FILE
+
+        raise FileNotFoundError(f"Configuration file not found: {config_file}")
+
+    @classmethod
     def load_config(cls, config_file='configs/config.yaml'):
         """
         Class method to load configurations from the config.yaml file and set class variables.
         Also initializes SafetyManager with the loaded configuration.
         """
+        resolved_config_file = cls._resolve_config_file(config_file)
+
         # Fix: Specify UTF-8 encoding to handle special characters
-        with open(config_file, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
+        with open(resolved_config_file, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f) or {}
+
+        if not isinstance(config, dict):
+            raise ValueError(f"Configuration root must be a mapping: {resolved_config_file}")
 
         # Store raw config for SafetyManager
         cls._raw_config = config
+        cls._loaded_config_file = resolved_config_file
 
         # Iterate over all top-level keys (sections)
         for section, params in config.items():

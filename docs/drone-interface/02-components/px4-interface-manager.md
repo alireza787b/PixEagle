@@ -105,6 +105,36 @@ connect() called
    active_mode = True
 ```
 
+### Validation Disconnect State
+
+`PX4InterfaceManager` exposes a validation-only local MAVSDK command-path
+disconnect hook for operator-gated SITL scenarios:
+
+```python
+await inject_mavsdk_disconnect_for_validation(
+    reason="sitl_mavsdk_disconnect",
+    source="sitl_validation",
+)
+```
+
+The hook marks the local command path as `validation_disconnected`, clears
+`active_mode`, cancels the telemetry update task, and increments
+`disconnect_count`. While that state is active, `send_commands_unified()` and
+`_safe_mavsdk_call()` return `False`, and `stop_offboard_mode()` raises
+`RuntimeError("MAVSDK disconnected - <reason>")` so cleanup records a visible
+failure instead of silently reporting success.
+
+`get_connection_status()` exposes the fields used by `/status` and SITL
+evidence: `status`, `connected`, `active_mode`,
+`validation_disconnect_active`, `disconnect_reason`, `disconnect_source`,
+`disconnect_age_s`, `disconnect_count`, `last_error`, `system_address`, and
+`uses_mavlink2rest`.
+
+This hook does not stop PX4, Docker, MavlinkAnywhere, MAVLink2REST, a MAVSDK
+server, network interfaces, or MAVLink routes. A successful `connect()` clears
+only the validation-local disconnect flag after the normal MAVSDK connect path
+runs.
+
 ### stop()
 
 ```python
@@ -125,7 +155,7 @@ Background task that continuously updates telemetry state variables.
 ```python
 async def update_drone_data(self):
     """
-    Runs at FOLLOWER_DATA_REFRESH_RATE.
+    Runs at FOLLOWER_DATA_REFRESH_RATE Hz.
     Selects telemetry source based on USE_MAVLINK2REST.
     """
     while self.active_mode:
@@ -133,8 +163,11 @@ async def update_drone_data(self):
             await self._update_telemetry_via_mavlink2rest()
         else:
             await self._update_telemetry_via_mavsdk()
-        await asyncio.sleep(refresh_rate)
+        await asyncio.sleep(1.0 / refresh_rate_hz)
 ```
+
+`FOLLOWER_DATA_REFRESH_RATE` is a frequency in Hertz. Runtime code validates it
+and converts it to a sleep period before each telemetry polling iteration.
 
 ### MAVLink2REST Telemetry (Primary)
 
@@ -242,32 +275,32 @@ await self.drone.offboard.set_attitude_rate(setpoint)
 
 ## Circuit Breaker Integration
 
-All command methods check the circuit breaker before execution:
+All command methods pass through the PX4 command gate before execution:
 
 ```python
-def _should_block_px4_command(command_type: str, **params) -> bool:
-    """
-    SAFETY FIRST: Block commands when circuit breaker active.
-
-    BLOCKS (Commands TO drone):
-    - start/stop offboard mode
-    - velocity commands
-    - attitude commands
-    - action commands (RTL, hold, land)
-
-    ALLOWS (Data FROM drone):
-    - telemetry reading
-    - status queries
-    """
+def _evaluate_px4_command_gate(command_type: str, **params) -> PX4CommandGateDecision:
     if not CIRCUIT_BREAKER_AVAILABLE:
-        return False  # Allow if circuit breaker unavailable
+        return PX4CommandGateDecision(
+            blocked=True,
+            degraded=True,
+            reason="circuit_breaker_unavailable",
+        )
 
     if FollowerCircuitBreaker.is_active():
         FollowerCircuitBreaker.log_command_instead_of_execute(...)
-        return True  # Block command
+        return PX4CommandGateDecision(
+            blocked=True,
+            degraded=False,
+            reason="circuit_breaker_active",
+        )
 
-    return False
+    FollowerCircuitBreaker.log_command_allowed(...)
+    return PX4CommandGateDecision(blocked=False, degraded=False, reason="allowed")
 ```
+
+`FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES` is the only bypass for
+unavailable or failing safety-gate infrastructure. Keep it `false` outside a
+controlled bench/SITL procedure with operator approval.
 
 ## Safe MAVSDK Calls
 

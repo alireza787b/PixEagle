@@ -52,12 +52,12 @@ Baud = 921600
 [UdpEndpoint mavsdk]
 Mode = Normal
 Address = 127.0.0.1
-Port = 14541
+Port = 14540
 
 [UdpEndpoint mavlink2rest]
 Mode = Normal
 Address = 127.0.0.1
-Port = 14551
+Port = 14569
 ```
 
 ### Start mavlink-router
@@ -110,12 +110,12 @@ FlowControl = false
 [UdpEndpoint mavsdk]
 Mode = Normal
 Address = 127.0.0.1
-Port = 14541
+Port = 14540
 
 [UdpEndpoint mavlink2rest]
 Mode = Normal
 Address = 127.0.0.1
-Port = 14551
+Port = 14569
 ```
 
 ### PX4 Configuration
@@ -172,12 +172,12 @@ Port = 14540
 [UdpEndpoint mavsdk]
 Mode = Normal
 Address = 127.0.0.1
-Port = 14541
+Port = 14540
 
 [UdpEndpoint mavlink2rest]
 Mode = Normal
 Address = 127.0.0.1
-Port = 14551
+Port = 14569
 ```
 
 ### Static IP Configuration (Ubuntu)
@@ -220,7 +220,7 @@ Baud = 57600  # Match radio configuration
 [UdpEndpoint mavsdk]
 Mode = Normal
 Address = 127.0.0.1
-Port = 14541
+Port = 14540
 ```
 
 ### Radio Configuration
@@ -252,12 +252,12 @@ Baud = 57600
 [UdpEndpoint mavsdk]
 Mode = Normal
 Address = 127.0.0.1
-Port = 14541
+Port = 14540
 
 [UdpEndpoint mavlink2rest]
 Mode = Normal
 Address = 127.0.0.1
-Port = 14551
+Port = 14569
 ```
 
 mavlink-router automatically merges traffic from multiple sources.
@@ -290,10 +290,10 @@ mavlink-router automatically merges traffic from multiple sources.
 mavlink-routerd -vv -c main.conf 2>&1 | head -50
 
 # Check MAVLink2REST
-curl http://localhost:8088/mavlink/vehicles
+curl http://127.0.0.1:8088/v1/mavlink/vehicles
 
 # Check message rate
-curl http://localhost:8088/mavlink/vehicles/1/components/1/messages/HEARTBEAT | jq '.status.time.frequency'
+curl http://127.0.0.1:8088/v1/mavlink/vehicles/1/components/1/messages/HEARTBEAT | jq '.status.time.frequency'
 ```
 
 ### Test MAVSDK Connection
@@ -304,7 +304,7 @@ from mavsdk import System
 
 async def test():
     drone = System()
-    await drone.connect(system_address="udp://:14541")
+    await drone.connect(system_address="udp://127.0.0.1:14540")
 
     async for state in drone.core.connection_state():
         print(f"Connected: {state.is_connected}")

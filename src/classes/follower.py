@@ -17,8 +17,7 @@ class FollowerFactory:
     _follower_registry: Dict[str, Type] = {}
     _registry_initialized = False
     
-    # REMOVED in v5.0.0 - Deprecated alias mapping (old name -> new name)
-    # These will now raise errors instead of silently mapping
+    # Removed in v5.0.0. These names raise errors instead of silently mapping.
     _REMOVED_ALIASES = {
         'ground_view': 'mc_velocity_ground',
         'constant_distance': 'mc_velocity_distance',
@@ -347,6 +346,46 @@ class Follower:
         except Exception as e:
             logger.error(f"Error getting control type: {e}")
             return 'velocity_body'  # Safe default
+
+    def get_last_command_intent(self):
+        """Return the latest atomic command intent produced by the active follower."""
+        try:
+            getter = getattr(self.follower, 'get_last_command_intent', None)
+            if callable(getter):
+                return getter()
+            return None
+        except Exception as e:
+            logger.error(f"Error getting last command intent: {e}")
+            return None
+
+    def validate_tracker_compatibility(self, tracker_data) -> bool:
+        """
+        Forward tracker compatibility checks to the active follower implementation.
+
+        AppController interacts with this manager, so manager-level forwarding
+        keeps the runtime path aligned with concrete follower behavior.
+        """
+        try:
+            validator = getattr(self.follower, 'validate_tracker_compatibility', None)
+            if callable(validator):
+                return bool(validator(tracker_data))
+            return False
+        except Exception as e:
+            logger.error(f"Error validating tracker compatibility: {e}")
+            return False
+
+    def should_process_inactive_tracker_output(self, tracker_data) -> bool:
+        """
+        Forward explicit inactive-output handling opt-ins to the implementation.
+        """
+        try:
+            handler = getattr(self.follower, 'should_process_inactive_tracker_output', None)
+            if callable(handler):
+                return bool(handler(tracker_data))
+            return False
+        except Exception as e:
+            logger.error(f"Error checking inactive tracker output handling: {e}")
+            return False
     
     def get_display_name(self) -> str:
         """

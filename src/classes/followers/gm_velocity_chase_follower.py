@@ -907,10 +907,16 @@ class GMVelocityChaseFollower(BaseFollower):
                 # - Right velocity: Body frame right direction
                 # - Down velocity: Body frame down direction (NED convention)
                 # - Yaw speed: Angular rate in degrees per second
-                self.set_command_field("vel_body_fwd", forward_velocity)
-                self.set_command_field("vel_body_right", right_velocity)
-                self.set_command_field("vel_body_down", down_velocity)
-                self.set_command_field("yawspeed_deg_s", yaw_speed)
+                if not self.set_command_fields(
+                    {
+                        "vel_body_fwd": forward_velocity,
+                        "vel_body_right": right_velocity,
+                        "vel_body_down": down_velocity,
+                        "yawspeed_deg_s": yaw_speed,
+                    },
+                    reason='gm_velocity_chase_gimbal_angles',
+                ):
+                    raise RuntimeError("Failed to apply gimbal chase velocity command intent")
 
                 # Event-based logging: only log significant velocity or mode changes
                 self._log_velocity_changes(forward_velocity, right_velocity, down_velocity, yaw_speed)
@@ -933,10 +939,16 @@ class GMVelocityChaseFollower(BaseFollower):
 
                 # Apply angular rates using deg/s field names (MAVSDK standard)
                 # Angular rates work the same in both BODY and NED modes
-                self.set_command_field("rollspeed_deg_s", 0.0)  # No roll for gimbal following
-                self.set_command_field("pitchspeed_deg_s", pitch_deg_s)
-                self.set_command_field("yawspeed_deg_s", yaw_deg_s)
-                self.set_command_field("thrust", self.config.get('DEFAULT_THRUST', 0.5))
+                if not self.set_command_fields(
+                    {
+                        "rollspeed_deg_s": 0.0,
+                        "pitchspeed_deg_s": pitch_deg_s,
+                        "yawspeed_deg_s": yaw_deg_s,
+                        "thrust": self.config.get('DEFAULT_THRUST', 0.5),
+                    },
+                    reason='gm_velocity_chase_angular_input',
+                ):
+                    raise RuntimeError("Failed to apply gimbal chase angular command intent")
 
                 logger.debug(f"Applied angular rates (deg/s): pitch={pitch_deg_s:.2f}, yaw={yaw_deg_s:.2f}")
 
@@ -1002,11 +1014,17 @@ class GMVelocityChaseFollower(BaseFollower):
                 # Target lost - use basic or advanced target loss handling
                 if self.target_loss_handler:
                     logger.debug(f"Target lost - state: {loss_response.get('target_state', 'LOST')}, actions: {loss_response.get('recommended_actions', [])}")
+                    if self._target_loss_response_should_publish(loss_response):
+                        return True
+                    if self._target_loss_response_stops_publication(loss_response):
+                        return False
+                    self._apply_target_loss_fail_closed(loss_response)
+                    return True
                 else:
                     logger.debug("Target lost - using basic target loss handling")
+                    self._apply_target_loss_fail_closed({'target_state': 'LOST'})
+                    return True
 
-                # Target loss handler callbacks are automatically executed (if available)
-                # Just return False to indicate tracking is not active
                 return False
 
         except Exception as e:
@@ -1016,6 +1034,55 @@ class GMVelocityChaseFollower(BaseFollower):
 
         finally:
             self.last_update_time = current_time
+
+    def should_process_inactive_tracker_output(self, tracker_output: TrackerOutput) -> bool:
+        """
+        Route inactive gimbal output through target-loss handling.
+
+        The gimbal chase follower can publish an intentional target-loss
+        command: continue the current setpoint during the configured grace
+        period, apply a callback-generated hold/decay command, or stop the
+        command stream when RTL has been requested.
+        """
+        return self._is_inactive_tracker_output(
+            tracker_output,
+            allowed_types={TrackerDataType.GIMBAL_ANGLES, TrackerDataType.ANGULAR},
+        )
+
+    def _target_loss_response_stops_publication(self, loss_response: Dict[str, Any]) -> bool:
+        """Return True when target-loss handling intentionally stops setpoints."""
+        if not loss_response:
+            return False
+
+        return bool(
+            loss_response.get('trigger_rtl') or
+            loss_response.get(f'{ResponseAction.RETURN_TO_LAUNCH.value.lower()}_callback_result')
+        )
+
+    def _target_loss_response_should_publish(self, loss_response: Dict[str, Any]) -> bool:
+        """Return True only when target-loss handling produced a command."""
+        if not loss_response or self._target_loss_response_stops_publication(loss_response):
+            return False
+
+        callback_results = [
+            value
+            for key, value in loss_response.items()
+            if key.endswith('_callback_result') and
+            key != f'{ResponseAction.RETURN_TO_LAUNCH.value.lower()}_callback_result'
+        ]
+        return any(callback_results)
+
+    def _apply_target_loss_fail_closed(self, loss_response: Dict[str, Any]) -> None:
+        """Publish a deterministic zero command when no loss callback did so."""
+        self._apply_velocity_command(
+            VelocityCommand(0.0, 0.0, 0.0, 0.0),
+            "target_loss_fail_closed",
+        )
+        self.log_follower_event(
+            "target_loss_fail_closed",
+            target_state=loss_response.get('target_state', 'UNKNOWN'),
+            recommended_actions=loss_response.get('recommended_actions', []),
+        )
 
     def _process_normal_tracking(self, tracker_output: TrackerOutput, current_time: float) -> bool:
         """
@@ -1077,7 +1144,8 @@ class GMVelocityChaseFollower(BaseFollower):
         Apply velocity command to the drone.
 
         NOTE: This method is primarily used by target loss handler callbacks.
-        Normal gimbal control uses set_command_field() for coordinate frame-aware control.
+        Normal gimbal control publishes an atomic command intent through
+        set_command_fields().
 
         Args:
             velocity_command: Velocity command to apply
@@ -1180,7 +1248,8 @@ class GMVelocityChaseFollower(BaseFollower):
         """
         Update setpoint handler fields using coordinate frame-aware methods.
 
-        This method uses set_command_field() to ensure proper coordinate frame handling:
+        This method uses set_command_fields() to apply one complete command
+        snapshot:
         - BODY mode: Commands applied directly to body frame
         - NED mode: Commands converted using drone attitude from MAVLink (like body_velocity_chase)
         """
@@ -1189,10 +1258,16 @@ class GMVelocityChaseFollower(BaseFollower):
             # These commands automatically handle coordinate frame conversion:
             # - BODY mode: Applied directly to body frame
             # - NED mode: Converted using drone attitude from MAVLink
-            self.set_command_field("vel_body_fwd", velocity_command.forward)
-            self.set_command_field("vel_body_right", velocity_command.right)
-            self.set_command_field("vel_body_down", velocity_command.down)
-            self.set_command_field("yawspeed_deg_s", velocity_command.yaw_rate)
+            if not self.set_command_fields(
+                {
+                    "vel_body_fwd": velocity_command.forward,
+                    "vel_body_right": velocity_command.right,
+                    "vel_body_down": velocity_command.down,
+                    "yawspeed_deg_s": velocity_command.yaw_rate,
+                },
+                reason='gm_velocity_chase_velocity_command',
+            ):
+                raise RuntimeError("Failed to apply gimbal chase velocity command intent")
 
         except Exception as e:
             logger.error(f"Error updating setpoint fields: {e}")
@@ -1271,10 +1346,15 @@ class GMVelocityChaseFollower(BaseFollower):
 
         # Send zero velocity commands using coordinate frame-aware methods
         try:
-            self.set_command_field("vel_body_fwd", 0.0)
-            self.set_command_field("vel_body_right", 0.0)
-            self.set_command_field("vel_body_down", 0.0)
-            self.set_command_field("yawspeed_deg_s", 0.0)
+            self.set_command_fields(
+                {
+                    "vel_body_fwd": 0.0,
+                    "vel_body_right": 0.0,
+                    "vel_body_down": 0.0,
+                    "yawspeed_deg_s": 0.0,
+                },
+                reason='gm_velocity_chase_emergency_stop',
+            )
         except Exception as e:
             logger.error(f"Failed to set emergency zero velocities: {e}")
 
@@ -1304,10 +1384,15 @@ class GMVelocityChaseFollower(BaseFollower):
 
         # Zero all velocity commands
         try:
-            self.set_command_field("vel_body_fwd", 0.0)
-            self.set_command_field("vel_body_right", 0.0)
-            self.set_command_field("vel_body_down", 0.0)
-            self.set_command_field("yawspeed_deg_s", 0.0)
+            self.set_command_fields(
+                {
+                    "vel_body_fwd": 0.0,
+                    "vel_body_right": 0.0,
+                    "vel_body_down": 0.0,
+                    "yawspeed_deg_s": 0.0,
+                },
+                reason='gm_velocity_chase_emergency_hold',
+            )
         except Exception as e:
             logger.error(f"Failed to set emergency hold velocities: {e}")
 
@@ -1468,9 +1553,15 @@ class GMVelocityChaseFollower(BaseFollower):
 
         # Zero all velocity commands immediately using coordinate frame-aware methods
         try:
-            self.set_command_field("vel_body_fwd", 0.0)
-            self.set_command_field("vel_body_right", 0.0)
-            self.set_command_field("vel_body_down", 0.0)
+            self.set_command_fields(
+                {
+                    "vel_body_fwd": 0.0,
+                    "vel_body_right": 0.0,
+                    "vel_body_down": 0.0,
+                    "yawspeed_deg_s": 0.0,
+                },
+                reason='gm_velocity_chase_trigger_emergency_stop',
+            )
             logger.info("Emergency velocity zero commands applied")
         except Exception as e:
             logger.error(f"Failed to apply emergency velocity commands: {e}")

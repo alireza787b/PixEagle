@@ -1,0 +1,59 @@
+{
+  "environment_path": "/home/alireza/.local/bin:/home/alireza/.codex/tmp/arg0/codex-arg0B2ZhMj:/home/alireza/.nvm/versions/node/v24.16.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path:/home/alireza/.nvm/versions/node/v24.16.0/bin:/home/alireza/.opencode/bin:/home/alireza/.local/bin:/home/alireza/.npm-global/bin:/home/alireza/.opencode/bin:/home/alireza/.npm-global/bin:/home/alireza/.local/bin:/home/alireza/.npm-global/bin:/home/alireza/.opencode/bin:/home/alireza/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin",
+  "git_head": {
+    "command": [
+      "git",
+      "rev-parse",
+      "HEAD"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "eac9d010c0040d9d4cd38aaaf50c27f0996c7308"
+  },
+  "git_status_short": {
+    "command": [
+      "git",
+      "status",
+      "--short",
+      "--branch"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "## main...origin/main\n M .github/workflows/tests.yml\n M Makefile\n M README.md\n D configs/config.yaml.backup.20260209\n M configs/config_default.yaml\n M configs/config_schema.yaml\n M configs/follower_commands.yaml\n M dashboard/package-lock.json\n M dashboard/package.json\n M dashboard/src/App.js\n M dashboard/src/App.test.js\n M dashboard/src/components/FollowerStatusCard.js\n M dashboard/src/components/Header.js\n M dashboard/src/components/ScopePlot.js\n M dashboard/src/components/TrackerDataDisplay.js\n M dashboard/src/components/TrackerSelector.js\n M dashboard/src/components/config/ArrayEditor.js\n M dashboard/src/components/config/BackupHistoryDialog.js\n M dashboard/src/components/config/ExportDialog.js\n M dashboard/src/components/config/ImportDialog.js\n M dashboard/src/components/config/MobileBottomBar.js\n M dashboard/src/components/config/ObjectEditor.js\n M dashboard/src/setupTests.js\n M dashboard/src/utils/valueComparison.js\n M docs/INSTALLATION.md\n M docs/OSD_GUIDE.md\n M docs/README.md\n M docs/core-app/02-components/app-controller.md\n M docs/core-app/02-components/coordinate-transformer.md\n M docs/core-app/02-components/fastapi-handler.md\n M docs/core-app/02-components/flow-controller.md\n M docs/core-app/02-components/logging-manager.md\n M docs/core-app/02-components/schema-manager.md\n M docs/core-app/02-components/tracking-state-manager.md\n M docs/core-app/03-api/README.md\n M docs/core-app/04-configuration/README.md\n M docs/core-app/05-development/README.md\n M docs/core-app/README.md\n D docs/developers/GIMBAL_VECTOR_BODY_IMPLEMENTATION_SUMMARY.md\n M docs/developers/SCHEMA_DRIVEN_DEVELOPMENT_GUIDE.md\n M docs/drone-interface/01-architecture/README.md\n M docs/drone-interface/01-architecture/abstraction-layers.md\n M docs/drone-interface/01-architecture/data-flow.md\n M docs/drone-interface/02-components/mavlink-data-manager.md\n M docs/drone-interface/02-components/px4-interface-manager.md\n M docs/drone-interface/02-components/setpoint-handler.md\n M docs/drone-interface/02-components/setpoint-sender.md\n M docs/drone-interface/03-protocols/control-types.md\n M docs/drone-interface/03-protocols/mavlink2rest-api.md\n M docs/drone-interface/03-protocols/mavsdk-offboard.md\n M docs/drone-interface/04-infrastructure/README.md\n M docs/drone-interface/04-infrastructure/companion-computer.md\n M docs/drone-interface/04-infrastructure/hardware-connection.md\n M docs/drone-interface/04-infrastructure/mavlink-anywhere.md\n M docs/drone-interface/04-infrastructure/mavlink-router.md\n M docs/drone-interface/04-infrastructure/port-configuration.md\n M docs/drone-interface/04-infrastructure/sitl-setup.md\n M docs/drone-interface/05-configuration/follower-commands-schema.md\n M docs/drone-interface/05-configuration/mavlink-config.md\n M docs/drone-interface/05-configuration/px4-config.md\n M docs/drone-interface/05-configuration/safety-integration.md\n M docs/drone-interface/06-development/adding-control-types.md\n M docs/drone-interface/06-development/custom-telemetry.md\n M docs/drone-interface/06-development/testing-without-drone.md\n M docs/drone-interface/07-troubleshooting/connection-issues.md\n M docs/drone-interface/07-troubleshooting/offboard-mode.md\n M docs/drone-interface/07-troubleshooting/telemetry-gaps.md\n M docs/drone-interface/README.md\n M docs/followers/01-architecture/README.md\n M docs/followers/01-architecture/base-follower.md\n M docs/followers/01-architecture/factory-pattern.md\n M docs/followers/01-architecture/setpoint-handler.md\n M docs/followers/02-reference/README.md\n M docs/followers/04-configuration/schema-system.md\n M docs/followers/04-configuration/tuning-guide.md\n M docs/followers/05-development/best-practices.md\n M docs/followers/05-development/creating-followers.md\n M docs/followers/05-development/testing-followers.md\n M docs/followers/07-integration/README.md\n M docs/followers/07-integration/mavlink-integration.md\n M docs/followers/07-integration/tracker-integration.md\n M docs/followers/README.md\n M docs/gimbal_simulator.md\n M docs/trackers/01-architecture/README.md\n M docs/trackers/02-reference/README.md\n M docs/trackers/02-reference/gimbal-tracker.md\n M docs/trackers/04-configuration/parameter-reference.md\n M docs/trackers/04-configuration/tuning-guide.md\n M docs/trackers/05-development/testing-trackers.md\n M docs/trackers/06-integration/README.md\n M docs/trackers/06-integration/external-systems.md\n M docs/trackers/README.md\n M docs/video/01-architecture/error-recovery.md\n M docs/video/01-architecture/video-handler.md\n M docs/video/02-input-sources/udp-stream.md\n M docs/video/03-gstreamer/input-pipelines.md\n M docs/video/03-gstreamer/pipeline-reference.md\n M docs/video/04-streaming/README.md\n M docs/video/04-streaming/http-mjpeg.md\n M docs/video/04-streaming/webrtc.md\n M docs/video/04-streaming/websocket.md\n M docs/video/06-configuration/streaming-config.md\n M docs/video/README.md\n M pytest.ini\n M scripts/check_schema.sh\n M scripts/components/mavlink2rest.sh\n M scripts/generate_schema.py\n M scripts/lib/ports.sh\n M scripts/run.sh\n M scripts/service/run.sh\n M scripts/setup/build-opencv.sh\n M scripts/setup/install-dlib.sh\n M src/classes/app_controller.py\n M src/classes/config_service.py\n M src/classes/fastapi_handler.py\n M src/classes/flow_controller.py\n M src/classes/follower.py\n M src/classes/followers/base_follower.py\n M src/classes/followers/fw_attitude_rate_follower.py\n M src/classes/followers/gm_velocity_chase_follower.py\n M src/classes/followers/gm_velocity_vector_follower.py\n M src/classes/followers/mc_attitude_rate_follower.py\n M src/classes/followers/mc_velocity_chase_follower.py\n M src/classes/followers/mc_velocity_distance_follower.py\n M src/classes/followers/mc_velocity_ground_follower.py\n M src/classes/followers/mc_velocity_position_follower.py\n M src/classes/gimbal_interface.py\n M src/classes/mavlink_data_manager.py\n M src/classes/parameters.py\n M src/classes/px4_interface_manager.py\n M src/classes/safety_types.py\n M src/classes/setpoint_handler.py\n M src/classes/setpoint_sender.py\n M src/classes/smart_tracker.py\n M src/classes/trackers/base_tracker.py\n M src/classes/trackers/gimbal_tracker.py\n M src/classes/video_handler.py\n M src/tools/gstreamer_tests/gstreamdl_receiver_rtp.bat\n M src/tools/gstreamer_tests/receive_from_rdp.sh\n M tests/fixtures/mock_safety.py\n M tests/fixtures/mock_video.py\n M tests/integration/core_app/test_config_flow.py\n M tests/integration/drone_interface/test_command_flow.py\n M tests/integration/drone_interface/test_safety_integration.py\n M tests/test_config_service.py\n D tests/test_gimbal_vector_body.py\n M tests/unit/core_app/test_parameters_reload.py\n M tests/unit/core_app/test_smart_click.py\n D tests/unit/detectors/test_detector_placeholder.py\n M tests/unit/drone_interface/__init__.py\n M tests/unit/drone_interface/test_mavlink_data_manager.py\n M tests/unit/drone_interface/test_px4_interface_manager.py\n M tests/unit/drone_interface/test_setpoint_handler.py\n M tests/unit/drone_interface/test_setpoint_sender.py\n D tests/unit/estimators/test_estimator_placeholder.py\n M tests/unit/followers/test_config_consistency.py\n M tests/unit/followers/test_gm_velocity_vector_control.py\n M tests/unit/followers/test_mc_velocity_position_control.py\n M tests/unit/test_base_follower.py\n M tests/unit/test_generate_schema.py\n M tests/unit/test_safety_manager.py\n M tests/unit/trackers/test_base_tracker.py\n M tests/unit/trackers/test_gimbal_tracker.py\n M tests/unit/trackers/test_tracker_factory.py\n M tests/unit/video/test_gstreamer_pipelines.py\n M tests/unit/video/test_video_handler.py\n?? .github/workflows/px4-sih-validation.yml\n?? AGENTS.md\n?? docs/apis/\n?? docs/architecture/\n?? docs/drone-interface/02-components/offboard-commander.md\n?? docs/reporting/\n?? scripts/sitl/\n?? src/classes/command_intent.py\n?? src/classes/command_safety.py\n?? src/classes/gimbal_provider.py\n?? src/classes/gimbal_types.py\n?? src/classes/offboard_commander.py\n?? tests/fixtures/synthetic_tracker_scene.py\n?? tests/fixtures/tracker_clips/\n?? tests/sitl/\n?? tests/test_api_route_inventory.py\n?? tests/test_docs_infrastructure_consistency.py\n?? tests/test_gm_velocity_vector_smoke.py\n?? tests/test_sitl_validation_contract.py\n?? tests/test_test_hygiene.py\n?? tests/test_udp_video_receiver_proof.py\n?? tests/unit/core_app/test_app_controller_gimbal_fail_closed.py\n?? tests/unit/core_app/test_app_controller_offboard_safety.py\n?? tests/unit/core_app/test_config_clean_clone.py\n?? tests/unit/core_app/test_flow_controller_frame_freshness.py\n?? tests/unit/core_app/test_sitl_injection_api.py\n?? tests/unit/detectors/test_detector_contract.py\n?? tests/unit/drone_interface/test_offboard_commander.py\n?? tests/unit/estimators/test_estimator_contract.py\n?? tests/unit/followers/test_command_intent_atomicity.py\n?? tests/unit/followers/test_target_loss_safe_publication.py\n?? tests/unit/trackers/test_gimbal_interface_status_freshness.py\n?? tests/unit/trackers/test_gimbal_provider.py\n?? tests/unit/trackers/test_smart_tracker_freshness.py\n?? tests/unit/trackers/test_tracker_in_loop_validation.py\n?? tools/run_sitl_validation_suite.py\n?? tools/run_udp_video_receiver_proof.py\n?? tools/sitl_plans/"
+  },
+  "gst_launch": "/usr/bin/gst-launch-1.0",
+  "gst_launch_version": {
+    "command": [
+      "/usr/bin/gst-launch-1.0",
+      "--version"
+    ],
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "gst-launch-1.0 version 1.24.2\nGStreamer 1.24.2\nhttps://launchpad.net/ubuntu/+source/gstreamer1.0"
+  },
+  "kernel": "6.8.0-110-generic",
+  "machine": "x86_64",
+  "opencv": {
+    "gstreamer_enabled": true,
+    "opencv_version": "4.6.0"
+  },
+  "platform": "Linux-6.8.0-110-generic-x86_64-with-glibc2.39",
+  "python": "3.12.3 (main, Mar 23 2026, 19:04:32) [GCC 13.3.0]",
+  "tool_args": {
+    "allow_process_start": true,
+    "artifact_root": "reports/video",
+    "capture_seconds": 6.0,
+    "dry_run": false,
+    "execute": true,
+    "fps": 15,
+    "frame_count": 8,
+    "height": 240,
+    "json": true,
+    "port": 5636,
+    "run_id": "20260603T-pxe0040-generated-rtp-udp-proof-v2",
+    "sender_warmup_seconds": 0.6,
+    "stale_seconds": 1.4,
+    "stale_timeout_seconds": 0.6,
+    "width": 320
+  }
+}

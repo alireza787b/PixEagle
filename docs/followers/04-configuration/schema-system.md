@@ -219,12 +219,16 @@ print(handler.get_display_name())    # "MC Velocity Chase"
 print(handler.get_control_type())    # "velocity_body_offboard"
 ```
 
-### Setting Fields
+### Setting Command Snapshots
 
 ```python
-# Set with validation
-handler.set_field("vel_body_fwd", 5.0)
-handler.set_field("vel_body_right", -2.0)
+# Set a complete command snapshot with validation
+handler.set_fields({
+    "vel_body_fwd": 5.0,
+    "vel_body_right": -2.0,
+    "vel_body_down": 0.0,
+    "yawspeed_deg_s": 0.0,
+}, source="docs_example")
 
 # Get all fields
 fields = handler.get_fields()

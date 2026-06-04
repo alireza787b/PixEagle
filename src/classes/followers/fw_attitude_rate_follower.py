@@ -102,7 +102,7 @@ class FWAttitudeRateFollower(BaseFollower):
         Initializes the FWAttitudeRateFollower with L1 navigation and TECS.
 
         Args:
-            px4_controller: Instance of PX4Controller to control the drone.
+            px4_controller: PX4InterfaceManager used by the command boundary.
             initial_target_coords (Tuple[float, float]): Initial target coordinates.
 
         Raises:
@@ -682,17 +682,17 @@ class FWAttitudeRateFollower(BaseFollower):
         """
         self.stall_recovery_active = True
 
-        # Command nose down to regain airspeed
-        self.set_command_field('pitchspeed_deg_s', self.stall_recovery_pitch)
-
-        # Full throttle for energy recovery
-        self.set_command_field('thrust', self.stall_recovery_throttle)
-
-        # Level wings during recovery
-        self.set_command_field('rollspeed_deg_s', 0.0)
-
-        # Maintain current yaw
-        self.set_command_field('yawspeed_deg_s', 0.0)
+        if not self.set_command_fields(
+            {
+                'rollspeed_deg_s': 0.0,
+                'pitchspeed_deg_s': self.stall_recovery_pitch,
+                'yawspeed_deg_s': 0.0,
+                'thrust': self.stall_recovery_throttle,
+            },
+            reason='fw_attitude_rate_stall_recovery',
+        ):
+            logger.error("Failed to apply fixed-wing stall recovery command intent")
+            return
 
         self.log_follower_event('stall_recovery',
                                airspeed=self._get_current_airspeed(),
@@ -816,11 +816,16 @@ class FWAttitudeRateFollower(BaseFollower):
         orbit_bank = self._calculate_coordinated_bank_angle(orbit_yaw_rate, safe_airspeed)
         roll_rate = self._calculate_roll_rate(orbit_bank, self._get_current_roll())
 
-        # Set orbit commands
-        self.set_command_field('yawspeed_deg_s', orbit_yaw_rate)
-        self.set_command_field('rollspeed_deg_s', roll_rate)
-        self.set_command_field('pitchspeed_deg_s', 0.0)  # Maintain altitude
-        self.set_command_field('thrust', self.cruise_thrust)
+        if not self.set_command_fields(
+            {
+                'rollspeed_deg_s': roll_rate,
+                'pitchspeed_deg_s': 0.0,
+                'yawspeed_deg_s': orbit_yaw_rate,
+                'thrust': self.cruise_thrust,
+            },
+            reason='fw_attitude_rate_orbit',
+        ):
+            raise RuntimeError("Failed to apply fixed-wing orbit command intent")
 
         self.log_follower_event('orbit_mode',
                                yaw_rate=orbit_yaw_rate,
@@ -916,11 +921,16 @@ class FWAttitudeRateFollower(BaseFollower):
             roll_rate, pitch_rate, yaw_rate
         )
 
-        # === Update Commands ===
-        self.set_command_field('rollspeed_deg_s', roll_rate)
-        self.set_command_field('pitchspeed_deg_s', pitch_rate)
-        self.set_command_field('yawspeed_deg_s', yaw_rate)
-        self.set_command_field('thrust', thrust)
+        if not self.set_command_fields(
+            {
+                'rollspeed_deg_s': roll_rate,
+                'pitchspeed_deg_s': pitch_rate,
+                'yawspeed_deg_s': yaw_rate,
+                'thrust': thrust,
+            },
+            reason='fw_attitude_rate_normal_tracking',
+        ):
+            raise RuntimeError("Failed to apply fixed-wing attitude-rate command intent")
 
         # Store state for telemetry
         self.target_bank_angle = target_bank
@@ -947,9 +957,17 @@ class FWAttitudeRateFollower(BaseFollower):
             bool: True if following executed successfully, False otherwise.
         """
         try:
+            inactive_output = self.should_process_inactive_tracker_output(tracker_data)
+
             # Validate tracker compatibility (errors are logged by base class with rate limiting)
-            if not self.validate_tracker_compatibility(tracker_data):
+            if (
+                not self.validate_tracker_compatibility(tracker_data) and
+                not inactive_output
+            ):
                 return False
+
+            if inactive_output:
+                return self._handle_inactive_tracker_output()
 
             # Extract target coordinates
             target_coords = self.extract_target_coordinates(tracker_data)
@@ -960,7 +978,7 @@ class FWAttitudeRateFollower(BaseFollower):
             # Handle target loss
             if not self._handle_target_loss(target_coords):
                 # Target lost - orbit or other action already being executed
-                return False
+                return bool(self.target_lost and not getattr(self, 'rtl_triggered', False))
 
             # Check stall protection
             if not self._check_stall_protection():
@@ -1000,6 +1018,83 @@ class FWAttitudeRateFollower(BaseFollower):
             logger.error(f"Unexpected error in {self.__class__.__name__}.follow_target(): {e}")
             self.reset_command_fields()
             return False
+
+    def _handle_inactive_tracker_output(self) -> bool:
+        """Apply fixed-wing target-loss policy without normal pursuit math."""
+        current_time = time.time()
+        if not getattr(self, 'target_lost', False):
+            self.target_lost = True
+            self.target_loss_start_time = current_time
+            logger.warning("Inactive tracker output received - entering target-loss policy")
+
+        loss_duration = current_time - self.target_loss_start_time
+        self._execute_inactive_target_loss_action(loss_duration)
+
+        self.update_telemetry_metadata('target_lost', True)
+        self.update_telemetry_metadata('target_loss_duration', loss_duration)
+        return not getattr(self, 'rtl_triggered', False)
+
+    def _execute_inactive_target_loss_action(self, loss_duration: float) -> None:
+        """
+        Write a deterministic safe fixed-wing command for stale/inactive input.
+
+        Inactive output can be caused by cached frames or prediction-only target
+        state. Re-sending the previous pursuit command is not acceptable, so the
+        configured target-loss action is applied immediately.
+        """
+        if self.target_loss_action == TargetLossAction.ORBIT:
+            self._execute_orbit()
+        elif self.target_loss_action == TargetLossAction.RTL:
+            if not getattr(self, 'rtl_triggered', False):
+                self._trigger_rtl("inactive_tracker_output")
+        elif self.target_loss_action == TargetLossAction.CONTINUE:
+            self._set_wings_level_cruise_command()
+            logger.warning(
+                "Fixed-wing target-loss action CONTINUE received inactive input; "
+                "publishing wings-level cruise command instead of stale pursuit"
+            )
+        else:
+            self._set_wings_level_cruise_command()
+            logger.warning(
+                "Unknown fixed-wing target-loss action %s after %.1fs; "
+                "publishing wings-level cruise command",
+                self.target_loss_action,
+                loss_duration,
+            )
+
+    def _set_wings_level_cruise_command(self) -> None:
+        """Publish a conservative wings-level cruise command."""
+        if not self.set_command_fields(
+            {
+                'rollspeed_deg_s': 0.0,
+                'pitchspeed_deg_s': 0.0,
+                'yawspeed_deg_s': 0.0,
+                'thrust': self.cruise_thrust,
+            },
+            reason='fw_attitude_rate_wings_level_cruise',
+        ):
+            raise RuntimeError("Failed to apply fixed-wing cruise command intent")
+        self.orbit_mode_active = False
+        self.last_thrust_command = self.cruise_thrust
+        self.last_command_time = time.time()
+
+    def should_process_inactive_tracker_output(self, tracker_data: TrackerOutput) -> bool:
+        """
+        Allow inactive position outputs to publish fixed-wing target-loss commands.
+
+        Inactive tracker output must not run normal pursuit math even when it
+        carries last-known valid coordinates.
+        """
+        return self._is_inactive_tracker_output(
+            tracker_data,
+            allowed_types={
+                TrackerDataType.POSITION_2D,
+                TrackerDataType.POSITION_3D,
+                TrackerDataType.BBOX_CONFIDENCE,
+                TrackerDataType.VELOCITY_AWARE,
+                TrackerDataType.MULTI_TARGET,
+            },
+        )
 
     # ==================== Telemetry and Status ====================
 

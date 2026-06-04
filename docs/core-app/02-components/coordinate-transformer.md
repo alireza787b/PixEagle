@@ -372,5 +372,5 @@ print(f"Velocity: {velocity}")
 
 ## Related Components
 
-- [GimbalTracker](../../trackers/02-components/gimbal-tracker.md) - Uses coordinate transforms
-- [GimbalFollower](../../followers/02-components/gm-velocity-chase-follower.md) - Velocity calculations
+- [GimbalTracker](../../trackers/02-reference/gimbal-tracker.md) - Uses coordinate transforms
+- [GM Velocity Chase Follower](../../followers/02-reference/gm-velocity-chase.md) - Velocity calculations

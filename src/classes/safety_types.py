@@ -122,6 +122,9 @@ FIELD_LIMIT_MAPPING = {
     'yawspeed_deg_s': 'MAX_YAW_RATE',
     'pitchspeed_deg_s': 'MAX_PITCH_RATE',
     'rollspeed_deg_s': 'MAX_ROLL_RATE',
+    # Deprecated aliases kept until their tracked removal.
+    'yaw_rate': 'MAX_YAW_RATE',
+    'yaw_speed_deg_s': 'MAX_YAW_RATE',
     # Fixed-wing specific
     'airspeed': 'MAX_AIRSPEED',
 }
@@ -143,5 +146,4 @@ FOLLOWER_VEHICLE_TYPE = {
     # Fixed-wing followers
     'FW_ATTITUDE_RATE': VehicleType.FIXED_WING,
 }
-
 

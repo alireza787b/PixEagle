@@ -371,6 +371,6 @@ print(f"Compatibility: {compat}")  # 'required'
 
 ## Related Components
 
-- [TrackerOutput](../../trackers/02-components/tracker-output.md) - Uses schema validation
-- [TrackerFactory](../../trackers/02-components/tracker-factory.md) - Uses factory keys
+- [TrackerOutput](../../trackers/01-architecture/tracker-output.md) - Uses schema validation
+- [Tracker Factory](../../trackers/01-architecture/factory-pattern.md) - Uses factory keys
 - [FastAPIHandler](fastapi-handler.md) - Exposes schema endpoints

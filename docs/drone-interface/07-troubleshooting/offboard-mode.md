@@ -49,11 +49,16 @@ await drone.offboard.start()  # Now accepted
 
 ```yaml
 # config_default.yaml
-px4:
-  offboard_rate_hz: 20  # Must be > 2 Hz
+Setpoint:
+  SETPOINT_PUBLISH_RATE_S: 0.1  # SetpointSender monitor period in seconds
+  OFFBOARD_COMMAND_RATE_HZ: 20.0 # OffboardCommander MAVSDK heartbeat rate
+  OFFBOARD_COMMAND_TTL_S: 0.5    # Latest intent age before defaults
 ```
 
-Check actual rate:
+`OffboardCommander` owns the MAVSDK Offboard heartbeat. `SETPOINT_PUBLISH_RATE_S`
+only controls the legacy SetpointSender monitor.
+
+Check actual command-dispatch logs:
 
 ```bash
 # In logs
@@ -259,7 +264,7 @@ mavlink_manager.register_flight_mode_callback(on_mode_change)
 
 ```bash
 # Via MAVLink2REST
-curl http://localhost:8088/mavlink/vehicles/1/components/1/messages/HEARTBEAT | jq
+curl http://127.0.0.1:8088/v1/mavlink/vehicles/1/components/1/messages/HEARTBEAT | jq
 
 # Look at custom_mode field
 # 393216 = Offboard
@@ -283,18 +288,20 @@ ulog_params flight.ulg | grep OFFBOARD
 ```yaml
 # config_default.yaml
 
-px4:
-  connection_string: "udp://:14541"
-  offboard_rate_hz: 20          # >= 10 Hz
+PX4:
+  SYSTEM_ADDRESS: "udp://127.0.0.1:14540"
 
-safety:
-  max_velocity_forward: 8.0
-  max_velocity_lateral: 5.0
-  max_velocity_vertical: 3.0
-  max_yaw_rate: 45.0
+Setpoint:
+  SETPOINT_PUBLISH_RATE_S: 0.1  # SetpointSender monitor period in seconds
 
-circuit_breaker:
-  active: false                  # Must be false for flight
+Safety:
+  GlobalLimits:
+    MAX_VELOCITY_FORWARD: 8.0
+    MAX_VELOCITY_LATERAL: 5.0
+    MAX_VELOCITY_VERTICAL: 3.0
+    MAX_YAW_RATE: 45.0
+
+FOLLOWER_CIRCUIT_BREAKER: false  # Must be false for live flight
 ```
 
 ### PX4 Parameters

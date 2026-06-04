@@ -26,9 +26,30 @@ class MavlinkDataManager:
         self.polling_interval = polling_interval
         self.data_points = data_points  # Dictionary of data points to extract
         self.enabled = enabled
+        self.request_timeout_s = self._validate_float_config(
+            "MAVLINK_REQUEST_TIMEOUT_S",
+            getattr(Parameters, "MAVLINK_REQUEST_TIMEOUT_S", 5.0),
+            default=5.0,
+            minimum=0.1,
+            maximum=30.0,
+        )
+        self.request_retries = self._validate_int_config(
+            "MAVLINK_REQUEST_RETRIES",
+            getattr(Parameters, "MAVLINK_REQUEST_RETRIES", 0),
+            default=0,
+            minimum=0,
+            maximum=5,
+        )
+        self.stale_timeout_s = self._validate_float_config(
+            "MAVLINK_STALE_TIMEOUT_S",
+            getattr(Parameters, "MAVLINK_STALE_TIMEOUT_S", 2.0),
+            default=2.0,
+            minimum=0.1,
+            maximum=60.0,
+        )
         self.data = {}  # Stores the fetched data
         self._stop_event = threading.Event()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self.velocity_buffer = deque(maxlen=10)  # Buffer for velocity smoothing
         self.min_velocity_threshold = 0.5  # m/s, adjust based on your drone's characteristics
         self.gamma = 0
@@ -36,8 +57,13 @@ class MavlinkDataManager:
         # Connection state tracking
         self.connection_state = "disconnected"  # disconnected, connecting, connected, error
         self.last_successful_connection = None
+        self.last_successful_fetch_monotonic_s = None
+        self.last_fetch_attempt_monotonic_s = None
         self.connection_error_count = 0
+        self.last_error = None
         self.last_status_log = 0  # For throttling status messages
+        self._validation_timeout_until_monotonic_s = None
+        self._validation_timeout_reason = None
 
         # Flight mode monitoring for Offboard exit detection
         self.last_flight_mode = None
@@ -46,6 +72,60 @@ class MavlinkDataManager:
 
         # Setup logging
         self.logger = logging.getLogger(__name__)
+
+    @staticmethod
+    def _validate_float_config(name, value, *, default, minimum, maximum):
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            logging.getLogger(__name__).warning(
+                "Invalid %s=%r; using default %.3f",
+                name,
+                value,
+                default,
+            )
+            return default
+        if not math.isfinite(parsed) or parsed < minimum:
+            logging.getLogger(__name__).warning(
+                "%s must be finite and >= %.3f, got %r; using default %.3f",
+                name,
+                minimum,
+                value,
+                default,
+            )
+            return default
+        if parsed > maximum:
+            logging.getLogger(__name__).warning(
+                "%s %.3f exceeds %.3f; clamping",
+                name,
+                parsed,
+                maximum,
+            )
+            return maximum
+        return parsed
+
+    @staticmethod
+    def _validate_int_config(name, value, *, default, minimum, maximum):
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            logging.getLogger(__name__).warning(
+                "Invalid %s=%r; using default %d",
+                name,
+                value,
+                default,
+            )
+            return default
+        if parsed < minimum:
+            logging.getLogger(__name__).warning(
+                "%s must be >= %d, got %r; using default %d",
+                name,
+                minimum,
+                value,
+                default,
+            )
+            return default
+        return min(parsed, maximum)
 
     def start_polling(self):
         """
@@ -79,28 +159,14 @@ class MavlinkDataManager:
         """
         Fetch all MAVLink data in a single request and parse it into the data dictionary.
         """
-        url = f"http://{self.mavlink_host}:{self.mavlink_port}/v1/mavlink"
-        
         try:
             # Update connection state
-            if self.connection_state != "connecting":
-                self.connection_state = "connecting"
-            
-            response = requests.get(url, timeout=5)  # Add timeout
-            response.raise_for_status()
-            json_data = response.json()
+            with self._lock:
+                if self.connection_state in ("disconnected", "error"):
+                    self.connection_state = "connecting"
 
-            # Connection successful
-            was_disconnected = self.connection_state != "connected"
-            if was_disconnected:
-                self.connection_state = "connected"
-                self.last_successful_connection = time.time()
-                self.connection_error_count = 0
-                logging_manager.log_connection_status(
-                    self.logger, "MAVLink", True, 
-                    f"to {self.mavlink_host}:{self.mavlink_port}"
-                )
-            
+            json_data = self._request_json("/v1/mavlink")
+
             # Log polling activity
             logging_manager.log_polling_activity(self.logger, "MAVLink", True)
 
@@ -170,8 +236,10 @@ class MavlinkDataManager:
     
     def _handle_connection_error(self, error_reason):
         """Handle connection errors with clean, throttled logging."""
-        self.connection_state = "error"
-        self.connection_error_count += 1
+        with self._lock:
+            self.connection_state = "error"
+            self.connection_error_count += 1
+            self.last_error = error_reason
         
         # Log connection status and polling activity
         logging_manager.log_connection_status(
@@ -179,6 +247,137 @@ class MavlinkDataManager:
             f"{error_reason} ({self.mavlink_host}:{self.mavlink_port})"
         )
         logging_manager.log_polling_activity(self.logger, "MAVLink", False, error_reason)
+
+    def inject_timeout_for_validation(
+        self,
+        *,
+        failure_count=1,
+        reason="sitl_mavlink2rest_timeout",
+        force_stale=True,
+        timeout_window_s=2.0,
+    ):
+        """
+        Record validation-only MAVLink2REST timeout state without touching services.
+
+        This hook exercises PixEagle's local telemetry freshness/status contract.
+        It does not stop MAVLink2REST, PX4, Docker, MAVLink routing, or network
+        interfaces. During the bounded timeout window, PixEagle's own
+        MAVLink2REST client requests fail locally before calling `requests.get`.
+        """
+        try:
+            count = int(failure_count)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("failure_count must be an integer") from exc
+
+        if count < 1 or count > 100:
+            raise ValueError("failure_count must be between 1 and 100")
+
+        try:
+            window_s = float(timeout_window_s)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("timeout_window_s must be a number") from exc
+        if not math.isfinite(window_s) or window_s < 0.0 or window_s > 30.0:
+            raise ValueError("timeout_window_s must be finite and between 0 and 30")
+
+        now = time.monotonic()
+        with self._lock:
+            self.last_fetch_attempt_monotonic_s = now
+            self._validation_timeout_reason = reason
+            self._validation_timeout_until_monotonic_s = (
+                now + window_s if window_s > 0.0 else None
+            )
+            if force_stale and self.last_successful_fetch_monotonic_s is not None:
+                stale_age_s = self.stale_timeout_s + 0.001
+                stale_timestamp = now - stale_age_s
+                self.last_successful_fetch_monotonic_s = min(
+                    self.last_successful_fetch_monotonic_s,
+                    stale_timestamp,
+                )
+
+        error_reason = f"Connection timeout - {reason}"
+        for _ in range(count):
+            self._handle_connection_error(error_reason)
+
+        return {
+            "applied_failure_count": count,
+            "failure_reason": reason,
+            "force_stale": bool(force_stale),
+            "timeout_window_s": window_s,
+            "mavlink_telemetry": self.get_connection_status(),
+        }
+
+    def _validation_timeout_active(self, now=None):
+        """Return whether a validation-only local timeout window is active."""
+        with self._lock:
+            deadline = self._validation_timeout_until_monotonic_s
+            if deadline is None:
+                return False
+
+            now = time.monotonic() if now is None else now
+            if now <= deadline:
+                return True
+
+            self._validation_timeout_until_monotonic_s = None
+            self._validation_timeout_reason = None
+            return False
+
+    def _validation_timeout_exception(self):
+        if not self._validation_timeout_active():
+            return None
+
+        with self._lock:
+            reason = self._validation_timeout_reason or "sitl_mavlink2rest_timeout"
+        timeout_cls = getattr(getattr(requests, "exceptions", None), "Timeout", None)
+        if not isinstance(timeout_cls, type) or not issubclass(timeout_cls, BaseException):
+            timeout_cls = TimeoutError
+        return timeout_cls(f"Validation MAVLink2REST timeout - {reason}")
+
+    def _record_successful_fetch(self):
+        """Record a successful MAVLink2REST request for aggregate and per-message paths."""
+        with self._lock:
+            was_connected = self.connection_state == "connected"
+            self.connection_state = "connected"
+            self.last_successful_connection = time.time()
+            self.last_successful_fetch_monotonic_s = time.monotonic()
+            self.connection_error_count = 0
+            self.last_error = None
+        if not was_connected:
+            logging_manager.log_connection_status(
+                self.logger,
+                "MAVLink",
+                True,
+                f"to {self.mavlink_host}:{self.mavlink_port}",
+            )
+
+    def _request_json(self, uri):
+        """Fetch one MAVLink2REST URI with configured timeout and retry policy."""
+        url = f"http://{self.mavlink_host}:{self.mavlink_port}{uri}"
+        attempts = self.request_retries + 1
+        last_error = None
+        for attempt in range(1, attempts + 1):
+            self.last_fetch_attempt_monotonic_s = time.monotonic()
+            try:
+                validation_timeout = self._validation_timeout_exception()
+                if validation_timeout is not None:
+                    raise validation_timeout
+                response = requests.get(url, timeout=self.request_timeout_s)
+                response.raise_for_status()
+                json_data = response.json()
+                self._record_successful_fetch()
+                return json_data
+            except Exception as exc:
+                last_error = exc
+                if attempt < attempts:
+                    self.logger.debug(
+                        "MAVLink2REST request failed on attempt %d/%d for %s: %s",
+                        attempt,
+                        attempts,
+                        uri,
+                        exc,
+                    )
+                    continue
+                raise
+        raise last_error
             
             
     def _calculate_flight_path_angle(self):
@@ -276,14 +475,62 @@ class MavlinkDataManager:
         Returns:
             dict: The parsed JSON data from the response.
         """
-        url = f"http://{self.mavlink_host}:{self.mavlink_port}{uri}"
         try:
-            response = requests.get(url)
-            response.raise_for_status()
-            return response.json()
-        except requests.RequestException as e:
-            self.logger.error(f"Error fetching data from {url}: {e}")
+            return await asyncio.to_thread(self._request_json, uri)
+        except Exception as e:
+            self._handle_connection_error(f"Request failed: {str(e)[:50]}...")
+            self.logger.error(f"Error fetching data from MAVLink2REST URI {uri}: {e}")
             return None
+
+    def get_connection_status(self):
+        """Return MAVLink2REST connection and telemetry freshness diagnostics."""
+        now = time.monotonic()
+        with self._lock:
+            validation_timeout_active = self._validation_timeout_active(now)
+            age_s = None
+            fresh = False
+            if self.last_successful_fetch_monotonic_s is not None:
+                age_s = max(0.0, now - self.last_successful_fetch_monotonic_s)
+                fresh = age_s <= self.stale_timeout_s
+
+            connection_state = "error" if validation_timeout_active else self.connection_state
+            last_error = (
+                f"Connection timeout - {self._validation_timeout_reason}"
+                if validation_timeout_active
+                else self.last_error
+            )
+
+            if not self.enabled:
+                status = "disabled"
+            elif validation_timeout_active and self.last_successful_fetch_monotonic_s is not None:
+                status = "stale"
+                fresh = False
+            elif validation_timeout_active:
+                status = "error"
+                fresh = False
+            elif connection_state == "connected" and fresh:
+                status = "fresh"
+            elif connection_state == "connected":
+                status = "stale"
+            elif connection_state == "error" and self.last_successful_fetch_monotonic_s is not None:
+                status = "stale"
+            else:
+                status = connection_state
+
+            return {
+                "enabled": self.enabled,
+                "status": status,
+                "connection_state": connection_state,
+                "fresh": fresh,
+                "last_success_age_s": age_s,
+                "stale_timeout_s": self.stale_timeout_s,
+                "request_timeout_s": self.request_timeout_s,
+                "request_retries": self.request_retries,
+                "connection_error_count": self.connection_error_count,
+                "last_error": last_error,
+                "endpoint": f"http://{self.mavlink_host}:{self.mavlink_port}",
+                "validation_timeout_active": validation_timeout_active,
+            }
 
     async def fetch_attitude_data(self):
         """

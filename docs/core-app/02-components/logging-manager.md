@@ -108,7 +108,7 @@ def log_connection_status(
 
 **Example Output:**
 ```
-[MAVLink] Connected (udp://localhost:14551)
+[MAVLink] Connected (udp://127.0.0.1:14569)
 [MAVLink] Disconnected (timeout)
 [MAVLink] Still disconnected (3 attempts, 15s)
 ```

@@ -42,6 +42,20 @@ The tracker system feeds data to followers through `TrackerOutput`:
 └──────────────────┘
 ```
 
+`AppController` is also the command-freshness gate. It rejects or converts
+tracker output before follower dispatch when:
+
+- the current video frame is cached or unavailable;
+- a vision tracker reports prediction-only or stale data;
+- tracker metadata sets `usable_for_following: false`.
+
+These cases may still be visible in telemetry and overlays, but they are not
+treated as active command targets. Followers that can safely respond to inactive
+output must opt in and publish explicit target-loss commands. External trackers
+are allowed to bypass video-frame freshness only when they explicitly publish
+capabilities with `requires_video: false`; absent capabilities default to
+vision-dependent fail-closed behavior.
+
 ---
 
 ## Schema Compatibility
@@ -82,7 +96,7 @@ Gimbal followers require `GIMBAL_ANGLES`:
 The GimbalTracker receives angles via UDP:
 
 ```python
-# Message format (JSON over UDP)
+# Normalized data contract produced by GimbalTracker
 {
     "yaw": 45.0,      # degrees
     "pitch": -10.0,   # degrees
@@ -90,8 +104,10 @@ The GimbalTracker receives angles via UDP:
 }
 
 # Configuration
-GIMBAL_UDP_HOST: "0.0.0.0"
-GIMBAL_UDP_PORT: 14555
+GimbalTracker:
+  UDP_HOST: "127.0.0.1"
+  UDP_PORT: 9003
+  LISTEN_PORT: 9004
 ```
 
 ### External Data Sources
@@ -142,7 +158,8 @@ telemetry = {
     "tracker": {
         "active": tracker_output.tracking_active,
         "position": tracker_output.position_2d,
-        "confidence": tracker_output.confidence
+        "confidence": tracker_output.confidence,
+        "usable_for_following": tracker_output.raw_data.get("usable_for_following")
     }
 }
 ```

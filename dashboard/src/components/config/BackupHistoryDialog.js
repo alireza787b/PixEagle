@@ -7,8 +7,8 @@ import {
   IconButton, Tooltip, Chip, Divider, Paper
 } from '@mui/material';
 import {
-  History, Restore, Delete, Refresh, Schedule,
-  Storage, CheckCircle, Warning
+  History, Restore, Refresh, Schedule,
+  Storage, CheckCircle
 } from '@mui/icons-material';
 
 import { useConfigHistory } from '../../hooks/useConfig';

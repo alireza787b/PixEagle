@@ -69,8 +69,17 @@ resolve_backend_port() {
     local config_file="$1"
     local resolved_port="$PIXEAGLE_DEFAULT_BACKEND_PORT"
     local candidate=""
+    local source_file="$config_file"
 
-    candidate="$(get_yaml_int_value "$config_file" "HTTP_STREAM_PORT" 2>/dev/null || true)"
+    if [ ! -f "$source_file" ]; then
+        local default_file
+        default_file="$(dirname "$config_file")/config_default.yaml"
+        if [ -f "$default_file" ]; then
+            source_file="$default_file"
+        fi
+    fi
+
+    candidate="$(get_yaml_int_value "$source_file" "HTTP_STREAM_PORT" 2>/dev/null || true)"
     if is_valid_port "$candidate"; then
         resolved_port="$candidate"
     fi

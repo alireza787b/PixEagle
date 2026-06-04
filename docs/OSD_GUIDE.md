@@ -102,7 +102,7 @@ ls resources/fonts/  # Should show RobotoMono-Regular.ttf and IBMPlexMono-Regula
 python -c "import yaml; print(yaml.safe_load(open('configs/osd_presets/my_preset.yaml')))"
 
 # OSD not appearing?
-curl http://localhost:5000/api/osd/status  # Check enabled: true
+curl http://127.0.0.1:5077/api/osd/status  # Check enabled: true
 
 # Overlapping elements?
 # Increase offset spacing or reduce font_scale
@@ -555,7 +555,7 @@ OSD:
 #### 3. Run PixEagle
 
 ```bash
-bash run_pixeagle.sh
+bash scripts/run.sh
 ```
 
 #### 4. Verify OSD
@@ -568,16 +568,16 @@ bash run_pixeagle.sh
 
 ```bash
 # Check OSD status
-curl http://localhost:5000/api/osd/status
+curl http://127.0.0.1:5077/api/osd/status
 
 # Toggle OSD on/off
-curl -X POST http://localhost:5000/api/osd/toggle
+curl -X POST http://127.0.0.1:5077/api/osd/toggle
 
 # Switch to minimal preset
-curl -X POST http://localhost:5000/api/osd/preset/minimal
+curl -X POST http://127.0.0.1:5077/api/osd/preset/minimal
 
 # List available presets
-curl http://localhost:5000/api/osd/presets
+curl http://127.0.0.1:5077/api/osd/presets
 ```
 
 ---
@@ -803,7 +803,7 @@ OSD:
 Or load via API:
 
 ```bash
-curl -X POST http://localhost:5000/api/osd/preset/my_custom
+curl -X POST http://127.0.0.1:5077/api/osd/preset/my_custom
 ```
 
 ---
@@ -1493,16 +1493,16 @@ async def load_osd_preset(self, preset_name: str):
 
 ```bash
 # Check status
-curl http://localhost:5000/api/osd/status
+curl http://127.0.0.1:5077/api/osd/status
 
 # Toggle
-curl -X POST http://localhost:5000/api/osd/toggle
+curl -X POST http://127.0.0.1:5077/api/osd/toggle
 
 # Switch preset
-curl -X POST http://localhost:5000/api/osd/preset/minimal
+curl -X POST http://127.0.0.1:5077/api/osd/preset/minimal
 
 # List presets
-curl http://localhost:5000/api/osd/presets
+curl http://127.0.0.1:5077/api/osd/presets
 ```
 
 ---
@@ -1519,7 +1519,7 @@ curl http://localhost:5000/api/osd/presets
 
 1. **Check if OSD is enabled:**
 ```bash
-curl http://localhost:5000/api/osd/status
+curl http://127.0.0.1:5077/api/osd/status
 # Should show: "enabled": true
 ```
 
@@ -1532,7 +1532,7 @@ OSD:
 
 3. **Enable via API:**
 ```bash
-curl -X POST http://localhost:5000/api/osd/toggle
+curl -X POST http://127.0.0.1:5077/api/osd/toggle
 ```
 
 4. **Check logs:**
@@ -1730,7 +1730,7 @@ OSD:
 
 4. **Use API to list presets:**
 ```bash
-curl http://localhost:5000/api/osd/presets
+curl http://127.0.0.1:5077/api/osd/presets
 ```
 
 #### Fonts Not Found
@@ -1834,16 +1834,16 @@ OSD:
 
 ```bash
 # Check status
-curl http://localhost:5000/api/osd/status
+curl http://127.0.0.1:5077/api/osd/status
 
 # Toggle on/off
-curl -X POST http://localhost:5000/api/osd/toggle
+curl -X POST http://127.0.0.1:5077/api/osd/toggle
 
 # Load preset
-curl -X POST http://localhost:5000/api/osd/preset/minimal
+curl -X POST http://127.0.0.1:5077/api/osd/preset/minimal
 
 # List presets
-curl http://localhost:5000/api/osd/presets
+curl http://127.0.0.1:5077/api/osd/presets
 ```
 
 ### Quick Preset Comparison

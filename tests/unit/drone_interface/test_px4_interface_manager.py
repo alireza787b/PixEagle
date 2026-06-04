@@ -119,18 +119,22 @@ def px4_interface(mock_parameters, mock_mavsdk_system, mock_setpoint_handler, mo
     """Create PX4InterfaceManager instance for testing."""
     with patch('classes.px4_interface_manager.System', return_value=mock_mavsdk_system):
         with patch('classes.px4_interface_manager.SetpointHandler', return_value=mock_setpoint_handler):
-            with patch('classes.px4_interface_manager.CIRCUIT_BREAKER_AVAILABLE', False):
-                from classes.px4_interface_manager import PX4InterfaceManager
+            with patch('classes.px4_interface_manager.CIRCUIT_BREAKER_AVAILABLE', True):
+                with patch('classes.px4_interface_manager.FollowerCircuitBreaker') as mock_cb:
+                    mock_cb.is_active.return_value = False
+                    mock_cb.log_command_instead_of_execute = MagicMock()
+                    mock_cb.log_command_allowed = MagicMock()
+                    from classes.px4_interface_manager import PX4InterfaceManager
 
-                mock_app_controller = MagicMock()
-                mock_app_controller.mavlink_data_manager = mock_mavlink_data_manager
+                    mock_app_controller = MagicMock()
+                    mock_app_controller.mavlink_data_manager = mock_mavlink_data_manager
 
-                interface = PX4InterfaceManager(app_controller=mock_app_controller)
-                interface.drone = mock_mavsdk_system
-                interface.setpoint_handler = mock_setpoint_handler
-                interface.mavlink_data_manager = mock_mavlink_data_manager
+                    interface = PX4InterfaceManager(app_controller=mock_app_controller)
+                    interface.drone = mock_mavsdk_system
+                    interface.setpoint_handler = mock_setpoint_handler
+                    interface.mavlink_data_manager = mock_mavlink_data_manager
 
-                yield interface
+                    yield interface
 
 
 # ============================================================================
@@ -222,6 +226,29 @@ class TestPX4InterfaceManagerConnection:
                 mock_mavsdk_system.connect.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_connect_degrades_when_circuit_breaker_unavailable(
+        self,
+        mock_parameters,
+        mock_mavsdk_system,
+        mock_setpoint_handler,
+        mock_mavlink_data_manager,
+    ):
+        """Unavailable safety modules must block connect without mock-active state."""
+        with patch('classes.px4_interface_manager.System', return_value=mock_mavsdk_system):
+            with patch('classes.px4_interface_manager.SetpointHandler', return_value=mock_setpoint_handler):
+                with patch('classes.px4_interface_manager.CIRCUIT_BREAKER_AVAILABLE', False):
+                    from classes.px4_interface_manager import PX4InterfaceManager
+
+                    mock_app_controller = MagicMock()
+                    mock_app_controller.mavlink_data_manager = mock_mavlink_data_manager
+                    interface = PX4InterfaceManager(app_controller=mock_app_controller)
+
+                    await interface.connect()
+
+                    assert interface.active_mode is False
+                    mock_mavsdk_system.connect.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_stop_cancels_update_task(self, px4_interface):
         """Test that stop cancels update task."""
         import asyncio
@@ -292,6 +319,90 @@ class TestPX4InterfaceManagerTelemetry:
 
         assert result == 15.0
 
+    def test_follower_data_refresh_rate_is_hz(self, px4_interface, mock_parameters):
+        """FOLLOWER_DATA_REFRESH_RATE is Hz and converts to a sleep period."""
+        mock_parameters.FOLLOWER_DATA_REFRESH_RATE = 5.0
+
+        assert px4_interface.get_follower_data_refresh_rate_hz() == 5.0
+        assert px4_interface.get_follower_data_refresh_period_s() == pytest.approx(0.2)
+
+    def test_follower_data_refresh_rate_invalid_uses_default(self, px4_interface, mock_parameters):
+        """Invalid telemetry refresh values fall back to the safe default rate."""
+        mock_parameters.FOLLOWER_DATA_REFRESH_RATE = 0
+
+        assert px4_interface.get_follower_data_refresh_rate_hz() == 5.0
+        assert px4_interface.get_follower_data_refresh_period_s() == pytest.approx(0.2)
+
+    def test_follower_data_refresh_rate_clamps_high_value(self, px4_interface, mock_parameters):
+        """Excessive telemetry refresh rates are bounded before conversion."""
+        mock_parameters.FOLLOWER_DATA_REFRESH_RATE = 1000.0
+
+        assert px4_interface.get_follower_data_refresh_rate_hz() == 100.0
+        assert px4_interface.get_follower_data_refresh_period_s() == pytest.approx(0.01)
+
+    @pytest.mark.parametrize(
+        "raw_rate, expected_hz",
+        [
+            ("2.5", 2.5),
+            (None, 5.0),
+            ("not-a-rate", 5.0),
+            (-1.0, 5.0),
+            (math.nan, 5.0),
+            (math.inf, 5.0),
+            (0.05, 0.1),
+            (1000.0, 100.0),
+        ],
+    )
+    def test_follower_data_refresh_rate_validation_matrix(
+        self,
+        px4_interface,
+        mock_parameters,
+        raw_rate,
+        expected_hz,
+    ):
+        """Telemetry refresh rate validation handles strings, bounds, and non-finite values."""
+        mock_parameters.FOLLOWER_DATA_REFRESH_RATE = raw_rate
+
+        assert px4_interface.get_follower_data_refresh_rate_hz() == pytest.approx(expected_hz)
+        assert px4_interface.get_follower_data_refresh_period_s() == pytest.approx(1.0 / expected_hz)
+
+    def test_follower_data_refresh_rate_invalid_value_logs_warning(
+        self,
+        px4_interface,
+        mock_parameters,
+        caplog,
+    ):
+        """Invalid telemetry refresh config emits a visible warning."""
+        mock_parameters.FOLLOWER_DATA_REFRESH_RATE = "bad-rate"
+
+        with caplog.at_level("WARNING"):
+            rate_hz = px4_interface.get_follower_data_refresh_rate_hz()
+
+        assert rate_hz == 5.0
+        assert "Invalid FOLLOWER_DATA_REFRESH_RATE" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_update_drone_data_sleeps_using_hz_conversion(
+        self,
+        px4_interface,
+        mock_parameters,
+    ):
+        """The background telemetry loop sleeps for 1 / configured Hz."""
+        mock_parameters.USE_MAVLINK2REST = True
+        mock_parameters.FOLLOWER_DATA_REFRESH_RATE = 5.0
+        px4_interface.active_mode = True
+
+        async def update_once():
+            px4_interface.active_mode = False
+
+        px4_interface._update_telemetry_via_mavlink2rest = AsyncMock(side_effect=update_once)
+
+        with patch('classes.px4_interface_manager.asyncio.sleep', new_callable=AsyncMock) as mock_sleep:
+            await px4_interface.update_drone_data()
+
+        mock_sleep.assert_awaited_once()
+        assert mock_sleep.await_args.args[0] == pytest.approx(0.2)
+
 
 class TestPX4InterfaceManagerOffboard:
     """Tests for offboard mode control."""
@@ -332,6 +443,80 @@ class TestPX4InterfaceManagerOffboard:
         px4_interface.drone.offboard.stop.assert_called_once()
 
 
+class TestPX4InterfaceManagerValidationDisconnect:
+    """Tests for the validation-only local MAVSDK disconnect hook."""
+
+    @pytest.mark.asyncio
+    async def test_validation_disconnect_marks_command_path_and_cancels_update_task(
+        self,
+        px4_interface,
+    ):
+        """Local validation disconnect should stop telemetry updates and expose status."""
+        px4_interface.active_mode = True
+        task_started = asyncio.Event()
+
+        async def dummy_task():
+            task_started.set()
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                raise
+
+        px4_interface.update_task = asyncio.create_task(dummy_task())
+        await task_started.wait()
+
+        status = await px4_interface.inject_mavsdk_disconnect_for_validation(
+            reason="sitl_mavsdk_disconnect",
+            source="unit.px4",
+        )
+
+        assert status["status"] == "validation_disconnected"
+        assert status["connected"] is False
+        assert status["active_mode"] is False
+        assert status["validation_disconnect_active"] is True
+        assert status["disconnect_reason"] == "sitl_mavsdk_disconnect"
+        assert status["disconnect_source"] == "unit.px4"
+        assert status["disconnect_count"] == 1
+        assert status["last_error"] == "MAVSDK disconnected - sitl_mavsdk_disconnect"
+        assert px4_interface.update_task.done()
+
+    @pytest.mark.asyncio
+    async def test_validation_disconnect_blocks_commands_and_offboard_stop(
+        self,
+        px4_interface,
+    ):
+        """Command publication must fail closed while validation-disconnected."""
+        await px4_interface.inject_mavsdk_disconnect_for_validation(
+            reason="sitl_mavsdk_disconnect",
+            source="unit.px4",
+        )
+
+        command_result = await px4_interface.send_commands_unified()
+
+        assert command_result is False
+        px4_interface.drone.offboard.set_velocity_body.assert_not_called()
+        with pytest.raises(RuntimeError, match="MAVSDK disconnected - sitl_mavsdk_disconnect"):
+            await px4_interface.stop_offboard_mode()
+        px4_interface.drone.offboard.stop.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_connect_clears_validation_disconnect(self, px4_interface):
+        """A successful reconnect should clear validation-only disconnect state."""
+        await px4_interface.inject_mavsdk_disconnect_for_validation(
+            reason="sitl_mavsdk_disconnect",
+            source="unit.px4",
+        )
+
+        await px4_interface.connect()
+
+        status = px4_interface.get_connection_status()
+        assert status["status"] == "connected"
+        assert status["connected"] is True
+        assert status["validation_disconnect_active"] is False
+        assert status["disconnect_reason"] is None
+        assert px4_interface.drone.connect.await_count == 1
+
+
 class TestPX4InterfaceManagerVelocityCommands:
     """Tests for velocity body offboard commands."""
 
@@ -345,8 +530,9 @@ class TestPX4InterfaceManagerVelocityCommands:
             'yawspeed_deg_s': 15.0
         }
 
-        await px4_interface.send_velocity_body_offboard_commands()
+        result = await px4_interface.send_velocity_body_offboard_commands()
 
+        assert result is True
         px4_interface.drone.offboard.set_velocity_body.assert_called_once()
 
     @pytest.mark.asyncio
@@ -359,8 +545,9 @@ class TestPX4InterfaceManagerVelocityCommands:
             'yawspeed_deg_s': 0.0
         }
 
-        await px4_interface.send_velocity_body_offboard_commands()
+        result = await px4_interface.send_velocity_body_offboard_commands()
 
+        assert result is True
         px4_interface.drone.offboard.set_velocity_body.assert_called_once()
 
     @pytest.mark.asyncio
@@ -368,8 +555,77 @@ class TestPX4InterfaceManagerVelocityCommands:
         """Test handling missing setpoint handler."""
         px4_interface.setpoint_handler = None
 
-        # Should not raise, just log error
-        await px4_interface.send_velocity_body_offboard_commands()
+        result = await px4_interface.send_velocity_body_offboard_commands()
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_send_velocity_body_propagates_mavsdk_failure(self, px4_interface):
+        """MAVSDK send failure should return False to callers."""
+        px4_interface._safe_mavsdk_call = AsyncMock(return_value=False)
+
+        result = await px4_interface.send_velocity_body_offboard_commands()
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_send_velocity_body_blocks_non_finite_values(self, px4_interface, mock_setpoint_handler):
+        """Final PX4 boundary rejects NaN/Inf before MAVSDK construction."""
+        mock_setpoint_handler.get_fields.return_value = {
+            'vel_body_fwd': float('nan'),
+            'vel_body_right': 0.0,
+            'vel_body_down': 0.0,
+            'yawspeed_deg_s': 0.0,
+        }
+
+        result = await px4_interface.send_velocity_body_offboard_commands()
+
+        assert result is False
+        px4_interface.drone.offboard.set_velocity_body.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_send_velocity_body_degrades_when_circuit_breaker_unavailable(
+        self,
+        px4_interface,
+        mock_setpoint_handler,
+    ):
+        """Unavailable circuit-breaker module blocks PX4 send and reports degraded failure."""
+        mock_setpoint_handler.get_fields.return_value = {
+            'vel_body_fwd': 0.1,
+            'vel_body_right': 0.0,
+            'vel_body_down': 0.0,
+            'yawspeed_deg_s': 0.0,
+        }
+
+        with patch('classes.px4_interface_manager.CIRCUIT_BREAKER_AVAILABLE', False):
+            result = await px4_interface.send_velocity_body_offboard_commands()
+
+        assert result is False
+        px4_interface.drone.offboard.set_velocity_body.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_send_velocity_body_allows_explicit_safety_module_bypass(
+        self,
+        px4_interface,
+        mock_setpoint_handler,
+        monkeypatch,
+    ):
+        """The safety-module bypass is explicit and testable."""
+        from classes.parameters import Parameters
+
+        monkeypatch.setattr(Parameters, "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES", True, raising=False)
+        mock_setpoint_handler.get_fields.return_value = {
+            'vel_body_fwd': 0.1,
+            'vel_body_right': 0.0,
+            'vel_body_down': 0.0,
+            'yawspeed_deg_s': 0.0,
+        }
+
+        with patch('classes.px4_interface_manager.CIRCUIT_BREAKER_AVAILABLE', False):
+            result = await px4_interface.send_velocity_body_offboard_commands()
+
+        assert result is True
+        px4_interface.drone.offboard.set_velocity_body.assert_called_once()
 
 
 class TestPX4InterfaceManagerAttitudeRateCommands:
@@ -386,8 +642,9 @@ class TestPX4InterfaceManagerAttitudeRateCommands:
             'thrust': 0.6
         }
 
-        await px4_interface.send_attitude_rate_commands()
+        result = await px4_interface.send_attitude_rate_commands()
 
+        assert result is True
         px4_interface.drone.offboard.set_attitude_rate.assert_called_once()
 
     @pytest.mark.asyncio
@@ -402,9 +659,27 @@ class TestPX4InterfaceManagerAttitudeRateCommands:
             # thrust not specified, should use hover_throttle
         }
 
-        await px4_interface.send_attitude_rate_commands()
+        result = await px4_interface.send_attitude_rate_commands()
 
+        assert result is True
         px4_interface.drone.offboard.set_attitude_rate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_send_attitude_rate_blocks_invalid_thrust(self, px4_interface, mock_setpoint_handler):
+        """Final PX4 boundary clamps normalized thrust before MAVSDK dispatch."""
+        mock_setpoint_handler.get_control_type.return_value = 'attitude_rate'
+        mock_setpoint_handler.get_fields.return_value = {
+            'rollspeed_deg_s': 0.0,
+            'pitchspeed_deg_s': 0.0,
+            'yawspeed_deg_s': 0.0,
+            'thrust': 2.0,
+        }
+
+        result = await px4_interface.send_attitude_rate_commands()
+
+        assert result is True
+        sent = px4_interface.drone.offboard.set_attitude_rate.await_args.args[0]
+        assert sent.thrust_value == 1.0
 
 
 class TestPX4InterfaceManagerUnifiedDispatch:
@@ -580,6 +855,53 @@ class TestPX4InterfaceManagerSafeMAVSDKCall:
         result = await px4_interface._safe_mavsdk_call(failing_call)
 
         assert result is False
+
+
+class TestPX4CommandGateFailClosed:
+    """Regression tests for fail-closed command gating."""
+
+    def test_unavailable_circuit_breaker_blocks_without_bypass(self, monkeypatch):
+        from classes.parameters import Parameters
+        from classes.px4_interface_manager import _evaluate_px4_command_gate
+
+        monkeypatch.setattr(Parameters, "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES", False, raising=False)
+        with patch('classes.px4_interface_manager.CIRCUIT_BREAKER_AVAILABLE', False):
+            decision = _evaluate_px4_command_gate("velocity_body")
+
+        assert decision.blocked is True
+        assert decision.degraded is True
+        assert decision.reason == "circuit_breaker_unavailable"
+
+    def test_circuit_breaker_status_exception_blocks_without_bypass(self, monkeypatch):
+        from classes.parameters import Parameters
+        from classes.px4_interface_manager import _evaluate_px4_command_gate
+
+        monkeypatch.setattr(Parameters, "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES", False, raising=False)
+        with patch('classes.px4_interface_manager.CIRCUIT_BREAKER_AVAILABLE', True):
+            with patch('classes.px4_interface_manager.FollowerCircuitBreaker') as mock_cb:
+                mock_cb.is_active.side_effect = RuntimeError("status unavailable")
+
+                decision = _evaluate_px4_command_gate("velocity_body")
+
+        assert decision.blocked is True
+        assert decision.degraded is True
+        assert decision.reason == "circuit_breaker_status_failed"
+
+    def test_circuit_breaker_audit_exception_blocks_without_bypass(self, monkeypatch):
+        from classes.parameters import Parameters
+        from classes.px4_interface_manager import _evaluate_px4_command_gate
+
+        monkeypatch.setattr(Parameters, "FOLLOWER_ALLOW_COMMANDS_WITHOUT_SAFETY_MODULES", False, raising=False)
+        with patch('classes.px4_interface_manager.CIRCUIT_BREAKER_AVAILABLE', True):
+            with patch('classes.px4_interface_manager.FollowerCircuitBreaker') as mock_cb:
+                mock_cb.is_active.return_value = False
+                mock_cb.log_command_allowed.side_effect = RuntimeError("audit unavailable")
+
+                decision = _evaluate_px4_command_gate("velocity_body")
+
+        assert decision.blocked is True
+        assert decision.degraded is True
+        assert decision.reason == "circuit_breaker_audit_failed"
 
 
 class TestPX4InterfaceManagerNEDConversion:

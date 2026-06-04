@@ -68,11 +68,13 @@ def mock_mavsdk_system():
 def mock_parameters():
     """Mock Parameters class."""
     mock_params = MagicMock()
-    mock_params.get_effective_limit = MagicMock(side_effect=lambda name: {
+    mock_params.get_effective_limit = MagicMock(side_effect=lambda name, follower_name=None: {
         'MAX_VELOCITY_FORWARD': 8.0,
         'MAX_VELOCITY_LATERAL': 5.0,
         'MAX_VELOCITY_VERTICAL': 3.0,
-        'MAX_YAW_RATE': 45.0
+        'MAX_YAW_RATE': 45.0,
+        'MAX_PITCH_RATE': 45.0,
+        'MAX_ROLL_RATE': 45.0,
     }.get(name, 10.0))
     return mock_params
 
@@ -223,12 +225,28 @@ class TestAttitudeRateCommandFlow:
 class TestCommandRateVerification:
     """Tests for command rate requirements."""
 
-    def test_setpoint_publish_rate_configured(self):
-        """Test that setpoint publish rate is configured."""
+    def test_setpoint_sender_monitor_period_configured(self):
+        """SetpointSender period is a monitor cadence, not PX4 publication rate."""
         with patch('classes.setpoint_sender.Parameters') as mock_params:
-            mock_params.SETPOINT_PUBLISH_RATE_S = 0.05  # 20 Hz
+            mock_params.SETPOINT_PUBLISH_RATE_S = 0.1
+            mock_params.ENABLE_SETPOINT_DEBUGGING = False
 
-            assert mock_params.SETPOINT_PUBLISH_RATE_S <= 0.5  # At least 2 Hz
+            mock_handler = MagicMock()
+            mock_handler.get_control_type.return_value = 'velocity_body_offboard'
+            mock_handler.get_display_name.return_value = 'MC Velocity Offboard'
+            mock_handler.get_fields.return_value = {'vel_body_fwd': 0.0}
+
+            mock_px4 = MagicMock()
+            mock_px4.send_commands_unified = MagicMock()
+
+            from classes.setpoint_sender import SetpointSender
+
+            sender = SetpointSender(mock_px4, mock_handler)
+
+            assert sender.get_loop_period_s() == 0.1
+            assert sender.get_status()["sends_mavsdk_commands"] is False
+            sender._send_commands_sync()
+            mock_px4.send_commands_unified.assert_not_called()
 
     def test_setpoint_sender_daemon_thread(self):
         """Test SetpointSender runs as daemon thread."""

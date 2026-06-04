@@ -178,9 +178,12 @@ def follow_target(self, tracker_data):
 ```python
 def activate_emergency_stop(self):
     self.emergency_stop_active = True
-    self.set_command_field('vel_body_fwd', 0.0)
-    self.set_command_field('vel_body_right', 0.0)
-    self.set_command_field('vel_body_down', 0.0)
+    self.set_command_fields({
+        'vel_body_fwd': 0.0,
+        'vel_body_right': 0.0,
+        'vel_body_down': 0.0,
+        'yawspeed_deg_s': 0.0,
+    }, reason='emergency_stop')
     logger.critical("Emergency stop activated")
 ```
 

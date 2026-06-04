@@ -6,8 +6,8 @@ This section covers the infrastructure required to connect PixEagle to PX4 autop
 
 | Document | Description |
 |----------|-------------|
-| [mavlink-router](mavlink-router.md) | MAVLink stream routing and multiplexing |
-| [MAVLink2REST Setup](mavlink-anywhere.md) | REST API for telemetry access |
+| [MavlinkAnywhere](mavlink-anywhere.md) | Recommended mavlink-router installer, configuration, dashboard, and update flow |
+| [mavlink-router](mavlink-router.md) | Manual routing reference for advanced operators |
 | [SITL Setup](sitl-setup.md) | PX4 Software-In-The-Loop simulation |
 | [Hardware Connection](hardware-connection.md) | Physical drone connections |
 | [Companion Computer](companion-computer.md) | Raspberry Pi, Jetson setup |
@@ -32,13 +32,13 @@ This section covers the infrastructure required to connect PixEagle to PX4 autop
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                          mavlink-router                                  │
 │                                                                          │
-│   Accepts: UDP :14550, Serial, Ethernet                                 │
-│   Routes to multiple endpoints simultaneously                           │
+│   Managed by MavlinkAnywhere / mavlink-router                            │
+│   Routes MAVLink to local services and optional GCS clients              │
 │                                                                          │
 │   ┌─────────────┬─────────────┬─────────────┬─────────────┐            │
 │   │  Endpoint 1 │  Endpoint 2 │  Endpoint 3 │  Endpoint 4 │            │
-│   │  :14540     │  :14550     │  :14551     │  :8088      │            │
-│   │  (MAVSDK)   │  (QGC)      │  (Spare)    │  (m2r)      │            │
+│   │  :14540     │  :14569     │  :12550     │  :14550     │            │
+│   │  (MAVSDK)   │  (m2r in)   │  (local)    │  (QGC)      │            │
 │   └──────┬──────┴──────┬──────┴──────┬──────┴──────┬──────┘            │
 └──────────┼─────────────┼─────────────┼─────────────┼─────────────────────┘
            │             │             │             │
@@ -137,8 +137,8 @@ For long-range operations with telemetry radios.
 | Component | Version | Installation |
 |-----------|---------|--------------|
 | PX4 | v1.14+ | [PX4 Docs](https://docs.px4.io/) |
-| mavlink-router | Latest | `apt install mavlink-router` |
-| MAVLink2REST | Latest | Docker or cargo |
+| MavlinkAnywhere | Current | `install_mavlink_router.sh` + `configure_mavlink_router.sh` |
+| MAVLink2REST | Current PixEagle binary | `make init` or `download-binaries` |
 | MAVSDK-Python | 1.4.0+ | `pip install mavsdk` |
 
 ### Network Requirements
@@ -146,6 +146,7 @@ For long-range operations with telemetry radios.
 | Port | Protocol | Purpose |
 |------|----------|---------|
 | 14540 | UDP | MAVSDK connection |
+| 14569 | UDP | MAVLink2REST input |
 | 14550 | UDP | Ground station (QGC) |
 | 8088 | HTTP | MAVLink2REST API |
 
@@ -154,31 +155,61 @@ For long-range operations with telemetry radios.
 ### 1. SITL Development
 
 ```bash
-# Terminal 1: Start PX4 SITL
-cd PX4-Autopilot
-make px4_sitl_default gazebo
+# Validate the checked-in plan without side effects
+python3 tools/run_sitl_validation_suite.py \
+  --plan-name phase2_follower_validation \
+  --dry-run
 
-# Terminal 2: Start mavlink-router
-mavlink-routerd -e 127.0.0.1:14540 -e 127.0.0.1:14550 0.0.0.0:14540
+# Start a pinned official PX4 SITL container on an operator-approved host
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-px4-sitl"
+bash scripts/sitl/start_px4_sitl.sh \
+  --image px4io/px4-sitl:v1.17.0 \
+  --model sihsim_quadx \
+  --artifact-dir "reports/sitl/manual/$RUN_ID"
 
-# Terminal 3: Start MAVLink2REST
-docker run -p 8088:8088 mavlink2rest
+# Configure routing
+cd ~/mavlink-anywhere
+sudo ./configure_mavlink_router.sh --headless \
+  --input-type udp \
+  --input-address 0.0.0.0 \
+  --input-port 14550 \
+  --endpoints "127.0.0.1:14540,127.0.0.1:14569,127.0.0.1:12550" \
+  --install-dashboard \
+  --dashboard-listen 127.0.0.1:9070
 
-# Terminal 4: Start PixEagle
-python main.py
+# Start MAVLink2REST
+bash scripts/components/mavlink2rest.sh "udpin:127.0.0.1:14569" "127.0.0.1:8088"
+
+# Start PixEagle, then collect evidence from the running stack
+bash scripts/run.sh --no-dashboard --no-attach
+python3 tools/run_sitl_validation_suite.py \
+  --plan-name phase2_follower_validation \
+  --probe-only \
+  --artifact-root reports/sitl
 ```
+
+See [SITL Setup](sitl-setup.md) for the artifact contract and acceptance rules.
 
 ### 2. Hardware Connection
 
+Hardware connection and flight-control testing require explicit operator
+approval, a documented safety plan, current config snapshots, abort procedures,
+and post-run evidence artifacts. Do not use these commands as proof of flight
+readiness from SITL alone.
+
 ```bash
-# Start mavlink-router on serial
-mavlink-routerd -e 127.0.0.1:14540 -e 127.0.0.1:14550 /dev/ttyUSB0:921600
+# Configure routing on serial
+cd ~/mavlink-anywhere
+sudo ./configure_mavlink_router.sh --headless \
+  --uart /dev/ttyUSB0 \
+  --baud 921600 \
+  --endpoints "127.0.0.1:14540,127.0.0.1:14569,127.0.0.1:12550"
 
 # Start MAVLink2REST
-docker run -p 8088:8088 mavlink2rest
+bash scripts/components/mavlink2rest.sh
 
 # Start PixEagle
-python main.py
+make run
 ```
 
 ## Configuration
@@ -186,14 +217,15 @@ python main.py
 ### PixEagle YAML
 
 ```yaml
-px4:
-  connection_string: "udp://:14540"
-  offboard_rate_hz: 20
+PX4:
+  SYSTEM_ADDRESS: udp://127.0.0.1:14540
 
-mavlink2rest:
-  enabled: true
-  base_url: "http://localhost:8088"
-  poll_rate_hz: 20
+MAVLink:
+  MAVLINK_HOST: 127.0.0.1
+  MAVLINK_PORT: 8088
+
+Follower:
+  USE_MAVLINK2REST: true
 ```
 
 ## Troubleshooting Quick Reference

@@ -2,8 +2,16 @@
 import logging
 import yaml
 import os
+import math
 from datetime import datetime
 from typing import Dict, List, Any, Optional
+
+from classes.command_safety import (
+    CommandValidationError,
+    validate_and_clamp_command_value,
+)
+from classes.command_intent import CommandIntent
+from classes.safety_types import FIELD_LIMIT_MAPPING
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -38,6 +46,7 @@ class SetpointHandler:
         self.profile_name = self.normalize_profile_name(profile_name)
         self.fields: Dict[str, float] = {}
         self.profile_config: Dict[str, Any] = {}
+        self._last_command_intent: Optional[CommandIntent] = None
         
         # Initialize the profile and fields
         self._initialize_from_schema()
@@ -169,28 +178,97 @@ class SetpointHandler:
             numeric_value = float(value)
         except (ValueError, TypeError):
             raise ValueError(f"The value for {field_name} must be a numeric type (int or float), got {type(value)}")
+        if not math.isfinite(numeric_value):
+            raise ValueError(f"The value for {field_name} must be finite, got {value!r}")
         # Validate and clamp value if needed
         clamped_value = self._validate_field_limits(field_name, numeric_value)
         self.fields[field_name] = clamped_value
         logger.debug(f"Setpoint updated: {field_name} = {clamped_value}")
+
+    def set_fields(
+        self,
+        field_values: Dict[str, float],
+        *,
+        source: str = "unknown",
+        reason: Optional[str] = None,
+        require_all: bool = True,
+    ) -> CommandIntent:
+        """
+        Atomically validates and applies a full command field snapshot.
+
+        Validation is performed against a staged copy first. The live setpoint
+        state is changed only after every provided field is valid, finite, and
+        inside the active safety/schema limits. When ``require_all`` is true,
+        callers must provide every field in the active profile so stale values
+        cannot be carried over implicitly.
+        """
+        if not isinstance(field_values, dict):
+            raise ValueError(f"field_values must be a dict, got {type(field_values)}")
+
+        expected_fields = set(self.fields.keys())
+        provided_fields = set(field_values.keys())
+        invalid_fields = provided_fields - expected_fields
+        if invalid_fields:
+            raise ValueError(
+                f"Fields {sorted(invalid_fields)} are not valid for profile "
+                f"'{self.profile_name}'. Valid fields: {sorted(expected_fields)}"
+            )
+
+        missing_fields = expected_fields - provided_fields
+        if require_all and missing_fields:
+            raise ValueError(
+                f"Atomic command for profile '{self.profile_name}' missing fields: "
+                f"{sorted(missing_fields)}"
+            )
+
+        staged_fields = self.fields.copy()
+        for field_name, raw_value in field_values.items():
+            staged_fields[field_name] = self._validate_single_field(field_name, raw_value)
+
+        # Commit only after all fields validate successfully.
+        self.fields = staged_fields
+        intent = CommandIntent(
+            profile_name=self.profile_name,
+            control_type=self.get_control_type(),
+            fields=self.fields.copy(),
+            source=source,
+            reason=reason,
+        )
+        self._last_command_intent = intent
+        logger.debug(
+            "Atomic command intent applied: profile=%s source=%s reason=%s fields=%s",
+            self.profile_name,
+            source,
+            reason,
+            intent.fields,
+        )
+        return intent
+
+    def _validate_single_field(self, field_name: str, value: float) -> float:
+        """Validate one field without mutating handler state."""
+        if field_name not in self.fields:
+            valid_fields = list(self.fields.keys())
+            raise ValueError(
+                f"Field '{field_name}' is not valid for profile '{self.profile_name}'. "
+                f"Valid fields: {valid_fields}"
+            )
+        try:
+            numeric_value = float(value)
+        except (ValueError, TypeError):
+            raise ValueError(
+                f"The value for {field_name} must be a numeric type (int or float), "
+                f"got {type(value)}"
+            )
+        if not math.isfinite(numeric_value):
+            raise ValueError(f"The value for {field_name} must be finite, got {value!r}")
+        return self._validate_field_limits(field_name, numeric_value)
+
+    def get_last_command_intent(self) -> Optional[CommandIntent]:
+        """Return the most recently accepted atomic command intent, if any."""
+        return self._last_command_intent
     
-    # Mapping from field names to SafetyLimits parameter names
-    # All angular rate fields use deg/s (MAVSDK standard)
-    _FIELD_TO_LIMIT_NAME = {
-        'vel_x': 'MAX_VELOCITY_FORWARD',
-        'vel_y': 'MAX_VELOCITY_LATERAL',
-        'vel_z': 'MAX_VELOCITY_VERTICAL',
-        'vel_body_fwd': 'MAX_VELOCITY_FORWARD',
-        'vel_body_right': 'MAX_VELOCITY_LATERAL',
-        'vel_body_down': 'MAX_VELOCITY_VERTICAL',
-        # Angular rate fields (deg/s - MAVSDK standard)
-        'yawspeed_deg_s': 'MAX_YAW_RATE',
-        'pitchspeed_deg_s': 'MAX_YAW_RATE',  # Using same limit for simplicity
-        'rollspeed_deg_s': 'MAX_YAW_RATE',   # Using same limit for simplicity
-        # Deprecated fields (kept for backward compatibility)
-        'yaw_rate': 'MAX_YAW_RATE',  # DEPRECATED: rad/s, needs conversion
-        'yaw_speed_deg_s': 'MAX_YAW_RATE',  # DEPRECATED: typo variant
-    }
+    # Single source of truth for runtime safety-limit field mapping.
+    _FIELD_TO_LIMIT_NAME = FIELD_LIMIT_MAPPING
 
     def _validate_field_limits(self, field_name: str, value: float) -> float:
         """
@@ -204,9 +282,6 @@ class SetpointHandler:
         If clamp is disabled, raises ValueError if out of bounds.
         Returns the (possibly clamped) value.
         """
-        from classes.parameters import Parameters
-        import math
-
         schema = SetpointHandler._schema_cache
         field_definitions = schema.get('command_fields', {})
 
@@ -221,16 +296,16 @@ class SetpointHandler:
         max_val = None
 
         if field_name in self._FIELD_TO_LIMIT_NAME:
-            # Get limit from Parameters (config-based)
-            limit_name = self._FIELD_TO_LIMIT_NAME[field_name]
-            max_limit = Parameters.get_effective_limit(limit_name)
-
-            # Handle unit conversion for yaw_rate (rad/s) vs MAX_YAW_RATE (deg/s)
-            if field_name == 'yaw_rate':
-                max_limit = math.radians(max_limit)  # Convert deg/s to rad/s
-
-            min_val = -max_limit
-            max_val = max_limit
+            try:
+                return validate_and_clamp_command_value(
+                    field_name,
+                    value,
+                    follower_name=self.profile_name,
+                    command_type=self.profile_name,
+                    clamp=clamp,
+                )
+            except CommandValidationError as exc:
+                raise ValueError(str(exc)) from exc
         else:
             # Fallback to schema limits (for fields like thrust)
             limits = field_def.get('limits', {})
@@ -288,7 +363,8 @@ class SetpointHandler:
             "circuit_breaker": {
                 "active": circuit_breaker_active,
                 "status": "SAFE_MODE" if circuit_breaker_active else "LIVE_MODE",
-                "commands_sent_to_px4": not circuit_breaker_active,
+                "commands_allowed_by_circuit_breaker": not circuit_breaker_active,
+                "commands_sent_to_px4": False,
                 "commands_logged_only": circuit_breaker_active
             },
 
@@ -362,6 +438,7 @@ class SetpointHandler:
                 self.fields[field_name] = float(default_value)
             else:
                 self.fields[field_name] = 0.0
+        self._last_command_intent = None
         
         logger.info(f"All setpoints for profile '{self.profile_name}' reset to schema defaults")
     
@@ -417,6 +494,16 @@ class SetpointHandler:
             'control_type': self.get_control_type(),
             'timestamp': datetime.utcnow().isoformat()
         }
+
+        if self._last_command_intent:
+            telemetry['last_command_intent'] = {
+                'profile_name': self._last_command_intent.profile_name,
+                'control_type': self._last_command_intent.control_type,
+                'source': self._last_command_intent.source,
+                'reason': self._last_command_intent.reason,
+                'created_at_utc': self._last_command_intent.created_at_utc,
+                'fields': self._last_command_intent.fields,
+            }
         
         # Add metadata if available
         if hasattr(self, '_metadata'):

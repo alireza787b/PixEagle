@@ -183,9 +183,13 @@ from classes.setpoint_handler import SetpointHandler
 # Create handler with profile
 handler = SetpointHandler('mc_velocity_chase')
 
-# Set fields
-handler.set_field('vel_body_fwd', 3.0)
-handler.set_field('yawspeed_deg_s', 15.0)
+# Set one complete command snapshot
+handler.set_fields({
+    'vel_body_fwd': 3.0,
+    'vel_body_right': 0.0,
+    'vel_body_down': 0.0,
+    'yawspeed_deg_s': 15.0,
+}, source='docs_example')
 
 # Get fields
 fields = handler.get_fields()
@@ -209,9 +213,13 @@ class MCVelocityChaseFollower(BaseFollower):
         fwd_vel = self.calculate_forward_velocity(target)
         yaw_rate = self.calculate_yaw_rate(target)
 
-        # Set fields (clamped automatically)
-        self.setpoint_handler.set_field('vel_body_fwd', fwd_vel)
-        self.setpoint_handler.set_field('yawspeed_deg_s', yaw_rate)
+        # Publish one complete command snapshot (clamped automatically)
+        return self.set_command_fields({
+            'vel_body_fwd': fwd_vel,
+            'vel_body_right': 0.0,
+            'vel_body_down': 0.0,
+            'yawspeed_deg_s': yaw_rate,
+        }, reason='mc_velocity_chase')
 ```
 
 ## Adding New Profiles

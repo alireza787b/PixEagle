@@ -205,7 +205,7 @@ const TrackerDataDisplay = ({
     );
   }
 
-  if (!currentStatus || !currentStatus.active) {
+  if (!currentStatus || (!currentStatus.active && !currentStatus.has_output)) {
     return (
       <Paper elevation={2} sx={{ p: 3, textAlign: 'center' }}>
         <Typography variant="h6" color="text.secondary" gutterBottom>

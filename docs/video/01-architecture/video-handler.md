@@ -14,6 +14,10 @@ The `VideoHandler` class provides a unified interface for video input from 7 dif
   - `false`: OpenCV backend.
   - `true`: try GStreamer first, then fallback to OpenCV when unavailable/failing.
 - `CSI_CAMERA` and `CUSTOM_GSTREAMER` always use GStreamer.
+- `UDP_STREAM` with `USE_GSTREAMER=true` uses an asynchronous reader. OpenCV's
+  GStreamer backend can block on UDP receiver open/read calls when the sender is
+  absent or stops, so PixEagle keeps those blocking calls off the main frame and
+  control loop.
 - Health/info diagnostics report the active backend after fallback (`active_backend`).
 
 ## Class Definition
@@ -43,11 +47,14 @@ def __init__(self):
 Initializes the video handler with configured source type. Automatically:
 - Detects platform (Linux/Windows/ARM)
 - Creates appropriate capture object
+- Starts a background UDP/GStreamer reader when needed
 - Initializes frame states and buffers
 - Sets up error recovery tracking
 
-**Raises:**
-- `ValueError` if video source cannot be opened after retries
+If a source cannot be opened at startup, PixEagle starts in degraded mode with
+frame status marked unavailable rather than crashing the API process. For
+UDP/GStreamer, startup returns immediately and reports fresh frames only after
+the background reader receives them.
 
 ## Attributes
 
@@ -82,6 +89,8 @@ Initializes the video handler with configured source type. Automatically:
 | `_is_recovering` | `bool` | Currently recovering flag |
 | `_recovery_attempts` | `int` | Number of recovery tries |
 | `_frame_cache` | `deque` | Frames for fallback during recovery |
+| `_async_capture_thread` | `threading.Thread` | UDP/GStreamer reader thread when enabled |
+| `_async_latest_frame_sequence` | `int` | Latest background-reader frame sequence |
 
 ### Platform Detection
 
@@ -116,12 +125,26 @@ delay = handler.init_video_source(max_retries=3)
 
 Read current frame from video source.
 
-**Returns:** BGR frame as numpy array, or None on failure
+**Returns:** BGR frame as numpy array, cached frame during recovery, or None
+when no frame is available
+
+For UDP/GStreamer, this method never calls OpenCV's blocking `read()` directly.
+It returns a fresh frame only when the background reader has produced a new
+sequence. Reused/cached frames are marked `usable_for_following=false` in
+`get_frame_status()`.
 
 **Behavior:**
 1. Attempts to read from capture
-2. On success: updates `current_raw_frame`, appends to history
-3. On failure: returns cached frame, triggers recovery if needed
+2. On success: updates `current_raw_frame`, appends to history, and records
+   frame freshness as `source: fresh`, `usable_for_following: true`
+3. On failure: returns a cached frame only for operator/video continuity and
+   records `source: cached`, `usable_for_following: false`
+4. When no frame or cache is available, records `source: none`,
+   `usable_for_following: false`
+
+Cached frames are not command-fresh. `FlowController` and `AppController` use
+`get_frame_status()` to prevent cached or missing frames from being treated as
+valid target measurements for PX4 following.
 
 **Example:**
 ```python

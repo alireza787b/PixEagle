@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "name": "linear_green_target",
+  "description": "Deterministic simulated clip: a green target moves down and right, then one occlusion frame is inserted.",
+  "width": 640,
+  "height": 480,
+  "target_color_bgr": [0, 255, 0],
+  "frames": [
+    {"index": 0, "visible": true, "bbox": [80, 100, 40, 30]},
+    {"index": 1, "visible": true, "bbox": [120, 110, 40, 30]},
+    {"index": 2, "visible": true, "bbox": [160, 120, 40, 30]},
+    {"index": 3, "visible": false}
+  ]
+}

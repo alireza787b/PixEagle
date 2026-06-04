@@ -16,7 +16,6 @@ const Header = ({ handleDrawerToggle }) => {
   const {
     restarting,
     error,
-    pollCount,
     initiateRestart,
     clearError
   } = useSystemRestart({

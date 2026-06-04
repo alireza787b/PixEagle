@@ -25,7 +25,7 @@ The follower system uses a layered architecture with schema-driven configuration
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                           PX4 Interface                                  │
-│  PX4Controller → MAVSDK → MAVLink → Flight Controller                  │
+│  CommandIntent → OffboardCommander → PX4InterfaceManager → MAVSDK/PX4  │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -135,7 +135,10 @@ SetpointHandler                   # Schema validation, field storage
 clamp_velocity() / clamp_rate()   # SafetyManager limits
      │
      ▼
-PX4Controller                     # MAVSDK command transmission
+CommandIntent                     # Atomic follower command snapshot
+     │
+     ▼
+OffboardCommander                 # Fixed-rate MAVSDK command publication
      │
      ▼
 Flight Controller                 # PX4 autopilot

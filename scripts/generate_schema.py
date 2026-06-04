@@ -24,7 +24,6 @@ import re
 import yaml
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Optional
-from datetime import datetime
 
 from ruamel.yaml import YAML as RuamelYAML
 from ruamel.yaml.comments import CommentedMap as RuamelCommentedMap
@@ -146,6 +145,25 @@ SCHEMA_OVERRIDES = {
         ],
         'description': 'HUD rendering style for Smart Tracker overlay',
     },
+    'GimbalTracker.PROVIDER': {
+        'options': [
+            {'value': 'topotek_sip_udp', 'label': 'Topotek SIP UDP',
+             'description': 'Topotek SIP-series UDP frames using GAC, GIC, TRC, and OFT'},
+        ],
+        'description': 'External gimbal input provider implementation',
+    },
+    'GimbalTracker.UDP_PORT': {
+        'min': 1, 'max': 65535,
+        'description': 'Provider UDP command/query port for topotek_sip_udp',
+    },
+    'GimbalTracker.LISTEN_PORT': {
+        'min': 1, 'max': 65535,
+        'description': 'Local UDP listen port for gimbal responses/broadcasts',
+    },
+    'GimbalTracker.CONNECTION_TIMEOUT': {
+        'min': 0.1, 'max': 30.0, 'step': 0.1, 'unit': 's',
+        'description': 'Freshness timeout for provider data and tracking state',
+    },
 
     # =========================================================
     # FOLLOWER / SAFETY SCHEMA OVERRIDES
@@ -158,6 +176,41 @@ SCHEMA_OVERRIDES = {
     # VideoSource — RTSP backoff base is in seconds, not 0-1
     'VideoSource.RTSP_RECOVERY_BACKOFF_BASE': {'max': 30.0, 'unit': 's',
         'description': 'Exponential backoff base interval for RTSP reconnect (seconds)'},
+
+    # Runtime cadence knobs: keep config units explicit and bounded.
+    'Follower.FOLLOWER_DATA_REFRESH_RATE': {
+        'type': 'float', 'default': 5.0, 'min': 0.1, 'max': 100.0,
+        'step': 0.1, 'unit': 'hz',
+        'description': 'Telemetry refresh rate in Hz; runtime sleeps 1/rate between polling iterations'},
+    'MAVLink.MAVLINK_POLLING_INTERVAL': {
+        'type': 'float', 'default': 0.5, 'min': 0.1, 'max': 10.0,
+        'step': 0.1, 'unit': 's',
+        'description': 'MavlinkDataManager polling interval for the MAVLink2REST aggregate endpoint'},
+    'MAVLink.MAVLINK_REQUEST_TIMEOUT_S': {
+        'type': 'float', 'default': 5.0, 'min': 0.1, 'max': 30.0,
+        'step': 0.1, 'unit': 's',
+        'description': 'HTTP timeout for each MAVLink2REST request before telemetry is marked degraded'},
+    'MAVLink.MAVLINK_REQUEST_RETRIES': {
+        'type': 'integer', 'default': 0, 'min': 0, 'max': 5,
+        'description': 'Additional retry attempts after the initial MAVLink2REST request fails'},
+    'MAVLink.MAVLINK_STALE_TIMEOUT_S': {
+        'type': 'float', 'default': 2.0, 'min': 0.1, 'max': 60.0,
+        'step': 0.1, 'unit': 's',
+        'description': 'Maximum age since the last successful MAVLink2REST request before telemetry is reported stale'},
+    'Setpoint.SETPOINT_PUBLISH_RATE_S': {
+        'min': 0.001, 'max': 1.0, 'step': 0.01, 'unit': 's',
+        'description': 'SetpointSender monitor loop period in seconds; does not publish MAVSDK Offboard commands'},
+    'Setpoint.OFFBOARD_COMMAND_RATE_HZ': {
+        'type': 'float', 'default': 20.0, 'min': 2.0, 'max': 100.0,
+        'step': 1.0, 'unit': 'hz',
+        'description': 'OffboardCommander MAVSDK setpoint heartbeat rate in Hz; independent of camera and tracker cadence'},
+    'Setpoint.OFFBOARD_COMMAND_TTL_S': {
+        'type': 'float', 'default': 0.5, 'min': 0.1, 'max': 10.0,
+        'step': 0.1, 'unit': 's',
+        'description': 'Maximum age of the latest follower CommandIntent before OffboardCommander publishes default fail-closed setpoints'},
+    'Setpoint.OFFBOARD_COMMAND_FAILURE_THRESHOLD': {
+        'type': 'integer', 'default': 3, 'min': 1, 'max': 100,
+        'description': 'Consecutive OffboardCommander publish failures before local fail-closed follow stop'},
 
     # TARGET_LOSS_COORDINATE_THRESHOLD — was mistyped as int=990; correct is float in [0,5]
     'FW_ATTITUDE_RATE.TARGET_LOSS_COORDINATE_THRESHOLD': {
@@ -296,6 +349,10 @@ SECTION_RELOAD_TIERS = {
 
 # Parameter-level reload tier overrides (highest priority, keyed by "Section.PARAM").
 RELOAD_TIER_OVERRIDES = {
+    'Setpoint.SETPOINT_PUBLISH_RATE_S': 'follower_restart',
+    'Setpoint.OFFBOARD_COMMAND_RATE_HZ': 'follower_restart',
+    'Setpoint.OFFBOARD_COMMAND_TTL_S': 'follower_restart',
+    'Setpoint.OFFBOARD_COMMAND_FAILURE_THRESHOLD': 'follower_restart',
     # SmartTracker model/GPU params require system restart (loads YOLO model at init)
     'SmartTracker.SMART_TRACKER_USE_GPU': 'system_restart',
     'SmartTracker.SMART_TRACKER_GPU_MODEL_PATH': 'system_restart',
@@ -752,13 +809,18 @@ def generate_schema(config_path: str, output_path: str):
     print(f"Reading config from: {config_path}")
 
     config, comments = parse_config_with_comments(config_path)
+    repo_root = Path(__file__).resolve().parents[1]
+    try:
+        generated_from = str(Path(config_path).resolve().relative_to(repo_root))
+    except ValueError:
+        generated_from = str(Path(config_path))
 
     schema = {
         'schema_version': '1.0.0',
         'meta': {
             'project': 'PixEagle',
-            'generated_from': str(config_path),
-            'generated_at': datetime.now().isoformat(),
+            'generated_from': generated_from,
+            'generated_at': None,
             'description': 'Auto-generated schema for PixEagle configuration'
         },
         'categories': CATEGORIES,

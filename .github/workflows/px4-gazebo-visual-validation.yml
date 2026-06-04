@@ -1,0 +1,179 @@
+name: PX4 Gazebo Visual Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Validation mode"
+        required: true
+        default: "dry-run"
+        type: choice
+        options:
+          - dry-run
+          - probe-only
+          - execute-gazebo
+      px4_image:
+        description: "Official PX4 Gazebo image"
+        required: true
+        default: "px4io/px4-sitl-gazebo:v1.17.0-alpha1-1551-g381149fb01"
+        type: string
+      px4_model:
+        description: "PX4_SIM_MODEL"
+        required: true
+        default: "gz_x500_mono_cam"
+        type: string
+      pull_px4_image:
+        description: "Pull the selected image before execute-gazebo; harness still uses --pull=never"
+        required: true
+        default: false
+        type: boolean
+      run_scenarios:
+        description: "Execute checked-in scenario actions against the prepared stack"
+        required: true
+        default: false
+        type: boolean
+      allow_control_actions:
+        description: "Allow gated non-GET/control scenario actions"
+        required: true
+        default: false
+        type: boolean
+      auto_px4_container_artifacts:
+        description: "Collect PX4 params/ULog/tlog from a selected or harness-owned container"
+        required: true
+        default: false
+        type: boolean
+      px4_container_name:
+        description: "Probe-only existing container selector or execute-gazebo managed name"
+        required: false
+        type: string
+      px4_container_id:
+        description: "Probe-only existing container id/name selector"
+        required: false
+        type: string
+      generated_receiver_proof_manifest:
+        description: "Path to generated RTP/UDP receiver proof manifest"
+        required: false
+        type: string
+      gazebo_receiver_pipeline:
+        description: "Path to Gazebo RTP/H.264 receiver pipeline text artifact"
+        required: false
+        type: string
+      gazebo_frame_hashes:
+        description: "Path to decoded Gazebo frame hashes JSON"
+        required: false
+        type: string
+      tracker_command_trace:
+        description: "Path to tracker/follower command trace JSONL"
+        required: false
+        type: string
+      offboard_publish_trace:
+        description: "Path to Offboard publication trace JSONL"
+        required: false
+        type: string
+      artifact_root:
+        description: "Artifact root"
+        required: true
+        default: "reports/sitl"
+        type: string
+  schedule:
+    - cron: "37 4 * * 0"
+
+permissions:
+  contents: read
+
+jobs:
+  gazebo-visual-validation:
+    name: Opt-in PX4 Gazebo visual profile
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GAZEBO_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'dry-run' }}
+      PX4_IMAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.px4_image || 'px4io/px4-sitl-gazebo:v1.17.0-alpha1-1551-g381149fb01' }}
+      PX4_MODEL: ${{ github.event_name == 'workflow_dispatch' && inputs.px4_model || 'gz_x500_mono_cam' }}
+      PULL_PX4_IMAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.pull_px4_image || 'false' }}
+      RUN_SCENARIOS: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scenarios || 'false' }}
+      ALLOW_CONTROL_ACTIONS: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_control_actions || 'false' }}
+      AUTO_PX4_CONTAINER_ARTIFACTS: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_px4_container_artifacts || 'false' }}
+      PX4_CONTAINER_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.px4_container_name || '' }}
+      PX4_CONTAINER_ID: ${{ github.event_name == 'workflow_dispatch' && inputs.px4_container_id || '' }}
+      GENERATED_RECEIVER_PROOF_MANIFEST: ${{ github.event_name == 'workflow_dispatch' && inputs.generated_receiver_proof_manifest || '' }}
+      GAZEBO_RECEIVER_PIPELINE: ${{ github.event_name == 'workflow_dispatch' && inputs.gazebo_receiver_pipeline || '' }}
+      GAZEBO_FRAME_HASHES: ${{ github.event_name == 'workflow_dispatch' && inputs.gazebo_frame_hashes || '' }}
+      TRACKER_COMMAND_TRACE: ${{ github.event_name == 'workflow_dispatch' && inputs.tracker_command_trace || '' }}
+      OFFBOARD_PUBLISH_TRACE: ${{ github.event_name == 'workflow_dispatch' && inputs.offboard_publish_trace || '' }}
+      ARTIFACT_ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.artifact_root || 'reports/sitl' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Check Gazebo visual profile script syntax
+        run: bash -n scripts/sitl/run_px4_gazebo_visual_profile.sh
+
+      - name: Print claim boundary
+        run: |
+          echo "PX4 Gazebo visual validation is opt-in L4 simulation evidence only."
+          echo "This workflow does not claim HIL, field, or real-aircraft success."
+          echo "Normal pull-request CI does not run this workflow."
+
+      - name: Optional PX4 Gazebo image pull
+        if: env.GAZEBO_MODE == 'execute-gazebo' && env.PULL_PX4_IMAGE == 'true'
+        run: docker pull "$PX4_IMAGE"
+
+      - name: Run Gazebo visual profile
+        shell: bash
+        run: |
+          args=(--mode "$GAZEBO_MODE" --artifact-root "$ARTIFACT_ROOT" --json)
+          if [[ "$GAZEBO_MODE" == "execute-gazebo" ]]; then
+            args+=(--px4-image "$PX4_IMAGE" --px4-model "$PX4_MODEL")
+          fi
+          if [[ "$RUN_SCENARIOS" == "true" ]]; then
+            args+=(--run-scenarios)
+          fi
+          if [[ "$ALLOW_CONTROL_ACTIONS" == "true" ]]; then
+            args+=(--allow-control-actions)
+          fi
+          if [[ "$AUTO_PX4_CONTAINER_ARTIFACTS" == "true" ]]; then
+            args+=(--auto-px4-container-artifacts)
+          fi
+          if [[ -n "$PX4_CONTAINER_NAME" ]]; then
+            args+=(--px4-container-name "$PX4_CONTAINER_NAME")
+          fi
+          if [[ -n "$PX4_CONTAINER_ID" ]]; then
+            args+=(--px4-container-id "$PX4_CONTAINER_ID")
+          fi
+          if [[ -n "$GENERATED_RECEIVER_PROOF_MANIFEST" ]]; then
+            args+=(--generated-receiver-proof-manifest "$GENERATED_RECEIVER_PROOF_MANIFEST")
+          fi
+          if [[ -n "$GAZEBO_RECEIVER_PIPELINE" ]]; then
+            args+=(--gazebo-receiver-pipeline "$GAZEBO_RECEIVER_PIPELINE")
+          fi
+          if [[ -n "$GAZEBO_FRAME_HASHES" ]]; then
+            args+=(--gazebo-frame-hashes "$GAZEBO_FRAME_HASHES")
+          fi
+          if [[ -n "$TRACKER_COMMAND_TRACE" ]]; then
+            args+=(--tracker-command-trace "$TRACKER_COMMAND_TRACE")
+          fi
+          if [[ -n "$OFFBOARD_PUBLISH_TRACE" ]]; then
+            args+=(--offboard-publish-trace "$OFFBOARD_PUBLISH_TRACE")
+          fi
+          PYTHON_BIN=python bash scripts/sitl/run_px4_gazebo_visual_profile.sh "${args[@]}"
+
+      - name: Upload SITL artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: px4-gazebo-visual-validation-${{ github.run_id }}
+          path: ${{ env.ARTIFACT_ROOT }}/**
+          if-no-files-found: ignore
+          retention-days: 14

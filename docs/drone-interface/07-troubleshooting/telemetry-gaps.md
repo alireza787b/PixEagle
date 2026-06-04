@@ -16,7 +16,7 @@ PX4 → MAVLink → mavlink-router → MAVLink2REST → MavlinkDataManager
 
 ```bash
 # MAVLink2REST status
-curl http://localhost:8088/mavlink/vehicles/1/components/1/messages/ATTITUDE | jq '.status'
+curl http://127.0.0.1:8088/v1/mavlink/vehicles/1/components/1/messages/ATTITUDE | jq '.status'
 
 # Expected output
 {
@@ -31,8 +31,9 @@ curl http://localhost:8088/mavlink/vehicles/1/components/1/messages/ATTITUDE | j
 ### Check PixEagle Telemetry
 
 ```bash
-# Via API
-curl http://localhost:8000/api/telemetry/status
+# Via PixEagle API
+curl http://127.0.0.1:5077/telemetry/follower_data
+curl http://127.0.0.1:5077/api/follower/setpoints-status
 
 # Or check logs
 grep "telemetry" logs/pixeagle.log | tail -20
@@ -53,7 +54,7 @@ grep "telemetry" logs/pixeagle.log | tail -20
 
 ```bash
 # Check vehicle count
-curl http://localhost:8088/mavlink/vehicles
+curl http://127.0.0.1:8088/v1/mavlink/vehicles
 
 # Expected: {"vehicles":[1]}
 # Problem: {"vehicles":[]}
@@ -73,12 +74,15 @@ cat /etc/mavlink-router/main.conf | grep -A3 "mavlink2rest"
 
 ```yaml
 # config_default.yaml
-mavlink2rest:
-  data_points:
-    - attitude      # Required
-    - altitude      # Required
-    - vfr_hud       # Required
-    - heartbeat     # Required
+MAVLink:
+  MAVLINK_DATA_POINTS:
+    roll: /vehicles/1/components/1/messages/ATTITUDE/message/roll
+    pitch: /vehicles/1/components/1/messages/ATTITUDE/message/pitch
+    altitude_msl: /vehicles/1/components/1/messages/ALTITUDE/message/altitude_amsl
+    altitude_agl: /vehicles/1/components/1/messages/ALTITUDE/message/altitude_relative
+    groundspeed: /vehicles/1/components/1/messages/VFR_HUD/message/groundspeed
+    flight_mode: /vehicles/1/components/1/messages/HEARTBEAT/message/custom_mode
+    arm_status: /vehicles/1/components/1/messages/HEARTBEAT/message/base_mode
 ```
 
 ### 2. Stale Telemetry (Old Data)
@@ -94,7 +98,7 @@ mavlink2rest:
 
 ```bash
 # Check message frequency
-curl http://localhost:8088/mavlink/vehicles/1/components/1/messages/ATTITUDE | \
+curl http://127.0.0.1:8088/v1/mavlink/vehicles/1/components/1/messages/ATTITUDE | \
   jq '.status.time.frequency'
 
 # If 0 or very low, source isn't sending
@@ -113,20 +117,18 @@ sudo systemctl restart mavlink-router
 
 #### Polling Loop Stuck
 
-```python
-# Check MavlinkDataManager status
-curl http://localhost:8000/api/debug/mavlink_manager
+```bash
+# Check follower/setpoint visibility exposed by the current API
+curl http://127.0.0.1:5077/api/follower/setpoints-status
 
-# Look for:
-# - polling_active: true
-# - last_poll_time: recent timestamp
+# Check recent telemetry broadcast payload
+curl http://127.0.0.1:5077/telemetry/follower_data
 ```
 
-**Fix:** Restart PixEagle or just the polling:
+**Fix:** Restart PixEagle after confirming MAVLink2REST is healthy:
 
-```python
-# Via API (if implemented)
-curl -X POST http://localhost:8000/api/mavlink/restart_polling
+```bash
+bash scripts/run.sh --no-attach
 ```
 
 ### 3. Intermittent Data Loss
@@ -145,16 +147,18 @@ curl -X POST http://localhost:8000/api/mavlink/restart_polling
 ping -c 100 localhost | grep loss
 
 # Check network latency
-curl -w "@curl-format.txt" http://localhost:8088/mavlink/vehicles
+curl -w "@curl-format.txt" http://127.0.0.1:8088/v1/mavlink/vehicles
 ```
 
 #### Poll Rate Too High
 
 ```yaml
-# Reduce poll rate if server can't keep up
-mavlink2rest:
-  poll_rate_hz: 10  # Lower from 20
-  timeout_s: 2.0    # Increase timeout
+# Increase interval if the local server or companion computer cannot keep up.
+MAVLink:
+  MAVLINK_POLLING_INTERVAL: 1.0
+  MAVLINK_REQUEST_TIMEOUT_S: 5.0
+  MAVLINK_REQUEST_RETRIES: 1
+  MAVLINK_STALE_TIMEOUT_S: 3.0
 ```
 
 #### HTTP Connection Issues
@@ -164,12 +168,14 @@ mavlink2rest:
 grep "timeout\|error\|failed" logs/pixeagle.log | grep mavlink
 ```
 
-**Fix:** Increase timeout and add retry:
+**Fix:** confirm MAVLink2REST is local and healthy, then tune the typed
+MAVLink freshness settings if the companion computer is overloaded. `/status`
+exposes `mavlink_telemetry.status`, `fresh`, `last_success_age_s`,
+`request_timeout_s`, `request_retries`, and `last_error`.
 
-```yaml
-mavlink2rest:
-  timeout_s: 2.0
-  retry_count: 3
+```bash
+bash scripts/components/mavlink2rest.sh
+bash scripts/run.sh --no-attach
 ```
 
 ### 4. Missing Specific Fields
@@ -185,7 +191,7 @@ mavlink2rest:
 
 ```bash
 # Check if message exists
-curl http://localhost:8088/mavlink/vehicles/1/components/1/messages/ALTITUDE
+curl http://127.0.0.1:8088/v1/mavlink/vehicles/1/components/1/messages/ALTITUDE
 
 # If 404, PX4 might not be sending it
 ```
@@ -209,7 +215,7 @@ grep "parse\|KeyError\|TypeError" logs/pixeagle.log | grep mavlink
 
 ```bash
 # View raw message
-curl http://localhost:8088/mavlink/vehicles/1/components/1/messages/ALTITUDE | jq
+curl http://127.0.0.1:8088/v1/mavlink/vehicles/1/components/1/messages/ALTITUDE | jq
 ```
 
 ### 5. Wrong Values
@@ -267,9 +273,9 @@ Body Frame:
 #### Polling Interval Too Long
 
 ```yaml
-# Increase poll rate
-mavlink2rest:
-  poll_rate_hz: 30  # Higher rate = lower latency
+# Lower interval = lower latency, with higher CPU/network load.
+MAVLink:
+  MAVLINK_POLLING_INTERVAL: 0.2
 ```
 
 #### Processing Delay
@@ -291,7 +297,7 @@ class MavlinkDataManager:
 
 ```bash
 # Measure round-trip time
-time curl -s http://localhost:8088/mavlink/vehicles > /dev/null
+time curl -s http://127.0.0.1:8088/v1/mavlink/vehicles > /dev/null
 ```
 
 ## Diagnostic Tools
@@ -305,11 +311,11 @@ time curl -s http://localhost:8088/mavlink/vehicles > /dev/null
 import requests
 import time
 
-MAVLINK2REST = "http://localhost:8088"
+MAVLINK2REST = "http://127.0.0.1:8088"
 MESSAGES = ['ATTITUDE', 'ALTITUDE', 'VFR_HUD', 'HEARTBEAT']
 
 def check_message(name):
-    url = f"{MAVLINK2REST}/mavlink/vehicles/1/components/1/messages/{name}"
+    url = f"{MAVLINK2REST}/v1/mavlink/vehicles/1/components/1/messages/{name}"
     try:
         r = requests.get(url, timeout=1)
         if r.status_code == 200:
@@ -352,33 +358,33 @@ grep "attitude" logs/pixeagle.log | \
 ```yaml
 # config_default.yaml
 
-mavlink2rest:
-  enabled: true
-  base_url: "http://localhost:8088"
-  poll_rate_hz: 20          # Balance between latency and load
-  timeout_s: 1.0            # Reasonable timeout
-  data_points:
-    - attitude
-    - altitude
-    - vfr_hud
-    - heartbeat
+MAVLink:
+  MAVLINK_ENABLED: true
+  MAVLINK_HOST: 127.0.0.1
+  MAVLINK_PORT: 8088
+  MAVLINK_POLLING_INTERVAL: 0.5
+  MAVLINK_DATA_POINTS:
+    roll: /vehicles/1/components/1/messages/ATTITUDE/message/roll
+    pitch: /vehicles/1/components/1/messages/ATTITUDE/message/pitch
+    altitude_msl: /vehicles/1/components/1/messages/ALTITUDE/message/altitude_amsl
+    altitude_agl: /vehicles/1/components/1/messages/ALTITUDE/message/altitude_relative
+    groundspeed: /vehicles/1/components/1/messages/VFR_HUD/message/groundspeed
+    flight_mode: /vehicles/1/components/1/messages/HEARTBEAT/message/custom_mode
+    arm_status: /vehicles/1/components/1/messages/HEARTBEAT/message/base_mode
 ```
 
 ### For Low Latency
 
 ```yaml
-mavlink2rest:
-  poll_rate_hz: 50          # Higher rate
-  timeout_s: 0.5            # Shorter timeout
+MAVLink:
+  MAVLINK_POLLING_INTERVAL: 0.2
 ```
 
 ### For Unreliable Networks
 
 ```yaml
-mavlink2rest:
-  poll_rate_hz: 10          # Lower rate
-  timeout_s: 3.0            # Longer timeout
-  retry_count: 3
+MAVLink:
+  MAVLINK_POLLING_INTERVAL: 1.0
 ```
 
 ## Related Documentation

@@ -1,12 +1,12 @@
 # src/classes/gimbal_interface.py
 
 """
-GimbalInterface Module - Passive UDP Listener
-=============================================
+GimbalInterface Module - Topotek SIP-over-UDP Client
+====================================================
 
-This module provides a passive UDP listener for gimbal systems that are controlled
-by external applications. It receives real-time gimbal data including angles and
-tracking status without sending any commands to the gimbal.
+This module implements the current Topotek SIP-series UDP integration used by
+GimbalTracker. It sends query commands for angles/tracking status and listens for
+UDP responses or broadcasts from the gimbal.
 
 Project Information:
 - Project Name: PixEagle
@@ -18,17 +18,18 @@ Overview:
 ---------
 The GimbalInterface class is designed for the workflow where:
 1. External camera UI application controls gimbal tracking (start/stop)
-2. Gimbal broadcasts UDP data containing angles and tracking status
-3. PixEagle passively listens and activates following when tracking is active
-4. No control commands are sent from PixEagle to gimbal
+2. PixEagle queries/listens for gimbal angles and tracking status
+3. GimbalTracker normalizes that data into TrackerOutput
+4. Followers consume TrackerOutput, not vendor packets
 
 Key Features:
-- ✅ Passive UDP listening only (no command sending)
-- ✅ Tracking status detection from gimbal protocol
-- ✅ Support for both GIMBAL_BODY and SPATIAL_FIXED coordinate systems
-- ✅ Thread-safe data access with proper locking
-- ✅ Connection health monitoring
-- ✅ Automatic activation based on gimbal tracking state
+- Topotek SIP-series frame handling over UDP
+- Active queries for GAC, GIC, and TRC status frames
+- Tracking status detection from the vendor protocol
+- Support for both GIMBAL_BODY and SPATIAL_FIXED coordinate systems
+- Thread-safe data access with proper locking
+- Connection health monitoring
+- Automatic activation based on gimbal tracking state
 
 Usage:
 ------
@@ -44,8 +45,8 @@ if data and data.tracking_status == TrackingState.TRACKING_ACTIVE:
 
 Integration with PixEagle:
 -------------------------
-This module is used by GimbalTracker to receive data from external gimbal systems.
-It never sends commands - all gimbal control happens through external applications.
+This module is used by GimbalTracker to receive normalized data from the current
+vendor protocol. It is not a MAVLink Gimbal Protocol v2 implementation.
 """
 
 import socket
@@ -55,14 +56,15 @@ import logging
 from datetime import datetime
 from typing import Optional, Tuple, Dict, Any
 from enum import Enum
-from dataclasses import dataclass
+from classes.gimbal_types import (
+    CoordinateSystem,
+    GimbalAngles,
+    GimbalData,
+    TrackingState,
+    TrackingStatus,
+)
 
 logger = logging.getLogger(__name__)
-
-class CoordinateSystem(Enum):
-    """Gimbal coordinate system modes"""
-    GIMBAL_BODY = "gimbal_body"       # Relative to gimbal body (Magnetic mode)
-    SPATIAL_FIXED = "spatial_fixed"   # Absolute spatial coordinates (Gyro mode)
 
 class ConnectionStatus(Enum):
     """Connection status states"""
@@ -71,86 +73,37 @@ class ConnectionStatus(Enum):
     RECEIVING = "receiving"
     ERROR = "error"
 
-class TrackingState(Enum):
-    """Tracking system states from gimbal protocol"""
-    DISABLED = 0          # Tracking not enabled
-    TARGET_SELECTION = 1  # Waiting for target selection
-    TRACKING_ACTIVE = 2   # Actively tracking target
-    TARGET_LOST = 3       # Target temporarily lost
-
-@dataclass
-class GimbalAngles:
-    """Container for gimbal angle data"""
-    yaw: float                        # Horizontal rotation (-180 to +180 degrees)
-    pitch: float                      # Vertical tilt (-90 to +90 degrees)
-    roll: float                       # Camera roll (-180 to +180 degrees)
-    coordinate_system: CoordinateSystem
-    timestamp: datetime
-
-    def is_valid(self) -> bool:
-        """Check if angles are within valid ranges - relaxed for gimbal compatibility"""
-        return (
-            -180.0 <= self.yaw <= 180.0 and
-            -180.0 <= self.pitch <= 180.0 and  # Extended pitch range for gimbal compatibility
-            -180.0 <= self.roll <= 180.0
-        )
-
-    def to_tuple(self) -> Tuple[float, float, float]:
-        """Convert to tuple format (yaw, pitch, roll)"""
-        return (self.yaw, self.pitch, self.roll)
-
-@dataclass
-class TrackingStatus:
-    """Current tracking system status from gimbal"""
-    state: TrackingState
-    target_x: Optional[int] = None    # Target X coordinate (if tracking)
-    target_y: Optional[int] = None    # Target Y coordinate (if tracking)
-    target_width: Optional[int] = None
-    target_height: Optional[int] = None
-    timestamp: datetime = None
-
-    def is_tracking_active(self) -> bool:
-        """Check if gimbal is actively tracking a target"""
-        return self.state == TrackingState.TRACKING_ACTIVE
-
-@dataclass
-class GimbalData:
-    """Complete gimbal data package"""
-    angles: Optional[GimbalAngles] = None
-    tracking_status: Optional[TrackingStatus] = None
-    coordinate_system: Optional[CoordinateSystem] = None
-    timestamp: datetime = None
-    raw_packet: str = ""
-
-    def is_tracking_active(self) -> bool:
-        """Check if gimbal is actively tracking"""
-        return (self.tracking_status and
-                self.tracking_status.is_tracking_active())
-
 class GimbalInterface:
     """
-    Active gimbal interface using SIP protocol for real-time angle reading and tracking status.
+    Active gimbal interface using Topotek SIP-series UDP frames.
 
-    This class implements the complete SIP protocol to:
+    This class implements the current protocol subset to:
     - Send commands to query camera angles and tracking status
-    - Parse responses using the proper protocol format
+    - Parse GAC/GIC/TRC responses and OFT broadcasts
     - Provide real-time gimbal data to PixEagle tracking system
     """
 
-    def __init__(self, listen_port: int = 9004, gimbal_ip: str = "192.168.0.108", control_port: int = 9003):
+    def __init__(
+        self,
+        listen_port: int = 9004,
+        gimbal_ip: str = "192.168.0.108",
+        control_port: int = 9003,
+        connection_timeout: Optional[float] = None,
+    ):
         """
-        Initialize gimbal interface with SIP protocol support.
+        Initialize gimbal interface with Topotek SIP-series protocol support.
 
         Args:
             listen_port (int): UDP port to listen on for gimbal responses
             gimbal_ip (str): Gimbal IP address for sending commands
-            control_port (int): Gimbal control port for sending commands
+            control_port (int): Gimbal UDP port for sending query commands
         """
         self.listen_port = listen_port
         self.gimbal_ip = gimbal_ip
         self.control_port = control_port
+        self.connection_timeout = connection_timeout
 
-        # Network setup - both control and listen sockets
+        # Network setup - both command/query and listen sockets
         self.listen_socket: Optional[socket.socket] = None
         self.control_socket: Optional[socket.socket] = None
 
@@ -158,7 +111,7 @@ class GimbalInterface:
         self.running = False
         self.listener_thread: Optional[threading.Thread] = None
         self.query_thread: Optional[threading.Thread] = None
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
 
         # Current state
         self.current_data: Optional[GimbalData] = None
@@ -178,8 +131,9 @@ class GimbalInterface:
         self.last_status_log_time = 0.0
 
         # Configuration constants
-        self.DATA_FRESHNESS_TIMEOUT = 2.0  # seconds
+        self.DATA_FRESHNESS_TIMEOUT = float(connection_timeout) if connection_timeout else 2.0
         self.SOCKET_TIMEOUT = 0.05         # seconds
+        self.TRACKING_STATUS_FRESHNESS_TIMEOUT = min(self.DATA_FRESHNESS_TIMEOUT, 1.0)
         self.QUERY_INTERVALS = {
             'tracking_status': 5,  # Every 5th cycle (more frequent)
             'spatial_angles': 1,   # Every cycle (continuous like camera UI)
@@ -239,7 +193,7 @@ class GimbalInterface:
 
     def start_listening(self) -> bool:
         """
-        Start passive UDP listening for gimbal data.
+        Start UDP command/query and response handling for gimbal data.
 
         Returns:
             bool: True if listening started successfully, False otherwise
@@ -498,7 +452,7 @@ class GimbalInterface:
                     time.sleep(0.1)
                     continue
 
-                # Receive UDP packet (passive listening)
+                # Receive UDP packet from response/broadcast stream
                 data, addr = self.listen_socket.recvfrom(4096)
                 packet = data.decode('utf-8', errors='replace').strip()
 
@@ -609,11 +563,13 @@ class GimbalInterface:
                     self.last_tracking_update_time = time.time()
                 logger.debug(f"Updated tracking status: {tracking_status.state.name}")
 
-            # If we have angles, always include the current tracking status (if available and recent)
+            # Angle freshness and tracking-lock freshness are separate safety
+            # signals. Do not carry a stale TRACKING_ACTIVE status forward just
+            # because angle packets are still arriving.
             if gimbal_data.angles:
                 with self.lock:
                     if (self.current_tracking_status and self.last_tracking_update_time and
-                        (time.time() - self.last_tracking_update_time) < 10.0):  # 10 second timeout
+                        (time.time() - self.last_tracking_update_time) < self.TRACKING_STATUS_FRESHNESS_TIMEOUT):
                         gimbal_data.tracking_status = self.current_tracking_status
                     else:
                         gimbal_data.tracking_status = None

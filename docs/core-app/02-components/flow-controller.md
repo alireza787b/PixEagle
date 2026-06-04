@@ -119,7 +119,13 @@ def main_loop(self):
             frame = self.controller.video_handler.get_frame()
             if frame is None:
                 logging.warning("No frame from video_handler")
-                break
+                if self.controller.following_active:
+                    loop.run_until_complete(
+                        self.controller.handle_video_frame_unavailable(
+                            self.controller.video_handler.get_frame_status()
+                        )
+                    )
+                continue
 
             # Process frame
             frame = loop.run_until_complete(
@@ -223,6 +229,28 @@ delay_seconds = video_handler.delay_frame / 1000.0
 time.sleep(delay_seconds)
 ```
 
+## Frame Freshness Contract
+
+`VideoHandler.get_frame()` records whether the returned frame is fresh enough
+for command generation. `get_frame_status()` exposes that state to the
+controller and API.
+
+| Source | Meaning | Command use |
+|--------|---------|-------------|
+| `fresh` | Newly captured frame | May be used for vision-based following |
+| `cached` | Last good frame returned during recovery | Operator/video continuity only; not command-fresh |
+| `none` | No frame and no cache available | Unusable for vision commands |
+
+When no frame reaches `update_loop()` and following is active,
+`FlowController` calls `AppController.handle_video_frame_unavailable()`. For
+vision trackers, the controller creates inactive fail-closed tracker output so
+followers that opt in can publish stop, hover, orbit, or other target-loss
+commands. For explicit non-video trackers such as external gimbal providers, the
+controller continues through the tracker-specific freshness contract instead of
+treating the video stall as a gimbal data failure. The non-video bypass is
+fail-closed by default: external trackers must explicitly declare
+`requires_video: false` in their capabilities.
+
 ## Keyboard Commands
 
 | Key | Action |
@@ -273,9 +301,8 @@ except Exception as e:
 ```yaml
 # config_default.yaml
 
-http:
-  host: "0.0.0.0"
-  port: 8000
+Streaming:
+  HTTP_STREAM_PORT: 5077
 
 video:
   show_window: true  # GUI vs headless
@@ -297,4 +324,4 @@ if __name__ == "__main__":
 
 - [AppController](app-controller.md) - Orchestrates subsystems
 - [FastAPIHandler](fastapi-handler.md) - HTTP server
-- [VideoHandler](../../video/02-components/video-handler.md) - Frame capture
+- [VideoHandler](../../video/01-architecture/video-handler.md) - Frame capture

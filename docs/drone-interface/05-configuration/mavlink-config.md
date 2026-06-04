@@ -6,50 +6,59 @@ This document covers MAVLink2REST configuration for telemetry access.
 
 ```yaml
 # config_default.yaml
-mavlink2rest:
-  enabled: true
-  base_url: "http://localhost:8088"
-  poll_rate_hz: 20
-  timeout_s: 1.0
+MAVLink:
+  MAVLINK_ENABLED: true
+  MAVLINK_HOST: 127.0.0.1
+  MAVLINK_PORT: 8088
+  MAVLINK_POLLING_INTERVAL: 0.5
+  MAVLINK_REQUEST_TIMEOUT_S: 5.0
+  MAVLINK_REQUEST_RETRIES: 0
+  MAVLINK_STALE_TIMEOUT_S: 2.0
+
+Follower:
+  USE_MAVLINK2REST: true
 ```
 
 ## Options
 
-### enabled
+### MAVLINK_ENABLED
 
 Enable/disable MAVLink2REST telemetry source.
 
 ```yaml
-mavlink2rest:
-  enabled: true   # Use MAVLink2REST for telemetry
+MAVLink:
+  MAVLINK_ENABLED: true
 ```
 
 When disabled, telemetry may be unavailable or use fallback methods.
 
-### base_url
+### MAVLINK_HOST / MAVLINK_PORT
 
 MAVLink2REST server address.
 
 ```yaml
-mavlink2rest:
-  base_url: "http://localhost:8088"
+MAVLink:
+  MAVLINK_HOST: 127.0.0.1
+  MAVLINK_PORT: 8088
 ```
 
 Common configurations:
 
 | Setup | URL |
 |-------|-----|
-| Local | `http://localhost:8088` |
-| Docker | `http://localhost:8088` |
+| Local | `http://127.0.0.1:8088` |
 | Remote | `http://192.168.1.20:8088` |
 
-### poll_rate_hz
+Keep MAVLink2REST local-only unless a trusted network, VPN, or SSH tunnel is
+part of the deployment.
 
-How often to poll MAVLink2REST for telemetry.
+### MAVLINK_POLLING_INTERVAL
+
+Polling interval in seconds.
 
 ```yaml
-mavlink2rest:
-  poll_rate_hz: 20
+MAVLink:
+  MAVLINK_POLLING_INTERVAL: 0.5
 ```
 
 Recommendations:
@@ -61,32 +70,40 @@ Recommendations:
 | Position | 5-10 Hz |
 | Heartbeat | 1-2 Hz |
 
-PixEagle uses a single rate for all data; 20 Hz is a good default.
+PixEagle also has follower refresh settings under `Follower`.
 
-### timeout_s
+### Request Timeout, Retry, And Freshness
 
-HTTP request timeout in seconds.
+These settings control how PixEagle treats MAVLink2REST transport health:
 
 ```yaml
-mavlink2rest:
-  timeout_s: 1.0
+MAVLink:
+  MAVLINK_REQUEST_TIMEOUT_S: 5.0
+  MAVLINK_REQUEST_RETRIES: 0
+  MAVLINK_STALE_TIMEOUT_S: 2.0
 ```
 
-- **Too short (< 0.5s)**: Intermittent failures
-- **Good (1.0s)**: Handles brief delays
-- **Too long (> 3s)**: Slow error recovery
+| Setting | Meaning |
+|---------|---------|
+| `MAVLINK_REQUEST_TIMEOUT_S` | HTTP timeout for each MAVLink2REST request. |
+| `MAVLINK_REQUEST_RETRIES` | Additional retry attempts after the initial request fails. |
+| `MAVLINK_STALE_TIMEOUT_S` | Age since the last successful aggregate or per-message request before telemetry is reported stale. |
+
+The top-level `/status` response includes `mavlink_telemetry` with `fresh`,
+`status`, request timeout, retry count, stale timeout, and last error fields.
+This is MAVLink2REST request freshness; it is not PX4-in-loop follower evidence.
 
 ## Data Points
 
 Configure which MAVLink messages to poll:
 
 ```yaml
-mavlink2rest:
-  data_points:
-    - attitude
-    - altitude
-    - vfr_hud
-    - heartbeat
+MAVLink:
+  MAVLINK_DATA_POINTS:
+    roll: /vehicles/1/components/1/messages/ATTITUDE/message/roll
+    pitch: /vehicles/1/components/1/messages/ATTITUDE/message/pitch
+    heading: /vehicles/1/components/1/messages/VFR_HUD/message/heading
+    flight_mode: /vehicles/1/components/1/messages/HEARTBEAT/message/custom_mode
 ```
 
 ### Available Data Points
@@ -103,38 +120,32 @@ mavlink2rest:
 ```yaml
 # config_default.yaml - MAVLink2REST section
 
-mavlink2rest:
-  enabled: true
-  base_url: "http://localhost:8088"
-  poll_rate_hz: 20
-  timeout_s: 1.0
-  data_points:
-    - attitude
-    - altitude
-    - vfr_hud
-    - heartbeat
+MAVLink:
+  MAVLINK_ENABLED: true
+  MAVLINK_HOST: 127.0.0.1
+  MAVLINK_PORT: 8088
+  MAVLINK_POLLING_INTERVAL: 0.5
+  MAVLINK_REQUEST_TIMEOUT_S: 5.0
+  MAVLINK_REQUEST_RETRIES: 0
+  MAVLINK_STALE_TIMEOUT_S: 2.0
+
+Follower:
+  USE_MAVLINK2REST: true
 ```
 
-## Environment Variables
+## Configuration Editing
 
-Override configuration via environment:
+Use YAML config or the dashboard config editor. Environment-variable override
+coverage is not currently the source of truth for this section.
+
+## MAVLink2REST Source
+
+PixEagle's launcher consumes the current MavlinkAnywhere endpoint by default:
 
 ```bash
-export MAVLINK2REST_URL="http://192.168.1.10:8088"
-export MAVLINK2REST_RATE=30
-```
-
-## Docker Configuration
-
-When running MAVLink2REST in Docker:
-
-```yaml
-# docker-compose.yml
-services:
-  mavlink2rest:
-    image: bluerobotics/mavlink2rest
-    network_mode: host
-    command: --mavlink udpin:0.0.0.0:14551 --server 0.0.0.0:8088
+bash scripts/components/mavlink2rest.sh \
+  "udpin:127.0.0.1:14569" \
+  "127.0.0.1:8088"
 ```
 
 ## Troubleshooting
@@ -143,7 +154,7 @@ services:
 
 ```bash
 # Check MAVLink2REST is running
-curl http://localhost:8088/mavlink/vehicles
+curl http://127.0.0.1:8088/v1/mavlink/vehicles
 
 # Check port
 netstat -tlnp | grep 8088
@@ -153,7 +164,7 @@ netstat -tlnp | grep 8088
 
 ```bash
 # Check vehicle connected
-curl http://localhost:8088/mavlink/vehicles
+curl http://127.0.0.1:8088/v1/mavlink/vehicles
 
 # Should return: {"vehicles":[1]}
 ```
@@ -162,7 +173,7 @@ curl http://localhost:8088/mavlink/vehicles
 
 Check message frequency:
 ```bash
-curl http://localhost:8088/.../ATTITUDE | jq '.status.time.frequency'
+curl http://127.0.0.1:8088/v1/mavlink/vehicles/1/components/1/messages/ATTITUDE | jq '.status.time.frequency'
 ```
 
 If frequency is 0, MAVLink source may not be sending.

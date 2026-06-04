@@ -1,8 +1,8 @@
 # Gimbal Tracker
 
-> External gimbal angle integration via UDP (no image processing)
+> External gimbal angle integration with a normalized TrackerOutput contract
 
-The Gimbal Tracker passively monitors external gimbal systems and provides angle data for follower control. Located at `src/classes/trackers/gimbal_tracker.py`.
+The Gimbal Tracker adapts external gimbal angle/status data into PixEagle's standard `TrackerOutput` contract. `GimbalTracker` consumes a normalized provider contract from `src/classes/gimbal_provider.py`; the current provider is the existing Topotek SIP-series UDP implementation in `src/classes/gimbal_interface.py`. This is not a MAVLink Gimbal Protocol v2 implementation yet.
 
 ---
 
@@ -15,8 +15,8 @@ The Gimbal Tracker passively monitors external gimbal systems and provides angle
 - No image processing overhead
 
 **Key Features:**
-- Status-driven passive operation
-- UDP angle reception
+- Status-driven external gimbal operation
+- Topotek SIP-over-UDP angle/status ingestion
 - Coordinate transformation (gimbal → body → NED)
 - Always-on angle display
 - No manual tracking initiation required
@@ -29,13 +29,15 @@ Unlike other trackers, GimbalTracker doesn't process video frames. It receives a
 ## Architecture
 
 ```
-External Camera App (controls gimbal)
+External Camera App / Gimbal UI
     ↓
-Gimbal Hardware (tracking target)
+Configured GimbalInputProvider
+    ├─ current: Topotek SIP-series UDP hardware/simulator
+    └─ future: MAVLink/vendor/simulator providers
     ↓
-UDP Broadcast (angles + status)
+Normalized angles, tracking state, health, freshness, metadata
     ↓
-PixEagle GimbalTracker (passive monitoring)
+PixEagle GimbalTracker
     ↓
     ├─→ TRACKING_ACTIVE: Provide angles to followers
     └─→ DISABLED/LOST: Continue monitoring, pause following
@@ -47,7 +49,7 @@ PixEagle GimbalTracker (passive monitoring)
 
 1. **PixEagle starts GimbalTracker** - Begins background UDP monitoring
 2. **External camera app starts tracking** - User initiates from gimbal UI
-3. **Gimbal broadcasts data** - Sends angles + `tracking_status=TRACKING_ACTIVE`
+3. **PixEagle receives gimbal data** - the configured provider queries/listens for angles and tracking state
 4. **GimbalTracker activates** - Provides angle data to followers
 5. **External app stops tracking** - Sends `DISABLED` or `TARGET_LOST`
 6. **GimbalTracker deactivates** - Pauses following but continues monitoring
@@ -60,18 +62,44 @@ PixEagle GimbalTracker (passive monitoring)
 # configs/config.yaml
 TRACKING_ALGORITHM: "Gimbal"
 
-# Gimbal connection
-GIMBAL_UDP_HOST: "192.168.0.108"
-GIMBAL_LISTEN_PORT: 9004
-
 GimbalTracker:
-  UDP_PORT: 9003            # Control port (not used in passive mode)
+  ENABLED: true
+  PROVIDER: "topotek_sip_udp"       # Current provider implementation
+  UDP_HOST: "192.168.0.108"       # Topotek gimbal IP address
+  UDP_PORT: 9003                  # Topotek UDP command/query port
+  LISTEN_PORT: 9004               # PixEagle response/broadcast listen port
+  CONNECTION_TIMEOUT: 5.0         # Provider data/tracking freshness timeout
+  COORDINATE_SYSTEM: "GIMBAL_BODY"
+  DISABLE_ESTIMATOR: true         # Direct gimbal angle data
   data_timeout_seconds: 5.0
   max_consecutive_failures: 10
-
-GIMBAL_COORDINATE_SYSTEM: "GIMBAL_BODY"
-GIMBAL_DISABLE_ESTIMATOR: true  # Direct data, no filtering needed
 ```
+
+Legacy flat gimbal keys are not supported. Configs and docs must use the grouped
+`GimbalTracker` section.
+
+### Provider Boundary
+
+Current runtime support:
+
+- `topotek_sip_udp`: Topotek SIP-series UDP frames using `GAC`, `GIC`, `TRC`, and `OFT` packet forms.
+
+Current provider boundary:
+
+- `GimbalTracker` depends on `GimbalInputProvider`, not a vendor protocol client.
+- Providers return normalized yaw/pitch/roll, coordinate system, tracking state, timestamp, freshness, health, and diagnostic metadata.
+- Followers should remain protocol-agnostic and consume only `TrackerOutput(data_type=GIMBAL_ANGLES, angular=(yaw, pitch, roll), ...)`.
+- Future adapters should live below the tracker/provider boundary, for example MAVLink Gimbal Protocol v2, SIYI, Gremsy, Viewpro, serial vendor SDKs, or simulator providers.
+
+### Adding Another Provider
+
+To add another gimbal:
+
+1. Implement the `GimbalInputProvider` protocol in `src/classes/gimbal_provider.py` or a provider module imported by it.
+2. Return normalized `GimbalData` from `src/classes/gimbal_types.py` with `GimbalAngles`, `TrackingStatus`, timestamps, and health metadata. Do not return vendor packet structures to followers.
+3. Add a stable provider ID to `list_supported_gimbal_providers()` and `create_gimbal_provider()`.
+4. Add config schema/defaults and tests for provider selection, unsupported-provider failure, angle bounds, coordinate frames, health, and stale-data behavior.
+5. Document the protocol, required hardware setup, coordinate conventions, and whether tracking is externally controlled.
 
 ---
 
@@ -94,6 +122,8 @@ GimbalTracker only enables following when state is `TRACKING_ACTIVE`.
 ```python
 TrackerOutput(
     data_type=TrackerDataType.GIMBAL_ANGLES,
+    # True only when the provider reports TRACKING_ACTIVE.
+    # Angle display can continue while following remains inactive.
     tracking_active=True,
 
     # Primary gimbal angle data
@@ -110,7 +140,12 @@ TrackerOutput(
         'roll': 0.0,
         'system': 'gimbal_body',
         'tracking': 'TRACKING_ACTIVE',
-        'connection_status': 'connected'
+        'connection_status': 'connected',
+        'provider': 'topotek_sip_udp',
+        'protocol': 'topotek_sip_udp',
+        'measurement_source': 'external_gimbal',
+        'usable_for_following': True,
+        'data_is_stale': False
     },
 
     metadata={
@@ -118,10 +153,17 @@ TrackerOutput(
         'always_reporting': True,
         'is_gimbal_tracker': True,
         'continuous_display': True,
-        'external_control': True
+        'external_control': True,
+        'gimbal_provider': 'topotek_sip_udp',
+        'usable_for_following': True
     }
 )
 ```
+
+Fresh gimbal angles are not enough to keep following active by themselves. If a
+provider packet lacks a fresh tracking status, `GimbalTracker` clears its active
+state and marks the output unusable for following while still exposing angle
+telemetry for diagnostics.
 
 ---
 
@@ -158,9 +200,10 @@ if tracker.is_external_control_active():
 source_info = tracker.get_tracking_source_info()
 # {
 #     'source_type': 'external_gimbal',
-#     'control_method': 'passive_monitoring',
+#     'control_method': 'topotek_sip_udp',
+#     'provider': 'topotek_sip_udp',
 #     'listen_port': 9004,
-#     'protocol': 'UDP'
+#     'protocol': 'topotek_sip_udp'
 # }
 ```
 
@@ -217,13 +260,14 @@ tracker.get_suppression_status()
 
 ## Data Caching
 
-Handles temporary UDP packet loss:
+Handles temporary provider packet loss:
 
 ```python
 # If no current data, use cached data up to timeout
 if (self.last_valid_output and
     (time.time() - self.last_valid_data_time) < DATA_TIMEOUT_SECONDS):
-    # Return cached data with reduced confidence
+    # Return cached angles for display with reduced confidence.
+    # tracking_active is false so followers fail closed on stale data.
     return self._create_stale_data_output(self.last_valid_output)
 ```
 
@@ -243,7 +287,8 @@ stats = tracker.get_gimbal_statistics()
 #         'current_tracking_state': 'TRACKING_ACTIVE',
 #         'tracking_duration': 120.5
 #     },
-#     'gimbal_interface_stats': {...},
+#     'gimbal_interface_stats': {...},      # Provider runtime counters
+#     'gimbal_provider_metadata': {...},
 #     'coordinate_transformer_stats': {...}
 # }
 ```
@@ -259,13 +304,16 @@ tracker.get_capabilities()
 #     'supports_confidence': True,
 #     'supports_velocity': False,
 #     'supports_bbox': False,
-#     'tracker_algorithm': 'Gimbal UDP Passive',
+#     'tracker_algorithm': 'Topotek SIP UDP Gimbal',
+#     'gimbal_provider': 'topotek_sip_udp',
+#     'provider_protocol': 'topotek_sip_udp',
+#     'supported_gimbal_providers': ['topotek_sip_udp'],
 #     'coordinate_systems': ['GIMBAL_BODY', 'SPATIAL_FIXED'],
 #     'requires_video': False,
 #     'requires_detector': False,
 #     'external_data_source': True,
 #     'external_control_required': True,
-#     'passive_monitoring': True,
+#     'external_gimbal_input': True,
 #     'status_driven': True
 # }
 ```

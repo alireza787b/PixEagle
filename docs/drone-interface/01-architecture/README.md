@@ -127,8 +127,8 @@ Each component has a single responsibility:
 # Synchronous: Follower calculates commands
 follow_result = follower.follow_target(tracker_output)
 
-# Asynchronous: PX4InterfaceManager sends to drone
-await px4_interface.send_velocity_body_offboard_commands()
+# Asynchronous: OffboardCommander publishes the latest CommandIntent heartbeat
+offboard_commander.submit_intent(follower.get_last_command_intent())
 ```
 
 ### 3. Schema-Driven Configuration
@@ -157,22 +157,22 @@ follower_profiles:
 │                      Main Async Loop                            │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │ AppController.follow_target()                             │  │
-│  │  - Runs at ~20 Hz                                         │  │
+│  │  - Runs when tracker/follower loop dispatches output      │  │
 │  │  - Calls follower synchronously                           │  │
-│  │  - Sends commands asynchronously                          │  │
+│  │  - Submits atomic CommandIntent to OffboardCommander      │  │
 │  └──────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
                            │
-        ┌──────────────────┴──────────────────┐
-        ▼                                      ▼
-┌─────────────────────┐              ┌─────────────────────┐
-│ Telemetry Update    │              │ SetpointSender      │
-│ Background Task     │              │ Thread              │
-│                     │              │                     │
-│ - Runs continuously │              │ - Independent thread│
-│ - Updates state     │              │ - Validates config  │
-│   variables         │              │ - Rate-limited logs │
-└─────────────────────┘              └─────────────────────┘
+        ┌──────────────────┼──────────────────┐
+        ▼                  ▼                  ▼
+┌─────────────────────┐ ┌─────────────────────┐ ┌─────────────────────┐
+│ Telemetry Update    │ │ OffboardCommander   │ │ SetpointSender      │
+│ Background Task     │ │ Async Task          │ │ Legacy Monitor      │
+│                     │ │                     │ │                     │
+│ - Runs continuously │ │ - Publishes MAVSDK  │ │ - Validates config  │
+│ - Updates state     │ │   setpoint heartbeat│ │ - Rate-limited logs │
+│   variables         │ │ - Applies TTL       │ │ - No MAVSDK sends   │
+└─────────────────────┘ └─────────────────────┘ └─────────────────────┘
         │
         ▼
 ┌─────────────────────┐
@@ -237,7 +237,10 @@ Command dispatch
 | `MAVLINK_HOST/PORT` | MAVLink section | MAVLink2REST endpoint |
 | `MAVLINK_POLLING_INTERVAL` | MAVLink section | Telemetry poll rate |
 | `USE_MAVLINK2REST` | Follower section | Telemetry source selection |
-| `SETPOINT_PUBLISH_RATE_S` | Follower section | Command send rate |
+| `FOLLOWER_DATA_REFRESH_RATE` | Follower section | PixEagle telemetry refresh rate in Hz |
+| `SETPOINT_PUBLISH_RATE_S` | Setpoint section | SetpointSender monitor period in seconds; not the MAVSDK Offboard heartbeat |
+| `OFFBOARD_COMMAND_RATE_HZ` | Setpoint section | OffboardCommander MAVSDK setpoint heartbeat rate |
+| `OFFBOARD_COMMAND_TTL_S` | Setpoint section | Latest CommandIntent freshness timeout before default setpoints |
 
 ## Related Documentation
 

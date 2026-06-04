@@ -3,14 +3,13 @@ import { Scatter } from 'react-chartjs-2';
 import { Chart, registerables } from 'chart.js';
 import ArrowPlugin from '../plugins/ArrowPlugin';
 import VideoStream from './VideoStream';
-import { Button, Typography } from '@mui/material';
+import { Button } from '@mui/material';
 import { videoFeed } from '../services/apiEndpoints';
 
 Chart.register(...registerables);
 
 const ScopePlot = ({ title, trackerData, followerData }) => {
   const [showVideo, setShowVideo] = useState(false);
-  const [videoError, setVideoError] = useState(false);
 
   const toggleVideoOverlay = () => setShowVideo(!showVideo);
 
@@ -189,11 +188,6 @@ const ScopePlot = ({ title, trackerData, followerData }) => {
         <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1, pointerEvents: 'none' }}>
           <VideoStream protocol="http" src={videoSrc} />
         </div>
-      )}
-      {videoError && (
-        <Typography variant="h6" style={{ color: 'red', textAlign: 'center', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 2 }}>
-          Live feed not available
-        </Typography>
       )}
       <Scatter data={data} options={options} style={{ position: 'relative', zIndex: 2 }} />
     </div>

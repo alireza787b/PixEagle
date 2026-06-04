@@ -132,7 +132,7 @@ class MCVelocityChaseFollower(BaseFollower):
         Initializes the MCVelocityChaseFollower with schema-aware dual-mode offboard control.
 
         Args:
-            px4_controller: Instance of PX4Controller to control the drone.
+            px4_controller: PX4InterfaceManager used by the command boundary.
             initial_target_coords (Tuple[float, float]): Initial target coordinates for setpoint initialization.
             
         Raises:
@@ -1434,15 +1434,20 @@ class MCVelocityChaseFollower(BaseFollower):
                 yaw_speed = 0.0
                 logger.debug("Emergency stop active - all commands set to zero")
             
-            # Update setpoint handler using schema-aware methods
-            self.set_command_field('vel_body_fwd', forward_velocity)
-            self.set_command_field('vel_body_right', right_velocity)
-            self.set_command_field('vel_body_down', down_velocity)
-
             # v5.7.0: Apply enterprise-grade yaw rate smoothing (deadzone, rate limiting, EMA)
             raw_yaw_rate_deg_s = degrees(yaw_speed)  # rad/s → deg/s
             smoothed_yaw_rate = self.yaw_smoother.apply(raw_yaw_rate_deg_s, dt, forward_velocity)
-            self.set_command_field('yawspeed_deg_s', smoothed_yaw_rate)
+
+            if not self.set_command_fields(
+                {
+                    'vel_body_fwd': forward_velocity,
+                    'vel_body_right': right_velocity,
+                    'vel_body_down': down_velocity,
+                    'yawspeed_deg_s': smoothed_yaw_rate,
+                },
+                reason='mc_velocity_chase_normal_tracking',
+            ):
+                raise RuntimeError("Failed to apply MC velocity chase command intent")
             
             # Update telemetry metadata
             self.update_telemetry_metadata('last_target_coords', target_coords)
@@ -1467,10 +1472,15 @@ class MCVelocityChaseFollower(BaseFollower):
         except Exception as e:
             logger.error(f"Error calculating control commands: {e}")
             # Set safe fallback commands
-            self.set_command_field('vel_body_fwd', 0.0)
-            self.set_command_field('vel_body_right', 0.0)
-            self.set_command_field('vel_body_down', 0.0)
-            self.set_command_field('yawspeed_deg_s', 0.0)
+            self.set_command_fields(
+                {
+                    'vel_body_fwd': 0.0,
+                    'vel_body_right': 0.0,
+                    'vel_body_down': 0.0,
+                    'yawspeed_deg_s': 0.0,
+                },
+                reason='mc_velocity_chase_control_error_fallback',
+            )
 
     def follow_target(self, tracker_data: TrackerOutput) -> bool:
         """
@@ -1486,14 +1496,22 @@ class MCVelocityChaseFollower(BaseFollower):
             bool: True if following executed successfully, False otherwise.
         """
         try:
+            inactive_output = self.should_process_inactive_tracker_output(tracker_data)
+
             # Validate tracker compatibility (errors are logged by base class with rate limiting)
-            if not self.validate_tracker_compatibility(tracker_data):
+            if (
+                not self.validate_tracker_compatibility(tracker_data) and
+                not inactive_output
+            ):
                 return False
 
             # Perform altitude safety check
             if not self._check_altitude_safety():
                 logger.error("Altitude safety check failed - aborting body velocity following")
                 return False
+
+            if inactive_output:
+                return self._handle_inactive_tracker_output()
 
             # Calculate and apply control commands using structured data
             self.calculate_control_commands(tracker_data)
@@ -1517,6 +1535,48 @@ class MCVelocityChaseFollower(BaseFollower):
             logger.error(f"Unexpected error in {self.__class__.__name__}.follow_target(): {e}")
             self.reset_command_fields()
             return False
+
+    def _handle_inactive_tracker_output(self) -> bool:
+        """Publish an explicit stop command for inactive vision target output."""
+        current_time = time.time()
+        if not getattr(self, 'target_lost', False):
+            self.target_lost = True
+            self.target_loss_start_time = current_time
+            logger.warning("Inactive tracker output received - stopping chase command")
+
+        stop_velocity = getattr(self, 'target_loss_stop_velocity', 0.0)
+        self.current_forward_velocity = stop_velocity
+        if not self.set_command_fields(
+            {
+                'vel_body_fwd': stop_velocity,
+                'vel_body_right': 0.0,
+                'vel_body_down': 0.0,
+                'yawspeed_deg_s': 0.0,
+            },
+            reason='mc_velocity_chase_inactive_stop',
+        ):
+            return False
+        self.update_telemetry_metadata('target_valid', False)
+        self.update_telemetry_metadata('target_lost', True)
+        return True
+
+    def should_process_inactive_tracker_output(self, tracker_data: TrackerOutput) -> bool:
+        """
+        Allow inactive position outputs to publish an explicit stop command.
+
+        Inactive tracker output must not run normal pursuit math even when it
+        carries last-known valid coordinates.
+        """
+        return self._is_inactive_tracker_output(
+            tracker_data,
+            allowed_types={
+                TrackerDataType.POSITION_2D,
+                TrackerDataType.POSITION_3D,
+                TrackerDataType.BBOX_CONFIDENCE,
+                TrackerDataType.VELOCITY_AWARE,
+                TrackerDataType.MULTI_TARGET,
+            },
+        )
 
     # ==================== Enhanced Telemetry and Status ====================
     
@@ -1726,10 +1786,15 @@ class MCVelocityChaseFollower(BaseFollower):
             self.emergency_stop_active = True
             
             # Immediately set all velocities to zero
-            self.set_command_field('vel_body_fwd', 0.0)
-            self.set_command_field('vel_body_right', 0.0)
-            self.set_command_field('vel_body_down', 0.0)
-            self.set_command_field('yawspeed_deg_s', 0.0)
+            self.set_command_fields(
+                {
+                    'vel_body_fwd': 0.0,
+                    'vel_body_right': 0.0,
+                    'vel_body_down': 0.0,
+                    'yawspeed_deg_s': 0.0,
+                },
+                reason='mc_velocity_chase_emergency_stop',
+            )
             
             # Update telemetry
             self.update_telemetry_metadata('emergency_stop_activated', datetime.utcnow().isoformat())
@@ -1856,13 +1921,16 @@ class MCVelocityChaseFollower(BaseFollower):
             # Reduce forward velocity
             self.current_forward_velocity *= 0.5
             
-            # Zero lateral commands
-            self.set_command_field('vel_body_right', 0.0)
-            self.set_command_field('vel_body_down', 0.0)
-            self.set_command_field('yawspeed_deg_s', 0.0)
-            
-            # Continue with reduced forward velocity
-            self.set_command_field('vel_body_fwd', self.current_forward_velocity)
+            # Continue with reduced forward velocity and zero lateral commands.
+            self.set_command_fields(
+                {
+                    'vel_body_fwd': self.current_forward_velocity,
+                    'vel_body_right': 0.0,
+                    'vel_body_down': 0.0,
+                    'yawspeed_deg_s': 0.0,
+                },
+                reason='mc_velocity_chase_tracking_failure',
+            )
             
             # Update telemetry
             self.update_telemetry_metadata('tracking_failure', datetime.utcnow().isoformat())

@@ -123,9 +123,9 @@ SmartTracker:
 ```yaml
 TRACKING_ALGORITHM: "Gimbal"
 
-GIMBAL_DISABLE_ESTIMATOR: true
-
 GimbalTracker:
+  PROVIDER: "topotek_sip_udp"
+  DISABLE_ESTIMATOR: true
   data_timeout_seconds: 3.0  # Faster timeout
   max_consecutive_failures: 5
 ```

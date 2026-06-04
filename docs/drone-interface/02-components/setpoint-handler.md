@@ -34,7 +34,8 @@ SetpointHandler is the abstraction layer between followers and the autopilot int
 │  └─────────────────────────────────────────────────────────┘    │
 ├─────────────────────────────────────────────────────────────────┤
 │  Key Methods:                                                    │
-│  • set_field(name, value) → clamps & validates                  │
+│  • set_fields({...}) → atomic command intent                   │
+│  • set_field(name, value) → legacy single-field helper          │
 │  • get_fields() → Dict[str, float]                              │
 │  • get_control_type() → str                                     │
 │  • reset_setpoints()                                             │
@@ -134,6 +135,24 @@ def normalize_profile_name(profile_name: str) -> str:
 
 ## Field Management
 
+### set_fields()
+
+```python
+def set_fields(self, field_values: Dict[str, float], *, source: str, reason: str | None = None) -> CommandIntent:
+    """
+    Atomically validate and apply one complete command field snapshot.
+
+    The live setpoint state is changed only after every field is valid,
+    finite, and within the active safety/schema limits. By default, every field
+    in the active profile must be present so stale command values cannot carry
+    over implicitly.
+    """
+```
+
+Concrete followers should publish through `BaseFollower.set_command_fields()`,
+which calls this method and records the accepted or rejected command intent in
+telemetry.
+
 ### set_field()
 
 ```python
@@ -161,6 +180,10 @@ def set_field(self, field_name: str, value: float):
     self.fields[field_name] = clamped_value
 ```
 
+`set_field()` remains available for compatibility and low-level tests. New
+follower command output should use `set_fields()` through
+`BaseFollower.set_command_fields()`.
+
 ### Limit Validation
 
 ```python
@@ -169,8 +192,8 @@ def _validate_field_limits(self, field_name: str, value: float) -> float:
     Validate and clamp field value.
 
     Limit sources (priority order):
-    1. Config-based limits (Parameters.SafetyLimits)
-    2. Schema-based limits (for special fields like thrust)
+    1. Safety.GlobalLimits / Safety.FollowerOverrides through SafetyManager
+    2. Schema-based limits for non-safety fields such as thrust
 
     Returns:
         Clamped value (or raises ValueError if clamp=false)
@@ -187,15 +210,17 @@ _FIELD_TO_LIMIT_NAME = {
     'vel_body_right': 'MAX_VELOCITY_LATERAL',
     'vel_body_down': 'MAX_VELOCITY_VERTICAL',
     'yawspeed_deg_s': 'MAX_YAW_RATE',
-    'rollspeed_deg_s': 'MAX_YAW_RATE',
-    'pitchspeed_deg_s': 'MAX_YAW_RATE',
+    'pitchspeed_deg_s': 'MAX_PITCH_RATE',
+    'rollspeed_deg_s': 'MAX_ROLL_RATE',
+    'yaw_rate': 'MAX_YAW_RATE',        # Deprecated rad/s alias
+    'yaw_speed_deg_s': 'MAX_YAW_RATE', # Deprecated typo alias
 }
 ```
 
 **Clamping Logic**:
 ```python
-# Get limit from Parameters
-max_limit = Parameters.get_effective_limit(limit_name)
+# Get limit from the shared command safety validator
+max_limit = Parameters.get_effective_limit(limit_name, follower_name)
 min_val = -max_limit
 max_val = max_limit
 
@@ -337,7 +362,12 @@ def get_telemetry_data(self) -> Dict[str, Any]:
             'fields': {...},
             'profile_name': "...",
             'control_type': "...",
-            'timestamp': "..."
+            'timestamp': "...",
+            'last_command_intent': {
+                'source': 'MCVelocityChaseFollower',
+                'reason': 'normal_tracking',
+                'fields': {...}
+            }
         }
     """
 ```
@@ -348,19 +378,20 @@ def get_telemetry_data(self) -> Dict[str, Any]:
 # Initialize handler with profile
 handler = SetpointHandler("mc_velocity_position")
 
-# Set fields (follower calculates these)
-handler.set_field('vel_body_fwd', 2.5)      # m/s forward
-handler.set_field('vel_body_right', 0.0)    # no lateral
-handler.set_field('vel_body_down', -0.5)    # slight climb
-handler.set_field('yawspeed_deg_s', 15.0)   # deg/s yaw rate
+# Set one complete command snapshot (follower calculates these)
+intent = handler.set_fields({
+    'vel_body_fwd': 2.5,      # m/s forward
+    'vel_body_right': 0.0,    # no lateral
+    'vel_body_down': -0.5,    # slight climb
+    'yawspeed_deg_s': 15.0,   # deg/s yaw rate
+}, source='docs_example')
 
 # Get for dispatch
 fields = handler.get_fields()
 control_type = handler.get_control_type()
 
-# PX4InterfaceManager uses these to send commands
-if control_type == 'velocity_body_offboard':
-    await px4.send_velocity_body_offboard_commands()
+# OffboardCommander consumes the accepted intent and publishes at fixed rate.
+offboard_commander.submit_intent(intent)
 ```
 
 ## Control Types Summary

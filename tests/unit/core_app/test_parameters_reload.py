@@ -125,8 +125,9 @@ class TestParametersReloadEdgeCases:
 
     def test_reload_with_custom_config_path(self):
         """reload_config should work with custom config path."""
-        # Use the default config path explicitly
-        result = Parameters.reload_config('configs/config.yaml')
+        # Use the checked-in default config explicitly. configs/config.yaml is
+        # gitignored and may not exist in a clean clone.
+        result = Parameters.reload_config('configs/config_default.yaml')
         assert result is True
 
     def test_reload_preserves_raw_config(self):

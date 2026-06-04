@@ -35,7 +35,7 @@ The PixEagle Gimbal Simulator is a comprehensive testing tool that emulates real
 └─────────────────┘    UDP Broadcast    └──────────────────┘
      tools/gimbal_simulator.py             classes/trackers/gimbal_tracker.py
 
-Protocol: SIP (Session Initiation Protocol) for Gimbal Control
+Protocol: Topotek SIP-series UDP gimbal control/status
 Ports: 9003 (commands), 9004 (broadcast data)
 ```
 
@@ -55,14 +55,13 @@ The GUI will open automatically with all controls ready.
 Edit your PixEagle configuration file (`configs/config.yaml`):
 
 ```yaml
-# Gimbal Simulator Configuration (replace existing gimbal settings)
-GIMBAL_UDP_HOST: "127.0.0.1"       # Localhost instead of real gimbal IP
-GIMBAL_LISTEN_PORT: 9004           # Port where PixEagle receives gimbal data
-GIMBAL_CONTROL_PORT: 9003          # Port where PixEagle sends commands
-
-# Keep existing gimbal behavior settings
-GIMBAL_COORDINATE_SYSTEM: "SPATIAL_FIXED"
-GIMBAL_DISABLE_ESTIMATOR: true
+GimbalTracker:
+  PROVIDER: "topotek_sip_udp"   # Simulator speaks the Topotek SIP UDP subset
+  UDP_HOST: "127.0.0.1"       # Localhost instead of real gimbal IP
+  LISTEN_PORT: 9004           # Port where PixEagle receives gimbal data
+  UDP_PORT: 9003              # Port where PixEagle sends commands
+  COORDINATE_SYSTEM: "SPATIAL_FIXED"
+  DISABLE_ESTIMATOR: true
 ```
 
 ### 3. Test Integration
@@ -81,18 +80,20 @@ To use the simulator instead of real hardware, modify these specific settings in
 
 #### Original Configuration (Real Hardware)
 ```yaml
-# Example real gimbal configuration
-GIMBAL_UDP_HOST: "192.168.0.108"   # Real gimbal IP
-GIMBAL_LISTEN_PORT: 9004           # Real gimbal broadcast port
-GIMBAL_CONTROL_PORT: 9003          # Real gimbal command port
+GimbalTracker:
+  PROVIDER: "topotek_sip_udp"
+  UDP_HOST: "192.168.0.108"   # Real gimbal IP
+  LISTEN_PORT: 9004           # Real gimbal response/broadcast port
+  UDP_PORT: 9003              # Real gimbal command/query port
 ```
 
 #### Simulator Configuration
 ```yaml
-# Simulator configuration (replace the above)
-GIMBAL_UDP_HOST: "127.0.0.1"       # Simulator runs on localhost
-GIMBAL_LISTEN_PORT: 9004           # Simulator broadcast port
-GIMBAL_CONTROL_PORT: 9003          # Simulator command port
+GimbalTracker:
+  PROVIDER: "topotek_sip_udp"
+  UDP_HOST: "127.0.0.1"       # Simulator runs on localhost
+  LISTEN_PORT: 9004           # Simulator response/broadcast port
+  UDP_PORT: 9003              # Simulator command/query port
 ```
 
 ### Complete Configuration Example
@@ -104,27 +105,21 @@ GIMBAL_CONTROL_PORT: 9003          # Simulator command port
 # GIMBAL SIMULATOR CONFIGURATION
 # =============================================================================
 
-# Network settings (CRITICAL - must match simulator)
-GIMBAL_UDP_HOST: "127.0.0.1"           # Simulator host
-GIMBAL_LISTEN_PORT: 9004               # Data from simulator to PixEagle
-GIMBAL_CONTROL_PORT: 9003              # Commands from PixEagle to simulator
+GimbalTracker:
+  PROVIDER: "topotek_sip_udp"
 
-# Gimbal behavior settings (keep your existing values)
-GIMBAL_COORDINATE_SYSTEM: "SPATIAL_FIXED"  # or "GIMBAL_BODY"
-GIMBAL_DISABLE_ESTIMATOR: true            # Use direct gimbal angles
-GIMBAL_TRACKING_TIMEOUT: 5.0              # Seconds before data considered stale
+  # Network settings (CRITICAL - must match simulator)
+  UDP_HOST: "127.0.0.1"             # Simulator host
+  LISTEN_PORT: 9004                 # Data from simulator to PixEagle
+  UDP_PORT: 9003                    # Commands from PixEagle to simulator
 
-# Angle limits (should match simulator capabilities)
-GIMBAL_YAW_MIN: -180.0                    # Degrees
-GIMBAL_YAW_MAX: 180.0
-GIMBAL_PITCH_MIN: -90.0
-GIMBAL_PITCH_MAX: 90.0
-GIMBAL_ROLL_MIN: -45.0
-GIMBAL_ROLL_MAX: 45.0
+  # Gimbal behavior settings
+  COORDINATE_SYSTEM: "SPATIAL_FIXED"  # or "GIMBAL_BODY"
+  DISABLE_ESTIMATOR: true             # Use direct gimbal angles
+  data_timeout_seconds: 5.0           # Seconds before data considered stale
 
-# Tracking parameters (keep your existing values)
-TRACKING_UPDATE_RATE: 10                  # Hz
-TRACKING_NOISE_THRESHOLD: 0.5             # Degrees
+# Follower-specific gimbal mount and axis inversion settings remain in
+# GM_VELOCITY_CHASE or GM_VELOCITY_VECTOR sections.
 
 # =============================================================================
 # OTHER SETTINGS (unchanged)
@@ -461,23 +456,20 @@ auto_track_speed: float = 10.0     # Movement speed
 The simulator works with PixEagle's existing `GimbalTracker` class:
 
 ```python
-# classes/trackers/gimbal_tracker.py
-class GimbalTracker(BaseTracker):
-    def __init__(self):
-        # Connects to simulator automatically
-        self.gimbal_interface = GimbalInterface(
-            listen_port=9004,    # Receives simulator broadcasts
-            gimbal_ip="127.0.0.1",
-            control_port=9003    # Sends commands to simulator
-        )
+# configs/config.yaml
+GimbalTracker:
+  PROVIDER: "topotek_sip_udp"
+  UDP_HOST: "127.0.0.1"
+  LISTEN_PORT: 9004
+  UDP_PORT: 9003
 ```
 
 #### Data Flow
 
 ```
-Simulator → UDP Broadcast → GimbalInterface → GimbalTracker → PixEagle UI
-     ↑                                                              ↓
-   SIP Commands ← GimbalInterface ← GimbalTracker ← User Controls ←─┘
+Simulator → Topotek SIP UDP provider → GimbalTracker → PixEagle UI/API
+     ↑                                      ↓
+   SIP Queries ← provider query loop ← tracker lifecycle
 ```
 
 ### Testing Infrastructure
@@ -533,7 +525,7 @@ def performance_test():
 
 ### SIP Protocol Details
 
-The simulator implements the complete SIP (Session Initiation Protocol) for gimbal control:
+The simulator implements the current Topotek SIP-series UDP gimbal protocol subset:
 
 #### Command Types
 
@@ -645,9 +637,9 @@ Solutions:
 ```
 Solutions:
 1. Verify configuration:
-   - GIMBAL_UDP_HOST: "127.0.0.1"
-   - GIMBAL_LISTEN_PORT: 9004
-   - GIMBAL_CONTROL_PORT: 9003
+   - `GimbalTracker.UDP_HOST: "127.0.0.1"`
+   - `GimbalTracker.LISTEN_PORT: 9004`
+   - `GimbalTracker.UDP_PORT: 9003`
 
 2. Check simulator status:
    - Status should show increasing packet count

@@ -126,7 +126,7 @@ Safety:
 ### 3. Run PixEagle
 
 ```bash
-bash run_pixeagle.sh
+bash scripts/run.sh
 ```
 
 The follower automatically initializes based on your configuration.
@@ -154,8 +154,13 @@ TrackerOutput(
 Schema-aware configuration management:
 
 ```python
-# Set velocity command
-follower.set_command_field("vel_body_fwd", 5.0)
+# Publish one complete, validated command snapshot
+follower.set_command_fields({
+    "vel_body_fwd": 5.0,
+    "vel_body_right": 0.0,
+    "vel_body_down": 0.0,
+    "yawspeed_deg_s": 0.0,
+})
 
 # Get all fields
 fields = follower.get_all_command_fields()

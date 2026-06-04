@@ -273,7 +273,7 @@ Safety:
 ```bash
 # Enable debug logging
 export PIXEAGLE_LOG_LEVEL=DEBUG
-bash run_pixeagle.sh
+bash scripts/run.sh
 ```
 
 ### Key Metrics

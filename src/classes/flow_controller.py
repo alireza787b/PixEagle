@@ -157,6 +157,13 @@ class FlowController:
                 frame = self.controller.video_handler.get_frame()
                 if frame is None:
                     logging.warning("FlowController: No frame from video_handler - continuing in degraded mode")
+                    frame_status = {}
+                    if hasattr(self.controller.video_handler, "get_frame_status"):
+                        frame_status = self.controller.video_handler.get_frame_status()
+                    if self.controller.following_active:
+                        loop.run_until_complete(
+                            self.controller.handle_video_frame_unavailable(frame_status)
+                        )
                     delay_seconds = self.controller.video_handler.delay_frame / 1000.0
                     if delay_seconds > 0:
                         time.sleep(delay_seconds)

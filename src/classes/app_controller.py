@@ -1,16 +1,19 @@
 # src/classes/app_controller.py
 
 import asyncio
+import dataclasses
 import logging
 import time
 import numpy as np
 import cv2
 import threading
+from pathlib import Path
 
 from classes.parameters import Parameters
 from classes.logging_manager import logging_manager
 from classes.follower import Follower
-from classes.setpoint_sender import SetpointSender
+from classes.command_intent import CommandIntent
+from classes.offboard_commander import OffboardCommander
 from classes.video_handler import VideoHandler
 from classes.trackers.csrt_tracker import CSRTTracker  # Import other trackers as necessary
 from classes.segmentor import Segmentor
@@ -31,6 +34,7 @@ from classes.frame_preprocessor import FramePreprocessor
 from classes.estimators.estimator_factory import create_estimator
 from classes.detectors.detector_factory import create_detector
 from classes.tracker_output import TrackerOutput, TrackerDataType
+from classes.tracker_trace import TrackerTraceRecorder
 
 # Import the SmartTracker module (conditional - may not be available without AI packages)
 try:
@@ -53,6 +57,8 @@ class AppController:
         Also sets up flags for both classic and smart tracking modes.
         """
         logging.debug("Initializing AppController...")
+        self._app_event_loop = None
+        self.following_active = False
 
         # Initialize MAVLink Data Manager
         self.mavlink_data_manager = MavlinkDataManager(
@@ -80,9 +86,7 @@ class AppController:
             # - RC override occurs
             # - Any transition from Offboard to another mode
             self.mavlink_data_manager.register_offboard_exit_callback(
-                lambda old_mode, new_mode: asyncio.create_task(
-                    self._handle_offboard_mode_exit(old_mode, new_mode)
-                )
+                self._schedule_offboard_mode_exit
             )
 
         # Initialize the estimator
@@ -138,9 +142,13 @@ class AppController:
 
         # Initialize PX4 interface and following mode components
         self.px4_interface = PX4InterfaceManager(app_controller=self)
-        self.following_active = False
         self.follower = None
         self.setpoint_sender = None
+        self.offboard_commander = None
+        self.last_offboard_commander_failure = None
+        self.tracker_trace_recorder = None
+        self._tracker_trace_frame_index = 0
+        self._offboard_trace_sequence = 0
 
         # Thread safety lock for follower state management
         # Prevents race conditions when multiple API calls modify follower state
@@ -336,19 +344,60 @@ class AppController:
         Note: For external trackers, manual tracking stop is not supported.
         External trackers stop automatically when external system stops tracking.
         """
+        result = await self._stop_following_for_operator_action("stop_tracking")
+
         # Check if we're using an external tracker
         if getattr(self.tracker, 'is_external_tracker', False):
             tracker_name = self.tracker.__class__.__name__
             logging.warning(f"Manual tracking control not supported for {tracker_name}")
             logging.info(f"{tracker_name} stops automatically when external tracking ends")
             logging.info("Control tracking from camera UI application")
-            return
+            result["external_tracker"] = True
+            result["steps"].append(f"{tracker_name} continues external monitoring")
+            return result
 
         if self.tracking_started:
             self.cancel_activities()
             logging.info("Tracking deactivated.")
+            result["steps"].append("Tracking deactivated")
         else:
             logging.info("Tracking is not active.")
+            result["steps"].append("Tracking was not active")
+        return result
+
+    async def _stop_following_for_operator_action(self, action_name: str) -> Dict[str, Any]:
+        """Stop PX4 following before operator actions clear tracking state."""
+        result = {"steps": [], "errors": [], "action": action_name}
+        if not self.following_active:
+            return result
+
+        logging.warning(
+            "Operator action '%s' requested while following is active; "
+            "disconnecting PX4 follow mode first",
+            action_name,
+        )
+        try:
+            disconnect_result = await self.disconnect_px4()
+            result["steps"].extend(
+                f"[follow-stop] {step}"
+                for step in disconnect_result.get("steps", [])
+            )
+            result["errors"].extend(
+                f"[follow-stop] {error}"
+                for error in disconnect_result.get("errors", [])
+            )
+        except Exception as e:
+            error_msg = f"Failed to stop following before {action_name}: {e}"
+            logging.error(error_msg)
+            result["errors"].append(error_msg)
+        return result
+
+    async def cancel_activities_async(self) -> Dict[str, Any]:
+        """Cancel activities through the operator-safe async path."""
+        result = await self._stop_following_for_operator_action("cancel_activities")
+        self.cancel_activities()
+        result["steps"].append("Tracker activities canceled")
+        return result
 
     def cancel_activities(self):
         """
@@ -438,6 +487,8 @@ class AppController:
         In classic mode, runs the usual tracker and estimator logic.
         In smart mode, runs AI detection and draws bounding boxes.
         """
+        self._capture_app_event_loop()
+
         # DEBUG: Log every 100th frame to verify update_loop is running
         if not hasattr(self, '_frame_count_debug'):
             self._frame_count_debug = 0
@@ -492,13 +543,13 @@ class AppController:
                     # Always-reporting trackers update regardless of manual tracking state
                     success, tracker_output = self.tracker.update(frame)
 
-                    if success and tracker_output:
+                    if tracker_output:
                         # Draw tracking overlay for always-reporting trackers
-                        frame = self.tracker.draw_tracking(frame, tracking_successful=True)
+                        frame = self.tracker.draw_tracking(frame, tracking_successful=success)
 
                         # Handle following if following is active
                         if self.following_active:
-                            await self.follow_target()
+                            await self._follow_tracker_output(tracker_output)
                             await self.check_failsafe()
                     else:
                         logging.warning(f"🚨 Always-reporting tracker update failed or no data: success={success}, output={tracker_output}")
@@ -553,10 +604,20 @@ class AppController:
                     if self.tracking_failure_start_time is None:
                         self.tracking_failure_start_time = time.time()
                         logging.warning("Tracking lost. Starting failure timer.")
+                        if self.following_active:
+                            await self._dispatch_unusable_tracker_output(
+                                reason="classic_tracker_update_failed"
+                            )
+                            await self.check_failsafe()
                     else:
                         elapsed_time = time.time() - self.tracking_failure_start_time
                         if elapsed_time > Parameters.TRACKING_FAILURE_TIMEOUT:
                             logging.error("Tracking lost for too long. Handling failure.")
+                            if self.following_active:
+                                await self._dispatch_unusable_tracker_output(
+                                    reason="classic_tracker_failure_timeout"
+                                )
+                                await self.check_failsafe()
                             self.tracking_started = False
                             if self.tracker and hasattr(self.tracker, 'stop_tracking'):
                                 self.tracker.stop_tracking()
@@ -566,7 +627,9 @@ class AppController:
                             self.tracker.update_estimator_without_measurement()
                             frame = self.tracker.draw_estimate(frame, tracking_successful=False)
                             if self.following_active:
-                                await self.follow_target()
+                                await self._dispatch_unusable_tracker_output(
+                                    reason="classic_tracker_recovery_prediction"
+                                )
                                 await self.check_failsafe()
                             redetect_result = self.handle_tracking_failure()
                             if redetect_result:
@@ -725,7 +788,7 @@ class AppController:
 
             # Gracefully stop follow mode using existing disconnect logic
             # This will:
-            # - Stop the setpoint sender thread
+            # - Stop the Offboard commander and legacy setpoint sender monitor
             # - Stop offboard mode (if still active)
             # - Clean up follower instance
             # - Set following_active = False
@@ -739,6 +802,52 @@ class AppController:
             # Ensure following_active is set to False even if cleanup fails
             self.following_active = False
 
+    def _capture_app_event_loop(self) -> None:
+        """Remember the running app loop for callbacks invoked from worker threads."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+        if loop.is_running():
+            self._app_event_loop = loop
+
+    def _schedule_offboard_mode_exit(self, old_mode, new_mode) -> None:
+        """
+        Schedule Offboard-exit cleanup from any thread.
+
+        MavlinkDataManager polls in a worker thread, so this cannot rely on
+        `asyncio.create_task()` being available in the caller's thread.
+        """
+        exit_coro = self._handle_offboard_mode_exit(old_mode, new_mode)
+
+        try:
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                running_loop = None
+
+            if running_loop and running_loop.is_running():
+                running_loop.create_task(exit_coro)
+                return
+
+            app_loop = getattr(self, '_app_event_loop', None)
+            if app_loop and app_loop.is_running():
+                asyncio.run_coroutine_threadsafe(exit_coro, app_loop)
+                return
+
+            logging.error(
+                "Offboard exit detected but no running app event loop is "
+                "available; clearing follow mode state synchronously"
+            )
+            exit_coro.close()
+            self.following_active = False
+
+        except Exception as e:
+            logging.error(f"Failed to schedule Offboard exit handling: {e}")
+            exit_coro.close()
+            self.following_active = False
+
     async def handle_key_input_async(self, key: int, frame: np.ndarray):
         """
         Asynchronous key input handler.
@@ -750,9 +859,14 @@ class AppController:
         if key == ord('y'):
             self.toggle_segmentation()
         elif key == ord('t'):
-            self.toggle_tracking(frame)
+            if self.following_active:
+                await self.cancel_activities_async()
+            else:
+                self.toggle_tracking(frame)
         # Within the key input handler (handle_key_input_async)
         elif key == ord('s'):
+            if self.following_active:
+                await self.cancel_activities_async()
             self.toggle_smart_mode()
         elif key == ord('d'):
             self.initiate_redetection()
@@ -761,7 +875,7 @@ class AppController:
         elif key == ord('x'):
             await self.disconnect_px4()
         elif key == ord('c'):
-            self.cancel_activities()
+            await self.cancel_activities_async()
         elif key == ord('o'):
             new_preset = self.osd_mode_manager.cycle_preset()
             self.logger.info(f"OSD preset cycled to: {new_preset}")
@@ -870,6 +984,7 @@ class AppController:
         Returns:
             Dict with status information including steps taken and any errors
         """
+        self._capture_app_event_loop()
         result = {"steps": [], "errors": [], "auto_stopped": False}
 
         # Use lock to prevent race conditions during state changes
@@ -937,7 +1052,9 @@ class AppController:
 
                 # Send initial setpoint using schema-aware method
                 try:
-                    await self.px4_interface.send_initial_setpoint()
+                    initial_setpoint_success = await self.px4_interface.send_initial_setpoint()
+                    if initial_setpoint_success is False:
+                        raise RuntimeError("PX4 initial setpoint send failed")
                     result["steps"].append("Initial setpoint sent")
                 except Exception as e:
                     error_msg = f"Failed to send initial setpoint: {e}"
@@ -947,40 +1064,51 @@ class AppController:
 
                 # Start offboard mode
                 try:
-                    await self.px4_interface.start_offboard_mode()
-                    result["steps"].append("Offboard mode started")
+                    offboard_result = await self.px4_interface.start_offboard_mode()
+                    if offboard_result and offboard_result.get("steps"):
+                        result["steps"].extend(offboard_result["steps"])
+                    if offboard_result and offboard_result.get("errors"):
+                        raise RuntimeError("; ".join(offboard_result["errors"]))
+                    result["steps"].append("Offboard mode confirmed started")
                 except Exception as e:
                     error_msg = f"Failed to start offboard mode: {e}"
                     logging.error(error_msg)
                     result["errors"].append(error_msg)
                     raise
 
-                # Create and start enhanced setpoint sender
+                # Create and start the Offboard command publisher. This is the
+                # component that owns MAVSDK setpoint heartbeat after Offboard
+                # mode starts; follower updates only submit CommandIntent
+                # snapshots into this loop.
                 try:
-                    from classes.setpoint_sender import SetpointSender
-                    self.setpoint_sender = SetpointSender(
+                    self.offboard_commander = OffboardCommander(
                         self.px4_interface,
-                        self.follower.follower.setpoint_handler
+                        self.follower.follower.setpoint_handler,
+                        on_failure_threshold=self._schedule_offboard_commander_failure,
                     )
 
-                    # Validate configuration before starting
-                    if self.setpoint_sender.validate_configuration():
-                        self.setpoint_sender.start()
-                        result["steps"].append("Enhanced setpoint sender started")
-                        logging.info(f"SetpointSender started for {self.follower.get_display_name()}")
+                    commander_started = await self.offboard_commander.start()
+                    if commander_started:
+                        result["steps"].append("Offboard commander started")
+                        logging.info(
+                            "OffboardCommander started for %s",
+                            self.follower.get_display_name(),
+                        )
                     else:
-                        error_msg = "SetpointSender configuration validation failed"
+                        error_msg = "OffboardCommander configuration validation failed"
                         logging.error(error_msg)
                         result["errors"].append(error_msg)
+                        raise RuntimeError(error_msg)
 
                 except Exception as e:
-                    error_msg = f"Failed to start setpoint sender: {e}"
+                    error_msg = f"Failed to start Offboard commander: {e}"
                     logging.error(error_msg)
                     result["errors"].append(error_msg)
-                    # Continue without setpoint sender if needed
+                    raise
 
                 # Mark as active
                 self.following_active = True
+                self.last_offboard_commander_failure = None
 
                 # Log final status
                 logging.info("Follow mode activation completed successfully!")
@@ -994,6 +1122,9 @@ class AppController:
 
                 # Cleanup on failure - call internal method to avoid deadlock
                 try:
+                    if hasattr(self, 'offboard_commander') and self.offboard_commander:
+                        await self.offboard_commander.stop(publish_final=True)
+                        self.offboard_commander = None
                     if hasattr(self, 'setpoint_sender') and self.setpoint_sender:
                         self.setpoint_sender.stop()
                         self.setpoint_sender = None
@@ -1006,7 +1137,11 @@ class AppController:
 
         return result
 
-    async def _disconnect_px4_internal(self) -> Dict[str, any]:
+    async def _disconnect_px4_internal(
+        self,
+        *,
+        commander_publish_final: bool = True,
+    ) -> Dict[str, any]:
         """
         Internal method for PX4 disconnection without acquiring lock.
         Used by connect_px4 for auto-stop functionality to avoid deadlock.
@@ -1023,7 +1158,26 @@ class AppController:
         try:
             logging.info("Deactivating Follow Mode...")
 
-            # Stop setpoint sender first
+            # Stop Offboard commander first while Offboard is still active so
+            # it can publish a best-effort final default setpoint.
+            if hasattr(self, 'offboard_commander') and self.offboard_commander:
+                try:
+                    commander_status = self.offboard_commander.get_status()
+                    logging.debug(f"OffboardCommander status before stop: {commander_status}")
+
+                    await self.offboard_commander.stop(
+                        publish_final=commander_publish_final
+                    )
+                    result["steps"].append("Offboard commander stopped")
+                    logging.info("OffboardCommander stopped successfully")
+                except Exception as e:
+                    error_msg = f"Error stopping Offboard commander: {e}"
+                    logging.error(error_msg)
+                    result["errors"].append(error_msg)
+                finally:
+                    self.offboard_commander = None
+
+            # Stop legacy setpoint sender monitor if present.
             if hasattr(self, 'setpoint_sender') and self.setpoint_sender:
                 try:
                     # Get status before stopping
@@ -1085,6 +1239,72 @@ class AppController:
         # Use lock to prevent race conditions during state changes
         async with self._follower_state_lock:
             return await self._disconnect_px4_internal()
+
+    async def _handle_offboard_commander_failure(self, status: Dict[str, Any]):
+        """
+        Stop local following when OffboardCommander reports sustained send failures.
+
+        This is a local fail-closed policy. It does not claim PX4 accepted an
+        abort command; PX4-in-loop evidence remains tracked under PXE-0018.
+        """
+        self.last_offboard_commander_failure = dict(status or {})
+        if not self.following_active:
+            return
+
+        logging.error(
+            "OffboardCommander failure threshold reached; stopping follow mode: %s",
+            self.last_offboard_commander_failure.get("failure_policy_reason"),
+        )
+
+        try:
+            async with self._follower_state_lock:
+                if not self.following_active:
+                    return
+                disconnect_result = await self._disconnect_px4_internal(
+                    commander_publish_final=False
+                )
+                self.last_offboard_commander_failure["disconnect_result"] = disconnect_result
+        except Exception as exc:
+            logging.error(
+                "Error handling OffboardCommander failure policy: %s",
+                exc,
+            )
+            self.last_offboard_commander_failure["handler_error"] = str(exc)
+            self.following_active = False
+
+    def _schedule_offboard_commander_failure(self, status: Dict[str, Any]) -> None:
+        """Schedule commander failure cleanup from the commander task or any thread."""
+        failure_coro = self._handle_offboard_commander_failure(status)
+
+        try:
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                running_loop = None
+
+            if running_loop and running_loop.is_running():
+                running_loop.create_task(failure_coro)
+                return
+
+            app_loop = getattr(self, '_app_event_loop', None)
+            if app_loop and app_loop.is_running():
+                asyncio.run_coroutine_threadsafe(failure_coro, app_loop)
+                return
+
+            logging.error(
+                "OffboardCommander failure detected but no running app event "
+                "loop is available; clearing follow mode state synchronously"
+            )
+            failure_coro.close()
+            self.last_offboard_commander_failure = dict(status or {})
+            self.following_active = False
+
+        except Exception as e:
+            logging.error(f"Failed to schedule OffboardCommander failure handling: {e}")
+            failure_coro.close()
+            self.last_offboard_commander_failure = dict(status or {})
+            self.last_offboard_commander_failure["schedule_error"] = str(e)
+            self.following_active = False
 
     async def switch_tracker_type(self, new_tracker_type: str) -> Dict[str, Any]:
         """
@@ -1259,6 +1479,7 @@ class AppController:
         """
         Enhanced target following with flexible tracker schema and proper async command dispatch.
         """
+        self._capture_app_event_loop()
         # DEBUG: Log when follow_target is called
         logging.debug(f"Follow target called - tracking_started={self.tracking_started}, following_active={self.following_active}")
 
@@ -1282,57 +1503,910 @@ class AppController:
             if not tracker_output:
                 logging.warning("No tracker output available for following.")
                 return False
-            
-            # Validate tracker compatibility with current follower
-            if not self.validate_tracker_follower_compatibility(tracker_output):
-                logging.warning("Current tracker incompatible with active follower")
-                return False
-            
-            # SYNCHRONOUS: Calculate and set commands using structured data (no await needed)
-            try:
-                logging.debug(f"Calling follower.follow_target() with tracker_output: data_type={tracker_output.data_type}, tracking_active={tracker_output.tracking_active}")
-                follow_result = self.follower.follow_target(tracker_output)
-                logging.debug(f"Follower result: follow_target returned {follow_result}")
 
-                # DEBUG: Check current setpoint values after follower processing
-                if hasattr(self.follower, 'setpoint_handler'):
-                    setpoints = self.follower.setpoint_handler.get_fields()
-                    logging.debug(f"Setpoints after follower: {setpoints}")
-
-                if follow_result is False:
-                    # Follower already logged specific error with rate limiting
-                    logging.debug("Follower follow_target returned False")
-                    return False
-            except Exception as e:
-                logging.error(f"Error in follower.follow_target: {e}")
-                return False
-            
-            # ASYNCHRONOUS: Send the actual commands to PX4
-            try:
-                control_type = self.follower.get_control_type()
-                logging.debug(f"Command dispatch: control_type={control_type}, sending via PX4Interface")
-
-                if control_type == 'attitude_rate':
-                    await self.px4_interface.send_attitude_rate_commands()
-                    logging.debug(f"Sent: attitude_rate commands")
-                elif control_type == 'velocity_body':
-                    await self.px4_interface.send_body_velocity_commands()
-                    logging.debug(f"Sent: velocity_body commands")
-                elif control_type == 'velocity_body_offboard':
-                    await self.px4_interface.send_velocity_body_offboard_commands()
-                    logging.debug(f"Sent: velocity_body_offboard commands")
-                else:
-                    logging.warning(f"Unknown control type: {control_type}")
-                    return False
-            except Exception as e:
-                logging.error(f"Error sending commands to PX4: {e}")
-                return False
-            
-            return True
+            return await self._follow_tracker_output(tracker_output)
             
         except Exception as e:
             logging.error(f"Error in follow_target: {e}")
             return False
+
+    async def _follow_tracker_output(self, tracker_output: TrackerOutput) -> bool:
+        """Apply command freshness to a known tracker output and dispatch it."""
+        if not tracker_output:
+            return False
+        tracker_output = self._apply_command_freshness_contract(tracker_output)
+        return await self._dispatch_tracker_output_to_follower(tracker_output)
+
+    async def inject_tracker_output_for_validation(
+        self,
+        tracker_output: TrackerOutput,
+        *,
+        source: str = "sitl_validation",
+    ) -> Dict[str, Any]:
+        """
+        Drive a SITL/test TrackerOutput through the normal follower path.
+
+        This hook is intentionally narrow: it refuses to dispatch when follow
+        mode is not already active, then uses the same command-freshness and
+        follower/commander boundary as live tracker output.
+        """
+        self._capture_app_event_loop()
+
+        if not isinstance(tracker_output, TrackerOutput):
+            raise TypeError("tracker_output must be a TrackerOutput instance")
+
+        if not getattr(self, "following_active", False):
+            return {
+                "status": "rejected",
+                "accepted": False,
+                "reason": "following_not_active",
+                "following_active": False,
+                "injection": {
+                    "source": source,
+                    "tracker_id": tracker_output.tracker_id,
+                    "data_type": tracker_output.data_type.value,
+                    "input_tracking_active": tracker_output.tracking_active,
+                },
+                "command_intent": None,
+                "offboard_commander": None,
+                "timestamp": time.time(),
+            }
+
+        processed_output = self._apply_command_freshness_contract(tracker_output)
+        accepted = await self._dispatch_tracker_output_to_follower(processed_output)
+        intent = self._get_current_command_intent()
+        commander = getattr(self, "offboard_commander", None)
+        commander_status = (
+            commander.get_status()
+            if commander and hasattr(commander, "get_status")
+            else None
+        )
+        commander_summary = self._summarize_offboard_commander_for_validation(
+            commander_status
+        )
+
+        raw_data = processed_output.raw_data or {}
+        metadata = processed_output.metadata or {}
+        return {
+            "status": "accepted" if accepted else "rejected",
+            "accepted": bool(accepted),
+            "reason": None if accepted else "dispatch_rejected",
+            "following_active": bool(getattr(self, "following_active", False)),
+            "injection": {
+                "source": source,
+                "tracker_id": processed_output.tracker_id,
+                "data_type": processed_output.data_type.value,
+                "input_tracking_active": tracker_output.tracking_active,
+                "processed_tracking_active": processed_output.tracking_active,
+                "processed_usable_for_following": raw_data.get(
+                    "usable_for_following",
+                    metadata.get("usable_for_following"),
+                ),
+                "processed_data_is_stale": raw_data.get(
+                    "data_is_stale",
+                    metadata.get("data_is_stale"),
+                ),
+                "freshness_reason": raw_data.get(
+                    "freshness_reason",
+                    metadata.get("freshness_reason"),
+                ),
+                "has_output": raw_data.get(
+                    "has_output",
+                    metadata.get("has_output"),
+                ),
+            },
+            "command_intent": dataclasses.asdict(intent) if intent else None,
+            "offboard_commander": commander_summary,
+            "timestamp": time.time(),
+        }
+
+    @staticmethod
+    def _summarize_offboard_commander_for_validation(
+        commander_status: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Return the stable OffboardCommander evidence fields for SITL APIs."""
+        if not isinstance(commander_status, dict):
+            return None
+
+        return {
+            "exists": bool(commander_status.get("exists", True)),
+            "running": commander_status.get("running"),
+            "health_state": commander_status.get("health_state"),
+            "command_publication_source": commander_status.get(
+                "command_publication_source"
+            ),
+            "command_failure_threshold": commander_status.get(
+                "command_failure_threshold"
+            ),
+            "publish_count": commander_status.get("publish_count"),
+            "last_intent_fresh": commander_status.get("last_intent_fresh"),
+            "failsafe_defaults_active": commander_status.get(
+                "failsafe_defaults_active"
+            ),
+            "successful_publishes": commander_status.get("successful_publishes"),
+            "failed_publishes": commander_status.get("failed_publishes"),
+            "consecutive_failures": commander_status.get("consecutive_failures"),
+            "rejected_intents": commander_status.get("rejected_intents"),
+            "last_publish_success": commander_status.get("last_publish_success"),
+            "last_publish_reason": commander_status.get("last_publish_reason"),
+            "last_error": commander_status.get("last_error"),
+            "failure_policy_triggered": commander_status.get(
+                "failure_policy_triggered"
+            ),
+            "failure_policy_reason": commander_status.get("failure_policy_reason"),
+            "failure_policy_trigger_count": commander_status.get(
+                "failure_policy_trigger_count"
+            ),
+            "failure_action": commander_status.get("failure_action"),
+        }
+
+    def configure_tracker_trace_artifacts(
+        self,
+        *,
+        tracker_command_trace_path: str | Path,
+        offboard_publish_trace_path: str | Path,
+        source: str = "validation_runtime",
+    ) -> Dict[str, Any]:
+        """
+        Enable append-only tracker/offboard trace capture for validation runs.
+
+        This only writes local JSONL artifacts. It does not start PX4, change
+        follow mode, publish commands, or alter routing.
+        """
+        self.tracker_trace_recorder = TrackerTraceRecorder(
+            tracker_command_trace_path=Path(tracker_command_trace_path),
+            offboard_publish_trace_path=Path(offboard_publish_trace_path),
+            source=source,
+        )
+        self._tracker_trace_frame_index = 0
+        self._offboard_trace_sequence = 0
+        return {
+            "enabled": True,
+            "source": source,
+            "tracker_command_trace_path": str(tracker_command_trace_path),
+            "offboard_publish_trace_path": str(offboard_publish_trace_path),
+            "claim_boundary": (
+                "Tracker trace capture writes validation artifacts only; it does "
+                "not prove PX4, SITL, HIL, field, or real-aircraft behavior."
+            ),
+        }
+
+    def disable_tracker_trace_artifacts(self) -> Dict[str, Any]:
+        """Disable validation trace capture."""
+        self.tracker_trace_recorder = None
+        return {"enabled": False}
+
+    def _record_tracker_dispatch_trace(
+        self,
+        *,
+        tracker_output: TrackerOutput,
+        command_intent: Optional[CommandIntent],
+        dispatch_accepted: bool,
+    ) -> None:
+        """Best-effort validation trace recording for tracker dispatch."""
+        recorder = getattr(self, "tracker_trace_recorder", None)
+        if recorder is None:
+            return
+
+        frame_index = int(getattr(self, "_tracker_trace_frame_index", 0))
+        self._tracker_trace_frame_index = frame_index + 1
+        commander = getattr(self, "offboard_commander", None)
+        commander_status = (
+            commander.get_status()
+            if commander is not None and hasattr(commander, "get_status")
+            else None
+        )
+        frame_status = self._get_video_frame_status_for_following()
+        try:
+            recorder.record_tracker_command(
+                frame_index=frame_index,
+                tracker_output=tracker_output,
+                command_intent=command_intent,
+                dispatch_accepted=dispatch_accepted,
+                frame_status=frame_status,
+                offboard_commander=commander_status,
+            )
+            if command_intent is not None:
+                sequence = int(getattr(self, "_offboard_trace_sequence", 0))
+                self._offboard_trace_sequence = sequence + 1
+                publish_status = dict(commander_status or {})
+                publish_status.setdefault("last_publish_success", dispatch_accepted)
+                recorder.record_offboard_publish(
+                    sequence=sequence,
+                    command_intent=command_intent,
+                    publish_status=publish_status,
+                )
+        except Exception as exc:
+            logging.error("Failed to write tracker trace artifact: %s", exc)
+
+    async def inject_video_stall_for_validation(
+        self,
+        frame_status: Optional[Dict[str, Any]] = None,
+        *,
+        source: str = "sitl_validation",
+    ) -> Dict[str, Any]:
+        """
+        Drive a validation-only video-stall stimulus through the normal path.
+
+        This hook does not stop or start a video source. It injects the same
+        frame-status contract that the main loop passes to
+        handle_video_frame_unavailable() when frame capture stalls.
+        """
+        self._capture_app_event_loop()
+
+        normalized_frame_status = dict(frame_status or {})
+        normalized_frame_status.setdefault("source", "sitl_validation")
+        normalized_frame_status.setdefault("status", "unavailable")
+        normalized_frame_status.setdefault("usable_for_following", False)
+        normalized_frame_status.setdefault("reason", "sitl_video_stall")
+        normalized_frame_status.setdefault("timestamp", time.time())
+
+        if not getattr(self, "following_active", False):
+            return {
+                "status": "rejected",
+                "accepted": False,
+                "reason": "following_not_active",
+                "following_active": False,
+                "injection": {
+                    "source": source,
+                    "tracker_requires_video": self._tracker_requires_video_for_following(),
+                    "frame_status": normalized_frame_status,
+                },
+                "command_intent": None,
+                "offboard_commander": None,
+                "timestamp": time.time(),
+            }
+
+        accepted = await self.handle_video_frame_unavailable(normalized_frame_status)
+        intent = self._get_current_command_intent()
+        commander = getattr(self, "offboard_commander", None)
+        commander_status = (
+            commander.get_status()
+            if commander and hasattr(commander, "get_status")
+            else None
+        )
+
+        return {
+            "status": "accepted" if accepted else "rejected",
+            "accepted": bool(accepted),
+            "reason": None if accepted else "dispatch_rejected",
+            "following_active": bool(getattr(self, "following_active", False)),
+            "injection": {
+                "source": source,
+                "tracker_requires_video": self._tracker_requires_video_for_following(),
+                "frame_status": normalized_frame_status,
+            },
+            "command_intent": dataclasses.asdict(intent) if intent else None,
+            "offboard_commander": self._summarize_offboard_commander_for_validation(
+                commander_status
+            ),
+            "timestamp": time.time(),
+        }
+
+    async def inject_commander_publish_failure_for_validation(
+        self,
+        *,
+        failure_count: Optional[int] = None,
+        reason: str = "sitl_commander_publish_failure",
+        source: str = "sitl_validation",
+        failure_mode: str = "recorded_failure",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Drive the OffboardCommander publish-failure policy for validation.
+
+        This hook records synthetic failed publishes inside the running
+        OffboardCommander without sending a MAVSDK setpoint or changing any
+        external service. If the configured threshold is crossed, it then runs
+        the same AppController cleanup handler used by real commander publish
+        failures, including the normal Offboard stop path.
+        """
+        self._capture_app_event_loop()
+
+        commander = getattr(self, "offboard_commander", None)
+        commander_status_before = (
+            commander.get_status()
+            if commander and hasattr(commander, "get_status")
+            else None
+        )
+
+        if not getattr(self, "following_active", False):
+            return {
+                "status": "rejected",
+                "accepted": False,
+                "reason": "following_not_active",
+                "following_active": False,
+                "injection": {
+                    "source": source,
+                    "failure_mode": failure_mode,
+                    "requested_failure_count": failure_count,
+                    "applied_failure_count": 0,
+                    "failure_reason": reason,
+                    "metadata": dict(metadata or {}),
+                },
+                "offboard_commander": self._summarize_offboard_commander_for_validation(
+                    commander_status_before
+                ),
+                "offboard_commander_before": self._summarize_offboard_commander_for_validation(
+                    commander_status_before
+                ),
+                "offboard_commander_after": None,
+                "offboard_commander_failure": getattr(
+                    self,
+                    "last_offboard_commander_failure",
+                    None,
+                ),
+                "disconnect_result": None,
+                "timestamp": time.time(),
+            }
+
+        if commander is None or not hasattr(
+            commander,
+            "inject_publish_failures_for_validation",
+        ):
+            return {
+                "status": "rejected",
+                "accepted": False,
+                "reason": "offboard_commander_unavailable",
+                "following_active": bool(getattr(self, "following_active", False)),
+                "injection": {
+                    "source": source,
+                    "failure_mode": failure_mode,
+                    "requested_failure_count": failure_count,
+                    "applied_failure_count": 0,
+                    "failure_reason": reason,
+                    "metadata": dict(metadata or {}),
+                },
+                "offboard_commander": self._summarize_offboard_commander_for_validation(
+                    commander_status_before
+                ),
+                "offboard_commander_before": self._summarize_offboard_commander_for_validation(
+                    commander_status_before
+                ),
+                "offboard_commander_after": None,
+                "offboard_commander_failure": getattr(
+                    self,
+                    "last_offboard_commander_failure",
+                    None,
+                ),
+                "disconnect_result": None,
+                "timestamp": time.time(),
+            }
+
+        if not bool((commander_status_before or {}).get("running")):
+            return {
+                "status": "rejected",
+                "accepted": False,
+                "reason": "offboard_commander_not_running",
+                "following_active": bool(getattr(self, "following_active", False)),
+                "injection": {
+                    "source": source,
+                    "failure_mode": failure_mode,
+                    "requested_failure_count": failure_count,
+                    "applied_failure_count": 0,
+                    "failure_reason": reason,
+                    "metadata": dict(metadata or {}),
+                },
+                "offboard_commander": self._summarize_offboard_commander_for_validation(
+                    commander_status_before
+                ),
+                "offboard_commander_before": self._summarize_offboard_commander_for_validation(
+                    commander_status_before
+                ),
+                "offboard_commander_after": self._summarize_offboard_commander_for_validation(
+                    commander_status_before
+                ),
+                "offboard_commander_failure": getattr(
+                    self,
+                    "last_offboard_commander_failure",
+                    None,
+                ),
+                "disconnect_result": None,
+                "timestamp": time.time(),
+            }
+
+        threshold = int(
+            (commander_status_before or {}).get("command_failure_threshold")
+            or getattr(commander, "command_failure_threshold", 1)
+            or 1
+        )
+        consecutive_failures = int(
+            (commander_status_before or {}).get("consecutive_failures") or 0
+        )
+        applied_count = (
+            int(failure_count)
+            if failure_count is not None
+            else max(1, threshold - consecutive_failures)
+        )
+
+        injection_result = await commander.inject_publish_failures_for_validation(
+            failure_count=applied_count,
+            reason=reason,
+            invoke_failure_callback=False,
+        )
+        commander_status_after = dict(
+            injection_result.get("offboard_commander") or commander.get_status()
+        )
+
+        disconnect_result = None
+        offboard_commander_failure = None
+        if commander_status_after.get("failure_policy_triggered"):
+            await self._handle_offboard_commander_failure(commander_status_after)
+            offboard_commander_failure = (
+                getattr(self, "last_offboard_commander_failure", {}) or {}
+            )
+            disconnect_result = offboard_commander_failure.get("disconnect_result")
+
+        return {
+            "status": "accepted",
+            "accepted": True,
+            "reason": None,
+            "following_active": bool(getattr(self, "following_active", False)),
+            "injection": {
+                "source": source,
+                "failure_mode": failure_mode,
+                "requested_failure_count": failure_count,
+                "applied_failure_count": injection_result.get(
+                    "applied_failure_count",
+                    applied_count,
+                ),
+                "failure_reason": injection_result.get("failure_reason", reason),
+                "metadata": dict(metadata or {}),
+            },
+            "offboard_commander": self._summarize_offboard_commander_for_validation(
+                commander_status_after
+            ),
+            "offboard_commander_before": self._summarize_offboard_commander_for_validation(
+                commander_status_before
+            ),
+            "offboard_commander_after": self._summarize_offboard_commander_for_validation(
+                commander_status_after
+            ),
+            "offboard_commander_failure": offboard_commander_failure,
+            "disconnect_result": disconnect_result,
+            "timestamp": time.time(),
+        }
+
+    @staticmethod
+    def _summarize_px4_connection_for_validation(
+        connection_status: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Return stable PX4/MAVSDK command-path fields for SITL APIs."""
+        if not isinstance(connection_status, dict):
+            return None
+
+        return {
+            "status": connection_status.get("status"),
+            "connected": connection_status.get("connected"),
+            "active_mode": connection_status.get("active_mode"),
+            "validation_disconnect_active": connection_status.get(
+                "validation_disconnect_active"
+            ),
+            "disconnect_reason": connection_status.get("disconnect_reason"),
+            "disconnect_source": connection_status.get("disconnect_source"),
+            "disconnect_age_s": connection_status.get("disconnect_age_s"),
+            "disconnect_count": connection_status.get("disconnect_count"),
+            "last_error": connection_status.get("last_error"),
+            "system_address": connection_status.get("system_address"),
+            "uses_mavlink2rest": connection_status.get("uses_mavlink2rest"),
+        }
+
+    async def inject_mavsdk_disconnect_for_validation(
+        self,
+        *,
+        failure_count: Optional[int] = None,
+        reason: str = "sitl_mavsdk_disconnect",
+        source: str = "sitl_validation",
+        failure_mode: str = "local_mavsdk_command_disconnect",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Drive PixEagle-local MAVSDK command-path disconnect validation.
+
+        This hook does not stop PX4, Docker, MAVLink routing, MAVSDK server, or
+        network interfaces. It marks PX4InterfaceManager's local command path
+        validation-disconnected, then trips the existing OffboardCommander
+        failure policy and awaits normal AppController cleanup.
+        """
+        self._capture_app_event_loop()
+
+        px4 = getattr(self, "px4_interface", None)
+        commander = getattr(self, "offboard_commander", None)
+        px4_status_before = (
+            px4.get_connection_status()
+            if px4 and hasattr(px4, "get_connection_status")
+            else None
+        )
+        commander_status_before = (
+            commander.get_status()
+            if commander and hasattr(commander, "get_status")
+            else None
+        )
+
+        def rejected(reason_code: str) -> Dict[str, Any]:
+            return {
+                "status": "rejected",
+                "accepted": False,
+                "reason": reason_code,
+                "following_active": bool(getattr(self, "following_active", False)),
+                "injection": {
+                    "source": source,
+                    "failure_mode": failure_mode,
+                    "requested_failure_count": failure_count,
+                    "applied_failure_count": 0,
+                    "failure_reason": reason,
+                    "metadata": dict(metadata or {}),
+                },
+                "px4_connection_before": self._summarize_px4_connection_for_validation(
+                    px4_status_before
+                ),
+                "px4_connection_after": self._summarize_px4_connection_for_validation(
+                    px4_status_before
+                ),
+                "offboard_commander": self._summarize_offboard_commander_for_validation(
+                    commander_status_before
+                ),
+                "offboard_commander_before": self._summarize_offboard_commander_for_validation(
+                    commander_status_before
+                ),
+                "offboard_commander_after": None,
+                "offboard_commander_failure": getattr(
+                    self,
+                    "last_offboard_commander_failure",
+                    None,
+                ),
+                "disconnect_result": None,
+                "timestamp": time.time(),
+            }
+
+        if not getattr(self, "following_active", False):
+            return rejected("following_not_active")
+
+        if commander is None or not hasattr(
+            commander,
+            "inject_publish_failures_for_validation",
+        ):
+            return rejected("offboard_commander_unavailable")
+
+        if not bool((commander_status_before or {}).get("running")):
+            return rejected("offboard_commander_not_running")
+
+        if px4 is None or not hasattr(px4, "inject_mavsdk_disconnect_for_validation"):
+            return rejected("px4_interface_unavailable")
+
+        threshold = int(
+            (commander_status_before or {}).get("command_failure_threshold")
+            or getattr(commander, "command_failure_threshold", 1)
+            or 1
+        )
+        consecutive_failures = int(
+            (commander_status_before or {}).get("consecutive_failures") or 0
+        )
+        required_failures = max(1, threshold - consecutive_failures)
+        requested_failure_count = failure_count
+        applied_failure_count = (
+            int(failure_count)
+            if failure_count is not None
+            else required_failures
+        )
+        applied_failure_count = max(applied_failure_count, required_failures)
+
+        injection_result = await commander.inject_publish_failures_for_validation(
+            failure_count=applied_failure_count,
+            reason=reason,
+            invoke_failure_callback=False,
+        )
+        commander_status_after = dict(
+            injection_result.get("offboard_commander") or commander.get_status()
+        )
+        if not commander_status_after.get("failure_policy_triggered"):
+            return rejected("offboard_commander_failure_policy_not_triggered")
+
+        px4_status_after_injection = await px4.inject_mavsdk_disconnect_for_validation(
+            reason=reason,
+            source=source,
+        )
+
+        await self._handle_offboard_commander_failure(commander_status_after)
+        offboard_commander_failure = (
+            getattr(self, "last_offboard_commander_failure", {}) or {}
+        )
+        disconnect_result = offboard_commander_failure.get("disconnect_result")
+
+        px4_status_after = (
+            px4.get_connection_status()
+            if px4 and hasattr(px4, "get_connection_status")
+            else px4_status_after_injection
+        )
+        return {
+            "status": "accepted",
+            "accepted": True,
+            "reason": None,
+            "following_active": bool(getattr(self, "following_active", False)),
+            "injection": {
+                "source": source,
+                "failure_mode": failure_mode,
+                "requested_failure_count": requested_failure_count,
+                "applied_failure_count": injection_result.get(
+                    "applied_failure_count",
+                    applied_failure_count,
+                ),
+                "failure_reason": injection_result.get("failure_reason", reason),
+                "metadata": dict(metadata or {}),
+            },
+            "px4_connection_before": self._summarize_px4_connection_for_validation(
+                px4_status_before
+            ),
+            "px4_connection_after": self._summarize_px4_connection_for_validation(
+                px4_status_after
+            ),
+            "offboard_commander": self._summarize_offboard_commander_for_validation(
+                commander_status_after
+            ),
+            "offboard_commander_before": self._summarize_offboard_commander_for_validation(
+                commander_status_before
+            ),
+            "offboard_commander_after": self._summarize_offboard_commander_for_validation(
+                commander_status_after
+            ),
+            "offboard_commander_failure": offboard_commander_failure,
+            "disconnect_result": disconnect_result,
+            "timestamp": time.time(),
+        }
+
+    async def inject_mavlink2rest_timeout_for_validation(
+        self,
+        *,
+        failure_count: int = 1,
+        reason: str = "sitl_mavlink2rest_timeout",
+        force_stale: bool = True,
+        timeout_window_s: float = 2.0,
+        source: str = "sitl_validation",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Drive local MAVLink2REST timeout freshness state for validation.
+
+        This hook records a timeout on PixEagle's local MavlinkDataManager
+        without stopping MAVLink2REST, PX4, Docker, MAVLink routing, or network
+        interfaces.
+        """
+        self._capture_app_event_loop()
+
+        manager = getattr(self, "mavlink_data_manager", None)
+        if manager is None or not hasattr(manager, "inject_timeout_for_validation"):
+            manager_status = (
+                manager.get_connection_status()
+                if manager and hasattr(manager, "get_connection_status")
+                else None
+            )
+            return {
+                "status": "rejected",
+                "accepted": False,
+                "reason": "mavlink_data_manager_unavailable",
+                "injection": {
+                    "source": source,
+                    "requested_failure_count": failure_count,
+                    "applied_failure_count": 0,
+                    "failure_reason": reason,
+                    "force_stale": bool(force_stale),
+                    "timeout_window_s": timeout_window_s,
+                    "metadata": dict(metadata or {}),
+                },
+                "mavlink_telemetry": manager_status,
+                "timestamp": time.time(),
+            }
+
+        injection_result = manager.inject_timeout_for_validation(
+            failure_count=failure_count,
+            reason=reason,
+            force_stale=force_stale,
+            timeout_window_s=timeout_window_s,
+        )
+
+        return {
+            "status": "accepted",
+            "accepted": True,
+            "reason": None,
+            "injection": {
+                "source": source,
+                "requested_failure_count": failure_count,
+                "applied_failure_count": injection_result.get(
+                    "applied_failure_count",
+                    failure_count,
+                ),
+                "failure_reason": injection_result.get("failure_reason", reason),
+                "force_stale": injection_result.get("force_stale", force_stale),
+                "timeout_window_s": injection_result.get(
+                    "timeout_window_s",
+                    timeout_window_s,
+                ),
+                "metadata": dict(metadata or {}),
+            },
+            "mavlink_telemetry": injection_result.get("mavlink_telemetry"),
+            "timestamp": time.time(),
+        }
+
+    async def _dispatch_tracker_output_to_follower(self, tracker_output: TrackerOutput) -> bool:
+        """
+        Process a vetted TrackerOutput through follower math and PX4 dispatch.
+
+        The input may be an inactive fail-closed output produced by target-loss,
+        stale-frame, or prediction-only freshness checks.
+        """
+        if not tracker_output:
+            return False
+
+        # Inactive output is rejected by default no matter what a legacy or
+        # custom compatibility validator returns. Followers must explicitly opt
+        # in when inactive output is needed to publish stop/hover/orbit commands.
+        if not tracker_output.tracking_active:
+            if not self._should_route_inactive_output_to_follower(tracker_output):
+                logging.warning(
+                    "Inactive tracker output rejected because active follower "
+                    "did not opt into fail-closed command handling"
+                )
+                self._record_tracker_dispatch_trace(
+                    tracker_output=tracker_output,
+                    command_intent=None,
+                    dispatch_accepted=False,
+                )
+                return False
+            logging.warning(
+                "Routing inactive tracker output to follower for "
+                "fail-closed command handling"
+            )
+        elif not self.validate_tracker_follower_compatibility(tracker_output):
+            logging.warning("Current tracker incompatible with active follower")
+            self._record_tracker_dispatch_trace(
+                tracker_output=tracker_output,
+                command_intent=None,
+                dispatch_accepted=False,
+            )
+            return False
+
+        # SYNCHRONOUS: Calculate and set commands using structured data.
+        try:
+            logging.debug(
+                "Calling follower.follow_target() with tracker_output: "
+                "data_type=%s, tracking_active=%s",
+                tracker_output.data_type,
+                tracker_output.tracking_active,
+            )
+            follow_result = self.follower.follow_target(tracker_output)
+            logging.debug(f"Follower result: follow_target returned {follow_result}")
+
+            if hasattr(self.follower, 'setpoint_handler'):
+                setpoints = self.follower.setpoint_handler.get_fields()
+                logging.debug(f"Setpoints after follower: {setpoints}")
+
+            if follow_result is False:
+                logging.debug("Follower follow_target returned False")
+                self._record_tracker_dispatch_trace(
+                    tracker_output=tracker_output,
+                    command_intent=self._get_current_command_intent(),
+                    dispatch_accepted=False,
+                )
+                return False
+        except Exception as e:
+            logging.error(f"Error in follower.follow_target: {e}")
+            self._record_tracker_dispatch_trace(
+                tracker_output=tracker_output,
+                command_intent=self._get_current_command_intent(),
+                dispatch_accepted=False,
+            )
+            return False
+
+        # ASYNCHRONOUS: Hand the accepted command intent to the commander.
+        # The commander owns fixed-rate MAVSDK publication; this frame/tracker
+        # path must not be the PX4 heartbeat.
+        intent = self._get_current_command_intent()
+        accepted = self._submit_current_command_intent_to_commander()
+        self._record_tracker_dispatch_trace(
+            tracker_output=tracker_output,
+            command_intent=intent,
+            dispatch_accepted=accepted,
+        )
+        return accepted
+
+    def _get_current_command_intent(self) -> Optional[CommandIntent]:
+        """Return the latest command intent from the active follower manager."""
+        follower = getattr(self, 'follower', None)
+        if follower is None:
+            return None
+
+        getter = getattr(follower, 'get_last_command_intent', None)
+        if callable(getter):
+            intent = getter()
+            if intent is not None:
+                return intent
+
+        concrete_follower = getattr(follower, 'follower', None)
+        getter = getattr(concrete_follower, 'get_last_command_intent', None)
+        if callable(getter):
+            return getter()
+
+        return None
+
+    def _submit_current_command_intent_to_commander(self) -> bool:
+        """Submit the latest follower command intent to the Offboard commander."""
+        commander = getattr(self, 'offboard_commander', None)
+        if commander is None:
+            logging.error(
+                "OffboardCommander unavailable while following is active; "
+                "refusing frame-loop PX4 dispatch"
+            )
+            return False
+
+        intent = self._get_current_command_intent()
+        if intent is None:
+            logging.error(
+                "Follower reported success but no CommandIntent was available "
+                "for OffboardCommander publication"
+            )
+            return False
+
+        try:
+            accepted = commander.submit_intent(intent)
+        except Exception as e:
+            logging.error(f"OffboardCommander rejected command intent with exception: {e}")
+            return False
+
+        if not accepted:
+            logging.error("OffboardCommander rejected command intent")
+            return False
+
+        logging.debug(
+            "Submitted command intent to OffboardCommander: control_type=%s reason=%s",
+            intent.control_type,
+            intent.reason,
+        )
+        return True
+
+    async def _dispatch_unusable_tracker_output(
+        self,
+        reason: str,
+        frame_status: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Dispatch inactive fail-closed tracker output for failed update paths."""
+        tracker_output = self._create_unusable_tracker_output(
+            reason=reason,
+            frame_status=frame_status,
+        )
+        return await self._dispatch_tracker_output_to_follower(tracker_output)
+
+    async def handle_video_frame_unavailable(
+        self,
+        frame_status: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """
+        Handle a hard video stall while the main frame loop is still alive.
+
+        Vision-based trackers cannot produce command-fresh target data without a
+        fresh frame. External trackers that explicitly do not require video, such
+        as gimbal providers, may still update from their own input contract.
+        """
+        self._capture_app_event_loop()
+
+        if not self.following_active:
+            return False
+
+        if not self._tracker_requires_video_for_following():
+            logging.warning(
+                "Video frame unavailable, but active tracker does not require "
+                "video; continuing through tracker freshness contract"
+            )
+            return await self.follow_target()
+
+        synthetic_output = self._create_unusable_tracker_output(
+            reason="video_frame_unavailable",
+            frame_status=frame_status,
+        )
+        logging.warning(
+            "Video frame unavailable while following - dispatching fail-closed "
+            "tracker output"
+        )
+        return await self._dispatch_tracker_output_to_follower(synthetic_output)
 
     async def shutdown(self) -> Dict[str, any]:
         """
@@ -1396,6 +2470,18 @@ class AppController:
                 # Clear follower reference
                 if hasattr(self, 'follower'):
                     self.follower = None
+
+                # Stop and clear Offboard commander (ensure it is stopped even if not following)
+                if hasattr(self, 'offboard_commander') and self.offboard_commander:
+                    try:
+                        logging.info("Stopping OffboardCommander during shutdown...")
+                        await self.offboard_commander.stop(publish_final=True)
+                        result["steps"].append("OffboardCommander stopped during shutdown")
+                    except Exception as e:
+                        logging.error(f"Error stopping OffboardCommander during shutdown: {e}")
+                        result["errors"].append(f"OffboardCommander stop error: {e}")
+                    finally:
+                        self.offboard_commander = None
 
                 # Stop and clear setpoint sender (ensure it's stopped even if not following)
                 if hasattr(self, 'setpoint_sender') and self.setpoint_sender:
@@ -1581,6 +2667,190 @@ class AppController:
         except Exception as e:
             logging.error(f"Error validating tracker-follower compatibility: {e}")
             return False
+
+    def _should_route_inactive_output_to_follower(self, tracker_output: TrackerOutput) -> bool:
+        """
+        Return True when a follower explicitly accepts inactive tracker output.
+
+        This is used for fail-closed external input handling, where skipping the
+        follower would also skip the zero command that needs to be dispatched to
+        PX4. Followers opt in case-by-case; inactive output remains rejected by
+        default.
+        """
+        if not tracker_output or tracker_output.tracking_active or not self.follower:
+            return False
+
+        handler = getattr(self.follower, 'should_process_inactive_tracker_output', None)
+        if not callable(handler):
+            return False
+
+        try:
+            return bool(handler(tracker_output))
+        except Exception as e:
+            logging.error(f"Error checking inactive tracker output handling: {e}")
+            return False
+
+    def _apply_command_freshness_contract(self, tracker_output: TrackerOutput) -> TrackerOutput:
+        """
+        Convert stale/prediction-only tracker data into inactive follower input.
+
+        A tracker may still expose a position for overlays, recovery, and
+        diagnostics, but PixEagle must not treat cached frames or estimator-only
+        predictions as command-fresh target measurements.
+        """
+        if not tracker_output:
+            return tracker_output
+
+        reason = self._tracker_output_unusable_reason(tracker_output)
+        frame_status = self._get_video_frame_status_for_following()
+
+        if (
+            self._tracker_requires_video_for_following() and
+            frame_status and
+            not frame_status.get("usable_for_following", False)
+        ):
+            reason = reason or f"video_frame_{frame_status.get('source', 'unusable')}"
+
+        if reason:
+            return self._with_unusable_tracker_metadata(
+                tracker_output,
+                reason=reason,
+                frame_status=frame_status,
+            )
+
+        return tracker_output
+
+    def _tracker_output_unusable_reason(self, tracker_output: TrackerOutput) -> Optional[str]:
+        """Return a freshness reason when tracker metadata says not to command."""
+        raw_data = tracker_output.raw_data or {}
+        metadata = tracker_output.metadata or {}
+
+        for container in (raw_data, metadata):
+            if not isinstance(container, dict):
+                continue
+            if container.get("usable_for_following") is False:
+                return str(container.get("freshness_reason") or "tracker_unusable_for_following")
+            if container.get("data_is_stale") is True:
+                return str(container.get("freshness_reason") or "tracker_data_stale")
+            if container.get("prediction_only") is True:
+                return str(container.get("freshness_reason") or "prediction_only")
+
+        return None
+
+    def _with_unusable_tracker_metadata(
+        self,
+        tracker_output: TrackerOutput,
+        reason: str,
+        frame_status: Optional[Dict[str, Any]] = None,
+    ) -> TrackerOutput:
+        """Return a copy of tracker output marked unusable for command generation."""
+        raw_data = dict(tracker_output.raw_data or {})
+        metadata = dict(tracker_output.metadata or {})
+        has_output = bool(
+            tracker_output.has_position_data()
+            or tracker_output.bbox
+            or tracker_output.targets
+        )
+
+        freshness_fields = {
+            "usable_for_following": False,
+            "data_is_stale": True,
+            "command_freshness_blocked": True,
+            "freshness_reason": reason,
+            "has_output": has_output,
+        }
+        if frame_status is not None:
+            freshness_fields["video_frame_status"] = dict(frame_status)
+
+        raw_data.update(freshness_fields)
+        metadata.update(freshness_fields)
+
+        return dataclasses.replace(
+            tracker_output,
+            timestamp=time.time(),
+            tracking_active=False,
+            raw_data=raw_data,
+            metadata=metadata,
+        )
+
+    def _create_unusable_tracker_output(
+        self,
+        reason: str,
+        frame_status: Optional[Dict[str, Any]] = None,
+    ) -> TrackerOutput:
+        """Create or adapt inactive output when no frame reaches tracker.update()."""
+        base_output = None
+        try:
+            if self.tracker and hasattr(self.tracker, "get_output"):
+                base_output = self.tracker.get_output()
+        except Exception as e:
+            logging.debug("Could not read tracker output for stale-frame handling: %s", e)
+
+        if isinstance(base_output, TrackerOutput):
+            return self._with_unusable_tracker_metadata(
+                base_output,
+                reason=reason,
+                frame_status=frame_status,
+            )
+
+        return TrackerOutput(
+            data_type=TrackerDataType.POSITION_2D,
+            timestamp=time.time(),
+            tracking_active=False,
+            tracker_id="video_freshness_guard",
+            confidence=0.0,
+            raw_data={
+                "usable_for_following": False,
+                "data_is_stale": True,
+                "command_freshness_blocked": True,
+                "freshness_reason": reason,
+                "has_output": False,
+                "video_frame_status": dict(frame_status or {}),
+            },
+            metadata={
+                "tracker_class": self.tracker.__class__.__name__ if self.tracker else None,
+                "video_frame_status": dict(frame_status or {}),
+                "usable_for_following": False,
+                "data_is_stale": True,
+                "command_freshness_blocked": True,
+                "freshness_reason": reason,
+            },
+        )
+
+    def _get_video_frame_status_for_following(self) -> Dict[str, Any]:
+        """Return latest video freshness metadata, fail-closed if unavailable."""
+        video_handler = getattr(self, "video_handler", None)
+        if video_handler and hasattr(video_handler, "get_frame_status"):
+            try:
+                return video_handler.get_frame_status()
+            except Exception as e:
+                logging.error("Error reading video frame freshness status: %s", e)
+
+        return {
+            "source": "unknown",
+            "status": "unavailable",
+            "usable_for_following": not self._tracker_requires_video_for_following(),
+            "reason": "video_frame_status_unavailable",
+            "timestamp": time.time(),
+        }
+
+    def _tracker_requires_video_for_following(self) -> bool:
+        """Return False only for trackers with an explicit non-video contract."""
+        tracker = getattr(self, "tracker", None)
+        if tracker is None:
+            return True
+
+        if getattr(tracker, "is_external_tracker", False):
+            capabilities_getter = getattr(tracker, "get_capabilities", None)
+            if callable(capabilities_getter):
+                try:
+                    capabilities = capabilities_getter() or {}
+                    return capabilities.get("requires_video", True) is not False
+                except Exception as e:
+                    logging.debug("Could not read tracker capabilities: %s", e)
+            return True
+
+        return True
     
     def get_tracker_capabilities(self) -> Optional[Dict[str, Any]]:
         """

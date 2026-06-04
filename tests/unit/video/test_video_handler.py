@@ -8,6 +8,7 @@ Tests initialization, frame capture, properties, and state management.
 import pytest
 import sys
 import os
+import time
 import numpy as np
 import cv2
 from unittest.mock import MagicMock, patch, PropertyMock
@@ -218,6 +219,17 @@ class TestGetFrame:
 
         assert handler._consecutive_failures == 0
         assert handler._is_recovering == False
+
+    def test_successful_frame_is_command_fresh(self):
+        """Fresh captures should be marked usable for following commands."""
+        handler = VideoHandlerMock()
+
+        handler.get_frame()
+        status = handler.get_frame_status()
+
+        assert status["source"] == "fresh"
+        assert status["usable_for_following"] is True
+        assert handler.is_current_frame_usable_for_following() is True
 
 
 @pytest.mark.unit
@@ -632,6 +644,70 @@ class TestUSBFallbackAndDiagnostics:
 
         bad_cap.release.assert_called()
 
+    def test_udp_gstreamer_initialization_starts_async_reader_without_blocking_open(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+
+        mock_parameters.VIDEO_SOURCE_TYPE = "UDP_STREAM"
+        mock_parameters.USE_GSTREAMER = True
+
+        with patch.object(handler, "_start_async_udp_reader") as start_reader:
+            with patch('classes.video_handler.cv2.VideoCapture') as video_capture:
+                delay = handler.init_video_source(max_retries=1, retry_delay=0)
+
+        assert delay == 33
+        assert handler._capture_mode == "udp_gstreamer_async"
+        start_reader.assert_called_once()
+        video_capture.assert_not_called()
+
+    def test_udp_gstreamer_reconnect_replaces_stopping_reader_generation(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+
+        mock_parameters.VIDEO_SOURCE_TYPE = "UDP_STREAM"
+        mock_parameters.USE_GSTREAMER = True
+        old_stop_event = handler._async_capture_stop
+        old_thread = MagicMock()
+        old_thread.is_alive.return_value = True
+        old_cap = MagicMock()
+        handler._async_capture_thread = old_thread
+        handler.cap = old_cap
+
+        with patch('classes.video_handler.threading.Thread') as thread_factory:
+            new_thread = MagicMock()
+            thread_factory.return_value = new_thread
+
+            result = handler.reconnect()
+
+        assert result is True
+        assert old_stop_event.is_set() is True
+        old_cap.release.assert_called_once()
+        old_thread.join.assert_called_once_with(timeout=0.5)
+        assert handler._async_capture_stop is not old_stop_event
+        assert handler._async_capture_stop.is_set() is False
+        new_thread.start.assert_called_once()
+
+    def test_udp_gstreamer_async_reader_marks_stale_frames_unusable(self, mock_parameters):
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+
+        mock_parameters.VIDEO_SOURCE_TYPE = "UDP_STREAM"
+        mock_parameters.USE_GSTREAMER = True
+        handler._connection_timeout = 0.1
+        stale_frame = create_test_frame(640, 480)
+        handler._async_latest_frame = stale_frame
+        handler._async_latest_frame_sequence = 1
+        handler._async_consumed_frame_sequence = 1
+        handler._async_latest_frame_time = time.time() - 1.0
+
+        frame = handler.get_frame()
+        status = handler.get_frame_status()
+
+        assert frame is not None
+        assert status["source"] == "cached"
+        assert status["usable_for_following"] is False
+        assert status["reason"] == "udp_async_frame_stale"
+
     def test_connection_health_includes_capture_diagnostics(self, mock_parameters):
         with patch.object(VideoHandler, 'init_video_source', return_value=33):
             handler = VideoHandler()
@@ -730,6 +806,9 @@ class TestErrorRecovery:
 
         assert cached is not None
         assert isinstance(cached, np.ndarray)
+        status = handler.get_frame_status()
+        assert status["source"] == "cached"
+        assert status["usable_for_following"] is False
 
     def test_get_cached_frame_returns_none_when_empty(self):
         """Cached frame should return None when empty."""
@@ -738,6 +817,28 @@ class TestErrorRecovery:
         cached = handler._get_cached_frame()
 
         assert cached is None
+        status = handler.get_frame_status()
+        assert status["source"] == "none"
+        assert status["usable_for_following"] is False
+
+    def test_real_video_handler_cached_frame_is_not_command_fresh(self):
+        """Real VideoHandler must distinguish cached frames from fresh captures."""
+        with patch.object(VideoHandler, 'init_video_source', return_value=33):
+            handler = VideoHandler()
+        handler.cap = MockVideoCapture(640, 480, 30.0)
+        handler.width = 640
+        handler.height = 480
+        handler.fps = 30.0
+        handler.cap.set_fail_after(1)
+
+        first = handler.get_frame()
+        second = handler.get_frame()
+
+        assert first is not None
+        assert second is not None
+        status = handler.get_frame_status()
+        assert status["source"] == "cached"
+        assert status["usable_for_following"] is False
 
     def test_reconnect_resets_counters(self):
         """Successful reconnect should reset counters."""

@@ -30,7 +30,10 @@ const AppContent = () => {
   return (
     <MuiThemeProvider theme={muiTheme}>
       <CssBaseline />
-      <Router basename={detectBasePath()}>
+      <Router
+        basename={detectBasePath()}
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
         <Routes>
           <Route path="/" element={<Layout />}>
             <Route index element={<Navigate to="/dashboard" />} />
