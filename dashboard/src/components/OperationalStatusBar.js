@@ -2,14 +2,37 @@
 import React from 'react';
 import { Box, Chip, Stack, Tooltip } from '@mui/material';
 import SensorsIcon from '@mui/icons-material/Sensors';
+import { normalizeTrackerStatus } from '../hooks/useStatuses';
 
 const OperationalStatusBar = ({
   isTracking,
+  trackerStatus,
   smartModeActive,
   isFollowing,
   circuitBreakerActive,
   telemetryStatus,
 }) => {
+  const normalizedTrackerStatus = trackerStatus || (
+    typeof isTracking === 'object'
+      ? isTracking
+      : normalizeTrackerStatus({
+        active: Boolean(isTracking),
+        has_output: Boolean(isTracking),
+        usable_for_following: Boolean(isTracking),
+      })
+  );
+  const trackerTooltip = normalizedTrackerStatus
+    ? [
+        normalizedTrackerStatus.detail,
+        normalizedTrackerStatus.hasOutput !== undefined
+          ? `has output: ${normalizedTrackerStatus.hasOutput ? 'yes' : 'no'}`
+          : null,
+        normalizedTrackerStatus.usableForFollowing !== undefined
+          ? `follower usable: ${normalizedTrackerStatus.usableForFollowing ? 'yes' : 'no'}`
+          : null,
+      ].filter(Boolean).join(' | ')
+    : 'Tracker status unavailable';
+
   const telemetryTooltip = telemetryStatus
     ? [
         telemetryStatus.detail,
@@ -32,13 +55,15 @@ const OperationalStatusBar = ({
       }}
     >
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap justifyContent="center">
-        <Chip
-          label={`Tracking: ${isTracking ? 'ON' : 'OFF'}`}
-          size="small"
-          color={isTracking ? 'success' : 'default'}
-          variant={isTracking ? 'filled' : 'outlined'}
-          sx={{ fontWeight: 600, fontSize: 12 }}
-        />
+        <Tooltip title={trackerTooltip}>
+          <Chip
+            label={normalizedTrackerStatus.chipLabel}
+            size="small"
+            color={normalizedTrackerStatus.color}
+            variant={normalizedTrackerStatus.usableForFollowing ? 'filled' : 'outlined'}
+            sx={{ fontWeight: 600, fontSize: 12 }}
+          />
+        </Tooltip>
         <Chip
           label={`Mode: ${smartModeActive ? 'Smart (AI)' : 'Classic'}`}
           size="small"

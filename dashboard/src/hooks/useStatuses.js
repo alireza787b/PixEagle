@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { endpoints } from '../services/apiEndpoints';
+import { getTrackerRuntimeState } from '../utils/trackerRuntimeState';
 
 const NO_CACHE_HEADERS = {
   'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -15,23 +16,17 @@ const buildNoCacheRequestConfig = () => ({
 });
 
 export const useTrackerStatus = (interval = 2000) => {
-  const [isTracking, setIsTracking] = useState(false);
+  const [trackerStatus, setTrackerStatus] = useState(() => normalizeTrackerStatus(null, { pending: true }));
 
   useEffect(() => {
     const fetchTrackerStatus = async () => {
       try {
-        const response = await axios.get(endpoints.trackerData, buildNoCacheRequestConfig());
-        const trackerData = response.data;
-
-        if (trackerData.tracker_started) {
-          setIsTracking(true);
-        } else {
-          setIsTracking(false);
-        }
+        const response = await axios.get(endpoints.trackerCurrentStatus, buildNoCacheRequestConfig());
+        setTrackerStatus(normalizeTrackerStatus(response.data));
       } catch (error) {
         console.error('Error fetching tracker data:', error);
-        console.log("URI Used is:", endpoints.trackerData);
-        setIsTracking(false);
+        console.log("URI Used is:", endpoints.trackerCurrentStatus);
+        setTrackerStatus(normalizeTrackerStatus(null, { error }));
       }
     };
 
@@ -41,7 +36,107 @@ export const useTrackerStatus = (interval = 2000) => {
     return () => clearInterval(intervalId);
   }, [interval]);
 
-  return isTracking;
+  return trackerStatus;
+};
+
+const TRACKER_GUIDANCE = {
+  active_usable: {
+    label: 'Active',
+    chipLabel: 'Tracking: Active',
+    navLabel: 'Tracking',
+    color: 'success',
+  },
+  visible_output: {
+    label: 'Output Visible',
+    chipLabel: 'Tracking: Visible',
+    navLabel: 'Visible',
+    color: 'info',
+  },
+  stale_output: {
+    label: 'Stale Output',
+    chipLabel: 'Tracking: Stale',
+    navLabel: 'Stale',
+    color: 'warning',
+  },
+  not_usable: {
+    label: 'Not Usable',
+    chipLabel: 'Tracking: Not Usable',
+    navLabel: 'Blocked',
+    color: 'warning',
+  },
+  no_output: {
+    label: 'No Output',
+    chipLabel: 'Tracking: No Output',
+    navLabel: 'Idle',
+    color: 'default',
+  },
+  pending: {
+    label: 'Checking',
+    chipLabel: 'Tracking: Checking',
+    navLabel: 'Checking',
+    color: 'info',
+  },
+  unavailable: {
+    label: 'Unavailable',
+    chipLabel: 'Tracking: Unavailable',
+    navLabel: 'Unavailable',
+    color: 'error',
+  },
+};
+
+export const normalizeTrackerStatus = (status, { pending = false, error = null } = {}) => {
+  if (pending) {
+    const descriptor = TRACKER_GUIDANCE.pending;
+    return {
+      raw: null,
+      guidance: 'pending',
+      ...descriptor,
+      detail: 'Tracker status request has not completed yet.',
+      isTracking: false,
+      activeTracking: false,
+      hasOutput: false,
+      usableForFollowing: false,
+      dataIsStale: false,
+      error: null,
+    };
+  }
+
+  if (error) {
+    const descriptor = TRACKER_GUIDANCE.unavailable;
+    return {
+      raw: null,
+      guidance: 'unavailable',
+      ...descriptor,
+      detail: error?.message || 'Tracker status request failed.',
+      isTracking: false,
+      activeTracking: false,
+      hasOutput: false,
+      usableForFollowing: false,
+      dataIsStale: false,
+      error,
+    };
+  }
+
+  const runtimeState = getTrackerRuntimeState(status);
+  const descriptor = TRACKER_GUIDANCE[runtimeState.state] || TRACKER_GUIDANCE.no_output;
+
+  return {
+    raw: status || {},
+    guidance: runtimeState.state,
+    ...descriptor,
+    detail: runtimeState.message,
+    isTracking: runtimeState.activeTracking,
+    activeTracking: runtimeState.activeTracking,
+    hasOutput: runtimeState.hasOutput,
+    usableForFollowing: runtimeState.usableForFollowing,
+    dataIsStale: runtimeState.dataIsStale,
+    followLabel: runtimeState.followLabel,
+    followColor: runtimeState.followColor,
+    trackerType: status?.tracker_type || null,
+    dataType: status?.data_type || null,
+    timestamp: status?.timestamp || null,
+    error: null,
+  };
 };
 
 export const useFollowerStatus = (interval = 2000) => {

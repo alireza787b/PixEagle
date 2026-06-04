@@ -113,6 +113,30 @@ def _stale_multi_target_output() -> TrackerOutput:
     )
 
 
+def _visible_multi_target_output() -> TrackerOutput:
+    return TrackerOutput(
+        data_type=TrackerDataType.MULTI_TARGET,
+        timestamp=time.time(),
+        tracking_active=False,
+        tracker_id='smart_tracker',
+        targets=[
+            {
+                'target_id': 7,
+                'bbox': (100, 100, 50, 50),
+                'center': (125, 125),
+                'confidence': 0.8,
+                'is_selected': False,
+            }
+        ],
+        confidence=0.8,
+        raw_data={
+            'usable_for_following': False,
+            'data_is_stale': False,
+        },
+        metadata={'usable_for_following': False},
+    )
+
+
 def _follower_manager_stub(control_type='velocity_body_offboard'):
     follower = MagicMock()
     follower.validate_tracker_compatibility.return_value = True
@@ -1127,6 +1151,7 @@ async def test_start_offboard_mode_api_reports_failure_when_controller_returns_e
         px4_interface=object(),
         tracker=object(),
         video_handler=object(),
+        get_tracker_output=MagicMock(return_value=_active_position_output()),
         connect_px4=AsyncMock(return_value={
             "steps": ["initial setpoint sent"],
             "errors": ["OffboardCommander configuration validation failed"],
@@ -1141,6 +1166,80 @@ async def test_start_offboard_mode_api_reports_failure_when_controller_returns_e
     assert result["action_audit"]["action_type"] == "offboard_start"
     assert result["action_audit"]["status"] == "failure"
     assert result["action_audit"]["canonical_route"] == "/api/v1/actions/offboard-start"
+
+
+@pytest.mark.asyncio
+async def test_start_offboard_mode_api_blocks_unusable_tracker_output():
+    """Direct API starts must fail closed when tracker output is stale/unusable."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        px4_interface=object(),
+        tracker=object(),
+        video_handler=object(),
+        get_tracker_output=MagicMock(return_value=_stale_gimbal_output()),
+        connect_px4=AsyncMock(),
+    )
+
+    result = await handler.start_offboard_mode()
+
+    assert result["status"] == "failure"
+    assert "Tracker output is stale" in result["error"]
+    assert result["details"]["tracker_runtime"]["usable_for_following"] is False
+    assert result["action_audit"]["status"] == "failure"
+    handler.app_controller.connect_px4.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_offboard_action_blocks_unusable_tracker_output():
+    """Typed action callers inherit the same tracker usability guard."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        px4_interface=object(),
+        tracker=object(),
+        video_handler=object(),
+        get_tracker_output=MagicMock(return_value=_stale_gimbal_output()),
+        connect_px4=AsyncMock(),
+    )
+
+    response = Response()
+    result = await handler.start_offboard_action(
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="stale-output-start",
+            source="operator_test",
+        ),
+        response,
+    )
+
+    assert response.status_code == 202
+    assert result["status"] == "failure"
+    assert "Tracker output is stale" in result["error"]
+    handler.app_controller.connect_px4.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_current_tracker_status_treats_multi_target_detections_as_visible_output():
+    """Detected SmartTracker targets without a selected target are visible output."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=object(),
+        smart_mode_active=True,
+        get_tracker_output=MagicMock(return_value=_visible_multi_target_output()),
+    )
+
+    response = await handler.get_current_tracker_status()
+    payload = json.loads(response.body)
+
+    assert payload["active"] is False
+    assert payload["has_output"] is True
+    assert payload["usable_for_following"] is False
+    assert payload["data_type"] == "MULTI_TARGET"
+    assert "targets" in payload["fields"]
 
 
 @pytest.mark.asyncio

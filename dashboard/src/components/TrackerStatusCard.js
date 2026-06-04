@@ -15,9 +15,11 @@ import {
   Speed,
   GpsFixed,
   CheckCircle,
-  Warning
+  Warning,
+  Info
 } from '@mui/icons-material';
 import { useTrackerSchema, useCurrentTrackerStatus, useTrackerSelection } from '../hooks/useTrackerSchema';
+import { getTrackerRuntimeState } from '../utils/trackerRuntimeState';
 
 const TrackerStatusCard = () => {
   const { loading: schemaLoading, error: schemaError } = useTrackerSchema();
@@ -58,22 +60,23 @@ const TrackerStatusCard = () => {
     );
   }
 
-  // Determine if tracker is currently active
-  const isActive = currentStatus && currentStatus.active;
+  const runtimeState = getTrackerRuntimeState(currentStatus);
+  const isActive = runtimeState.activeTracking;
+  const hasRuntimeOutput = runtimeState.hasOutput;
   
   // Use active tracker info if available, otherwise use configured info
-  const trackerType = isActive
+  const trackerType = hasRuntimeOutput
     ? (currentStatus?.tracker_type || 'Unknown')
     : (currentConfig?.configured_tracker || 'Not configured');
     
-  const dataType = isActive 
+  const dataType = hasRuntimeOutput
     ? (currentStatus?.data_type?.toUpperCase() || 'N/A')
     : (currentConfig?.expected_data_type || 'POSITION_2D');
     
-  const smartMode = isActive 
+  const smartMode = hasRuntimeOutput
     ? (currentStatus?.smart_mode || false)
     : (currentConfig?.smart_mode_active || false);
-  const inference = isActive ? (currentStatus?.inference || null) : null;
+  const inference = hasRuntimeOutput ? (currentStatus?.inference || null) : null;
     
   const fields = currentStatus?.fields || {};
   const fieldCount = Object.keys(fields).length;
@@ -144,20 +147,31 @@ const TrackerStatusCard = () => {
   };
 
   const keyFields = getAvailableFields();
+  const StatusIcon = runtimeState.hasOutput
+    ? (runtimeState.usableForFollowing ? CheckCircle : Warning)
+    : Info;
 
   return (
     <Card>
       <CardContent>
         {/* Header */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-          <TrackChanges color={isActive ? 'primary' : 'action'} />
+          <TrackChanges color={hasRuntimeOutput ? 'primary' : 'action'} />
           <Typography variant="h6">Tracker Status</Typography>
           <Chip 
-            label={isActive ? 'Active' : 'Inactive'}
-            color={isActive ? 'success' : 'default'}
+            label={runtimeState.label}
+            color={runtimeState.color}
             size="small"
-            icon={isActive ? <CheckCircle /> : <Warning />}
+            icon={<StatusIcon />}
           />
+          {hasRuntimeOutput && (
+            <Chip
+              label={runtimeState.followLabel}
+              color={runtimeState.followColor}
+              size="small"
+              variant="outlined"
+            />
+          )}
         </Box>
 
         {/* Status Info */}
@@ -180,9 +194,9 @@ const TrackerStatusCard = () => {
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Typography variant="body2" fontWeight="medium">
-                {dataType} {isActive ? `(${fieldCount} fields)` : '(Expected)'}
+                {dataType} {hasRuntimeOutput ? `(${fieldCount} fields)` : '(Expected)'}
               </Typography>
-              {isActive && currentStatus?.data_type === 'VELOCITY_AWARE' && (
+              {hasRuntimeOutput && currentStatus?.data_type === 'VELOCITY_AWARE' && (
                 <Tooltip title="Schema enhanced by Kalman estimator providing velocity data">
                   <Chip
                     size="small"
@@ -222,7 +236,7 @@ const TrackerStatusCard = () => {
           )}
           
           {/* Show configured info when inactive */}
-          {!isActive && configuredTrackerInfo.description && (
+          {!hasRuntimeOutput && configuredTrackerInfo.description && (
             <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
               <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
                 Ready to Start:
@@ -240,11 +254,11 @@ const TrackerStatusCard = () => {
             </Box>
           )}
 
-          {/* Key Field Values - Only when active */}
-          {isActive && keyFields.length > 0 && (
+          {/* Key Field Values - available output, even when not usable for following */}
+          {hasRuntimeOutput && keyFields.length > 0 && (
             <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
               <Typography variant="caption" color="textSecondary" sx={{ mb: 1, display: 'block' }}>
-                Live Data:
+                {isActive ? 'Live Data:' : 'Visible Output:'}
               </Typography>
               {keyFields.slice(0, 4).map(fieldName => {
                 const fieldData = fields[fieldName];
@@ -295,15 +309,26 @@ const TrackerStatusCard = () => {
           )}
 
           {/* Connection Health - Only show when degraded/stale */}
-          {isActive && dataType === 'GIMBAL_ANGLES' && currentStatus?.raw_data &&
-           (currentStatus.raw_data.data_is_stale || currentStatus.raw_data.connection_health === 'degraded' || currentStatus.raw_data.connection_health === 'poor') && (
+          {hasRuntimeOutput && dataType === 'GIMBAL_ANGLES' && currentStatus?.raw_data &&
+           (runtimeState.dataIsStale || currentStatus.raw_data.connection_health === 'degraded' || currentStatus.raw_data.connection_health === 'poor') && (
             <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 <Warning fontSize="small" color="warning" />
                 <Typography variant="caption" color="warning.main">
-                  {currentStatus.raw_data.data_is_stale
+                  {runtimeState.dataIsStale
                     ? `Data stale (${currentStatus.raw_data.data_age_seconds?.toFixed(1)}s)`
                     : `Connection ${currentStatus.raw_data.connection_health}`}
+                </Typography>
+              </Box>
+            </Box>
+          )}
+
+          {hasRuntimeOutput && !runtimeState.usableForFollowing && (
+            <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Warning fontSize="small" color="warning" />
+                <Typography variant="caption" color="warning.main">
+                  {runtimeState.message}
                 </Typography>
               </Box>
             </Box>

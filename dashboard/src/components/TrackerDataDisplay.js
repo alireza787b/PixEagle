@@ -23,6 +23,7 @@ import {
   Wifi as WifiIcon,
   SignalWifiOff as SignalWifiOffIcon
 } from '@mui/icons-material';
+import { getTrackerRuntimeState } from '../utils/trackerRuntimeState';
 
 /**
  * Schema-driven tracker data display component
@@ -205,14 +206,16 @@ const TrackerDataDisplay = ({
     );
   }
 
-  if (!currentStatus || (!currentStatus.active && !currentStatus.has_output)) {
+  const runtimeState = getTrackerRuntimeState(currentStatus);
+
+  if (!currentStatus || !runtimeState.hasOutput) {
     return (
       <Paper elevation={2} sx={{ p: 3, textAlign: 'center' }}>
         <Typography variant="h6" color="text.secondary" gutterBottom>
-          No Active Tracker
+          No Tracker Output
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Start tracking to see real-time data fields
+          Start tracking or connect an external tracker to see real-time data fields.
         </Typography>
       </Paper>
     );
@@ -230,6 +233,18 @@ const TrackerDataDisplay = ({
             Tracker Data Fields
           </Typography>
           <Box sx={{ display: 'flex', gap: 1 }}>
+            <Chip
+              label={runtimeState.label}
+              size="small"
+              color={runtimeState.color}
+              variant="filled"
+            />
+            <Chip
+              label={runtimeState.followLabel}
+              size="small"
+              color={runtimeState.followColor}
+              variant="outlined"
+            />
             <Chip 
               label={currentStatus.tracker_type || 'Unknown'} 
               size="small" 
@@ -271,6 +286,12 @@ const TrackerDataDisplay = ({
           </Typography>
         )}
       </Box>
+
+      {runtimeState.severity !== 'success' && (
+        <Alert severity={runtimeState.severity} sx={{ mb: 2 }}>
+          {runtimeState.message}
+        </Alert>
+      )}
 
       <Divider sx={{ mb: 2 }} />
 

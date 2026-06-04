@@ -20,6 +20,7 @@ import { endpoints } from '../services/apiEndpoints';
 
 const ActionButtons = ({
   isTracking,
+  trackerStatus,
   isFollowing,
   smartModeActive,
   handleTrackingToggle,
@@ -28,6 +29,11 @@ const ActionButtons = ({
 }) => {
   const [switchLoading, setSwitchLoading] = useState(false);
   const [followConfirmOpen, setFollowConfirmOpen] = useState(false);
+  const trackerUsabilityKnown = Boolean(trackerStatus && typeof trackerStatus === 'object');
+  const canStartFollowing = !trackerUsabilityKnown || trackerStatus.usableForFollowing;
+  const followDisabledReason = trackerUsabilityKnown && !trackerStatus.usableForFollowing
+    ? trackerStatus.detail || 'Follower requires fresh, usable tracker output.'
+    : null;
 
   const handleSmartModeSwitch = async (event, newMode) => {
     if (newMode === null) return; // Prevent deselection
@@ -39,10 +45,17 @@ const ActionButtons = ({
   };
 
   const handleStartFollowClick = () => {
+    if (!canStartFollowing) {
+      return;
+    }
     setFollowConfirmOpen(true);
   };
 
   const handleFollowConfirm = () => {
+    if (!canStartFollowing) {
+      setFollowConfirmOpen(false);
+      return;
+    }
     setFollowConfirmOpen(false);
     handleButtonClick(endpoints.startOffboardMode);
   };
@@ -154,16 +167,19 @@ const ActionButtons = ({
           </Typography>
 
           {!isFollowing ? (
-            <Tooltip title="Engage offboard mode and start autonomous following">
-              <Button
-                variant="contained"
-                color="success"
-                onClick={handleStartFollowClick}
-                fullWidth
-                size="small"
-              >
-                Start Following
-              </Button>
+            <Tooltip title={followDisabledReason || "Engage offboard mode and start autonomous following"}>
+              <span>
+                <Button
+                  variant="contained"
+                  color="success"
+                  onClick={handleStartFollowClick}
+                  fullWidth
+                  size="small"
+                  disabled={!canStartFollowing}
+                >
+                  Start Following
+                </Button>
+              </span>
             </Tooltip>
           ) : (
             <Tooltip title="Disengage offboard mode and stop following immediately">
@@ -198,8 +214,13 @@ const ActionButtons = ({
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Ensure the area is clear and the drone is in a safe state before engaging.
-            Active tracking must be established first for reliable following.
+            Tracker output must be fresh and marked usable for follower control.
           </Typography>
+          {trackerUsabilityKnown && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Tracker state: {trackerStatus.chipLabel}; {trackerStatus.followLabel || 'follower usability unknown'}.
+            </Typography>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={handleFollowCancel}>Cancel</Button>
@@ -207,6 +228,7 @@ const ActionButtons = ({
             variant="contained"
             color="warning"
             onClick={handleFollowConfirm}
+            disabled={!canStartFollowing}
           >
             Engage
           </Button>

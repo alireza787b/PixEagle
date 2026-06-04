@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { apiConfig } from '../services/apiEndpoints';
+import { trackerHasRuntimeOutput } from '../utils/trackerRuntimeState';
 
 const API_URL = `${apiConfig.protocol}://${apiConfig.apiHost}:${apiConfig.apiPort}`;
 
@@ -121,7 +122,7 @@ export const useCurrentTrackerStatus = (refreshInterval = 1000) => {
  */
 export const useTrackerDataTypes = (schema, currentStatus) => {
   return useMemo(() => {
-    if (!schema || !currentStatus || !currentStatus.active) {
+    if (!schema || !currentStatus || !trackerHasRuntimeOutput(currentStatus)) {
       return { dataTypes: {}, currentDataType: null, availableFields: {} };
     }
 

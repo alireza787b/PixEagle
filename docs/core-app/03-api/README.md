@@ -68,13 +68,35 @@ GET /telemetry/tracker_data
 **Response:**
 ```json
 {
-  "position_2d": [0.5, 0.3],
-  "bbox": [100, 80, 200, 160],
-  "confidence": 0.85,
-  "is_tracking": true,
-  "data_type": "POSITION_2D"
+  "bounding_box": [0.4, 0.4, 0.2, 0.3],
+  "center": [0.5, 0.55],
+  "timestamp": "2026-06-04T12:00:00.000000",
+  "tracker_started": false,
+  "has_output": true,
+  "usable_for_following": false,
+  "data_is_stale": true,
+  "tracker_data": {
+    "data_type": "gimbal_angles",
+    "tracker_id": "gimbal_tracker",
+    "tracking_active": false,
+    "has_output": true,
+    "usable_for_following": false,
+    "data_is_stale": true,
+    "confidence": 0.85,
+    "timestamp": 1717502400.0,
+    "angular": [12.0, -4.0, 0.0],
+    "gimbal_tracking_active": false,
+    "tracking_status": "TARGET_LOST",
+    "connection_status": "receiving"
+  }
 }
 ```
+
+`tracker_started`/`tracking_active` remain compatibility booleans. Consumers
+that decide whether output can drive follower control must also inspect
+`has_output`, `usable_for_following`, and `data_is_stale`. External trackers can
+produce visible diagnostic output while target tracking is inactive or stale;
+the dashboard treats that as visible output, not a usable target.
 
 ### Follower Data
 
@@ -205,6 +227,13 @@ compact operational chip: `Telemetry: Usable`, `Telemetry: Degraded`,
 `flight_mode` and `arm_status` into display labels while keeping the raw values
 available for diagnostics.
 
+Dashboard tracker status uses `/api/tracker/current-status` through the endpoint
+registry and normalizes tracker output into distinct operator states:
+`Tracking: Active`, `Tracking: Visible`, `Tracking: Stale`,
+`Tracking: Not Usable`, `Tracking: No Output`, `Tracking: Checking`, or
+`Tracking: Unavailable`. The follow controls require tracker output to be fresh
+and marked `usable_for_following=true` before enabling autonomous following.
+
 ---
 
 ## Commands
@@ -268,6 +297,10 @@ Content-Type: application/json
 The typed action resource records local PixEagle execution and following-state
 before/after. PX4-observed Offboard mode and setpoint cadence still require
 separate SITL, HIL, or field evidence artifacts.
+
+Start requests fail closed before `connect_px4()` if tracker output is absent,
+stale, or not marked `usable_for_following=true`. This guard applies to both
+the typed action resource and the legacy compatibility route below.
 
 Action semantics:
 

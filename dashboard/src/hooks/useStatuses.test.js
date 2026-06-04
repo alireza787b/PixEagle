@@ -3,8 +3,10 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import axios from 'axios';
 import { endpoints } from '../services/apiEndpoints';
 import {
+  normalizeTrackerStatus,
   normalizeTelemetryHealth,
   useSmartModeStatus,
+  useTrackerStatus,
   useTelemetryHealth,
 } from './useStatuses';
 
@@ -71,6 +73,66 @@ test('normalizes degraded telemetry without treating it as usable', () => {
   expect(normalized.payload.fresh).toBe(true);
   expect(normalized.payload.flightModeLabel).toBe('393216');
   expect(normalized.payload.armStatusLabel).toBe('Armed');
+});
+
+test('normalizes inactive visible tracker output without treating it as follower usable', () => {
+  const normalized = normalizeTrackerStatus({
+    active: false,
+    has_output: true,
+    usable_for_following: false,
+    tracker_type: 'GimbalTracker',
+    data_type: 'GIMBAL_ANGLES',
+  });
+
+  expect(normalized.chipLabel).toBe('Tracking: Visible');
+  expect(normalized.navLabel).toBe('Visible');
+  expect(normalized.isTracking).toBe(false);
+  expect(normalized.hasOutput).toBe(true);
+  expect(normalized.usableForFollowing).toBe(false);
+});
+
+test('normalizes stale tracker output as not follower usable', () => {
+  const normalized = normalizeTrackerStatus({
+    active: true,
+    has_output: true,
+    raw_data: {
+      data_is_stale: true,
+      usable_for_following: false,
+    },
+  });
+
+  expect(normalized.chipLabel).toBe('Tracking: Stale');
+  expect(normalized.color).toBe('warning');
+  expect(normalized.isTracking).toBe(true);
+  expect(normalized.usableForFollowing).toBe(false);
+  expect(normalized.dataIsStale).toBe(true);
+});
+
+test('useTrackerStatus polls current tracker status instead of legacy tracker telemetry', async () => {
+  axios.get.mockResolvedValueOnce({
+    data: {
+      active: false,
+      has_output: true,
+      usable_for_following: false,
+    },
+  });
+
+  const Probe = () => {
+    const trackerStatus = useTrackerStatus(60000);
+    return <div>{trackerStatus.chipLabel}</div>;
+  };
+
+  render(<Probe />);
+
+  expect(await screen.findByText('Tracking: Visible')).toBeInTheDocument();
+  expect(axios.get).toHaveBeenCalledWith(
+    endpoints.trackerCurrentStatus,
+    expect.objectContaining({
+      headers: expect.objectContaining({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      }),
+    })
+  );
 });
 
 test('normalizes disabled telemetry with cached payload as not fresh', () => {

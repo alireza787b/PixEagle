@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import OperationalStatusBar from './OperationalStatusBar';
-import { normalizeTelemetryHealth } from '../hooks/useStatuses';
+import { normalizeTelemetryHealth, normalizeTrackerStatus } from '../hooks/useStatuses';
 
 const baseProps = {
   isTracking: false,
@@ -30,6 +30,19 @@ test('shows degraded telemetry as a distinct operator state', () => {
   render(<OperationalStatusBar {...baseProps} telemetryStatus={telemetryStatus} />);
 
   expect(screen.getByText('Telemetry: Degraded')).toBeInTheDocument();
+});
+
+test('shows visible tracker output as distinct from active usable tracking', () => {
+  const trackerStatus = normalizeTrackerStatus({
+    active: false,
+    has_output: true,
+    usable_for_following: false,
+  });
+
+  render(<OperationalStatusBar {...baseProps} trackerStatus={trackerStatus} />);
+
+  expect(screen.getByText('Tracking: Visible')).toBeInTheDocument();
+  expect(screen.queryByText('Tracking: ON')).not.toBeInTheDocument();
 });
 
 test('shows disabled telemetry even when cached payload exists', () => {

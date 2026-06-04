@@ -2964,6 +2964,15 @@ class FastAPIHandler:
             if not hasattr(self.app_controller, 'video_handler'):
                 validation_errors.append("Video handler not initialized")
 
+            tracker_runtime = self._get_tracker_following_readiness()
+            if not tracker_runtime.get("usable_for_following", False):
+                validation_errors.append(
+                    tracker_runtime.get(
+                        "reason",
+                        "Tracker output is not usable for following"
+                    )
+                )
+
             if validation_errors:
                 error_msg = f"Pre-flight validation failed: {', '.join(validation_errors)}"
                 self.logger.error(f"❌ {error_msg}")
@@ -2977,6 +2986,7 @@ class FastAPIHandler:
                             "auto_stopped": False,
                             "initial_state": initial_state,
                             "final_state": initial_state,
+                            "tracker_runtime": tracker_runtime,
                         },
                     },
                     action_type="offboard_start",
@@ -3089,6 +3099,91 @@ class FastAPIHandler:
                 ),
                 error=error_msg,
             )
+
+    def _get_tracker_following_readiness(self) -> Dict[str, Any]:
+        """
+        Evaluate whether current tracker output can start autonomous following.
+
+        The legacy command route and typed /api/v1 action both use this
+        fail-closed guard before `connect_px4()` can activate Offboard.
+        """
+        if not hasattr(self.app_controller, "get_tracker_output"):
+            return {
+                "has_output": False,
+                "tracking_active": False,
+                "usable_for_following": False,
+                "data_is_stale": False,
+                "reason": "Tracker output API not available",
+            }
+
+        try:
+            tracker_output = self.app_controller.get_tracker_output()
+        except Exception as exc:
+            return {
+                "has_output": False,
+                "tracking_active": False,
+                "usable_for_following": False,
+                "data_is_stale": False,
+                "reason": f"Tracker output unavailable: {type(exc).__name__}: {exc}",
+            }
+
+        if tracker_output is None:
+            return {
+                "has_output": False,
+                "tracking_active": False,
+                "usable_for_following": False,
+                "data_is_stale": False,
+                "reason": "No tracker output available for following",
+            }
+
+        raw_data = getattr(tracker_output, "raw_data", None) or {}
+        metadata = getattr(tracker_output, "metadata", None) or {}
+        if not isinstance(raw_data, dict):
+            raw_data = {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        has_output = bool(
+            raw_data.get("has_output") or
+            metadata.get("has_output") or
+            getattr(tracker_output, "angular", None) or
+            getattr(tracker_output, "position_2d", None) or
+            getattr(tracker_output, "position_3d", None) or
+            getattr(tracker_output, "bbox", None) or
+            getattr(tracker_output, "targets", None)
+        )
+        tracking_active = bool(getattr(tracker_output, "tracking_active", False))
+        data_is_stale = bool(
+            raw_data.get("data_is_stale", metadata.get("data_is_stale", False))
+        )
+        usable_for_following = raw_data.get(
+            "usable_for_following",
+            metadata.get(
+                "usable_for_following",
+                bool(tracking_active and has_output and not data_is_stale),
+            ),
+        )
+        usable_for_following = bool(
+            usable_for_following and has_output and not data_is_stale
+        )
+
+        reason = None
+        if not has_output:
+            reason = "No tracker output available for following"
+        elif data_is_stale:
+            reason = "Tracker output is stale and not usable for following"
+        elif not usable_for_following:
+            reason = "Tracker output is not marked usable for following"
+
+        return {
+            "has_output": has_output,
+            "tracking_active": tracking_active,
+            "usable_for_following": usable_for_following,
+            "data_is_stale": data_is_stale,
+            "tracker_id": getattr(tracker_output, "tracker_id", None),
+            "data_type": getattr(getattr(tracker_output, "data_type", None), "value", None),
+            "reason": reason,
+        }
 
     async def stop_offboard_mode(self):
         """
@@ -4887,7 +4982,8 @@ class FastAPIHandler:
                 tracker_output.angular or
                 tracker_output.position_2d or
                 tracker_output.position_3d or
-                tracker_output.bbox
+                tracker_output.bbox or
+                tracker_output.targets
             )
 
             return JSONResponse(content={

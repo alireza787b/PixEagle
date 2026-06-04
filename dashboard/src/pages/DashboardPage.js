@@ -252,6 +252,7 @@ const DashboardPage = () => {
                           </Box>
                           <ActionButtons
                             isTracking={isTracking}
+                            trackerStatus={trackerStatus}
                             isFollowing={isFollowing}
                             smartModeActive={smartModeActive}
                             handleTrackingToggle={handleTrackingToggle}
@@ -395,7 +396,7 @@ const DashboardPage = () => {
           {/* Operational Status Bar */}
           <Grid item xs={12}>
             <OperationalStatusBar
-              isTracking={trackerStatus}
+              trackerStatus={trackerStatus}
               smartModeActive={smartModeActive}
               isFollowing={isFollowing}
               circuitBreakerActive={circuitBreakerActive}

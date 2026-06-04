@@ -66,7 +66,7 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up('lg'));
 
-  const isTracking = useTrackerStatus(3000);
+  const trackerStatus = useTrackerStatus(3000);
   const isFollowing = useFollowerStatus(3000);
 
   const [versionInfo, setVersionInfo] = useState(null);
@@ -169,10 +169,10 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
       <Divider />
       <Box sx={{ px: 2, py: 1.5, display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
         <Chip
-          label={isTracking ? 'Tracking' : 'Idle'}
+          label={trackerStatus.navLabel}
           size="small"
-          color={isTracking ? 'success' : 'default'}
-          variant={isTracking ? 'filled' : 'outlined'}
+          color={trackerStatus.color}
+          variant={trackerStatus.usableForFollowing ? 'filled' : 'outlined'}
           sx={{ fontSize: 11, height: 22 }}
         />
         <Chip

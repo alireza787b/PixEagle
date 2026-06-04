@@ -79,6 +79,31 @@ class TelemetryHandler:
         Returns:
             dict: Formatted telemetry data
         """
+        raw_data = getattr(tracker_output, 'raw_data', None) or {}
+        metadata = getattr(tracker_output, 'metadata', None) or {}
+        if not isinstance(raw_data, dict):
+            raw_data = {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        has_output = bool(
+            raw_data.get('has_output') or
+            metadata.get('has_output') or
+            tracker_output.tracking_active or
+            tracker_output.angular or
+            tracker_output.position_2d or
+            tracker_output.position_3d or
+            tracker_output.bbox or
+            tracker_output.targets
+        )
+        usable_for_following = raw_data.get(
+            'usable_for_following',
+            metadata.get('usable_for_following', bool(tracker_output.tracking_active and has_output))
+        )
+        data_is_stale = raw_data.get(
+            'data_is_stale',
+            metadata.get('data_is_stale', False)
+        )
+
         # Base telemetry data with backwards compatibility
         data = {
             # Legacy fields for backwards compatibility
@@ -86,12 +111,18 @@ class TelemetryHandler:
             'center': tracker_output.position_2d,
             'timestamp': timestamp,
             'tracker_started': tracker_started,
+            'has_output': has_output,
+            'usable_for_following': usable_for_following,
+            'data_is_stale': data_is_stale,
             
             # Enhanced structured data
             'tracker_data': {
                 'data_type': tracker_output.data_type.value,
                 'tracker_id': tracker_output.tracker_id,
                 'tracking_active': tracker_output.tracking_active,
+                'has_output': has_output,
+                'usable_for_following': usable_for_following,
+                'data_is_stale': data_is_stale,
                 'confidence': tracker_output.confidence,
                 'timestamp': tracker_output.timestamp
             }
@@ -266,5 +297,3 @@ class TelemetryHandler:
             self.latest_follower_data = self.get_follower_data()
         # logging.debug(f"Latest tracker data: {self.latest_tracker_data}")
         # logging.debug(f"Latest follower data: {self.latest_follower_data}")
-
-
