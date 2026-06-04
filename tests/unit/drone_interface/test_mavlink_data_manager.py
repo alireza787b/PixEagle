@@ -503,6 +503,16 @@ class TestMavlinkDataManagerConnectionState:
             timeout=5.0,
         )
 
+        health = mavlink_data_manager.get_telemetry_health()
+        assert health["status"] == "healthy"
+        assert health["consumer_guidance"] == "usable"
+        assert health["transport"]["latest_request_ok"] is True
+        assert health["transport"]["latest_request_result"] == "success"
+        assert health["request_freshness"]["fresh"] is True
+        assert health["payload"]["has_payload"] is True
+        assert "flight_mode" in health["payload"]["available_keys"]
+        assert "not PX4, SITL, HIL, field" in health["claim_boundary"]
+
     def test_connection_status_reports_stale_after_timeout(self, mavlink_data_manager):
         """Telemetry status is stale when cached data exceeds the configured age."""
         mavlink_data_manager.connection_state = "connected"
@@ -512,6 +522,70 @@ class TestMavlinkDataManagerConnectionState:
 
         assert status["status"] == "stale"
         assert status["fresh"] is False
+
+        health = mavlink_data_manager.get_telemetry_health()
+        assert health["status"] == "stale"
+        assert health["consumer_guidance"] == "stale"
+        assert health["request_freshness"]["fresh"] is False
+
+    def test_telemetry_health_distinguishes_fresh_cache_from_failed_request(self, mavlink_data_manager):
+        """Fresh cached payload is degraded when the newest MAVLink2REST request failed."""
+        mavlink_data_manager.connection_state = "connected"
+        mavlink_data_manager.data = {
+            "flight_mode": 393216,
+            "arm_status": "Armed",
+        }
+        mavlink_data_manager._record_successful_fetch()
+        mavlink_data_manager._handle_connection_error("Connection timeout - simulated")
+
+        legacy_status = mavlink_data_manager.get_connection_status()
+        health = mavlink_data_manager.get_telemetry_health()
+
+        assert legacy_status["status"] == "stale"
+        assert legacy_status["fresh"] is True
+        assert health["status"] == "degraded"
+        assert health["consumer_guidance"] == "degraded_latest_request_failed"
+        assert health["transport"]["latest_request_ok"] is False
+        assert health["transport"]["latest_request_result"] == "failure"
+        assert health["transport"]["last_error"] == "Connection timeout - simulated"
+        assert health["request_freshness"]["fresh"] is True
+        assert health["payload"]["fresh"] is True
+
+    def test_telemetry_health_reports_disabled_manager(self, mavlink_data_manager):
+        """Disabled MAVLink telemetry is explicit and not ambiguous with stale data."""
+        mavlink_data_manager.enabled = False
+
+        health = mavlink_data_manager.get_telemetry_health()
+
+        assert health["enabled"] is False
+        assert health["status"] == "disabled"
+        assert health["consumer_guidance"] == "disabled"
+        assert health["transport"]["latest_request_result"] == "not_attempted"
+        assert health["request_freshness"]["fresh"] is False
+        assert health["payload"]["has_payload"] is False
+
+    def test_disabled_telemetry_health_forces_cached_payload_not_fresh(self, mavlink_data_manager):
+        """Disabling telemetry must fail closed even when cached payload exists."""
+        mavlink_data_manager.data = {
+            "flight_mode": 393216,
+            "arm_status": "Armed",
+        }
+        mavlink_data_manager._record_successful_fetch()
+        mavlink_data_manager.enabled = False
+
+        legacy_status = mavlink_data_manager.get_connection_status()
+        health = mavlink_data_manager.get_telemetry_health()
+
+        assert legacy_status["status"] == "disabled"
+        assert legacy_status["fresh"] is False
+        assert health["status"] == "disabled"
+        assert health["consumer_guidance"] == "disabled"
+        assert health["transport"]["latest_request_ok"] is False
+        assert health["transport"]["latest_request_result"] == "success"
+        assert health["request_freshness"]["fresh"] is False
+        assert health["request_freshness"]["last_success_age_s"] is not None
+        assert health["payload"]["has_payload"] is True
+        assert health["payload"]["fresh"] is False
 
     def test_validation_timeout_injection_blocks_local_requests_without_service_changes(
         self,
@@ -537,6 +611,13 @@ class TestMavlinkDataManagerConnectionState:
         assert status["last_error"] == "Connection timeout - sitl_mavlink2rest_timeout"
         assert status["validation_timeout_active"] is True
         assert status["connection_error_count"] == 2
+        health = mavlink_data_manager.get_telemetry_health()
+        assert health["status"] == "stale"
+        assert health["consumer_guidance"] == "stale"
+        assert health["transport"]["latest_request_ok"] is False
+        assert health["transport"]["latest_request_result"] == "failure"
+        assert health["transport"]["validation_timeout_active"] is True
+        assert health["request_freshness"]["fresh"] is False
 
         with pytest.raises(TimeoutError):
             mavlink_data_manager._request_json("/v1/mavlink")
@@ -570,6 +651,13 @@ class TestMavlinkDataManagerConnectionState:
         assert status["last_success_age_s"] is None
         assert status["last_error"] == "Connection timeout - sitl_mavlink2rest_timeout"
         assert status["validation_timeout_active"] is True
+        health = mavlink_data_manager.get_telemetry_health()
+        assert health["status"] == "error"
+        assert health["consumer_guidance"] == "unavailable"
+        assert health["transport"]["latest_request_ok"] is False
+        assert health["transport"]["latest_request_result"] == "failure"
+        assert health["transport"]["validation_timeout_active"] is True
+        assert health["request_freshness"]["fresh"] is False
 
     def test_config_validation_clamps_retry_and_timeout_values(self, sample_data_points, mock_parameters):
         """Invalid telemetry freshness config is bounded deterministically."""

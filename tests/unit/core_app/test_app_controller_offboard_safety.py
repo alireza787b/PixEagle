@@ -1514,6 +1514,94 @@ async def test_status_exposes_mavlink_telemetry_freshness():
 
 
 @pytest.mark.asyncio
+async def test_typed_telemetry_health_endpoint_forwards_manager_snapshot():
+    """Typed telemetry health should use the manager's structured contract."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    expected_health = {
+        "schema_version": 1,
+        "source": "mavlink2rest",
+        "enabled": True,
+        "status": "degraded",
+        "consumer_guidance": "degraded_latest_request_failed",
+        "transport": {
+            "state": "error",
+            "latest_request_ok": False,
+            "latest_request_result": "failure",
+            "latest_request_age_s": 0.1,
+            "last_error": "Connection timeout - simulated",
+            "error_count": 1,
+            "validation_timeout_active": False,
+            "request_timeout_s": 5.0,
+            "request_retries": 0,
+            "endpoint": "http://127.0.0.1:8088",
+        },
+        "request_freshness": {
+            "fresh": True,
+            "last_success_age_s": 0.2,
+            "stale_timeout_s": 2.0,
+            "last_success_monotonic_available": True,
+        },
+        "payload": {
+            "has_payload": True,
+            "sample_count": 2,
+            "available_keys": ["arm_status", "flight_mode"],
+            "flight_mode": 393216,
+            "arm_status": "Armed",
+            "fresh": True,
+            "payload_age_s": 0.2,
+        },
+        "claim_boundary": "PixEagle local MAVLink2REST client health only; not PX4, SITL, HIL, field, or follower-response proof.",
+        "timestamp": time.time(),
+    }
+    manager = SimpleNamespace(get_telemetry_health=MagicMock(return_value=expected_health))
+    handler.app_controller = SimpleNamespace(mavlink_data_manager=manager)
+
+    result = await handler.get_telemetry_health()
+
+    assert result == expected_health
+    manager.get_telemetry_health.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_typed_telemetry_health_endpoint_reports_unavailable_without_manager():
+    """Typed telemetry health should fail closed when no manager is configured."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(mavlink_data_manager=None)
+
+    result = await handler.get_telemetry_health()
+
+    assert result["enabled"] is False
+    assert result["status"] == "disconnected"
+    assert result["consumer_guidance"] == "unavailable"
+    assert result["transport"]["latest_request_result"] == "not_attempted"
+    assert result["transport"]["last_error"] == "MAVLink data manager is not configured"
+    assert result["request_freshness"]["fresh"] is False
+    assert "not PX4, SITL, HIL" in result["claim_boundary"]
+
+
+@pytest.mark.asyncio
+async def test_typed_telemetry_health_endpoint_returns_structured_error():
+    """Typed telemetry-health failures should use the /api/v1 error envelope."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    manager = SimpleNamespace(
+        get_telemetry_health=MagicMock(side_effect=RuntimeError("health failed"))
+    )
+    handler.app_controller = SimpleNamespace(mavlink_data_manager=manager)
+
+    response = await handler.get_telemetry_health()
+    payload = json.loads(response.body.decode())
+
+    assert response.status_code == 500
+    assert payload["code"] == "telemetry_health_error"
+    assert payload["detail"] == "health failed"
+    assert payload["path"] == "/api/v1/telemetry/health"
+    assert payload["request_id"].startswith("pixeagle-api-")
+
+
+@pytest.mark.asyncio
 async def test_follower_health_marks_running_degraded_commander_as_degraded():
     """Follower health should not treat transient commander failures as fully healthy."""
     handler = object.__new__(FastAPIHandler)

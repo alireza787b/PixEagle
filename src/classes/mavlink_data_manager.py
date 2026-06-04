@@ -59,6 +59,7 @@ class MavlinkDataManager:
         self.last_successful_connection = None
         self.last_successful_fetch_monotonic_s = None
         self.last_fetch_attempt_monotonic_s = None
+        self.last_request_result = "not_attempted"
         self.connection_error_count = 0
         self.last_error = None
         self.last_status_log = 0  # For throttling status messages
@@ -237,7 +238,9 @@ class MavlinkDataManager:
     def _handle_connection_error(self, error_reason):
         """Handle connection errors with clean, throttled logging."""
         with self._lock:
+            self.last_fetch_attempt_monotonic_s = time.monotonic()
             self.connection_state = "error"
+            self.last_request_result = "failure"
             self.connection_error_count += 1
             self.last_error = error_reason
         
@@ -339,6 +342,8 @@ class MavlinkDataManager:
             self.connection_state = "connected"
             self.last_successful_connection = time.time()
             self.last_successful_fetch_monotonic_s = time.monotonic()
+            self.last_fetch_attempt_monotonic_s = self.last_successful_fetch_monotonic_s
+            self.last_request_result = "success"
             self.connection_error_count = 0
             self.last_error = None
         if not was_connected:
@@ -355,7 +360,8 @@ class MavlinkDataManager:
         attempts = self.request_retries + 1
         last_error = None
         for attempt in range(1, attempts + 1):
-            self.last_fetch_attempt_monotonic_s = time.monotonic()
+            with self._lock:
+                self.last_fetch_attempt_monotonic_s = time.monotonic()
             try:
                 validation_timeout = self._validation_timeout_exception()
                 if validation_timeout is not None:
@@ -502,6 +508,7 @@ class MavlinkDataManager:
 
             if not self.enabled:
                 status = "disabled"
+                fresh = False
             elif validation_timeout_active and self.last_successful_fetch_monotonic_s is not None:
                 status = "stale"
                 fresh = False
@@ -530,6 +537,89 @@ class MavlinkDataManager:
                 "last_error": last_error,
                 "endpoint": f"http://{self.mavlink_host}:{self.mavlink_port}",
                 "validation_timeout_active": validation_timeout_active,
+            }
+
+    def get_telemetry_health(self):
+        """Return typed MAVLink2REST health separated by request and payload state."""
+        legacy_status = self.get_connection_status()
+        now = time.monotonic()
+
+        with self._lock:
+            latest_request_age_s = None
+            if self.last_fetch_attempt_monotonic_s is not None:
+                latest_request_age_s = max(0.0, now - self.last_fetch_attempt_monotonic_s)
+
+            validation_timeout_active = legacy_status["validation_timeout_active"]
+            latest_request_result = self.last_request_result or "not_attempted"
+            if validation_timeout_active:
+                latest_request_result = "failure"
+
+            data_keys = sorted(str(key) for key in self.data.keys())
+            has_payload = bool(data_keys)
+            last_success_age_s = legacy_status["last_success_age_s"]
+            fresh = bool(legacy_status["fresh"])
+            has_success = last_success_age_s is not None
+            connection_state = legacy_status["connection_state"]
+
+            if not self.enabled:
+                health_status = "disabled"
+                consumer_guidance = "disabled"
+            elif not has_success and connection_state == "connecting":
+                health_status = "connecting"
+                consumer_guidance = "connecting"
+            elif not has_success:
+                health_status = "error" if connection_state == "error" else "disconnected"
+                consumer_guidance = "unavailable"
+            elif not fresh:
+                health_status = "stale"
+                consumer_guidance = "stale"
+            elif latest_request_result == "failure" or connection_state == "error":
+                health_status = "degraded"
+                consumer_guidance = "degraded_latest_request_failed"
+            else:
+                health_status = "healthy"
+                consumer_guidance = "usable"
+
+            return {
+                "schema_version": 1,
+                "source": "mavlink2rest",
+                "enabled": self.enabled,
+                "status": health_status,
+                "consumer_guidance": consumer_guidance,
+                "transport": {
+                    "state": connection_state,
+                    "latest_request_ok": self.enabled
+                    and latest_request_result == "success"
+                    and not validation_timeout_active,
+                    "latest_request_result": latest_request_result,
+                    "latest_request_age_s": latest_request_age_s,
+                    "last_error": legacy_status["last_error"],
+                    "error_count": self.connection_error_count,
+                    "validation_timeout_active": validation_timeout_active,
+                    "request_timeout_s": self.request_timeout_s,
+                    "request_retries": self.request_retries,
+                    "endpoint": legacy_status["endpoint"],
+                },
+                "request_freshness": {
+                    "fresh": fresh,
+                    "last_success_age_s": last_success_age_s,
+                    "stale_timeout_s": self.stale_timeout_s,
+                    "last_success_monotonic_available": has_success,
+                },
+                "payload": {
+                    "has_payload": has_payload,
+                    "sample_count": len(data_keys),
+                    "available_keys": data_keys,
+                    "flight_mode": self.data.get("flight_mode"),
+                    "arm_status": self.data.get("arm_status"),
+                    "fresh": has_payload and fresh,
+                    "payload_age_s": last_success_age_s if has_payload else None,
+                },
+                "claim_boundary": (
+                    "PixEagle local MAVLink2REST client health only; not PX4, SITL, "
+                    "HIL, field, or follower-response proof."
+                ),
+                "timestamp": time.time(),
             }
 
     async def fetch_attitude_data(self):

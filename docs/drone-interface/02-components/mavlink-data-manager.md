@@ -2,7 +2,7 @@
 
 > HTTP polling client for MAVLink2REST telemetry data.
 
-**Source**: `src/classes/mavlink_data_manager.py` (~435 lines)
+**Source**: `src/classes/mavlink_data_manager.py`
 
 ## Overview
 
@@ -13,8 +13,9 @@ Key responsibilities:
 - Shared timeout/retry handling for aggregate and per-message requests
 - Data parsing and normalization
 - Flight mode monitoring and offboard exit detection
-- Connection/freshness state tracking with error recovery and `/status`
-  diagnostics exposed as `mavlink_telemetry`
+- Connection/freshness state tracking with error recovery, legacy `/status`
+  diagnostics exposed as `mavlink_telemetry`, and typed
+  `/api/v1/telemetry/health` request/payload health
 
 ## Architecture
 
@@ -38,6 +39,7 @@ Key responsibilities:
 │  ┌─────────────────────────────────────────────────────────┐    │
 │  │ data: dict              # latest telemetry values        │    │
 │  │ connection_state: str   # disconnected/connecting/...    │    │
+│  │ last_request_result     # not_attempted/success/failure  │    │
 │  │ last_flight_mode: int   # for change detection          │    │
 │  │ velocity_buffer: deque  # for smoothing                  │    │
 │  └─────────────────────────────────────────────────────────┘    │
@@ -56,6 +58,8 @@ Key responsibilities:
 │  • fetch_ground_speed() → float                                 │
 │  • fetch_throttle_percent() → uint16                            │
 │  • get_data(point_name) → any                                   │
+│  • get_connection_status() → legacy /status summary             │
+│  • get_telemetry_health() → typed health contract               │
 │  • register_offboard_exit_callback(callback)                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -112,8 +116,26 @@ reports `mavlink_telemetry.fresh = false`.
 legacy `/status` response. It reports `status`, `fresh`,
 `last_success_age_s`, `request_timeout_s`, `request_retries`,
 `stale_timeout_s`, `connection_error_count`, `last_error`, and `endpoint`.
-This is MAVLink2REST transport freshness, not proof that a follower scenario
-has run against PX4.
+The flat shape is retained for compatibility and may report a fresh cached
+sample while `connection_state = error` after a newer failed request.
+
+`get_telemetry_health()` is the typed API/MCP contract exposed by
+`GET /api/v1/telemetry/health`. It separates:
+
+- `transport`: latest MAVLink2REST request result, error count, endpoint,
+  timeout/retry settings, and validation-timeout state;
+- `request_freshness`: age/freshness of the last successful MAVLink2REST
+  sample;
+- `payload`: whether PixEagle has parsed cached fields such as `flight_mode`
+  and `arm_status`;
+- `consumer_guidance`: `usable`, `degraded_latest_request_failed`, `stale`,
+  `unavailable`, `connecting`, or `disabled`.
+
+When telemetry is disabled, `request_freshness.fresh` and `payload.fresh` are
+forced `false` even if cached fields remain present for diagnostics.
+
+This is MAVLink2REST client health only, not proof that a follower scenario has
+run against PX4.
 
 ## Validation Timeout Injection
 

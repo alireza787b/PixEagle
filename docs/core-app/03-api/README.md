@@ -13,7 +13,7 @@ http://127.0.0.1:5077
 | Category | Endpoints | Description |
 |----------|-----------|-------------|
 | [Streaming](#streaming) | `/video_feed`, `/ws/video_feed` | Video streaming |
-| [Telemetry](#telemetry) | `/telemetry/*`, `/status` | System data |
+| [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/telemetry/health` | System data and typed health |
 | [Commands](#commands) | `/commands/*` | Control operations |
 | [Tracker](#tracker-api) | `/api/tracker/*` | Tracker management |
 | [Follower](#follower-api) | `/api/follower/*` | Follower management |
@@ -136,10 +136,67 @@ GET /status
 }
 ```
 
-`mavlink_telemetry` is transport/request freshness for MAVLink2REST. It is
-controlled by `MAVLINK_REQUEST_TIMEOUT_S`, `MAVLINK_REQUEST_RETRIES`, and
+`mavlink_telemetry` is the legacy flat compatibility summary for
+MAVLink2REST transport/request freshness. It is controlled by
+`MAVLINK_REQUEST_TIMEOUT_S`, `MAVLINK_REQUEST_RETRIES`, and
 `MAVLINK_STALE_TIMEOUT_S`; it does not by itself prove PX4-in-loop follower
-behavior.
+behavior. New API/MCP/dashboard consumers should prefer the typed health
+resource below because it separates latest request result, last successful
+sample freshness, and cached payload availability.
+
+### MAVLink Telemetry Health
+
+```http
+GET /api/v1/telemetry/health
+```
+
+**Response:**
+```json
+{
+  "schema_version": 1,
+  "source": "mavlink2rest",
+  "enabled": true,
+  "status": "degraded",
+  "consumer_guidance": "degraded_latest_request_failed",
+  "transport": {
+    "state": "error",
+    "latest_request_ok": false,
+    "latest_request_result": "failure",
+    "latest_request_age_s": 0.05,
+    "last_error": "Connection timeout - simulated",
+    "error_count": 1,
+    "validation_timeout_active": false,
+    "request_timeout_s": 5.0,
+    "request_retries": 0,
+    "endpoint": "http://127.0.0.1:8088"
+  },
+  "request_freshness": {
+    "fresh": true,
+    "last_success_age_s": 0.2,
+    "stale_timeout_s": 2.0,
+    "last_success_monotonic_available": true
+  },
+  "payload": {
+    "has_payload": true,
+    "sample_count": 2,
+    "available_keys": ["arm_status", "flight_mode"],
+    "flight_mode": 393216,
+    "arm_status": "Armed",
+    "fresh": true,
+    "payload_age_s": 0.2
+  },
+  "claim_boundary": "PixEagle local MAVLink2REST client health only; not PX4, SITL, HIL, field, or follower-response proof.",
+  "timestamp": 1717200000.0
+}
+```
+
+`status=degraded` means the cached payload may still be inside the freshness
+window while the newest MAVLink2REST request failed. Consumers that decide
+whether telemetry is usable should inspect both `transport.latest_request_ok`
+and `request_freshness.fresh`. When telemetry is disabled, freshness fields are
+forced false even if PixEagle still has cached payload for diagnostics. Server
+failures use the typed `/api/v1` error envelope with `code`, `detail`, `path`,
+`request_id`, and `timestamp`.
 
 ---
 

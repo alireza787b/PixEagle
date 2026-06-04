@@ -91,7 +91,11 @@ MAVLink:
 
 The top-level `/status` response includes `mavlink_telemetry` with `fresh`,
 `status`, request timeout, retry count, stale timeout, and last error fields.
-This is MAVLink2REST request freshness; it is not PX4-in-loop follower evidence.
+This is the legacy flat compatibility summary. New API/MCP/dashboard consumers
+should use `GET /api/v1/telemetry/health`, which separates latest request
+success, last successful sample freshness, cached payload availability, and
+consumer guidance. Both views are MAVLink2REST request/payload health; neither
+is PX4-in-loop follower evidence.
 
 ## Data Points
 

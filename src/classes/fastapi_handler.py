@@ -56,6 +56,7 @@ SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH = (
 API_V1_ACTION_OFFBOARD_START_PATH = "/api/v1/actions/offboard-start"
 API_V1_ACTION_OPERATOR_ABORT_PATH = "/api/v1/actions/operator-abort"
 API_V1_ACTION_RESOURCE_PREFIX = "/api/v1/actions"
+API_V1_TELEMETRY_HEALTH_PATH = "/api/v1/telemetry/health"
 SITL_VALIDATION_INJECTION_PATHS = {
     SITL_TRACKER_OUTPUT_INJECTION_PATH,
     SITL_VIDEO_STALL_INJECTION_PATH,
@@ -63,6 +64,10 @@ SITL_VALIDATION_INJECTION_PATHS = {
     SITL_MAVSDK_DISCONNECT_INJECTION_PATH,
     SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH,
 }
+MAVLINK_TELEMETRY_CLAIM_BOUNDARY = (
+    "PixEagle local MAVLink2REST client health only; not PX4, SITL, HIL, "
+    "field, or follower-response proof."
+)
 
 
 # Models
@@ -135,6 +140,72 @@ class APIActionResponse(BaseModel):
     timestamp: float
 
 
+class APITelemetryTransportHealth(BaseModel):
+    """MAVLink2REST request/transport health for typed API consumers."""
+
+    state: Optional[str] = None
+    latest_request_ok: bool = False
+    latest_request_result: Literal["not_attempted", "success", "failure"] = "not_attempted"
+    latest_request_age_s: Optional[float] = None
+    last_error: Optional[str] = None
+    error_count: int = 0
+    validation_timeout_active: bool = False
+    request_timeout_s: Optional[float] = None
+    request_retries: Optional[int] = None
+    endpoint: Optional[str] = None
+
+
+class APITelemetryRequestFreshness(BaseModel):
+    """Freshness of the last successful MAVLink2REST sample."""
+
+    fresh: bool = False
+    last_success_age_s: Optional[float] = None
+    stale_timeout_s: Optional[float] = None
+    last_success_monotonic_available: bool = False
+
+
+class APITelemetryPayloadHealth(BaseModel):
+    """Availability of parsed telemetry payload cached by PixEagle."""
+
+    has_payload: bool = False
+    sample_count: int = 0
+    available_keys: List[str] = Field(default_factory=list)
+    flight_mode: Optional[Any] = None
+    arm_status: Optional[Any] = None
+    fresh: bool = False
+    payload_age_s: Optional[float] = None
+
+
+class APITelemetryHealthResponse(BaseModel):
+    """Typed MAVLink telemetry health for API/MCP/dashboard consumers."""
+
+    schema_version: int = 1
+    source: Literal["mavlink2rest"] = "mavlink2rest"
+    enabled: bool
+    status: Literal[
+        "disabled",
+        "healthy",
+        "degraded",
+        "stale",
+        "error",
+        "connecting",
+        "disconnected",
+    ]
+    consumer_guidance: Literal[
+        "disabled",
+        "usable",
+        "degraded_latest_request_failed",
+        "stale",
+        "unavailable",
+        "connecting",
+    ]
+    transport: APITelemetryTransportHealth
+    request_freshness: APITelemetryRequestFreshness
+    payload: APITelemetryPayloadHealth
+    claim_boundary: str = MAVLINK_TELEMETRY_CLAIM_BOUNDARY
+    timestamp: float
+
+
 ACTION_ERROR_RESPONSES = {
     status.HTTP_404_NOT_FOUND: {
         "model": APIErrorResponse,
@@ -155,6 +226,12 @@ ACTION_ROUTE_RESPONSES = {
         "description": "Dry-run validation result or idempotent action replay.",
     },
     **ACTION_ERROR_RESPONSES,
+}
+TELEMETRY_HEALTH_ERROR_RESPONSES = {
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {
+        "model": APIErrorResponse,
+        "description": "Telemetry health could not be evaluated.",
+    },
 }
 
 
@@ -746,6 +823,13 @@ class FastAPIHandler:
         self.app.get("/telemetry/tracker_data")(self.tracker_data)
         self.app.get("/telemetry/follower_data")(self.follower_data)
         self.app.get("/status")(self.get_status)
+        self.app.get(
+            "/api/v1/telemetry/health",
+            response_model=APITelemetryHealthResponse,
+            responses=TELEMETRY_HEALTH_ERROR_RESPONSES,
+            operation_id="get_telemetry_health",
+            tags=["telemetry"],
+        )(self.get_telemetry_health)
         self.app.get("/stats")(self.get_streaming_stats)
         self.app.get("/api/video/health")(self.get_video_health)
         self.app.post("/api/video/reconnect")(self.reconnect_video)
@@ -1494,7 +1578,11 @@ class FastAPIHandler:
             request_id=(
                 f"pixeagle-action-{uuid.uuid4()}"
                 if path.startswith(f"{API_V1_ACTION_RESOURCE_PREFIX}/")
-                else f"pixeagle-sitl-{uuid.uuid4()}"
+                else (
+                    f"pixeagle-sitl-{uuid.uuid4()}"
+                    if path in SITL_VALIDATION_INJECTION_PATHS
+                    else f"pixeagle-api-{uuid.uuid4()}"
+                )
             ),
         )
         return JSONResponse(
@@ -1524,8 +1612,10 @@ class FastAPIHandler:
 
     @staticmethod
     def _uses_typed_api_error_envelope(path: str) -> bool:
-        return path in SITL_VALIDATION_INJECTION_PATHS or path.startswith(
-            f"{API_V1_ACTION_RESOURCE_PREFIX}/"
+        return (
+            path in SITL_VALIDATION_INJECTION_PATHS
+            or path == API_V1_TELEMETRY_HEALTH_PATH
+            or path.startswith(f"{API_V1_ACTION_RESOURCE_PREFIX}/")
         )
 
     def _ensure_action_store(self) -> None:
@@ -2360,6 +2450,58 @@ class FastAPIHandler:
         except Exception as e:
             self.logger.error(f"Error in get_status: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_telemetry_health(self):
+        """Return typed MAVLink2REST health for API/MCP/dashboard consumers."""
+        try:
+            mavlink_manager = getattr(self.app_controller, "mavlink_data_manager", None)
+            if mavlink_manager and hasattr(mavlink_manager, "get_telemetry_health"):
+                return mavlink_manager.get_telemetry_health()
+
+            return {
+                "schema_version": 1,
+                "source": "mavlink2rest",
+                "enabled": False,
+                "status": "disconnected",
+                "consumer_guidance": "unavailable",
+                "transport": {
+                    "state": "unavailable",
+                    "latest_request_ok": False,
+                    "latest_request_result": "not_attempted",
+                    "latest_request_age_s": None,
+                    "last_error": "MAVLink data manager is not configured",
+                    "error_count": 0,
+                    "validation_timeout_active": False,
+                    "request_timeout_s": None,
+                    "request_retries": None,
+                    "endpoint": None,
+                },
+                "request_freshness": {
+                    "fresh": False,
+                    "last_success_age_s": None,
+                    "stale_timeout_s": None,
+                    "last_success_monotonic_available": False,
+                },
+                "payload": {
+                    "has_payload": False,
+                    "sample_count": 0,
+                    "available_keys": [],
+                    "flight_mode": None,
+                    "arm_status": None,
+                    "fresh": False,
+                    "payload_age_s": None,
+                },
+                "claim_boundary": MAVLINK_TELEMETRY_CLAIM_BOUNDARY,
+                "timestamp": time.time(),
+            }
+        except Exception as e:
+            self.logger.error(f"Error in get_telemetry_health: {e}")
+            return self._api_v1_error_response(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                code="telemetry_health_error",
+                detail=str(e),
+                path=API_V1_TELEMETRY_HEALTH_PATH,
+            )
 
     async def get_video_health(self):
         """Get video subsystem health for degraded-mode observability."""

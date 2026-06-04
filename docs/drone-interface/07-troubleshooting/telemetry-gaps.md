@@ -171,7 +171,12 @@ grep "timeout\|error\|failed" logs/pixeagle.log | grep mavlink
 **Fix:** confirm MAVLink2REST is local and healthy, then tune the typed
 MAVLink freshness settings if the companion computer is overloaded. `/status`
 exposes `mavlink_telemetry.status`, `fresh`, `last_success_age_s`,
-`request_timeout_s`, `request_retries`, and `last_error`.
+`request_timeout_s`, `request_retries`, and `last_error`. For new
+diagnostics, query `GET /api/v1/telemetry/health` and inspect
+`transport.latest_request_ok`, `transport.latest_request_result`,
+`request_freshness.fresh`, and `payload.has_payload`. A degraded response means
+the cached payload can still be fresh even though the newest MAVLink2REST
+request failed.
 
 ```bash
 bash scripts/components/mavlink2rest.sh

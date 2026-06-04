@@ -68,7 +68,18 @@ class FastAPIHandler:
 | `/telemetry/tracker_data` | GET | Current tracker output |
 | `/telemetry/follower_data` | GET | Current follower state |
 | `/status` | GET | System status |
+| `/api/v1/telemetry/health` | GET | Typed MAVLink2REST request/payload health |
 | `/stats` | GET | Streaming statistics |
+
+### Typed Telemetry Health Endpoint
+
+New API/MCP/dashboard consumers should use `GET /api/v1/telemetry/health` for
+MAVLink2REST health instead of parsing the legacy flat `/status.mavlink_telemetry`
+summary. The typed response separates latest request success, freshness of the
+last successful sample, cached payload availability, validation-timeout state,
+and a claim boundary. A recent cached payload with a failed latest request is
+reported as `status = degraded` with
+`consumer_guidance = degraded_latest_request_failed`.
 
 ### Typed Action Endpoints
 
