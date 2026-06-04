@@ -37,10 +37,18 @@ CI remains free of Docker/PX4 external runtime requirements.
 
 ## Behavior Added
 
+2026-06-04 correction: the original checkpoint named
+`px4io/px4-sitl:v1.17.0`, but that plain tag was later verified as not pullable
+from Docker Hub. The active SIH profile now pins
+`px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01` and requires repo digest
+`px4io/px4-sitl@sha256:fd6d93dc2705482aeb64ea26fdf16185d8a511010fdc53e26305f10d91855865`
+for accepted runtime evidence.
+
 - Added `scripts/sitl/run_px4_sih_profile.sh`.
   - default: `--mode dry-run`;
   - runtime modes: `--mode probe-only` and `--mode execute-px4`;
-  - default image/model: `px4io/px4-sitl:v1.17.0` and `sihsim_quadx`;
+  - default image/model: `px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01`
+    and `sihsim_quadx`;
   - forwards scenario execution, control-action allowance, artifact imports,
     container selectors, timeout, startup wait, and JSON output to the harness;
   - rejects `--px4-container-id` in execute-px4 mode because that selector is

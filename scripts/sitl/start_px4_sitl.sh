@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-IMAGE="px4io/px4-sitl:v1.17.0"
+IMAGE="px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01"
 MODEL="sihsim_quadx"
 CONTAINER_NAME="pixeagle-px4-sitl"
 ARTIFACT_ROOT="reports/sitl/manual"
@@ -18,7 +18,7 @@ Starts a PX4 SITL container for operator-approved validation. The script does
 not pull images automatically and does not touch real hardware.
 
 Options:
-  --image IMAGE        PX4 image tag (default: px4io/px4-sitl:v1.17.0)
+  --image IMAGE        PX4 image tag (default: px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01)
   --model MODEL        PX4_SIM_MODEL (default: sihsim_quadx)
   --name NAME          Docker container name (default: pixeagle-px4-sitl)
   --artifact-dir DIR   New directory for command/log artifacts
@@ -26,7 +26,7 @@ Options:
   --help               Show this help
 
 Before running, pull or build the exact image you intend to validate:
-  docker pull px4io/px4-sitl:v1.17.0
+  docker pull px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01
 EOF
 }
 

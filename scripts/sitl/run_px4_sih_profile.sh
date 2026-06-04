@@ -12,7 +12,7 @@ ARTIFACT_ROOT="reports/sitl"
 RUN_ID=""
 TIMEOUT_S="5.0"
 STARTUP_WAIT_S="15.0"
-PX4_IMAGE="${PIXEAGLE_SIH_PX4_IMAGE:-px4io/px4-sitl:v1.17.0}"
+PX4_IMAGE="${PIXEAGLE_SIH_PX4_IMAGE:-px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01}"
 PX4_MODEL="${PIXEAGLE_SIH_PX4_MODEL:-sihsim_quadx}"
 PX4_CONTAINER_NAME=""
 PX4_CONTAINER_ID=""
@@ -47,7 +47,7 @@ Options:
   --run-id ID                   Runtime artifact run id
   --timeout-s SECONDS           Probe/action timeout (default: 5.0)
   --startup-wait-s SECONDS      PX4 startup wait in execute-px4 mode (default: 15.0)
-  --px4-image IMAGE             PX4 image tag (default: px4io/px4-sitl:v1.17.0)
+  --px4-image IMAGE             PX4 image tag (default: px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01)
   --px4-model MODEL             PX4_SIM_MODEL (default: sihsim_quadx)
   --px4-container-name NAME     Managed execute name or probe-only container selector
   --px4-container-id ID         Probe-only operator-managed container selector

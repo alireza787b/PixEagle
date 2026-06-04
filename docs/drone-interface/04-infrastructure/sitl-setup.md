@@ -146,11 +146,11 @@ To start only a harness-owned PX4 SIH container and then collect probes from
 the already prepared routing/MAVLink2REST/PixEagle services:
 
 ```bash
-docker pull px4io/px4-sitl:v1.17.0
+docker pull px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01
 
 bash scripts/sitl/run_px4_sih_profile.sh \
   --mode execute-px4 \
-  --px4-image px4io/px4-sitl:v1.17.0 \
+  --px4-image px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01 \
   --px4-model sihsim_quadx \
   --artifact-root reports/sitl
 ```
@@ -296,18 +296,21 @@ run them against real hardware.
 ### 1. Pull A Pinned PX4 Image
 
 ```bash
-docker pull px4io/px4-sitl:v1.17.0
+docker pull px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01
 ```
 
-Use a pinned release tag for evidence runs. Avoid `latest` for accepted
-artifacts unless the digest is also recorded.
+Use the pinned tag above for the current checked-in evidence contract. It was
+pulled and inspected with repo digest
+`px4io/px4-sitl@sha256:fd6d93dc2705482aeb64ea26fdf16185d8a511010fdc53e26305f10d91855865`.
+Avoid `latest` for accepted artifacts unless the digest is also recorded and
+the plan is intentionally updated.
 
 ### 2. Start PX4 SITL
 
 ```bash
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-px4-sitl"
 bash scripts/sitl/start_px4_sitl.sh \
-  --image px4io/px4-sitl:v1.17.0 \
+  --image px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01 \
   --model sihsim_quadx \
   --artifact-dir "reports/sitl/manual/$RUN_ID"
 ```

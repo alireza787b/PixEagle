@@ -8,10 +8,13 @@
   "stack": {
     "px4": {
       "runner": "official_px4_prebuilt_container",
-      "recommended_image": "px4io/px4-sitl:v1.17.0",
+      "recommended_image": "px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01",
       "simulator": "SIH",
       "vehicle_model": "sihsim_quadx",
       "network_mode": "host",
+      "require_container_metadata": true,
+      "require_image_repo_digest": true,
+      "expected_repo_digest": "px4io/px4-sitl@sha256:fd6d93dc2705482aeb64ea26fdf16185d8a511010fdc53e26305f10d91855865",
       "artifact_collection": {
         "container_roots": [
           "/root",
@@ -107,7 +110,7 @@
     {
       "id": "offboard_entry",
       "title": "Offboard Entry",
-      "objective": "Verify PixEagle starts PX4 Offboard only after a valid zero/default setpoint has been published and reports failure if PX4 rejects the transition.",
+      "objective": "Verify PixEagle's local Offboard start path reports active only after the MAVSDK Offboard start call succeeds, while PX4-observed mode evidence remains a required artifact for accepted L2 claims.",
       "stimulus": "Start PX4 SITL, route MAVLink, start MAVLink2REST, start PixEagle, then request the documented Offboard start/following path.",
       "actions": [
         {
@@ -148,13 +151,14 @@
       "probes": [
         "GET /status",
         "GET /api/follower/setpoints-status",
-        "MAVSDK telemetry flight_mode",
-        "MAVLink HEARTBEAT custom_mode"
+        "MAVSDK telemetry flight_mode (PXE-0042 parsed acceptance)",
+        "MAVLink HEARTBEAT custom_mode (PXE-0042 parsed acceptance)"
       ],
       "acceptance": [
-        "PixEagle reports following_active only after PX4 Offboard startup succeeds.",
+        "PixEagle reports following_active only after the local MAVSDK Offboard startup path succeeds.",
         "OffboardCommander is running with health_state healthy or degraded, not failed.",
-        "Rejected PX4 Offboard entry leaves following_active false and records an error."
+        "Rejected local Offboard entry leaves following_active false and records an error.",
+        "Accepted PX4-observed Offboard mode evidence still requires parsed telemetry, ULog, or tlog assertions under PXE-0042."
       ],
       "evidence": [
         "probes/pixeagle_status.json",
@@ -165,8 +169,8 @@
     },
     {
       "id": "offboard_heartbeat",
-      "title": "Offboard Heartbeat Continuity",
-      "objective": "Verify OffboardCommander keeps publishing at the configured heartbeat cadence independent of frame processing.",
+      "title": "Offboard Commander Local Cadence",
+      "objective": "Verify OffboardCommander reports local publish cadence independent of frame processing; PX4-observed setpoint cadence remains PXE-0042 acceptance evidence.",
       "stimulus": "Enter Offboard with a stable synthetic target, then hold video/tracker updates while the commander remains active.",
       "actions": [
         {
@@ -210,12 +214,12 @@
       "probes": [
         "OffboardCommander status",
         "MAVSDK command publication timestamps",
-        "PX4 flight_mode",
-        "ULog/tlog setpoint cadence"
+        "PX4 flight_mode (PXE-0042 parsed acceptance)",
+        "ULog/tlog setpoint cadence (PXE-0042 parsed acceptance)"
       ],
       "acceptance": [
-        "OffboardCommander reports a finite command rate and at least one successful MAVSDK publication after the observation window.",
-        "Accepted PX4-level cadence evidence still requires ULog/tlog review for this artifact set.",
+        "OffboardCommander reports a finite local command rate and at least one successful MAVSDK send after the observation window.",
+        "Accepted PX4-level cadence evidence still requires parsed ULog/tlog or telemetry assertions for this artifact set.",
         "No per-frame command path sends directly to PX4."
       ],
       "evidence": [
@@ -228,7 +232,7 @@
     {
       "id": "follower_setpoints",
       "title": "Follower Setpoint Contract",
-      "objective": "Verify synthetic target states produce bounded CommandIntent snapshots and the active commander publishes those snapshots to PX4.",
+      "objective": "Verify synthetic target states produce bounded CommandIntent snapshots and the active commander accepts those snapshots for local publication.",
       "stimulus": "Feed centered, left/right offset, range-change, and gimbal-angle synthetic targets through the selected follower.",
       "actions": [
         {
@@ -287,7 +291,7 @@
     {
       "id": "target_loss",
       "title": "Target Loss Fail-Closed Behavior",
-      "objective": "Verify target loss produces either safe command publication or a documented Offboard stop path, never stale pursuit.",
+      "objective": "Verify target loss produces either a safe local command intent handed to OffboardCommander or a documented Offboard stop path, never stale pursuit.",
       "stimulus": "During active following, stop target updates or mark target output unusable for following.",
       "actions": [
         {
@@ -362,7 +366,8 @@
       ],
       "acceptance": [
         "Follower does not keep pursuing stale target output.",
-        "A safe default/stop command is published or Offboard is intentionally stopped.",
+        "A safe default/stop command intent is handed to OffboardCommander or Offboard is intentionally stopped.",
+        "Accepted PX4-observed safe publish evidence still requires offboard trace, ULog, tlog, or telemetry assertions.",
         "Operator-visible status identifies target loss or stale target state."
       ],
       "evidence": [
@@ -374,7 +379,7 @@
     {
       "id": "video_stall",
       "title": "Video Stall While Following",
-      "objective": "Verify video/frame stalls do not starve Offboard heartbeat and do not leave stale tracker output usable for following.",
+      "objective": "Verify video/frame stalls do not starve local OffboardCommander cadence and do not leave stale tracker output usable for following.",
       "stimulus": "Freeze or disconnect the video source while OffboardCommander is active.",
       "actions": [
         {
@@ -454,7 +459,8 @@
       "acceptance": [
         "Video stall is operator-visible.",
         "Target output becomes stale/unusable according to the freshness contract.",
-        "OffboardCommander either continues safe heartbeat or stops through the target-loss policy."
+        "OffboardCommander either continues local safe-command sends or stops through the target-loss policy.",
+        "Accepted PX4-observed safe cadence evidence still requires offboard trace, ULog, tlog, or telemetry assertions."
       ],
       "evidence": [
         "probes/pixeagle_status.json",
@@ -669,7 +675,7 @@
     {
       "id": "operator_abort",
       "title": "Operator Abort",
-      "objective": "Verify cancel/stop tracking exits local following and sends the documented safe final command or Offboard stop request.",
+      "objective": "Verify cancel/stop tracking exits local following and records the documented safe final command attempt or Offboard stop request.",
       "stimulus": "Trigger the operator stop/cancel path during active following.",
       "actions": [
         {
@@ -726,7 +732,7 @@
       "acceptance": [
         "API response reports the stop result explicitly.",
         "following_active is false after cleanup.",
-        "Final safe publish or Offboard stop attempt is recorded."
+        "Final safe publish attempt or Offboard stop attempt is recorded; accepted PX4-observed evidence requires PXE-0042 trace/ULog/tlog assertions."
       ],
       "evidence": [
         "probes/pixeagle_status.json",

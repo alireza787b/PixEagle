@@ -13,9 +13,9 @@ on:
           - probe-only
           - execute-px4
       px4_image:
-        description: Official PX4 SIH image tag
+        description: Official PX4 SIH image tag; non-default overrides are experimental unless the plan digest is updated
         required: true
-        default: px4io/px4-sitl:v1.17.0
+        default: px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01
         type: string
       px4_model:
         description: PX4_SIM_MODEL
@@ -70,7 +70,7 @@ jobs:
     timeout-minutes: 35
     env:
       SIH_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'dry-run' }}
-      PX4_IMAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.px4_image || 'px4io/px4-sitl:v1.17.0' }}
+      PX4_IMAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.px4_image || 'px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01' }}
       PX4_MODEL: ${{ github.event_name == 'workflow_dispatch' && inputs.px4_model || 'sihsim_quadx' }}
       PULL_PX4_IMAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.pull_px4_image || 'false' }}
       RUN_SCENARIOS: ${{ github.event_name == 'workflow_dispatch' && inputs.run_scenarios || 'false' }}
@@ -96,6 +96,7 @@ jobs:
         run: |
           echo "PX4 SIH validation is opt-in L2 control-plane evidence only."
           echo "This workflow does not claim tracker, visual SITL, HIL, field, or real-aircraft success."
+          echo "The checked-in plan pins one image digest; non-default image overrides are experimental/incomplete unless the plan digest is intentionally updated."
           echo "Normal pull-request CI does not run this workflow."
 
       - name: Pull selected PX4 image

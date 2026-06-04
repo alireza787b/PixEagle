@@ -162,8 +162,9 @@ python3 tools/run_sitl_validation_suite.py \
 
 # Start a pinned official PX4 SITL container on an operator-approved host
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-px4-sitl"
+docker pull px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01
 bash scripts/sitl/start_px4_sitl.sh \
-  --image px4io/px4-sitl:v1.17.0 \
+  --image px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01 \
   --model sihsim_quadx \
   --artifact-dir "reports/sitl/manual/$RUN_ID"
 

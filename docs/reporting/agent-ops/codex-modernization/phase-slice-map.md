@@ -61,6 +61,7 @@ it together with:
 | Phase 3 official Gazebo visual profile contract | done | PXE-0040 partial | `checkpoints/2026-06-04-phase-3-official-gazebo-visual-profile-contract.md`; checked-in official profile, wrapper, opt-in workflow, visual artifact imports, and artifact-content validators done; no Docker/PX4/Gazebo runtime pass claimed |
 | Phase 3 tracker trace artifacts | done | PXE-0038 | `checkpoints/2026-06-04-phase-3-tracker-trace-artifacts.md`; normalized JSONL schema, guarded AppController runtime hook, strict Gazebo trace validation, and deterministic AppController/follower/CommandIntent smoke done |
 | Phase 3 official Gazebo runtime probe | done/incomplete | PXE-0040 partial | `checkpoints/2026-06-04-phase-3-official-gazebo-runtime-probe.md`; Docker access via `sg docker` works, nonexistent `v1.17.0` tag corrected to `v1.17.0-alpha1-1551-g381149fb01` plus repo digest, official image pull/inspect succeeded, container metadata passed in the 45s run, but the 120s official PX4/Gazebo run exited `255` after `Timed out waiting for Gazebo world`; no PixEagle visual SITL pass claimed |
+| Phase 3 official SIH runtime probe and log hardening | done/incomplete | PXE-0039, PXE-0042 | `checkpoints/2026-06-04-phase-3-official-sih-runtime-probe.md`; corrected nonexistent `px4io/px4-sitl:v1.17.0` to `v1.17.0-alpha1-1551-g381149fb01` plus repo digest, official SIH container started and stayed alive through the startup window, image/container metadata passed, params and ULog were collected, PX4 stdout capture was bounded/filtered, and the run correctly stayed incomplete because PixEagle, MAVLink2REST, complete MavlinkAnywhere route/profile evidence, scenario results, PixEagle log, and tlog evidence were absent |
 
 ## Active Slice
 
@@ -68,7 +69,11 @@ Phase 3/4 boundary. Official Gazebo runtime proof (PXE-0040) is no longer
 blocked by Docker permissions when commands are run through `sg docker`.
 Runtime evidence is still incomplete because the official all-in-one
 PX4/Gazebo container on this VPS/headless path exits with `Timed out waiting
-for Gazebo world` before PixEagle visual evidence can be collected. Continue
+for Gazebo world` before PixEagle visual evidence can be collected. Official
+SIH L2 probing now starts a pinned PX4 container and collects digest metadata,
+params, ULog, and bounded startup logs, but no accepted PixEagle/PX4 interaction
+pass is claimed until PixEagle, MAVLink2REST, routing, typed scenario actions,
+PX4 tlog/ULog cadence assertions, and safety outcomes are present. Continue
 local validation through reliable L2/L3 layers and proceed to PXE-0042 typed
 SITL control actions and PX4 cadence evidence.
 
@@ -80,6 +85,7 @@ Audit artifact:
 - `checkpoints/2026-06-04-phase-3-official-gazebo-visual-profile-contract.md`
 - `checkpoints/2026-06-04-phase-3-tracker-trace-artifacts.md`
 - `checkpoints/2026-06-04-phase-3-official-gazebo-runtime-probe.md`
+- `checkpoints/2026-06-04-phase-3-official-sih-runtime-probe.md`
 
 Recently completed Offboard commander follow-up issues:
 
@@ -184,6 +190,9 @@ Current host boundary:
 - Rechecked on 2026-06-04: Docker is installed (`29.1.3`). The current shell
   still lacks the `docker` group, but `sg docker -c 'docker ps ...'` works
   because `alireza` is now in `/etc/group`.
+- `px4io/px4-sitl:v1.17.0` is not a valid Docker Hub tag. The active SIH
+  profile now uses `px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01` with repo
+  digest `px4io/px4-sitl@sha256:fd6d93dc2705482aeb64ea26fdf16185d8a511010fdc53e26305f10d91855865`.
 - `px4io/px4-sitl-gazebo:v1.17.0` is not a valid Docker Hub tag. The profile
   now uses `px4io/px4-sitl-gazebo:v1.17.0-alpha1-1551-g381149fb01` with repo
   digest `sha256:fe3608d282e214db19763d63e857b603781c6471fe0bc3276373927bb01f51db`.

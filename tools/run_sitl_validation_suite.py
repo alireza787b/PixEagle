@@ -16,10 +16,12 @@ import json
 import math
 import os
 import platform
+import re
 import shlex
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -30,6 +32,9 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PLAN_DIR = PROJECT_ROOT / "tools" / "sitl_plans"
 DEFAULT_ARTIFACT_ROOT = PROJECT_ROOT / "reports" / "sitl"
+DEFAULT_MANAGED_PX4_LOG_LIMIT_BYTES = 4 * 1024 * 1024
+MAX_MANAGED_PX4_PENDING_BYTES = 64 * 1024
+ANSI_ESCAPE_RE = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]")
 
 REQUIRED_PHASE2_SCENARIOS = {
     "offboard_entry",
@@ -510,6 +515,21 @@ def copy_container_evidence_file(
     return evidence_entry(f"{container_ref}:{source_path}", target, run_dir), copy_result
 
 
+def px4_params_artifact_metadata(source_path: str) -> dict[str, Any]:
+    suffix = Path(source_path).suffix.lower()
+    is_bson = suffix == ".bson"
+    return {
+        "parameter_format": "bson" if is_bson else "text",
+        "readable_text_export": not is_bson,
+        "format_note": (
+            "PX4 parameters were discovered as binary BSON; use a text params "
+            "export for reviewer-readable accepted evidence."
+            if is_bson
+            else "PX4 parameters were collected as a reviewer-readable text export."
+        ),
+    }
+
+
 def collect_px4_params_artifact(
     run_dir: Path,
     plan: dict[str, Any],
@@ -540,6 +560,7 @@ def collect_px4_params_artifact(
             "placeholder": False,
             "reason": None,
             "collection_source": "explicit_file",
+            **px4_params_artifact_metadata(str(source)),
             "artifact": entry,
         }
 
@@ -593,6 +614,7 @@ def collect_px4_params_artifact(
             "container_path": found_files[0],
             "find_result": find_result,
             "copy_result": copy_result,
+            **px4_params_artifact_metadata(found_files[0]),
             "artifact": entry,
         }
 
@@ -1473,11 +1495,176 @@ def owned_px4_container_id(container_name: str, run_id: str) -> str | None:
     return str(container_id) if container_id else None
 
 
+def managed_px4_log_limit_bytes() -> int:
+    raw_value = os.environ.get("PIXEAGLE_SITL_MAX_PX4_LOG_BYTES")
+    if not raw_value:
+        return DEFAULT_MANAGED_PX4_LOG_LIMIT_BYTES
+    try:
+        parsed = int(raw_value)
+    except ValueError:
+        return DEFAULT_MANAGED_PX4_LOG_LIMIT_BYTES
+    return max(1024, parsed)
+
+
+def scrub_managed_px4_stdout_chunk(
+    pending: bytes,
+    chunk: bytes,
+    *,
+    final: bool = False,
+) -> tuple[bytes, bytes, int, int]:
+    payload = ANSI_ESCAPE_RE.sub(b"", pending + chunk).replace(b"\r", b"\n")
+    if final:
+        lines = payload.split(b"\n")
+        next_pending = b""
+    else:
+        lines = payload.split(b"\n")
+        next_pending = lines.pop()
+
+    output_lines: list[bytes] = []
+    filtered_prompt_lines = 0
+    forced_pending_flushes = 0
+    for line in lines:
+        stripped = line.strip()
+        if stripped == b"pxh>":
+            filtered_prompt_lines += 1
+            continue
+        if not stripped and not output_lines:
+            continue
+        output_lines.append(line.rstrip() + b"\n")
+
+    if not final and len(next_pending) > MAX_MANAGED_PX4_PENDING_BYTES:
+        flush_size = len(next_pending) - MAX_MANAGED_PX4_PENDING_BYTES
+        output_lines.append(next_pending[:flush_size] + b"\n")
+        next_pending = next_pending[flush_size:]
+        forced_pending_flushes = 1
+
+    return (
+        b"".join(output_lines),
+        next_pending,
+        filtered_prompt_lines,
+        forced_pending_flushes,
+    )
+
+
+class ManagedPx4LogCapture:
+    def __init__(self, path: Path, max_bytes: int) -> None:
+        self.path = path
+        self.max_bytes = max_bytes
+        self.raw_bytes_read = 0
+        self.bytes_written = 0
+        self.filtered_prompt_lines = 0
+        self.forced_pending_flushes = 0
+        self.truncated = False
+        self.reader_error: str | None = None
+        self._pending = b""
+        self._handle = path.open("wb")
+        self._thread: threading.Thread | None = None
+
+    def start(self, pipe: Any) -> None:
+        self._thread = threading.Thread(
+            target=self._reader,
+            args=(pipe,),
+            name="pixeagle-px4-log-capture",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def _reader(self, pipe: Any) -> None:
+        try:
+            for chunk in iter(lambda: pipe.read(64 * 1024), b""):
+                if not isinstance(chunk, bytes):
+                    chunk = bytes(chunk)
+                self.raw_bytes_read += len(chunk)
+                output, self._pending, filtered, forced_flushes = scrub_managed_px4_stdout_chunk(
+                    self._pending,
+                    chunk,
+                )
+                self.filtered_prompt_lines += filtered
+                self.forced_pending_flushes += forced_flushes
+                self._write_bounded(output)
+
+            output, self._pending, filtered, forced_flushes = scrub_managed_px4_stdout_chunk(
+                self._pending,
+                b"",
+                final=True,
+            )
+            self.filtered_prompt_lines += filtered
+            self.forced_pending_flushes += forced_flushes
+            self._write_bounded(output)
+        except Exception as exc:  # pragma: no cover - defensive runtime guard
+            self.reader_error = repr(exc)
+        finally:
+            try:
+                pipe.close()
+            except OSError:
+                pass
+
+    def _write_bounded(self, payload: bytes) -> None:
+        if not payload:
+            return
+        remaining = self.max_bytes - self.bytes_written
+        if remaining <= 0:
+            self.truncated = True
+            return
+        if len(payload) > remaining:
+            marker = self._truncation_marker()
+            if remaining > len(marker):
+                self._handle.write(payload[: remaining - len(marker)])
+                self._handle.write(marker)
+            else:
+                self._handle.write(marker[:remaining])
+            self._handle.flush()
+            self.bytes_written += remaining
+            self.truncated = True
+            return
+        self._handle.write(payload)
+        self._handle.flush()
+        self.bytes_written += len(payload)
+
+    def _truncation_marker(self) -> bytes:
+        return (
+            b"\n[PixEagle harness truncated managed PX4 stdout at "
+            + str(self.max_bytes).encode("ascii")
+            + b" bytes]\n"
+        )
+
+    def close(self) -> dict[str, Any]:
+        if self._thread is not None:
+            self._thread.join(timeout=10.0)
+        thread_alive = bool(self._thread and self._thread.is_alive())
+        if self._pending:
+            output, self._pending, filtered, forced_flushes = scrub_managed_px4_stdout_chunk(
+                self._pending,
+                b"",
+                final=True,
+            )
+            self.filtered_prompt_lines += filtered
+            self.forced_pending_flushes += forced_flushes
+            self._write_bounded(output)
+        self._handle.close()
+        try:
+            reported_path = str(self.path.relative_to(PROJECT_ROOT))
+        except ValueError:
+            reported_path = str(self.path)
+        return {
+            "path": reported_path,
+            "ok": not thread_alive and self.reader_error is None,
+            "max_bytes": self.max_bytes,
+            "raw_bytes_read": self.raw_bytes_read,
+            "bytes_written": self.bytes_written,
+            "filtered_prompt_lines": self.filtered_prompt_lines,
+            "forced_pending_flushes": self.forced_pending_flushes,
+            "reader_error": self.reader_error,
+            "thread_finished": not thread_alive,
+            "truncated": self.truncated,
+        }
+
+
 def start_px4_container(
     container_name: str,
     command: list[str],
     run_dir: Path,
-) -> tuple[subprocess.Popen[str], Any]:
+) -> tuple[subprocess.Popen[Any], ManagedPx4LogCapture]:
     if docker_container_name_exists(container_name):
         raise RuntimeError(
             "Refusing to start PX4 SITL because a Docker container already "
@@ -1487,20 +1674,27 @@ def start_px4_container(
     ensure_dir(run_dir / "commands")
     command_file = run_dir / "commands" / "start_px4_sitl.command"
     command_file.write_text(" ".join(subprocess.list2cmdline([part]) for part in command) + "\n")
-    log_handle = (run_dir / "logs" / "px4_sitl.log").open("w", encoding="utf-8")
+    log_capture = ManagedPx4LogCapture(
+        run_dir / "logs" / "px4_sitl.log",
+        managed_px4_log_limit_bytes(),
+    )
     process = subprocess.Popen(
         command,
         cwd=str(PROJECT_ROOT),
-        stdout=log_handle,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True,
+        text=False,
     )
-    return process, log_handle
+    if process.stdout is None:
+        raise RuntimeError("PX4 SITL stdout pipe was not created")
+    log_capture.start(process.stdout)
+    return process, log_capture
 
 
 def stop_px4_container(
     container_id: str | None,
-    process: subprocess.Popen[str] | None,
+    process: subprocess.Popen[Any] | None,
 ) -> dict[str, Any]:
     if container_id:
         stop_result = run_command(["docker", "stop", container_id], PROJECT_ROOT, timeout_s=20.0)
@@ -2704,10 +2898,11 @@ def main(argv: list[str] | None = None) -> int:
             }
             write_manifest(run_dir / "manifest.json", manifest)
 
-            px4_process: subprocess.Popen[str] | None = None
-            px4_log_handle: Any | None = None
+            px4_process: subprocess.Popen[Any] | None = None
+            px4_log_capture: ManagedPx4LogCapture | None = None
             px4_container_name = args.px4_container_name if args.probe_only else None
             px4_container_id: str | None = args.px4_container_id if args.probe_only else None
+            ok = False
             try:
                 if args.execute:
                     px4_container_name, px4_command = build_px4_container_command(
@@ -2725,7 +2920,7 @@ def main(argv: list[str] | None = None) -> int:
                         }
                     }
                     write_manifest(run_dir / "manifest.json", manifest)
-                    px4_process, px4_log_handle = start_px4_container(
+                    px4_process, px4_log_capture = start_px4_container(
                         px4_container_name,
                         px4_command,
                         run_dir,
@@ -2838,8 +3033,48 @@ def main(argv: list[str] | None = None) -> int:
                     manifest.setdefault("managed_processes", {}).setdefault("px4", {})[
                         "stop_result"
                     ] = stop_px4_container(px4_container_id, px4_process)
-                if px4_log_handle is not None:
-                    px4_log_handle.close()
+                if px4_log_capture is not None:
+                    capture_status = px4_log_capture.close()
+                    manifest.setdefault("managed_processes", {}).setdefault("px4", {})[
+                        "stdout_log_capture"
+                    ] = capture_status
+                    if capture_status.get("ok") is True:
+                        log_status = collect_log_artifact(
+                            run_dir,
+                            relative_path="logs/px4_sitl.log",
+                            log_file=None,
+                            existing_source="harness_owned_px4_container_stdout",
+                        )
+                    else:
+                        reason = "Managed PX4 stdout capture did not finish cleanly."
+                        if capture_status.get("reader_error"):
+                            reason += f" reader_error={capture_status['reader_error']}"
+                        if capture_status.get("thread_finished") is False:
+                            reason += " reader thread did not finish before timeout."
+                        target = run_dir / "logs" / "px4_sitl.log"
+                        log_status = {
+                            "collected": False,
+                            "placeholder": False,
+                            "reason": reason,
+                            "collection_source": "harness_owned_px4_container_stdout",
+                        }
+                        if target.exists() and target.is_file():
+                            log_status["artifact"] = evidence_entry(
+                                "harness_owned_px4_container_stdout",
+                                target,
+                                run_dir,
+                            )
+                        manifest.setdefault("preflight_failures", []).append(reason)
+                        missing = manifest.setdefault("missing_or_placeholder_artifacts", [])
+                        if "logs/px4_sitl.log" not in missing:
+                            missing.append("logs/px4_sitl.log")
+                        if manifest.get("result") != "failed":
+                            manifest["result"] = "incomplete"
+                            manifest["result_reason"] = reason
+                        ok = False
+                    manifest.setdefault("artifact_status", {})[
+                        "logs/px4_sitl.log"
+                    ] = log_status
                 manifest["finished_at"] = utc_now().isoformat()
                 write_manifest(run_dir / "manifest.json", manifest)
 

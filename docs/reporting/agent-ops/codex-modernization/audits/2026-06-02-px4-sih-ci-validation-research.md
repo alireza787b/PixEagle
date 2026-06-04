@@ -110,17 +110,20 @@ Start with the official PX4 SIH image:
 px4io/px4-sitl:<pinned-tag>
 ```
 
-Current PixEagle plan/helper already references:
+2026-06-04 correction: Docker Hub did not publish a plain
+`px4io/px4-sitl:v1.17.0` tag. The active PixEagle plan/helper now references:
 
 ```text
-px4io/px4-sitl:v1.17.0
+px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01
+px4io/px4-sitl@sha256:fd6d93dc2705482aeb64ea26fdf16185d8a511010fdc53e26305f10d91855865
 PX4_SIM_MODEL=sihsim_quadx
 ```
 
 Before requiring this in CI, make the PX4 target explicit:
 
 - `v1.16.x` if the maintainers want stable PX4 release conservatism;
-- `v1.17.0` if the maintainers intentionally want the current project default;
+- a pullable `v1.17.x`/alpha tag if the maintainers intentionally want the
+  current project default;
 - in both cases, record the image digest in the evidence manifest.
 
 Do not fork PX4 or maintain a custom PX4 image for the first SIH gate. A custom

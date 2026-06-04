@@ -41,8 +41,17 @@ def test_sitl_plans_validate_and_cover_phase2_required_scenarios():
 def test_phase2_plan_declares_required_evidence_contract():
     harness = load_harness_module()
     plan = harness.load_plan(PLAN_DIR / "phase2_follower_validation.json")
+    px4 = plan["stack"]["px4"]
 
     evidence_contract = set(plan["evidence_contract"])
+    assert px4["recommended_image"] == "px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01"
+    assert px4["vehicle_model"] == "sihsim_quadx"
+    assert px4["require_container_metadata"] is True
+    assert px4["require_image_repo_digest"] is True
+    assert px4["expected_repo_digest"] == (
+        "px4io/px4-sitl@"
+        "sha256:fd6d93dc2705482aeb64ea26fdf16185d8a511010fdc53e26305f10d91855865"
+    )
     assert harness.REQUIRED_EVIDENCE_ARTIFACTS == evidence_contract
     assert "px4/ulog_manifest.json" in evidence_contract
     assert "px4/tlog_manifest.json" in evidence_contract
@@ -1159,6 +1168,8 @@ def test_px4_evidence_imports_are_copied_and_checksumed(tmp_path):
     )
 
     assert params_status["collected"] is True
+    assert params_status["parameter_format"] == "text"
+    assert params_status["readable_text_export"] is True
     assert ulog_status["collected"] is True
     assert tlog_status["collected"] is True
     assert (run_dir / "px4" / "params.txt").read_text(encoding="utf-8") == "SYS_AUTOSTART\t4001\n"
@@ -1230,6 +1241,8 @@ def test_px4_container_artifact_collection_copies_with_checksums(tmp_path, monke
 
     assert params_status["collected"] is True
     assert params_status["collection_source"] == "container_discovery"
+    assert params_status["parameter_format"] == "text"
+    assert params_status["readable_text_export"] is True
     assert params_status["artifact"]["source_path"] == f"{container_ref}:/root/.px4/params.txt"
     assert (run_dir / "px4" / "params.txt").read_bytes() == container_files["/root/.px4/params.txt"]
     assert ulog_status["collected"] is True
@@ -1338,7 +1351,7 @@ def test_px4_sih_profile_script_runtime_modes_are_explicit_and_non_sudo():
     assert "--execute" in script
     assert "--allow-process-start" in script
     assert "--auto-px4-container-artifacts" in script
-    assert "px4io/px4-sitl:v1.17.0" in script
+    assert "px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01" in script
     assert "sihsim_quadx" in script
     assert "sudo" not in script
     assert "configure_mavlink_router" not in script
@@ -1358,6 +1371,7 @@ def test_px4_sih_workflow_is_opt_in_and_uploads_artifacts():
     assert "pull_px4_image" in workflow
     assert "docker pull \"$PX4_IMAGE\"" in workflow
     assert "env.SIH_MODE == 'execute-px4'" in workflow
+    assert "non-default image overrides are experimental/incomplete" in workflow
     assert "Normal pull-request CI does not run this workflow." in workflow
 
 
@@ -1487,6 +1501,59 @@ def test_px4_container_artifact_find_command_is_read_only(monkeypatch):
     assert ">" not in script
     for forbidden in (" stop ", " rm ", " restart ", " kill ", " mv "):
         assert forbidden not in f" {script} "
+
+
+def test_managed_px4_stdout_scrubber_filters_prompt_redraws():
+    harness = load_harness_module()
+    chunk = (
+        b"INFO  [px4] Startup script returned successfully\n"
+        b"pxh> \x1b[2K\rpxh> \x1b[2K\rpxh> \x1b[2K\r"
+        b"PX4 Exiting...\npxh> Exiting NOW.\n"
+    )
+
+    output, pending, filtered, forced_flushes = harness.scrub_managed_px4_stdout_chunk(
+        b"",
+        chunk,
+        final=True,
+    )
+
+    assert pending == b""
+    assert filtered == 3
+    assert forced_flushes == 0
+    assert b"Startup script returned successfully" in output
+    assert b"PX4 Exiting..." in output
+    assert b"pxh> \x1b" not in output
+    assert output.count(b"pxh>") == 1
+
+
+def test_managed_px4_stdout_scrubber_bounds_pending_line_memory():
+    harness = load_harness_module()
+    long_line = b"x" * (harness.MAX_MANAGED_PX4_PENDING_BYTES + 128)
+
+    output, pending, filtered, forced_flushes = harness.scrub_managed_px4_stdout_chunk(
+        b"",
+        long_line,
+        final=False,
+    )
+
+    assert filtered == 0
+    assert forced_flushes == 1
+    assert len(pending) == harness.MAX_MANAGED_PX4_PENDING_BYTES
+    assert output.endswith(b"\n")
+
+
+def test_managed_px4_log_capture_writes_truncation_marker(tmp_path):
+    harness = load_harness_module()
+    capture = harness.ManagedPx4LogCapture(tmp_path / "px4.log", max_bytes=80)
+
+    capture._write_bounded(b"a" * 200)
+    status = capture.close()
+
+    payload = (tmp_path / "px4.log").read_bytes()
+    assert status["ok"] is True
+    assert status["truncated"] is True
+    assert b"truncated managed PX4 stdout" in payload
+    assert len(payload) == 80
 
 
 def test_probe_only_auto_px4_container_artifacts_requires_selector():
@@ -1663,8 +1730,46 @@ def test_probe_collection_with_operator_auto_artifacts_never_stops_container(tmp
     assert not any(command[:2] == ["docker", "stop"] for command in commands)
     assert manifest["px4_artifact_collection"]["collection_mode"] == "operator_selected_container"
     assert manifest["artifact_status"]["px4/params.txt"]["collected"] is True
+    assert manifest["artifact_status"]["px4/params.txt"]["parameter_format"] == "text"
     assert manifest["artifact_status"]["px4/ulog_manifest.json"]["collected"] is True
     assert manifest["artifact_status"]["px4/tlog_manifest.json"]["collected"] is True
+
+
+def test_px4_container_bson_params_are_marked_non_text(tmp_path, monkeypatch):
+    harness = load_harness_module()
+    plan = harness.load_plan(PLAN_DIR / "phase2_follower_validation.json")
+    run_dir = tmp_path / "run"
+    container_ref = "px4-container"
+
+    def fake_run_command(command, cwd, timeout_s=10.0):
+        if command[:3] == ["docker", "exec", container_ref]:
+            return {
+                "command": command,
+                "returncode": 0,
+                "stdout": "/root/.local/share/px4/rootfs/parameters.bson\n",
+                "stderr": "",
+            }
+        if command[:2] == ["docker", "cp"]:
+            target = Path(command[3])
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"bson-fixture")
+            return {"command": command, "returncode": 0, "stdout": "", "stderr": ""}
+        raise AssertionError(f"unexpected command: {command}")
+
+    monkeypatch.setattr(harness, "run_command", fake_run_command)
+
+    status = harness.collect_px4_params_artifact(
+        run_dir,
+        plan,
+        None,
+        container_ref=container_ref,
+        auto_container_artifacts=True,
+    )
+
+    assert status["collected"] is True
+    assert status["parameter_format"] == "bson"
+    assert status["readable_text_export"] is False
+    assert "binary BSON" in status["format_note"]
 
 
 def test_runtime_scenario_failure_takes_precedence_over_incomplete_artifacts(tmp_path):

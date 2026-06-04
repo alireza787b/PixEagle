@@ -107,7 +107,9 @@ python3 tools/run_sitl_validation_suite.py \
 ```
 
 The official PX4 SIH profile wrapper uses the same harness and defaults to the
-same side-effect-free dry-run:
+same side-effect-free dry-run. The checked-in SIH plan currently pins
+`px4io/px4-sitl:v1.17.0-alpha1-1551-g381149fb01` with repo digest
+`px4io/px4-sitl@sha256:fd6d93dc2705482aeb64ea26fdf16185d8a511010fdc53e26305f10d91855865`.
 
 ```bash
 bash scripts/sitl/run_px4_sih_profile.sh --mode dry-run --json
