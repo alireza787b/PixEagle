@@ -13,7 +13,7 @@ http://127.0.0.1:5077
 | Category | Endpoints | Description |
 |----------|-----------|-------------|
 | [Streaming](#streaming) | `/video_feed`, `/ws/video_feed` | Video streaming |
-| [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/telemetry/health` | System data and typed health |
+| [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/telemetry/health` | System data and typed health |
 | [Commands](#commands) | `/commands/*` | Control operations |
 | [Tracker](#tracker-api) | `/api/v1/tracking/runtime-status`, `/api/tracker/*` | Typed tracker runtime status and legacy tracker management |
 | [Follower](#follower-api) | `/api/follower/*` | Follower management |
@@ -166,6 +166,61 @@ behavior. New API/MCP/dashboard consumers should prefer the typed health
 resource below because it separates latest request result, last successful
 sample freshness, and cached payload availability.
 
+### Runtime Status
+
+```http
+GET /api/v1/runtime/status
+```
+
+Typed PixEagle process-local runtime status for dashboard/API/MCP consumers.
+Use this route for mode flags instead of parsing the flat `/status` payload.
+
+**Response:**
+```json
+{
+  "schema_version": 1,
+  "source": "pixeagle_runtime",
+  "status": "active",
+  "consumer_guidance": "vision_active",
+  "modes": {
+    "smart_mode_active": true,
+    "tracking_started": true,
+    "segmentation_active": false,
+    "following_active": false
+  },
+  "subsystems": {
+    "video_status": "connected",
+    "offboard_commander": {
+      "health_state": "running"
+    },
+    "offboard_commander_failure": null,
+    "px4_connection": null,
+    "mavlink_telemetry": {
+      "status": "fresh"
+    },
+    "smart_tracker_runtime": null
+  },
+  "reason": null,
+  "claim_boundary": "PixEagle process-local runtime and subsystem snapshots only; not PX4, SITL, HIL, field, or follower-response proof.",
+  "timestamp": 1717200000.0
+}
+```
+
+`status` is one of `idle`, `active`, `degraded`, or `unavailable`.
+`consumer_guidance` is one of `idle`, `vision_active`, `following_active`,
+`operator_attention`, or `unavailable`. Commander failures force
+`degraded/operator_attention`. If local following is active while the Offboard
+commander reports stopped/non-running publication, inactive task, stale command
+intent, active failsafe defaults, or missing/unknown command-publication fields,
+the route also reports `degraded/operator_attention`. Otherwise active
+smart/tracking/segmentation state reports `vision_active`, and active following
+reports `following_active`.
+
+This route is intentionally narrower than the MDS
+`/api/v1/system/runtime-status` admin posture surface. PixEagle
+`/api/v1/runtime/status` reports local mode/subsystem snapshots and does not
+claim PX4-observed Offboard, SITL, HIL, field, or follower-response success.
+
 ### MAVLink Telemetry Health
 
 ```http
@@ -226,6 +281,12 @@ compact operational chip: `Telemetry: Usable`, `Telemetry: Degraded`,
 `Telemetry: Connecting`. The dashboard normalizes payload fields such as
 `flight_mode` and `arm_status` into display labels while keeping the raw values
 available for diagnostics.
+
+Dashboard smart-mode polling uses `/api/v1/runtime/status` through the endpoint
+registry and reads `modes.smart_mode_active`. A top-level
+`smart_mode_active` payload read remains only as a compatibility fallback.
+During rolling updates, the hook falls back to legacy `/status` only when the
+typed runtime route is missing, and it ignores stale out-of-order responses.
 
 Dashboard tracker status uses `/api/v1/tracking/runtime-status` through the
 endpoint registry and normalizes tracker output into distinct operator states:

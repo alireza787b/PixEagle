@@ -74,6 +74,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/tracker/schema"),
     ("GET", "/api/video/health"),
     ("GET", "/api/v1/actions/{action_id}"),
+    ("GET", "/api/v1/runtime/status"),
     ("GET", "/api/v1/telemetry/health"),
     ("GET", "/api/v1/tracking/runtime-status"),
     ("GET", "/api/yolo/active-model"),
@@ -211,7 +212,7 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 2,
-        "GET": 68,
+        "GET": 69,
         "POST": 53,
         "PUT": 2,
         "WEBSOCKET": 2,
@@ -268,6 +269,18 @@ def test_api_v1_telemetry_health_route_has_typed_api_metadata():
     assert keywords["response_model"].id == "APITelemetryHealthResponse"
     assert keywords["responses"].id == "TELEMETRY_HEALTH_ERROR_RESPONSES"
     assert keywords["tags"].elts[0].value == "telemetry"
+    assert "status_code" not in keywords
+
+
+def test_api_v1_runtime_status_route_has_typed_api_metadata():
+    """Typed runtime status must be an explicit /api/v1 resource."""
+    route_call = _find_route_registration("/api/v1/runtime/status")
+    keywords = {keyword.arg: keyword.value for keyword in route_call.keywords}
+
+    assert keywords["operation_id"].value == "get_runtime_status"
+    assert keywords["response_model"].id == "APIRuntimeStatusResponse"
+    assert keywords["responses"].id == "RUNTIME_STATUS_ERROR_RESPONSES"
+    assert keywords["tags"].elts[0].value == "runtime"
     assert "status_code" not in keywords
 
 

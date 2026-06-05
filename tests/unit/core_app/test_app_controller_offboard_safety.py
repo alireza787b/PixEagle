@@ -1737,6 +1737,194 @@ async def test_status_exposes_mavlink_telemetry_freshness():
 
 
 @pytest.mark.asyncio
+async def test_typed_runtime_status_wraps_process_local_status_snapshot():
+    """Typed runtime status should expose mode flags without making PX4 claims."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.video_handler = SimpleNamespace(
+        get_connection_health=MagicMock(return_value={"status": "connected"})
+    )
+    handler.app_controller = SimpleNamespace(
+        smart_mode_active=True,
+        tracking_started=True,
+        segmentation_active=False,
+        following_active=False,
+        smart_tracker=SimpleNamespace(
+            get_runtime_info=MagicMock(return_value={"mode": "hybrid"})
+        ),
+        offboard_commander=SimpleNamespace(
+            get_status=MagicMock(return_value={"health_state": "healthy"})
+        ),
+        last_offboard_commander_failure=None,
+        px4_interface=SimpleNamespace(
+            get_connection_status=MagicMock(return_value={"connected": True})
+        ),
+        mavlink_data_manager=SimpleNamespace(
+            get_connection_status=MagicMock(return_value={"status": "healthy"})
+        ),
+    )
+
+    result = await handler.get_runtime_status()
+
+    assert result["schema_version"] == 1
+    assert result["source"] == "pixeagle_runtime"
+    assert result["status"] == "active"
+    assert result["consumer_guidance"] == "vision_active"
+    assert result["modes"] == {
+        "smart_mode_active": True,
+        "tracking_started": True,
+        "segmentation_active": False,
+        "following_active": False,
+    }
+    assert result["subsystems"]["video_status"] == "connected"
+    assert result["subsystems"]["smart_tracker_runtime"]["mode"] == "hybrid"
+    assert result["subsystems"]["mavlink_telemetry"]["status"] == "healthy"
+    assert "not PX4, SITL, HIL" in result["claim_boundary"]
+
+
+@pytest.mark.asyncio
+async def test_typed_runtime_status_degrades_on_commander_failure():
+    """Commander failures should be visible in the typed runtime contract."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.video_handler = None
+    handler.app_controller = SimpleNamespace(
+        smart_mode_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        following_active=True,
+        smart_tracker=None,
+        offboard_commander=None,
+        last_offboard_commander_failure={"health_state": "failed"},
+        px4_interface=None,
+        mavlink_data_manager=None,
+    )
+
+    result = await handler.get_runtime_status()
+
+    assert result["status"] == "degraded"
+    assert result["consumer_guidance"] == "operator_attention"
+    assert result["reason"] == "offboard_commander_failure_present"
+    assert result["modes"]["following_active"] is True
+    assert result["subsystems"]["offboard_commander_failure"]["health_state"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_typed_runtime_status_degrades_when_following_without_running_commander():
+    """Local following must not look healthy when command publication is stopped."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.video_handler = None
+    handler.app_controller = SimpleNamespace(
+        smart_mode_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        following_active=True,
+        smart_tracker=None,
+        offboard_commander=SimpleNamespace(
+            get_status=MagicMock(return_value={
+                "running": False,
+                "task_active": False,
+                "health_state": "stopped",
+                "last_intent_fresh": False,
+                "failsafe_defaults_active": True,
+            })
+        ),
+        last_offboard_commander_failure=None,
+        px4_interface=None,
+        mavlink_data_manager=None,
+    )
+
+    result = await handler.get_runtime_status()
+
+    assert result["status"] == "degraded"
+    assert result["consumer_guidance"] == "operator_attention"
+    assert result["reason"] == "offboard_commander_not_running"
+    assert result["modes"]["following_active"] is True
+    assert result["subsystems"]["offboard_commander"]["health_state"] == "stopped"
+
+
+@pytest.mark.asyncio
+async def test_typed_runtime_status_degrades_on_stale_commander_intent():
+    """Following with a stale OffboardCommander intent should require attention."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.video_handler = None
+    handler.app_controller = SimpleNamespace(
+        smart_mode_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        following_active=True,
+        smart_tracker=None,
+        offboard_commander=SimpleNamespace(
+            get_status=MagicMock(return_value={
+                "running": True,
+                "task_active": True,
+                "health_state": "running",
+                "last_intent_fresh": False,
+                "failsafe_defaults_active": False,
+            })
+        ),
+        last_offboard_commander_failure=None,
+        px4_interface=None,
+        mavlink_data_manager=None,
+    )
+
+    result = await handler.get_runtime_status()
+
+    assert result["status"] == "degraded"
+    assert result["consumer_guidance"] == "operator_attention"
+    assert result["reason"] == "offboard_commander_intent_stale"
+
+
+@pytest.mark.asyncio
+async def test_typed_runtime_status_degrades_on_incomplete_commander_snapshot():
+    """Following with unknown command-publication fields should fail closed."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.video_handler = None
+    handler.app_controller = SimpleNamespace(
+        smart_mode_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        following_active=True,
+        smart_tracker=None,
+        offboard_commander=SimpleNamespace(
+            get_status=MagicMock(return_value={"health_state": "running"})
+        ),
+        last_offboard_commander_failure=None,
+        px4_interface=None,
+        mavlink_data_manager=None,
+    )
+
+    result = await handler.get_runtime_status()
+
+    assert result["status"] == "degraded"
+    assert result["consumer_guidance"] == "operator_attention"
+    assert result["reason"] == "offboard_commander_running_unknown"
+
+
+@pytest.mark.asyncio
+async def test_typed_runtime_status_returns_structured_error():
+    """Typed runtime-status failures should use the /api/v1 error envelope."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.video_handler = SimpleNamespace(
+        get_connection_health=MagicMock(side_effect=RuntimeError("video failed"))
+    )
+    handler.app_controller = SimpleNamespace()
+
+    response = await handler.get_runtime_status()
+    payload = json.loads(response.body.decode())
+
+    assert response.status_code == 500
+    assert payload["code"] == "runtime_status_error"
+    assert payload["detail"] == "video failed"
+    assert payload["path"] == "/api/v1/runtime/status"
+    assert payload["request_id"].startswith("pixeagle-api-")
+
+
+@pytest.mark.asyncio
 async def test_typed_telemetry_health_endpoint_forwards_manager_snapshot():
     """Typed telemetry health should use the manager's structured contract."""
     handler = object.__new__(FastAPIHandler)

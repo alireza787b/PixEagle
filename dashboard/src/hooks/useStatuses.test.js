@@ -352,8 +352,21 @@ test('useTelemetryHealth replaces stale raw health on request failure', async ()
   expect(screen.getByText('raw:unavailable')).toBeInTheDocument();
 });
 
-test('useSmartModeStatus uses endpoint registry status URL', async () => {
-  axios.get.mockResolvedValueOnce({ data: { smart_mode_active: true } });
+test('useSmartModeStatus polls typed runtime status URL', async () => {
+  axios.get.mockResolvedValueOnce({
+    data: {
+      schema_version: 1,
+      source: 'pixeagle_runtime',
+      status: 'active',
+      consumer_guidance: 'vision_active',
+      modes: {
+        smart_mode_active: true,
+        tracking_started: true,
+        segmentation_active: false,
+        following_active: false,
+      },
+    },
+  });
 
   const Probe = () => {
     const { smartModeActive } = useSmartModeStatus(60000);
@@ -364,11 +377,76 @@ test('useSmartModeStatus uses endpoint registry status URL', async () => {
 
   expect(await screen.findByText('Smart on')).toBeInTheDocument();
   expect(axios.get).toHaveBeenCalledWith(
-    endpoints.status,
+    endpoints.runtimeStatus,
     expect.objectContaining({
       headers: expect.objectContaining({
         'Cache-Control': 'no-cache, no-store, must-revalidate',
       }),
     })
   );
+});
+
+test('useSmartModeStatus falls back to legacy status route for rolling updates', async () => {
+  axios.get
+    .mockRejectedValueOnce({ response: { status: 404 } })
+    .mockResolvedValueOnce({ data: { smart_mode_active: true } });
+
+  const Probe = () => {
+    const { smartModeActive } = useSmartModeStatus(60000);
+    return <div>{smartModeActive ? 'Smart on' : 'Smart off'}</div>;
+  };
+
+  render(<Probe />);
+
+  expect(await screen.findByText('Smart on')).toBeInTheDocument();
+  expect(axios.get).toHaveBeenNthCalledWith(1, endpoints.runtimeStatus, expect.any(Object));
+  expect(axios.get).toHaveBeenNthCalledWith(2, endpoints.status, expect.any(Object));
+});
+
+test('useSmartModeStatus ignores stale out-of-order runtime responses', async () => {
+  jest.useFakeTimers();
+  let resolveFirstRequest;
+  axios.get
+    .mockImplementationOnce(() => new Promise((resolve) => {
+      resolveFirstRequest = resolve;
+    }))
+    .mockResolvedValueOnce({
+      data: {
+        schema_version: 1,
+        modes: {
+          smart_mode_active: true,
+        },
+      },
+    });
+
+  const Probe = () => {
+    const { smartModeActive } = useSmartModeStatus(60000);
+    return <div>{smartModeActive ? 'Smart on' : 'Smart off'}</div>;
+  };
+
+  try {
+    render(<Probe />);
+    await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      jest.advanceTimersByTime(60000);
+    });
+
+    expect(await screen.findByText('Smart on')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveFirstRequest({
+        data: {
+          schema_version: 1,
+          modes: {
+            smart_mode_active: false,
+          },
+        },
+      });
+    });
+
+    expect(screen.getByText('Smart on')).toBeInTheDocument();
+  } finally {
+    jest.useRealTimers();
+  }
 });

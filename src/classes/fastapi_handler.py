@@ -61,6 +61,7 @@ SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH = (
 API_V1_ACTION_OFFBOARD_START_PATH = "/api/v1/actions/offboard-start"
 API_V1_ACTION_OPERATOR_ABORT_PATH = "/api/v1/actions/operator-abort"
 API_V1_ACTION_RESOURCE_PREFIX = "/api/v1/actions"
+API_V1_RUNTIME_STATUS_PATH = "/api/v1/runtime/status"
 API_V1_TELEMETRY_HEALTH_PATH = "/api/v1/telemetry/health"
 API_V1_TRACKING_RUNTIME_STATUS_PATH = "/api/v1/tracking/runtime-status"
 SITL_VALIDATION_INJECTION_PATHS = {
@@ -73,6 +74,10 @@ SITL_VALIDATION_INJECTION_PATHS = {
 MAVLINK_TELEMETRY_CLAIM_BOUNDARY = (
     "PixEagle local MAVLink2REST client health only; not PX4, SITL, HIL, "
     "field, or follower-response proof."
+)
+RUNTIME_STATUS_CLAIM_BOUNDARY = (
+    "PixEagle process-local runtime and subsystem snapshots only; not PX4, "
+    "SITL, HIL, field, or follower-response proof."
 )
 TRACKER_OUTPUT_UNSET = object()
 
@@ -213,6 +218,46 @@ class APITelemetryHealthResponse(BaseModel):
     timestamp: float
 
 
+class APIRuntimeModesStatus(BaseModel):
+    """Current PixEagle operator-mode flags."""
+
+    smart_mode_active: bool = False
+    tracking_started: bool = False
+    segmentation_active: bool = False
+    following_active: bool = False
+
+
+class APIRuntimeSubsystemStatus(BaseModel):
+    """Local subsystem snapshots exposed without expanding flight claims."""
+
+    video_status: str = "unknown"
+    offboard_commander: Optional[Dict[str, Any]] = None
+    offboard_commander_failure: Optional[Any] = None
+    px4_connection: Optional[Dict[str, Any]] = None
+    mavlink_telemetry: Optional[Dict[str, Any]] = None
+    smart_tracker_runtime: Optional[Dict[str, Any]] = None
+
+
+class APIRuntimeStatusResponse(BaseModel):
+    """Typed PixEagle runtime status for API/MCP/dashboard consumers."""
+
+    schema_version: int = 1
+    source: Literal["pixeagle_runtime"] = "pixeagle_runtime"
+    status: Literal["idle", "active", "degraded", "unavailable"]
+    consumer_guidance: Literal[
+        "idle",
+        "vision_active",
+        "following_active",
+        "operator_attention",
+        "unavailable",
+    ]
+    modes: APIRuntimeModesStatus
+    subsystems: APIRuntimeSubsystemStatus
+    reason: Optional[str] = None
+    claim_boundary: str = RUNTIME_STATUS_CLAIM_BOUNDARY
+    timestamp: float
+
+
 class APITrackingRuntimeStatusResponse(BaseModel):
     """Typed tracker runtime status for API/MCP/dashboard consumers."""
 
@@ -277,6 +322,12 @@ ACTION_ROUTE_RESPONSES = {
         "description": "Dry-run validation result or idempotent action replay.",
     },
     **ACTION_ERROR_RESPONSES,
+}
+RUNTIME_STATUS_ERROR_RESPONSES = {
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {
+        "model": APIErrorResponse,
+        "description": "PixEagle runtime status could not be evaluated.",
+    },
 }
 TELEMETRY_HEALTH_ERROR_RESPONSES = {
     status.HTTP_500_INTERNAL_SERVER_ERROR: {
@@ -880,6 +931,13 @@ class FastAPIHandler:
         self.app.get("/telemetry/tracker_data")(self.tracker_data)
         self.app.get("/telemetry/follower_data")(self.follower_data)
         self.app.get("/status")(self.get_status)
+        self.app.get(
+            "/api/v1/runtime/status",
+            response_model=APIRuntimeStatusResponse,
+            responses=RUNTIME_STATUS_ERROR_RESPONSES,
+            operation_id="get_runtime_status",
+            tags=["runtime"],
+        )(self.get_runtime_status)
         self.app.get(
             "/api/v1/telemetry/health",
             response_model=APITelemetryHealthResponse,
@@ -1678,6 +1736,7 @@ class FastAPIHandler:
     def _uses_typed_api_error_envelope(path: str) -> bool:
         return (
             path in SITL_VALIDATION_INJECTION_PATHS
+            or path == API_V1_RUNTIME_STATUS_PATH
             or path == API_V1_TELEMETRY_HEALTH_PATH
             or path == API_V1_TRACKING_RUNTIME_STATUS_PATH
             or path.startswith(f"{API_V1_ACTION_RESOURCE_PREFIX}/")
@@ -2476,45 +2535,23 @@ class FastAPIHandler:
 
     async def get_status(self):
         try:
-            video_health = self.video_handler.get_connection_health() if self.video_handler else {}
-            smart_tracker_runtime = None
-            if getattr(self.app_controller, "smart_tracker", None) and hasattr(self.app_controller.smart_tracker, "get_runtime_info"):
-                try:
-                    smart_tracker_runtime = self.app_controller.smart_tracker.get_runtime_info()
-                except Exception as runtime_error:
-                    self.logger.debug(f"Could not fetch smart tracker runtime info: {runtime_error}")
-            offboard_commander_status = None
-            commander = getattr(self.app_controller, "offboard_commander", None)
-            if commander and hasattr(commander, "get_status"):
-                offboard_commander_status = commander.get_status()
-            offboard_commander_failure = getattr(
-                self.app_controller,
-                "last_offboard_commander_failure",
-                None,
-            )
-            mavlink_status = None
-            mavlink_manager = getattr(self.app_controller, "mavlink_data_manager", None)
-            if mavlink_manager and hasattr(mavlink_manager, "get_connection_status"):
-                mavlink_status = mavlink_manager.get_connection_status()
-            px4_connection_status = None
-            px4_interface = getattr(self.app_controller, "px4_interface", None)
-            if px4_interface and hasattr(px4_interface, "get_connection_status"):
-                px4_connection_status = px4_interface.get_connection_status()
-            return {
-                "smart_mode_active": self.app_controller.smart_mode_active,
-                "tracking_started": self.app_controller.tracking_started,
-                "segmentation_active": self.app_controller.segmentation_active,
-                "following_active": self.app_controller.following_active,
-                "offboard_commander": offboard_commander_status,
-                "offboard_commander_failure": offboard_commander_failure,
-                "px4_connection": px4_connection_status,
-                "mavlink_telemetry": mavlink_status,
-                "video_status": video_health.get("status", "unknown"),
-                "smart_tracker_runtime": smart_tracker_runtime,
-            }
+            return self._get_legacy_runtime_status_snapshot()
         except Exception as e:
             self.logger.error(f"Error in get_status: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_runtime_status(self):
+        """Return typed PixEagle runtime status for API/MCP/dashboard consumers."""
+        try:
+            return self._get_runtime_status_snapshot()
+        except Exception as e:
+            self.logger.error(f"Error in get_runtime_status: {e}")
+            return self._api_v1_error_response(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                code="runtime_status_error",
+                detail=str(e),
+                path=API_V1_RUNTIME_STATUS_PATH,
+            )
 
     async def get_telemetry_health(self):
         """Return typed MAVLink2REST health for API/MCP/dashboard consumers."""
@@ -3177,6 +3214,202 @@ class FastAPIHandler:
                 ),
                 error=error_msg,
             )
+
+    def _get_legacy_runtime_status_snapshot(self) -> Dict[str, Any]:
+        """Return the legacy flat runtime snapshot behind `/status`."""
+        app_controller = getattr(self, "app_controller", None)
+        logger = getattr(self, "logger", logging.getLogger(__name__))
+        video_handler = getattr(self, "video_handler", None)
+
+        video_health = {}
+        if video_handler and hasattr(video_handler, "get_connection_health"):
+            video_health = video_handler.get_connection_health() or {}
+
+        smart_tracker_runtime = None
+        smart_tracker = getattr(app_controller, "smart_tracker", None)
+        if smart_tracker and hasattr(smart_tracker, "get_runtime_info"):
+            try:
+                smart_tracker_runtime = smart_tracker.get_runtime_info()
+            except Exception as runtime_error:
+                logger.debug(
+                    "Could not fetch smart tracker runtime info: %s",
+                    runtime_error,
+                )
+
+        offboard_commander_status = None
+        commander = getattr(app_controller, "offboard_commander", None)
+        if commander and hasattr(commander, "get_status"):
+            offboard_commander_status = commander.get_status()
+
+        offboard_commander_failure = getattr(
+            app_controller,
+            "last_offboard_commander_failure",
+            None,
+        )
+
+        mavlink_status = None
+        mavlink_manager = getattr(app_controller, "mavlink_data_manager", None)
+        if mavlink_manager and hasattr(mavlink_manager, "get_connection_status"):
+            mavlink_status = mavlink_manager.get_connection_status()
+
+        px4_connection_status = None
+        px4_interface = getattr(app_controller, "px4_interface", None)
+        if px4_interface and hasattr(px4_interface, "get_connection_status"):
+            px4_connection_status = px4_interface.get_connection_status()
+
+        return {
+            "smart_mode_active": bool(
+                getattr(app_controller, "smart_mode_active", False)
+            ),
+            "tracking_started": bool(
+                getattr(app_controller, "tracking_started", False)
+            ),
+            "segmentation_active": bool(
+                getattr(app_controller, "segmentation_active", False)
+            ),
+            "following_active": bool(
+                getattr(app_controller, "following_active", False)
+            ),
+            "offboard_commander": offboard_commander_status,
+            "offboard_commander_failure": offboard_commander_failure,
+            "px4_connection": px4_connection_status,
+            "mavlink_telemetry": mavlink_status,
+            "video_status": video_health.get("status", "unknown"),
+            "smart_tracker_runtime": smart_tracker_runtime,
+        }
+
+    @staticmethod
+    def _classify_runtime_status(
+        legacy_status: Dict[str, Any],
+    ) -> Tuple[str, str, Optional[str]]:
+        """Classify process-local runtime state without broadening safety claims."""
+        commander_failure = legacy_status.get("offboard_commander_failure")
+        if commander_failure:
+            return (
+                "degraded",
+                "operator_attention",
+                "offboard_commander_failure_present",
+            )
+
+        commander_status = legacy_status.get("offboard_commander")
+        following_active = bool(legacy_status.get("following_active"))
+        if isinstance(commander_status, dict):
+            commander_health = str(
+                commander_status.get("health_state")
+                or commander_status.get("status")
+                or ""
+            ).lower()
+            if commander_health in {"degraded", "failed", "failure", "error"}:
+                return (
+                    "degraded",
+                    "operator_attention",
+                    f"offboard_commander_{commander_health}",
+                )
+
+            if following_active:
+                commander_running = commander_status.get("running")
+                task_active = commander_status.get("task_active")
+                last_intent_fresh = commander_status.get("last_intent_fresh")
+                failsafe_defaults_active = commander_status.get(
+                    "failsafe_defaults_active"
+                )
+                if commander_running is not True:
+                    return (
+                        "degraded",
+                        "operator_attention",
+                        (
+                            "offboard_commander_not_running"
+                            if commander_running is False
+                            else "offboard_commander_running_unknown"
+                        ),
+                    )
+                if task_active is not True:
+                    return (
+                        "degraded",
+                        "operator_attention",
+                        (
+                            "offboard_commander_task_inactive"
+                            if task_active is False
+                            else "offboard_commander_task_unknown"
+                        ),
+                    )
+                if last_intent_fresh is not True:
+                    return (
+                        "degraded",
+                        "operator_attention",
+                        (
+                            "offboard_commander_intent_stale"
+                            if last_intent_fresh is False
+                            else "offboard_commander_intent_freshness_unknown"
+                        ),
+                    )
+                if failsafe_defaults_active is not False:
+                    return (
+                        "degraded",
+                        "operator_attention",
+                        (
+                            "offboard_commander_failsafe_defaults_active"
+                            if failsafe_defaults_active is True
+                            else "offboard_commander_failsafe_defaults_unknown"
+                        ),
+                    )
+                if commander_health in {"stopped", "offline", "disabled"}:
+                    return (
+                        "degraded",
+                        "operator_attention",
+                        f"offboard_commander_{commander_health}",
+                    )
+        elif following_active:
+            return (
+                "degraded",
+                "operator_attention",
+                "offboard_commander_unavailable",
+            )
+
+        if following_active:
+            return "active", "following_active", None
+
+        if (
+            legacy_status.get("smart_mode_active")
+            or legacy_status.get("tracking_started")
+            or legacy_status.get("segmentation_active")
+        ):
+            return "active", "vision_active", None
+
+        return "idle", "idle", None
+
+    def _get_runtime_status_snapshot(self) -> Dict[str, Any]:
+        """Return the canonical typed runtime snapshot used by /api/v1."""
+        legacy_status = self._get_legacy_runtime_status_snapshot()
+        runtime_status, consumer_guidance, reason = self._classify_runtime_status(
+            legacy_status
+        )
+
+        return {
+            "schema_version": 1,
+            "source": "pixeagle_runtime",
+            "status": runtime_status,
+            "consumer_guidance": consumer_guidance,
+            "modes": {
+                "smart_mode_active": legacy_status["smart_mode_active"],
+                "tracking_started": legacy_status["tracking_started"],
+                "segmentation_active": legacy_status["segmentation_active"],
+                "following_active": legacy_status["following_active"],
+            },
+            "subsystems": {
+                "video_status": legacy_status["video_status"],
+                "offboard_commander": legacy_status["offboard_commander"],
+                "offboard_commander_failure": legacy_status[
+                    "offboard_commander_failure"
+                ],
+                "px4_connection": legacy_status["px4_connection"],
+                "mavlink_telemetry": legacy_status["mavlink_telemetry"],
+                "smart_tracker_runtime": legacy_status["smart_tracker_runtime"],
+            },
+            "reason": reason,
+            "claim_boundary": RUNTIME_STATUS_CLAIM_BOUNDARY,
+            "timestamp": time.time(),
+        }
 
     def _get_tracker_runtime_status_snapshot(
         self,

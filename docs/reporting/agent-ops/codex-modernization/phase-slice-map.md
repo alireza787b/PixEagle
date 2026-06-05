@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-06-04
+Last updated: 2026-06-05
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -67,6 +67,7 @@ it together with:
 | Phase 4 dashboard typed telemetry-health adoption | done | PXE-0043 | `checkpoints/2026-06-04-phase-4-dashboard-telemetry-health.md`; dashboard endpoint registry, `useTelemetryHealth()` normalizer, and operational status bar chip now consume `/api/v1/telemetry/health`, distinguish usable/degraded/stale/unavailable/disabled/connecting states, and cover disabled cached payload plus degraded cache-fresh/latest-request-failed cases in frontend tests |
 | Phase 4 dashboard tracker-state clarity | done | PXE-0024 | `checkpoints/2026-06-04-phase-4-dashboard-tracker-state-clarity.md`; dashboard tracker runtime normalization distinguishes output-visible, active, stale, not-usable, no-output, checking, and unavailable states; tracker cards/data display/status chips/nav/follow controls consume the normalized state; legacy and typed Offboard-start paths fail closed on absent/stale/unusable tracker output; legacy tracker telemetry and current-status handle `MULTI_TARGET` target visibility plus `has_output`, `usable_for_following`, and `data_is_stale`; deeper typed tracker runtime/API/internal cleanup closed under PXE-0044 |
 | Phase 4 typed tracker runtime status | done | PXE-0044 | `checkpoints/2026-06-05-phase-4-typed-tracker-runtime-status.md`; shared tracker runtime evaluator, typed `/api/v1/tracking/runtime-status`, legacy tracker/current compatibility fields, selector/hook migration to typed runtime state, reverse-proxy-safe tracker hooks, and TargetLossHandler fail-closed active+stale/not-usable handling done |
+| Phase 4 typed runtime status | done | PXE-0045 | `checkpoints/2026-06-05-phase-4-typed-runtime-status.md`; typed `/api/v1/runtime/status`, shared snapshot helper behind legacy `/status`, mode/subsystem separation, fail-closed local following classification for unsafe Offboard commander state, dashboard smart-mode migration with legacy route fallback and stale-response guards, route inventory/frontend/backend tests, and refreshed companion refs done |
 
 ## Active Slice
 
@@ -75,7 +76,9 @@ actions and fail-closed PX4 observation artifacts, PXE-0036 is done for
 backend/API typed MAVLink telemetry health, PXE-0043 is done for dashboard
 adoption of that typed telemetry-health contract, PXE-0024 is done for
 dashboard tracker-state clarity, and PXE-0044 is done for typed tracker runtime
-status plus target-loss active/stale cleanup. These are still unit/contract
+status plus target-loss active/stale cleanup. PXE-0045 is done for typed
+PixEagle process-local runtime status and dashboard smart-mode migration off
+legacy `/status`. These are still unit/contract
 evidence only; no runtime PX4/SITL pass is claimed. Official Gazebo runtime proof (PXE-0040)
 remains open for a native GUI/GPU host, stronger headless runner, or separately
 proven official-image startup workaround. Official SIH L2 probing starts a
@@ -100,6 +103,8 @@ Audit artifact:
 - `checkpoints/2026-06-04-phase-4-typed-telemetry-health.md`
 - `checkpoints/2026-06-04-phase-4-dashboard-telemetry-health.md`
 - `checkpoints/2026-06-04-phase-4-dashboard-tracker-state-clarity.md`
+- `checkpoints/2026-06-05-phase-4-typed-tracker-runtime-status.md`
+- `checkpoints/2026-06-05-phase-4-typed-runtime-status.md`
 
 Recently completed Offboard commander follow-up issues:
 
@@ -201,6 +206,14 @@ Recently completed Offboard commander follow-up issues:
   and status-hook adoption, reverse-proxy-safe tracker hooks, and target-loss
   fail-closed behavior for active+stale or active+not-usable input. Done in
   `checkpoints/2026-06-05-phase-4-typed-tracker-runtime-status.md`.
+- PXE-0045: typed PixEagle process-local runtime status now has
+  `GET /api/v1/runtime/status`, shared legacy `/status` snapshot assembly,
+  explicit mode/subsystem separation, structured `/api/v1` errors, dashboard
+  `useSmartModeStatus()` adoption through the endpoint registry, legacy route
+  fallback for missing typed endpoints, stale-response guards, fail-closed
+  classification for unsafe Offboard commander state while following, and
+  refreshed current companion refs. Done in
+  `checkpoints/2026-06-05-phase-4-typed-runtime-status.md`.
 
 Objective:
 

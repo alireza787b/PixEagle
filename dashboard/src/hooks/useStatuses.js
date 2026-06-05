@@ -385,20 +385,48 @@ export const useTelemetryHealth = (interval = 2000) => {
 };
 
 
+const readSmartModeActive = (data) => Boolean(
+  data?.modes?.smart_mode_active ?? data?.smart_mode_active
+);
+
+const isMissingRuntimeStatusRoute = (fetchError) => (
+  [404, 405, 501].includes(fetchError?.response?.status)
+);
+
 export const useSmartModeStatus = (interval = 2000) => {
   const [smartModeActive, setSmartModeActive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const mountedRef = useRef(false);
+  const requestSequenceRef = useRef(0);
 
   const refresh = useCallback(async ({ suppressErrors = false } = {}) => {
+    const requestId = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestId;
+
     try {
-      const response = await axios.get(endpoints.status, buildNoCacheRequestConfig());
-      const data = response.data || {};
-      const nextState = Boolean(data.smart_mode_active);
+      let response;
+      try {
+        response = await axios.get(endpoints.runtimeStatus, buildNoCacheRequestConfig());
+      } catch (runtimeStatusError) {
+        if (!isMissingRuntimeStatusRoute(runtimeStatusError)) {
+          throw runtimeStatusError;
+        }
+        response = await axios.get(endpoints.status, buildNoCacheRequestConfig());
+      }
+
+      if (!mountedRef.current || requestId !== requestSequenceRef.current) {
+        return null;
+      }
+
+      const nextState = readSmartModeActive(response.data || {});
       setSmartModeActive(nextState);
       setError(null);
       return nextState;
     } catch (fetchError) {
+      if (!mountedRef.current || requestId !== requestSequenceRef.current) {
+        return null;
+      }
       if (!suppressErrors) {
         console.error('Error fetching smart mode status:', fetchError);
       }
@@ -406,11 +434,14 @@ export const useSmartModeStatus = (interval = 2000) => {
       // Keep previous UI state on transient errors rather than forcing false.
       return null;
     } finally {
-      setLoading(false);
+      if (mountedRef.current && requestId === requestSequenceRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     const intervalId = setInterval(() => {
       refresh({ suppressErrors: true });
     }, interval);
@@ -435,6 +466,8 @@ export const useSmartModeStatus = (interval = 2000) => {
     }
 
     return () => {
+      mountedRef.current = false;
+      requestSequenceRef.current += 1;
       clearInterval(intervalId);
       if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', handleVisibilityChange);

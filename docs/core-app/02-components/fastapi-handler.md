@@ -68,6 +68,7 @@ class FastAPIHandler:
 | `/telemetry/tracker_data` | GET | Current tracker output |
 | `/telemetry/follower_data` | GET | Current follower state |
 | `/status` | GET | System status |
+| `/api/v1/runtime/status` | GET | Typed PixEagle process-local runtime status |
 | `/api/v1/telemetry/health` | GET | Typed MAVLink2REST request/payload health |
 | `/api/v1/tracking/runtime-status` | GET | Typed tracker output/readiness status |
 | `/stats` | GET | Streaming statistics |
@@ -85,6 +86,27 @@ New dashboard/API/MCP consumers should prefer
 boundary. `usable_for_following=true` is the fail-closed control gate;
 `active_tracking=true` alone is not enough because stale or explicitly unusable
 tracker output can still report an active target.
+
+### Typed Runtime Status Endpoint
+
+New dashboard/API/MCP consumers that need PixEagle mode flags should prefer
+`GET /api/v1/runtime/status` instead of parsing the flat `/status` payload. It
+returns `schema_version`, `source`, `status`, `consumer_guidance`, `modes`,
+`subsystems`, `reason`, `claim_boundary`, and `timestamp`.
+
+The `modes` object contains the four legacy operator flags:
+`smart_mode_active`, `tracking_started`, `segmentation_active`, and
+`following_active`. The `subsystems` object preserves compatibility snapshots
+for video, Offboard commander, PX4 connection, MAVLink telemetry, and Smart
+Tracker runtime data.
+
+The route is process-local. It reports `degraded/operator_attention` when local
+following is active but the Offboard commander reports a failure, stopped or
+non-running publication, inactive task, stale command intent, active failsafe
+defaults, or missing/unknown command-publication fields. It can report `active`
+for local vision/following state, but it is not PX4, SITL, HIL, field, or
+follower-response proof. Use telemetry, action resources, SITL evidence
+artifacts, and PX4 logs for those claims.
 
 ### Typed Telemetry Health Endpoint
 
@@ -151,6 +173,7 @@ they do not accept confirmation, dry-run, or idempotency request fields.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `/api/v1/runtime/status` | GET | Typed PixEagle process-local runtime contract |
 | `/api/v1/tracking/runtime-status` | GET | Typed tracker runtime/readiness contract |
 | `/api/tracker/schema` | GET | Tracker schema |
 | `/api/tracker/switch` | POST | Switch tracker type |
