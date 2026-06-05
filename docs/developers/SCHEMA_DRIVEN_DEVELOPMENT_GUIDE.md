@@ -193,8 +193,9 @@ This design ensures **universal compatibility**:
 ## 📊 **API Endpoints - Schema Exposure**
 
 ### **Tracker Schema APIs**
+- `GET /api/v1/tracking/runtime-status` - Typed tracker runtime/readiness status for new dashboard/API/MCP consumers
 - `GET /api/tracker/schema` - Complete tracker schema
-- `GET /api/tracker/current-status` - Active tracker + field data
+- `GET /api/tracker/current-status` - Compatibility active tracker + schema-driven field data
 - `GET /api/tracker/available-types` - Available tracker types
 - `GET /api/tracker/current-config` - Current tracker configuration
 - `POST /api/tracker/set-type` - Change tracker type

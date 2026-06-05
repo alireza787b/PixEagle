@@ -17,15 +17,27 @@ const buildNoCacheRequestConfig = () => ({
 
 export const useTrackerStatus = (interval = 2000) => {
   const [trackerStatus, setTrackerStatus] = useState(() => normalizeTrackerStatus(null, { pending: true }));
+  const latestTrackerRequestIdRef = useRef(0);
 
   useEffect(() => {
+    let cancelled = false;
+
     const fetchTrackerStatus = async () => {
+      const requestId = latestTrackerRequestIdRef.current + 1;
+      latestTrackerRequestIdRef.current = requestId;
+
       try {
-        const response = await axios.get(endpoints.trackerCurrentStatus, buildNoCacheRequestConfig());
+        const response = await axios.get(endpoints.trackerRuntimeStatus, buildNoCacheRequestConfig());
+        if (cancelled || requestId !== latestTrackerRequestIdRef.current) {
+          return;
+        }
         setTrackerStatus(normalizeTrackerStatus(response.data));
       } catch (error) {
+        if (cancelled || requestId !== latestTrackerRequestIdRef.current) {
+          return;
+        }
         console.error('Error fetching tracker data:', error);
-        console.log("URI Used is:", endpoints.trackerCurrentStatus);
+        console.log("URI Used is:", endpoints.trackerRuntimeStatus);
         setTrackerStatus(normalizeTrackerStatus(null, { error }));
       }
     };
@@ -33,7 +45,10 @@ export const useTrackerStatus = (interval = 2000) => {
     const intervalId = setInterval(fetchTrackerStatus, interval);
     fetchTrackerStatus(); // Initial call
 
-    return () => clearInterval(intervalId);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
   }, [interval]);
 
   return trackerStatus;
@@ -132,7 +147,7 @@ export const normalizeTrackerStatus = (status, { pending = false, error = null }
     dataIsStale: runtimeState.dataIsStale,
     followLabel: runtimeState.followLabel,
     followColor: runtimeState.followColor,
-    trackerType: status?.tracker_type || null,
+    trackerType: status?.tracker_type || status?.configured_tracker || null,
     dataType: status?.data_type || null,
     timestamp: status?.timestamp || null,
     error: null,

@@ -48,6 +48,7 @@ import {
   useCurrentTracker,
   useSwitchTracker
 } from '../hooks/useTrackerSchema';
+import { useTrackerStatus } from '../hooks/useStatuses';
 
 // Loading skeleton component
 const LoadingSkeleton = () => (
@@ -106,6 +107,7 @@ const TrackerSelector = memo(() => {
   // Custom hooks for tracker data
   const { trackers, loading: loadingTrackers, error: trackersError } = useAvailableTrackers();
   const { currentTracker, loading: loadingCurrent, error: currentError } = useCurrentTracker();
+  const trackerRuntimeStatus = useTrackerStatus(3000);
   const { switchTracker, switching, switchError } = useSwitchTracker();
 
   // Local state
@@ -115,31 +117,42 @@ const TrackerSelector = memo(() => {
   // This fixes the race condition where 2-second polling would reset user's dropdown choice
   const hasPendingSelection = React.useRef(false);
 
+  const currentTrackerKey = useMemo(() => {
+    if (!currentTracker?.tracker_type || !trackers?.available_trackers) {
+      return currentTracker?.tracker_type || null;
+    }
+    return findMatchingTrackerKey(
+      currentTracker.tracker_type,
+      Object.keys(trackers.available_trackers)
+    );
+  }, [currentTracker, trackers]);
+
+  if (hasPendingSelection.current && selectedTracker && currentTrackerKey === selectedTracker) {
+    hasPendingSelection.current = false;
+  }
+
   // Update selected tracker when current tracker changes (pre-select current active tracker)
   // Only sync with backend when there's no pending user selection
   React.useEffect(() => {
     // Skip sync if user has a pending selection that hasn't been applied yet
     // This prevents polling from overwriting the user's dropdown choice
     if (hasPendingSelection.current) {
-      return;
-    }
-
-    if (currentTracker && currentTracker.tracker_type && trackers?.available_trackers) {
-      const trackerType = currentTracker.tracker_type;
-      const availableKeys = Object.keys(trackers.available_trackers);
-
-      const matchingKey = findMatchingTrackerKey(trackerType, availableKeys);
-
-      if (matchingKey) {
-        setSelectedTracker(matchingKey);
+      if (selectedTracker && currentTrackerKey && selectedTracker === currentTrackerKey) {
+        hasPendingSelection.current = false;
       } else {
-        console.warn(
-          `TrackerSelector: Current tracker "${trackerType}" not found in available trackers.`,
-          'Available:', availableKeys
-        );
+        return;
       }
     }
-  }, [currentTracker, trackers]);
+
+    if (currentTrackerKey) {
+      setSelectedTracker(currentTrackerKey);
+    } else if (currentTracker && currentTracker.tracker_type && trackers?.available_trackers) {
+        console.warn(
+          `TrackerSelector: Current tracker "${currentTracker.tracker_type}" not found in available trackers.`,
+          'Available:', Object.keys(trackers.available_trackers)
+        );
+    }
+  }, [currentTracker, currentTrackerKey, selectedTracker, trackers]);
 
   // Memoized tracker list for dropdown
   const trackerOptions = useMemo(() => {
@@ -162,13 +175,14 @@ const TrackerSelector = memo(() => {
       displayName: currentTracker.display_name || currentTracker.tracker_type,
       icon: currentTracker.icon || '🎯',
       status: currentTracker.status || 'configured',
-      isTracking: currentTracker.active || false,
+      isTracking: trackerRuntimeStatus.activeTracking || false,
       description: currentTracker.short_description || currentTracker.description || '',
       performanceCategory: currentTracker.performance_category || 'unknown',
       capabilities: currentTracker.capabilities || [],
-      suitableFor: currentTracker.suitable_for || []
+      suitableFor: currentTracker.suitable_for || [],
+      runtime: trackerRuntimeStatus
     };
-  }, [currentTracker]);
+  }, [currentTracker, trackerRuntimeStatus]);
 
   // Handle tracker selection change
   const handleTrackerChange = useCallback((event) => {
@@ -177,17 +191,17 @@ const TrackerSelector = memo(() => {
 
     // Mark as pending selection if different from current tracker
     // This prevents polling from overwriting user's choice before they click "Switch"
-    if (newValue !== currentTracker?.tracker_type) {
+    if (newValue !== currentTrackerKey) {
       hasPendingSelection.current = true;
     } else {
       // User selected current tracker again, no pending change
       hasPendingSelection.current = false;
     }
-  }, [currentTracker]);
+  }, [currentTrackerKey]);
 
   // Handle switch button click
   const handleSwitch = useCallback(async () => {
-    if (!selectedTracker || selectedTracker === currentTracker?.tracker_type) {
+    if (!selectedTracker || selectedTracker === currentTrackerKey) {
       return;
     }
 
@@ -202,29 +216,39 @@ const TrackerSelector = memo(() => {
     if (success && currentTracker?.active) {
       // Info alert will be shown via switchError state from the hook
     }
-  }, [selectedTracker, currentTracker, switchTracker]);
+  }, [selectedTracker, currentTracker, currentTrackerKey, switchTracker]);
 
   // Check if switch button should be disabled
   const isSwitchDisabled = useMemo(() => {
     return (
       !selectedTracker ||
-      selectedTracker === currentTracker?.tracker_type ||
+      selectedTracker === currentTrackerKey ||
       switching ||
       loadingTrackers ||
       loadingCurrent ||
       currentTracker?.following_active // Safety: block switching while following active
     );
-  }, [selectedTracker, currentTracker, switching, loadingTrackers, loadingCurrent]);
+  }, [selectedTracker, currentTracker, currentTrackerKey, switching, loadingTrackers, loadingCurrent]);
 
   // Status icon and color
   const getStatusInfo = () => {
     if (!currentTrackerInfo) return { icon: <Warning />, color: 'error', label: 'Unknown' };
 
-    if (currentTrackerInfo.isTracking) {
-      return { icon: <CheckCircle />, color: 'success', label: 'Tracking' };
-    } else {
-      return { icon: <Info />, color: 'warning', label: 'Configured' };
+    const runtime = currentTrackerInfo.runtime;
+    if (runtime?.usableForFollowing) {
+      return { icon: <CheckCircle />, color: 'success', label: runtime.label };
     }
+    if (runtime?.dataIsStale || (runtime?.hasOutput && !runtime?.usableForFollowing)) {
+      return { icon: <Warning />, color: runtime.color || 'warning', label: runtime.label };
+    }
+    if (runtime?.guidance === 'unavailable') {
+      return { icon: <Warning />, color: 'error', label: runtime.label };
+    }
+    if (runtime?.guidance === 'pending') {
+      return { icon: <Info />, color: 'info', label: runtime.label };
+    }
+
+    return { icon: <Info />, color: runtime?.color || 'default', label: runtime?.label || 'Configured' };
   };
 
   // Show loading skeleton
@@ -274,6 +298,14 @@ const TrackerSelector = memo(() => {
             icon={statusInfo.icon}
             sx={{ height: 22, fontSize: 11 }}
           />
+          {trackerRuntimeStatus?.hasOutput && (
+            <Chip
+              label={trackerRuntimeStatus.followLabel}
+              color={trackerRuntimeStatus.followColor}
+              size="small"
+              sx={{ height: 22, fontSize: 11 }}
+            />
+          )}
           <Chip
             label={`${currentTrackerInfo.icon} ${currentTrackerInfo.displayName}`}
             color="primary"

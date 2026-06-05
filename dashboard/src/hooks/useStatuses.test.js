@@ -108,10 +108,13 @@ test('normalizes stale tracker output as not follower usable', () => {
   expect(normalized.dataIsStale).toBe(true);
 });
 
-test('useTrackerStatus polls current tracker status instead of legacy tracker telemetry', async () => {
+test('useTrackerStatus polls typed tracker runtime status instead of legacy tracker telemetry', async () => {
   axios.get.mockResolvedValueOnce({
     data: {
-      active: false,
+      schema_version: 1,
+      status: 'visible_output',
+      consumer_guidance: 'diagnostic_only',
+      active_tracking: false,
       has_output: true,
       usable_for_following: false,
     },
@@ -126,13 +129,67 @@ test('useTrackerStatus polls current tracker status instead of legacy tracker te
 
   expect(await screen.findByText('Tracking: Visible')).toBeInTheDocument();
   expect(axios.get).toHaveBeenCalledWith(
-    endpoints.trackerCurrentStatus,
+    endpoints.trackerRuntimeStatus,
     expect.objectContaining({
       headers: expect.objectContaining({
         'Cache-Control': 'no-cache, no-store, must-revalidate',
       }),
     })
   );
+});
+
+test('useTrackerStatus ignores stale out-of-order runtime responses', async () => {
+  jest.useFakeTimers();
+  let resolveFirstRequest;
+  axios.get
+    .mockImplementationOnce(() => new Promise((resolve) => {
+      resolveFirstRequest = resolve;
+    }))
+    .mockResolvedValueOnce({
+      data: {
+        schema_version: 1,
+        status: 'active_usable',
+        consumer_guidance: 'usable',
+        active_tracking: true,
+        has_output: true,
+        usable_for_following: true,
+        data_is_stale: false,
+      },
+    });
+
+  const Probe = () => {
+    const trackerStatus = useTrackerStatus(60000);
+    return <div>{trackerStatus.chipLabel}</div>;
+  };
+
+  try {
+    render(<Probe />);
+    await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      jest.advanceTimersByTime(60000);
+    });
+
+    expect(await screen.findByText('Tracking: Active')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveFirstRequest({
+        data: {
+          schema_version: 1,
+          status: 'stale_output',
+          consumer_guidance: 'stale',
+          active_tracking: true,
+          has_output: true,
+          usable_for_following: false,
+          data_is_stale: true,
+        },
+      });
+    });
+
+    expect(screen.getByText('Tracking: Active')).toBeInTheDocument();
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test('normalizes disabled telemetry with cached payload as not fresh', () => {

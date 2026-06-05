@@ -35,6 +35,8 @@ try:
 except ImportError:
     CIRCUIT_BREAKER_AVAILABLE = False
 
+from classes.tracker_runtime_status import evaluate_tracker_runtime_status
+
 logger = logging.getLogger(__name__)
 
 class TargetState(Enum):
@@ -155,9 +157,12 @@ class TargetLossHandler:
         """
         current_time = time.time()
 
-        # Extract tracking status - works with ANY tracker type
-        tracking_active = getattr(tracker_output, 'tracking_active', False)
-        tracker_type = getattr(tracker_output, 'data_type', 'Unknown')
+        # Extract runtime status through the shared fail-closed evaluator.
+        # `tracking_active=True` is not sufficient when output is stale or
+        # explicitly marked unusable for follower control.
+        runtime_status = evaluate_tracker_runtime_status(tracker_output)
+        tracking_active = runtime_status['usable_for_following']
+        tracker_type = runtime_status.get('data_type') or getattr(tracker_output, 'data_type', 'Unknown')
 
         if hasattr(tracker_type, 'value'):
             tracker_type = tracker_type.value
@@ -207,6 +212,17 @@ class TargetLossHandler:
 
         # Generate response based on current state
         response = self._generate_response(current_time, tracker_type, previous_state != self.current_state)
+        response.update({
+            'input_tracking_active': runtime_status['active_tracking'],
+            'has_output': runtime_status['has_output'],
+            'usable_for_following': runtime_status['usable_for_following'],
+            'data_is_stale': runtime_status['data_is_stale'],
+            'runtime_status': runtime_status['status'],
+            'runtime_consumer_guidance': runtime_status['consumer_guidance'],
+            'runtime_reason': runtime_status['reason'],
+        })
+        response['metadata']['tracker_runtime_status'] = runtime_status['status']
+        response['metadata']['tracker_runtime_reason'] = runtime_status['reason']
 
         # Log state changes
         if previous_state != self.current_state:

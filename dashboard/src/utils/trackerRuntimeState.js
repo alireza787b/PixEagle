@@ -1,6 +1,22 @@
 const firstDefined = (...values) => values.find((value) => value !== undefined && value !== null);
 
-const parseBooleanLike = (value) => {
+const DEFAULT_TRUE_TOKENS = ['true', 'yes', '1', 'active', 'tracking', 'tracking_active', 'receiving'];
+const DEFAULT_FALSE_TOKENS = [
+  'false',
+  'no',
+  '0',
+  'inactive',
+  'disabled',
+  'lost',
+  'target_lost',
+  'none',
+  'not_usable',
+  'unusable',
+  'blocked',
+  'diagnostic_only',
+];
+
+const parseBooleanLike = (value, { trueTokens = [], falseTokens = [] } = {}) => {
   if (typeof value === 'boolean') {
     return value;
   }
@@ -9,10 +25,16 @@ const parseBooleanLike = (value) => {
   }
   if (typeof value === 'string') {
     const normalized = value.trim().toLowerCase();
-    if (['true', 'yes', '1', 'active', 'tracking', 'tracking_active', 'receiving'].includes(normalized)) {
+    if (trueTokens.includes(normalized)) {
       return true;
     }
-    if (['false', 'no', '0', 'inactive', 'disabled', 'lost', 'stale', 'none'].includes(normalized)) {
+    if (falseTokens.includes(normalized)) {
+      return false;
+    }
+    if (DEFAULT_TRUE_TOKENS.includes(normalized)) {
+      return true;
+    }
+    if (DEFAULT_FALSE_TOKENS.includes(normalized)) {
       return false;
     }
   }
@@ -34,12 +56,14 @@ export const getTrackerRuntimeState = (currentStatus) => {
   const fields = currentStatus?.fields || {};
 
   const activeValue = firstDefined(
+    currentStatus?.active_tracking,
     currentStatus?.active,
     currentStatus?.tracking_active,
+    rawData.active_tracking,
     rawData.tracking_active,
     rawData.gimbal_tracking_active
   );
-  const activeTracking = parseBooleanLike(activeValue);
+  const activeTracking = parseBooleanLike(activeValue, { falseTokens: ['stale'] });
 
   const explicitHasOutput = firstDefined(
     currentStatus?.has_output,
@@ -52,12 +76,13 @@ export const getTrackerRuntimeState = (currentStatus) => {
 
   const dataIsStale = parseBooleanLike(firstDefined(
     currentStatus?.data_is_stale,
+    currentStatus?.stale,
     rawData.data_is_stale,
     metadata.data_is_stale,
     rawData.stale,
     rawData.is_stale,
     false
-  ));
+  ), { trueTokens: ['stale', 'is_stale', 'data_stale', 'expired'] });
 
   const explicitUsable = firstDefined(
     currentStatus?.usable_for_following,
@@ -65,7 +90,7 @@ export const getTrackerRuntimeState = (currentStatus) => {
     metadata.usable_for_following
   );
   const usableForFollowing = explicitUsable !== undefined
-    ? parseBooleanLike(explicitUsable)
+    ? parseBooleanLike(explicitUsable, { falseTokens: ['stale', 'not_usable', 'unusable'] })
     : Boolean(activeTracking && hasOutput && !dataIsStale);
 
   let state = 'no_output';
@@ -73,6 +98,25 @@ export const getTrackerRuntimeState = (currentStatus) => {
   let color = 'default';
   let severity = 'info';
   let message = 'No tracker output is available.';
+
+  if (currentStatus?.status === 'unavailable') {
+    state = 'unavailable';
+    label = 'Unavailable';
+    color = 'error';
+    severity = 'error';
+    message = currentStatus?.reason || 'Tracker status is unavailable.';
+  } else if (currentStatus?.status && currentStatus?.consumer_guidance) {
+    const typedState = currentStatus.status;
+    if ([
+      'no_output',
+      'visible_output',
+      'stale_output',
+      'not_usable',
+      'active_usable',
+    ].includes(typedState)) {
+      state = typedState;
+    }
+  }
 
   if (hasOutput && dataIsStale) {
     state = 'stale_output';
@@ -104,6 +148,10 @@ export const getTrackerRuntimeState = (currentStatus) => {
     color = 'success';
     severity = 'success';
     message = 'Tracker output is active and marked usable for follower control.';
+  }
+
+  if (currentStatus?.reason) {
+    message = currentStatus.reason;
   }
 
   return {

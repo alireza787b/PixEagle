@@ -1,10 +1,8 @@
 // dashboard/src/hooks/useTrackerSchema.js
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
-import { apiConfig } from '../services/apiEndpoints';
+import { endpoints } from '../services/apiEndpoints';
 import { trackerHasRuntimeOutput } from '../utils/trackerRuntimeState';
-
-const API_URL = `${apiConfig.protocol}://${apiConfig.apiHost}:${apiConfig.apiPort}`;
 
 /**
  * Hook for fetching and managing tracker schema data
@@ -18,7 +16,7 @@ export const useTrackerSchema = (refreshInterval = 10000) => {
 
   const fetchSchema = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/tracker/schema`);
+      const response = await axios.get(endpoints.trackerSchema);
       if (JSON.stringify(response.data) !== JSON.stringify(lastSuccessfulSchema.current)) {
         setSchema(response.data);
         lastSuccessfulSchema.current = response.data;
@@ -71,7 +69,7 @@ export const useCurrentTrackerStatus = (refreshInterval = 1000) => {
     abortControllerRef.current = new AbortController();
     
     try {
-      const response = await axios.get(`${API_URL}/api/tracker/current-status`, {
+      const response = await axios.get(endpoints.trackerCurrentStatus, {
         signal: abortControllerRef.current.signal
       });
       
@@ -180,7 +178,7 @@ export const useTrackerOutput = (refreshInterval = 1000) => {
     abortControllerRef.current = new AbortController();
     
     try {
-      const response = await axios.get(`${API_URL}/api/tracker/output`, {
+      const response = await axios.get(endpoints.trackerOutput, {
         signal: abortControllerRef.current.signal
       });
       
@@ -236,7 +234,7 @@ export const useTrackerSelection = () => {
 
   const fetchAvailableTrackers = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/tracker/available-types`);
+      const response = await axios.get(endpoints.trackerAvailableTypes);
       setAvailableTrackers(response.data);
       setError(null);
     } catch (err) {
@@ -247,7 +245,7 @@ export const useTrackerSelection = () => {
 
   const fetchCurrentConfig = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/tracker/current-config`);
+      const response = await axios.get(endpoints.trackerCurrentConfig);
       setCurrentConfig(response.data);
       setError(null);
       setLoading(false);
@@ -261,7 +259,7 @@ export const useTrackerSelection = () => {
   const changeTrackerType = useCallback(async (trackerType) => {
     setIsChanging(true);
     try {
-      const response = await axios.post(`${API_URL}/api/tracker/set-type`, {
+      const response = await axios.post(endpoints.trackerSetType, {
         tracker_type: trackerType
       });
       
@@ -315,7 +313,7 @@ export const useAvailableTrackers = (refreshInterval = 10000) => {
 
   const fetchTrackers = useCallback(async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/tracker/available`);
+      const response = await axios.get(endpoints.trackerAvailable);
       // Only update if data actually changed
       if (JSON.stringify(response.data) !== JSON.stringify(lastSuccessfulTrackers.current)) {
         setTrackers(response.data);
@@ -374,7 +372,7 @@ export const useCurrentTracker = (refreshInterval = 2000) => {
     abortControllerRef.current = new AbortController();
 
     try {
-      const response = await axios.get(`${API_URL}/api/tracker/current`, {
+      const response = await axios.get(endpoints.trackerCurrent, {
         signal: abortControllerRef.current.signal
       });
 
@@ -436,7 +434,7 @@ export const useSwitchTracker = () => {
     setSwitchError(null);
 
     try {
-      const response = await axios.post(`${API_URL}/api/tracker/switch`, {
+      const response = await axios.post(endpoints.trackerSwitch, {
         tracker_type: trackerType
       });
 

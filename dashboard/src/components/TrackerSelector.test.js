@@ -1,0 +1,159 @@
+import React from 'react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import TrackerSelector from './TrackerSelector';
+import {
+  useAvailableTrackers,
+  useCurrentTracker,
+  useSwitchTracker
+} from '../hooks/useTrackerSchema';
+import { useTrackerStatus } from '../hooks/useStatuses';
+
+jest.mock('../hooks/useTrackerSchema', () => ({
+  useAvailableTrackers: jest.fn(),
+  useCurrentTracker: jest.fn(),
+  useSwitchTracker: jest.fn()
+}));
+
+jest.mock('../hooks/useStatuses', () => ({
+  useTrackerStatus: jest.fn()
+}));
+
+const availableTrackers = {
+  available_trackers: {
+    GimbalTracker: {
+      ui_metadata: {
+        display_name: 'External Gimbal',
+        icon: 'T',
+        short_description: 'External gimbal packets',
+        performance_category: 'external'
+      },
+      description: 'Receives gimbal angle packets.',
+      capabilities: ['external_input']
+    },
+    CSRTTracker: {
+      ui_metadata: {
+        display_name: 'CSRT',
+        icon: 'C',
+        short_description: 'Classic image tracker',
+        performance_category: 'local'
+      },
+      description: 'Classic OpenCV tracker.'
+    }
+  }
+};
+
+const currentTracker = {
+  status: 'configured',
+  active: false,
+  tracker_type: 'GimbalTracker',
+  display_name: 'External Gimbal',
+  icon: 'T',
+  short_description: 'External gimbal packets',
+  following_active: false
+};
+
+let currentTrackerMock;
+let setCurrentTrackerFromHook;
+
+const baseRuntimeStatus = {
+  guidance: 'visible_output',
+  label: 'Output Visible',
+  chipLabel: 'Tracking: Visible',
+  navLabel: 'Visible',
+  color: 'info',
+  detail: 'Tracker output is visible.',
+  isTracking: false,
+  activeTracking: false,
+  hasOutput: true,
+  usableForFollowing: false,
+  dataIsStale: false,
+  followLabel: 'Not For Follow',
+  followColor: 'warning'
+};
+
+beforeEach(() => {
+  currentTrackerMock = { ...currentTracker };
+  useAvailableTrackers.mockReturnValue({
+    trackers: availableTrackers,
+    loading: false,
+    error: null
+  });
+  useCurrentTracker.mockImplementation(() => {
+    const [tracker, setTracker] = React.useState(currentTrackerMock);
+    setCurrentTrackerFromHook = setTracker;
+    return {
+      currentTracker: tracker,
+      loading: false,
+      error: null
+    };
+  });
+  useSwitchTracker.mockReturnValue({
+    switchTracker: jest.fn(),
+    switching: false,
+    switchError: null
+  });
+  useTrackerStatus.mockReturnValue(baseRuntimeStatus);
+});
+
+afterEach(() => {
+  jest.clearAllMocks();
+});
+
+test('shows visible tracker output without implying follower usability', () => {
+  render(<TrackerSelector />);
+
+  expect(screen.getByText('Output Visible')).toBeInTheDocument();
+  expect(screen.getByText('Not For Follow')).toBeInTheDocument();
+  expect(screen.getAllByText(/External Gimbal/).length).toBeGreaterThan(0);
+});
+
+test('shows stale runtime status from the typed tracker contract', () => {
+  useTrackerStatus.mockReturnValue({
+    ...baseRuntimeStatus,
+    guidance: 'stale_output',
+    label: 'Stale Output',
+    chipLabel: 'Tracking: Stale',
+    color: 'warning',
+    activeTracking: true,
+    dataIsStale: true
+  });
+
+  render(<TrackerSelector />);
+
+  expect(screen.getByText('Stale Output')).toBeInTheDocument();
+  expect(screen.getByText('Not For Follow')).toBeInTheDocument();
+});
+
+test('resumes backend sync when pending selection converges before switch click', async () => {
+  render(<TrackerSelector />);
+
+  await waitFor(() => {
+    expect(screen.getByRole('combobox')).toHaveTextContent('External Gimbal');
+  });
+
+  fireEvent.mouseDown(screen.getByRole('combobox'));
+  fireEvent.click(screen.getByRole('option', { name: /CSRT/ }));
+
+  expect(screen.getByRole('combobox')).toHaveTextContent('CSRT');
+
+  act(() => {
+    setCurrentTrackerFromHook({
+      ...currentTracker,
+      tracker_type: 'CSRTTracker',
+      display_name: 'CSRT',
+      icon: 'C'
+    });
+  });
+
+  await waitFor(() => {
+    expect(screen.getByRole('combobox')).toHaveTextContent('CSRT');
+  });
+
+  act(() => {
+    setCurrentTrackerFromHook({ ...currentTracker });
+  });
+
+  await waitFor(() => {
+    expect(screen.getByRole('combobox')).toHaveTextContent('External Gimbal');
+  });
+});

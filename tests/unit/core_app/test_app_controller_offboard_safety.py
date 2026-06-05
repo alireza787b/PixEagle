@@ -86,6 +86,19 @@ def _active_position_output(**raw_overrides) -> TrackerOutput:
     )
 
 
+def _active_position_output_without_usability_metadata() -> TrackerOutput:
+    return TrackerOutput(
+        data_type=TrackerDataType.POSITION_2D,
+        timestamp=time.time(),
+        tracking_active=True,
+        tracker_id='custom_tracker',
+        position_2d=(0.2, -0.1),
+        confidence=0.8,
+        raw_data={'measurement_source': 'measurement'},
+        metadata={},
+    )
+
+
 def _stale_multi_target_output() -> TrackerOutput:
     return TrackerOutput(
         data_type=TrackerDataType.MULTI_TARGET,
@@ -1236,10 +1249,121 @@ async def test_current_tracker_status_treats_multi_target_detections_as_visible_
     payload = json.loads(response.body)
 
     assert payload["active"] is False
+    assert payload["active_tracking"] is False
     assert payload["has_output"] is True
     assert payload["usable_for_following"] is False
+    assert payload["data_is_stale"] is False
+    assert payload["status"] == "visible_output"
+    assert payload["consumer_guidance"] == "diagnostic_only"
+    assert payload["reason"] == "Tracker output is visible, but active target tracking is not confirmed."
     assert payload["data_type"] == "MULTI_TARGET"
     assert "targets" in payload["fields"]
+    assert payload["runtime_status"]["target_count"] == 1
+    assert payload["claim_boundary"].startswith("PixEagle local tracker runtime status")
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracking_runtime_status_reports_visible_output_without_following():
+    """The typed tracker runtime API separates visible output from live targets."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=object(),
+        smart_mode_active=True,
+        following_active=False,
+        current_tracker_type="SmartTracker",
+        get_tracker_output=MagicMock(return_value=_visible_multi_target_output()),
+    )
+
+    payload = await handler.get_tracking_runtime_status()
+
+    assert payload["schema_version"] == 1
+    assert payload["status"] == "visible_output"
+    assert payload["consumer_guidance"] == "diagnostic_only"
+    assert payload["has_output"] is True
+    assert payload["active_tracking"] is False
+    assert payload["usable_for_following"] is False
+    assert payload["target_count"] == 1
+    assert payload["configured_tracker"] == "SmartTracker"
+    assert payload["claim_boundary"].startswith("PixEagle local tracker runtime status")
+
+
+@pytest.mark.asyncio
+async def test_tracking_runtime_status_and_offboard_readiness_reject_stale_active_output():
+    """Active tracking does not override stale/unusable tracker metadata."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=object(),
+        smart_mode_active=True,
+        following_active=False,
+        current_tracker_type="SmartTracker",
+        get_tracker_output=MagicMock(return_value=_stale_multi_target_output()),
+    )
+
+    payload = await handler.get_tracking_runtime_status()
+    readiness = handler._get_tracker_following_readiness()
+
+    assert payload["active_tracking"] is True
+    assert payload["has_output"] is True
+    assert payload["usable_for_following"] is False
+    assert payload["data_is_stale"] is True
+    assert payload["status"] == "stale_output"
+    assert payload["consumer_guidance"] == "stale"
+    assert readiness["usable_for_following"] is False
+    assert readiness["status"] == payload["status"]
+
+
+@pytest.mark.asyncio
+async def test_tracking_runtime_status_rejects_active_not_usable_output():
+    """Active fresh output still fails closed when not marked follower-usable."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=object(),
+        smart_mode_active=False,
+        following_active=False,
+        current_tracker_type="VisionTracker",
+        get_tracker_output=MagicMock(
+            return_value=_active_position_output(usable_for_following=False)
+        ),
+    )
+
+    payload = await handler.get_tracking_runtime_status()
+
+    assert payload["active_tracking"] is True
+    assert payload["has_output"] is True
+    assert payload["data_is_stale"] is False
+    assert payload["usable_for_following"] is False
+    assert payload["status"] == "not_usable"
+    assert payload["consumer_guidance"] == "not_usable"
+
+
+@pytest.mark.asyncio
+async def test_tracking_runtime_status_requires_explicit_usability_metadata():
+    """Custom trackers must opt in before active output can drive following."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=object(),
+        smart_mode_active=False,
+        following_active=False,
+        current_tracker_type="CustomTracker",
+        get_tracker_output=MagicMock(
+            return_value=_active_position_output_without_usability_metadata()
+        ),
+    )
+
+    payload = await handler.get_tracking_runtime_status()
+    readiness = handler._get_tracker_following_readiness()
+
+    assert payload["active_tracking"] is True
+    assert payload["has_output"] is True
+    assert payload["data_is_stale"] is False
+    assert payload["usable_for_following"] is False
+    assert payload["status"] == "not_usable"
+    assert "explicitly marked usable" in payload["reason"]
+    assert readiness["usable_for_following"] is False
 
 
 @pytest.mark.asyncio

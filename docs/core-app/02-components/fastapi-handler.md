@@ -69,6 +69,7 @@ class FastAPIHandler:
 | `/telemetry/follower_data` | GET | Current follower state |
 | `/status` | GET | System status |
 | `/api/v1/telemetry/health` | GET | Typed MAVLink2REST request/payload health |
+| `/api/v1/tracking/runtime-status` | GET | Typed tracker output/readiness status |
 | `/stats` | GET | Streaming statistics |
 
 `/telemetry/tracker_data` is a legacy compatibility payload, but it includes
@@ -76,6 +77,14 @@ the safety-relevant tracker runtime flags used by newer dashboard clients:
 `has_output`, `usable_for_following`, and `data_is_stale` at the top level and
 inside `tracker_data`. Do not treat `tracker_started` or `tracking_active` alone
 as proof that follower control has a usable target.
+
+New dashboard/API/MCP consumers should prefer
+`GET /api/v1/tracking/runtime-status` for tracker readiness. It returns
+`has_output`, `active_tracking`, `usable_for_following`, `data_is_stale`,
+`status`, `consumer_guidance`, source/provider metadata, and the tracker claim
+boundary. `usable_for_following=true` is the fail-closed control gate;
+`active_tracking=true` alone is not enough because stale or explicitly unusable
+tracker output can still report an active target.
 
 ### Typed Telemetry Health Endpoint
 
@@ -142,6 +151,7 @@ they do not accept confirmation, dry-run, or idempotency request fields.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `/api/v1/tracking/runtime-status` | GET | Typed tracker runtime/readiness contract |
 | `/api/tracker/schema` | GET | Tracker schema |
 | `/api/tracker/switch` | POST | Switch tracker type |
 | `/api/follower/profiles` | GET | Available profiles |

@@ -26,6 +26,11 @@ from classes.frame_publisher import FramePublisher
 from classes.adaptive_quality_engine import AdaptiveQualityEngine
 from classes.follower import FollowerFactory
 from classes.tracker_output import TrackerOutput, TrackerDataType
+from classes.tracker_runtime_status import (
+    TRACKER_RUNTIME_CLAIM_BOUNDARY,
+    evaluate_tracker_runtime_status,
+    tracker_runtime_unavailable_status,
+)
 from classes.model_manager import ModelManager, AI_AVAILABLE
 from classes.app_version import PIXEAGLE_VERSION
 
@@ -57,6 +62,7 @@ API_V1_ACTION_OFFBOARD_START_PATH = "/api/v1/actions/offboard-start"
 API_V1_ACTION_OPERATOR_ABORT_PATH = "/api/v1/actions/operator-abort"
 API_V1_ACTION_RESOURCE_PREFIX = "/api/v1/actions"
 API_V1_TELEMETRY_HEALTH_PATH = "/api/v1/telemetry/health"
+API_V1_TRACKING_RUNTIME_STATUS_PATH = "/api/v1/tracking/runtime-status"
 SITL_VALIDATION_INJECTION_PATHS = {
     SITL_TRACKER_OUTPUT_INJECTION_PATH,
     SITL_VIDEO_STALL_INJECTION_PATH,
@@ -68,6 +74,7 @@ MAVLINK_TELEMETRY_CLAIM_BOUNDARY = (
     "PixEagle local MAVLink2REST client health only; not PX4, SITL, HIL, "
     "field, or follower-response proof."
 )
+TRACKER_OUTPUT_UNSET = object()
 
 
 # Models
@@ -206,6 +213,50 @@ class APITelemetryHealthResponse(BaseModel):
     timestamp: float
 
 
+class APITrackingRuntimeStatusResponse(BaseModel):
+    """Typed tracker runtime status for API/MCP/dashboard consumers."""
+
+    schema_version: int = 1
+    source: Literal["tracker_runtime"] = "tracker_runtime"
+    status: Literal[
+        "no_output",
+        "visible_output",
+        "active_usable",
+        "not_usable",
+        "stale_output",
+        "unavailable",
+    ]
+    consumer_guidance: Literal[
+        "no_output",
+        "diagnostic_only",
+        "usable",
+        "not_usable",
+        "stale",
+        "unavailable",
+    ]
+    has_output: bool
+    active_tracking: bool
+    usable_for_following: bool
+    data_is_stale: bool
+    reason: Optional[str] = None
+    configured_tracker: Optional[str] = None
+    active_tracker: Optional[str] = None
+    tracker_id: Optional[str] = None
+    tracker_type: Optional[str] = None
+    data_type: Optional[str] = None
+    provider: Optional[str] = None
+    protocol: Optional[str] = None
+    connection_status: Optional[str] = None
+    tracking_status: Optional[str] = None
+    target_count: int = 0
+    selected_target_id: Optional[Any] = None
+    output_fields: List[str] = Field(default_factory=list)
+    smart_mode_active: bool = False
+    following_active: bool = False
+    claim_boundary: str = TRACKER_RUNTIME_CLAIM_BOUNDARY
+    timestamp: float
+
+
 ACTION_ERROR_RESPONSES = {
     status.HTTP_404_NOT_FOUND: {
         "model": APIErrorResponse,
@@ -231,6 +282,12 @@ TELEMETRY_HEALTH_ERROR_RESPONSES = {
     status.HTTP_500_INTERNAL_SERVER_ERROR: {
         "model": APIErrorResponse,
         "description": "Telemetry health could not be evaluated.",
+    },
+}
+TRACKING_RUNTIME_STATUS_ERROR_RESPONSES = {
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {
+        "model": APIErrorResponse,
+        "description": "Tracker runtime status could not be evaluated.",
     },
 }
 
@@ -830,6 +887,13 @@ class FastAPIHandler:
             operation_id="get_telemetry_health",
             tags=["telemetry"],
         )(self.get_telemetry_health)
+        self.app.get(
+            "/api/v1/tracking/runtime-status",
+            response_model=APITrackingRuntimeStatusResponse,
+            responses=TRACKING_RUNTIME_STATUS_ERROR_RESPONSES,
+            operation_id="get_tracking_runtime_status",
+            tags=["tracking"],
+        )(self.get_tracking_runtime_status)
         self.app.get("/stats")(self.get_streaming_stats)
         self.app.get("/api/video/health")(self.get_video_health)
         self.app.post("/api/video/reconnect")(self.reconnect_video)
@@ -1615,6 +1679,7 @@ class FastAPIHandler:
         return (
             path in SITL_VALIDATION_INJECTION_PATHS
             or path == API_V1_TELEMETRY_HEALTH_PATH
+            or path == API_V1_TRACKING_RUNTIME_STATUS_PATH
             or path.startswith(f"{API_V1_ACTION_RESOURCE_PREFIX}/")
         )
 
@@ -2503,6 +2568,19 @@ class FastAPIHandler:
                 path=API_V1_TELEMETRY_HEALTH_PATH,
             )
 
+    async def get_tracking_runtime_status(self):
+        """Return typed tracker runtime status for API/MCP/dashboard consumers."""
+        try:
+            return self._get_tracker_runtime_status_snapshot()
+        except Exception as e:
+            self.logger.error(f"Error in get_tracking_runtime_status: {e}")
+            return self._api_v1_error_response(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                code="tracking_runtime_status_error",
+                detail=str(e),
+                path=API_V1_TRACKING_RUNTIME_STATUS_PATH,
+            )
+
     async def get_video_health(self):
         """Get video subsystem health for degraded-mode observability."""
         try:
@@ -3100,6 +3178,54 @@ class FastAPIHandler:
                 error=error_msg,
             )
 
+    def _get_tracker_runtime_status_snapshot(
+        self,
+        tracker_output: Any = TRACKER_OUTPUT_UNSET,
+    ) -> Dict[str, Any]:
+        """Return the canonical tracker runtime snapshot used by API and guards."""
+        configured_tracker = getattr(
+            self.app_controller,
+            "current_tracker_type",
+            getattr(Parameters, "DEFAULT_TRACKING_ALGORITHM", None),
+        )
+        tracker_obj = getattr(self.app_controller, "tracker", None)
+        tracker_type = tracker_obj.__class__.__name__ if tracker_obj else None
+        smart_mode_active = bool(
+            getattr(self.app_controller, "smart_mode_active", False)
+        )
+        following_active = bool(
+            getattr(self.app_controller, "following_active", False)
+        )
+
+        if tracker_output is TRACKER_OUTPUT_UNSET:
+            if not hasattr(self.app_controller, "get_tracker_output"):
+                return tracker_runtime_unavailable_status(
+                    "Tracker output API not available.",
+                    configured_tracker=configured_tracker,
+                    tracker_type=tracker_type,
+                    smart_mode_active=smart_mode_active,
+                    following_active=following_active,
+                )
+
+            try:
+                tracker_output = self.app_controller.get_tracker_output()
+            except Exception as exc:
+                return tracker_runtime_unavailable_status(
+                    f"Tracker output unavailable: {type(exc).__name__}: {exc}",
+                    configured_tracker=configured_tracker,
+                    tracker_type=tracker_type,
+                    smart_mode_active=smart_mode_active,
+                    following_active=following_active,
+                )
+
+        return evaluate_tracker_runtime_status(
+            tracker_output,
+            configured_tracker=configured_tracker,
+            tracker_type=tracker_type,
+            smart_mode_active=smart_mode_active,
+            following_active=following_active,
+        )
+
     def _get_tracker_following_readiness(self) -> Dict[str, Any]:
         """
         Evaluate whether current tracker output can start autonomous following.
@@ -3107,82 +3233,10 @@ class FastAPIHandler:
         The legacy command route and typed /api/v1 action both use this
         fail-closed guard before `connect_px4()` can activate Offboard.
         """
-        if not hasattr(self.app_controller, "get_tracker_output"):
-            return {
-                "has_output": False,
-                "tracking_active": False,
-                "usable_for_following": False,
-                "data_is_stale": False,
-                "reason": "Tracker output API not available",
-            }
-
-        try:
-            tracker_output = self.app_controller.get_tracker_output()
-        except Exception as exc:
-            return {
-                "has_output": False,
-                "tracking_active": False,
-                "usable_for_following": False,
-                "data_is_stale": False,
-                "reason": f"Tracker output unavailable: {type(exc).__name__}: {exc}",
-            }
-
-        if tracker_output is None:
-            return {
-                "has_output": False,
-                "tracking_active": False,
-                "usable_for_following": False,
-                "data_is_stale": False,
-                "reason": "No tracker output available for following",
-            }
-
-        raw_data = getattr(tracker_output, "raw_data", None) or {}
-        metadata = getattr(tracker_output, "metadata", None) or {}
-        if not isinstance(raw_data, dict):
-            raw_data = {}
-        if not isinstance(metadata, dict):
-            metadata = {}
-
-        has_output = bool(
-            raw_data.get("has_output") or
-            metadata.get("has_output") or
-            getattr(tracker_output, "angular", None) or
-            getattr(tracker_output, "position_2d", None) or
-            getattr(tracker_output, "position_3d", None) or
-            getattr(tracker_output, "bbox", None) or
-            getattr(tracker_output, "targets", None)
-        )
-        tracking_active = bool(getattr(tracker_output, "tracking_active", False))
-        data_is_stale = bool(
-            raw_data.get("data_is_stale", metadata.get("data_is_stale", False))
-        )
-        usable_for_following = raw_data.get(
-            "usable_for_following",
-            metadata.get(
-                "usable_for_following",
-                bool(tracking_active and has_output and not data_is_stale),
-            ),
-        )
-        usable_for_following = bool(
-            usable_for_following and has_output and not data_is_stale
-        )
-
-        reason = None
-        if not has_output:
-            reason = "No tracker output available for following"
-        elif data_is_stale:
-            reason = "Tracker output is stale and not usable for following"
-        elif not usable_for_following:
-            reason = "Tracker output is not marked usable for following"
-
+        runtime_status = self._get_tracker_runtime_status_snapshot()
         return {
-            "has_output": has_output,
-            "tracking_active": tracking_active,
-            "usable_for_following": usable_for_following,
-            "data_is_stale": data_is_stale,
-            "tracker_id": getattr(tracker_output, "tracker_id", None),
-            "data_type": getattr(getattr(tracker_output, "data_type", None), "value", None),
-            "reason": reason,
+            **runtime_status,
+            "tracking_active": runtime_status["active_tracking"],
         }
 
     async def stop_offboard_mode(self):
@@ -3942,6 +3996,16 @@ class FastAPIHandler:
             # Add smart mode status
             tracker_details['smart_mode_active'] = getattr(self.app_controller, 'smart_mode_active', False)
             tracker_details['following_active'] = getattr(self.app_controller, 'following_active', False)
+            runtime_status = self._get_tracker_runtime_status_snapshot()
+            tracker_details['runtime_status'] = runtime_status
+            tracker_details['has_output'] = runtime_status['has_output']
+            tracker_details['active_tracking'] = runtime_status['active_tracking']
+            tracker_details['usable_for_following'] = runtime_status['usable_for_following']
+            tracker_details['data_is_stale'] = runtime_status['data_is_stale']
+            tracker_details['runtime_state'] = runtime_status['status']
+            tracker_details['consumer_guidance'] = runtime_status['consumer_guidance']
+            tracker_details['runtime_reason'] = runtime_status['reason']
+            tracker_details['claim_boundary'] = runtime_status['claim_boundary']
             tracker_details['timestamp'] = time.time()
 
             return JSONResponse(content=tracker_details)
@@ -4929,13 +4993,23 @@ class FastAPIHandler:
             tracker_output = self.app_controller.get_tracker_output()
             
             if not tracker_output:
+                runtime_status = self._get_tracker_runtime_status_snapshot(tracker_output=None)
                 return JSONResponse(content={
                     'active': False,
+                    'active_tracking': False,
+                    'has_output': False,
+                    'usable_for_following': False,
+                    'data_is_stale': False,
+                    'status': runtime_status['status'],
+                    'consumer_guidance': runtime_status['consumer_guidance'],
+                    'reason': runtime_status['reason'],
                     'tracker_type': None,
                     'data_type': None,
                     'fields': {},
+                    'runtime_status': runtime_status,
                     'smart_mode': getattr(self.app_controller, 'smart_mode_active', False),
                     'inference': None,
+                    'claim_boundary': runtime_status['claim_boundary'],
                     'timestamp': time.time()
                 })
             
@@ -4959,7 +5033,8 @@ class FastAPIHandler:
                 important_raw_fields = [
                     'tracking', 'tracking_status', 'system', 'coordinate_system',
                     'yaw', 'pitch', 'roll', 'provider', 'protocol',
-                    'usable_for_following', 'gimbal_tracking_active', 'has_output'
+                    'usable_for_following', 'gimbal_tracking_active', 'has_output',
+                    'data_is_stale', 'freshness_reason', 'connection_status'
                 ]
                 for raw_field in important_raw_fields:
                     if raw_field in tracker_output.raw_data and tracker_output.raw_data[raw_field] is not None:
@@ -4976,26 +5051,25 @@ class FastAPIHandler:
                     except Exception as runtime_error:
                         self.logger.debug(f"Could not fetch smart tracker inference info: {runtime_error}")
             
-            raw_data = tracker_output.raw_data or {}
-            has_output = bool(
-                raw_data.get('has_output') or
-                tracker_output.angular or
-                tracker_output.position_2d or
-                tracker_output.position_3d or
-                tracker_output.bbox or
-                tracker_output.targets
-            )
+            runtime_status = self._get_tracker_runtime_status_snapshot(tracker_output)
 
             return JSONResponse(content={
-                'active': tracker_output.tracking_active,
-                'has_output': has_output,
-                'usable_for_following': raw_data.get('usable_for_following', tracker_output.tracking_active),
+                'active': runtime_status['active_tracking'],
+                'active_tracking': runtime_status['active_tracking'],
+                'has_output': runtime_status['has_output'],
+                'usable_for_following': runtime_status['usable_for_following'],
+                'data_is_stale': runtime_status['data_is_stale'],
+                'status': runtime_status['status'],
+                'consumer_guidance': runtime_status['consumer_guidance'],
+                'reason': runtime_status['reason'],
                 'tracker_type': tracker_class,
                 'data_type': data_type,
                 'fields': available_fields,
                 'raw_data': tracker_output.raw_data,  # Include raw_data for gimbal status
+                'runtime_status': runtime_status,
                 'smart_mode': getattr(self.app_controller, 'smart_mode_active', False),
                 'inference': inference_info,
+                'claim_boundary': runtime_status['claim_boundary'],
                 'timestamp': time.time()
             })
             

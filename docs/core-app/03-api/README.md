@@ -15,7 +15,7 @@ http://127.0.0.1:5077
 | [Streaming](#streaming) | `/video_feed`, `/ws/video_feed` | Video streaming |
 | [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/telemetry/health` | System data and typed health |
 | [Commands](#commands) | `/commands/*` | Control operations |
-| [Tracker](#tracker-api) | `/api/tracker/*` | Tracker management |
+| [Tracker](#tracker-api) | `/api/v1/tracking/runtime-status`, `/api/tracker/*` | Typed tracker runtime status and legacy tracker management |
 | [Follower](#follower-api) | `/api/follower/*` | Follower management |
 | [Config](#configuration-api) | `/api/config/*` | Configuration |
 | [Safety](#safety-api) | `/api/safety/*` | Safety settings |
@@ -227,12 +227,62 @@ compact operational chip: `Telemetry: Usable`, `Telemetry: Degraded`,
 `flight_mode` and `arm_status` into display labels while keeping the raw values
 available for diagnostics.
 
-Dashboard tracker status uses `/api/tracker/current-status` through the endpoint
-registry and normalizes tracker output into distinct operator states:
+Dashboard tracker status uses `/api/v1/tracking/runtime-status` through the
+endpoint registry and normalizes tracker output into distinct operator states:
 `Tracking: Active`, `Tracking: Visible`, `Tracking: Stale`,
 `Tracking: Not Usable`, `Tracking: No Output`, `Tracking: Checking`, or
 `Tracking: Unavailable`. The follow controls require tracker output to be fresh
 and marked `usable_for_following=true` before enabling autonomous following.
+Legacy `/api/tracker/current-status` remains a compatibility route with the
+same top-level runtime flags plus schema-driven `fields` for tracker data
+display.
+
+### Tracker Runtime Status
+
+```http
+GET /api/v1/tracking/runtime-status
+```
+
+**Response:**
+```json
+{
+  "schema_version": 1,
+  "source": "tracker_runtime",
+  "status": "visible_output",
+  "consumer_guidance": "diagnostic_only",
+  "has_output": true,
+  "active_tracking": false,
+  "usable_for_following": false,
+  "data_is_stale": false,
+  "reason": "Tracker output is visible, but active target tracking is not confirmed.",
+  "configured_tracker": "GimbalTracker",
+  "active_tracker": "gimbal_tracker",
+  "tracker_id": "gimbal_tracker",
+  "tracker_type": "GimbalTracker",
+  "data_type": "GIMBAL_ANGLES",
+  "provider": "topotek_sip_udp",
+  "protocol": "sip_udp",
+  "connection_status": "receiving",
+  "tracking_status": "TARGET_LOST",
+  "target_count": 0,
+  "selected_target_id": null,
+  "output_fields": ["angular"],
+  "smart_mode_active": false,
+  "following_active": false,
+  "claim_boundary": "PixEagle local tracker runtime status only; not PX4, SITL, HIL, field, or follower-response proof.",
+  "timestamp": 1717502400.0
+}
+```
+
+`active_tracking=true` only means the tracker reports an active target.
+Follower-control consumers must use `usable_for_following=true`, which also
+requires output presence and non-stale data. Custom trackers must set
+`usable_for_following=true` explicitly in `raw_data` or `metadata`; PixEagle
+does not infer follower usability from active output alone. `status=visible_output`
+is useful for diagnostics, not for autonomous following. `status=stale_output`
+and `status=not_usable` must be treated as fail-closed for Offboard/follower
+entry. The typed route uses the `/api/v1` structured error envelope on server
+failures.
 
 ---
 

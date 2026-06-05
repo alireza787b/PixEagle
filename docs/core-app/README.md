@@ -96,11 +96,11 @@ curl http://127.0.0.1:5077/status
 # Check typed MAVLink telemetry health
 curl http://127.0.0.1:5077/api/v1/telemetry/health
 
+# Check typed tracker runtime status
+curl http://127.0.0.1:5077/api/v1/tracking/runtime-status
+
 # Get telemetry
 curl http://127.0.0.1:5077/telemetry/tracker_data
-
-# Get dashboard tracker runtime status
-curl http://127.0.0.1:5077/api/tracker/current-status
 
 # Video stream
 # Open in browser: http://127.0.0.1:5077/video_feed
