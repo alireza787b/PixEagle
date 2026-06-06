@@ -10,7 +10,7 @@ const NO_CACHE_HEADERS = {
   Expires: '0',
 };
 
-const buildNoCacheRequestConfig = () => ({
+export const buildNoCacheRequestConfig = () => ({
   headers: NO_CACHE_HEADERS,
   params: { _t: Date.now() },
 });
@@ -160,7 +160,7 @@ const isMissingFollowingStatusRoute = (fetchError) => (
   [404, 405, 501].includes(fetchError?.response?.status)
 );
 
-const isMissingFollowingTelemetryRoute = (fetchError) => (
+export const isMissingFollowingTelemetryRoute = (fetchError) => (
   [404, 405, 501].includes(fetchError?.response?.status)
 );
 
@@ -216,14 +216,55 @@ export const normalizeFollowingTelemetry = (data) => {
   if (!data) {
     return {};
   }
+
+  const normalizeTimestamp = (timestamp) => {
+    if (typeof timestamp === 'number' && Number.isFinite(timestamp)) {
+      const timestampMs = Math.abs(timestamp) < 1000000000000
+        ? timestamp * 1000
+        : timestamp;
+      return new Date(timestampMs).toISOString();
+    }
+    return timestamp;
+  };
+  const coerceFieldMap = (value) => (
+    value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  );
+  const explicitFields = coerceFieldMap(data.fields);
+  const setpointFields = coerceFieldMap(data.setpoints);
+  const fields = Object.keys(explicitFields).length > 0 ? explicitFields : setpointFields;
+  const normalizedTimestamp = normalizeTimestamp(data.timestamp);
+  const legacyVelocityAliases = {
+    ...(data.vel_x === undefined && fields.vel_body_fwd !== undefined
+      ? { vel_x: fields.vel_body_fwd }
+      : {}),
+    ...(data.vel_y === undefined && fields.vel_body_right !== undefined
+      ? { vel_y: fields.vel_body_right }
+      : {}),
+    ...(data.vel_z === undefined && fields.vel_body_down !== undefined
+      ? { vel_z: fields.vel_body_down }
+      : {}),
+    ...(data.yaw_rate === undefined && fields.yawspeed_deg_s !== undefined
+      ? { yaw_rate: fields.yawspeed_deg_s }
+      : {}),
+  };
+
   if (data.source !== 'following_telemetry') {
-    return data;
+    return {
+      ...fields,
+      ...legacyVelocityAliases,
+      ...data,
+      fields,
+      timestamp: normalizedTimestamp,
+    };
   }
 
   const profile = data.profile || {};
   return {
+    ...fields,
+    ...legacyVelocityAliases,
     ...data,
-    fields: data.fields || {},
+    fields,
+    timestamp: normalizedTimestamp,
     following_active: Boolean(data.following_active),
     profile_name: profile.display_name || profile.current_mode || profile.configured_mode || 'Unknown',
     manager_mode: profile.current_mode || profile.configured_mode || null,

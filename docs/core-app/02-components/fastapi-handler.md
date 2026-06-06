@@ -127,10 +127,9 @@ missing/invalid follower state, Offboard commander failure/non-running/task
 inactive/stale-intent/failsafe-default/unknown fields, and for inactive local
 following when the commander still appears to be running.
 
-Detailed follower telemetry widgets may continue using
-`/telemetry/follower_data` until their richer data contract is migrated. The
-typed following status route does not prove PX4-observed Offboard, SITL, HIL,
-field, or follower-response success.
+Consumers that need current setpoint values should use the typed following
+telemetry route below. The typed following status route does not prove
+PX4-observed Offboard, SITL, HIL, field, or follower-response success.
 
 ### Typed Following Telemetry Endpoint
 
@@ -150,11 +149,13 @@ windows. `field_source` identifies which path supplied the `fields` object. The
 PixEagle/MAVSDK publication evidence only; it is not PX4-observed Offboard or
 vehicle-response proof.
 
-Dashboard detailed follower status cards now consume this typed route through
-the endpoint registry, with fallback to `/telemetry/follower_data` only when
-the typed route is missing during rolling updates. The Follower visualization
-page still uses legacy telemetry arrays until a separate historical telemetry
-contract is designed.
+Dashboard detailed follower status cards and the Follower visualization page's
+follower-history snapshots now consume this typed route through the endpoint
+registry, with fallback to `/telemetry/follower_data` only when the typed route
+is missing during rolling updates. The frontend normalizer exposes `fields`
+plus legacy plot aliases such as `vel_x`/`vel_y` so existing charts can render
+the typed setpoint fields. Tracker center/bounding-box history still reads the
+legacy tracker telemetry route until a typed tracker-history contract exists.
 
 ### Typed Telemetry Health Endpoint
 

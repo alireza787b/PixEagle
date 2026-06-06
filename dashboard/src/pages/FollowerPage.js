@@ -1,5 +1,5 @@
 // dashboard/src/pages/FollowerPage.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Container, 
   Grid, 
@@ -20,11 +20,36 @@ import PollingStatusIndicator from '../components/PollingStatusIndicator';
 import DynamicFieldDisplay from '../components/DynamicFieldDisplay';
 import FollowerProfileSelector from '../components/FollowerProfileSelector';
 import { useFollowerSchema, useCurrentFollowerProfile } from '../hooks/useFollowerSchema';
+import {
+  buildNoCacheRequestConfig,
+  isMissingFollowingTelemetryRoute,
+  normalizeFollowingTelemetry,
+} from '../hooks/useStatuses';
 import axios from 'axios';
-import { apiConfig } from '../services/apiEndpoints';
+import { endpoints } from '../services/apiEndpoints';
 
-const POLLING_RATE = parseInt(process.env.REACT_APP_POLLING_RATE, 10);
-const API_URL = `${apiConfig.protocol}://${apiConfig.apiHost}:${apiConfig.apiPort}`;
+const POLLING_RATE = parseInt(process.env.REACT_APP_POLLING_RATE, 10) || 1000;
+const MAX_TELEMETRY_HISTORY = 300;
+const MAX_RAW_DATA_ENTRIES = 600;
+
+const appendBounded = (previousData, ...newData) => (
+  [...previousData, ...newData].slice(-MAX_TELEMETRY_HISTORY)
+);
+
+const appendBoundedRawData = (previousData, ...newData) => (
+  [...previousData, ...newData].slice(-MAX_RAW_DATA_ENTRIES)
+);
+
+const fetchFollowingTelemetrySnapshot = async () => {
+  try {
+    return await axios.get(endpoints.followingTelemetry, buildNoCacheRequestConfig());
+  } catch (followingTelemetryError) {
+    if (!isMissingFollowingTelemetryRoute(followingTelemetryError)) {
+      throw followingTelemetryError;
+    }
+    return axios.get(endpoints.followerData, buildNoCacheRequestConfig());
+  }
+};
 
 const FollowerPage = () => {
   const [trackerData, setTrackerData] = useState([]);
@@ -32,40 +57,59 @@ const FollowerPage = () => {
   const [rawData, setRawData] = useState([]);
   const [showRawData, setShowRawData] = useState(false);
   const [pollingStatus, setPollingStatus] = useState('idle');
+  const mountedRef = useRef(false);
+  const requestSequenceRef = useRef(0);
 
   // Schema-aware hooks
   const { schema, loading: schemaLoading, error: schemaError } = useFollowerSchema();
   const { currentProfile, loading: profileLoading, error: profileError } = useCurrentFollowerProfile();
 
-  const fetchTelemetryData = async () => {
+  const fetchTelemetryData = useCallback(async () => {
+    const requestId = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestId;
+
     try {
       setPollingStatus('idle');
-      const trackerResponse = await axios.get(`${API_URL}/telemetry/tracker_data`);
-      const followerResponse = await axios.get(`${API_URL}/telemetry/follower_data`);
+      const [trackerResponse, followerResponse] = await Promise.all([
+        axios.get(endpoints.trackerData, buildNoCacheRequestConfig()),
+        fetchFollowingTelemetrySnapshot(),
+      ]);
+
+      if (!mountedRef.current || requestId !== requestSequenceRef.current) {
+        return;
+      }
       
       if (trackerResponse.status === 200 && followerResponse.status === 200) {
-        setTrackerData((prevData) => [...prevData, trackerResponse.data]);
-        setFollowerData((prevData) => [...prevData, followerResponse.data]);
-        setRawData((prevData) => [
-          ...prevData,
+        const normalizedFollowerData = normalizeFollowingTelemetry(followerResponse.data || {});
+        setTrackerData((prevData) => appendBounded(prevData, trackerResponse.data));
+        setFollowerData((prevData) => appendBounded(prevData, normalizedFollowerData));
+        setRawData((prevData) => appendBoundedRawData(
+          prevData,
           { type: 'tracker', data: trackerResponse.data },
-          { type: 'follower', data: followerResponse.data },
-        ]);
+          { type: 'follower', data: normalizedFollowerData },
+        ));
         setPollingStatus('success');
       }
     } catch (error) {
+      if (!mountedRef.current || requestId !== requestSequenceRef.current) {
+        return;
+      }
       setPollingStatus('error');
       console.error('Error fetching telemetry data:', error);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      fetchTelemetryData();
-    }, POLLING_RATE);
+    mountedRef.current = true;
+    fetchTelemetryData();
+    const interval = setInterval(fetchTelemetryData, POLLING_RATE);
 
-    return () => clearInterval(interval);
-  }, []);
+    return () => {
+      mountedRef.current = false;
+      requestSequenceRef.current += 1;
+      clearInterval(interval);
+    };
+  }, [fetchTelemetryData]);
 
   const handleToggleRawData = () => {
     setShowRawData((prevShowRawData) => !prevShowRawData);

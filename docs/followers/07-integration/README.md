@@ -109,9 +109,12 @@ follower-card diagnostics. It prefers live setpoint-handler fields and falls
 back to legacy telemetry fields only for compatibility. Its publication fields
 are PixEagle-local signals, not PX4-observed Offboard or vehicle-response proof.
 
-`/telemetry/follower_data` remains the legacy detailed follower telemetry
-payload for historical visualization arrays until a separate typed history
-contract replaces it.
+The dashboard Follower visualization page now uses
+`GET /api/v1/following/telemetry` for follower/setpoint history snapshots and
+falls back to `/telemetry/follower_data` only when the typed route is missing
+during rolling updates. Its tracker center/bounding-box history still reads the
+legacy tracker telemetry route until a typed tracker-history contract replaces
+that path.
 
 ---
 

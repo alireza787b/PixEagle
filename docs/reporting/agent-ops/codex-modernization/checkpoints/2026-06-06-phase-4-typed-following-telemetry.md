@@ -55,8 +55,10 @@ publication counters. It does not expose that signal as PX4-observed evidence.
   - ignores stale out-of-order responses.
 - Migrated `DashboardPage` detailed follower status card data from direct
   legacy `/telemetry/follower_data` polling to `useFollowingTelemetry()`.
-- Left the Follower visualization page on legacy telemetry arrays because that
-  page needs a separate typed historical telemetry/history contract.
+- At this checkpoint, the Follower visualization page follower-history work
+  was still a separate follow-up; that follow-up was later closed under
+  PXE-0048 for follower setpoint history. Tracker center/bounding-box history
+  remains separate.
 
 ## Documentation
 
@@ -113,15 +115,17 @@ Results:
 
 - This is unit/contract evidence only. No runtime PX4/SITL/HIL/field pass is
   claimed.
-- The Follower visualization page still uses `/telemetry/follower_data` for
-  historical arrays and plots. A later PXE-0008 slice should design typed
-  following telemetry history before migrating that page.
+- The Follower visualization page follower/setpoint history follow-up was
+  closed under PXE-0048. Tracker center/bounding-box history still needs a
+  typed tracker-history contract before the page can fully leave legacy
+  telemetry.
 - Circuit-breaker status is included for the follower card, but broader typed
   safety/circuit-breaker API migration remains part of PXE-0008/PXE-0041.
 
 ## Next Slice Candidates
 
-- Continue PXE-0008 with typed follower telemetry history for the Follower page.
+- Continue PXE-0008 with typed tracker history for Follower visualization
+  tracker plots or broader API/MCP route modernization.
 - Continue PXE-0022 companion/API/MCP reconciliation and sidecar contract
   verification.
 - Continue PXE-0021 dashboard toolchain modernization.

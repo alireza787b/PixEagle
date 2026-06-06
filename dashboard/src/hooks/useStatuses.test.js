@@ -94,6 +94,7 @@ const activeFollowingTelemetry = {
   command_publication: {
     local_successful_publish_observed: true,
   },
+  timestamp: 1717200000.0,
 };
 
 afterEach(() => {
@@ -150,6 +151,10 @@ test('normalizes typed following telemetry into legacy-compatible card fields', 
   const normalized = normalizeFollowingTelemetry(activeFollowingTelemetry);
 
   expect(normalized.fields.vel_body_fwd).toBe(1.25);
+  expect(normalized.vel_body_fwd).toBe(1.25);
+  expect(normalized.vel_x).toBe(1.25);
+  expect(normalized.yaw_rate).toBe(3.0);
+  expect(normalized.timestamp).toBe('2024-06-01T00:00:00.000Z');
   expect(normalized.following_active).toBe(true);
   expect(normalized.profile_name).toBe('Gimbal Velocity Vector');
   expect(normalized.manager_mode).toBe('gm_velocity_vector');
@@ -159,6 +164,26 @@ test('normalizes typed following telemetry into legacy-compatible card fields', 
   expect(normalized.validation_status).toBe(true);
   expect(normalized.target_loss_handler.state).toBe('ACTIVE');
   expect(normalized.circuit_breaker_active).toBe(false);
+});
+
+test('normalizes legacy follower telemetry setpoints for history plots', () => {
+  const normalized = normalizeFollowingTelemetry({
+    profile_name: 'Legacy Follower',
+    setpoints: {
+      vel_body_fwd: 0.75,
+      vel_body_right: -0.25,
+      vel_body_down: 0.1,
+      yawspeed_deg_s: 4.5,
+    },
+  });
+
+  expect(normalized.fields.vel_body_fwd).toBe(0.75);
+  expect(normalized.vel_body_fwd).toBe(0.75);
+  expect(normalized.vel_x).toBe(0.75);
+  expect(normalized.vel_y).toBe(-0.25);
+  expect(normalized.vel_z).toBe(0.1);
+  expect(normalized.yaw_rate).toBe(4.5);
+  expect(normalized.profile_name).toBe('Legacy Follower');
 });
 
 test('useTrackerStatus polls typed tracker runtime status instead of legacy tracker telemetry', async () => {

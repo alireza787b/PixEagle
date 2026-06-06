@@ -119,8 +119,9 @@ GET /telemetry/follower_data
 ```
 
 `/telemetry/follower_data` is the legacy detailed follower telemetry payload.
-Consumers that only need active/inactive/degraded following state should use the
-typed following status resource below.
+New consumers should use the typed following status and telemetry resources
+below. The legacy route remains for compatibility and rolling-update fallback
+while dashboard/API clients are migrated.
 
 ### Following Status
 
@@ -194,9 +195,8 @@ flags inactive local following while the commander still appears to be running.
 `local_successful_publish_observed` is a PixEagle-local MAVSDK publication
 counter signal only; it is not PX4-observed Offboard or vehicle-response proof.
 
-This route does not replace detailed setpoint/follower telemetry yet; richer
-widgets may continue using `/telemetry/follower_data` until a separate typed
-follower telemetry contract exists.
+This route is for state/readiness checks. Consumers that need current setpoint
+values should use `GET /api/v1/following/telemetry`.
 
 ### Following Telemetry
 
@@ -299,11 +299,14 @@ legacy follower telemetry fields are used only as a compatibility fallback.
 `local_successful_publish_observed` is local PixEagle publication evidence, not
 PX4-observed Offboard or vehicle-response proof.
 
-Dashboard detailed follower status cards consume this route through the
-endpoint registry and fall back to `/telemetry/follower_data` only when the
-typed route is missing during rolling updates. The Follower visualization page
-still uses legacy telemetry arrays for historical plots until a separate typed
-history contract exists.
+Dashboard detailed follower status cards and the Follower visualization page's
+follower-history snapshots consume this route through the endpoint registry and
+fall back to `/telemetry/follower_data` only when the typed route is missing
+during rolling updates. The dashboard normalizer exposes `fields` and legacy
+top-level aliases such as `vel_x`/`vel_y` for existing chart components.
+Tracker center/bounding-box history on the Follower visualization page still
+reads `/telemetry/tracker_data` until a separate typed tracker-history contract
+exists.
 
 ### System Status
 
@@ -477,11 +480,12 @@ typed runtime route is missing, and it ignores stale out-of-order responses.
 
 Dashboard follower nav/status polling uses `/api/v1/following/status` through
 the endpoint registry and reads `following_active`. Detailed follower-card
-telemetry uses `/api/v1/following/telemetry`. During rolling updates, these
-hooks fall back to legacy `/telemetry/follower_data` only when the matching
-typed route is missing, and they ignore stale out-of-order responses. The
-Follower visualization page still uses `/telemetry/follower_data` for
-historical arrays until a typed history contract is migrated.
+telemetry and Follower visualization follower/setpoint history use
+`/api/v1/following/telemetry`. During rolling updates, these hooks/pages fall
+back to legacy `/telemetry/follower_data` only when the matching typed route is
+missing, and they ignore stale out-of-order responses. Follower visualization
+tracker center/bounding-box history still reads `/telemetry/tracker_data` until
+a typed tracker-history contract is migrated.
 
 Dashboard tracker status uses `/api/v1/tracking/runtime-status` through the
 endpoint registry and normalizes tracker output into distinct operator states:
