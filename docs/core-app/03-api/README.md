@@ -8,6 +8,15 @@ Complete reference for PixEagle's FastAPI-based REST API.
 http://127.0.0.1:5077
 ```
 
+## MCP Readiness Boundary
+
+Some typed `/api/v1` routes are documented as suitable for future API/MCP
+consumers because they have stable schemas and operation IDs. That does not mean
+PixEagle currently exposes callable MCP tools. The generated candidate inventory
+under `docs/agent-context/generated/` is review coverage only, not MCP
+execution, and every candidate remains unpromoted until registry, policy, docs,
+tests, and reviewer gates are complete.
+
 ## Endpoints Overview
 
 | Category | Endpoints | Description |

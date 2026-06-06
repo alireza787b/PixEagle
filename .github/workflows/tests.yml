@@ -36,7 +36,8 @@ jobs:
 
       - name: Run Phase 0 guardrail tests
         run: |
-          PYTHONPATH=src pytest tests/test_api_route_inventory.py tests/test_test_hygiene.py tests/test_docs_infrastructure_consistency.py tests/unit/core_app/test_config_clean_clone.py tests/unit/core_app/test_parameters_reload.py -ra --tb=short --strict-config
+          python3 tools/generate_api_tool_candidates.py --check
+          PYTHONPATH=src pytest tests/test_api_route_inventory.py tests/test_api_tool_candidates.py tests/test_test_hygiene.py tests/test_docs_infrastructure_consistency.py tests/unit/core_app/test_config_clean_clone.py tests/unit/core_app/test_parameters_reload.py -ra --tb=short --strict-config
 
       - name: Check shell syntax
         run: |

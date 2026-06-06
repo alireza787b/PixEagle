@@ -135,7 +135,9 @@ When telemetry is disabled, `request_freshness.fresh` and `payload.fresh` are
 forced `false` even if cached fields remain present for diagnostics.
 
 This is MAVLink2REST client health only, not proof that a follower scenario has
-run against PX4.
+run against PX4. API/MCP here means a schema-stable route suitable for future
+reviewed integrations; PixEagle's generated agent-context inventory is
+candidate inventory only, not MCP execution.
 
 ## Validation Timeout Injection
 

@@ -82,6 +82,11 @@ the safety-relevant tracker runtime flags used by newer dashboard clients:
 inside `tracker_data`. Do not treat `tracker_started` or `tracking_active` alone
 as proof that follower control has a usable target.
 
+References to API/MCP consumers in this document mean schema-stable typed
+routes that are candidates for future reviewed integrations. They do not mean
+PixEagle exposes callable MCP tools. See `docs/agent-context/README.md` for the
+candidate inventory only, not MCP execution, boundary.
+
 New dashboard/API/MCP consumers should prefer
 `GET /api/v1/tracking/runtime-status` for tracker readiness. It returns
 `has_output`, `active_tracking`, `usable_for_following`, `data_is_stale`,

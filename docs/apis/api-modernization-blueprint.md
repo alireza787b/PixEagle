@@ -18,6 +18,10 @@ the `/api/v1` migration begins.
   timestamp, path, and request ID.
 - OpenAPI includes tags, operation IDs, deprecation flags, and safety metadata.
 - Compatibility aliases are temporary and tracked in route inventory tests.
+- MCP-friendly APIs are not callable MCP tools by default. Generated tool
+  candidates are review inventory only until a curated registry, policy
+  classification, operator docs, tests/evals, and independent reviewer approval
+  promote them into an MCP `tools/list` / `tools/call` surface.
 
 ## Initial Canonical Families
 
@@ -51,3 +55,22 @@ Route inventory tests must:
 
 During migration, old routes remain only as compatibility aliases with
 deprecation metadata and a planned removal checkpoint.
+
+## Agent And MCP Candidate Inventory
+
+PixEagle keeps generated agent-context artifacts under `docs/agent-context/`.
+The current generated candidate inventory is:
+
+- `docs/agent-context/generated/pixeagle-openapi-tool-candidates.yaml`
+
+This inventory is non-callable. It is candidate inventory only, not MCP
+execution; it is not an MCP registry, not a runtime MCP endpoint, and not
+permission for an AI agent or client to execute routes. The generator
+classifies the current `/api/v1` routes for reviewer coverage, keeps all
+candidates `callable: false`, and marks the initial typed status/telemetry GET
+routes as unpromoted read-only candidates only.
+
+Action routes, SITL injection routes, config mutation, service control, model
+upload, and future flight-adjacent mutations need separate guard design before
+they can become callable automation. A GET route can also stay blocked when it
+contains sensitive control-resource or audit data.

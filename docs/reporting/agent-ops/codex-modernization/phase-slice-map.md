@@ -72,36 +72,29 @@ it together with:
 | Phase 4 typed following telemetry | done | PXE-0047 | `checkpoints/2026-06-06-phase-4-typed-following-telemetry.md`; typed `/api/v1/following/telemetry`, live setpoint-field snapshot with compatibility fallback, optional target-loss/safety/performance diagnostics, dashboard detailed follower-card hook migration with stale-response guards, route inventory/frontend/backend tests, and docs/reporting updates done |
 | Phase 4 Follower visualization typed telemetry history | done | PXE-0048 | `checkpoints/2026-06-06-phase-4-follower-page-typed-telemetry-history.md`; Follower visualization page now uses endpoint registry plus typed `/api/v1/following/telemetry` for follower/setpoint history snapshots, legacy route fallback only for missing typed routes, chart-compatible field aliases, bounded history/log growth, initial refresh, stale-response guards, and focused frontend tests |
 | Phase 4 typed tracker telemetry history | done | PXE-0049 | `checkpoints/2026-06-06-phase-4-typed-tracker-telemetry-history.md`; typed `/api/v1/tracking/telemetry`, live TrackerOutput geometry fields with compatibility fallback, embedded runtime status, Follower visualization tracker plot migration, route inventory/backend/frontend tests, and docs/reporting updates done |
+| Phase 4 API/MCP candidate inventory | done | PXE-0050 | `checkpoints/2026-06-06-phase-4-api-tool-candidate-inventory.md`; generated non-callable `/api/v1` candidate inventory, source hash, risk/sensitivity classification, action/SITL read-only promotion blocks, agent-context docs, generator drift gate in CI/phase0-check, and focused candidate tests done; no MCP endpoint, registry, `tools/list`, or callable tool exposure added |
 
 ## Active Slice
 
-Phase 4 API/MCP modernization. PXE-0042 is done for typed SITL start/abort
-actions and fail-closed PX4 observation artifacts, PXE-0036 is done for
-backend/API typed MAVLink telemetry health, PXE-0043 is done for dashboard
-adoption of that typed telemetry-health contract, PXE-0024 is done for
-dashboard tracker-state clarity, and PXE-0044 is done for typed tracker runtime
-status plus target-loss active/stale cleanup. PXE-0045 is done for typed
-PixEagle process-local runtime status and dashboard smart-mode migration off
-legacy `/status`. PXE-0046 is done for typed process-local following status and
-dashboard follower-status migration off legacy `/telemetry/follower_data` for
-the small nav/status boolean. PXE-0047 is done for typed process-local following
-telemetry and dashboard detailed follower-card migration off legacy
-`/telemetry/follower_data`. PXE-0048 is done for the Follower visualization
-page's follower/setpoint history migration to typed
-`/api/v1/following/telemetry`. PXE-0049 is done for typed tracker telemetry
-and the Follower visualization page's tracker center/bounding-box migration to
-`/api/v1/tracking/telemetry`, with legacy fallback only when the typed route is
-missing. These are still unit/contract evidence only; no runtime PX4/SITL pass
-is claimed. Official Gazebo runtime proof (PXE-0040)
-remains open for a native GUI/GPU host, stronger headless runner, or separately
-proven official-image startup workaround. Official SIH L2 probing starts a
-pinned PX4 container and collects metadata/params/ULog/bounded logs, but no
-accepted PixEagle/PX4 interaction pass is claimed until PixEagle, MAVLink2REST,
-MavlinkAnywhere routing, typed scenario execution, PX4 observation artifacts,
-and safety outcomes are all present. Continue with broader `/api/v1` API/MCP
-modernization, companion-runtime reconciliation, and dashboard toolchain
-modernization (PXE-0008, PXE-0022, PXE-0021) while keeping full runtime L2/L3/L4 validation
-operator-gated.
+Phase 4 API/MCP modernization. PXE-0042 through PXE-0049 are done for typed
+actions, telemetry health, runtime/following/tracker status and telemetry, and
+dashboard migration of the touched consumers. PXE-0050 is done for the
+generated non-callable API/MCP candidate inventory: all current `/api/v1` HTTP
+routes are represented once, only the six typed process-local status/telemetry
+GET routes are unpromoted read-only candidates, and action/SITL routes are
+blocked from read-only promotion. No MCP endpoint, MCP registry, `tools/list`,
+or callable tool surface exists from that slice. These are still unit/contract
+evidence only; no runtime PX4/SITL pass is claimed. Official Gazebo runtime
+proof (PXE-0040) remains open for a native GUI/GPU host, a stronger headless
+runner, or a separately proven official-image startup workaround. Official SIH
+L2 probing starts a pinned PX4 container and collects metadata/params/ULog/
+bounded logs, but no accepted PixEagle/PX4 interaction pass is claimed until
+PixEagle, MAVLink2REST, MavlinkAnywhere routing, typed scenario execution, PX4
+observation artifacts, and safety outcomes are all present. Continue with
+broader `/api/v1` migration and router extraction, curated agent registry/
+policy design, companion-runtime reconciliation, and dashboard toolchain
+modernization (PXE-0008, PXE-0022, PXE-0021) while keeping full runtime
+L2/L3/L4 validation operator-gated.
 
 Audit artifact:
 
@@ -122,6 +115,7 @@ Audit artifact:
 - `checkpoints/2026-06-06-phase-4-typed-following-telemetry.md`
 - `checkpoints/2026-06-06-phase-4-follower-page-typed-telemetry-history.md`
 - `checkpoints/2026-06-06-phase-4-typed-tracker-telemetry-history.md`
+- `checkpoints/2026-06-06-phase-4-api-tool-candidate-inventory.md`
 
 Recently completed Offboard commander follow-up issues:
 
@@ -313,7 +307,7 @@ Current host boundary:
 | --- | --- | --- | --- |
 | 3 | Official Gazebo visual SITL runtime proof | PXE-0040 | Execute the hardened official Gazebo profile on native Ubuntu GUI/GPU, a stronger headless runner, or a separately proven official-image startup workaround; capture video/tracker/follower/PX4 evidence and keep the manifest incomplete unless artifact and content checks pass. |
 | 3 | X-Plane/Windows SITL disposition | PXE-0020 | Rewrite as maintained evidence workflow or move to historical docs. |
-| 4 | API/MCP modernization | PXE-0008, PXE-0022 | Continue typed `/api/v1` migration beyond the initial action and telemetry-health resources: route migration tests, command/action resource durability, companion sidecar standards, and FastAPI/OpenAPI client contract tests. |
+| 4 | API/MCP modernization | PXE-0008, PXE-0022 | Continue typed `/api/v1` migration beyond the current status/telemetry/action resources: route migration tests, router extraction, command/action durability, companion sidecar standards, curated agent registry/policy design, and FastAPI/OpenAPI client contract tests. |
 | 4 | Dashboard API/client normalization | PXE-0008, PXE-0021 | Continue typed client consolidation beyond telemetry/tracker health, migrate remaining dashboard consumers away from legacy route shapes, and move from CRA to a supported frontend toolchain. |
 | 5 | Gimbal provider expansion | PXE-0023 | Add MAVLink Gimbal v2 or vendor-specific providers when selected hardware/protocol evidence is available. |
 | 5 | Runtime cleanup and docs parity | PXE-0041, remaining open/new issues | Remove redundant legacy code/docs/config after replacements are proven and publish a final no-legacy readiness report. |

@@ -104,6 +104,11 @@ boundary. It reports `degraded/operator_attention` if local following is active
 without a valid follower/commander publication path, or if command publication
 appears to remain active after local following stopped.
 
+API/MCP wording here means schema-stable typed routes for future reviewed
+integrations. PixEagle's generated agent-context inventory is candidate
+inventory only, not MCP execution, until registry, policy, docs, tests, and
+reviewer gates promote a route.
+
 Use `GET /api/v1/following/telemetry` for current follower setpoint values and
 follower-card diagnostics. It prefers live setpoint-handler fields and falls
 back to legacy telemetry fields only for compatibility. Its publication fields

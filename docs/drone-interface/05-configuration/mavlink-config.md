@@ -95,7 +95,9 @@ This is the legacy flat compatibility summary. New API/MCP/dashboard consumers
 should use `GET /api/v1/telemetry/health`, which separates latest request
 success, last successful sample freshness, cached payload availability, and
 consumer guidance. Both views are MAVLink2REST request/payload health; neither
-is PX4-in-loop follower evidence.
+is PX4-in-loop follower evidence. API/MCP here means schema-stable route
+readiness for future reviewed integrations; the generated agent-context
+inventory is candidate inventory only, not MCP execution.
 
 ## Data Points
 
