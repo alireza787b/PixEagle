@@ -154,26 +154,55 @@ export const normalizeTrackerStatus = (status, { pending = false, error = null }
   };
 };
 
+const readFollowingActive = (data) => Boolean(data?.following_active);
+
+const isMissingFollowingStatusRoute = (fetchError) => (
+  [404, 405, 501].includes(fetchError?.response?.status)
+);
+
 export const useFollowerStatus = (interval = 2000) => {
   const [isFollowing, setIsFollowing] = useState(false);
+  const mountedRef = useRef(false);
+  const requestSequenceRef = useRef(0);
 
   useEffect(() => {
     const fetchFollowerStatus = async () => {
-      try {
-        const response = await axios.get(endpoints.followerData, buildNoCacheRequestConfig());
-        const followerData = response.data;
+      const requestId = requestSequenceRef.current + 1;
+      requestSequenceRef.current = requestId;
 
-        setIsFollowing(followerData.following_active);
+      try {
+        let response;
+        try {
+          response = await axios.get(endpoints.followingStatus, buildNoCacheRequestConfig());
+        } catch (followingStatusError) {
+          if (!isMissingFollowingStatusRoute(followingStatusError)) {
+            throw followingStatusError;
+          }
+          response = await axios.get(endpoints.followerData, buildNoCacheRequestConfig());
+        }
+
+        if (!mountedRef.current || requestId !== requestSequenceRef.current) {
+          return;
+        }
+        setIsFollowing(readFollowingActive(response.data || {}));
       } catch (error) {
+        if (!mountedRef.current || requestId !== requestSequenceRef.current) {
+          return;
+        }
         console.error('Error fetching follower data:', error);
         setIsFollowing(false);
       }
     };
 
+    mountedRef.current = true;
     const intervalId = setInterval(fetchFollowerStatus, interval);
     fetchFollowerStatus(); // Initial call
 
-    return () => clearInterval(intervalId);
+    return () => {
+      mountedRef.current = false;
+      requestSequenceRef.current += 1;
+      clearInterval(intervalId);
+    };
   }, [interval]);
 
   return isFollowing;

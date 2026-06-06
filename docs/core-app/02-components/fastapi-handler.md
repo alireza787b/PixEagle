@@ -69,6 +69,7 @@ class FastAPIHandler:
 | `/telemetry/follower_data` | GET | Current follower state |
 | `/status` | GET | System status |
 | `/api/v1/runtime/status` | GET | Typed PixEagle process-local runtime status |
+| `/api/v1/following/status` | GET | Typed process-local following status |
 | `/api/v1/telemetry/health` | GET | Typed MAVLink2REST request/payload health |
 | `/api/v1/tracking/runtime-status` | GET | Typed tracker output/readiness status |
 | `/stats` | GET | Streaming statistics |
@@ -107,6 +108,28 @@ defaults, or missing/unknown command-publication fields. It can report `active`
 for local vision/following state, but it is not PX4, SITL, HIL, field, or
 follower-response proof. Use telemetry, action resources, SITL evidence
 artifacts, and PX4 logs for those claims.
+
+### Typed Following Status Endpoint
+
+New dashboard/API/MCP consumers that only need following state should prefer
+`GET /api/v1/following/status` instead of parsing `/telemetry/follower_data`.
+It returns `schema_version`, `source`, `status`, `consumer_guidance`,
+`following_active`, `profile`, `command_publication`, `health_issues`,
+`reason`, `claim_boundary`, and `timestamp`.
+
+The route is process-local and command-publication focused. It reports
+`active/following_active` only when local following is active, a follower
+instance/profile are present, and the Offboard commander snapshot reports
+running publication, an active task, fresh intent, and inactive failsafe
+defaults. It reports `degraded/operator_attention` for active following with
+missing/invalid follower state, Offboard commander failure/non-running/task
+inactive/stale-intent/failsafe-default/unknown fields, and for inactive local
+following when the commander still appears to be running.
+
+Detailed follower telemetry widgets may continue using
+`/telemetry/follower_data` until their richer data contract is migrated. The
+typed following status route does not prove PX4-observed Offboard, SITL, HIL,
+field, or follower-response success.
 
 ### Typed Telemetry Health Endpoint
 
@@ -174,6 +197,7 @@ they do not accept confirmation, dry-run, or idempotency request fields.
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/v1/runtime/status` | GET | Typed PixEagle process-local runtime contract |
+| `/api/v1/following/status` | GET | Typed process-local following/readiness contract |
 | `/api/v1/tracking/runtime-status` | GET | Typed tracker runtime/readiness contract |
 | `/api/tracker/schema` | GET | Tracker schema |
 | `/api/tracker/switch` | POST | Switch tracker type |

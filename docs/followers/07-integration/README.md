@@ -44,7 +44,7 @@ This section covers how followers integrate with the PixEagle ecosystem.
 │                        PX4 CONTROLLER                             │
 │                          (MAVSDK)                                │
 │                                                                  │
-│  SetpointHandler → MAVSDK → MAVLink → PX4 Autopilot             │
+│  CommandIntent → OffboardCommander → MAVSDK → PX4 Autopilot     │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -94,6 +94,19 @@ commander.submit_intent(follower.get_last_command_intent())
 | Follower math | `CONTROL_UPDATE_RATE` tuning value |
 | PX4 command dispatch | `OffboardCommander` fixed-rate heartbeat from `OFFBOARD_COMMAND_RATE_HZ` |
 | MAVLink | 50+ Hz |
+
+## API Observability
+
+Use `GET /api/v1/following/status` for following-state checks in dashboard,
+API, and MCP consumers. It reports local `following_active`, follower profile
+identity, OffboardCommander command-publication health, and an explicit claim
+boundary. It reports `degraded/operator_attention` if local following is active
+without a valid follower/commander publication path, or if command publication
+appears to remain active after local following stopped.
+
+`/telemetry/follower_data` remains the legacy detailed follower telemetry
+payload for richer setpoint widgets until a separate typed follower telemetry
+contract replaces it.
 
 ---
 

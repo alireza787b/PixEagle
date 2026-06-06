@@ -5,6 +5,7 @@ import { endpoints } from '../services/apiEndpoints';
 import {
   normalizeTrackerStatus,
   normalizeTelemetryHealth,
+  useFollowerStatus,
   useSmartModeStatus,
   useTrackerStatus,
   useTelemetryHealth,
@@ -187,6 +188,102 @@ test('useTrackerStatus ignores stale out-of-order runtime responses', async () =
     });
 
     expect(screen.getByText('Tracking: Active')).toBeInTheDocument();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('useFollowerStatus polls typed following status instead of legacy follower telemetry', async () => {
+  axios.get.mockResolvedValueOnce({
+    data: {
+      schema_version: 1,
+      source: 'following_runtime',
+      status: 'active',
+      consumer_guidance: 'following_active',
+      following_active: true,
+    },
+  });
+
+  const Probe = () => {
+    const isFollowing = useFollowerStatus(60000);
+    return <div>{isFollowing ? 'Following on' : 'Following off'}</div>;
+  };
+
+  render(<Probe />);
+
+  expect(await screen.findByText('Following on')).toBeInTheDocument();
+  expect(axios.get).toHaveBeenCalledWith(
+    endpoints.followingStatus,
+    expect.objectContaining({
+      headers: expect.objectContaining({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      }),
+    })
+  );
+});
+
+test('useFollowerStatus falls back to legacy follower telemetry during rolling updates', async () => {
+  axios.get
+    .mockRejectedValueOnce({ response: { status: 404 } })
+    .mockResolvedValueOnce({ data: { following_active: true } });
+
+  const Probe = () => {
+    const isFollowing = useFollowerStatus(60000);
+    return <div>{isFollowing ? 'Following on' : 'Following off'}</div>;
+  };
+
+  render(<Probe />);
+
+  expect(await screen.findByText('Following on')).toBeInTheDocument();
+  expect(axios.get).toHaveBeenNthCalledWith(1, endpoints.followingStatus, expect.any(Object));
+  expect(axios.get).toHaveBeenNthCalledWith(2, endpoints.followerData, expect.any(Object));
+});
+
+test('useFollowerStatus ignores stale out-of-order following status responses', async () => {
+  jest.useFakeTimers();
+  let resolveFirstRequest;
+  axios.get
+    .mockImplementationOnce(() => new Promise((resolve) => {
+      resolveFirstRequest = resolve;
+    }))
+    .mockResolvedValueOnce({
+      data: {
+        schema_version: 1,
+        source: 'following_runtime',
+        status: 'active',
+        consumer_guidance: 'following_active',
+        following_active: true,
+      },
+    });
+
+  const Probe = () => {
+    const isFollowing = useFollowerStatus(60000);
+    return <div>{isFollowing ? 'Following on' : 'Following off'}</div>;
+  };
+
+  try {
+    render(<Probe />);
+    await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      jest.advanceTimersByTime(60000);
+    });
+
+    expect(await screen.findByText('Following on')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveFirstRequest({
+        data: {
+          schema_version: 1,
+          source: 'following_runtime',
+          status: 'inactive',
+          consumer_guidance: 'inactive',
+          following_active: false,
+        },
+      });
+    });
+
+    expect(screen.getByText('Following on')).toBeInTheDocument();
   } finally {
     jest.useRealTimers();
   }

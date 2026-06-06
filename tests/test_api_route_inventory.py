@@ -74,6 +74,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/tracker/schema"),
     ("GET", "/api/video/health"),
     ("GET", "/api/v1/actions/{action_id}"),
+    ("GET", "/api/v1/following/status"),
     ("GET", "/api/v1/runtime/status"),
     ("GET", "/api/v1/telemetry/health"),
     ("GET", "/api/v1/tracking/runtime-status"),
@@ -212,7 +213,7 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 2,
-        "GET": 69,
+        "GET": 70,
         "POST": 53,
         "PUT": 2,
         "WEBSOCKET": 2,
@@ -281,6 +282,18 @@ def test_api_v1_runtime_status_route_has_typed_api_metadata():
     assert keywords["response_model"].id == "APIRuntimeStatusResponse"
     assert keywords["responses"].id == "RUNTIME_STATUS_ERROR_RESPONSES"
     assert keywords["tags"].elts[0].value == "runtime"
+    assert "status_code" not in keywords
+
+
+def test_api_v1_following_status_route_has_typed_api_metadata():
+    """Typed following status must be an explicit /api/v1 resource."""
+    route_call = _find_route_registration("/api/v1/following/status")
+    keywords = {keyword.arg: keyword.value for keyword in route_call.keywords}
+
+    assert keywords["operation_id"].value == "get_following_status"
+    assert keywords["response_model"].id == "APIFollowingStatusResponse"
+    assert keywords["responses"].id == "FOLLOWING_STATUS_ERROR_RESPONSES"
+    assert keywords["tags"].elts[0].value == "following"
     assert "status_code" not in keywords
 
 

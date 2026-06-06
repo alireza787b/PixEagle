@@ -13,10 +13,10 @@ http://127.0.0.1:5077
 | Category | Endpoints | Description |
 |----------|-----------|-------------|
 | [Streaming](#streaming) | `/video_feed`, `/ws/video_feed` | Video streaming |
-| [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/telemetry/health` | System data and typed health |
+| [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/following/status`, `/api/v1/telemetry/health` | System data and typed health |
 | [Commands](#commands) | `/commands/*` | Control operations |
 | [Tracker](#tracker-api) | `/api/v1/tracking/runtime-status`, `/api/tracker/*` | Typed tracker runtime status and legacy tracker management |
-| [Follower](#follower-api) | `/api/follower/*` | Follower management |
+| [Follower](#follower-api) | `/api/v1/following/status`, `/api/follower/*` | Typed following status and legacy follower management |
 | [Config](#configuration-api) | `/api/config/*` | Configuration |
 | [Safety](#safety-api) | `/api/safety/*` | Safety settings |
 
@@ -117,6 +117,86 @@ GET /telemetry/follower_data
   "offboard_active": true
 }
 ```
+
+`/telemetry/follower_data` is the legacy detailed follower telemetry payload.
+Consumers that only need active/inactive/degraded following state should use the
+typed following status resource below.
+
+### Following Status
+
+```http
+GET /api/v1/following/status
+```
+
+Typed process-local following status for dashboard/API/MCP consumers. Use this
+route for nav chips, automation readiness, and following-state checks instead
+of parsing `/telemetry/follower_data`.
+
+**Response:**
+```json
+{
+  "schema_version": 1,
+  "source": "following_runtime",
+  "status": "active",
+  "consumer_guidance": "following_active",
+  "following_active": true,
+  "profile": {
+    "configured_mode": "gm_velocity_vector",
+    "current_mode": "gm_velocity_vector",
+    "profile_valid": true,
+    "display_name": "Gimbal Velocity Vector",
+    "control_type": "velocity_body_offboard",
+    "available_fields": [
+      "vel_body_fwd",
+      "vel_body_right",
+      "vel_body_down",
+      "yawspeed_deg_s"
+    ],
+    "manager_type": "Follower",
+    "follower_type": "GMVelocityVectorFollower",
+    "follower_instance_present": true
+  },
+  "command_publication": {
+    "source": "offboard_commander",
+    "exists": true,
+    "running": true,
+    "task_active": true,
+    "health_state": "running",
+    "command_publication_source": "offboard_commander",
+    "sends_mavsdk_commands": true,
+    "last_intent_fresh": true,
+    "failsafe_defaults_active": false,
+    "successful_publishes": 3,
+    "failed_publishes": 0,
+    "consecutive_failures": 0,
+    "local_successful_publish_observed": true,
+    "offboard_commander": {
+      "running": true,
+      "task_active": true,
+      "health_state": "running"
+    }
+  },
+  "health_issues": [],
+  "reason": null,
+  "claim_boundary": "PixEagle process-local following state and command-publication health only; not PX4, SITL, HIL, field, or follower-response proof.",
+  "timestamp": 1717200000.0
+}
+```
+
+`status` is one of `inactive`, `active`, `degraded`, or `unavailable`.
+`consumer_guidance` is one of `inactive`, `following_active`,
+`operator_attention`, or `unavailable`. The route reports
+`degraded/operator_attention` if local following is active without a valid
+follower profile/instance, or if the Offboard commander snapshot reports
+failure, stopped/non-running publication, inactive task, stale command intent,
+active failsafe defaults, or missing/unknown command-publication fields. It also
+flags inactive local following while the commander still appears to be running.
+`local_successful_publish_observed` is a PixEagle-local MAVSDK publication
+counter signal only; it is not PX4-observed Offboard or vehicle-response proof.
+
+This route does not replace detailed setpoint/follower telemetry yet; richer
+widgets may continue using `/telemetry/follower_data` until a separate typed
+follower telemetry contract exists.
 
 ### System Status
 
@@ -287,6 +367,13 @@ registry and reads `modes.smart_mode_active`. A top-level
 `smart_mode_active` payload read remains only as a compatibility fallback.
 During rolling updates, the hook falls back to legacy `/status` only when the
 typed runtime route is missing, and it ignores stale out-of-order responses.
+
+Dashboard follower nav/status polling uses `/api/v1/following/status` through
+the endpoint registry and reads `following_active`. During rolling updates, the
+hook falls back to legacy `/telemetry/follower_data` only when the typed
+following route is missing, and it ignores stale out-of-order responses.
+Detailed follower cards still use `/telemetry/follower_data` until their richer
+typed telemetry contract is migrated.
 
 Dashboard tracker status uses `/api/v1/tracking/runtime-status` through the
 endpoint registry and normalizes tracker output into distinct operator states:

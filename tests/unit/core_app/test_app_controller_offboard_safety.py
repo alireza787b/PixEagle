@@ -1925,6 +1925,176 @@ async def test_typed_runtime_status_returns_structured_error():
 
 
 @pytest.mark.asyncio
+async def test_typed_following_status_reports_inactive_without_commander():
+    """Inactive local following should expose an explicit typed status."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        follower=None,
+        offboard_commander=None,
+        last_offboard_commander_failure=None,
+    )
+
+    with patch('classes.fastapi_handler.Parameters.FOLLOWER_MODE', 'gm_velocity_vector'):
+        result = await handler.get_following_status()
+
+    assert result["schema_version"] == 1
+    assert result["source"] == "following_runtime"
+    assert result["status"] == "inactive"
+    assert result["consumer_guidance"] == "inactive"
+    assert result["following_active"] is False
+    assert result["profile"]["configured_mode"] == "gm_velocity_vector"
+    assert result["profile"]["profile_valid"] is True
+    assert result["command_publication"]["exists"] is False
+    assert "not PX4, SITL, HIL" in result["claim_boundary"]
+
+
+@pytest.mark.asyncio
+async def test_typed_following_status_reports_active_with_healthy_commander():
+    """Active local following requires a healthy command-publication owner."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    follower = SimpleNamespace(
+        mode="gm_velocity_vector",
+        follower=SimpleNamespace(),
+        get_display_name=MagicMock(return_value="Gimbal Velocity Vector"),
+        get_control_type=MagicMock(return_value="velocity_body_offboard"),
+        get_available_fields=MagicMock(return_value=[
+            "vel_body_fwd",
+            "vel_body_right",
+            "vel_body_down",
+            "yawspeed_deg_s",
+        ]),
+    )
+    handler.app_controller = SimpleNamespace(
+        following_active=True,
+        follower=follower,
+        offboard_commander=SimpleNamespace(
+            get_status=MagicMock(return_value={
+                "exists": True,
+                "running": True,
+                "task_active": True,
+                "health_state": "running",
+                "sends_mavsdk_commands": True,
+                "command_publication_source": "offboard_commander",
+                "last_intent_fresh": True,
+                "failsafe_defaults_active": False,
+                "successful_publishes": 3,
+                "failed_publishes": 0,
+                "consecutive_failures": 0,
+            })
+        ),
+        last_offboard_commander_failure=None,
+    )
+
+    with patch('classes.fastapi_handler.Parameters.FOLLOWER_MODE', 'gm_velocity_vector'):
+        result = await handler.get_following_status()
+
+    assert result["status"] == "active"
+    assert result["consumer_guidance"] == "following_active"
+    assert result["following_active"] is True
+    assert result["profile"]["current_mode"] == "gm_velocity_vector"
+    assert result["profile"]["control_type"] == "velocity_body_offboard"
+    assert result["command_publication"]["running"] is True
+    assert result["command_publication"]["last_intent_fresh"] is True
+    assert result["command_publication"]["local_successful_publish_observed"] is True
+    assert result["reason"] is None
+
+
+@pytest.mark.asyncio
+async def test_typed_following_status_degrades_when_following_without_running_commander():
+    """Following cannot look active when command publication is stopped."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=True,
+        follower=SimpleNamespace(
+            mode="gm_velocity_vector",
+            follower=SimpleNamespace(),
+            get_display_name=MagicMock(return_value="Gimbal Velocity Vector"),
+            get_control_type=MagicMock(return_value="velocity_body_offboard"),
+            get_available_fields=MagicMock(return_value=[]),
+        ),
+        offboard_commander=SimpleNamespace(
+            get_status=MagicMock(return_value={
+                "exists": True,
+                "running": False,
+                "task_active": False,
+                "health_state": "stopped",
+                "last_intent_fresh": False,
+                "failsafe_defaults_active": True,
+                "successful_publishes": 0,
+            })
+        ),
+        last_offboard_commander_failure=None,
+    )
+
+    with patch('classes.fastapi_handler.Parameters.FOLLOWER_MODE', 'gm_velocity_vector'):
+        result = await handler.get_following_status()
+
+    assert result["status"] == "degraded"
+    assert result["consumer_guidance"] == "operator_attention"
+    assert result["reason"] == "offboard_commander_not_running"
+    assert result["following_active"] is True
+    assert result["command_publication"]["local_successful_publish_observed"] is False
+
+
+@pytest.mark.asyncio
+async def test_typed_following_status_degrades_when_commander_runs_while_inactive():
+    """Stopped local following should still flag a live command publication task."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        follower=None,
+        offboard_commander=SimpleNamespace(
+            get_status=MagicMock(return_value={
+                "exists": True,
+                "running": True,
+                "task_active": True,
+                "health_state": "running",
+                "successful_publishes": 1,
+            })
+        ),
+        last_offboard_commander_failure=None,
+    )
+
+    with patch('classes.fastapi_handler.Parameters.FOLLOWER_MODE', 'gm_velocity_vector'):
+        result = await handler.get_following_status()
+
+    assert result["status"] == "degraded"
+    assert result["consumer_guidance"] == "operator_attention"
+    assert result["reason"] == "offboard_commander_running_while_inactive"
+    assert result["following_active"] is False
+
+
+@pytest.mark.asyncio
+async def test_typed_following_status_returns_structured_error():
+    """Typed following-status failures should use the /api/v1 error envelope."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=True,
+        follower=None,
+        offboard_commander=SimpleNamespace(
+            get_status=MagicMock(side_effect=RuntimeError("commander failed"))
+        ),
+        last_offboard_commander_failure=None,
+    )
+
+    with patch('classes.fastapi_handler.Parameters.FOLLOWER_MODE', 'gm_velocity_vector'):
+        response = await handler.get_following_status()
+    payload = json.loads(response.body.decode())
+
+    assert response.status_code == 500
+    assert payload["code"] == "following_status_error"
+    assert payload["detail"] == "commander failed"
+    assert payload["path"] == "/api/v1/following/status"
+    assert payload["request_id"].startswith("pixeagle-api-")
+
+
+@pytest.mark.asyncio
 async def test_typed_telemetry_health_endpoint_forwards_manager_snapshot():
     """Typed telemetry health should use the manager's structured contract."""
     handler = object.__new__(FastAPIHandler)

@@ -63,6 +63,7 @@ export const endpoints = {
   quit: `${apiBaseUrl}/commands/quit`,
   status: `${apiBaseUrl}/status`,
   runtimeStatus: `${apiBaseUrl}/api/v1/runtime/status`,
+  followingStatus: `${apiBaseUrl}/api/v1/following/status`,
   telemetryHealth: `${apiBaseUrl}/api/v1/telemetry/health`,
   trackerRuntimeStatus: `${apiBaseUrl}/api/v1/tracking/runtime-status`,
   trackerCurrentStatus: `${apiBaseUrl}/api/tracker/current-status`,

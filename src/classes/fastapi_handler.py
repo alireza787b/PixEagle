@@ -62,6 +62,7 @@ API_V1_ACTION_OFFBOARD_START_PATH = "/api/v1/actions/offboard-start"
 API_V1_ACTION_OPERATOR_ABORT_PATH = "/api/v1/actions/operator-abort"
 API_V1_ACTION_RESOURCE_PREFIX = "/api/v1/actions"
 API_V1_RUNTIME_STATUS_PATH = "/api/v1/runtime/status"
+API_V1_FOLLOWING_STATUS_PATH = "/api/v1/following/status"
 API_V1_TELEMETRY_HEALTH_PATH = "/api/v1/telemetry/health"
 API_V1_TRACKING_RUNTIME_STATUS_PATH = "/api/v1/tracking/runtime-status"
 SITL_VALIDATION_INJECTION_PATHS = {
@@ -78,6 +79,10 @@ MAVLINK_TELEMETRY_CLAIM_BOUNDARY = (
 RUNTIME_STATUS_CLAIM_BOUNDARY = (
     "PixEagle process-local runtime and subsystem snapshots only; not PX4, "
     "SITL, HIL, field, or follower-response proof."
+)
+FOLLOWING_STATUS_CLAIM_BOUNDARY = (
+    "PixEagle process-local following state and command-publication health "
+    "only; not PX4, SITL, HIL, field, or follower-response proof."
 )
 TRACKER_OUTPUT_UNSET = object()
 
@@ -258,6 +263,60 @@ class APIRuntimeStatusResponse(BaseModel):
     timestamp: float
 
 
+class APIFollowingProfileStatus(BaseModel):
+    """Follower profile identity without exposing legacy telemetry internals."""
+
+    configured_mode: Optional[str] = None
+    current_mode: Optional[str] = None
+    profile_valid: bool = False
+    display_name: Optional[str] = None
+    control_type: Optional[str] = None
+    available_fields: List[str] = Field(default_factory=list)
+    manager_type: Optional[str] = None
+    follower_type: Optional[str] = None
+    follower_instance_present: bool = False
+
+
+class APIFollowingCommandPublicationStatus(BaseModel):
+    """Process-local command publication state for following consumers."""
+
+    source: Literal["offboard_commander"] = "offboard_commander"
+    exists: bool = False
+    running: Optional[bool] = None
+    task_active: Optional[bool] = None
+    health_state: Optional[str] = None
+    command_publication_source: Optional[str] = None
+    sends_mavsdk_commands: Optional[bool] = None
+    last_intent_fresh: Optional[bool] = None
+    failsafe_defaults_active: Optional[bool] = None
+    successful_publishes: Optional[int] = None
+    failed_publishes: Optional[int] = None
+    consecutive_failures: Optional[int] = None
+    local_successful_publish_observed: bool = False
+    offboard_commander: Optional[Dict[str, Any]] = None
+
+
+class APIFollowingStatusResponse(BaseModel):
+    """Typed following status for API/MCP/dashboard consumers."""
+
+    schema_version: int = 1
+    source: Literal["following_runtime"] = "following_runtime"
+    status: Literal["inactive", "active", "degraded", "unavailable"]
+    consumer_guidance: Literal[
+        "inactive",
+        "following_active",
+        "operator_attention",
+        "unavailable",
+    ]
+    following_active: bool
+    profile: APIFollowingProfileStatus
+    command_publication: APIFollowingCommandPublicationStatus
+    health_issues: List[str] = Field(default_factory=list)
+    reason: Optional[str] = None
+    claim_boundary: str = FOLLOWING_STATUS_CLAIM_BOUNDARY
+    timestamp: float
+
+
 class APITrackingRuntimeStatusResponse(BaseModel):
     """Typed tracker runtime status for API/MCP/dashboard consumers."""
 
@@ -327,6 +386,12 @@ RUNTIME_STATUS_ERROR_RESPONSES = {
     status.HTTP_500_INTERNAL_SERVER_ERROR: {
         "model": APIErrorResponse,
         "description": "PixEagle runtime status could not be evaluated.",
+    },
+}
+FOLLOWING_STATUS_ERROR_RESPONSES = {
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {
+        "model": APIErrorResponse,
+        "description": "Following status could not be evaluated.",
     },
 }
 TELEMETRY_HEALTH_ERROR_RESPONSES = {
@@ -938,6 +1003,13 @@ class FastAPIHandler:
             operation_id="get_runtime_status",
             tags=["runtime"],
         )(self.get_runtime_status)
+        self.app.get(
+            "/api/v1/following/status",
+            response_model=APIFollowingStatusResponse,
+            responses=FOLLOWING_STATUS_ERROR_RESPONSES,
+            operation_id="get_following_status",
+            tags=["following"],
+        )(self.get_following_status)
         self.app.get(
             "/api/v1/telemetry/health",
             response_model=APITelemetryHealthResponse,
@@ -1737,6 +1809,7 @@ class FastAPIHandler:
         return (
             path in SITL_VALIDATION_INJECTION_PATHS
             or path == API_V1_RUNTIME_STATUS_PATH
+            or path == API_V1_FOLLOWING_STATUS_PATH
             or path == API_V1_TELEMETRY_HEALTH_PATH
             or path == API_V1_TRACKING_RUNTIME_STATUS_PATH
             or path.startswith(f"{API_V1_ACTION_RESOURCE_PREFIX}/")
@@ -2553,6 +2626,19 @@ class FastAPIHandler:
                 path=API_V1_RUNTIME_STATUS_PATH,
             )
 
+    async def get_following_status(self):
+        """Return typed following status for API/MCP/dashboard consumers."""
+        try:
+            return self._get_following_status_snapshot()
+        except Exception as e:
+            self.logger.error(f"Error in get_following_status: {e}")
+            return self._api_v1_error_response(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                code="following_status_error",
+                detail=str(e),
+                path=API_V1_FOLLOWING_STATUS_PATH,
+            )
+
     async def get_telemetry_health(self):
         """Return typed MAVLink2REST health for API/MCP/dashboard consumers."""
         try:
@@ -3279,6 +3365,81 @@ class FastAPIHandler:
         }
 
     @staticmethod
+    def _classify_following_commander_degradation(
+        commander_status: Optional[Dict[str, Any]],
+        following_active: bool,
+    ) -> Optional[str]:
+        """Return a fail-closed commander degradation reason for local following."""
+        if not following_active:
+            return None
+
+        if isinstance(commander_status, dict):
+            commander_health = str(
+                commander_status.get("health_state")
+                or commander_status.get("status")
+                or ""
+            ).lower()
+            if commander_health in {"degraded", "failed", "failure", "error"}:
+                return f"offboard_commander_{commander_health}"
+
+            commander_running = commander_status.get("running")
+            task_active = commander_status.get("task_active")
+            last_intent_fresh = commander_status.get("last_intent_fresh")
+            failsafe_defaults_active = commander_status.get(
+                "failsafe_defaults_active"
+            )
+            if commander_running is not True:
+                return (
+                    "offboard_commander_not_running"
+                    if commander_running is False
+                    else "offboard_commander_running_unknown"
+                )
+            if task_active is not True:
+                return (
+                    "offboard_commander_task_inactive"
+                    if task_active is False
+                    else "offboard_commander_task_unknown"
+                )
+            if last_intent_fresh is not True:
+                return (
+                    "offboard_commander_intent_stale"
+                    if last_intent_fresh is False
+                    else "offboard_commander_intent_freshness_unknown"
+                )
+            if failsafe_defaults_active is not False:
+                return (
+                    "offboard_commander_failsafe_defaults_active"
+                    if failsafe_defaults_active is True
+                    else "offboard_commander_failsafe_defaults_unknown"
+                )
+            if commander_health in {"stopped", "offline", "disabled"}:
+                return f"offboard_commander_{commander_health}"
+            return None
+
+        return "offboard_commander_unavailable"
+
+    @staticmethod
+    def _classify_inactive_following_commander_issue(
+        commander_status: Optional[Dict[str, Any]],
+    ) -> Optional[str]:
+        """Detect command publication that appears active after following stopped."""
+        if not isinstance(commander_status, dict):
+            return None
+
+        commander_health = str(
+            commander_status.get("health_state")
+            or commander_status.get("status")
+            or ""
+        ).lower()
+        if (
+            commander_status.get("running") is True
+            or commander_status.get("task_active") is True
+            or commander_health in {"running", "active", "healthy"}
+        ):
+            return "offboard_commander_running_while_inactive"
+        return None
+
+    @staticmethod
     def _classify_runtime_status(
         legacy_status: Dict[str, Any],
     ) -> Tuple[str, str, Optional[str]]:
@@ -3293,78 +3454,12 @@ class FastAPIHandler:
 
         commander_status = legacy_status.get("offboard_commander")
         following_active = bool(legacy_status.get("following_active"))
-        if isinstance(commander_status, dict):
-            commander_health = str(
-                commander_status.get("health_state")
-                or commander_status.get("status")
-                or ""
-            ).lower()
-            if commander_health in {"degraded", "failed", "failure", "error"}:
-                return (
-                    "degraded",
-                    "operator_attention",
-                    f"offboard_commander_{commander_health}",
-                )
-
-            if following_active:
-                commander_running = commander_status.get("running")
-                task_active = commander_status.get("task_active")
-                last_intent_fresh = commander_status.get("last_intent_fresh")
-                failsafe_defaults_active = commander_status.get(
-                    "failsafe_defaults_active"
-                )
-                if commander_running is not True:
-                    return (
-                        "degraded",
-                        "operator_attention",
-                        (
-                            "offboard_commander_not_running"
-                            if commander_running is False
-                            else "offboard_commander_running_unknown"
-                        ),
-                    )
-                if task_active is not True:
-                    return (
-                        "degraded",
-                        "operator_attention",
-                        (
-                            "offboard_commander_task_inactive"
-                            if task_active is False
-                            else "offboard_commander_task_unknown"
-                        ),
-                    )
-                if last_intent_fresh is not True:
-                    return (
-                        "degraded",
-                        "operator_attention",
-                        (
-                            "offboard_commander_intent_stale"
-                            if last_intent_fresh is False
-                            else "offboard_commander_intent_freshness_unknown"
-                        ),
-                    )
-                if failsafe_defaults_active is not False:
-                    return (
-                        "degraded",
-                        "operator_attention",
-                        (
-                            "offboard_commander_failsafe_defaults_active"
-                            if failsafe_defaults_active is True
-                            else "offboard_commander_failsafe_defaults_unknown"
-                        ),
-                    )
-                if commander_health in {"stopped", "offline", "disabled"}:
-                    return (
-                        "degraded",
-                        "operator_attention",
-                        f"offboard_commander_{commander_health}",
-                    )
-        elif following_active:
-            return (
-                "degraded",
-                "operator_attention",
-                "offboard_commander_unavailable",
-            )
+        commander_degradation = FastAPIHandler._classify_following_commander_degradation(
+            commander_status,
+            following_active,
+        )
+        if commander_degradation:
+            return "degraded", "operator_attention", commander_degradation
 
         if following_active:
             return "active", "following_active", None
@@ -3377,6 +3472,243 @@ class FastAPIHandler:
             return "active", "vision_active", None
 
         return "idle", "idle", None
+
+    def _get_following_profile_status(
+        self,
+        following_active: bool,
+    ) -> Tuple[Dict[str, Any], List[str]]:
+        """Return current follower profile identity and local health issues."""
+        app_controller = getattr(self, "app_controller", None)
+        follower_manager = getattr(app_controller, "follower", None)
+        concrete_follower = (
+            getattr(follower_manager, "follower", None)
+            if follower_manager is not None
+            else None
+        )
+        if concrete_follower is None and follower_manager is not None:
+            concrete_follower = follower_manager
+
+        configured_mode = getattr(Parameters, "FOLLOWER_MODE", None)
+        current_mode = (
+            getattr(follower_manager, "mode", None)
+            if follower_manager is not None
+            else configured_mode
+        )
+        health_issues = []
+        profile_config = {}
+        profile_valid = False
+        if configured_mode:
+            try:
+                profile_config = SetpointHandler.get_profile_info(configured_mode)
+                profile_valid = True
+            except Exception as profile_error:
+                health_issues.append(f"invalid_follower_profile:{configured_mode}")
+                profile_config = {
+                    "error": str(profile_error),
+                }
+
+        if following_active and follower_manager is None:
+            health_issues.append("follower_instance_unavailable")
+
+        def _call_follower_method(method_name: str, default: Any = None) -> Any:
+            if follower_manager is None:
+                return default
+            method = getattr(follower_manager, method_name, None)
+            if not callable(method):
+                return default
+            try:
+                value = method()
+                return default if value is None else value
+            except Exception as method_error:
+                health_issues.append(f"{method_name}_unavailable:{method_error}")
+                return default
+
+        display_name = _call_follower_method(
+            "get_display_name",
+            profile_config.get("display_name") if profile_config else None,
+        )
+        control_type = _call_follower_method(
+            "get_control_type",
+            profile_config.get("control_type") if profile_config else None,
+        )
+        available_fields = _call_follower_method(
+            "get_available_fields",
+            (
+                (profile_config.get("required_fields", []) or [])
+                + (profile_config.get("optional_fields", []) or [])
+            )
+            if profile_config
+            else [],
+        )
+        if not isinstance(available_fields, list):
+            available_fields = list(available_fields) if available_fields else []
+
+        return (
+            {
+                "configured_mode": configured_mode,
+                "current_mode": current_mode,
+                "profile_valid": profile_valid,
+                "display_name": display_name,
+                "control_type": control_type,
+                "available_fields": available_fields,
+                "manager_type": (
+                    follower_manager.__class__.__name__
+                    if follower_manager is not None
+                    else None
+                ),
+                "follower_type": (
+                    concrete_follower.__class__.__name__
+                    if concrete_follower is not None
+                    else None
+                ),
+                "follower_instance_present": follower_manager is not None,
+            },
+            health_issues,
+        )
+
+    def _get_following_command_publication_status(self) -> Dict[str, Any]:
+        """Return OffboardCommander publication status without claiming PX4 success."""
+        app_controller = getattr(self, "app_controller", None)
+        commander = getattr(app_controller, "offboard_commander", None)
+        if commander and hasattr(commander, "get_status"):
+            commander_status = commander.get_status()
+        elif commander:
+            commander_status = {"exists": True, "running": False}
+        else:
+            commander_status = None
+
+        if not isinstance(commander_status, dict):
+            commander_status = None
+
+        successful_publishes = (
+            commander_status.get("successful_publishes")
+            if commander_status is not None
+            else None
+        )
+        local_successful_publish_observed = bool(
+            commander_status
+            and commander_status.get("running") is True
+            and isinstance(successful_publishes, int)
+            and successful_publishes > 0
+        )
+
+        return {
+            "source": "offboard_commander",
+            "exists": bool(
+                commander_status.get("exists", True)
+                if commander_status is not None
+                else commander is not None
+            ),
+            "running": (
+                commander_status.get("running")
+                if commander_status is not None
+                else None
+            ),
+            "task_active": (
+                commander_status.get("task_active")
+                if commander_status is not None
+                else None
+            ),
+            "health_state": (
+                commander_status.get("health_state")
+                if commander_status is not None
+                else None
+            ),
+            "command_publication_source": (
+                commander_status.get("command_publication_source")
+                if commander_status is not None
+                else None
+            ),
+            "sends_mavsdk_commands": (
+                commander_status.get("sends_mavsdk_commands")
+                if commander_status is not None
+                else None
+            ),
+            "last_intent_fresh": (
+                commander_status.get("last_intent_fresh")
+                if commander_status is not None
+                else None
+            ),
+            "failsafe_defaults_active": (
+                commander_status.get("failsafe_defaults_active")
+                if commander_status is not None
+                else None
+            ),
+            "successful_publishes": successful_publishes,
+            "failed_publishes": (
+                commander_status.get("failed_publishes")
+                if commander_status is not None
+                else None
+            ),
+            "consecutive_failures": (
+                commander_status.get("consecutive_failures")
+                if commander_status is not None
+                else None
+            ),
+            "local_successful_publish_observed": local_successful_publish_observed,
+            "offboard_commander": commander_status,
+        }
+
+    def _get_following_status_snapshot(self) -> Dict[str, Any]:
+        """Return the canonical typed following snapshot used by /api/v1."""
+        app_controller = getattr(self, "app_controller", None)
+        following_active = bool(getattr(app_controller, "following_active", False))
+        profile, health_issues = self._get_following_profile_status(following_active)
+        command_publication = self._get_following_command_publication_status()
+        commander_status = command_publication.get("offboard_commander")
+
+        reason = None
+        commander_failure = getattr(
+            app_controller,
+            "last_offboard_commander_failure",
+            None,
+        )
+        if commander_failure:
+            reason = "offboard_commander_failure_present"
+            health_issues.append(reason)
+
+        if following_active and not profile["follower_instance_present"]:
+            reason = reason or "follower_instance_unavailable"
+        if not profile["profile_valid"]:
+            reason = reason or "invalid_follower_profile"
+
+        commander_degradation = self._classify_following_commander_degradation(
+            commander_status,
+            following_active,
+        )
+        if commander_degradation:
+            reason = reason or commander_degradation
+
+        inactive_commander_issue = self._classify_inactive_following_commander_issue(
+            commander_status
+        )
+        if inactive_commander_issue and not following_active:
+            reason = reason or inactive_commander_issue
+            health_issues.append(inactive_commander_issue)
+
+        if reason:
+            following_status = "degraded"
+            consumer_guidance = "operator_attention"
+        elif following_active:
+            following_status = "active"
+            consumer_guidance = "following_active"
+        else:
+            following_status = "inactive"
+            consumer_guidance = "inactive"
+
+        return {
+            "schema_version": 1,
+            "source": "following_runtime",
+            "status": following_status,
+            "consumer_guidance": consumer_guidance,
+            "following_active": following_active,
+            "profile": profile,
+            "command_publication": command_publication,
+            "health_issues": health_issues,
+            "reason": reason,
+            "claim_boundary": FOLLOWING_STATUS_CLAIM_BOUNDARY,
+            "timestamp": time.time(),
+        }
 
     def _get_runtime_status_snapshot(self) -> Dict[str, Any]:
         """Return the canonical typed runtime snapshot used by /api/v1."""
