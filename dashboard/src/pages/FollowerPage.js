@@ -23,7 +23,9 @@ import { useFollowerSchema, useCurrentFollowerProfile } from '../hooks/useFollow
 import {
   buildNoCacheRequestConfig,
   isMissingFollowingTelemetryRoute,
+  isMissingTrackingTelemetryRoute,
   normalizeFollowingTelemetry,
+  normalizeTrackingTelemetry,
 } from '../hooks/useStatuses';
 import axios from 'axios';
 import { endpoints } from '../services/apiEndpoints';
@@ -51,6 +53,17 @@ const fetchFollowingTelemetrySnapshot = async () => {
   }
 };
 
+const fetchTrackingTelemetrySnapshot = async () => {
+  try {
+    return await axios.get(endpoints.trackingTelemetry, buildNoCacheRequestConfig());
+  } catch (trackingTelemetryError) {
+    if (!isMissingTrackingTelemetryRoute(trackingTelemetryError)) {
+      throw trackingTelemetryError;
+    }
+    return axios.get(endpoints.trackerData, buildNoCacheRequestConfig());
+  }
+};
+
 const FollowerPage = () => {
   const [trackerData, setTrackerData] = useState([]);
   const [followerData, setFollowerData] = useState([]);
@@ -71,7 +84,7 @@ const FollowerPage = () => {
     try {
       setPollingStatus('idle');
       const [trackerResponse, followerResponse] = await Promise.all([
-        axios.get(endpoints.trackerData, buildNoCacheRequestConfig()),
+        fetchTrackingTelemetrySnapshot(),
         fetchFollowingTelemetrySnapshot(),
       ]);
 
@@ -80,13 +93,22 @@ const FollowerPage = () => {
       }
       
       if (trackerResponse.status === 200 && followerResponse.status === 200) {
+        const normalizedTrackerData = normalizeTrackingTelemetry(trackerResponse.data || {});
         const normalizedFollowerData = normalizeFollowingTelemetry(followerResponse.data || {});
-        setTrackerData((prevData) => appendBounded(prevData, trackerResponse.data));
+        setTrackerData((prevData) => appendBounded(prevData, normalizedTrackerData));
         setFollowerData((prevData) => appendBounded(prevData, normalizedFollowerData));
         setRawData((prevData) => appendBoundedRawData(
           prevData,
-          { type: 'tracker', data: trackerResponse.data },
-          { type: 'follower', data: normalizedFollowerData },
+          {
+            type: 'tracker',
+            data: trackerResponse.data || {},
+            normalized: normalizedTrackerData,
+          },
+          {
+            type: 'follower',
+            data: followerResponse.data || {},
+            normalized: normalizedFollowerData,
+          },
         ));
         setPollingStatus('success');
       }

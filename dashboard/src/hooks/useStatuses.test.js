@@ -4,6 +4,7 @@ import axios from 'axios';
 import { endpoints } from '../services/apiEndpoints';
 import {
   normalizeFollowingTelemetry,
+  normalizeTrackingTelemetry,
   normalizeTrackerStatus,
   normalizeTelemetryHealth,
   useFollowerStatus,
@@ -97,6 +98,28 @@ const activeFollowingTelemetry = {
   timestamp: 1717200000.0,
 };
 
+const activeTrackingTelemetry = {
+  schema_version: 1,
+  source: 'tracking_telemetry',
+  status: 'active_usable',
+  consumer_guidance: 'usable',
+  has_output: true,
+  active_tracking: true,
+  tracking_active: true,
+  tracker_started: true,
+  usable_for_following: true,
+  data_is_stale: false,
+  center: [0.2, -0.1],
+  bounding_box: [0.1, 0.2, 0.3, 0.4],
+  fields: {
+    data_type: 'POSITION_2D',
+    position_2d: [0.2, -0.1],
+    normalized_bbox: [0.1, 0.2, 0.3, 0.4],
+  },
+  field_source: 'tracker_output',
+  timestamp: 1717200000.0,
+};
+
 afterEach(() => {
   jest.clearAllMocks();
 });
@@ -164,6 +187,77 @@ test('normalizes typed following telemetry into legacy-compatible card fields', 
   expect(normalized.validation_status).toBe(true);
   expect(normalized.target_loss_handler.state).toBe('ACTIVE');
   expect(normalized.circuit_breaker_active).toBe(false);
+});
+
+test('normalizes typed tracking telemetry into legacy-compatible plot fields', () => {
+  const normalized = normalizeTrackingTelemetry(activeTrackingTelemetry);
+
+  expect(normalized.fields.position_2d).toEqual([0.2, -0.1]);
+  expect(normalized.center).toEqual([0.2, -0.1]);
+  expect(normalized.bounding_box).toEqual([0.1, 0.2, 0.3, 0.4]);
+  expect(normalized.timestamp).toBe('2024-06-01T00:00:00.000Z');
+  expect(normalized.active_tracking).toBe(true);
+  expect(normalized.tracking_active).toBe(true);
+  expect(normalized.tracker_started).toBe(true);
+  expect(normalized.usable_for_following).toBe(true);
+});
+
+test('normalizes no-output tracking telemetry without inventing plot geometry', () => {
+  const normalized = normalizeTrackingTelemetry({
+    schema_version: 1,
+    source: 'tracking_telemetry',
+    status: 'no_output',
+    consumer_guidance: 'no_output',
+    has_output: false,
+    active_tracking: false,
+    usable_for_following: false,
+    data_is_stale: false,
+    center: null,
+    bounding_box: null,
+    fields: {},
+    timestamp: 1717200000.0,
+  });
+
+  expect(normalized.center).toBeNull();
+  expect(normalized.bounding_box).toBeNull();
+  expect(normalized.has_output).toBe(false);
+  expect(normalized.active_tracking).toBe(false);
+  expect(normalized.tracker_started).toBe(false);
+  expect(normalized.timestamp).toBe('2024-06-01T00:00:00.000Z');
+});
+
+test('normalizes legacy tracker telemetry for typed tracker fallback paths', () => {
+  const normalized = normalizeTrackingTelemetry({
+    timestamp: '2026-06-06T00:00:00.000Z',
+    tracker_started: false,
+    tracker_data: {
+      legacy_mode: true,
+      position_2d: [0.3, -0.2],
+      normalized_bbox: [0.2, 0.3, 0.4, 0.5],
+    },
+  });
+
+  expect(normalized.fields.position_2d).toEqual([0.3, -0.2]);
+  expect(normalized.center).toEqual([0.3, -0.2]);
+  expect(normalized.bounding_box).toEqual([0.2, 0.3, 0.4, 0.5]);
+  expect(normalized.timestamp).toBe('2026-06-06T00:00:00.000Z');
+  expect(normalized.tracker_started).toBe(false);
+});
+
+test('does not promote legacy pixel tracker boxes into normalized bounding box', () => {
+  const normalized = normalizeTrackingTelemetry({
+    tracker_data: {
+      position_2d: [0.3, -0.2],
+      bbox: [100, 120, 30, 40],
+      bbox_pixel: [100, 120, 30, 40],
+    },
+    timestamp: 1717200000.0,
+  });
+
+  expect(normalized.center).toEqual([0.3, -0.2]);
+  expect(normalized.bounding_box).toBeNull();
+  expect(normalized.fields.bbox).toEqual([100, 120, 30, 40]);
+  expect(normalized.fields.bbox_pixel).toEqual([100, 120, 30, 40]);
 });
 
 test('normalizes legacy follower telemetry setpoints for history plots', () => {

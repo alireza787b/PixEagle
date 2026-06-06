@@ -112,9 +112,9 @@ are PixEagle-local signals, not PX4-observed Offboard or vehicle-response proof.
 The dashboard Follower visualization page now uses
 `GET /api/v1/following/telemetry` for follower/setpoint history snapshots and
 falls back to `/telemetry/follower_data` only when the typed route is missing
-during rolling updates. Its tracker center/bounding-box history still reads the
-legacy tracker telemetry route until a typed tracker-history contract replaces
-that path.
+during rolling updates. Its tracker center/bounding-box plots use
+`GET /api/v1/tracking/telemetry`, with legacy `/telemetry/tracker_data` fallback
+only when the typed tracker route is missing during rolling updates.
 
 ---
 

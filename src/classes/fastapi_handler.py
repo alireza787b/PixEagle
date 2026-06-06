@@ -12,6 +12,7 @@ import numpy as np
 import logging
 import time
 import hashlib
+import math
 from typing import Any, Dict, Literal, Optional, Set, Tuple, List
 from collections import deque
 from dataclasses import dataclass
@@ -66,6 +67,7 @@ API_V1_FOLLOWING_STATUS_PATH = "/api/v1/following/status"
 API_V1_FOLLOWING_TELEMETRY_PATH = "/api/v1/following/telemetry"
 API_V1_TELEMETRY_HEALTH_PATH = "/api/v1/telemetry/health"
 API_V1_TRACKING_RUNTIME_STATUS_PATH = "/api/v1/tracking/runtime-status"
+API_V1_TRACKING_TELEMETRY_PATH = "/api/v1/tracking/telemetry"
 SITL_VALIDATION_INJECTION_PATHS = {
     SITL_TRACKER_OUTPUT_INJECTION_PATH,
     SITL_VIDEO_STALL_INJECTION_PATH,
@@ -90,6 +92,10 @@ FOLLOWING_TELEMETRY_CLAIM_BOUNDARY = (
     "not PX4-observed Offboard, SITL, HIL, field, or vehicle-response proof."
 )
 TRACKER_OUTPUT_UNSET = object()
+TRACKING_TELEMETRY_CLAIM_BOUNDARY = (
+    "PixEagle process-local tracker telemetry and geometry snapshots only; "
+    "not PX4, SITL, HIL, field, follower-response, or vehicle-response proof."
+)
 
 
 # Models
@@ -405,6 +411,49 @@ class APITrackingRuntimeStatusResponse(BaseModel):
     timestamp: float
 
 
+class APITrackingTelemetryResponse(BaseModel):
+    """Typed tracker telemetry/geometry snapshot for dashboard/API/MCP consumers."""
+
+    schema_version: int = 1
+    source: Literal["tracking_telemetry"] = "tracking_telemetry"
+    status: Literal[
+        "no_output",
+        "visible_output",
+        "active_usable",
+        "not_usable",
+        "stale_output",
+        "unavailable",
+    ]
+    consumer_guidance: Literal[
+        "no_output",
+        "diagnostic_only",
+        "usable",
+        "not_usable",
+        "stale",
+        "unavailable",
+    ]
+    has_output: bool
+    active_tracking: bool
+    tracking_active: bool = False
+    tracker_started: bool = False
+    usable_for_following: bool
+    data_is_stale: bool
+    center: Optional[List[float]] = None
+    bounding_box: Optional[List[float]] = None
+    fields: Dict[str, Any] = Field(default_factory=dict)
+    tracker_data: Dict[str, Any] = Field(default_factory=dict)
+    field_source: Literal[
+        "tracker_output",
+        "legacy_telemetry",
+        "unavailable",
+    ] = "unavailable"
+    runtime_status: APITrackingRuntimeStatusResponse
+    legacy_payload_keys: List[str] = Field(default_factory=list)
+    reason: Optional[str] = None
+    claim_boundary: str = TRACKING_TELEMETRY_CLAIM_BOUNDARY
+    timestamp: float
+
+
 ACTION_ERROR_RESPONSES = {
     status.HTTP_404_NOT_FOUND: {
         "model": APIErrorResponse,
@@ -454,6 +503,12 @@ TRACKING_RUNTIME_STATUS_ERROR_RESPONSES = {
     status.HTTP_500_INTERNAL_SERVER_ERROR: {
         "model": APIErrorResponse,
         "description": "Tracker runtime status could not be evaluated.",
+    },
+}
+TRACKING_TELEMETRY_ERROR_RESPONSES = {
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {
+        "model": APIErrorResponse,
+        "description": "Tracker telemetry could not be evaluated.",
     },
 }
 
@@ -1081,6 +1136,13 @@ class FastAPIHandler:
             operation_id="get_tracking_runtime_status",
             tags=["tracking"],
         )(self.get_tracking_runtime_status)
+        self.app.get(
+            "/api/v1/tracking/telemetry",
+            response_model=APITrackingTelemetryResponse,
+            responses=TRACKING_TELEMETRY_ERROR_RESPONSES,
+            operation_id="get_tracking_telemetry",
+            tags=["tracking"],
+        )(self.get_tracking_telemetry)
         self.app.get("/stats")(self.get_streaming_stats)
         self.app.get("/api/video/health")(self.get_video_health)
         self.app.post("/api/video/reconnect")(self.reconnect_video)
@@ -2775,6 +2837,19 @@ class FastAPIHandler:
                 path=API_V1_TRACKING_RUNTIME_STATUS_PATH,
             )
 
+    async def get_tracking_telemetry(self):
+        """Return typed tracker telemetry/geometry for API/MCP/dashboard consumers."""
+        try:
+            return self._get_tracking_telemetry_snapshot()
+        except Exception as e:
+            self.logger.error(f"Error in get_tracking_telemetry: {e}")
+            return self._api_v1_error_response(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                code="tracking_telemetry_error",
+                detail=str(e),
+                path=API_V1_TRACKING_TELEMETRY_PATH,
+            )
+
     async def get_video_health(self):
         """Get video subsystem health for degraded-mode observability."""
         try:
@@ -3806,10 +3881,29 @@ class FastAPIHandler:
             telemetry = {}
         return telemetry if isinstance(telemetry, dict) else {}
 
+    def _get_legacy_tracker_telemetry_snapshot(self) -> Dict[str, Any]:
+        """Return the current tracker telemetry payload without route wrapping."""
+        telemetry_handler = getattr(self, "telemetry_handler", None)
+        if telemetry_handler and hasattr(telemetry_handler, "get_tracker_data"):
+            telemetry = telemetry_handler.get_tracker_data()
+        elif telemetry_handler and hasattr(telemetry_handler, "latest_tracker_data"):
+            telemetry = telemetry_handler.latest_tracker_data
+        else:
+            telemetry = {}
+        return telemetry if isinstance(telemetry, dict) else {}
+
     @staticmethod
     def _coerce_mapping(value: Any) -> Dict[str, Any]:
         """Return a shallow dict when value is mapping-like, otherwise empty."""
         return value if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _first_present(*values: Any) -> Any:
+        """Return the first candidate that is not None without truth-value coercion."""
+        for value in values:
+            if value is not None:
+                return value
+        return None
 
     @staticmethod
     def _serialize_command_intent(intent: Any) -> Optional[Dict[str, Any]]:
@@ -4036,6 +4130,184 @@ class FastAPIHandler:
             smart_mode_active=smart_mode_active,
             following_active=following_active,
         )
+
+    @staticmethod
+    def _optional_float_list(
+        value: Any,
+        *,
+        expected_length: Optional[int] = None,
+        normalized: bool = False,
+    ) -> Optional[List[float]]:
+        """Return a JSON-friendly float list for tracker geometry arrays."""
+        if value is None:
+            return None
+        if isinstance(value, np.ndarray):
+            value = value.tolist()
+        if isinstance(value, (list, tuple)):
+            if expected_length is not None and len(value) != expected_length:
+                return None
+            try:
+                items = [float(item) for item in value]
+            except (TypeError, ValueError):
+                return None
+            if not all(math.isfinite(item) for item in items):
+                return None
+            if normalized and any(item < 0.0 or item > 1.0 for item in items):
+                return None
+            return items
+        return None
+
+    @staticmethod
+    def _sanitize_tracking_field_value(value: Any) -> Any:
+        """Return JSON-safe tracker field values with non-finite numbers nulled."""
+        if isinstance(value, bool) or value is None:
+            return value
+        if isinstance(value, (int, float)):
+            return value if math.isfinite(float(value)) else None
+        if isinstance(value, np.ndarray):
+            value = value.tolist()
+        if isinstance(value, (list, tuple)):
+            return [
+                FastAPIHandler._sanitize_tracking_field_value(item)
+                for item in value
+            ]
+        if isinstance(value, dict):
+            return {
+                str(key): sanitized
+                for key, item in value.items()
+                if (sanitized := FastAPIHandler._sanitize_tracking_field_value(item))
+                is not None
+            }
+        return value
+
+    @staticmethod
+    def _tracker_output_to_field_map(tracker_output: Any) -> Dict[str, Any]:
+        """Serialize a TrackerOutput-like object into JSON-safe telemetry fields."""
+        if tracker_output in (None, TRACKER_OUTPUT_UNSET):
+            return {}
+
+        if hasattr(tracker_output, "to_dict"):
+            encoded = jsonable_encoder(tracker_output.to_dict())
+        else:
+            encoded = jsonable_encoder(getattr(tracker_output, "__dict__", {}))
+
+        if not isinstance(encoded, dict):
+            return {}
+
+        return {
+            key: sanitized
+            for key, value in encoded.items()
+            if (sanitized := FastAPIHandler._sanitize_tracking_field_value(value))
+            is not None
+        }
+
+    @staticmethod
+    def _position_3d_projection(value: Any) -> Optional[List[float]]:
+        """Return the 2D projection of a 3D tracker coordinate if valid."""
+        if isinstance(value, np.ndarray):
+            value = value.tolist()
+        if isinstance(value, (list, tuple)) and len(value) >= 2:
+            return list(value[:2])
+        return None
+
+    def _get_tracking_telemetry_snapshot(self) -> Dict[str, Any]:
+        """Return typed tracker telemetry/geometry snapshot used by dashboard plots."""
+        tracker_output = TRACKER_OUTPUT_UNSET
+        app_controller = getattr(self, "app_controller", None)
+        if app_controller and hasattr(app_controller, "get_tracker_output"):
+            try:
+                tracker_output = app_controller.get_tracker_output()
+            except Exception:
+                tracker_output = TRACKER_OUTPUT_UNSET
+
+        runtime_status = self._get_tracker_runtime_status_snapshot(
+            tracker_output=tracker_output,
+        )
+        output_fields = self._tracker_output_to_field_map(tracker_output)
+        legacy_telemetry = (
+            {}
+            if output_fields
+            else self._get_legacy_tracker_telemetry_snapshot()
+        )
+        legacy_tracker_data = self._coerce_mapping(
+            legacy_telemetry.get("tracker_data")
+        ).copy()
+        tracker_data = output_fields.copy() or legacy_tracker_data.copy()
+
+        if output_fields:
+            center_candidate = self._first_present(
+                output_fields.get("position_2d"),
+                output_fields.get("center"),
+                self._position_3d_projection(output_fields.get("position_3d")),
+            )
+            bbox_candidate = output_fields.get("normalized_bbox")
+        else:
+            center_candidate = self._first_present(
+                legacy_telemetry.get("center"),
+                legacy_tracker_data.get("position_2d"),
+                legacy_tracker_data.get("center"),
+                self._position_3d_projection(legacy_tracker_data.get("position_3d")),
+            )
+            bbox_candidate = self._first_present(
+                legacy_telemetry.get("bounding_box"),
+                legacy_tracker_data.get("normalized_bbox"),
+            )
+
+        center = self._optional_float_list(
+            center_candidate,
+            expected_length=2,
+        )
+        bounding_box = self._optional_float_list(
+            bbox_candidate,
+            expected_length=4,
+            normalized=True,
+        )
+
+        if center is not None:
+            tracker_data.setdefault("position_2d", center)
+        if bounding_box is not None:
+            tracker_data.setdefault("normalized_bbox", bounding_box)
+
+        has_geometry = bool(
+            center is not None or bounding_box is not None or tracker_data
+        )
+        if not has_geometry:
+            field_source = "unavailable"
+        elif output_fields:
+            field_source = "tracker_output"
+        else:
+            field_source = "legacy_telemetry"
+
+        active_tracking = bool(runtime_status["active_tracking"])
+        legacy_tracker_started = legacy_telemetry.get("tracker_started")
+        tracker_started = (
+            legacy_tracker_started
+            if isinstance(legacy_tracker_started, bool)
+            else active_tracking
+        )
+
+        return {
+            "schema_version": 1,
+            "source": "tracking_telemetry",
+            "status": runtime_status["status"],
+            "consumer_guidance": runtime_status["consumer_guidance"],
+            "has_output": bool(runtime_status["has_output"]),
+            "active_tracking": active_tracking,
+            "tracking_active": active_tracking,
+            "tracker_started": tracker_started,
+            "usable_for_following": bool(runtime_status["usable_for_following"]),
+            "data_is_stale": bool(runtime_status["data_is_stale"]),
+            "center": center,
+            "bounding_box": bounding_box,
+            "fields": tracker_data.copy(),
+            "tracker_data": tracker_data.copy(),
+            "field_source": field_source,
+            "runtime_status": runtime_status,
+            "legacy_payload_keys": sorted(str(key) for key in legacy_telemetry.keys()),
+            "reason": runtime_status.get("reason"),
+            "claim_boundary": TRACKING_TELEMETRY_CLAIM_BOUNDARY,
+            "timestamp": time.time(),
+        }
 
     def _get_tracker_following_readiness(self) -> Dict[str, Any]:
         """

@@ -13,9 +13,9 @@ http://127.0.0.1:5077
 | Category | Endpoints | Description |
 |----------|-----------|-------------|
 | [Streaming](#streaming) | `/video_feed`, `/ws/video_feed` | Video streaming |
-| [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/v1/telemetry/health` | System data and typed health |
+| [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/v1/tracking/telemetry`, `/api/v1/telemetry/health` | System data and typed health |
 | [Commands](#commands) | `/commands/*` | Control operations |
-| [Tracker](#tracker-api) | `/api/v1/tracking/runtime-status`, `/api/tracker/*` | Typed tracker runtime status and legacy tracker management |
+| [Tracker](#tracker-api) | `/api/v1/tracking/runtime-status`, `/api/v1/tracking/telemetry`, `/api/tracker/*` | Typed tracker runtime/telemetry and legacy tracker management |
 | [Follower](#follower-api) | `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/follower/*` | Typed following status/telemetry and legacy follower management |
 | [Config](#configuration-api) | `/api/config/*` | Configuration |
 | [Safety](#safety-api) | `/api/safety/*` | Safety settings |
@@ -97,6 +97,11 @@ that decide whether output can drive follower control must also inspect
 `has_output`, `usable_for_following`, and `data_is_stale`. External trackers can
 produce visible diagnostic output while target tracking is inactive or stale;
 the dashboard treats that as visible output, not a usable target.
+
+New consumers should use `GET /api/v1/tracking/runtime-status` for readiness
+and `GET /api/v1/tracking/telemetry` for current tracker geometry. The legacy
+route remains for compatibility and rolling-update fallback while clients are
+migrated.
 
 ### Follower Data
 
@@ -304,9 +309,9 @@ follower-history snapshots consume this route through the endpoint registry and
 fall back to `/telemetry/follower_data` only when the typed route is missing
 during rolling updates. The dashboard normalizer exposes `fields` and legacy
 top-level aliases such as `vel_x`/`vel_y` for existing chart components.
-Tracker center/bounding-box history on the Follower visualization page still
-reads `/telemetry/tracker_data` until a separate typed tracker-history contract
-exists.
+Tracker center/bounding-box plots on the Follower visualization page consume
+`GET /api/v1/tracking/telemetry`, with legacy `/telemetry/tracker_data` fallback
+only when the typed tracker telemetry route is missing.
 
 ### System Status
 
@@ -484,8 +489,8 @@ telemetry and Follower visualization follower/setpoint history use
 `/api/v1/following/telemetry`. During rolling updates, these hooks/pages fall
 back to legacy `/telemetry/follower_data` only when the matching typed route is
 missing, and they ignore stale out-of-order responses. Follower visualization
-tracker center/bounding-box history still reads `/telemetry/tracker_data` until
-a typed tracker-history contract is migrated.
+tracker center/bounding-box plots use `/api/v1/tracking/telemetry` with legacy
+`/telemetry/tracker_data` fallback only when the typed tracker route is missing.
 
 Dashboard tracker status uses `/api/v1/tracking/runtime-status` through the
 endpoint registry and normalizes tracker output into distinct operator states:
@@ -543,6 +548,78 @@ is useful for diagnostics, not for autonomous following. `status=stale_output`
 and `status=not_usable` must be treated as fail-closed for Offboard/follower
 entry. The typed route uses the `/api/v1` structured error envelope on server
 failures.
+
+### Tracker Telemetry
+
+```http
+GET /api/v1/tracking/telemetry
+```
+
+Typed process-local tracker telemetry and geometry snapshot for dashboard/API/
+MCP consumers. Use this route for current tracker center, bounding box, and
+plot history samples instead of parsing `/telemetry/tracker_data`.
+
+**Response:**
+```json
+{
+  "schema_version": 1,
+  "source": "tracking_telemetry",
+  "status": "active_usable",
+  "consumer_guidance": "usable",
+  "has_output": true,
+  "active_tracking": true,
+  "tracking_active": true,
+  "tracker_started": true,
+  "usable_for_following": true,
+  "data_is_stale": false,
+  "center": [0.2, -0.1],
+  "bounding_box": [0.1, 0.2, 0.3, 0.4],
+  "fields": {
+    "data_type": "POSITION_2D",
+    "tracker_id": "vision_tracker",
+    "position_2d": [0.2, -0.1],
+    "normalized_bbox": [0.1, 0.2, 0.3, 0.4],
+    "confidence": 0.8
+  },
+  "tracker_data": {
+    "data_type": "POSITION_2D",
+    "tracker_id": "vision_tracker",
+    "position_2d": [0.2, -0.1],
+    "normalized_bbox": [0.1, 0.2, 0.3, 0.4],
+    "confidence": 0.8
+  },
+  "field_source": "tracker_output",
+  "runtime_status": {
+    "schema_version": 1,
+    "source": "tracker_runtime",
+    "status": "active_usable",
+    "consumer_guidance": "usable",
+    "has_output": true,
+    "active_tracking": true,
+    "usable_for_following": true,
+    "data_is_stale": false,
+    "target_count": 0,
+    "output_fields": ["position_2d", "normalized_bbox"],
+    "smart_mode_active": true,
+    "following_active": false,
+    "claim_boundary": "PixEagle local tracker runtime status only; not PX4, SITL, HIL, field, or follower-response proof.",
+    "timestamp": 1717200000.0
+  },
+  "legacy_payload_keys": [],
+  "reason": null,
+  "claim_boundary": "PixEagle process-local tracker telemetry and geometry snapshots only; not PX4, SITL, HIL, field, follower-response, or vehicle-response proof.",
+  "timestamp": 1717200000.0
+}
+```
+
+`field_source` is one of `tracker_output`, `legacy_telemetry`, or
+`unavailable`. Live `TrackerOutput` fields are preferred; legacy tracker
+telemetry is used only as a compatibility fallback. Top-level `bounding_box` is
+normalized-only; pixel boxes remain in explicit fields such as `fields.bbox`.
+This route is not server-side history. Dashboard pages append bounded
+client-side history from successive snapshots and ignore stale out-of-order
+responses. It does not prove PX4, SITL, HIL, field, follower-response, or
+vehicle-response success.
 
 ---
 

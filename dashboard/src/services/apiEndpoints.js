@@ -67,6 +67,7 @@ export const endpoints = {
   followingTelemetry: `${apiBaseUrl}/api/v1/following/telemetry`,
   telemetryHealth: `${apiBaseUrl}/api/v1/telemetry/health`,
   trackerRuntimeStatus: `${apiBaseUrl}/api/v1/tracking/runtime-status`,
+  trackingTelemetry: `${apiBaseUrl}/api/v1/tracking/telemetry`,
   trackerCurrentStatus: `${apiBaseUrl}/api/tracker/current-status`,
   trackerSchema: `${apiBaseUrl}/api/tracker/schema`,
   trackerOutput: `${apiBaseUrl}/api/tracker/output`,

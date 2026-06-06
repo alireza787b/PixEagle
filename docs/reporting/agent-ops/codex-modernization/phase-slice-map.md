@@ -71,6 +71,7 @@ it together with:
 | Phase 4 typed following status | done | PXE-0046 | `checkpoints/2026-06-06-phase-4-typed-following-status.md`; typed `/api/v1/following/status`, follower profile and OffboardCommander publication summary, fail-closed following readiness classification, dashboard follower-status hook migration with legacy telemetry fallback and stale-response guards, route inventory/frontend/backend tests, and follower integration docs correction done |
 | Phase 4 typed following telemetry | done | PXE-0047 | `checkpoints/2026-06-06-phase-4-typed-following-telemetry.md`; typed `/api/v1/following/telemetry`, live setpoint-field snapshot with compatibility fallback, optional target-loss/safety/performance diagnostics, dashboard detailed follower-card hook migration with stale-response guards, route inventory/frontend/backend tests, and docs/reporting updates done |
 | Phase 4 Follower visualization typed telemetry history | done | PXE-0048 | `checkpoints/2026-06-06-phase-4-follower-page-typed-telemetry-history.md`; Follower visualization page now uses endpoint registry plus typed `/api/v1/following/telemetry` for follower/setpoint history snapshots, legacy route fallback only for missing typed routes, chart-compatible field aliases, bounded history/log growth, initial refresh, stale-response guards, and focused frontend tests |
+| Phase 4 typed tracker telemetry history | done | PXE-0049 | `checkpoints/2026-06-06-phase-4-typed-tracker-telemetry-history.md`; typed `/api/v1/tracking/telemetry`, live TrackerOutput geometry fields with compatibility fallback, embedded runtime status, Follower visualization tracker plot migration, route inventory/backend/frontend tests, and docs/reporting updates done |
 
 ## Active Slice
 
@@ -87,10 +88,11 @@ the small nav/status boolean. PXE-0047 is done for typed process-local following
 telemetry and dashboard detailed follower-card migration off legacy
 `/telemetry/follower_data`. PXE-0048 is done for the Follower visualization
 page's follower/setpoint history migration to typed
-`/api/v1/following/telemetry`; that page still uses legacy
-`/telemetry/tracker_data` for tracker center/bounding-box history until a typed
-tracker-history contract is designed. These are still unit/contract evidence
-only; no runtime PX4/SITL pass is claimed. Official Gazebo runtime proof (PXE-0040)
+`/api/v1/following/telemetry`. PXE-0049 is done for typed tracker telemetry
+and the Follower visualization page's tracker center/bounding-box migration to
+`/api/v1/tracking/telemetry`, with legacy fallback only when the typed route is
+missing. These are still unit/contract evidence only; no runtime PX4/SITL pass
+is claimed. Official Gazebo runtime proof (PXE-0040)
 remains open for a native GUI/GPU host, stronger headless runner, or separately
 proven official-image startup workaround. Official SIH L2 probing starts a
 pinned PX4 container and collects metadata/params/ULog/bounded logs, but no
@@ -119,6 +121,7 @@ Audit artifact:
 - `checkpoints/2026-06-06-phase-4-typed-following-status.md`
 - `checkpoints/2026-06-06-phase-4-typed-following-telemetry.md`
 - `checkpoints/2026-06-06-phase-4-follower-page-typed-telemetry-history.md`
+- `checkpoints/2026-06-06-phase-4-typed-tracker-telemetry-history.md`
 
 Recently completed Offboard commander follow-up issues:
 
@@ -248,10 +251,17 @@ Recently completed Offboard commander follow-up issues:
   through the endpoint registry, falls back to legacy follower telemetry only
   when the typed route is missing, normalizes typed/legacy field maps into
   chart-compatible aliases, bounds history/log growth, performs an initial
-  refresh, and ignores stale out-of-order responses. Tracker center/bounding-box
-  history remains on legacy tracker telemetry until a separate typed
-  tracker-history contract is designed. Done in
+  refresh, and ignores stale out-of-order responses. The companion tracker plot
+  migration is closed under PXE-0049. Done in
   `checkpoints/2026-06-06-phase-4-follower-page-typed-telemetry-history.md`.
+- PXE-0049: typed process-local tracker telemetry now has
+  `GET /api/v1/tracking/telemetry`, live `TrackerOutput` geometry/field
+  snapshots with a declared `field_source`, embedded runtime status,
+  compatibility fallback to legacy tracker telemetry, structured `/api/v1`
+  errors, dashboard Follower visualization tracker-plot adoption through the
+  endpoint registry, fallback only for missing typed routes, timestamp
+  normalization, stale response guards, and updated API/follower docs. Done in
+  `checkpoints/2026-06-06-phase-4-typed-tracker-telemetry-history.md`.
 
 Objective:
 

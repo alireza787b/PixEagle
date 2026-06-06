@@ -44,12 +44,15 @@ jest.mock('../components/FollowerProfileSelector', () => () => (
 ));
 
 jest.mock('../components/ScopePlot', () => ({ trackerData, followerData }) => {
+  const latestTracker = trackerData[trackerData.length - 1] || {};
   const latestFollower = followerData[followerData.length - 1] || {};
   return (
     <div data-testid="scope-plot">
       {[
         `tracker:${trackerData.length}`,
         `follower:${followerData.length}`,
+        `tracker_center:${latestTracker.center ? latestTracker.center.join(',') : 'none'}`,
+        `tracker_timestamp:${latestTracker.timestamp ?? 'none'}`,
         `vel_x:${latestFollower.vel_x ?? 'none'}`,
         `timestamp:${latestFollower.timestamp ?? 'none'}`,
       ].join(';')}
@@ -79,6 +82,52 @@ const trackerPayload = {
   timestamp: '2026-06-06T00:00:00.000Z',
   center: [0.1, 0.2],
   bounding_box: [0, 0, 0.1, 0.1],
+  tracker_data: {
+    legacy_mode: true,
+    position_2d: [0.1, 0.2],
+    normalized_bbox: [0, 0, 0.1, 0.1],
+  },
+};
+
+const typedTrackingTelemetry = {
+  schema_version: 1,
+  source: 'tracking_telemetry',
+  status: 'active_usable',
+  consumer_guidance: 'usable',
+  has_output: true,
+  active_tracking: true,
+  tracking_active: true,
+  tracker_started: true,
+  usable_for_following: true,
+  data_is_stale: false,
+  center: [0.1, 0.2],
+  bounding_box: [0, 0, 0.1, 0.1],
+  fields: {
+    data_type: 'POSITION_2D',
+    tracker_id: 'vision_tracker',
+    position_2d: [0.1, 0.2],
+    normalized_bbox: [0, 0, 0.1, 0.1],
+  },
+  field_source: 'tracker_output',
+  timestamp: 1717200000.0,
+};
+
+const noOutputTrackingTelemetry = {
+  schema_version: 1,
+  source: 'tracking_telemetry',
+  status: 'no_output',
+  consumer_guidance: 'no_output',
+  has_output: false,
+  active_tracking: false,
+  tracking_active: false,
+  tracker_started: false,
+  usable_for_following: false,
+  data_is_stale: false,
+  center: null,
+  bounding_box: null,
+  fields: {},
+  field_source: 'unavailable',
+  timestamp: 1717200000.0,
 };
 
 const typedFollowingTelemetry = {
@@ -106,8 +155,50 @@ afterEach(() => {
   jest.clearAllMocks();
 });
 
-test('polls typed following telemetry for follower history visualization', async () => {
+test('polls typed tracking and following telemetry for follower history visualization', async () => {
   axios.get.mockImplementation((url) => {
+    if (url === endpoints.trackingTelemetry) {
+      return Promise.resolve({ status: 200, data: typedTrackingTelemetry });
+    }
+    if (url === endpoints.followingTelemetry) {
+      return Promise.resolve({ status: 200, data: typedFollowingTelemetry });
+    }
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  render(<FollowerPage />);
+
+  expect(await screen.findByText('vel_body_fwd:1.25')).toBeInTheDocument();
+  expect(screen.getByTestId('scope-plot')).toHaveTextContent('tracker:1;follower:1');
+  expect(screen.getByTestId('scope-plot')).toHaveTextContent('tracker_center:0.1,0.2');
+  expect(screen.getByTestId('scope-plot')).toHaveTextContent('tracker_timestamp:2024-06-01T00:00:00.000Z');
+  expect(screen.getByTestId('scope-plot')).toHaveTextContent('vel_x:1.25');
+  expect(screen.getByTestId('scope-plot')).toHaveTextContent('timestamp:2024-06-01T00:00:00.000Z');
+  expect(axios.get).toHaveBeenCalledWith(
+    endpoints.trackingTelemetry,
+    expect.objectContaining({
+      headers: expect.objectContaining({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      }),
+    })
+  );
+  expect(axios.get).toHaveBeenCalledWith(
+    endpoints.followingTelemetry,
+    expect.objectContaining({
+      headers: expect.objectContaining({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      }),
+    })
+  );
+  expect(axios.get).not.toHaveBeenCalledWith(endpoints.trackerData, expect.any(Object));
+  expect(axios.get).not.toHaveBeenCalledWith(endpoints.followerData, expect.any(Object));
+});
+
+test('falls back to legacy tracker telemetry only when typed route is missing', async () => {
+  axios.get.mockImplementation((url) => {
+    if (url === endpoints.trackingTelemetry) {
+      return Promise.reject({ response: { status: 404 } });
+    }
     if (url === endpoints.trackerData) {
       return Promise.resolve({ status: 200, data: trackerPayload });
     }
@@ -120,23 +211,36 @@ test('polls typed following telemetry for follower history visualization', async
   render(<FollowerPage />);
 
   expect(await screen.findByText('vel_body_fwd:1.25')).toBeInTheDocument();
-  expect(screen.getByTestId('scope-plot')).toHaveTextContent('tracker:1;follower:1;vel_x:1.25');
-  expect(screen.getByTestId('scope-plot')).toHaveTextContent('timestamp:2024-06-01T00:00:00.000Z');
-  expect(axios.get).toHaveBeenCalledWith(
-    endpoints.followingTelemetry,
-    expect.objectContaining({
-      headers: expect.objectContaining({
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-      }),
-    })
-  );
-  expect(axios.get).not.toHaveBeenCalledWith(endpoints.followerData, expect.any(Object));
+  expect(screen.getByTestId('scope-plot')).toHaveTextContent('tracker_center:0.1,0.2');
+  expect(screen.getByTestId('scope-plot')).toHaveTextContent('tracker_timestamp:2026-06-06T00:00:00.000Z');
+  expect(axios.get).toHaveBeenCalledWith(endpoints.trackingTelemetry, expect.any(Object));
+  expect(axios.get).toHaveBeenCalledWith(endpoints.trackerData, expect.any(Object));
+});
+
+test('does not invent tracker plot geometry for valid typed no-output snapshots', async () => {
+  axios.get.mockImplementation((url) => {
+    if (url === endpoints.trackingTelemetry) {
+      return Promise.resolve({ status: 200, data: noOutputTrackingTelemetry });
+    }
+    if (url === endpoints.followingTelemetry) {
+      return Promise.resolve({ status: 200, data: typedFollowingTelemetry });
+    }
+    return Promise.reject(new Error(`unexpected url ${url}`));
+  });
+
+  render(<FollowerPage />);
+
+  expect(await screen.findByText('vel_body_fwd:1.25')).toBeInTheDocument();
+  expect(screen.getByTestId('scope-plot')).toHaveTextContent('tracker:1;follower:1');
+  expect(screen.getByTestId('scope-plot')).toHaveTextContent('tracker_center:none');
+  expect(screen.getByTestId('scope-plot')).toHaveTextContent('tracker_timestamp:2024-06-01T00:00:00.000Z');
+  expect(axios.get).not.toHaveBeenCalledWith(endpoints.trackerData, expect.any(Object));
 });
 
 test('falls back to legacy follower telemetry only when typed route is missing', async () => {
   axios.get.mockImplementation((url) => {
-    if (url === endpoints.trackerData) {
-      return Promise.resolve({ status: 200, data: trackerPayload });
+    if (url === endpoints.trackingTelemetry) {
+      return Promise.resolve({ status: 200, data: typedTrackingTelemetry });
     }
     if (url === endpoints.followingTelemetry) {
       return Promise.reject({ response: { status: 404 } });
@@ -162,6 +266,7 @@ test('falls back to legacy follower telemetry only when typed route is missing',
 
   expect(await screen.findByText('vel_body_fwd:0.5')).toBeInTheDocument();
   expect(screen.getByTestId('scope-plot')).toHaveTextContent('vel_x:0.5');
+  expect(axios.get).not.toHaveBeenCalledWith(endpoints.trackerData, expect.any(Object));
   expect(axios.get).toHaveBeenCalledWith(endpoints.followingTelemetry, expect.any(Object));
   expect(axios.get).toHaveBeenCalledWith(endpoints.followerData, expect.any(Object));
 });
@@ -174,14 +279,14 @@ test('ignores stale out-of-order follower history responses', async () => {
   let followerRequests = 0;
 
   axios.get.mockImplementation((url) => {
-    if (url === endpoints.trackerData) {
+    if (url === endpoints.trackingTelemetry) {
       trackerRequests += 1;
       if (trackerRequests === 1) {
         return new Promise((resolve) => {
           resolveFirstTracker = resolve;
         });
       }
-      return Promise.resolve({ status: 200, data: trackerPayload });
+      return Promise.resolve({ status: 200, data: typedTrackingTelemetry });
     }
     if (url === endpoints.followingTelemetry) {
       followerRequests += 1;
@@ -209,8 +314,9 @@ test('ignores stale out-of-order follower history responses', async () => {
       resolveFirstTracker({
         status: 200,
         data: {
-          ...trackerPayload,
-          timestamp: '2026-06-05T23:59:59.000Z',
+          ...typedTrackingTelemetry,
+          center: [9.9, 9.9],
+          timestamp: 1717199999.0,
         },
       });
       resolveFirstFollower({

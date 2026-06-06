@@ -1367,6 +1367,193 @@ async def test_tracking_runtime_status_requires_explicit_usability_metadata():
 
 
 @pytest.mark.asyncio
+async def test_api_v1_tracking_telemetry_reports_live_tracker_geometry():
+    """Typed tracker telemetry exposes geometry without using the legacy route."""
+    tracker_output = _active_position_output()
+    tracker_output.normalized_bbox = (0.1, 0.2, 0.3, 0.4)
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=object(),
+        smart_mode_active=True,
+        following_active=False,
+        current_tracker_type="VisionTracker",
+        get_tracker_output=MagicMock(return_value=tracker_output),
+    )
+    handler.telemetry_handler = SimpleNamespace(
+        get_tracker_data=MagicMock(return_value={
+            "center": [9.0, 9.0],
+            "bounding_box": [0.9, 0.9, 0.1, 0.1],
+            "tracker_data": {
+                "position_2d": [9.0, 9.0],
+                "normalized_bbox": [0.9, 0.9, 0.1, 0.1],
+            },
+        })
+    )
+
+    payload = await handler.get_tracking_telemetry()
+
+    assert payload["schema_version"] == 1
+    assert payload["source"] == "tracking_telemetry"
+    assert payload["status"] == "active_usable"
+    assert payload["consumer_guidance"] == "usable"
+    assert payload["has_output"] is True
+    assert payload["active_tracking"] is True
+    assert payload["tracking_active"] is True
+    assert payload["tracker_started"] is True
+    assert payload["usable_for_following"] is True
+    assert payload["data_is_stale"] is False
+    assert payload["center"] == [0.2, -0.1]
+    assert payload["bounding_box"] == [0.1, 0.2, 0.3, 0.4]
+    assert payload["fields"]["position_2d"] == [0.2, -0.1]
+    assert payload["fields"]["normalized_bbox"] == [0.1, 0.2, 0.3, 0.4]
+    assert payload["field_source"] == "tracker_output"
+    assert payload["runtime_status"]["usable_for_following"] is True
+    assert payload["claim_boundary"].startswith(
+        "PixEagle process-local tracker telemetry"
+    )
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracking_telemetry_keeps_pixel_bbox_out_of_top_level_bbox():
+    """Top-level bounding_box must stay normalized-only for plot consumers."""
+    tracker_output = _active_position_output()
+    tracker_output.bbox = (100, 120, 30, 40)
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=object(),
+        smart_mode_active=True,
+        following_active=False,
+        current_tracker_type="VisionTracker",
+        get_tracker_output=MagicMock(return_value=tracker_output),
+    )
+    handler.telemetry_handler = SimpleNamespace(get_tracker_data=MagicMock(return_value={}))
+
+    payload = await handler.get_tracking_telemetry()
+
+    assert payload["center"] == [0.2, -0.1]
+    assert payload["bounding_box"] is None
+    assert payload["fields"]["bbox"] == [100, 120, 30, 40]
+    assert "normalized_bbox" not in payload["fields"]
+    assert payload["field_source"] == "tracker_output"
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracking_telemetry_live_output_does_not_depend_on_legacy_cache():
+    """Live TrackerOutput telemetry must not fail because legacy cache retrieval fails."""
+    tracker_output = _active_position_output()
+    tracker_output.normalized_bbox = (0.1, 0.2, 0.3, 0.4)
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=object(),
+        smart_mode_active=True,
+        following_active=False,
+        current_tracker_type="VisionTracker",
+        get_tracker_output=MagicMock(return_value=tracker_output),
+    )
+    handler.telemetry_handler = SimpleNamespace(
+        get_tracker_data=MagicMock(side_effect=RuntimeError("legacy cache failed"))
+    )
+
+    payload = await handler.get_tracking_telemetry()
+
+    assert payload["status"] == "active_usable"
+    assert payload["center"] == [0.2, -0.1]
+    assert payload["bounding_box"] == [0.1, 0.2, 0.3, 0.4]
+    assert payload["field_source"] == "tracker_output"
+    assert payload["legacy_payload_keys"] == []
+    handler.telemetry_handler.get_tracker_data.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracking_telemetry_rejects_malformed_top_level_geometry():
+    """Malformed or non-finite geometry must not enter top-level plot fields."""
+    tracker_output = _active_position_output()
+    tracker_output.position_2d = (float("inf"), 0.1)
+    tracker_output.normalized_bbox = (0.1, 0.2, 0.3)
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=object(),
+        smart_mode_active=True,
+        following_active=False,
+        current_tracker_type="VisionTracker",
+        get_tracker_output=MagicMock(return_value=tracker_output),
+    )
+    handler.telemetry_handler = SimpleNamespace(get_tracker_data=MagicMock(return_value={}))
+
+    payload = await handler.get_tracking_telemetry()
+
+    assert payload["center"] is None
+    assert payload["bounding_box"] is None
+    assert payload["fields"]["position_2d"] == [None, 0.1]
+    assert payload["fields"]["normalized_bbox"] == [0.1, 0.2, 0.3]
+    assert payload["field_source"] == "tracker_output"
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracking_telemetry_uses_legacy_snapshot_as_compatibility_source():
+    """The typed route can still report legacy tracker payloads for old internals."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=object(),
+        smart_mode_active=False,
+        following_active=False,
+        current_tracker_type="LegacyTracker",
+        get_tracker_output=MagicMock(return_value=None),
+    )
+    handler.telemetry_handler = SimpleNamespace(
+        get_tracker_data=MagicMock(return_value={
+            "timestamp": "2026-06-06T00:00:00.000Z",
+            "center": [0.3, -0.2],
+            "bounding_box": [0.2, 0.3, 0.4, 0.5],
+            "tracker_started": True,
+            "tracker_data": {
+                "position_2d": [0.3, -0.2],
+                "normalized_bbox": [0.2, 0.3, 0.4, 0.5],
+            },
+        })
+    )
+
+    payload = await handler.get_tracking_telemetry()
+
+    assert payload["status"] == "no_output"
+    assert payload["has_output"] is False
+    assert payload["tracker_started"] is True
+    assert payload["center"] == [0.3, -0.2]
+    assert payload["bounding_box"] == [0.2, 0.3, 0.4, 0.5]
+    assert payload["field_source"] == "legacy_telemetry"
+    assert payload["legacy_payload_keys"] == [
+        "bounding_box",
+        "center",
+        "timestamp",
+        "tracker_data",
+        "tracker_started",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracking_telemetry_returns_structured_error_on_failure():
+    """Typed tracker telemetry failures must use the shared error envelope."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler._get_tracking_telemetry_snapshot = MagicMock(
+        side_effect=RuntimeError("tracker telemetry failed")
+    )
+
+    response = await handler.get_tracking_telemetry()
+    payload = json.loads(response.body)
+
+    assert response.status_code == 500
+    assert payload["code"] == "tracking_telemetry_error"
+    assert payload["path"] == "/api/v1/tracking/telemetry"
+    assert "tracker telemetry failed" in payload["detail"]
+
+
+@pytest.mark.asyncio
 async def test_legacy_cancel_activities_route_records_action_audit():
     """Compatibility cancel route should leave a typed action audit record."""
     handler = object.__new__(FastAPIHandler)

@@ -108,7 +108,10 @@ curl http://127.0.0.1:5077/api/v1/telemetry/health
 # Check typed tracker runtime status
 curl http://127.0.0.1:5077/api/v1/tracking/runtime-status
 
-# Get telemetry
+# Check typed tracker telemetry/geometry snapshot
+curl http://127.0.0.1:5077/api/v1/tracking/telemetry
+
+# Get legacy tracker telemetry compatibility payload
 curl http://127.0.0.1:5077/telemetry/tracker_data
 
 # Video stream

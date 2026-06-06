@@ -15,6 +15,25 @@ export const buildNoCacheRequestConfig = () => ({
   params: { _t: Date.now() },
 });
 
+export const normalizeTelemetryTimestamp = (timestamp) => {
+  if (typeof timestamp === 'number' && Number.isFinite(timestamp)) {
+    const timestampMs = Math.abs(timestamp) < 1000000000000
+      ? timestamp * 1000
+      : timestamp;
+    return new Date(timestampMs).toISOString();
+  }
+  return timestamp;
+};
+
+const coerceFieldMap = (value) => (
+  value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+);
+
+const firstArrayValue = (...values) => {
+  const arrayValue = values.find((value) => Array.isArray(value));
+  return arrayValue || null;
+};
+
 export const useTrackerStatus = (interval = 2000) => {
   const [trackerStatus, setTrackerStatus] = useState(() => normalizeTrackerStatus(null, { pending: true }));
   const latestTrackerRequestIdRef = useRef(0);
@@ -164,6 +183,49 @@ export const isMissingFollowingTelemetryRoute = (fetchError) => (
   [404, 405, 501].includes(fetchError?.response?.status)
 );
 
+export const isMissingTrackingTelemetryRoute = (fetchError) => (
+  [404, 405, 501].includes(fetchError?.response?.status)
+);
+
+export const normalizeTrackingTelemetry = (data) => {
+  if (!data) {
+    return {};
+  }
+
+  const explicitFields = coerceFieldMap(data.fields);
+  const legacyTrackerData = coerceFieldMap(data.tracker_data);
+  const fields = Object.keys(explicitFields).length > 0 ? explicitFields : legacyTrackerData;
+  const center = firstArrayValue(
+    data.center,
+    fields.position_2d,
+    fields.center,
+    Array.isArray(fields.position_3d) ? fields.position_3d.slice(0, 2) : null,
+  );
+  const boundingBox = firstArrayValue(
+    data.bounding_box,
+    fields.normalized_bbox,
+  );
+  const activeTracking = Boolean(
+    data.active_tracking ?? data.tracking_active ?? data.tracker_started
+  );
+
+  return {
+    ...fields,
+    ...data,
+    fields,
+    tracker_data: Object.keys(legacyTrackerData).length > 0 ? legacyTrackerData : fields,
+    center,
+    bounding_box: boundingBox,
+    timestamp: normalizeTelemetryTimestamp(data.timestamp ?? fields.timestamp),
+    active_tracking: activeTracking,
+    tracking_active: activeTracking,
+    tracker_started: Boolean(data.tracker_started ?? activeTracking),
+    has_output: Boolean(data.has_output ?? fields.has_output ?? center ?? boundingBox),
+    usable_for_following: Boolean(data.usable_for_following ?? fields.usable_for_following),
+    data_is_stale: Boolean(data.data_is_stale ?? fields.data_is_stale),
+  };
+};
+
 export const useFollowerStatus = (interval = 2000) => {
   const [isFollowing, setIsFollowing] = useState(false);
   const mountedRef = useRef(false);
@@ -217,22 +279,10 @@ export const normalizeFollowingTelemetry = (data) => {
     return {};
   }
 
-  const normalizeTimestamp = (timestamp) => {
-    if (typeof timestamp === 'number' && Number.isFinite(timestamp)) {
-      const timestampMs = Math.abs(timestamp) < 1000000000000
-        ? timestamp * 1000
-        : timestamp;
-      return new Date(timestampMs).toISOString();
-    }
-    return timestamp;
-  };
-  const coerceFieldMap = (value) => (
-    value && typeof value === 'object' && !Array.isArray(value) ? value : {}
-  );
   const explicitFields = coerceFieldMap(data.fields);
   const setpointFields = coerceFieldMap(data.setpoints);
   const fields = Object.keys(explicitFields).length > 0 ? explicitFields : setpointFields;
-  const normalizedTimestamp = normalizeTimestamp(data.timestamp);
+  const normalizedTimestamp = normalizeTelemetryTimestamp(data.timestamp);
   const legacyVelocityAliases = {
     ...(data.vel_x === undefined && fields.vel_body_fwd !== undefined
       ? { vel_x: fields.vel_body_fwd }

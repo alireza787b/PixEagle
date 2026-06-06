@@ -73,6 +73,7 @@ class FastAPIHandler:
 | `/api/v1/following/telemetry` | GET | Typed follower telemetry/setpoint snapshot |
 | `/api/v1/telemetry/health` | GET | Typed MAVLink2REST request/payload health |
 | `/api/v1/tracking/runtime-status` | GET | Typed tracker output/readiness status |
+| `/api/v1/tracking/telemetry` | GET | Typed tracker telemetry/geometry snapshot |
 | `/stats` | GET | Streaming statistics |
 
 `/telemetry/tracker_data` is a legacy compatibility payload, but it includes
@@ -88,6 +89,15 @@ New dashboard/API/MCP consumers should prefer
 boundary. `usable_for_following=true` is the fail-closed control gate;
 `active_tracking=true` alone is not enough because stale or explicitly unusable
 tracker output can still report an active target.
+
+Consumers that need current tracker geometry for plots or diagnostics should
+use `GET /api/v1/tracking/telemetry`. It returns a process-local typed snapshot
+with `center`, `bounding_box`, `fields`, `tracker_data`, `field_source`, the
+embedded runtime status, legacy payload key inventory, and an explicit claim
+boundary. The route prefers live `TrackerOutput` fields and falls back to the
+legacy telemetry snapshot only as a compatibility source. Top-level
+`bounding_box` is normalized-only; pixel boxes remain in explicit fields such
+as `fields.bbox`.
 
 ### Typed Runtime Status Endpoint
 
@@ -154,8 +164,9 @@ follower-history snapshots now consume this typed route through the endpoint
 registry, with fallback to `/telemetry/follower_data` only when the typed route
 is missing during rolling updates. The frontend normalizer exposes `fields`
 plus legacy plot aliases such as `vel_x`/`vel_y` so existing charts can render
-the typed setpoint fields. Tracker center/bounding-box history still reads the
-legacy tracker telemetry route until a typed tracker-history contract exists.
+the typed setpoint fields. The same page now consumes typed tracker telemetry
+from `/api/v1/tracking/telemetry` for tracker center/bounding-box plots, with
+legacy `/telemetry/tracker_data` fallback only when the typed route is missing.
 
 ### Typed Telemetry Health Endpoint
 
@@ -226,6 +237,7 @@ they do not accept confirmation, dry-run, or idempotency request fields.
 | `/api/v1/following/status` | GET | Typed process-local following/readiness contract |
 | `/api/v1/following/telemetry` | GET | Typed follower telemetry/setpoint snapshot |
 | `/api/v1/tracking/runtime-status` | GET | Typed tracker runtime/readiness contract |
+| `/api/v1/tracking/telemetry` | GET | Typed tracker telemetry/geometry snapshot |
 | `/api/tracker/schema` | GET | Tracker schema |
 | `/api/tracker/switch` | POST | Switch tracker type |
 | `/api/follower/profiles` | GET | Available profiles |
