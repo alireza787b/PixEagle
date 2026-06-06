@@ -73,6 +73,7 @@ it together with:
 | Phase 4 Follower visualization typed telemetry history | done | PXE-0048 | `checkpoints/2026-06-06-phase-4-follower-page-typed-telemetry-history.md`; Follower visualization page now uses endpoint registry plus typed `/api/v1/following/telemetry` for follower/setpoint history snapshots, legacy route fallback only for missing typed routes, chart-compatible field aliases, bounded history/log growth, initial refresh, stale-response guards, and focused frontend tests |
 | Phase 4 typed tracker telemetry history | done | PXE-0049 | `checkpoints/2026-06-06-phase-4-typed-tracker-telemetry-history.md`; typed `/api/v1/tracking/telemetry`, live TrackerOutput geometry fields with compatibility fallback, embedded runtime status, Follower visualization tracker plot migration, route inventory/backend/frontend tests, and docs/reporting updates done |
 | Phase 4 API/MCP candidate inventory | done | PXE-0050 | `checkpoints/2026-06-06-phase-4-api-tool-candidate-inventory.md`; generated non-callable `/api/v1` candidate inventory, source hash, risk/sensitivity classification, action/SITL read-only promotion blocks, agent-context docs, generator drift gate in CI/phase0-check, and focused candidate tests done; no MCP endpoint, registry, `tools/list`, or callable tool exposure added |
+| Phase 4 docs-stage agent registry and policy | done | PXE-0051 | `checkpoints/2026-06-06-phase-4-docs-stage-agent-registry-policy.md`; review-only `agent_tools.yaml` and default-deny `agent_policy.yaml` added for the six typed process-local status/telemetry GET candidates; generator coverage now detects unsafe registry/policy drift; all tools remain `callable: false`, `mcp_exposure: none`, and unpromoted; no runtime MCP endpoint, executor, `tools/list`, or `tools/call` added |
 
 ## Active Slice
 
@@ -82,19 +83,22 @@ dashboard migration of the touched consumers. PXE-0050 is done for the
 generated non-callable API/MCP candidate inventory: all current `/api/v1` HTTP
 routes are represented once, only the six typed process-local status/telemetry
 GET routes are unpromoted read-only candidates, and action/SITL routes are
-blocked from read-only promotion. No MCP endpoint, MCP registry, `tools/list`,
-or callable tool surface exists from that slice. These are still unit/contract
-evidence only; no runtime PX4/SITL pass is claimed. Official Gazebo runtime
-proof (PXE-0040) remains open for a native GUI/GPU host, a stronger headless
-runner, or a separately proven official-image startup workaround. Official SIH
-L2 probing starts a pinned PX4 container and collects metadata/params/ULog/
-bounded logs, but no accepted PixEagle/PX4 interaction pass is claimed until
-PixEagle, MAVLink2REST, MavlinkAnywhere routing, typed scenario execution, PX4
+blocked from read-only promotion. PXE-0051 is done for docs-stage
+`agent_tools.yaml` and `agent_policy.yaml`: the six reviewed candidates are
+registered as review-only/unexposed, policy denies execution and
+auto-promotion, and generator coverage detects unsafe registry/policy drift. No
+runtime MCP endpoint, executor, `tools/list`, `tools/call`, or callable tool
+surface exists from these slices. These are still unit/contract evidence only;
+no runtime PX4/SITL pass is claimed. Official Gazebo runtime proof (PXE-0040)
+remains open for a native GUI/GPU host, a stronger headless runner, or a
+separately proven official-image startup workaround. Official SIH L2 probing
+starts a pinned PX4 container and collects metadata/params/ULog/bounded logs,
+but no accepted PixEagle/PX4 interaction pass is claimed until PixEagle,
+MAVLink2REST, MavlinkAnywhere routing, typed scenario execution, PX4
 observation artifacts, and safety outcomes are all present. Continue with
-broader `/api/v1` migration and router extraction, curated agent registry/
-policy design, companion-runtime reconciliation, and dashboard toolchain
-modernization (PXE-0008, PXE-0022, PXE-0021) while keeping full runtime
-L2/L3/L4 validation operator-gated.
+broader `/api/v1` migration and router extraction, companion-runtime
+reconciliation, and dashboard toolchain modernization (PXE-0008, PXE-0022,
+PXE-0021) while keeping full runtime L2/L3/L4 validation operator-gated.
 
 Audit artifact:
 
@@ -116,6 +120,7 @@ Audit artifact:
 - `checkpoints/2026-06-06-phase-4-follower-page-typed-telemetry-history.md`
 - `checkpoints/2026-06-06-phase-4-typed-tracker-telemetry-history.md`
 - `checkpoints/2026-06-06-phase-4-api-tool-candidate-inventory.md`
+- `checkpoints/2026-06-06-phase-4-docs-stage-agent-registry-policy.md`
 
 Recently completed Offboard commander follow-up issues:
 

@@ -19,6 +19,18 @@ The current candidate inventory is:
 
 - `generated/pixeagle-openapi-tool-candidates.yaml`
 
+The current review-stage registry and policy are:
+
+- `agent_tools.yaml`
+- `agent_policy.yaml`
+
+These files are docs-stage governance artifacts. They classify the six reviewed
+process-local status/telemetry GET candidates, but they are not loaded by a
+runtime executor and they do not create MCP exposure. All entries remain
+`callable: false`, `mcp_exposure: none`, and `promotion_status: unpromoted`.
+The policy denies action tools, SITL injection tools, direct drone/PX4 exposure,
+OpenAPI auto-promotion, and unknown tools by default.
+
 Regenerate or check it with:
 
 ```bash

@@ -63,12 +63,19 @@ The current generated candidate inventory is:
 
 - `docs/agent-context/generated/pixeagle-openapi-tool-candidates.yaml`
 
+The current docs-stage registry and policy are:
+
+- `docs/agent-context/agent_tools.yaml`
+- `docs/agent-context/agent_policy.yaml`
+
 This inventory is non-callable. It is candidate inventory only, not MCP
 execution; it is not an MCP registry, not a runtime MCP endpoint, and not
 permission for an AI agent or client to execute routes. The generator
 classifies the current `/api/v1` routes for reviewer coverage, keeps all
 candidates `callable: false`, and marks the initial typed status/telemetry GET
-routes as unpromoted read-only candidates only.
+routes as unpromoted read-only candidates only. The docs-stage registry can
+record that a candidate has passed review, but it is still not runtime
+promotion and not callable MCP exposure.
 
 Action routes, SITL injection routes, config mutation, service control, model
 upload, and future flight-adjacent mutations need separate guard design before

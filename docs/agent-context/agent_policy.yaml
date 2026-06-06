@@ -1,0 +1,91 @@
+version: 1
+metadata:
+  owner: pixeagle-operator
+  boundary: pixeagle-process-local
+  policy_stage: docs_review_only
+  policy_summary: >
+    PixEagle's current agent-context registry is documentation and review
+    structure only. It may classify read-only process-local status and telemetry
+    routes, but no MCP runtime, tool executor, tools/list response, or tools/call
+    path may load it in this slice.
+defaults:
+  agent_enabled: false
+  mcp_enabled: false
+  registry_runtime_loaded: false
+  mode: read_only
+  action_circuit_breaker_enabled: true
+  always_confirm_before_action: true
+  allow_drone_api_exposure: false
+  allow_px4_or_drone_api_exposure: false
+  unknown_tool_policy: deny
+  allow_openapi_autopromotion: false
+  allow_action_tools: false
+  allow_sitl_injection_tools: false
+  auto_promote_generated_candidates: false
+  approval_ttl_seconds: 300
+allowed_review_only_risks:
+- observe
+denied_risks:
+- simulate
+- operate
+- admin
+- destructive
+- guarded_control_action
+- validation_stimulus
+- unreviewed_mutation
+runtime_modes:
+  read_only:
+    allowed_risks:
+    - observe
+    denied_risks:
+    - simulate
+    - operate
+    - admin
+    - destructive
+    - guarded_control_action
+    - validation_stimulus
+  sitl:
+    allowed_risks:
+    - observe
+    denied_risks:
+    - operate
+    - admin
+    - destructive
+    - guarded_control_action
+    - validation_stimulus
+    approval_required_risks:
+    - simulate
+  real:
+    allowed_risks:
+    - observe
+    denied_risks:
+    - simulate
+    - operate
+    - admin
+    - destructive
+    - guarded_control_action
+    - validation_stimulus
+denied_route_prefixes:
+- /api/v1/actions/
+- /api/v1/sitl/injections/
+- /api/config/
+- /api/models/
+- /api/recording/
+- /api/system/
+- /commands/
+denied_route_notes:
+- Control actions require a future action proposal schema, explicit confirmation,
+  idempotency, audit records, SITL-only wrappers, and reviewer approval.
+- SITL injections mutate local validation state when enabled and are never
+  read-only MCP candidates.
+- Legacy command/config/service/model routes remain excluded until migrated to
+  typed `/api/v1` resources and reclassified.
+promotion_gates:
+- Generated non-callable candidate exists.
+- Curated registry entry matches route, method, operation ID, and response model.
+- Policy classifies risk, sensitivity, runtime modes, and denied boundaries.
+- Operator docs state claim boundary and safety notes.
+- Tests cover registry coverage, no action/SITL promotion, and drift checks.
+- Independent reviewer approves the slice.
+- Runtime MCP endpoint, auth, audit, and smoke tests are added in a later slice
+  before any MCP exposure exists.

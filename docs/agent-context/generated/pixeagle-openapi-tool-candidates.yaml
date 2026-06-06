@@ -28,14 +28,40 @@ summary:
   callable_tools: 0
   mcp_exposed_tools: 0
   unpromoted_read_only_candidates: 6
+  docs_registered_read_only_candidates: 6
+  runtime_promoted_candidates: 0
   blocked_or_guarded_candidates: 8
-  curated_registry_present: false
-  registry_coverage_status: candidate_inventory_only
+  curated_registry_present: true
+  registry_coverage_status: review_registry_complete_no_mcp_exposure
   registry_coverage:
-    registry_present: false
+    registry_present: true
+    registry_path: docs/agent-context/agent_tools.yaml
+    policy_present: true
+    policy_path: docs/agent-context/agent_policy.yaml
+    registry_tool_count: 6
+    docs_registry_present: true
+    docs_registered_read_only_candidates: 6
+    registry_metadata_safe: true
+    registry_tools_safe: true
+    policy_safe: true
+    eligible_read_only_candidate_count: 6
+    registered_eligible_read_only_candidate_count: 6
+    unregistered_eligible_read_only_candidate_count: 0
+    unpromoted_eligible_read_only_candidates: 0
+    registered_eligible_read_only_ratio: 1.0
     promoted_candidates: 0
-    unpromoted_eligible_read_only_candidates: 6
-    status: candidate_inventory_only
+    runtime_promoted_candidates: 0
+    callable_registry_matches: 0
+    mcp_exposed_registry_matches: 0
+    invalid_registered_route_count: 0
+    unsafe_registry_metadata_count: 0
+    unsafe_registry_tool_count: 0
+    unsafe_policy_setting_count: 0
+    unregistered_eligible_preview: []
+    registry_metadata_problem_preview: []
+    registry_tool_problem_preview: []
+    policy_problem_preview: []
+    status: review_registry_complete_no_mcp_exposure
 candidates:
 - id: pixeagle.actions.offboard_start.submit_candidate
   candidate_id: pixeagle.actions.offboard_start.submit_candidate
@@ -81,6 +107,8 @@ candidates:
   - policy classification
   - route contract tests
   safety_notes: []
+  registry_matches: []
+  registry_review_status: unregistered
 - id: pixeagle.actions.operator_abort.submit_candidate
   candidate_id: pixeagle.actions.operator_abort.submit_candidate
   method: POST
@@ -125,6 +153,8 @@ candidates:
   - policy classification
   - route contract tests
   safety_notes: []
+  registry_matches: []
+  registry_review_status: unregistered
 - id: pixeagle.actions.action_id.read
   candidate_id: pixeagle.actions.action_id.read
   method: GET
@@ -165,6 +195,8 @@ candidates:
   - route contract tests
   safety_notes:
   - Read-only HTTP semantics are not enough for MCP exposure of control-action records.
+  registry_matches: []
+  registry_review_status: unregistered
 - id: pixeagle.following.status.read
   candidate_id: pixeagle.following.status.read
   method: GET
@@ -184,7 +216,7 @@ candidates:
   callable: false
   mcp_exposure: none
   default_registry_exposure: exclude
-  review_status: generated_unreviewed
+  review_status: registry_reviewed_unexposed
   promotion_status: unpromoted
   eligible_read_only_mcp_candidate: true
   risk_class: process_local_observe
@@ -205,6 +237,19 @@ candidates:
   - Candidate is a PixEagle process-local GET snapshot only.
   - Candidate does not prove PX4, SITL, HIL, field, tracker, follower, or real-aircraft success.
   - Promotion still requires a curated registry and policy review.
+  registry_matches:
+  - id: pixeagle.following.status.read
+    candidate_id: pixeagle.following.status.read
+    route_operation_id: get_following_status
+    exposure: review_only
+    mcp_exposure: none
+    callable: false
+    default_registry_exposure: exclude
+    promotion_status: unpromoted
+    read_only: true
+    risk_class: observe
+    valid_review_only_match: true
+  registry_review_status: registered_unexposed
 - id: pixeagle.following.telemetry.read
   candidate_id: pixeagle.following.telemetry.read
   method: GET
@@ -224,7 +269,7 @@ candidates:
   callable: false
   mcp_exposure: none
   default_registry_exposure: exclude
-  review_status: generated_unreviewed
+  review_status: registry_reviewed_unexposed
   promotion_status: unpromoted
   eligible_read_only_mcp_candidate: true
   risk_class: process_local_observe
@@ -245,6 +290,19 @@ candidates:
   - Candidate is a PixEagle process-local GET snapshot only.
   - Candidate does not prove PX4, SITL, HIL, field, tracker, follower, or real-aircraft success.
   - Promotion still requires a curated registry and policy review.
+  registry_matches:
+  - id: pixeagle.following.telemetry.read
+    candidate_id: pixeagle.following.telemetry.read
+    route_operation_id: get_following_telemetry
+    exposure: review_only
+    mcp_exposure: none
+    callable: false
+    default_registry_exposure: exclude
+    promotion_status: unpromoted
+    read_only: true
+    risk_class: observe
+    valid_review_only_match: true
+  registry_review_status: registered_unexposed
 - id: pixeagle.runtime.status.read
   candidate_id: pixeagle.runtime.status.read
   method: GET
@@ -264,7 +322,7 @@ candidates:
   callable: false
   mcp_exposure: none
   default_registry_exposure: exclude
-  review_status: generated_unreviewed
+  review_status: registry_reviewed_unexposed
   promotion_status: unpromoted
   eligible_read_only_mcp_candidate: true
   risk_class: process_local_observe
@@ -285,6 +343,19 @@ candidates:
   - Candidate is a PixEagle process-local GET snapshot only.
   - Candidate does not prove PX4, SITL, HIL, field, tracker, follower, or real-aircraft success.
   - Promotion still requires a curated registry and policy review.
+  registry_matches:
+  - id: pixeagle.runtime.status.read
+    candidate_id: pixeagle.runtime.status.read
+    route_operation_id: get_runtime_status
+    exposure: review_only
+    mcp_exposure: none
+    callable: false
+    default_registry_exposure: exclude
+    promotion_status: unpromoted
+    read_only: true
+    risk_class: observe
+    valid_review_only_match: true
+  registry_review_status: registered_unexposed
 - id: pixeagle.sitl.injections.commander_publish_failure.submit_candidate
   candidate_id: pixeagle.sitl.injections.commander_publish_failure.submit_candidate
   method: POST
@@ -328,6 +399,8 @@ candidates:
   - scenario evidence contract
   - validation-stack gating review
   safety_notes: []
+  registry_matches: []
+  registry_review_status: unregistered
 - id: pixeagle.sitl.injections.mavlink2rest_timeout.submit_candidate
   candidate_id: pixeagle.sitl.injections.mavlink2rest_timeout.submit_candidate
   method: POST
@@ -371,6 +444,8 @@ candidates:
   - scenario evidence contract
   - validation-stack gating review
   safety_notes: []
+  registry_matches: []
+  registry_review_status: unregistered
 - id: pixeagle.sitl.injections.mavsdk_disconnect.submit_candidate
   candidate_id: pixeagle.sitl.injections.mavsdk_disconnect.submit_candidate
   method: POST
@@ -414,6 +489,8 @@ candidates:
   - scenario evidence contract
   - validation-stack gating review
   safety_notes: []
+  registry_matches: []
+  registry_review_status: unregistered
 - id: pixeagle.sitl.injections.tracker_output.submit_candidate
   candidate_id: pixeagle.sitl.injections.tracker_output.submit_candidate
   method: POST
@@ -457,6 +534,8 @@ candidates:
   - scenario evidence contract
   - validation-stack gating review
   safety_notes: []
+  registry_matches: []
+  registry_review_status: unregistered
 - id: pixeagle.sitl.injections.video_stall.submit_candidate
   candidate_id: pixeagle.sitl.injections.video_stall.submit_candidate
   method: POST
@@ -500,6 +579,8 @@ candidates:
   - scenario evidence contract
   - validation-stack gating review
   safety_notes: []
+  registry_matches: []
+  registry_review_status: unregistered
 - id: pixeagle.telemetry.health.read
   candidate_id: pixeagle.telemetry.health.read
   method: GET
@@ -519,7 +600,7 @@ candidates:
   callable: false
   mcp_exposure: none
   default_registry_exposure: exclude
-  review_status: generated_unreviewed
+  review_status: registry_reviewed_unexposed
   promotion_status: unpromoted
   eligible_read_only_mcp_candidate: true
   risk_class: process_local_observe
@@ -540,6 +621,19 @@ candidates:
   - Candidate is a PixEagle process-local GET snapshot only.
   - Candidate does not prove PX4, SITL, HIL, field, tracker, follower, or real-aircraft success.
   - Promotion still requires a curated registry and policy review.
+  registry_matches:
+  - id: pixeagle.telemetry.health.read
+    candidate_id: pixeagle.telemetry.health.read
+    route_operation_id: get_telemetry_health
+    exposure: review_only
+    mcp_exposure: none
+    callable: false
+    default_registry_exposure: exclude
+    promotion_status: unpromoted
+    read_only: true
+    risk_class: observe
+    valid_review_only_match: true
+  registry_review_status: registered_unexposed
 - id: pixeagle.tracking.runtime_status.read
   candidate_id: pixeagle.tracking.runtime_status.read
   method: GET
@@ -559,7 +653,7 @@ candidates:
   callable: false
   mcp_exposure: none
   default_registry_exposure: exclude
-  review_status: generated_unreviewed
+  review_status: registry_reviewed_unexposed
   promotion_status: unpromoted
   eligible_read_only_mcp_candidate: true
   risk_class: process_local_observe
@@ -580,6 +674,19 @@ candidates:
   - Candidate is a PixEagle process-local GET snapshot only.
   - Candidate does not prove PX4, SITL, HIL, field, tracker, follower, or real-aircraft success.
   - Promotion still requires a curated registry and policy review.
+  registry_matches:
+  - id: pixeagle.tracking.runtime_status.read
+    candidate_id: pixeagle.tracking.runtime_status.read
+    route_operation_id: get_tracking_runtime_status
+    exposure: review_only
+    mcp_exposure: none
+    callable: false
+    default_registry_exposure: exclude
+    promotion_status: unpromoted
+    read_only: true
+    risk_class: observe
+    valid_review_only_match: true
+  registry_review_status: registered_unexposed
 - id: pixeagle.tracking.telemetry.read
   candidate_id: pixeagle.tracking.telemetry.read
   method: GET
@@ -599,7 +706,7 @@ candidates:
   callable: false
   mcp_exposure: none
   default_registry_exposure: exclude
-  review_status: generated_unreviewed
+  review_status: registry_reviewed_unexposed
   promotion_status: unpromoted
   eligible_read_only_mcp_candidate: true
   risk_class: process_local_observe
@@ -620,3 +727,16 @@ candidates:
   - Candidate is a PixEagle process-local GET snapshot only.
   - Candidate does not prove PX4, SITL, HIL, field, tracker, follower, or real-aircraft success.
   - Promotion still requires a curated registry and policy review.
+  registry_matches:
+  - id: pixeagle.tracking.telemetry.read
+    candidate_id: pixeagle.tracking.telemetry.read
+    route_operation_id: get_tracking_telemetry
+    exposure: review_only
+    mcp_exposure: none
+    callable: false
+    default_registry_exposure: exclude
+    promotion_status: unpromoted
+    read_only: true
+    risk_class: observe
+    valid_review_only_match: true
+  registry_review_status: registered_unexposed

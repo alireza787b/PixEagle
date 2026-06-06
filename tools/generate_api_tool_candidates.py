@@ -27,6 +27,8 @@ DEFAULT_OUTPUT = (
     / "generated"
     / "pixeagle-openapi-tool-candidates.yaml"
 )
+DEFAULT_REGISTRY = PROJECT_ROOT / "docs" / "agent-context" / "agent_tools.yaml"
+DEFAULT_POLICY = PROJECT_ROOT / "docs" / "agent-context" / "agent_policy.yaml"
 
 INVENTORY_CLAIM_BOUNDARY = (
     "Generated non-callable reviewer inventory only. This file is not an MCP "
@@ -44,6 +46,50 @@ READ_ONLY_ELIGIBLE_PATHS = {
     "/api/v1/tracking/runtime-status",
     "/api/v1/tracking/telemetry",
 }
+
+REQUIRED_REGISTRY_METADATA = {
+    "registry_stage": "docs_review_only",
+    "runtime_loaded": False,
+    "mcp_exposed": False,
+    "default_registry_exposure": "exclude",
+}
+
+REQUIRED_POLICY_DEFAULTS = {
+    "agent_enabled": False,
+    "mcp_enabled": False,
+    "registry_runtime_loaded": False,
+    "action_circuit_breaker_enabled": True,
+    "always_confirm_before_action": True,
+    "allow_drone_api_exposure": False,
+    "allow_px4_or_drone_api_exposure": False,
+    "unknown_tool_policy": "deny",
+    "allow_openapi_autopromotion": False,
+    "allow_action_tools": False,
+    "allow_sitl_injection_tools": False,
+    "auto_promote_generated_candidates": False,
+}
+
+REQUIRED_POLICY_DENIED_RISKS = {
+    "simulate",
+    "operate",
+    "admin",
+    "destructive",
+    "guarded_control_action",
+    "validation_stimulus",
+    "unreviewed_mutation",
+}
+
+REQUIRED_POLICY_DENIED_ROUTE_PREFIXES = {
+    "/api/v1/actions/",
+    "/api/v1/sitl/injections/",
+}
+
+
+def _relative_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(PROJECT_ROOT))
+    except ValueError:
+        return str(path)
 
 
 def _expr_to_data(node: ast.AST | None) -> Any:
@@ -175,12 +221,193 @@ def _typed_contract(route: dict[str, Any]) -> bool:
     )
 
 
-def _classify_candidate(route: dict[str, Any]) -> dict[str, Any]:
+def _route_key(method: str, path: str) -> tuple[str, str]:
+    return (str(method).upper(), str(path))
+
+
+def _load_yaml_file(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _load_registry(path: Path = DEFAULT_REGISTRY) -> dict[str, Any]:
+    payload = _load_yaml_file(path)
+    tools = payload.get("tools") if isinstance(payload.get("tools"), list) else []
+    return {
+        "path": _relative_path(path),
+        "present": path.exists(),
+        "payload": payload,
+        "tools": [tool for tool in tools if isinstance(tool, dict)],
+    }
+
+
+def _registry_route_index(
+    registry: dict[str, Any],
+) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    route_index: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for tool in registry.get("tools") or []:
+        route = tool.get("route") if isinstance(tool.get("route"), dict) else {}
+        method = str(route.get("method") or "").upper()
+        path = str(route.get("path") or "")
+        if not method or not path:
+            continue
+        route_index.setdefault(_route_key(method, path), []).append(tool)
+    return route_index
+
+
+def _tool_matches_candidate(tool: dict[str, Any], candidate: dict[str, Any]) -> bool:
+    route = tool.get("route") if isinstance(tool.get("route"), dict) else {}
+    output_contract = (
+        tool.get("output_contract")
+        if isinstance(tool.get("output_contract"), dict)
+        else {}
+    )
+    return all(
+        [
+            tool.get("id") == candidate["id"],
+            tool.get("candidate_id") == candidate["id"],
+            tool.get("method") == candidate["method"],
+            tool.get("path") == candidate["path"],
+            tool.get("operation_id") == candidate["operation_id"],
+            tool.get("response_model") == candidate["response_model"],
+            str(route.get("method") or "").upper() == candidate["method"],
+            route.get("path") == candidate["path"],
+            route.get("operation_id") == candidate["operation_id"],
+            output_contract.get("response_model") == candidate["response_model"],
+            tool.get("read_only") is True,
+            tool.get("callable") is False,
+            tool.get("mcp_exposure") == "none",
+            tool.get("exposure") == "review_only",
+            tool.get("default_registry_exposure") == "exclude",
+            tool.get("promotion_status") == "unpromoted",
+            tool.get("risk_class") == "observe",
+            tool.get("candidate_risk_class") == candidate["risk_class"],
+            tool.get("boundary") == "pixeagle-process-local",
+            tool.get("required_role") == "viewer",
+            tool.get("side_effects") == [],
+        ]
+    )
+
+
+def _registry_matches_for_candidate(
+    candidate: dict[str, Any],
+    registry_index: dict[tuple[str, str], list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    matches = []
+    for tool in registry_index.get(_route_key(candidate["method"], candidate["path"]), []):
+        route = tool.get("route") if isinstance(tool.get("route"), dict) else {}
+        matches.append(
+            {
+                "id": tool.get("id"),
+                "candidate_id": tool.get("candidate_id"),
+                "route_operation_id": route.get("operation_id"),
+                "exposure": tool.get("exposure"),
+                "mcp_exposure": tool.get("mcp_exposure"),
+                "callable": tool.get("callable"),
+                "default_registry_exposure": tool.get("default_registry_exposure"),
+                "promotion_status": tool.get("promotion_status"),
+                "read_only": tool.get("read_only"),
+                "risk_class": tool.get("risk_class"),
+                "valid_review_only_match": _tool_matches_candidate(tool, candidate),
+            }
+        )
+    return matches
+
+
+def _registry_metadata_problems(registry: dict[str, Any]) -> list[str]:
+    payload = registry.get("payload") if isinstance(registry.get("payload"), dict) else {}
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    problems = []
+    for key, expected in REQUIRED_REGISTRY_METADATA.items():
+        actual = metadata.get(key)
+        if actual != expected:
+            problems.append(f"metadata.{key} expected {expected!r}, got {actual!r}")
+    return problems
+
+
+def _policy_problems(policy: dict[str, Any]) -> list[str]:
+    payload = policy.get("payload") if isinstance(policy.get("payload"), dict) else {}
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    defaults = payload.get("defaults") if isinstance(payload.get("defaults"), dict) else {}
+    denied_risks = set(payload.get("denied_risks") or [])
+    denied_prefixes = set(payload.get("denied_route_prefixes") or [])
+    problems = []
+
+    if metadata.get("policy_stage") != "docs_review_only":
+        problems.append(
+            "metadata.policy_stage expected 'docs_review_only', "
+            f"got {metadata.get('policy_stage')!r}"
+        )
+
+    for key, expected in REQUIRED_POLICY_DEFAULTS.items():
+        actual = defaults.get(key)
+        if actual != expected:
+            problems.append(f"defaults.{key} expected {expected!r}, got {actual!r}")
+
+    missing_risks = sorted(REQUIRED_POLICY_DENIED_RISKS - denied_risks)
+    if missing_risks:
+        problems.append(f"denied_risks missing {missing_risks!r}")
+
+    missing_prefixes = sorted(REQUIRED_POLICY_DENIED_ROUTE_PREFIXES - denied_prefixes)
+    if missing_prefixes:
+        problems.append(f"denied_route_prefixes missing {missing_prefixes!r}")
+
+    return problems
+
+
+def _registry_tool_problems(
+    candidates: list[dict[str, Any]],
+    registry: dict[str, Any],
+) -> list[dict[str, Any]]:
+    candidates_by_route = {
+        _route_key(candidate["method"], candidate["path"]): candidate
+        for candidate in candidates
+    }
+    problems = []
+
+    for index, tool in enumerate(registry.get("tools") or []):
+        route = tool.get("route") if isinstance(tool.get("route"), dict) else {}
+        method = str(route.get("method") or tool.get("method") or "").upper()
+        path = str(route.get("path") or tool.get("path") or "")
+        route_key = _route_key(method, path)
+        candidate = candidates_by_route.get(route_key)
+        reason = None
+
+        if not method or not path:
+            reason = "missing route method/path"
+        elif candidate is None:
+            reason = "route is not in the generated /api/v1 candidate inventory"
+        elif not candidate["eligible_read_only_mcp_candidate"]:
+            reason = "route is not an eligible read-only candidate"
+        elif not _tool_matches_candidate(tool, candidate):
+            reason = "tool fields do not match the candidate or review-only boundary"
+
+        if reason:
+            problems.append(
+                {
+                    "index": index,
+                    "id": tool.get("id"),
+                    "method": method,
+                    "path": path,
+                    "reason": reason,
+                }
+            )
+
+    return problems
+
+
+def _classify_candidate(
+    route: dict[str, Any],
+    registry_index: dict[tuple[str, str], list[dict[str, Any]]] | None = None,
+) -> dict[str, Any]:
     method = route["method"]
     path = route["path"]
     read_only = method == "GET"
     typed_api_contract = _typed_contract(route)
     eligible = path in READ_ONLY_ELIGIBLE_PATHS and read_only and typed_api_contract
+    candidate_id = _candidate_id(path, method)
 
     risk_class = "unreviewed"
     sensitivity = "unknown"
@@ -284,9 +511,9 @@ def _classify_candidate(route: dict[str, Any]) -> dict[str, Any]:
     if not eligible and not blocked_reasons:
         blocked_reasons.append("Not approved for MCP promotion in this slice.")
 
-    return {
-        "id": _candidate_id(path, method),
-        "candidate_id": _candidate_id(path, method),
+    candidate = {
+        "id": candidate_id,
+        "candidate_id": candidate_id,
         "method": method,
         "path": path,
         "operation_id": route.get("operation_id"),
@@ -314,17 +541,142 @@ def _classify_candidate(route: dict[str, Any]) -> dict[str, Any]:
         "required_review": sorted(set(required_review)),
         "safety_notes": safety_notes,
     }
+    matches = _registry_matches_for_candidate(candidate, registry_index or {})
+    candidate["registry_matches"] = matches
+    if eligible and any(match["valid_review_only_match"] for match in matches):
+        candidate["review_status"] = "registry_reviewed_unexposed"
+        candidate["registry_review_status"] = "registered_unexposed"
+    else:
+        candidate["registry_review_status"] = "unregistered"
+    return candidate
+
+
+def _registry_coverage_summary(
+    candidates: list[dict[str, Any]],
+    registry: dict[str, Any],
+    policy: dict[str, Any],
+) -> dict[str, Any]:
+    eligible = [
+        candidate
+        for candidate in candidates
+        if candidate["eligible_read_only_mcp_candidate"]
+    ]
+    registered = []
+    unregistered = []
+    for candidate in eligible:
+        valid_matches = [
+            match
+            for match in candidate.get("registry_matches") or []
+            if match.get("valid_review_only_match")
+        ]
+        if valid_matches:
+            registered.append(
+                {
+                    "method": candidate["method"],
+                    "path": candidate["path"],
+                    "candidate_id": candidate["id"],
+                    "tool_ids": sorted(match["id"] for match in valid_matches),
+                }
+            )
+        else:
+            unregistered.append(
+                {
+                    "method": candidate["method"],
+                    "path": candidate["path"],
+                    "candidate_id": candidate["id"],
+                }
+            )
+
+    invalid_route_matches = [
+        candidate
+        for candidate in candidates
+        if not candidate["eligible_read_only_mcp_candidate"]
+        and candidate.get("registry_matches")
+    ]
+    exposed_matches = [
+        match
+        for candidate in candidates
+        for match in candidate.get("registry_matches") or []
+        if match.get("callable") is not False or match.get("mcp_exposure") != "none"
+    ]
+    registry_present = bool(registry.get("present"))
+    policy_present = bool(policy.get("present"))
+    eligible_count = len(eligible)
+    registered_count = len(registered)
+    registry_metadata_problems = _registry_metadata_problems(registry)
+    registry_tool_problems = _registry_tool_problems(candidates, registry)
+    policy_problems = _policy_problems(policy)
+    registry_metadata_safe = registry_present and not registry_metadata_problems
+    registry_tools_safe = registry_present and not registry_tool_problems
+    policy_safe = policy_present and not policy_problems
+    return {
+        "registry_present": registry_present,
+        "registry_path": registry.get("path") or "",
+        "policy_present": policy_present,
+        "policy_path": policy.get("path") or "",
+        "registry_tool_count": len(registry.get("tools") or []),
+        "docs_registry_present": registry_present,
+        "docs_registered_read_only_candidates": registered_count,
+        "registry_metadata_safe": registry_metadata_safe,
+        "registry_tools_safe": registry_tools_safe,
+        "policy_safe": policy_safe,
+        "eligible_read_only_candidate_count": eligible_count,
+        "registered_eligible_read_only_candidate_count": registered_count,
+        "unregistered_eligible_read_only_candidate_count": len(unregistered),
+        "unpromoted_eligible_read_only_candidates": len(unregistered),
+        "registered_eligible_read_only_ratio": (
+            round(registered_count / eligible_count, 4) if eligible_count else 1.0
+        ),
+        "promoted_candidates": 0,
+        "runtime_promoted_candidates": 0,
+        "callable_registry_matches": len(
+            [match for match in exposed_matches if match.get("callable") is not False]
+        ),
+        "mcp_exposed_registry_matches": len(
+            [match for match in exposed_matches if match.get("mcp_exposure") != "none"]
+        ),
+        "invalid_registered_route_count": len(invalid_route_matches),
+        "unsafe_registry_metadata_count": len(registry_metadata_problems),
+        "unsafe_registry_tool_count": len(registry_tool_problems),
+        "unsafe_policy_setting_count": len(policy_problems),
+        "unregistered_eligible_preview": unregistered[:10],
+        "registry_metadata_problem_preview": registry_metadata_problems[:10],
+        "registry_tool_problem_preview": registry_tool_problems[:10],
+        "policy_problem_preview": policy_problems[:10],
+        "status": (
+            "review_registry_complete_no_mcp_exposure"
+            if registry_present
+            and policy_present
+            and registry_metadata_safe
+            and registry_tools_safe
+            and policy_safe
+            and registered_count == eligible_count
+            and not unregistered
+            and not invalid_route_matches
+            and not exposed_matches
+            else "registry_review_incomplete_or_unsafe"
+        ),
+    }
 
 
 def build_inventory() -> dict[str, Any]:
     routes = collect_declared_routes()
+    registry = _load_registry()
+    policy_payload = _load_yaml_file(DEFAULT_POLICY)
+    policy = {
+        "path": _relative_path(DEFAULT_POLICY),
+        "present": DEFAULT_POLICY.exists(),
+        "payload": policy_payload,
+    }
+    registry_index = _registry_route_index(registry)
     api_v1_routes = [route for route in routes if route["path"].startswith("/api/v1/")]
-    candidates = [_classify_candidate(route) for route in api_v1_routes]
+    candidates = [_classify_candidate(route, registry_index) for route in api_v1_routes]
     read_only_candidates = [
         candidate
         for candidate in candidates
         if candidate["eligible_read_only_mcp_candidate"]
     ]
+    registry_coverage = _registry_coverage_summary(candidates, registry, policy)
 
     return {
         "schema_version": 1,
@@ -358,15 +710,14 @@ def build_inventory() -> dict[str, Any]:
             "callable_tools": 0,
             "mcp_exposed_tools": 0,
             "unpromoted_read_only_candidates": len(read_only_candidates),
+            "docs_registered_read_only_candidates": (
+                registry_coverage["docs_registered_read_only_candidates"]
+            ),
+            "runtime_promoted_candidates": 0,
             "blocked_or_guarded_candidates": len(candidates) - len(read_only_candidates),
-            "curated_registry_present": False,
-            "registry_coverage_status": "candidate_inventory_only",
-            "registry_coverage": {
-                "registry_present": False,
-                "promoted_candidates": 0,
-                "unpromoted_eligible_read_only_candidates": len(read_only_candidates),
-                "status": "candidate_inventory_only",
-            },
+            "curated_registry_present": registry_coverage["registry_present"],
+            "registry_coverage_status": registry_coverage["status"],
+            "registry_coverage": registry_coverage,
         },
         "candidates": candidates,
     }
