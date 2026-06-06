@@ -26,6 +26,7 @@ from classes.setpoint_handler import SetpointHandler
 from classes.frame_publisher import FramePublisher
 from classes.adaptive_quality_engine import AdaptiveQualityEngine
 from classes.follower import FollowerFactory
+from classes.fastapi_api_v1_routes import register_api_v1_routes
 from classes.tracker_output import TrackerOutput, TrackerDataType
 from classes.tracker_runtime_status import (
     TRACKER_RUNTIME_CLAIM_BOUNDARY,
@@ -1101,48 +1102,7 @@ class FastAPIHandler:
         self.app.get("/telemetry/tracker_data")(self.tracker_data)
         self.app.get("/telemetry/follower_data")(self.follower_data)
         self.app.get("/status")(self.get_status)
-        self.app.get(
-            "/api/v1/runtime/status",
-            response_model=APIRuntimeStatusResponse,
-            responses=RUNTIME_STATUS_ERROR_RESPONSES,
-            operation_id="get_runtime_status",
-            tags=["runtime"],
-        )(self.get_runtime_status)
-        self.app.get(
-            "/api/v1/following/status",
-            response_model=APIFollowingStatusResponse,
-            responses=FOLLOWING_STATUS_ERROR_RESPONSES,
-            operation_id="get_following_status",
-            tags=["following"],
-        )(self.get_following_status)
-        self.app.get(
-            "/api/v1/following/telemetry",
-            response_model=APIFollowingTelemetryResponse,
-            responses=FOLLOWING_TELEMETRY_ERROR_RESPONSES,
-            operation_id="get_following_telemetry",
-            tags=["following"],
-        )(self.get_following_telemetry)
-        self.app.get(
-            "/api/v1/telemetry/health",
-            response_model=APITelemetryHealthResponse,
-            responses=TELEMETRY_HEALTH_ERROR_RESPONSES,
-            operation_id="get_telemetry_health",
-            tags=["telemetry"],
-        )(self.get_telemetry_health)
-        self.app.get(
-            "/api/v1/tracking/runtime-status",
-            response_model=APITrackingRuntimeStatusResponse,
-            responses=TRACKING_RUNTIME_STATUS_ERROR_RESPONSES,
-            operation_id="get_tracking_runtime_status",
-            tags=["tracking"],
-        )(self.get_tracking_runtime_status)
-        self.app.get(
-            "/api/v1/tracking/telemetry",
-            response_model=APITrackingTelemetryResponse,
-            responses=TRACKING_TELEMETRY_ERROR_RESPONSES,
-            operation_id="get_tracking_telemetry",
-            tags=["tracking"],
-        )(self.get_tracking_telemetry)
+        register_api_v1_routes(self, globals())
         self.app.get("/stats")(self.get_streaming_stats)
         self.app.get("/api/video/health")(self.get_video_health)
         self.app.post("/api/video/reconnect")(self.reconnect_video)
@@ -1181,74 +1141,6 @@ class FastAPIHandler:
         self.app.post("/commands/stop_offboard_mode")(self.stop_offboard_mode)
         self.app.post("/commands/quit")(self.quit)
 
-        # Typed /api/v1 action resources. Legacy /commands/* routes remain as
-        # compatibility aliases until the broader API migration removes them.
-        self.app.post(
-            "/api/v1/actions/offboard-start",
-            response_model=APIActionResponse,
-            status_code=status.HTTP_202_ACCEPTED,
-            responses=ACTION_ROUTE_RESPONSES,
-            operation_id="start_offboard_action",
-            tags=["actions"],
-        )(self.start_offboard_action)
-        self.app.post(
-            "/api/v1/actions/operator-abort",
-            response_model=APIActionResponse,
-            status_code=status.HTTP_202_ACCEPTED,
-            responses=ACTION_ROUTE_RESPONSES,
-            operation_id="operator_abort_action",
-            tags=["actions"],
-        )(self.operator_abort_action)
-        self.app.get(
-            "/api/v1/actions/{action_id}",
-            response_model=APIActionResponse,
-            responses=ACTION_ERROR_RESPONSES,
-            operation_id="get_action_resource",
-            tags=["actions"],
-        )(self.get_action_resource)
-
-        # Validation-only APIs. Disabled unless PIXEAGLE_ENABLE_SITL_INJECTIONS=1.
-        self.app.post(
-            "/api/v1/sitl/injections/tracker-output",
-            response_model=SITLTrackerInjectionResponse,
-            status_code=status.HTTP_202_ACCEPTED,
-            responses=SITL_ERROR_RESPONSES,
-            operation_id="inject_sitl_tracker_output",
-            tags=["sitl-validation"],
-        )(self.inject_sitl_tracker_output)
-        self.app.post(
-            "/api/v1/sitl/injections/video-stall",
-            response_model=SITLVideoStallResponse,
-            status_code=status.HTTP_202_ACCEPTED,
-            responses=SITL_ERROR_RESPONSES,
-            operation_id="inject_sitl_video_stall",
-            tags=["sitl-validation"],
-        )(self.inject_sitl_video_stall)
-        self.app.post(
-            "/api/v1/sitl/injections/commander-publish-failure",
-            response_model=SITLCommanderPublishFailureResponse,
-            status_code=status.HTTP_202_ACCEPTED,
-            responses=SITL_ERROR_RESPONSES,
-            operation_id="inject_sitl_commander_publish_failure",
-            tags=["sitl-validation"],
-        )(self.inject_sitl_commander_publish_failure)
-        self.app.post(
-            "/api/v1/sitl/injections/mavsdk-disconnect",
-            response_model=SITLMavsdkDisconnectResponse,
-            status_code=status.HTTP_202_ACCEPTED,
-            responses=SITL_ERROR_RESPONSES,
-            operation_id="inject_sitl_mavsdk_disconnect",
-            tags=["sitl-validation"],
-        )(self.inject_sitl_mavsdk_disconnect)
-        self.app.post(
-            "/api/v1/sitl/injections/mavlink2rest-timeout",
-            response_model=SITLMavlink2RestTimeoutResponse,
-            status_code=status.HTTP_202_ACCEPTED,
-            responses=SITL_ERROR_RESPONSES,
-            operation_id="inject_sitl_mavlink2rest_timeout",
-            tags=["sitl-validation"],
-        )(self.inject_sitl_mavlink2rest_timeout)
-        
         # Smart tracking
         self.app.post("/commands/toggle_smart_mode")(self.toggle_smart_mode)
         self.app.post("/commands/smart_click")(self.smart_click)

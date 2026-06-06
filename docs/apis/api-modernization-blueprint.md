@@ -49,6 +49,8 @@ Route inventory tests must:
 
 - collect current route registrations without starting Uvicorn, video, MAVLink,
   or PX4 subsystems
+- parse both inline `FastAPIHandler` route declarations and the typed
+  `/api/v1` route specs in `src/classes/fastapi_api_v1_routes.py`
 - assert the frozen method/path inventory
 - assert there are no duplicate method/path pairs
 - explicitly track deprecated aliases until removal

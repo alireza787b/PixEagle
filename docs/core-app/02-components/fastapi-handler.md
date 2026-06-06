@@ -13,6 +13,13 @@ Optimized REST/WebSocket API with streaming capabilities.
 - Rate limiting and connection management
 - Frame caching for performance
 
+Typed `/api/v1` route registrations are centralized in
+`src/classes/fastapi_api_v1_routes.py` as static `ApiV1RouteSpec` entries.
+`FastAPIHandler.define_routes()` delegates to that registry while the handler
+methods and Pydantic models still live in `fastapi_handler.py`. Route inventory
+tests and the non-callable agent-candidate generator parse both files without
+instantiating the application.
+
 ## Class Definition
 
 ```python

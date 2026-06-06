@@ -7,11 +7,15 @@ local artifacts, while Phase 0 only needs a frozen route baseline.
 
 import ast
 from collections import Counter
+from types import SimpleNamespace
 from pathlib import Path
+
+from classes.fastapi_api_v1_routes import API_V1_ROUTE_SPECS, register_api_v1_routes
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FASTAPI_HANDLER = REPO_ROOT / "src" / "classes" / "fastapi_handler.py"
+API_V1_ROUTE_REGISTRY = REPO_ROOT / "src" / "classes" / "fastapi_api_v1_routes.py"
 
 
 EXPECTED_ROUTES = {
@@ -149,7 +153,22 @@ EXPECTED_ROUTES = {
 }
 
 
-def _collect_declared_routes():
+def _expr_to_data(node):
+    if node is None:
+        return None
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        prefix = _expr_to_data(node.value)
+        return f"{prefix}.{node.attr}" if prefix else node.attr
+    if isinstance(node, ast.List | ast.Tuple):
+        return [_expr_to_data(item) for item in node.elts]
+    return ast.unparse(node)
+
+
+def _collect_inline_route_metadata():
     tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
     routes = []
 
@@ -168,30 +187,81 @@ def _collect_declared_routes():
         if not route_call.args or not isinstance(route_call.args[0], ast.Constant):
             continue
 
+        keywords = {keyword.arg: keyword.value for keyword in route_call.keywords}
         method = "WEBSOCKET" if route_func.attr == "websocket" else route_func.attr.upper()
-        routes.append((method, route_call.args[0].value))
+        routes.append(
+            {
+                "method": method,
+                "path": route_call.args[0].value,
+                "operation_id": _expr_to_data(keywords.get("operation_id")),
+                "response_model": _expr_to_data(keywords.get("response_model")),
+                "responses": _expr_to_data(keywords.get("responses")),
+                "status_code": _expr_to_data(keywords.get("status_code")),
+                "tags": _expr_to_data(keywords.get("tags")) or [],
+                "deprecated": _expr_to_data(keywords.get("deprecated")),
+            }
+        )
 
     return routes
 
 
-def _find_route_registration(path):
-    tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+def _collect_api_v1_route_spec_metadata():
+    tree = ast.parse(API_V1_ROUTE_REGISTRY.read_text(encoding="utf-8"))
+    routes = []
 
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Call):
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            is_route_specs = any(
+                isinstance(target, ast.Name) and target.id == "API_V1_ROUTE_SPECS"
+                for target in node.targets
+            )
+            value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            is_route_specs = (
+                isinstance(node.target, ast.Name)
+                and node.target.id == "API_V1_ROUTE_SPECS"
+            )
+            value = node.value
+        else:
             continue
 
-        route_call = node.func
-        route_func = route_call.func
-        if not isinstance(route_func, ast.Attribute):
+        if not is_route_specs or not isinstance(value, ast.Tuple):
             continue
-        if route_func.attr not in {"get", "post", "put", "delete", "patch", "websocket"}:
-            continue
-        if not isinstance(route_func.value, ast.Attribute) or route_func.value.attr != "app":
-            continue
-        if route_call.args and isinstance(route_call.args[0], ast.Constant):
-            if route_call.args[0].value == path:
-                return route_call
+        for element in value.elts:
+            if not isinstance(element, ast.Call):
+                continue
+            keywords = {keyword.arg: keyword.value for keyword in element.keywords}
+            routes.append(
+                {
+                    "method": _expr_to_data(keywords.get("method")),
+                    "path": _expr_to_data(keywords.get("path")),
+                    "operation_id": _expr_to_data(keywords.get("operation_id")),
+                    "response_model": _expr_to_data(keywords.get("response_model")),
+                    "responses": _expr_to_data(keywords.get("responses")),
+                    "status_code": _expr_to_data(keywords.get("status_code")),
+                    "tags": _expr_to_data(keywords.get("tags")) or [],
+                    "deprecated": False,
+                }
+            )
+
+    return routes
+
+
+def _collect_route_metadata():
+    return _collect_inline_route_metadata() + _collect_api_v1_route_spec_metadata()
+
+
+def _collect_declared_routes():
+    return [
+        (route["method"], route["path"])
+        for route in _collect_route_metadata()
+    ]
+
+
+def _route_metadata(path):
+    for route in _collect_route_metadata():
+        if route["path"] == path:
+            return route
 
     raise AssertionError(f"Route registration not found for {path}")
 
@@ -222,6 +292,36 @@ def test_current_route_inventory_counts_by_method():
     }
 
 
+def test_fastapi_handler_delegates_to_api_v1_route_registry_once():
+    """Runtime route setup must use the same registry parsed by guardrails."""
+    tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    define_routes = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "define_routes"
+    ]
+    assert len(define_routes) == 1
+
+    registry_calls = [
+        node
+        for node in ast.walk(define_routes[0])
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "register_api_v1_routes"
+    ]
+    assert len(registry_calls) == 1
+
+    call = registry_calls[0]
+    assert len(call.args) == 2
+    assert isinstance(call.args[0], ast.Name)
+    assert call.args[0].id == "self"
+    assert isinstance(call.args[1], ast.Call)
+    assert isinstance(call.args[1].func, ast.Name)
+    assert call.args[1].func.id == "globals"
+    assert call.args[1].args == []
+    assert call.keywords == []
+
+
 def test_api_v1_action_routes_have_typed_api_metadata():
     """Typed control actions must be explicit /api/v1 resources."""
     expectations = {
@@ -250,89 +350,148 @@ def test_api_v1_action_routes_have_typed_api_metadata():
         expects_accepted,
         responses_name,
     ) in expectations.items():
-        route_call = _find_route_registration(path)
-        keywords = {keyword.arg: keyword.value for keyword in route_call.keywords}
+        route = _route_metadata(path)
 
-        assert keywords["operation_id"].value == operation_id
-        assert keywords["response_model"].id == response_model
-        assert keywords["responses"].id == responses_name
-        assert keywords["tags"].elts[0].value == "actions"
+        assert route["operation_id"] == operation_id
+        assert route["response_model"] == response_model
+        assert route["responses"] == responses_name
+        assert route["tags"] == ["actions"]
         if expects_accepted:
-            assert keywords["status_code"].attr == "HTTP_202_ACCEPTED"
+            assert route["status_code"] == "status.HTTP_202_ACCEPTED"
         else:
-            assert "status_code" not in keywords
+            assert route["status_code"] is None
+
+
+def test_api_v1_route_registry_registers_specs_without_runtime_app():
+    """Registry helper should preserve route order and resolve metadata names."""
+
+    class FakeApp:
+        def __init__(self):
+            self.routes = []
+
+        def get(self, path, **kwargs):
+            return self._register("GET", path, kwargs)
+
+        def post(self, path, **kwargs):
+            return self._register("POST", path, kwargs)
+
+        def _register(self, method, path, kwargs):
+            def decorator(handler):
+                self.routes.append((method, path, kwargs, handler.__name__))
+                return handler
+
+            return decorator
+
+    class FakeHandler:
+        def __init__(self):
+            self.app = FakeApp()
+
+    def make_handler(name):
+        def handler():
+            return name
+
+        handler.__name__ = name
+        return handler
+
+    handler = FakeHandler()
+    for spec in API_V1_ROUTE_SPECS:
+        setattr(handler, spec.handler, make_handler(spec.handler))
+
+    namespace = {
+        "status": SimpleNamespace(HTTP_202_ACCEPTED=202),
+    }
+    for spec in API_V1_ROUTE_SPECS:
+        namespace[spec.response_model] = object()
+        namespace[spec.responses] = object()
+
+    register_api_v1_routes(handler, namespace)
+
+    assert [
+        (method, path, route_handler)
+        for method, path, _kwargs, route_handler in handler.app.routes
+    ] == [
+        (spec.method, spec.path, spec.handler)
+        for spec in API_V1_ROUTE_SPECS
+    ]
+    for spec, (_method, _path, kwargs, _handler) in zip(
+        API_V1_ROUTE_SPECS,
+        handler.app.routes,
+        strict=True,
+    ):
+        assert kwargs["response_model"] is namespace[spec.response_model]
+        assert kwargs["responses"] is namespace[spec.responses]
+        assert kwargs["operation_id"] == spec.operation_id
+        assert kwargs["tags"] == list(spec.tags)
+        if spec.status_code is None:
+            assert "status_code" not in kwargs
+        else:
+            assert kwargs["status_code"] == 202
 
 
 def test_api_v1_telemetry_health_route_has_typed_api_metadata():
     """Typed telemetry health must be an explicit /api/v1 resource."""
-    route_call = _find_route_registration("/api/v1/telemetry/health")
-    keywords = {keyword.arg: keyword.value for keyword in route_call.keywords}
+    route = _route_metadata("/api/v1/telemetry/health")
 
-    assert keywords["operation_id"].value == "get_telemetry_health"
-    assert keywords["response_model"].id == "APITelemetryHealthResponse"
-    assert keywords["responses"].id == "TELEMETRY_HEALTH_ERROR_RESPONSES"
-    assert keywords["tags"].elts[0].value == "telemetry"
-    assert "status_code" not in keywords
+    assert route["operation_id"] == "get_telemetry_health"
+    assert route["response_model"] == "APITelemetryHealthResponse"
+    assert route["responses"] == "TELEMETRY_HEALTH_ERROR_RESPONSES"
+    assert route["tags"] == ["telemetry"]
+    assert route["status_code"] is None
 
 
 def test_api_v1_runtime_status_route_has_typed_api_metadata():
     """Typed runtime status must be an explicit /api/v1 resource."""
-    route_call = _find_route_registration("/api/v1/runtime/status")
-    keywords = {keyword.arg: keyword.value for keyword in route_call.keywords}
+    route = _route_metadata("/api/v1/runtime/status")
 
-    assert keywords["operation_id"].value == "get_runtime_status"
-    assert keywords["response_model"].id == "APIRuntimeStatusResponse"
-    assert keywords["responses"].id == "RUNTIME_STATUS_ERROR_RESPONSES"
-    assert keywords["tags"].elts[0].value == "runtime"
-    assert "status_code" not in keywords
+    assert route["operation_id"] == "get_runtime_status"
+    assert route["response_model"] == "APIRuntimeStatusResponse"
+    assert route["responses"] == "RUNTIME_STATUS_ERROR_RESPONSES"
+    assert route["tags"] == ["runtime"]
+    assert route["status_code"] is None
 
 
 def test_api_v1_following_status_route_has_typed_api_metadata():
     """Typed following status must be an explicit /api/v1 resource."""
-    route_call = _find_route_registration("/api/v1/following/status")
-    keywords = {keyword.arg: keyword.value for keyword in route_call.keywords}
+    route = _route_metadata("/api/v1/following/status")
 
-    assert keywords["operation_id"].value == "get_following_status"
-    assert keywords["response_model"].id == "APIFollowingStatusResponse"
-    assert keywords["responses"].id == "FOLLOWING_STATUS_ERROR_RESPONSES"
-    assert keywords["tags"].elts[0].value == "following"
-    assert "status_code" not in keywords
+    assert route["operation_id"] == "get_following_status"
+    assert route["response_model"] == "APIFollowingStatusResponse"
+    assert route["responses"] == "FOLLOWING_STATUS_ERROR_RESPONSES"
+    assert route["tags"] == ["following"]
+    assert route["status_code"] is None
 
 
 def test_api_v1_following_telemetry_route_has_typed_api_metadata():
     """Typed following telemetry must be an explicit /api/v1 resource."""
-    route_call = _find_route_registration("/api/v1/following/telemetry")
-    keywords = {keyword.arg: keyword.value for keyword in route_call.keywords}
+    route = _route_metadata("/api/v1/following/telemetry")
 
-    assert keywords["operation_id"].value == "get_following_telemetry"
-    assert keywords["response_model"].id == "APIFollowingTelemetryResponse"
-    assert keywords["responses"].id == "FOLLOWING_TELEMETRY_ERROR_RESPONSES"
-    assert keywords["tags"].elts[0].value == "following"
-    assert "status_code" not in keywords
+    assert route["operation_id"] == "get_following_telemetry"
+    assert route["response_model"] == "APIFollowingTelemetryResponse"
+    assert route["responses"] == "FOLLOWING_TELEMETRY_ERROR_RESPONSES"
+    assert route["tags"] == ["following"]
+    assert route["status_code"] is None
 
 
 def test_api_v1_tracking_runtime_status_route_has_typed_api_metadata():
     """Typed tracker runtime status must be an explicit /api/v1 resource."""
-    route_call = _find_route_registration("/api/v1/tracking/runtime-status")
-    keywords = {keyword.arg: keyword.value for keyword in route_call.keywords}
+    route = _route_metadata("/api/v1/tracking/runtime-status")
 
-    assert keywords["operation_id"].value == "get_tracking_runtime_status"
-    assert keywords["response_model"].id == "APITrackingRuntimeStatusResponse"
-    assert keywords["responses"].id == "TRACKING_RUNTIME_STATUS_ERROR_RESPONSES"
-    assert keywords["tags"].elts[0].value == "tracking"
-    assert "status_code" not in keywords
+    assert route["operation_id"] == "get_tracking_runtime_status"
+    assert route["response_model"] == "APITrackingRuntimeStatusResponse"
+    assert route["responses"] == "TRACKING_RUNTIME_STATUS_ERROR_RESPONSES"
+    assert route["tags"] == ["tracking"]
+    assert route["status_code"] is None
 
 
 def test_api_v1_tracking_telemetry_route_has_typed_api_metadata():
     """Typed tracker telemetry must be an explicit /api/v1 resource."""
-    route_call = _find_route_registration("/api/v1/tracking/telemetry")
-    keywords = {keyword.arg: keyword.value for keyword in route_call.keywords}
+    route = _route_metadata("/api/v1/tracking/telemetry")
 
-    assert keywords["operation_id"].value == "get_tracking_telemetry"
-    assert keywords["response_model"].id == "APITrackingTelemetryResponse"
-    assert keywords["responses"].id == "TRACKING_TELEMETRY_ERROR_RESPONSES"
-    assert keywords["tags"].elts[0].value == "tracking"
-    assert "status_code" not in keywords
+    assert route["operation_id"] == "get_tracking_telemetry"
+    assert route["response_model"] == "APITrackingTelemetryResponse"
+    assert route["responses"] == "TRACKING_TELEMETRY_ERROR_RESPONSES"
+    assert route["tags"] == ["tracking"]
+    assert route["status_code"] is None
 
 
 def test_legacy_control_routes_are_deprecated_compatibility_aliases():
@@ -342,12 +501,11 @@ def test_legacy_control_routes_are_deprecated_compatibility_aliases():
         "/commands/cancel_activities": "legacy_cancel_activities",
     }
     for path, operation_id in expectations.items():
-        route_call = _find_route_registration(path)
-        keywords = {keyword.arg: keyword.value for keyword in route_call.keywords}
+        route = _route_metadata(path)
 
-        assert keywords["deprecated"].value is True
-        assert keywords["operation_id"].value == operation_id
-        assert keywords["tags"].elts[0].value == "legacy-commands"
+        assert route["deprecated"] is True
+        assert route["operation_id"] == operation_id
+        assert route["tags"] == ["legacy-commands"]
 
 
 def test_sitl_injection_route_has_typed_api_metadata():
@@ -375,11 +533,10 @@ def test_sitl_injection_route_has_typed_api_metadata():
         ),
     }
     for path, (operation_id, response_model) in expectations.items():
-        route_call = _find_route_registration(path)
-        keywords = {keyword.arg: keyword.value for keyword in route_call.keywords}
+        route = _route_metadata(path)
 
-        assert keywords["operation_id"].value == operation_id
-        assert keywords["response_model"].id == response_model
-        assert keywords["status_code"].attr == "HTTP_202_ACCEPTED"
-        assert keywords["responses"].id == "SITL_ERROR_RESPONSES"
-        assert keywords["tags"].elts[0].value == "sitl-validation"
+        assert route["operation_id"] == operation_id
+        assert route["response_model"] == response_model
+        assert route["status_code"] == "status.HTTP_202_ACCEPTED"
+        assert route["responses"] == "SITL_ERROR_RESPONSES"
+        assert route["tags"] == ["sitl-validation"]

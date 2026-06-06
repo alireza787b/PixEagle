@@ -19,6 +19,10 @@ The current candidate inventory is:
 
 - `generated/pixeagle-openapi-tool-candidates.yaml`
 
+It is generated from the static route surface in
+`src/classes/fastapi_handler.py` plus the typed `/api/v1` route registry in
+`src/classes/fastapi_api_v1_routes.py`.
+
 The current review-stage registry and policy are:
 
 - `agent_tools.yaml`

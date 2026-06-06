@@ -54,8 +54,18 @@ def test_api_tool_candidate_inventory_is_non_callable():
     inventory = _load_inventory()
 
     assert inventory["artifact"] == "pixeagle-openapi-tool-candidates"
-    assert inventory["source"]["file"] == "src/classes/fastapi_handler.py"
-    assert len(inventory["source"]["sha256"]) == 64
+    assert inventory["source"]["primary_file"] == "src/classes/fastapi_handler.py"
+    assert inventory["generated_from"] == [
+        "src/classes/fastapi_handler.py",
+        "src/classes/fastapi_api_v1_routes.py",
+    ]
+    assert {
+        source["file"]: len(source["sha256"])
+        for source in inventory["source"]["files"]
+    } == {
+        "src/classes/fastapi_handler.py": 64,
+        "src/classes/fastapi_api_v1_routes.py": 64,
+    }
     assert inventory["summary"]["callable_tools"] == 0
     assert inventory["summary"]["mcp_exposed_tools"] == 0
     assert inventory["summary"]["curated_registry_present"] is True

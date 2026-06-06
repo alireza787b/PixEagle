@@ -2,9 +2,15 @@ schema_version: 1
 artifact: pixeagle-openapi-tool-candidates
 kind: pixeagle_api_tool_candidate_inventory
 source:
-  file: src/classes/fastapi_handler.py
-  sha256: 83aee1267c246b7f84e158f8ccbd1dbe86b51f67b43c53a2e8e4410daf5feb13
-generated_from: src/classes/fastapi_handler.py
+  primary_file: src/classes/fastapi_handler.py
+  files:
+  - file: src/classes/fastapi_handler.py
+    sha256: c3c0e46ae5df65a90466b2b9516a74a960eaeb0ef69eb57f444f80793b6a0a69
+  - file: src/classes/fastapi_api_v1_routes.py
+    sha256: 468357e9f0a2c407926940b74e08945fb3e3723b5c7090ce6bada6e7b0414cf6
+generated_from:
+- src/classes/fastapi_handler.py
+- src/classes/fastapi_api_v1_routes.py
 output_path: docs/agent-context/generated/pixeagle-openapi-tool-candidates.yaml
 claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP tool
   registry, not a tools/list response, and not permission for an AI agent or client to execute

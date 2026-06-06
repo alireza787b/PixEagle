@@ -20,6 +20,10 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FASTAPI_HANDLER = PROJECT_ROOT / "src" / "classes" / "fastapi_handler.py"
+API_V1_ROUTE_REGISTRY = (
+    PROJECT_ROOT / "src" / "classes" / "fastapi_api_v1_routes.py"
+)
+ROUTE_SOURCE_FILES = (FASTAPI_HANDLER, API_V1_ROUTE_REGISTRY)
 DEFAULT_OUTPUT = (
     PROJECT_ROOT
     / "docs"
@@ -121,6 +125,10 @@ def _load_fastapi_handler_tree() -> ast.Module:
     return ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
 
 
+def _load_api_v1_route_registry_tree() -> ast.Module:
+    return ast.parse(API_V1_ROUTE_REGISTRY.read_text(encoding="utf-8"))
+
+
 def _handler_request_models(tree: ast.Module) -> dict[str, str]:
     request_models: dict[str, str] = {}
     primitive_annotations = {
@@ -151,9 +159,10 @@ def _handler_request_models(tree: ast.Module) -> dict[str, str]:
     return request_models
 
 
-def collect_declared_routes() -> list[dict[str, Any]]:
-    tree = _load_fastapi_handler_tree()
-    request_models = _handler_request_models(tree)
+def _collect_inline_routes(
+    tree: ast.Module,
+    request_models: dict[str, str],
+) -> list[dict[str, Any]]:
     routes: list[dict[str, Any]] = []
 
     for node in ast.walk(tree):
@@ -196,6 +205,66 @@ def collect_declared_routes() -> list[dict[str, Any]]:
                 ),
             }
         )
+
+    return routes
+
+
+def _collect_api_v1_route_specs(
+    tree: ast.Module,
+    request_models: dict[str, str],
+) -> list[dict[str, Any]]:
+    routes: list[dict[str, Any]] = []
+
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            is_route_specs = any(
+                isinstance(target, ast.Name) and target.id == "API_V1_ROUTE_SPECS"
+                for target in node.targets
+            )
+            value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            is_route_specs = (
+                isinstance(node.target, ast.Name)
+                and node.target.id == "API_V1_ROUTE_SPECS"
+            )
+            value = node.value
+        else:
+            continue
+
+        if not is_route_specs or not isinstance(value, ast.Tuple):
+            continue
+        for element in value.elts:
+            if not isinstance(element, ast.Call):
+                continue
+            keywords = {keyword.arg: keyword.value for keyword in element.keywords}
+            handler_method = _expr_to_data(keywords.get("handler"))
+            handler = f"self.{handler_method}" if handler_method else None
+            routes.append(
+                {
+                    "method": str(_expr_to_data(keywords.get("method"))).upper(),
+                    "path": _expr_to_data(keywords.get("path")),
+                    "operation_id": _expr_to_data(keywords.get("operation_id")),
+                    "tags": _expr_to_data(keywords.get("tags")) or [],
+                    "response_model": _expr_to_data(keywords.get("response_model")),
+                    "responses": _expr_to_data(keywords.get("responses")),
+                    "deprecated": False,
+                    "status_code": _expr_to_data(keywords.get("status_code")),
+                    "handler": handler,
+                    "request_model": (
+                        request_models.get(handler_method) if handler_method else None
+                    ),
+                }
+            )
+
+    return routes
+
+
+def collect_declared_routes() -> list[dict[str, Any]]:
+    tree = _load_fastapi_handler_tree()
+    registry_tree = _load_api_v1_route_registry_tree()
+    request_models = _handler_request_models(tree)
+    routes = _collect_inline_routes(tree, request_models)
+    routes.extend(_collect_api_v1_route_specs(registry_tree, request_models))
 
     return sorted(routes, key=lambda route: (route["path"], route["method"]))
 
@@ -677,18 +746,23 @@ def build_inventory() -> dict[str, Any]:
         if candidate["eligible_read_only_mcp_candidate"]
     ]
     registry_coverage = _registry_coverage_summary(candidates, registry, policy)
+    source_files = [
+        {
+            "file": str(source.relative_to(PROJECT_ROOT)),
+            "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+        }
+        for source in ROUTE_SOURCE_FILES
+    ]
 
     return {
         "schema_version": 1,
         "artifact": "pixeagle-openapi-tool-candidates",
         "kind": "pixeagle_api_tool_candidate_inventory",
         "source": {
-            "file": str(FASTAPI_HANDLER.relative_to(PROJECT_ROOT)),
-            "sha256": hashlib.sha256(
-                FASTAPI_HANDLER.read_bytes(),
-            ).hexdigest(),
+            "primary_file": str(FASTAPI_HANDLER.relative_to(PROJECT_ROOT)),
+            "files": source_files,
         },
-        "generated_from": str(FASTAPI_HANDLER.relative_to(PROJECT_ROOT)),
+        "generated_from": [entry["file"] for entry in source_files],
         "output_path": str(DEFAULT_OUTPUT.relative_to(PROJECT_ROOT)),
         "claim_boundary": INVENTORY_CLAIM_BOUNDARY,
         "promotion_path": [
