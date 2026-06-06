@@ -99,6 +99,9 @@ curl http://127.0.0.1:5077/api/v1/runtime/status
 # Check typed following status
 curl http://127.0.0.1:5077/api/v1/following/status
 
+# Check typed following telemetry/setpoint snapshot
+curl http://127.0.0.1:5077/api/v1/following/telemetry
+
 # Check typed MAVLink telemetry health
 curl http://127.0.0.1:5077/api/v1/telemetry/health
 

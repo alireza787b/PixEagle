@@ -70,6 +70,7 @@ class FastAPIHandler:
 | `/status` | GET | System status |
 | `/api/v1/runtime/status` | GET | Typed PixEagle process-local runtime status |
 | `/api/v1/following/status` | GET | Typed process-local following status |
+| `/api/v1/following/telemetry` | GET | Typed follower telemetry/setpoint snapshot |
 | `/api/v1/telemetry/health` | GET | Typed MAVLink2REST request/payload health |
 | `/api/v1/tracking/runtime-status` | GET | Typed tracker output/readiness status |
 | `/stats` | GET | Streaming statistics |
@@ -130,6 +131,30 @@ Detailed follower telemetry widgets may continue using
 `/telemetry/follower_data` until their richer data contract is migrated. The
 typed following status route does not prove PX4-observed Offboard, SITL, HIL,
 field, or follower-response success.
+
+### Typed Following Telemetry Endpoint
+
+Dashboard/API/MCP consumers that need follower setpoint values should prefer
+`GET /api/v1/following/telemetry` instead of the legacy
+`/telemetry/follower_data` payload. It returns `schema_version`, `source`,
+`status`, `consumer_guidance`, `following_active`, `profile`, `fields`,
+`field_source`, optional `last_command_intent`, optional target-loss/safety/
+performance diagnostics, `circuit_breaker`, `command_publication`,
+flight-mode hints, `legacy_payload_keys`, `health_issues`, `reason`,
+`claim_boundary`, and `timestamp`.
+
+The route prefers live setpoint-handler fields when an active follower exposes
+them, then falls back to legacy follower telemetry fields during compatibility
+windows. `field_source` identifies which path supplied the `fields` object. The
+`command_publication.local_successful_publish_observed` field is local
+PixEagle/MAVSDK publication evidence only; it is not PX4-observed Offboard or
+vehicle-response proof.
+
+Dashboard detailed follower status cards now consume this typed route through
+the endpoint registry, with fallback to `/telemetry/follower_data` only when
+the typed route is missing during rolling updates. The Follower visualization
+page still uses legacy telemetry arrays until a separate historical telemetry
+contract is designed.
 
 ### Typed Telemetry Health Endpoint
 
@@ -198,6 +223,7 @@ they do not accept confirmation, dry-run, or idempotency request fields.
 |----------|--------|-------------|
 | `/api/v1/runtime/status` | GET | Typed PixEagle process-local runtime contract |
 | `/api/v1/following/status` | GET | Typed process-local following/readiness contract |
+| `/api/v1/following/telemetry` | GET | Typed follower telemetry/setpoint snapshot |
 | `/api/v1/tracking/runtime-status` | GET | Typed tracker runtime/readiness contract |
 | `/api/tracker/schema` | GET | Tracker schema |
 | `/api/tracker/switch` | POST | Switch tracker type |

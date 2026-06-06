@@ -3,9 +3,11 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import axios from 'axios';
 import { endpoints } from '../services/apiEndpoints';
 import {
+  normalizeFollowingTelemetry,
   normalizeTrackerStatus,
   normalizeTelemetryHealth,
   useFollowerStatus,
+  useFollowingTelemetry,
   useSmartModeStatus,
   useTrackerStatus,
   useTelemetryHealth,
@@ -59,6 +61,41 @@ const usableTelemetryHealth = {
   },
 };
 
+const activeFollowingTelemetry = {
+  schema_version: 1,
+  source: 'following_telemetry',
+  status: 'active',
+  consumer_guidance: 'following_active',
+  following_active: true,
+  profile: {
+    configured_mode: 'gm_velocity_vector',
+    current_mode: 'gm_velocity_vector',
+    profile_valid: true,
+    display_name: 'Gimbal Velocity Vector',
+    control_type: 'velocity_body_offboard',
+    available_fields: ['vel_body_fwd', 'yawspeed_deg_s'],
+    follower_type: 'GMVelocityVectorFollower',
+  },
+  fields: {
+    vel_body_fwd: 1.25,
+    yawspeed_deg_s: 3.0,
+  },
+  field_source: 'active_follower',
+  target_loss_handler: {
+    state: 'ACTIVE',
+  },
+  safety_systems: {
+    safety_violations_count: 0,
+  },
+  performance: {
+    success_rate_percent: 100,
+  },
+  circuit_breaker_active: false,
+  command_publication: {
+    local_successful_publish_observed: true,
+  },
+};
+
 afterEach(() => {
   jest.clearAllMocks();
 });
@@ -107,6 +144,21 @@ test('normalizes stale tracker output as not follower usable', () => {
   expect(normalized.isTracking).toBe(true);
   expect(normalized.usableForFollowing).toBe(false);
   expect(normalized.dataIsStale).toBe(true);
+});
+
+test('normalizes typed following telemetry into legacy-compatible card fields', () => {
+  const normalized = normalizeFollowingTelemetry(activeFollowingTelemetry);
+
+  expect(normalized.fields.vel_body_fwd).toBe(1.25);
+  expect(normalized.following_active).toBe(true);
+  expect(normalized.profile_name).toBe('Gimbal Velocity Vector');
+  expect(normalized.manager_mode).toBe('gm_velocity_vector');
+  expect(normalized.implementation_class).toBe('GMVelocityVectorFollower');
+  expect(normalized.control_type).toBe('velocity_body_offboard');
+  expect(normalized.available_fields).toEqual(['vel_body_fwd', 'yawspeed_deg_s']);
+  expect(normalized.validation_status).toBe(true);
+  expect(normalized.target_loss_handler.state).toBe('ACTIVE');
+  expect(normalized.circuit_breaker_active).toBe(false);
 });
 
 test('useTrackerStatus polls typed tracker runtime status instead of legacy tracker telemetry', async () => {
@@ -284,6 +336,86 @@ test('useFollowerStatus ignores stale out-of-order following status responses', 
     });
 
     expect(screen.getByText('Following on')).toBeInTheDocument();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('useFollowingTelemetry polls typed following telemetry instead of legacy follower telemetry', async () => {
+  axios.get.mockResolvedValueOnce({ data: activeFollowingTelemetry });
+
+  const Probe = () => {
+    const { followingTelemetry } = useFollowingTelemetry(60000);
+    return <div>{followingTelemetry.profile_name || 'No telemetry'}</div>;
+  };
+
+  render(<Probe />);
+
+  expect(await screen.findByText('Gimbal Velocity Vector')).toBeInTheDocument();
+  expect(axios.get).toHaveBeenCalledWith(
+    endpoints.followingTelemetry,
+    expect.objectContaining({
+      headers: expect.objectContaining({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      }),
+    })
+  );
+});
+
+test('useFollowingTelemetry falls back to legacy follower telemetry during rolling updates', async () => {
+  axios.get
+    .mockRejectedValueOnce({ response: { status: 404 } })
+    .mockResolvedValueOnce({ data: { profile_name: 'Legacy Follower', fields: { vel_body_fwd: 0 } } });
+
+  const Probe = () => {
+    const { followingTelemetry } = useFollowingTelemetry(60000);
+    return <div>{followingTelemetry.profile_name || 'No telemetry'}</div>;
+  };
+
+  render(<Probe />);
+
+  expect(await screen.findByText('Legacy Follower')).toBeInTheDocument();
+  expect(axios.get).toHaveBeenNthCalledWith(1, endpoints.followingTelemetry, expect.any(Object));
+  expect(axios.get).toHaveBeenNthCalledWith(2, endpoints.followerData, expect.any(Object));
+});
+
+test('useFollowingTelemetry ignores stale out-of-order telemetry responses', async () => {
+  jest.useFakeTimers();
+  let resolveFirstRequest;
+  axios.get
+    .mockImplementationOnce(() => new Promise((resolve) => {
+      resolveFirstRequest = resolve;
+    }))
+    .mockResolvedValueOnce({ data: activeFollowingTelemetry });
+
+  const Probe = () => {
+    const { followingTelemetry } = useFollowingTelemetry(60000);
+    return <div>{followingTelemetry.profile_name || 'No telemetry'}</div>;
+  };
+
+  try {
+    render(<Probe />);
+    await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      jest.advanceTimersByTime(60000);
+    });
+
+    expect(await screen.findByText('Gimbal Velocity Vector')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveFirstRequest({
+        data: {
+          ...activeFollowingTelemetry,
+          profile: {
+            ...activeFollowingTelemetry.profile,
+            display_name: 'Stale Follower',
+          },
+        },
+      });
+    });
+
+    expect(screen.getByText('Gimbal Velocity Vector')).toBeInTheDocument();
   } finally {
     jest.useRealTimers();
   }

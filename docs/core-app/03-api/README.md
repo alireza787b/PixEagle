@@ -13,10 +13,10 @@ http://127.0.0.1:5077
 | Category | Endpoints | Description |
 |----------|-----------|-------------|
 | [Streaming](#streaming) | `/video_feed`, `/ws/video_feed` | Video streaming |
-| [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/following/status`, `/api/v1/telemetry/health` | System data and typed health |
+| [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/v1/telemetry/health` | System data and typed health |
 | [Commands](#commands) | `/commands/*` | Control operations |
 | [Tracker](#tracker-api) | `/api/v1/tracking/runtime-status`, `/api/tracker/*` | Typed tracker runtime status and legacy tracker management |
-| [Follower](#follower-api) | `/api/v1/following/status`, `/api/follower/*` | Typed following status and legacy follower management |
+| [Follower](#follower-api) | `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/follower/*` | Typed following status/telemetry and legacy follower management |
 | [Config](#configuration-api) | `/api/config/*` | Configuration |
 | [Safety](#safety-api) | `/api/safety/*` | Safety settings |
 
@@ -198,6 +198,113 @@ This route does not replace detailed setpoint/follower telemetry yet; richer
 widgets may continue using `/telemetry/follower_data` until a separate typed
 follower telemetry contract exists.
 
+### Following Telemetry
+
+```http
+GET /api/v1/following/telemetry
+```
+
+Typed process-local follower telemetry and setpoint snapshot for dashboard/API/
+MCP consumers. Use this route for current setpoint values and follower-card
+diagnostics instead of parsing `/telemetry/follower_data`.
+
+**Response:**
+```json
+{
+  "schema_version": 1,
+  "source": "following_telemetry",
+  "status": "active",
+  "consumer_guidance": "following_active",
+  "following_active": true,
+  "profile": {
+    "configured_mode": "gm_velocity_vector",
+    "current_mode": "gm_velocity_vector",
+    "profile_valid": true,
+    "display_name": "Gimbal Velocity Vector",
+    "control_type": "velocity_body_offboard",
+    "available_fields": [
+      "vel_body_fwd",
+      "vel_body_right",
+      "vel_body_down",
+      "yawspeed_deg_s"
+    ],
+    "manager_type": "Follower",
+    "follower_type": "GMVelocityVectorFollower",
+    "follower_instance_present": true
+  },
+  "fields": {
+    "vel_body_fwd": 1.25,
+    "vel_body_right": -0.5,
+    "vel_body_down": 0.0,
+    "yawspeed_deg_s": 3.0
+  },
+  "field_source": "active_follower",
+  "last_command_intent": {
+    "profile_name": "gm_velocity_vector",
+    "control_type": "velocity_body_offboard",
+    "source": "follower",
+    "reason": "target_update",
+    "created_at_utc": "2026-06-06T00:00:00Z",
+    "fields": {
+      "vel_body_fwd": 1.25,
+      "vel_body_right": -0.5,
+      "vel_body_down": 0.0,
+      "yawspeed_deg_s": 3.0
+    }
+  },
+  "target_loss_handler": {
+    "state": "ACTIVE"
+  },
+  "safety_systems": {
+    "safety_violations_count": 0
+  },
+  "performance": {
+    "success_rate_percent": 100.0
+  },
+  "circuit_breaker": {
+    "active": false,
+    "status": "LIVE_MODE"
+  },
+  "circuit_breaker_active": false,
+  "command_publication": {
+    "source": "offboard_commander",
+    "exists": true,
+    "running": true,
+    "task_active": true,
+    "health_state": "running",
+    "last_intent_fresh": true,
+    "failsafe_defaults_active": false,
+    "successful_publishes": 4,
+    "local_successful_publish_observed": true
+  },
+  "flight_mode": 393216,
+  "flight_mode_text": "Offboard",
+  "is_offboard": true,
+  "telemetry_enabled": true,
+  "legacy_payload_keys": [
+    "fields",
+    "flight_mode",
+    "profile_name"
+  ],
+  "health_issues": [],
+  "reason": null,
+  "claim_boundary": "PixEagle process-local follower telemetry and setpoint snapshots only; not PX4-observed Offboard, SITL, HIL, field, or vehicle-response proof.",
+  "timestamp": 1717200000.0
+}
+```
+
+`field_source` is one of `active_follower`, `legacy_telemetry`,
+`schema_profile`, or `unavailable`. Live setpoint-handler fields are preferred;
+legacy follower telemetry fields are used only as a compatibility fallback.
+`local_successful_publish_observed` is local PixEagle publication evidence, not
+PX4-observed Offboard or vehicle-response proof.
+
+Dashboard detailed follower status cards consume this route through the
+endpoint registry and fall back to `/telemetry/follower_data` only when the
+typed route is missing during rolling updates. The Follower visualization page
+still uses legacy telemetry arrays for historical plots until a separate typed
+history contract exists.
+
 ### System Status
 
 ```http
@@ -369,11 +476,12 @@ During rolling updates, the hook falls back to legacy `/status` only when the
 typed runtime route is missing, and it ignores stale out-of-order responses.
 
 Dashboard follower nav/status polling uses `/api/v1/following/status` through
-the endpoint registry and reads `following_active`. During rolling updates, the
-hook falls back to legacy `/telemetry/follower_data` only when the typed
-following route is missing, and it ignores stale out-of-order responses.
-Detailed follower cards still use `/telemetry/follower_data` until their richer
-typed telemetry contract is migrated.
+the endpoint registry and reads `following_active`. Detailed follower-card
+telemetry uses `/api/v1/following/telemetry`. During rolling updates, these
+hooks fall back to legacy `/telemetry/follower_data` only when the matching
+typed route is missing, and they ignore stale out-of-order responses. The
+Follower visualization page still uses `/telemetry/follower_data` for
+historical arrays until a typed history contract is migrated.
 
 Dashboard tracker status uses `/api/v1/tracking/runtime-status` through the
 endpoint registry and normalizes tracker output into distinct operator states:

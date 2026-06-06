@@ -160,6 +160,10 @@ const isMissingFollowingStatusRoute = (fetchError) => (
   [404, 405, 501].includes(fetchError?.response?.status)
 );
 
+const isMissingFollowingTelemetryRoute = (fetchError) => (
+  [404, 405, 501].includes(fetchError?.response?.status)
+);
+
 export const useFollowerStatus = (interval = 2000) => {
   const [isFollowing, setIsFollowing] = useState(false);
   const mountedRef = useRef(false);
@@ -206,6 +210,101 @@ export const useFollowerStatus = (interval = 2000) => {
   }, [interval]);
 
   return isFollowing;
+};
+
+export const normalizeFollowingTelemetry = (data) => {
+  if (!data) {
+    return {};
+  }
+  if (data.source !== 'following_telemetry') {
+    return data;
+  }
+
+  const profile = data.profile || {};
+  return {
+    ...data,
+    fields: data.fields || {},
+    following_active: Boolean(data.following_active),
+    profile_name: profile.display_name || profile.current_mode || profile.configured_mode || 'Unknown',
+    manager_mode: profile.current_mode || profile.configured_mode || null,
+    implementation_class: profile.follower_type || null,
+    control_type: profile.control_type || data.control_type || null,
+    available_fields: profile.available_fields || [],
+    validation_status: Boolean(profile.profile_valid),
+    circuit_breaker_active: data.circuit_breaker_active,
+    target_loss_handler: data.target_loss_handler || null,
+    safety_systems: data.safety_systems || null,
+    performance: data.performance || null,
+  };
+};
+
+export const useFollowingTelemetry = (interval = 2000) => {
+  const [followingTelemetry, setFollowingTelemetry] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const mountedRef = useRef(false);
+  const requestSequenceRef = useRef(0);
+
+  const refresh = useCallback(async ({ suppressErrors = false } = {}) => {
+    const requestId = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestId;
+
+    try {
+      let response;
+      try {
+        response = await axios.get(endpoints.followingTelemetry, buildNoCacheRequestConfig());
+      } catch (followingTelemetryError) {
+        if (!isMissingFollowingTelemetryRoute(followingTelemetryError)) {
+          throw followingTelemetryError;
+        }
+        response = await axios.get(endpoints.followerData, buildNoCacheRequestConfig());
+      }
+
+      if (!mountedRef.current || requestId !== requestSequenceRef.current) {
+        return null;
+      }
+      const normalized = normalizeFollowingTelemetry(response.data || {});
+      setFollowingTelemetry(normalized);
+      setError(null);
+      return normalized;
+    } catch (fetchError) {
+      if (!mountedRef.current || requestId !== requestSequenceRef.current) {
+        return null;
+      }
+      if (!suppressErrors) {
+        console.error('Error fetching following telemetry:', fetchError);
+      }
+      setFollowingTelemetry({});
+      setError(fetchError);
+      return null;
+    } finally {
+      if (mountedRef.current && requestId === requestSequenceRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const intervalId = setInterval(() => {
+      refresh({ suppressErrors: true });
+    }, interval);
+
+    refresh();
+
+    return () => {
+      mountedRef.current = false;
+      requestSequenceRef.current += 1;
+      clearInterval(intervalId);
+    };
+  }, [interval, refresh]);
+
+  return {
+    followingTelemetry,
+    refresh,
+    loading,
+    error,
+  };
 };
 
 const TELEMETRY_GUIDANCE = {

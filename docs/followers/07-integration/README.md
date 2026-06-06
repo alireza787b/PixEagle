@@ -104,8 +104,13 @@ boundary. It reports `degraded/operator_attention` if local following is active
 without a valid follower/commander publication path, or if command publication
 appears to remain active after local following stopped.
 
+Use `GET /api/v1/following/telemetry` for current follower setpoint values and
+follower-card diagnostics. It prefers live setpoint-handler fields and falls
+back to legacy telemetry fields only for compatibility. Its publication fields
+are PixEagle-local signals, not PX4-observed Offboard or vehicle-response proof.
+
 `/telemetry/follower_data` remains the legacy detailed follower telemetry
-payload for richer setpoint widgets until a separate typed follower telemetry
+payload for historical visualization arrays until a separate typed history
 contract replaces it.
 
 ---

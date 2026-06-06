@@ -28,6 +28,7 @@ import { videoFeed, endpoints } from '../services/apiEndpoints';
 import {
   useTrackerStatus,
   useFollowerStatus,
+  useFollowingTelemetry,
   useSmartModeStatus,
   useTelemetryHealth
 } from '../hooks/useStatuses';
@@ -42,7 +43,6 @@ const DashboardPage = () => {
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState('info');
-  const [followerData, setFollowerData] = useState({});
   const [circuitBreakerActive, setCircuitBreakerActive] = useState(undefined);
   const [configDrawerOpen, setConfigDrawerOpen] = useState(false);
 
@@ -55,18 +55,17 @@ const DashboardPage = () => {
     refresh: refreshSmartModeStatus,
   } = useSmartModeStatus(checkInterval);
   const { telemetryStatus } = useTelemetryHealth(checkInterval);
+  const { followingTelemetry: followerData } = useFollowingTelemetry(checkInterval);
   const { currentProfile } = useCurrentFollowerProfile();
 
-  // Unified data fetching for better performance
+  // Circuit-breaker status remains separate until safety APIs are migrated to /api/v1.
   useEffect(() => {
     const fetchAllData = async () => {
       try {
-        const [followerResponse, circuitBreakerResponse] = await Promise.all([
-          axios.get(endpoints.followerData).catch(() => ({ data: {} })),
-          axios.get(endpoints.circuitBreakerStatus).catch(() => ({ data: { available: false } }))
-        ]);
+        const circuitBreakerResponse = await axios
+          .get(endpoints.circuitBreakerStatus)
+          .catch(() => ({ data: { available: false } }));
 
-        setFollowerData(followerResponse.data);
         setCircuitBreakerActive(
           circuitBreakerResponse.data.available
             ? circuitBreakerResponse.data.active

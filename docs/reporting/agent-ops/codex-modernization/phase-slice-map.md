@@ -69,6 +69,7 @@ it together with:
 | Phase 4 typed tracker runtime status | done | PXE-0044 | `checkpoints/2026-06-05-phase-4-typed-tracker-runtime-status.md`; shared tracker runtime evaluator, typed `/api/v1/tracking/runtime-status`, legacy tracker/current compatibility fields, selector/hook migration to typed runtime state, reverse-proxy-safe tracker hooks, and TargetLossHandler fail-closed active+stale/not-usable handling done |
 | Phase 4 typed runtime status | done | PXE-0045 | `checkpoints/2026-06-05-phase-4-typed-runtime-status.md`; typed `/api/v1/runtime/status`, shared snapshot helper behind legacy `/status`, mode/subsystem separation, fail-closed local following classification for unsafe Offboard commander state, dashboard smart-mode migration with legacy route fallback and stale-response guards, route inventory/frontend/backend tests, and refreshed companion refs done |
 | Phase 4 typed following status | done | PXE-0046 | `checkpoints/2026-06-06-phase-4-typed-following-status.md`; typed `/api/v1/following/status`, follower profile and OffboardCommander publication summary, fail-closed following readiness classification, dashboard follower-status hook migration with legacy telemetry fallback and stale-response guards, route inventory/frontend/backend tests, and follower integration docs correction done |
+| Phase 4 typed following telemetry | done | PXE-0047 | `checkpoints/2026-06-06-phase-4-typed-following-telemetry.md`; typed `/api/v1/following/telemetry`, live setpoint-field snapshot with compatibility fallback, optional target-loss/safety/performance diagnostics, dashboard detailed follower-card hook migration with stale-response guards, route inventory/frontend/backend tests, and docs/reporting updates done |
 
 ## Active Slice
 
@@ -81,8 +82,10 @@ status plus target-loss active/stale cleanup. PXE-0045 is done for typed
 PixEagle process-local runtime status and dashboard smart-mode migration off
 legacy `/status`. PXE-0046 is done for typed process-local following status and
 dashboard follower-status migration off legacy `/telemetry/follower_data` for
-the small nav/status boolean. Detailed follower telemetry widgets remain legacy
-until a richer typed follower telemetry contract is implemented. These are still unit/contract
+the small nav/status boolean. PXE-0047 is done for typed process-local following
+telemetry and dashboard detailed follower-card migration off legacy
+`/telemetry/follower_data`. The Follower visualization page still uses legacy
+historical arrays until a typed history contract is designed. These are still unit/contract
 evidence only; no runtime PX4/SITL pass is claimed. Official Gazebo runtime proof (PXE-0040)
 remains open for a native GUI/GPU host, stronger headless runner, or separately
 proven official-image startup workaround. Official SIH L2 probing starts a
@@ -110,6 +113,7 @@ Audit artifact:
 - `checkpoints/2026-06-05-phase-4-typed-tracker-runtime-status.md`
 - `checkpoints/2026-06-05-phase-4-typed-runtime-status.md`
 - `checkpoints/2026-06-06-phase-4-typed-following-status.md`
+- `checkpoints/2026-06-06-phase-4-typed-following-telemetry.md`
 
 Recently completed Offboard commander follow-up issues:
 
@@ -226,6 +230,14 @@ Recently completed Offboard commander follow-up issues:
   the endpoint registry, legacy fallback for missing typed endpoints, stale
   response guards, and corrected follower integration docs. Done in
   `checkpoints/2026-06-06-phase-4-typed-following-status.md`.
+- PXE-0047: typed process-local following telemetry now has
+  `GET /api/v1/following/telemetry`, live setpoint fields with a declared
+  `field_source`, optional command intent/target-loss/safety/performance
+  diagnostics, circuit-breaker status, command-publication summary, structured
+  `/api/v1` errors, dashboard `useFollowingTelemetry()` adoption through the
+  endpoint registry, legacy fallback for missing typed endpoints, stale response
+  guards, and updated API/follower docs. Done in
+  `checkpoints/2026-06-06-phase-4-typed-following-telemetry.md`.
 
 Objective:
 

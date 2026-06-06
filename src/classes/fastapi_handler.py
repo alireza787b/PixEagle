@@ -63,6 +63,7 @@ API_V1_ACTION_OPERATOR_ABORT_PATH = "/api/v1/actions/operator-abort"
 API_V1_ACTION_RESOURCE_PREFIX = "/api/v1/actions"
 API_V1_RUNTIME_STATUS_PATH = "/api/v1/runtime/status"
 API_V1_FOLLOWING_STATUS_PATH = "/api/v1/following/status"
+API_V1_FOLLOWING_TELEMETRY_PATH = "/api/v1/following/telemetry"
 API_V1_TELEMETRY_HEALTH_PATH = "/api/v1/telemetry/health"
 API_V1_TRACKING_RUNTIME_STATUS_PATH = "/api/v1/tracking/runtime-status"
 SITL_VALIDATION_INJECTION_PATHS = {
@@ -83,6 +84,10 @@ RUNTIME_STATUS_CLAIM_BOUNDARY = (
 FOLLOWING_STATUS_CLAIM_BOUNDARY = (
     "PixEagle process-local following state and command-publication health "
     "only; not PX4, SITL, HIL, field, or follower-response proof."
+)
+FOLLOWING_TELEMETRY_CLAIM_BOUNDARY = (
+    "PixEagle process-local follower telemetry and setpoint snapshots only; "
+    "not PX4-observed Offboard, SITL, HIL, field, or vehicle-response proof."
 )
 TRACKER_OUTPUT_UNSET = object()
 
@@ -317,6 +322,45 @@ class APIFollowingStatusResponse(BaseModel):
     timestamp: float
 
 
+class APIFollowingTelemetryResponse(BaseModel):
+    """Typed follower telemetry/setpoint snapshot for API/MCP/dashboard consumers."""
+
+    schema_version: int = 1
+    source: Literal["following_telemetry"] = "following_telemetry"
+    status: Literal["inactive", "active", "degraded", "unavailable"]
+    consumer_guidance: Literal[
+        "inactive",
+        "following_active",
+        "operator_attention",
+        "unavailable",
+    ]
+    following_active: bool
+    profile: APIFollowingProfileStatus
+    fields: Dict[str, Any] = Field(default_factory=dict)
+    field_source: Literal[
+        "active_follower",
+        "legacy_telemetry",
+        "schema_profile",
+        "unavailable",
+    ] = "unavailable"
+    last_command_intent: Optional[Dict[str, Any]] = None
+    target_loss_handler: Optional[Dict[str, Any]] = None
+    safety_systems: Optional[Dict[str, Any]] = None
+    performance: Optional[Dict[str, Any]] = None
+    circuit_breaker: Optional[Dict[str, Any]] = None
+    circuit_breaker_active: Optional[bool] = None
+    command_publication: APIFollowingCommandPublicationStatus
+    flight_mode: Optional[Any] = None
+    flight_mode_text: Optional[str] = None
+    is_offboard: Optional[bool] = None
+    telemetry_enabled: bool = True
+    legacy_payload_keys: List[str] = Field(default_factory=list)
+    health_issues: List[str] = Field(default_factory=list)
+    reason: Optional[str] = None
+    claim_boundary: str = FOLLOWING_TELEMETRY_CLAIM_BOUNDARY
+    timestamp: float
+
+
 class APITrackingRuntimeStatusResponse(BaseModel):
     """Typed tracker runtime status for API/MCP/dashboard consumers."""
 
@@ -392,6 +436,12 @@ FOLLOWING_STATUS_ERROR_RESPONSES = {
     status.HTTP_500_INTERNAL_SERVER_ERROR: {
         "model": APIErrorResponse,
         "description": "Following status could not be evaluated.",
+    },
+}
+FOLLOWING_TELEMETRY_ERROR_RESPONSES = {
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {
+        "model": APIErrorResponse,
+        "description": "Following telemetry could not be evaluated.",
     },
 }
 TELEMETRY_HEALTH_ERROR_RESPONSES = {
@@ -1010,6 +1060,13 @@ class FastAPIHandler:
             operation_id="get_following_status",
             tags=["following"],
         )(self.get_following_status)
+        self.app.get(
+            "/api/v1/following/telemetry",
+            response_model=APIFollowingTelemetryResponse,
+            responses=FOLLOWING_TELEMETRY_ERROR_RESPONSES,
+            operation_id="get_following_telemetry",
+            tags=["following"],
+        )(self.get_following_telemetry)
         self.app.get(
             "/api/v1/telemetry/health",
             response_model=APITelemetryHealthResponse,
@@ -1810,6 +1867,7 @@ class FastAPIHandler:
             path in SITL_VALIDATION_INJECTION_PATHS
             or path == API_V1_RUNTIME_STATUS_PATH
             or path == API_V1_FOLLOWING_STATUS_PATH
+            or path == API_V1_FOLLOWING_TELEMETRY_PATH
             or path == API_V1_TELEMETRY_HEALTH_PATH
             or path == API_V1_TRACKING_RUNTIME_STATUS_PATH
             or path.startswith(f"{API_V1_ACTION_RESOURCE_PREFIX}/")
@@ -2637,6 +2695,19 @@ class FastAPIHandler:
                 code="following_status_error",
                 detail=str(e),
                 path=API_V1_FOLLOWING_STATUS_PATH,
+            )
+
+    async def get_following_telemetry(self):
+        """Return typed follower telemetry/setpoint snapshot for consumers."""
+        try:
+            return self._get_following_telemetry_snapshot()
+        except Exception as e:
+            self.logger.error(f"Error in get_following_telemetry: {e}")
+            return self._api_v1_error_response(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                code="following_telemetry_error",
+                detail=str(e),
+                path=API_V1_FOLLOWING_TELEMETRY_PATH,
             )
 
     async def get_telemetry_health(self):
@@ -3707,6 +3778,181 @@ class FastAPIHandler:
             "health_issues": health_issues,
             "reason": reason,
             "claim_boundary": FOLLOWING_STATUS_CLAIM_BOUNDARY,
+            "timestamp": time.time(),
+        }
+
+    def _get_active_following_setpoint_handler(self) -> Optional[Any]:
+        """Return the active follower setpoint handler, if one is available."""
+        app_controller = getattr(self, "app_controller", None)
+        follower_manager = getattr(app_controller, "follower", None)
+        concrete_follower = (
+            getattr(follower_manager, "follower", None)
+            if follower_manager is not None
+            else None
+        )
+        return (
+            getattr(follower_manager, "setpoint_handler", None)
+            or getattr(concrete_follower, "setpoint_handler", None)
+        )
+
+    def _get_legacy_follower_telemetry_snapshot(self) -> Dict[str, Any]:
+        """Return the legacy follower telemetry payload without route wrapping."""
+        telemetry_handler = getattr(self, "telemetry_handler", None)
+        if telemetry_handler and hasattr(telemetry_handler, "get_follower_data"):
+            telemetry = telemetry_handler.get_follower_data()
+        elif telemetry_handler and hasattr(telemetry_handler, "latest_follower_data"):
+            telemetry = telemetry_handler.latest_follower_data
+        else:
+            telemetry = {}
+        return telemetry if isinstance(telemetry, dict) else {}
+
+    @staticmethod
+    def _coerce_mapping(value: Any) -> Dict[str, Any]:
+        """Return a shallow dict when value is mapping-like, otherwise empty."""
+        return value if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _serialize_command_intent(intent: Any) -> Optional[Dict[str, Any]]:
+        """Serialize a CommandIntent-like object for typed telemetry."""
+        if intent is None:
+            return None
+        if isinstance(intent, dict):
+            return intent
+
+        fields = getattr(intent, "fields", None)
+        return {
+            "profile_name": getattr(intent, "profile_name", None),
+            "control_type": getattr(intent, "control_type", None),
+            "source": getattr(intent, "source", None),
+            "reason": getattr(intent, "reason", None),
+            "created_at_utc": getattr(intent, "created_at_utc", None),
+            "fields": fields.copy() if isinstance(fields, dict) else fields,
+        }
+
+    def _get_circuit_breaker_snapshot(
+        self,
+        legacy_telemetry: Dict[str, Any],
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[bool], List[str]]:
+        """Return follower circuit-breaker state for typed telemetry."""
+        issues = []
+        legacy_circuit_breaker = self._coerce_mapping(
+            legacy_telemetry.get("circuit_breaker")
+        )
+        if legacy_circuit_breaker:
+            active = legacy_circuit_breaker.get("active")
+            return legacy_circuit_breaker, active if isinstance(active, bool) else None, issues
+
+        if "circuit_breaker_active" in legacy_telemetry:
+            active = bool(legacy_telemetry.get("circuit_breaker_active"))
+            return {
+                "active": active,
+                "status": "SAFE_MODE" if active else "LIVE_MODE",
+            }, active, issues
+
+        if CIRCUIT_BREAKER_AVAILABLE:
+            try:
+                active = bool(FollowerCircuitBreaker.is_active())
+                snapshot = {
+                    "active": active,
+                    "status": "SAFE_MODE" if active else "LIVE_MODE",
+                    "commands_allowed_by_circuit_breaker": not active,
+                    "commands_logged_only": active,
+                }
+                try:
+                    snapshot["statistics"] = FollowerCircuitBreaker.get_statistics()
+                except Exception as stats_error:
+                    issues.append(f"circuit_breaker_statistics_unavailable:{stats_error}")
+                return snapshot, active, issues
+            except Exception as circuit_error:
+                issues.append(f"circuit_breaker_status_unavailable:{circuit_error}")
+
+        return {
+            "active": True,
+            "status": "SAFE_MODE",
+            "error": "Circuit breaker status unavailable",
+        }, True, issues
+
+    def _get_following_telemetry_snapshot(self) -> Dict[str, Any]:
+        """Return the canonical typed follower telemetry snapshot used by /api/v1."""
+        status_snapshot = self._get_following_status_snapshot()
+        legacy_telemetry = self._get_legacy_follower_telemetry_snapshot()
+        setpoint_handler = self._get_active_following_setpoint_handler()
+        health_issues = list(status_snapshot.get("health_issues", []))
+
+        fields = {}
+        field_source = "unavailable"
+        if setpoint_handler and hasattr(setpoint_handler, "get_fields"):
+            try:
+                fields = self._coerce_mapping(setpoint_handler.get_fields())
+                field_source = "active_follower"
+            except Exception as fields_error:
+                health_issues.append(f"active_fields_unavailable:{fields_error}")
+
+        if not fields:
+            legacy_fields = self._coerce_mapping(legacy_telemetry.get("fields"))
+            if legacy_fields:
+                fields = legacy_fields
+                field_source = "legacy_telemetry"
+
+        if not fields:
+            legacy_setpoints = self._coerce_mapping(legacy_telemetry.get("setpoints"))
+            if legacy_setpoints:
+                fields = legacy_setpoints
+                field_source = "legacy_telemetry"
+
+        if not fields and status_snapshot["profile"].get("available_fields"):
+            field_source = "schema_profile"
+
+        last_command_intent = legacy_telemetry.get("last_command_intent")
+        if last_command_intent is None:
+            follower = getattr(getattr(self, "app_controller", None), "follower", None)
+            getter = getattr(follower, "get_last_command_intent", None)
+            if callable(getter):
+                try:
+                    last_command_intent = getter()
+                except Exception as intent_error:
+                    health_issues.append(f"last_command_intent_unavailable:{intent_error}")
+
+        circuit_breaker, circuit_breaker_active, circuit_issues = (
+            self._get_circuit_breaker_snapshot(legacy_telemetry)
+        )
+        health_issues.extend(circuit_issues)
+
+        legacy_keys = sorted(str(key) for key in legacy_telemetry.keys())
+        return {
+            "schema_version": 1,
+            "source": "following_telemetry",
+            "status": status_snapshot["status"],
+            "consumer_guidance": status_snapshot["consumer_guidance"],
+            "following_active": status_snapshot["following_active"],
+            "profile": status_snapshot["profile"],
+            "fields": fields,
+            "field_source": field_source,
+            "last_command_intent": self._serialize_command_intent(
+                last_command_intent
+            ),
+            "target_loss_handler": self._coerce_mapping(
+                legacy_telemetry.get("target_loss_handler")
+            ) or None,
+            "safety_systems": self._coerce_mapping(
+                legacy_telemetry.get("safety_systems")
+            ) or None,
+            "performance": self._coerce_mapping(
+                legacy_telemetry.get("performance")
+            ) or None,
+            "circuit_breaker": circuit_breaker,
+            "circuit_breaker_active": circuit_breaker_active,
+            "command_publication": status_snapshot["command_publication"],
+            "flight_mode": legacy_telemetry.get("flight_mode"),
+            "flight_mode_text": legacy_telemetry.get("flight_mode_text"),
+            "is_offboard": legacy_telemetry.get("is_offboard"),
+            "telemetry_enabled": bool(
+                getattr(Parameters, "ENABLE_FOLLOWER_TELEMETRY", True)
+            ),
+            "legacy_payload_keys": legacy_keys,
+            "health_issues": health_issues,
+            "reason": status_snapshot["reason"],
+            "claim_boundary": FOLLOWING_TELEMETRY_CLAIM_BOUNDARY,
             "timestamp": time.time(),
         }
 

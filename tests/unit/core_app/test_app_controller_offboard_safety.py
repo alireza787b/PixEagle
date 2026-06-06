@@ -2095,6 +2095,141 @@ async def test_typed_following_status_returns_structured_error():
 
 
 @pytest.mark.asyncio
+async def test_typed_following_telemetry_reports_active_fields_and_diagnostics():
+    """Typed following telemetry should expose live fields without PX4 proof claims."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    setpoint_handler = SimpleNamespace(
+        get_fields=MagicMock(return_value={
+            "vel_body_fwd": 1.25,
+            "vel_body_right": -0.5,
+            "vel_body_down": 0.0,
+            "yawspeed_deg_s": 3.0,
+        })
+    )
+    follower = SimpleNamespace(
+        mode="gm_velocity_vector",
+        follower=SimpleNamespace(setpoint_handler=setpoint_handler),
+        get_display_name=MagicMock(return_value="Gimbal Velocity Vector"),
+        get_control_type=MagicMock(return_value="velocity_body_offboard"),
+        get_available_fields=MagicMock(return_value=[
+            "vel_body_fwd",
+            "vel_body_right",
+            "vel_body_down",
+            "yawspeed_deg_s",
+        ]),
+        get_last_command_intent=MagicMock(return_value=_command_intent()),
+    )
+    handler.app_controller = SimpleNamespace(
+        following_active=True,
+        follower=follower,
+        offboard_commander=SimpleNamespace(
+            get_status=MagicMock(return_value={
+                "exists": True,
+                "running": True,
+                "task_active": True,
+                "health_state": "running",
+                "sends_mavsdk_commands": True,
+                "command_publication_source": "offboard_commander",
+                "last_intent_fresh": True,
+                "failsafe_defaults_active": False,
+                "successful_publishes": 4,
+                "failed_publishes": 0,
+                "consecutive_failures": 0,
+            })
+        ),
+        last_offboard_commander_failure=None,
+    )
+    handler.telemetry_handler = SimpleNamespace(
+        get_follower_data=MagicMock(return_value={
+            "fields": {"legacy": 9.0},
+            "target_loss_handler": {"state": "ACTIVE"},
+            "safety_systems": {"safety_violations_count": 0},
+            "performance": {"success_rate_percent": 100.0},
+            "circuit_breaker": {"active": False, "status": "LIVE_MODE"},
+            "flight_mode": 393216,
+            "flight_mode_text": "Offboard",
+            "is_offboard": True,
+        })
+    )
+
+    with patch('classes.fastapi_handler.Parameters.FOLLOWER_MODE', 'gm_velocity_vector'):
+        result = await handler.get_following_telemetry()
+
+    assert result["schema_version"] == 1
+    assert result["source"] == "following_telemetry"
+    assert result["status"] == "active"
+    assert result["consumer_guidance"] == "following_active"
+    assert result["following_active"] is True
+    assert result["fields"]["vel_body_fwd"] == 1.25
+    assert "legacy" not in result["fields"]
+    assert result["field_source"] == "active_follower"
+    assert result["target_loss_handler"]["state"] == "ACTIVE"
+    assert result["safety_systems"]["safety_violations_count"] == 0
+    assert result["performance"]["success_rate_percent"] == 100.0
+    assert result["circuit_breaker_active"] is False
+    assert result["flight_mode"] == 393216
+    assert result["is_offboard"] is True
+    assert result["command_publication"]["local_successful_publish_observed"] is True
+    assert result["last_command_intent"]["source"] == "unit_test"
+    assert "not PX4-observed Offboard" in result["claim_boundary"]
+
+
+@pytest.mark.asyncio
+async def test_typed_following_telemetry_falls_back_to_legacy_fields():
+    """Typed telemetry can preserve legacy field values when no live handler exists."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        follower=None,
+        offboard_commander=None,
+        last_offboard_commander_failure=None,
+    )
+    handler.telemetry_handler = SimpleNamespace(
+        get_follower_data=MagicMock(return_value={
+            "fields": {"vel_body_fwd": 0.0},
+            "profile_name": "Gimbal Velocity Vector",
+        })
+    )
+
+    with patch('classes.fastapi_handler.Parameters.FOLLOWER_MODE', 'gm_velocity_vector'):
+        result = await handler.get_following_telemetry()
+
+    assert result["status"] == "inactive"
+    assert result["consumer_guidance"] == "inactive"
+    assert result["fields"] == {"vel_body_fwd": 0.0}
+    assert result["field_source"] == "legacy_telemetry"
+    assert result["command_publication"]["exists"] is False
+
+
+@pytest.mark.asyncio
+async def test_typed_following_telemetry_returns_structured_error():
+    """Typed following telemetry failures should use the /api/v1 error envelope."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        follower=None,
+        offboard_commander=None,
+        last_offboard_commander_failure=None,
+    )
+    handler.telemetry_handler = SimpleNamespace(
+        get_follower_data=MagicMock(side_effect=RuntimeError("telemetry failed"))
+    )
+
+    with patch('classes.fastapi_handler.Parameters.FOLLOWER_MODE', 'gm_velocity_vector'):
+        response = await handler.get_following_telemetry()
+    payload = json.loads(response.body.decode())
+
+    assert response.status_code == 500
+    assert payload["code"] == "following_telemetry_error"
+    assert payload["detail"] == "telemetry failed"
+    assert payload["path"] == "/api/v1/following/telemetry"
+    assert payload["request_id"].startswith("pixeagle-api-")
+
+
+@pytest.mark.asyncio
 async def test_typed_telemetry_health_endpoint_forwards_manager_snapshot():
     """Typed telemetry health should use the manager's structured contract."""
     handler = object.__new__(FastAPIHandler)
