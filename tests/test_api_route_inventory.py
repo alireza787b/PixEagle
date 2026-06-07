@@ -27,6 +27,7 @@ API_V1_ROUTE_REGISTRY = REPO_ROOT / "src" / "classes" / "fastapi_api_v1_routes.p
 API_V1_CONTRACTS = REPO_ROOT / "src" / "classes" / "api_v1_contracts.py"
 API_V1_PATHS = REPO_ROOT / "src" / "classes" / "api_v1_paths.py"
 API_V1_ERRORS = REPO_ROOT / "src" / "classes" / "api_v1_errors.py"
+API_V1_ACTIONS = REPO_ROOT / "src" / "classes" / "api_v1_actions.py"
 
 API_V1_CONTRACT_CLASS_NAMES = {
     "APIActionAuditEvent",
@@ -430,6 +431,11 @@ def test_api_v1_paths_and_error_builders_are_not_defined_in_fastapi_handler():
         for node in ast.walk(handler_tree)
         for target in getattr(node, "targets", [])
         if isinstance(target, ast.Name)
+    } | {
+        target.attr
+        for node in ast.walk(handler_tree)
+        for target in getattr(node, "targets", [])
+        if isinstance(target, ast.Attribute)
     }
     handler_error_model_calls = {
         node.func.id
@@ -448,6 +454,54 @@ def test_api_v1_paths_and_error_builders_are_not_defined_in_fastapi_handler():
         "build_api_v1_error_response",
         "build_sitl_error_response",
     } <= error_helper_functions
+
+
+def test_api_v1_action_store_implementation_is_not_defined_in_fastapi_handler():
+    """Action storage and record factories should stay out of the handler monolith."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    actions_tree = ast.parse(API_V1_ACTIONS.read_text(encoding="utf-8"))
+    legacy_action_state_names = {
+        "_action_records",
+        "_action_idempotency_index",
+        "_action_history_order",
+        "_action_store_lock",
+        "_action_key_locks",
+    }
+
+    handler_assigned_names = {
+        target.id
+        for node in ast.walk(handler_tree)
+        for target in getattr(node, "targets", [])
+        if isinstance(target, ast.Name)
+    } | {
+        target.attr
+        for node in ast.walk(handler_tree)
+        for target in getattr(node, "targets", [])
+        if isinstance(target, ast.Attribute)
+    }
+    handler_uuid_calls = [
+        node
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "uuid4"
+    ]
+    action_classes = {
+        node.name for node in ast.walk(actions_tree) if isinstance(node, ast.ClassDef)
+    }
+    action_functions = {
+        node.name for node in ast.walk(actions_tree) if isinstance(node, ast.FunctionDef)
+    }
+
+    assert handler_assigned_names.isdisjoint(legacy_action_state_names)
+    assert handler_uuid_calls == []
+    assert "ApiActionStore" in action_classes
+    assert {
+        "attach_legacy_action_audit",
+        "build_action_precondition_failed_response",
+        "ensure_api_action_store",
+        "new_api_action_record",
+    } <= action_functions
 
 
 def test_api_v1_route_registry_uses_canonical_path_constants():

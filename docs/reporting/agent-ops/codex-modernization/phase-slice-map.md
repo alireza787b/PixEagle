@@ -77,6 +77,7 @@ it together with:
 | Phase 4 API v1 route registry extraction | done | PXE-0052 | `checkpoints/2026-06-06-phase-4-api-v1-route-registry-extraction.md`; all 14 typed `/api/v1` route metadata specs moved into static `ApiV1RouteSpec` metadata and `FastAPIHandler` delegates registration; static route inventory and candidate generator parse both source files, preserve 129 HTTP routes and 14 `/api/v1` candidates, and keep all agent/MCP candidates non-callable |
 | Phase 4 API v1 contract extraction | done | PXE-0053 | `checkpoints/2026-06-06-phase-4-api-v1-contract-extraction.md`; typed `/api/v1` Pydantic request/response models, claim boundaries, and response metadata moved to `src/classes/api_v1_contracts.py`; `FastAPIHandler` imports/re-exports them for migration compatibility; generated candidate provenance now hashes contracts, and tests prevent `API*`/`SITL*` contract drift back into the handler |
 | Phase 4 API v1 path/error boundary | done | PXE-0054 | `checkpoints/2026-06-07-phase-4-api-v1-path-error-boundary.md`; canonical typed `/api/v1` path constants and route-family predicates moved to `src/classes/api_v1_paths.py`, structured error-envelope construction moved to `src/classes/api_v1_errors.py`, route specs consume shared path constants, static parsers resolve those constants without runtime startup, candidate provenance now hashes paths, and tests prevent path/error helper drift back into the handler |
+| Phase 4 API v1 action boundary | done | PXE-0055 | `checkpoints/2026-06-07-phase-4-api-v1-action-boundary.md`; process-local action-resource storage, idempotency replay, record construction, legacy action audit attachment, and confirmation/idempotency precondition failure helpers moved to `src/classes/api_v1_actions.py`; `FastAPIHandler` keeps migration wrappers only; candidate provenance now hashes actions, and tests prevent action-store internals/direct UUID record construction from drifting back into the handler |
 
 ## Active Slice
 
@@ -102,7 +103,11 @@ is done for path/error boundary extraction: canonical typed `/api/v1` path
 constants and route-family predicates now live in `src/classes/api_v1_paths.py`,
 structured error-envelope construction lives in `src/classes/api_v1_errors.py`,
 the route registry consumes shared path constants, and static guardrails resolve
-those constants without starting runtime subsystems. No runtime MCP endpoint,
+those constants without starting runtime subsystems. PXE-0055 is done for
+action-resource boundary extraction: process-local action storage, idempotency
+replay, record construction, legacy action audit attachment, and action
+precondition failure helpers now live in `src/classes/api_v1_actions.py`, while
+`FastAPIHandler` keeps migration wrappers only. No runtime MCP endpoint,
 executor, `tools/list`, `tools/call`, or callable tool surface exists from
 these slices. These are still unit/contract evidence only; no runtime PX4/SITL
 pass is claimed. Official Gazebo runtime proof (PXE-0040) remains open for a
@@ -140,6 +145,7 @@ Audit artifact:
 - `checkpoints/2026-06-06-phase-4-api-v1-route-registry-extraction.md`
 - `checkpoints/2026-06-06-phase-4-api-v1-contract-extraction.md`
 - `checkpoints/2026-06-07-phase-4-api-v1-path-error-boundary.md`
+- `checkpoints/2026-06-07-phase-4-api-v1-action-boundary.md`
 
 Recently completed Offboard commander follow-up issues:
 

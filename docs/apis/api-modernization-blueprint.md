@@ -58,6 +58,9 @@ Route inventory tests must:
   error-response metadata
 - record `src/classes/api_v1_paths.py` in generated candidate provenance
   because that module owns the typed route paths parsed by the registry
+- record `src/classes/api_v1_actions.py` in generated candidate provenance
+  because that module owns process-local action resources, idempotency replay,
+  and legacy action audit behavior for the guarded action candidates
 - assert the frozen method/path inventory
 - assert there are no duplicate method/path pairs
 - explicitly track deprecated aliases until removal

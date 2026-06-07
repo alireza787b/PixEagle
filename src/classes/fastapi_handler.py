@@ -17,7 +17,6 @@ from typing import Any, Dict, Literal, Optional, Set, Tuple, List
 from collections import deque
 from dataclasses import dataclass
 import json
-import uuid
 from classes.parameters import Parameters
 from classes.config_service import ConfigService
 import uvicorn
@@ -29,6 +28,13 @@ from classes.follower import FollowerFactory
 from classes.api_v1_errors import (
     build_api_v1_error_response,
     build_sitl_error_response,
+)
+from classes.api_v1_actions import (
+    ApiActionStore,
+    attach_legacy_action_audit,
+    build_action_precondition_failed_response,
+    ensure_api_action_store,
+    new_api_action_record,
 )
 from classes.api_v1_paths import (
     API_V1_ACTION_OFFBOARD_START_PATH,
@@ -335,11 +341,7 @@ class FastAPIHandler:
 
         # Detection Model Manager
         self.model_manager = ModelManager()
-        self._action_records: Dict[str, Dict[str, Any]] = {}
-        self._action_idempotency_index: Dict[Tuple[str, str], str] = {}
-        self._action_history_order: deque[str] = deque()
-        self._action_store_lock = threading.Lock()
-        self._action_key_locks: Dict[Tuple[str, str], asyncio.Lock] = {}
+        self._api_action_store = ApiActionStore()
 
         # FastAPI app
         self.app = FastAPI(title="PixEagle API", version=PIXEAGLE_VERSION)
@@ -1111,18 +1113,9 @@ class FastAPIHandler:
     def _uses_typed_api_error_envelope(path: str) -> bool:
         return uses_typed_api_error_envelope(path)
 
-    def _ensure_action_store(self) -> None:
+    def _ensure_action_store(self) -> ApiActionStore:
         """Initialize action storage for tests that construct via __new__."""
-        if not hasattr(self, "_action_records"):
-            self._action_records = {}
-        if not hasattr(self, "_action_idempotency_index"):
-            self._action_idempotency_index = {}
-        if not hasattr(self, "_action_history_order"):
-            self._action_history_order = deque()
-        if not hasattr(self, "_action_store_lock"):
-            self._action_store_lock = threading.Lock()
-        if not hasattr(self, "_action_key_locks"):
-            self._action_key_locks = {}
+        return ensure_api_action_store(self)
 
     def _action_lock_for_key(
         self,
@@ -1130,65 +1123,23 @@ class FastAPIHandler:
         idempotency_key: Optional[str],
     ) -> Optional[asyncio.Lock]:
         """Return a per-idempotency-key async lock for confirmed mutations."""
-        if not idempotency_key:
-            return None
-        self._ensure_action_store()
-        key = (action_type, idempotency_key)
-        with self._action_store_lock:
-            lock = self._action_key_locks.get(key)
-            if lock is None:
-                lock = asyncio.Lock()
-                self._action_key_locks[key] = lock
-            return lock
+        return self._ensure_action_store().action_lock_for_key(
+            action_type,
+            idempotency_key,
+        )
 
     def _lookup_idempotent_action(
         self,
         action_type: str,
         idempotency_key: Optional[str],
     ) -> Optional[Dict[str, Any]]:
-        if not idempotency_key:
-            return None
-        self._ensure_action_store()
-        with self._action_store_lock:
-            action_id = self._action_idempotency_index.get(
-                (action_type, idempotency_key)
-            )
-            if not action_id:
-                return None
-            record = self._action_records.get(action_id)
-            if not record:
-                return None
-            replay = dict(record)
-            replay["idempotent_replay"] = True
-            return replay
+        return self._ensure_action_store().lookup_idempotent_action(
+            action_type,
+            idempotency_key,
+        )
 
     def _store_action_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
-        self._ensure_action_store()
-        with self._action_store_lock:
-            action_id = record["action_id"]
-            self._action_records[action_id] = dict(record)
-            self._action_history_order.append(action_id)
-            idempotency_key = record.get("idempotency_key")
-            if idempotency_key and record.get("executed") is True:
-                self._action_idempotency_index[
-                    (record["action_type"], idempotency_key)
-                ] = action_id
-
-            while len(self._action_history_order) > 1000:
-                old_action_id = self._action_history_order.popleft()
-                old_record = self._action_records.pop(old_action_id, None)
-                if (
-                    old_record
-                    and old_record.get("idempotency_key")
-                    and old_record.get("executed") is True
-                ):
-                    lock_key = (old_record["action_type"], old_record["idempotency_key"])
-                    self._action_idempotency_index.pop(
-                        lock_key,
-                        None,
-                    )
-                    self._action_key_locks.pop(lock_key, None)
-        return record
+        return self._ensure_action_store().store_action_record(record)
 
     @staticmethod
     def _new_api_action_record(
@@ -1203,38 +1154,17 @@ class FastAPIHandler:
         result: Dict[str, Any],
         error: Optional[str] = None,
     ) -> Dict[str, Any]:
-        timestamp = time.time()
-        event = {
-            "event_id": f"pixeagle-action-event-{uuid.uuid4()}",
-            "event_type": f"{action_type}.{status_value}",
-            "timestamp": timestamp,
-            "source": request.source,
-            "reason": request.reason,
-        }
-        return {
-            "action_id": f"pixeagle-action-{uuid.uuid4()}",
-            "action_type": action_type,
-            "status": status_value,
-            "accepted": accepted,
-            "executed": executed,
-            "dry_run": request.dry_run,
-            "confirmed": request.confirm,
-            "idempotency_key": request.idempotency_key,
-            "idempotent_replay": False,
-            "source": request.source,
-            "reason": request.reason,
-            "following_active_before": following_active_before,
-            "following_active_after": following_active_after,
-            "result": result,
-            "error": error,
-            "claim_boundary": (
-                "This action resource records a PixEagle API/control-path "
-                "request only; PX4-observed mode, setpoint cadence, SITL, HIL, "
-                "or field success require separate evidence artifacts."
-            ),
-            "audit_event": event,
-            "timestamp": timestamp,
-        }
+        return new_api_action_record(
+            action_type=action_type,
+            request=request,
+            status_value=status_value,
+            accepted=accepted,
+            executed=executed,
+            following_active_before=following_active_before,
+            following_active_after=following_active_after,
+            result=result,
+            error=error,
+        )
 
     def _attach_legacy_action_audit(
         self,
@@ -1247,48 +1177,15 @@ class FastAPIHandler:
         error: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Attach a process-local action audit record to legacy command routes."""
-        legacy_payload = dict(payload)
-        legacy_payload.pop("action_audit", None)
-        request = APIActionRequest(
-            source="legacy_compatibility",
-            reason=route,
-            confirm=True,
-            metadata={
-                "legacy_route": route,
-                "canonical_route": (
-                    API_V1_ACTION_OFFBOARD_START_PATH
-                    if action_type == "offboard_start"
-                    else API_V1_ACTION_OPERATOR_ABORT_PATH
-                ),
-            },
+        return attach_legacy_action_audit(
+            payload,
+            store=self._ensure_action_store(),
+            action_type=action_type,
+            route=route,
+            following_active_before=following_active_before,
+            following_active_after=following_active_after,
+            error=error,
         )
-        status_value: Literal["success", "failure"] = (
-            "success" if payload.get("status") == "success" and not error else "failure"
-        )
-        record = self._store_action_record(
-            self._new_api_action_record(
-                action_type=action_type,
-                request=request,
-                status_value=status_value,
-                accepted=True,
-                executed=True,
-                following_active_before=following_active_before,
-                following_active_after=following_active_after,
-                result={
-                    "legacy_compatibility_route": route,
-                    "legacy_result": legacy_payload,
-                },
-                error=error,
-            )
-        )
-        payload["action_audit"] = {
-            "action_id": record["action_id"],
-            "action_type": record["action_type"],
-            "status": record["status"],
-            "canonical_route": request.metadata["canonical_route"],
-            "claim_boundary": record["claim_boundary"],
-        }
-        return payload
 
     def _action_precondition_failed_response(
         self,
@@ -1300,31 +1197,14 @@ class FastAPIHandler:
         message: str,
     ) -> JSONResponse:
         following_current = bool(getattr(self.app_controller, "following_active", False))
-        record = self._store_action_record(
-            self._new_api_action_record(
-                action_type=action_type,
-                request=request,
-                status_value="failure",
-                accepted=False,
-                executed=False,
-                following_active_before=following_current,
-                following_active_after=following_current,
-                result={
-                    "precondition": code,
-                    "metadata": dict(request.metadata or {}),
-                },
-                error=message,
-            )
-        )
-        return self._api_v1_error_response(
-            status_code=status.HTTP_409_CONFLICT,
-            code=code,
-            detail={
-                "message": message,
-                "action_type": action_type,
-                "action_id": record["action_id"],
-            },
+        return build_action_precondition_failed_response(
+            store=self._ensure_action_store(),
+            action_type=action_type,
+            request=request,
             path=path,
+            code=code,
+            message=message,
+            following_active=following_current,
         )
 
     def _confirmation_required_response(
@@ -2418,9 +2298,7 @@ class FastAPIHandler:
 
     async def get_action_resource(self, action_id: str) -> Any:
         """Return a tracked in-process /api/v1 action resource."""
-        self._ensure_action_store()
-        with self._action_store_lock:
-            record = self._action_records.get(action_id)
+        record = self._ensure_action_store().get_action_record(action_id)
 
         if record is None:
             return self._api_v1_error_response(

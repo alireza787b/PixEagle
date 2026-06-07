@@ -17,13 +17,17 @@ Typed `/api/v1` route registrations are centralized in
 `src/classes/fastapi_api_v1_routes.py` as static `ApiV1RouteSpec` entries.
 Canonical typed API paths live in `src/classes/api_v1_paths.py`, and
 structured error-envelope construction lives in `src/classes/api_v1_errors.py`.
+Typed action-resource storage, idempotency replay, legacy action audit
+attachment, and action precondition failure helpers live in
+`src/classes/api_v1_actions.py`.
 `FastAPIHandler.define_routes()` delegates to the route registry while the
 handler methods still live in `fastapi_handler.py`. Typed `/api/v1` Pydantic
 contracts and error-response metadata live in `src/classes/api_v1_contracts.py`
 and are imported back into `fastapi_handler.py` during migration for
 compatibility. Route inventory tests and the non-callable agent-candidate
 generator parse the route sources without instantiating the application, and
-the generated inventory records the contract and path source hashes.
+the generated inventory records the contract, path, and action-helper source
+hashes.
 
 ## Class Definition
 
@@ -206,6 +210,11 @@ include `confirm=true` and an `idempotency_key`; they return `202` on first
 execution. Dry-run and idempotent replay responses return `200`;
 confirmation/idempotency, validation, and lookup failures use the typed
 `/api/v1` error envelope.
+
+The current action resource store is process-local and owned by
+`src/classes/api_v1_actions.py`. It is suitable for current operator/API
+feedback and validation plans, but it is not durable command storage and it is
+not a runtime MCP executor.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
