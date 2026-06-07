@@ -17,8 +17,9 @@ Typed `/api/v1` route registrations are centralized in
 `src/classes/fastapi_api_v1_routes.py` as static `ApiV1RouteSpec` entries.
 Canonical typed API paths live in `src/classes/api_v1_paths.py`, and
 structured error-envelope construction lives in `src/classes/api_v1_errors.py`.
-Typed action-resource storage, idempotency replay, legacy action audit
-attachment, and action precondition failure helpers live in
+Typed action-resource storage, idempotency replay, guarded action route
+execution, action resource lookup, legacy action audit attachment, and action
+precondition failure helpers live in
 `src/classes/api_v1_actions.py`.
 Typed runtime/following/tracking read-state snapshot builders live in
 `src/classes/api_v1_snapshots.py`.
@@ -215,10 +216,11 @@ execution. Dry-run and idempotent replay responses return `200`;
 confirmation/idempotency, validation, and lookup failures use the typed
 `/api/v1` error envelope.
 
-The current action resource store is process-local and owned by
-`src/classes/api_v1_actions.py`. It is suitable for current operator/API
-feedback and validation plans, but it is not durable command storage and it is
-not a runtime MCP executor.
+The current action resource store, guarded action execution, and action lookup
+helpers are process-local and owned by `src/classes/api_v1_actions.py`.
+`FastAPIHandler` keeps thin route-method wrappers for migration compatibility.
+This path is suitable for current operator/API feedback and validation plans,
+but it is not durable command storage and it is not a runtime MCP executor.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|

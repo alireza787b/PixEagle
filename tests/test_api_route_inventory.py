@@ -460,7 +460,7 @@ def test_api_v1_paths_and_error_builders_are_not_defined_in_fastapi_handler():
 
 
 def test_api_v1_action_store_implementation_is_not_defined_in_fastapi_handler():
-    """Action storage and record factories should stay out of the handler monolith."""
+    """Action storage and typed action bodies should stay out of the handler monolith."""
     handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
     actions_tree = ast.parse(API_V1_ACTIONS.read_text(encoding="utf-8"))
     legacy_action_state_names = {
@@ -493,7 +493,21 @@ def test_api_v1_action_store_implementation_is_not_defined_in_fastapi_handler():
         node.name for node in ast.walk(actions_tree) if isinstance(node, ast.ClassDef)
     }
     action_functions = {
-        node.name for node in ast.walk(actions_tree) if isinstance(node, ast.FunctionDef)
+        node.name
+        for node in ast.walk(actions_tree)
+        if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+    }
+    handler_functions = {
+        node.name: node
+        for node in ast.walk(handler_tree)
+        if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+    }
+    wrapper_targets = {
+        "start_offboard_action": "dispatch_start_offboard_action",
+        "_start_offboard_action_unlocked": "dispatch_start_offboard_action_unlocked",
+        "operator_abort_action": "dispatch_operator_abort_action",
+        "_operator_abort_action_unlocked": "dispatch_operator_abort_action_unlocked",
+        "get_action_resource": "dispatch_get_action_resource",
     }
 
     assert handler_assigned_names.isdisjoint(legacy_action_state_names)
@@ -503,8 +517,24 @@ def test_api_v1_action_store_implementation_is_not_defined_in_fastapi_handler():
         "attach_legacy_action_audit",
         "build_action_precondition_failed_response",
         "ensure_api_action_store",
+        "get_action_resource",
         "new_api_action_record",
+        "operator_abort_action",
+        "operator_abort_action_unlocked",
+        "start_offboard_action",
+        "start_offboard_action_unlocked",
     } <= action_functions
+    for wrapper_name, target_name in wrapper_targets.items():
+        wrapper = handler_functions[wrapper_name]
+        assert len(wrapper.body) == 1
+        statement = wrapper.body[0]
+        assert isinstance(statement, ast.Return)
+        call = statement.value
+        if isinstance(call, ast.Await):
+            call = call.value
+        assert isinstance(call, ast.Call)
+        assert isinstance(call.func, ast.Name)
+        assert call.func.id == target_name
 
 
 def test_api_v1_snapshot_builders_are_not_defined_in_fastapi_handler():

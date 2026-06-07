@@ -1802,6 +1802,51 @@ async def test_api_v1_operator_abort_action_records_safe_cancel_result():
 
 
 @pytest.mark.asyncio
+async def test_api_v1_operator_abort_action_serializes_concurrent_idempotent_requests():
+    """Concurrent duplicate abort requests must not both execute the mutation."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    controller = SimpleNamespace(following_active=True)
+    handler.app_controller = controller
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def cancel():
+        entered.set()
+        await release.wait()
+        controller.following_active = False
+        return {"status": "success", "result": {"steps": ["stopped"], "errors": []}}
+
+    handler.cancel_activities = AsyncMock(side_effect=cancel)
+    request = APIActionRequest(
+        confirm=True,
+        idempotency_key="concurrent-abort",
+        source="operator_test",
+    )
+    response_one = Response()
+    response_two = Response()
+
+    task_one = asyncio.create_task(handler.operator_abort_action(request, response_one))
+    await entered.wait()
+    task_two = asyncio.create_task(handler.operator_abort_action(request, response_two))
+    await asyncio.sleep(0)
+    assert handler.cancel_activities.await_count == 1
+    release.set()
+
+    first, second = await asyncio.gather(task_one, task_two)
+
+    assert first["status"] == "success"
+    assert first["executed"] is True
+    assert first["following_active_before"] is True
+    assert first["following_active_after"] is False
+    assert second["action_id"] == first["action_id"]
+    assert second["idempotent_replay"] is True
+    assert response_one.status_code == 202
+    assert response_two.status_code == 200
+    assert handler.cancel_activities.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_api_v1_operator_abort_action_fails_if_following_remains_active():
     """A successful legacy body is not enough if local following stays active."""
     handler = object.__new__(FastAPIHandler)

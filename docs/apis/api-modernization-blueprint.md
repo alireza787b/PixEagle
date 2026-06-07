@@ -60,7 +60,8 @@ Route inventory tests must:
   because that module owns the typed route paths parsed by the registry
 - record `src/classes/api_v1_actions.py` in generated candidate provenance
   because that module owns process-local action resources, idempotency replay,
-  and legacy action audit behavior for the guarded action candidates
+  guarded action route execution, action resource lookup, and legacy action
+  audit behavior for the guarded action candidates
 - record `src/classes/api_v1_snapshots.py` in generated candidate provenance
   because that module owns process-local runtime, following, and tracking
   snapshot semantics for reviewed read-only candidates
