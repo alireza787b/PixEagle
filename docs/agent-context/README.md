@@ -21,7 +21,9 @@ The current candidate inventory is:
 
 It is generated from the static route surface in
 `src/classes/fastapi_handler.py` plus the typed `/api/v1` route registry in
-`src/classes/fastapi_api_v1_routes.py`.
+`src/classes/fastapi_api_v1_routes.py`. The inventory also records the source
+hash for `src/classes/api_v1_contracts.py`, which owns the typed `/api/v1`
+Pydantic contracts and error-response metadata.
 
 The current review-stage registry and policy are:
 

@@ -51,6 +51,9 @@ Route inventory tests must:
   or PX4 subsystems
 - parse both inline `FastAPIHandler` route declarations and the typed
   `/api/v1` route specs in `src/classes/fastapi_api_v1_routes.py`
+- record `src/classes/api_v1_contracts.py` in generated candidate provenance
+  because that module owns the typed `/api/v1` Pydantic contracts and
+  error-response metadata
 - assert the frozen method/path inventory
 - assert there are no duplicate method/path pairs
 - explicitly track deprecated aliases until removal

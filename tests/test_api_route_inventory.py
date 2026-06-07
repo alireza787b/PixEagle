@@ -16,6 +16,48 @@ from classes.fastapi_api_v1_routes import API_V1_ROUTE_SPECS, register_api_v1_ro
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FASTAPI_HANDLER = REPO_ROOT / "src" / "classes" / "fastapi_handler.py"
 API_V1_ROUTE_REGISTRY = REPO_ROOT / "src" / "classes" / "fastapi_api_v1_routes.py"
+API_V1_CONTRACTS = REPO_ROOT / "src" / "classes" / "api_v1_contracts.py"
+
+API_V1_CONTRACT_CLASS_NAMES = {
+    "APIActionAuditEvent",
+    "APIActionRequest",
+    "APIActionResponse",
+    "APIErrorResponse",
+    "APIFollowingCommandPublicationStatus",
+    "APIFollowingProfileStatus",
+    "APIFollowingStatusResponse",
+    "APIFollowingTelemetryResponse",
+    "APIRuntimeModesStatus",
+    "APIRuntimeStatusResponse",
+    "APIRuntimeSubsystemStatus",
+    "APITrackingRuntimeStatusResponse",
+    "APITrackingTelemetryResponse",
+    "APITelemetryHealthResponse",
+    "APITelemetryPayloadHealth",
+    "APITelemetryRequestFreshness",
+    "APITelemetryTransportHealth",
+    "SITLCommandIntentSummary",
+    "SITLCommanderPublishFailureInjection",
+    "SITLCommanderPublishFailureResponse",
+    "SITLCommanderPublishFailureSummary",
+    "SITLDisconnectResultSummary",
+    "SITLFrameStatusSummary",
+    "SITLMavlink2RestTimeoutInjection",
+    "SITLMavlink2RestTimeoutResponse",
+    "SITLMavlink2RestTimeoutSummary",
+    "SITLMavlinkTelemetrySummary",
+    "SITLMavsdkDisconnectInjection",
+    "SITLMavsdkDisconnectResponse",
+    "SITLMavsdkDisconnectSummary",
+    "SITLOffboardCommanderSummary",
+    "SITLPX4ConnectionSummary",
+    "SITLTrackerInjectionResponse",
+    "SITLTrackerInjectionSummary",
+    "SITLTrackerOutputInjection",
+    "SITLVideoStallInjection",
+    "SITLVideoStallResponse",
+    "SITLVideoStallSummary",
+}
 
 
 EXPECTED_ROUTES = {
@@ -320,6 +362,25 @@ def test_fastapi_handler_delegates_to_api_v1_route_registry_once():
     assert call.args[1].func.id == "globals"
     assert call.args[1].args == []
     assert call.keywords == []
+
+
+def test_api_v1_contracts_are_not_defined_in_fastapi_handler():
+    """Typed API/SITL contracts should stay out of the route handler monolith."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    contracts_tree = ast.parse(API_V1_CONTRACTS.read_text(encoding="utf-8"))
+
+    handler_contract_classes = {
+        node.name
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.ClassDef)
+        and (node.name.startswith("API") or node.name.startswith("SITL"))
+    }
+    contracts_classes = {
+        node.name for node in ast.walk(contracts_tree) if isinstance(node, ast.ClassDef)
+    }
+
+    assert handler_contract_classes == set()
+    assert API_V1_CONTRACT_CLASS_NAMES <= contracts_classes
 
 
 def test_api_v1_action_routes_have_typed_api_metadata():

@@ -23,7 +23,8 @@ FASTAPI_HANDLER = PROJECT_ROOT / "src" / "classes" / "fastapi_handler.py"
 API_V1_ROUTE_REGISTRY = (
     PROJECT_ROOT / "src" / "classes" / "fastapi_api_v1_routes.py"
 )
-ROUTE_SOURCE_FILES = (FASTAPI_HANDLER, API_V1_ROUTE_REGISTRY)
+API_V1_CONTRACTS = PROJECT_ROOT / "src" / "classes" / "api_v1_contracts.py"
+ROUTE_SOURCE_FILES = (FASTAPI_HANDLER, API_V1_ROUTE_REGISTRY, API_V1_CONTRACTS)
 DEFAULT_OUTPUT = (
     PROJECT_ROOT
     / "docs"

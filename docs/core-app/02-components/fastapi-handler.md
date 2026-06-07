@@ -16,9 +16,12 @@ Optimized REST/WebSocket API with streaming capabilities.
 Typed `/api/v1` route registrations are centralized in
 `src/classes/fastapi_api_v1_routes.py` as static `ApiV1RouteSpec` entries.
 `FastAPIHandler.define_routes()` delegates to that registry while the handler
-methods and Pydantic models still live in `fastapi_handler.py`. Route inventory
-tests and the non-callable agent-candidate generator parse both files without
-instantiating the application.
+methods still live in `fastapi_handler.py`. Typed `/api/v1` Pydantic
+contracts and error-response metadata live in `src/classes/api_v1_contracts.py`
+and are imported back into `fastapi_handler.py` during migration for
+compatibility. Route inventory tests and the non-callable agent-candidate
+generator parse the route sources without instantiating the application, and
+the generated inventory records the contract source hash.
 
 ## Class Definition
 

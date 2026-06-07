@@ -74,7 +74,8 @@ it together with:
 | Phase 4 typed tracker telemetry history | done | PXE-0049 | `checkpoints/2026-06-06-phase-4-typed-tracker-telemetry-history.md`; typed `/api/v1/tracking/telemetry`, live TrackerOutput geometry fields with compatibility fallback, embedded runtime status, Follower visualization tracker plot migration, route inventory/backend/frontend tests, and docs/reporting updates done |
 | Phase 4 API/MCP candidate inventory | done | PXE-0050 | `checkpoints/2026-06-06-phase-4-api-tool-candidate-inventory.md`; generated non-callable `/api/v1` candidate inventory, source hash, risk/sensitivity classification, action/SITL read-only promotion blocks, agent-context docs, generator drift gate in CI/phase0-check, and focused candidate tests done; no MCP endpoint, registry, `tools/list`, or callable tool exposure added |
 | Phase 4 docs-stage agent registry and policy | done | PXE-0051 | `checkpoints/2026-06-06-phase-4-docs-stage-agent-registry-policy.md`; review-only `agent_tools.yaml` and default-deny `agent_policy.yaml` added for the six typed process-local status/telemetry GET candidates; generator coverage now detects unsafe registry/policy drift; all tools remain `callable: false`, `mcp_exposure: none`, and unpromoted; no runtime MCP endpoint, executor, `tools/list`, or `tools/call` added |
-| Phase 4 API v1 route registry extraction | done | PXE-0052 | `checkpoints/2026-06-06-phase-4-api-v1-route-registry-extraction.md`; all 14 typed `/api/v1` route contracts moved into static `ApiV1RouteSpec` metadata and `FastAPIHandler` delegates registration; static route inventory and candidate generator parse both source files, preserve 129 HTTP routes and 14 `/api/v1` candidates, and keep all agent/MCP candidates non-callable |
+| Phase 4 API v1 route registry extraction | done | PXE-0052 | `checkpoints/2026-06-06-phase-4-api-v1-route-registry-extraction.md`; all 14 typed `/api/v1` route metadata specs moved into static `ApiV1RouteSpec` metadata and `FastAPIHandler` delegates registration; static route inventory and candidate generator parse both source files, preserve 129 HTTP routes and 14 `/api/v1` candidates, and keep all agent/MCP candidates non-callable |
+| Phase 4 API v1 contract extraction | done | PXE-0053 | `checkpoints/2026-06-06-phase-4-api-v1-contract-extraction.md`; typed `/api/v1` Pydantic request/response models, claim boundaries, and response metadata moved to `src/classes/api_v1_contracts.py`; `FastAPIHandler` imports/re-exports them for migration compatibility; generated candidate provenance now hashes contracts, and tests prevent `API*`/`SITL*` contract drift back into the handler |
 
 ## Active Slice
 
@@ -89,11 +90,15 @@ blocked from read-only promotion. PXE-0051 is done for docs-stage
 registered as review-only/unexposed, policy denies execution and
 auto-promotion, and generator coverage detects unsafe registry/policy drift.
 PXE-0052 is done for first route-family extraction: typed `/api/v1` route
-contracts now live in `src/classes/fastapi_api_v1_routes.py`, `FastAPIHandler`
-delegates registration, and static guardrails parse both route sources without
-changing route inventory, candidate classification, or MCP exposure. No runtime
-MCP endpoint, executor, `tools/list`, `tools/call`, or callable tool surface
-exists from these slices. These are still unit/contract evidence only;
+metadata specs now live in `src/classes/fastapi_api_v1_routes.py`,
+`FastAPIHandler` delegates registration, and static guardrails parse both route sources without
+changing route inventory, candidate classification, or MCP exposure. PXE-0053
+is done for first contract extraction: typed `/api/v1` Pydantic contracts,
+claim boundaries, and response metadata now live in
+`src/classes/api_v1_contracts.py`, are re-exported through `fastapi_handler.py`
+for compatibility, and are included in generated candidate provenance. No
+runtime MCP endpoint, executor, `tools/list`, `tools/call`, or callable tool
+surface exists from these slices. These are still unit/contract evidence only;
 no runtime PX4/SITL pass is claimed. Official Gazebo runtime proof (PXE-0040)
 remains open for a native GUI/GPU host, a stronger headless runner, or a
 separately proven official-image startup workaround. Official SIH L2 probing
@@ -127,6 +132,7 @@ Audit artifact:
 - `checkpoints/2026-06-06-phase-4-api-tool-candidate-inventory.md`
 - `checkpoints/2026-06-06-phase-4-docs-stage-agent-registry-policy.md`
 - `checkpoints/2026-06-06-phase-4-api-v1-route-registry-extraction.md`
+- `checkpoints/2026-06-06-phase-4-api-v1-contract-extraction.md`
 
 Recently completed Offboard commander follow-up issues:
 
