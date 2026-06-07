@@ -6,6 +6,23 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from classes.api_v1_paths import (
+    API_V1_ACTION_OFFBOARD_START_PATH,
+    API_V1_ACTION_OPERATOR_ABORT_PATH,
+    API_V1_ACTION_RESOURCE_PATH,
+    API_V1_FOLLOWING_STATUS_PATH,
+    API_V1_FOLLOWING_TELEMETRY_PATH,
+    API_V1_RUNTIME_STATUS_PATH,
+    API_V1_TELEMETRY_HEALTH_PATH,
+    API_V1_TRACKING_RUNTIME_STATUS_PATH,
+    API_V1_TRACKING_TELEMETRY_PATH,
+    SITL_COMMANDER_PUBLISH_FAILURE_INJECTION_PATH,
+    SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH,
+    SITL_MAVSDK_DISCONNECT_INJECTION_PATH,
+    SITL_TRACKER_OUTPUT_INJECTION_PATH,
+    SITL_VIDEO_STALL_INJECTION_PATH,
+)
+
 
 @dataclass(frozen=True)
 class ApiV1RouteSpec:
@@ -24,7 +41,7 @@ class ApiV1RouteSpec:
 API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
     ApiV1RouteSpec(
         method="GET",
-        path="/api/v1/runtime/status",
+        path=API_V1_RUNTIME_STATUS_PATH,
         handler="get_runtime_status",
         response_model="APIRuntimeStatusResponse",
         responses="RUNTIME_STATUS_ERROR_RESPONSES",
@@ -33,7 +50,7 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
     ),
     ApiV1RouteSpec(
         method="GET",
-        path="/api/v1/following/status",
+        path=API_V1_FOLLOWING_STATUS_PATH,
         handler="get_following_status",
         response_model="APIFollowingStatusResponse",
         responses="FOLLOWING_STATUS_ERROR_RESPONSES",
@@ -42,7 +59,7 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
     ),
     ApiV1RouteSpec(
         method="GET",
-        path="/api/v1/following/telemetry",
+        path=API_V1_FOLLOWING_TELEMETRY_PATH,
         handler="get_following_telemetry",
         response_model="APIFollowingTelemetryResponse",
         responses="FOLLOWING_TELEMETRY_ERROR_RESPONSES",
@@ -51,7 +68,7 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
     ),
     ApiV1RouteSpec(
         method="GET",
-        path="/api/v1/telemetry/health",
+        path=API_V1_TELEMETRY_HEALTH_PATH,
         handler="get_telemetry_health",
         response_model="APITelemetryHealthResponse",
         responses="TELEMETRY_HEALTH_ERROR_RESPONSES",
@@ -60,7 +77,7 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
     ),
     ApiV1RouteSpec(
         method="GET",
-        path="/api/v1/tracking/runtime-status",
+        path=API_V1_TRACKING_RUNTIME_STATUS_PATH,
         handler="get_tracking_runtime_status",
         response_model="APITrackingRuntimeStatusResponse",
         responses="TRACKING_RUNTIME_STATUS_ERROR_RESPONSES",
@@ -69,7 +86,7 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
     ),
     ApiV1RouteSpec(
         method="GET",
-        path="/api/v1/tracking/telemetry",
+        path=API_V1_TRACKING_TELEMETRY_PATH,
         handler="get_tracking_telemetry",
         response_model="APITrackingTelemetryResponse",
         responses="TRACKING_TELEMETRY_ERROR_RESPONSES",
@@ -78,7 +95,7 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
     ),
     ApiV1RouteSpec(
         method="POST",
-        path="/api/v1/actions/offboard-start",
+        path=API_V1_ACTION_OFFBOARD_START_PATH,
         handler="start_offboard_action",
         response_model="APIActionResponse",
         responses="ACTION_ROUTE_RESPONSES",
@@ -88,7 +105,7 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
     ),
     ApiV1RouteSpec(
         method="POST",
-        path="/api/v1/actions/operator-abort",
+        path=API_V1_ACTION_OPERATOR_ABORT_PATH,
         handler="operator_abort_action",
         response_model="APIActionResponse",
         responses="ACTION_ROUTE_RESPONSES",
@@ -98,7 +115,7 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
     ),
     ApiV1RouteSpec(
         method="GET",
-        path="/api/v1/actions/{action_id}",
+        path=API_V1_ACTION_RESOURCE_PATH,
         handler="get_action_resource",
         response_model="APIActionResponse",
         responses="ACTION_ERROR_RESPONSES",
@@ -107,7 +124,7 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
     ),
     ApiV1RouteSpec(
         method="POST",
-        path="/api/v1/sitl/injections/tracker-output",
+        path=SITL_TRACKER_OUTPUT_INJECTION_PATH,
         handler="inject_sitl_tracker_output",
         response_model="SITLTrackerInjectionResponse",
         responses="SITL_ERROR_RESPONSES",
@@ -117,7 +134,7 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
     ),
     ApiV1RouteSpec(
         method="POST",
-        path="/api/v1/sitl/injections/video-stall",
+        path=SITL_VIDEO_STALL_INJECTION_PATH,
         handler="inject_sitl_video_stall",
         response_model="SITLVideoStallResponse",
         responses="SITL_ERROR_RESPONSES",
@@ -127,7 +144,7 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
     ),
     ApiV1RouteSpec(
         method="POST",
-        path="/api/v1/sitl/injections/commander-publish-failure",
+        path=SITL_COMMANDER_PUBLISH_FAILURE_INJECTION_PATH,
         handler="inject_sitl_commander_publish_failure",
         response_model="SITLCommanderPublishFailureResponse",
         responses="SITL_ERROR_RESPONSES",
@@ -137,7 +154,7 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
     ),
     ApiV1RouteSpec(
         method="POST",
-        path="/api/v1/sitl/injections/mavsdk-disconnect",
+        path=SITL_MAVSDK_DISCONNECT_INJECTION_PATH,
         handler="inject_sitl_mavsdk_disconnect",
         response_model="SITLMavsdkDisconnectResponse",
         responses="SITL_ERROR_RESPONSES",
@@ -147,7 +164,7 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
     ),
     ApiV1RouteSpec(
         method="POST",
-        path="/api/v1/sitl/injections/mavlink2rest-timeout",
+        path=SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH,
         handler="inject_sitl_mavlink2rest_timeout",
         response_model="SITLMavlink2RestTimeoutResponse",
         responses="SITL_ERROR_RESPONSES",

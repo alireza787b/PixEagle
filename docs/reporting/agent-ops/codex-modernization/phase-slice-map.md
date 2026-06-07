@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-06-06
+Last updated: 2026-06-07
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -76,6 +76,7 @@ it together with:
 | Phase 4 docs-stage agent registry and policy | done | PXE-0051 | `checkpoints/2026-06-06-phase-4-docs-stage-agent-registry-policy.md`; review-only `agent_tools.yaml` and default-deny `agent_policy.yaml` added for the six typed process-local status/telemetry GET candidates; generator coverage now detects unsafe registry/policy drift; all tools remain `callable: false`, `mcp_exposure: none`, and unpromoted; no runtime MCP endpoint, executor, `tools/list`, or `tools/call` added |
 | Phase 4 API v1 route registry extraction | done | PXE-0052 | `checkpoints/2026-06-06-phase-4-api-v1-route-registry-extraction.md`; all 14 typed `/api/v1` route metadata specs moved into static `ApiV1RouteSpec` metadata and `FastAPIHandler` delegates registration; static route inventory and candidate generator parse both source files, preserve 129 HTTP routes and 14 `/api/v1` candidates, and keep all agent/MCP candidates non-callable |
 | Phase 4 API v1 contract extraction | done | PXE-0053 | `checkpoints/2026-06-06-phase-4-api-v1-contract-extraction.md`; typed `/api/v1` Pydantic request/response models, claim boundaries, and response metadata moved to `src/classes/api_v1_contracts.py`; `FastAPIHandler` imports/re-exports them for migration compatibility; generated candidate provenance now hashes contracts, and tests prevent `API*`/`SITL*` contract drift back into the handler |
+| Phase 4 API v1 path/error boundary | done | PXE-0054 | `checkpoints/2026-06-07-phase-4-api-v1-path-error-boundary.md`; canonical typed `/api/v1` path constants and route-family predicates moved to `src/classes/api_v1_paths.py`, structured error-envelope construction moved to `src/classes/api_v1_errors.py`, route specs consume shared path constants, static parsers resolve those constants without runtime startup, candidate provenance now hashes paths, and tests prevent path/error helper drift back into the handler |
 
 ## Active Slice
 
@@ -96,19 +97,24 @@ changing route inventory, candidate classification, or MCP exposure. PXE-0053
 is done for first contract extraction: typed `/api/v1` Pydantic contracts,
 claim boundaries, and response metadata now live in
 `src/classes/api_v1_contracts.py`, are re-exported through `fastapi_handler.py`
-for compatibility, and are included in generated candidate provenance. No
-runtime MCP endpoint, executor, `tools/list`, `tools/call`, or callable tool
-surface exists from these slices. These are still unit/contract evidence only;
-no runtime PX4/SITL pass is claimed. Official Gazebo runtime proof (PXE-0040)
-remains open for a native GUI/GPU host, a stronger headless runner, or a
-separately proven official-image startup workaround. Official SIH L2 probing
-starts a pinned PX4 container and collects metadata/params/ULog/bounded logs,
-but no accepted PixEagle/PX4 interaction pass is claimed until PixEagle,
-MAVLink2REST, MavlinkAnywhere routing, typed scenario execution, PX4
-observation artifacts, and safety outcomes are all present. Continue with
-broader `/api/v1` migration and router extraction, companion-runtime
-reconciliation, and dashboard toolchain modernization (PXE-0008, PXE-0022,
-PXE-0021) while keeping full runtime L2/L3/L4 validation operator-gated.
+for compatibility, and are included in generated candidate provenance. PXE-0054
+is done for path/error boundary extraction: canonical typed `/api/v1` path
+constants and route-family predicates now live in `src/classes/api_v1_paths.py`,
+structured error-envelope construction lives in `src/classes/api_v1_errors.py`,
+the route registry consumes shared path constants, and static guardrails resolve
+those constants without starting runtime subsystems. No runtime MCP endpoint,
+executor, `tools/list`, `tools/call`, or callable tool surface exists from
+these slices. These are still unit/contract evidence only; no runtime PX4/SITL
+pass is claimed. Official Gazebo runtime proof (PXE-0040) remains open for a
+native GUI/GPU host, a stronger headless runner, or a separately proven
+official-image startup workaround. Official SIH L2 probing starts a pinned PX4
+container and collects metadata/params/ULog/bounded logs, but no accepted
+PixEagle/PX4 interaction pass is claimed until PixEagle, MAVLink2REST,
+MavlinkAnywhere routing, typed scenario execution, PX4 observation artifacts,
+and safety outcomes are all present. Continue with broader `/api/v1` migration
+and router extraction, companion-runtime reconciliation, and dashboard
+toolchain modernization (PXE-0008, PXE-0022, PXE-0021) while keeping full
+runtime L2/L3/L4 validation operator-gated.
 
 Audit artifact:
 
@@ -133,6 +139,7 @@ Audit artifact:
 - `checkpoints/2026-06-06-phase-4-docs-stage-agent-registry-policy.md`
 - `checkpoints/2026-06-06-phase-4-api-v1-route-registry-extraction.md`
 - `checkpoints/2026-06-06-phase-4-api-v1-contract-extraction.md`
+- `checkpoints/2026-06-07-phase-4-api-v1-path-error-boundary.md`
 
 Recently completed Offboard commander follow-up issues:
 

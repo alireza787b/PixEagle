@@ -24,7 +24,13 @@ API_V1_ROUTE_REGISTRY = (
     PROJECT_ROOT / "src" / "classes" / "fastapi_api_v1_routes.py"
 )
 API_V1_CONTRACTS = PROJECT_ROOT / "src" / "classes" / "api_v1_contracts.py"
-ROUTE_SOURCE_FILES = (FASTAPI_HANDLER, API_V1_ROUTE_REGISTRY, API_V1_CONTRACTS)
+API_V1_PATHS = PROJECT_ROOT / "src" / "classes" / "api_v1_paths.py"
+ROUTE_SOURCE_FILES = (
+    FASTAPI_HANDLER,
+    API_V1_ROUTE_REGISTRY,
+    API_V1_CONTRACTS,
+    API_V1_PATHS,
+)
 DEFAULT_OUTPUT = (
     PROJECT_ROOT
     / "docs"
@@ -43,13 +49,13 @@ INVENTORY_CLAIM_BOUNDARY = (
     "field evidence artifacts prove a specific scenario."
 )
 
-READ_ONLY_ELIGIBLE_PATHS = {
-    "/api/v1/runtime/status",
-    "/api/v1/following/status",
-    "/api/v1/following/telemetry",
-    "/api/v1/telemetry/health",
-    "/api/v1/tracking/runtime-status",
-    "/api/v1/tracking/telemetry",
+READ_ONLY_ELIGIBLE_PATH_NAMES = {
+    "API_V1_RUNTIME_STATUS_PATH",
+    "API_V1_FOLLOWING_STATUS_PATH",
+    "API_V1_FOLLOWING_TELEMETRY_PATH",
+    "API_V1_TELEMETRY_HEALTH_PATH",
+    "API_V1_TRACKING_RUNTIME_STATUS_PATH",
+    "API_V1_TRACKING_TELEMETRY_PATH",
 }
 
 REQUIRED_REGISTRY_METADATA = {
@@ -97,18 +103,58 @@ def _relative_path(path: Path) -> str:
         return str(path)
 
 
-def _expr_to_data(node: ast.AST | None) -> Any:
+_API_V1_PATH_CONSTANTS_CACHE: dict[str, str] | None = None
+
+
+def _load_string_constants(path: Path) -> dict[str, str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    constants: dict[str, str] = {}
+
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+            value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+            value = node.value
+        else:
+            continue
+
+        if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                constants[target.id] = value.value
+
+    return constants
+
+
+def _api_v1_path_constants() -> dict[str, str]:
+    global _API_V1_PATH_CONSTANTS_CACHE
+    if _API_V1_PATH_CONSTANTS_CACHE is None:
+        _API_V1_PATH_CONSTANTS_CACHE = _load_string_constants(API_V1_PATHS)
+    return _API_V1_PATH_CONSTANTS_CACHE
+
+
+def _read_only_eligible_paths() -> set[str]:
+    constants = _api_v1_path_constants()
+    return {constants[name] for name in READ_ONLY_ELIGIBLE_PATH_NAMES}
+
+
+def _expr_to_data(node: ast.AST | None, constants: dict[str, str] | None = None) -> Any:
     if node is None:
         return None
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name):
+        if constants and node.id in constants:
+            return constants[node.id]
         return node.id
     if isinstance(node, ast.Attribute):
-        prefix = _expr_to_data(node.value)
+        prefix = _expr_to_data(node.value, constants)
         return f"{prefix}.{node.attr}" if prefix else node.attr
     if isinstance(node, ast.List | ast.Tuple):
-        return [_expr_to_data(item) for item in node.elts]
+        return [_expr_to_data(item, constants) for item in node.elts]
     return ast.unparse(node)
 
 
@@ -213,6 +259,7 @@ def _collect_inline_routes(
 def _collect_api_v1_route_specs(
     tree: ast.Module,
     request_models: dict[str, str],
+    constants: dict[str, str],
 ) -> list[dict[str, Any]]:
     routes: list[dict[str, Any]] = []
 
@@ -242,14 +289,17 @@ def _collect_api_v1_route_specs(
             handler = f"self.{handler_method}" if handler_method else None
             routes.append(
                 {
-                    "method": str(_expr_to_data(keywords.get("method"))).upper(),
-                    "path": _expr_to_data(keywords.get("path")),
-                    "operation_id": _expr_to_data(keywords.get("operation_id")),
-                    "tags": _expr_to_data(keywords.get("tags")) or [],
-                    "response_model": _expr_to_data(keywords.get("response_model")),
-                    "responses": _expr_to_data(keywords.get("responses")),
+                    "method": str(_expr_to_data(keywords.get("method"), constants)).upper(),
+                    "path": _expr_to_data(keywords.get("path"), constants),
+                    "operation_id": _expr_to_data(keywords.get("operation_id"), constants),
+                    "tags": _expr_to_data(keywords.get("tags"), constants) or [],
+                    "response_model": _expr_to_data(
+                        keywords.get("response_model"),
+                        constants,
+                    ),
+                    "responses": _expr_to_data(keywords.get("responses"), constants),
                     "deprecated": False,
-                    "status_code": _expr_to_data(keywords.get("status_code")),
+                    "status_code": _expr_to_data(keywords.get("status_code"), constants),
                     "handler": handler,
                     "request_model": (
                         request_models.get(handler_method) if handler_method else None
@@ -263,9 +313,16 @@ def _collect_api_v1_route_specs(
 def collect_declared_routes() -> list[dict[str, Any]]:
     tree = _load_fastapi_handler_tree()
     registry_tree = _load_api_v1_route_registry_tree()
+    api_v1_path_constants = _api_v1_path_constants()
     request_models = _handler_request_models(tree)
     routes = _collect_inline_routes(tree, request_models)
-    routes.extend(_collect_api_v1_route_specs(registry_tree, request_models))
+    routes.extend(
+        _collect_api_v1_route_specs(
+            registry_tree,
+            request_models,
+            api_v1_path_constants,
+        )
+    )
 
     return sorted(routes, key=lambda route: (route["path"], route["method"]))
 
@@ -476,7 +533,7 @@ def _classify_candidate(
     path = route["path"]
     read_only = method == "GET"
     typed_api_contract = _typed_contract(route)
-    eligible = path in READ_ONLY_ELIGIBLE_PATHS and read_only and typed_api_contract
+    eligible = path in _read_only_eligible_paths() and read_only and typed_api_contract
     candidate_id = _candidate_id(path, method)
 
     risk_class = "unreviewed"

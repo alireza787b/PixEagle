@@ -11,12 +11,22 @@ from types import SimpleNamespace
 from pathlib import Path
 
 from classes.fastapi_api_v1_routes import API_V1_ROUTE_SPECS, register_api_v1_routes
+from classes.api_v1_paths import (
+    API_V1_ACTION_OFFBOARD_START_PATH,
+    API_V1_ACTION_OPERATOR_ABORT_PATH,
+    API_V1_ACTION_RESOURCE_PATH,
+    API_V1_PROCESS_LOCAL_READ_ONLY_PATHS,
+    SITL_VALIDATION_INJECTION_PATHS,
+    uses_typed_api_error_envelope,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FASTAPI_HANDLER = REPO_ROOT / "src" / "classes" / "fastapi_handler.py"
 API_V1_ROUTE_REGISTRY = REPO_ROOT / "src" / "classes" / "fastapi_api_v1_routes.py"
 API_V1_CONTRACTS = REPO_ROOT / "src" / "classes" / "api_v1_contracts.py"
+API_V1_PATHS = REPO_ROOT / "src" / "classes" / "api_v1_paths.py"
+API_V1_ERRORS = REPO_ROOT / "src" / "classes" / "api_v1_errors.py"
 
 API_V1_CONTRACT_CLASS_NAMES = {
     "APIActionAuditEvent",
@@ -195,18 +205,43 @@ EXPECTED_ROUTES = {
 }
 
 
-def _expr_to_data(node):
+def _load_string_constants(path):
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    constants = {}
+
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+            value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+            value = node.value
+        else:
+            continue
+
+        if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                constants[target.id] = value.value
+
+    return constants
+
+
+def _expr_to_data(node, constants=None):
     if node is None:
         return None
     if isinstance(node, ast.Constant):
         return node.value
     if isinstance(node, ast.Name):
+        if constants and node.id in constants:
+            return constants[node.id]
         return node.id
     if isinstance(node, ast.Attribute):
-        prefix = _expr_to_data(node.value)
+        prefix = _expr_to_data(node.value, constants)
         return f"{prefix}.{node.attr}" if prefix else node.attr
     if isinstance(node, ast.List | ast.Tuple):
-        return [_expr_to_data(item) for item in node.elts]
+        return [_expr_to_data(item, constants) for item in node.elts]
     return ast.unparse(node)
 
 
@@ -249,6 +284,7 @@ def _collect_inline_route_metadata():
 
 def _collect_api_v1_route_spec_metadata():
     tree = ast.parse(API_V1_ROUTE_REGISTRY.read_text(encoding="utf-8"))
+    path_constants = _load_string_constants(API_V1_PATHS)
     routes = []
 
     for node in tree.body:
@@ -276,7 +312,7 @@ def _collect_api_v1_route_spec_metadata():
             routes.append(
                 {
                     "method": _expr_to_data(keywords.get("method")),
-                    "path": _expr_to_data(keywords.get("path")),
+                    "path": _expr_to_data(keywords.get("path"), path_constants),
                     "operation_id": _expr_to_data(keywords.get("operation_id")),
                     "response_model": _expr_to_data(keywords.get("response_model")),
                     "responses": _expr_to_data(keywords.get("responses")),
@@ -381,6 +417,80 @@ def test_api_v1_contracts_are_not_defined_in_fastapi_handler():
 
     assert handler_contract_classes == set()
     assert API_V1_CONTRACT_CLASS_NAMES <= contracts_classes
+
+
+def test_api_v1_paths_and_error_builders_are_not_defined_in_fastapi_handler():
+    """Route paths and envelope builders should stay out of the handler monolith."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    errors_tree = ast.parse(API_V1_ERRORS.read_text(encoding="utf-8"))
+    path_constants = _load_string_constants(API_V1_PATHS)
+
+    handler_assigned_names = {
+        target.id
+        for node in ast.walk(handler_tree)
+        for target in getattr(node, "targets", [])
+        if isinstance(target, ast.Name)
+    }
+    handler_error_model_calls = {
+        node.func.id
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "APIErrorResponse"
+    }
+    error_helper_functions = {
+        node.name for node in ast.walk(errors_tree) if isinstance(node, ast.FunctionDef)
+    }
+
+    assert handler_assigned_names.isdisjoint(path_constants)
+    assert handler_error_model_calls == set()
+    assert {
+        "build_api_v1_error_response",
+        "build_sitl_error_response",
+    } <= error_helper_functions
+
+
+def test_api_v1_route_registry_uses_canonical_path_constants():
+    """Typed route specs should not duplicate /api/v1 path strings inline."""
+    tree = ast.parse(API_V1_ROUTE_REGISTRY.read_text(encoding="utf-8"))
+    path_constants = _load_string_constants(API_V1_PATHS)
+    path_names = {
+        name for name, value in path_constants.items() if value.startswith("/api/v1/")
+    }
+    route_path_keywords = []
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Name) or node.func.id != "ApiV1RouteSpec":
+            continue
+        keywords = {keyword.arg: keyword.value for keyword in node.keywords}
+        route_path_keywords.append(keywords.get("path"))
+
+    assert len(route_path_keywords) == len(API_V1_ROUTE_SPECS)
+    assert route_path_keywords
+    for path_keyword in route_path_keywords:
+        assert isinstance(path_keyword, ast.Name)
+        assert path_keyword.id in path_names
+
+
+def test_api_v1_error_envelope_path_predicate_matches_current_route_families():
+    """Validation errors should use typed envelopes only for reviewed /api/v1 paths."""
+    expected_typed_paths = (
+        set(API_V1_PROCESS_LOCAL_READ_ONLY_PATHS)
+        | set(SITL_VALIDATION_INJECTION_PATHS)
+        | {
+            API_V1_ACTION_OFFBOARD_START_PATH,
+            API_V1_ACTION_OPERATOR_ABORT_PATH,
+            API_V1_ACTION_RESOURCE_PATH,
+        }
+    )
+
+    for path in expected_typed_paths:
+        assert uses_typed_api_error_envelope(path) is True
+
+    assert uses_typed_api_error_envelope("/status") is False
+    assert uses_typed_api_error_envelope("/telemetry/follower_data") is False
 
 
 def test_api_v1_action_routes_have_typed_api_metadata():

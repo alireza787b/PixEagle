@@ -26,6 +26,28 @@ from classes.setpoint_handler import SetpointHandler
 from classes.frame_publisher import FramePublisher
 from classes.adaptive_quality_engine import AdaptiveQualityEngine
 from classes.follower import FollowerFactory
+from classes.api_v1_errors import (
+    build_api_v1_error_response,
+    build_sitl_error_response,
+)
+from classes.api_v1_paths import (
+    API_V1_ACTION_OFFBOARD_START_PATH,
+    API_V1_ACTION_OPERATOR_ABORT_PATH,
+    API_V1_ACTION_RESOURCE_PREFIX,
+    API_V1_FOLLOWING_STATUS_PATH,
+    API_V1_FOLLOWING_TELEMETRY_PATH,
+    API_V1_RUNTIME_STATUS_PATH,
+    API_V1_TELEMETRY_HEALTH_PATH,
+    API_V1_TRACKING_RUNTIME_STATUS_PATH,
+    API_V1_TRACKING_TELEMETRY_PATH,
+    SITL_COMMANDER_PUBLISH_FAILURE_INJECTION_PATH,
+    SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH,
+    SITL_MAVSDK_DISCONNECT_INJECTION_PATH,
+    SITL_TRACKER_OUTPUT_INJECTION_PATH,
+    SITL_VALIDATION_INJECTION_PATHS,
+    SITL_VIDEO_STALL_INJECTION_PATH,
+    uses_typed_api_error_envelope,
+)
 from classes.api_v1_contracts import (
     ACTION_ERROR_RESPONSES,
     ACTION_ROUTE_RESPONSES,
@@ -104,31 +126,6 @@ from pathlib import Path
 import subprocess
 import os
 
-SITL_TRACKER_OUTPUT_INJECTION_PATH = "/api/v1/sitl/injections/tracker-output"
-SITL_VIDEO_STALL_INJECTION_PATH = "/api/v1/sitl/injections/video-stall"
-SITL_COMMANDER_PUBLISH_FAILURE_INJECTION_PATH = (
-    "/api/v1/sitl/injections/commander-publish-failure"
-)
-SITL_MAVSDK_DISCONNECT_INJECTION_PATH = "/api/v1/sitl/injections/mavsdk-disconnect"
-SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH = (
-    "/api/v1/sitl/injections/mavlink2rest-timeout"
-)
-API_V1_ACTION_OFFBOARD_START_PATH = "/api/v1/actions/offboard-start"
-API_V1_ACTION_OPERATOR_ABORT_PATH = "/api/v1/actions/operator-abort"
-API_V1_ACTION_RESOURCE_PREFIX = "/api/v1/actions"
-API_V1_RUNTIME_STATUS_PATH = "/api/v1/runtime/status"
-API_V1_FOLLOWING_STATUS_PATH = "/api/v1/following/status"
-API_V1_FOLLOWING_TELEMETRY_PATH = "/api/v1/following/telemetry"
-API_V1_TELEMETRY_HEALTH_PATH = "/api/v1/telemetry/health"
-API_V1_TRACKING_RUNTIME_STATUS_PATH = "/api/v1/tracking/runtime-status"
-API_V1_TRACKING_TELEMETRY_PATH = "/api/v1/tracking/telemetry"
-SITL_VALIDATION_INJECTION_PATHS = {
-    SITL_TRACKER_OUTPUT_INJECTION_PATH,
-    SITL_VIDEO_STALL_INJECTION_PATH,
-    SITL_COMMANDER_PUBLISH_FAILURE_INJECTION_PATH,
-    SITL_MAVSDK_DISCONNECT_INJECTION_PATH,
-    SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH,
-}
 TRACKER_OUTPUT_UNSET = object()
 
 
@@ -1087,29 +1084,11 @@ class FastAPIHandler:
         path: str = SITL_TRACKER_OUTPUT_INJECTION_PATH,
     ) -> JSONResponse:
         """Build a typed /api/v1 error envelope."""
-        payload = APIErrorResponse(
-            error=code,
+        return build_api_v1_error_response(
+            status_code=status_code,
             code=code,
             detail=detail,
-            timestamp=int(time.time() * 1000),
             path=path,
-            request_id=(
-                f"pixeagle-action-{uuid.uuid4()}"
-                if path.startswith(f"{API_V1_ACTION_RESOURCE_PREFIX}/")
-                else (
-                    f"pixeagle-sitl-{uuid.uuid4()}"
-                    if path in SITL_VALIDATION_INJECTION_PATHS
-                    else f"pixeagle-api-{uuid.uuid4()}"
-                )
-            ),
-        )
-        return JSONResponse(
-            status_code=status_code,
-            content=(
-                payload.model_dump()
-                if hasattr(payload, "model_dump")
-                else payload.dict()
-            ),
         )
 
     def _sitl_error_response(
@@ -1121,7 +1100,7 @@ class FastAPIHandler:
         path: str = SITL_TRACKER_OUTPUT_INJECTION_PATH,
     ) -> JSONResponse:
         """Build a typed /api/v1 error envelope for SITL validation routes."""
-        return self._api_v1_error_response(
+        return build_sitl_error_response(
             status_code=status_code,
             code=code,
             detail=detail,
@@ -1130,15 +1109,7 @@ class FastAPIHandler:
 
     @staticmethod
     def _uses_typed_api_error_envelope(path: str) -> bool:
-        return (
-            path in SITL_VALIDATION_INJECTION_PATHS
-            or path == API_V1_RUNTIME_STATUS_PATH
-            or path == API_V1_FOLLOWING_STATUS_PATH
-            or path == API_V1_FOLLOWING_TELEMETRY_PATH
-            or path == API_V1_TELEMETRY_HEALTH_PATH
-            or path == API_V1_TRACKING_RUNTIME_STATUS_PATH
-            or path.startswith(f"{API_V1_ACTION_RESOURCE_PREFIX}/")
-        )
+        return uses_typed_api_error_envelope(path)
 
     def _ensure_action_store(self) -> None:
         """Initialize action storage for tests that construct via __new__."""
