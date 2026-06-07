@@ -26,12 +26,14 @@ API_V1_ROUTE_REGISTRY = (
 API_V1_CONTRACTS = PROJECT_ROOT / "src" / "classes" / "api_v1_contracts.py"
 API_V1_PATHS = PROJECT_ROOT / "src" / "classes" / "api_v1_paths.py"
 API_V1_ACTIONS = PROJECT_ROOT / "src" / "classes" / "api_v1_actions.py"
+API_V1_SNAPSHOTS = PROJECT_ROOT / "src" / "classes" / "api_v1_snapshots.py"
 ROUTE_SOURCE_FILES = (
     FASTAPI_HANDLER,
     API_V1_ROUTE_REGISTRY,
     API_V1_CONTRACTS,
     API_V1_PATHS,
     API_V1_ACTIONS,
+    API_V1_SNAPSHOTS,
 )
 DEFAULT_OUTPUT = (
     PROJECT_ROOT

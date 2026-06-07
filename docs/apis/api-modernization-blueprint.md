@@ -61,6 +61,9 @@ Route inventory tests must:
 - record `src/classes/api_v1_actions.py` in generated candidate provenance
   because that module owns process-local action resources, idempotency replay,
   and legacy action audit behavior for the guarded action candidates
+- record `src/classes/api_v1_snapshots.py` in generated candidate provenance
+  because that module owns process-local runtime, following, and tracking
+  snapshot semantics for reviewed read-only candidates
 - assert the frozen method/path inventory
 - assert there are no duplicate method/path pairs
 - explicitly track deprecated aliases until removal

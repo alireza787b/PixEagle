@@ -28,6 +28,7 @@ API_V1_CONTRACTS = REPO_ROOT / "src" / "classes" / "api_v1_contracts.py"
 API_V1_PATHS = REPO_ROOT / "src" / "classes" / "api_v1_paths.py"
 API_V1_ERRORS = REPO_ROOT / "src" / "classes" / "api_v1_errors.py"
 API_V1_ACTIONS = REPO_ROOT / "src" / "classes" / "api_v1_actions.py"
+API_V1_SNAPSHOTS = REPO_ROOT / "src" / "classes" / "api_v1_snapshots.py"
 
 API_V1_CONTRACT_CLASS_NAMES = {
     "APIActionAuditEvent",
@@ -502,6 +503,106 @@ def test_api_v1_action_store_implementation_is_not_defined_in_fastapi_handler():
         "ensure_api_action_store",
         "new_api_action_record",
     } <= action_functions
+
+
+def test_api_v1_snapshot_builders_are_not_defined_in_fastapi_handler():
+    """Read-state snapshot construction should stay out of the route handler."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    snapshots_tree = ast.parse(API_V1_SNAPSHOTS.read_text(encoding="utf-8"))
+    expected_snapshot_functions = {
+        "classify_following_commander_degradation",
+        "classify_inactive_following_commander_issue",
+        "classify_runtime_status",
+        "coerce_mapping",
+        "first_present",
+        "get_active_following_setpoint_handler",
+        "get_circuit_breaker_snapshot",
+        "get_following_command_publication_status",
+        "get_following_profile_status",
+        "get_following_status_snapshot",
+        "get_following_telemetry_snapshot",
+        "get_legacy_follower_telemetry_snapshot",
+        "get_legacy_runtime_status_snapshot",
+        "get_legacy_tracker_telemetry_snapshot",
+        "get_runtime_status_snapshot",
+        "get_tracker_following_readiness",
+        "get_tracker_runtime_status_snapshot",
+        "get_tracking_telemetry_snapshot",
+        "optional_float_list",
+        "position_3d_projection",
+        "sanitize_tracking_field_value",
+        "serialize_command_intent",
+        "tracker_output_to_field_map",
+    }
+    wrapper_targets = {
+        "_classify_following_commander_degradation": (
+            "classify_following_commander_degradation"
+        ),
+        "_classify_inactive_following_commander_issue": (
+            "classify_inactive_following_commander_issue"
+        ),
+        "_classify_runtime_status": "classify_runtime_status",
+        "_coerce_mapping": "coerce_mapping",
+        "_first_present": "first_present",
+        "_get_active_following_setpoint_handler": (
+            "get_active_following_setpoint_handler"
+        ),
+        "_get_circuit_breaker_snapshot": "get_circuit_breaker_snapshot",
+        "_get_following_command_publication_status": (
+            "get_following_command_publication_status"
+        ),
+        "_get_following_profile_status": "get_following_profile_status",
+        "_get_following_status_snapshot": "get_following_status_snapshot",
+        "_get_following_telemetry_snapshot": "get_following_telemetry_snapshot",
+        "_get_legacy_follower_telemetry_snapshot": (
+            "get_legacy_follower_telemetry_snapshot"
+        ),
+        "_get_legacy_runtime_status_snapshot": "get_legacy_runtime_status_snapshot",
+        "_get_legacy_tracker_telemetry_snapshot": (
+            "get_legacy_tracker_telemetry_snapshot"
+        ),
+        "_get_runtime_status_snapshot": "get_runtime_status_snapshot",
+        "_get_tracker_following_readiness": "get_tracker_following_readiness",
+        "_get_tracker_runtime_status_snapshot": "get_tracker_runtime_status_snapshot",
+        "_get_tracking_telemetry_snapshot": "get_tracking_telemetry_snapshot",
+        "_optional_float_list": "optional_float_list",
+        "_position_3d_projection": "position_3d_projection",
+        "_sanitize_tracking_field_value": "sanitize_tracking_field_value",
+        "_serialize_command_intent": "serialize_command_intent",
+        "_tracker_output_to_field_map": "tracker_output_to_field_map",
+    }
+    snapshot_claim_constants = {
+        "FOLLOWING_STATUS_CLAIM_BOUNDARY",
+        "FOLLOWING_TELEMETRY_CLAIM_BOUNDARY",
+        "RUNTIME_STATUS_CLAIM_BOUNDARY",
+        "TRACKING_TELEMETRY_CLAIM_BOUNDARY",
+    }
+
+    snapshot_functions = {
+        node.name for node in ast.walk(snapshots_tree) if isinstance(node, ast.FunctionDef)
+    }
+    handler_imported_contract_names = {
+        alias.name
+        for node in handler_tree.body
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "classes.api_v1_contracts"
+        for alias in node.names
+    }
+
+    assert expected_snapshot_functions <= snapshot_functions
+    assert handler_imported_contract_names.isdisjoint(snapshot_claim_constants)
+
+    handler_functions = {
+        node.name: node for node in ast.walk(handler_tree) if isinstance(node, ast.FunctionDef)
+    }
+    for wrapper_name, target_name in wrapper_targets.items():
+        wrapper = handler_functions[wrapper_name]
+        assert len(wrapper.body) == 1
+        return_stmt = wrapper.body[0]
+        assert isinstance(return_stmt, ast.Return)
+        assert isinstance(return_stmt.value, ast.Call)
+        assert isinstance(return_stmt.value.func, ast.Name)
+        assert return_stmt.value.func.id == target_name
 
 
 def test_api_v1_route_registry_uses_canonical_path_constants():

@@ -28,7 +28,9 @@ Pydantic contracts and error-response metadata, and
 by the registry. It also records the source hash for
 `src/classes/api_v1_actions.py`, which owns process-local action resources,
 idempotency replay, and legacy action audit behavior for guarded action
-candidates.
+candidates. It also records `src/classes/api_v1_snapshots.py`, which owns
+process-local runtime, following, and tracking snapshot semantics for reviewed
+read-only candidates.
 
 The current review-stage registry and policy are:
 
