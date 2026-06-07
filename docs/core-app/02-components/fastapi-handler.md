@@ -285,9 +285,12 @@ they do not accept confirmation, dry-run, or idempotency request fields.
 
 The SITL injection endpoints are disabled unless PixEagle starts with
 `PIXEAGLE_ENABLE_SITL_INJECTIONS=1`. They are not a general automation
-surface. The tracker-output and video-stall routes refuse to dispatch unless
-follow mode is already active, then go through the same command-freshness,
-follower, and `OffboardCommander` path used by live tracker output. The
+surface. Their validation gate, payload construction, dry-run summaries, and
+AppController validation-hook dispatch live in `src/classes/api_v1_sitl.py`;
+`FastAPIHandler` keeps route wrappers only. The tracker-output and video-stall
+routes refuse to dispatch unless follow mode is already active, then go through
+the same command-freshness, follower, and `OffboardCommander` path used by live
+tracker output. The
 video-stall route passes frame-status metadata into
 `handle_video_frame_unavailable()`; it does not stop or start cameras,
 GStreamer, PX4, Docker, or routing services. Its response exposes a typed

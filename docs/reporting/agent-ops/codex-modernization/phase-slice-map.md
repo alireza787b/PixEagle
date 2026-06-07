@@ -80,6 +80,7 @@ it together with:
 | Phase 4 API v1 action boundary | done | PXE-0055 | `checkpoints/2026-06-07-phase-4-api-v1-action-boundary.md`; process-local action-resource storage, idempotency replay, record construction, legacy action audit attachment, and confirmation/idempotency precondition failure helpers moved to `src/classes/api_v1_actions.py`; `FastAPIHandler` keeps migration wrappers only; candidate provenance now hashes actions, and tests prevent action-store internals/direct UUID record construction from drifting back into the handler |
 | Phase 4 API v1 snapshot boundary | done | PXE-0056 | `checkpoints/2026-06-07-phase-4-api-v1-snapshot-boundary.md`; process-local runtime/following/tracking read-state snapshot builders moved to `src/classes/api_v1_snapshots.py`; `FastAPIHandler` keeps migration wrappers only; candidate provenance now hashes snapshots, and tests prevent snapshot semantics/claim-boundary constants from drifting back into the handler |
 | Phase 4 API v1 telemetry-health boundary | done | PXE-0057 | `checkpoints/2026-06-07-phase-4-api-v1-telemetry-health-boundary.md`; typed MAVLink telemetry-health manager delegation and fail-closed unavailable fallback semantics moved to `src/classes/api_v1_telemetry.py`; the route method remains an error-boundary wrapper only; candidate provenance now hashes telemetry helpers, and tests prevent fallback semantics/claim-boundary imports from drifting back into the handler |
+| Phase 4 API v1 SITL injection boundary | done | PXE-0058 | `checkpoints/2026-06-07-phase-4-api-v1-sitl-injection-boundary.md`; validation-only SITL injection gates, `TrackerOutput`/frame-status payload builders, dry-run summaries, synthetic fault dispatch, and AppController validation-hook calls moved to `src/classes/api_v1_sitl.py`; `FastAPIHandler` keeps compatibility wrappers only; candidate provenance now hashes SITL helpers, and tests prevent SITL gate strings/response codes/validation hooks/transport-scope metadata/`TrackerOutput` construction from drifting back into the handler |
 
 ## Active Slice
 
@@ -115,19 +116,23 @@ semantics now live in `src/classes/api_v1_snapshots.py` with handler migration
 wrappers retained for compatibility. PXE-0057 is done for telemetry health
 extraction: typed MAVLink telemetry-health manager delegation and the
 fail-closed unavailable fallback now live in `src/classes/api_v1_telemetry.py`
-with the route method retained as an error-boundary wrapper. No runtime MCP endpoint,
-executor, `tools/list`, `tools/call`, or callable tool surface exists from
-these slices. These are still unit/contract evidence only; no runtime PX4/SITL
-pass is claimed. Official Gazebo runtime proof (PXE-0040) remains open for a
-native GUI/GPU host, a stronger headless runner, or a separately proven
-official-image startup workaround. Official SIH L2 probing starts a pinned PX4
-container and collects metadata/params/ULog/bounded logs, but no accepted
-PixEagle/PX4 interaction pass is claimed until PixEagle, MAVLink2REST,
-MavlinkAnywhere routing, typed scenario execution, PX4 observation artifacts,
-and safety outcomes are all present. Continue with broader `/api/v1` migration
-and router extraction, companion-runtime reconciliation, and dashboard
-toolchain modernization (PXE-0008, PXE-0022, PXE-0021) while keeping full
-runtime L2/L3/L4 validation operator-gated.
+with the route method retained as an error-boundary wrapper. PXE-0058 is done
+for SITL validation-stimulus extraction: validation-only injection gates,
+payload construction, dry-run summaries, and AppController validation-hook
+dispatch now live in `src/classes/api_v1_sitl.py` while `FastAPIHandler` keeps
+compatibility wrappers only. No runtime MCP endpoint, executor, `tools/list`,
+`tools/call`, or callable tool surface exists from these slices. These are
+still unit/contract evidence only; no runtime PX4/SITL pass is claimed.
+Official Gazebo runtime proof (PXE-0040) remains open for a native GUI/GPU
+host, a stronger headless runner, or a separately proven official-image startup
+workaround. Official SIH L2 probing starts a pinned PX4 container and collects
+metadata/params/ULog/bounded logs, but no accepted PixEagle/PX4 interaction
+pass is claimed until PixEagle, MAVLink2REST, MavlinkAnywhere routing, typed
+scenario execution, PX4 observation artifacts, and safety outcomes are all
+present. Continue with broader `/api/v1` migration and router extraction,
+companion-runtime reconciliation, and dashboard toolchain modernization
+(PXE-0008, PXE-0022, PXE-0021) while keeping full runtime L2/L3/L4 validation
+operator-gated.
 
 Audit artifact:
 

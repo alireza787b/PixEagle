@@ -63,6 +63,7 @@ def test_api_tool_candidate_inventory_is_non_callable():
         "src/classes/api_v1_actions.py",
         "src/classes/api_v1_snapshots.py",
         "src/classes/api_v1_telemetry.py",
+        "src/classes/api_v1_sitl.py",
     ]
     assert {
         source["file"]: len(source["sha256"])
@@ -75,6 +76,7 @@ def test_api_tool_candidate_inventory_is_non_callable():
         "src/classes/api_v1_actions.py": 64,
         "src/classes/api_v1_snapshots.py": 64,
         "src/classes/api_v1_telemetry.py": 64,
+        "src/classes/api_v1_sitl.py": 64,
     }
     assert inventory["summary"]["callable_tools"] == 0
     assert inventory["summary"]["mcp_exposed_tools"] == 0

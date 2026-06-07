@@ -30,6 +30,7 @@ API_V1_ERRORS = REPO_ROOT / "src" / "classes" / "api_v1_errors.py"
 API_V1_ACTIONS = REPO_ROOT / "src" / "classes" / "api_v1_actions.py"
 API_V1_SNAPSHOTS = REPO_ROOT / "src" / "classes" / "api_v1_snapshots.py"
 API_V1_TELEMETRY = REPO_ROOT / "src" / "classes" / "api_v1_telemetry.py"
+API_V1_SITL = REPO_ROOT / "src" / "classes" / "api_v1_sitl.py"
 
 API_V1_CONTRACT_CLASS_NAMES = {
     "APIActionAuditEvent",
@@ -642,6 +643,89 @@ def test_api_v1_telemetry_health_helper_is_not_defined_in_fastapi_handler():
     assert "MAVLINK_TELEMETRY_CLAIM_BOUNDARY" not in handler_imported_contract_names
     assert len(telemetry_helper_calls) == 1
     assert "MAVLink data manager is not configured" not in handler_string_literals
+
+
+def test_api_v1_sitl_injection_helpers_are_not_defined_in_fastapi_handler():
+    """Validation-stimulus construction and dispatch should stay out of the handler."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    sitl_tree = ast.parse(API_V1_SITL.read_text(encoding="utf-8"))
+    expected_sitl_functions = {
+        "frame_status_from_sitl_video_stall",
+        "inject_sitl_commander_publish_failure",
+        "inject_sitl_mavlink2rest_timeout",
+        "inject_sitl_mavsdk_disconnect",
+        "inject_sitl_tracker_output",
+        "inject_sitl_video_stall",
+        "parse_tracker_data_type",
+        "sitl_error_response",
+        "sitl_injections_enabled",
+        "tracker_output_from_sitl_injection",
+    }
+    wrapper_targets = {
+        "_sitl_injections_enabled": "sitl_injections_enabled",
+        "_sitl_error_response": "sitl_error_response",
+        "_parse_tracker_data_type": "parse_tracker_data_type",
+        "_tracker_output_from_sitl_injection": "tracker_output_from_sitl_injection",
+        "_frame_status_from_sitl_video_stall": "frame_status_from_sitl_video_stall",
+        "inject_sitl_tracker_output": "dispatch_sitl_tracker_output",
+        "inject_sitl_video_stall": "dispatch_sitl_video_stall",
+        "inject_sitl_commander_publish_failure": (
+            "dispatch_sitl_commander_publish_failure"
+        ),
+        "inject_sitl_mavsdk_disconnect": "dispatch_sitl_mavsdk_disconnect",
+        "inject_sitl_mavlink2rest_timeout": "dispatch_sitl_mavlink2rest_timeout",
+    }
+    disallowed_handler_strings = {
+        "PIXEAGLE_ENABLE_SITL_INJECTIONS",
+        "SITL_INJECTIONS_DISABLED",
+        "SITL_INJECTION_UNAVAILABLE",
+        "SITL_INJECTION_REJECTED",
+        "inject_tracker_output_for_validation",
+        "inject_video_stall_for_validation",
+        "inject_commander_publish_failure_for_validation",
+        "inject_mavsdk_disconnect_for_validation",
+        "inject_mavlink2rest_timeout_for_validation",
+        "pixeagle_local_only",
+    }
+
+    sitl_functions = {
+        node.name for node in ast.walk(sitl_tree) if isinstance(node, ast.FunctionDef)
+    } | {
+        node.name for node in ast.walk(sitl_tree) if isinstance(node, ast.AsyncFunctionDef)
+    }
+    handler_functions = {
+        node.name: node
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    handler_string_literals = {
+        node.value
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    handler_tracker_output_calls = [
+        node
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "TrackerOutput"
+    ]
+
+    assert expected_sitl_functions <= sitl_functions
+    assert handler_string_literals.isdisjoint(disallowed_handler_strings)
+    assert handler_tracker_output_calls == []
+
+    for wrapper_name, target_name in wrapper_targets.items():
+        wrapper = handler_functions[wrapper_name]
+        assert len(wrapper.body) == 1
+        return_stmt = wrapper.body[0]
+        assert isinstance(return_stmt, ast.Return)
+        value = return_stmt.value
+        if isinstance(value, ast.Await):
+            value = value.value
+        assert isinstance(value, ast.Call)
+        assert isinstance(value.func, ast.Name)
+        assert value.func.id == target_name
 
 
 def test_api_v1_route_registry_uses_canonical_path_constants():

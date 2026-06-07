@@ -67,6 +67,10 @@ Route inventory tests must:
 - record `src/classes/api_v1_telemetry.py` in generated candidate provenance
   because that module owns typed MAVLink telemetry-health manager delegation and
   fail-closed unavailable fallback semantics for the telemetry health candidate
+- record `src/classes/api_v1_sitl.py` in generated candidate provenance
+  because that module owns validation-only SITL injection gates, payload
+  construction, dry-run summaries, and AppController validation-hook dispatch
+  for blocked validation-stimulus candidates
 - assert the frozen method/path inventory
 - assert there are no duplicate method/path pairs
 - explicitly track deprecated aliases until removal

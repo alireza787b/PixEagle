@@ -32,7 +32,10 @@ candidates. It also records `src/classes/api_v1_snapshots.py`, which owns
 process-local runtime, following, and tracking snapshot semantics for reviewed
 read-only candidates, and `src/classes/api_v1_telemetry.py`, which owns typed
 MAVLink telemetry-health manager delegation and fail-closed unavailable fallback
-semantics for the telemetry health candidate.
+semantics for the telemetry health candidate. It also records
+`src/classes/api_v1_sitl.py`, which owns validation-only SITL injection gates,
+payload construction, dry-run summaries, and AppController validation-hook
+dispatch for blocked validation-stimulus candidates.
 
 The current review-stage registry and policy are:
 

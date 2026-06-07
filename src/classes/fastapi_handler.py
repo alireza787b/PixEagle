@@ -26,7 +26,6 @@ from classes.adaptive_quality_engine import AdaptiveQualityEngine
 from classes.follower import FollowerFactory
 from classes.api_v1_errors import (
     build_api_v1_error_response,
-    build_sitl_error_response,
 )
 from classes.api_v1_actions import (
     ApiActionStore,
@@ -62,6 +61,18 @@ from classes.api_v1_snapshots import (
     tracker_output_to_field_map,
 )
 from classes.api_v1_telemetry import get_telemetry_health_snapshot
+from classes.api_v1_sitl import (
+    frame_status_from_sitl_video_stall,
+    inject_sitl_commander_publish_failure as dispatch_sitl_commander_publish_failure,
+    inject_sitl_mavlink2rest_timeout as dispatch_sitl_mavlink2rest_timeout,
+    inject_sitl_mavsdk_disconnect as dispatch_sitl_mavsdk_disconnect,
+    inject_sitl_tracker_output as dispatch_sitl_tracker_output,
+    inject_sitl_video_stall as dispatch_sitl_video_stall,
+    parse_tracker_data_type,
+    sitl_error_response,
+    sitl_injections_enabled,
+    tracker_output_from_sitl_injection,
+)
 from classes.api_v1_paths import (
     API_V1_ACTION_OFFBOARD_START_PATH,
     API_V1_ACTION_OPERATOR_ABORT_PATH,
@@ -130,7 +141,7 @@ from classes.api_v1_contracts import (
     TRACKING_TELEMETRY_ERROR_RESPONSES,
 )
 from classes.fastapi_api_v1_routes import register_api_v1_routes
-from classes.tracker_output import TrackerOutput, TrackerDataType
+from classes.tracker_output import TrackerDataType
 from classes.model_manager import ModelManager, AI_AVAILABLE
 from classes.app_version import PIXEAGLE_VERSION
 
@@ -1083,13 +1094,7 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     def _sitl_injections_enabled(self) -> bool:
-        """Return True only when validation-only mutation routes are enabled."""
-        return os.getenv("PIXEAGLE_ENABLE_SITL_INJECTIONS", "").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
+        return sitl_injections_enabled()
 
     def _api_v1_error_response(
         self,
@@ -1115,8 +1120,7 @@ class FastAPIHandler:
         detail: Any,
         path: str = SITL_TRACKER_OUTPUT_INJECTION_PATH,
     ) -> JSONResponse:
-        """Build a typed /api/v1 error envelope for SITL validation routes."""
-        return build_sitl_error_response(
+        return sitl_error_response(
             status_code=status_code,
             code=code,
             detail=detail,
@@ -1285,516 +1289,54 @@ class FastAPIHandler:
 
     @staticmethod
     def _parse_tracker_data_type(value: str) -> TrackerDataType:
-        token = str(value).strip()
-        if token in TrackerDataType.__members__:
-            return TrackerDataType[token]
-
-        upper_token = token.upper()
-        if upper_token in TrackerDataType.__members__:
-            return TrackerDataType[upper_token]
-
-        try:
-            return TrackerDataType(token)
-        except ValueError:
-            try:
-                return TrackerDataType(upper_token)
-            except ValueError as exc:
-                valid = ", ".join(item.value for item in TrackerDataType)
-                raise ValueError(
-                    f"Unsupported tracker data_type {value!r}. Valid values: {valid}"
-                ) from exc
+        return parse_tracker_data_type(value)
 
     def _tracker_output_from_sitl_injection(
         self,
         injection: SITLTrackerOutputInjection,
-    ) -> TrackerOutput:
-        """Build TrackerOutput from the typed validation injection request."""
-        raw_data = dict(injection.raw_data or {})
-        metadata = dict(injection.metadata or {})
-
-        freshness_fields = {
-            "usable_for_following": injection.usable_for_following,
-            "data_is_stale": injection.data_is_stale,
-            "freshness_reason": injection.freshness_reason,
-            "has_output": injection.has_output,
-        }
-        for key, value in freshness_fields.items():
-            if value is not None:
-                raw_data.setdefault(key, value)
-                metadata.setdefault(key, value)
-
-        raw_data.setdefault("sitl_injection", True)
-        raw_data.setdefault("sitl_injection_id", injection.injection_id)
-        metadata.setdefault("source", injection.source)
-        metadata.setdefault("sitl_injection", True)
-        metadata.setdefault("sitl_injection_id", injection.injection_id)
-
-        return TrackerOutput(
-            data_type=self._parse_tracker_data_type(injection.data_type),
-            timestamp=injection.timestamp or time.time(),
-            tracking_active=injection.tracking_active,
-            tracker_id=injection.tracker_id,
-            position_2d=injection.position_2d,
-            position_3d=injection.position_3d,
-            angular=injection.angular,
-            bbox=injection.bbox,
-            normalized_bbox=injection.normalized_bbox,
-            confidence=injection.confidence,
-            quality_metrics=dict(injection.quality_metrics or {}),
-            velocity=injection.velocity,
-            acceleration=injection.acceleration,
-            target_id=injection.target_id,
-            targets=injection.targets,
-            raw_data=raw_data,
-            metadata=metadata,
-        )
+    ) -> Any:
+        return tracker_output_from_sitl_injection(injection)
 
     @staticmethod
     def _frame_status_from_sitl_video_stall(
         injection: SITLVideoStallInjection,
     ) -> Dict[str, Any]:
-        """Build frame freshness metadata from a validation video-stall request."""
-        frame_status = {
-            "source": injection.frame_source,
-            "status": injection.frame_status,
-            "usable_for_following": injection.usable_for_following,
-            "reason": injection.reason,
-            "timestamp": injection.timestamp or time.time(),
-            "sitl_injection": True,
-            "sitl_injection_id": injection.injection_id,
-        }
-        if injection.consecutive_failures is not None:
-            frame_status["consecutive_failures"] = injection.consecutive_failures
-        if injection.metadata:
-            frame_status["metadata"] = dict(injection.metadata)
-        return frame_status
+        return frame_status_from_sitl_video_stall(injection)
 
     async def inject_sitl_tracker_output(
         self,
         injection: SITLTrackerOutputInjection,
         response: Response,
     ) -> Any:
-        """
-        Validation-only endpoint for injecting a TrackerOutput into follow mode.
-
-        The route is disabled by default and exists for operator-gated SITL
-        runs. It never starts PX4, routing, video, Docker, or Offboard mode.
-        """
-        if not self._sitl_injections_enabled():
-            return self._sitl_error_response(
-                status_code=status.HTTP_403_FORBIDDEN,
-                code="SITL_INJECTIONS_DISABLED",
-                detail={
-                    "message": (
-                        "Set PIXEAGLE_ENABLE_SITL_INJECTIONS=1 only for an "
-                        "operator-approved validation stack."
-                    ),
-                },
-            )
-
-        try:
-            tracker_output = self._tracker_output_from_sitl_injection(injection)
-        except ValueError as exc:
-            return self._sitl_error_response(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                code="INVALID_TRACKER_OUTPUT",
-                detail={"message": str(exc)},
-            )
-
-        if injection.dry_run:
-            response.status_code = status.HTTP_200_OK
-            return {
-                "status": "validated",
-                "accepted": False,
-                "reason": "dry_run",
-                "following_active": bool(
-                    getattr(self.app_controller, "following_active", False)
-                ),
-                "injection": {
-                    "source": injection.source,
-                    "tracker_id": tracker_output.tracker_id,
-                    "data_type": tracker_output.data_type.value,
-                    "input_tracking_active": tracker_output.tracking_active,
-                },
-                "command_intent": None,
-                "offboard_commander": None,
-                "timestamp": time.time(),
-            }
-
-        if not hasattr(self.app_controller, "inject_tracker_output_for_validation"):
-            return self._sitl_error_response(
-                status_code=status.HTTP_501_NOT_IMPLEMENTED,
-                code="SITL_INJECTION_UNAVAILABLE",
-                detail={
-                    "message": "AppController validation injection hook is unavailable.",
-                },
-            )
-
-        result = await self.app_controller.inject_tracker_output_for_validation(
-            tracker_output,
-            source=injection.source,
-        )
-        response.status_code = (
-            status.HTTP_202_ACCEPTED
-            if result.get("accepted") is True
-            else status.HTTP_409_CONFLICT
-        )
-        if result.get("accepted") is not True:
-            return self._sitl_error_response(
-                status_code=status.HTTP_409_CONFLICT,
-                code="SITL_INJECTION_REJECTED",
-                detail=result,
-            )
-        return result
+        return await dispatch_sitl_tracker_output(self, injection, response)
 
     async def inject_sitl_video_stall(
         self,
         injection: SITLVideoStallInjection,
         response: Response,
     ) -> Any:
-        """
-        Validation-only endpoint for injecting video-frame stall metadata.
-
-        The route is disabled by default and uses the same fail-closed path as
-        the main frame loop when VideoHandler cannot provide a fresh frame.
-        """
-        if not self._sitl_injections_enabled():
-            return self._sitl_error_response(
-                status_code=status.HTTP_403_FORBIDDEN,
-                code="SITL_INJECTIONS_DISABLED",
-                detail={
-                    "message": (
-                        "Set PIXEAGLE_ENABLE_SITL_INJECTIONS=1 only for an "
-                        "operator-approved validation stack."
-                    ),
-                },
-                path=SITL_VIDEO_STALL_INJECTION_PATH,
-            )
-
-        frame_status = self._frame_status_from_sitl_video_stall(injection)
-
-        if injection.dry_run:
-            response.status_code = status.HTTP_200_OK
-            return {
-                "status": "validated",
-                "accepted": False,
-                "reason": "dry_run",
-                "following_active": bool(
-                    getattr(self.app_controller, "following_active", False)
-                ),
-                "injection": {
-                    "source": injection.source,
-                    "tracker_requires_video": bool(
-                        self.app_controller._tracker_requires_video_for_following()
-                    )
-                    if hasattr(self.app_controller, "_tracker_requires_video_for_following")
-                    else True,
-                    "frame_status": frame_status,
-                },
-                "command_intent": None,
-                "offboard_commander": None,
-                "timestamp": time.time(),
-            }
-
-        if not hasattr(self.app_controller, "inject_video_stall_for_validation"):
-            return self._sitl_error_response(
-                status_code=status.HTTP_501_NOT_IMPLEMENTED,
-                code="SITL_INJECTION_UNAVAILABLE",
-                detail={
-                    "message": "AppController video-stall validation hook is unavailable.",
-                },
-                path=SITL_VIDEO_STALL_INJECTION_PATH,
-            )
-
-        result = await self.app_controller.inject_video_stall_for_validation(
-            frame_status,
-            source=injection.source,
-        )
-        response.status_code = (
-            status.HTTP_202_ACCEPTED
-            if result.get("accepted") is True
-            else status.HTTP_409_CONFLICT
-        )
-        if result.get("accepted") is not True:
-            return self._sitl_error_response(
-                status_code=status.HTTP_409_CONFLICT,
-                code="SITL_INJECTION_REJECTED",
-                detail=result,
-                path=SITL_VIDEO_STALL_INJECTION_PATH,
-            )
-        return result
+        return await dispatch_sitl_video_stall(self, injection, response)
 
     async def inject_sitl_commander_publish_failure(
         self,
         injection: SITLCommanderPublishFailureInjection,
         response: Response,
     ) -> Any:
-        """
-        Validation-only endpoint for commander publish-failure policy checks.
-
-        The route is disabled by default. It records bounded synthetic publish
-        failures inside the active OffboardCommander and exercises the local
-        fail-closed cleanup path without sending synthetic MAVSDK setpoints,
-        stopping services, or changing MAVLink routing. Cleanup still uses the
-        normal Offboard stop path.
-        """
-        if not self._sitl_injections_enabled():
-            return self._sitl_error_response(
-                status_code=status.HTTP_403_FORBIDDEN,
-                code="SITL_INJECTIONS_DISABLED",
-                detail={
-                    "message": (
-                        "Set PIXEAGLE_ENABLE_SITL_INJECTIONS=1 only for an "
-                        "operator-approved validation stack."
-                    ),
-                },
-                path=SITL_COMMANDER_PUBLISH_FAILURE_INJECTION_PATH,
-            )
-
-        if injection.dry_run:
-            response.status_code = status.HTTP_200_OK
-            return {
-                "status": "validated",
-                "accepted": False,
-                "reason": "dry_run",
-                "following_active": bool(
-                    getattr(self.app_controller, "following_active", False)
-                ),
-                "injection": {
-                    "source": injection.source,
-                    "failure_mode": injection.failure_mode,
-                    "requested_failure_count": injection.failure_count,
-                    "applied_failure_count": 0,
-                    "failure_reason": injection.reason,
-                    "metadata": dict(injection.metadata or {}),
-                },
-                "offboard_commander": None,
-                "offboard_commander_before": None,
-                "offboard_commander_after": None,
-                "offboard_commander_failure": None,
-                "disconnect_result": None,
-                "timestamp": time.time(),
-            }
-
-        if not hasattr(
-            self.app_controller,
-            "inject_commander_publish_failure_for_validation",
-        ):
-            return self._sitl_error_response(
-                status_code=status.HTTP_501_NOT_IMPLEMENTED,
-                code="SITL_INJECTION_UNAVAILABLE",
-                detail={
-                    "message": (
-                        "AppController commander publish-failure validation "
-                        "hook is unavailable."
-                    ),
-                },
-                path=SITL_COMMANDER_PUBLISH_FAILURE_INJECTION_PATH,
-            )
-
-        result = await self.app_controller.inject_commander_publish_failure_for_validation(
-            failure_count=injection.failure_count,
-            reason=injection.reason,
-            source=injection.source,
-            metadata={
-                **dict(injection.metadata or {}),
-                "sitl_injection": True,
-                "sitl_injection_id": injection.injection_id,
-            },
-        )
-        response.status_code = (
-            status.HTTP_202_ACCEPTED
-            if result.get("accepted") is True
-            else status.HTTP_409_CONFLICT
-        )
-        if result.get("accepted") is not True:
-            return self._sitl_error_response(
-                status_code=status.HTTP_409_CONFLICT,
-                code="SITL_INJECTION_REJECTED",
-                detail=result,
-                path=SITL_COMMANDER_PUBLISH_FAILURE_INJECTION_PATH,
-            )
-        return result
+        return await dispatch_sitl_commander_publish_failure(self, injection, response)
 
     async def inject_sitl_mavsdk_disconnect(
         self,
         injection: SITLMavsdkDisconnectInjection,
         response: Response,
     ) -> Any:
-        """
-        Validation-only endpoint for local MAVSDK command-path disconnect.
-
-        This route intentionally does not stop PX4, Docker, MavlinkAnywhere,
-        MAVLink2REST, network interfaces, MAVSDK server, or MAVLink routes. It
-        marks PixEagle's local PX4/MAVSDK command path disconnected, records
-        bounded OffboardCommander publish failures, then awaits the existing
-        fail-closed cleanup path.
-        """
-        if not self._sitl_injections_enabled():
-            return self._sitl_error_response(
-                status_code=status.HTTP_403_FORBIDDEN,
-                code="SITL_INJECTIONS_DISABLED",
-                detail={
-                    "message": (
-                        "Set PIXEAGLE_ENABLE_SITL_INJECTIONS=1 only for an "
-                        "operator-approved validation stack."
-                    ),
-                },
-                path=SITL_MAVSDK_DISCONNECT_INJECTION_PATH,
-            )
-
-        if injection.dry_run:
-            response.status_code = status.HTTP_200_OK
-            return {
-                "status": "validated",
-                "accepted": False,
-                "reason": "dry_run",
-                "following_active": bool(
-                    getattr(self.app_controller, "following_active", False)
-                ),
-                "injection": {
-                    "source": injection.source,
-                    "failure_mode": injection.failure_mode,
-                    "requested_failure_count": injection.failure_count,
-                    "applied_failure_count": 0,
-                    "failure_reason": injection.reason,
-                    "metadata": dict(injection.metadata or {}),
-                },
-                "px4_connection_before": None,
-                "px4_connection_after": None,
-                "offboard_commander": None,
-                "offboard_commander_before": None,
-                "offboard_commander_after": None,
-                "offboard_commander_failure": None,
-                "disconnect_result": None,
-                "timestamp": time.time(),
-            }
-
-        if not hasattr(
-            self.app_controller,
-            "inject_mavsdk_disconnect_for_validation",
-        ):
-            return self._sitl_error_response(
-                status_code=status.HTTP_501_NOT_IMPLEMENTED,
-                code="SITL_INJECTION_UNAVAILABLE",
-                detail={
-                    "message": (
-                        "AppController MAVSDK disconnect validation hook is "
-                        "unavailable."
-                    ),
-                },
-                path=SITL_MAVSDK_DISCONNECT_INJECTION_PATH,
-            )
-
-        result = await self.app_controller.inject_mavsdk_disconnect_for_validation(
-            failure_count=injection.failure_count,
-            reason=injection.reason,
-            source=injection.source,
-            failure_mode=injection.failure_mode,
-            metadata={
-                **dict(injection.metadata or {}),
-                "sitl_injection": True,
-                "sitl_injection_id": injection.injection_id,
-                "stimulus": "mavsdk_disconnect",
-                "transport_scope": "pixeagle_local_only",
-            },
-        )
-        response.status_code = (
-            status.HTTP_202_ACCEPTED
-            if result.get("accepted") is True
-            else status.HTTP_409_CONFLICT
-        )
-        if result.get("accepted") is not True:
-            return self._sitl_error_response(
-                status_code=status.HTTP_409_CONFLICT,
-                code="SITL_INJECTION_REJECTED",
-                detail=result,
-                path=SITL_MAVSDK_DISCONNECT_INJECTION_PATH,
-            )
-        return result
+        return await dispatch_sitl_mavsdk_disconnect(self, injection, response)
 
     async def inject_sitl_mavlink2rest_timeout(
         self,
         injection: SITLMavlink2RestTimeoutInjection,
         response: Response,
     ) -> Any:
-        """
-        Validation-only endpoint for MAVLink2REST client timeout freshness.
-
-        The route is disabled by default. It records local telemetry transport
-        timeout state in MavlinkDataManager without stopping MAVLink2REST,
-        Docker, PX4, MAVLink routing, or network interfaces.
-        """
-        if not self._sitl_injections_enabled():
-            return self._sitl_error_response(
-                status_code=status.HTTP_403_FORBIDDEN,
-                code="SITL_INJECTIONS_DISABLED",
-                detail={
-                    "message": (
-                        "Set PIXEAGLE_ENABLE_SITL_INJECTIONS=1 only for an "
-                        "operator-approved validation stack."
-                    ),
-                },
-                path=SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH,
-            )
-
-        if injection.dry_run:
-            response.status_code = status.HTTP_200_OK
-            return {
-                "status": "validated",
-                "accepted": False,
-                "reason": "dry_run",
-                "injection": {
-                    "source": injection.source,
-                    "requested_failure_count": injection.failure_count,
-                    "applied_failure_count": 0,
-                    "failure_reason": injection.reason,
-                    "force_stale": injection.force_stale,
-                    "timeout_window_s": injection.timeout_window_s,
-                    "metadata": dict(injection.metadata or {}),
-                },
-                "mavlink_telemetry": None,
-                "timestamp": time.time(),
-            }
-
-        if not hasattr(self.app_controller, "inject_mavlink2rest_timeout_for_validation"):
-            return self._sitl_error_response(
-                status_code=status.HTTP_501_NOT_IMPLEMENTED,
-                code="SITL_INJECTION_UNAVAILABLE",
-                detail={
-                    "message": (
-                        "AppController MAVLink2REST timeout validation hook "
-                        "is unavailable."
-                    ),
-                },
-                path=SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH,
-            )
-
-        result = await self.app_controller.inject_mavlink2rest_timeout_for_validation(
-            failure_count=injection.failure_count,
-            reason=injection.reason,
-            force_stale=injection.force_stale,
-            timeout_window_s=injection.timeout_window_s,
-            source=injection.source,
-            metadata={
-                **dict(injection.metadata or {}),
-                "sitl_injection": True,
-                "sitl_injection_id": injection.injection_id,
-            },
-        )
-        response.status_code = (
-            status.HTTP_202_ACCEPTED
-            if result.get("accepted") is True
-            else status.HTTP_409_CONFLICT
-        )
-        if result.get("accepted") is not True:
-            return self._sitl_error_response(
-                status_code=status.HTTP_409_CONFLICT,
-                code="SITL_INJECTION_REJECTED",
-                detail=result,
-                path=SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH,
-            )
-        return result
+        return await dispatch_sitl_mavlink2rest_timeout(self, injection, response)
 
     async def get_status(self):
         try:
