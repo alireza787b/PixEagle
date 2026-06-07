@@ -61,6 +61,7 @@ from classes.api_v1_snapshots import (
     serialize_command_intent,
     tracker_output_to_field_map,
 )
+from classes.api_v1_telemetry import get_telemetry_health_snapshot
 from classes.api_v1_paths import (
     API_V1_ACTION_OFFBOARD_START_PATH,
     API_V1_ACTION_OPERATOR_ABORT_PATH,
@@ -101,7 +102,6 @@ from classes.api_v1_contracts import (
     APITelemetryTransportHealth,
     FOLLOWING_STATUS_ERROR_RESPONSES,
     FOLLOWING_TELEMETRY_ERROR_RESPONSES,
-    MAVLINK_TELEMETRY_CLAIM_BOUNDARY,
     RUNTIME_STATUS_ERROR_RESPONSES,
     SITLCommandIntentSummary,
     SITLCommanderPublishFailureInjection,
@@ -1845,46 +1845,7 @@ class FastAPIHandler:
     async def get_telemetry_health(self):
         """Return typed MAVLink2REST health for API/MCP/dashboard consumers."""
         try:
-            mavlink_manager = getattr(self.app_controller, "mavlink_data_manager", None)
-            if mavlink_manager and hasattr(mavlink_manager, "get_telemetry_health"):
-                return mavlink_manager.get_telemetry_health()
-
-            return {
-                "schema_version": 1,
-                "source": "mavlink2rest",
-                "enabled": False,
-                "status": "disconnected",
-                "consumer_guidance": "unavailable",
-                "transport": {
-                    "state": "unavailable",
-                    "latest_request_ok": False,
-                    "latest_request_result": "not_attempted",
-                    "latest_request_age_s": None,
-                    "last_error": "MAVLink data manager is not configured",
-                    "error_count": 0,
-                    "validation_timeout_active": False,
-                    "request_timeout_s": None,
-                    "request_retries": None,
-                    "endpoint": None,
-                },
-                "request_freshness": {
-                    "fresh": False,
-                    "last_success_age_s": None,
-                    "stale_timeout_s": None,
-                    "last_success_monotonic_available": False,
-                },
-                "payload": {
-                    "has_payload": False,
-                    "sample_count": 0,
-                    "available_keys": [],
-                    "flight_mode": None,
-                    "arm_status": None,
-                    "fresh": False,
-                    "payload_age_s": None,
-                },
-                "claim_boundary": MAVLINK_TELEMETRY_CLAIM_BOUNDARY,
-                "timestamp": time.time(),
-            }
+            return get_telemetry_health_snapshot(self)
         except Exception as e:
             self.logger.error(f"Error in get_telemetry_health: {e}")
             return self._api_v1_error_response(

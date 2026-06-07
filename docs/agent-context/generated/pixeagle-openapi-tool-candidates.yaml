@@ -5,7 +5,7 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: 323a2175fcc884dd94e587f55becbf41b1b5b3b47a21b2d97103b504ef913a73
+    sha256: 751b32dc379cb9508c8563e747957d4253af49f9c2dbaec3c347daff308399dc
   - file: src/classes/fastapi_api_v1_routes.py
     sha256: 4ff00b2c894c54288978fc0b5f1a78ac4cb289ab429850e3e8b215ee4a3baf37
   - file: src/classes/api_v1_contracts.py
@@ -16,6 +16,8 @@ source:
     sha256: 1dd01e818bc734026d0d9f88c380e2ec5ef11cb24f23418b4f5d39299d8e0f47
   - file: src/classes/api_v1_snapshots.py
     sha256: 498d4df51a3f35ec3c0622cbb17a7ada914f75d9905fc71fa3ff401efd25c719
+  - file: src/classes/api_v1_telemetry.py
+    sha256: 42f552f17fde806ec18f757d947315768fba08618ff6bb0b998703dff54d3c4c
 generated_from:
 - src/classes/fastapi_handler.py
 - src/classes/fastapi_api_v1_routes.py
@@ -23,6 +25,7 @@ generated_from:
 - src/classes/api_v1_paths.py
 - src/classes/api_v1_actions.py
 - src/classes/api_v1_snapshots.py
+- src/classes/api_v1_telemetry.py
 output_path: docs/agent-context/generated/pixeagle-openapi-tool-candidates.yaml
 claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP tool
   registry, not a tools/list response, and not permission for an AI agent or client to execute

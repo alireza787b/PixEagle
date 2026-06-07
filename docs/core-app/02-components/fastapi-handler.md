@@ -22,14 +22,16 @@ attachment, and action precondition failure helpers live in
 `src/classes/api_v1_actions.py`.
 Typed runtime/following/tracking read-state snapshot builders live in
 `src/classes/api_v1_snapshots.py`.
+Typed MAVLink telemetry-health manager delegation and unavailable fallback
+payload construction live in `src/classes/api_v1_telemetry.py`.
 `FastAPIHandler.define_routes()` delegates to the route registry while the
 handler methods still live in `fastapi_handler.py`. Typed `/api/v1` Pydantic
 contracts and error-response metadata live in `src/classes/api_v1_contracts.py`
 and are imported back into `fastapi_handler.py` during migration for
 compatibility. Route inventory tests and the non-callable agent-candidate
 generator parse the route sources without instantiating the application, and
-the generated inventory records the contract, path, action-helper, and snapshot
-source hashes.
+the generated inventory records the contract, path, action-helper, snapshot, and
+telemetry-helper source hashes.
 
 ## Class Definition
 

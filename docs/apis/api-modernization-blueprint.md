@@ -64,6 +64,9 @@ Route inventory tests must:
 - record `src/classes/api_v1_snapshots.py` in generated candidate provenance
   because that module owns process-local runtime, following, and tracking
   snapshot semantics for reviewed read-only candidates
+- record `src/classes/api_v1_telemetry.py` in generated candidate provenance
+  because that module owns typed MAVLink telemetry-health manager delegation and
+  fail-closed unavailable fallback semantics for the telemetry health candidate
 - assert the frozen method/path inventory
 - assert there are no duplicate method/path pairs
 - explicitly track deprecated aliases until removal

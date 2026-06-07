@@ -29,6 +29,7 @@ API_V1_PATHS = REPO_ROOT / "src" / "classes" / "api_v1_paths.py"
 API_V1_ERRORS = REPO_ROOT / "src" / "classes" / "api_v1_errors.py"
 API_V1_ACTIONS = REPO_ROOT / "src" / "classes" / "api_v1_actions.py"
 API_V1_SNAPSHOTS = REPO_ROOT / "src" / "classes" / "api_v1_snapshots.py"
+API_V1_TELEMETRY = REPO_ROOT / "src" / "classes" / "api_v1_telemetry.py"
 
 API_V1_CONTRACT_CLASS_NAMES = {
     "APIActionAuditEvent",
@@ -603,6 +604,44 @@ def test_api_v1_snapshot_builders_are_not_defined_in_fastapi_handler():
         assert isinstance(return_stmt.value, ast.Call)
         assert isinstance(return_stmt.value.func, ast.Name)
         assert return_stmt.value.func.id == target_name
+
+
+def test_api_v1_telemetry_health_helper_is_not_defined_in_fastapi_handler():
+    """Typed telemetry-health fallback payloads should stay out of the handler."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    telemetry_tree = ast.parse(API_V1_TELEMETRY.read_text(encoding="utf-8"))
+
+    handler_imported_contract_names = {
+        alias.name
+        for node in handler_tree.body
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "classes.api_v1_contracts"
+        for alias in node.names
+    }
+    telemetry_functions = {
+        node.name for node in ast.walk(telemetry_tree) if isinstance(node, ast.FunctionDef)
+    }
+    handler_functions = {
+        node.name: node for node in ast.walk(handler_tree) if isinstance(node, ast.AsyncFunctionDef)
+    }
+    get_telemetry_health = handler_functions["get_telemetry_health"]
+    telemetry_helper_calls = [
+        node
+        for node in ast.walk(get_telemetry_health)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "get_telemetry_health_snapshot"
+    ]
+    handler_string_literals = {
+        node.value
+        for node in ast.walk(get_telemetry_health)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+    assert "get_telemetry_health_snapshot" in telemetry_functions
+    assert "MAVLINK_TELEMETRY_CLAIM_BOUNDARY" not in handler_imported_contract_names
+    assert len(telemetry_helper_calls) == 1
+    assert "MAVLink data manager is not configured" not in handler_string_literals
 
 
 def test_api_v1_route_registry_uses_canonical_path_constants():
