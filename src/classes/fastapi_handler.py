@@ -39,6 +39,14 @@ from classes.api_v1_actions import (
     start_offboard_action as dispatch_start_offboard_action,
     start_offboard_action_unlocked as dispatch_start_offboard_action_unlocked,
 )
+from classes.api_v1_read_routes import (
+    get_following_status as dispatch_get_following_status,
+    get_following_telemetry as dispatch_get_following_telemetry,
+    get_runtime_status as dispatch_get_runtime_status,
+    get_telemetry_health as dispatch_get_telemetry_health,
+    get_tracking_runtime_status as dispatch_get_tracking_runtime_status,
+    get_tracking_telemetry as dispatch_get_tracking_telemetry,
+)
 from classes.api_v1_snapshots import (
     TRACKER_OUTPUT_UNSET,
     classify_following_commander_degradation,
@@ -65,7 +73,6 @@ from classes.api_v1_snapshots import (
     serialize_command_intent,
     tracker_output_to_field_map,
 )
-from classes.api_v1_telemetry import get_telemetry_health_snapshot
 from classes.api_v1_sitl import (
     frame_status_from_sitl_video_stall,
     inject_sitl_commander_publish_failure as dispatch_sitl_commander_publish_failure,
@@ -79,12 +86,6 @@ from classes.api_v1_sitl import (
     tracker_output_from_sitl_injection,
 )
 from classes.api_v1_paths import (
-    API_V1_FOLLOWING_STATUS_PATH,
-    API_V1_FOLLOWING_TELEMETRY_PATH,
-    API_V1_RUNTIME_STATUS_PATH,
-    API_V1_TELEMETRY_HEALTH_PATH,
-    API_V1_TRACKING_RUNTIME_STATUS_PATH,
-    API_V1_TRACKING_TELEMETRY_PATH,
     SITL_COMMANDER_PUBLISH_FAILURE_INJECTION_PATH,
     SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH,
     SITL_MAVSDK_DISCONNECT_INJECTION_PATH,
@@ -1348,82 +1349,22 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def get_runtime_status(self):
-        """Return typed PixEagle runtime status for API/MCP/dashboard consumers."""
-        try:
-            return self._get_runtime_status_snapshot()
-        except Exception as e:
-            self.logger.error(f"Error in get_runtime_status: {e}")
-            return self._api_v1_error_response(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                code="runtime_status_error",
-                detail=str(e),
-                path=API_V1_RUNTIME_STATUS_PATH,
-            )
+        return await dispatch_get_runtime_status(self)
 
     async def get_following_status(self):
-        """Return typed following status for API/MCP/dashboard consumers."""
-        try:
-            return self._get_following_status_snapshot()
-        except Exception as e:
-            self.logger.error(f"Error in get_following_status: {e}")
-            return self._api_v1_error_response(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                code="following_status_error",
-                detail=str(e),
-                path=API_V1_FOLLOWING_STATUS_PATH,
-            )
+        return await dispatch_get_following_status(self)
 
     async def get_following_telemetry(self):
-        """Return typed follower telemetry/setpoint snapshot for consumers."""
-        try:
-            return self._get_following_telemetry_snapshot()
-        except Exception as e:
-            self.logger.error(f"Error in get_following_telemetry: {e}")
-            return self._api_v1_error_response(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                code="following_telemetry_error",
-                detail=str(e),
-                path=API_V1_FOLLOWING_TELEMETRY_PATH,
-            )
+        return await dispatch_get_following_telemetry(self)
 
     async def get_telemetry_health(self):
-        """Return typed MAVLink2REST health for API/MCP/dashboard consumers."""
-        try:
-            return get_telemetry_health_snapshot(self)
-        except Exception as e:
-            self.logger.error(f"Error in get_telemetry_health: {e}")
-            return self._api_v1_error_response(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                code="telemetry_health_error",
-                detail=str(e),
-                path=API_V1_TELEMETRY_HEALTH_PATH,
-            )
+        return await dispatch_get_telemetry_health(self)
 
     async def get_tracking_runtime_status(self):
-        """Return typed tracker runtime status for API/MCP/dashboard consumers."""
-        try:
-            return self._get_tracker_runtime_status_snapshot()
-        except Exception as e:
-            self.logger.error(f"Error in get_tracking_runtime_status: {e}")
-            return self._api_v1_error_response(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                code="tracking_runtime_status_error",
-                detail=str(e),
-                path=API_V1_TRACKING_RUNTIME_STATUS_PATH,
-            )
+        return await dispatch_get_tracking_runtime_status(self)
 
     async def get_tracking_telemetry(self):
-        """Return typed tracker telemetry/geometry for API/MCP/dashboard consumers."""
-        try:
-            return self._get_tracking_telemetry_snapshot()
-        except Exception as e:
-            self.logger.error(f"Error in get_tracking_telemetry: {e}")
-            return self._api_v1_error_response(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                code="tracking_telemetry_error",
-                detail=str(e),
-                path=API_V1_TRACKING_TELEMETRY_PATH,
-            )
+        return await dispatch_get_tracking_telemetry(self)
 
     async def get_video_health(self):
         """Get video subsystem health for degraded-mode observability."""

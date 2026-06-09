@@ -62,6 +62,9 @@ Route inventory tests must:
   because that module owns process-local action resources, idempotency replay,
   guarded action route execution, action resource lookup, and legacy action
   audit behavior for the guarded action candidates
+- record `src/classes/api_v1_read_routes.py` in generated candidate provenance
+  because that module owns typed read-route error boundaries for reviewed
+  process-local status/telemetry candidates
 - record `src/classes/api_v1_snapshots.py` in generated candidate provenance
   because that module owns process-local runtime, following, and tracking
   snapshot semantics for reviewed read-only candidates

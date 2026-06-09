@@ -21,6 +21,8 @@ Typed action-resource storage, idempotency replay, guarded action route
 execution, action resource lookup, legacy action audit attachment, and action
 precondition failure helpers live in
 `src/classes/api_v1_actions.py`.
+Typed `/api/v1` read-route error boundaries for runtime, following, tracking,
+and telemetry health live in `src/classes/api_v1_read_routes.py`.
 Typed runtime/following/tracking read-state snapshot builders live in
 `src/classes/api_v1_snapshots.py`.
 Typed MAVLink telemetry-health manager delegation and unavailable fallback
@@ -31,8 +33,8 @@ contracts and error-response metadata live in `src/classes/api_v1_contracts.py`
 and are imported back into `fastapi_handler.py` during migration for
 compatibility. Route inventory tests and the non-callable agent-candidate
 generator parse the route sources without instantiating the application, and
-the generated inventory records the contract, path, action-helper, snapshot, and
-telemetry-helper source hashes.
+the generated inventory records the contract, path, action-helper,
+read-route-helper, snapshot, and telemetry-helper source hashes.
 
 ## Class Definition
 

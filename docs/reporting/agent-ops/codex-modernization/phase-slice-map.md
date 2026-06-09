@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-06-07
+Last updated: 2026-06-09
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -82,6 +82,7 @@ it together with:
 | Phase 4 API v1 telemetry-health boundary | done | PXE-0057 | `checkpoints/2026-06-07-phase-4-api-v1-telemetry-health-boundary.md`; typed MAVLink telemetry-health manager delegation and fail-closed unavailable fallback semantics moved to `src/classes/api_v1_telemetry.py`; the route method remains an error-boundary wrapper only; candidate provenance now hashes telemetry helpers, and tests prevent fallback semantics/claim-boundary imports from drifting back into the handler |
 | Phase 4 API v1 SITL injection boundary | done | PXE-0058 | `checkpoints/2026-06-07-phase-4-api-v1-sitl-injection-boundary.md`; validation-only SITL injection gates, `TrackerOutput`/frame-status payload builders, dry-run summaries, synthetic fault dispatch, and AppController validation-hook calls moved to `src/classes/api_v1_sitl.py`; `FastAPIHandler` keeps compatibility wrappers only; candidate provenance now hashes SITL helpers, and tests prevent SITL gate strings/response codes/validation hooks/transport-scope metadata/`TrackerOutput` construction from drifting back into the handler |
 | Phase 4 API v1 action route boundary | done | PXE-0059 | `checkpoints/2026-06-07-phase-4-api-v1-action-route-boundary.md`; guarded typed Offboard-start/operator-abort action execution and action-resource lookup moved to `src/classes/api_v1_actions.py`; `FastAPIHandler` keeps one-call route wrappers only; candidate provenance stays current, tests prevent typed action route bodies from drifting back into the handler, and focused action tests cover concurrent idempotent operator-abort replay |
+| Phase 4 API v1 read route boundary | done | PXE-0060 | `checkpoints/2026-06-09-phase-4-api-v1-read-route-boundary.md`; typed runtime/following/tracking/telemetry-health read-route error boundaries moved to `src/classes/api_v1_read_routes.py`; `FastAPIHandler` keeps one-call read route wrappers only; candidate provenance now hashes read routes, and tests prevent typed read-route error strings from drifting back into the handler |
 
 ## Active Slice
 
@@ -124,11 +125,14 @@ dispatch now live in `src/classes/api_v1_sitl.py` while `FastAPIHandler` keeps
 compatibility wrappers only. PXE-0059 is done for guarded typed action-route
 execution extraction: Offboard-start/operator-abort action execution and
 action-resource lookup now live in `src/classes/api_v1_actions.py`, while
-`FastAPIHandler` keeps one-call route wrappers. No runtime MCP endpoint,
-executor, `tools/list`, `tools/call`, or callable tool surface exists from
-these slices. These are still unit/contract evidence only; no runtime PX4/SITL
-pass is claimed. Official Gazebo runtime proof (PXE-0040) remains open for a
-native GUI/GPU host, a stronger headless runner, or a separately proven
+`FastAPIHandler` keeps one-call route wrappers. PXE-0060 is done for typed
+read-route error-boundary extraction: runtime/following/tracking/telemetry
+health read-route error handling now lives in `src/classes/api_v1_read_routes.py`,
+while `FastAPIHandler` keeps one-call read route wrappers. No runtime MCP
+endpoint, executor, `tools/list`, `tools/call`, or callable tool surface exists
+from these slices. These are still unit/contract evidence only; no runtime
+PX4/SITL pass is claimed. Official Gazebo runtime proof (PXE-0040) remains open
+for a native GUI/GPU host, a stronger headless runner, or a separately proven
 official-image startup workaround. Official SIH L2 probing starts a pinned PX4
 container and collects metadata/params/ULog/bounded logs, but no accepted
 PixEagle/PX4 interaction pass is claimed until PixEagle, MAVLink2REST,
@@ -167,6 +171,7 @@ Audit artifact:
 - `checkpoints/2026-06-07-phase-4-api-v1-telemetry-health-boundary.md`
 - `checkpoints/2026-06-07-phase-4-api-v1-sitl-injection-boundary.md`
 - `checkpoints/2026-06-07-phase-4-api-v1-action-route-boundary.md`
+- `checkpoints/2026-06-09-phase-4-api-v1-read-route-boundary.md`
 
 Recently completed Offboard commander follow-up issues:
 
