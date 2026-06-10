@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-06-09
+Last updated: 2026-06-10
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -83,6 +83,7 @@ it together with:
 | Phase 4 API v1 SITL injection boundary | done | PXE-0058 | `checkpoints/2026-06-07-phase-4-api-v1-sitl-injection-boundary.md`; validation-only SITL injection gates, `TrackerOutput`/frame-status payload builders, dry-run summaries, synthetic fault dispatch, and AppController validation-hook calls moved to `src/classes/api_v1_sitl.py`; `FastAPIHandler` keeps compatibility wrappers only; candidate provenance now hashes SITL helpers, and tests prevent SITL gate strings/response codes/validation hooks/transport-scope metadata/`TrackerOutput` construction from drifting back into the handler |
 | Phase 4 API v1 action route boundary | done | PXE-0059 | `checkpoints/2026-06-07-phase-4-api-v1-action-route-boundary.md`; guarded typed Offboard-start/operator-abort action execution and action-resource lookup moved to `src/classes/api_v1_actions.py`; `FastAPIHandler` keeps one-call route wrappers only; candidate provenance stays current, tests prevent typed action route bodies from drifting back into the handler, and focused action tests cover concurrent idempotent operator-abort replay |
 | Phase 4 API v1 read route boundary | done | PXE-0060 | `checkpoints/2026-06-09-phase-4-api-v1-read-route-boundary.md`; typed runtime/following/tracking/telemetry-health read-route error boundaries moved to `src/classes/api_v1_read_routes.py`; `FastAPIHandler` keeps one-call read route wrappers only; candidate provenance now hashes read routes, and tests prevent typed read-route error strings from drifting back into the handler |
+| Phase 4 legacy control route boundary | done | PXE-0061 | `checkpoints/2026-06-10-phase-4-legacy-control-route-boundary.md`; legacy `/commands/start_offboard_mode` and `/commands/cancel_activities` compatibility route bodies moved to `src/classes/api_legacy_control_routes.py`; `FastAPIHandler` keeps one-call wrappers only; generated candidate provenance now hashes the legacy control helper because guarded typed action candidates still delegate through it; tests prevent dangerous compatibility-route execution bodies from drifting back into the handler |
 
 ## Active Slice
 
@@ -128,7 +129,11 @@ action-resource lookup now live in `src/classes/api_v1_actions.py`, while
 `FastAPIHandler` keeps one-call route wrappers. PXE-0060 is done for typed
 read-route error-boundary extraction: runtime/following/tracking/telemetry
 health read-route error handling now lives in `src/classes/api_v1_read_routes.py`,
-while `FastAPIHandler` keeps one-call read route wrappers. No runtime MCP
+while `FastAPIHandler` keeps one-call read route wrappers. PXE-0061 is done for
+legacy control compatibility-route extraction: legacy Offboard start and
+operator cancel bodies now live in `src/classes/api_legacy_control_routes.py`,
+while `FastAPIHandler` keeps one-call wrappers and candidate provenance hashes
+that helper until the legacy aliases can be removed. No runtime MCP
 endpoint, executor, `tools/list`, `tools/call`, or callable tool surface exists
 from these slices. These are still unit/contract evidence only; no runtime
 PX4/SITL pass is claimed. Official Gazebo runtime proof (PXE-0040) remains open
@@ -172,6 +177,7 @@ Audit artifact:
 - `checkpoints/2026-06-07-phase-4-api-v1-sitl-injection-boundary.md`
 - `checkpoints/2026-06-07-phase-4-api-v1-action-route-boundary.md`
 - `checkpoints/2026-06-09-phase-4-api-v1-read-route-boundary.md`
+- `checkpoints/2026-06-10-phase-4-legacy-control-route-boundary.md`
 
 Recently completed Offboard commander follow-up issues:
 

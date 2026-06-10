@@ -28,6 +28,9 @@ API_V1_CONTRACTS = REPO_ROOT / "src" / "classes" / "api_v1_contracts.py"
 API_V1_PATHS = REPO_ROOT / "src" / "classes" / "api_v1_paths.py"
 API_V1_ERRORS = REPO_ROOT / "src" / "classes" / "api_v1_errors.py"
 API_V1_ACTIONS = REPO_ROOT / "src" / "classes" / "api_v1_actions.py"
+API_LEGACY_CONTROL_ROUTES = (
+    REPO_ROOT / "src" / "classes" / "api_legacy_control_routes.py"
+)
 API_V1_READ_ROUTES = REPO_ROOT / "src" / "classes" / "api_v1_read_routes.py"
 API_V1_SNAPSHOTS = REPO_ROOT / "src" / "classes" / "api_v1_snapshots.py"
 API_V1_TELEMETRY = REPO_ROOT / "src" / "classes" / "api_v1_telemetry.py"
@@ -525,6 +528,67 @@ def test_api_v1_action_store_implementation_is_not_defined_in_fastapi_handler():
         "start_offboard_action",
         "start_offboard_action_unlocked",
     } <= action_functions
+    for wrapper_name, target_name in wrapper_targets.items():
+        wrapper = handler_functions[wrapper_name]
+        assert len(wrapper.body) == 1
+        statement = wrapper.body[0]
+        assert isinstance(statement, ast.Return)
+        call = statement.value
+        if isinstance(call, ast.Await):
+            call = call.value
+        assert isinstance(call, ast.Call)
+        assert isinstance(call.func, ast.Name)
+        assert call.func.id == target_name
+
+
+def test_legacy_control_route_bodies_are_not_defined_in_fastapi_handler():
+    """Legacy Offboard/cancel route execution should stay out of the handler."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    legacy_routes_tree = ast.parse(
+        API_LEGACY_CONTROL_ROUTES.read_text(encoding="utf-8")
+    )
+    expected_legacy_functions = {
+        "cancel_activities",
+        "start_offboard_mode",
+    }
+    wrapper_targets = {
+        "cancel_activities": "dispatch_legacy_cancel_activities",
+        "start_offboard_mode": "dispatch_legacy_start_offboard_mode",
+    }
+    disallowed_handler_strings = {
+        "Error in cancel_activities",
+        "PX4 interface not initialized",
+        "Tracker output is not usable for following",
+        "Pre-flight validation failed",
+        "Offboard mode did not become active",
+    }
+
+    legacy_functions = {
+        node.name
+        for node in ast.walk(legacy_routes_tree)
+        if isinstance(node, ast.AsyncFunctionDef)
+    }
+    legacy_string_literals = {
+        node.value
+        for node in ast.walk(legacy_routes_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    handler_functions = {
+        node.name: node
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    handler_string_literals = {
+        node.value
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+    assert expected_legacy_functions <= legacy_functions
+    for marker in disallowed_handler_strings:
+        assert any(marker in literal for literal in legacy_string_literals)
+        assert not any(marker in literal for literal in handler_string_literals)
+
     for wrapper_name, target_name in wrapper_targets.items():
         wrapper = handler_functions[wrapper_name]
         assert len(wrapper.body) == 1

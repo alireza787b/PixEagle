@@ -26,6 +26,9 @@ API_V1_ROUTE_REGISTRY = (
 API_V1_CONTRACTS = PROJECT_ROOT / "src" / "classes" / "api_v1_contracts.py"
 API_V1_PATHS = PROJECT_ROOT / "src" / "classes" / "api_v1_paths.py"
 API_V1_ACTIONS = PROJECT_ROOT / "src" / "classes" / "api_v1_actions.py"
+API_LEGACY_CONTROL_ROUTES = (
+    PROJECT_ROOT / "src" / "classes" / "api_legacy_control_routes.py"
+)
 API_V1_READ_ROUTES = PROJECT_ROOT / "src" / "classes" / "api_v1_read_routes.py"
 API_V1_SNAPSHOTS = PROJECT_ROOT / "src" / "classes" / "api_v1_snapshots.py"
 API_V1_TELEMETRY = PROJECT_ROOT / "src" / "classes" / "api_v1_telemetry.py"
@@ -36,6 +39,7 @@ ROUTE_SOURCE_FILES = (
     API_V1_CONTRACTS,
     API_V1_PATHS,
     API_V1_ACTIONS,
+    API_LEGACY_CONTROL_ROUTES,
     API_V1_READ_ROUTES,
     API_V1_SNAPSHOTS,
     API_V1_TELEMETRY,

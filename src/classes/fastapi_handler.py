@@ -39,6 +39,10 @@ from classes.api_v1_actions import (
     start_offboard_action as dispatch_start_offboard_action,
     start_offboard_action_unlocked as dispatch_start_offboard_action_unlocked,
 )
+from classes.api_legacy_control_routes import (
+    cancel_activities as dispatch_legacy_cancel_activities,
+    start_offboard_mode as dispatch_legacy_start_offboard_mode,
+)
 from classes.api_v1_read_routes import (
     get_following_status as dispatch_get_following_status,
     get_following_telemetry as dispatch_get_following_telemetry,
@@ -1474,35 +1478,7 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def cancel_activities(self):
-        """
-        Endpoint to cancel all active tracking and segmentation activities.
-
-        Returns:
-            dict: Status of the operation.
-        """
-        following_before = bool(getattr(self.app_controller, "following_active", False))
-        try:
-            result = await self.app_controller.cancel_activities_async()
-            following_after = bool(getattr(self.app_controller, "following_active", False))
-            return self._attach_legacy_action_audit(
-                {"status": "success", "result": result},
-                action_type="operator_abort",
-                route="/commands/cancel_activities",
-                following_active_before=following_before,
-                following_active_after=following_after,
-            )
-        except Exception as e:
-            following_after = bool(getattr(self.app_controller, "following_active", False))
-            self.logger.error(f"Error in cancel_activities: {e}")
-            self._attach_legacy_action_audit(
-                {"status": "failure", "error": str(e)},
-                action_type="operator_abort",
-                route="/commands/cancel_activities",
-                following_active_before=following_before,
-                following_active_after=following_after,
-                error=str(e),
-            )
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_legacy_cancel_activities(self)
 
     async def start_offboard_action(
         self,
@@ -1536,196 +1512,7 @@ class FastAPIHandler:
         return await dispatch_get_action_resource(self, action_id)
 
     async def start_offboard_mode(self):
-        """
-        Robust endpoint to start the offboard mode for PX4.
-
-        Features:
-        - Automatic state validation
-        - Auto-restart if already active
-        - Comprehensive error handling
-        - Detailed operation logging
-        - Thread-safe execution
-
-        This endpoint can be called from:
-        - UI buttons
-        - Direct API calls
-        - External scripts
-        - Automation systems
-
-        Returns:
-            dict: Status of the operation with detailed steps and any errors
-                {
-                    "status": "success" | "failure",
-                    "details": {
-                        "steps": [...],
-                        "errors": [...],
-                        "auto_stopped": bool,
-                        "initial_state": str,
-                        "final_state": str,
-                        "execution_time_ms": float
-                    },
-                    "error": str (only if status is "failure")
-                }
-        """
-        import time
-        start_time = time.time()
-        following_before = bool(getattr(self.app_controller, "following_active", False))
-
-        try:
-            # Log initial state for debugging
-            initial_state = "active" if self.app_controller.following_active else "inactive"
-            self.logger.info(f"📥 API: Start offboard mode requested (current state: {initial_state})")
-
-            # Pre-flight validation checks
-            validation_errors = []
-
-            # Check if PX4 interface is initialized
-            if not hasattr(self.app_controller, 'px4_interface'):
-                validation_errors.append("PX4 interface not initialized")
-
-            # Check if tracker is available
-            if not hasattr(self.app_controller, 'tracker'):
-                validation_errors.append("Tracker not initialized")
-
-            # Check if video handler is available
-            if not hasattr(self.app_controller, 'video_handler'):
-                validation_errors.append("Video handler not initialized")
-
-            tracker_runtime = self._get_tracker_following_readiness()
-            if not tracker_runtime.get("usable_for_following", False):
-                validation_errors.append(
-                    tracker_runtime.get(
-                        "reason",
-                        "Tracker output is not usable for following"
-                    )
-                )
-
-            if validation_errors:
-                error_msg = f"Pre-flight validation failed: {', '.join(validation_errors)}"
-                self.logger.error(f"❌ {error_msg}")
-                return self._attach_legacy_action_audit(
-                    {
-                        "status": "failure",
-                        "error": error_msg,
-                        "details": {
-                            "steps": [],
-                            "errors": validation_errors,
-                            "auto_stopped": False,
-                            "initial_state": initial_state,
-                            "final_state": initial_state,
-                            "tracker_runtime": tracker_runtime,
-                        },
-                    },
-                    action_type="offboard_start",
-                    route="/commands/start_offboard_mode",
-                    following_active_before=following_before,
-                    following_active_after=following_before,
-                    error=error_msg,
-                )
-
-            # Call the controller's connect_px4 method
-            # This method handles:
-            # - Thread-safe state transitions
-            # - Auto-stop if already active
-            # - Follower creation and initialization
-            # - Offboard mode activation
-            # - Error recovery and cleanup
-            result = await self.app_controller.connect_px4()
-
-            # Determine final state
-            final_state = "active" if self.app_controller.following_active else "inactive"
-            execution_time_ms = (time.time() - start_time) * 1000
-
-            # Enhance result with additional metadata
-            result["initial_state"] = initial_state
-            result["final_state"] = final_state
-            result["execution_time_ms"] = round(execution_time_ms, 2)
-
-            if result.get("errors") or final_state != "active":
-                error_msg = (
-                    "; ".join(result.get("errors", []))
-                    or "Offboard mode did not become active"
-                )
-                self.logger.error(
-                    f"❌ API: Offboard mode start failed "
-                    f"({initial_state} → {final_state}, {execution_time_ms:.0f}ms): {error_msg}"
-                )
-                return self._attach_legacy_action_audit(
-                    {
-                        "status": "failure",
-                        "error": error_msg,
-                        "details": result,
-                    },
-                    action_type="offboard_start",
-                    route="/commands/start_offboard_mode",
-                    following_active_before=following_before,
-                    following_active_after=bool(
-                        getattr(self.app_controller, "following_active", False)
-                    ),
-                    error=error_msg,
-                )
-
-            # Log success with details
-            if result.get("auto_stopped", False):
-                self.logger.info(
-                    f"✅ API: Offboard mode restarted successfully "
-                    f"({initial_state} → {final_state}, {execution_time_ms:.0f}ms)"
-                )
-            else:
-                self.logger.info(
-                    f"✅ API: Offboard mode started successfully "
-                    f"({initial_state} → {final_state}, {execution_time_ms:.0f}ms)"
-                )
-
-            return self._attach_legacy_action_audit(
-                {"status": "success", "details": result},
-                action_type="offboard_start",
-                route="/commands/start_offboard_mode",
-                following_active_before=following_before,
-                following_active_after=bool(
-                    getattr(self.app_controller, "following_active", False)
-                ),
-            )
-
-        except Exception as e:
-            execution_time_ms = (time.time() - start_time) * 1000
-            error_msg = str(e)
-
-            self.logger.error(f"❌ API: Error in start_offboard_mode: {error_msg}")
-            self.logger.error(f"Exception type: {type(e).__name__}")
-
-            # Log stack trace for debugging
-            import traceback
-            self.logger.debug(f"Stack trace:\n{traceback.format_exc()}")
-
-            # Attempt to determine final state even after error
-            try:
-                final_state = "active" if self.app_controller.following_active else "inactive"
-            except:
-                final_state = "unknown"
-
-            return self._attach_legacy_action_audit(
-                {
-                    "status": "failure",
-                    "error": error_msg,
-                    "details": {
-                        "steps": [],
-                        "errors": [error_msg],
-                        "auto_stopped": False,
-                        "initial_state": initial_state if 'initial_state' in locals() else "unknown",
-                        "final_state": final_state,
-                        "execution_time_ms": round(execution_time_ms, 2),
-                        "exception_type": type(e).__name__
-                    }
-                },
-                action_type="offboard_start",
-                route="/commands/start_offboard_mode",
-                following_active_before=following_before,
-                following_active_after=(
-                    None if final_state == "unknown" else final_state == "active"
-                ),
-                error=error_msg,
-            )
+        return await dispatch_legacy_start_offboard_mode(self)
 
     def _get_legacy_runtime_status_snapshot(self) -> Dict[str, Any]:
         return get_legacy_runtime_status_snapshot(self)
