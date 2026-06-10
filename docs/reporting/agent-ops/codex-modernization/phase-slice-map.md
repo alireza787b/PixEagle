@@ -84,6 +84,8 @@ it together with:
 | Phase 4 API v1 action route boundary | done | PXE-0059 | `checkpoints/2026-06-07-phase-4-api-v1-action-route-boundary.md`; guarded typed Offboard-start/operator-abort action execution and action-resource lookup moved to `src/classes/api_v1_actions.py`; `FastAPIHandler` keeps one-call route wrappers only; candidate provenance stays current, tests prevent typed action route bodies from drifting back into the handler, and focused action tests cover concurrent idempotent operator-abort replay |
 | Phase 4 API v1 read route boundary | done | PXE-0060 | `checkpoints/2026-06-09-phase-4-api-v1-read-route-boundary.md`; typed runtime/following/tracking/telemetry-health read-route error boundaries moved to `src/classes/api_v1_read_routes.py`; `FastAPIHandler` keeps one-call read route wrappers only; candidate provenance now hashes read routes, and tests prevent typed read-route error strings from drifting back into the handler |
 | Phase 4 legacy control route boundary | done | PXE-0061 | `checkpoints/2026-06-10-phase-4-legacy-control-route-boundary.md`; legacy `/commands/start_offboard_mode` and `/commands/cancel_activities` compatibility route bodies moved to `src/classes/api_legacy_control_routes.py`; `FastAPIHandler` keeps one-call wrappers only; generated candidate provenance now hashes the legacy control helper because guarded typed action candidates still delegate through it; tests prevent dangerous compatibility-route execution bodies from drifting back into the handler |
+| Phase 4 legacy Offboard stop route boundary | done | PXE-0062 | `checkpoints/2026-06-10-phase-4-legacy-offboard-stop-boundary.md`; legacy `/commands/stop_offboard_mode` compatibility route body moved to `src/classes/api_legacy_control_routes.py`; `FastAPIHandler` keeps a one-call wrapper only; static tests prevent Offboard-stop emergency-cleanup/idempotency strings from drifting back into the handler and verify wrapper `self` delegation; focused tests cover inactive idempotency, active disconnect delegation, emergency cleanup after disconnect failure, cleanup-failure reporting, and unreadable final-state fallback |
+| Phase 4 typed Offboard stop action design | open | PXE-0063 | Follow-up from PXE-0062 review: `/commands/stop_offboard_mode` remains an immediate-execution legacy mutation with no typed guarded `/api/v1/actions/offboard-stop`, no action audit, and no explicit legacy deprecation metadata. Decide and implement the reviewed typed stop-action/deprecation path or document and test a deliberate alternative before final legacy cleanup |
 
 ## Active Slice
 
@@ -133,7 +135,13 @@ while `FastAPIHandler` keeps one-call read route wrappers. PXE-0061 is done for
 legacy control compatibility-route extraction: legacy Offboard start and
 operator cancel bodies now live in `src/classes/api_legacy_control_routes.py`,
 while `FastAPIHandler` keeps one-call wrappers and candidate provenance hashes
-that helper until the legacy aliases can be removed. No runtime MCP
+that helper until the legacy aliases can be removed. PXE-0062 is done for the
+remaining legacy Offboard stop route body: stop execution now lives in the same
+legacy-control helper, while `FastAPIHandler` keeps a one-call wrapper and
+focused tests cover inactive, active, emergency-cleanup, cleanup-failure, and
+unreadable-final-state stop behavior. PXE-0063 is open as the next specific API
+control-action debt: design the typed Offboard-stop action/deprecation path or
+document and test a deliberate alternative before final legacy cleanup. No runtime MCP
 endpoint, executor, `tools/list`, `tools/call`, or callable tool surface exists
 from these slices. These are still unit/contract evidence only; no runtime
 PX4/SITL pass is claimed. Official Gazebo runtime proof (PXE-0040) remains open
@@ -178,6 +186,7 @@ Audit artifact:
 - `checkpoints/2026-06-07-phase-4-api-v1-action-route-boundary.md`
 - `checkpoints/2026-06-09-phase-4-api-v1-read-route-boundary.md`
 - `checkpoints/2026-06-10-phase-4-legacy-control-route-boundary.md`
+- `checkpoints/2026-06-10-phase-4-legacy-offboard-stop-boundary.md`
 
 Recently completed Offboard commander follow-up issues:
 

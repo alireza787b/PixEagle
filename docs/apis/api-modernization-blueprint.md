@@ -63,9 +63,10 @@ Route inventory tests must:
   guarded action route execution, action resource lookup, and legacy action
   audit behavior for the guarded action candidates
 - record `src/classes/api_legacy_control_routes.py` in generated candidate
-  provenance because that module owns the legacy Offboard start/operator-cancel
-  compatibility route bodies that guarded typed action candidates still
-  delegate through until those aliases are retired
+  provenance because that module owns legacy Offboard start/stop and
+  operator-cancel compatibility route bodies; guarded typed action candidates
+  still delegate through the start/cancel compatibility bodies until those
+  aliases are retired
 - record `src/classes/api_v1_read_routes.py` in generated candidate provenance
   because that module owns typed read-route error boundaries for reviewed
   process-local status/telemetry candidates

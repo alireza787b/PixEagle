@@ -5,7 +5,7 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: 2759f0b85ccf4fbf67bd8e82fc36eeb1a25e1dbd8563be99efb8d302f02bdbc3
+    sha256: 8d7d3af37771f9de7655181eb912ec9b49bdb458873d230f05623a4c040c7e53
   - file: src/classes/fastapi_api_v1_routes.py
     sha256: 4ff00b2c894c54288978fc0b5f1a78ac4cb289ab429850e3e8b215ee4a3baf37
   - file: src/classes/api_v1_contracts.py
@@ -15,7 +15,7 @@ source:
   - file: src/classes/api_v1_actions.py
     sha256: c527bcd6e8bf819a3269808ba31fc14e708dffa8075cad47ec5c5159e6b3da00
   - file: src/classes/api_legacy_control_routes.py
-    sha256: 560797482e7ef8d41ed54e163c7cd9117f77dff3ed62c7382fee9cfe5013961d
+    sha256: 343c49e2a6821a0e7981deaa6499f77a1442c45f3307d36a84d8b0b81a6edcd2
   - file: src/classes/api_v1_read_routes.py
     sha256: f009b964dbbaba1fdcc05157a9ad9ee0ff5e6e57f2d760d435c8c9481e532220
   - file: src/classes/api_v1_snapshots.py

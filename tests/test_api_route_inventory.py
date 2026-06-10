@@ -539,6 +539,9 @@ def test_api_v1_action_store_implementation_is_not_defined_in_fastapi_handler():
         assert isinstance(call, ast.Call)
         assert isinstance(call.func, ast.Name)
         assert call.func.id == target_name
+        assert len(call.args) >= 1
+        assert isinstance(call.args[0], ast.Name)
+        assert call.args[0].id == "self"
 
 
 def test_legacy_control_route_bodies_are_not_defined_in_fastapi_handler():
@@ -550,13 +553,19 @@ def test_legacy_control_route_bodies_are_not_defined_in_fastapi_handler():
     expected_legacy_functions = {
         "cancel_activities",
         "start_offboard_mode",
+        "stop_offboard_mode",
     }
     wrapper_targets = {
         "cancel_activities": "dispatch_legacy_cancel_activities",
         "start_offboard_mode": "dispatch_legacy_start_offboard_mode",
+        "stop_offboard_mode": "dispatch_legacy_stop_offboard_mode",
     }
     disallowed_handler_strings = {
+        "Attempting emergency cleanup of OffboardCommander",
         "Error in cancel_activities",
+        "Error in stop_offboard_mode",
+        "Follower was already inactive",
+        "Offboard mode stopped successfully",
         "PX4 interface not initialized",
         "Tracker output is not usable for following",
         "Pre-flight validation failed",
@@ -600,6 +609,9 @@ def test_legacy_control_route_bodies_are_not_defined_in_fastapi_handler():
         assert isinstance(call, ast.Call)
         assert isinstance(call.func, ast.Name)
         assert call.func.id == target_name
+        assert len(call.args) == 1
+        assert isinstance(call.args[0], ast.Name)
+        assert call.args[0].id == "self"
 
 
 def test_api_v1_snapshot_builders_are_not_defined_in_fastapi_handler():

@@ -186,3 +186,124 @@ async def start_offboard_mode(owner: Any) -> Any:
             ),
             error=error_msg,
         )
+
+
+async def stop_offboard_mode(owner: Any) -> Any:
+    """Execute the legacy Offboard-stop compatibility route."""
+    start_time = time.time()
+
+    try:
+        initial_state = "active" if owner.app_controller.following_active else "inactive"
+        was_active = owner.app_controller.following_active
+
+        owner.logger.info(
+            f"📥 API: Stop offboard mode requested (current state: {initial_state})"
+        )
+
+        if not was_active:
+            owner.logger.info("ℹ️ API: Follower already inactive, nothing to stop")
+            return {
+                "status": "success",
+                "details": {
+                    "steps": ["Follower was already inactive"],
+                    "errors": [],
+                    "initial_state": initial_state,
+                    "final_state": "inactive",
+                    "execution_time_ms": round((time.time() - start_time) * 1000, 2),
+                    "was_active": False,
+                },
+            }
+
+        result = await owner.app_controller.disconnect_px4()
+
+        final_state = "active" if owner.app_controller.following_active else "inactive"
+        execution_time_ms = (time.time() - start_time) * 1000
+
+        result["initial_state"] = initial_state
+        result["final_state"] = final_state
+        result["execution_time_ms"] = round(execution_time_ms, 2)
+        result["was_active"] = was_active
+
+        owner.logger.info(
+            f"✅ API: Offboard mode stopped successfully "
+            f"({initial_state} → {final_state}, {execution_time_ms:.0f}ms)"
+        )
+
+        if owner.app_controller.following_active:
+            owner.logger.warning(
+                "⚠️ Warning: following_active flag is still True after disconnect. "
+                "This may indicate incomplete cleanup."
+            )
+
+        if result.get("errors"):
+            owner.logger.warning(
+                f"⚠️ Disconnect completed with {len(result['errors'])} warnings. "
+                f"Follower state may need verification."
+            )
+
+        return {"status": "success", "details": result}
+
+    except Exception as e:
+        execution_time_ms = (time.time() - start_time) * 1000
+        error_msg = str(e)
+
+        owner.logger.error(f"❌ API: Error in stop_offboard_mode: {error_msg}")
+        owner.logger.error(f"Exception type: {type(e).__name__}")
+        owner.logger.debug(f"Stack trace:\n{traceback.format_exc()}")
+
+        try:
+            if (
+                hasattr(owner.app_controller, "offboard_commander")
+                and owner.app_controller.offboard_commander
+            ):
+                owner.logger.warning(
+                    "⚠️ Attempting emergency cleanup of OffboardCommander..."
+                )
+                await owner.app_controller.offboard_commander.stop(publish_final=True)
+                owner.app_controller.offboard_commander = None
+
+            if (
+                hasattr(owner.app_controller, "setpoint_sender")
+                and owner.app_controller.setpoint_sender
+            ):
+                owner.logger.warning(
+                    "⚠️ Attempting emergency cleanup of setpoint sender..."
+                )
+                owner.app_controller.setpoint_sender.stop()
+                owner.app_controller.setpoint_sender = None
+
+            if (
+                hasattr(owner.app_controller, "follower")
+                and owner.app_controller.follower
+            ):
+                owner.logger.warning("⚠️ Attempting emergency cleanup of follower...")
+                owner.app_controller.follower = None
+
+            owner.app_controller.following_active = False
+            owner.logger.warning(
+                "⚠️ Emergency cleanup completed, state forced to inactive"
+            )
+
+        except Exception as cleanup_error:
+            owner.logger.error(f"❌ Emergency cleanup failed: {cleanup_error}")
+
+        try:
+            final_state = "active" if owner.app_controller.following_active else "inactive"
+        except BaseException:
+            final_state = "unknown"
+
+        return {
+            "status": "failure",
+            "error": error_msg,
+            "details": {
+                "steps": [],
+                "errors": [error_msg],
+                "initial_state": (
+                    initial_state if "initial_state" in locals() else "unknown"
+                ),
+                "final_state": final_state,
+                "execution_time_ms": round(execution_time_ms, 2),
+                "was_active": was_active if "was_active" in locals() else False,
+                "exception_type": type(e).__name__,
+            },
+        }

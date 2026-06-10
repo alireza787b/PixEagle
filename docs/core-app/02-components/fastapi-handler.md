@@ -247,9 +247,11 @@ routes for existing UI/scripts. They now attach an `action_audit` pointer to
 the in-process action record, but they are not the MCP-safe contract because
 they do not accept confirmation, dry-run, or idempotency request fields.
 Their execution bodies live in `src/classes/api_legacy_control_routes.py` so
-the remaining compatibility behavior is isolated, source-hashed in the
-non-callable API/MCP candidate inventory, and easier to remove when the
-deprecation gate closes.
+the remaining start/cancel compatibility behavior is isolated, source-hashed
+in the non-callable API/MCP candidate inventory, and easier to remove when the
+deprecation gate closes. The same helper owns legacy Offboard stop execution;
+that route is still a direct compatibility command and is not an MCP-safe
+action contract.
 
 ### Configuration Endpoints
 

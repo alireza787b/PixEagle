@@ -1205,6 +1205,148 @@ async def test_start_offboard_mode_api_blocks_unusable_tracker_output():
 
 
 @pytest.mark.asyncio
+async def test_stop_offboard_mode_api_is_idempotent_when_inactive():
+    """Legacy stop-Offboard API must be safe to call when already inactive."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        disconnect_px4=AsyncMock(),
+    )
+
+    result = await handler.stop_offboard_mode()
+
+    assert result["status"] == "success"
+    assert result["details"]["was_active"] is False
+    assert result["details"]["final_state"] == "inactive"
+    assert result["details"]["errors"] == []
+    handler.app_controller.disconnect_px4.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stop_offboard_mode_api_disconnects_when_active():
+    """Legacy stop-Offboard API should delegate active cleanup to AppController."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    controller = SimpleNamespace(following_active=True)
+
+    async def disconnect():
+        controller.following_active = False
+        return {"steps": ["stopped"], "errors": []}
+
+    controller.disconnect_px4 = AsyncMock(side_effect=disconnect)
+    handler.app_controller = controller
+
+    result = await handler.stop_offboard_mode()
+
+    assert result["status"] == "success"
+    assert result["details"]["initial_state"] == "active"
+    assert result["details"]["final_state"] == "inactive"
+    assert result["details"]["was_active"] is True
+    assert result["details"]["errors"] == []
+    controller.disconnect_px4.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_stop_offboard_mode_api_emergency_cleanup_on_disconnect_exception():
+    """Legacy stop-Offboard API keeps its emergency cleanup fallback."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    offboard_commander = SimpleNamespace(stop=AsyncMock())
+    setpoint_sender = SimpleNamespace(stop=MagicMock())
+    controller = SimpleNamespace(
+        following_active=True,
+        disconnect_px4=AsyncMock(side_effect=RuntimeError("disconnect failed")),
+        offboard_commander=offboard_commander,
+        setpoint_sender=setpoint_sender,
+        follower=object(),
+    )
+    handler.app_controller = controller
+
+    result = await handler.stop_offboard_mode()
+
+    assert result["status"] == "failure"
+    assert result["error"] == "disconnect failed"
+    assert result["details"]["initial_state"] == "active"
+    assert result["details"]["final_state"] == "inactive"
+    assert result["details"]["was_active"] is True
+    assert result["details"]["exception_type"] == "RuntimeError"
+    assert controller.following_active is False
+    assert controller.offboard_commander is None
+    assert controller.setpoint_sender is None
+    assert controller.follower is None
+    offboard_commander.stop.assert_awaited_once_with(publish_final=True)
+    setpoint_sender.stop.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_stop_offboard_mode_api_reports_cleanup_failure():
+    """Emergency cleanup failures should remain visible in the stop result."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    offboard_commander = SimpleNamespace(
+        stop=AsyncMock(side_effect=RuntimeError("cleanup failed"))
+    )
+    controller = SimpleNamespace(
+        following_active=True,
+        disconnect_px4=AsyncMock(side_effect=RuntimeError("disconnect failed")),
+        offboard_commander=offboard_commander,
+        setpoint_sender=SimpleNamespace(stop=MagicMock()),
+        follower=object(),
+    )
+    handler.app_controller = controller
+
+    result = await handler.stop_offboard_mode()
+
+    assert result["status"] == "failure"
+    assert result["error"] == "disconnect failed"
+    assert result["details"]["final_state"] == "active"
+    assert result["details"]["was_active"] is True
+    assert controller.following_active is True
+    offboard_commander.stop.assert_awaited_once_with(publish_final=True)
+    handler.logger.error.assert_any_call("❌ Emergency cleanup failed: cleanup failed")
+
+
+@pytest.mark.asyncio
+async def test_stop_offboard_mode_api_handles_unreadable_final_state():
+    """The legacy final-state fallback should survive unreadable state access."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+
+    class UnreadableFinalStateController:
+        def __init__(self):
+            self._following_active = True
+            self._reads = 0
+            self.disconnect_px4 = AsyncMock(side_effect=RuntimeError("disconnect failed"))
+            self.offboard_commander = None
+            self.setpoint_sender = None
+            self.follower = None
+
+        @property
+        def following_active(self):
+            self._reads += 1
+            if self._reads >= 3:
+                raise BaseException("state unavailable")
+            return self._following_active
+
+        @following_active.setter
+        def following_active(self, value):
+            self._following_active = value
+
+    controller = UnreadableFinalStateController()
+    handler.app_controller = controller
+
+    result = await handler.stop_offboard_mode()
+
+    assert result["status"] == "failure"
+    assert result["error"] == "disconnect failed"
+    assert result["details"]["initial_state"] == "active"
+    assert result["details"]["final_state"] == "unknown"
+    assert result["details"]["was_active"] is True
+    assert controller._following_active is False
+
+
+@pytest.mark.asyncio
 async def test_api_v1_offboard_action_blocks_unusable_tracker_output():
     """Typed action callers inherit the same tracker usability guard."""
     handler = object.__new__(FastAPIHandler)
