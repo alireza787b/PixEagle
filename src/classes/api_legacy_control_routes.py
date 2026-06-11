@@ -191,6 +191,7 @@ async def start_offboard_mode(owner: Any) -> Any:
 async def stop_offboard_mode(owner: Any) -> Any:
     """Execute the legacy Offboard-stop compatibility route."""
     start_time = time.time()
+    following_before = bool(getattr(owner.app_controller, "following_active", False))
 
     try:
         initial_state = "active" if owner.app_controller.following_active else "inactive"
@@ -202,17 +203,26 @@ async def stop_offboard_mode(owner: Any) -> Any:
 
         if not was_active:
             owner.logger.info("ℹ️ API: Follower already inactive, nothing to stop")
-            return {
-                "status": "success",
-                "details": {
-                    "steps": ["Follower was already inactive"],
-                    "errors": [],
-                    "initial_state": initial_state,
-                    "final_state": "inactive",
-                    "execution_time_ms": round((time.time() - start_time) * 1000, 2),
-                    "was_active": False,
+            return owner._attach_legacy_action_audit(
+                {
+                    "status": "success",
+                    "details": {
+                        "steps": ["Follower was already inactive"],
+                        "errors": [],
+                        "initial_state": initial_state,
+                        "final_state": "inactive",
+                        "execution_time_ms": round(
+                            (time.time() - start_time) * 1000,
+                            2,
+                        ),
+                        "was_active": False,
+                    },
                 },
-            }
+                action_type="offboard_stop",
+                route="/commands/stop_offboard_mode",
+                following_active_before=following_before,
+                following_active_after=False,
+            )
 
         result = await owner.app_controller.disconnect_px4()
 
@@ -225,23 +235,41 @@ async def stop_offboard_mode(owner: Any) -> Any:
         result["was_active"] = was_active
 
         owner.logger.info(
-            f"✅ API: Offboard mode stopped successfully "
+            f"✅ API: Offboard mode stop completed "
             f"({initial_state} → {final_state}, {execution_time_ms:.0f}ms)"
         )
 
-        if owner.app_controller.following_active:
+        following_after = bool(getattr(owner.app_controller, "following_active", False))
+        errors = result.get("errors") or []
+        legacy_error = None
+
+        if following_after:
+            legacy_error = "Offboard stop command returned with following still active."
             owner.logger.warning(
                 "⚠️ Warning: following_active flag is still True after disconnect. "
                 "This may indicate incomplete cleanup."
             )
 
-        if result.get("errors"):
+        if errors:
+            legacy_error = "; ".join(str(error) for error in errors)
             owner.logger.warning(
-                f"⚠️ Disconnect completed with {len(result['errors'])} warnings. "
+                f"⚠️ Disconnect completed with {len(errors)} warnings. "
                 f"Follower state may need verification."
             )
 
-        return {"status": "success", "details": result}
+        status_value = "failure" if legacy_error else "success"
+        payload = {"status": status_value, "details": result}
+        if legacy_error:
+            payload["error"] = legacy_error
+
+        return owner._attach_legacy_action_audit(
+            payload,
+            action_type="offboard_stop",
+            route="/commands/stop_offboard_mode",
+            following_active_before=following_before,
+            following_active_after=following_after,
+            error=legacy_error,
+        )
 
     except Exception as e:
         execution_time_ms = (time.time() - start_time) * 1000
@@ -251,6 +279,7 @@ async def stop_offboard_mode(owner: Any) -> Any:
         owner.logger.error(f"Exception type: {type(e).__name__}")
         owner.logger.debug(f"Stack trace:\n{traceback.format_exc()}")
 
+        cleanup_errors = []
         try:
             if (
                 hasattr(owner.app_controller, "offboard_commander")
@@ -285,25 +314,39 @@ async def stop_offboard_mode(owner: Any) -> Any:
             )
 
         except Exception as cleanup_error:
-            owner.logger.error(f"❌ Emergency cleanup failed: {cleanup_error}")
+            cleanup_error_msg = f"Emergency cleanup failed: {cleanup_error}"
+            cleanup_errors.append(cleanup_error_msg)
+            owner.logger.error(f"❌ {cleanup_error_msg}")
 
         try:
             final_state = "active" if owner.app_controller.following_active else "inactive"
         except BaseException:
             final_state = "unknown"
 
-        return {
-            "status": "failure",
-            "error": error_msg,
-            "details": {
-                "steps": [],
-                "errors": [error_msg],
-                "initial_state": (
-                    initial_state if "initial_state" in locals() else "unknown"
-                ),
-                "final_state": final_state,
-                "execution_time_ms": round(execution_time_ms, 2),
-                "was_active": was_active if "was_active" in locals() else False,
-                "exception_type": type(e).__name__,
+        errors = [error_msg, *cleanup_errors]
+        returned_error = "; ".join(errors)
+        return owner._attach_legacy_action_audit(
+            {
+                "status": "failure",
+                "error": returned_error,
+                "details": {
+                    "steps": [],
+                    "errors": errors,
+                    "cleanup_errors": cleanup_errors,
+                    "initial_state": (
+                        initial_state if "initial_state" in locals() else "unknown"
+                    ),
+                    "final_state": final_state,
+                    "execution_time_ms": round(execution_time_ms, 2),
+                    "was_active": was_active if "was_active" in locals() else False,
+                    "exception_type": type(e).__name__,
+                },
             },
-        }
+            action_type="offboard_stop",
+            route="/commands/stop_offboard_mode",
+            following_active_before=following_before,
+            following_active_after=(
+                None if final_state == "unknown" else final_state == "active"
+            ),
+            error=returned_error,
+        )

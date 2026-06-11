@@ -710,6 +710,28 @@ Action semantics:
 - `GET /api/v1/actions/{action_id}` returns the in-process action record;
   records are process-local and bounded, not durable flight logs.
 
+### Stop Offboard
+
+```http
+POST /api/v1/actions/offboard-stop
+Content-Type: application/json
+```
+
+```json
+{
+  "source": "operator",
+  "reason": "stop_following",
+  "confirm": true,
+  "idempotency_key": "operator-stop-001"
+}
+```
+
+The typed Offboard-stop action uses the same confirmation, dry-run,
+idempotency, replay, process-local action-resource, and claim-boundary semantics
+as Offboard start. It records the local PixEagle stop path and treats legacy
+cleanup warnings or a still-active local following state as typed action
+failure. PX4-observed Offboard exit still requires separate evidence artifacts.
+
 ### Operator Abort
 
 ```http
@@ -734,11 +756,15 @@ POST /commands/stop_offboard_mode
 POST /commands/cancel_activities
 ```
 
-The legacy start/cancel routes execute immediately for backward compatibility
+The legacy start/stop/cancel routes execute immediately for backward compatibility
 and include an `action_audit` pointer to the process-local action record. New
 operator, SITL, MCP, and agent integrations should use `/api/v1/actions/*`
 because the legacy routes do not provide confirmation, dry-run, or idempotency
-request fields.
+request fields. The dashboard operator control panel now uses typed actions for
+Offboard start, Offboard stop, and operator abort/cancel. Legacy Offboard stop
+now reports failure when delegated cleanup returns warnings/errors or local
+following remains active after the stop path, but it is still a compatibility
+alias rather than the safe typed contract.
 
 ### Redetect Target
 

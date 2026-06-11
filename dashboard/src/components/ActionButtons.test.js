@@ -40,5 +40,61 @@ test('allows confirmed start following when tracker output is follower usable', 
   fireEvent.click(screen.getByRole('button', { name: 'Start Following' }));
   fireEvent.click(screen.getByRole('button', { name: 'Engage' }));
 
-  expect(baseProps.handleButtonClick).toHaveBeenCalledWith(endpoints.startOffboardMode);
+  expect(baseProps.handleButtonClick).toHaveBeenCalledWith(
+    endpoints.offboardStartAction,
+    false,
+    expect.objectContaining({
+      source: 'dashboard',
+      reason: 'start_following',
+      confirm: true,
+      idempotency_key: expect.stringMatching(/^dashboard-start-following-\d+-[a-z0-9]+$/),
+      metadata: {
+        ui: 'dashboard_control_panel',
+      },
+    })
+  );
+});
+
+test('uses typed confirmed operator abort action when cancelling tracker activity', () => {
+  render(<ActionButtons {...baseProps} />);
+
+  fireEvent.click(screen.getByRole('button', {
+    name: 'Cancel all tracking activities and reset',
+  }));
+
+  expect(baseProps.handleButtonClick).toHaveBeenCalledWith(
+    endpoints.operatorAbortAction,
+    true,
+    expect.objectContaining({
+      source: 'dashboard',
+      reason: 'cancel_activities',
+      confirm: true,
+      idempotency_key: expect.stringMatching(/^dashboard-cancel-activities-\d+-[a-z0-9]+$/),
+      metadata: {
+        ui: 'dashboard_control_panel',
+      },
+    })
+  );
+});
+
+test('uses typed confirmed stop action when stopping following', () => {
+  render(<ActionButtons {...baseProps} isFollowing />);
+
+  fireEvent.click(screen.getByRole('button', {
+    name: 'Disengage offboard mode and stop following immediately',
+  }));
+
+  expect(baseProps.handleButtonClick).toHaveBeenCalledWith(
+    endpoints.offboardStopAction,
+    false,
+    expect.objectContaining({
+      source: 'dashboard',
+      reason: 'stop_following',
+      confirm: true,
+      idempotency_key: expect.stringMatching(/^dashboard-stop-following-\d+-[a-z0-9]+$/),
+      metadata: {
+        ui: 'dashboard_control_panel',
+      },
+    })
+  );
 });

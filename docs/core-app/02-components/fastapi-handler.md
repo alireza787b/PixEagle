@@ -227,6 +227,7 @@ but it is not durable command storage and it is not a runtime MCP executor.
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/v1/actions/offboard-start` | POST | Confirmed or dry-run Offboard-start action resource |
+| `/api/v1/actions/offboard-stop` | POST | Confirmed or dry-run Offboard-stop action resource |
 | `/api/v1/actions/operator-abort` | POST | Confirmed or dry-run operator abort/cancel action resource |
 | `/api/v1/actions/{action_id}` | GET | Fetch in-process action record |
 
@@ -237,21 +238,24 @@ but it is not durable command storage and it is not a runtime MCP executor.
 | `/commands/start_tracking` | POST | Start tracking |
 | `/commands/stop_tracking` | POST | Stop tracking |
 | `/commands/start_offboard_mode` | POST | Compatibility alias for Offboard start; use `/api/v1/actions/offboard-start` for new control-plane integrations |
-| `/commands/stop_offboard_mode` | POST | Disable offboard |
+| `/commands/stop_offboard_mode` | POST | Compatibility alias for Offboard stop; use `/api/v1/actions/offboard-stop` for new control-plane integrations |
 | `/commands/cancel_activities` | POST | Compatibility alias for operator cancel; use `/api/v1/actions/operator-abort` for new control-plane integrations |
 | `/commands/toggle_smart_mode` | POST | Toggle YOLO tracker |
 | `/commands/smart_click` | POST | Click to track |
 
-The legacy start/cancel command routes are immediate-execution compatibility
-routes for existing UI/scripts. They now attach an `action_audit` pointer to
-the in-process action record, but they are not the MCP-safe contract because
-they do not accept confirmation, dry-run, or idempotency request fields.
-Their execution bodies live in `src/classes/api_legacy_control_routes.py` so
-the remaining start/cancel compatibility behavior is isolated, source-hashed
-in the non-callable API/MCP candidate inventory, and easier to remove when the
-deprecation gate closes. The same helper owns legacy Offboard stop execution;
-that route is still a direct compatibility command and is not an MCP-safe
-action contract.
+The legacy start/stop/cancel command routes are immediate-execution
+compatibility routes for older clients and scripts. The current dashboard
+operator control panel uses the typed action routes for start, stop, and
+operator abort. The legacy aliases now attach an
+`action_audit` pointer to the in-process action record, but they are not the
+MCP-safe contract because they do not accept confirmation, dry-run, or
+idempotency request fields. Legacy Offboard stop reports failure when delegated
+cleanup returns warnings/errors or local following remains active after the
+stop path, matching the typed action's fail-closed local-state semantics. Their
+execution bodies live in `src/classes/api_legacy_control_routes.py` so the
+remaining compatibility behavior is isolated, source-hashed in the non-callable
+API/MCP candidate inventory, and easier to remove when the deprecation gate
+closes.
 
 ### Configuration Endpoints
 

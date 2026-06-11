@@ -65,7 +65,7 @@ Route inventory tests must:
 - record `src/classes/api_legacy_control_routes.py` in generated candidate
   provenance because that module owns legacy Offboard start/stop and
   operator-cancel compatibility route bodies; guarded typed action candidates
-  still delegate through the start/cancel compatibility bodies until those
+  still delegate through the start/stop/cancel compatibility bodies until those
   aliases are retired
 - record `src/classes/api_v1_read_routes.py` in generated candidate provenance
   because that module owns typed read-route error boundaries for reviewed

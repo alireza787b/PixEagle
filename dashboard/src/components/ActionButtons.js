@@ -18,6 +18,21 @@ import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { endpoints } from '../services/apiEndpoints';
 
+const generateActionIdempotencyKey = (reason) => {
+  const randomSuffix = Math.random().toString(36).slice(2, 10);
+  return `dashboard-${reason.replace(/_/g, '-')}-${Date.now()}-${randomSuffix}`;
+};
+
+const buildActionRequest = (reason) => ({
+  source: 'dashboard',
+  reason,
+  confirm: true,
+  idempotency_key: generateActionIdempotencyKey(reason),
+  metadata: {
+    ui: 'dashboard_control_panel',
+  },
+});
+
 const ActionButtons = ({
   isTracking,
   trackerStatus,
@@ -57,7 +72,11 @@ const ActionButtons = ({
       return;
     }
     setFollowConfirmOpen(false);
-    handleButtonClick(endpoints.startOffboardMode);
+    handleButtonClick(
+      endpoints.offboardStartAction,
+      false,
+      buildActionRequest('start_following')
+    );
   };
 
   const handleFollowCancel = () => {
@@ -135,7 +154,11 @@ const ActionButtons = ({
             <Button
               variant="outlined"
               color="warning"
-              onClick={() => handleButtonClick(endpoints.cancelActivities, true)}
+              onClick={() => handleButtonClick(
+                endpoints.operatorAbortAction,
+                true,
+                buildActionRequest('cancel_activities')
+              )}
               fullWidth
               size="small"
               sx={{ mt: 0.5 }}
@@ -186,7 +209,11 @@ const ActionButtons = ({
               <Button
                 variant="contained"
                 color="error"
-                onClick={() => handleButtonClick(endpoints.stopOffboardMode)}
+                onClick={() => handleButtonClick(
+                  endpoints.offboardStopAction,
+                  false,
+                  buildActionRequest('stop_following')
+                )}
                 fullWidth
                 size="small"
               >

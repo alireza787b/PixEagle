@@ -15,6 +15,7 @@ SITL_MAVLINK2REST_TIMEOUT_INJECTION_PATH = (
 )
 
 API_V1_ACTION_OFFBOARD_START_PATH = "/api/v1/actions/offboard-start"
+API_V1_ACTION_OFFBOARD_STOP_PATH = "/api/v1/actions/offboard-stop"
 API_V1_ACTION_OPERATOR_ABORT_PATH = "/api/v1/actions/operator-abort"
 API_V1_ACTION_RESOURCE_PREFIX = "/api/v1/actions"
 API_V1_ACTION_RESOURCE_PATH = "/api/v1/actions/{action_id}"
@@ -74,6 +75,7 @@ def api_v1_request_id_prefix(path: str) -> Literal["pixeagle-action", "pixeagle-
 
 __all__ = [
     "API_V1_ACTION_OFFBOARD_START_PATH",
+    "API_V1_ACTION_OFFBOARD_STOP_PATH",
     "API_V1_ACTION_OPERATOR_ABORT_PATH",
     "API_V1_ACTION_RESOURCE_PREFIX",
     "API_V1_ACTION_RESOURCE_PATH",

@@ -38,6 +38,8 @@ from classes.api_v1_actions import (
     operator_abort_action_unlocked as dispatch_operator_abort_action_unlocked,
     start_offboard_action as dispatch_start_offboard_action,
     start_offboard_action_unlocked as dispatch_start_offboard_action_unlocked,
+    stop_offboard_action as dispatch_stop_offboard_action,
+    stop_offboard_action_unlocked as dispatch_stop_offboard_action_unlocked,
 )
 from classes.api_legacy_control_routes import (
     cancel_activities as dispatch_legacy_cancel_activities,
@@ -483,7 +485,12 @@ class FastAPIHandler:
             operation_id="legacy_start_offboard_mode",
             tags=["legacy-commands"],
         )(self.start_offboard_mode)
-        self.app.post("/commands/stop_offboard_mode")(self.stop_offboard_mode)
+        self.app.post(
+            "/commands/stop_offboard_mode",
+            deprecated=True,
+            operation_id="legacy_stop_offboard_mode",
+            tags=["legacy-commands"],
+        )(self.stop_offboard_mode)
         self.app.post("/commands/quit")(self.quit)
 
         # Smart tracking
@@ -1170,7 +1177,7 @@ class FastAPIHandler:
     @staticmethod
     def _new_api_action_record(
         *,
-        action_type: Literal["offboard_start", "operator_abort"],
+        action_type: Literal["offboard_start", "offboard_stop", "operator_abort"],
         request: APIActionRequest,
         status_value: Literal["validated", "success", "failure"],
         accepted: bool,
@@ -1196,7 +1203,7 @@ class FastAPIHandler:
         self,
         payload: Dict[str, Any],
         *,
-        action_type: Literal["offboard_start", "operator_abort"],
+        action_type: Literal["offboard_start", "offboard_stop", "operator_abort"],
         route: str,
         following_active_before: Optional[bool],
         following_active_after: Optional[bool],
@@ -1216,7 +1223,7 @@ class FastAPIHandler:
     def _action_precondition_failed_response(
         self,
         *,
-        action_type: Literal["offboard_start", "operator_abort"],
+        action_type: Literal["offboard_start", "offboard_stop", "operator_abort"],
         request: APIActionRequest,
         path: str,
         code: str,
@@ -1236,7 +1243,7 @@ class FastAPIHandler:
     def _confirmation_required_response(
         self,
         *,
-        action_type: Literal["offboard_start", "operator_abort"],
+        action_type: Literal["offboard_start", "offboard_stop", "operator_abort"],
         request: APIActionRequest,
         path: str,
     ) -> JSONResponse:
@@ -1254,7 +1261,7 @@ class FastAPIHandler:
     def _idempotency_key_required_response(
         self,
         *,
-        action_type: Literal["offboard_start", "operator_abort"],
+        action_type: Literal["offboard_start", "offboard_stop", "operator_abort"],
         request: APIActionRequest,
         path: str,
     ) -> JSONResponse:
@@ -1514,6 +1521,20 @@ class FastAPIHandler:
 
     async def start_offboard_mode(self):
         return await dispatch_legacy_start_offboard_mode(self)
+
+    async def stop_offboard_action(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_stop_offboard_action(self, request, response)
+
+    async def _stop_offboard_action_unlocked(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_stop_offboard_action_unlocked(self, request, response)
 
     def _get_legacy_runtime_status_snapshot(self) -> Dict[str, Any]:
         return get_legacy_runtime_status_snapshot(self)

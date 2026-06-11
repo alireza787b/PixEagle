@@ -36,12 +36,12 @@ remains supported so future plans can make unimplemented fault gaps explicit
 instead of hiding them.
 
 Non-GET or explicitly marked control actions are blocked unless the runtime
-command includes `--allow-control-actions`. Phase 2 Offboard-start and
-operator-abort control actions use typed `/api/v1/actions/offboard-start` and
-`/api/v1/actions/operator-abort` resources with `confirm=true`,
-scenario-scoped idempotency keys, local action records, and explicit claim
-boundaries. Legacy `/commands/*` control paths remain compatibility aliases and
-are not used by the checked-in plan.
+command includes `--allow-control-actions`. Phase 2 Offboard-start,
+Offboard-stop, and operator-abort control actions use typed
+`/api/v1/actions/*` resources with `confirm=true`, scenario-scoped idempotency
+keys, local action records, and explicit claim boundaries. Legacy `/commands/*`
+control paths remain compatibility aliases and are not used by the checked-in
+plan.
 
 The target-loss scenario now uses PixEagle's validation-only
 `POST /api/v1/sitl/injections/tracker-output` route. That route is disabled
@@ -218,10 +218,10 @@ python3 tools/run_sitl_validation_suite.py \
   --artifact-root reports/sitl
 ```
 
-Control actions such as Offboard start and operator abort remain blocked unless
-the operator explicitly adds `--allow-control-actions`. Target-loss,
-video-stall, commander publish-failure, MAVSDK local command-path disconnect,
-and MAVLink2REST local timeout injection are automated. Accepted runtime
+Control actions such as Offboard start, Offboard stop, and operator abort
+remain blocked unless the operator explicitly adds `--allow-control-actions`.
+Target-loss, video-stall, commander publish-failure, MAVSDK local command-path
+disconnect, and MAVLink2REST local timeout injection are automated. Accepted runtime
 evidence still remains incomplete when required PX4 params, ULog/tlog,
 container metadata, route data, scenario results, logs, or config snapshots are
 missing or placeholder. Failed scenario assertions take precedence over missing

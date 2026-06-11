@@ -85,7 +85,7 @@ it together with:
 | Phase 4 API v1 read route boundary | done | PXE-0060 | `checkpoints/2026-06-09-phase-4-api-v1-read-route-boundary.md`; typed runtime/following/tracking/telemetry-health read-route error boundaries moved to `src/classes/api_v1_read_routes.py`; `FastAPIHandler` keeps one-call read route wrappers only; candidate provenance now hashes read routes, and tests prevent typed read-route error strings from drifting back into the handler |
 | Phase 4 legacy control route boundary | done | PXE-0061 | `checkpoints/2026-06-10-phase-4-legacy-control-route-boundary.md`; legacy `/commands/start_offboard_mode` and `/commands/cancel_activities` compatibility route bodies moved to `src/classes/api_legacy_control_routes.py`; `FastAPIHandler` keeps one-call wrappers only; generated candidate provenance now hashes the legacy control helper because guarded typed action candidates still delegate through it; tests prevent dangerous compatibility-route execution bodies from drifting back into the handler |
 | Phase 4 legacy Offboard stop route boundary | done | PXE-0062 | `checkpoints/2026-06-10-phase-4-legacy-offboard-stop-boundary.md`; legacy `/commands/stop_offboard_mode` compatibility route body moved to `src/classes/api_legacy_control_routes.py`; `FastAPIHandler` keeps a one-call wrapper only; static tests prevent Offboard-stop emergency-cleanup/idempotency strings from drifting back into the handler and verify wrapper `self` delegation; focused tests cover inactive idempotency, active disconnect delegation, emergency cleanup after disconnect failure, cleanup-failure reporting, and unreadable final-state fallback |
-| Phase 4 typed Offboard stop action design | open | PXE-0063 | Follow-up from PXE-0062 review: `/commands/stop_offboard_mode` remains an immediate-execution legacy mutation with no typed guarded `/api/v1/actions/offboard-stop`, no action audit, and no explicit legacy deprecation metadata. Decide and implement the reviewed typed stop-action/deprecation path or document and test a deliberate alternative before final legacy cleanup |
+| Phase 4 typed Offboard stop action | done | PXE-0063 | `checkpoints/2026-06-11-phase-4-typed-offboard-stop-action.md`; typed `POST /api/v1/actions/offboard-stop` added with confirmation, dry-run, required idempotency for confirmed mutations, process-local action records, idempotent replay, per-key concurrency serialization, structured route metadata/errors, guarded non-callable candidate classification, dashboard Start/Stop/Cancel action migration, and local fail-closed semantics for cleanup warnings or still-active following; legacy `/commands/stop_offboard_mode` is deprecated, attaches `action_audit`, and now reports failure on cleanup warnings, emergency cleanup failures, or still-active local following |
 
 ## Active Slice
 
@@ -139,10 +139,11 @@ that helper until the legacy aliases can be removed. PXE-0062 is done for the
 remaining legacy Offboard stop route body: stop execution now lives in the same
 legacy-control helper, while `FastAPIHandler` keeps a one-call wrapper and
 focused tests cover inactive, active, emergency-cleanup, cleanup-failure, and
-unreadable-final-state stop behavior. PXE-0063 is open as the next specific API
-control-action debt: design the typed Offboard-stop action/deprecation path or
-document and test a deliberate alternative before final legacy cleanup. No runtime MCP
-endpoint, executor, `tools/list`, `tools/call`, or callable tool surface exists
+unreadable-final-state stop behavior. PXE-0063 is done for the typed
+Offboard-stop action/deprecation path: `/api/v1/actions/offboard-stop` now has
+typed action semantics, dashboard Start Following, Stop Following, and Cancel
+Tracker use typed action endpoints, and legacy stop is deprecated with action
+audit plus fail-closed local warning/cleanup-error/active-state reporting. No runtime MCP endpoint, executor, `tools/list`, `tools/call`, or callable tool surface exists
 from these slices. These are still unit/contract evidence only; no runtime
 PX4/SITL pass is claimed. Official Gazebo runtime proof (PXE-0040) remains open
 for a native GUI/GPU host, a stronger headless runner, or a separately proven
@@ -187,6 +188,7 @@ Audit artifact:
 - `checkpoints/2026-06-09-phase-4-api-v1-read-route-boundary.md`
 - `checkpoints/2026-06-10-phase-4-legacy-control-route-boundary.md`
 - `checkpoints/2026-06-10-phase-4-legacy-offboard-stop-boundary.md`
+- `checkpoints/2026-06-11-phase-4-typed-offboard-stop-action.md`
 
 Recently completed Offboard commander follow-up issues:
 
@@ -263,6 +265,13 @@ Recently completed Offboard commander follow-up issues:
   acceptance requiring PX4 heartbeat identity, same-system tlog setpoints, and
   scenario-local cadence windows. Done in
   `checkpoints/2026-06-04-phase-4-sitl-typed-actions-px4-observation.md`.
+- PXE-0063: typed Offboard stop now has `POST /api/v1/actions/offboard-stop`
+  with confirmation, dry-run, required idempotency, replay, action audit, and
+  dashboard Start/Stop/Cancel typed action adoption. Legacy stop remains as a
+  deprecated compatibility alias but now reports failure for cleanup
+  warnings/errors, emergency cleanup failures, or a still-active local
+  following state. Done in
+  `checkpoints/2026-06-11-phase-4-typed-offboard-stop-action.md`.
 - PXE-0036: backend/API typed MAVLink telemetry health now separates latest
   request result, last-success freshness, cached payload availability, consumer
   guidance, validation timeout state, disabled fail-closed freshness, and

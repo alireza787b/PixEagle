@@ -13,6 +13,7 @@ from pathlib import Path
 from classes.fastapi_api_v1_routes import API_V1_ROUTE_SPECS, register_api_v1_routes
 from classes.api_v1_paths import (
     API_V1_ACTION_OFFBOARD_START_PATH,
+    API_V1_ACTION_OFFBOARD_STOP_PATH,
     API_V1_ACTION_OPERATOR_ABORT_PATH,
     API_V1_ACTION_RESOURCE_PATH,
     API_V1_PROCESS_LOCAL_READ_ONLY_PATHS,
@@ -186,6 +187,7 @@ EXPECTED_ROUTES = {
     ("POST", "/api/tracker/switch"),
     ("POST", "/api/video/reconnect"),
     ("POST", "/api/v1/actions/offboard-start"),
+    ("POST", "/api/v1/actions/offboard-stop"),
     ("POST", "/api/v1/actions/operator-abort"),
     ("POST", "/api/v1/sitl/injections/commander-publish-failure"),
     ("POST", "/api/v1/sitl/injections/mavlink2rest-timeout"),
@@ -372,7 +374,7 @@ def test_current_route_inventory_counts_by_method():
     assert counts == {
         "DELETE": 2,
         "GET": 72,
-        "POST": 53,
+        "POST": 54,
         "PUT": 2,
         "WEBSOCKET": 2,
     }
@@ -509,6 +511,8 @@ def test_api_v1_action_store_implementation_is_not_defined_in_fastapi_handler():
     wrapper_targets = {
         "start_offboard_action": "dispatch_start_offboard_action",
         "_start_offboard_action_unlocked": "dispatch_start_offboard_action_unlocked",
+        "stop_offboard_action": "dispatch_stop_offboard_action",
+        "_stop_offboard_action_unlocked": "dispatch_stop_offboard_action_unlocked",
         "operator_abort_action": "dispatch_operator_abort_action",
         "_operator_abort_action_unlocked": "dispatch_operator_abort_action_unlocked",
         "get_action_resource": "dispatch_get_action_resource",
@@ -527,6 +531,8 @@ def test_api_v1_action_store_implementation_is_not_defined_in_fastapi_handler():
         "operator_abort_action_unlocked",
         "start_offboard_action",
         "start_offboard_action_unlocked",
+        "stop_offboard_action",
+        "stop_offboard_action_unlocked",
     } <= action_functions
     for wrapper_name, target_name in wrapper_targets.items():
         wrapper = handler_functions[wrapper_name]
@@ -565,7 +571,8 @@ def test_legacy_control_route_bodies_are_not_defined_in_fastapi_handler():
         "Error in cancel_activities",
         "Error in stop_offboard_mode",
         "Follower was already inactive",
-        "Offboard mode stopped successfully",
+        "Offboard mode stop completed",
+        "Offboard stop command returned with following still active",
         "PX4 interface not initialized",
         "Tracker output is not usable for following",
         "Pre-flight validation failed",
@@ -935,6 +942,7 @@ def test_api_v1_error_envelope_path_predicate_matches_current_route_families():
         | set(SITL_VALIDATION_INJECTION_PATHS)
         | {
             API_V1_ACTION_OFFBOARD_START_PATH,
+            API_V1_ACTION_OFFBOARD_STOP_PATH,
             API_V1_ACTION_OPERATOR_ABORT_PATH,
             API_V1_ACTION_RESOURCE_PATH,
         }
@@ -952,6 +960,12 @@ def test_api_v1_action_routes_have_typed_api_metadata():
     expectations = {
         "/api/v1/actions/offboard-start": (
             "start_offboard_action",
+            "APIActionResponse",
+            True,
+            "ACTION_ROUTE_RESPONSES",
+        ),
+        "/api/v1/actions/offboard-stop": (
+            "stop_offboard_action",
             "APIActionResponse",
             True,
             "ACTION_ROUTE_RESPONSES",
@@ -1123,6 +1137,7 @@ def test_legacy_control_routes_are_deprecated_compatibility_aliases():
     """Legacy dangerous command routes must be visibly deprecated."""
     expectations = {
         "/commands/start_offboard_mode": "legacy_start_offboard_mode",
+        "/commands/stop_offboard_mode": "legacy_stop_offboard_mode",
         "/commands/cancel_activities": "legacy_cancel_activities",
     }
     for path, operation_id in expectations.items():

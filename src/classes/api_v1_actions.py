@@ -16,6 +16,7 @@ from classes.api_v1_contracts import APIActionRequest
 from classes.api_v1_errors import build_api_v1_error_response
 from classes.api_v1_paths import (
     API_V1_ACTION_OFFBOARD_START_PATH,
+    API_V1_ACTION_OFFBOARD_STOP_PATH,
     API_V1_ACTION_OPERATOR_ABORT_PATH,
     API_V1_ACTION_RESOURCE_PREFIX,
 )
@@ -26,7 +27,7 @@ API_ACTION_CLAIM_BOUNDARY = (
     "separate evidence artifacts."
 )
 
-ActionType = Literal["offboard_start", "operator_abort"]
+ActionType = Literal["offboard_start", "offboard_stop", "operator_abort"]
 ActionStatus = Literal["validated", "success", "failure"]
 
 
@@ -185,7 +186,11 @@ def attach_legacy_action_audit(
             "canonical_route": (
                 API_V1_ACTION_OFFBOARD_START_PATH
                 if action_type == "offboard_start"
-                else API_V1_ACTION_OPERATOR_ABORT_PATH
+                else (
+                    API_V1_ACTION_OFFBOARD_STOP_PATH
+                    if action_type == "offboard_stop"
+                    else API_V1_ACTION_OPERATOR_ABORT_PATH
+                )
             ),
         },
     )
@@ -389,6 +394,130 @@ async def start_offboard_action_unlocked(
     return owner._store_action_record(record)
 
 
+async def stop_offboard_action(
+    owner: Any,
+    request: APIActionRequest,
+    response: Any,
+) -> Any:
+    """Execute the typed /api/v1 action resource for Offboard path shutdown."""
+    if not request.dry_run and request.confirm and not request.idempotency_key:
+        return owner._idempotency_key_required_response(
+            action_type="offboard_stop",
+            request=request,
+            path=API_V1_ACTION_OFFBOARD_STOP_PATH,
+        )
+    lock = (
+        None
+        if request.dry_run or not request.confirm
+        else owner._action_lock_for_key("offboard_stop", request.idempotency_key)
+    )
+    if lock is None:
+        return await stop_offboard_action_unlocked(owner, request, response)
+    async with lock:
+        return await stop_offboard_action_unlocked(owner, request, response)
+
+
+async def stop_offboard_action_unlocked(
+    owner: Any,
+    request: APIActionRequest,
+    response: Any,
+) -> Any:
+    replay = owner._lookup_idempotent_action(
+        "offboard_stop",
+        request.idempotency_key,
+    )
+    if replay:
+        response.status_code = status.HTTP_200_OK
+        return replay
+
+    app_controller = owner.app_controller
+    following_before = bool(getattr(app_controller, "following_active", False))
+
+    if request.dry_run:
+        response.status_code = status.HTTP_200_OK
+        record = owner._new_api_action_record(
+            action_type="offboard_stop",
+            request=request,
+            status_value="validated",
+            accepted=True,
+            executed=False,
+            following_active_before=following_before,
+            following_active_after=following_before,
+            result={
+                "would_call": "/commands/stop_offboard_mode",
+                "message": "Dry-run validated; no Offboard stop was executed.",
+                "metadata": dict(request.metadata or {}),
+            },
+        )
+        return owner._store_action_record(record)
+
+    if not request.confirm:
+        return owner._confirmation_required_response(
+            action_type="offboard_stop",
+            request=request,
+            path=API_V1_ACTION_OFFBOARD_STOP_PATH,
+        )
+
+    try:
+        legacy_result = await owner.stop_offboard_mode()
+    except Exception as exc:
+        following_after = bool(getattr(app_controller, "following_active", False))
+        response.status_code = status.HTTP_202_ACCEPTED
+        record = owner._new_api_action_record(
+            action_type="offboard_stop",
+            request=request,
+            status_value="failure",
+            accepted=True,
+            executed=True,
+            following_active_before=following_before,
+            following_active_after=following_after,
+            result={
+                "legacy_compatibility_route": "/commands/stop_offboard_mode",
+                "metadata": dict(request.metadata or {}),
+            },
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        return owner._store_action_record(record)
+
+    following_after = bool(getattr(app_controller, "following_active", False))
+    details = legacy_result.get("details", {})
+    errors = details.get("errors", []) if isinstance(details, dict) else []
+    status_value = (
+        "success"
+        if legacy_result.get("status") == "success" and not errors and not following_after
+        else "failure"
+    )
+    error = "; ".join(errors) if errors else legacy_result.get("error")
+    if status_value == "failure" and not error and following_after:
+        error = "Offboard stop action did not leave local following inactive."
+
+    response.status_code = status.HTTP_202_ACCEPTED
+    record = owner._new_api_action_record(
+        action_type="offboard_stop",
+        request=request,
+        status_value=status_value,
+        accepted=True,
+        executed=True,
+        following_active_before=following_before,
+        following_active_after=following_after,
+        result={
+            "legacy_compatibility_route": "/commands/stop_offboard_mode",
+            "legacy_result": legacy_result,
+            "metadata": dict(request.metadata or {}),
+        },
+        error=error,
+    )
+    logger = getattr(owner, "logger", None)
+    if logger is not None:
+        logger.info(
+            "Typed action %s completed with status=%s executed=%s",
+            record["action_id"],
+            record["status"],
+            record["executed"],
+        )
+    return owner._store_action_record(record)
+
+
 async def operator_abort_action(
     owner: Any,
     request: APIActionRequest,
@@ -541,4 +670,6 @@ __all__ = [
     "operator_abort_action_unlocked",
     "start_offboard_action",
     "start_offboard_action_unlocked",
+    "stop_offboard_action",
+    "stop_offboard_action_unlocked",
 ]

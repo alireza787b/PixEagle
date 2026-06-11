@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from classes.api_v1_paths import (
     API_V1_ACTION_OFFBOARD_START_PATH,
+    API_V1_ACTION_OFFBOARD_STOP_PATH,
     API_V1_ACTION_OPERATOR_ABORT_PATH,
     API_V1_ACTION_RESOURCE_PATH,
     API_V1_FOLLOWING_STATUS_PATH,
@@ -100,6 +101,16 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
         response_model="APIActionResponse",
         responses="ACTION_ROUTE_RESPONSES",
         operation_id="start_offboard_action",
+        tags=("actions",),
+        status_code="status.HTTP_202_ACCEPTED",
+    ),
+    ApiV1RouteSpec(
+        method="POST",
+        path=API_V1_ACTION_OFFBOARD_STOP_PATH,
+        handler="stop_offboard_action",
+        response_model="APIActionResponse",
+        responses="ACTION_ROUTE_RESPONSES",
+        operation_id="stop_offboard_action",
         tags=("actions",),
         status_code="status.HTTP_202_ACCEPTED",
     ),

@@ -31,7 +31,7 @@ idempotency replay, guarded action route execution, action resource lookup, and
 legacy action audit behavior for guarded action candidates. It also records
 `src/classes/api_legacy_control_routes.py`, which owns the legacy Offboard
 start/stop and operator-cancel compatibility route bodies. Guarded typed
-action candidates still delegate through the start/cancel compatibility bodies.
+action candidates still delegate through the start/stop/cancel compatibility bodies.
 It also records
 `src/classes/api_v1_read_routes.py`, which owns typed read-route error
 boundaries for reviewed process-local status/telemetry candidates. It also

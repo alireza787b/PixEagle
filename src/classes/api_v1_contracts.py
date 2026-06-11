@@ -72,7 +72,7 @@ class APIActionResponse(BaseModel):
     """Tracked action resource for typed /api/v1 control mutations."""
 
     action_id: str
-    action_type: Literal["offboard_start", "operator_abort"]
+    action_type: Literal["offboard_start", "offboard_stop", "operator_abort"]
     status: Literal["validated", "success", "failure"]
     accepted: bool
     executed: bool

@@ -617,10 +617,10 @@ The checked-in plan covers:
 - OffboardCommander publish-failure policy
 
 The current harness validates the scenario plan, captures runtime probes, and
-can execute checked-in scenario actions. Offboard-start and operator-abort
-control actions use typed `/api/v1/actions/*` resources with confirmation,
-idempotency, local action records, and explicit claim boundaries; legacy
-`/commands/*` routes remain compatibility aliases only. Target-loss,
+can execute checked-in scenario actions. Offboard-start, Offboard-stop, and
+operator-abort control actions use typed `/api/v1/actions/*` resources with
+confirmation, idempotency, local action records, and explicit claim boundaries;
+legacy `/commands/*` routes remain compatibility aliases only. Target-loss,
 video-stall, commander publish-failure injection, MAVSDK local command-path
 disconnect, and MAVLink2REST local timeout injection are automated through
 PixEagle's validation-only `/api/v1/sitl/injections/*` routes. The checked-in

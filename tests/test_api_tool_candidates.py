@@ -164,6 +164,7 @@ def test_action_and_sitl_routes_are_blocked_from_read_only_promotion():
     candidates = _candidate_by_path_method(inventory)
     blocked_routes = {
         ("POST", "/api/v1/actions/offboard-start"): "guarded_control_action",
+        ("POST", "/api/v1/actions/offboard-stop"): "guarded_control_action",
         ("POST", "/api/v1/actions/operator-abort"): "guarded_control_action",
         ("GET", "/api/v1/actions/{action_id}"): "control_audit_observe",
         ("POST", "/api/v1/sitl/injections/tracker-output"): "validation_stimulus",
@@ -194,6 +195,7 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
     expected_routes = {
         ("GET", "/api/v1/actions/{action_id}"),
         ("POST", "/api/v1/actions/offboard-start"),
+        ("POST", "/api/v1/actions/offboard-stop"),
         ("POST", "/api/v1/actions/operator-abort"),
         ("GET", "/api/v1/following/status"),
         ("GET", "/api/v1/following/telemetry"),
@@ -212,10 +214,10 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         for candidate in inventory["candidates"]
     }
 
-    assert inventory["summary"]["api_v1_routes"] == 14
-    assert inventory["summary"]["candidate_count"] == 14
-    assert len(inventory["candidates"]) == 14
-    assert inventory["summary"]["blocked_or_guarded_candidates"] == 8
+    assert inventory["summary"]["api_v1_routes"] == 15
+    assert inventory["summary"]["candidate_count"] == 15
+    assert len(inventory["candidates"]) == 15
+    assert inventory["summary"]["blocked_or_guarded_candidates"] == 9
     assert candidate_routes == expected_routes
     assert all(path.startswith("/api/v1/") for _method, path in candidate_routes)
     assert inventory["promotion_path"][-1] == "MCP tools/list and tools/call exposure"

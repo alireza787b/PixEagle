@@ -105,34 +105,55 @@ const DashboardPage = () => {
     setIsTracking(!isTracking);
   };
 
-  const handleButtonClick = async (endpoint, updateTrackingState = false) => {
+  const handleButtonClick = async (endpoint, updateTrackingState = false, requestBody = null) => {
     try {
-      const response = await fetch(endpoint, {
+      const requestOptions = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
-      });
-      const data = await response.json();
+      };
+      if (requestBody) {
+        requestOptions.body = JSON.stringify(requestBody);
+      }
 
-      if (endpoint === endpoints.startOffboardMode && data.details?.auto_stopped) {
+      const response = await fetch(endpoint, requestOptions);
+      const data = await response.json();
+      const legacyDetails = data.details || data.result?.legacy_result?.details || {};
+      const isStartEndpoint = (
+        endpoint === endpoints.startOffboardMode || endpoint === endpoints.offboardStartAction
+      );
+      const isStopEndpoint = (
+        endpoint === endpoints.stopOffboardMode || endpoint === endpoints.offboardStopAction
+      );
+      const isAbortEndpoint = (
+        endpoint === endpoints.cancelActivities || endpoint === endpoints.operatorAbortAction
+      );
+
+      if (isStartEndpoint && legacyDetails.auto_stopped) {
         setSnackbarMessage('Follower was active - automatically restarted');
         setSnackbarSeverity('info');
         setSnackbarOpen(true);
       }
 
-      if (endpoint === endpoints.startOffboardMode && data.status === 'success') {
-        if (!data.details?.auto_stopped) {
+      if (isStartEndpoint && data.status === 'success') {
+        if (!legacyDetails.auto_stopped) {
           setSnackbarMessage('Follower started successfully');
           setSnackbarSeverity('success');
           setSnackbarOpen(true);
         }
-      } else if (endpoint === endpoints.stopOffboardMode && data.status === 'success') {
+      } else if (isStopEndpoint && data.status === 'success') {
         setSnackbarMessage('Follower stopped successfully');
+        setSnackbarSeverity('success');
+        setSnackbarOpen(true);
+      } else if (isAbortEndpoint && data.status === 'success') {
+        setSnackbarMessage('Tracking activities cancelled');
         setSnackbarSeverity('success');
         setSnackbarOpen(true);
       }
 
-      if (data.status === 'failure') {
-        setSnackbarMessage(`Operation failed: ${data.error || 'Unknown error'}`);
+      if (!response.ok || data.status === 'failure') {
+        setSnackbarMessage(
+          `Operation failed: ${data.error || data.detail?.message || data.message || data.code || 'Unknown error'}`
+        );
         setSnackbarSeverity('error');
         setSnackbarOpen(true);
       }
