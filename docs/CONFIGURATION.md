@@ -110,10 +110,14 @@ REACT_APP_DEFAULT_BOUNDING_BOX_SIZE=0.1
 
 The dashboard automatically detects the API host from `window.location.hostname`. No manual configuration needed for:
 - Local development (localhost)
-- LAN access (192.168.x.x)
-- Remote access via IP
+- separately secured trusted/VPN access
 
 Use `REACT_APP_API_HOST_OVERRIDE` only for reverse proxy setups.
+
+The current PixEagle backend has no production authentication boundary. Do not
+use auto-detection as authorization and do not expose the API to untrusted LANs,
+shared field networks, or the public internet. Prefer local access, SSH
+tunneling, or a separately secured VPN/reverse proxy until PXE-0064 is closed.
 
 ## Configuration via API
 
@@ -121,6 +125,10 @@ The Settings page in the dashboard allows runtime configuration changes:
 - `/api/config/current` - Get current configuration
 - `/api/config/update` - Update configuration
 - `/api/system/restart` - Restart system
+
+These legacy routes are unauthenticated and are not approved remote automation
+surfaces. Keep them inside the trusted local/tunneled boundary. Typed guarded
+action and authentication migration remains tracked under PXE-0064.
 
 ## Next Steps
 

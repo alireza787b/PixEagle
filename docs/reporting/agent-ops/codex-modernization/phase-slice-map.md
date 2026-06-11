@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-06-10
+Last updated: 2026-06-11
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -86,6 +86,7 @@ it together with:
 | Phase 4 legacy control route boundary | done | PXE-0061 | `checkpoints/2026-06-10-phase-4-legacy-control-route-boundary.md`; legacy `/commands/start_offboard_mode` and `/commands/cancel_activities` compatibility route bodies moved to `src/classes/api_legacy_control_routes.py`; `FastAPIHandler` keeps one-call wrappers only; generated candidate provenance now hashes the legacy control helper because guarded typed action candidates still delegate through it; tests prevent dangerous compatibility-route execution bodies from drifting back into the handler |
 | Phase 4 legacy Offboard stop route boundary | done | PXE-0062 | `checkpoints/2026-06-10-phase-4-legacy-offboard-stop-boundary.md`; legacy `/commands/stop_offboard_mode` compatibility route body moved to `src/classes/api_legacy_control_routes.py`; `FastAPIHandler` keeps a one-call wrapper only; static tests prevent Offboard-stop emergency-cleanup/idempotency strings from drifting back into the handler and verify wrapper `self` delegation; focused tests cover inactive idempotency, active disconnect delegation, emergency cleanup after disconnect failure, cleanup-failure reporting, and unreadable final-state fallback |
 | Phase 4 typed Offboard stop action | done | PXE-0063 | `checkpoints/2026-06-11-phase-4-typed-offboard-stop-action.md`; typed `POST /api/v1/actions/offboard-stop` added with confirmation, dry-run, required idempotency for confirmed mutations, process-local action records, idempotent replay, per-key concurrency serialization, structured route metadata/errors, guarded non-callable candidate classification, dashboard Start/Stop/Cancel action migration, and local fail-closed semantics for cleanup warnings or still-active following; legacy `/commands/stop_offboard_mode` is deprecated, attaches `action_audit`, and now reports failure on cleanup warnings, emergency cleanup failures, or still-active local following |
+| Phase 4 companion runtime reconciliation | done | PXE-0022 | `checkpoints/2026-06-11-phase-4-companion-runtime-reconciliation.md`; exact current MDS/MavlinkAnywhere/Smart Wi-Fi Manager review, canonical companion ownership/auth/profile/secret/version/evidence/agent-boundary contract, active routing/SITL/API/architecture/exposure docs alignment, docs guardrails, and bounded read-only local probe done; follow-up runtime auth/exposure, SITL sidecar-evidence, and candidate-disposition work tracked as PXE-0064/PXE-0065/PXE-0066; no sidecar mutation or routing/PX4/SITL success claimed |
 
 ## Active Slice
 
@@ -152,8 +153,10 @@ container and collects metadata/params/ULog/bounded logs, but no accepted
 PixEagle/PX4 interaction pass is claimed until PixEagle, MAVLink2REST,
 MavlinkAnywhere routing, typed scenario execution, PX4 observation artifacts,
 and safety outcomes are all present. Continue with broader `/api/v1` migration
-and router extraction, companion-runtime reconciliation, and dashboard
-toolchain modernization (PXE-0008, PXE-0022, PXE-0021) while keeping full
+and router extraction, API authentication/exposure hardening, candidate
+disposition governance, SITL sidecar evidence hardening, plus dashboard
+toolchain modernization (PXE-0008, PXE-0064, PXE-0066, PXE-0065, PXE-0021)
+while keeping full
 runtime L2/L3/L4 validation operator-gated.
 
 Audit artifact:
@@ -387,7 +390,10 @@ Current host boundary:
 | --- | --- | --- | --- |
 | 3 | Official Gazebo visual SITL runtime proof | PXE-0040 | Execute the hardened official Gazebo profile on native Ubuntu GUI/GPU, a stronger headless runner, or a separately proven official-image startup workaround; capture video/tracker/follower/PX4 evidence and keep the manifest incomplete unless artifact and content checks pass. |
 | 3 | X-Plane/Windows SITL disposition | PXE-0020 | Rewrite as maintained evidence workflow or move to historical docs. |
-| 4 | API/MCP modernization | PXE-0008, PXE-0022 | Continue typed `/api/v1` migration beyond the current status/telemetry/action resources: route migration tests, router extraction, command/action durability, companion sidecar standards, curated agent registry/policy design, and FastAPI/OpenAPI client contract tests. |
+| 4 | API/MCP modernization | PXE-0008 | Continue typed `/api/v1` migration beyond the current status/telemetry/action resources: route migration tests, router extraction, command/action durability, curated agent registry/policy design, and FastAPI/OpenAPI client contract tests. Companion sidecar standards were closed under PXE-0022. |
+| 4 | API authentication and exposure boundary | PXE-0064 | Replace the current unauthenticated broad-bind posture with an explicit production trust/auth/authorization boundary; protect HTTP, WebSocket, video, and mutation paths; retire immediate legacy mutations; preserve local development ergonomics through explicit profiles. |
+| 4 | API/MCP candidate disposition governance | PXE-0066 | Give every generated candidate an explicit approved/blocked/deferred review disposition and rationale without making review completion imply runtime promotion or MCP exposure. |
+| 3/4 | SITL sidecar evidence hardening | PXE-0065 | Add compatible-sidecar capability/version policy, installed dashboard version evidence, structured preparation/compatibility classifications, and secret scanning/redaction before a SITL artifact set can pass. |
 | 4 | Dashboard API/client normalization | PXE-0008, PXE-0021 | Continue typed client consolidation beyond telemetry/tracker health, migrate remaining dashboard consumers away from legacy route shapes, and move from CRA to a supported frontend toolchain. |
 | 5 | Gimbal provider expansion | PXE-0023 | Add MAVLink Gimbal v2 or vendor-specific providers when selected hardware/protocol evidence is available. |
 | 5 | Runtime cleanup and docs parity | PXE-0041, remaining open/new issues | Remove redundant legacy code/docs/config after replacements are proven and publish a final no-legacy readiness report. |

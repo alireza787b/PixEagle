@@ -96,7 +96,10 @@ Choose **N** to preserve your GStreamer-enabled build.
 
 1. **Check if running**: `tmux attach -t pixeagle`
 2. **Check port**: `lsof -i :3040`
-3. **Firewall**: `sudo ufw allow 3040`
+3. **Local tunnel**: use `ssh -L 3040:127.0.0.1:3040 -L 5077:127.0.0.1:5077 <host>`
+4. **Trusted/VPN firewall exception**: use the restricted CIDR rules in
+   [Port Configuration](drone-interface/04-infrastructure/port-configuration.md);
+   do not open the current unauthenticated backend broadly.
 
 ### API Connection Failed
 
@@ -106,10 +109,11 @@ Choose **N** to preserve your GStreamer-enabled build.
 
 ### LAN Access Not Working
 
-Dashboard uses `window.location.hostname` for auto-detection. Ensure:
-- Both devices on same network
-- Firewall allows ports 3040, 5077
-- Use IP address, not localhost
+The dashboard can auto-detect the browser host, but the current backend has no
+production authentication boundary. Prefer local access or an SSH tunnel. For
+a separately secured trusted/VPN deployment, ensure both devices are on the
+approved network, use the restricted-CIDR firewall rules, and use the host IP
+rather than `localhost`.
 
 ## PX4/MAVLink Issues
 
@@ -249,23 +253,22 @@ sudo lsof -i :14540  # MAVSDK
 sudo lsof -i :14569  # MAVLink input
 ```
 
-### Open Required Ports (Ubuntu/Raspbian)
+### Open Ports For A Separately Secured Trusted/VPN Network
 
 ```bash
-# PixEagle core services
-sudo ufw allow 3040/tcp   # Dashboard
-sudo ufw allow 5077/tcp   # Backend API
-sudo ufw allow 5551/tcp   # WebSocket (video)
-sudo ufw allow 8088/tcp   # MAVLink2REST
+# Current PixEagle backend is unauthenticated. Do not open it broadly.
+sudo ufw allow from <trusted-cidr> to any port 3040 proto tcp
+sudo ufw allow from <trusted-cidr> to any port 5077 proto tcp
 
-# PX4/MAVLink (UDP)
-sudo ufw allow 14540/udp  # MAVSDK
-sudo ufw allow 14569/udp  # MAVLink2REST input
+# Optional field GCS access only
 sudo ufw allow 14550/udp  # QGC (optional)
 
 # Verify rules
 sudo ufw status
 ```
+
+Keep `5077`, `5551`, `8088`, `14540`, and `14569` local unless a separately
+secured deployment explicitly requires remote access.
 
 ### Port Reference
 

@@ -27,6 +27,8 @@ use the TCP server on `5760/tcp`.
 ```bash
 git clone https://github.com/alireza787b/mavlink-anywhere.git
 cd mavlink-anywhere
+git fetch --tags origin
+git checkout <validated-tag-or-commit>
 
 sudo ./install_mavlink_router.sh
 sudo ./configure_mavlink_router.sh
@@ -86,16 +88,51 @@ MavlinkAnywhere installs the dashboard bound to localhost:
 http://127.0.0.1:9070
 ```
 
-Expose it only on trusted networks, VPN, or through an SSH tunnel:
+Loopback access is the default and preferred operation mode. Expose the
+dashboard only on a trusted admin network or VPN, or use an SSH tunnel.
+Non-loopback exposure must also configure browser authentication and a machine
+API token:
 
 ```bash
 sudo ./configure_mavlink_router.sh --install-dashboard \
-  --dashboard-listen 0.0.0.0:9070
+  --dashboard-listen 0.0.0.0:9070 \
+  --dashboard-auth-user operator \
+  --dashboard-auth-password-file /root/mavlink-dashboard-password \
+  --dashboard-api-token-file /root/mavlink-api-token
 ```
 
 The dashboard can inspect router status, manage endpoints, preview and apply
 routing profiles, restore the last good dashboard-managed backup, stream logs,
 and control `mavlink-router.service`.
+
+Remote browser mutations use Basic Auth plus `X-Sidecar-CSRF`, which the
+bundled dashboard adds. Remote machine mutations use
+`MAVLINK_ANYWHERE_API_TOKEN` as a bearer token. Do not place credentials in
+PixEagle config, source control, docs, reports, MCP client files, shell history,
+or command-line arguments. Open-lab mode is an isolated disposable-lab
+exception, not an accepted field or shared-host configuration.
+
+## Profile Reconciliation
+
+MavlinkAnywhere profile automation is external to PixEagle. Use redacted
+summary/validation reads first, import only with `dry_run=true`, review the
+stored plan and warnings, then apply on the same running dashboard instance
+with its confirmation token and required risk acknowledgements. Dry-run plans
+are process-local and are lost when the dashboard restarts.
+
+Policy modes:
+
+| Mode | Behavior |
+| --- | --- |
+| `observe` | validate/report only; apply is rejected |
+| `local` | node-local policy remains authoritative; fleet apply is rejected |
+| `fleet-merge` | apply baseline endpoints while preserving local extras and hardware input |
+| `fleet-strict` | prune non-baseline outputs only after advanced confirmation; preserve hardware input |
+
+`fleet-merge` is the preferred rollout mode. PixEagle must not proxy these
+mutation APIs into a broad API or MCP tool. See the
+[Companion Runtime Contract](../../architecture/companion-runtime-contract.md)
+for auth, version, evidence, and ownership rules.
 
 ## QGroundControl
 
@@ -115,7 +152,7 @@ prefer explicit endpoints or TCP `5760`.
 ```bash
 cd ~/mavlink-anywhere
 git fetch --tags origin
-git pull --ff-only
+git checkout <validated-tag-or-commit>
 
 sudo ./configure_mavlink_router.sh --install-dashboard
 ```
@@ -127,8 +164,15 @@ If the dashboard is intentionally exposed, preserve the explicit bind:
 
 ```bash
 sudo ./configure_mavlink_router.sh --install-dashboard \
-  --dashboard-listen 0.0.0.0:9070
+  --dashboard-listen 0.0.0.0:9070 \
+  --dashboard-auth-user operator \
+  --dashboard-auth-password-file /root/mavlink-dashboard-password \
+  --dashboard-api-token-file /root/mavlink-api-token
 ```
+
+Record the exact reviewed tag/commit before updating and revalidate the
+endpoint/config/profile-summary probes after the update. Do not treat the
+newest upstream revision or `main` as a validated deployment automatically.
 
 ## Service Checks
 
@@ -156,6 +200,9 @@ sudo sed -n '1,220p' /etc/mavlink-router/main.conf
   battery failsafes before claiming a route is flight-ready.
 - Do not expose PixEagle backend, MAVLink2REST, or MavlinkAnywhere dashboard
   ports beyond trusted networks, VPN, or SSH tunnels.
+- A successful health/status probe is not routing evidence. Required endpoint,
+  config, and profile-summary probes must succeed before accepting a
+  PixEagle/PX4 integration run.
 
 ## Related Docs
 

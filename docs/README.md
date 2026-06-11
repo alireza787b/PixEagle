@@ -20,7 +20,7 @@ Welcome to the PixEagle documentation. This guide will help you find the informa
 | [Service Management](SERVICE_MANAGEMENT.md) | systemd + tmux production operations |
 | [Troubleshooting](TROUBLESHOOTING.md) | Common issues and solutions |
 | [Known Issues / TODO](KNOWN_ISSUES.md) | Verified open issues being tracked |
-| [Windows SITL Setup](WINDOWS_SITL_XPLANE.md) | X-Plane simulation on Windows |
+| [Windows/X-Plane SITL Disposition](WINDOWS_SITL_XPLANE.md) | Unmaintained path warning and requirements for any future maintained workflow |
 
 ---
 
@@ -31,6 +31,7 @@ Welcome to the PixEagle documentation. This guide will help you find the informa
 | [OSD Guide](OSD_GUIDE.md) | Aviation-grade OSD with presets and API control |
 | [OpenCV GStreamer](OPENCV_GSTREAMER.md) | Building OpenCV with GStreamer support |
 | [Gimbal Simulator](gimbal_simulator.md) | Testing gimbal functionality |
+| [Companion Runtime Contract](architecture/companion-runtime-contract.md) | Sidecar ownership, auth, profile, secret, version, and evidence boundaries |
 
 ---
 

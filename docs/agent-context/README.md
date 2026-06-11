@@ -81,3 +81,13 @@ Auto-generated discovery must never bypass registry, policy, docs, tests, and
 review. Control actions, SITL fault injections, config mutation, model upload,
 service control, and any future flight-adjacent action need explicit guard
 design before they can be considered callable.
+
+Review completeness does not require promotion. Each candidate must eventually
+receive an explicit approved, blocked, or deferred disposition, and a sensitive
+GET route may remain blocked indefinitely. Agent-specific bypass access to
+non-PixEagle drone-local HTTP, PX4, MAVSDK, MAVLink2REST, or companion-sidecar
+APIs is prohibited; future agents must use the same typed PixEagle API/state
+contracts as other consumers. Callable MCP runtime, public web search, assistant
+streaming UX, drone-log tools, and action-enabled agents remain deferred until
+the typed API migration, authentication boundary, and separate safety review
+are complete.

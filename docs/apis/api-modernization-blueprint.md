@@ -22,6 +22,12 @@ the `/api/v1` migration begins.
   candidates are review inventory only until a curated registry, policy
   classification, operator docs, tests/evals, and independent reviewer approval
   promote them into an MCP `tools/list` / `tools/call` surface.
+- PixEagle API/MCP does not proxy companion-sidecar mutation APIs. Routing,
+  connectivity, sidecar secrets, profile reconciliation, and fleet rollout
+  remain outside PixEagle's public contract.
+- Agent-specific bypass access to non-PixEagle drone-local HTTP, PX4, MAVSDK,
+  MAVLink2REST, or sidecar APIs is prohibited. Agents use the same reviewed
+  typed PixEagle API/state contracts as other consumers.
 
 ## Initial Canonical Families
 
@@ -112,3 +118,29 @@ Action routes, SITL injection routes, config mutation, service control, model
 upload, and future flight-adjacent mutations need separate guard design before
 they can become callable automation. A GET route can also stay blocked when it
 contains sensitive control-resource or audit data.
+
+Future runtime agent/MCP work follows the staged promotion contract:
+
+```text
+typed PixEagle route
+  -> generated non-callable candidate
+  -> curated registry and default-deny policy
+  -> typed arguments/results and operator docs
+  -> tests, evals, and independent review
+  -> authenticated runtime exposure
+```
+
+Dangerous actions additionally require proposal/dry-run, explicit confirmation,
+idempotency, audit records, cancellation/monitoring, and a final executor
+circuit breaker. Documentation/search resources must be allowlisted and exclude
+secrets, raw field logs, private network details, and unsafe generated
+artifacts. See the
+[Companion Runtime Contract](../architecture/companion-runtime-contract.md).
+
+Candidate review completion does not mean promotion. Every candidate must
+eventually have an explicit approved, blocked, or deferred disposition;
+sensitive GET routes may remain blocked. Future agent evidence/results and
+streaming activity events must use versioned typed contracts. Callable MCP,
+public web search, assistant streaming UX, and action-enabled agent work remain
+deferred until the typed API migration, authentication boundary, and separate
+safety review are complete.

@@ -7,6 +7,7 @@ This section covers the infrastructure required to connect PixEagle to PX4 autop
 | Document | Description |
 |----------|-------------|
 | [MavlinkAnywhere](mavlink-anywhere.md) | Recommended mavlink-router installer, configuration, dashboard, and update flow |
+| [Companion Runtime Contract](../../architecture/companion-runtime-contract.md) | Sidecar ownership, auth, profile, secret, version, and evidence policy |
 | [mavlink-router](mavlink-router.md) | Manual routing reference for advanced operators |
 | [SITL Setup](sitl-setup.md) | PX4 Software-In-The-Loop simulation |
 | [Hardware Connection](hardware-connection.md) | Physical drone connections |
@@ -96,6 +97,14 @@ This section covers the infrastructure required to connect PixEagle to PX4 autop
 
 **PixEagle usage**: Commands only (velocity, attitude rate)
 
+### Companion Ownership
+
+PixEagle does not own MavlinkAnywhere, MAVLink2REST, or connectivity-sidecar
+service lifecycle, secrets, profile reconciliation, or fleet rollout. Keep
+sidecar management APIs local-first and follow the
+[Companion Runtime Contract](../../architecture/companion-runtime-contract.md)
+before exposing or automating them.
+
 ## Connection Modes
 
 ### SITL (Development)
@@ -137,7 +146,7 @@ For long-range operations with telemetry radios.
 | Component | Version | Installation |
 |-----------|---------|--------------|
 | PX4 | v1.14+ | [PX4 Docs](https://docs.px4.io/) |
-| MavlinkAnywhere | Current | `install_mavlink_router.sh` + `configure_mavlink_router.sh` |
+| MavlinkAnywhere | Validated deployment pin | `install_mavlink_router.sh` + `configure_mavlink_router.sh`; record exact tag/commit |
 | MAVLink2REST | Current PixEagle binary | `make init` or `download-binaries` |
 | MAVSDK-Python | 1.4.0+ | `pip install mavsdk` |
 

@@ -227,6 +227,25 @@ PXE0014_STALE_MAVLINK_PATTERNS = [
     re.compile(r"exposing retry and\s+timeout .*tracked", re.IGNORECASE | re.DOTALL),
 ]
 
+COMPANION_RUNTIME_CONTRACT = (
+    PROJECT_ROOT / "docs" / "architecture" / "companion-runtime-contract.md"
+)
+MAVLINK_ANYWHERE_DOC = (
+    PROJECT_ROOT
+    / "docs"
+    / "drone-interface"
+    / "04-infrastructure"
+    / "mavlink-anywhere.md"
+)
+PIXEAGLE_EXPOSURE_DOCS = [
+    PROJECT_ROOT / "README.md",
+    PROJECT_ROOT / "docs" / "INSTALLATION.md",
+    PROJECT_ROOT / "docs" / "CONFIGURATION.md",
+    PROJECT_ROOT / "docs" / "TROUBLESHOOTING.md",
+    PROJECT_ROOT / "docs" / "WINDOWS_SITL_XPLANE.md",
+    PROJECT_ROOT / "docs" / "drone-interface" / "04-infrastructure" / "port-configuration.md",
+]
+
 
 def test_critical_infrastructure_docs_do_not_teach_stale_defaults():
     failures = []
@@ -332,6 +351,89 @@ def test_mavlink_docs_teach_typed_freshness_config():
         for pattern in PXE0014_STALE_MAVLINK_PATTERNS:
             if pattern.search(text):
                 failures.append(f"{path.relative_to(PROJECT_ROOT)} matches {pattern.pattern}")
+
+    assert not failures, "\n".join(failures)
+
+
+def test_companion_runtime_contract_keeps_sidecars_local_guarded_and_external():
+    text = COMPANION_RUNTIME_CONTRACT.read_text(encoding="utf-8")
+    required_terms = [
+        "127.0.0.1:9070",
+        "127.0.0.1:9080",
+        "MAVLINK_ANYWHERE_API_TOKEN",
+        "SMART_WIFI_MANAGER_API_TOKEN",
+        "X-Sidecar-CSRF",
+        "password_file",
+        "dry_run=true",
+        "process-local",
+        "acknowledged_risks",
+        "fleet-merge",
+        "fleet-strict",
+        "service runtime modes",
+        "Generated OpenAPI candidates are non-callable",
+        "MDS_MCP_ENABLED=false",
+        "Agent-specific bypass access",
+        "approved, blocked, or",
+        "does not silently clone, update, or install companion repositories",
+        "Read-only health or status success is not routing success",
+    ]
+
+    missing = [term for term in required_terms if term not in text]
+    assert not missing, "Companion runtime contract missing:\n" + "\n".join(missing)
+
+
+def test_mavlink_anywhere_doc_does_not_teach_unguarded_remote_management():
+    text = MAVLINK_ANYWHERE_DOC.read_text(encoding="utf-8")
+    required_terms = [
+        "--dashboard-auth-password-file",
+        "--dashboard-api-token-file",
+        "MAVLINK_ANYWHERE_API_TOKEN",
+        "X-Sidecar-CSRF",
+        "dry_run=true",
+        "confirmation token",
+        "process-local",
+        "validated-tag-or-commit",
+        "Open-lab mode",
+        "A successful health/status probe is not routing evidence",
+    ]
+
+    missing = [term for term in required_terms if term not in text]
+    failures = [f"missing {term}" for term in missing]
+    first_checkout = text.find("git checkout <validated-tag-or-commit>")
+    first_root_install = text.find("sudo ./install_mavlink_router.sh")
+    if first_checkout < 0 or first_root_install < 0 or first_checkout > first_root_install:
+        failures.append("initial root install is not preceded by validated revision checkout")
+
+    assert not failures, "MavlinkAnywhere guide problems:\n" + "\n".join(failures)
+
+
+def test_pixeagle_docs_do_not_teach_unqualified_unauthenticated_api_exposure():
+    failures = []
+    unsafe_patterns = [
+        re.compile(r"sudo ufw allow (?:5077|3040)(?:/tcp)?\b"),
+        re.compile(r"\|\s*5077\s*\|[^|]+\|\s*Yes\s*\|"),
+        re.compile(r"\*\*LAN\*\*:\s*http://<your-ip>:3040"),
+        re.compile(r"Remote access via IP"),
+        re.compile(r"Firewall allows ports 3040, 5077"),
+        re.compile(r"python ~/PixEagle/src/main\.py"),
+        re.compile(r"mavlink-routerd -e \d+\.\d+\.\d+\.\d+:14540"),
+    ]
+    combined = []
+    for path in PIXEAGLE_EXPOSURE_DOCS:
+        text = path.read_text(encoding="utf-8")
+        combined.append(text)
+        for pattern in unsafe_patterns:
+            if pattern.search(text):
+                failures.append(f"{path.relative_to(PROJECT_ROOT)} matches {pattern.pattern}")
+
+    all_text = "\n".join(combined)
+    for required in [
+        "no production authentication boundary",
+        "trusted-cidr",
+        "Do not expose",
+    ]:
+        if required not in all_text:
+            failures.append(f"active exposure docs missing {required}")
 
     assert not failures, "\n".join(failures)
 

@@ -20,6 +20,9 @@ plan is preserved at
   gimbal architecture.
 - Remove legacy routes, configs, docs, and duplicated code through tracked
   deprecation gates rather than leaving permanent compatibility clutter.
+- Keep companion services local-first and independently owned. PixEagle
+  consumes their validated outputs but does not own sidecar secrets, service
+  lifecycle, profile reconciliation, upgrades, or fleet rollout.
 
 ## Target Runtime Flow
 
@@ -31,6 +34,11 @@ FlightControlService -> OffboardCommander heartbeat -> MAVSDK/PX4
 MAVSDK/MAVLink2REST -> TelemetryService -> TelemetrySnapshot -> SafetySupervisor/UI/API/followers
 ExternalGimbalProvider -> GimbalTracker -> TargetState
 ```
+
+MavlinkAnywhere remains the recommended MAVLink routing sidecar; Smart Wi-Fi
+Manager is an optional external connectivity sidecar, not a PixEagle
+dependency. Their API/auth/profile and evidence boundaries are defined in the
+[Companion Runtime Contract](companion-runtime-contract.md).
 
 ## Target Validation Ladder
 

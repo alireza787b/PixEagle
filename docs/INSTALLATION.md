@@ -161,13 +161,16 @@ For manual build instructions, see [OpenCV GStreamer Guide](OPENCV_GSTREAMER.md)
 
 ### Required Ports
 
-Ensure these ports are accessible for full functionality:
+Keep application ports local by default. Open them only to an explicitly
+trusted/VPN CIDR when a separately secured remote operator deployment requires
+it; the current PixEagle backend does not provide a production authentication
+boundary.
 
 | Port | Service | Required |
 |------|---------|----------|
-| 3040 | Dashboard | Yes |
-| 5077 | Backend API | Yes |
-| 5551 | WebSocket (video) | Yes |
+| 3040 | Dashboard | Local/trusted operator only |
+| 5077 | Backend API | Local/trusted operator only |
+| 5551 | Legacy telemetry WebSocket | Local/optional |
 | 8088 | MAVLink2REST API | Local-only by default |
 | 14540 | MAVSDK | Local endpoint for PX4 integration |
 | 14569 | MAVLink2REST input | Local endpoint for PX4 integration |
@@ -177,17 +180,17 @@ Ensure these ports are accessible for full functionality:
 ### Firewall Configuration (Ubuntu/Raspbian)
 
 ```bash
-# Allow PixEagle ports
-sudo ufw allow 3040/tcp  # Dashboard
-sudo ufw allow 5077/tcp  # Backend API
-sudo ufw allow 5551/tcp  # WebSocket (video)
+# Optional separately secured trusted/VPN operator network
+sudo ufw allow from <trusted-cidr> to any port 3040 proto tcp
+sudo ufw allow from <trusted-cidr> to any port 5077 proto tcp
 
 # Optional field GCS access
 sudo ufw allow 14550/udp  # QGC
 ```
 
-Do not expose MAVLink2REST `8088`, local MAVLink endpoints `14540`/`14569`, or
-MavlinkAnywhere dashboard `9070` beyond trusted networks, VPN, or SSH tunnels.
+Do not expose PixEagle backend `5077`, MAVLink2REST `8088`, local MAVLink
+endpoints `14540`/`14569`, or MavlinkAnywhere dashboard `9070` beyond an
+explicitly secured trusted network, VPN, reverse proxy, or SSH tunnel.
 
 ## Verification
 

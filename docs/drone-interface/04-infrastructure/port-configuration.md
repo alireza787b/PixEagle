@@ -8,8 +8,8 @@ split are legacy/custom setups and should not be taught as the default path.
 
 | Port | Protocol | Owner | Default Exposure | Purpose |
 |------|----------|-------|------------------|---------|
-| 3040 | TCP/HTTP | PixEagle dashboard | LAN by launcher | React operator dashboard |
-| 5077 | TCP/HTTP/WS | PixEagle backend | LAN by launcher | FastAPI API, MJPEG stream, current backend WebSocket routes |
+| 3040 | TCP/HTTP | PixEagle dashboard | binds for LAN by launcher; trusted-only | React operator dashboard |
+| 5077 | TCP/HTTP/WS | PixEagle backend | `0.0.0.0` current default; unauthenticated/trusted-only | FastAPI API, MJPEG stream, current backend WebSocket routes |
 | 5551 | TCP/WS | PixEagle telemetry config | local/optional | Legacy telemetry WebSocket setting; not the primary dashboard video path |
 | 8088 | TCP/HTTP | MAVLink2REST | `127.0.0.1` by default | HTTP telemetry API consumed by PixEagle |
 | 14540 | UDP | MavlinkAnywhere/mavlink-router | `127.0.0.1` output | MAVSDK endpoint for PixEagle Offboard control |
@@ -42,7 +42,9 @@ Streaming:
 
 The current backend hosts REST routes, `/video_feed`, and backend WebSocket
 routes on this port. The API modernization program is tracking the migration
-from mixed legacy routes to typed `/api/v1/...` contracts.
+from mixed legacy routes to typed `/api/v1/...` contracts. It does not yet have
+a production authentication boundary; do not expose it to untrusted LANs,
+shared field networks, or the public internet.
 
 ### 5551 - Legacy Telemetry WebSocket Setting
 
@@ -111,8 +113,8 @@ PX4/SITL/UART
         -> 0.0.0.0:5760/tcp MAVLink TCP server
 
 MAVLink2REST 127.0.0.1:8088 -> PixEagle telemetry polling
-PixEagle backend 0.0.0.0:5077 -> dashboard/API/video
-PixEagle dashboard 0.0.0.0:3040 -> operator UI
+PixEagle backend 0.0.0.0:5077 -> dashboard/API/video (current unauthenticated trusted-only bind)
+PixEagle dashboard 0.0.0.0:3040 -> operator UI (trusted-only)
 ```
 
 ## Firewall Guidance
@@ -120,9 +122,9 @@ PixEagle dashboard 0.0.0.0:3040 -> operator UI
 Expose only what the deployment needs:
 
 ```bash
-# PixEagle UI/API on trusted LANs only
-sudo ufw allow 3040/tcp
-sudo ufw allow 5077/tcp
+# Optional separately secured trusted/VPN operator network
+sudo ufw allow from <trusted-cidr> to any port 3040 proto tcp
+sudo ufw allow from <trusted-cidr> to any port 5077 proto tcp
 
 # Optional GCS field access
 sudo ufw allow 14550/udp
@@ -131,9 +133,10 @@ sudo ufw allow 14550/udp
 sudo ufw allow 5760/tcp
 ```
 
-Keep MAVLink2REST `8088`, local service endpoints `14540`, `14569`, `12550`,
-and the MavlinkAnywhere dashboard `9070` local-only unless a trusted network,
-VPN, or SSH tunnel is explicitly part of the deployment.
+Keep PixEagle backend `5077`, MAVLink2REST `8088`, local service endpoints
+`14540`, `14569`, `12550`, and the MavlinkAnywhere dashboard `9070` local-only
+unless a separately secured trusted network, VPN, reverse proxy, or SSH tunnel
+is explicitly part of the deployment.
 
 ## Legacy Port Note
 

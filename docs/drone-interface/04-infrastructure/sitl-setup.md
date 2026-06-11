@@ -22,7 +22,7 @@ success.
 
 ## Source References
 
-Checked on 2026-06-03:
+Checked on 2026-06-11:
 
 - PX4 pre-built SITL package docs
   (`https://docs.px4.io/main/en/simulation/px4_sitl_prebuilt_packages`) list
@@ -45,8 +45,10 @@ Checked on 2026-06-03:
   benchmark for optional camera experiments. If used, pin the exact tag and
   digest in the run manifest and do not replace the official path without a
   separate acceptance decision.
-- MavlinkAnywhere `origin/main` latest checked tag: `v3.0.14`. Its dashboard API
-  exposes `/api/v1/status`, `/api/v1/diagnostics`, `/api/v1/endpoints`,
+- MavlinkAnywhere source `origin/main` was reviewed at
+  `7643d4d9bc75a78fdc6b0f68358c466310ee2c4d`
+  (`v3.0.14-2-g7643d4d`). Its current dashboard API exposes
+  `/api/v1/status`, `/api/v1/diagnostics`, `/api/v1/endpoints`,
   `/api/v1/config`, and `/api/v1/profiles/summary`.
 
 ## Ports
@@ -63,6 +65,14 @@ Checked on 2026-06-03:
 
 Keep MAVLink2REST and MavlinkAnywhere dashboard endpoints on loopback unless
 the validation host has an explicit VPN/firewall/auth plan.
+
+The harness performs read-only MavlinkAnywhere probes. HTTP health/status alone
+does not prove routing. Endpoint, config, and profile-summary probes must all
+succeed and satisfy the required-output checks. An older or unprepared local
+dashboard can be alive while those evidence gates correctly remain incomplete.
+Do not expose or mutate the sidecar merely to make a validation probe pass; use
+the [Companion Runtime Contract](../../architecture/companion-runtime-contract.md)
+and an operator-approved preparation step.
 
 ## Checked-In Harness
 

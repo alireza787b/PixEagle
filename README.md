@@ -127,7 +127,12 @@ scripts\stop.bat           # Stop all services
 ### Access Dashboard
 
 - **Local**: http://localhost:3040
-- **LAN**: http://<your-ip>:3040 (auto-detected)
+- **Trusted isolated LAN only**: http://<your-ip>:3040 (auto-detected)
+
+The current PixEagle backend has no production authentication boundary. Do not
+expose the dashboard/backend to untrusted LANs, the public internet, or shared
+field networks. Use local access, an SSH tunnel, or a separately secured
+VPN/reverse proxy until the tracked API-authentication slice is complete.
 
 ---
 
@@ -192,18 +197,22 @@ PixEagle requires MAVLink communication with PX4.
 
 | Port | Service | Required |
 |------|---------|----------|
-| 3040 | Dashboard | Yes |
-| 5077 | Backend API | Yes |
-| 5551 | WebSocket (video) | Yes |
+| 3040 | Dashboard | Local/trusted operator only |
+| 5077 | Backend API | Local/trusted operator only |
+| 5551 | Legacy telemetry WebSocket | Local/optional |
 | 8088 | MAVLink2REST API | Local-only by default |
 | 14540 | MAVSDK | For PX4 |
 
 ```bash
 # Ubuntu/Raspbian firewall, trusted LAN only
-sudo ufw allow 3040/tcp && sudo ufw allow 5077/tcp
+# Only when a separately secured trusted/VPN deployment requires LAN access:
+sudo ufw allow from <trusted-cidr> to any port 3040 proto tcp
+sudo ufw allow from <trusted-cidr> to any port 5077 proto tcp
 ```
 
-Keep MAVLink2REST `8088` and MAVLink local endpoints behind localhost, VPN, or SSH tunnels unless the deployment has an explicit network-security plan.
+Keep PixEagle backend `5077`, MAVLink2REST `8088`, and MAVLink local endpoints
+behind localhost, a secured VPN/reverse proxy, or SSH tunnels unless the
+deployment has an explicit network-security plan.
 
 > **Full Guide**: [Port Configuration](docs/drone-interface/04-infrastructure/port-configuration.md)
 
