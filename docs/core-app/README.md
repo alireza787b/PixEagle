@@ -123,6 +123,8 @@ curl http://127.0.0.1:5077/telemetry/tracker_data
 ```yaml
 # configs/config.yaml
 Streaming:
+  API_EXPOSURE_MODE: local_only
+  HTTP_STREAM_HOST: 127.0.0.1
   HTTP_STREAM_PORT: 5077
   STREAM_FPS: 30
   STREAM_QUALITY: 85

@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-06-11
+Last updated: 2026-06-12
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -87,6 +87,7 @@ it together with:
 | Phase 4 legacy Offboard stop route boundary | done | PXE-0062 | `checkpoints/2026-06-10-phase-4-legacy-offboard-stop-boundary.md`; legacy `/commands/stop_offboard_mode` compatibility route body moved to `src/classes/api_legacy_control_routes.py`; `FastAPIHandler` keeps a one-call wrapper only; static tests prevent Offboard-stop emergency-cleanup/idempotency strings from drifting back into the handler and verify wrapper `self` delegation; focused tests cover inactive idempotency, active disconnect delegation, emergency cleanup after disconnect failure, cleanup-failure reporting, and unreadable final-state fallback |
 | Phase 4 typed Offboard stop action | done | PXE-0063 | `checkpoints/2026-06-11-phase-4-typed-offboard-stop-action.md`; typed `POST /api/v1/actions/offboard-stop` added with confirmation, dry-run, required idempotency for confirmed mutations, process-local action records, idempotent replay, per-key concurrency serialization, structured route metadata/errors, guarded non-callable candidate classification, dashboard Start/Stop/Cancel action migration, and local fail-closed semantics for cleanup warnings or still-active following; legacy `/commands/stop_offboard_mode` is deprecated, attaches `action_audit`, and now reports failure on cleanup warnings, emergency cleanup failures, or still-active local following |
 | Phase 4 companion runtime reconciliation | done | PXE-0022 | `checkpoints/2026-06-11-phase-4-companion-runtime-reconciliation.md`; exact current MDS/MavlinkAnywhere/Smart Wi-Fi Manager review, canonical companion ownership/auth/profile/secret/version/evidence/agent-boundary contract, active routing/SITL/API/architecture/exposure docs alignment, docs guardrails, and bounded read-only local probe done; follow-up runtime auth/exposure, SITL sidecar-evidence, and candidate-disposition work tracked as PXE-0064/PXE-0065/PXE-0066; no sidecar mutation or routing/PX4/SITL success claimed |
+| Phase 4 API exposure containment foundation | done | PXE-0064 partial | `checkpoints/2026-06-12-phase-4-api-exposure-containment.md`; backend, dashboard, and MAVLink2REST defaults are local-only; `API_EXPOSURE_MODE` governs checked-in and legacy remote binds; wildcard CORS and contradictory local-only origins fail closed; Host/DNS-rebinding, browser Origin/Fetch-Metadata, and WebSocket Host/Origin checks run before route execution/accept; launchers/docs no longer advertise default LAN exposure; guardrail tests cover defaults and stale exposure guidance; production auth/CSRF/scopes/media auth/legacy mutation retirement remain open under PXE-0064 |
 
 ## Active Slice
 
@@ -144,7 +145,15 @@ unreadable-final-state stop behavior. PXE-0063 is done for the typed
 Offboard-stop action/deprecation path: `/api/v1/actions/offboard-stop` now has
 typed action semantics, dashboard Start Following, Stop Following, and Cancel
 Tracker use typed action endpoints, and legacy stop is deprecated with action
-audit plus fail-closed local warning/cleanup-error/active-state reporting. No runtime MCP endpoint, executor, `tools/list`, `tools/call`, or callable tool surface exists
+audit plus fail-closed local warning/cleanup-error/active-state reporting.
+PXE-0064 is in progress: the first containment foundation is done, so
+checked-in backend/dashboard/MAVLink2REST exposure is local-only, contradictory
+local-only bind/CORS configuration fails closed, Host/Origin/fetch-site and
+WebSocket Host/Origin checks guard the unauthenticated process boundary, and active
+docs no longer normalize direct LAN exposure. PXE-0064 remains open for
+authenticated operator/browser and machine clients, CSRF, role/scope
+authorization, authenticated media/WebSockets, security audit events,
+typed-action-only enforcement, and legacy mutation retirement. No runtime MCP endpoint, executor, `tools/list`, `tools/call`, or callable tool surface exists
 from these slices. These are still unit/contract evidence only; no runtime
 PX4/SITL pass is claimed. Official Gazebo runtime proof (PXE-0040) remains open
 for a native GUI/GPU host, a stronger headless runner, or a separately proven
@@ -192,6 +201,7 @@ Audit artifact:
 - `checkpoints/2026-06-10-phase-4-legacy-control-route-boundary.md`
 - `checkpoints/2026-06-10-phase-4-legacy-offboard-stop-boundary.md`
 - `checkpoints/2026-06-11-phase-4-typed-offboard-stop-action.md`
+- `checkpoints/2026-06-12-phase-4-api-exposure-containment.md`
 
 Recently completed Offboard commander follow-up issues:
 
@@ -275,6 +285,14 @@ Recently completed Offboard commander follow-up issues:
   warnings/errors, emergency cleanup failures, or a still-active local
   following state. Done in
   `checkpoints/2026-06-11-phase-4-typed-offboard-stop-action.md`.
+- PXE-0064 first containment foundation: backend/dashboard/MAVLink2REST
+  checked-in and managed-launcher defaults are local-only; broad exposure now
+  requires explicit `trusted_lan_legacy`; Host/Origin/fetch-site and WebSocket
+  Host/Origin checks guard the unauthenticated process boundary; docs and guardrails
+  no longer normalize default LAN exposure. PXE-0064 remains open for full
+  authentication, CSRF, scopes, authenticated media, audit events, typed-action
+  enforcement, and legacy mutation retirement. Done in
+  `checkpoints/2026-06-12-phase-4-api-exposure-containment.md`.
 - PXE-0036: backend/API typed MAVLink telemetry health now separates latest
   request result, last-success freshness, cached payload availability, consumer
   guidance, validation timeout state, disabled fail-closed freshness, and

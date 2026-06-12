@@ -315,11 +315,26 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["http://127.0.0.1:3040", "http://localhost:3040"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "Idempotency-Key",
+        "X-PixEagle-CSRF",
+        "X-Request-ID",
+    ],
 )
 ```
+
+Wildcard origins are prohibited. See the
+[API exposure boundary](../../apis/api-exposure-boundary.md).
+
+PixEagle also validates the WebSocket `Origin` against the same explicit
+allowlist before accepting video or WebRTC-signaling connections. Missing and
+unapproved origins are rejected.
 
 ### Frame Drops
 

@@ -127,12 +127,13 @@ scripts\stop.bat           # Stop all services
 ### Access Dashboard
 
 - **Local**: http://localhost:3040
-- **Trusted isolated LAN only**: http://<your-ip>:3040 (auto-detected)
+- **Remote operator access**: use an SSH tunnel; non-loopback reverse-proxy/VPN browser origins require temporary `trusted_lan_legacy` until authenticated remote mode exists
 
-The current PixEagle backend has no production authentication boundary. Do not
-expose the dashboard/backend to untrusted LANs, the public internet, or shared
-field networks. Use local access, an SSH tunnel, or a separately secured
-VPN/reverse proxy until the tracked API-authentication slice is complete.
+The backend is local-only by default and rejects contradictory local-only bind
+or CORS configuration. The temporary `trusted_lan_legacy` mode remains
+unauthenticated and is not production-approved. Do not expose the
+dashboard/backend to untrusted LANs, the public internet, or shared field
+networks. See the [API exposure boundary](docs/apis/api-exposure-boundary.md).
 
 ---
 
@@ -197,18 +198,16 @@ PixEagle requires MAVLink communication with PX4.
 
 | Port | Service | Required |
 |------|---------|----------|
-| 3040 | Dashboard | Local/trusted operator only |
-| 5077 | Backend API | Local/trusted operator only |
+| 3040 | Dashboard | Loopback by default |
+| 5077 | Backend API | Loopback by default |
 | 5551 | Legacy telemetry WebSocket | Local/optional |
 | 8088 | MAVLink2REST API | Local-only by default |
 | 14540 | MAVSDK | For PX4 |
 
-```bash
-# Ubuntu/Raspbian firewall, trusted LAN only
-# Only when a separately secured trusted/VPN deployment requires LAN access:
-sudo ufw allow from <trusted-cidr> to any port 3040 proto tcp
-sudo ufw allow from <trusted-cidr> to any port 5077 proto tcp
-```
+Do not open backend port `5077` directly. For remote operator access, keep the
+backend local and use an SSH tunnel. Non-loopback reverse-proxy/VPN browser
+origins require temporary `trusted_lan_legacy` until authenticated remote mode
+exists.
 
 Keep PixEagle backend `5077`, MAVLink2REST `8088`, and MAVLink local endpoints
 behind localhost, a secured VPN/reverse proxy, or SSH tunnels unless the

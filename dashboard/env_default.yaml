@@ -1,20 +1,21 @@
 # =============================================================================
 # PixEagle Dashboard Configuration
 # =============================================================================
-# Host is auto-detected from browser URL (works for localhost, LAN, remote)
-# Only set REACT_APP_API_HOST_OVERRIDE if you need to connect to a different host
+# The dashboard HTTP server binds to loopback by default.
+# Remote browser access requires a separately secured deployment and explicit
+# trusted_lan_legacy launcher configuration until authenticated mode exists.
 
 # API Configuration
 # -----------------
 # Dashboard HTTP server port (used by npm start and production serve)
 PORT: 3040
+HOST: 127.0.0.1
 
 # Port where backend API runs
 REACT_APP_API_PORT: 5077
 
-# Optional: Override auto-detected host (leave empty for auto-detection)
-# Use this for reverse proxy setups or when backend is on different host
-# Examples: api.example.com, 192.168.1.100
+# Optional: Override the API host only for a reviewed proxy/tunnel deployment.
+# Non-loopback browser origins also require matching backend CORS configuration.
 REACT_APP_API_HOST_OVERRIDE: ""
 
 # UI Configuration

@@ -161,15 +161,22 @@ For manual build instructions, see [OpenCV GStreamer Guide](OPENCV_GSTREAMER.md)
 
 ### Required Ports
 
-Keep application ports local by default. Open them only to an explicitly
-trusted/VPN CIDR when a separately secured remote operator deployment requires
-it; the current PixEagle backend does not provide a production authentication
-boundary.
+Keep application ports local by default. PixEagle's checked-in backend policy
+binds `127.0.0.1:5077` and fails startup when `local_only` configuration
+requests non-loopback exposure. The current backend does not provide a
+production authentication boundary. See the
+[API exposure boundary](apis/api-exposure-boundary.md) before configuring any
+remote operator path.
+
+If upgrading from an older local `configs/config.yaml`, a missing exposure mode
+with `HTTP_STREAM_HOST: 0.0.0.0` is coerced to loopback at runtime. Explicitly
+set `API_EXPOSURE_MODE: trusted_lan_legacy` only for temporary isolated-LAN
+compatibility.
 
 | Port | Service | Required |
 |------|---------|----------|
-| 3040 | Dashboard | Local/trusted operator only |
-| 5077 | Backend API | Local/trusted operator only |
+| 3040 | Dashboard | Loopback by default |
+| 5077 | Backend API | Loopback by default |
 | 5551 | Legacy telemetry WebSocket | Local/optional |
 | 8088 | MAVLink2REST API | Local-only by default |
 | 14540 | MAVSDK | Local endpoint for PX4 integration |
@@ -177,16 +184,20 @@ boundary.
 | 14550 | QGC | Optional |
 | 22 | SSH | For remote access |
 
-### Firewall Configuration (Ubuntu/Raspbian)
+### Separately Secured Remote Operator Path
 
 ```bash
-# Optional separately secured trusted/VPN operator network
+# Example only after a separately secured dashboard-only operator path is configured
 sudo ufw allow from <trusted-cidr> to any port 3040 proto tcp
-sudo ufw allow from <trusted-cidr> to any port 5077 proto tcp
 
 # Optional field GCS access
 sudo ufw allow 14550/udp  # QGC
 ```
+
+Do not open backend port `5077` directly. The temporary
+`trusted_lan_legacy` mode is unauthenticated and is not production-approved.
+Non-loopback reverse-proxy/VPN browser origins require that temporary mode until
+authenticated remote mode exists.
 
 Do not expose PixEagle backend `5077`, MAVLink2REST `8088`, local MAVLink
 endpoints `14540`/`14569`, or MavlinkAnywhere dashboard `9070` beyond an

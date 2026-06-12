@@ -101,6 +101,9 @@ MAVLINK2REST_PORT="${PIXEAGLE_DEFAULT_MAVLINK2REST_PORT:-8088}"
 BACKEND_PORT="${PIXEAGLE_DEFAULT_BACKEND_PORT:-5077}"
 DASHBOARD_PORT="${PIXEAGLE_DEFAULT_DASHBOARD_PORT:-3040}"
 WEBSOCKET_PORT="${PIXEAGLE_DEFAULT_WEBSOCKET_PORT:-5551}"
+BACKEND_HOST="127.0.0.1"
+API_EXPOSURE_MODE="local_only"
+DASHBOARD_HOST="${PIXEAGLE_DASHBOARD_HOST:-127.0.0.1}"
 
 # ============================================================================
 # Helper: Read port from config.yaml
@@ -130,11 +133,11 @@ except:
     fi
 }
 
-# ============================================================================
-# Helper: Get LAN IP address
-# ============================================================================
-get_lan_ip() {
-    hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost"
+is_loopback_host() {
+    case "$1" in
+        127.*|localhost|"::1"|"[::1]") return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 # Paths to component scripts
@@ -420,18 +423,26 @@ load_configuration() {
 
     # Read ports from config.yaml (with defaults)
     BACKEND_PORT=$(get_config_value "Streaming" "HTTP_STREAM_PORT" "$BACKEND_PORT")
+    BACKEND_HOST=$(get_config_value "Streaming" "HTTP_STREAM_HOST" "$BACKEND_HOST")
+    API_EXPOSURE_MODE=$(get_config_value "Streaming" "API_EXPOSURE_MODE" "$API_EXPOSURE_MODE")
+    if [[ "$API_EXPOSURE_MODE" == "local_only" ]] && ! is_loopback_host "$BACKEND_HOST"; then
+        log_warn "Legacy/non-loopback backend bind '$BACKEND_HOST' is displayed as 127.0.0.1 under local_only"
+        BACKEND_HOST="127.0.0.1"
+    fi
     if declare -f resolve_dashboard_port >/dev/null 2>&1; then
         DASHBOARD_PORT="$(resolve_dashboard_port "$PIXEAGLE_DIR/dashboard" 2>/dev/null || echo "$DASHBOARD_PORT")"
     fi
 
-    # Get LAN IP for network access
-    LAN_IP=$(get_lan_ip)
-
-    # Display configured ports with both localhost and LAN IP
+    # Display configured local-first service URLs.
     log_info "MAVLink2REST: http://localhost:${MAVLINK2REST_PORT} (local-only by default)"
-    log_info "Backend API:  http://${LAN_IP}:${BACKEND_PORT}"
-    log_info "Dashboard:    http://${LAN_IP}:${DASHBOARD_PORT}"
-    log_detail "              (also: http://localhost:${DASHBOARD_PORT})"
+    log_info "Backend API:  http://${BACKEND_HOST}:${BACKEND_PORT} (${API_EXPOSURE_MODE})"
+    log_info "Dashboard:    http://${DASHBOARD_HOST}:${DASHBOARD_PORT}"
+    if [[ "$DASHBOARD_PORT" != "3040" ]]; then
+        log_warn "Custom dashboard port requires matching Streaming.API_CORS_ALLOWED_ORIGINS entries"
+    fi
+    if [[ "$API_EXPOSURE_MODE" == "trusted_lan_legacy" ]]; then
+        log_warn "trusted_lan_legacy backend exposure is unauthenticated and not production-approved"
+    fi
 
     # Check component scripts exist
     if [[ "$RUN_MAIN_APP" == "true" ]] && [[ ! -f "$MAIN_APP_SCRIPT" ]]; then
@@ -655,21 +666,15 @@ launch_tmux_interface() {
 # Final Summary
 # ============================================================================
 show_final_summary() {
-    # Get LAN IP for network access URLs
-    local lan_ip
-    lan_ip=$(get_lan_ip)
-
     echo ""
     echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${NC}"
     echo -e "                          ${PARTY} ${BOLD}PixEagle Running!${NC} ${PARTY}"
     echo -e "${CYAN}════════════════════════════════════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "   ${BOLD}Service URLs (Network Access):${NC}"
-    echo -e "      Dashboard:     ${CYAN}http://${lan_ip}:${DASHBOARD_PORT}${NC}"
-    echo -e "      Backend API:   ${CYAN}http://${lan_ip}:${BACKEND_PORT}${NC}"
+    echo -e "   ${BOLD}Configured Service URLs:${NC}"
+    echo -e "      Dashboard:     ${CYAN}http://${DASHBOARD_HOST}:${DASHBOARD_PORT}${NC}"
+    echo -e "      Backend API:   ${CYAN}http://${BACKEND_HOST}:${BACKEND_PORT}${NC} ${DIM}(${API_EXPOSURE_MODE})${NC}"
     echo -e "      MAVLink2REST:  ${CYAN}http://localhost:${MAVLINK2REST_PORT}${NC} ${DIM}(local-only default)${NC}"
-    echo ""
-    echo -e "   ${DIM}Local Access: http://localhost:${DASHBOARD_PORT}${NC}"
     echo ""
     echo -e "   ${BOLD}Tmux Keyboard Shortcuts:${NC}"
     echo -e "      ${GREEN}Ctrl+B z${NC}       Toggle full-screen on current pane"

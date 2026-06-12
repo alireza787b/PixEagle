@@ -90,10 +90,13 @@ Safety:
 # Dashboard HTTP port (default: 3040)
 PORT=3040
 
+# Dashboard HTTP bind (default: loopback only)
+HOST=127.0.0.1
+
 # API port (default: 5077)
 REACT_APP_API_PORT=5077
 
-# Optional: Override auto-detected host (for reverse proxy)
+# Optional: Override API host for a reviewed proxy/tunnel deployment
 REACT_APP_API_HOST_OVERRIDE=
 
 # Polling rate in milliseconds
@@ -110,14 +113,23 @@ REACT_APP_DEFAULT_BOUNDING_BOX_SIZE=0.1
 
 The dashboard automatically detects the API host from `window.location.hostname`. No manual configuration needed for:
 - Local development (localhost)
-- separately secured trusted/VPN access
+- SSH-tunneled local access
 
-Use `REACT_APP_API_HOST_OVERRIDE` only for reverse proxy setups.
+Use `REACT_APP_API_HOST_OVERRIDE` only for reverse proxy setups. A non-loopback
+reverse-proxy browser origin is not permitted in `local_only`; it requires
+temporary `trusted_lan_legacy` until authenticated remote mode exists.
 
-The current PixEagle backend has no production authentication boundary. Do not
-use auto-detection as authorization and do not expose the API to untrusted LANs,
-shared field networks, or the public internet. Prefer local access, SSH
-tunneling, or a separately secured VPN/reverse proxy until PXE-0064 is closed.
+The checked-in backend policy is `local_only` on `127.0.0.1:5077` with an
+explicit loopback CORS allowlist. Startup fails when local-only configuration
+contains a non-loopback bind or browser origin. The temporary
+`trusted_lan_legacy` mode remains unauthenticated and is not
+production-approved. Do not use auto-detection or network reachability as
+authorization. See the [API exposure boundary](apis/api-exposure-boundary.md).
+
+Existing local configs from older releases that still set
+`HTTP_STREAM_HOST: 0.0.0.0` without `API_EXPOSURE_MODE` are coerced to loopback
+at runtime. Add `trusted_lan_legacy` explicitly only for temporary isolated-LAN
+compatibility.
 
 ## Configuration via API
 

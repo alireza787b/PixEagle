@@ -8,6 +8,11 @@ Complete reference for PixEagle's FastAPI-based REST API.
 http://127.0.0.1:5077
 ```
 
+The checked-in backend is local-only and uses an explicit loopback CORS
+allowlist. The temporary `trusted_lan_legacy` mode is unauthenticated and not
+production-approved. See the
+[API exposure boundary](../../apis/api-exposure-boundary.md).
+
 ## MCP Readiness Boundary
 
 Some typed `/api/v1` routes are documented as suitable for future API/MCP

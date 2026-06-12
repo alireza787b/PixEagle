@@ -115,8 +115,6 @@ monitor_tmux_session() {
 }
 
 log_startup_info() {
-    local ip
-    ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
     local hostname_local
     hostname_local="$(hostname 2>/dev/null).local"
     local dashboard_port="${PIXEAGLE_DEFAULT_DASHBOARD_PORT:-3040}"
@@ -130,11 +128,9 @@ log_startup_info() {
     log_message "INFO" "PixEagle Vision Tracking Service"
     log_message "INFO" "  Install:   $PROJECT_ROOT"
     log_message "INFO" "  Version:   $branch @ $commit"
-
-    if [ -n "$ip" ]; then
-        log_message "INFO" "  Dashboard: http://$ip:$dashboard_port"
-        log_message "INFO" "  API:       http://$ip:$api_port"
-    fi
+    log_message "INFO" "  Dashboard: http://127.0.0.1:$dashboard_port"
+    log_message "INFO" "  API:       http://127.0.0.1:$api_port"
+    log_message "INFO" "  Exposure:  local-only by default; use SSH/VPN/reverse proxy for remote access"
 
     # Detect if running behind a platform proxy (e.g., ARK-OS nginx)
     if [ -f "$PROJECT_ROOT/dashboard/.env.production.local" ]; then

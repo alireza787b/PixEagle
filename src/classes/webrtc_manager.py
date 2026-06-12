@@ -18,6 +18,7 @@ import fractions
 import time
 from typing import Dict
 
+from classes.api_exposure_policy import is_websocket_request_allowed
 from classes.parameters import Parameters
 
 logger = logging.getLogger(__name__)
@@ -83,14 +84,16 @@ class WebRTCManager:
     frame access. Enforces connection limits via WEBRTC_MAX_CONNECTIONS.
     """
 
-    def __init__(self, frame_publisher):
+    def __init__(self, frame_publisher, exposure_policy):
         """
         Initialize the WebRTCManager.
 
         Args:
             frame_publisher: A FramePublisher instance for thread-safe frame access.
+            exposure_policy: Validated HTTP/WebSocket exposure policy.
         """
         self.frame_publisher = frame_publisher
+        self.exposure_policy = exposure_policy
         self.peer_connections: Dict[str, RTCPeerConnection] = {}
         self.max_connections = getattr(Parameters, 'WEBRTC_MAX_CONNECTIONS', 3)
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -104,6 +107,13 @@ class WebRTCManager:
         on the first message (or taken from the client if provided) and reused
         for all subsequent messages on the same connection.
         """
+        if not is_websocket_request_allowed(
+            host=websocket.headers.get("host"),
+            origin=websocket.headers.get("origin"),
+            policy=self.exposure_policy,
+        ):
+            await websocket.close(code=1008, reason="WebSocket Host or Origin not allowed")
+            return
         await websocket.accept()
         peer_id = None
         registered = False  # Track whether we registered with FramePublisher

@@ -242,7 +242,9 @@ PIXEAGLE_EXPOSURE_DOCS = [
     PROJECT_ROOT / "docs" / "INSTALLATION.md",
     PROJECT_ROOT / "docs" / "CONFIGURATION.md",
     PROJECT_ROOT / "docs" / "TROUBLESHOOTING.md",
+    PROJECT_ROOT / "docs" / "WINDOWS_SETUP.md",
     PROJECT_ROOT / "docs" / "WINDOWS_SITL_XPLANE.md",
+    PROJECT_ROOT / "docs" / "apis" / "api-exposure-boundary.md",
     PROJECT_ROOT / "docs" / "drone-interface" / "04-infrastructure" / "port-configuration.md",
 ]
 
@@ -415,6 +417,7 @@ def test_pixeagle_docs_do_not_teach_unqualified_unauthenticated_api_exposure():
         re.compile(r"\*\*LAN\*\*:\s*http://<your-ip>:3040"),
         re.compile(r"Remote access via IP"),
         re.compile(r"Firewall allows ports 3040, 5077"),
+        re.compile(r"sudo ufw allow from <trusted-cidr> to any port 5077"),
         re.compile(r"python ~/PixEagle/src/main\.py"),
         re.compile(r"mavlink-routerd -e \d+\.\d+\.\d+\.\d+:14540"),
     ]
@@ -428,8 +431,8 @@ def test_pixeagle_docs_do_not_teach_unqualified_unauthenticated_api_exposure():
 
     all_text = "\n".join(combined)
     for required in [
-        "no production authentication boundary",
-        "trusted-cidr",
+        "local-only",
+        "trusted_lan_legacy",
         "Do not expose",
     ]:
         if required not in all_text:

@@ -432,20 +432,44 @@ sections:
         description: === Server Settings ===
         reload_tier: system_restart
         reboot_required: true
+      API_EXPOSURE_MODE:
+        type: string
+        default: local_only
+        description: API exposure boundary; remote authenticated mode is not available yet
+        reload_tier: system_restart
+        reboot_required: true
+        options:
+        - value: local_only
+          label: Local only
+          description: Require an explicit loopback bind and loopback CORS origins
+        - value: trusted_lan_legacy
+          label: Trusted LAN (legacy)
+          description: Temporary unauthenticated compatibility mode for an isolated trusted network
       HTTP_STREAM_HOST:
         type: string
-        default: 0.0.0.0
-        description: 0.0.0.0 = all interfaces
+        default: 127.0.0.1
+        description: Backend bind host; local_only requires 127.0.0.1, ::1, or localhost
         reload_tier: system_restart
         reboot_required: true
       HTTP_STREAM_PORT:
         type: integer
         default: 5077
-        description: Web dashboard port
+        description: Backend API and streaming port
         reload_tier: system_restart
         reboot_required: true
         min: 0
         max: 1000000
+      API_CORS_ALLOWED_ORIGINS:
+        type: array
+        default:
+        - http://127.0.0.1:3040
+        - http://localhost:3040
+        - http://127.0.0.1:5077
+        - http://localhost:5077
+        description: Explicit browser origins allowed to call the backend; wildcard origins are prohibited
+        reload_tier: system_restart
+        reboot_required: true
+        item_type: string
       STREAM_WIDTH:
         type: integer
         default: 640

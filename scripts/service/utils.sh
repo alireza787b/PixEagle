@@ -562,12 +562,6 @@ if [ -n "$repo_dir" ] && [ -d "$repo_dir/.git" ] && command -v git >/dev/null 2>
     origin_url="$(git -C "$repo_dir" remote get-url origin 2>/dev/null || echo "unknown")"
 fi
 
-ipv4_list="$(hostname -I 2>/dev/null | tr ' ' '\n' | sed '/^$/d' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | sort -u | tr '\n' ' ')"
-if [ -z "$ipv4_list" ] && command -v ip >/dev/null 2>&1; then
-    ipv4_list="$(ip -o -4 addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | sort -u | tr '\n' ' ')"
-fi
-[ -n "$ipv4_list" ] || ipv4_list="127.0.0.1"
-
 host_name="$(hostname 2>/dev/null || echo "unknown")"
 
 printf '\n'
@@ -581,10 +575,10 @@ printf '%s\n' " ${C_DIM}[Version] branch=${branch_name} commit=${commit_id} date
 printf '%s\n' " ${C_DIM}[Version] origin=${origin_url}${C_NC}"
 
 printf '%s\n' " [PixEagle] Access URLs:"
-for ip in $ipv4_list; do
-    printf '   - %-15s dashboard: http://%s:%s\n' "$ip" "$ip" "$dashboard_port"
-    printf '                    backend:   http://%s:%s/docs\n' "$ip" "$backend_port"
-done
+printf '   - local dashboard: http://127.0.0.1:%s\n' "$dashboard_port"
+printf '   - local backend:   http://127.0.0.1:%s\n' "$backend_port"
+printf '   - SSH tunnel:      ssh -L %s:127.0.0.1:%s -L %s:127.0.0.1:%s <host>\n' "$dashboard_port" "$dashboard_port" "$backend_port" "$backend_port"
+printf '%s\n' " [PixEagle] Exposure: backend/dashboard are local-only by default; do not expose backend 5077 directly."
 
 printf '%s\n' " [PixEagle] Commands: pixeagle-service status | pixeagle-service attach | pixeagle-service logs -f"
 printf '%s\n\n' " [PixEagle] Boot: sudo pixeagle-service enable | sudo pixeagle-service disable"

@@ -97,7 +97,7 @@ Choose **N** to preserve your GStreamer-enabled build.
 1. **Check if running**: `tmux attach -t pixeagle`
 2. **Check port**: `lsof -i :3040`
 3. **Local tunnel**: use `ssh -L 3040:127.0.0.1:3040 -L 5077:127.0.0.1:5077 <host>`
-4. **Trusted/VPN firewall exception**: use the restricted CIDR rules in
+4. **Dashboard-only trusted/VPN firewall exception**: use the restricted CIDR rules in
    [Port Configuration](drone-interface/04-infrastructure/port-configuration.md);
    do not open the current unauthenticated backend broadly.
 
@@ -111,9 +111,9 @@ Choose **N** to preserve your GStreamer-enabled build.
 
 The dashboard can auto-detect the browser host, but the current backend has no
 production authentication boundary. Prefer local access or an SSH tunnel. For
-a separately secured trusted/VPN deployment, ensure both devices are on the
-approved network, use the restricted-CIDR firewall rules, and use the host IP
-rather than `localhost`.
+a separately secured trusted/VPN deployment, non-loopback browser origins
+require temporary `trusted_lan_legacy` until authenticated remote mode exists.
+Keep backend port `5077` closed to untrusted networks.
 
 ## PX4/MAVLink Issues
 
@@ -253,12 +253,11 @@ sudo lsof -i :14540  # MAVSDK
 sudo lsof -i :14569  # MAVLink input
 ```
 
-### Open Ports For A Separately Secured Trusted/VPN Network
+### Separately Secured Trusted/VPN Access
 
 ```bash
-# Current PixEagle backend is unauthenticated. Do not open it broadly.
+# Expose the dashboard only after a separately secured operator path exists.
 sudo ufw allow from <trusted-cidr> to any port 3040 proto tcp
-sudo ufw allow from <trusted-cidr> to any port 5077 proto tcp
 
 # Optional field GCS access only
 sudo ufw allow 14550/udp  # QGC (optional)
@@ -267,8 +266,8 @@ sudo ufw allow 14550/udp  # QGC (optional)
 sudo ufw status
 ```
 
-Keep `5077`, `5551`, `8088`, `14540`, and `14569` local unless a separately
-secured deployment explicitly requires remote access.
+Keep `5077`, `5551`, `8088`, `14540`, and `14569` local. Use a separately
+secured deployment only when remote access is explicitly required.
 
 ### Port Reference
 

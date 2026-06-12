@@ -18,7 +18,10 @@ bash scripts/components/mavlink2rest.sh \
   "127.0.0.1:8088"
 ```
 
-Expose `8088` only on trusted networks, VPN, or SSH tunnels.
+The maintained launchers reject non-loopback HTTP binds unless
+`PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE=trusted_lan_legacy` is set explicitly.
+That mode is unauthenticated and not production-approved; prefer keeping
+`8088` local and tunneling when needed.
 
 ## Configuration
 

@@ -27,6 +27,11 @@ from classes.follower import FollowerFactory
 from classes.api_v1_errors import (
     build_api_v1_error_response,
 )
+from classes.api_exposure_policy import (
+    is_http_browser_request_allowed,
+    is_websocket_request_allowed,
+    resolve_api_exposure_policy_from_parameters,
+)
 from classes.api_v1_actions import (
     ApiActionStore,
     attach_legacy_action_audit,
@@ -368,11 +373,14 @@ class FastAPIHandler:
         # Unified adaptive quality engine (EWMA bandwidth + CPU + encoding time)
         self.quality_engine = AdaptiveQualityEngine()
 
+        # Fail-closed process exposure policy shared by HTTP and WebSockets
+        self.exposure_policy = resolve_api_exposure_policy_from_parameters(Parameters)
+
         # Rate limiter for config write endpoints (10 requests per minute)
         self.config_rate_limiter = RateLimiter(max_requests=60, window_seconds=60)  # 1/sec average for private system
 
         # WebRTC Manager (uses FramePublisher instead of direct video_handler access)
-        self.webrtc_manager = WebRTCManager(self.frame_publisher)
+        self.webrtc_manager = WebRTCManager(self.frame_publisher, self.exposure_policy)
 
         # Detection Model Manager
         self.model_manager = ModelManager()
@@ -425,15 +433,48 @@ class FastAPIHandler:
         self.last_ws_send_time = 0.0
     
     def _setup_middleware(self):
-        """Configure middleware with security best practices."""
+        """Configure explicit CORS policy for the selected exposure mode."""
         self.app.add_middleware(
             CORSMiddleware,
-            allow_origins=["*"],  # Configure for production
-            allow_credentials=True,
+            allow_origins=list(self.exposure_policy.cors_allowed_origins),
+            allow_credentials=self.exposure_policy.allow_credentials,
             allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            allow_headers=["*"],
+            allow_headers=[
+                "Accept",
+                "Authorization",
+                "Cache-Control",
+                "Content-Type",
+                "Expires",
+                "Idempotency-Key",
+                "Pragma",
+                "X-PixEagle-CSRF",
+                "X-Request-ID",
+            ],
             max_age=3600
         )
+        # Register after CORS so Host/Origin enforcement wraps preflight too.
+        self.app.middleware("http")(self._enforce_http_browser_origin)
+
+    async def _enforce_http_browser_origin(self, request: Request, call_next):
+        """Reject cross-site browser requests before route execution."""
+        if not is_http_browser_request_allowed(
+            host=request.headers.get("host"),
+            origin=request.headers.get("origin"),
+            sec_fetch_site=request.headers.get("sec-fetch-site"),
+            policy=self.exposure_policy,
+        ):
+            return JSONResponse(
+                status_code=status.HTTP_403_FORBIDDEN,
+                content={"detail": "Browser Origin not allowed"},
+            )
+
+        response = await call_next(request)
+        response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+        response.headers["Cross-Origin-Resource-Policy"] = "same-site"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        return response
     
     def define_routes(self):
         """Define all API routes."""
@@ -708,6 +749,13 @@ class FastAPIHandler:
     
     async def video_feed_websocket_optimized(self, websocket: WebSocket):
         """Optimized WebSocket streaming with adaptive quality and queuing."""
+        if not is_websocket_request_allowed(
+            host=websocket.headers.get("host"),
+            origin=websocket.headers.get("origin"),
+            policy=self.exposure_policy,
+        ):
+            await websocket.close(code=1008, reason="WebSocket Host or Origin not allowed")
+            return
         await websocket.accept()
 
         client_id = f"ws_{id(websocket)}_{time.time()}"
@@ -1693,9 +1741,31 @@ class FastAPIHandler:
 
         self.logger.info("Started background tasks: heartbeat, stats reporter, CPU monitor")
 
-    async def start(self, host='0.0.0.0', port=None):
+    async def start(self, host=None, port=None):
         """Start the FastAPI server."""
+        host = host or Parameters.HTTP_STREAM_HOST
         port = port or Parameters.HTTP_STREAM_PORT
+        self.exposure_policy = resolve_api_exposure_policy_from_parameters(
+            Parameters,
+            bind_host=host,
+        )
+        host = self.exposure_policy.bind_host
+        Parameters.HTTP_STREAM_HOST = host
+        self.webrtc_manager.exposure_policy = self.exposure_policy
+        if self.exposure_policy.legacy_remote_bind_migrated:
+            self.logger.warning(
+                "Legacy API bind without API_EXPOSURE_MODE was coerced to %s. "
+                "Set Streaming.API_EXPOSURE_MODE=trusted_lan_legacy explicitly "
+                "only for temporary isolated-network compatibility.",
+                host,
+            )
+        if self.exposure_policy.is_legacy_remote_exposure:
+            self.logger.critical(
+                "Starting unauthenticated trusted_lan_legacy API exposure on %s:%s; "
+                "this compatibility mode is not approved for production or untrusted networks",
+                host,
+                port,
+            )
         
         # Start background tasks now that we have an event loop
         await self._start_background_tasks()

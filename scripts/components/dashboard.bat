@@ -27,6 +27,8 @@ set "DASHBOARD_DIR=%PIXEAGLE_DIR%\dashboard"
 set "CACHE_DIR=%DASHBOARD_DIR%\.pixeagle_cache"
 set "BUILD_DIR=%DASHBOARD_DIR%\build"
 set "DASHBOARD_PORT=%PIXEAGLE_PORT_DASHBOARD%"
+if not defined PIXEAGLE_DASHBOARD_HOST set "PIXEAGLE_DASHBOARD_HOST=127.0.0.1"
+if not defined PIXEAGLE_DASHBOARD_EXPOSURE_MODE set "PIXEAGLE_DASHBOARD_EXPOSURE_MODE=local_only"
 
 REM Parse arguments
 set "DEV_MODE=0"
@@ -63,6 +65,18 @@ echo.
 exit /b 0
 
 :args_done
+
+if /I not "%PIXEAGLE_DASHBOARD_EXPOSURE_MODE%"=="local_only" if /I not "%PIXEAGLE_DASHBOARD_EXPOSURE_MODE%"=="trusted_lan_legacy" (
+    echo [31m[ERROR] Invalid PIXEAGLE_DASHBOARD_EXPOSURE_MODE: %PIXEAGLE_DASHBOARD_EXPOSURE_MODE%[0m
+    exit /b 1
+)
+if /I not "%PIXEAGLE_DASHBOARD_HOST%"=="127.0.0.1" if /I not "%PIXEAGLE_DASHBOARD_HOST%"=="localhost" if /I not "%PIXEAGLE_DASHBOARD_EXPOSURE_MODE%"=="trusted_lan_legacy" (
+    echo [31m[ERROR] Non-loopback dashboard bind requires PIXEAGLE_DASHBOARD_EXPOSURE_MODE=trusted_lan_legacy[0m
+    exit /b 1
+)
+if /I "%PIXEAGLE_DASHBOARD_EXPOSURE_MODE%"=="trusted_lan_legacy" if /I not "%PIXEAGLE_DASHBOARD_HOST%"=="127.0.0.1" if /I not "%PIXEAGLE_DASHBOARD_HOST%"=="localhost" (
+    echo [33m[WARNING] trusted_lan_legacy dashboard exposure is unauthenticated and not production-approved.[0m
+)
 
 REM Normalize and validate port (handles accidental quotes/whitespace from callers)
 set "DASHBOARD_PORT=!DASHBOARD_PORT:"=!"
@@ -136,6 +150,7 @@ echo    [*] Starting dashboard in development mode...
 echo    [*] Hot-reload enabled - changes will auto-refresh
 echo.
 set "PORT=%DASHBOARD_PORT%"
+set "HOST=%PIXEAGLE_DASHBOARD_HOST%"
 call npm start
 goto :check_exit
 
@@ -208,12 +223,12 @@ where serve >nul 2>&1
 if errorlevel 1 goto :use_npx_serve
 
 REM Use global serve
-serve -s build -l %DASHBOARD_PORT%
+serve -s build -l tcp://%PIXEAGLE_DASHBOARD_HOST%:%DASHBOARD_PORT%
 goto :check_exit
 
 :use_npx_serve
 REM Use npx serve
-call npx serve -s build -l %DASHBOARD_PORT%
+call npx serve -s build -l tcp://%PIXEAGLE_DASHBOARD_HOST%:%DASHBOARD_PORT%
 goto :check_exit
 
 :check_exit

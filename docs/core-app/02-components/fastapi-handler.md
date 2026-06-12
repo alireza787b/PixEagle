@@ -524,24 +524,45 @@ async def smart_click(self, request: ClickPosition):
 
 ```python
 def _setup_middleware(self):
-    """Configure CORS middleware."""
+    """Configure explicit CORS policy for the selected exposure mode."""
     self.app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Configure for production
-        allow_credentials=True,
+        allow_origins=list(self.exposure_policy.cors_allowed_origins),
+        allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["*"],
+        allow_headers=[
+            "Accept",
+            "Authorization",
+            "Content-Type",
+            "Idempotency-Key",
+            "X-PixEagle-CSRF",
+            "X-Request-ID",
+        ],
         max_age=3600
     )
 ```
+
+Wildcard origins are prohibited. `local_only` requires an explicit loopback
+bind and loopback browser origins. See the
+[API exposure boundary](../../apis/api-exposure-boundary.md).
+
+The handler also rejects requests whose `Host` authority is not allowed by the
+selected exposure policy, then rejects modern-browser requests with a
+cross-site `Sec-Fetch-Site` value or an unapproved `Origin` before route
+execution. Origin approval is an explicit allowlist check, not a
+Host/request-origin shortcut. This contains DNS-rebinding and
+browser-to-localhost request attacks while the full authentication, CSRF, and
+authorization boundary remains under implementation.
 
 ## Server Lifecycle
 
 ### Start
 
 ```python
-async def start(self, host: str = "0.0.0.0", port: int = 8000):
+async def start(self, host: str | None = None, port: int | None = None):
     """Start the FastAPI server."""
+    host = host or Parameters.HTTP_STREAM_HOST
+    policy = resolve_api_exposure_policy_from_parameters(Parameters, bind_host=host)
     config = uvicorn.Config(
         self.app,
         host=host,

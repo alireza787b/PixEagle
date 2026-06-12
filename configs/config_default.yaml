@@ -200,8 +200,14 @@ Streaming:
   ENABLE_STREAMING: true
   
   # === Server Settings ===
-  HTTP_STREAM_HOST: 0.0.0.0      # 0.0.0.0 = all interfaces
-  HTTP_STREAM_PORT: 5077          # Web dashboard port
+  API_EXPOSURE_MODE: local_only   # Options: local_only, trusted_lan_legacy
+  HTTP_STREAM_HOST: 127.0.0.1     # local_only requires explicit loopback binding
+  HTTP_STREAM_PORT: 5077          # Backend API and streaming port
+  API_CORS_ALLOWED_ORIGINS:       # Explicit browser origins; wildcard origins are prohibited
+    - http://127.0.0.1:3040
+    - http://localhost:3040
+    - http://127.0.0.1:5077
+    - http://localhost:5077
   
   # === Stream Quality Settings ===
   STREAM_WIDTH: 640               # Output resolution

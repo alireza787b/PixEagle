@@ -61,9 +61,23 @@ exit /b 1
 
 :found_binary
 REM Default connection settings (can be overridden by environment variables)
-REM Keep historical default for compatibility; bind conflicts are preflight-checked below
-if not defined MAVLINK_CONNECTION set "MAVLINK_CONNECTION=udpin:0.0.0.0:14550"
+REM Keep the MAVLink input and HTTP API process-local by default.
+if not defined MAVLINK_CONNECTION set "MAVLINK_CONNECTION=udpin:127.0.0.1:14569"
 if not defined MAVLINK2REST_PORT set "MAVLINK2REST_PORT=8088"
+if not defined MAVLINK2REST_HOST set "MAVLINK2REST_HOST=127.0.0.1"
+if not defined PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE set "PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE=local_only"
+
+if /I not "%PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE%"=="local_only" if /I not "%PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE%"=="trusted_lan_legacy" (
+    echo [31m[ERROR] Invalid PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE: %PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE%[0m
+    exit /b 1
+)
+if /I not "%MAVLINK2REST_HOST%"=="127.0.0.1" if /I not "%MAVLINK2REST_HOST%"=="localhost" if /I not "%MAVLINK2REST_HOST%"=="::1" if /I not "%PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE%"=="trusted_lan_legacy" (
+    echo [31m[ERROR] Non-loopback MAVLink2REST bind requires PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE=trusted_lan_legacy[0m
+    exit /b 1
+)
+if /I "%PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE%"=="trusted_lan_legacy" if /I not "%MAVLINK2REST_HOST%"=="127.0.0.1" if /I not "%MAVLINK2REST_HOST%"=="localhost" if /I not "%MAVLINK2REST_HOST%"=="::1" (
+    echo [33m[WARNING] trusted_lan_legacy MAVLink2REST HTTP exposure is unauthenticated and not production-approved.[0m
+)
 
 echo.
 echo [36m========================================================================[0m
@@ -78,7 +92,7 @@ if "%USING_LEGACY%"=="1" (
 
 echo    Binary:     %MAVLINK2REST_BIN%
 echo    Connection: %MAVLINK_CONNECTION%
-echo    REST Port:  %MAVLINK2REST_PORT%
+echo    REST Bind:  %MAVLINK2REST_HOST%:%MAVLINK2REST_PORT%
 echo.
 
 REM Change to project directory
@@ -145,7 +159,7 @@ REM Start MAVLink2REST
 echo    [*] Starting MAVLink2REST...
 echo.
 
-"%MAVLINK2REST_BIN%" --connect %MAVLINK_CONNECTION% --server 0.0.0.0:%MAVLINK2REST_PORT%
+"%MAVLINK2REST_BIN%" --connect %MAVLINK_CONNECTION% --server %MAVLINK2REST_HOST%:%MAVLINK2REST_PORT%
 
 REM Keep window open if there was an error
 if %errorlevel% neq 0 (

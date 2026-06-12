@@ -104,6 +104,24 @@ CATEGORIES = {
 # Manual schema overrides for parameters where comment parsing is ambiguous.
 # Applied AFTER auto-generation. Keys are "SectionName.PARAM_NAME".
 SCHEMA_OVERRIDES = {
+    'Streaming.API_EXPOSURE_MODE': {
+        'options': [
+            {'value': 'local_only', 'label': 'Local only',
+             'description': 'Require an explicit loopback bind and loopback CORS origins'},
+            {'value': 'trusted_lan_legacy', 'label': 'Trusted LAN (legacy)',
+             'description': 'Temporary unauthenticated compatibility mode for an isolated trusted network'},
+        ],
+        'description': 'API exposure boundary; remote authenticated mode is not available yet',
+    },
+    'Streaming.HTTP_STREAM_HOST': {
+        'description': 'Backend bind host; local_only requires 127.0.0.1, ::1, or localhost',
+    },
+    'Streaming.HTTP_STREAM_PORT': {
+        'description': 'Backend API and streaming port',
+    },
+    'Streaming.API_CORS_ALLOWED_ORIGINS': {
+        'description': 'Explicit browser origins allowed to call the backend; wildcard origins are prohibited',
+    },
     'VideoSource.FRAME_ROTATION_DEG': {
         'options': [
             {'value': 0, 'label': '0\u00b0'},

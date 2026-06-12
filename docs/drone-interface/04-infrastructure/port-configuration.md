@@ -8,8 +8,8 @@ split are legacy/custom setups and should not be taught as the default path.
 
 | Port | Protocol | Owner | Default Exposure | Purpose |
 |------|----------|-------|------------------|---------|
-| 3040 | TCP/HTTP | PixEagle dashboard | binds for LAN by launcher; trusted-only | React operator dashboard |
-| 5077 | TCP/HTTP/WS | PixEagle backend | `0.0.0.0` current default; unauthenticated/trusted-only | FastAPI API, MJPEG stream, current backend WebSocket routes |
+| 3040 | TCP/HTTP | PixEagle dashboard | `127.0.0.1` by launcher default | React operator dashboard |
+| 5077 | TCP/HTTP/WS | PixEagle backend | `127.0.0.1` current default; unauthenticated local-only | FastAPI API, MJPEG stream, current backend WebSocket routes |
 | 5551 | TCP/WS | PixEagle telemetry config | local/optional | Legacy telemetry WebSocket setting; not the primary dashboard video path |
 | 8088 | TCP/HTTP | MAVLink2REST | `127.0.0.1` by default | HTTP telemetry API consumed by PixEagle |
 | 14540 | UDP | MavlinkAnywhere/mavlink-router | `127.0.0.1` output | MAVSDK endpoint for PixEagle Offboard control |
@@ -27,6 +27,7 @@ split are legacy/custom setups and should not be taught as the default path.
 
 ```yaml
 PORT: 3040
+HOST: 127.0.0.1
 REACT_APP_API_PORT: 5077
 ```
 
@@ -36,15 +37,20 @@ REACT_APP_API_PORT: 5077
 
 ```yaml
 Streaming:
-  HTTP_STREAM_HOST: 0.0.0.0
+  API_EXPOSURE_MODE: local_only
+  HTTP_STREAM_HOST: 127.0.0.1
   HTTP_STREAM_PORT: 5077
+  API_CORS_ALLOWED_ORIGINS:
+    - http://127.0.0.1:3040
+    - http://localhost:3040
 ```
 
 The current backend hosts REST routes, `/video_feed`, and backend WebSocket
 routes on this port. The API modernization program is tracking the migration
-from mixed legacy routes to typed `/api/v1/...` contracts. It does not yet have
-a production authentication boundary; do not expose it to untrusted LANs,
-shared field networks, or the public internet.
+from mixed legacy routes to typed `/api/v1/...` contracts. The checked-in
+policy is local-only, and the temporary `trusted_lan_legacy` mode remains
+unauthenticated and not production-approved. See the
+[API exposure boundary](../../apis/api-exposure-boundary.md).
 
 ### 5551 - Legacy Telemetry WebSocket Setting
 
@@ -61,7 +67,9 @@ http://127.0.0.1:8088/v1/mavlink
 ```
 
 PixEagle's launcher binds this service to `127.0.0.1:8088` by default. Expose
-it on `0.0.0.0:8088` only on trusted networks or behind VPN/SSH tunneling.
+it on `0.0.0.0:8088` only with
+`PIXEAGLE_MAVLINK2REST_EXPOSURE_MODE=trusted_lan_legacy` on an isolated trusted
+network; this is unauthenticated and not production-approved.
 
 ## MAVLink Routing Ports
 
@@ -113,8 +121,8 @@ PX4/SITL/UART
         -> 0.0.0.0:5760/tcp MAVLink TCP server
 
 MAVLink2REST 127.0.0.1:8088 -> PixEagle telemetry polling
-PixEagle backend 0.0.0.0:5077 -> dashboard/API/video (current unauthenticated trusted-only bind)
-PixEagle dashboard 0.0.0.0:3040 -> operator UI (trusted-only)
+PixEagle backend 127.0.0.1:5077 -> dashboard/API/video (checked-in local-only bind)
+PixEagle dashboard 127.0.0.1:3040 -> operator UI (checked-in local-only bind)
 ```
 
 ## Firewall Guidance
@@ -124,7 +132,6 @@ Expose only what the deployment needs:
 ```bash
 # Optional separately secured trusted/VPN operator network
 sudo ufw allow from <trusted-cidr> to any port 3040 proto tcp
-sudo ufw allow from <trusted-cidr> to any port 5077 proto tcp
 
 # Optional GCS field access
 sudo ufw allow 14550/udp
@@ -134,9 +141,11 @@ sudo ufw allow 5760/tcp
 ```
 
 Keep PixEagle backend `5077`, MAVLink2REST `8088`, local service endpoints
-`14540`, `14569`, `12550`, and the MavlinkAnywhere dashboard `9070` local-only
-unless a separately secured trusted network, VPN, reverse proxy, or SSH tunnel
-is explicitly part of the deployment.
+`14540`, `14569`, `12550`, and the MavlinkAnywhere dashboard `9070` local-only.
+Remote operator access should terminate at a separately secured VPN/reverse
+proxy or SSH tunnel rather than directly exposing backend port `5077`.
+Non-loopback PixEagle browser origins require temporary `trusted_lan_legacy`
+until authenticated remote mode exists.
 
 ## Legacy Port Note
 

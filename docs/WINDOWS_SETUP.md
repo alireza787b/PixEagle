@@ -82,7 +82,14 @@ irm https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.ps1 | ie
 
 5. **Open the dashboard** in your browser:
    - Local: http://localhost:3040
-   - Network: http://YOUR_IP:3040
+
+The Windows dashboard, backend, and MAVLink2REST HTTP API bind loopback by
+default. Do not expose them directly to a LAN. Use an SSH tunnel or separately
+secured reverse proxy/VPN for remote operator access. Non-loopback browser
+origins require temporary `trusted_lan_legacy` until authenticated remote mode
+exists. The temporary
+`trusted_lan_legacy` dashboard/backend modes remain unauthenticated and are not
+production-approved.
 
 ---
 

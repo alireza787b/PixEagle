@@ -7,6 +7,10 @@ the `/api/v1` migration begins.
 
 ## Standards
 
+- The checked-in backend exposure posture is local-only. Non-loopback
+  unauthenticated compatibility exposure requires explicit
+  `trusted_lan_legacy` configuration and is not production-approved. See the
+  [API exposure boundary](api-exposure-boundary.md).
 - New public business routes use `/api/v1/...`.
 - Routes use nouns and subresources instead of ad hoc verb collections.
 - Multi-step mutations return a tracked command or action resource.
