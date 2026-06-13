@@ -99,7 +99,7 @@ Choose **N** to preserve your GStreamer-enabled build.
 3. **Local tunnel**: use `ssh -L 3040:127.0.0.1:3040 -L 5077:127.0.0.1:5077 <host>`
 4. **Dashboard-only trusted/VPN firewall exception**: use the restricted CIDR rules in
    [Port Configuration](drone-interface/04-infrastructure/port-configuration.md);
-   do not open the current unauthenticated backend broadly.
+   do not open the backend broadly.
 
 ### API Connection Failed
 
@@ -110,10 +110,10 @@ Choose **N** to preserve your GStreamer-enabled build.
 ### LAN Access Not Working
 
 The dashboard can auto-detect the browser host, but the current backend has no
-production authentication boundary. Prefer local access or an SSH tunnel. For
-a separately secured trusted/VPN deployment, non-loopback browser origins
-require temporary `trusted_lan_legacy` until authenticated remote mode exists.
-Keep backend port `5077` closed to untrusted networks.
+browser-session boundary. Prefer local access or an SSH tunnel. For a
+separately secured trusted/VPN deployment, non-loopback machine API clients
+need scoped bearer tokens, and browser operation remains deferred until the
+session/media-auth slice. Keep backend port `5077` closed to untrusted networks.
 
 ## PX4/MAVLink Issues
 

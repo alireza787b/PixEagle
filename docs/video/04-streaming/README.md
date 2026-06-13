@@ -28,7 +28,7 @@ PixEagle provides multiple video streaming methods for different use cases:
 │  │  BGR    │  │                                                   │
 │  └─────────┘  ├──▶ WebSocket ────▶ /ws/video_feed                │
 │               │                                                   │
-│               ├──▶ WebRTC ───────▶ /webrtc/offer                 │
+│               ├──▶ WebRTC ───────▶ /ws/webrtc_signaling          │
 │               │                                                   │
 │               └──▶ GStreamer ────▶ UDP:5600 (QGC)                │
 │                                                                   │
@@ -68,8 +68,8 @@ http://127.0.0.1:5077/video_feed
 # WebSocket (JavaScript)
 ws://127.0.0.1:5077/ws/video_feed
 
-# WebRTC (requires signaling)
-POST http://127.0.0.1:5077/webrtc/offer
+# WebRTC signaling WebSocket
+ws://127.0.0.1:5077/ws/webrtc_signaling
 ```
 
 ## Comparison

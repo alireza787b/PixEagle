@@ -12,6 +12,12 @@ WebSocket streaming provides lower latency than HTTP MJPEG and enables bidirecti
 WS /ws/video_feed
 ```
 
+PixEagle checks the configured Host/Origin exposure boundary and API
+authorization runtime before `accept()`. In the checked-in `local_compat` mode,
+unauthenticated browser WebSocket streaming is limited to a same-host loopback
+socket client. Non-loopback clients need scoped API credentials, and remote
+browser sessions are pending.
+
 ### Connection
 
 ```javascript
@@ -46,6 +52,7 @@ class ConnectionManager:
         self.active_connections: list[WebSocket] = []
 
     async def connect(self, websocket: WebSocket):
+        await require_video_websocket_allowed(websocket)
         await websocket.accept()
         self.active_connections.append(websocket)
 
@@ -60,6 +67,28 @@ class ConnectionManager:
                 self.disconnect(connection)
 
 manager = ConnectionManager()
+
+async def require_video_websocket_allowed(websocket: WebSocket):
+    if not is_websocket_request_allowed(
+        host=websocket.headers.get("host"),
+        origin=websocket.headers.get("origin"),
+        policy=api_exposure_policy,
+    ):
+        await websocket.close(code=1008, reason="WebSocket Host or Origin not allowed")
+        raise WebSocketDisconnect()
+
+    auth_result = authorize_websocket_request(
+        runtime=api_auth_runtime,
+        path="/ws/video_feed",
+        headers=websocket.headers,
+        client_host=getattr(websocket.client, "host", None),
+        host_header=websocket.headers.get("host"),
+        exposure_policy=api_exposure_policy,
+        query_string=getattr(websocket.url, "query", ""),
+    )
+    if not auth_result.allowed:
+        await websocket.close(code=1008, reason="WebSocket API request not authorized")
+        raise WebSocketDisconnect()
 
 @app.websocket("/ws/video_feed")
 async def websocket_video(websocket: WebSocket):
@@ -211,6 +240,7 @@ ws.send(JSON.stringify({
 ```python
 @app.websocket("/ws/video_feed")
 async def websocket_video(websocket: WebSocket):
+    await require_video_websocket_allowed(websocket)
     await websocket.accept()
 
     config = {'osd': False, 'quality': 80}

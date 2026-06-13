@@ -9,7 +9,7 @@ split are legacy/custom setups and should not be taught as the default path.
 | Port | Protocol | Owner | Default Exposure | Purpose |
 |------|----------|-------|------------------|---------|
 | 3040 | TCP/HTTP | PixEagle dashboard | `127.0.0.1` by launcher default | React operator dashboard |
-| 5077 | TCP/HTTP/WS | PixEagle backend | `127.0.0.1` current default; unauthenticated local-only | FastAPI API, MJPEG stream, current backend WebSocket routes |
+| 5077 | TCP/HTTP/WS | PixEagle backend | `127.0.0.1` current default; local-compat plus scoped bearer auth | FastAPI API, MJPEG stream, current backend WebSocket routes |
 | 5551 | TCP/WS | PixEagle telemetry config | local/optional | Legacy telemetry WebSocket setting; not the primary dashboard video path |
 | 8088 | TCP/HTTP | MAVLink2REST | `127.0.0.1` by default | HTTP telemetry API consumed by PixEagle |
 | 14540 | UDP | MavlinkAnywhere/mavlink-router | `127.0.0.1` output | MAVSDK endpoint for PixEagle Offboard control |
@@ -48,8 +48,9 @@ Streaming:
 The current backend hosts REST routes, `/video_feed`, and backend WebSocket
 routes on this port. The API modernization program is tracking the migration
 from mixed legacy routes to typed `/api/v1/...` contracts. The checked-in
-policy is local-only, and the temporary `trusted_lan_legacy` mode remains
-unauthenticated and not production-approved. See the
+policy is local-only with loopback local compatibility. Non-loopback backend
+API clients require scoped bearer tokens, and browser sessions are not
+implemented yet. See the
 [API exposure boundary](../../apis/api-exposure-boundary.md).
 
 ### 5551 - Legacy Telemetry WebSocket Setting
@@ -144,8 +145,8 @@ Keep PixEagle backend `5077`, MAVLink2REST `8088`, local service endpoints
 `14540`, `14569`, `12550`, and the MavlinkAnywhere dashboard `9070` local-only.
 Remote operator access should terminate at a separately secured VPN/reverse
 proxy or SSH tunnel rather than directly exposing backend port `5077`.
-Non-loopback PixEagle browser origins require temporary `trusted_lan_legacy`
-until authenticated remote mode exists.
+Non-loopback PixEagle browser operation remains deferred until browser sessions
+and authenticated media transports are complete.
 
 ## Legacy Port Note
 

@@ -7,9 +7,9 @@ the `/api/v1` migration begins.
 
 ## Standards
 
-- The checked-in backend exposure posture is local-only. Non-loopback
-  unauthenticated compatibility exposure requires explicit
-  `trusted_lan_legacy` configuration and is not production-approved. See the
+- The checked-in backend exposure posture is local-only. Non-loopback bind/CORS
+  exposure requires explicit `trusted_lan_legacy` configuration plus scoped API
+  authorization; browser-session remote operation remains deferred. See the
   [API exposure boundary](api-exposure-boundary.md).
 - Every HTTP, media, WebSocket, documentation, and validation route must have
   exactly one declarative security classification. Missing or ambiguous
@@ -97,10 +97,12 @@ Route inventory tests must:
   because that module owns validation-only SITL injection gates, payload
   construction, dry-run summaries, and AppController validation-hook dispatch
   for blocked validation-stimulus candidates
-- record `src/classes/api_security_types.py` and
+- record `src/classes/api_exposure_policy.py`,
+  `src/classes/api_auth_runtime.py`, `src/classes/api_security_types.py`, and
   `src/classes/api_security_policy.py` in generated candidate provenance
-  because they own principal/scope semantics and the default-deny route
-  classification reviewed before any future runtime API/MCP promotion
+  because they own exposure-boundary decisions, runtime auth decisions,
+  principal/scope semantics, and the default-deny route classification reviewed
+  before any future runtime API/MCP promotion
 - assert the frozen method/path inventory
 - assert there are no duplicate method/path pairs
 - explicitly track deprecated aliases until removal

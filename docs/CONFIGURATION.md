@@ -115,21 +115,40 @@ The dashboard automatically detects the API host from `window.location.hostname`
 - Local development (localhost)
 - SSH-tunneled local access
 
-Use `REACT_APP_API_HOST_OVERRIDE` only for reverse proxy setups. A non-loopback
-reverse-proxy browser origin is not permitted in `local_only`; it requires
-temporary `trusted_lan_legacy` until authenticated remote mode exists.
+Use `REACT_APP_API_HOST_OVERRIDE` only for reviewed proxy/tunnel setups. A
+non-loopback reverse-proxy browser origin is not permitted in `local_only`;
+`trusted_lan_legacy` only opens the backend bind/CORS boundary and does not
+complete browser-session support.
 
 The checked-in backend policy is `local_only` on `127.0.0.1:5077` with an
 explicit loopback CORS allowlist. Startup fails when local-only configuration
 contains a non-loopback bind or browser origin. The temporary
-`trusted_lan_legacy` mode remains unauthenticated and is not
-production-approved. Do not use auto-detection or network reachability as
+`trusted_lan_legacy` mode still requires scoped backend API authorization for
+non-loopback clients. Do not use auto-detection or network reachability as
 authorization. See the [API exposure boundary](apis/api-exposure-boundary.md).
 
 Existing local configs from older releases that still set
 `HTTP_STREAM_HOST: 0.0.0.0` without `API_EXPOSURE_MODE` are coerced to loopback
 at runtime. Add `trusted_lan_legacy` explicitly only for temporary isolated-LAN
 compatibility.
+
+Backend API authorization controls live under `Streaming`:
+
+```yaml
+Streaming:
+  API_AUTH_MODE: local_compat
+  API_BEARER_TOKEN_FILE: ""
+```
+
+`local_compat` is the checked-in same-host default. It allows loopback clients
+without credentials only when the immediate socket peer is loopback and no
+proxy-forwarded client identity headers are present. It does not trust HTTP
+`Host`, and it must not be exposed through a reverse proxy. Non-loopback API
+clients require scoped bearer tokens. `machine_bearer` requires bearer tokens
+for every API client and is currently for machine/API clients only; the
+browser dashboard and native media transports cannot authenticate in that mode
+until browser sessions land. The token file is external JSON with hashed token
+records; do not put plaintext tokens in `config.yaml`.
 
 ## Configuration via API
 
@@ -138,9 +157,10 @@ The Settings page in the dashboard allows runtime configuration changes:
 - `/api/config/update` - Update configuration
 - `/api/system/restart` - Restart system
 
-These legacy routes are unauthenticated and are not approved remote automation
-surfaces. Keep them inside the trusted local/tunneled boundary. Typed guarded
-action and authentication migration remains tracked under PXE-0064.
+These legacy routes remain compatibility surfaces and are not approved remote
+automation APIs. Keep them inside the trusted local/tunneled boundary or use
+scoped bearer tokens only where explicitly reviewed. Typed guarded-action and
+browser-session migration remains tracked under PXE-0064.
 
 ## Next Steps
 

@@ -130,7 +130,7 @@ log_startup_info() {
     log_message "INFO" "  Version:   $branch @ $commit"
     log_message "INFO" "  Dashboard: http://127.0.0.1:$dashboard_port"
     log_message "INFO" "  API:       http://127.0.0.1:$api_port"
-    log_message "INFO" "  Exposure:  local-only by default; use SSH/VPN/reverse proxy for remote access"
+    log_message "INFO" "  Exposure:  local-only by default; use SSH tunnels for browser access"
 
     # Detect if running behind a platform proxy (e.g., ARK-OS nginx)
     if [ -f "$PROJECT_ROOT/dashboard/.env.production.local" ]; then

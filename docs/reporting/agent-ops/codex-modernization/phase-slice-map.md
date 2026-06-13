@@ -88,6 +88,8 @@ it together with:
 | Phase 4 typed Offboard stop action | done | PXE-0063 | `checkpoints/2026-06-11-phase-4-typed-offboard-stop-action.md`; typed `POST /api/v1/actions/offboard-stop` added with confirmation, dry-run, required idempotency for confirmed mutations, process-local action records, idempotent replay, per-key concurrency serialization, structured route metadata/errors, guarded non-callable candidate classification, dashboard Start/Stop/Cancel action migration, and local fail-closed semantics for cleanup warnings or still-active following; legacy `/commands/stop_offboard_mode` is deprecated, attaches `action_audit`, and now reports failure on cleanup warnings, emergency cleanup failures, or still-active local following |
 | Phase 4 companion runtime reconciliation | done | PXE-0022 | `checkpoints/2026-06-11-phase-4-companion-runtime-reconciliation.md`; exact current MDS/MavlinkAnywhere/Smart Wi-Fi Manager review, canonical companion ownership/auth/profile/secret/version/evidence/agent-boundary contract, active routing/SITL/API/architecture/exposure docs alignment, docs guardrails, and bounded read-only local probe done; follow-up runtime auth/exposure, SITL sidecar-evidence, and candidate-disposition work tracked as PXE-0064/PXE-0065/PXE-0066; no sidecar mutation or routing/PX4/SITL success claimed |
 | Phase 4 API exposure containment foundation | done | PXE-0064 partial | `checkpoints/2026-06-12-phase-4-api-exposure-containment.md`; backend, dashboard, and MAVLink2REST defaults are local-only; `API_EXPOSURE_MODE` governs checked-in and legacy remote binds; wildcard CORS and contradictory local-only origins fail closed; Host/DNS-rebinding, browser Origin/Fetch-Metadata, and WebSocket Host/Origin checks run before route execution/accept; launchers/docs no longer advertise default LAN exposure; guardrail tests cover defaults and stale exposure guidance; production auth/CSRF/scopes/media auth/legacy mutation retirement remain open under PXE-0064 |
+| Phase 4 API security policy foundation | done | PXE-0064 partial | `checkpoints/2026-06-13-phase-4-api-security-policy-foundation.md`; typed principal/scope/role contracts and a declarative default-deny route policy now cover every declared route plus implicit FastAPI docs routes; exact-coverage tests prove route classification, least-privilege session roles, exact bearer scopes, local-only legacy/admin/SITL boundaries, and no callable MCP/tool exposure |
+| Phase 4 API auth runtime foundation | done | PXE-0064 partial | `checkpoints/2026-06-13-phase-4-api-auth-runtime-foundation.md`; HTTP/MJPEG route execution and video/WebRTC WebSocket acceptance now pass through route authorization; `local_compat` is same-host socket-only and refuses `Host`/proxy-forwarded local proof; non-loopback API clients use scoped hashed bearer records from an external token file; query-string tokens are rejected; browser sessions, CSRF, dashboard credential-aware media, durable audit, typed-action-only enforcement, and final legacy retirement remain open |
 
 ## Active Slice
 
@@ -149,14 +151,18 @@ audit plus fail-closed local warning/cleanup-error/active-state reporting.
 PXE-0064 is in progress: the first containment foundation is done, so
 checked-in backend/dashboard/MAVLink2REST exposure is local-only, contradictory
 local-only bind/CORS configuration fails closed, Host/Origin/fetch-site and
-WebSocket Host/Origin checks guard the unauthenticated process boundary, and active
-docs no longer normalize direct LAN exposure. The declarative API security
-policy foundation is also complete: every declared route plus implicit docs
-routes now has a default-deny classification, exact route coverage tests, and
-least-privilege scope modeling. PXE-0064 remains open for authenticated
-operator/browser and machine clients, CSRF, role/scope authorization,
-authenticated media/WebSockets, security audit events, typed-action-only
-enforcement, and legacy mutation retirement. No runtime MCP endpoint,
+WebSocket Host/Origin checks guard the process boundary, and active docs no
+longer normalize direct LAN exposure. The declarative API security policy
+foundation is also complete: every declared route plus implicit docs routes now
+has a default-deny classification, exact route coverage tests, and
+least-privilege scope modeling. The first runtime-auth foundation is complete:
+HTTP/MJPEG route execution plus video/WebRTC WebSocket acceptance use the route
+policy, same-host `local_compat` no longer trusts `Host` or proxy-forwarded
+client metadata, non-loopback API clients can use scoped hashed bearer records,
+and query-string tokens are rejected. PXE-0064 remains open for
+browser/operator sessions, session CSRF, dashboard credential-aware API/media
+migration, durable security audit events, typed-action-only enforcement, and
+legacy mutation retirement. No runtime MCP endpoint,
 executor, `tools/list`, `tools/call`, or callable tool surface exists
 from these slices. These are still unit/contract evidence only; no runtime
 PX4/SITL pass is claimed. Official Gazebo runtime proof (PXE-0040) remains open
@@ -303,6 +309,15 @@ Recently completed Offboard commander follow-up issues:
   bearer scopes, session CSRF semantics, local-only legacy handling, and API/MCP
   provenance updates. Done in
   `checkpoints/2026-06-13-phase-4-api-security-policy-foundation.md`.
+- PXE-0064 runtime auth foundation: route policy is enforced before HTTP/MJPEG
+  route execution and before video/WebRTC WebSocket acceptance; same-host
+  `local_compat` refuses `Host` and proxy-forwarded local proof; external
+  hashed bearer token records authorize non-loopback machine API clients with
+  exact scopes; query-string tokens are rejected; WebRTC/WebSocket docs and
+  API/MCP candidate provenance were reconciled. PXE-0064 remains open for
+  browser sessions, CSRF, dashboard credential-aware API/media migration,
+  durable audit, typed-action-only enforcement, and final legacy retirement.
+  Done in `checkpoints/2026-06-13-phase-4-api-auth-runtime-foundation.md`.
 - PXE-0036: backend/API typed MAVLink telemetry health now separates latest
   request result, last-success freshness, cached payload availability, consumer
   guidance, validation timeout state, disabled fail-closed freshness, and

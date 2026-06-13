@@ -441,7 +441,7 @@ load_configuration() {
         log_warn "Custom dashboard port requires matching Streaming.API_CORS_ALLOWED_ORIGINS entries"
     fi
     if [[ "$API_EXPOSURE_MODE" == "trusted_lan_legacy" ]]; then
-        log_warn "trusted_lan_legacy backend exposure is unauthenticated and not production-approved"
+        log_warn "trusted_lan_legacy backend exposure requires scoped API auth for non-loopback clients"
     fi
 
     # Check component scripts exist

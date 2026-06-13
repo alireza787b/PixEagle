@@ -9,15 +9,18 @@ http://127.0.0.1:5077
 ```
 
 The checked-in backend is local-only and uses an explicit loopback CORS
-allowlist. The temporary `trusted_lan_legacy` mode is unauthenticated and not
-production-approved. See the
+allowlist. Loopback clients run through `API_AUTH_MODE=local_compat` by
+default only when the immediate socket peer is loopback and no proxy-forwarded
+client identity headers are present. HTTP `Host` is not transport proof.
+Non-loopback API clients require scoped bearer tokens from an external token
+file; browser sessions are not implemented yet. See the
 [API exposure boundary](../../apis/api-exposure-boundary.md).
 
 PixEagle also has a complete declarative
 [API security policy](../../apis/api-security-policy.md) for route access,
-scopes, CSRF, audit treatment, and default-deny coverage. That policy is not
-runtime authentication yet; no remote authenticated mode is approved in this
-slice.
+scopes, bearer-token treatment, local compatibility, CSRF planning, audit
+treatment, and default-deny coverage. Remote browser operation is not approved
+in this slice.
 
 ## MCP Readiness Boundary
 

@@ -18,6 +18,7 @@ import fractions
 import time
 from typing import Dict
 
+from classes.api_auth_runtime import APIAuthRuntime, authorize_websocket_request
 from classes.api_exposure_policy import is_websocket_request_allowed
 from classes.parameters import Parameters
 
@@ -84,16 +85,18 @@ class WebRTCManager:
     frame access. Enforces connection limits via WEBRTC_MAX_CONNECTIONS.
     """
 
-    def __init__(self, frame_publisher, exposure_policy):
+    def __init__(self, frame_publisher, exposure_policy, api_auth_runtime=None):
         """
         Initialize the WebRTCManager.
 
         Args:
             frame_publisher: A FramePublisher instance for thread-safe frame access.
             exposure_policy: Validated HTTP/WebSocket exposure policy.
+            api_auth_runtime: Shared API authentication runtime.
         """
         self.frame_publisher = frame_publisher
         self.exposure_policy = exposure_policy
+        self.api_auth_runtime: APIAuthRuntime | None = api_auth_runtime
         self.peer_connections: Dict[str, RTCPeerConnection] = {}
         self.max_connections = getattr(Parameters, 'WEBRTC_MAX_CONNECTIONS', 3)
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -114,6 +117,20 @@ class WebRTCManager:
         ):
             await websocket.close(code=1008, reason="WebSocket Host or Origin not allowed")
             return
+        auth_runtime = getattr(self, "api_auth_runtime", None)
+        if auth_runtime is not None:
+            auth_result = authorize_websocket_request(
+                runtime=auth_runtime,
+                path="/ws/webrtc_signaling",
+                headers=websocket.headers,
+                client_host=getattr(getattr(websocket, "client", None), "host", None),
+                host_header=websocket.headers.get("host"),
+                exposure_policy=self.exposure_policy,
+                query_string=getattr(getattr(websocket, "url", None), "query", ""),
+            )
+            if not auth_result.allowed:
+                await websocket.close(code=1008, reason="WebSocket API request not authorized")
+                return
         await websocket.accept()
         peer_id = None
         registered = False  # Track whether we registered with FramePublisher

@@ -416,6 +416,27 @@ class StreamingOptimizer:
 ```python
 async def video_feed_websocket_optimized(self, websocket: WebSocket):
     """WebSocket video streaming."""
+    if not is_websocket_request_allowed(
+        host=websocket.headers.get("host"),
+        origin=websocket.headers.get("origin"),
+        policy=self.api_exposure_policy,
+    ):
+        await websocket.close(code=1008, reason="WebSocket Host or Origin not allowed")
+        return
+
+    auth_result = authorize_websocket_request(
+        runtime=self.api_auth_runtime,
+        path="/ws/video_feed",
+        headers=websocket.headers,
+        client_host=getattr(websocket.client, "host", None),
+        host_header=websocket.headers.get("host"),
+        exposure_policy=self.api_exposure_policy,
+        query_string=getattr(websocket.url, "query", ""),
+    )
+    if not auth_result.allowed:
+        await websocket.close(code=1008, reason="WebSocket API request not authorized")
+        return
+
     await websocket.accept()
 
     client_id = str(id(websocket))

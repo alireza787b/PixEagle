@@ -32,6 +32,12 @@ from classes.api_exposure_policy import (
     is_websocket_request_allowed,
     resolve_api_exposure_policy_from_parameters,
 )
+from classes.api_auth_runtime import (
+    APIAuthRuntime,
+    authorize_http_request,
+    authorize_websocket_request,
+    resolve_api_auth_runtime_from_parameters,
+)
 from classes.api_v1_actions import (
     ApiActionStore,
     attach_legacy_action_audit,
@@ -375,12 +381,17 @@ class FastAPIHandler:
 
         # Fail-closed process exposure policy shared by HTTP and WebSockets
         self.exposure_policy = resolve_api_exposure_policy_from_parameters(Parameters)
+        self.api_auth_runtime = resolve_api_auth_runtime_from_parameters(Parameters)
 
         # Rate limiter for config write endpoints (10 requests per minute)
         self.config_rate_limiter = RateLimiter(max_requests=60, window_seconds=60)  # 1/sec average for private system
 
         # WebRTC Manager (uses FramePublisher instead of direct video_handler access)
-        self.webrtc_manager = WebRTCManager(self.frame_publisher, self.exposure_policy)
+        self.webrtc_manager = WebRTCManager(
+            self.frame_publisher,
+            self.exposure_policy,
+            self.api_auth_runtime,
+        )
 
         # Detection Model Manager
         self.model_manager = ModelManager()
@@ -452,11 +463,11 @@ class FastAPIHandler:
             ],
             max_age=3600
         )
-        # Register after CORS so Host/Origin enforcement wraps preflight too.
+        # Register after CORS so Host/Origin/auth enforcement wraps preflight too.
         self.app.middleware("http")(self._enforce_http_browser_origin)
 
     async def _enforce_http_browser_origin(self, request: Request, call_next):
-        """Reject cross-site browser requests before route execution."""
+        """Reject cross-site or unauthorized requests before route execution."""
         if not is_http_browser_request_allowed(
             host=request.headers.get("host"),
             origin=request.headers.get("origin"),
@@ -467,6 +478,32 @@ class FastAPIHandler:
                 status_code=status.HTTP_403_FORBIDDEN,
                 content={"detail": "Browser Origin not allowed"},
             )
+
+        if request.method.upper() != "OPTIONS":
+            auth_result = authorize_http_request(
+                runtime=self.api_auth_runtime,
+                method=request.method,
+                path=request.url.path,
+                headers=request.headers,
+                client_host=getattr(request.client, "host", None),
+                host_header=request.headers.get("host"),
+                exposure_policy=self.exposure_policy,
+                query_params=request.query_params,
+            )
+            if not auth_result.allowed:
+                headers = {}
+                if auth_result.is_authentication_failure:
+                    headers["WWW-Authenticate"] = "Bearer"
+                return JSONResponse(
+                    status_code=auth_result.status_code,
+                    content={
+                        "detail": "API request not authorized",
+                        "reason": auth_result.reason,
+                        "missing_scopes": list(auth_result.missing_scopes),
+                    },
+                    headers=headers,
+                )
+            request.state.api_principal = auth_result.principal
 
         response = await call_next(request)
         response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
@@ -756,6 +793,20 @@ class FastAPIHandler:
         ):
             await websocket.close(code=1008, reason="WebSocket Host or Origin not allowed")
             return
+        auth_runtime = getattr(self, "api_auth_runtime", None)
+        if auth_runtime is not None:
+            auth_result = authorize_websocket_request(
+                runtime=auth_runtime,
+                path="/ws/video_feed",
+                headers=websocket.headers,
+                client_host=getattr(getattr(websocket, "client", None), "host", None),
+                host_header=websocket.headers.get("host"),
+                exposure_policy=self.exposure_policy,
+                query_string=getattr(getattr(websocket, "url", None), "query", ""),
+            )
+            if not auth_result.allowed:
+                await websocket.close(code=1008, reason="WebSocket API request not authorized")
+                return
         await websocket.accept()
 
         client_id = f"ws_{id(websocket)}_{time.time()}"
@@ -1761,8 +1812,9 @@ class FastAPIHandler:
             )
         if self.exposure_policy.is_legacy_remote_exposure:
             self.logger.critical(
-                "Starting unauthenticated trusted_lan_legacy API exposure on %s:%s; "
-                "this compatibility mode is not approved for production or untrusted networks",
+                "Starting trusted_lan_legacy API exposure on %s:%s; "
+                "non-loopback API clients require scoped bearer tokens, "
+                "and browser-session remote operation is not approved yet",
                 host,
                 port,
             )

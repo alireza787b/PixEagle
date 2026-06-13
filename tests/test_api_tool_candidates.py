@@ -66,6 +66,8 @@ def test_api_tool_candidate_inventory_is_non_callable():
         "src/classes/api_v1_snapshots.py",
         "src/classes/api_v1_telemetry.py",
         "src/classes/api_v1_sitl.py",
+        "src/classes/api_exposure_policy.py",
+        "src/classes/api_auth_runtime.py",
         "src/classes/api_security_types.py",
         "src/classes/api_security_policy.py",
     ]
@@ -83,6 +85,8 @@ def test_api_tool_candidate_inventory_is_non_callable():
         "src/classes/api_v1_snapshots.py": 64,
         "src/classes/api_v1_telemetry.py": 64,
         "src/classes/api_v1_sitl.py": 64,
+        "src/classes/api_exposure_policy.py": 64,
+        "src/classes/api_auth_runtime.py": 64,
         "src/classes/api_security_types.py": 64,
         "src/classes/api_security_policy.py": 64,
     }

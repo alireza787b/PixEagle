@@ -208,6 +208,9 @@ Streaming:
     - http://localhost:3040
     - http://127.0.0.1:5077
     - http://localhost:5077
+  API_AUTH_MODE: local_compat     # Options: local_compat, machine_bearer
+  # machine_bearer is for machine API clients until browser sessions/media auth are implemented.
+  API_BEARER_TOKEN_FILE: ""       # Optional external JSON file with hashed machine-token records
   
   # === Stream Quality Settings ===
   STREAM_WIDTH: 640               # Output resolution

@@ -38,12 +38,20 @@ validate `Origin` before acceptance. These controls reduce DNS-rebinding,
 browser-to-localhost, and cross-site media exposure; they do not authenticate
 callers or protect against a hostile local process.
 
+Runtime local compatibility trusts only the immediate loopback socket peer.
+HTTP `Host` is not accepted as local proof, and proxy-forwarded client identity
+headers disable local compatibility and local-only route elevation. PixEagle
+cannot reliably detect an externally reachable reverse proxy that strips those
+headers, so do not expose `local_compat` through a reverse proxy. Use an SSH
+tunnel for local browser operation, or use scoped bearer tokens for machine API
+clients until browser sessions are implemented.
+
 ## Exposure Modes
 
 | Mode | Bind policy | Intended use | Production status |
 |------|-------------|--------------|-------------------|
-| `local_only` | Explicit loopback only | Local dashboard, SSH tunnel, same-host loopback reverse proxy | Current local-only default |
-| `trusted_lan_legacy` | Explicitly permits non-loopback bind | Temporary compatibility on an isolated, trusted network | Unauthenticated; not production-approved |
+| `local_only` | Explicit loopback only | Same-host dashboard or SSH tunnel | Current local-only default |
+| `trusted_lan_legacy` | Explicitly permits non-loopback bind | Temporary compatibility on an isolated, trusted network | Requires scoped API auth for backend requests; remote browser sessions are not approved |
 
 To use the temporary compatibility mode, both the mode and desired bind must be
 set explicitly. Browser origins must be exact; do not use wildcards.
@@ -56,10 +64,11 @@ Streaming:
     - http://192.168.10.20:3040
 ```
 
-This mode exposes sensitive video, telemetry, configuration, model-management,
-system-management, and flight-adjacent legacy mutations without authentication.
-Use it only on a physically/logically isolated trusted network and remove it
-after use. It is not a substitute for authentication or authorization.
+This mode exposes the backend bind/CORS surface beyond loopback. Non-loopback
+HTTP, MJPEG, video WebSocket, and WebRTC-signaling requests still pass through
+the API authorization runtime and require a scoped bearer token unless a later
+browser-session slice explicitly supports that transport. Use this mode only on
+a physically/logically isolated trusted network and remove it after use.
 
 Existing local `configs/config.yaml` files from older releases may still set
 `HTTP_STREAM_HOST: 0.0.0.0` without an exposure mode. Runtime startup coerces
@@ -70,7 +79,8 @@ exposure. If a deployment truly needs temporary LAN compatibility, add
 
 If the dashboard uses a custom port, add both loopback browser origins for that
 port to `API_CORS_ALLOWED_ORIGINS`. A non-loopback reverse-proxy browser origin
-cannot be used in `local_only`; it remains `trusted_lan_legacy` until the
+cannot be used in `local_only`. `trusted_lan_legacy` can open the bind/CORS
+boundary, but browser-session remote operation remains deferred until the
 authenticated remote-browser slice is implemented.
 
 ## Current And Planned Controls
@@ -90,34 +100,41 @@ Implemented in the secure-default foundation:
 - loopback-first Linux and Windows MAVLink2REST HTTP API launchers;
 - tests covering checked-in defaults and fail-closed policy behavior.
 
-Implemented as a non-enforcing authorization foundation:
+Implemented as a runtime authorization foundation:
 
 - typed session, bearer, anonymous, and local-compat principal contracts;
 - explicit viewer/operator/admin role bundles and exact machine scopes;
 - one declarative policy classification for every declared route and implicit
   FastAPI documentation route;
+- `API_AUTH_MODE=local_compat` same-host loopback default and
+  `API_AUTH_MODE=machine_bearer` bearer-only mode;
+- external JSON bearer token file with hashed, named, revocable records;
+- HTTP/MJPEG authorization before route execution or streaming response
+  creation;
+- video WebSocket and WebRTC-signaling authorization before `accept()`;
+- refusal to treat `Host` or proxy-forwarded client metadata as local
+  transport proof;
 - local-only treatment for legacy mutations, administration, debug, and SITL
   injection surfaces;
 - authenticated media treatment and default-deny handling for missing or
   ambiguous classifications;
-- pure authorization-decision tests for scope, CSRF, and loopback behavior.
+- query-string token rejection.
 
-See the [API security policy](api-security-policy.md). These declarations are
-not middleware and do not enable credentials or sessions by themselves.
+See the [API security policy](api-security-policy.md). Browser sessions and
+session CSRF are still pending.
 
 Still required before authenticated remote operation can be approved:
 
-- authenticated browser/operator sessions and machine bearer tokens;
-- CSRF and request-origin enforcement for browser mutations;
-- runtime enforcement of the declared role/scope policy for reads, video,
-  WebSockets, and mutations;
-- authenticated WebSocket/MJPEG/WebRTC signaling;
+- authenticated browser/operator sessions;
+- session CSRF and credentialed exact-origin CORS for browser mutations;
+- dashboard migration to session-aware HTTP, MJPEG, WebSocket, WebRTC, download,
+  and playback access;
 - typed action enforcement and retirement of immediate legacy mutations;
 - security audit events, migration tooling, and adversarial tests.
 
 Until those controls land, use local access or an SSH tunnel for the default
-local-only mode. Non-loopback reverse-proxy/VPN browser origins require
-temporary `trusted_lan_legacy`. Remote network reachability is not
+local-only mode. Non-loopback reverse-proxy/VPN browser origins are not a
+complete browser-operator solution yet. Remote network reachability is not
 authorization.
 
 ## Operator Checks
@@ -130,6 +147,8 @@ Before starting PixEagle:
 3. Confirm every CORS origin is an exact trusted browser origin.
 4. Confirm no firewall or reverse-proxy rule exposes port `5077` to an
    untrusted network.
+5. For non-loopback API clients, set `API_BEARER_TOKEN_FILE` to an external
+   JSON token file and grant only the scopes needed by that client.
 
 The API process emits a critical log when it starts with non-loopback
 `trusted_lan_legacy` exposure.

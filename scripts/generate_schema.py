@@ -109,9 +109,12 @@ SCHEMA_OVERRIDES = {
             {'value': 'local_only', 'label': 'Local only',
              'description': 'Require an explicit loopback bind and loopback CORS origins'},
             {'value': 'trusted_lan_legacy', 'label': 'Trusted LAN (legacy)',
-             'description': 'Temporary unauthenticated compatibility mode for an isolated trusted network'},
+             'description': (
+                 'Temporary LAN compatibility; backend API clients still require '
+                 'scoped bearer tokens and browser sessions are pending'
+             )},
         ],
-        'description': 'API exposure boundary; remote authenticated mode is not available yet',
+        'description': 'API exposure boundary; non-loopback browser sessions are not available yet',
     },
     'Streaming.HTTP_STREAM_HOST': {
         'description': 'Backend bind host; local_only requires 127.0.0.1, ::1, or localhost',
@@ -121,6 +124,26 @@ SCHEMA_OVERRIDES = {
     },
     'Streaming.API_CORS_ALLOWED_ORIGINS': {
         'description': 'Explicit browser origins allowed to call the backend; wildcard origins are prohibited',
+    },
+    'Streaming.API_AUTH_MODE': {
+        'options': [
+            {'value': 'local_compat', 'label': 'Local compatibility',
+             'description': (
+                 'Allow same-host loopback socket clients without credentials; '
+                 'non-loopback clients need bearer tokens'
+             )},
+            {'value': 'machine_bearer', 'label': 'Machine bearer only',
+             'description': (
+                 'Require scoped bearer tokens for machine API clients; current '
+                 'browser dashboard/media transports cannot authenticate yet'
+             )},
+        ],
+        'description': (
+            'Runtime API authorization mode; browser sessions are not implemented yet'
+        ),
+    },
+    'Streaming.API_BEARER_TOKEN_FILE': {
+        'description': 'Optional external JSON file containing hashed, named, revocable machine bearer token records',
     },
     'VideoSource.FRAME_ROTATION_DEG': {
         'options': [

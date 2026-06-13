@@ -10,6 +10,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.responses import Response
 
+from classes.api_auth_runtime import (
+    API_AUTH_MODE_LOCAL_COMPAT,
+    API_AUTH_MODE_MACHINE_BEARER,
+    APIAuthRuntime,
+    BearerTokenRecord,
+    hash_bearer_token,
+)
 from classes.api_exposure_policy import (
     APIExposurePolicyError,
     DEFAULT_LOCAL_CORS_ORIGINS,
@@ -23,11 +30,27 @@ from classes.api_exposure_policy import (
     resolve_api_exposure_policy,
     resolve_api_exposure_policy_from_parameters,
 )
+from classes.api_security_types import STATUS_READ
 from classes.fastapi_handler import FastAPIHandler
 from classes.webrtc_manager import WebRTCManager
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _machine_bearer_runtime():
+    token_hash = hash_bearer_token("secret-token")
+    return APIAuthRuntime(
+        mode=API_AUTH_MODE_MACHINE_BEARER,
+        bearer_tokens_by_hash={
+            token_hash: BearerTokenRecord(
+                token_id="token-1",
+                subject="ci-client",
+                token_sha256=token_hash,
+                scopes=frozenset({STATUS_READ}),
+            )
+        },
+    )
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "::1", "[::1]", "localhost"])
@@ -234,6 +257,7 @@ def test_fastapi_middleware_uses_validated_explicit_cors_policy():
         mode=LOCAL_ONLY,
         cors_allowed_origins=["http://localhost:3040"],
     )
+    handler.api_auth_runtime = APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT)
 
     handler._setup_middleware()
 
@@ -258,6 +282,7 @@ def test_fastapi_middleware_rejects_dns_rebinding_preflight_before_cors():
         cors_allowed_origins=["http://localhost:3040"],
         api_port=5077,
     )
+    handler.api_auth_runtime = APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT)
 
     @handler.app.get("/probe")
     async def probe():
@@ -359,6 +384,7 @@ async def test_video_websocket_rejects_unapproved_origin_before_accept():
         mode=LOCAL_ONLY,
         cors_allowed_origins=["http://localhost:3040"],
     )
+    handler.api_auth_runtime = APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT)
     websocket = SimpleNamespace(
         headers={"host": "127.0.0.1:5077", "origin": "http://evil.example"},
         accept=AsyncMock(),
@@ -380,6 +406,7 @@ async def test_video_websocket_rejects_unapproved_host_before_accept():
         cors_allowed_origins=["http://localhost:3040"],
         api_port=5077,
     )
+    handler.api_auth_runtime = APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT)
     websocket = SimpleNamespace(
         headers={"host": "attacker.example:5077", "origin": "http://localhost:3040"},
         accept=AsyncMock(),
@@ -400,6 +427,7 @@ async def test_webrtc_signaling_rejects_unapproved_origin_before_accept():
         mode=LOCAL_ONLY,
         cors_allowed_origins=["http://localhost:3040"],
     )
+    manager.api_auth_runtime = APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT)
     websocket = SimpleNamespace(
         headers={"host": "127.0.0.1:5077"},
         accept=AsyncMock(),
@@ -421,6 +449,7 @@ async def test_webrtc_signaling_rejects_unapproved_host_before_accept():
         cors_allowed_origins=["http://localhost:3040"],
         api_port=5077,
     )
+    manager.api_auth_runtime = APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT)
     websocket = SimpleNamespace(
         headers={"host": "attacker.example:5077", "origin": "http://localhost:3040"},
         accept=AsyncMock(),
@@ -442,6 +471,7 @@ async def test_http_middleware_rejects_cross_site_request_before_handler():
         cors_allowed_origins=["http://localhost:3040"],
         api_port=5077,
     )
+    handler.api_auth_runtime = APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT)
     request = SimpleNamespace(
         headers={
             "host": "127.0.0.1:5077",
@@ -467,7 +497,16 @@ async def test_http_middleware_allows_machine_client_and_adds_security_headers()
         cors_allowed_origins=["http://localhost:3040"],
         api_port=5077,
     )
-    request = SimpleNamespace(headers={"host": "127.0.0.1:5077"}, base_url="http://localhost:5077/")
+    handler.api_auth_runtime = APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT)
+    request = SimpleNamespace(
+        method="GET",
+        url=SimpleNamespace(path="/status"),
+        query_params={},
+        headers={"host": "127.0.0.1:5077"},
+        client=SimpleNamespace(host="127.0.0.1"),
+        state=SimpleNamespace(),
+        base_url="http://localhost:5077/",
+    )
     call_next = AsyncMock(return_value=Response())
 
     response = await handler._enforce_http_browser_origin(request, call_next)
@@ -486,6 +525,7 @@ async def test_http_middleware_rejects_dns_rebinding_host_without_origin():
         cors_allowed_origins=["http://localhost:3040"],
         api_port=5077,
     )
+    handler.api_auth_runtime = APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT)
     request = SimpleNamespace(
         headers={"host": "attacker.example:5077", "sec-fetch-site": "same-origin"},
         base_url="http://attacker.example:5077/",
@@ -496,3 +536,113 @@ async def test_http_middleware_rejects_dns_rebinding_host_without_origin():
 
     assert response.status_code == 403
     call_next.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_http_middleware_rejects_unclassified_route_before_handler():
+    handler = FastAPIHandler.__new__(FastAPIHandler)
+    handler.exposure_policy = resolve_api_exposure_policy(
+        bind_host="127.0.0.1",
+        mode=LOCAL_ONLY,
+        cors_allowed_origins=["http://localhost:3040"],
+        api_port=5077,
+    )
+    handler.api_auth_runtime = APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT)
+    request = SimpleNamespace(
+        method="GET",
+        url=SimpleNamespace(path="/unclassified"),
+        query_params={},
+        headers={"host": "127.0.0.1:5077"},
+        client=SimpleNamespace(host="127.0.0.1"),
+        state=SimpleNamespace(),
+    )
+    call_next = AsyncMock(return_value=Response())
+
+    response = await handler._enforce_http_browser_origin(request, call_next)
+
+    assert response.status_code == 403
+    call_next.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_http_middleware_accepts_valid_bearer_and_stores_principal():
+    handler = FastAPIHandler.__new__(FastAPIHandler)
+    handler.exposure_policy = resolve_api_exposure_policy(
+        bind_host="0.0.0.0",
+        mode=TRUSTED_LAN_LEGACY,
+        cors_allowed_origins=["http://192.168.1.20:3040"],
+        api_port=5077,
+    )
+    handler.api_auth_runtime = _machine_bearer_runtime()
+    request = SimpleNamespace(
+        method="GET",
+        url=SimpleNamespace(path="/status"),
+        query_params={},
+        headers={
+            "host": "192.168.1.20:5077",
+            "authorization": "Bearer secret-token",
+        },
+        client=SimpleNamespace(host="192.168.1.20"),
+        state=SimpleNamespace(),
+    )
+    call_next = AsyncMock(return_value=Response())
+
+    response = await handler._enforce_http_browser_origin(request, call_next)
+
+    assert response.status_code == 200
+    call_next.assert_awaited_once_with(request)
+    assert request.state.api_principal.credential_id == "token-1"
+
+
+@pytest.mark.asyncio
+async def test_video_websocket_rejects_missing_bearer_before_accept():
+    handler = FastAPIHandler.__new__(FastAPIHandler)
+    handler.exposure_policy = resolve_api_exposure_policy(
+        bind_host="0.0.0.0",
+        mode=TRUSTED_LAN_LEGACY,
+        cors_allowed_origins=["http://192.168.1.20:3040"],
+        api_port=5077,
+    )
+    handler.api_auth_runtime = _machine_bearer_runtime()
+    websocket = SimpleNamespace(
+        headers={"host": "192.168.1.20:5077", "origin": "http://192.168.1.20:3040"},
+        client=SimpleNamespace(host="192.168.1.20"),
+        url=SimpleNamespace(query=""),
+        accept=AsyncMock(),
+        close=AsyncMock(),
+    )
+
+    await handler.video_feed_websocket_optimized(websocket)
+
+    websocket.accept.assert_not_awaited()
+    websocket.close.assert_awaited_once_with(
+        code=1008,
+        reason="WebSocket API request not authorized",
+    )
+
+
+@pytest.mark.asyncio
+async def test_webrtc_signaling_rejects_query_token_before_accept():
+    manager = WebRTCManager.__new__(WebRTCManager)
+    manager.exposure_policy = resolve_api_exposure_policy(
+        bind_host="127.0.0.1",
+        mode=LOCAL_ONLY,
+        cors_allowed_origins=["http://localhost:3040"],
+        api_port=5077,
+    )
+    manager.api_auth_runtime = APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT)
+    websocket = SimpleNamespace(
+        headers={"host": "127.0.0.1:5077", "origin": "http://localhost:3040"},
+        client=SimpleNamespace(host="127.0.0.1"),
+        url=SimpleNamespace(query="access_token=leaky"),
+        accept=AsyncMock(),
+        close=AsyncMock(),
+    )
+
+    await manager.signaling_handler(websocket)
+
+    websocket.accept.assert_not_awaited()
+    websocket.close.assert_awaited_once_with(
+        code=1008,
+        reason="WebSocket API request not authorized",
+    )

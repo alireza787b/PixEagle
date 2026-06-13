@@ -435,7 +435,7 @@ sections:
       API_EXPOSURE_MODE:
         type: string
         default: local_only
-        description: API exposure boundary; remote authenticated mode is not available yet
+        description: API exposure boundary; non-loopback browser sessions are not available yet
         reload_tier: system_restart
         reboot_required: true
         options:
@@ -444,7 +444,8 @@ sections:
           description: Require an explicit loopback bind and loopback CORS origins
         - value: trusted_lan_legacy
           label: Trusted LAN (legacy)
-          description: Temporary unauthenticated compatibility mode for an isolated trusted network
+          description: Temporary LAN compatibility; backend API clients still require scoped bearer tokens and browser sessions
+            are pending
       HTTP_STREAM_HOST:
         type: string
         default: 127.0.0.1
@@ -470,6 +471,26 @@ sections:
         reload_tier: system_restart
         reboot_required: true
         item_type: string
+      API_AUTH_MODE:
+        type: string
+        default: local_compat
+        description: Runtime API authorization mode; browser sessions are not implemented yet
+        reload_tier: system_restart
+        reboot_required: true
+        options:
+        - value: local_compat
+          label: Local compatibility
+          description: Allow same-host loopback socket clients without credentials; non-loopback clients need bearer tokens
+        - value: machine_bearer
+          label: Machine bearer only
+          description: Require scoped bearer tokens for machine API clients; current browser dashboard/media transports cannot
+            authenticate yet
+      API_BEARER_TOKEN_FILE:
+        type: string
+        default: ''
+        description: Optional external JSON file containing hashed, named, revocable machine bearer token records
+        reload_tier: system_restart
+        reboot_required: true
       STREAM_WIDTH:
         type: integer
         default: 640
