@@ -11,6 +11,13 @@ the `/api/v1` migration begins.
   unauthenticated compatibility exposure requires explicit
   `trusted_lan_legacy` configuration and is not production-approved. See the
   [API exposure boundary](api-exposure-boundary.md).
+- Every HTTP, media, WebSocket, documentation, and validation route must have
+  exactly one declarative security classification. Missing or ambiguous
+  classifications fail closed. See the
+  [API security policy](api-security-policy.md).
+- Browser sessions use role-derived scopes plus session-bound CSRF for
+  mutations. Machine credentials use named, hashed, revocable bearer tokens
+  with exact scopes and no query-string token transport.
 - New public business routes use `/api/v1/...`.
 - Routes use nouns and subresources instead of ad hoc verb collections.
 - Multi-step mutations return a tracked command or action resource.
@@ -90,6 +97,10 @@ Route inventory tests must:
   because that module owns validation-only SITL injection gates, payload
   construction, dry-run summaries, and AppController validation-hook dispatch
   for blocked validation-stimulus candidates
+- record `src/classes/api_security_types.py` and
+  `src/classes/api_security_policy.py` in generated candidate provenance
+  because they own principal/scope semantics and the default-deny route
+  classification reviewed before any future runtime API/MCP promotion
 - assert the frozen method/path inventory
 - assert there are no duplicate method/path pairs
 - explicitly track deprecated aliases until removal

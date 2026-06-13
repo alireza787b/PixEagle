@@ -90,11 +90,27 @@ Implemented in the secure-default foundation:
 - loopback-first Linux and Windows MAVLink2REST HTTP API launchers;
 - tests covering checked-in defaults and fail-closed policy behavior.
 
+Implemented as a non-enforcing authorization foundation:
+
+- typed session, bearer, anonymous, and local-compat principal contracts;
+- explicit viewer/operator/admin role bundles and exact machine scopes;
+- one declarative policy classification for every declared route and implicit
+  FastAPI documentation route;
+- local-only treatment for legacy mutations, administration, debug, and SITL
+  injection surfaces;
+- authenticated media treatment and default-deny handling for missing or
+  ambiguous classifications;
+- pure authorization-decision tests for scope, CSRF, and loopback behavior.
+
+See the [API security policy](api-security-policy.md). These declarations are
+not middleware and do not enable credentials or sessions by themselves.
+
 Still required before authenticated remote operation can be approved:
 
 - authenticated browser/operator sessions and machine bearer tokens;
 - CSRF and request-origin enforcement for browser mutations;
-- role/scope authorization for reads, video, WebSockets, and mutations;
+- runtime enforcement of the declared role/scope policy for reads, video,
+  WebSockets, and mutations;
 - authenticated WebSocket/MJPEG/WebRTC signaling;
 - typed action enforcement and retirement of immediate legacy mutations;
 - security audit events, migration tooling, and adversarial tests.

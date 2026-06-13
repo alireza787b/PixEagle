@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-06-12
+Last updated: 2026-06-13
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -150,10 +150,14 @@ PXE-0064 is in progress: the first containment foundation is done, so
 checked-in backend/dashboard/MAVLink2REST exposure is local-only, contradictory
 local-only bind/CORS configuration fails closed, Host/Origin/fetch-site and
 WebSocket Host/Origin checks guard the unauthenticated process boundary, and active
-docs no longer normalize direct LAN exposure. PXE-0064 remains open for
-authenticated operator/browser and machine clients, CSRF, role/scope
-authorization, authenticated media/WebSockets, security audit events,
-typed-action-only enforcement, and legacy mutation retirement. No runtime MCP endpoint, executor, `tools/list`, `tools/call`, or callable tool surface exists
+docs no longer normalize direct LAN exposure. The declarative API security
+policy foundation is also complete: every declared route plus implicit docs
+routes now has a default-deny classification, exact route coverage tests, and
+least-privilege scope modeling. PXE-0064 remains open for authenticated
+operator/browser and machine clients, CSRF, role/scope authorization,
+authenticated media/WebSockets, security audit events, typed-action-only
+enforcement, and legacy mutation retirement. No runtime MCP endpoint,
+executor, `tools/list`, `tools/call`, or callable tool surface exists
 from these slices. These are still unit/contract evidence only; no runtime
 PX4/SITL pass is claimed. Official Gazebo runtime proof (PXE-0040) remains open
 for a native GUI/GPU host, a stronger headless runner, or a separately proven
@@ -293,6 +297,12 @@ Recently completed Offboard commander follow-up issues:
   authentication, CSRF, scopes, authenticated media, audit events, typed-action
   enforcement, and legacy mutation retirement. Done in
   `checkpoints/2026-06-12-phase-4-api-exposure-containment.md`.
+- PXE-0064 declarative API security policy foundation: typed principal/scope
+  contracts, default-deny classification, exact declared-route and implicit
+  docs route coverage, least-privilege viewer/operator/admin modeling, exact
+  bearer scopes, session CSRF semantics, local-only legacy handling, and API/MCP
+  provenance updates. Done in
+  `checkpoints/2026-06-13-phase-4-api-security-policy-foundation.md`.
 - PXE-0036: backend/API typed MAVLink telemetry health now separates latest
   request result, last-success freshness, cached payload availability, consumer
   guidance, validation timeout state, disabled fail-closed freshness, and

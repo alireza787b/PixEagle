@@ -24,6 +24,10 @@ source:
     sha256: 42f552f17fde806ec18f757d947315768fba08618ff6bb0b998703dff54d3c4c
   - file: src/classes/api_v1_sitl.py
     sha256: b9645af0ea6058974143009debd4544aafbb865053bbd106a8c3d0363f580dd4
+  - file: src/classes/api_security_types.py
+    sha256: d826fbbb11175a9d0e2e7e67b51213c4553a76a999930cedc202b19e55bf9fc6
+  - file: src/classes/api_security_policy.py
+    sha256: 6a2d379c48233b9c1df74d78dc4e779c7ec2091479cf48e9c3a8a1c569da4576
 generated_from:
 - src/classes/fastapi_handler.py
 - src/classes/fastapi_api_v1_routes.py
@@ -35,6 +39,8 @@ generated_from:
 - src/classes/api_v1_snapshots.py
 - src/classes/api_v1_telemetry.py
 - src/classes/api_v1_sitl.py
+- src/classes/api_security_types.py
+- src/classes/api_security_policy.py
 output_path: docs/agent-context/generated/pixeagle-openapi-tool-candidates.yaml
 claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP tool
   registry, not a tools/list response, and not permission for an AI agent or client to execute

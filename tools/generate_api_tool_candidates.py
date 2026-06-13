@@ -33,6 +33,8 @@ API_V1_READ_ROUTES = PROJECT_ROOT / "src" / "classes" / "api_v1_read_routes.py"
 API_V1_SNAPSHOTS = PROJECT_ROOT / "src" / "classes" / "api_v1_snapshots.py"
 API_V1_TELEMETRY = PROJECT_ROOT / "src" / "classes" / "api_v1_telemetry.py"
 API_V1_SITL = PROJECT_ROOT / "src" / "classes" / "api_v1_sitl.py"
+API_SECURITY_TYPES = PROJECT_ROOT / "src" / "classes" / "api_security_types.py"
+API_SECURITY_POLICY = PROJECT_ROOT / "src" / "classes" / "api_security_policy.py"
 ROUTE_SOURCE_FILES = (
     FASTAPI_HANDLER,
     API_V1_ROUTE_REGISTRY,
@@ -44,6 +46,8 @@ ROUTE_SOURCE_FILES = (
     API_V1_SNAPSHOTS,
     API_V1_TELEMETRY,
     API_V1_SITL,
+    API_SECURITY_TYPES,
+    API_SECURITY_POLICY,
 )
 DEFAULT_OUTPUT = (
     PROJECT_ROOT

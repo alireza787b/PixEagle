@@ -42,7 +42,11 @@ telemetry-health manager delegation and fail-closed unavailable fallback
 semantics for the telemetry health candidate. It also records
 `src/classes/api_v1_sitl.py`, which owns validation-only SITL injection gates,
 payload construction, dry-run summaries, and AppController validation-hook
-dispatch for blocked validation-stimulus candidates.
+dispatch for blocked validation-stimulus candidates. It also records
+`src/classes/api_security_types.py` and
+`src/classes/api_security_policy.py`, which own principal/scope semantics and
+the default-deny route classification that future API/MCP promotion must pass.
+These policy files do not create a runtime authentication or MCP surface.
 
 The current review-stage registry and policy are:
 

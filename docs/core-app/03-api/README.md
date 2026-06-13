@@ -13,6 +13,12 @@ allowlist. The temporary `trusted_lan_legacy` mode is unauthenticated and not
 production-approved. See the
 [API exposure boundary](../../apis/api-exposure-boundary.md).
 
+PixEagle also has a complete declarative
+[API security policy](../../apis/api-security-policy.md) for route access,
+scopes, CSRF, audit treatment, and default-deny coverage. That policy is not
+runtime authentication yet; no remote authenticated mode is approved in this
+slice.
+
 ## MCP Readiness Boundary
 
 Some typed `/api/v1` routes are documented as suitable for future API/MCP
