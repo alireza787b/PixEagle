@@ -26,6 +26,7 @@ API_V1_ROUTE_REGISTRY = (
 API_V1_CONTRACTS = PROJECT_ROOT / "src" / "classes" / "api_v1_contracts.py"
 API_V1_PATHS = PROJECT_ROOT / "src" / "classes" / "api_v1_paths.py"
 API_V1_ACTIONS = PROJECT_ROOT / "src" / "classes" / "api_v1_actions.py"
+API_V1_AUTH_ROUTES = PROJECT_ROOT / "src" / "classes" / "api_v1_auth_routes.py"
 API_LEGACY_CONTROL_ROUTES = (
     PROJECT_ROOT / "src" / "classes" / "api_legacy_control_routes.py"
 )
@@ -43,6 +44,7 @@ ROUTE_SOURCE_FILES = (
     API_V1_CONTRACTS,
     API_V1_PATHS,
     API_V1_ACTIONS,
+    API_V1_AUTH_ROUTES,
     API_LEGACY_CONTROL_ROUTES,
     API_V1_READ_ROUTES,
     API_V1_SNAPSHOTS,
@@ -611,6 +613,27 @@ def _classify_candidate(
                 "action proposal schema",
                 "SITL-only callable wrapper",
                 "PX4 observation evidence gate",
+            ]
+        )
+    elif path.startswith("/api/v1/auth/"):
+        risk_class = "auth_session_boundary"
+        sensitivity = "session_auth"
+        side_effects = (
+            "none_expected"
+            if read_only
+            else "creates_or_revokes_browser_session_state"
+        )
+        blocked_reasons.extend(
+            [
+                "Authentication bootstrap route.",
+                "Not eligible for MCP promotion; use typed API/session contracts only.",
+            ]
+        )
+        required_review.extend(
+            [
+                "credential storage review",
+                "browser CSRF review",
+                "session lifecycle tests",
             ]
         )
     elif path.startswith("/api/v1/sitl/injections/"):

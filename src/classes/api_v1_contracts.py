@@ -44,6 +44,56 @@ class APIErrorResponse(BaseModel):
     request_id: str
 
 
+class APIAuthLoginRequest(BaseModel):
+    """Browser/operator login request for session-backed API access."""
+
+    username: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=1, max_length=4096)
+
+    class Config:
+        extra = "forbid"
+
+
+class APIAuthPrincipal(BaseModel):
+    """Session principal details returned without credential material."""
+
+    kind: Literal["anonymous", "session"]
+    subject: str
+    role: Optional[Literal["viewer", "operator", "admin"]] = None
+    scopes: List[str] = Field(default_factory=list)
+    session_id: Optional[str] = None
+
+
+class APIAuthSessionResponse(BaseModel):
+    """Current browser/operator session state."""
+
+    authenticated: bool
+    auth_mode: str
+    principal: APIAuthPrincipal
+    csrf_required: bool = True
+    csrf_token: Optional[str] = None
+    expires_at: Optional[float] = None
+
+
+class APIAuthLoginResponse(BaseModel):
+    """Successful browser/operator login response."""
+
+    authenticated: bool = True
+    auth_mode: str
+    principal: APIAuthPrincipal
+    csrf_required: bool = True
+    csrf_token: str
+    expires_at: float
+
+
+class APIAuthLogoutResponse(BaseModel):
+    """Browser/operator logout result."""
+
+    authenticated: bool = False
+    revoked: bool
+    auth_mode: str
+
+
 class APIActionRequest(BaseModel):
     """Typed request envelope for operator or validation control actions."""
 
@@ -399,6 +449,24 @@ ACTION_ROUTE_RESPONSES = {
         "description": "Dry-run validation result or idempotent action replay.",
     },
     **ACTION_ERROR_RESPONSES,
+}
+AUTH_ROUTE_RESPONSES = {
+    status.HTTP_401_UNAUTHORIZED: {
+        "model": APIErrorResponse,
+        "description": "Invalid credentials or missing session authentication.",
+    },
+    status.HTTP_403_FORBIDDEN: {
+        "model": APIErrorResponse,
+        "description": "Session CSRF token was missing or invalid.",
+    },
+    status.HTTP_429_TOO_MANY_REQUESTS: {
+        "model": APIErrorResponse,
+        "description": "Browser login attempt throttle is active.",
+    },
+    status.HTTP_503_SERVICE_UNAVAILABLE: {
+        "model": APIErrorResponse,
+        "description": "Browser session authentication is not configured.",
+    },
 }
 RUNTIME_STATUS_ERROR_RESPONSES = {
     status.HTTP_500_INTERNAL_SERVER_ERROR: {

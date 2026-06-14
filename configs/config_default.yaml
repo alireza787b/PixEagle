@@ -208,9 +208,16 @@ Streaming:
     - http://localhost:3040
     - http://127.0.0.1:5077
     - http://localhost:5077
-  API_AUTH_MODE: local_compat     # Options: local_compat, machine_bearer
-  # machine_bearer is for machine API clients until browser sessions/media auth are implemented.
+  API_AUTH_MODE: local_compat     # Options: local_compat, machine_bearer, browser_session
+  # local_compat: same-host loopback compatibility for the dashboard and dev tools.
+  # machine_bearer: scoped bearer tokens for machine API clients.
+  # browser_session: HttpOnly cookie sessions + CSRF using API_SESSION_USER_FILE.
   API_BEARER_TOKEN_FILE: ""       # Optional external JSON file with hashed machine-token records
+  API_SESSION_USER_FILE: ""       # External JSON file with hashed browser-session user records
+  API_SESSION_TTL_SECONDS: 28800   # Browser session lifetime in seconds
+  API_SESSION_COOKIE_NAME: pixeagle_session
+  API_SESSION_COOKIE_SECURE: false # Set true when served over HTTPS
+  API_CSRF_HEADER_NAME: X-PixEagle-CSRF
   
   # === Stream Quality Settings ===
   STREAM_WIDTH: 640               # Output resolution

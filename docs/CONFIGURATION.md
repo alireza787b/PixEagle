@@ -117,8 +117,10 @@ The dashboard automatically detects the API host from `window.location.hostname`
 
 Use `REACT_APP_API_HOST_OVERRIDE` only for reviewed proxy/tunnel setups. A
 non-loopback reverse-proxy browser origin is not permitted in `local_only`;
-`trusted_lan_legacy` only opens the backend bind/CORS boundary and does not
-complete browser-session support.
+`trusted_lan_legacy` only opens the backend bind/CORS boundary. Backend
+browser-session auth exists, but production remote-browser operation still
+requires dashboard/media migration, durable audit, TLS/operator hardening, and
+evidence gates.
 
 The checked-in backend policy is `local_only` on `127.0.0.1:5077` with an
 explicit loopback CORS allowlist. Startup fails when local-only configuration
@@ -138,6 +140,7 @@ Backend API authorization controls live under `Streaming`:
 Streaming:
   API_AUTH_MODE: local_compat
   API_BEARER_TOKEN_FILE: ""
+  API_SESSION_USER_FILE: ""
 ```
 
 `local_compat` is the checked-in same-host default. It allows loopback clients
@@ -145,10 +148,34 @@ without credentials only when the immediate socket peer is loopback and no
 proxy-forwarded client identity headers are present. It does not trust HTTP
 `Host`, and it must not be exposed through a reverse proxy. Non-loopback API
 clients require scoped bearer tokens. `machine_bearer` requires bearer tokens
-for every API client and is currently for machine/API clients only; the
-browser dashboard and native media transports cannot authenticate in that mode
-until browser sessions land. The token file is external JSON with hashed token
-records; do not put plaintext tokens in `config.yaml`.
+for every API client and is for machine/API clients. `browser_session` loads
+browser/operator users from `API_SESSION_USER_FILE`, creates HttpOnly cookie
+sessions through `/api/v1/auth/login`, and requires the returned CSRF token for
+browser mutations. The token and user files are external JSON with hashed
+records; do not put plaintext tokens or passwords in `config.yaml`.
+
+Generate browser-session user records with a local password prompt:
+
+```bash
+PYTHONPATH=src python - <<'PY'
+import getpass
+import json
+
+from classes.api_auth_runtime import make_user_record
+
+username = input("Username: ")
+role = input("Role [operator]: ").strip() or "operator"
+password = getpass.getpass("Password: ")
+print(json.dumps({"users": [make_user_record(
+    username=username,
+    plaintext_password=password,
+    role=role,
+)]}, indent=2))
+PY
+```
+
+Store the generated JSON outside the repository, restrict file permissions, and
+point `Streaming.API_SESSION_USER_FILE` at that path.
 
 ## Configuration via API
 
@@ -159,8 +186,10 @@ The Settings page in the dashboard allows runtime configuration changes:
 
 These legacy routes remain compatibility surfaces and are not approved remote
 automation APIs. Keep them inside the trusted local/tunneled boundary or use
-scoped bearer tokens only where explicitly reviewed. Typed guarded-action and
-browser-session migration remains tracked under PXE-0064.
+scoped bearer tokens only where explicitly reviewed. Typed guarded actions and
+the backend browser-session foundation exist, but dashboard credential-aware
+API/media migration, durable audit, typed-action-only enforcement, and final
+legacy retirement remain tracked under PXE-0064.
 
 ## Next Steps
 

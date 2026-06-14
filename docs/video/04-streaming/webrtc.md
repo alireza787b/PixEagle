@@ -55,7 +55,8 @@ The WebSocket Host/Origin policy and API authorization runtime run before
 `accept()`. In the checked-in `local_compat` mode this requires a same-host
 loopback socket client. In `machine_bearer` mode a browser cannot currently
 attach the required `Authorization` header to the native WebSocket, so browser
-WebRTC remains pending until browser sessions are implemented.
+WebRTC should use explicit `API_AUTH_MODE=browser_session` once the
+dashboard/session/media migration is enabled and validated.
 
 Client offer message:
 

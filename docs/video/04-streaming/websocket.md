@@ -16,7 +16,8 @@ PixEagle checks the configured Host/Origin exposure boundary and API
 authorization runtime before `accept()`. In the checked-in `local_compat` mode,
 unauthenticated browser WebSocket streaming is limited to a same-host loopback
 socket client. Non-loopback clients need scoped API credentials, and remote
-browser sessions are pending.
+browser operation should use explicit `API_AUTH_MODE=browser_session` only
+after the dashboard/session/media migration and evidence gates are complete.
 
 ### Connection
 

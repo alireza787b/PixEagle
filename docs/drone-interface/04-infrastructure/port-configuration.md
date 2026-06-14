@@ -49,8 +49,8 @@ The current backend hosts REST routes, `/video_feed`, and backend WebSocket
 routes on this port. The API modernization program is tracking the migration
 from mixed legacy routes to typed `/api/v1/...` contracts. The checked-in
 policy is local-only with loopback local compatibility. Non-loopback backend
-API clients require scoped bearer tokens, and browser sessions are not
-implemented yet. See the
+API clients require scoped bearer tokens or explicit browser-session auth from
+an external hashed user file. See the
 [API exposure boundary](../../apis/api-exposure-boundary.md).
 
 ### 5551 - Legacy Telemetry WebSocket Setting
@@ -145,8 +145,8 @@ Keep PixEagle backend `5077`, MAVLink2REST `8088`, local service endpoints
 `14540`, `14569`, `12550`, and the MavlinkAnywhere dashboard `9070` local-only.
 Remote operator access should terminate at a separately secured VPN/reverse
 proxy or SSH tunnel rather than directly exposing backend port `5077`.
-Non-loopback PixEagle browser operation remains deferred until browser sessions
-and authenticated media transports are complete.
+Non-loopback PixEagle browser operation remains deferred until the
+dashboard/session/media migration, audit, TLS, and evidence gates are complete.
 
 ## Legacy Port Note
 

@@ -82,6 +82,19 @@ def test_unknown_or_wrong_method_routes_fail_closed():
     assert resolve_route_security_policy("POST", "/docs") is DENY_UNCLASSIFIED
 
 
+def test_auth_routes_have_explicit_bootstrap_and_logout_policy():
+    session_status = resolve_route_security_policy("GET", "/api/v1/auth/session")
+    login = resolve_route_security_policy("POST", "/api/v1/auth/login")
+    logout = resolve_route_security_policy("POST", "/api/v1/auth/logout")
+
+    assert session_status.access == APIAccessMode.PUBLIC
+    assert login.access == APIAccessMode.PUBLIC
+    assert login.audit == APIAuditPolicy.SECURITY_CRITICAL
+    assert logout.access == APIAccessMode.AUTHENTICATED
+    assert logout.csrf_required_for_session is True
+    assert logout.audit == APIAuditPolicy.SECURITY_CRITICAL
+
+
 @pytest.mark.parametrize(
     ("method", "path", "expected_rule"),
     [

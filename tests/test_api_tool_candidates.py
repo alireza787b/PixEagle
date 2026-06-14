@@ -61,6 +61,7 @@ def test_api_tool_candidate_inventory_is_non_callable():
         "src/classes/api_v1_contracts.py",
         "src/classes/api_v1_paths.py",
         "src/classes/api_v1_actions.py",
+        "src/classes/api_v1_auth_routes.py",
         "src/classes/api_legacy_control_routes.py",
         "src/classes/api_v1_read_routes.py",
         "src/classes/api_v1_snapshots.py",
@@ -80,6 +81,7 @@ def test_api_tool_candidate_inventory_is_non_callable():
         "src/classes/api_v1_contracts.py": 64,
         "src/classes/api_v1_paths.py": 64,
         "src/classes/api_v1_actions.py": 64,
+        "src/classes/api_v1_auth_routes.py": 64,
         "src/classes/api_legacy_control_routes.py": 64,
         "src/classes/api_v1_read_routes.py": 64,
         "src/classes/api_v1_snapshots.py": 64,
@@ -198,10 +200,32 @@ def test_action_and_sitl_routes_are_blocked_from_read_only_promotion():
         assert candidate["registry_review_status"] == "unregistered"
 
 
+def test_auth_routes_are_blocked_from_mcp_promotion():
+    inventory = _load_inventory()
+    candidates = _candidate_by_path_method(inventory)
+    blocked_routes = {
+        ("GET", "/api/v1/auth/session"),
+        ("POST", "/api/v1/auth/login"),
+        ("POST", "/api/v1/auth/logout"),
+    }
+
+    for route in blocked_routes:
+        candidate = candidates[route]
+        assert candidate["risk_class"] == "auth_session_boundary"
+        assert candidate["eligible_read_only_mcp_candidate"] is False
+        assert candidate["blocked_reasons"] != []
+        assert candidate["mcp_exposure"] == "none"
+        assert candidate["registry_matches"] == []
+        assert candidate["registry_review_status"] == "unregistered"
+
+
 def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
     inventory = _load_inventory()
     expected_routes = {
         ("GET", "/api/v1/actions/{action_id}"),
+        ("GET", "/api/v1/auth/session"),
+        ("POST", "/api/v1/auth/login"),
+        ("POST", "/api/v1/auth/logout"),
         ("POST", "/api/v1/actions/offboard-start"),
         ("POST", "/api/v1/actions/offboard-stop"),
         ("POST", "/api/v1/actions/operator-abort"),
@@ -222,10 +246,10 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         for candidate in inventory["candidates"]
     }
 
-    assert inventory["summary"]["api_v1_routes"] == 15
-    assert inventory["summary"]["candidate_count"] == 15
-    assert len(inventory["candidates"]) == 15
-    assert inventory["summary"]["blocked_or_guarded_candidates"] == 9
+    assert inventory["summary"]["api_v1_routes"] == 18
+    assert inventory["summary"]["candidate_count"] == 18
+    assert len(inventory["candidates"]) == 18
+    assert inventory["summary"]["blocked_or_guarded_candidates"] == 12
     assert candidate_routes == expected_routes
     assert all(path.startswith("/api/v1/") for _method, path in candidate_routes)
     assert inventory["promotion_path"][-1] == "MCP tools/list and tools/call exposure"

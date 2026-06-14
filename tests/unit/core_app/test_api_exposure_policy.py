@@ -1,5 +1,6 @@
 """Tests for the fail-closed PixEagle API exposure policy."""
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -11,6 +12,7 @@ from fastapi.testclient import TestClient
 from starlette.responses import Response
 
 from classes.api_auth_runtime import (
+    API_AUTH_MODE_BROWSER_SESSION,
     API_AUTH_MODE_LOCAL_COMPAT,
     API_AUTH_MODE_MACHINE_BEARER,
     APIAuthRuntime,
@@ -333,6 +335,26 @@ def test_missing_exposure_mode_migrates_legacy_remote_bind_to_loopback():
     assert policy.cors_allowed_origins == DEFAULT_LOCAL_CORS_ORIGINS
 
 
+def test_browser_session_auth_mode_enables_exact_origin_credentials():
+    parameters = SimpleNamespace(
+        HTTP_STREAM_HOST="127.0.0.1",
+        HTTP_STREAM_PORT=5077,
+        API_AUTH_MODE=API_AUTH_MODE_BROWSER_SESSION,
+        _raw_config={
+            "Streaming": {
+                "API_EXPOSURE_MODE": LOCAL_ONLY,
+                "API_AUTH_MODE": API_AUTH_MODE_BROWSER_SESSION,
+                "API_CORS_ALLOWED_ORIGINS": ["http://localhost:3040"],
+            }
+        },
+    )
+
+    policy = resolve_api_exposure_policy_from_parameters(parameters)
+
+    assert policy.allow_credentials is True
+    assert policy.cors_allowed_origins == ("http://localhost:3040",)
+
+
 def test_explicit_local_only_remote_bind_still_fails_closed():
     parameters = SimpleNamespace(
         HTTP_STREAM_HOST="0.0.0.0",
@@ -561,6 +583,36 @@ async def test_http_middleware_rejects_unclassified_route_before_handler():
     response = await handler._enforce_http_browser_origin(request, call_next)
 
     assert response.status_code == 403
+    call_next.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_http_middleware_uses_typed_error_envelope_for_api_v1_auth_failure():
+    handler = FastAPIHandler.__new__(FastAPIHandler)
+    handler.exposure_policy = resolve_api_exposure_policy(
+        bind_host="0.0.0.0",
+        mode=TRUSTED_LAN_LEGACY,
+        cors_allowed_origins=["http://192.168.1.20:3040"],
+        api_port=5077,
+    )
+    handler.api_auth_runtime = _machine_bearer_runtime()
+    request = SimpleNamespace(
+        method="GET",
+        url=SimpleNamespace(path="/api/v1/runtime/status"),
+        query_params={},
+        headers={"host": "192.168.1.20:5077"},
+        client=SimpleNamespace(host="192.168.1.20"),
+        state=SimpleNamespace(),
+    )
+    call_next = AsyncMock(return_value=Response())
+
+    response = await handler._enforce_http_browser_origin(request, call_next)
+    payload = json.loads(response.body)
+
+    assert response.status_code == 401
+    assert payload["error"] == "authentication_required"
+    assert payload["path"] == "/api/v1/runtime/status"
+    assert payload["detail"]["reason"] == "authentication_required"
     call_next.assert_not_awaited()
 
 

@@ -13,14 +13,15 @@ allowlist. Loopback clients run through `API_AUTH_MODE=local_compat` by
 default only when the immediate socket peer is loopback and no proxy-forwarded
 client identity headers are present. HTTP `Host` is not transport proof.
 Non-loopback API clients require scoped bearer tokens from an external token
-file; browser sessions are not implemented yet. See the
-[API exposure boundary](../../apis/api-exposure-boundary.md).
+file or explicit `API_AUTH_MODE=browser_session` with an external hashed user
+file. See the [API exposure boundary](../../apis/api-exposure-boundary.md).
 
 PixEagle also has a complete declarative
 [API security policy](../../apis/api-security-policy.md) for route access,
-scopes, bearer-token treatment, local compatibility, CSRF planning, audit
-treatment, and default-deny coverage. Remote browser operation is not approved
-in this slice.
+scopes, bearer-token treatment, local compatibility, session CSRF enforcement,
+audit treatment, and default-deny coverage. Remote browser operation is not
+approved until the dashboard/session/media migration, audit, TLS, and evidence
+gates are complete.
 
 ## MCP Readiness Boundary
 
@@ -35,6 +36,7 @@ tests, and reviewer gates are complete.
 
 | Category | Endpoints | Description |
 |----------|-----------|-------------|
+| [Auth](#auth) | `/api/v1/auth/session`, `/api/v1/auth/login`, `/api/v1/auth/logout` | Browser-session status and lifecycle |
 | [Streaming](#streaming) | `/video_feed`, `/ws/video_feed` | Video streaming |
 | [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/v1/tracking/telemetry`, `/api/v1/telemetry/health` | System data and typed health |
 | [Commands](#commands) | `/commands/*` | Control operations |
@@ -44,6 +46,40 @@ tests, and reviewer gates are complete.
 | [Safety](#safety-api) | `/api/safety/*` | Safety settings |
 
 ---
+
+## Auth
+
+### Session Status
+
+```http
+GET /api/v1/auth/session
+```
+
+Returns the current browser-session state. This route is a public bootstrap
+route; it does not expose the HttpOnly session cookie value.
+
+### Login
+
+```http
+POST /api/v1/auth/login
+Content-Type: application/json
+
+{"username": "operator", "password": "********"}
+```
+
+`API_AUTH_MODE=browser_session` and `API_SESSION_USER_FILE` must be configured.
+Successful login sets the HttpOnly session cookie and returns the CSRF token
+for browser mutations. Failed attempts are process-locally throttled.
+
+### Logout
+
+```http
+POST /api/v1/auth/logout
+X-PixEagle-CSRF: <csrf-token>
+```
+
+Revokes the current browser session. Logout requires a valid session cookie and
+session-bound CSRF.
 
 ## Streaming
 

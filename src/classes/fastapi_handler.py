@@ -52,6 +52,11 @@ from classes.api_v1_actions import (
     stop_offboard_action as dispatch_stop_offboard_action,
     stop_offboard_action_unlocked as dispatch_stop_offboard_action_unlocked,
 )
+from classes.api_v1_auth_routes import (
+    get_auth_session as dispatch_get_auth_session,
+    login_auth_session as dispatch_login_auth_session,
+    logout_auth_session as dispatch_logout_auth_session,
+)
 from classes.api_legacy_control_routes import (
     cancel_activities as dispatch_legacy_cancel_activities,
     start_offboard_mode as dispatch_legacy_start_offboard_mode,
@@ -118,6 +123,11 @@ from classes.api_v1_contracts import (
     APIActionAuditEvent,
     APIActionRequest,
     APIActionResponse,
+    APIAuthLoginRequest,
+    APIAuthLoginResponse,
+    APIAuthLogoutResponse,
+    APIAuthPrincipal,
+    APIAuthSessionResponse,
     APIErrorResponse,
     APIFollowingCommandPublicationStatus,
     APIFollowingProfileStatus,
@@ -132,6 +142,7 @@ from classes.api_v1_contracts import (
     APITelemetryPayloadHealth,
     APITelemetryRequestFreshness,
     APITelemetryTransportHealth,
+    AUTH_ROUTE_RESPONSES,
     FOLLOWING_STATUS_ERROR_RESPONSES,
     FOLLOWING_TELEMETRY_ERROR_RESPONSES,
     RUNTIME_STATUS_ERROR_RESPONSES,
@@ -459,6 +470,7 @@ class FastAPIHandler:
                 "Idempotency-Key",
                 "Pragma",
                 "X-PixEagle-CSRF",
+                self.api_auth_runtime.csrf_header_name,
                 "X-Request-ID",
             ],
             max_age=3600
@@ -468,12 +480,20 @@ class FastAPIHandler:
 
     async def _enforce_http_browser_origin(self, request: Request, call_next):
         """Reject cross-site or unauthorized requests before route execution."""
+        request_path = str(getattr(getattr(request, "url", None), "path", ""))
         if not is_http_browser_request_allowed(
             host=request.headers.get("host"),
             origin=request.headers.get("origin"),
             sec_fetch_site=request.headers.get("sec-fetch-site"),
             policy=self.exposure_policy,
         ):
+            if self._uses_typed_api_error_envelope(request_path):
+                return self._api_v1_error_response(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    code="browser_origin_not_allowed",
+                    detail="Browser Origin not allowed",
+                    path=request_path,
+                )
             return JSONResponse(
                 status_code=status.HTTP_403_FORBIDDEN,
                 content={"detail": "Browser Origin not allowed"},
@@ -483,7 +503,7 @@ class FastAPIHandler:
             auth_result = authorize_http_request(
                 runtime=self.api_auth_runtime,
                 method=request.method,
-                path=request.url.path,
+                path=request_path,
                 headers=request.headers,
                 client_host=getattr(request.client, "host", None),
                 host_header=request.headers.get("host"),
@@ -494,6 +514,20 @@ class FastAPIHandler:
                 headers = {}
                 if auth_result.is_authentication_failure:
                     headers["WWW-Authenticate"] = "Bearer"
+                if self._uses_typed_api_error_envelope(str(request.url.path)):
+                    response = self._api_v1_error_response(
+                        status_code=auth_result.status_code,
+                        code=auth_result.reason,
+                        detail={
+                            "message": "API request not authorized",
+                            "reason": auth_result.reason,
+                            "missing_scopes": list(auth_result.missing_scopes),
+                        },
+                        path=request_path,
+                    )
+                    for key, value in headers.items():
+                        response.headers[key] = value
+                    return response
                 return JSONResponse(
                     status_code=auth_result.status_code,
                     content={
@@ -1458,6 +1492,27 @@ class FastAPIHandler:
         except Exception as e:
             self.logger.error(f"Error in get_status: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+    async def get_auth_session(
+        self,
+        request: Request,
+    ) -> APIAuthSessionResponse:
+        return await dispatch_get_auth_session(self, request)
+
+    async def login_auth_session(
+        self,
+        request: Request,
+        request_body: APIAuthLoginRequest,
+        response: Response,
+    ) -> APIAuthLoginResponse:
+        return await dispatch_login_auth_session(self, request, request_body, response)
+
+    async def logout_auth_session(
+        self,
+        request: Request,
+        response: Response,
+    ) -> APIAuthLogoutResponse:
+        return await dispatch_logout_auth_session(self, request, response)
 
     async def get_runtime_status(self):
         return await dispatch_get_runtime_status(self)

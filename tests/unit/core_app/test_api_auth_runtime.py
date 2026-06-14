@@ -1,23 +1,37 @@
 """Tests for PixEagle API runtime authentication helpers."""
 
+import base64
+import hashlib
 import json
 from types import SimpleNamespace
 
 import pytest
 
+import classes.api_auth_runtime as auth_runtime
 from classes.api_auth_runtime import (
+    API_AUTH_MODE_BROWSER_SESSION,
     API_AUTH_MODE_LOCAL_COMPAT,
     API_AUTH_MODE_MACHINE_BEARER,
     APIAuthConfigurationError,
     APIAuthRuntime,
+    APILoginFailureLimiter,
+    APIUserRecord,
     BearerTokenRecord,
+    MAX_PBKDF2_ITERATIONS,
+    MAX_SESSION_TTL_SECONDS,
+    MIN_PBKDF2_ITERATIONS,
+    MIN_SESSION_TTL_SECONDS,
     authorize_http_request,
     has_proxy_forwarded_client_headers,
     hash_bearer_token,
+    hash_password_pbkdf2_sha256,
     is_loopback_transport_client,
     load_bearer_token_records,
+    load_user_records,
     make_token_record,
+    make_user_record,
     resolve_api_auth_runtime_from_parameters,
+    verify_password_pbkdf2_sha256,
 )
 from classes.api_exposure_policy import (
     LOCAL_ONLY,
@@ -26,6 +40,7 @@ from classes.api_exposure_policy import (
 )
 from classes.api_security_types import (
     ALL_API_SCOPES,
+    ACTIONS_EXECUTE,
     APIPrincipalKind,
     CONFIG_READ,
     STATUS_READ,
@@ -65,6 +80,43 @@ def _runtime_with_token(token="secret-token", scopes=frozenset({STATUS_READ})):
     )
 
 
+def _runtime_with_session_user(password="correct-horse"):
+    password_hash = hash_password_pbkdf2_sha256(password)
+    return APIAuthRuntime(
+        mode=API_AUTH_MODE_BROWSER_SESSION,
+        users_by_username={
+            "operator": APIUserRecord(
+                username="operator",
+                role="operator",
+                password_pbkdf2_sha256=password_hash,
+            )
+        },
+    )
+
+
+def _encoded_password_hash(
+    *,
+    password: str = "correct-horse",
+    iterations: int = MIN_PBKDF2_ITERATIONS,
+    salt: bytes = b"1234567890abcdef",
+    digest: bytes | None = None,
+) -> str:
+    digest = digest or hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt,
+        iterations,
+    )
+    return "$".join(
+        (
+            "pbkdf2_sha256",
+            str(iterations),
+            base64.b64encode(salt).decode("ascii"),
+            base64.b64encode(digest).decode("ascii"),
+        )
+    )
+
+
 def test_token_file_loads_hashed_named_records(tmp_path):
     token_file = tmp_path / "api_tokens.json"
     token_file.write_text(
@@ -90,6 +142,151 @@ def test_token_file_loads_hashed_named_records(tmp_path):
     assert records[0].subject == "ci"
     assert records[0].scopes == frozenset({STATUS_READ})
     assert "high-entropy-token" not in token_file.read_text(encoding="utf-8")
+
+
+def test_user_file_loads_hashed_session_user_records(tmp_path):
+    user_file = tmp_path / "api_users.json"
+    user_file.write_text(
+        json.dumps(
+            {
+                "users": [
+                    make_user_record(
+                        username="Operator",
+                        plaintext_password="correct-horse",
+                        role="operator",
+                    )
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    records = load_user_records(user_file)
+
+    assert len(records) == 1
+    assert records[0].username == "operator"
+    assert records[0].role == "operator"
+    assert verify_password_pbkdf2_sha256(
+        password="correct-horse",
+        encoded=records[0].password_pbkdf2_sha256,
+    )
+    assert "correct-horse" not in user_file.read_text(encoding="utf-8")
+
+
+def test_user_file_rejects_plaintext_password_fields(tmp_path):
+    user_file = tmp_path / "api_users.json"
+    user_file.write_text(
+        json.dumps(
+            {
+                "users": [
+                    {
+                        "username": "operator",
+                        "role": "operator",
+                        "password": "do-not-store-this",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(APIAuthConfigurationError, match="plaintext"):
+        load_user_records(user_file)
+
+
+def test_user_file_rejects_malformed_password_hash(tmp_path):
+    user_file = tmp_path / "api_users.json"
+    user_file.write_text(
+        json.dumps(
+            {
+                "users": [
+                    {
+                        "username": "operator",
+                        "role": "operator",
+                        "password_pbkdf2_sha256": "pbkdf2_sha256$310000$not-base64!$digest",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(APIAuthConfigurationError, match="invalid password"):
+        load_user_records(user_file)
+
+
+@pytest.mark.parametrize(
+    "password_hash",
+    [
+        _encoded_password_hash(iterations=MIN_PBKDF2_ITERATIONS - 1),
+        _encoded_password_hash(
+            iterations=MAX_PBKDF2_ITERATIONS + 1,
+            digest=b"0" * 32,
+        ),
+        _encoded_password_hash(salt=b"short-salt"),
+        _encoded_password_hash(digest=b"short-digest"),
+    ],
+)
+def test_user_file_rejects_weak_or_abusive_password_hash_parameters(
+    tmp_path,
+    password_hash,
+):
+    user_file = tmp_path / "api_users.json"
+    user_file.write_text(
+        json.dumps(
+            {
+                "users": [
+                    {
+                        "username": "operator",
+                        "role": "operator",
+                        "password_pbkdf2_sha256": password_hash,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(APIAuthConfigurationError, match="invalid password"):
+        load_user_records(user_file)
+
+
+def test_user_file_rejects_string_enabled_values(tmp_path):
+    user_file = tmp_path / "api_users.json"
+    user_file.write_text(
+        json.dumps(
+            {
+                "users": [
+                    {
+                        "username": "operator",
+                        "role": "operator",
+                        "password_pbkdf2_sha256": hash_password_pbkdf2_sha256(
+                            "correct-horse"
+                        ),
+                        "enabled": "false",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(APIAuthConfigurationError, match="JSON boolean"):
+        load_user_records(user_file)
+
+
+def test_token_file_rejects_string_enabled_values(tmp_path):
+    token_file = tmp_path / "api_tokens.json"
+    record = make_token_record(
+        token_id="readonly-ci",
+        plaintext_token="secret-token",
+        scopes=[STATUS_READ],
+    )
+    record["enabled"] = "false"
+    token_file.write_text(json.dumps({"tokens": [record]}), encoding="utf-8")
+
+    with pytest.raises(APIAuthConfigurationError, match="JSON boolean"):
+        load_bearer_token_records(token_file)
 
 
 def test_token_file_rejects_unknown_scope(tmp_path):
@@ -142,6 +339,45 @@ def test_resolve_runtime_from_parameters_loads_external_token_file(tmp_path):
     assert runtime.token_file == token_file
 
 
+def test_resolve_runtime_from_parameters_loads_external_session_user_file(tmp_path):
+    user_file = tmp_path / "api_users.json"
+    user_file.write_text(
+        json.dumps(
+            {
+                "users": [
+                    make_user_record(
+                        username="operator",
+                        plaintext_password="correct-horse",
+                    )
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    parameters = SimpleNamespace(
+        API_AUTH_MODE=API_AUTH_MODE_BROWSER_SESSION,
+        API_SESSION_USER_FILE=str(user_file),
+        API_SESSION_TTL_SECONDS=120,
+        API_SESSION_COOKIE_NAME="pix_session",
+        API_SESSION_COOKIE_SECURE=True,
+        API_CSRF_HEADER_NAME="X-Test-CSRF",
+        _raw_config={},
+    )
+
+    runtime = resolve_api_auth_runtime_from_parameters(parameters)
+
+    assert runtime.mode == API_AUTH_MODE_BROWSER_SESSION
+    assert runtime.user_file == user_file
+    assert runtime.session_ttl_seconds == 120
+    assert runtime.session_cookie_name == "pix_session"
+    assert runtime.session_cookie_secure is True
+    assert runtime.csrf_header_name == "x-test-csrf"
+    assert runtime.authenticate_user(
+        username="operator",
+        password="correct-horse",
+    )
+
+
 def test_machine_bearer_mode_requires_token_records():
     with pytest.raises(APIAuthConfigurationError, match="requires at least one"):
         APIAuthRuntime(mode=API_AUTH_MODE_MACHINE_BEARER)
@@ -160,6 +396,103 @@ def test_machine_bearer_mode_requires_token_records():
                 )
             },
         )
+
+
+def test_browser_session_mode_requires_enabled_user_records():
+    with pytest.raises(APIAuthConfigurationError, match="requires at least one"):
+        APIAuthRuntime(mode=API_AUTH_MODE_BROWSER_SESSION)
+
+    with pytest.raises(APIAuthConfigurationError, match="requires at least one"):
+        APIAuthRuntime(
+            mode=API_AUTH_MODE_BROWSER_SESSION,
+            users_by_username={
+                "operator": APIUserRecord(
+                    username="operator",
+                    role="operator",
+                    password_pbkdf2_sha256=hash_password_pbkdf2_sha256("secret"),
+                    enabled=False,
+                )
+            },
+        )
+
+
+def test_browser_session_ttl_matches_schema_bounds():
+    users = {
+        "operator": APIUserRecord(
+            username="operator",
+            role="operator",
+            password_pbkdf2_sha256=hash_password_pbkdf2_sha256("secret"),
+        )
+    }
+
+    with pytest.raises(APIAuthConfigurationError, match="between"):
+        APIAuthRuntime(
+            mode=API_AUTH_MODE_BROWSER_SESSION,
+            users_by_username=users,
+            session_ttl_seconds=MIN_SESSION_TTL_SECONDS - 1,
+        )
+
+    with pytest.raises(APIAuthConfigurationError, match="between"):
+        APIAuthRuntime(
+            mode=API_AUTH_MODE_BROWSER_SESSION,
+            users_by_username=users,
+            session_ttl_seconds=MAX_SESSION_TTL_SECONDS + 1,
+        )
+
+    runtime = APIAuthRuntime(
+        mode=API_AUTH_MODE_BROWSER_SESSION,
+        users_by_username=users,
+        session_ttl_seconds=MIN_SESSION_TTL_SECONDS,
+    )
+    assert runtime.session_ttl_seconds == MIN_SESSION_TTL_SECONDS
+
+
+def test_login_failure_limiter_throttles_and_clears_keys():
+    limiter = APILoginFailureLimiter(max_failures=2, window_seconds=60)
+
+    assert limiter.is_allowed("host:user") == (True, None)
+    limiter.record_failure("host:user")
+    assert limiter.is_allowed("host:user") == (True, None)
+    limiter.record_failure("host:user")
+    allowed, retry_after = limiter.is_allowed("host:user")
+    assert allowed is False
+    assert retry_after is not None
+
+    limiter.clear("host:user")
+    assert limiter.is_allowed("host:user") == (True, None)
+
+
+def test_login_failure_limiter_caps_global_and_per_client_keys():
+    limiter = APILoginFailureLimiter(
+        max_failures=2,
+        window_seconds=60,
+        max_keys=3,
+        max_keys_per_client=2,
+    )
+
+    limiter.record_failure("host:user1")
+    limiter.record_failure("host:user2")
+    assert limiter.is_allowed("host:user3")[0] is False
+
+    limiter.record_failure("other:user1")
+    assert limiter.is_allowed("third:user1")[0] is False
+
+
+def test_unknown_user_login_runs_dummy_password_verification(monkeypatch):
+    runtime = _runtime_with_session_user()
+    real_hash = runtime.users_by_username["operator"].password_pbkdf2_sha256
+    calls = []
+
+    def fake_verify(*, password, encoded):
+        calls.append((password, encoded))
+        return password == "not-the-supplied-password"
+
+    monkeypatch.setattr(auth_runtime, "verify_password_pbkdf2_sha256", fake_verify)
+
+    assert runtime.authenticate_user(username="missing", password="probe") is None
+    assert len(calls) == 1
+    assert calls[0][0] == "probe"
+    assert calls[0][1] != real_hash
 
 
 def test_local_compat_loopback_allows_declared_routes_without_credentials():
@@ -261,6 +594,83 @@ def test_bearer_token_authorizes_only_exact_scopes():
     assert config_result.allowed is False
     assert config_result.reason == "insufficient_scope"
     assert config_result.missing_scopes == (CONFIG_READ,)
+
+
+def test_browser_session_cookie_authorizes_reads_and_requires_csrf_for_mutations():
+    runtime = _runtime_with_session_user()
+    user = runtime.authenticate_user(username="operator", password="correct-horse")
+    assert user is not None
+    session = runtime.create_session_for_user(user)
+    cookie_header = f"{runtime.session_cookie_name}={session.session_id}"
+
+    read_result = authorize_http_request(
+        runtime=runtime,
+        method="GET",
+        path="/api/v1/runtime/status",
+        headers={"cookie": cookie_header},
+        client_host="192.168.1.20",
+        host_header="192.168.1.20:5077",
+        exposure_policy=_trusted_lan_policy(),
+    )
+    missing_csrf_result = authorize_http_request(
+        runtime=runtime,
+        method="POST",
+        path="/api/v1/actions/offboard-stop",
+        headers={"cookie": cookie_header},
+        client_host="192.168.1.20",
+        host_header="192.168.1.20:5077",
+        exposure_policy=_trusted_lan_policy(),
+    )
+    csrf_result = authorize_http_request(
+        runtime=runtime,
+        method="POST",
+        path="/api/v1/actions/offboard-stop",
+        headers={
+            "cookie": cookie_header,
+            runtime.csrf_header_name: session.csrf_token,
+        },
+        client_host="192.168.1.20",
+        host_header="192.168.1.20:5077",
+        exposure_policy=_trusted_lan_policy(),
+    )
+
+    assert read_result.allowed is True
+    assert read_result.principal.kind == APIPrincipalKind.SESSION
+    assert read_result.principal.scopes >= frozenset({STATUS_READ, ACTIONS_EXECUTE})
+    assert missing_csrf_result.allowed is False
+    assert missing_csrf_result.status_code == 403
+    assert missing_csrf_result.reason == "csrf_required"
+    assert csrf_result.allowed is True
+
+
+def test_unknown_session_cookie_is_ignored_on_public_auth_status_only():
+    runtime = _runtime_with_session_user()
+    headers = {"cookie": f"{runtime.session_cookie_name}=missing-session"}
+
+    public_result = authorize_http_request(
+        runtime=runtime,
+        method="GET",
+        path="/api/v1/auth/session",
+        headers=headers,
+        client_host="192.168.1.20",
+        host_header="192.168.1.20:5077",
+        exposure_policy=_trusted_lan_policy(),
+    )
+    protected_result = authorize_http_request(
+        runtime=runtime,
+        method="GET",
+        path="/api/v1/runtime/status",
+        headers=headers,
+        client_host="192.168.1.20",
+        host_header="192.168.1.20:5077",
+        exposure_policy=_trusted_lan_policy(),
+    )
+
+    assert public_result.allowed is True
+    assert public_result.principal.kind == APIPrincipalKind.ANONYMOUS
+    assert protected_result.allowed is False
+    assert protected_result.status_code == 401
+    assert protected_result.reason == "invalid_session"
 
 
 def test_local_only_route_rejects_remote_bearer_even_with_all_scopes():

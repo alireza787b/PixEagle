@@ -221,6 +221,7 @@ def resolve_api_exposure_policy(
     mode: str,
     cors_allowed_origins: Iterable[str],
     api_port: Optional[int] = None,
+    allow_credentials: bool = False,
     legacy_remote_bind_migrated: bool = False,
 ) -> APIExposurePolicy:
     """Validate and normalize API bind and CORS configuration."""
@@ -260,6 +261,7 @@ def resolve_api_exposure_policy(
         mode=normalized_mode,
         cors_allowed_origins=normalized_origins,
         api_port=normalized_api_port,
+        allow_credentials=bool(allow_credentials),
         legacy_remote_bind_migrated=legacy_remote_bind_migrated,
     )
 
@@ -289,10 +291,17 @@ def resolve_api_exposure_policy_from_parameters(parameters, *, bind_host=None):
     if raw_origins is None:
         raw_origins = getattr(parameters, "API_CORS_ALLOWED_ORIGINS", DEFAULT_LOCAL_CORS_ORIGINS)
 
+    auth_mode = raw_streaming.get(
+        "API_AUTH_MODE",
+        getattr(parameters, "API_AUTH_MODE", ""),
+    )
+    allow_credentials = str(auth_mode or "").strip().lower() == "browser_session"
+
     return resolve_api_exposure_policy(
         bind_host=effective_bind_host,
         mode=mode,
         cors_allowed_origins=raw_origins,
         api_port=getattr(parameters, "HTTP_STREAM_PORT", 5077),
+        allow_credentials=allow_credentials,
         legacy_remote_bind_migrated=legacy_remote_bind_migrated,
     )

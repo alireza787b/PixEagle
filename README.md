@@ -127,13 +127,15 @@ scripts\stop.bat           # Stop all services
 ### Access Dashboard
 
 - **Local**: http://localhost:3040
-- **Remote operator access**: use an SSH tunnel; non-loopback browser operation is not approved until browser sessions land
+- **Remote operator access**: use an SSH tunnel; non-loopback browser operation
+  is not production-approved until the dashboard/session/media migration,
+  audit, TLS, and evidence gates are complete
 
 The backend is local-only by default and rejects contradictory local-only bind
 or CORS configuration. Non-loopback backend API clients require scoped bearer
-tokens from an external token file, and browser sessions are not implemented
-yet. Do not expose the dashboard/backend to untrusted LANs, the public
-internet, or shared field networks. See the
+tokens from an external token file or explicit `API_AUTH_MODE=browser_session`
+with an external hashed user file. Do not expose the dashboard/backend to
+untrusted LANs, the public internet, or shared field networks. See the
 [API exposure boundary](docs/apis/api-exposure-boundary.md).
 
 ---
@@ -207,14 +209,14 @@ PixEagle requires MAVLink communication with PX4.
 
 Do not open backend port `5077` directly. For remote operator access, keep the
 backend local and use an SSH tunnel. Non-loopback reverse-proxy/VPN browser
-operation remains deferred until browser sessions and authenticated media
-transports are complete.
+operation remains deferred until dashboard/session/media migration and evidence
+gates are complete.
 
 Keep PixEagle backend `5077`, MAVLink2REST `8088`, and MAVLink local endpoints
 behind localhost or SSH tunnels unless the deployment has an explicit
 network-security plan. Do not rely on a reverse proxy to extend
 `local_compat`; backend API clients outside the same host need scoped bearer
-tokens until browser sessions are implemented.
+tokens or explicit browser-session auth.
 
 > **Full Guide**: [Port Configuration](docs/drone-interface/04-infrastructure/port-configuration.md)
 

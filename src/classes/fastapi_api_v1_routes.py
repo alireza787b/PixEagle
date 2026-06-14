@@ -11,6 +11,9 @@ from classes.api_v1_paths import (
     API_V1_ACTION_OFFBOARD_STOP_PATH,
     API_V1_ACTION_OPERATOR_ABORT_PATH,
     API_V1_ACTION_RESOURCE_PATH,
+    API_V1_AUTH_LOGIN_PATH,
+    API_V1_AUTH_LOGOUT_PATH,
+    API_V1_AUTH_SESSION_PATH,
     API_V1_FOLLOWING_STATUS_PATH,
     API_V1_FOLLOWING_TELEMETRY_PATH,
     API_V1_RUNTIME_STATUS_PATH,
@@ -40,6 +43,33 @@ class ApiV1RouteSpec:
 
 
 API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
+    ApiV1RouteSpec(
+        method="GET",
+        path=API_V1_AUTH_SESSION_PATH,
+        handler="get_auth_session",
+        response_model="APIAuthSessionResponse",
+        responses="AUTH_ROUTE_RESPONSES",
+        operation_id="get_auth_session",
+        tags=("auth",),
+    ),
+    ApiV1RouteSpec(
+        method="POST",
+        path=API_V1_AUTH_LOGIN_PATH,
+        handler="login_auth_session",
+        response_model="APIAuthLoginResponse",
+        responses="AUTH_ROUTE_RESPONSES",
+        operation_id="login_auth_session",
+        tags=("auth",),
+    ),
+    ApiV1RouteSpec(
+        method="POST",
+        path=API_V1_AUTH_LOGOUT_PATH,
+        handler="logout_auth_session",
+        response_model="APIAuthLogoutResponse",
+        responses="AUTH_ROUTE_RESPONSES",
+        operation_id="logout_auth_session",
+        tags=("auth",),
+    ),
     ApiV1RouteSpec(
         method="GET",
         path=API_V1_RUNTIME_STATUS_PATH,

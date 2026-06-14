@@ -110,11 +110,11 @@ SCHEMA_OVERRIDES = {
              'description': 'Require an explicit loopback bind and loopback CORS origins'},
             {'value': 'trusted_lan_legacy', 'label': 'Trusted LAN (legacy)',
              'description': (
-                 'Temporary LAN compatibility; backend API clients still require '
-                 'scoped bearer tokens and browser sessions are pending'
+                 'Temporary LAN compatibility; use bearer tokens for machine clients '
+                 'or explicit browser_session auth for browser clients'
              )},
         ],
-        'description': 'API exposure boundary; non-loopback browser sessions are not available yet',
+        'description': 'API exposure boundary; wildcard origins are prohibited in every mode',
     },
     'Streaming.HTTP_STREAM_HOST': {
         'description': 'Backend bind host; local_only requires 127.0.0.1, ::1, or localhost',
@@ -134,16 +134,35 @@ SCHEMA_OVERRIDES = {
              )},
             {'value': 'machine_bearer', 'label': 'Machine bearer only',
              'description': (
-                 'Require scoped bearer tokens for machine API clients; current '
-                 'browser dashboard/media transports cannot authenticate yet'
+                 'Require scoped bearer tokens for machine API clients'
+             )},
+            {'value': 'browser_session', 'label': 'Browser sessions',
+             'description': (
+                 'Require an external hashed user file and use HttpOnly cookies '
+                 'with CSRF for browser/operator API access'
              )},
         ],
-        'description': (
-            'Runtime API authorization mode; browser sessions are not implemented yet'
-        ),
+        'description': 'Runtime API authorization mode',
     },
     'Streaming.API_BEARER_TOKEN_FILE': {
         'description': 'Optional external JSON file containing hashed, named, revocable machine bearer token records',
+    },
+    'Streaming.API_SESSION_USER_FILE': {
+        'description': 'Optional external JSON file containing hashed browser/operator session user records',
+    },
+    'Streaming.API_SESSION_TTL_SECONDS': {
+        'type': 'integer', 'default': 28800, 'min': 60, 'max': 604800,
+        'unit': 's',
+        'description': 'Browser session lifetime in seconds for API_AUTH_MODE=browser_session',
+    },
+    'Streaming.API_SESSION_COOKIE_NAME': {
+        'description': 'HttpOnly browser session cookie name for API_AUTH_MODE=browser_session',
+    },
+    'Streaming.API_SESSION_COOKIE_SECURE': {
+        'description': 'Require HTTPS for the browser session cookie; enable when serving PixEagle over TLS',
+    },
+    'Streaming.API_CSRF_HEADER_NAME': {
+        'description': 'Header name carrying the session-bound CSRF token for browser mutations',
     },
     'VideoSource.FRAME_ROTATION_DEG': {
         'options': [

@@ -89,7 +89,8 @@ it together with:
 | Phase 4 companion runtime reconciliation | done | PXE-0022 | `checkpoints/2026-06-11-phase-4-companion-runtime-reconciliation.md`; exact current MDS/MavlinkAnywhere/Smart Wi-Fi Manager review, canonical companion ownership/auth/profile/secret/version/evidence/agent-boundary contract, active routing/SITL/API/architecture/exposure docs alignment, docs guardrails, and bounded read-only local probe done; follow-up runtime auth/exposure, SITL sidecar-evidence, and candidate-disposition work tracked as PXE-0064/PXE-0065/PXE-0066; no sidecar mutation or routing/PX4/SITL success claimed |
 | Phase 4 API exposure containment foundation | done | PXE-0064 partial | `checkpoints/2026-06-12-phase-4-api-exposure-containment.md`; backend, dashboard, and MAVLink2REST defaults are local-only; `API_EXPOSURE_MODE` governs checked-in and legacy remote binds; wildcard CORS and contradictory local-only origins fail closed; Host/DNS-rebinding, browser Origin/Fetch-Metadata, and WebSocket Host/Origin checks run before route execution/accept; launchers/docs no longer advertise default LAN exposure; guardrail tests cover defaults and stale exposure guidance; production auth/CSRF/scopes/media auth/legacy mutation retirement remain open under PXE-0064 |
 | Phase 4 API security policy foundation | done | PXE-0064 partial | `checkpoints/2026-06-13-phase-4-api-security-policy-foundation.md`; typed principal/scope/role contracts and a declarative default-deny route policy now cover every declared route plus implicit FastAPI docs routes; exact-coverage tests prove route classification, least-privilege session roles, exact bearer scopes, local-only legacy/admin/SITL boundaries, and no callable MCP/tool exposure |
-| Phase 4 API auth runtime foundation | done | PXE-0064 partial | `checkpoints/2026-06-13-phase-4-api-auth-runtime-foundation.md`; HTTP/MJPEG route execution and video/WebRTC WebSocket acceptance now pass through route authorization; `local_compat` is same-host socket-only and refuses `Host`/proxy-forwarded local proof; non-loopback API clients use scoped hashed bearer records from an external token file; query-string tokens are rejected; browser sessions, CSRF, dashboard credential-aware media, durable audit, typed-action-only enforcement, and final legacy retirement remain open |
+| Phase 4 API auth runtime foundation | done | PXE-0064 partial | `checkpoints/2026-06-13-phase-4-api-auth-runtime-foundation.md`; HTTP/MJPEG route execution and video/WebRTC WebSocket acceptance now pass through route authorization; `local_compat` is same-host socket-only and refuses `Host`/proxy-forwarded local proof; non-loopback API clients use scoped hashed bearer records from an external token file; query-string tokens are rejected; at that checkpoint browser sessions and CSRF were still open, and the later browser-session foundation closed the backend pieces; dashboard credential-aware media, durable audit, typed-action-only enforcement, and final legacy retirement remain open |
+| Phase 4 browser-session auth foundation | done | PXE-0064 partial | `checkpoints/2026-06-14-phase-4-browser-session-auth-foundation.md`; `API_AUTH_MODE=browser_session` now loads external PBKDF2-SHA256 user records, exposes typed `/api/v1/auth/session`, `/api/v1/auth/login`, and `/api/v1/auth/logout`, creates HttpOnly cookie sessions, validates session-bound CSRF on browser mutations, throttles failed login attempts, enables credentialed exact-origin CORS only in browser-session mode, keeps auth route bodies outside `FastAPIHandler`, and updates API/MCP candidate provenance with no callable tool exposure; dashboard credential-aware API/media migration, durable audit, typed-action-only enforcement, and final legacy retirement remain open |
 
 ## Active Slice
 
@@ -159,10 +160,13 @@ least-privilege scope modeling. The first runtime-auth foundation is complete:
 HTTP/MJPEG route execution plus video/WebRTC WebSocket acceptance use the route
 policy, same-host `local_compat` no longer trusts `Host` or proxy-forwarded
 client metadata, non-loopback API clients can use scoped hashed bearer records,
-and query-string tokens are rejected. PXE-0064 remains open for
-browser/operator sessions, session CSRF, dashboard credential-aware API/media
-migration, durable security audit events, typed-action-only enforcement, and
-legacy mutation retirement. No runtime MCP endpoint,
+and query-string tokens are rejected. The browser-session auth foundation is
+also complete: external hashed browser users, typed auth/session routes,
+HttpOnly cookie sessions, session-bound CSRF, process-local failed-login
+throttling, and credentialed exact-origin CORS are implemented. PXE-0064
+remains open for dashboard credential-aware API/media migration, durable
+security audit events, operator credential/TLS hardening, typed-action-only
+enforcement, and final legacy mutation retirement. No runtime MCP endpoint,
 executor, `tools/list`, `tools/call`, or callable tool surface exists
 from these slices. These are still unit/contract evidence only; no runtime
 PX4/SITL pass is claimed. Official Gazebo runtime proof (PXE-0040) remains open
@@ -212,6 +216,9 @@ Audit artifact:
 - `checkpoints/2026-06-10-phase-4-legacy-offboard-stop-boundary.md`
 - `checkpoints/2026-06-11-phase-4-typed-offboard-stop-action.md`
 - `checkpoints/2026-06-12-phase-4-api-exposure-containment.md`
+- `checkpoints/2026-06-13-phase-4-api-security-policy-foundation.md`
+- `checkpoints/2026-06-13-phase-4-api-auth-runtime-foundation.md`
+- `checkpoints/2026-06-14-phase-4-browser-session-auth-foundation.md`
 
 Recently completed Offboard commander follow-up issues:
 
@@ -299,9 +306,12 @@ Recently completed Offboard commander follow-up issues:
   checked-in and managed-launcher defaults are local-only; broad exposure now
   requires explicit `trusted_lan_legacy`; Host/Origin/fetch-site and WebSocket
   Host/Origin checks guard the unauthenticated process boundary; docs and guardrails
-  no longer normalize default LAN exposure. PXE-0064 remains open for full
-  authentication, CSRF, scopes, authenticated media, audit events, typed-action
-  enforcement, and legacy mutation retirement. Done in
+  no longer normalize default LAN exposure. At that checkpoint PXE-0064 still
+  had authentication/session work open; the later policy, runtime-auth, and
+  browser-session foundations have since closed the backend auth/CSRF pieces.
+  Remaining PXE-0064 work is dashboard credential-aware media/API migration,
+  durable audit, operator credential/TLS hardening, typed-action-only
+  enforcement, and final legacy mutation retirement. Done in
   `checkpoints/2026-06-12-phase-4-api-exposure-containment.md`.
 - PXE-0064 declarative API security policy foundation: typed principal/scope
   contracts, default-deny classification, exact declared-route and implicit
@@ -314,9 +324,12 @@ Recently completed Offboard commander follow-up issues:
   `local_compat` refuses `Host` and proxy-forwarded local proof; external
   hashed bearer token records authorize non-loopback machine API clients with
   exact scopes; query-string tokens are rejected; WebRTC/WebSocket docs and
-  API/MCP candidate provenance were reconciled. PXE-0064 remains open for
-  browser sessions, CSRF, dashboard credential-aware API/media migration,
-  durable audit, typed-action-only enforcement, and final legacy retirement.
+  API/MCP candidate provenance were reconciled. At that checkpoint browser
+  sessions and CSRF were still open; the later browser-session foundation added
+  external user records, auth routes, HttpOnly sessions, session CSRF, and
+  login throttling. PXE-0064 remains open for dashboard credential-aware
+  API/media migration, durable audit, operator credential/TLS hardening,
+  typed-action-only enforcement, and final legacy retirement.
   Done in `checkpoints/2026-06-13-phase-4-api-auth-runtime-foundation.md`.
 - PXE-0036: backend/API typed MAVLink telemetry health now separates latest
   request result, last-success freshness, cached payload availability, consumer

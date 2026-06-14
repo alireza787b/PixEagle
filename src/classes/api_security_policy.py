@@ -1,8 +1,9 @@
 """Declarative, default-deny security policy for PixEagle API routes.
 
-This module classifies the existing HTTP and WebSocket surface without
-enabling authentication by itself. Credential/session middleware consumes this
-contract in later PXE-0064 slices.
+This module classifies the HTTP and WebSocket surface consumed by the runtime
+authentication middleware. New routes must be declared here, covered by the
+inventory tests, and assigned explicit authentication, scope, CSRF, and audit
+requirements before they can execute.
 """
 
 from __future__ import annotations
@@ -212,6 +213,28 @@ AUTH_SYSTEM_READ = _policy(
     APIAuditPolicy.SENSITIVE_READ,
     rationale="System status and frontend configuration require authenticated access.",
 )
+PUBLIC_AUTH_SESSION = _policy(
+    APIAccessMode.PUBLIC,
+    APISensitivity.SYSTEM,
+    (),
+    APIAuditPolicy.NONE,
+    rationale="Browser clients need a safe bootstrap route to discover session state.",
+)
+PUBLIC_AUTH_LOGIN = _policy(
+    APIAccessMode.PUBLIC,
+    APISensitivity.SYSTEM,
+    (),
+    APIAuditPolicy.SECURITY_CRITICAL,
+    rationale="Login must be reachable before authentication but requires rate/audit hardening.",
+)
+AUTH_SESSION_LOGOUT = _policy(
+    APIAccessMode.AUTHENTICATED,
+    APISensitivity.SYSTEM,
+    {STATUS_READ},
+    APIAuditPolicy.SECURITY_CRITICAL,
+    csrf=True,
+    rationale="Logout revokes browser session state and requires session-bound CSRF.",
+)
 LOCAL_LEGACY_CONTROL = _policy(
     APIAccessMode.LOCAL_ONLY,
     APISensitivity.CONTROL,
@@ -292,6 +315,24 @@ DENY_UNCLASSIFIED = _policy(
 
 
 API_ROUTE_SECURITY_RULES = (
+    APIRouteSecurityRule(
+        "auth_session_status",
+        frozenset({"GET"}),
+        ("/api/v1/auth/session",),
+        PUBLIC_AUTH_SESSION,
+    ),
+    APIRouteSecurityRule(
+        "auth_login",
+        frozenset({"POST"}),
+        ("/api/v1/auth/login",),
+        PUBLIC_AUTH_LOGIN,
+    ),
+    APIRouteSecurityRule(
+        "auth_logout",
+        frozenset({"POST"}),
+        ("/api/v1/auth/logout",),
+        AUTH_SESSION_LOGOUT,
+    ),
     APIRouteSecurityRule(
         "status_reads",
         frozenset({"GET"}),

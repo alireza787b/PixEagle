@@ -11,6 +11,7 @@ from typing import Iterable, Mapping, Optional
 class APIAccessMode(str, Enum):
     """How a route may be reached once authentication enforcement is enabled."""
 
+    PUBLIC = "public"
     AUTHENTICATED = "authenticated"
     LOCAL_ONLY = "local_only"
     DENY = "deny"
@@ -297,6 +298,9 @@ def authorize_api_request(
     csrf_valid: bool = False,
 ) -> APIAuthorizationDecision:
     """Evaluate route policy without reading credentials or mutating state."""
+    if policy.access == APIAccessMode.PUBLIC:
+        return APIAuthorizationDecision(True, "allowed")
+
     if policy.access == APIAccessMode.DENY:
         return APIAuthorizationDecision(False, "route_policy_denied")
 

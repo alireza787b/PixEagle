@@ -5,15 +5,17 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: 2b8ec1cf6e9598943f49293a31b62c18de0aca353bde9842d8251dc8b53e8e46
+    sha256: 8b6d4ad4875707dead1f3dc30931b053576da4a656c149c8c36570508b6ebddf
   - file: src/classes/fastapi_api_v1_routes.py
-    sha256: a3d7aa425ea01ec48dde547a72bf6da7e6c43f9a1749a53577718cc5271e9a31
+    sha256: d01ee5c16c14268ea57f2ebbbaa654cf99c47437295060d5bc0089b10aaa01e7
   - file: src/classes/api_v1_contracts.py
-    sha256: 400e947b69ed8b42b87ed7de8608ba9b43ab211bb743ea31012584fe43c23302
+    sha256: 9feeebc2ef05ef699b4d77cf093ea5307fd81db27ec1765e2673b467cea61678
   - file: src/classes/api_v1_paths.py
-    sha256: f6624a7ed1a22b00101b9042bab183e395347ff8f2e0d73e15028f5762a543e2
+    sha256: b924b1b075a1415ac3cf75b1b6db6172e922eb3cb1a0a389a39f13f7181c1088
   - file: src/classes/api_v1_actions.py
     sha256: 7ca3b126f953976bf4dc0da6633877e4558f81d730c9a355c07b45e3a65718e4
+  - file: src/classes/api_v1_auth_routes.py
+    sha256: b154dc24f88e610a166d7d4f3ff1732d5548442f81e73619feefb4b0bc9d08f5
   - file: src/classes/api_legacy_control_routes.py
     sha256: 2fd4b481e7b6f078fee9071e21dec226cc694e5283ceaa3d1b5ee50acf2e1e05
   - file: src/classes/api_v1_read_routes.py
@@ -25,19 +27,20 @@ source:
   - file: src/classes/api_v1_sitl.py
     sha256: b9645af0ea6058974143009debd4544aafbb865053bbd106a8c3d0363f580dd4
   - file: src/classes/api_exposure_policy.py
-    sha256: 553a05b9038ece74af6c39c47a2b3bdae436c20e40567e82630ee56029ed7677
+    sha256: 3c190034c2aa18da91bc0eda70fa78d080c25538a0934950c27f518553d82bec
   - file: src/classes/api_auth_runtime.py
-    sha256: 3a6eaab0db0b5cda44841cbb384fb86b7fe40d5337f64a72a763013eef1e029a
+    sha256: febc3cf8359a43ea943655a985982b9b6d7de62eb74d55f11ed19947ee70bd53
   - file: src/classes/api_security_types.py
-    sha256: d826fbbb11175a9d0e2e7e67b51213c4553a76a999930cedc202b19e55bf9fc6
+    sha256: 6b6b47d950108782e3783a5ba2fd7f14c65b94dabb49eb537f8c7b53a9b9ce1d
   - file: src/classes/api_security_policy.py
-    sha256: 6a2d379c48233b9c1df74d78dc4e779c7ec2091479cf48e9c3a8a1c569da4576
+    sha256: 3247fa1bd7c561ea0d109aa79ec5a728ae463e134ac10dac45085f189da67c68
 generated_from:
 - src/classes/fastapi_handler.py
 - src/classes/fastapi_api_v1_routes.py
 - src/classes/api_v1_contracts.py
 - src/classes/api_v1_paths.py
 - src/classes/api_v1_actions.py
+- src/classes/api_v1_auth_routes.py
 - src/classes/api_legacy_control_routes.py
 - src/classes/api_v1_read_routes.py
 - src/classes/api_v1_snapshots.py
@@ -63,16 +66,16 @@ promotion_path:
 - independent reviewer approval
 - MCP tools/list and tools/call exposure
 summary:
-  total_declared_http_routes: 130
-  api_v1_routes: 15
-  candidate_count: 15
+  total_declared_http_routes: 133
+  api_v1_routes: 18
+  candidate_count: 18
   eligible_read_only_candidates: 6
   callable_tools: 0
   mcp_exposed_tools: 0
   unpromoted_read_only_candidates: 6
   docs_registered_read_only_candidates: 6
   runtime_promoted_candidates: 0
-  blocked_or_guarded_candidates: 9
+  blocked_or_guarded_candidates: 12
   curated_registry_present: true
   registry_coverage_status: review_registry_complete_no_mcp_exposure
   registry_coverage:
@@ -283,6 +286,138 @@ candidates:
   - route contract tests
   safety_notes:
   - Read-only HTTP semantics are not enough for MCP exposure of control-action records.
+  registry_matches: []
+  registry_review_status: unregistered
+- id: pixeagle.auth.login.submit_candidate
+  candidate_id: pixeagle.auth.login.submit_candidate
+  method: POST
+  path: /api/v1/auth/login
+  operation_id: login_auth_session
+  tags:
+  - auth
+  response_model: APIAuthLoginResponse
+  request_model: APIAuthLoginRequest
+  responses: AUTH_ROUTE_RESPONSES
+  status_code: null
+  handler: self.login_auth_session
+  typed_api_contract: true
+  deprecated: false
+  classification: auth_session_boundary
+  read_only: false
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: auth_session_boundary
+  sensitivity: session_auth
+  side_effects: creates_or_revokes_browser_session_state
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
+    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+  blocked_reasons:
+  - Authentication bootstrap route.
+  - Not eligible for MCP promotion; use typed API/session contracts only.
+  required_review:
+  - browser CSRF review
+  - credential storage review
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  - session lifecycle tests
+  safety_notes: []
+  registry_matches: []
+  registry_review_status: unregistered
+- id: pixeagle.auth.logout.submit_candidate
+  candidate_id: pixeagle.auth.logout.submit_candidate
+  method: POST
+  path: /api/v1/auth/logout
+  operation_id: logout_auth_session
+  tags:
+  - auth
+  response_model: APIAuthLogoutResponse
+  request_model: null
+  responses: AUTH_ROUTE_RESPONSES
+  status_code: null
+  handler: self.logout_auth_session
+  typed_api_contract: true
+  deprecated: false
+  classification: auth_session_boundary
+  read_only: false
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: auth_session_boundary
+  sensitivity: session_auth
+  side_effects: creates_or_revokes_browser_session_state
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
+    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+  blocked_reasons:
+  - Authentication bootstrap route.
+  - Not eligible for MCP promotion; use typed API/session contracts only.
+  required_review:
+  - browser CSRF review
+  - credential storage review
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  - session lifecycle tests
+  safety_notes: []
+  registry_matches: []
+  registry_review_status: unregistered
+- id: pixeagle.auth.session.read
+  candidate_id: pixeagle.auth.session.read
+  method: GET
+  path: /api/v1/auth/session
+  operation_id: get_auth_session
+  tags:
+  - auth
+  response_model: APIAuthSessionResponse
+  request_model: null
+  responses: AUTH_ROUTE_RESPONSES
+  status_code: null
+  handler: self.get_auth_session
+  typed_api_contract: true
+  deprecated: false
+  classification: auth_session_boundary
+  read_only: true
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: auth_session_boundary
+  sensitivity: session_auth
+  side_effects: none_expected
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
+    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+  blocked_reasons:
+  - Authentication bootstrap route.
+  - Not eligible for MCP promotion; use typed API/session contracts only.
+  required_review:
+  - browser CSRF review
+  - credential storage review
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  - session lifecycle tests
+  safety_notes: []
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.following.status.read

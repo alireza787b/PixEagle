@@ -164,8 +164,8 @@ For manual build instructions, see [OpenCV GStreamer Guide](OPENCV_GSTREAMER.md)
 Keep application ports local by default. PixEagle's checked-in backend policy
 binds `127.0.0.1:5077` and fails startup when `local_only` configuration
 requests non-loopback exposure. The current backend supports loopback local
-compatibility and scoped machine bearer tokens; browser sessions are not
-implemented yet. See the
+compatibility, scoped machine bearer tokens, and explicit browser-session auth
+from an external hashed user file. See the
 [API exposure boundary](apis/api-exposure-boundary.md) before configuring any
 remote operator path.
 
@@ -197,13 +197,15 @@ sudo ufw allow 14550/udp  # QGC
 
 Do not open backend port `5077` directly. `trusted_lan_legacy` only permits a
 non-loopback bind/CORS boundary; backend requests still require scoped API
-authorization, and browser-session remote operation is not available yet.
+authorization or explicit browser-session auth. Production remote-browser
+operation still requires the remaining dashboard/media/audit/TLS evidence
+gates.
 
 Do not expose PixEagle backend `5077`, MAVLink2REST `8088`, local MAVLink
 endpoints `14540`/`14569`, or MavlinkAnywhere dashboard `9070` beyond
 localhost or an SSH tunnel unless an explicit network-security plan exists.
 A reverse proxy does not make `local_compat` remote-safe; non-loopback backend
-API clients need scoped bearer tokens until browser sessions are implemented.
+API clients need scoped bearer tokens or explicit browser-session auth.
 
 ## Verification
 

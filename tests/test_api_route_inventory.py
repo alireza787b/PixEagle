@@ -16,6 +16,10 @@ from classes.api_v1_paths import (
     API_V1_ACTION_OFFBOARD_STOP_PATH,
     API_V1_ACTION_OPERATOR_ABORT_PATH,
     API_V1_ACTION_RESOURCE_PATH,
+    API_V1_AUTH_LOGIN_PATH,
+    API_V1_AUTH_LOGOUT_PATH,
+    API_V1_AUTH_PATHS,
+    API_V1_AUTH_SESSION_PATH,
     API_V1_PROCESS_LOCAL_READ_ONLY_PATHS,
     SITL_VALIDATION_INJECTION_PATHS,
     uses_typed_api_error_envelope,
@@ -29,6 +33,7 @@ API_V1_CONTRACTS = REPO_ROOT / "src" / "classes" / "api_v1_contracts.py"
 API_V1_PATHS = REPO_ROOT / "src" / "classes" / "api_v1_paths.py"
 API_V1_ERRORS = REPO_ROOT / "src" / "classes" / "api_v1_errors.py"
 API_V1_ACTIONS = REPO_ROOT / "src" / "classes" / "api_v1_actions.py"
+API_V1_AUTH_ROUTES = REPO_ROOT / "src" / "classes" / "api_v1_auth_routes.py"
 API_LEGACY_CONTROL_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_control_routes.py"
 )
@@ -41,6 +46,11 @@ API_V1_CONTRACT_CLASS_NAMES = {
     "APIActionAuditEvent",
     "APIActionRequest",
     "APIActionResponse",
+    "APIAuthLoginRequest",
+    "APIAuthLoginResponse",
+    "APIAuthLogoutResponse",
+    "APIAuthPrincipal",
+    "APIAuthSessionResponse",
     "APIErrorResponse",
     "APIFollowingCommandPublicationStatus",
     "APIFollowingProfileStatus",
@@ -138,6 +148,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/tracker/output"),
     ("GET", "/api/tracker/schema"),
     ("GET", "/api/video/health"),
+    ("GET", "/api/v1/auth/session"),
     ("GET", "/api/v1/actions/{action_id}"),
     ("GET", "/api/v1/following/status"),
     ("GET", "/api/v1/following/telemetry"),
@@ -186,6 +197,8 @@ EXPECTED_ROUTES = {
     ("POST", "/api/tracker/set-type"),
     ("POST", "/api/tracker/switch"),
     ("POST", "/api/video/reconnect"),
+    ("POST", "/api/v1/auth/login"),
+    ("POST", "/api/v1/auth/logout"),
     ("POST", "/api/v1/actions/offboard-start"),
     ("POST", "/api/v1/actions/offboard-stop"),
     ("POST", "/api/v1/actions/operator-abort"),
@@ -373,8 +386,8 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 2,
-        "GET": 72,
-        "POST": 54,
+        "GET": 73,
+        "POST": 56,
         "PUT": 2,
         "WEBSOCKET": 2,
     }
@@ -828,6 +841,58 @@ def test_api_v1_read_route_error_boundaries_are_not_defined_in_fastapi_handler()
         assert value.func.id == target_name
 
 
+def test_api_v1_auth_route_bodies_are_not_defined_in_fastapi_handler():
+    """Browser-session auth dispatch should stay out of the handler monolith."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    auth_routes_tree = ast.parse(API_V1_AUTH_ROUTES.read_text(encoding="utf-8"))
+    expected_auth_functions = {
+        "get_auth_session",
+        "login_auth_session",
+        "logout_auth_session",
+    }
+    wrapper_targets = {
+        "get_auth_session": "dispatch_get_auth_session",
+        "login_auth_session": "dispatch_login_auth_session",
+        "logout_auth_session": "dispatch_logout_auth_session",
+    }
+    disallowed_handler_strings = {
+        "browser_session_auth_not_configured",
+        "invalid_credentials",
+        "session_required",
+    }
+
+    auth_functions = {
+        node.name
+        for node in ast.walk(auth_routes_tree)
+        if isinstance(node, ast.AsyncFunctionDef)
+    }
+    handler_functions = {
+        node.name: node
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    handler_string_literals = {
+        node.value
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+    assert expected_auth_functions <= auth_functions
+    assert handler_string_literals.isdisjoint(disallowed_handler_strings)
+
+    for wrapper_name, target_name in wrapper_targets.items():
+        wrapper = handler_functions[wrapper_name]
+        assert len(wrapper.body) == 1
+        return_stmt = wrapper.body[0]
+        assert isinstance(return_stmt, ast.Return)
+        value = return_stmt.value
+        if isinstance(value, ast.Await):
+            value = value.value
+        assert isinstance(value, ast.Call)
+        assert isinstance(value.func, ast.Name)
+        assert value.func.id == target_name
+
+
 def test_api_v1_sitl_injection_helpers_are_not_defined_in_fastapi_handler():
     """Validation-stimulus construction and dispatch should stay out of the handler."""
     handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
@@ -938,7 +1003,8 @@ def test_api_v1_route_registry_uses_canonical_path_constants():
 def test_api_v1_error_envelope_path_predicate_matches_current_route_families():
     """Validation errors should use typed envelopes only for reviewed /api/v1 paths."""
     expected_typed_paths = (
-        set(API_V1_PROCESS_LOCAL_READ_ONLY_PATHS)
+        set(API_V1_AUTH_PATHS)
+        | set(API_V1_PROCESS_LOCAL_READ_ONLY_PATHS)
         | set(SITL_VALIDATION_INJECTION_PATHS)
         | {
             API_V1_ACTION_OFFBOARD_START_PATH,
@@ -953,6 +1019,36 @@ def test_api_v1_error_envelope_path_predicate_matches_current_route_families():
 
     assert uses_typed_api_error_envelope("/status") is False
     assert uses_typed_api_error_envelope("/telemetry/follower_data") is False
+
+
+def test_api_v1_auth_routes_have_typed_api_metadata():
+    """Browser-session auth endpoints must keep explicit typed contracts."""
+    expectations = {
+        API_V1_AUTH_SESSION_PATH: (
+            "get_auth_session",
+            "APIAuthSessionResponse",
+            "GET",
+        ),
+        API_V1_AUTH_LOGIN_PATH: (
+            "login_auth_session",
+            "APIAuthLoginResponse",
+            "POST",
+        ),
+        API_V1_AUTH_LOGOUT_PATH: (
+            "logout_auth_session",
+            "APIAuthLogoutResponse",
+            "POST",
+        ),
+    }
+    for path, (operation_id, response_model, method) in expectations.items():
+        route = _route_metadata(path)
+
+        assert route["method"] == method
+        assert route["operation_id"] == operation_id
+        assert route["response_model"] == response_model
+        assert route["responses"] == "AUTH_ROUTE_RESPONSES"
+        assert route["tags"] == ["auth"]
+        assert route["status_code"] is None
 
 
 def test_api_v1_action_routes_have_typed_api_metadata():

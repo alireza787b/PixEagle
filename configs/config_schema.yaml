@@ -435,7 +435,7 @@ sections:
       API_EXPOSURE_MODE:
         type: string
         default: local_only
-        description: API exposure boundary; non-loopback browser sessions are not available yet
+        description: API exposure boundary; wildcard origins are prohibited in every mode
         reload_tier: system_restart
         reboot_required: true
         options:
@@ -444,8 +444,8 @@ sections:
           description: Require an explicit loopback bind and loopback CORS origins
         - value: trusted_lan_legacy
           label: Trusted LAN (legacy)
-          description: Temporary LAN compatibility; backend API clients still require scoped bearer tokens and browser sessions
-            are pending
+          description: Temporary LAN compatibility; use bearer tokens for machine clients or explicit browser_session auth
+            for browser clients
       HTTP_STREAM_HOST:
         type: string
         default: 127.0.0.1
@@ -474,7 +474,7 @@ sections:
       API_AUTH_MODE:
         type: string
         default: local_compat
-        description: Runtime API authorization mode; browser sessions are not implemented yet
+        description: Runtime API authorization mode
         reload_tier: system_restart
         reboot_required: true
         options:
@@ -483,12 +483,47 @@ sections:
           description: Allow same-host loopback socket clients without credentials; non-loopback clients need bearer tokens
         - value: machine_bearer
           label: Machine bearer only
-          description: Require scoped bearer tokens for machine API clients; current browser dashboard/media transports cannot
-            authenticate yet
+          description: Require scoped bearer tokens for machine API clients
+        - value: browser_session
+          label: Browser sessions
+          description: Require an external hashed user file and use HttpOnly cookies with CSRF for browser/operator API access
       API_BEARER_TOKEN_FILE:
         type: string
         default: ''
         description: Optional external JSON file containing hashed, named, revocable machine bearer token records
+        reload_tier: system_restart
+        reboot_required: true
+      API_SESSION_USER_FILE:
+        type: string
+        default: ''
+        description: Optional external JSON file containing hashed browser/operator session user records
+        reload_tier: system_restart
+        reboot_required: true
+      API_SESSION_TTL_SECONDS:
+        type: integer
+        default: 28800
+        description: Browser session lifetime in seconds for API_AUTH_MODE=browser_session
+        reload_tier: system_restart
+        reboot_required: true
+        min: 60
+        max: 604800
+        unit: s
+      API_SESSION_COOKIE_NAME:
+        type: string
+        default: pixeagle_session
+        description: HttpOnly browser session cookie name for API_AUTH_MODE=browser_session
+        reload_tier: system_restart
+        reboot_required: true
+      API_SESSION_COOKIE_SECURE:
+        type: boolean
+        default: false
+        description: Require HTTPS for the browser session cookie; enable when serving PixEagle over TLS
+        reload_tier: system_restart
+        reboot_required: true
+      API_CSRF_HEADER_NAME:
+        type: string
+        default: X-PixEagle-CSRF
+        description: Header name carrying the session-bound CSRF token for browser mutations
         reload_tier: system_restart
         reboot_required: true
       STREAM_WIDTH:
