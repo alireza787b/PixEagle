@@ -1,6 +1,6 @@
 // dashboard/src/hooks/useSafetyConfig.js
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import axios from 'axios';
+import axios from '../services/apiClient';
 import { apiConfig } from '../services/apiEndpoints';
 
 const API_URL = `${apiConfig.protocol}://${apiConfig.apiHost}:${apiConfig.apiPort}`;

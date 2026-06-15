@@ -7,7 +7,7 @@ import {
   FiberManualRecord, ExpandMore, ExpandLess, Speed, Memory
 } from '@mui/icons-material';
 import { alpha } from '@mui/material/styles';
-import axios from 'axios';
+import axios from '../services/apiClient';
 import { streamingStatus as streamingStatusEndpoint } from '../services/apiEndpoints';
 
 const StreamingStatusIndicator = () => {

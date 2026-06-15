@@ -9,13 +9,13 @@ source:
   - file: src/classes/fastapi_api_v1_routes.py
     sha256: d01ee5c16c14268ea57f2ebbbaa654cf99c47437295060d5bc0089b10aaa01e7
   - file: src/classes/api_v1_contracts.py
-    sha256: 9feeebc2ef05ef699b4d77cf093ea5307fd81db27ec1765e2673b467cea61678
+    sha256: 86086d5cebc3bd469600e1f63f34b20ccb41396f161319122047b3b3dd513d62
   - file: src/classes/api_v1_paths.py
     sha256: b924b1b075a1415ac3cf75b1b6db6172e922eb3cb1a0a389a39f13f7181c1088
   - file: src/classes/api_v1_actions.py
     sha256: 7ca3b126f953976bf4dc0da6633877e4558f81d730c9a355c07b45e3a65718e4
   - file: src/classes/api_v1_auth_routes.py
-    sha256: b154dc24f88e610a166d7d4f3ff1732d5548442f81e73619feefb4b0bc9d08f5
+    sha256: e75c3d3e1dca339a37585e1326f58fa2bb197095ef2a34170e2de4e04adaebd5
   - file: src/classes/api_legacy_control_routes.py
     sha256: 2fd4b481e7b6f078fee9071e21dec226cc694e5283ceaa3d1b5ee50acf2e1e05
   - file: src/classes/api_v1_read_routes.py

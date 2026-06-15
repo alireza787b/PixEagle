@@ -5,7 +5,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, Typography
 } from '@mui/material';
 import { Close, RestartAlt, Schedule, Warning } from '@mui/icons-material';
-import axios from 'axios';
+import axios from '../../services/apiClient';
 
 import { endpoints } from '../../services/apiEndpoints';
 

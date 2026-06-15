@@ -1,6 +1,6 @@
 // dashboard/src/hooks/useSystemRestart.js
 import { useState, useCallback, useEffect } from 'react';
-import axios from 'axios';
+import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
 
 const MAX_POLL_ATTEMPTS = 30; // 30 seconds timeout

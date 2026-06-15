@@ -2,6 +2,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Switch, FormControlLabel, Typography, Box } from '@mui/material';
 import { endpoints } from '../services/apiEndpoints';
+import { apiFetch } from '../services/apiClient';
 
 const NO_STORE_HEADERS = {
   'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -13,7 +14,7 @@ const TrackerModeToggle = ({ smartModeActive, setSmartModeActive }) => {
   const [loading, setLoading] = useState(false);
 
   const refreshSmartModeStatus = useCallback(async () => {
-    const response = await fetch(endpoints.status, {
+    const response = await apiFetch(endpoints.status, {
       cache: 'no-store',
       headers: NO_STORE_HEADERS,
     });
@@ -34,7 +35,7 @@ const TrackerModeToggle = ({ smartModeActive, setSmartModeActive }) => {
   const handleToggle = async () => {
     setLoading(true);
     try {
-      const response = await fetch(endpoints.toggleSmartMode, {
+      const response = await apiFetch(endpoints.toggleSmartMode, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });

@@ -187,9 +187,9 @@ The Settings page in the dashboard allows runtime configuration changes:
 These legacy routes remain compatibility surfaces and are not approved remote
 automation APIs. Keep them inside the trusted local/tunneled boundary or use
 scoped bearer tokens only where explicitly reviewed. Typed guarded actions and
-the backend browser-session foundation exist, but dashboard credential-aware
-API/media migration, durable audit, typed-action-only enforcement, and final
-legacy retirement remain tracked under PXE-0064.
+the browser-session dashboard client/media foundation exist, but durable audit,
+typed-action-only enforcement, operator deployment hardening, and final legacy
+retirement remain tracked under PXE-0064.
 
 ## Next Steps
 

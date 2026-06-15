@@ -27,7 +27,7 @@ import {
   normalizeFollowingTelemetry,
   normalizeTrackingTelemetry,
 } from '../hooks/useStatuses';
-import axios from 'axios';
+import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
 
 const POLLING_RATE = parseInt(process.env.REACT_APP_POLLING_RATE, 10) || 1000;

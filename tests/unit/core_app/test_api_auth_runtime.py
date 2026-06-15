@@ -45,6 +45,7 @@ from classes.api_security_types import (
     CONFIG_READ,
     STATUS_READ,
 )
+from classes.api_v1_auth_routes import get_auth_session
 
 
 def _local_policy():
@@ -171,6 +172,24 @@ def test_user_file_loads_hashed_session_user_records(tmp_path):
         encoded=records[0].password_pbkdf2_sha256,
     )
     assert "correct-horse" not in user_file.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_auth_session_response_reports_configured_csrf_header_name():
+    runtime = _runtime_with_session_user()
+    runtime = APIAuthRuntime(
+        mode=runtime.mode,
+        users_by_username=runtime.users_by_username,
+        csrf_header_name="X-Custom-CSRF",
+    )
+    owner = SimpleNamespace(api_auth_runtime=runtime)
+    request = SimpleNamespace(state=SimpleNamespace())
+
+    response = await get_auth_session(owner, request)
+
+    assert response.auth_mode == API_AUTH_MODE_BROWSER_SESSION
+    assert response.csrf_required is True
+    assert response.csrf_header_name == "x-custom-csrf"
 
 
 def test_user_file_rejects_plaintext_password_fields(tmp_path):

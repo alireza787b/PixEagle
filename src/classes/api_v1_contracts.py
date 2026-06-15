@@ -71,6 +71,7 @@ class APIAuthSessionResponse(BaseModel):
     auth_mode: str
     principal: APIAuthPrincipal
     csrf_required: bool = True
+    csrf_header_name: str
     csrf_token: Optional[str] = None
     expires_at: Optional[float] = None
 
@@ -82,6 +83,7 @@ class APIAuthLoginResponse(BaseModel):
     auth_mode: str
     principal: APIAuthPrincipal
     csrf_required: bool = True
+    csrf_header_name: str
     csrf_token: str
     expires_at: float
 

@@ -1,6 +1,11 @@
 // dashboard/src/components/VideoStream.js
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { websocketVideoFeed, webrtcSignalingEndpoint } from '../services/apiEndpoints';
+import {
+  createDashboardWebSocket,
+  getMediaElementAuthProps,
+  isWebSocketAuthClose,
+} from '../services/apiClient';
 import { Box, Typography, Chip, IconButton, Slider, CircularProgress } from '@mui/material';
 import { SignalCellular4Bar, SignalCellular2Bar, SignalCellular0Bar, Settings, Videocam } from '@mui/icons-material';
 import { alpha, useTheme } from '@mui/material/styles';
@@ -178,7 +183,14 @@ const VideoStream = ({
     setIsConnecting(true);
     setHasReceivedFrame(false);
 
-    const ws = new WebSocket(websocketVideoFeed);
+    let ws;
+    try {
+      ws = createDashboardWebSocket(websocketVideoFeed);
+    } catch (authError) {
+      setError(authError.message);
+      setIsConnecting(false);
+      return undefined;
+    }
     ws.binaryType = 'arraybuffer';
     wsRef.current = ws;
 
@@ -333,11 +345,15 @@ const VideoStream = ({
       }, delay);
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (!isMounted) return;
       console.log('WebSocket connection closed');
       if (heartbeatInterval.current) {
         clearInterval(heartbeatInterval.current);
+      }
+      if (isWebSocketAuthClose(event)) {
+        setError('Video stream authorization was rejected. Sign in again.');
+        setIsConnecting(false);
       }
     };
 
@@ -386,7 +402,16 @@ const VideoStream = ({
     pcRef.current = pc;
 
     // Open signaling WebSocket
-    const sigWs = new WebSocket(webrtcSignalingEndpoint);
+    let sigWs;
+    try {
+      sigWs = createDashboardWebSocket(webrtcSignalingEndpoint);
+    } catch (authError) {
+      setError(authError.message);
+      setIsConnecting(false);
+      pc.close();
+      pcRef.current = null;
+      return undefined;
+    }
     sigWsRef.current = sigWs;
 
     sigWs.onopen = async () => {
@@ -445,9 +470,13 @@ const VideoStream = ({
       setError('WebRTC signaling connection error');
     };
 
-    sigWs.onclose = () => {
+    sigWs.onclose = (event) => {
       if (!isMounted) return;
       console.log('WebRTC signaling WebSocket closed');
+      if (isWebSocketAuthClose(event)) {
+        setError('WebRTC signaling authorization was rejected. Sign in again.');
+        setIsConnecting(false);
+      }
     };
 
     // Handle incoming media track
@@ -795,6 +824,7 @@ const VideoStream = ({
         <img
           src={src}
           alt="Live Stream"
+          {...getMediaElementAuthProps()}
           style={{
             width: '100%',
             display: 'block',

@@ -30,6 +30,7 @@ import ImportDialog from './ImportDialog';
 import BackupHistoryDialog from './BackupHistoryDialog';
 import AuditLogDialog from './AuditLogDialog';
 import { endpoints } from '../../services/apiEndpoints';
+import { apiFetch } from '../../services/apiClient';
 
 /**
  * ImportExportToolbar - Organized 3-tier toolbar for config operations
@@ -67,7 +68,7 @@ const ImportExportToolbar = ({
   const fetchResetDiff = useCallback(async () => {
     setResetDiffLoading(true);
     try {
-      const response = await fetch(endpoints.configDiff);
+      const response = await apiFetch(endpoints.configDiff);
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
@@ -133,7 +134,7 @@ const ImportExportToolbar = ({
 
     setResetting(true);
     try {
-      const response = await fetch(endpoints.configRevert, {
+      const response = await apiFetch(endpoints.configRevert, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });

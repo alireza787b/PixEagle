@@ -20,8 +20,8 @@ PixEagle also has a complete declarative
 [API security policy](../../apis/api-security-policy.md) for route access,
 scopes, bearer-token treatment, local compatibility, session CSRF enforcement,
 audit treatment, and default-deny coverage. Remote browser operation is not
-approved until the dashboard/session/media migration, audit, TLS, and evidence
-gates are complete.
+approved until durable audit, TLS, typed-action-only enforcement, legacy
+mutation retirement, and evidence gates are complete.
 
 ## MCP Readiness Boundary
 

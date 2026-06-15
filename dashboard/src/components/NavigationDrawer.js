@@ -33,6 +33,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useTrackerStatus, useFollowerStatus } from '../hooks/useStatuses';
 import QuitButton from './QuitButton';
 import { endpoints } from '../services/apiEndpoints';
+import { apiFetch } from '../services/apiClient';
 
 export const DRAWER_WIDTH = 220;
 
@@ -78,7 +79,7 @@ const NavigationDrawer = ({ mobileOpen, handleDrawerToggle }) => {
   useEffect(() => {
     const fetchVersion = async () => {
       try {
-        const response = await fetch(endpoints.systemConfig);
+        const response = await apiFetch(endpoints.systemConfig);
         const data = await response.json();
         if (data.success && data.config) {
           setVersionInfo({

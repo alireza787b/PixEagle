@@ -85,6 +85,7 @@ async def get_auth_session(owner: Any, request: Request) -> APIAuthSessionRespon
         auth_mode=runtime.mode,
         principal=_session_principal_payload(session_principal),
         csrf_required=runtime.browser_sessions_enabled,
+        csrf_header_name=runtime.csrf_header_name,
         csrf_token=session.csrf_token if session is not None else None,
         expires_at=session.expires_at if session is not None else None,
     )
@@ -146,6 +147,7 @@ async def login_auth_session(
     return APIAuthLoginResponse(
         auth_mode=runtime.mode,
         principal=_session_principal_payload(principal),
+        csrf_header_name=runtime.csrf_header_name,
         csrf_token=session.csrf_token,
         expires_at=session.expires_at,
     )

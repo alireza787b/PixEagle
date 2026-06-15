@@ -8,7 +8,7 @@ import {
 import {
   FlightTakeoff, ExpandMore, ExpandLess, Info, CheckCircle, Error as ErrorIcon
 } from '@mui/icons-material';
-import axios from 'axios';
+import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
 
 const GStreamerQGCPanel = () => {

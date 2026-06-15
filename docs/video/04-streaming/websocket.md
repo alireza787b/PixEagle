@@ -17,7 +17,9 @@ authorization runtime before `accept()`. In the checked-in `local_compat` mode,
 unauthenticated browser WebSocket streaming is limited to a same-host loopback
 socket client. Non-loopback clients need scoped API credentials, and remote
 browser operation should use explicit `API_AUTH_MODE=browser_session` only
-after the dashboard/session/media migration and evidence gates are complete.
+with the credential-aware dashboard client. Production remote-browser approval
+still requires durable audit, TLS, typed-action-only enforcement, legacy
+mutation retirement, and evidence gates.
 
 ### Connection
 

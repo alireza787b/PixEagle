@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { endpoints } from '../services/apiEndpoints';
+import { apiFetch } from '../services/apiClient';
 
 /**
  * Hook for bounding-box drag drawing (classic tracker) and smart-click (AI tracker).
@@ -34,13 +35,13 @@ const useBoundingBoxHandlers = (isTracking, setIsTracking, smartModeActive = fal
   const startTracking = useCallback(async (bbox) => {
     try {
       if (isTracking) {
-        await fetch(endpoints.stopTracking, {
+        await apiFetch(endpoints.stopTracking, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
         });
       }
 
-      const response = await fetch(endpoints.startTracking, {
+      const response = await apiFetch(endpoints.startTracking, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bbox),

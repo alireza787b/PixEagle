@@ -4,7 +4,7 @@ import {
   Card, CardContent, Typography, Box, LinearProgress, Chip, Collapse, IconButton
 } from '@mui/material';
 import { Speed, CloudQueue, Warning, ExpandMore, ExpandLess } from '@mui/icons-material';
-import axios from 'axios';
+import axios from '../services/apiClient';
 import { apiConfig, streamingStatus as streamingStatusEndpoint } from '../services/apiEndpoints';
 
 const StreamingStats = () => {

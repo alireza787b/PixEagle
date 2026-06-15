@@ -1,6 +1,6 @@
 //dashboard/src/hooks/useStatuses.js
 import { useState, useEffect, useCallback, useRef } from 'react';
-import axios from 'axios';
+import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
 import { getTrackerRuntimeState } from '../utils/trackerRuntimeState';
 

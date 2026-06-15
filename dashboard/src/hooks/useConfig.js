@@ -1,6 +1,6 @@
 // dashboard/src/hooks/useConfig.js
 import { useState, useCallback, useEffect, useRef } from 'react';
-import axios from 'axios';
+import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
 
 /**

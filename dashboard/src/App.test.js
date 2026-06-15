@@ -25,6 +25,17 @@ jest.mock('axios', () => {
 
 jest.mock('./components/NavigationDrawer', () => () => <nav>Navigation</nav>);
 jest.mock('./components/Footer', () => () => <footer>Footer</footer>);
+jest.mock('./components/AuthGate', () => ({ children }) => <>{children}</>);
+jest.mock('./components/AuthStatusMenu', () => () => <span data-testid="auth-status">Auth status</span>);
+jest.mock('./context/AuthSessionContext', () => ({
+  AuthSessionProvider: ({ children }) => <>{children}</>,
+  useAuthSession: () => ({
+    hasScope: () => true,
+    hasAnyScope: () => true,
+    usesBrowserSession: false,
+    authenticated: false,
+  }),
+}));
 jest.mock('./components/BackendStatusIndicator', () => () => (
   <span data-testid="backend-status">Backend status</span>
 ));

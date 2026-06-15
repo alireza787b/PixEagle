@@ -17,6 +17,7 @@ import GpsFixedIcon from '@mui/icons-material/GpsFixed';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { endpoints } from '../services/apiEndpoints';
+import { useAuthSession } from '../context/AuthSessionContext';
 
 const generateActionIdempotencyKey = (reason) => {
   const randomSuffix = Math.random().toString(36).slice(2, 10);
@@ -44,11 +45,17 @@ const ActionButtons = ({
 }) => {
   const [switchLoading, setSwitchLoading] = useState(false);
   const [followConfirmOpen, setFollowConfirmOpen] = useState(false);
+  const { hasScope } = useAuthSession();
+  const canWriteControl = hasScope('control:write');
+  const canExecuteActions = hasScope('actions:execute');
   const trackerUsabilityKnown = Boolean(trackerStatus && typeof trackerStatus === 'object');
-  const canStartFollowing = !trackerUsabilityKnown || trackerStatus.usableForFollowing;
-  const followDisabledReason = trackerUsabilityKnown && !trackerStatus.usableForFollowing
-    ? trackerStatus.detail || 'Follower requires fresh, usable tracker output.'
-    : null;
+  const canStartFollowing = canExecuteActions && (!trackerUsabilityKnown || trackerStatus.usableForFollowing);
+  let followDisabledReason = null;
+  if (trackerUsabilityKnown && !trackerStatus.usableForFollowing) {
+    followDisabledReason = trackerStatus.detail || 'Follower requires fresh, usable tracker output.';
+  } else if (!canExecuteActions) {
+    followDisabledReason = 'Current session cannot execute Offboard actions.';
+  }
 
   const handleSmartModeSwitch = async (event, newMode) => {
     if (newMode === null) return; // Prevent deselection
@@ -95,7 +102,7 @@ const ActionButtons = ({
             value={smartModeActive ? 'smart' : 'classic'}
             exclusive
             onChange={handleSmartModeSwitch}
-            disabled={switchLoading}
+            disabled={switchLoading || !canWriteControl}
             fullWidth
             size="small"
             sx={{ mb: 0.5 }}
@@ -127,7 +134,7 @@ const ActionButtons = ({
                 onClick={handleTrackingToggle}
                 fullWidth
                 size="small"
-                disabled={smartModeActive}
+                disabled={smartModeActive || !canWriteControl}
               >
                 {isTracking ? "Stop Tracking" : "Start Tracking"}
               </Button>
@@ -143,7 +150,7 @@ const ActionButtons = ({
                 fullWidth
                 size="small"
                 sx={{ mt: 0.5 }}
-                disabled={smartModeActive}
+                disabled={smartModeActive || !canWriteControl}
               >
                 Re-Detect
               </Button>
@@ -151,35 +158,41 @@ const ActionButtons = ({
           </Tooltip>
 
           <Tooltip title="Cancel all tracking activities and reset">
-            <Button
-              variant="outlined"
-              color="warning"
-              onClick={() => handleButtonClick(
-                endpoints.operatorAbortAction,
-                true,
-                buildActionRequest('cancel_activities')
-              )}
-              fullWidth
-              size="small"
-              sx={{ mt: 0.5 }}
-            >
-              Cancel Tracker
-            </Button>
+            <span>
+              <Button
+                variant="outlined"
+                color="warning"
+                onClick={() => handleButtonClick(
+                  endpoints.operatorAbortAction,
+                  true,
+                  buildActionRequest('cancel_activities')
+                )}
+                fullWidth
+                size="small"
+                sx={{ mt: 0.5 }}
+                disabled={!canExecuteActions}
+              >
+                Cancel Tracker
+              </Button>
+            </span>
           </Tooltip>
         </Grid>
 
         {/* Segmentation */}
         <Grid item xs={12}>
           <Tooltip title="Toggle AI segmentation overlay">
-            <Button
-              variant="outlined"
-              color="secondary"
-              onClick={() => handleButtonClick(endpoints.toggleSegmentation)}
-              fullWidth
-              size="small"
-            >
-              Toggle Segmentation
-            </Button>
+            <span>
+              <Button
+                variant="outlined"
+                color="secondary"
+                onClick={() => handleButtonClick(endpoints.toggleSegmentation)}
+                fullWidth
+                size="small"
+                disabled={!canWriteControl}
+              >
+                Toggle Segmentation
+              </Button>
+            </span>
           </Tooltip>
         </Grid>
 
@@ -206,19 +219,22 @@ const ActionButtons = ({
             </Tooltip>
           ) : (
             <Tooltip title="Disengage offboard mode and stop following immediately">
-              <Button
-                variant="contained"
-                color="error"
-                onClick={() => handleButtonClick(
-                  endpoints.offboardStopAction,
-                  false,
-                  buildActionRequest('stop_following')
-                )}
-                fullWidth
-                size="small"
-              >
-                Stop Following
-              </Button>
+              <span>
+                <Button
+                  variant="contained"
+                  color="error"
+                  onClick={() => handleButtonClick(
+                    endpoints.offboardStopAction,
+                    false,
+                    buildActionRequest('stop_following')
+                  )}
+                  fullWidth
+                  size="small"
+                  disabled={!canExecuteActions}
+                >
+                  Stop Following
+                </Button>
+              </span>
             </Tooltip>
           )}
         </Grid>

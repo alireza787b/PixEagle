@@ -1,5 +1,6 @@
 // dashboard/src/services/apiEndpoints.js
 // Dynamic host detection with reverse proxy support (e.g., ARK-OS at /pixeagle/)
+import './apiClient';
 
 /**
  * Get API configuration with smart defaults
@@ -53,6 +54,9 @@ const { apiBaseUrl, wsBaseUrl, apiHost, apiPort, protocol, wsProtocol, isBehindP
 
 // HTTP endpoints (using dynamic protocol for HTTPS support)
 export const endpoints = {
+  authSession: `${apiBaseUrl}/api/v1/auth/session`,
+  authLogin: `${apiBaseUrl}/api/v1/auth/login`,
+  authLogout: `${apiBaseUrl}/api/v1/auth/logout`,
   startTracking: `${apiBaseUrl}/commands/start_tracking`,
   stopTracking: `${apiBaseUrl}/commands/stop_tracking`,
   redetect: `${apiBaseUrl}/commands/redetect`,

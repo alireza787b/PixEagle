@@ -9,7 +9,7 @@ import {
 import {
   FileDownload, CompareArrows, AllInclusive
 } from '@mui/icons-material';
-import axios from 'axios';
+import axios from '../../services/apiClient';
 import yaml from 'js-yaml';
 
 import { endpoints } from '../../services/apiEndpoints';

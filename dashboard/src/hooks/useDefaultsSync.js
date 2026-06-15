@@ -1,6 +1,6 @@
 // dashboard/src/hooks/useDefaultsSync.js
 import { useState, useCallback, useEffect } from 'react';
-import axios from 'axios';
+import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
 
 const EMPTY_COUNTS = { new: 0, changed: 0, removed: 0, total: 0 };

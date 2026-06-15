@@ -23,7 +23,7 @@ import {
   ExpandLess
 } from '@mui/icons-material';
 import { endpoints } from '../services/apiEndpoints';
-import axios from 'axios';
+import axios from '../services/apiClient';
 
 const NO_CACHE_HEADERS = {
   'Cache-Control': 'no-cache, no-store, must-revalidate',

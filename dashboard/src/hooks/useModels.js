@@ -18,7 +18,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import axios from 'axios';
+import axios from '../services/apiClient';
 import { endpoints } from '../services/apiEndpoints';
 
 const NO_CACHE_HEADERS = {

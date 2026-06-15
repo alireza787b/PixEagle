@@ -10,8 +10,9 @@ FastAPI/WebSocket entry points. The checked-in runtime mode is
 without credentials and requires other clients to use scoped machine bearer
 tokens. `API_AUTH_MODE=browser_session` adds external hashed users, HttpOnly
 session cookies, session-bound CSRF for browser mutations, and typed
-`/api/v1/auth/...` routes. The dashboard login/client migration remains a later
-PXE-0064 slice.
+`/api/v1/auth/...` routes. The dashboard now uses one credential-aware client
+for API calls, login/logout/session state, CSRF injection, cookie-session media,
+and authenticated downloads/playback.
 
 ## Policy Rules
 
@@ -51,7 +52,7 @@ Streaming:
 | Auth mode | Current behavior |
 | --- | --- |
 | `local_compat` | Default. Same-host loopback socket clients without credentials receive the fixed local compatibility principal. Non-loopback clients and proxy-forwarded clients must present a valid scoped bearer token. |
-| `machine_bearer` | Requires a valid scoped bearer token for every request, including loopback. This mode is for machine/API clients. Native browser media transports cannot attach bearer headers, so browser operation should use `browser_session` after the dashboard client migration. |
+| `machine_bearer` | Requires a valid scoped bearer token for every request, including loopback. This mode is for machine/API clients. Native browser media transports cannot attach bearer headers, so browser dashboard operation should use `browser_session`. |
 | `browser_session` | Requires an external hashed user file. Login creates an HttpOnly cookie session, returns a session-bound CSRF token, enables credentialed exact-origin CORS, and authorizes HTTP, MJPEG, video WebSocket, and WebRTC-signaling routes through the same policy engine. |
 
 `API_BEARER_TOKEN_FILE` points to an external JSON file. The file contains
@@ -154,29 +155,35 @@ Implemented:
 - refusal to infer local compatibility from `Host` or proxy-forwarding
   metadata;
 - hashed machine bearer token loading from an external JSON file;
-- exact bearer scopes and no query-string token transport.
+- exact bearer scopes and no query-string token transport;
 - external hashed browser user loading;
 - typed `/api/v1/auth/session`, `/api/v1/auth/login`, and
   `/api/v1/auth/logout` routes;
 - HttpOnly browser sessions with session-bound CSRF;
 - process-local login failure throttling;
-- credentialed exact-origin CORS when `API_AUTH_MODE=browser_session`.
+- credentialed exact-origin CORS when `API_AUTH_MODE=browser_session`;
+- dashboard `apiClient` boundary for credentialed `fetch`, axios CSRF
+  injection, auth-failure refresh, media WebSocket construction, MJPEG image
+  credentials, and blob-backed protected downloads/playback;
+- dashboard login gate and session status/logout controls;
+- frontend guard tests that reject raw production `fetch`, direct axios package
+  imports, direct `new WebSocket`, and protected endpoint `href` bypasses.
 
 Still required under PXE-0064:
 
 1. Durable security audit events using the authenticated principal as actor.
-2. Dashboard migration to one credential-aware API client plus authenticated
-   media transports.
-3. Operator-facing session/login UI, credential rotation tooling, and
-   deployment TLS guidance.
-4. Adversarial tests, migration tooling, typed-action-only enforcement, and
+2. Operator credential rotation tooling and deployment TLS guidance.
+3. Broader adversarial/browser-session tests, especially around expiry,
+   multi-tab logout, large protected media playback, and role-denied UX.
+4. Migration tooling, typed-action-only enforcement, and
    final legacy mutation retirement.
 
 Use same-host loopback local access, SSH tunnels, scoped machine bearer tokens,
 or explicit `browser_session` test deployments only. Do not place
 `local_compat` behind an externally reachable reverse proxy. Remote browser
-operation is not production-approved until dashboard/session/media migration,
-audit, TLS, and evidence gates are complete.
+operation is not production-approved until durable audit, TLS,
+typed-action-only enforcement, legacy mutation retirement, and evidence gates
+are complete.
 
 ## Verification
 
@@ -186,4 +193,7 @@ test_api_auth_runtime.py` covers token-file loading, exact scopes, local-compat
 behavior, browser-session user loading, CSRF, login throttling, query-token
 rejection, and default-deny transport decisions.
 `tests/unit/core_app/test_api_exposure_policy.py` covers the FastAPI and
-WebSocket integration path. These tests are part of `make phase0-check`.
+WebSocket integration path. `tests/test_test_hygiene.py` covers the dashboard
+auth-client source guard. Dashboard Jest tests cover the shared client,
+login gate, and scoped action-button behavior. The Python tests are part of
+`make phase0-check`.

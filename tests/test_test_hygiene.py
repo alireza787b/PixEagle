@@ -1,10 +1,16 @@
 """Guard against weak tests being counted as real coverage."""
 
 import ast
+import re
 from pathlib import Path
 
 
 TEST_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = TEST_ROOT.parent
+FRONTEND_SRC_ROOT = REPO_ROOT / "dashboard" / "src"
+FRONTEND_CLIENT_ALLOWLIST = {
+    Path("services/apiClient.js"),
+}
 DISALLOWED_TEST_PATTERNS = (
     " or True",
     "Pending code audit",
@@ -50,5 +56,41 @@ def test_pytest_tests_do_not_return_boolean_status():
                 if isinstance(child.value, ast.Constant) and isinstance(child.value.value, bool):
                     relative_path = path.relative_to(TEST_ROOT)
                     offenders.append(f"{relative_path}:{child.lineno} returns {child.value.value!r}")
+
+    assert offenders == []
+
+
+def test_dashboard_api_calls_use_auth_client_boundary():
+    """Keep browser-session cookies, CSRF, and auth-failure handling centralized."""
+    offenders = []
+
+    for path in FRONTEND_SRC_ROOT.rglob("*.js"):
+        relative_path = path.relative_to(FRONTEND_SRC_ROOT)
+        if relative_path in FRONTEND_CLIENT_ALLOWLIST or path.name.endswith(".test.js"):
+            continue
+
+        text = path.read_text(encoding="utf-8")
+        checks = (
+            (
+                re.compile(r"(?<![A-Za-z0-9_$])fetch\s*\("),
+                "uses raw fetch instead of apiFetch",
+            ),
+            (
+                re.compile(r"import\s+axios\s+from\s+['\"]axios['\"]"),
+                "imports axios directly instead of services/apiClient",
+            ),
+            (
+                re.compile(r"new\s+WebSocket\s*\("),
+                "constructs WebSocket directly instead of createDashboardWebSocket",
+            ),
+            (
+                re.compile(r"href=\{endpoints\."),
+                "uses a protected endpoint as a direct href",
+            ),
+        )
+        for pattern, message in checks:
+            for match in pattern.finditer(text):
+                line = text.count("\n", 0, match.start()) + 1
+                offenders.append(f"{relative_path}:{line}: {message}")
 
     assert offenders == []

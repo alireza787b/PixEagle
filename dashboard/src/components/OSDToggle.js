@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import InfoIcon from '@mui/icons-material/Info';
 import { endpoints } from '../services/apiEndpoints';
+import { apiFetch } from '../services/apiClient';
 
 const DEFAULT_PRESETS = ['minimal', 'professional', 'military', 'full_telemetry', 'debug'];
 const DEFAULT_COLOR_MODES = ['day', 'night', 'amber'];
@@ -47,7 +48,7 @@ const extractPresetFromStatus = (statusPayload) => (
 
 const fetchJsonNoStore = async (url, options = {}) => {
   const { headers = {}, ...rest } = options;
-  const response = await fetch(url, {
+  const response = await apiFetch(url, {
     cache: 'no-store',
     ...rest,
     headers: {

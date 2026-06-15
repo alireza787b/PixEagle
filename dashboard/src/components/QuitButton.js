@@ -3,11 +3,12 @@ import React from 'react';
 import { Button, Tooltip } from '@mui/material';
 import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
 import { endpoints } from '../services/apiEndpoints';
+import { apiFetch } from '../services/apiClient';
 
 const QuitButton = ({ fullWidth = false, sx = {} }) => {
   const handleQuit = async () => {
     try {
-      const response = await fetch(endpoints.quit, {
+      const response = await apiFetch(endpoints.quit, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

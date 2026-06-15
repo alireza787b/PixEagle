@@ -23,6 +23,7 @@ import ConfigStatusBanner from '../components/config/ConfigStatusBanner';
 import ChangesDrawer from '../components/config/ChangesDrawer';
 import SyncWithDefaultsDialog from '../components/config/SyncWithDefaultsDialog';
 import { endpoints } from '../services/apiEndpoints';
+import { apiFetch } from '../services/apiClient';
 
 // Icon mapping for categories
 const categoryIcons = {
@@ -271,7 +272,7 @@ const SettingsPageContent = () => {
 
     const loadVideoHealth = async () => {
       try {
-        const response = await fetch(endpoints.videoHealth);
+        const response = await apiFetch(endpoints.videoHealth);
         const data = await response.json();
         if (mounted && data?.video) {
           setVideoHealth(data.video);
@@ -294,7 +295,7 @@ const SettingsPageContent = () => {
   const handleReconnectVideo = useCallback(async () => {
     setReconnectingVideo(true);
     try {
-      const response = await fetch(endpoints.videoReconnect, { method: 'POST' });
+      const response = await apiFetch(endpoints.videoReconnect, { method: 'POST' });
       const data = await response.json();
       if (data?.video) {
         setVideoHealth(data.video);

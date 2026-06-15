@@ -25,6 +25,7 @@ import RecordingQuickControl from '../components/RecordingQuickControl';
 import RecordingIndicator from '../components/RecordingIndicator';
 
 import { videoFeed, endpoints } from '../services/apiEndpoints';
+import axios, { apiFetch, getMediaElementCrossOrigin } from '../services/apiClient';
 import {
   useTrackerStatus,
   useFollowerStatus,
@@ -34,7 +35,6 @@ import {
 } from '../hooks/useStatuses';
 import { useCurrentFollowerProfile } from '../hooks/useFollowerSchema';
 import useBoundingBoxHandlers from '../hooks/useBoundingBoxHandlers';
-import axios from 'axios';
 
 const DashboardPage = () => {
   const [isTracking, setIsTracking] = useState(false);
@@ -94,7 +94,7 @@ const DashboardPage = () => {
   const handleTrackingToggle = async () => {
     if (isTracking) {
       try {
-        await fetch(endpoints.stopTracking, {
+        await apiFetch(endpoints.stopTracking, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' }
         });
@@ -115,7 +115,7 @@ const DashboardPage = () => {
         requestOptions.body = JSON.stringify(requestBody);
       }
 
-      const response = await fetch(endpoint, requestOptions);
+      const response = await apiFetch(endpoint, requestOptions);
       const data = await response.json();
       const legacyDetails = data.details || data.result?.legacy_result?.details || {};
       const isStartEndpoint = (
@@ -175,7 +175,7 @@ const DashboardPage = () => {
 
   const handleToggleSmartMode = async () => {
     try {
-      const response = await fetch(endpoints.toggleSmartMode, {
+      const response = await apiFetch(endpoints.toggleSmartMode, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -208,7 +208,7 @@ const DashboardPage = () => {
     if (key === 'm') {
       handleToggleSmartMode();
     } else if (key === 'r') {
-      fetch(endpoints.recordingToggle, {
+      apiFetch(endpoints.recordingToggle, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       }).catch((err) => console.error('Recording toggle failed:', err));
@@ -228,6 +228,10 @@ const DashboardPage = () => {
 
     const checkStream = setInterval(() => {
       const img = new Image();
+      const crossOrigin = getMediaElementCrossOrigin();
+      if (crossOrigin) {
+        img.crossOrigin = crossOrigin;
+      }
       img.src = videoFeed;
       img.onload = () => {
         setLoading(false);

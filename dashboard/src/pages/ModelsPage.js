@@ -65,6 +65,7 @@ import {
   useDeleteModel,
 } from '../hooks/useModels';
 import { endpoints } from '../services/apiEndpoints';
+import { downloadApiBlob } from '../services/apiClient';
 
 /** Format file size in bytes to a human-readable string. */
 const formatSize = (bytes) => {
@@ -190,6 +191,16 @@ const ModelsPage = () => {
       refetch();
     } else {
       showSnackbar(result.error || 'Download failed', 'error');
+    }
+  };
+
+  const handleModelFileDownload = async (model) => {
+    const modelName = model.name || model.filename || `${model.id}.pt`;
+    try {
+      await downloadApiBlob(endpoints.modelFile(model.id), modelName);
+      showSnackbar(`Downloaded: ${modelName}`);
+    } catch (err) {
+      showSnackbar(err.message || 'Failed to download model file', 'error');
     }
   };
 
@@ -417,9 +428,7 @@ const ModelsPage = () => {
                               <Tooltip title="Download .pt file">
                                 <IconButton
                                   size="small"
-                                  component="a"
-                                  href={endpoints.modelFile(m.id)}
-                                  download
+                                  onClick={() => handleModelFileDownload(m)}
                                 >
                                   <DownloadIcon sx={{ fontSize: 18 }} />
                                 </IconButton>

@@ -3,6 +3,14 @@ import ActionButtons from './ActionButtons';
 import { endpoints } from '../services/apiEndpoints';
 import { normalizeTrackerStatus } from '../hooks/useStatuses';
 
+let mockHasScope = () => true;
+
+jest.mock('../context/AuthSessionContext', () => ({
+  useAuthSession: () => ({
+    hasScope: mockHasScope,
+  }),
+}));
+
 const baseProps = {
   isTracking: false,
   isFollowing: false,
@@ -13,6 +21,7 @@ const baseProps = {
 };
 
 afterEach(() => {
+  mockHasScope = () => true;
   jest.clearAllMocks();
 });
 
@@ -58,9 +67,7 @@ test('allows confirmed start following when tracker output is follower usable', 
 test('uses typed confirmed operator abort action when cancelling tracker activity', () => {
   render(<ActionButtons {...baseProps} />);
 
-  fireEvent.click(screen.getByRole('button', {
-    name: 'Cancel all tracking activities and reset',
-  }));
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel Tracker' }));
 
   expect(baseProps.handleButtonClick).toHaveBeenCalledWith(
     endpoints.operatorAbortAction,
@@ -80,9 +87,7 @@ test('uses typed confirmed operator abort action when cancelling tracker activit
 test('uses typed confirmed stop action when stopping following', () => {
   render(<ActionButtons {...baseProps} isFollowing />);
 
-  fireEvent.click(screen.getByRole('button', {
-    name: 'Disengage offboard mode and stop following immediately',
-  }));
+  fireEvent.click(screen.getByRole('button', { name: 'Stop Following' }));
 
   expect(baseProps.handleButtonClick).toHaveBeenCalledWith(
     endpoints.offboardStopAction,
@@ -97,4 +102,21 @@ test('uses typed confirmed stop action when stopping following', () => {
       },
     })
   );
+});
+
+test('disables operator controls when session lacks write and action scopes', () => {
+  mockHasScope = () => false;
+
+  const trackerStatus = normalizeTrackerStatus({
+    active: true,
+    has_output: true,
+    usable_for_following: true,
+  });
+
+  render(<ActionButtons {...baseProps} trackerStatus={trackerStatus} />);
+
+  expect(screen.getByRole('button', { name: 'Start Following' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Start Tracking' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Re-Detect' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Toggle Segmentation' })).toBeDisabled();
 });

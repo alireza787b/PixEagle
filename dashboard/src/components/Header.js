@@ -8,6 +8,7 @@ import MenuIcon from '@mui/icons-material/Menu';
 import RestartAltIcon from '@mui/icons-material/RestartAlt';
 import ThemeToggle from './ThemeToggle';
 import BackendStatusIndicator from './BackendStatusIndicator';
+import AuthStatusMenu from './AuthStatusMenu';
 import useSystemRestart from '../hooks/useSystemRestart';
 
 const Header = ({ handleDrawerToggle }) => {
@@ -54,6 +55,7 @@ const Header = ({ handleDrawerToggle }) => {
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <BackendStatusIndicator />
+            <AuthStatusMenu />
 
             <Tooltip title={restarting ? 'Restarting...' : 'Restart Backend'}>
               <span>

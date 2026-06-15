@@ -2,6 +2,7 @@ import React, { useContext } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { CssBaseline, ThemeProvider as MuiThemeProvider, createTheme } from '@mui/material';
 import Layout from './components/Layout';
+import AuthGate from './components/AuthGate';
 import TrackerPage from './pages/TrackerPage';
 import FollowerPage from './pages/FollowerPage';
 import DashboardPage from './pages/DashboardPage';
@@ -10,6 +11,7 @@ import SettingsPage from './pages/SettingsPage';
 import RecordingsPage from './pages/RecordingsPage';
 import ModelsPage from './pages/ModelsPage';
 import { ThemeProvider, ThemeContext } from './context/ThemeContext';
+import { AuthSessionProvider } from './context/AuthSessionContext';
 
 // Auto-detect base path for reverse proxy support (e.g., ARK-OS serves at /pixeagle/)
 const detectBasePath = () => {
@@ -34,18 +36,20 @@ const AppContent = () => {
         basename={detectBasePath()}
         future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
       >
-        <Routes>
-          <Route path="/" element={<Layout />}>
-            <Route index element={<Navigate to="/dashboard" />} />
-            <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="tracker" element={<TrackerPage />} />
-            <Route path="follower" element={<FollowerPage />} />
-            <Route path="live-feed" element={<LiveFeedPage />} />
-            <Route path="recordings" element={<RecordingsPage />} />
-            <Route path="models" element={<ModelsPage />} />
-            <Route path="settings" element={<SettingsPage />} />
-          </Route>
-        </Routes>
+        <AuthGate>
+          <Routes>
+            <Route path="/" element={<Layout />}>
+              <Route index element={<Navigate to="/dashboard" />} />
+              <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="tracker" element={<TrackerPage />} />
+              <Route path="follower" element={<FollowerPage />} />
+              <Route path="live-feed" element={<LiveFeedPage />} />
+              <Route path="recordings" element={<RecordingsPage />} />
+              <Route path="models" element={<ModelsPage />} />
+              <Route path="settings" element={<SettingsPage />} />
+            </Route>
+          </Routes>
+        </AuthGate>
       </Router>
     </MuiThemeProvider>
   );
@@ -53,7 +57,9 @@ const AppContent = () => {
 
 const App = () => (
   <ThemeProvider>
-    <AppContent />
+    <AuthSessionProvider>
+      <AppContent />
+    </AuthSessionProvider>
   </ThemeProvider>
 );
 

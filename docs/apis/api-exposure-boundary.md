@@ -45,7 +45,8 @@ headers, so do not expose `local_compat` through a reverse proxy. Use an SSH
 tunnel for local browser operation, or use scoped bearer tokens for machine API
 clients. Browser/operator sessions are available through explicit
 `API_AUTH_MODE=browser_session` deployments, but production remote-browser
-approval still requires dashboard migration, TLS, audit, and evidence gates.
+approval still requires durable audit, TLS, typed-action-only enforcement,
+legacy mutation retirement, and evidence gates.
 
 ## Exposure Modes
 
@@ -81,8 +82,9 @@ exposure. If a deployment truly needs temporary LAN compatibility, add
 If the dashboard uses a custom port, add both loopback browser origins for that
 port to `API_CORS_ALLOWED_ORIGINS`. A non-loopback reverse-proxy browser origin
 cannot be used in `local_only`. `trusted_lan_legacy` can open the bind/CORS
-boundary, but remote browser operation remains deferred until dashboard,
-session, media, audit, TLS, and evidence gates are completed.
+boundary, but remote browser operation remains deferred until durable audit,
+TLS, typed-action-only enforcement, legacy mutation retirement, and evidence
+gates are completed.
 
 ## Current And Planned Controls
 
@@ -125,18 +127,19 @@ Implemented as a runtime authorization foundation:
 - authenticated media treatment and default-deny handling for missing or
   ambiguous classifications;
 - query-string token rejection.
+- dashboard credential-aware API client, login/logout gate, session status
+  indicator, CSRF-aware `fetch`/axios boundary, cookie-session MJPEG,
+  WebSocket/WebRTC construction, and blob-backed protected downloads/playback.
 
-See the [API security policy](api-security-policy.md). The backend session
-foundation exists, but dashboard/client migration and production remote-browser
-approval remain open.
+See the [API security policy](api-security-policy.md). The backend session and
+dashboard client/media foundations exist, but production remote-browser
+approval remains open.
 
 Still required before authenticated remote operation can be approved:
 
-- dashboard migration to session-aware HTTP, MJPEG, WebSocket, WebRTC, download,
-  and playback access;
 - typed action enforcement and retirement of immediate legacy mutations;
 - security audit events, TLS/operator deployment guidance, migration tooling,
-  and adversarial tests.
+  and adversarial browser/session/media tests.
 
 Until those controls land, use local access or an SSH tunnel for the default
 local-only mode. Non-loopback reverse-proxy/VPN browser origins are not a
