@@ -52,6 +52,6 @@ and protected endpoint `href` bypasses outside the approved client boundary.
 ## Remaining Production Gates
 
 The dashboard credential-aware client/media foundation is implemented. Remote
-browser operation is still not production-approved until durable audit, TLS,
-typed-action-only enforcement, legacy mutation retirement, adversarial
-browser/session/media tests, and evidence gates are complete.
+browser operation is still not production-approved until TLS, typed-action-only
+enforcement, legacy mutation retirement, adversarial browser/session/media
+tests, and evidence gates are complete.

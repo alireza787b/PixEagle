@@ -145,9 +145,9 @@ Keep PixEagle backend `5077`, MAVLink2REST `8088`, local service endpoints
 `14540`, `14569`, `12550`, and the MavlinkAnywhere dashboard `9070` local-only.
 Remote operator access should terminate at a separately secured VPN/reverse
 proxy or SSH tunnel rather than directly exposing backend port `5077`.
-Non-loopback PixEagle browser operation remains deferred until durable audit,
-TLS, typed-action-only enforcement, legacy mutation retirement, and evidence
-gates are complete.
+Non-loopback PixEagle browser operation remains deferred until TLS,
+typed-action-only enforcement, legacy mutation retirement, adversarial
+auth/media tests, and evidence gates are complete.
 
 ## Legacy Port Note
 

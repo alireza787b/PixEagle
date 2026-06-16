@@ -162,6 +162,11 @@ Implemented:
 - HttpOnly browser sessions with session-bound CSRF;
 - process-local login failure throttling;
 - credentialed exact-origin CORS when `API_AUTH_MODE=browser_session`;
+- durable sanitized JSONL security audit events for auth decisions,
+  login/logout outcomes, denied requests, sensitive reads, mutations, and
+  security-critical routes;
+- fail-closed handling when an allowed mutation or security-critical request
+  cannot be durably audited;
 - dashboard `apiClient` boundary for credentialed `fetch`, axios CSRF
   injection, auth-failure refresh, media WebSocket construction, MJPEG image
   credentials, and blob-backed protected downloads/playback;
@@ -171,19 +176,18 @@ Implemented:
 
 Still required under PXE-0064:
 
-1. Durable security audit events using the authenticated principal as actor.
-2. Operator credential rotation tooling and deployment TLS guidance.
-3. Broader adversarial/browser-session tests, especially around expiry,
+1. Operator credential rotation tooling and deployment TLS guidance.
+2. Broader adversarial/browser-session tests, especially around expiry,
    multi-tab logout, large protected media playback, and role-denied UX.
-4. Migration tooling, typed-action-only enforcement, and
+3. Migration tooling, typed-action-only enforcement, and
    final legacy mutation retirement.
 
 Use same-host loopback local access, SSH tunnels, scoped machine bearer tokens,
 or explicit `browser_session` test deployments only. Do not place
 `local_compat` behind an externally reachable reverse proxy. Remote browser
-operation is not production-approved until durable audit, TLS,
-typed-action-only enforcement, legacy mutation retirement, and evidence gates
-are complete.
+operation is not production-approved until TLS, typed-action-only enforcement,
+legacy mutation retirement, adversarial auth/media tests, and evidence gates are
+complete.
 
 ## Verification
 

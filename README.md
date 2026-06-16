@@ -128,8 +128,9 @@ scripts\stop.bat           # Stop all services
 
 - **Local**: http://localhost:3040
 - **Remote operator access**: use an SSH tunnel; non-loopback browser operation
-  is not production-approved until durable audit, TLS, typed-action-only
-  enforcement, legacy mutation retirement, and evidence gates are complete
+  is not production-approved until TLS, typed-action-only enforcement, legacy
+  mutation retirement, adversarial auth/media tests, and evidence gates are
+  complete
 
 The backend is local-only by default and rejects contradictory local-only bind
 or CORS configuration. Non-loopback backend API clients require scoped bearer
@@ -209,8 +210,9 @@ PixEagle requires MAVLink communication with PX4.
 
 Do not open backend port `5077` directly. For remote operator access, keep the
 backend local and use an SSH tunnel. Non-loopback reverse-proxy/VPN browser
-operation remains deferred until durable audit, TLS, typed-action-only
-enforcement, legacy mutation retirement, and evidence gates are complete.
+operation remains deferred until TLS, typed-action-only enforcement, legacy
+mutation retirement, adversarial auth/media tests, and evidence gates are
+complete.
 
 Keep PixEagle backend `5077`, MAVLink2REST `8088`, and MAVLink local endpoints
 behind localhost or SSH tunnels unless the deployment has an explicit

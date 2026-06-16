@@ -5,7 +5,7 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: 8b6d4ad4875707dead1f3dc30931b053576da4a656c149c8c36570508b6ebddf
+    sha256: f3414ad38f596882152aaef7caa80f73b9fc5f5e1943470a91c114e9625f32bc
   - file: src/classes/fastapi_api_v1_routes.py
     sha256: d01ee5c16c14268ea57f2ebbbaa654cf99c47437295060d5bc0089b10aaa01e7
   - file: src/classes/api_v1_contracts.py
@@ -15,7 +15,7 @@ source:
   - file: src/classes/api_v1_actions.py
     sha256: 7ca3b126f953976bf4dc0da6633877e4558f81d730c9a355c07b45e3a65718e4
   - file: src/classes/api_v1_auth_routes.py
-    sha256: e75c3d3e1dca339a37585e1326f58fa2bb197095ef2a34170e2de4e04adaebd5
+    sha256: 49589db33d56dd9ebd353d0e79e768d2208a27f1cfae9aa2be0a6111050ee27b
   - file: src/classes/api_legacy_control_routes.py
     sha256: 2fd4b481e7b6f078fee9071e21dec226cc694e5283ceaa3d1b5ee50acf2e1e05
   - file: src/classes/api_v1_read_routes.py
@@ -29,11 +29,13 @@ source:
   - file: src/classes/api_exposure_policy.py
     sha256: 3c190034c2aa18da91bc0eda70fa78d080c25538a0934950c27f518553d82bec
   - file: src/classes/api_auth_runtime.py
-    sha256: febc3cf8359a43ea943655a985982b9b6d7de62eb74d55f11ed19947ee70bd53
+    sha256: 2d52b0ba3128a650ce2724ccc358f7c717c2fe721dcb641a7d895626899d3d8e
+  - file: src/classes/api_security_audit.py
+    sha256: 65707d929bec29066947f538511e7141bf210edeaf8ed2fa5f95223f127e6178
   - file: src/classes/api_security_types.py
     sha256: 6b6b47d950108782e3783a5ba2fd7f14c65b94dabb49eb537f8c7b53a9b9ce1d
   - file: src/classes/api_security_policy.py
-    sha256: 3247fa1bd7c561ea0d109aa79ec5a728ae463e134ac10dac45085f189da67c68
+    sha256: 543890ad6fd0908d3a3d5b91f55ff3fa6770dd20a66f44af869d4a5a0b3c7237
 generated_from:
 - src/classes/fastapi_handler.py
 - src/classes/fastapi_api_v1_routes.py
@@ -48,6 +50,7 @@ generated_from:
 - src/classes/api_v1_sitl.py
 - src/classes/api_exposure_policy.py
 - src/classes/api_auth_runtime.py
+- src/classes/api_security_audit.py
 - src/classes/api_security_types.py
 - src/classes/api_security_policy.py
 output_path: docs/agent-context/generated/pixeagle-openapi-tool-candidates.yaml

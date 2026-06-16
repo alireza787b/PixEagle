@@ -57,8 +57,8 @@ loopback socket client. In `machine_bearer` mode a browser cannot currently
 attach the required `Authorization` header to the native WebSocket, so browser
 WebRTC should use explicit `API_AUTH_MODE=browser_session` with the
 credential-aware dashboard client. Production remote-browser approval still
-requires durable audit, TLS, typed-action-only enforcement, legacy mutation
-retirement, and evidence gates.
+requires TLS, typed-action-only enforcement, legacy mutation retirement,
+adversarial auth/media tests, and evidence gates.
 
 Client offer message:
 

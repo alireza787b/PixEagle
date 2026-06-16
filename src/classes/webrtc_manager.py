@@ -20,6 +20,8 @@ from typing import Dict
 
 from classes.api_auth_runtime import APIAuthRuntime, authorize_websocket_request
 from classes.api_exposure_policy import is_websocket_request_allowed
+from classes.api_security_audit import APISecurityAuditError, audit_failure_must_block
+from classes.api_security_types import APIAuditPolicy, APIPrincipal, APISensitivity
 from classes.parameters import Parameters
 
 logger = logging.getLogger(__name__)
@@ -85,7 +87,13 @@ class WebRTCManager:
     frame access. Enforces connection limits via WEBRTC_MAX_CONNECTIONS.
     """
 
-    def __init__(self, frame_publisher, exposure_policy, api_auth_runtime=None):
+    def __init__(
+        self,
+        frame_publisher,
+        exposure_policy,
+        api_auth_runtime=None,
+        security_audit_logger=None,
+    ):
         """
         Initialize the WebRTCManager.
 
@@ -93,14 +101,62 @@ class WebRTCManager:
             frame_publisher: A FramePublisher instance for thread-safe frame access.
             exposure_policy: Validated HTTP/WebSocket exposure policy.
             api_auth_runtime: Shared API authentication runtime.
+            security_audit_logger: Durable security audit logger.
         """
         self.frame_publisher = frame_publisher
         self.exposure_policy = exposure_policy
         self.api_auth_runtime: APIAuthRuntime | None = api_auth_runtime
+        self.security_audit_logger = security_audit_logger
         self.peer_connections: Dict[str, RTCPeerConnection] = {}
         self.max_connections = getattr(Parameters, 'WEBRTC_MAX_CONNECTIONS', 3)
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.setLevel(logging.INFO)
+
+    def _record_security_audit_event(
+        self,
+        *,
+        event_type,
+        outcome,
+        reason,
+        websocket,
+        status_code,
+        principal,
+        audit_policy,
+        sensitivity,
+        missing_scopes=(),
+    ) -> bool:
+        audit_logger = getattr(self, "security_audit_logger", None)
+        if audit_logger is None:
+            return True
+        try:
+            recorded = audit_logger.record_event(
+                event_type=event_type,
+                outcome=outcome,
+                reason=reason,
+                transport="websocket",
+                method="WEBSOCKET",
+                path="/ws/webrtc_signaling",
+                status_code=status_code,
+                principal=principal,
+                audit_policy=audit_policy,
+                sensitivity=sensitivity,
+                client_host=getattr(getattr(websocket, "client", None), "host", None),
+                host_header=websocket.headers.get("host"),
+                origin=websocket.headers.get("origin"),
+                missing_scopes=missing_scopes,
+            )
+            if recorded:
+                return True
+            return not audit_failure_must_block(
+                audit_policy=audit_policy,
+                outcome=outcome,
+            )
+        except APISecurityAuditError as exc:
+            self.logger.error("API security audit write failed: %s", exc)
+            return not audit_failure_must_block(
+                audit_policy=audit_policy,
+                outcome=outcome,
+            )
 
     async def signaling_handler(self, websocket: WebSocket):
         """
@@ -115,6 +171,16 @@ class WebRTCManager:
             origin=websocket.headers.get("origin"),
             policy=self.exposure_policy,
         ):
+            self._record_security_audit_event(
+                event_type="api.websocket.origin",
+                outcome="denied",
+                reason="websocket_origin_not_allowed",
+                websocket=websocket,
+                status_code=1008,
+                principal=APIPrincipal.anonymous(),
+                audit_policy=APIAuditPolicy.SECURITY_CRITICAL,
+                sensitivity=APISensitivity.MEDIA,
+            )
             await websocket.close(code=1008, reason="WebSocket Host or Origin not allowed")
             return
         auth_runtime = getattr(self, "api_auth_runtime", None)
@@ -128,6 +194,20 @@ class WebRTCManager:
                 exposure_policy=self.exposure_policy,
                 query_string=getattr(getattr(websocket, "url", None), "query", ""),
             )
+            audit_ok = self._record_security_audit_event(
+                event_type="api.websocket.authorization",
+                outcome="allowed" if auth_result.allowed else "denied",
+                reason=auth_result.reason,
+                websocket=websocket,
+                status_code=101 if auth_result.allowed else 1008,
+                principal=auth_result.principal,
+                audit_policy=auth_result.audit_policy,
+                sensitivity=auth_result.sensitivity,
+                missing_scopes=auth_result.missing_scopes,
+            )
+            if not audit_ok:
+                await websocket.close(code=1011, reason="Security audit unavailable")
+                return
             if not auth_result.allowed:
                 await websocket.close(code=1008, reason="WebSocket API request not authorized")
                 return

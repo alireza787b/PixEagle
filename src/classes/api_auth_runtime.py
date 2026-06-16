@@ -23,9 +23,11 @@ from classes.api_exposure_policy import APIExposurePolicy, is_loopback_host
 from classes.api_security_policy import resolve_route_security_policy
 from classes.api_security_types import (
     APIAccessMode,
+    APIAuditPolicy,
     APIAuthorizationDecision,
     APIPrincipal,
     APIPrincipalKind,
+    APISensitivity,
     ROLE_SCOPES,
     authorize_api_request,
 )
@@ -469,6 +471,8 @@ class APITransportAuthorizationResult:
     reason: str
     principal: APIPrincipal
     decision: APIAuthorizationDecision
+    audit_policy: APIAuditPolicy
+    sensitivity: APISensitivity
     missing_scopes: tuple[str, ...] = ()
 
     @property
@@ -690,7 +694,14 @@ def _authorize_transport(
     anonymous = APIPrincipal.anonymous()
     policy = resolve_route_security_policy(method, path)
     if _contains_query_token(query_params):
-        return _result(False, 401, "query_token_not_supported", anonymous)
+        return _result(
+            False,
+            401,
+            "query_token_not_supported",
+            anonymous,
+            audit_policy=policy.audit,
+            sensitivity=policy.sensitivity,
+        )
 
     is_loopback_client = is_loopback_transport_client(
         client_host=client_host,
@@ -706,7 +717,14 @@ def _authorize_transport(
         _header_get(headers, "authorization")
     )
     if auth_error is not None:
-        return _result(False, 401, auth_error, anonymous)
+        return _result(
+            False,
+            401,
+            auth_error,
+            anonymous,
+            audit_policy=policy.audit,
+            sensitivity=policy.sensitivity,
+        )
 
     session_record: Optional[APISessionRecord] = None
     if principal.kind == APIPrincipalKind.ANONYMOUS:
@@ -718,7 +736,14 @@ def _authorize_transport(
                 principal = anonymous
                 session_record = None
             else:
-                return _result(False, 401, session_error, anonymous)
+                return _result(
+                    False,
+                    401,
+                    session_error,
+                    anonymous,
+                    audit_policy=policy.audit,
+                    sensitivity=policy.sensitivity,
+                )
 
     if principal.kind == APIPrincipalKind.ANONYMOUS and policy.access != APIAccessMode.PUBLIC:
         if runtime.local_compat_enabled and is_loopback_client:
@@ -729,6 +754,8 @@ def _authorize_transport(
                 401,
                 "proxy_forwarded_local_compat_not_allowed",
                 anonymous,
+                audit_policy=policy.audit,
+                sensitivity=policy.sensitivity,
             )
 
     csrf_valid = False
@@ -749,6 +776,8 @@ def _authorize_transport(
             reason="allowed",
             principal=principal,
             decision=decision,
+            audit_policy=policy.audit,
+            sensitivity=policy.sensitivity,
         )
 
     status_code = 401 if decision.reason == "authentication_required" else 403
@@ -758,6 +787,8 @@ def _authorize_transport(
         reason=decision.reason,
         principal=principal,
         decision=decision,
+        audit_policy=policy.audit,
+        sensitivity=policy.sensitivity,
         missing_scopes=decision.missing_scopes,
     )
 
@@ -1102,6 +1133,9 @@ def _result(
     status_code: int,
     reason: str,
     principal: APIPrincipal,
+    *,
+    audit_policy: APIAuditPolicy = APIAuditPolicy.SECURITY_CRITICAL,
+    sensitivity: APISensitivity = APISensitivity.UNKNOWN,
 ) -> APITransportAuthorizationResult:
     return APITransportAuthorizationResult(
         allowed=allowed,
@@ -1109,6 +1143,8 @@ def _result(
         reason=reason,
         principal=principal,
         decision=APIAuthorizationDecision(allowed, reason),
+        audit_policy=audit_policy,
+        sensitivity=sensitivity,
     )
 
 

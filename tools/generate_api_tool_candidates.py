@@ -36,6 +36,7 @@ API_V1_TELEMETRY = PROJECT_ROOT / "src" / "classes" / "api_v1_telemetry.py"
 API_V1_SITL = PROJECT_ROOT / "src" / "classes" / "api_v1_sitl.py"
 API_EXPOSURE_POLICY = PROJECT_ROOT / "src" / "classes" / "api_exposure_policy.py"
 API_AUTH_RUNTIME = PROJECT_ROOT / "src" / "classes" / "api_auth_runtime.py"
+API_SECURITY_AUDIT = PROJECT_ROOT / "src" / "classes" / "api_security_audit.py"
 API_SECURITY_TYPES = PROJECT_ROOT / "src" / "classes" / "api_security_types.py"
 API_SECURITY_POLICY = PROJECT_ROOT / "src" / "classes" / "api_security_policy.py"
 ROUTE_SOURCE_FILES = (
@@ -52,6 +53,7 @@ ROUTE_SOURCE_FILES = (
     API_V1_SITL,
     API_EXPOSURE_POLICY,
     API_AUTH_RUNTIME,
+    API_SECURITY_AUDIT,
     API_SECURITY_TYPES,
     API_SECURITY_POLICY,
 )

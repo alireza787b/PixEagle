@@ -38,6 +38,16 @@ from classes.api_auth_runtime import (
     authorize_websocket_request,
     resolve_api_auth_runtime_from_parameters,
 )
+from classes.api_security_audit import (
+    APISecurityAuditError,
+    audit_failure_must_block,
+    resolve_api_security_audit_logger_from_parameters,
+)
+from classes.api_security_types import (
+    APIAuditPolicy,
+    APIPrincipal,
+    APISensitivity,
+)
 from classes.api_v1_actions import (
     ApiActionStore,
     attach_legacy_action_audit,
@@ -393,6 +403,7 @@ class FastAPIHandler:
         # Fail-closed process exposure policy shared by HTTP and WebSockets
         self.exposure_policy = resolve_api_exposure_policy_from_parameters(Parameters)
         self.api_auth_runtime = resolve_api_auth_runtime_from_parameters(Parameters)
+        self.security_audit_logger = resolve_api_security_audit_logger_from_parameters(Parameters)
 
         # Rate limiter for config write endpoints (10 requests per minute)
         self.config_rate_limiter = RateLimiter(max_requests=60, window_seconds=60)  # 1/sec average for private system
@@ -402,6 +413,7 @@ class FastAPIHandler:
             self.frame_publisher,
             self.exposure_policy,
             self.api_auth_runtime,
+            self.security_audit_logger,
         )
 
         # Detection Model Manager
@@ -478,6 +490,101 @@ class FastAPIHandler:
         # Register after CORS so Host/Origin/auth enforcement wraps preflight too.
         self.app.middleware("http")(self._enforce_http_browser_origin)
 
+    def _record_security_audit_event(
+        self,
+        *,
+        event_type: str,
+        outcome: str,
+        reason: str,
+        transport: str,
+        method: Optional[str],
+        path: str,
+        status_code: Optional[int],
+        principal: APIPrincipal,
+        audit_policy: APIAuditPolicy | str,
+        sensitivity: APISensitivity | str,
+        client_host: Optional[str] = None,
+        host_header: Optional[str] = None,
+        origin: Optional[str] = None,
+        sec_fetch_site: Optional[str] = None,
+        missing_scopes: tuple[str, ...] = (),
+        request_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Record a sanitized security audit event without exposing credentials."""
+        audit_logger = getattr(self, "security_audit_logger", None)
+        if audit_logger is None:
+            return True
+        try:
+            recorded = audit_logger.record_event(
+                event_type=event_type,
+                outcome=outcome,
+                reason=reason,
+                transport=transport,
+                method=method,
+                path=path,
+                status_code=status_code,
+                principal=principal,
+                audit_policy=audit_policy,
+                sensitivity=sensitivity,
+                client_host=client_host,
+                host_header=host_header,
+                origin=origin,
+                sec_fetch_site=sec_fetch_site,
+                missing_scopes=missing_scopes,
+                request_id=request_id,
+                metadata=metadata,
+            )
+            if recorded:
+                return True
+            return not audit_failure_must_block(
+                audit_policy=audit_policy,
+                outcome=outcome,
+            )
+        except APISecurityAuditError as exc:
+            logging.getLogger(__name__).error("API security audit write failed: %s", exc)
+            return not audit_failure_must_block(
+                audit_policy=audit_policy,
+                outcome=outcome,
+            )
+
+    def _record_http_auth_audit(
+        self,
+        request: Request,
+        auth_result,
+    ) -> bool:
+        return self._record_security_audit_event(
+            event_type="api.http.authorization",
+            outcome="allowed" if auth_result.allowed else "denied",
+            reason=auth_result.reason,
+            transport="http",
+            method=getattr(request, "method", None),
+            path=str(getattr(getattr(request, "url", None), "path", "")),
+            status_code=200 if auth_result.allowed else auth_result.status_code,
+            principal=auth_result.principal,
+            audit_policy=auth_result.audit_policy,
+            sensitivity=auth_result.sensitivity,
+            client_host=getattr(getattr(request, "client", None), "host", None),
+            host_header=request.headers.get("host"),
+            origin=request.headers.get("origin"),
+            sec_fetch_site=request.headers.get("sec-fetch-site"),
+            missing_scopes=auth_result.missing_scopes,
+            request_id=request.headers.get("x-request-id"),
+        )
+
+    def _security_audit_unavailable_response(self, path: str):
+        if self._uses_typed_api_error_envelope(path):
+            return self._api_v1_error_response(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                code="security_audit_unavailable",
+                detail="API security audit event could not be recorded.",
+                path=path,
+            )
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"detail": "API security audit event could not be recorded."},
+        )
+
     async def _enforce_http_browser_origin(self, request: Request, call_next):
         """Reject cross-site or unauthorized requests before route execution."""
         request_path = str(getattr(getattr(request, "url", None), "path", ""))
@@ -487,6 +594,23 @@ class FastAPIHandler:
             sec_fetch_site=request.headers.get("sec-fetch-site"),
             policy=self.exposure_policy,
         ):
+            self._record_security_audit_event(
+                event_type="api.http.origin",
+                outcome="denied",
+                reason="browser_origin_not_allowed",
+                transport="http",
+                method=getattr(request, "method", None),
+                path=request_path,
+                status_code=status.HTTP_403_FORBIDDEN,
+                principal=APIPrincipal.anonymous(),
+                audit_policy=APIAuditPolicy.SECURITY_CRITICAL,
+                sensitivity=APISensitivity.SYSTEM,
+                client_host=getattr(getattr(request, "client", None), "host", None),
+                host_header=request.headers.get("host"),
+                origin=request.headers.get("origin"),
+                sec_fetch_site=request.headers.get("sec-fetch-site"),
+                request_id=request.headers.get("x-request-id"),
+            )
             if self._uses_typed_api_error_envelope(request_path):
                 return self._api_v1_error_response(
                     status_code=status.HTTP_403_FORBIDDEN,
@@ -510,6 +634,8 @@ class FastAPIHandler:
                 exposure_policy=self.exposure_policy,
                 query_params=request.query_params,
             )
+            if not self._record_http_auth_audit(request, auth_result):
+                return self._security_audit_unavailable_response(request_path)
             if not auth_result.allowed:
                 headers = {}
                 if auth_result.is_authentication_failure:
@@ -825,6 +951,21 @@ class FastAPIHandler:
             origin=websocket.headers.get("origin"),
             policy=self.exposure_policy,
         ):
+            self._record_security_audit_event(
+                event_type="api.websocket.origin",
+                outcome="denied",
+                reason="websocket_origin_not_allowed",
+                transport="websocket",
+                method="WEBSOCKET",
+                path="/ws/video_feed",
+                status_code=1008,
+                principal=APIPrincipal.anonymous(),
+                audit_policy=APIAuditPolicy.SECURITY_CRITICAL,
+                sensitivity=APISensitivity.MEDIA,
+                client_host=getattr(getattr(websocket, "client", None), "host", None),
+                host_header=websocket.headers.get("host"),
+                origin=websocket.headers.get("origin"),
+            )
             await websocket.close(code=1008, reason="WebSocket Host or Origin not allowed")
             return
         auth_runtime = getattr(self, "api_auth_runtime", None)
@@ -838,6 +979,25 @@ class FastAPIHandler:
                 exposure_policy=self.exposure_policy,
                 query_string=getattr(getattr(websocket, "url", None), "query", ""),
             )
+            audit_ok = self._record_security_audit_event(
+                event_type="api.websocket.authorization",
+                outcome="allowed" if auth_result.allowed else "denied",
+                reason=auth_result.reason,
+                transport="websocket",
+                method="WEBSOCKET",
+                path="/ws/video_feed",
+                status_code=101 if auth_result.allowed else 1008,
+                principal=auth_result.principal,
+                audit_policy=auth_result.audit_policy,
+                sensitivity=auth_result.sensitivity,
+                client_host=getattr(getattr(websocket, "client", None), "host", None),
+                host_header=websocket.headers.get("host"),
+                origin=websocket.headers.get("origin"),
+                missing_scopes=auth_result.missing_scopes,
+            )
+            if not audit_ok:
+                await websocket.close(code=1011, reason="Security audit unavailable")
+                return
             if not auth_result.allowed:
                 await websocket.close(code=1008, reason="WebSocket API request not authorized")
                 return

@@ -19,6 +19,7 @@ from classes.api_auth_runtime import (
     BearerTokenRecord,
     hash_bearer_token,
 )
+from classes.api_security_audit import APISecurityAuditLogger
 from classes.api_exposure_policy import (
     APIExposurePolicyError,
     DEFAULT_LOCAL_CORS_ORIGINS,
@@ -32,7 +33,7 @@ from classes.api_exposure_policy import (
     resolve_api_exposure_policy,
     resolve_api_exposure_policy_from_parameters,
 )
-from classes.api_security_types import STATUS_READ
+from classes.api_security_types import APIAuditPolicy, APIPrincipal, APISensitivity, STATUS_READ
 from classes.fastapi_handler import FastAPIHandler
 from classes.webrtc_manager import WebRTCManager
 
@@ -614,6 +615,131 @@ async def test_http_middleware_uses_typed_error_envelope_for_api_v1_auth_failure
     assert payload["path"] == "/api/v1/runtime/status"
     assert payload["detail"]["reason"] == "authentication_required"
     call_next.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_http_middleware_records_denied_auth_event(tmp_path):
+    audit_path = tmp_path / "security_audit.jsonl"
+    handler = FastAPIHandler.__new__(FastAPIHandler)
+    handler.exposure_policy = resolve_api_exposure_policy(
+        bind_host="0.0.0.0",
+        mode=TRUSTED_LAN_LEGACY,
+        cors_allowed_origins=["http://192.168.1.20:3040"],
+        api_port=5077,
+    )
+    handler.api_auth_runtime = _machine_bearer_runtime()
+    handler.security_audit_logger = APISecurityAuditLogger(log_path=audit_path)
+    request = SimpleNamespace(
+        method="GET",
+        url=SimpleNamespace(path="/api/v1/runtime/status"),
+        query_params={},
+        headers={"host": "192.168.1.20:5077"},
+        client=SimpleNamespace(host="192.168.1.20"),
+        state=SimpleNamespace(),
+    )
+    call_next = AsyncMock(return_value=Response())
+
+    response = await handler._enforce_http_browser_origin(request, call_next)
+
+    assert response.status_code == 401
+    events = [
+        json.loads(line)
+        for line in audit_path.read_text(encoding="utf-8").splitlines()
+    ]
+    assert events[0]["event_type"] == "api.http.authorization"
+    assert events[0]["outcome"] == "denied"
+    assert events[0]["reason"] == "authentication_required"
+    assert events[0]["actor"]["kind"] == "anonymous"
+    assert events[0]["path"] == "/api/v1/runtime/status"
+    call_next.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_http_middleware_blocks_allowed_security_critical_without_audit(tmp_path):
+    handler = FastAPIHandler.__new__(FastAPIHandler)
+    handler.exposure_policy = resolve_api_exposure_policy(
+        bind_host="127.0.0.1",
+        mode=LOCAL_ONLY,
+        cors_allowed_origins=["http://localhost:3040"],
+        api_port=5077,
+    )
+    handler.api_auth_runtime = APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT)
+    handler.security_audit_logger = APISecurityAuditLogger(log_path=tmp_path)
+    request = SimpleNamespace(
+        method="POST",
+        url=SimpleNamespace(path="/api/v1/actions/offboard-stop"),
+        query_params={},
+        headers={"host": "127.0.0.1:5077"},
+        client=SimpleNamespace(host="127.0.0.1"),
+        state=SimpleNamespace(),
+        base_url="http://localhost:5077/",
+    )
+    call_next = AsyncMock(return_value=Response())
+
+    response = await handler._enforce_http_browser_origin(request, call_next)
+    payload = json.loads(response.body)
+
+    assert response.status_code == 503
+    assert payload["error"] == "security_audit_unavailable"
+    call_next.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_http_middleware_blocks_allowed_security_critical_when_audit_disabled(tmp_path):
+    handler = FastAPIHandler.__new__(FastAPIHandler)
+    handler.exposure_policy = resolve_api_exposure_policy(
+        bind_host="127.0.0.1",
+        mode=LOCAL_ONLY,
+        cors_allowed_origins=["http://localhost:3040"],
+        api_port=5077,
+    )
+    handler.api_auth_runtime = APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT)
+    handler.security_audit_logger = APISecurityAuditLogger(
+        enabled=False,
+        log_path=tmp_path / "security_audit.jsonl",
+    )
+    request = SimpleNamespace(
+        method="POST",
+        url=SimpleNamespace(path="/api/v1/actions/offboard-stop"),
+        query_params={},
+        headers={"host": "127.0.0.1:5077"},
+        client=SimpleNamespace(host="127.0.0.1"),
+        state=SimpleNamespace(),
+        base_url="http://localhost:5077/",
+    )
+    call_next = AsyncMock(return_value=Response())
+
+    response = await handler._enforce_http_browser_origin(request, call_next)
+    payload = json.loads(response.body)
+
+    assert response.status_code == 503
+    assert payload["error"] == "security_audit_unavailable"
+    call_next.assert_not_awaited()
+
+
+def test_webrtc_audit_disabled_blocks_allowed_security_critical(tmp_path):
+    manager = WebRTCManager.__new__(WebRTCManager)
+    manager.security_audit_logger = APISecurityAuditLogger(
+        enabled=False,
+        log_path=tmp_path / "security_audit.jsonl",
+    )
+    websocket = SimpleNamespace(
+        headers={"host": "127.0.0.1:5077", "origin": "http://localhost:3040"},
+        client=SimpleNamespace(host="127.0.0.1"),
+    )
+
+    audit_ok = manager._record_security_audit_event(
+        event_type="api.websocket.authorization",
+        outcome="allowed",
+        reason="allowed",
+        websocket=websocket,
+        status_code=101,
+        principal=APIPrincipal.local_compat(),
+        audit_policy=APIAuditPolicy.SECURITY_CRITICAL,
+        sensitivity=APISensitivity.MEDIA,
+    )
+
+    assert audit_ok is False
 
 
 @pytest.mark.asyncio

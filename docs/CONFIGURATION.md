@@ -119,8 +119,8 @@ Use `REACT_APP_API_HOST_OVERRIDE` only for reviewed proxy/tunnel setups. A
 non-loopback reverse-proxy browser origin is not permitted in `local_only`;
 `trusted_lan_legacy` only opens the backend bind/CORS boundary. Backend
 browser-session auth exists, but production remote-browser operation still
-requires dashboard/media migration, durable audit, TLS/operator hardening, and
-evidence gates.
+requires TLS/operator hardening, typed-action-only legacy retirement,
+adversarial auth/media tests, and evidence gates.
 
 The checked-in backend policy is `local_only` on `127.0.0.1:5077` with an
 explicit loopback CORS allowlist. Startup fails when local-only configuration
@@ -177,6 +177,25 @@ PY
 Store the generated JSON outside the repository, restrict file permissions, and
 point `Streaming.API_SESSION_USER_FILE` at that path.
 
+API security-audit controls also live under `Streaming`:
+
+```yaml
+Streaming:
+  API_SECURITY_AUDIT_ENABLED: true
+  API_SECURITY_AUDIT_LOG_PATH: logs/security_audit.jsonl
+  API_SECURITY_AUDIT_MAX_BYTES: 5000000
+  API_SECURITY_AUDIT_BACKUP_COUNT: 5
+```
+
+Keep `API_SECURITY_AUDIT_ENABLED` enabled for any operator or remote-access
+profile. Allowed mutation and security-critical requests fail closed when their
+required audit event cannot be recorded. `API_SECURITY_AUDIT_LOG_PATH` is
+resolved relative to the repository when it is not absolute, and root
+`logs/` output is intentionally gitignored. Rotation is local and bounded by
+`API_SECURITY_AUDIT_MAX_BYTES` and `API_SECURITY_AUDIT_BACKUP_COUNT`; archive or
+ship these logs through a deployment-owned process when retention beyond local
+rotation is required. Changing these settings requires a backend restart.
+
 ## Configuration via API
 
 The Settings page in the dashboard allows runtime configuration changes:
@@ -187,9 +206,10 @@ The Settings page in the dashboard allows runtime configuration changes:
 These legacy routes remain compatibility surfaces and are not approved remote
 automation APIs. Keep them inside the trusted local/tunneled boundary or use
 scoped bearer tokens only where explicitly reviewed. Typed guarded actions and
-the browser-session dashboard client/media foundation exist, but durable audit,
-typed-action-only enforcement, operator deployment hardening, and final legacy
-retirement remain tracked under PXE-0064.
+the browser-session dashboard client/media and durable security-audit
+foundations exist, but typed-action-only enforcement, operator deployment
+hardening, adversarial auth/media tests, and final legacy retirement remain
+tracked under PXE-0064.
 
 ## Next Steps
 

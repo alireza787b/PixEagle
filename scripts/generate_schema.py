@@ -164,6 +164,21 @@ SCHEMA_OVERRIDES = {
     'Streaming.API_CSRF_HEADER_NAME': {
         'description': 'Header name carrying the session-bound CSRF token for browser mutations',
     },
+    'Streaming.API_SECURITY_AUDIT_ENABLED': {
+        'description': 'Write durable JSONL API security audit events for auth, denial, sensitive read, mutation, and security-critical routes',
+    },
+    'Streaming.API_SECURITY_AUDIT_LOG_PATH': {
+        'description': 'Local append-only JSONL path for sanitized API security audit events; do not store credentials here',
+    },
+    'Streaming.API_SECURITY_AUDIT_MAX_BYTES': {
+        'type': 'integer', 'default': 5000000, 'min': 1024, 'max': 100000000,
+        'unit': 'bytes',
+        'description': 'Maximum security audit JSONL file size before rotation',
+    },
+    'Streaming.API_SECURITY_AUDIT_BACKUP_COUNT': {
+        'type': 'integer', 'default': 5, 'min': 0, 'max': 20,
+        'description': 'Number of rotated security audit JSONL files to retain locally',
+    },
     'VideoSource.FRAME_ROTATION_DEG': {
         'options': [
             {'value': 0, 'label': '0\u00b0'},

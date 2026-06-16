@@ -573,10 +573,10 @@ cross-site `Sec-Fetch-Site` value or an unapproved `Origin` before route
 execution. Origin approval is an explicit allowlist check, not a
 Host/request-origin shortcut. This contains DNS-rebinding and
 browser-to-localhost request attacks. The backend authentication,
-authorization, and session-CSRF foundations are implemented; dashboard
-credential-aware media/API migration, durable audit, TLS/operator hardening,
-typed-action-only enforcement, and final legacy-route retirement remain tracked
-under PXE-0064.
+authorization, session-CSRF, dashboard credential-aware media/API, and durable
+security-audit foundations are implemented; TLS/operator hardening,
+typed-action-only enforcement, adversarial auth/media tests, and final
+legacy-route retirement remain tracked under PXE-0064.
 
 ## Server Lifecycle
 

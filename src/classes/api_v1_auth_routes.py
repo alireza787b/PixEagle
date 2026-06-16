@@ -7,7 +7,12 @@ from typing import Any, Optional
 from fastapi import Request, Response, status
 
 from classes.api_auth_runtime import APISessionRecord, APIUserRecord
-from classes.api_security_types import APIPrincipal, APIPrincipalKind
+from classes.api_security_types import (
+    APIAuditPolicy,
+    APIPrincipal,
+    APIPrincipalKind,
+    APISensitivity,
+)
 from classes.api_v1_contracts import (
     APIAuthLoginRequest,
     APIAuthLoginResponse,
@@ -74,6 +79,41 @@ def _login_attempt_key(request: Request, username: str) -> str:
     return f"{client_host}:{str(username or '').strip().lower()}"
 
 
+def _record_auth_route_audit(
+    owner: Any,
+    *,
+    request: Request,
+    event_type: str,
+    outcome: str,
+    reason: str,
+    path: str,
+    status_code: int,
+    principal: APIPrincipal,
+    metadata: Optional[dict[str, Any]] = None,
+) -> bool:
+    recorder = getattr(owner, "_record_security_audit_event", None)
+    if recorder is None:
+        return True
+    return recorder(
+        event_type=event_type,
+        outcome=outcome,
+        reason=reason,
+        transport="http",
+        method=getattr(request, "method", None),
+        path=path,
+        status_code=status_code,
+        principal=principal,
+        audit_policy=APIAuditPolicy.SECURITY_CRITICAL,
+        sensitivity=APISensitivity.SYSTEM,
+        client_host=getattr(getattr(request, "client", None), "host", None),
+        host_header=request.headers.get("host"),
+        origin=request.headers.get("origin"),
+        sec_fetch_site=request.headers.get("sec-fetch-site"),
+        request_id=request.headers.get("x-request-id"),
+        metadata=metadata,
+    )
+
+
 async def get_auth_session(owner: Any, request: Request) -> APIAuthSessionResponse:
     """Return current browser session state without exposing cookie secrets."""
     runtime = owner.api_auth_runtime
@@ -113,6 +153,17 @@ async def login_auth_session(
     attempt_key = _login_attempt_key(http_request, request.username)
     allowed, retry_after = runtime.login_attempt_allowed(attempt_key)
     if not allowed:
+        _record_auth_route_audit(
+            owner,
+            request=http_request,
+            event_type="api.auth.login",
+            outcome="denied",
+            reason="login_rate_limited",
+            path=API_V1_AUTH_LOGIN_PATH,
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            principal=APIPrincipal.anonymous(),
+            metadata={"username": str(request.username or "").strip().lower()},
+        )
         throttle_response = owner._api_v1_error_response(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             code="login_rate_limited",
@@ -129,6 +180,17 @@ async def login_auth_session(
     )
     if user is None:
         runtime.record_login_failure(attempt_key)
+        _record_auth_route_audit(
+            owner,
+            request=http_request,
+            event_type="api.auth.login",
+            outcome="denied",
+            reason="invalid_credentials",
+            path=API_V1_AUTH_LOGIN_PATH,
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            principal=APIPrincipal.anonymous(),
+            metadata={"username": str(request.username or "").strip().lower()},
+        )
         return owner._api_v1_error_response(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="invalid_credentials",
@@ -144,6 +206,28 @@ async def login_auth_session(
         role=session.role,
         session_id=session.session_id,
     )
+    audit_ok = _record_auth_route_audit(
+        owner,
+        request=http_request,
+        event_type="api.auth.login",
+        outcome="allowed",
+        reason="login_success",
+        path=API_V1_AUTH_LOGIN_PATH,
+        status_code=status.HTTP_200_OK,
+        principal=principal,
+        metadata={"role": session.role},
+    )
+    if not audit_ok:
+        runtime.revoke_session_id(session.session_id)
+        _clear_session_cookie(owner, response)
+        error_response = owner._api_v1_error_response(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            code="security_audit_unavailable",
+            detail="API security audit event could not be recorded.",
+            path=API_V1_AUTH_LOGIN_PATH,
+        )
+        _clear_session_cookie(owner, error_response)
+        return error_response
     return APIAuthLoginResponse(
         auth_mode=runtime.mode,
         principal=_session_principal_payload(principal),
@@ -164,15 +248,47 @@ async def logout_auth_session(
     session = runtime.session_record_for_principal(principal)
     if session is None:
         _clear_session_cookie(owner, response)
-        return owner._api_v1_error_response(
+        _record_auth_route_audit(
+            owner,
+            request=request,
+            event_type="api.auth.logout",
+            outcome="denied",
+            reason="session_required",
+            path=API_V1_AUTH_LOGOUT_PATH,
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            principal=principal,
+        )
+        error_response = owner._api_v1_error_response(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="session_required",
             detail="A browser session is required to log out.",
             path=API_V1_AUTH_LOGOUT_PATH,
         )
+        _clear_session_cookie(owner, error_response)
+        return error_response
 
+    audit_ok = _record_auth_route_audit(
+        owner,
+        request=request,
+        event_type="api.auth.logout",
+        outcome="allowed",
+        reason="logout_success",
+        path=API_V1_AUTH_LOGOUT_PATH,
+        status_code=status.HTTP_200_OK,
+        principal=principal,
+    )
     revoked = runtime.revoke_session_id(session.session_id)
     _clear_session_cookie(owner, response)
+    if not audit_ok:
+        error_response = owner._api_v1_error_response(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            code="security_audit_unavailable",
+            detail="API security audit event could not be recorded.",
+            path=API_V1_AUTH_LOGOUT_PATH,
+        )
+        _clear_session_cookie(owner, error_response)
+        return error_response
+
     return APIAuthLogoutResponse(revoked=revoked, auth_mode=runtime.mode)
 
 

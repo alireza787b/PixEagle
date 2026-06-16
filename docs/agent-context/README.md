@@ -44,11 +44,12 @@ semantics for the telemetry health candidate. It also records
 payload construction, dry-run summaries, and AppController validation-hook
 dispatch for blocked validation-stimulus candidates. It also records
 `src/classes/api_exposure_policy.py`, `src/classes/api_auth_runtime.py`,
-`src/classes/api_security_types.py`, and `src/classes/api_security_policy.py`,
-which own exposure-boundary decisions, runtime auth decisions, principal/scope
+`src/classes/api_security_audit.py`, `src/classes/api_security_types.py`, and
+`src/classes/api_security_policy.py`, which own exposure-boundary decisions,
+runtime auth decisions, durable security audit events, principal/scope
 semantics, and the default-deny route classification that future API/MCP
-promotion must pass. These files do not create a runtime MCP surface or
-callable tool exposure.
+promotion must pass. These files do not create a runtime MCP surface or callable
+tool exposure.
 
 The current review-stage registry and policy are:
 

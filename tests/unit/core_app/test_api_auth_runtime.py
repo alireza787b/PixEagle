@@ -6,6 +6,8 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from fastapi import Response
+from fastapi.responses import JSONResponse
 
 import classes.api_auth_runtime as auth_runtime
 from classes.api_auth_runtime import (
@@ -41,11 +43,13 @@ from classes.api_exposure_policy import (
 from classes.api_security_types import (
     ALL_API_SCOPES,
     ACTIONS_EXECUTE,
+    APIPrincipal,
     APIPrincipalKind,
     CONFIG_READ,
     STATUS_READ,
 )
-from classes.api_v1_auth_routes import get_auth_session
+from classes.api_v1_auth_routes import get_auth_session, login_auth_session, logout_auth_session
+from classes.api_v1_contracts import APIAuthLoginRequest
 
 
 def _local_policy():
@@ -190,6 +194,96 @@ async def test_auth_session_response_reports_configured_csrf_header_name():
     assert response.auth_mode == API_AUTH_MODE_BROWSER_SESSION
     assert response.csrf_required is True
     assert response.csrf_header_name == "x-custom-csrf"
+
+
+@pytest.mark.asyncio
+async def test_login_success_rolls_back_session_when_security_audit_fails():
+    runtime = _runtime_with_session_user()
+
+    def error_response(*, status_code, code, detail, path):
+        return JSONResponse(
+            status_code=status_code,
+            content={"error": code, "detail": detail, "path": path},
+        )
+
+    owner = SimpleNamespace(
+        api_auth_runtime=runtime,
+        _api_v1_error_response=error_response,
+        _record_security_audit_event=lambda **_: False,
+    )
+    request = SimpleNamespace(
+        method="POST",
+        headers={"host": "127.0.0.1:5077"},
+        client=SimpleNamespace(host="127.0.0.1"),
+    )
+    response = Response()
+
+    result = await login_auth_session(
+        owner,
+        request,
+        APIAuthLoginRequest(username="operator", password="correct-horse"),
+        response,
+    )
+
+    assert result.status_code == 503
+    assert json.loads(result.body)["error"] == "security_audit_unavailable"
+    assert runtime.session_store._records == {}
+    returned_set_cookie_headers = [
+        value.decode("latin-1")
+        for key, value in result.raw_headers
+        if key.lower() == b"set-cookie"
+    ]
+    injected_set_cookie_headers = [
+        value.decode("latin-1")
+        for key, value in response.raw_headers
+        if key.lower() == b"set-cookie"
+    ]
+    assert any("Max-Age=0" in header for header in returned_set_cookie_headers)
+    assert any("Max-Age=0" in header for header in injected_set_cookie_headers)
+    assert all("correct-horse" not in header for header in returned_set_cookie_headers)
+
+
+@pytest.mark.asyncio
+async def test_logout_revokes_and_clears_cookie_when_security_audit_fails():
+    runtime = _runtime_with_session_user()
+    session = runtime.create_session_for_user(runtime.users_by_username["operator"])
+    principal = APIPrincipal.session(
+        username=session.username,
+        role=session.role,
+        session_id=session.session_id,
+    )
+
+    def error_response(*, status_code, code, detail, path):
+        return JSONResponse(
+            status_code=status_code,
+            content={"error": code, "detail": detail, "path": path},
+        )
+
+    owner = SimpleNamespace(
+        api_auth_runtime=runtime,
+        _api_v1_error_response=error_response,
+        _record_security_audit_event=lambda **_: False,
+    )
+    request = SimpleNamespace(
+        method="POST",
+        headers={"host": "127.0.0.1:5077"},
+        client=SimpleNamespace(host="127.0.0.1"),
+        state=SimpleNamespace(api_principal=principal),
+    )
+    response = Response()
+
+    result = await logout_auth_session(owner, request, response)
+
+    assert result.status_code == 503
+    assert json.loads(result.body)["error"] == "security_audit_unavailable"
+    assert runtime.session_store._records == {}
+    set_cookie_headers = [
+        value.decode("latin-1")
+        for key, value in result.raw_headers
+        if key.lower() == b"set-cookie"
+    ]
+    assert any(runtime.session_cookie_name in header for header in set_cookie_headers)
+    assert any("Max-Age=0" in header for header in set_cookie_headers)
 
 
 def test_user_file_rejects_plaintext_password_fields(tmp_path):

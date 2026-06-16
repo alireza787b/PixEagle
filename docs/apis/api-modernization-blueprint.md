@@ -98,11 +98,13 @@ Route inventory tests must:
   construction, dry-run summaries, and AppController validation-hook dispatch
   for blocked validation-stimulus candidates
 - record `src/classes/api_exposure_policy.py`,
-  `src/classes/api_auth_runtime.py`, `src/classes/api_security_types.py`, and
+  `src/classes/api_auth_runtime.py`, `src/classes/api_security_audit.py`,
+  `src/classes/api_security_types.py`, and
   `src/classes/api_security_policy.py` in generated candidate provenance
   because they own exposure-boundary decisions, runtime auth decisions,
-  principal/scope semantics, and the default-deny route classification reviewed
-  before any future runtime API/MCP promotion
+  durable security audit events, principal/scope semantics, and the
+  default-deny route classification reviewed before any future runtime API/MCP
+  promotion
 - assert the frozen method/path inventory
 - assert there are no duplicate method/path pairs
 - explicitly track deprecated aliases until removal

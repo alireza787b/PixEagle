@@ -45,8 +45,8 @@ headers, so do not expose `local_compat` through a reverse proxy. Use an SSH
 tunnel for local browser operation, or use scoped bearer tokens for machine API
 clients. Browser/operator sessions are available through explicit
 `API_AUTH_MODE=browser_session` deployments, but production remote-browser
-approval still requires durable audit, TLS, typed-action-only enforcement,
-legacy mutation retirement, and evidence gates.
+approval still requires TLS, typed-action-only enforcement, legacy mutation
+retirement, adversarial auth/media tests, and evidence gates.
 
 ## Exposure Modes
 
@@ -82,9 +82,9 @@ exposure. If a deployment truly needs temporary LAN compatibility, add
 If the dashboard uses a custom port, add both loopback browser origins for that
 port to `API_CORS_ALLOWED_ORIGINS`. A non-loopback reverse-proxy browser origin
 cannot be used in `local_only`. `trusted_lan_legacy` can open the bind/CORS
-boundary, but remote browser operation remains deferred until durable audit,
-TLS, typed-action-only enforcement, legacy mutation retirement, and evidence
-gates are completed.
+boundary, but remote browser operation remains deferred until TLS,
+typed-action-only enforcement, legacy mutation retirement, adversarial
+auth/media tests, and evidence gates are completed.
 
 ## Current And Planned Controls
 
@@ -132,14 +132,14 @@ Implemented as a runtime authorization foundation:
   WebSocket/WebRTC construction, and blob-backed protected downloads/playback.
 
 See the [API security policy](api-security-policy.md). The backend session and
-dashboard client/media foundations exist, but production remote-browser
-approval remains open.
+dashboard client/media and durable security-audit foundations exist, but
+production remote-browser approval remains open.
 
 Still required before authenticated remote operation can be approved:
 
 - typed action enforcement and retirement of immediate legacy mutations;
-- security audit events, TLS/operator deployment guidance, migration tooling,
-  and adversarial browser/session/media tests.
+- TLS/operator deployment guidance, migration tooling, and adversarial
+  browser/session/media tests.
 
 Until those controls land, use local access or an SSH tunnel for the default
 local-only mode. Non-loopback reverse-proxy/VPN browser origins are not a

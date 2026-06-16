@@ -70,6 +70,9 @@ dashboard/.env.backup.*
 # Recordings (local media, large files)
 recordings/
 
+# Runtime logs and local security audit output
+logs/
+
 # Downloaded binaries (auto-downloaded by scripts/init.sh)
 # Binaries are stored in bin/ directory
 bin/*.exe

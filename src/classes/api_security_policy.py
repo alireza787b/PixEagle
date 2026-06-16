@@ -189,7 +189,7 @@ AUTH_SAFETY_WRITE = _policy(
     {SAFETY_WRITE},
     APIAuditPolicy.SECURITY_CRITICAL,
     csrf=True,
-    rationale="Safety-state mutations require elevated authority and durable audit.",
+    rationale="Safety-state mutations require elevated authority and durable security audit events.",
 )
 AUTH_ACTION_READ = _policy(
     APIAccessMode.AUTHENTICATED,

@@ -218,6 +218,10 @@ Streaming:
   API_SESSION_COOKIE_NAME: pixeagle_session
   API_SESSION_COOKIE_SECURE: false # Set true when served over HTTPS
   API_CSRF_HEADER_NAME: X-PixEagle-CSRF
+  API_SECURITY_AUDIT_ENABLED: true
+  API_SECURITY_AUDIT_LOG_PATH: logs/security_audit.jsonl
+  API_SECURITY_AUDIT_MAX_BYTES: 5000000
+  API_SECURITY_AUDIT_BACKUP_COUNT: 5
   
   # === Stream Quality Settings ===
   STREAM_WIDTH: 640               # Output resolution
