@@ -134,7 +134,8 @@ the same slice.
 | Status, telemetry, media, config, models, recordings, control, safety, typed actions, and system reads | Authenticated with the matching read scope. |
 | Runtime mutations | Authenticated with the matching write/execute scope, mutation audit, and session CSRF. |
 | MJPEG, video WebSocket, and WebRTC signaling | Authenticated `media:read`; authentication must complete before streaming or WebSocket acceptance. |
-| Legacy `/commands/*` control mutations | Local-only until typed-action migration and retirement. |
+| Remaining legacy `/commands/*` tracking/control mutations | Local-only until typed-action migration and retirement. |
+| Offboard start, Offboard stop, and operator abort/cancel | Typed `/api/v1/actions/*` only; retired `/commands/start_offboard_mode`, `/commands/stop_offboard_mode`, and `/commands/cancel_activities` are not registered HTTP routes. |
 | Deprecated `/api/yolo/*` aliases | Local-only until canonical model-route migration and retirement. |
 | Process restart, safety bypass, docs/OpenAPI, debug data, and SITL injectors | Local-only with elevated scopes; SITL injectors also retain their independent runtime enablement gate. |
 | Unknown or multiply classified route | Denied. |
@@ -179,19 +180,19 @@ Still required under PXE-0064:
 1. Operator credential rotation tooling and deployment TLS guidance.
 2. Broader adversarial/browser-session tests, especially around expiry,
    multi-tab logout, large protected media playback, and role-denied UX.
-3. Migration tooling, typed-action-only enforcement, and
-   final legacy mutation retirement.
+3. Migration tooling and final typed replacements for the remaining legacy
+   tracking/control mutations.
 
 Use same-host loopback local access, SSH tunnels, scoped machine bearer tokens,
 or explicit `browser_session` test deployments only. Do not place
 `local_compat` behind an externally reachable reverse proxy. Remote browser
-operation is not production-approved until TLS, typed-action-only enforcement,
-legacy mutation retirement, adversarial auth/media tests, and evidence gates are
-complete.
+operation is not production-approved until TLS/operator credential hardening,
+typed replacements and retirement for remaining legacy tracking/control
+mutations, adversarial auth/media tests, and evidence gates are complete.
 
 ## Verification
 
-`tests/test_api_security_policy.py` proves exact coverage of all 135 declared
+`tests/test_api_security_policy.py` proves exact coverage of all 132 declared
 routes plus FastAPI's implicit docs routes. `tests/unit/core_app/
 test_api_auth_runtime.py` covers token-file loading, exact scopes, local-compat
 behavior, browser-session user loading, CSRF, login throttling, query-token

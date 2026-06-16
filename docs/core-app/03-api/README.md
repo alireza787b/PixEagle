@@ -20,8 +20,9 @@ PixEagle also has a complete declarative
 [API security policy](../../apis/api-security-policy.md) for route access,
 scopes, bearer-token treatment, local compatibility, session CSRF enforcement,
 audit treatment, and default-deny coverage. Remote browser operation is not
-approved until TLS, typed-action-only enforcement, legacy mutation retirement,
-adversarial auth/media tests, and evidence gates are complete.
+approved until TLS/operator deployment hardening, typed replacements and
+retirement for remaining legacy tracking/control mutations, adversarial
+auth/media tests, and evidence gates are complete.
 
 ## MCP Readiness Boundary
 
@@ -798,23 +799,13 @@ Content-Type: application/json
 }
 ```
 
-### Legacy Start/Stop Offboard
+### Retired Offboard/Abort Command Aliases
 
-```http
-POST /commands/start_offboard_mode
-POST /commands/stop_offboard_mode
-POST /commands/cancel_activities
-```
-
-The legacy start/stop/cancel routes execute immediately for backward compatibility
-and include an `action_audit` pointer to the process-local action record. New
-operator, SITL, MCP, and agent integrations should use `/api/v1/actions/*`
-because the legacy routes do not provide confirmation, dry-run, or idempotency
-request fields. The dashboard operator control panel now uses typed actions for
-Offboard start, Offboard stop, and operator abort/cancel. Legacy Offboard stop
-now reports failure when delegated cleanup returns warnings/errors or local
-following remains active after the stop path, but it is still a compatibility
-alias rather than the safe typed contract.
+The former `/commands/start_offboard_mode`, `/commands/stop_offboard_mode`, and
+`/commands/cancel_activities` HTTP aliases are no longer registered. Use the
+typed `/api/v1/actions/offboard-start`, `/api/v1/actions/offboard-stop`, and
+`/api/v1/actions/operator-abort` resources for operator, SITL, MCP, and agent
+control integrations.
 
 ### Redetect Target
 

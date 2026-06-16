@@ -119,13 +119,13 @@ const DashboardPage = () => {
       const data = await response.json();
       const legacyDetails = data.details || data.result?.legacy_result?.details || {};
       const isStartEndpoint = (
-        endpoint === endpoints.startOffboardMode || endpoint === endpoints.offboardStartAction
+        endpoint === endpoints.offboardStartAction
       );
       const isStopEndpoint = (
-        endpoint === endpoints.stopOffboardMode || endpoint === endpoints.offboardStopAction
+        endpoint === endpoints.offboardStopAction
       );
       const isAbortEndpoint = (
-        endpoint === endpoints.cancelActivities || endpoint === endpoints.operatorAbortAction
+        endpoint === endpoints.operatorAbortAction
       );
 
       if (isStartEndpoint && legacyDetails.auto_stopped) {

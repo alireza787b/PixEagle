@@ -211,13 +211,10 @@ EXPECTED_ROUTES = {
     ("POST", "/api/yolo/download"),
     ("POST", "/api/yolo/switch-model"),
     ("POST", "/api/yolo/upload"),
-    ("POST", "/commands/cancel_activities"),
     ("POST", "/commands/quit"),
     ("POST", "/commands/redetect"),
     ("POST", "/commands/smart_click"),
-    ("POST", "/commands/start_offboard_mode"),
     ("POST", "/commands/start_tracking"),
-    ("POST", "/commands/stop_offboard_mode"),
     ("POST", "/commands/stop_tracking"),
     ("POST", "/commands/toggle_segmentation"),
     ("POST", "/commands/toggle_smart_mode"),
@@ -387,7 +384,7 @@ def test_current_route_inventory_counts_by_method():
     assert counts == {
         "DELETE": 2,
         "GET": 73,
-        "POST": 56,
+        "POST": 53,
         "PUT": 2,
         "WEBSOCKET": 2,
     }
@@ -575,9 +572,9 @@ def test_legacy_control_route_bodies_are_not_defined_in_fastapi_handler():
         "stop_offboard_mode",
     }
     wrapper_targets = {
-        "cancel_activities": "dispatch_legacy_cancel_activities",
-        "start_offboard_mode": "dispatch_legacy_start_offboard_mode",
-        "stop_offboard_mode": "dispatch_legacy_stop_offboard_mode",
+        "_execute_operator_abort_action": "dispatch_operator_abort_executor",
+        "_execute_offboard_start_action": "dispatch_offboard_start_executor",
+        "_execute_offboard_stop_action": "dispatch_offboard_stop_executor",
     }
     disallowed_handler_strings = {
         "Attempting emergency cleanup of OffboardCommander",
@@ -1229,19 +1226,16 @@ def test_api_v1_tracking_telemetry_route_has_typed_api_metadata():
     assert route["status_code"] is None
 
 
-def test_legacy_control_routes_are_deprecated_compatibility_aliases():
-    """Legacy dangerous command routes must be visibly deprecated."""
-    expectations = {
-        "/commands/start_offboard_mode": "legacy_start_offboard_mode",
-        "/commands/stop_offboard_mode": "legacy_stop_offboard_mode",
-        "/commands/cancel_activities": "legacy_cancel_activities",
+def test_retired_control_aliases_are_not_registered_as_http_routes():
+    """Typed action replacements must be the public Offboard/cancel surface."""
+    retired_paths = {
+        "/commands/start_offboard_mode",
+        "/commands/stop_offboard_mode",
+        "/commands/cancel_activities",
     }
-    for path, operation_id in expectations.items():
-        route = _route_metadata(path)
+    current_paths = {route["path"] for route in _collect_route_metadata()}
 
-        assert route["deprecated"] is True
-        assert route["operation_id"] == operation_id
-        assert route["tags"] == ["legacy-commands"]
+    assert retired_paths.isdisjoint(current_paths)
 
 
 def test_sitl_injection_route_has_typed_api_metadata():

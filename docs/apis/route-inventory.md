@@ -7,8 +7,8 @@ Current static inventory from `src/classes/fastapi_handler.py` and
 `src/classes/fastapi_api_v1_routes.py`:
 
 - total declared routes: 132
-- `GET`: 72
-- `POST`: 54
+- `GET`: 73
+- `POST`: 53
 - `PUT`: 2
 - `DELETE`: 2
 - `WEBSOCKET`: 2

@@ -169,20 +169,20 @@ def attach_legacy_action_audit(
     *,
     store: ApiActionStore,
     action_type: ActionType,
-    route: str,
+    internal_handler: str,
     following_active_before: Optional[bool],
     following_active_after: Optional[bool],
     error: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Attach a process-local action audit record to legacy command routes."""
+    """Attach an audit record for an internal compatibility executor."""
     legacy_payload = dict(payload)
     legacy_payload.pop("action_audit", None)
     request = APIActionRequest(
-        source="legacy_compatibility",
-        reason=route,
+        source="internal_compatibility",
+        reason=internal_handler,
         confirm=True,
         metadata={
-            "legacy_route": route,
+            "internal_handler": internal_handler,
             "canonical_route": (
                 API_V1_ACTION_OFFBOARD_START_PATH
                 if action_type == "offboard_start"
@@ -207,7 +207,7 @@ def attach_legacy_action_audit(
             following_active_before=following_active_before,
             following_active_after=following_active_after,
             result={
-                "legacy_compatibility_route": route,
+                "internal_compatibility_handler": internal_handler,
                 "legacy_result": legacy_payload,
             },
             error=error,
@@ -318,7 +318,7 @@ async def start_offboard_action_unlocked(
             following_active_before=following_before,
             following_active_after=following_before,
             result={
-                "would_call": "/commands/start_offboard_mode",
+                "would_execute": "api_legacy_control_routes.start_offboard_mode",
                 "message": "Dry-run validated; no Offboard command was executed.",
                 "metadata": dict(request.metadata or {}),
             },
@@ -333,7 +333,7 @@ async def start_offboard_action_unlocked(
         )
 
     try:
-        legacy_result = await owner.start_offboard_mode()
+        legacy_result = await owner._execute_offboard_start_action()
     except Exception as exc:
         following_after = bool(getattr(app_controller, "following_active", False))
         response.status_code = status.HTTP_202_ACCEPTED
@@ -346,7 +346,7 @@ async def start_offboard_action_unlocked(
             following_active_before=following_before,
             following_active_after=following_after,
             result={
-                "legacy_compatibility_route": "/commands/start_offboard_mode",
+                "internal_compatibility_handler": "api_legacy_control_routes.start_offboard_mode",
                 "metadata": dict(request.metadata or {}),
             },
             error=f"{type(exc).__name__}: {exc}",
@@ -377,7 +377,7 @@ async def start_offboard_action_unlocked(
         following_active_before=following_before,
         following_active_after=following_after,
         result={
-            "legacy_compatibility_route": "/commands/start_offboard_mode",
+            "internal_compatibility_handler": "api_legacy_control_routes.start_offboard_mode",
             "legacy_result": legacy_result,
             "metadata": dict(request.metadata or {}),
         },
@@ -444,7 +444,7 @@ async def stop_offboard_action_unlocked(
             following_active_before=following_before,
             following_active_after=following_before,
             result={
-                "would_call": "/commands/stop_offboard_mode",
+                "would_execute": "api_legacy_control_routes.stop_offboard_mode",
                 "message": "Dry-run validated; no Offboard stop was executed.",
                 "metadata": dict(request.metadata or {}),
             },
@@ -459,7 +459,7 @@ async def stop_offboard_action_unlocked(
         )
 
     try:
-        legacy_result = await owner.stop_offboard_mode()
+        legacy_result = await owner._execute_offboard_stop_action()
     except Exception as exc:
         following_after = bool(getattr(app_controller, "following_active", False))
         response.status_code = status.HTTP_202_ACCEPTED
@@ -472,7 +472,7 @@ async def stop_offboard_action_unlocked(
             following_active_before=following_before,
             following_active_after=following_after,
             result={
-                "legacy_compatibility_route": "/commands/stop_offboard_mode",
+                "internal_compatibility_handler": "api_legacy_control_routes.stop_offboard_mode",
                 "metadata": dict(request.metadata or {}),
             },
             error=f"{type(exc).__name__}: {exc}",
@@ -501,7 +501,7 @@ async def stop_offboard_action_unlocked(
         following_active_before=following_before,
         following_active_after=following_after,
         result={
-            "legacy_compatibility_route": "/commands/stop_offboard_mode",
+            "internal_compatibility_handler": "api_legacy_control_routes.stop_offboard_mode",
             "legacy_result": legacy_result,
             "metadata": dict(request.metadata or {}),
         },
@@ -568,7 +568,7 @@ async def operator_abort_action_unlocked(
             following_active_before=following_before,
             following_active_after=following_before,
             result={
-                "would_call": "/commands/cancel_activities",
+                "would_execute": "api_legacy_control_routes.cancel_activities",
                 "message": "Dry-run validated; no operator abort was executed.",
                 "metadata": dict(request.metadata or {}),
             },
@@ -583,7 +583,7 @@ async def operator_abort_action_unlocked(
         )
 
     try:
-        legacy_result = await owner.cancel_activities()
+        legacy_result = await owner._execute_operator_abort_action()
     except Exception as exc:
         following_after = bool(getattr(app_controller, "following_active", False))
         response.status_code = status.HTTP_202_ACCEPTED
@@ -596,7 +596,7 @@ async def operator_abort_action_unlocked(
             following_active_before=following_before,
             following_active_after=following_after,
             result={
-                "legacy_compatibility_route": "/commands/cancel_activities",
+                "internal_compatibility_handler": "api_legacy_control_routes.cancel_activities",
                 "metadata": dict(request.metadata or {}),
             },
             error=f"{type(exc).__name__}: {exc}",
@@ -625,7 +625,7 @@ async def operator_abort_action_unlocked(
         following_active_before=following_before,
         following_active_after=following_after,
         result={
-            "legacy_compatibility_route": "/commands/cancel_activities",
+            "internal_compatibility_handler": "api_legacy_control_routes.cancel_activities",
             "legacy_result": legacy_result,
             "metadata": dict(request.metadata or {}),
         },

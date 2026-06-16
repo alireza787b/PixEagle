@@ -68,9 +68,9 @@ from classes.api_v1_auth_routes import (
     logout_auth_session as dispatch_logout_auth_session,
 )
 from classes.api_legacy_control_routes import (
-    cancel_activities as dispatch_legacy_cancel_activities,
-    start_offboard_mode as dispatch_legacy_start_offboard_mode,
-    stop_offboard_mode as dispatch_legacy_stop_offboard_mode,
+    cancel_activities as dispatch_operator_abort_executor,
+    start_offboard_mode as dispatch_offboard_start_executor,
+    stop_offboard_mode as dispatch_offboard_stop_executor,
 )
 from classes.api_v1_read_routes import (
     get_following_status as dispatch_get_following_status,
@@ -711,24 +711,6 @@ class FastAPIHandler:
         self.app.post("/commands/stop_tracking")(self.stop_tracking)
         self.app.post("/commands/toggle_segmentation")(self.toggle_segmentation)
         self.app.post("/commands/redetect")(self.redetect)
-        self.app.post(
-            "/commands/cancel_activities",
-            deprecated=True,
-            operation_id="legacy_cancel_activities",
-            tags=["legacy-commands"],
-        )(self.cancel_activities)
-        self.app.post(
-            "/commands/start_offboard_mode",
-            deprecated=True,
-            operation_id="legacy_start_offboard_mode",
-            tags=["legacy-commands"],
-        )(self.start_offboard_mode)
-        self.app.post(
-            "/commands/stop_offboard_mode",
-            deprecated=True,
-            operation_id="legacy_stop_offboard_mode",
-            tags=["legacy-commands"],
-        )(self.stop_offboard_mode)
         self.app.post("/commands/quit")(self.quit)
 
         # Smart tracking
@@ -1497,17 +1479,17 @@ class FastAPIHandler:
         payload: Dict[str, Any],
         *,
         action_type: Literal["offboard_start", "offboard_stop", "operator_abort"],
-        route: str,
+        internal_handler: str,
         following_active_before: Optional[bool],
         following_active_after: Optional[bool],
         error: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Attach a process-local action audit record to legacy command routes."""
+        """Attach an audit record for an internal compatibility executor."""
         return attach_legacy_action_audit(
             payload,
             store=self._ensure_action_store(),
             action_type=action_type,
-            route=route,
+            internal_handler=internal_handler,
             following_active_before=following_active_before,
             following_active_after=following_active_after,
             error=error,
@@ -1799,8 +1781,8 @@ class FastAPIHandler:
             self.logger.error(f"Error in redetect: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def cancel_activities(self):
-        return await dispatch_legacy_cancel_activities(self)
+    async def _execute_operator_abort_action(self):
+        return await dispatch_operator_abort_executor(self)
 
     async def start_offboard_action(
         self,
@@ -1833,8 +1815,8 @@ class FastAPIHandler:
     async def get_action_resource(self, action_id: str) -> Any:
         return await dispatch_get_action_resource(self, action_id)
 
-    async def start_offboard_mode(self):
-        return await dispatch_legacy_start_offboard_mode(self)
+    async def _execute_offboard_start_action(self):
+        return await dispatch_offboard_start_executor(self)
 
     async def stop_offboard_action(
         self,
@@ -1960,8 +1942,8 @@ class FastAPIHandler:
     def _get_tracker_following_readiness(self) -> Dict[str, Any]:
         return get_tracker_following_readiness(self)
 
-    async def stop_offboard_mode(self):
-        return await dispatch_legacy_stop_offboard_mode(self)
+    async def _execute_offboard_stop_action(self):
+        return await dispatch_offboard_stop_executor(self)
 
     async def quit(self):
         """

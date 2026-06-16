@@ -1022,6 +1022,7 @@ def test_phase2_plan_declares_executable_scenario_actions():
     assert summary["manual_fault_actions"] == 0
     legacy_control_paths = {
         "/commands/start_offboard_mode",
+        "/commands/stop_offboard_mode",
         "/commands/cancel_activities",
     }
     for scenario in plan["scenarios"]:

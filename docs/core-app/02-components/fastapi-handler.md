@@ -237,25 +237,15 @@ but it is not durable command storage and it is not a runtime MCP executor.
 |----------|--------|-------------|
 | `/commands/start_tracking` | POST | Start tracking |
 | `/commands/stop_tracking` | POST | Stop tracking |
-| `/commands/start_offboard_mode` | POST | Compatibility alias for Offboard start; use `/api/v1/actions/offboard-start` for new control-plane integrations |
-| `/commands/stop_offboard_mode` | POST | Compatibility alias for Offboard stop; use `/api/v1/actions/offboard-stop` for new control-plane integrations |
-| `/commands/cancel_activities` | POST | Compatibility alias for operator cancel; use `/api/v1/actions/operator-abort` for new control-plane integrations |
 | `/commands/toggle_smart_mode` | POST | Toggle YOLO tracker |
 | `/commands/smart_click` | POST | Click to track |
 
-The legacy start/stop/cancel command routes are immediate-execution
-compatibility routes for older clients and scripts. The current dashboard
-operator control panel uses the typed action routes for start, stop, and
-operator abort. The legacy aliases now attach an
-`action_audit` pointer to the in-process action record, but they are not the
-MCP-safe contract because they do not accept confirmation, dry-run, or
-idempotency request fields. Legacy Offboard stop reports failure when delegated
-cleanup returns warnings/errors or local following remains active after the
-stop path, matching the typed action's fail-closed local-state semantics. Their
-execution bodies live in `src/classes/api_legacy_control_routes.py` so the
-remaining compatibility behavior is isolated, source-hashed in the non-callable
-API/MCP candidate inventory, and easier to remove when the deprecation gate
-closes.
+The former Offboard start, Offboard stop, and operator-cancel command aliases
+are no longer registered as HTTP routes. Use `/api/v1/actions/offboard-start`,
+`/api/v1/actions/offboard-stop`, and `/api/v1/actions/operator-abort`. Their
+isolated compatibility helper bodies remain internal implementation details for
+the typed action executor until the executor is refactored away from those
+helper names.
 
 ### Configuration Endpoints
 
@@ -575,8 +565,8 @@ Host/request-origin shortcut. This contains DNS-rebinding and
 browser-to-localhost request attacks. The backend authentication,
 authorization, session-CSRF, dashboard credential-aware media/API, and durable
 security-audit foundations are implemented; TLS/operator hardening,
-typed-action-only enforcement, adversarial auth/media tests, and final
-legacy-route retirement remain tracked under PXE-0064.
+adversarial auth/media tests, and typed replacements/retirement for the
+remaining legacy tracking/control mutations remain tracked under PXE-0064.
 
 ## Server Lifecycle
 

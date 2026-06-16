@@ -5,7 +5,7 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: f3414ad38f596882152aaef7caa80f73b9fc5f5e1943470a91c114e9625f32bc
+    sha256: 9552538b553028cd14f91f1f524e9c9b01d7c68bccee32db75af6f41aa24571d
   - file: src/classes/fastapi_api_v1_routes.py
     sha256: d01ee5c16c14268ea57f2ebbbaa654cf99c47437295060d5bc0089b10aaa01e7
   - file: src/classes/api_v1_contracts.py
@@ -13,11 +13,11 @@ source:
   - file: src/classes/api_v1_paths.py
     sha256: b924b1b075a1415ac3cf75b1b6db6172e922eb3cb1a0a389a39f13f7181c1088
   - file: src/classes/api_v1_actions.py
-    sha256: 7ca3b126f953976bf4dc0da6633877e4558f81d730c9a355c07b45e3a65718e4
+    sha256: 99843f2f018455e07b2bd39099dbd1e9c1fd305e46e161d2efd815ac64b8c356
   - file: src/classes/api_v1_auth_routes.py
     sha256: 49589db33d56dd9ebd353d0e79e768d2208a27f1cfae9aa2be0a6111050ee27b
   - file: src/classes/api_legacy_control_routes.py
-    sha256: 2fd4b481e7b6f078fee9071e21dec226cc694e5283ceaa3d1b5ee50acf2e1e05
+    sha256: 45ebcf303a04fc3adbbfe53e37bedeaa9b5876d9516288fb6c5480eb27e294f7
   - file: src/classes/api_v1_read_routes.py
     sha256: f009b964dbbaba1fdcc05157a9ad9ee0ff5e6e57f2d760d435c8c9481e532220
   - file: src/classes/api_v1_snapshots.py
@@ -35,7 +35,7 @@ source:
   - file: src/classes/api_security_types.py
     sha256: 6b6b47d950108782e3783a5ba2fd7f14c65b94dabb49eb537f8c7b53a9b9ce1d
   - file: src/classes/api_security_policy.py
-    sha256: 543890ad6fd0908d3a3d5b91f55ff3fa6770dd20a66f44af869d4a5a0b3c7237
+    sha256: 76c9cffd378b3fc3909956edd2c1dfaf26bff6e8f0bfd00df43f97f3c57d1b60
 generated_from:
 - src/classes/fastapi_handler.py
 - src/classes/fastapi_api_v1_routes.py
@@ -69,7 +69,7 @@ promotion_path:
 - independent reviewer approval
 - MCP tools/list and tools/call exposure
 summary:
-  total_declared_http_routes: 133
+  total_declared_http_routes: 130
   api_v1_routes: 18
   candidate_count: 18
   eligible_read_only_candidates: 6

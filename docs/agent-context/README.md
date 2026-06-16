@@ -29,9 +29,9 @@ by the registry. It also records the source hash for
 `src/classes/api_v1_actions.py`, which owns process-local action resources,
 idempotency replay, guarded action route execution, action resource lookup, and
 legacy action audit behavior for guarded action candidates. It also records
-`src/classes/api_legacy_control_routes.py`, which owns the legacy Offboard
-start/stop and operator-cancel compatibility route bodies. Guarded typed
-action candidates still delegate through the start/stop/cancel compatibility bodies.
+`src/classes/api_legacy_control_routes.py`, which owns the internal Offboard
+start/stop and operator-cancel compatibility executors used by guarded typed
+action candidates after the former `/commands/*` HTTP aliases were retired.
 It also records
 `src/classes/api_v1_read_routes.py`, which owns typed read-route error
 boundaries for reviewed process-local status/telemetry candidates. It also

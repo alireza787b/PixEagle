@@ -1,8 +1,9 @@
-"""Legacy command-route execution helpers.
+"""Internal compatibility executors for typed Offboard/operator actions.
 
-These functions keep dangerous compatibility-route bodies out of the large
-FastAPI handler while preserving the existing route methods and payload shapes.
-New control-plane integrations should use the typed /api/v1 action routes.
+The former `/commands/start_offboard_mode`, `/commands/stop_offboard_mode`, and
+`/commands/cancel_activities` HTTP aliases are retired. These helpers preserve
+the existing execution bodies and result payloads behind typed `/api/v1/actions`
+resources until the lower-level control executor is fully refactored.
 """
 
 from __future__ import annotations
@@ -15,7 +16,7 @@ from fastapi import HTTPException
 
 
 async def cancel_activities(owner: Any) -> Any:
-    """Execute the legacy operator-cancel compatibility route."""
+    """Execute the internal operator-cancel compatibility handler."""
     following_before = bool(getattr(owner.app_controller, "following_active", False))
     try:
         result = await owner.app_controller.cancel_activities_async()
@@ -23,7 +24,7 @@ async def cancel_activities(owner: Any) -> Any:
         return owner._attach_legacy_action_audit(
             {"status": "success", "result": result},
             action_type="operator_abort",
-            route="/commands/cancel_activities",
+            internal_handler="api_legacy_control_routes.cancel_activities",
             following_active_before=following_before,
             following_active_after=following_after,
         )
@@ -33,7 +34,7 @@ async def cancel_activities(owner: Any) -> Any:
         owner._attach_legacy_action_audit(
             {"status": "failure", "error": str(e)},
             action_type="operator_abort",
-            route="/commands/cancel_activities",
+            internal_handler="api_legacy_control_routes.cancel_activities",
             following_active_before=following_before,
             following_active_after=following_after,
             error=str(e),
@@ -42,7 +43,7 @@ async def cancel_activities(owner: Any) -> Any:
 
 
 async def start_offboard_mode(owner: Any) -> Any:
-    """Execute the legacy Offboard-start compatibility route."""
+    """Execute the internal Offboard-start compatibility handler."""
     start_time = time.time()
     following_before = bool(getattr(owner.app_controller, "following_active", False))
 
@@ -89,7 +90,7 @@ async def start_offboard_mode(owner: Any) -> Any:
                     },
                 },
                 action_type="offboard_start",
-                route="/commands/start_offboard_mode",
+                internal_handler="api_legacy_control_routes.start_offboard_mode",
                 following_active_before=following_before,
                 following_active_after=following_before,
                 error=error_msg,
@@ -120,7 +121,7 @@ async def start_offboard_mode(owner: Any) -> Any:
                     "details": result,
                 },
                 action_type="offboard_start",
-                route="/commands/start_offboard_mode",
+                internal_handler="api_legacy_control_routes.start_offboard_mode",
                 following_active_before=following_before,
                 following_active_after=bool(
                     getattr(owner.app_controller, "following_active", False)
@@ -142,7 +143,7 @@ async def start_offboard_mode(owner: Any) -> Any:
         return owner._attach_legacy_action_audit(
             {"status": "success", "details": result},
             action_type="offboard_start",
-            route="/commands/start_offboard_mode",
+            internal_handler="api_legacy_control_routes.start_offboard_mode",
             following_active_before=following_before,
             following_active_after=bool(
                 getattr(owner.app_controller, "following_active", False)
@@ -179,7 +180,7 @@ async def start_offboard_mode(owner: Any) -> Any:
                 },
             },
             action_type="offboard_start",
-            route="/commands/start_offboard_mode",
+            internal_handler="api_legacy_control_routes.start_offboard_mode",
             following_active_before=following_before,
             following_active_after=(
                 None if final_state == "unknown" else final_state == "active"
@@ -189,7 +190,7 @@ async def start_offboard_mode(owner: Any) -> Any:
 
 
 async def stop_offboard_mode(owner: Any) -> Any:
-    """Execute the legacy Offboard-stop compatibility route."""
+    """Execute the internal Offboard-stop compatibility handler."""
     start_time = time.time()
     following_before = bool(getattr(owner.app_controller, "following_active", False))
 
@@ -219,7 +220,7 @@ async def stop_offboard_mode(owner: Any) -> Any:
                     },
                 },
                 action_type="offboard_stop",
-                route="/commands/stop_offboard_mode",
+                internal_handler="api_legacy_control_routes.stop_offboard_mode",
                 following_active_before=following_before,
                 following_active_after=False,
             )
@@ -265,7 +266,7 @@ async def stop_offboard_mode(owner: Any) -> Any:
         return owner._attach_legacy_action_audit(
             payload,
             action_type="offboard_stop",
-            route="/commands/stop_offboard_mode",
+            internal_handler="api_legacy_control_routes.stop_offboard_mode",
             following_active_before=following_before,
             following_active_after=following_after,
             error=legacy_error,
@@ -343,7 +344,7 @@ async def stop_offboard_mode(owner: Any) -> Any:
                 },
             },
             action_type="offboard_stop",
-            route="/commands/stop_offboard_mode",
+            internal_handler="api_legacy_control_routes.stop_offboard_mode",
             following_active_before=following_before,
             following_active_after=(
                 None if final_state == "unknown" else final_state == "active"
