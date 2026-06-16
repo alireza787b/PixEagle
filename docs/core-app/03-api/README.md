@@ -21,8 +21,9 @@ PixEagle also has a complete declarative
 scopes, bearer-token treatment, local compatibility, session CSRF enforcement,
 audit treatment, and default-deny coverage. Remote browser operation is not
 approved until TLS/operator deployment hardening, typed replacements and
-retirement for remaining legacy tracking/control mutations, adversarial
-auth/media tests, and evidence gates are complete.
+retirement of remaining legacy tracking/control aliases, typed migration of
+still-legacy mutations, adversarial auth/media tests, and evidence gates are
+complete.
 
 ## MCP Readiness Boundary
 
@@ -688,22 +689,53 @@ vehicle-response success.
 ### Start Tracking
 
 ```http
-POST /commands/start_tracking
+POST /api/v1/actions/tracking-start
 Content-Type: application/json
+```
 
+```json
 {
-  "x": 100,
-  "y": 80,
-  "width": 100,
-  "height": 80
+  "source": "operator",
+  "reason": "start_tracking_roi",
+  "confirm": true,
+  "idempotency_key": "operator-tracking-start-001",
+  "metadata": {
+    "ui": "dashboard_video_canvas"
+  },
+  "bbox": {
+    "x": 0.25,
+    "y": 0.25,
+    "width": 0.2,
+    "height": 0.2
+  }
 }
 ```
+
+The `bbox` values may be normalized `0..1` coordinates or absolute pixels,
+matching the temporary legacy route behavior during migration. The typed
+response is an `APIActionResponse` action resource; it records local PixEagle
+tracking start execution only and does not prove PX4, SITL, HIL, field, or
+follower-response behavior.
 
 ### Stop Tracking
 
 ```http
-POST /commands/stop_tracking
+POST /api/v1/actions/tracking-stop
+Content-Type: application/json
 ```
+
+```json
+{
+  "source": "operator",
+  "reason": "stop_tracking",
+  "confirm": true,
+  "idempotency_key": "operator-tracking-stop-001"
+}
+```
+
+`/commands/start_tracking` and `/commands/stop_tracking` remain local-only
+compatibility aliases for this migration window. First-party dashboard ROI
+start/stop calls use the typed `/api/v1/actions/tracking-*` routes.
 
 ### Smart Click (Click-to-Track)
 

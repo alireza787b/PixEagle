@@ -602,7 +602,7 @@ def _classify_candidate(
     elif path.startswith("/api/v1/actions/"):
         risk_class = "guarded_control_action"
         sensitivity = "flight_control"
-        side_effects = "can_start_or_stop_following_offboard_path"
+        side_effects = "can_mutate_tracking_or_following_control_path"
         blocked_reasons.extend(
             [
                 "Control mutation route.",

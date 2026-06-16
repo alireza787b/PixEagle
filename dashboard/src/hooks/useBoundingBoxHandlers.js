@@ -1,6 +1,16 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { endpoints } from '../services/apiEndpoints';
-import { apiFetch } from '../services/apiClient';
+import { apiFetchJson } from '../services/apiClient';
+import { buildActionRequest } from '../services/actionRequests';
+
+const CANVAS_ACTION_METADATA = { ui: 'dashboard_video_canvas' };
+
+const ensureActionSuccess = (data, label) => {
+  if (data?.status === 'failure') {
+    throw new Error(data.error || `${label} failed`);
+  }
+  return data;
+};
 
 /**
  * Hook for bounding-box drag drawing (classic tracker) and smart-click (AI tracker).
@@ -35,18 +45,24 @@ const useBoundingBoxHandlers = (isTracking, setIsTracking, smartModeActive = fal
   const startTracking = useCallback(async (bbox) => {
     try {
       if (isTracking) {
-        await apiFetch(endpoints.stopTracking, {
+        const stopData = await apiFetchJson(endpoints.trackingStopAction, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildActionRequest(
+            'stop_tracking_before_roi_start',
+            CANVAS_ACTION_METADATA
+          )),
         });
+        ensureActionSuccess(stopData, 'Stopping current tracker');
       }
 
-      const response = await apiFetch(endpoints.startTracking, {
+      const data = await apiFetchJson(endpoints.trackingStartAction, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bbox),
+        body: JSON.stringify({
+          ...buildActionRequest('start_tracking_roi', CANVAS_ACTION_METADATA),
+          bbox,
+        }),
       });
-      const data = await response.json();
+      ensureActionSuccess(data, 'Starting tracker');
       console.log('Tracking started:', data);
       setIsTracking(true);
     } catch (error) {

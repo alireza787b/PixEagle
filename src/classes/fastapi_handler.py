@@ -61,6 +61,10 @@ from classes.api_v1_actions import (
     start_offboard_action_unlocked as dispatch_start_offboard_action_unlocked,
     stop_offboard_action as dispatch_stop_offboard_action,
     stop_offboard_action_unlocked as dispatch_stop_offboard_action_unlocked,
+    tracking_start_action as dispatch_tracking_start_action,
+    tracking_start_action_unlocked as dispatch_tracking_start_action_unlocked,
+    tracking_stop_action as dispatch_tracking_stop_action,
+    tracking_stop_action_unlocked as dispatch_tracking_stop_action_unlocked,
 )
 from classes.api_v1_auth_routes import (
     get_auth_session as dispatch_get_auth_session,
@@ -147,6 +151,7 @@ from classes.api_v1_contracts import (
     APIRuntimeStatusResponse,
     APIRuntimeSubsystemStatus,
     APITrackingRuntimeStatusResponse,
+    APITrackingStartRequest,
     APITrackingTelemetryResponse,
     APITelemetryHealthResponse,
     APITelemetryPayloadHealth,
@@ -1264,9 +1269,9 @@ class FastAPIHandler:
             'osd_pipeline': osd_pipeline_stats,
         })
 
-    async def start_tracking(self, bbox: BoundingBox):
+    async def _execute_tracking_start_action(self, bbox: BoundingBox):
         """
-        Endpoint to start tracking with the provided bounding box.
+        Internal executor to start tracking with the provided bounding box.
 
         Args:
             bbox (BoundingBox): The bounding box for tracking.
@@ -1306,9 +1311,18 @@ class FastAPIHandler:
             self.logger.error(f"Error in start_tracking: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def stop_tracking(self):
+    async def start_tracking(self, bbox: BoundingBox):
         """
-        Endpoint to stop tracking.
+        Compatibility alias for legacy /commands/start_tracking.
+
+        New first-party clients should use /api/v1/actions/tracking-start so
+        the request is typed, confirmed, idempotent, and action-audited.
+        """
+        return await self._execute_tracking_start_action(bbox)
+
+    async def _execute_tracking_stop_action(self):
+        """
+        Internal executor to stop tracking.
 
         Returns:
             dict: Status of the operation.
@@ -1319,6 +1333,15 @@ class FastAPIHandler:
         except Exception as e:
             self.logger.error(f"Error in stop_tracking: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+    async def stop_tracking(self):
+        """
+        Compatibility alias for legacy /commands/stop_tracking.
+
+        New first-party clients should use /api/v1/actions/tracking-stop so
+        the request is typed, confirmed, idempotent, and action-audited.
+        """
+        return await self._execute_tracking_stop_action()
         
 
     async def toggle_smart_mode(self):
@@ -1452,7 +1475,13 @@ class FastAPIHandler:
     @staticmethod
     def _new_api_action_record(
         *,
-        action_type: Literal["offboard_start", "offboard_stop", "operator_abort"],
+        action_type: Literal[
+            "offboard_start",
+            "offboard_stop",
+            "operator_abort",
+            "tracking_start",
+            "tracking_stop",
+        ],
         request: APIActionRequest,
         status_value: Literal["validated", "success", "failure"],
         accepted: bool,
@@ -1478,7 +1507,13 @@ class FastAPIHandler:
         self,
         payload: Dict[str, Any],
         *,
-        action_type: Literal["offboard_start", "offboard_stop", "operator_abort"],
+        action_type: Literal[
+            "offboard_start",
+            "offboard_stop",
+            "operator_abort",
+            "tracking_start",
+            "tracking_stop",
+        ],
         internal_handler: str,
         following_active_before: Optional[bool],
         following_active_after: Optional[bool],
@@ -1498,7 +1533,13 @@ class FastAPIHandler:
     def _action_precondition_failed_response(
         self,
         *,
-        action_type: Literal["offboard_start", "offboard_stop", "operator_abort"],
+        action_type: Literal[
+            "offboard_start",
+            "offboard_stop",
+            "operator_abort",
+            "tracking_start",
+            "tracking_stop",
+        ],
         request: APIActionRequest,
         path: str,
         code: str,
@@ -1518,7 +1559,13 @@ class FastAPIHandler:
     def _confirmation_required_response(
         self,
         *,
-        action_type: Literal["offboard_start", "offboard_stop", "operator_abort"],
+        action_type: Literal[
+            "offboard_start",
+            "offboard_stop",
+            "operator_abort",
+            "tracking_start",
+            "tracking_stop",
+        ],
         request: APIActionRequest,
         path: str,
     ) -> JSONResponse:
@@ -1536,7 +1583,13 @@ class FastAPIHandler:
     def _idempotency_key_required_response(
         self,
         *,
-        action_type: Literal["offboard_start", "offboard_stop", "operator_abort"],
+        action_type: Literal[
+            "offboard_start",
+            "offboard_stop",
+            "operator_abort",
+            "tracking_start",
+            "tracking_stop",
+        ],
         request: APIActionRequest,
         path: str,
     ) -> JSONResponse:
@@ -1831,6 +1884,34 @@ class FastAPIHandler:
         response: Response,
     ) -> Any:
         return await dispatch_stop_offboard_action_unlocked(self, request, response)
+
+    async def tracking_start_action(
+        self,
+        request: APITrackingStartRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracking_start_action(self, request, response)
+
+    async def _tracking_start_action_unlocked(
+        self,
+        request: APITrackingStartRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracking_start_action_unlocked(self, request, response)
+
+    async def tracking_stop_action(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracking_stop_action(self, request, response)
+
+    async def _tracking_stop_action_unlocked(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracking_stop_action_unlocked(self, request, response)
 
     def _get_legacy_runtime_status_snapshot(self) -> Dict[str, Any]:
         return get_legacy_runtime_status_snapshot(self)

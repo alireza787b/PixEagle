@@ -579,6 +579,8 @@ API_ROUTE_SECURITY_RULES = (
             "/api/v1/actions/offboard-start",
             "/api/v1/actions/offboard-stop",
             "/api/v1/actions/operator-abort",
+            "/api/v1/actions/tracking-start",
+            "/api/v1/actions/tracking-stop",
         ),
         AUTH_ACTION_EXECUTE,
     ),

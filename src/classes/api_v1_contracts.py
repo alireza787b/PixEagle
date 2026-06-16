@@ -110,6 +110,28 @@ class APIActionRequest(BaseModel):
         extra = "forbid"
 
 
+class APITrackingBoundingBox(BaseModel):
+    """Bounding box for typed manual tracking-start actions.
+
+    Values may be normalized in the 0..1 range or absolute pixels, matching the
+    legacy `/commands/start_tracking` behavior during migration.
+    """
+
+    x: float
+    y: float
+    width: float
+    height: float
+
+    class Config:
+        extra = "forbid"
+
+
+class APITrackingStartRequest(APIActionRequest):
+    """Typed manual tracking-start action request."""
+
+    bbox: APITrackingBoundingBox
+
+
 class APIActionAuditEvent(BaseModel):
     """Audit event embedded in typed action resources."""
 
@@ -124,7 +146,13 @@ class APIActionResponse(BaseModel):
     """Tracked action resource for typed /api/v1 control mutations."""
 
     action_id: str
-    action_type: Literal["offboard_start", "offboard_stop", "operator_abort"]
+    action_type: Literal[
+        "offboard_start",
+        "offboard_stop",
+        "operator_abort",
+        "tracking_start",
+        "tracking_stop",
+    ]
     status: Literal["validated", "success", "failure"]
     accepted: bool
     executed: bool

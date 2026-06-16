@@ -198,11 +198,11 @@ async def shutdown(self):
 ### With FastAPIHandler
 
 ```python
-# FastAPIHandler receives commands via REST
-@app.post("/commands/start_tracking")
-async def start_tracking(request: BoundingBox):
-    bbox = (request.x, request.y, request.width, request.height)
-    await app_controller.start_tracking(bbox)
+# FastAPIHandler receives typed tracking actions via REST.
+@app.post("/api/v1/actions/tracking-start")
+async def tracking_start_action(request: APITrackingStartRequest):
+    # The action layer handles confirmation, idempotency, and audit records.
+    await app_controller.start_tracking(request.bbox)
 ```
 
 ### With Tracker

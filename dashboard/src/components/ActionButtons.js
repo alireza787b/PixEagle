@@ -17,22 +17,8 @@ import GpsFixedIcon from '@mui/icons-material/GpsFixed';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { endpoints } from '../services/apiEndpoints';
+import { buildActionRequest } from '../services/actionRequests';
 import { useAuthSession } from '../context/AuthSessionContext';
-
-const generateActionIdempotencyKey = (reason) => {
-  const randomSuffix = Math.random().toString(36).slice(2, 10);
-  return `dashboard-${reason.replace(/_/g, '-')}-${Date.now()}-${randomSuffix}`;
-};
-
-const buildActionRequest = (reason) => ({
-  source: 'dashboard',
-  reason,
-  confirm: true,
-  idempotency_key: generateActionIdempotencyKey(reason),
-  metadata: {
-    ui: 'dashboard_control_panel',
-  },
-});
 
 const ActionButtons = ({
   isTracking,

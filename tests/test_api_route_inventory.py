@@ -16,6 +16,8 @@ from classes.api_v1_paths import (
     API_V1_ACTION_OFFBOARD_STOP_PATH,
     API_V1_ACTION_OPERATOR_ABORT_PATH,
     API_V1_ACTION_RESOURCE_PATH,
+    API_V1_ACTION_TRACKING_START_PATH,
+    API_V1_ACTION_TRACKING_STOP_PATH,
     API_V1_AUTH_LOGIN_PATH,
     API_V1_AUTH_LOGOUT_PATH,
     API_V1_AUTH_PATHS,
@@ -46,6 +48,8 @@ API_V1_CONTRACT_CLASS_NAMES = {
     "APIActionAuditEvent",
     "APIActionRequest",
     "APIActionResponse",
+    "APITrackingBoundingBox",
+    "APITrackingStartRequest",
     "APIAuthLoginRequest",
     "APIAuthLoginResponse",
     "APIAuthLogoutResponse",
@@ -202,6 +206,8 @@ EXPECTED_ROUTES = {
     ("POST", "/api/v1/actions/offboard-start"),
     ("POST", "/api/v1/actions/offboard-stop"),
     ("POST", "/api/v1/actions/operator-abort"),
+    ("POST", "/api/v1/actions/tracking-start"),
+    ("POST", "/api/v1/actions/tracking-stop"),
     ("POST", "/api/v1/sitl/injections/commander-publish-failure"),
     ("POST", "/api/v1/sitl/injections/mavlink2rest-timeout"),
     ("POST", "/api/v1/sitl/injections/mavsdk-disconnect"),
@@ -384,7 +390,7 @@ def test_current_route_inventory_counts_by_method():
     assert counts == {
         "DELETE": 2,
         "GET": 73,
-        "POST": 53,
+        "POST": 55,
         "PUT": 2,
         "WEBSOCKET": 2,
     }
@@ -525,6 +531,10 @@ def test_api_v1_action_store_implementation_is_not_defined_in_fastapi_handler():
         "_stop_offboard_action_unlocked": "dispatch_stop_offboard_action_unlocked",
         "operator_abort_action": "dispatch_operator_abort_action",
         "_operator_abort_action_unlocked": "dispatch_operator_abort_action_unlocked",
+        "tracking_start_action": "dispatch_tracking_start_action",
+        "_tracking_start_action_unlocked": "dispatch_tracking_start_action_unlocked",
+        "tracking_stop_action": "dispatch_tracking_stop_action",
+        "_tracking_stop_action_unlocked": "dispatch_tracking_stop_action_unlocked",
         "get_action_resource": "dispatch_get_action_resource",
     }
 
@@ -543,6 +553,10 @@ def test_api_v1_action_store_implementation_is_not_defined_in_fastapi_handler():
         "start_offboard_action_unlocked",
         "stop_offboard_action",
         "stop_offboard_action_unlocked",
+        "tracking_start_action",
+        "tracking_start_action_unlocked",
+        "tracking_stop_action",
+        "tracking_stop_action_unlocked",
     } <= action_functions
     for wrapper_name, target_name in wrapper_targets.items():
         wrapper = handler_functions[wrapper_name]
@@ -1007,6 +1021,8 @@ def test_api_v1_error_envelope_path_predicate_matches_current_route_families():
             API_V1_ACTION_OFFBOARD_START_PATH,
             API_V1_ACTION_OFFBOARD_STOP_PATH,
             API_V1_ACTION_OPERATOR_ABORT_PATH,
+            API_V1_ACTION_TRACKING_START_PATH,
+            API_V1_ACTION_TRACKING_STOP_PATH,
             API_V1_ACTION_RESOURCE_PATH,
         }
     )
@@ -1065,6 +1081,18 @@ def test_api_v1_action_routes_have_typed_api_metadata():
         ),
         "/api/v1/actions/operator-abort": (
             "operator_abort_action",
+            "APIActionResponse",
+            True,
+            "ACTION_ROUTE_RESPONSES",
+        ),
+        "/api/v1/actions/tracking-start": (
+            "tracking_start_action",
+            "APIActionResponse",
+            True,
+            "ACTION_ROUTE_RESPONSES",
+        ),
+        "/api/v1/actions/tracking-stop": (
+            "tracking_stop_action",
             "APIActionResponse",
             True,
             "ACTION_ROUTE_RESPONSES",

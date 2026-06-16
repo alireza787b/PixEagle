@@ -12,13 +12,15 @@ import uuid
 from fastapi import status
 from fastapi.responses import JSONResponse
 
-from classes.api_v1_contracts import APIActionRequest
+from classes.api_v1_contracts import APIActionRequest, APITrackingStartRequest
 from classes.api_v1_errors import build_api_v1_error_response
 from classes.api_v1_paths import (
     API_V1_ACTION_OFFBOARD_START_PATH,
     API_V1_ACTION_OFFBOARD_STOP_PATH,
     API_V1_ACTION_OPERATOR_ABORT_PATH,
     API_V1_ACTION_RESOURCE_PREFIX,
+    API_V1_ACTION_TRACKING_START_PATH,
+    API_V1_ACTION_TRACKING_STOP_PATH,
 )
 
 API_ACTION_CLAIM_BOUNDARY = (
@@ -27,7 +29,13 @@ API_ACTION_CLAIM_BOUNDARY = (
     "separate evidence artifacts."
 )
 
-ActionType = Literal["offboard_start", "offboard_stop", "operator_abort"]
+ActionType = Literal[
+    "offboard_start",
+    "offboard_stop",
+    "operator_abort",
+    "tracking_start",
+    "tracking_stop",
+]
 ActionStatus = Literal["validated", "success", "failure"]
 
 
@@ -177,21 +185,20 @@ def attach_legacy_action_audit(
     """Attach an audit record for an internal compatibility executor."""
     legacy_payload = dict(payload)
     legacy_payload.pop("action_audit", None)
+    canonical_routes = {
+        "offboard_start": API_V1_ACTION_OFFBOARD_START_PATH,
+        "offboard_stop": API_V1_ACTION_OFFBOARD_STOP_PATH,
+        "operator_abort": API_V1_ACTION_OPERATOR_ABORT_PATH,
+        "tracking_start": API_V1_ACTION_TRACKING_START_PATH,
+        "tracking_stop": API_V1_ACTION_TRACKING_STOP_PATH,
+    }
     request = APIActionRequest(
         source="internal_compatibility",
         reason=internal_handler,
         confirm=True,
         metadata={
             "internal_handler": internal_handler,
-            "canonical_route": (
-                API_V1_ACTION_OFFBOARD_START_PATH
-                if action_type == "offboard_start"
-                else (
-                    API_V1_ACTION_OFFBOARD_STOP_PATH
-                    if action_type == "offboard_stop"
-                    else API_V1_ACTION_OPERATOR_ABORT_PATH
-                )
-            ),
+            "canonical_route": canonical_routes[action_type],
         },
     )
     status_value: ActionStatus = (
@@ -642,6 +649,257 @@ async def operator_abort_action_unlocked(
     return owner._store_action_record(record)
 
 
+def _tracking_bbox_payload(request: APITrackingStartRequest) -> Dict[str, Any]:
+    bbox = request.bbox
+    if hasattr(bbox, "model_dump"):
+        return bbox.model_dump()
+    return bbox.dict()
+
+
+async def tracking_start_action(
+    owner: Any,
+    request: APITrackingStartRequest,
+    response: Any,
+) -> Any:
+    """Execute the typed /api/v1 action resource for manual tracking start."""
+    if not request.dry_run and request.confirm and not request.idempotency_key:
+        return owner._idempotency_key_required_response(
+            action_type="tracking_start",
+            request=request,
+            path=API_V1_ACTION_TRACKING_START_PATH,
+        )
+    lock = (
+        None
+        if request.dry_run or not request.confirm
+        else owner._action_lock_for_key("tracking_start", request.idempotency_key)
+    )
+    if lock is None:
+        return await tracking_start_action_unlocked(owner, request, response)
+    async with lock:
+        return await tracking_start_action_unlocked(owner, request, response)
+
+
+async def tracking_start_action_unlocked(
+    owner: Any,
+    request: APITrackingStartRequest,
+    response: Any,
+) -> Any:
+    replay = owner._lookup_idempotent_action(
+        "tracking_start",
+        request.idempotency_key,
+    )
+    if replay:
+        response.status_code = status.HTTP_200_OK
+        return replay
+
+    app_controller = owner.app_controller
+    following_before = bool(getattr(app_controller, "following_active", False))
+    tracking_before = bool(getattr(app_controller, "tracking_started", False))
+    bbox_payload = _tracking_bbox_payload(request)
+
+    if request.dry_run:
+        response.status_code = status.HTTP_200_OK
+        record = owner._new_api_action_record(
+            action_type="tracking_start",
+            request=request,
+            status_value="validated",
+            accepted=True,
+            executed=False,
+            following_active_before=following_before,
+            following_active_after=following_before,
+            result={
+                "would_execute": "FastAPIHandler._execute_tracking_start_action",
+                "bbox": bbox_payload,
+                "tracking_active_before": tracking_before,
+                "tracking_active_after": tracking_before,
+                "message": "Dry-run validated; no tracking start was executed.",
+                "metadata": dict(request.metadata or {}),
+            },
+        )
+        return owner._store_action_record(record)
+
+    if not request.confirm:
+        return owner._confirmation_required_response(
+            action_type="tracking_start",
+            request=request,
+            path=API_V1_ACTION_TRACKING_START_PATH,
+        )
+
+    try:
+        legacy_result = await owner._execute_tracking_start_action(request.bbox)
+    except Exception as exc:
+        following_after = bool(getattr(app_controller, "following_active", False))
+        tracking_after = bool(getattr(app_controller, "tracking_started", False))
+        response.status_code = status.HTTP_202_ACCEPTED
+        record = owner._new_api_action_record(
+            action_type="tracking_start",
+            request=request,
+            status_value="failure",
+            accepted=True,
+            executed=True,
+            following_active_before=following_before,
+            following_active_after=following_after,
+            result={
+                "internal_handler": "FastAPIHandler._execute_tracking_start_action",
+                "bbox": bbox_payload,
+                "tracking_active_before": tracking_before,
+                "tracking_active_after": tracking_after,
+                "metadata": dict(request.metadata or {}),
+            },
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        return owner._store_action_record(record)
+
+    following_after = bool(getattr(app_controller, "following_active", False))
+    tracking_after = bool(getattr(app_controller, "tracking_started", False))
+    status_value = "success" if legacy_result.get("status") == "Tracking started" else "failure"
+    error = None if status_value == "success" else legacy_result.get("error")
+
+    response.status_code = status.HTTP_202_ACCEPTED
+    record = owner._new_api_action_record(
+        action_type="tracking_start",
+        request=request,
+        status_value=status_value,
+        accepted=True,
+        executed=True,
+        following_active_before=following_before,
+        following_active_after=following_after,
+        result={
+            "internal_handler": "FastAPIHandler._execute_tracking_start_action",
+            "legacy_result": legacy_result,
+            "bbox": legacy_result.get("bbox", bbox_payload),
+            "tracking_active_before": tracking_before,
+            "tracking_active_after": tracking_after,
+            "metadata": dict(request.metadata or {}),
+        },
+        error=error,
+    )
+    return owner._store_action_record(record)
+
+
+async def tracking_stop_action(
+    owner: Any,
+    request: APIActionRequest,
+    response: Any,
+) -> Any:
+    """Execute the typed /api/v1 action resource for manual tracking stop."""
+    if not request.dry_run and request.confirm and not request.idempotency_key:
+        return owner._idempotency_key_required_response(
+            action_type="tracking_stop",
+            request=request,
+            path=API_V1_ACTION_TRACKING_STOP_PATH,
+        )
+    lock = (
+        None
+        if request.dry_run or not request.confirm
+        else owner._action_lock_for_key("tracking_stop", request.idempotency_key)
+    )
+    if lock is None:
+        return await tracking_stop_action_unlocked(owner, request, response)
+    async with lock:
+        return await tracking_stop_action_unlocked(owner, request, response)
+
+
+async def tracking_stop_action_unlocked(
+    owner: Any,
+    request: APIActionRequest,
+    response: Any,
+) -> Any:
+    replay = owner._lookup_idempotent_action(
+        "tracking_stop",
+        request.idempotency_key,
+    )
+    if replay:
+        response.status_code = status.HTTP_200_OK
+        return replay
+
+    app_controller = owner.app_controller
+    following_before = bool(getattr(app_controller, "following_active", False))
+    tracking_before = bool(getattr(app_controller, "tracking_started", False))
+
+    if request.dry_run:
+        response.status_code = status.HTTP_200_OK
+        record = owner._new_api_action_record(
+            action_type="tracking_stop",
+            request=request,
+            status_value="validated",
+            accepted=True,
+            executed=False,
+            following_active_before=following_before,
+            following_active_after=following_before,
+            result={
+                "would_execute": "FastAPIHandler._execute_tracking_stop_action",
+                "tracking_active_before": tracking_before,
+                "tracking_active_after": tracking_before,
+                "message": "Dry-run validated; no tracking stop was executed.",
+                "metadata": dict(request.metadata or {}),
+            },
+        )
+        return owner._store_action_record(record)
+
+    if not request.confirm:
+        return owner._confirmation_required_response(
+            action_type="tracking_stop",
+            request=request,
+            path=API_V1_ACTION_TRACKING_STOP_PATH,
+        )
+
+    try:
+        legacy_result = await owner._execute_tracking_stop_action()
+    except Exception as exc:
+        following_after = bool(getattr(app_controller, "following_active", False))
+        tracking_after = bool(getattr(app_controller, "tracking_started", False))
+        response.status_code = status.HTTP_202_ACCEPTED
+        record = owner._new_api_action_record(
+            action_type="tracking_stop",
+            request=request,
+            status_value="failure",
+            accepted=True,
+            executed=True,
+            following_active_before=following_before,
+            following_active_after=following_after,
+            result={
+                "internal_handler": "FastAPIHandler._execute_tracking_stop_action",
+                "tracking_active_before": tracking_before,
+                "tracking_active_after": tracking_after,
+                "metadata": dict(request.metadata or {}),
+            },
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        return owner._store_action_record(record)
+
+    following_after = bool(getattr(app_controller, "following_active", False))
+    tracking_after = bool(getattr(app_controller, "tracking_started", False))
+    result_details = legacy_result.get("result", {})
+    errors = result_details.get("errors", []) if isinstance(result_details, dict) else []
+    status_value = (
+        "success"
+        if legacy_result.get("status") == "Tracking stopped" and not errors
+        else "failure"
+    )
+    error = "; ".join(errors) if errors else legacy_result.get("error")
+
+    response.status_code = status.HTTP_202_ACCEPTED
+    record = owner._new_api_action_record(
+        action_type="tracking_stop",
+        request=request,
+        status_value=status_value,
+        accepted=True,
+        executed=True,
+        following_active_before=following_before,
+        following_active_after=following_after,
+        result={
+            "internal_handler": "FastAPIHandler._execute_tracking_stop_action",
+            "legacy_result": legacy_result,
+            "tracking_active_before": tracking_before,
+            "tracking_active_after": tracking_after,
+            "metadata": dict(request.metadata or {}),
+        },
+        error=error,
+    )
+    return owner._store_action_record(record)
+
+
 async def get_action_resource(owner: Any, action_id: str) -> Any:
     """Return a tracked in-process /api/v1 action resource."""
     record = owner._ensure_action_store().get_action_record(action_id)
@@ -672,4 +930,8 @@ __all__ = [
     "start_offboard_action_unlocked",
     "stop_offboard_action",
     "stop_offboard_action_unlocked",
+    "tracking_start_action",
+    "tracking_start_action_unlocked",
+    "tracking_stop_action",
+    "tracking_stop_action_unlocked",
 ]

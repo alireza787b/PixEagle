@@ -19,7 +19,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..', 'sr
 from classes.app_controller import AppController
 from classes.command_intent import CommandIntent
 from classes.offboard_commander import OffboardCommander
-from classes.fastapi_handler import APIActionRequest, FastAPIHandler
+from classes.fastapi_handler import (
+    APIActionRequest,
+    APITrackingStartRequest,
+    FastAPIHandler,
+)
 from classes.follower import Follower
 from classes.followers.gm_velocity_vector_follower import GMVelocityVectorFollower, Vector3D
 from classes.followers.mc_attitude_rate_follower import MCAttitudeRateFollower
@@ -2348,6 +2352,196 @@ async def test_api_v1_operator_abort_action_wraps_legacy_exception_as_action_rec
     assert result["action_type"] == "operator_abort"
     assert "HTTPException" in result["error"]
     assert result["idempotency_key"] == "abort-exception"
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracking_start_action_dry_run_does_not_execute_legacy_route():
+    """Dry-run tracking-start requests must validate without starting tracking."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=False,
+    )
+    handler._execute_tracking_start_action = AsyncMock()
+    response = Response()
+
+    result = await handler.tracking_start_action(
+        APITrackingStartRequest(
+            dry_run=True,
+            source="operator_test",
+            bbox={"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4},
+        ),
+        response,
+    )
+
+    assert response.status_code == 200
+    assert result["action_type"] == "tracking_start"
+    assert result["status"] == "validated"
+    assert result["accepted"] is True
+    assert result["executed"] is False
+    assert result["result"]["bbox"] == {
+        "x": 0.1,
+        "y": 0.2,
+        "width": 0.3,
+        "height": 0.4,
+    }
+    assert result["result"]["tracking_active_before"] is False
+    assert result["result"]["tracking_active_after"] is False
+    handler._execute_tracking_start_action.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracking_start_action_requires_confirmation_and_idempotency():
+    """Confirmed tracking-start mutations must be explicit and idempotent."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=False,
+    )
+    handler._execute_tracking_start_action = AsyncMock()
+
+    missing_confirmation = await handler.tracking_start_action(
+        APITrackingStartRequest(
+            source="operator_test",
+            bbox={"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4},
+        ),
+        Response(),
+    )
+    missing_confirmation_payload = json.loads(missing_confirmation.body)
+
+    missing_key = await handler.tracking_start_action(
+        APITrackingStartRequest(
+            confirm=True,
+            source="operator_test",
+            bbox={"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4},
+        ),
+        Response(),
+    )
+    missing_key_payload = json.loads(missing_key.body)
+
+    assert missing_confirmation.status_code == 409
+    assert missing_confirmation_payload["code"] == "ACTION_CONFIRMATION_REQUIRED"
+    assert missing_confirmation_payload["detail"]["action_type"] == "tracking_start"
+    assert missing_key.status_code == 409
+    assert missing_key_payload["code"] == "ACTION_IDEMPOTENCY_KEY_REQUIRED"
+    assert missing_key_payload["detail"]["action_type"] == "tracking_start"
+    handler._execute_tracking_start_action.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracking_start_action_executes_once_with_idempotency_key():
+    """Idempotency keys prevent duplicate tracking-start execution."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=False,
+    )
+    handler.app_controller = controller
+
+    async def start_tracking(bbox):
+        controller.tracking_started = True
+        return {
+            "status": "Tracking started",
+            "bbox": {
+                "x": bbox.x,
+                "y": bbox.y,
+                "width": bbox.width,
+                "height": bbox.height,
+            },
+        }
+
+    handler._execute_tracking_start_action = AsyncMock(side_effect=start_tracking)
+    request = APITrackingStartRequest(
+        confirm=True,
+        idempotency_key="tracking-roi-start",
+        source="operator_test",
+        bbox={"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4},
+    )
+
+    first_response = Response()
+    first = await handler.tracking_start_action(request, first_response)
+    second_response = Response()
+    second = await handler.tracking_start_action(request, second_response)
+
+    assert first_response.status_code == 202
+    assert first["action_type"] == "tracking_start"
+    assert first["status"] == "success"
+    assert first["executed"] is True
+    assert first["result"]["tracking_active_before"] is False
+    assert first["result"]["tracking_active_after"] is True
+    assert first["result"]["bbox"] == {
+        "x": 0.1,
+        "y": 0.2,
+        "width": 0.3,
+        "height": 0.4,
+    }
+    assert second_response.status_code == 200
+    assert second["action_id"] == first["action_id"]
+    assert second["idempotent_replay"] is True
+    assert handler._execute_tracking_start_action.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracking_stop_action_executes_once_with_idempotency_key():
+    """Idempotency keys prevent duplicate tracking-stop execution."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=True,
+    )
+    handler.app_controller = controller
+
+    async def stop_tracking():
+        controller.tracking_started = False
+        return {"status": "Tracking stopped", "result": {"errors": []}}
+
+    handler._execute_tracking_stop_action = AsyncMock(side_effect=stop_tracking)
+    request = APIActionRequest(
+        confirm=True,
+        idempotency_key="tracking-stop",
+        source="operator_test",
+    )
+
+    first_response = Response()
+    first = await handler.tracking_stop_action(request, first_response)
+    second_response = Response()
+    second = await handler.tracking_stop_action(request, second_response)
+
+    assert first_response.status_code == 202
+    assert first["action_type"] == "tracking_stop"
+    assert first["status"] == "success"
+    assert first["executed"] is True
+    assert first["result"]["tracking_active_before"] is True
+    assert first["result"]["tracking_active_after"] is False
+    assert second_response.status_code == 200
+    assert second["action_id"] == first["action_id"]
+    assert second["idempotent_replay"] is True
+    assert handler._execute_tracking_stop_action.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_tracking_command_aliases_delegate_to_internal_executors():
+    """Legacy tracking routes should stay thin while compatibility remains."""
+    handler = object.__new__(FastAPIHandler)
+    bbox = SimpleNamespace(x=0.1, y=0.2, width=0.3, height=0.4)
+    handler._execute_tracking_start_action = AsyncMock(
+        return_value={"status": "Tracking started"}
+    )
+    handler._execute_tracking_stop_action = AsyncMock(
+        return_value={"status": "Tracking stopped"}
+    )
+
+    start_result = await handler.start_tracking(bbox)
+    stop_result = await handler.stop_tracking()
+
+    assert start_result["status"] == "Tracking started"
+    assert stop_result["status"] == "Tracking stopped"
+    handler._execute_tracking_start_action.assert_awaited_once_with(bbox)
+    handler._execute_tracking_stop_action.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio

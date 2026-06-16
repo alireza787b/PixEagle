@@ -229,20 +229,24 @@ but it is not durable command storage and it is not a runtime MCP executor.
 | `/api/v1/actions/offboard-start` | POST | Confirmed or dry-run Offboard-start action resource |
 | `/api/v1/actions/offboard-stop` | POST | Confirmed or dry-run Offboard-stop action resource |
 | `/api/v1/actions/operator-abort` | POST | Confirmed or dry-run operator abort/cancel action resource |
+| `/api/v1/actions/tracking-start` | POST | Confirmed or dry-run tracking-start action resource with ROI bbox |
+| `/api/v1/actions/tracking-stop` | POST | Confirmed or dry-run tracking-stop action resource |
 | `/api/v1/actions/{action_id}` | GET | Fetch in-process action record |
 
 ### Legacy Command Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/commands/start_tracking` | POST | Start tracking |
-| `/commands/stop_tracking` | POST | Stop tracking |
+| `/commands/start_tracking` | POST | Compatibility alias for tracking start; use `/api/v1/actions/tracking-start` |
+| `/commands/stop_tracking` | POST | Compatibility alias for tracking stop; use `/api/v1/actions/tracking-stop` |
 | `/commands/toggle_smart_mode` | POST | Toggle YOLO tracker |
 | `/commands/smart_click` | POST | Click to track |
 
 The former Offboard start, Offboard stop, and operator-cancel command aliases
 are no longer registered as HTTP routes. Use `/api/v1/actions/offboard-start`,
-`/api/v1/actions/offboard-stop`, and `/api/v1/actions/operator-abort`. Their
+`/api/v1/actions/offboard-stop`, and `/api/v1/actions/operator-abort`. Tracking
+start/stop still have local-only compatibility aliases for one migration
+window, but first-party dashboard ROI calls now use typed action routes. Their
 isolated compatibility helper bodies remain internal implementation details for
 the typed action executor until the executor is refactored away from those
 helper names.
@@ -506,15 +510,10 @@ async def update_config_parameter(self, request: Request, ...):
 ### Start Tracking
 
 ```python
-@app.post("/commands/start_tracking")
-async def start_tracking(self, request: BoundingBox):
-    """Start tracking with bounding box."""
-    try:
-        bbox = (request.x, request.y, request.width, request.height)
-        await self.app_controller.start_tracking(bbox)
-        return {"status": "success", "message": "Tracking started"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@app.post("/api/v1/actions/tracking-start")
+async def tracking_start_action(self, request: APITrackingStartRequest, response):
+    """Start tracking with typed action semantics and a bounding box."""
+    return await dispatch_tracking_start_action(self, request, response)
 ```
 
 ### Smart Click
@@ -565,8 +564,9 @@ Host/request-origin shortcut. This contains DNS-rebinding and
 browser-to-localhost request attacks. The backend authentication,
 authorization, session-CSRF, dashboard credential-aware media/API, and durable
 security-audit foundations are implemented; TLS/operator hardening,
-adversarial auth/media tests, and typed replacements/retirement for the
-remaining legacy tracking/control mutations remain tracked under PXE-0064.
+adversarial auth/media tests, retirement of remaining legacy aliases, and typed
+migration for still-legacy segmentation, redetect, smart-mode, and smart-click
+mutations remain tracked under PXE-0064.
 
 ## Server Lifecycle
 

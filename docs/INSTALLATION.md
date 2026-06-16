@@ -199,8 +199,8 @@ Do not open backend port `5077` directly. `trusted_lan_legacy` only permits a
 non-loopback bind/CORS boundary; backend requests still require scoped API
 authorization or explicit browser-session auth. Production remote-browser
 operation still requires TLS/operator hardening, typed replacements and
-retirement for remaining legacy tracking/control mutations, adversarial
-auth/media tests, and evidence gates.
+retirement of remaining legacy tracking/control aliases, typed migration of
+still-legacy mutations, adversarial auth/media tests, and evidence gates.
 
 Do not expose PixEagle backend `5077`, MAVLink2REST `8088`, local MAVLink
 endpoints `14540`/`14569`, or MavlinkAnywhere dashboard `9070` beyond

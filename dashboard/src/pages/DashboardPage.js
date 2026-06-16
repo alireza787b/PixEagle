@@ -25,7 +25,8 @@ import RecordingQuickControl from '../components/RecordingQuickControl';
 import RecordingIndicator from '../components/RecordingIndicator';
 
 import { videoFeed, endpoints } from '../services/apiEndpoints';
-import axios, { apiFetch, getMediaElementCrossOrigin } from '../services/apiClient';
+import { buildActionRequest } from '../services/actionRequests';
+import axios, { apiFetch, apiFetchJson, getMediaElementCrossOrigin } from '../services/apiClient';
 import {
   useTrackerStatus,
   useFollowerStatus,
@@ -94,15 +95,26 @@ const DashboardPage = () => {
   const handleTrackingToggle = async () => {
     if (isTracking) {
       try {
-        await apiFetch(endpoints.stopTracking, {
+        const data = await apiFetchJson(endpoints.trackingStopAction, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
+          body: JSON.stringify(buildActionRequest(
+            'stop_tracking',
+            { ui: 'dashboard_tracking_button' }
+          )),
         });
+        if (data?.status === 'failure') {
+          throw new Error(data.error || 'Tracking stop action failed');
+        }
+        setIsTracking(false);
       } catch (error) {
         console.error('Error:', error);
+        setSnackbarMessage('Failed to stop tracking');
+        setSnackbarSeverity('error');
+        setSnackbarOpen(true);
       }
+      return;
     }
-    setIsTracking(!isTracking);
+    setIsTracking(true);
   };
 
   const handleButtonClick = async (endpoint, updateTrackingState = false, requestBody = null) => {
