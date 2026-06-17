@@ -5,15 +5,15 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: 4f03298ca3dab46eaabfa0ff5010b0e4410d0724e5c490f30a7bae150bd69a46
+    sha256: 836a11551ede271d5f05f4bea70554987649b61c641144d73901f37d2b65e8b7
   - file: src/classes/fastapi_api_v1_routes.py
-    sha256: c2a7688ca42cbe74c555299b76ab9a7155fe1b4185b696ad8103f4c3e64e5016
+    sha256: 0c3a8286ab685292e8a34e6f9932841cf71bb63ba83cfa97a7f228cb58c54925
   - file: src/classes/api_v1_contracts.py
-    sha256: a054c3936c7c8627448131b40f41c199a62dad6cbb7fe1cadbd16f7344882944
+    sha256: d35ed6d81aca24e7d5436e6ce7748f8c9e470430701d054cbeb9aaf4f93aa15e
   - file: src/classes/api_v1_paths.py
-    sha256: 829e7629ff57405cf86047e7f6556c5ab776f9bd80930a4200a8fa8c36e269cc
+    sha256: d52eb9c81488deedfec7ba0315d4869a6a13ad2281a906519ae78435cd942320
   - file: src/classes/api_v1_actions.py
-    sha256: 09f4297fb225c0d03c99205ef74cc4e1803e6f72d2b69d1210527845a097f1b1
+    sha256: 52d2fbe2d637280934383784d31580d8d2cfe5af10e900b6006ea67834ec6c8b
   - file: src/classes/api_v1_auth_routes.py
     sha256: 49589db33d56dd9ebd353d0e79e768d2208a27f1cfae9aa2be0a6111050ee27b
   - file: src/classes/api_legacy_control_routes.py
@@ -35,7 +35,7 @@ source:
   - file: src/classes/api_security_types.py
     sha256: 6b6b47d950108782e3783a5ba2fd7f14c65b94dabb49eb537f8c7b53a9b9ce1d
   - file: src/classes/api_security_policy.py
-    sha256: 0f49c63bdc4c39c974b75a81c6a60b3a42a8f282ff8ed3fe4cc2331ec1cf0775
+    sha256: be05339eaadb9dec356b5fe05e188523f558088afc3a11a572a1b0044f49bbe0
 generated_from:
 - src/classes/fastapi_handler.py
 - src/classes/fastapi_api_v1_routes.py
@@ -69,16 +69,16 @@ promotion_path:
 - independent reviewer approval
 - MCP tools/list and tools/call exposure
 summary:
-  total_declared_http_routes: 132
-  api_v1_routes: 20
-  candidate_count: 20
+  total_declared_http_routes: 136
+  api_v1_routes: 24
+  candidate_count: 24
   eligible_read_only_candidates: 6
   callable_tools: 0
   mcp_exposed_tools: 0
   unpromoted_read_only_candidates: 6
   docs_registered_read_only_candidates: 6
   runtime_promoted_candidates: 0
-  blocked_or_guarded_candidates: 14
+  blocked_or_guarded_candidates: 18
   curated_registry_present: true
   registry_coverage_status: review_registry_complete_no_mcp_exposure
   registry_coverage:
@@ -215,6 +215,190 @@ candidates:
   responses: ACTION_ROUTE_RESPONSES
   status_code: status.HTTP_202_ACCEPTED
   handler: self.operator_abort_action
+  typed_api_contract: true
+  deprecated: false
+  classification: guarded_control_action
+  read_only: false
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: guarded_control_action
+  sensitivity: flight_control
+  side_effects: can_mutate_tracking_or_following_control_path
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
+    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+  blocked_reasons:
+  - Control mutation route.
+  - Requires confirmation, idempotency, dry-run/replay semantics, audit records, and policy
+    approval.
+  - Not eligible for read-only MCP promotion.
+  required_review:
+  - PX4 observation evidence gate
+  - SITL-only callable wrapper
+  - action proposal schema
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  safety_notes: []
+  registry_matches: []
+  registry_review_status: unregistered
+- id: pixeagle.actions.segmentation_toggle.submit_candidate
+  candidate_id: pixeagle.actions.segmentation_toggle.submit_candidate
+  method: POST
+  path: /api/v1/actions/segmentation-toggle
+  operation_id: segmentation_toggle_action
+  tags:
+  - actions
+  response_model: APIActionResponse
+  request_model: APIActionRequest
+  responses: ACTION_ROUTE_RESPONSES
+  status_code: status.HTTP_202_ACCEPTED
+  handler: self.segmentation_toggle_action
+  typed_api_contract: true
+  deprecated: false
+  classification: guarded_control_action
+  read_only: false
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: guarded_control_action
+  sensitivity: flight_control
+  side_effects: can_mutate_tracking_or_following_control_path
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
+    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+  blocked_reasons:
+  - Control mutation route.
+  - Requires confirmation, idempotency, dry-run/replay semantics, audit records, and policy
+    approval.
+  - Not eligible for read-only MCP promotion.
+  required_review:
+  - PX4 observation evidence gate
+  - SITL-only callable wrapper
+  - action proposal schema
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  safety_notes: []
+  registry_matches: []
+  registry_review_status: unregistered
+- id: pixeagle.actions.smart_click.submit_candidate
+  candidate_id: pixeagle.actions.smart_click.submit_candidate
+  method: POST
+  path: /api/v1/actions/smart-click
+  operation_id: smart_click_action
+  tags:
+  - actions
+  response_model: APIActionResponse
+  request_model: APITrackingSmartClickRequest
+  responses: ACTION_ROUTE_RESPONSES
+  status_code: status.HTTP_202_ACCEPTED
+  handler: self.smart_click_action
+  typed_api_contract: true
+  deprecated: false
+  classification: guarded_control_action
+  read_only: false
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: guarded_control_action
+  sensitivity: flight_control
+  side_effects: can_mutate_tracking_or_following_control_path
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
+    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+  blocked_reasons:
+  - Control mutation route.
+  - Requires confirmation, idempotency, dry-run/replay semantics, audit records, and policy
+    approval.
+  - Not eligible for read-only MCP promotion.
+  required_review:
+  - PX4 observation evidence gate
+  - SITL-only callable wrapper
+  - action proposal schema
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  safety_notes: []
+  registry_matches: []
+  registry_review_status: unregistered
+- id: pixeagle.actions.smart_mode_toggle.submit_candidate
+  candidate_id: pixeagle.actions.smart_mode_toggle.submit_candidate
+  method: POST
+  path: /api/v1/actions/smart-mode-toggle
+  operation_id: smart_mode_toggle_action
+  tags:
+  - actions
+  response_model: APIActionResponse
+  request_model: APIActionRequest
+  responses: ACTION_ROUTE_RESPONSES
+  status_code: status.HTTP_202_ACCEPTED
+  handler: self.smart_mode_toggle_action
+  typed_api_contract: true
+  deprecated: false
+  classification: guarded_control_action
+  read_only: false
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: guarded_control_action
+  sensitivity: flight_control
+  side_effects: can_mutate_tracking_or_following_control_path
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
+    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+  blocked_reasons:
+  - Control mutation route.
+  - Requires confirmation, idempotency, dry-run/replay semantics, audit records, and policy
+    approval.
+  - Not eligible for read-only MCP promotion.
+  required_review:
+  - PX4 observation evidence gate
+  - SITL-only callable wrapper
+  - action proposal schema
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  safety_notes: []
+  registry_matches: []
+  registry_review_status: unregistered
+- id: pixeagle.actions.tracking_redetect.submit_candidate
+  candidate_id: pixeagle.actions.tracking_redetect.submit_candidate
+  method: POST
+  path: /api/v1/actions/tracking-redetect
+  operation_id: tracking_redetect_action
+  tags:
+  - actions
+  response_model: APIActionResponse
+  request_model: APIActionRequest
+  responses: ACTION_ROUTE_RESPONSES
+  status_code: status.HTTP_202_ACCEPTED
+  handler: self.tracking_redetect_action
   typed_api_contract: true
   deprecated: false
   classification: guarded_control_action

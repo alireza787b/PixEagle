@@ -84,6 +84,57 @@ test('uses typed confirmed operator abort action when cancelling tracker activit
   );
 });
 
+test('uses typed confirmed tracking redetect action', () => {
+  render(<ActionButtons {...baseProps} />);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Re-Detect' }));
+
+  expect(baseProps.handleButtonClick).toHaveBeenCalledWith(
+    endpoints.trackingRedetectAction,
+    false,
+    expect.objectContaining({
+      source: 'dashboard',
+      reason: 'redetect_tracking',
+      confirm: true,
+      idempotency_key: expect.stringMatching(/^dashboard-redetect-tracking-\d+-[a-z0-9]+$/),
+      metadata: {
+        ui: 'dashboard_control_panel',
+      },
+    })
+  );
+});
+
+test('uses typed confirmed segmentation toggle action', () => {
+  render(<ActionButtons {...baseProps} />);
+
+  fireEvent.click(screen.getByRole('button', { name: 'Toggle Segmentation' }));
+
+  expect(baseProps.handleButtonClick).toHaveBeenCalledWith(
+    endpoints.segmentationToggleAction,
+    false,
+    expect.objectContaining({
+      source: 'dashboard',
+      reason: 'toggle_segmentation',
+      confirm: true,
+      idempotency_key: expect.stringMatching(/^dashboard-toggle-segmentation-\d+-[a-z0-9]+$/),
+      metadata: {
+        ui: 'dashboard_control_panel',
+      },
+    })
+  );
+});
+
+test('allows typed tracking utility actions with actions execute scope only', () => {
+  mockHasScope = (scope) => scope === 'actions:execute';
+
+  render(<ActionButtons {...baseProps} />);
+
+  expect(screen.getByRole('button', { name: 'Start Tracking' })).not.toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Re-Detect' })).not.toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Toggle Segmentation' })).not.toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Start Following' })).not.toBeDisabled();
+});
+
 test('uses typed confirmed stop action when stopping following', () => {
   render(<ActionButtons {...baseProps} isFollowing />);
 

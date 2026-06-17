@@ -231,6 +231,10 @@ but it is not durable command storage and it is not a runtime MCP executor.
 | `/api/v1/actions/operator-abort` | POST | Confirmed or dry-run operator abort/cancel action resource |
 | `/api/v1/actions/tracking-start` | POST | Confirmed or dry-run tracking-start action resource with ROI bbox |
 | `/api/v1/actions/tracking-stop` | POST | Confirmed or dry-run tracking-stop action resource |
+| `/api/v1/actions/tracking-redetect` | POST | Confirmed or dry-run classic tracker re-detection action resource |
+| `/api/v1/actions/segmentation-toggle` | POST | Confirmed or dry-run segmentation overlay toggle action resource |
+| `/api/v1/actions/smart-mode-toggle` | POST | Confirmed or dry-run smart-mode toggle action resource |
+| `/api/v1/actions/smart-click` | POST | Confirmed or dry-run smart-tracker click-selection action resource |
 | `/api/v1/actions/{action_id}` | GET | Fetch in-process action record |
 
 ### Legacy Command Endpoints
@@ -239,15 +243,18 @@ but it is not durable command storage and it is not a runtime MCP executor.
 |----------|--------|-------------|
 | `/commands/start_tracking` | POST | Compatibility alias for tracking start; use `/api/v1/actions/tracking-start` |
 | `/commands/stop_tracking` | POST | Compatibility alias for tracking stop; use `/api/v1/actions/tracking-stop` |
-| `/commands/toggle_smart_mode` | POST | Toggle YOLO tracker |
-| `/commands/smart_click` | POST | Click to track |
+| `/commands/redetect` | POST | Compatibility alias for classic re-detection; use `/api/v1/actions/tracking-redetect` |
+| `/commands/toggle_segmentation` | POST | Compatibility alias for segmentation toggle; use `/api/v1/actions/segmentation-toggle` |
+| `/commands/toggle_smart_mode` | POST | Compatibility alias for smart-mode toggle; use `/api/v1/actions/smart-mode-toggle` |
+| `/commands/smart_click` | POST | Compatibility alias for smart click; use `/api/v1/actions/smart-click` |
 
 The former Offboard start, Offboard stop, and operator-cancel command aliases
 are no longer registered as HTTP routes. Use `/api/v1/actions/offboard-start`,
 `/api/v1/actions/offboard-stop`, and `/api/v1/actions/operator-abort`. Tracking
-start/stop still have local-only compatibility aliases for one migration
-window, but first-party dashboard ROI calls now use typed action routes. Their
-isolated compatibility helper bodies remain internal implementation details for
+start/stop, redetect, segmentation toggle, smart-mode toggle, and smart-click
+still have local-only compatibility aliases for one migration window, but
+first-party dashboard calls now use typed action routes. Their isolated
+compatibility helper bodies remain internal implementation details for
 the typed action executor until the executor is refactored away from those
 helper names.
 
@@ -519,15 +526,10 @@ async def tracking_start_action(self, request: APITrackingStartRequest, response
 ### Smart Click
 
 ```python
-@app.post("/commands/smart_click")
-async def smart_click(self, request: ClickPosition):
-    """Click-to-track with YOLO."""
-    try:
-        x, y = request.x, request.y
-        await self.app_controller.smart_tracker.click_to_track(x, y)
-        return {"status": "success"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@app.post("/api/v1/actions/smart-click")
+async def smart_click_action(self, request: APITrackingSmartClickRequest, response):
+    """Select a smart-tracker target with typed action semantics."""
+    return await dispatch_smart_click_action(self, request, response)
 ```
 
 ## CORS Configuration
@@ -562,11 +564,10 @@ cross-site `Sec-Fetch-Site` value or an unapproved `Origin` before route
 execution. Origin approval is an explicit allowlist check, not a
 Host/request-origin shortcut. This contains DNS-rebinding and
 browser-to-localhost request attacks. The backend authentication,
-authorization, session-CSRF, dashboard credential-aware media/API, and durable
-security-audit foundations are implemented; TLS/operator hardening,
-adversarial auth/media tests, retirement of remaining legacy aliases, and typed
-migration for still-legacy segmentation, redetect, smart-mode, and smart-click
-mutations remain tracked under PXE-0064.
+authorization, session-CSRF, dashboard credential-aware media/API, durable
+security-audit, and typed tracking/control action foundations are implemented;
+TLS/operator hardening, adversarial auth/media tests, and retirement of
+remaining legacy aliases remain tracked under PXE-0064.
 
 ## Server Lifecycle
 

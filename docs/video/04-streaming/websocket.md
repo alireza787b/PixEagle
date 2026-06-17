@@ -18,9 +18,9 @@ unauthenticated browser WebSocket streaming is limited to a same-host loopback
 socket client. Non-loopback clients need scoped API credentials, and remote
 browser operation should use explicit `API_AUTH_MODE=browser_session` only
 with the credential-aware dashboard client. Production remote-browser approval
-still requires TLS/operator deployment hardening, typed replacements and
-retirement of remaining legacy tracking/control aliases, typed migration of
-still-legacy mutations, adversarial auth/media tests, and evidence gates.
+still requires TLS/operator deployment hardening, retirement of remaining
+legacy tracking/control aliases, adversarial auth/media tests, and evidence
+gates.
 
 ### Connection
 

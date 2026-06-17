@@ -20,10 +20,9 @@ PixEagle also has a complete declarative
 [API security policy](../../apis/api-security-policy.md) for route access,
 scopes, bearer-token treatment, local compatibility, session CSRF enforcement,
 audit treatment, and default-deny coverage. Remote browser operation is not
-approved until TLS/operator deployment hardening, typed replacements and
-retirement of remaining legacy tracking/control aliases, typed migration of
-still-legacy mutations, adversarial auth/media tests, and evidence gates are
-complete.
+approved until TLS/operator deployment hardening, retirement of remaining
+legacy tracking/control aliases, adversarial auth/media tests, and evidence
+gates are complete.
 
 ## MCP Readiness Boundary
 
@@ -733,29 +732,86 @@ Content-Type: application/json
 }
 ```
 
-`/commands/start_tracking` and `/commands/stop_tracking` remain local-only
-compatibility aliases for this migration window. First-party dashboard ROI
-start/stop calls use the typed `/api/v1/actions/tracking-*` routes.
+### Redetect Target
+
+```http
+POST /api/v1/actions/tracking-redetect
+Content-Type: application/json
+```
+
+```json
+{
+  "source": "operator",
+  "reason": "redetect_tracking",
+  "confirm": true,
+  "idempotency_key": "operator-redetect-001"
+}
+```
+
+The typed response records whether the local detector reacquired a target.
+A no-target result is an accepted action with `status: "failure"` so operator
+and automation clients can distinguish transport success from tracking success.
+
+### Toggle Segmentation
+
+```http
+POST /api/v1/actions/segmentation-toggle
+Content-Type: application/json
+```
+
+```json
+{
+  "source": "operator",
+  "reason": "toggle_segmentation",
+  "confirm": true,
+  "idempotency_key": "operator-segmentation-toggle-001"
+}
+```
 
 ### Smart Click (Click-to-Track)
 
 ```http
-POST /commands/smart_click
+POST /api/v1/actions/smart-click
 Content-Type: application/json
+```
 
+```json
 {
-  "x": 0.5,
-  "y": 0.3
+  "source": "operator",
+  "reason": "smart_click",
+  "confirm": true,
+  "idempotency_key": "operator-smart-click-001",
+  "click": {
+    "x": 0.5,
+    "y": 0.3
+  }
 }
 ```
 
-Coordinates are normalized (0-1).
+Coordinates may be normalized `0..1` or absolute pixels, matching the temporary
+legacy route behavior during migration.
 
 ### Toggle Smart Mode
 
 ```http
-POST /commands/toggle_smart_mode
+POST /api/v1/actions/smart-mode-toggle
+Content-Type: application/json
 ```
+
+```json
+{
+  "source": "operator",
+  "reason": "toggle_smart_mode",
+  "confirm": true,
+  "idempotency_key": "operator-smart-mode-toggle-001"
+}
+```
+
+`/commands/start_tracking`, `/commands/stop_tracking`, `/commands/redetect`,
+`/commands/toggle_segmentation`, `/commands/toggle_smart_mode`, and
+`/commands/smart_click` remain local-only compatibility aliases for this
+migration window. First-party dashboard calls use the typed
+`/api/v1/actions/*` routes.
 
 ### Start Offboard
 
@@ -838,12 +894,6 @@ The former `/commands/start_offboard_mode`, `/commands/stop_offboard_mode`, and
 typed `/api/v1/actions/offboard-start`, `/api/v1/actions/offboard-stop`, and
 `/api/v1/actions/operator-abort` resources for operator, SITL, MCP, and agent
 control integrations.
-
-### Redetect Target
-
-```http
-POST /commands/redetect
-```
 
 ### Quit Application
 

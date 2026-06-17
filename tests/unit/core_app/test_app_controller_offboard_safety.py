@@ -21,6 +21,7 @@ from classes.command_intent import CommandIntent
 from classes.offboard_commander import OffboardCommander
 from classes.fastapi_handler import (
     APIActionRequest,
+    APITrackingSmartClickRequest,
     APITrackingStartRequest,
     FastAPIHandler,
 )
@@ -2524,6 +2525,249 @@ async def test_api_v1_tracking_stop_action_executes_once_with_idempotency_key():
 
 
 @pytest.mark.asyncio
+async def test_api_v1_tracking_redetect_action_reports_no_target_as_failure():
+    """Re-detection should be accepted but recorded failed when no target returns."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=True,
+        segmentation_active=False,
+        smart_mode_active=False,
+    )
+    handler._execute_tracking_redetect_action = AsyncMock(return_value={
+        "status": "success",
+        "detection_result": {"success": False, "message": "no target"},
+    })
+    response = Response()
+
+    result = await handler.tracking_redetect_action(
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="redetect-no-target",
+            source="operator_test",
+        ),
+        response,
+    )
+
+    assert response.status_code == 202
+    assert result["action_type"] == "tracking_redetect"
+    assert result["status"] == "failure"
+    assert result["executed"] is True
+    assert result["error"] == "no target"
+    assert result["result"]["state_before"]["tracking_active"] is True
+    assert handler._execute_tracking_redetect_action.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_api_v1_segmentation_toggle_action_executes_once_with_idempotency_key():
+    """Idempotency keys prevent duplicate segmentation-toggle execution."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=True,
+        segmentation_active=False,
+        smart_mode_active=False,
+    )
+    handler.app_controller = controller
+
+    async def toggle_segmentation():
+        controller.segmentation_active = True
+        return {"status": "success", "segmentation_active": True}
+
+    handler._execute_segmentation_toggle_action = AsyncMock(
+        side_effect=toggle_segmentation
+    )
+    request = APIActionRequest(
+        confirm=True,
+        idempotency_key="segmentation-toggle",
+        source="operator_test",
+    )
+
+    first_response = Response()
+    first = await handler.segmentation_toggle_action(request, first_response)
+    second_response = Response()
+    second = await handler.segmentation_toggle_action(request, second_response)
+
+    assert first_response.status_code == 202
+    assert first["action_type"] == "segmentation_toggle"
+    assert first["status"] == "success"
+    assert first["executed"] is True
+    assert first["result"]["state_before"]["segmentation_active"] is False
+    assert first["result"]["state_after"]["segmentation_active"] is True
+    assert second_response.status_code == 200
+    assert second["action_id"] == first["action_id"]
+    assert second["idempotent_replay"] is True
+    assert handler._execute_segmentation_toggle_action.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_api_v1_smart_mode_toggle_action_fails_when_state_does_not_change():
+    """Smart-mode toggle should fail closed if the controller cannot change state."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        smart_mode_active=False,
+    )
+    handler._execute_smart_mode_toggle_action = AsyncMock(return_value={
+        "status": "Smart mode disabled",
+    })
+    response = Response()
+
+    result = await handler.smart_mode_toggle_action(
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="smart-mode-unavailable",
+            source="operator_test",
+        ),
+        response,
+    )
+
+    assert response.status_code == 202
+    assert result["action_type"] == "smart_mode_toggle"
+    assert result["status"] == "failure"
+    assert result["executed"] is True
+    assert result["error"] == "Smart mode state did not change."
+    assert handler._execute_smart_mode_toggle_action.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_api_v1_smart_click_action_executes_once_with_idempotency_key():
+    """Idempotency keys prevent duplicate smart-click execution."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=True,
+        segmentation_active=False,
+        smart_mode_active=True,
+    )
+
+    async def smart_click(click):
+        return {
+            "status": "Click processed",
+            "applied": True,
+            "success": True,
+            "x": click.x,
+            "y": click.y,
+        }
+
+    handler._execute_smart_click_action = AsyncMock(side_effect=smart_click)
+    request = APITrackingSmartClickRequest(
+        confirm=True,
+        idempotency_key="smart-click",
+        source="operator_test",
+        click={"x": 0.25, "y": 0.4},
+    )
+
+    first_response = Response()
+    first = await handler.smart_click_action(request, first_response)
+    second_response = Response()
+    second = await handler.smart_click_action(request, second_response)
+
+    assert first_response.status_code == 202
+    assert first["action_type"] == "smart_click"
+    assert first["status"] == "success"
+    assert first["executed"] is True
+    assert first["result"]["click"] == {"x": 0.25, "y": 0.4}
+    assert first["result"]["legacy_result"] == {
+        "status": "Click processed",
+        "applied": True,
+        "success": True,
+        "x": 0.25,
+        "y": 0.4,
+    }
+    assert second_response.status_code == 200
+    assert second["action_id"] == first["action_id"]
+    assert second["idempotent_replay"] is True
+    assert handler._execute_smart_click_action.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_api_v1_smart_click_action_records_no_target_as_failure():
+    """Smart-click must not report success when no target override was applied."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=True,
+        segmentation_active=False,
+        smart_mode_active=True,
+    )
+    handler._execute_smart_click_action = AsyncMock(return_value={
+        "status": "Click not applied",
+        "applied": False,
+        "success": False,
+        "message": "No AI detection selected. Override not applied.",
+    })
+    response = Response()
+
+    result = await handler.smart_click_action(
+        APITrackingSmartClickRequest(
+            confirm=True,
+            idempotency_key="smart-click-no-target",
+            source="operator_test",
+            click={"x": 0.25, "y": 0.4},
+        ),
+        response,
+    )
+
+    assert response.status_code == 202
+    assert result["action_type"] == "smart_click"
+    assert result["status"] == "failure"
+    assert result["executed"] is True
+    assert result["error"] == "No AI detection selected. Override not applied."
+    assert handler._execute_smart_click_action.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_api_v1_runtime_action_replay_requires_confirmation():
+    """A reused idempotency key must not bypass explicit confirmation."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=True,
+        segmentation_active=False,
+        smart_mode_active=False,
+    )
+    handler.app_controller = controller
+
+    async def toggle_segmentation():
+        controller.segmentation_active = True
+        return {"status": "success", "segmentation_active": True}
+
+    handler._execute_segmentation_toggle_action = AsyncMock(
+        side_effect=toggle_segmentation
+    )
+    confirmed_request = APIActionRequest(
+        confirm=True,
+        idempotency_key="segmentation-confirmation-order",
+        source="operator_test",
+    )
+    first = await handler.segmentation_toggle_action(confirmed_request, Response())
+
+    replay_without_confirmation = await handler.segmentation_toggle_action(
+        APIActionRequest(
+            idempotency_key="segmentation-confirmation-order",
+            source="operator_test",
+        ),
+        Response(),
+    )
+    payload = json.loads(replay_without_confirmation.body)
+
+    assert first["status"] == "success"
+    assert replay_without_confirmation.status_code == 409
+    assert payload["code"] == "ACTION_CONFIRMATION_REQUIRED"
+    assert payload["detail"]["action_type"] == "segmentation_toggle"
+    assert handler._execute_segmentation_toggle_action.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_legacy_tracking_command_aliases_delegate_to_internal_executors():
     """Legacy tracking routes should stay thin while compatibility remains."""
     handler = object.__new__(FastAPIHandler)
@@ -2534,14 +2778,39 @@ async def test_legacy_tracking_command_aliases_delegate_to_internal_executors():
     handler._execute_tracking_stop_action = AsyncMock(
         return_value={"status": "Tracking stopped"}
     )
+    handler._execute_tracking_redetect_action = AsyncMock(
+        return_value={"status": "success"}
+    )
+    handler._execute_segmentation_toggle_action = AsyncMock(
+        return_value={"status": "success"}
+    )
+    handler._execute_smart_mode_toggle_action = AsyncMock(
+        return_value={"status": "Smart mode enabled"}
+    )
+    handler._execute_smart_click_action = AsyncMock(
+        return_value={"status": "Click processed"}
+    )
+    click = SimpleNamespace(x=0.25, y=0.4)
 
     start_result = await handler.start_tracking(bbox)
     stop_result = await handler.stop_tracking()
+    redetect_result = await handler.redetect()
+    segmentation_result = await handler.toggle_segmentation()
+    smart_mode_result = await handler.toggle_smart_mode()
+    smart_click_result = await handler.smart_click(click)
 
     assert start_result["status"] == "Tracking started"
     assert stop_result["status"] == "Tracking stopped"
+    assert redetect_result["status"] == "success"
+    assert segmentation_result["status"] == "success"
+    assert smart_mode_result["status"] == "Smart mode enabled"
+    assert smart_click_result["status"] == "Click processed"
     handler._execute_tracking_start_action.assert_awaited_once_with(bbox)
     handler._execute_tracking_stop_action.assert_awaited_once_with()
+    handler._execute_tracking_redetect_action.assert_awaited_once_with()
+    handler._execute_segmentation_toggle_action.assert_awaited_once_with()
+    handler._execute_smart_mode_toggle_action.assert_awaited_once_with()
+    handler._execute_smart_click_action.assert_awaited_once_with(click)
 
 
 @pytest.mark.asyncio

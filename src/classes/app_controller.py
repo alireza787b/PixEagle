@@ -224,13 +224,22 @@ class AppController:
         Handles user click during smart mode. Selects the closest AI detection and activates override.
         """
         if self.current_frame is None or self.smart_tracker is None:
-            logging.warning("SmartTracker unavailable or frame not ready.")
-            return
-
+            message = "SmartTracker unavailable or frame not ready."
+            logging.warning(message)
+            return {
+                "success": False,
+                "reason": "smart_tracker_unavailable",
+                "message": message,
+            }
 
         if not self.smart_tracker.last_detections:
-            logging.warning("SmartTracker has no detections yet. Please wait for detection.")
-            return
+            message = "SmartTracker has no detections yet. Please wait for detection."
+            logging.warning(message)
+            return {
+                "success": False,
+                "reason": "no_detections",
+                "message": message,
+            }
         self.smart_tracker.select_object_by_click(x, y)
 
         if self.smart_tracker.selected_bbox and self.smart_tracker.selected_center:
@@ -240,8 +249,21 @@ class AppController:
                 self.smart_tracker.selected_center
             )
             logging.info(f"Smart tracking override activated with bbox: {self.selected_bbox}")
+            return {
+                "success": True,
+                "reason": "override_applied",
+                "message": "Smart tracking override activated.",
+                "selected_bbox": list(self.selected_bbox),
+                "selected_center": list(map(int, self.smart_tracker.selected_center)),
+            }
         else:
-            logging.info("No AI detection selected. Override not applied.")
+            message = "No AI detection selected. Override not applied."
+            logging.info(message)
+            return {
+                "success": False,
+                "reason": "no_detection_selected",
+                "message": message,
+            }
 
 
     def toggle_tracking(self, frame: np.ndarray):

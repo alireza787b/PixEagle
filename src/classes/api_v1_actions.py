@@ -12,13 +12,21 @@ import uuid
 from fastapi import status
 from fastapi.responses import JSONResponse
 
-from classes.api_v1_contracts import APIActionRequest, APITrackingStartRequest
+from classes.api_v1_contracts import (
+    APIActionRequest,
+    APITrackingSmartClickRequest,
+    APITrackingStartRequest,
+)
 from classes.api_v1_errors import build_api_v1_error_response
 from classes.api_v1_paths import (
     API_V1_ACTION_OFFBOARD_START_PATH,
     API_V1_ACTION_OFFBOARD_STOP_PATH,
     API_V1_ACTION_OPERATOR_ABORT_PATH,
     API_V1_ACTION_RESOURCE_PREFIX,
+    API_V1_ACTION_SEGMENTATION_TOGGLE_PATH,
+    API_V1_ACTION_SMART_CLICK_PATH,
+    API_V1_ACTION_SMART_MODE_TOGGLE_PATH,
+    API_V1_ACTION_TRACKING_REDETECT_PATH,
     API_V1_ACTION_TRACKING_START_PATH,
     API_V1_ACTION_TRACKING_STOP_PATH,
 )
@@ -33,6 +41,10 @@ ActionType = Literal[
     "offboard_start",
     "offboard_stop",
     "operator_abort",
+    "segmentation_toggle",
+    "smart_click",
+    "smart_mode_toggle",
+    "tracking_redetect",
     "tracking_start",
     "tracking_stop",
 ]
@@ -189,6 +201,10 @@ def attach_legacy_action_audit(
         "offboard_start": API_V1_ACTION_OFFBOARD_START_PATH,
         "offboard_stop": API_V1_ACTION_OFFBOARD_STOP_PATH,
         "operator_abort": API_V1_ACTION_OPERATOR_ABORT_PATH,
+        "segmentation_toggle": API_V1_ACTION_SEGMENTATION_TOGGLE_PATH,
+        "smart_click": API_V1_ACTION_SMART_CLICK_PATH,
+        "smart_mode_toggle": API_V1_ACTION_SMART_MODE_TOGGLE_PATH,
+        "tracking_redetect": API_V1_ACTION_TRACKING_REDETECT_PATH,
         "tracking_start": API_V1_ACTION_TRACKING_START_PATH,
         "tracking_stop": API_V1_ACTION_TRACKING_STOP_PATH,
     }
@@ -303,14 +319,6 @@ async def start_offboard_action_unlocked(
     request: APIActionRequest,
     response: Any,
 ) -> Any:
-    replay = owner._lookup_idempotent_action(
-        "offboard_start",
-        request.idempotency_key,
-    )
-    if replay:
-        response.status_code = status.HTTP_200_OK
-        return replay
-
     app_controller = owner.app_controller
     following_before = bool(getattr(app_controller, "following_active", False))
 
@@ -338,6 +346,14 @@ async def start_offboard_action_unlocked(
             request=request,
             path=API_V1_ACTION_OFFBOARD_START_PATH,
         )
+
+    replay = owner._lookup_idempotent_action(
+        "offboard_start",
+        request.idempotency_key,
+    )
+    if replay:
+        response.status_code = status.HTTP_200_OK
+        return replay
 
     try:
         legacy_result = await owner._execute_offboard_start_action()
@@ -429,14 +445,6 @@ async def stop_offboard_action_unlocked(
     request: APIActionRequest,
     response: Any,
 ) -> Any:
-    replay = owner._lookup_idempotent_action(
-        "offboard_stop",
-        request.idempotency_key,
-    )
-    if replay:
-        response.status_code = status.HTTP_200_OK
-        return replay
-
     app_controller = owner.app_controller
     following_before = bool(getattr(app_controller, "following_active", False))
 
@@ -464,6 +472,14 @@ async def stop_offboard_action_unlocked(
             request=request,
             path=API_V1_ACTION_OFFBOARD_STOP_PATH,
         )
+
+    replay = owner._lookup_idempotent_action(
+        "offboard_stop",
+        request.idempotency_key,
+    )
+    if replay:
+        response.status_code = status.HTTP_200_OK
+        return replay
 
     try:
         legacy_result = await owner._execute_offboard_stop_action()
@@ -553,14 +569,6 @@ async def operator_abort_action_unlocked(
     request: APIActionRequest,
     response: Any,
 ) -> Any:
-    replay = owner._lookup_idempotent_action(
-        "operator_abort",
-        request.idempotency_key,
-    )
-    if replay:
-        response.status_code = status.HTTP_200_OK
-        return replay
-
     app_controller = owner.app_controller
     following_before = bool(getattr(app_controller, "following_active", False))
 
@@ -588,6 +596,14 @@ async def operator_abort_action_unlocked(
             request=request,
             path=API_V1_ACTION_OPERATOR_ABORT_PATH,
         )
+
+    replay = owner._lookup_idempotent_action(
+        "operator_abort",
+        request.idempotency_key,
+    )
+    if replay:
+        response.status_code = status.HTTP_200_OK
+        return replay
 
     try:
         legacy_result = await owner._execute_operator_abort_action()
@@ -684,14 +700,6 @@ async def tracking_start_action_unlocked(
     request: APITrackingStartRequest,
     response: Any,
 ) -> Any:
-    replay = owner._lookup_idempotent_action(
-        "tracking_start",
-        request.idempotency_key,
-    )
-    if replay:
-        response.status_code = status.HTTP_200_OK
-        return replay
-
     app_controller = owner.app_controller
     following_before = bool(getattr(app_controller, "following_active", False))
     tracking_before = bool(getattr(app_controller, "tracking_started", False))
@@ -724,6 +732,14 @@ async def tracking_start_action_unlocked(
             request=request,
             path=API_V1_ACTION_TRACKING_START_PATH,
         )
+
+    replay = owner._lookup_idempotent_action(
+        "tracking_start",
+        request.idempotency_key,
+    )
+    if replay:
+        response.status_code = status.HTTP_200_OK
+        return replay
 
     try:
         legacy_result = await owner._execute_tracking_start_action(request.bbox)
@@ -805,14 +821,6 @@ async def tracking_stop_action_unlocked(
     request: APIActionRequest,
     response: Any,
 ) -> Any:
-    replay = owner._lookup_idempotent_action(
-        "tracking_stop",
-        request.idempotency_key,
-    )
-    if replay:
-        response.status_code = status.HTTP_200_OK
-        return replay
-
     app_controller = owner.app_controller
     following_before = bool(getattr(app_controller, "following_active", False))
     tracking_before = bool(getattr(app_controller, "tracking_started", False))
@@ -843,6 +851,14 @@ async def tracking_stop_action_unlocked(
             request=request,
             path=API_V1_ACTION_TRACKING_STOP_PATH,
         )
+
+    replay = owner._lookup_idempotent_action(
+        "tracking_stop",
+        request.idempotency_key,
+    )
+    if replay:
+        response.status_code = status.HTTP_200_OK
+        return replay
 
     try:
         legacy_result = await owner._execute_tracking_stop_action()
@@ -900,6 +916,349 @@ async def tracking_stop_action_unlocked(
     return owner._store_action_record(record)
 
 
+def _tracking_click_payload(request: APITrackingSmartClickRequest) -> Dict[str, Any]:
+    click = request.click
+    if hasattr(click, "model_dump"):
+        return click.model_dump()
+    return click.dict()
+
+
+def _runtime_action_state(owner: Any) -> Dict[str, bool]:
+    app_controller = owner.app_controller
+    return {
+        "following_active": bool(getattr(app_controller, "following_active", False)),
+        "tracking_active": bool(getattr(app_controller, "tracking_started", False)),
+        "segmentation_active": bool(
+            getattr(app_controller, "segmentation_active", False)
+        ),
+        "smart_mode_active": bool(getattr(app_controller, "smart_mode_active", False)),
+    }
+
+
+async def _guarded_runtime_action(
+    owner: Any,
+    request: APIActionRequest,
+    response: Any,
+    *,
+    action_type: ActionType,
+    path: str,
+    unlocked,
+) -> Any:
+    if not request.dry_run and request.confirm and not request.idempotency_key:
+        return owner._idempotency_key_required_response(
+            action_type=action_type,
+            request=request,
+            path=path,
+        )
+    lock = (
+        None
+        if request.dry_run or not request.confirm
+        else owner._action_lock_for_key(action_type, request.idempotency_key)
+    )
+    if lock is None:
+        return await unlocked(owner, request, response)
+    async with lock:
+        return await unlocked(owner, request, response)
+
+
+async def _runtime_action_unlocked(
+    owner: Any,
+    request: APIActionRequest,
+    response: Any,
+    *,
+    action_type: ActionType,
+    path: str,
+    internal_handler: str,
+    dry_run_message: str,
+    execute,
+    classify_result,
+    extra_result: Optional[Dict[str, Any]] = None,
+) -> Any:
+    before = _runtime_action_state(owner)
+    extra_result = dict(extra_result or {})
+
+    if request.dry_run:
+        response.status_code = status.HTTP_200_OK
+        record = owner._new_api_action_record(
+            action_type=action_type,
+            request=request,
+            status_value="validated",
+            accepted=True,
+            executed=False,
+            following_active_before=before["following_active"],
+            following_active_after=before["following_active"],
+            result={
+                "would_execute": internal_handler,
+                "message": dry_run_message,
+                "state_before": before,
+                "state_after": before,
+                "metadata": dict(request.metadata or {}),
+                **extra_result,
+            },
+        )
+        return owner._store_action_record(record)
+
+    if not request.confirm:
+        return owner._confirmation_required_response(
+            action_type=action_type,
+            request=request,
+            path=path,
+        )
+
+    replay = owner._lookup_idempotent_action(action_type, request.idempotency_key)
+    if replay:
+        response.status_code = status.HTTP_200_OK
+        return replay
+
+    try:
+        legacy_result = await execute()
+    except Exception as exc:
+        after = _runtime_action_state(owner)
+        response.status_code = status.HTTP_202_ACCEPTED
+        record = owner._new_api_action_record(
+            action_type=action_type,
+            request=request,
+            status_value="failure",
+            accepted=True,
+            executed=True,
+            following_active_before=before["following_active"],
+            following_active_after=after["following_active"],
+            result={
+                "internal_handler": internal_handler,
+                "state_before": before,
+                "state_after": after,
+                "metadata": dict(request.metadata or {}),
+                **extra_result,
+            },
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        return owner._store_action_record(record)
+
+    after = _runtime_action_state(owner)
+    status_value, error = classify_result(legacy_result, before, after)
+    response.status_code = status.HTTP_202_ACCEPTED
+    record = owner._new_api_action_record(
+        action_type=action_type,
+        request=request,
+        status_value=status_value,
+        accepted=True,
+        executed=True,
+        following_active_before=before["following_active"],
+        following_active_after=after["following_active"],
+        result={
+            "internal_handler": internal_handler,
+            "legacy_result": legacy_result,
+            "state_before": before,
+            "state_after": after,
+            "metadata": dict(request.metadata or {}),
+            **extra_result,
+        },
+        error=error,
+    )
+    return owner._store_action_record(record)
+
+
+def _tracking_redetect_result(
+    legacy_result: Dict[str, Any],
+    _before: Dict[str, bool],
+    _after: Dict[str, bool],
+) -> tuple[ActionStatus, Optional[str]]:
+    detection = legacy_result.get("detection_result", {})
+    success = bool(isinstance(detection, dict) and detection.get("success") is True)
+    if legacy_result.get("status") == "success" and success:
+        return "success", None
+    error = (
+        detection.get("message")
+        if isinstance(detection, dict)
+        else legacy_result.get("error")
+    )
+    return "failure", error or "Re-detection did not reacquire a target."
+
+
+def _segmentation_toggle_result(
+    legacy_result: Dict[str, Any],
+    _before: Dict[str, bool],
+    _after: Dict[str, bool],
+) -> tuple[ActionStatus, Optional[str]]:
+    if legacy_result.get("status") == "success" and "segmentation_active" in legacy_result:
+        return "success", None
+    return "failure", legacy_result.get("error") or "Segmentation toggle failed."
+
+
+def _smart_mode_toggle_result(
+    legacy_result: Dict[str, Any],
+    before: Dict[str, bool],
+    after: Dict[str, bool],
+) -> tuple[ActionStatus, Optional[str]]:
+    changed = before["smart_mode_active"] != after["smart_mode_active"]
+    if str(legacy_result.get("status", "")).startswith("Smart mode") and changed:
+        return "success", None
+    return (
+        "failure",
+        legacy_result.get("error") or "Smart mode state did not change.",
+    )
+
+
+def _smart_click_result(
+    legacy_result: Dict[str, Any],
+    _before: Dict[str, bool],
+    _after: Dict[str, bool],
+) -> tuple[ActionStatus, Optional[str]]:
+    if (
+        legacy_result.get("status") == "Click processed"
+        and legacy_result.get("applied") is True
+    ):
+        return "success", None
+    return (
+        "failure",
+        legacy_result.get("message")
+        or legacy_result.get("error")
+        or "Smart click was not applied.",
+    )
+
+
+async def tracking_redetect_action(
+    owner: Any,
+    request: APIActionRequest,
+    response: Any,
+) -> Any:
+    """Execute the typed /api/v1 action resource for classic re-detection."""
+    return await _guarded_runtime_action(
+        owner,
+        request,
+        response,
+        action_type="tracking_redetect",
+        path=API_V1_ACTION_TRACKING_REDETECT_PATH,
+        unlocked=tracking_redetect_action_unlocked,
+    )
+
+
+async def tracking_redetect_action_unlocked(
+    owner: Any,
+    request: APIActionRequest,
+    response: Any,
+) -> Any:
+    return await _runtime_action_unlocked(
+        owner,
+        request,
+        response,
+        action_type="tracking_redetect",
+        path=API_V1_ACTION_TRACKING_REDETECT_PATH,
+        internal_handler="FastAPIHandler._execute_tracking_redetect_action",
+        dry_run_message="Dry-run validated; no re-detection was executed.",
+        execute=owner._execute_tracking_redetect_action,
+        classify_result=_tracking_redetect_result,
+    )
+
+
+async def segmentation_toggle_action(
+    owner: Any,
+    request: APIActionRequest,
+    response: Any,
+) -> Any:
+    """Execute the typed /api/v1 action resource for segmentation toggle."""
+    return await _guarded_runtime_action(
+        owner,
+        request,
+        response,
+        action_type="segmentation_toggle",
+        path=API_V1_ACTION_SEGMENTATION_TOGGLE_PATH,
+        unlocked=segmentation_toggle_action_unlocked,
+    )
+
+
+async def segmentation_toggle_action_unlocked(
+    owner: Any,
+    request: APIActionRequest,
+    response: Any,
+) -> Any:
+    return await _runtime_action_unlocked(
+        owner,
+        request,
+        response,
+        action_type="segmentation_toggle",
+        path=API_V1_ACTION_SEGMENTATION_TOGGLE_PATH,
+        internal_handler="FastAPIHandler._execute_segmentation_toggle_action",
+        dry_run_message="Dry-run validated; segmentation was not toggled.",
+        execute=owner._execute_segmentation_toggle_action,
+        classify_result=_segmentation_toggle_result,
+    )
+
+
+async def smart_mode_toggle_action(
+    owner: Any,
+    request: APIActionRequest,
+    response: Any,
+) -> Any:
+    """Execute the typed /api/v1 action resource for smart-mode toggle."""
+    return await _guarded_runtime_action(
+        owner,
+        request,
+        response,
+        action_type="smart_mode_toggle",
+        path=API_V1_ACTION_SMART_MODE_TOGGLE_PATH,
+        unlocked=smart_mode_toggle_action_unlocked,
+    )
+
+
+async def smart_mode_toggle_action_unlocked(
+    owner: Any,
+    request: APIActionRequest,
+    response: Any,
+) -> Any:
+    return await _runtime_action_unlocked(
+        owner,
+        request,
+        response,
+        action_type="smart_mode_toggle",
+        path=API_V1_ACTION_SMART_MODE_TOGGLE_PATH,
+        internal_handler="FastAPIHandler._execute_smart_mode_toggle_action",
+        dry_run_message="Dry-run validated; smart mode was not toggled.",
+        execute=owner._execute_smart_mode_toggle_action,
+        classify_result=_smart_mode_toggle_result,
+    )
+
+
+async def smart_click_action(
+    owner: Any,
+    request: APITrackingSmartClickRequest,
+    response: Any,
+) -> Any:
+    """Execute the typed /api/v1 action resource for smart-tracker click."""
+    return await _guarded_runtime_action(
+        owner,
+        request,
+        response,
+        action_type="smart_click",
+        path=API_V1_ACTION_SMART_CLICK_PATH,
+        unlocked=smart_click_action_unlocked,
+    )
+
+
+async def smart_click_action_unlocked(
+    owner: Any,
+    request: APITrackingSmartClickRequest,
+    response: Any,
+) -> Any:
+    click_payload = _tracking_click_payload(request)
+
+    async def execute():
+        return await owner._execute_smart_click_action(request.click)
+
+    return await _runtime_action_unlocked(
+        owner,
+        request,
+        response,
+        action_type="smart_click",
+        path=API_V1_ACTION_SMART_CLICK_PATH,
+        internal_handler="FastAPIHandler._execute_smart_click_action",
+        dry_run_message="Dry-run validated; no smart click was executed.",
+        execute=execute,
+        classify_result=_smart_click_result,
+        extra_result={"click": click_payload},
+    )
+
+
 async def get_action_resource(owner: Any, action_id: str) -> Any:
     """Return a tracked in-process /api/v1 action resource."""
     record = owner._ensure_action_store().get_action_record(action_id)
@@ -926,10 +1285,18 @@ __all__ = [
     "new_api_action_record",
     "operator_abort_action",
     "operator_abort_action_unlocked",
+    "segmentation_toggle_action",
+    "segmentation_toggle_action_unlocked",
+    "smart_click_action",
+    "smart_click_action_unlocked",
+    "smart_mode_toggle_action",
+    "smart_mode_toggle_action_unlocked",
     "start_offboard_action",
     "start_offboard_action_unlocked",
     "stop_offboard_action",
     "stop_offboard_action_unlocked",
+    "tracking_redetect_action",
+    "tracking_redetect_action_unlocked",
     "tracking_start_action",
     "tracking_start_action_unlocked",
     "tracking_stop_action",

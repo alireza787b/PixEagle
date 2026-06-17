@@ -46,8 +46,8 @@ tunnel for local browser operation, or use scoped bearer tokens for machine API
 clients. Browser/operator sessions are available through explicit
 `API_AUTH_MODE=browser_session` deployments, but production remote-browser
 approval still requires TLS/operator deployment hardening, retirement of
-remaining legacy tracking/control aliases, typed migration of still-legacy
-mutations, adversarial auth/media tests, and evidence gates.
+remaining legacy tracking/control aliases, adversarial auth/media tests, and
+evidence gates.
 
 ## Exposure Modes
 
@@ -85,8 +85,7 @@ port to `API_CORS_ALLOWED_ORIGINS`. A non-loopback reverse-proxy browser origin
 cannot be used in `local_only`. `trusted_lan_legacy` can open the bind/CORS
 boundary, but remote browser operation remains deferred until TLS/operator
 deployment hardening, retirement of remaining legacy tracking/control aliases,
-typed migration of still-legacy mutations, adversarial auth/media tests, and
-evidence gates are completed.
+adversarial auth/media tests, and evidence gates are completed.
 
 ## Current And Planned Controls
 
@@ -139,8 +138,7 @@ production remote-browser approval remains open.
 
 Still required before authenticated remote operation can be approved:
 
-- retirement of remaining legacy tracking/control aliases and typed migration
-  of still-legacy mutations;
+- retirement of remaining legacy tracking/control aliases;
 - TLS/operator deployment guidance, migration tooling, and adversarial
   browser/session/media tests.
 

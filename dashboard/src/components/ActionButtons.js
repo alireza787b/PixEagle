@@ -32,7 +32,6 @@ const ActionButtons = ({
   const [switchLoading, setSwitchLoading] = useState(false);
   const [followConfirmOpen, setFollowConfirmOpen] = useState(false);
   const { hasScope } = useAuthSession();
-  const canWriteControl = hasScope('control:write');
   const canExecuteActions = hasScope('actions:execute');
   const trackerUsabilityKnown = Boolean(trackerStatus && typeof trackerStatus === 'object');
   const canStartFollowing = canExecuteActions && (!trackerUsabilityKnown || trackerStatus.usableForFollowing);
@@ -88,7 +87,7 @@ const ActionButtons = ({
             value={smartModeActive ? 'smart' : 'classic'}
             exclusive
             onChange={handleSmartModeSwitch}
-            disabled={switchLoading || !canWriteControl}
+            disabled={switchLoading || !canExecuteActions}
             fullWidth
             size="small"
             sx={{ mb: 0.5 }}
@@ -120,7 +119,7 @@ const ActionButtons = ({
                 onClick={handleTrackingToggle}
                 fullWidth
                 size="small"
-                disabled={smartModeActive || !canWriteControl}
+                disabled={smartModeActive || !canExecuteActions}
               >
                 {isTracking ? "Stop Tracking" : "Start Tracking"}
               </Button>
@@ -132,11 +131,15 @@ const ActionButtons = ({
               <Button
                 variant="outlined"
                 color="primary"
-                onClick={() => handleButtonClick(endpoints.redetect)}
+                onClick={() => handleButtonClick(
+                  endpoints.trackingRedetectAction,
+                  false,
+                  buildActionRequest('redetect_tracking')
+                )}
                 fullWidth
                 size="small"
                 sx={{ mt: 0.5 }}
-                disabled={smartModeActive || !canWriteControl}
+                disabled={smartModeActive || !canExecuteActions}
               >
                 Re-Detect
               </Button>
@@ -171,10 +174,14 @@ const ActionButtons = ({
               <Button
                 variant="outlined"
                 color="secondary"
-                onClick={() => handleButtonClick(endpoints.toggleSegmentation)}
+                onClick={() => handleButtonClick(
+                  endpoints.segmentationToggleAction,
+                  false,
+                  buildActionRequest('toggle_segmentation')
+                )}
                 fullWidth
                 size="small"
-                disabled={!canWriteControl}
+                disabled={!canExecuteActions}
               >
                 Toggle Segmentation
               </Button>

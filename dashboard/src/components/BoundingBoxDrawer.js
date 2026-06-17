@@ -1,7 +1,10 @@
 // dashboard/src/components/BoundingBoxDrawer.js
 import React, { useEffect, useState, useCallback } from 'react';
 import VideoStream from './VideoStream';
-import { sendCommand } from '../services/apiService';
+import { endpoints } from '../services/apiEndpoints';
+import { apiFetchJson } from '../services/apiClient';
+import { buildActionRequest } from '../services/actionRequests';
+import { useAuthSession } from '../context/AuthSessionContext';
 
 // Click feedback ripple keyframes (injected once)
 const RIPPLE_STYLE_ID = 'smart-click-ripple-style';
@@ -32,6 +35,8 @@ const BoundingBoxDrawer = ({
 }) => {
   const [containerDimensions, setContainerDimensions] = useState({ width: 0, height: 0 });
   const [clickFeedback, setClickFeedback] = useState(null);
+  const { hasScope } = useAuthSession();
+  const canExecuteActions = hasScope('actions:execute');
 
   useEffect(() => {
     const updateDimensions = () => {
@@ -58,7 +63,10 @@ const BoundingBoxDrawer = ({
   // Clear click feedback after animation
   useEffect(() => {
     if (clickFeedback) {
-      const timer = setTimeout(() => setClickFeedback(null), 400);
+      const timer = setTimeout(
+        () => setClickFeedback(null),
+        clickFeedback.status === 'pending' ? 5000 : 1400
+      );
       return () => clearTimeout(timer);
     }
   }, [clickFeedback]);
@@ -92,15 +100,49 @@ const BoundingBoxDrawer = ({
     const normX = clickX / rect.width;
     const normY = clickY / rect.height;
 
-    // Show click feedback ripple
-    setClickFeedback({ x: clickX, y: clickY });
+    if (!canExecuteActions) {
+      setClickFeedback({
+        x: clickX,
+        y: clickY,
+        status: 'error',
+        message: 'Action permission required',
+      });
+      return;
+    }
+
+    setClickFeedback({
+      x: clickX,
+      y: clickY,
+      status: 'pending',
+      message: 'Selecting target',
+    });
 
     try {
-      await sendCommand('smartClick', { x: normX, y: normY });
+      const data = await apiFetchJson(endpoints.smartClickAction, {
+        method: 'POST',
+        body: JSON.stringify({
+          ...buildActionRequest('smart_click', { ui: 'dashboard_video_canvas' }),
+          click: { x: normX, y: normY },
+        }),
+      });
+      if (data?.status === 'failure') {
+        throw new Error(data.error || 'Smart click action failed');
+      }
+      setClickFeedback({
+        x: clickX,
+        y: clickY,
+        status: 'success',
+        message: 'Target selected',
+      });
     } catch (err) {
-      console.error('Smart click failed:', err);
+      setClickFeedback({
+        x: clickX,
+        y: clickY,
+        status: 'error',
+        message: err?.message || 'Target selection failed',
+      });
     }
-  }, [smartModeActive, imageRef]);
+  }, [smartModeActive, imageRef, canExecuteActions]);
 
   return (
     <div
@@ -163,12 +205,40 @@ const BoundingBoxDrawer = ({
             width: 32,
             height: 32,
             borderRadius: '50%',
-            border: '2px solid rgba(76, 175, 80, 0.9)',
+            border: `2px solid ${
+              clickFeedback.status === 'error'
+                ? 'rgba(211, 47, 47, 0.95)'
+                : 'rgba(76, 175, 80, 0.9)'
+            }`,
             pointerEvents: 'none',
             zIndex: 11,
             animation: 'smartClickPulse 0.4s ease-out forwards',
           }}
         />
+      )}
+
+      {clickFeedback?.status === 'error' && (
+        <div
+          role="status"
+          style={{
+            position: 'absolute',
+            left: Math.max(8, clickFeedback.x + 18),
+            top: Math.max(8, clickFeedback.y - 18),
+            maxWidth: 'min(260px, calc(100% - 16px))',
+            padding: '5px 8px',
+            borderRadius: 4,
+            backgroundColor: 'rgba(183, 28, 28, 0.92)',
+            color: '#fff',
+            fontSize: 12,
+            fontWeight: 600,
+            lineHeight: 1.3,
+            pointerEvents: 'none',
+            zIndex: 12,
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.24)',
+          }}
+        >
+          {clickFeedback.message}
+        </div>
       )}
 
       {/* Classic Mode Bounding Box Drawing */}

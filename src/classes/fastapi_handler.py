@@ -10,6 +10,7 @@ import asyncio
 import cv2
 import numpy as np
 import logging
+import math
 import time
 import hashlib
 from typing import Any, Dict, Literal, Optional, Set, Tuple, List
@@ -57,10 +58,18 @@ from classes.api_v1_actions import (
     new_api_action_record,
     operator_abort_action as dispatch_operator_abort_action,
     operator_abort_action_unlocked as dispatch_operator_abort_action_unlocked,
+    segmentation_toggle_action as dispatch_segmentation_toggle_action,
+    segmentation_toggle_action_unlocked as dispatch_segmentation_toggle_action_unlocked,
+    smart_click_action as dispatch_smart_click_action,
+    smart_click_action_unlocked as dispatch_smart_click_action_unlocked,
+    smart_mode_toggle_action as dispatch_smart_mode_toggle_action,
+    smart_mode_toggle_action_unlocked as dispatch_smart_mode_toggle_action_unlocked,
     start_offboard_action as dispatch_start_offboard_action,
     start_offboard_action_unlocked as dispatch_start_offboard_action_unlocked,
     stop_offboard_action as dispatch_stop_offboard_action,
     stop_offboard_action_unlocked as dispatch_stop_offboard_action_unlocked,
+    tracking_redetect_action as dispatch_tracking_redetect_action,
+    tracking_redetect_action_unlocked as dispatch_tracking_redetect_action_unlocked,
     tracking_start_action as dispatch_tracking_start_action,
     tracking_start_action_unlocked as dispatch_tracking_start_action_unlocked,
     tracking_stop_action as dispatch_tracking_stop_action,
@@ -151,6 +160,7 @@ from classes.api_v1_contracts import (
     APIRuntimeStatusResponse,
     APIRuntimeSubsystemStatus,
     APITrackingRuntimeStatusResponse,
+    APITrackingSmartClickRequest,
     APITrackingStartRequest,
     APITrackingTelemetryResponse,
     APITelemetryHealthResponse,
@@ -1344,9 +1354,9 @@ class FastAPIHandler:
         return await self._execute_tracking_stop_action()
         
 
-    async def toggle_smart_mode(self):
+    async def _execute_smart_mode_toggle_action(self):
         """
-        Toggles the AI-based smart tracking mode.
+        Internal executor to toggle the AI-based smart tracking mode.
 
         Returns:
             dict: Smart mode status.
@@ -1364,10 +1374,18 @@ class FastAPIHandler:
         except Exception as e:
             self.logger.error(f"Error in toggle_smart_mode: {e}")
             raise HTTPException(status_code=500, detail=str(e))
-        
-    async def smart_click(self, click: ClickPosition):
+
+    async def toggle_smart_mode(self):
         """
-        Handles user click for selecting an object in smart mode.
+        Compatibility alias for legacy /commands/toggle_smart_mode.
+
+        New first-party clients should use /api/v1/actions/smart-mode-toggle.
+        """
+        return await self._execute_smart_mode_toggle_action()
+
+    async def _execute_smart_click_action(self, click: ClickPosition):
+        """
+        Internal executor for selecting an object in smart mode.
 
         Args:
             click (ClickPosition): Click coordinates (normalized or absolute).
@@ -1386,25 +1404,61 @@ class FastAPIHandler:
             
             width = self.video_handler.width
             height = self.video_handler.height
+            if width <= 0 or height <= 0:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Video dimensions are unavailable. Smart click requires an active frame."
+                )
+            if not math.isfinite(click.x) or not math.isfinite(click.y):
+                raise HTTPException(
+                    status_code=422,
+                    detail="Smart click coordinates must be finite numbers."
+                )
 
             # Handle normalized or absolute pixel coordinates
             if 0 <= click.x <= 1 and 0 <= click.y <= 1:
-                x_px = int(click.x * width)
-                y_px = int(click.y * height)
+                x_px = min(width - 1, max(0, int(click.x * width)))
+                y_px = min(height - 1, max(0, int(click.y * height)))
                 self.logger.debug(f"Normalized click received. Converted to: ({x_px}, {y_px})")
             else:
                 x_px = int(click.x)
                 y_px = int(click.y)
+                if x_px < 0 or y_px < 0 or x_px >= width or y_px >= height:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Smart click coordinates must be inside the active frame."
+                    )
                 self.logger.debug(f"Absolute click received: ({x_px}, {y_px})")
 
-            self.app_controller.handle_smart_click(x_px, y_px)
-            return {"status": "Click processed", "x": x_px, "y": y_px}
+            click_result = self.app_controller.handle_smart_click(x_px, y_px)
+            if not isinstance(click_result, dict):
+                click_result = {
+                    "success": False,
+                    "reason": "unknown_smart_click_result",
+                    "message": "Smart click did not report a target-selection result.",
+                }
+            applied = bool(click_result.get("success"))
+            return {
+                "status": "Click processed" if applied else "Click not applied",
+                "applied": applied,
+                "x": x_px,
+                "y": y_px,
+                **click_result,
+            }
 
         except HTTPException:
             raise
         except Exception as e:
             self.logger.error(f"Error in smart_click: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
+
+    async def smart_click(self, click: ClickPosition):
+        """
+        Compatibility alias for legacy /commands/smart_click.
+
+        New first-party clients should use /api/v1/actions/smart-click.
+        """
+        return await self._execute_smart_click_action(click)
 
     def _sitl_injections_enabled(self) -> bool:
         return sitl_injections_enabled()
@@ -1479,6 +1533,10 @@ class FastAPIHandler:
             "offboard_start",
             "offboard_stop",
             "operator_abort",
+            "segmentation_toggle",
+            "smart_click",
+            "smart_mode_toggle",
+            "tracking_redetect",
             "tracking_start",
             "tracking_stop",
         ],
@@ -1511,6 +1569,10 @@ class FastAPIHandler:
             "offboard_start",
             "offboard_stop",
             "operator_abort",
+            "segmentation_toggle",
+            "smart_click",
+            "smart_mode_toggle",
+            "tracking_redetect",
             "tracking_start",
             "tracking_stop",
         ],
@@ -1537,6 +1599,10 @@ class FastAPIHandler:
             "offboard_start",
             "offboard_stop",
             "operator_abort",
+            "segmentation_toggle",
+            "smart_click",
+            "smart_mode_toggle",
+            "tracking_redetect",
             "tracking_start",
             "tracking_stop",
         ],
@@ -1563,6 +1629,10 @@ class FastAPIHandler:
             "offboard_start",
             "offboard_stop",
             "operator_abort",
+            "segmentation_toggle",
+            "smart_click",
+            "smart_mode_toggle",
+            "tracking_redetect",
             "tracking_start",
             "tracking_stop",
         ],
@@ -1587,6 +1657,10 @@ class FastAPIHandler:
             "offboard_start",
             "offboard_stop",
             "operator_abort",
+            "segmentation_toggle",
+            "smart_click",
+            "smart_mode_toggle",
+            "tracking_redetect",
             "tracking_start",
             "tracking_stop",
         ],
@@ -1806,9 +1880,9 @@ class FastAPIHandler:
             self.logger.error(f"Error in /telemetry/follower_data: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def toggle_segmentation(self):
+    async def _execute_segmentation_toggle_action(self):
         """
-        Endpoint to toggle segmentation state (enable/disable AI segmentation).
+        Internal executor to toggle segmentation state.
 
         Returns:
             dict: Status of the operation and the current state of segmentation.
@@ -1820,9 +1894,17 @@ class FastAPIHandler:
             self.logger.error(f"Error in toggle_segmentation: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def redetect(self):
+    async def toggle_segmentation(self):
         """
-        Endpoint to attempt redetection of the object being tracked.
+        Compatibility alias for legacy /commands/toggle_segmentation.
+
+        New first-party clients should use /api/v1/actions/segmentation-toggle.
+        """
+        return await self._execute_segmentation_toggle_action()
+
+    async def _execute_tracking_redetect_action(self):
+        """
+        Internal executor to attempt redetection of the object being tracked.
 
         Returns:
             dict: Status of the operation and details of the redetection attempt.
@@ -1833,6 +1915,14 @@ class FastAPIHandler:
         except Exception as e:
             self.logger.error(f"Error in redetect: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+    async def redetect(self):
+        """
+        Compatibility alias for legacy /commands/redetect.
+
+        New first-party clients should use /api/v1/actions/tracking-redetect.
+        """
+        return await self._execute_tracking_redetect_action()
 
     async def _execute_operator_abort_action(self):
         return await dispatch_operator_abort_executor(self)
@@ -1912,6 +2002,62 @@ class FastAPIHandler:
         response: Response,
     ) -> Any:
         return await dispatch_tracking_stop_action_unlocked(self, request, response)
+
+    async def tracking_redetect_action(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracking_redetect_action(self, request, response)
+
+    async def _tracking_redetect_action_unlocked(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracking_redetect_action_unlocked(self, request, response)
+
+    async def segmentation_toggle_action(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_segmentation_toggle_action(self, request, response)
+
+    async def _segmentation_toggle_action_unlocked(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_segmentation_toggle_action_unlocked(self, request, response)
+
+    async def smart_mode_toggle_action(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_smart_mode_toggle_action(self, request, response)
+
+    async def _smart_mode_toggle_action_unlocked(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_smart_mode_toggle_action_unlocked(self, request, response)
+
+    async def smart_click_action(
+        self,
+        request: APITrackingSmartClickRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_smart_click_action(self, request, response)
+
+    async def _smart_click_action_unlocked(
+        self,
+        request: APITrackingSmartClickRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_smart_click_action_unlocked(self, request, response)
 
     def _get_legacy_runtime_status_snapshot(self) -> Dict[str, Any]:
         return get_legacy_runtime_status_snapshot(self)

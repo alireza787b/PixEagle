@@ -132,6 +132,26 @@ class APITrackingStartRequest(APIActionRequest):
     bbox: APITrackingBoundingBox
 
 
+class APITrackingClickPosition(BaseModel):
+    """Click position for typed smart-tracker selection actions.
+
+    Values may be normalized in the 0..1 range or absolute pixels, matching the
+    legacy `/commands/smart_click` behavior during migration.
+    """
+
+    x: float
+    y: float
+
+    class Config:
+        extra = "forbid"
+
+
+class APITrackingSmartClickRequest(APIActionRequest):
+    """Typed smart-tracker click-selection action request."""
+
+    click: APITrackingClickPosition
+
+
 class APIActionAuditEvent(BaseModel):
     """Audit event embedded in typed action resources."""
 
@@ -150,6 +170,10 @@ class APIActionResponse(BaseModel):
         "offboard_start",
         "offboard_stop",
         "operator_abort",
+        "segmentation_toggle",
+        "smart_click",
+        "smart_mode_toggle",
+        "tracking_redetect",
         "tracking_start",
         "tracking_stop",
     ]

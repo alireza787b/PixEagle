@@ -139,6 +139,12 @@ const DashboardPage = () => {
       const isAbortEndpoint = (
         endpoint === endpoints.operatorAbortAction
       );
+      const isRedetectEndpoint = (
+        endpoint === endpoints.trackingRedetectAction
+      );
+      const isSegmentationEndpoint = (
+        endpoint === endpoints.segmentationToggleAction
+      );
 
       if (isStartEndpoint && legacyDetails.auto_stopped) {
         setSnackbarMessage('Follower was active - automatically restarted');
@@ -159,6 +165,15 @@ const DashboardPage = () => {
       } else if (isAbortEndpoint && data.status === 'success') {
         setSnackbarMessage('Tracking activities cancelled');
         setSnackbarSeverity('success');
+        setSnackbarOpen(true);
+      } else if (isRedetectEndpoint && data.status === 'success') {
+        setSnackbarMessage('Re-detect completed');
+        setSnackbarSeverity('success');
+        setSnackbarOpen(true);
+      } else if (isSegmentationEndpoint && data.status === 'success') {
+        const enabled = data.result?.legacy_result?.segmentation_active;
+        setSnackbarMessage(`Segmentation ${enabled ? 'enabled' : 'disabled'}`);
+        setSnackbarSeverity('info');
         setSnackbarOpen(true);
       }
 
@@ -187,12 +202,15 @@ const DashboardPage = () => {
 
   const handleToggleSmartMode = async () => {
     try {
-      const response = await apiFetch(endpoints.toggleSmartMode, {
+      const data = await apiFetchJson(endpoints.smartModeToggleAction, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        body: JSON.stringify(buildActionRequest(
+          'toggle_smart_mode',
+          { ui: 'dashboard_tracker_mode_control' }
+        )),
       });
-      if (!response.ok) {
-        throw new Error(`Failed to toggle smart mode (HTTP ${response.status})`);
+      if (data?.status === 'failure') {
+        throw new Error(data.error || 'Smart mode toggle action failed');
       }
 
       const syncedMode = await refreshSmartModeStatus({ suppressErrors: true });

@@ -178,6 +178,10 @@ def test_action_and_sitl_routes_are_blocked_from_read_only_promotion():
         ("POST", "/api/v1/actions/offboard-start"): "guarded_control_action",
         ("POST", "/api/v1/actions/offboard-stop"): "guarded_control_action",
         ("POST", "/api/v1/actions/operator-abort"): "guarded_control_action",
+        ("POST", "/api/v1/actions/segmentation-toggle"): "guarded_control_action",
+        ("POST", "/api/v1/actions/smart-click"): "guarded_control_action",
+        ("POST", "/api/v1/actions/smart-mode-toggle"): "guarded_control_action",
+        ("POST", "/api/v1/actions/tracking-redetect"): "guarded_control_action",
         ("POST", "/api/v1/actions/tracking-start"): "guarded_control_action",
         ("POST", "/api/v1/actions/tracking-stop"): "guarded_control_action",
         ("GET", "/api/v1/actions/{action_id}"): "control_audit_observe",
@@ -233,6 +237,10 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         ("POST", "/api/v1/actions/offboard-start"),
         ("POST", "/api/v1/actions/offboard-stop"),
         ("POST", "/api/v1/actions/operator-abort"),
+        ("POST", "/api/v1/actions/segmentation-toggle"),
+        ("POST", "/api/v1/actions/smart-click"),
+        ("POST", "/api/v1/actions/smart-mode-toggle"),
+        ("POST", "/api/v1/actions/tracking-redetect"),
         ("POST", "/api/v1/actions/tracking-start"),
         ("POST", "/api/v1/actions/tracking-stop"),
         ("GET", "/api/v1/following/status"),
@@ -252,10 +260,10 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         for candidate in inventory["candidates"]
     }
 
-    assert inventory["summary"]["api_v1_routes"] == 20
-    assert inventory["summary"]["candidate_count"] == 20
-    assert len(inventory["candidates"]) == 20
-    assert inventory["summary"]["blocked_or_guarded_candidates"] == 14
+    assert inventory["summary"]["api_v1_routes"] == 24
+    assert inventory["summary"]["candidate_count"] == 24
+    assert len(inventory["candidates"]) == 24
+    assert inventory["summary"]["blocked_or_guarded_candidates"] == 18
     assert candidate_routes == expected_routes
     assert all(path.startswith("/api/v1/") for _method, path in candidate_routes)
     assert inventory["promotion_path"][-1] == "MCP tools/list and tools/call exposure"

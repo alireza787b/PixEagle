@@ -83,14 +83,18 @@ class TestHandleSmartClick:
         assert not hasattr(ctrl.smart_tracker, 'last_results')
 
         # With empty detections, should return early without error
-        ctrl.handle_smart_click(320, 240)
+        result = ctrl.handle_smart_click(320, 240)
+        assert result["success"] is False
+        assert result["reason"] == "no_detections"
         assert ctrl.smart_tracker._click_args is None  # select_object_by_click not called
 
     def test_no_frame_returns_early(self):
         """handle_smart_click should return early if no frame available."""
         ctrl = _make_controller()
         ctrl.current_frame = None
-        ctrl.handle_smart_click(100, 100)
+        result = ctrl.handle_smart_click(100, 100)
+        assert result["success"] is False
+        assert result["reason"] == "smart_tracker_unavailable"
         assert ctrl.smart_tracker._click_args is None
 
     def test_no_smart_tracker_returns_early(self):
@@ -98,13 +102,17 @@ class TestHandleSmartClick:
         ctrl = _make_controller()
         ctrl.smart_tracker = None
         # Should not raise
-        ctrl.handle_smart_click(100, 100)
+        result = ctrl.handle_smart_click(100, 100)
+        assert result["success"] is False
+        assert result["reason"] == "smart_tracker_unavailable"
 
     def test_empty_detections_returns_early(self):
         """handle_smart_click with empty detections should not call select_object_by_click."""
         ctrl = _make_controller()
         ctrl.smart_tracker.last_detections = []
-        ctrl.handle_smart_click(320, 240)
+        result = ctrl.handle_smart_click(320, 240)
+        assert result["success"] is False
+        assert result["reason"] == "no_detections"
         assert ctrl.smart_tracker._click_args is None
 
     def test_valid_detection_selects_and_overrides(self):
@@ -119,8 +127,12 @@ class TestHandleSmartClick:
         )
         ctrl.smart_tracker.last_detections = [det]
 
-        ctrl.handle_smart_click(150, 150)
+        result = ctrl.handle_smart_click(150, 150)
 
+        assert result["success"] is True
+        assert result["reason"] == "override_applied"
+        assert result["selected_bbox"] == [100, 100, 200, 200]
+        assert result["selected_center"] == [150, 150]
         assert ctrl.smart_tracker._click_args == (150, 150)
         assert ctrl.selected_bbox == (100, 100, 200, 200)
         assert ctrl.tracker.last_override_bbox == (100, 100, 200, 200)
@@ -140,7 +152,9 @@ class TestHandleSmartClick:
         # Override select_object_by_click to simulate miss
         ctrl.smart_tracker.select_object_by_click = lambda x, y: None
 
-        ctrl.handle_smart_click(400, 400)
+        result = ctrl.handle_smart_click(400, 400)
+        assert result["success"] is False
+        assert result["reason"] == "no_detection_selected"
         assert ctrl.selected_bbox is None  # No override applied
 
 

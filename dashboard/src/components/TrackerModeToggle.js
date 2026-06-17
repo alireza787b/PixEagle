@@ -2,7 +2,9 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Switch, FormControlLabel, Typography, Box } from '@mui/material';
 import { endpoints } from '../services/apiEndpoints';
-import { apiFetch } from '../services/apiClient';
+import { apiFetch, apiFetchJson } from '../services/apiClient';
+import { buildActionRequest } from '../services/actionRequests';
+import { useAuthSession } from '../context/AuthSessionContext';
 
 const NO_STORE_HEADERS = {
   'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -12,6 +14,8 @@ const NO_STORE_HEADERS = {
 
 const TrackerModeToggle = ({ smartModeActive, setSmartModeActive }) => {
   const [loading, setLoading] = useState(false);
+  const { hasScope } = useAuthSession();
+  const canExecuteActions = hasScope('actions:execute');
 
   const refreshSmartModeStatus = useCallback(async () => {
     const response = await apiFetch(endpoints.status, {
@@ -33,14 +37,20 @@ const TrackerModeToggle = ({ smartModeActive, setSmartModeActive }) => {
   }, [refreshSmartModeStatus]);
 
   const handleToggle = async () => {
+    if (!canExecuteActions) {
+      return;
+    }
     setLoading(true);
     try {
-      const response = await apiFetch(endpoints.toggleSmartMode, {
+      const data = await apiFetchJson(endpoints.smartModeToggleAction, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildActionRequest(
+          'toggle_smart_mode',
+          { ui: 'tracker_mode_toggle' }
+        )),
       });
-      if (!response.ok) {
-        throw new Error(`Failed to toggle tracker mode (${response.status})`);
+      if (data?.status === 'failure') {
+        throw new Error(data.error || 'Smart mode toggle action failed');
       }
 
       await refreshSmartModeStatus();
@@ -61,7 +71,7 @@ const TrackerModeToggle = ({ smartModeActive, setSmartModeActive }) => {
           <Switch
             checked={smartModeActive}
             onChange={handleToggle}
-            disabled={loading}
+            disabled={loading || !canExecuteActions}
             color="primary"
           />
         }
