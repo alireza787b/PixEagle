@@ -26,9 +26,13 @@ local native-client WebSocket use case:
 - HTTP/MJPEG and WebSocket media still pass through `media:read` authorization;
 - query-string tokens remain rejected.
 
-No QGroundControl branch was mutated in this slice. No QGC build, SITL, HIL,
-field run, service installation, deployment, sidecar mutation, or real-aircraft
-control was performed or claimed.
+No QGroundControl branch was mutated in this slice. A factual PR status comment
+was posted at
+<https://github.com/mavlink/qgroundcontrol/pull/13594#issuecomment-4727942860>
+to clarify that same-host HTTP/WS is the direct-development path and remote
+PixEagle HTTP/WS needs future authenticated QGC Origin/header support. No QGC
+build, SITL, HIL, field run, service installation, deployment, sidecar mutation,
+or real-aircraft control was performed or claimed.
 
 ## Compatibility Matrix
 
@@ -155,7 +159,8 @@ Not run:
 
 - Dashboard tests/build were not run because no dashboard code changed.
 - QGC clone/build was not run; the PR was inspected through GitHub and API
-  snapshots. GitHub reported the branch as dirty/not rebaseable.
+  snapshots. GitHub reported the branch as dirty/not rebaseable. A status
+  comment was posted on the PR, but no QGC branch files were changed.
 - PX4/SITL/HIL/field validation was not run and no runtime flight/video success
   is claimed.
 
