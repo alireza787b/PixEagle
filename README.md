@@ -38,7 +38,7 @@
 | **Core App** | REST API, WebSocket, configuration system | [docs/core-app/](docs/core-app/README.md) |
 | **Development** | Schema architecture, custom components | [docs/developers/](docs/developers/) |
 
-**Quick Links**: [Installation](docs/INSTALLATION.md) | [Setup Profiles](docs/setup/setup-profiles.md) | [Configuration](docs/CONFIGURATION.md) | [Troubleshooting](docs/TROUBLESHOOTING.md)
+**Quick Links**: [Installation](docs/INSTALLATION.md) | [Setup Profiles](docs/setup/setup-profiles.md) | [Binary Download Policy](docs/setup/binary-download-policy.md) | [Configuration](docs/CONFIGURATION.md) | [Troubleshooting](docs/TROUBLESHOOTING.md)
 
 ---
 
@@ -93,7 +93,9 @@ scripts\init.bat
 
 > **Windows Guide**: [Windows Setup Documentation](docs/WINDOWS_SETUP.md)
 
-The init script runs a 9-step automated setup including Python venv, Node.js, dashboard, and MAVSDK/MAVLink2REST binaries.
+The init script runs a 9-step automated setup including Python venv, Node.js,
+dashboard, and manifest-pinned MAVSDK/MAVLink2REST binaries with SHA-256
+verification and local provenance logging.
 
 **Installation Profiles:**
 - **Core** - Essential features (recommended for ARM/Raspberry Pi)
@@ -191,6 +193,21 @@ nano configs/config.yaml
 > **Note**: `config.yaml` is gitignored. Clean clones run from checked-in defaults in `configs/config_default.yaml`; `configs/config.yaml` is for local overrides.
 
 > **Detailed Guide**: [Configuration Documentation](docs/CONFIGURATION.md) | [Config Service](docs/core-app/04-configuration/README.md)
+
+## Binary Downloads
+
+MAVSDK Server and MAVLink2REST setup downloads are pinned in
+`scripts/setup/binary-manifest.env`, verified with SHA-256, and logged to
+`bin/binary-provenance.jsonl` after verified install or acceptance.
+
+Preview the exact plan without writing files:
+
+```bash
+make binary-download-plan
+```
+
+See the [Binary Download Policy](docs/setup/binary-download-policy.md) for
+override and offline-install rules.
 
 ---
 

@@ -17,6 +17,7 @@ Welcome to the PixEagle documentation. This guide will help you find the informa
 |-------|-------------|
 | [Installation Guide](INSTALLATION.md) | Detailed installation instructions |
 | [Setup Profiles](setup/setup-profiles.md) | Local dev, QGC field video, and remote-profile boundaries |
+| [Binary Download Policy](setup/binary-download-policy.md) | Pinned MAVSDK/MAVLink2REST assets, SHA-256 verification, overrides, and provenance |
 | [Configuration Guide](CONFIGURATION.md) | All configuration options |
 | [Service Management](SERVICE_MANAGEMENT.md) | systemd + tmux production operations |
 | [Troubleshooting](TROUBLESHOOTING.md) | Common issues and solutions |

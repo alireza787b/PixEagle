@@ -296,23 +296,21 @@ REM Step 8: MAVSDK Server
 REM ============================================================================
 call :step 8 "MAVSDK Server"
 
-REM Check both bin/ and root locations
-set "MAVSDK_BIN="
-if exist "%PIXEAGLE_DIR%\bin\mavsdk_server_bin.exe" (
-    set "MAVSDK_BIN=%PIXEAGLE_DIR%\bin\mavsdk_server_bin.exe"
-) else if exist "%PIXEAGLE_DIR%\mavsdk_server_bin.exe" (
-    set "MAVSDK_BIN=%PIXEAGLE_DIR%\mavsdk_server_bin.exe"
-)
-
-if defined MAVSDK_BIN (
-    call :ok "MAVSDK Server already installed"
-    goto :step9
-)
-
 set "MAVSDK_SCRIPT=%SCRIPTS_DIR%\setup\download-binaries.bat"
 
 if not exist "%MAVSDK_SCRIPT%" (
     call :warn "Download script not found"
+    goto :step9
+)
+
+if exist "%PIXEAGLE_DIR%\bin\mavsdk_server_bin.exe" (
+    call :info "MAVSDK Server binary exists; verifying manifest checksum"
+    call "%MAVSDK_SCRIPT%" --mavsdk
+    if !errorlevel! equ 0 (
+        call :ok "MAVSDK Server binary verified"
+    ) else (
+        call :warn "Existing MAVSDK Server failed verification"
+    )
     goto :step9
 )
 
@@ -338,23 +336,21 @@ REM Step 9: MAVLink2REST
 REM ============================================================================
 call :step 9 "MAVLink2REST Server"
 
-REM Check both bin/ and root locations
-set "M2R_BIN="
-if exist "%PIXEAGLE_DIR%\bin\mavlink2rest.exe" (
-    set "M2R_BIN=%PIXEAGLE_DIR%\bin\mavlink2rest.exe"
-) else if exist "%PIXEAGLE_DIR%\mavlink2rest.exe" (
-    set "M2R_BIN=%PIXEAGLE_DIR%\mavlink2rest.exe"
-)
-
-if defined M2R_BIN (
-    call :ok "MAVLink2REST already installed"
-    goto :summary
-)
-
 set "M2R_SCRIPT=%SCRIPTS_DIR%\setup\download-binaries.bat"
 
 if not exist "%M2R_SCRIPT%" (
     call :warn "Download script not found"
+    goto :summary
+)
+
+if exist "%PIXEAGLE_DIR%\bin\mavlink2rest.exe" (
+    call :info "MAVLink2REST binary exists; verifying manifest checksum"
+    call "%M2R_SCRIPT%" --mavlink2rest
+    if !errorlevel! equ 0 (
+        call :ok "MAVLink2REST binary verified"
+    ) else (
+        call :warn "Existing MAVLink2REST failed verification"
+    )
     goto :summary
 )
 
@@ -384,11 +380,9 @@ REM ============================================================================
 
 set "MAVSDK_STATUS=%RED%Not installed%NC%"
 if exist "%PIXEAGLE_DIR%\bin\mavsdk_server_bin.exe" set "MAVSDK_STATUS=%GREEN%Installed%NC%"
-if exist "%PIXEAGLE_DIR%\mavsdk_server_bin.exe" set "MAVSDK_STATUS=%GREEN%Installed%NC%"
 
 set "M2R_STATUS=%RED%Not installed%NC%"
 if exist "%PIXEAGLE_DIR%\bin\mavlink2rest.exe" set "M2R_STATUS=%GREEN%Installed%NC%"
-if exist "%PIXEAGLE_DIR%\mavlink2rest.exe" set "M2R_STATUS=%GREEN%Installed%NC%"
 
 echo.
 echo ============================================================
@@ -413,10 +407,10 @@ echo   1. Run: %BOLD%scripts\run.bat%NC%
 echo   2. Optional QGC field video:
 echo      %BOLD%venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --profile field_qgc_video --gcs-host ^<gcs-ip^>%NC%
 echo.
-if not exist "%PIXEAGLE_DIR%\bin\mavsdk_server_bin.exe" if not exist "%PIXEAGLE_DIR%\mavsdk_server_bin.exe" (
+if not exist "%PIXEAGLE_DIR%\bin\mavsdk_server_bin.exe" (
     echo   Optional: %BOLD%scripts\setup\download-binaries.bat --mavsdk%NC%
 )
-if not exist "%PIXEAGLE_DIR%\bin\mavlink2rest.exe" if not exist "%PIXEAGLE_DIR%\mavlink2rest.exe" (
+if not exist "%PIXEAGLE_DIR%\bin\mavlink2rest.exe" (
     echo   Optional: %BOLD%scripts\setup\download-binaries.bat --mavlink2rest%NC%
 )
 echo.

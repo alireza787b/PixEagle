@@ -1088,25 +1088,23 @@ setup_configs() {
 setup_mavsdk_server() {
     log_step 8 "Setting up MAVSDK Server..."
 
-    # Check bin/ first, then root for backwards compatibility
     local mavsdk_binary="$PIXEAGLE_DIR/bin/mavsdk_server_bin"
-    local mavsdk_binary_legacy="$PIXEAGLE_DIR/mavsdk_server_bin"
     local download_script="$SCRIPTS_DIR/setup/download-binaries.sh"
-
-    # Check if binary already exists (either location)
-    if [[ -f "$mavsdk_binary" ]] && [[ -x "$mavsdk_binary" ]]; then
-        log_success "MAVSDK Server binary already installed"
-        return 0
-    fi
-    if [[ -f "$mavsdk_binary_legacy" ]] && [[ -x "$mavsdk_binary_legacy" ]]; then
-        log_success "MAVSDK Server binary already installed (legacy location)"
-        return 0
-    fi
 
     # Check if download script exists
     if [[ ! -f "$download_script" ]]; then
         log_warn "Binary download script not found"
         log_detail "Skipping MAVSDK Server setup"
+        return 1
+    fi
+
+    if [[ -f "$mavsdk_binary" ]] && [[ -x "$mavsdk_binary" ]]; then
+        log_info "MAVSDK Server binary exists; verifying manifest checksum"
+        if bash "$download_script" --mavsdk; then
+            log_success "MAVSDK Server binary verified"
+            return 0
+        fi
+        log_warn "Existing MAVSDK Server binary failed verification"
         return 1
     fi
 
@@ -1137,25 +1135,23 @@ setup_mavsdk_server() {
 setup_mavlink2rest() {
     log_step 9 "Setting up MAVLink2REST Server..."
 
-    # Check bin/ first, then root for backwards compatibility
     local mavlink2rest_binary="$PIXEAGLE_DIR/bin/mavlink2rest"
-    local mavlink2rest_binary_legacy="$PIXEAGLE_DIR/mavlink2rest"
     local download_script="$SCRIPTS_DIR/setup/download-binaries.sh"
-
-    # Check if binary already exists (either location)
-    if [[ -f "$mavlink2rest_binary" ]] && [[ -x "$mavlink2rest_binary" ]]; then
-        log_success "MAVLink2REST Server binary already installed"
-        return 0
-    fi
-    if [[ -f "$mavlink2rest_binary_legacy" ]] && [[ -x "$mavlink2rest_binary_legacy" ]]; then
-        log_success "MAVLink2REST Server binary already installed (legacy location)"
-        return 0
-    fi
 
     # Check if download script exists
     if [[ ! -f "$download_script" ]]; then
         log_warn "Binary download script not found"
         log_detail "Skipping MAVLink2REST Server setup"
+        return 1
+    fi
+
+    if [[ -f "$mavlink2rest_binary" ]] && [[ -x "$mavlink2rest_binary" ]]; then
+        log_info "MAVLink2REST binary exists; verifying manifest checksum"
+        if bash "$download_script" --mavlink2rest; then
+            log_success "MAVLink2REST binary verified"
+            return 0
+        fi
+        log_warn "Existing MAVLink2REST binary failed verification"
         return 1
     fi
 
@@ -1189,13 +1185,13 @@ show_summary() {
 
     # Check MAVSDK Server status (check both locations)
     local mavsdk_status="${RED}Not installed${NC}"
-    if [[ -f "$PIXEAGLE_DIR/bin/mavsdk_server_bin" ]] || [[ -f "$PIXEAGLE_DIR/mavsdk_server_bin" ]]; then
+    if [[ -f "$PIXEAGLE_DIR/bin/mavsdk_server_bin" ]]; then
         mavsdk_status="${GREEN}Installed${NC}"
     fi
 
-    # Check MAVLink2REST Server status (check both locations)
+    # Check MAVLink2REST Server status
     local mavlink2rest_status="${RED}Not installed${NC}"
-    if [[ -f "$PIXEAGLE_DIR/bin/mavlink2rest" ]] || [[ -f "$PIXEAGLE_DIR/mavlink2rest" ]]; then
+    if [[ -f "$PIXEAGLE_DIR/bin/mavlink2rest" ]]; then
         mavlink2rest_status="${GREEN}Installed${NC}"
     fi
 

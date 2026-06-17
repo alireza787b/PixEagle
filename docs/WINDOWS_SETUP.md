@@ -156,6 +156,7 @@ If you skipped during init, run these manually:
 
 **All binaries:**
 ```cmd
+scripts\setup\download-binaries.bat --all --dry-run
 scripts\setup\download-binaries.bat --all
 ```
 
@@ -169,8 +170,12 @@ scripts\setup\download-binaries.bat --mavsdk
 scripts\setup\download-binaries.bat --mavlink2rest
 ```
 
-Binaries are downloaded to the `bin\` directory.
-The downloader tries multiple release tags and validates that downloaded files are real `.exe` binaries.
+Binaries are downloaded to the `bin\` directory only after SHA-256 verification
+against `scripts\setup\binary-manifest.env`. The downloader does not probe
+fallback release tags in the default setup path. Successful verified downloads
+append provenance to `bin\binary-provenance.jsonl`; keep that file with SITL,
+HIL, field, and tester handoff evidence. See
+[Binary Download Policy](setup/binary-download-policy.md).
 
 ---
 
@@ -428,10 +433,18 @@ scripts\init.bat
 
 #### Manual binary placement (if download is blocked by network policy)
 
-If corporate firewall/proxy blocks GitHub downloads, place binaries manually in `bin\` with these exact names:
+If corporate firewall/proxy blocks GitHub downloads, use
+`scripts\setup\binary-manifest.env` to select the pinned asset and verify it
+with `certutil -hashfile <downloaded-binary> SHA256` before placing binaries in
+`bin\` with these exact names:
 
 - `bin\mavsdk_server_bin.exe`
 - `bin\mavlink2rest.exe`
+
+After manual placement, rerun `scripts\setup\download-binaries.bat --mavsdk` or
+`scripts\setup\download-binaries.bat --mavlink2rest`; if the SHA-256 matches
+the manifest, the script accepts the existing binary and appends provenance
+without redownloading.
 
 ### Port Reference
 

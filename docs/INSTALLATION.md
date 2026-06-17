@@ -69,8 +69,8 @@ The `scripts/init.sh` (or `make init`) performs a 9-step setup:
 6. **Dashboard Dependencies** - Runs npm install
 7. **Configuration Defaults** - Uses checked-in runtime defaults and creates
    dashboard `.env` when missing
-8. **MAVSDK Server** - Downloads platform-specific binary
-9. **MAVLink2REST** - Downloads REST API bridge
+8. **MAVSDK Server** - Downloads manifest-pinned platform binary with SHA-256 verification
+9. **MAVLink2REST** - Downloads manifest-pinned REST API bridge with SHA-256 verification
 
 ### OpenCV + GStreamer Safety During Init
 
@@ -287,6 +287,7 @@ If you need to download MAVSDK and MAVLink2REST binaries separately:
 
 **Linux:**
 ```bash
+bash scripts/setup/download-binaries.sh --all --dry-run
 bash scripts/setup/download-binaries.sh --all
 bash scripts/setup/download-binaries.sh --mavsdk
 bash scripts/setup/download-binaries.sh --mavlink2rest
@@ -294,10 +295,16 @@ bash scripts/setup/download-binaries.sh --mavlink2rest
 
 **Windows:**
 ```cmd
+scripts\setup\download-binaries.bat --all --dry-run
 scripts\setup\download-binaries.bat --all
 ```
 
-Binaries are downloaded to the `bin/` directory.
+Binaries are downloaded to the `bin/` directory only after SHA-256 verification
+against `scripts/setup/binary-manifest.env`. Successful verified downloads
+append provenance to `bin/binary-provenance.jsonl`; keep that file with SITL,
+HIL, field, and tester handoff evidence. See the
+[Binary Download Policy](setup/binary-download-policy.md) for pinned release
+URLs, override variables, manual/offline placement, and unverified-lab limits.
 
 ## Service Management
 

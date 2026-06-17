@@ -19,7 +19,7 @@
 
 .PHONY: help init run dev stop clean sync update reset-config setup-profile \
         qgc-video-profile status logs \
-        download-binaries service-install service-uninstall service-enable \
+        download-binaries binary-download-plan service-install service-uninstall service-enable \
         service-disable service-status service-logs service-attach phase0-check \
         sitl-dry-run sitl-probe sitl-sih-dry-run sitl-sih-probe \
         sitl-sih-execute-px4 sitl-gazebo-dry-run sitl-gazebo-probe \
@@ -47,6 +47,8 @@ help:
 	@echo "  Setup:"
 	@echo "    make init              Initialize PixEagle (first-time setup)"
 	@echo "    make download-binaries Download MAVSDK and MAVLink2REST binaries"
+	@echo "    make binary-download-plan"
+	@echo "                            Preview pinned binary URLs/checksums"
 	@echo "    make setup-profile     Apply an explicit setup profile"
 	@echo "    make qgc-video-profile Configure field QGC video (GCS_HOST=<ip>)"
 	@echo ""
@@ -110,6 +112,9 @@ init:
 
 download-binaries:
 	@bash scripts/setup/download-binaries.sh --all
+
+binary-download-plan:
+	@bash scripts/setup/download-binaries.sh --all --dry-run
 
 PROFILE ?= local_dev
 SETUP_PROFILE_ARGS ?=
@@ -226,7 +231,7 @@ phase0-check:
 	@bash -n scripts/run.sh
 	@bash -n scripts/stop.sh
 	@find scripts -name '*.sh' -print0 | xargs -0 -n1 bash -n
-	@PYTHONPATH=src $(PYTHON) -m pytest tests/test_api_route_inventory.py tests/test_api_security_policy.py tests/test_api_tool_candidates.py tests/test_test_hygiene.py tests/test_docs_infrastructure_consistency.py tests/test_setup_profiles.py tests/unit/core_app/test_api_auth_runtime.py tests/unit/core_app/test_api_exposure_policy.py tests/unit/core_app/test_config_clean_clone.py tests/unit/core_app/test_parameters_reload.py -ra --tb=short --strict-config
+	@PYTHONPATH=src $(PYTHON) -m pytest tests/test_api_route_inventory.py tests/test_api_security_policy.py tests/test_api_tool_candidates.py tests/test_test_hygiene.py tests/test_docs_infrastructure_consistency.py tests/test_setup_profiles.py tests/test_binary_download_policy.py tests/unit/core_app/test_api_auth_runtime.py tests/unit/core_app/test_api_exposure_policy.py tests/unit/core_app/test_config_clean_clone.py tests/unit/core_app/test_parameters_reload.py -ra --tb=short --strict-config
 
 sitl-dry-run:
 	@$(PYTHON) tools/run_sitl_validation_suite.py --plan-name phase2_follower_validation --dry-run

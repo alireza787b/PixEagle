@@ -16,6 +16,11 @@ without making remote backend exposure accidental.
 Clean clones can run from `configs/config_default.yaml` without creating
 `configs/config.yaml`.
 
+MAVSDK Server and MAVLink2REST downloads are governed separately by the
+[Binary Download Policy](binary-download-policy.md). Setup profiles change local
+PixEagle configuration; they do not change pinned external binary versions or
+checksum policy.
+
 ## Supported Automated Profiles
 
 ### `local_dev`
