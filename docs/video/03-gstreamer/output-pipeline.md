@@ -5,6 +5,10 @@
 ## Overview
 
 PixEagle uses GStreamer to stream video to QGroundControl and other ground stations via H.264 over UDP/RTP.
+This is the maintained field path for companion-to-GCS QGroundControl video and
+does not require opening PixEagle's backend HTTP/WebSocket media endpoints.
+See [Remote Media Security](../04-streaming/remote-media-security.md) for the
+remote HTTP/WebSocket policy.
 
 ## Architecture
 

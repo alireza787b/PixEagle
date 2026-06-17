@@ -13,11 +13,13 @@ Streaming:
     - http://localhost:3040
     - http://127.0.0.1:5077
     - http://localhost:5077
+  API_ALLOWED_HOSTS: []
 ```
 
-`local_only` fails startup when the bind host or a configured CORS origin is
-not explicitly loopback. Wildcard CORS origins are prohibited, and CORS
-credentials are enabled only when `API_AUTH_MODE=browser_session` is selected.
+`local_only` fails startup when the bind host, a configured CORS origin, or a
+configured Host allowlist entry is not explicitly loopback. Wildcard CORS
+origins and wildcard Host entries are prohibited, and CORS credentials are
+enabled only when `API_AUTH_MODE=browser_session` is selected.
 
 The managed dashboard launchers and generated dashboard `.env` also bind
 `127.0.0.1` by default. A non-loopback dashboard bind requires both
@@ -29,7 +31,9 @@ non-loopback HTTP bind.
 
 HTTP requests are rejected before route execution when their `Host` authority
 does not match the selected exposure policy. In `local_only`, only loopback
-authorities on the configured backend port are accepted. Modern-browser
+authorities on the configured backend port are accepted. In non-loopback
+profiles, `Streaming.API_ALLOWED_HOSTS` is the backend Host authority
+allowlist; `API_CORS_ALLOWED_ORIGINS` is for browser origins. Modern-browser
 requests are also rejected when their `Origin` is not allowlisted or
 `Sec-Fetch-Site` identifies a cross-site request. Responses set same-site
 resource and anti-framing headers. Video and WebRTC-signaling WebSockets
@@ -63,29 +67,33 @@ set explicitly. Browser origins must be exact; do not use wildcards.
 Streaming:
   API_EXPOSURE_MODE: trusted_lan_legacy
   HTTP_STREAM_HOST: 0.0.0.0
+  API_ALLOWED_HOSTS:
+    - pixeagle-pi.local
+    - 192.168.10.42
   API_CORS_ALLOWED_ORIGINS:
-    - http://192.168.10.20:3040
+    - https://operator-gcs.example
 ```
 
-This mode exposes the backend bind/CORS surface beyond loopback. Non-loopback
-HTTP, MJPEG, video WebSocket, and WebRTC-signaling requests still pass through
-the API authorization runtime and require either scoped bearer credentials or an
-explicit browser-session deployment. Use this mode only on a
+This mode exposes the backend bind/Host/CORS surface beyond loopback.
+Non-loopback HTTP, MJPEG, video WebSocket, and WebRTC-signaling requests still
+pass through the API authorization runtime and require either scoped bearer
+credentials or an explicit browser-session deployment. Use this mode only on a
 physically/logically isolated trusted network and remove it after use.
 
 Existing local `configs/config.yaml` files from older releases may still set
 `HTTP_STREAM_HOST: 0.0.0.0` without an exposure mode. Runtime startup coerces
 that legacy missing-mode case to `127.0.0.1` instead of preserving broad
 exposure. If a deployment truly needs temporary LAN compatibility, add
-`API_EXPOSURE_MODE: trusted_lan_legacy` and exact
+`API_EXPOSURE_MODE: trusted_lan_legacy`, exact `API_ALLOWED_HOSTS`, and exact
 `API_CORS_ALLOWED_ORIGINS` entries intentionally.
 
 If the dashboard uses a custom port, add both loopback browser origins for that
 port to `API_CORS_ALLOWED_ORIGINS`. A non-loopback reverse-proxy browser origin
-cannot be used in `local_only`. `trusted_lan_legacy` can open the bind/CORS
-boundary, but remote browser operation remains deferred until TLS/operator
-deployment hardening, retirement of remaining legacy tracking/control aliases,
-adversarial auth/media tests, and evidence gates are completed.
+cannot be used in `local_only`. `trusted_lan_legacy` can open the
+bind/Host/CORS boundary, but remote browser operation remains deferred until
+TLS/operator deployment hardening, retirement of remaining legacy
+tracking/control aliases, adversarial auth/media tests, and evidence gates are
+completed.
 
 ## Current And Planned Controls
 
@@ -95,6 +103,7 @@ Implemented in the secure-default foundation:
 - explicit exposure-mode validation;
 - startup rejection for contradictory local-only configuration;
 - explicit CORS allowlist with wildcard rejection;
+- explicit backend Host allowlist with wildcard rejection;
 - no credentialed wildcard CORS;
 - credentialed exact-origin CORS only for `API_AUTH_MODE=browser_session`;
 - HTTP Host/authority allowlisting;
@@ -154,12 +163,14 @@ Before starting PixEagle:
 1. Confirm `API_EXPOSURE_MODE` matches the intended deployment.
 2. Confirm `HTTP_STREAM_HOST` is loopback unless temporary legacy exposure is
    explicitly required.
-3. Confirm every CORS origin is an exact trusted browser origin.
-4. Confirm no firewall or reverse-proxy rule exposes port `5077` to an
+3. Confirm every non-loopback backend Host authority is listed in
+   `API_ALLOWED_HOSTS` and that no wildcard is present.
+4. Confirm every CORS origin is an exact trusted browser origin.
+5. Confirm no firewall or reverse-proxy rule exposes port `5077` to an
    untrusted network.
-5. For non-loopback machine API clients, set `API_BEARER_TOKEN_FILE` to an
+6. For non-loopback machine API clients, set `API_BEARER_TOKEN_FILE` to an
    external JSON token file and grant only the scopes needed by that client.
-6. For browser-session tests, set `API_AUTH_MODE=browser_session`, provide an
+7. For browser-session tests, set `API_AUTH_MODE=browser_session`, provide an
    external `API_SESSION_USER_FILE`, and use exact CORS origins. Do not approve
    production remote browser operation without the remaining PXE-0064 gates.
 

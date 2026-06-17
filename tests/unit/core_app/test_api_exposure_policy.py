@@ -118,6 +118,22 @@ def test_trusted_lan_legacy_allows_explicit_remote_bind_and_origin():
     assert policy.cors_allowed_origins == ("http://192.168.1.20:3040",)
 
 
+def test_trusted_lan_legacy_keeps_backend_hosts_separate_from_browser_origins():
+    policy = resolve_api_exposure_policy(
+        bind_host="0.0.0.0",
+        mode=TRUSTED_LAN_LEGACY,
+        cors_allowed_origins=["https://gcs.example"],
+        allowed_hosts=["pixeagle-pi.local", "192.168.10.42"],
+        api_port=5077,
+    )
+
+    assert policy.allowed_hosts == ("pixeagle-pi.local", "192.168.10.42")
+    assert is_http_host_allowed("pixeagle-pi.local:5077", policy) is True
+    assert is_http_host_allowed("192.168.10.42:5077", policy) is True
+    assert is_http_host_allowed("gcs.example:5077", policy) is False
+    assert is_http_host_allowed("evil.example:5077", policy) is False
+
+
 def test_trusted_lan_legacy_rejects_empty_bind_host():
     with pytest.raises(APIExposurePolicyError, match="HTTP_STREAM_HOST must be explicit"):
         resolve_api_exposure_policy(
@@ -161,6 +177,30 @@ def test_trusted_lan_legacy_http_host_uses_configured_hosts_not_wildcard():
     assert is_http_host_allowed("192.168.1.20:5077", policy) is True
     assert is_http_host_allowed("evil.example:5077", policy) is False
     assert is_http_host_allowed("0.0.0.0:5077", policy) is False
+
+
+@pytest.mark.parametrize(
+    "allowed_host",
+    ["*", "https://pixeagle.local", "user:secret@pixeagle.local", "0.0.0.0"],
+)
+def test_policy_rejects_unsafe_or_invalid_allowed_hosts(allowed_host):
+    with pytest.raises(APIExposurePolicyError):
+        resolve_api_exposure_policy(
+            bind_host="0.0.0.0",
+            mode=TRUSTED_LAN_LEGACY,
+            cors_allowed_origins=["https://gcs.example"],
+            allowed_hosts=[allowed_host],
+        )
+
+
+def test_local_only_policy_rejects_remote_allowed_host():
+    with pytest.raises(APIExposurePolicyError, match="only loopback API_ALLOWED_HOSTS"):
+        resolve_api_exposure_policy(
+            bind_host="127.0.0.1",
+            mode=LOCAL_ONLY,
+            cors_allowed_origins=["http://localhost:3040"],
+            allowed_hosts=["pixeagle-pi.local"],
+        )
 
 
 @pytest.mark.parametrize("origin", [None, "", "http://evil.example", "null", "*"])
@@ -372,6 +412,27 @@ def test_browser_session_auth_mode_enables_exact_origin_credentials():
 
     assert policy.allow_credentials is True
     assert policy.cors_allowed_origins == ("http://localhost:3040",)
+
+
+def test_parameters_policy_loads_explicit_allowed_hosts():
+    parameters = SimpleNamespace(
+        HTTP_STREAM_HOST="0.0.0.0",
+        HTTP_STREAM_PORT=5077,
+        _raw_config={
+            "Streaming": {
+                "API_EXPOSURE_MODE": TRUSTED_LAN_LEGACY,
+                "HTTP_STREAM_HOST": "0.0.0.0",
+                "API_CORS_ALLOWED_ORIGINS": ["https://gcs.example"],
+                "API_ALLOWED_HOSTS": ["pixeagle-pi.local"],
+            }
+        },
+    )
+
+    policy = resolve_api_exposure_policy_from_parameters(parameters)
+
+    assert policy.allowed_hosts == ("pixeagle-pi.local",)
+    assert is_http_host_allowed("pixeagle-pi.local:5077", policy) is True
+    assert is_http_host_allowed("gcs.example:5077", policy) is False
 
 
 def test_explicit_local_only_remote_bind_still_fails_closed():

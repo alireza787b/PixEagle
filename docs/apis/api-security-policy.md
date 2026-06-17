@@ -184,11 +184,14 @@ Still required under PXE-0064:
    command compatibility aliases.
 
 Use same-host loopback local access, SSH tunnels, scoped machine bearer tokens,
-or explicit `browser_session` test deployments only. Do not place
-`local_compat` behind an externally reachable reverse proxy. Remote browser
-operation is not production-approved until TLS/operator credential hardening,
-retirement of remaining legacy tracking/control compatibility aliases,
-adversarial auth/media tests, and evidence gates are complete.
+or explicit `browser_session` test deployments only. Remote native media
+clients such as a future authenticated QGroundControl HTTP/WebSocket build need
+`media:read` bearer credentials and the exposure profile described in
+[Remote Media Security](../video/04-streaming/remote-media-security.md). Do not
+place `local_compat` behind an externally reachable reverse proxy. Remote
+browser operation is not production-approved until TLS/operator credential
+hardening, retirement of remaining legacy tracking/control compatibility
+aliases, adversarial auth/media tests, and evidence gates are complete.
 
 ## Verification
 

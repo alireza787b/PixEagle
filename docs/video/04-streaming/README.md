@@ -47,6 +47,7 @@ development/testing, but remote clients must satisfy the API exposure and
 - [WebSocket](websocket.md) - Real-time WebSocket streaming
 - [WebRTC](webrtc.md) - Peer-to-peer video with aiortc
 - [Streaming Optimizer](streaming-optimizer.md) - Adaptive quality control
+- [Remote Media Security](remote-media-security.md) - Pi-to-GCS/QGC/browser deployment profiles
 
 ## Quick Start
 
@@ -151,17 +152,22 @@ ws://127.0.0.1:5077/ws/video_feed
 
 For an onboard companion streaming to a ground-station laptop, enable
 `GStreamer.ENABLE_GSTREAMER_STREAM` and configure QGC for UDP H.264 instead of
-opening the PixEagle backend API/media port on the LAN.
+opening the PixEagle backend API/media port on the LAN. See
+[Remote Media Security](remote-media-security.md).
 
 ## Frame Sources
 
-All streaming methods can use different frame sources:
+HTTP MJPEG and WebSocket output uses the configured PixEagle streaming frame
+source, quality, dimensions, and OSD policy. The active `/video_feed` endpoint
+does not expose per-request `quality`, `resize`, or `osd` query parameters.
+Query-string credentials are rejected.
 
-| Endpoint | Frame Source | Description |
-|----------|--------------|-------------|
-| `/video_feed` | Raw frame | Original camera frame |
-| `/video_feed?osd=true` | OSD frame | Frame with overlay |
-| `/video_feed?resize=true` | Resized frame | Scaled for bandwidth |
+| Setting | Description |
+| --- | --- |
+| `Streaming.STREAM_PROCESSED_OSD` | Selects processed OSD frames when enabled |
+| `Streaming.STREAM_WIDTH` / `Streaming.STREAM_HEIGHT` | Output dimensions |
+| `Streaming.STREAM_QUALITY` | JPEG quality for MJPEG/WebSocket output |
+| `Streaming.ENABLE_ADAPTIVE_QUALITY` | Allows the server-side adaptive quality engine to adjust output |
 
 ## Performance Considerations
 

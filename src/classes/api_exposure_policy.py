@@ -15,6 +15,7 @@ DEFAULT_LOCAL_CORS_ORIGINS = (
     "http://127.0.0.1:5077",
     "http://localhost:5077",
 )
+UNSPECIFIED_BIND_HOSTS = frozenset({"0.0.0.0", "::"})
 
 
 class APIExposurePolicyError(ValueError):
@@ -28,6 +29,7 @@ class APIExposurePolicy:
     bind_host: str
     mode: str
     cors_allowed_origins: Tuple[str, ...]
+    allowed_hosts: Tuple[str, ...] = ()
     api_port: Optional[int] = None
     allow_credentials: bool = False
     legacy_remote_bind_migrated: bool = False
@@ -120,6 +122,37 @@ def _origin_hostname(origin: str) -> str:
     return _normalize_host_name(urlsplit(origin).hostname or "")
 
 
+def _normalize_allowed_host(host: str) -> str:
+    raw = str(host or "").strip()
+    if not raw:
+        raise APIExposurePolicyError("API_ALLOWED_HOSTS entries must not be empty")
+    if raw == "*":
+        raise APIExposurePolicyError("Wildcard API_ALLOWED_HOSTS entries are prohibited")
+    if "://" in raw or "/" in raw or "@" in raw:
+        raise APIExposurePolicyError(
+            "API_ALLOWED_HOSTS entries must be hostnames or IP literals without scheme, path, or credentials"
+        )
+
+    parsed = _parse_host_header(raw)
+    if parsed is None:
+        raise APIExposurePolicyError(f"Invalid API_ALLOWED_HOSTS entry: {host!r}")
+    hostname, _port = parsed
+    if hostname in UNSPECIFIED_BIND_HOSTS:
+        raise APIExposurePolicyError(
+            f"API_ALLOWED_HOSTS must not contain wildcard bind address {host!r}"
+        )
+    return hostname
+
+
+def _normalize_allowed_hosts(hosts: Iterable[str]) -> Tuple[str, ...]:
+    if isinstance(hosts, str):
+        hosts = hosts.split(",")
+    normalized = tuple(
+        dict.fromkeys(_normalize_allowed_host(host) for host in (hosts or ()))
+    )
+    return normalized
+
+
 def _port_matches(request_port: Optional[int], policy: APIExposurePolicy) -> bool:
     if request_port is None or policy.api_port is None:
         return True
@@ -161,15 +194,22 @@ def is_http_host_allowed(host_header: Optional[str], policy: APIExposurePolicy) 
     if policy.mode != TRUSTED_LAN_LEGACY:
         return False
 
-    allowed_hosts = {
-        _origin_hostname(origin)
-        for origin in policy.cors_allowed_origins
-        if _origin_hostname(origin)
-    }
+    allowed_hosts = set(policy.allowed_hosts)
 
     bind_host = _normalize_host_name(policy.bind_host)
-    if bind_host and bind_host not in {"0.0.0.0", "::"}:
+    if bind_host and bind_host not in UNSPECIFIED_BIND_HOSTS:
         allowed_hosts.add(bind_host)
+
+    if not allowed_hosts:
+        # Compatibility fallback for older trusted_lan_legacy configs created
+        # before API_ALLOWED_HOSTS existed. New remote profiles should set
+        # API_ALLOWED_HOSTS explicitly so Host allowlisting is not confused
+        # with browser CORS origin allowlisting.
+        allowed_hosts = {
+            _origin_hostname(origin)
+            for origin in policy.cors_allowed_origins
+            if _origin_hostname(origin)
+        }
 
     return hostname in allowed_hosts
 
@@ -235,6 +275,7 @@ def resolve_api_exposure_policy(
     bind_host: str,
     mode: str,
     cors_allowed_origins: Iterable[str],
+    allowed_hosts: Iterable[str] = (),
     api_port: Optional[int] = None,
     allow_credentials: bool = False,
     legacy_remote_bind_migrated: bool = False,
@@ -243,6 +284,7 @@ def resolve_api_exposure_policy(
     normalized_host = str(bind_host or "").strip()
     normalized_mode = str(mode or "").strip().lower()
     normalized_origins = _normalize_origins(cors_allowed_origins or ())
+    normalized_allowed_hosts = _normalize_allowed_hosts(allowed_hosts or ())
     normalized_api_port = _normalize_api_port(api_port)
 
     if not normalized_host:
@@ -270,11 +312,20 @@ def resolve_api_exposure_policy(
                 "API_EXPOSURE_MODE=local_only permits only loopback CORS origins, "
                 f"got: {', '.join(remote_origins)}"
             )
+        remote_allowed_hosts = [
+            host for host in normalized_allowed_hosts if not is_loopback_host(host)
+        ]
+        if remote_allowed_hosts:
+            raise APIExposurePolicyError(
+                "API_EXPOSURE_MODE=local_only permits only loopback API_ALLOWED_HOSTS, "
+                f"got: {', '.join(remote_allowed_hosts)}"
+            )
 
     return APIExposurePolicy(
         bind_host=normalized_host,
         mode=normalized_mode,
         cors_allowed_origins=normalized_origins,
+        allowed_hosts=normalized_allowed_hosts,
         api_port=normalized_api_port,
         allow_credentials=bool(allow_credentials),
         legacy_remote_bind_migrated=legacy_remote_bind_migrated,
@@ -306,6 +357,10 @@ def resolve_api_exposure_policy_from_parameters(parameters, *, bind_host=None):
     if raw_origins is None:
         raw_origins = getattr(parameters, "API_CORS_ALLOWED_ORIGINS", DEFAULT_LOCAL_CORS_ORIGINS)
 
+    raw_allowed_hosts = raw_streaming.get("API_ALLOWED_HOSTS")
+    if raw_allowed_hosts is None:
+        raw_allowed_hosts = getattr(parameters, "API_ALLOWED_HOSTS", ())
+
     auth_mode = raw_streaming.get(
         "API_AUTH_MODE",
         getattr(parameters, "API_AUTH_MODE", ""),
@@ -316,6 +371,7 @@ def resolve_api_exposure_policy_from_parameters(parameters, *, bind_host=None):
         bind_host=effective_bind_host,
         mode=mode,
         cors_allowed_origins=raw_origins,
+        allowed_hosts=raw_allowed_hosts,
         api_port=getattr(parameters, "HTTP_STREAM_PORT", 5077),
         allow_credentials=allow_credentials,
         legacy_remote_bind_migrated=legacy_remote_bind_migrated,

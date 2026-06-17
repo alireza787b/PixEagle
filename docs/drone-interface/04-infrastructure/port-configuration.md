@@ -40,6 +40,7 @@ Streaming:
   API_EXPOSURE_MODE: local_only
   HTTP_STREAM_HOST: 127.0.0.1
   HTTP_STREAM_PORT: 5077
+  API_ALLOWED_HOSTS: []
   API_CORS_ALLOWED_ORIGINS:
     - http://127.0.0.1:3040
     - http://localhost:3040
@@ -49,8 +50,8 @@ The current backend hosts REST routes, `/video_feed`, and backend WebSocket
 routes on this port. The API modernization program is tracking the migration
 from mixed legacy routes to typed `/api/v1/...` contracts. The checked-in
 policy is local-only with loopback local compatibility. Non-loopback backend
-API clients require scoped bearer tokens or explicit browser-session auth from
-an external hashed user file. See the
+API clients require an exact `API_ALLOWED_HOSTS` entry plus scoped bearer
+tokens or explicit browser-session auth from an external hashed user file. See the
 [API exposure boundary](../../apis/api-exposure-boundary.md).
 
 ### 5551 - Legacy Telemetry WebSocket Setting

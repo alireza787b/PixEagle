@@ -56,26 +56,27 @@ from fastapi.responses import StreamingResponse
 app = FastAPI()
 
 @app.get("/video_feed")
-async def video_feed(osd: bool = False, quality: int = 80):
+async def video_feed():
     return StreamingResponse(
-        generate_frames(osd=osd, quality=quality),
+        generate_frames(),
         media_type="multipart/x-mixed-replace; boundary=frame"
     )
 
-async def generate_frames(osd: bool = False, quality: int = 80):
+async def generate_frames():
     while True:
-        # Get frame from video handler
-        if osd:
-            frame = video_handler.current_osd_frame
-        else:
-            frame = video_handler.current_raw_frame
+        # Get the configured stream frame. OSD, dimensions, quality, and
+        # adaptive behavior are server-side Streaming configuration, not
+        # per-request query parameters.
+        frame = frame_publisher.get_latest(
+            prefer_osd=Parameters.STREAM_PROCESSED_OSD
+        )
 
         if frame is not None:
             # Encode as JPEG
             _, buffer = cv2.imencode(
                 '.jpg',
                 frame,
-                [cv2.IMWRITE_JPEG_QUALITY, quality]
+                [cv2.IMWRITE_JPEG_QUALITY, Parameters.STREAM_QUALITY]
             )
 
             yield (
@@ -85,7 +86,7 @@ async def generate_frames(osd: bool = False, quality: int = 80):
                 b'\r\n'
             )
 
-        await asyncio.sleep(1/30)  # 30 FPS
+        await asyncio.sleep(1 / Parameters.STREAM_FPS)
 ```
 
 ## Protocol Details
@@ -112,11 +113,7 @@ Content-Type: image/jpeg
 The server controls frame rate through sleep intervals:
 
 ```python
-# 30 FPS
-await asyncio.sleep(1/30)
-
-# Match source FPS
-await asyncio.sleep(1/video_handler.fps)
+await asyncio.sleep(1 / Parameters.STREAM_FPS)
 ```
 
 ## Client Integration
@@ -134,7 +131,7 @@ For a normal aircraft/companion-to-ground-station deployment, prefer PixEagle's
 GStreamer H.264/RTP/UDP output instead of exposing the backend media endpoint.
 Remote direct HTTP-MJPEG requires a QGC build and configuration that can send
 reviewed API credentials; unauthenticated LAN access is not a supported
-PixEagle deployment mode.
+PixEagle deployment mode. See [Remote Media Security](remote-media-security.md).
 
 ### HTML/JavaScript
 
@@ -265,15 +262,9 @@ curl -I http://127.0.0.1:5077/video_feed
 
 ### Choppy Video
 
-1. Lower quality for bandwidth:
-```
-/video_feed?quality=50
-```
-
-2. Enable resizing:
-```
-/video_feed?resize=true
-```
+1. Lower `Streaming.STREAM_QUALITY`
+2. Reduce `Streaming.STREAM_WIDTH` and `Streaming.STREAM_HEIGHT`
+3. Enable or tune server-side adaptive quality
 
 ### High Latency
 

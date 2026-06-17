@@ -41,7 +41,7 @@ The OSD (On-Screen Display) system renders informational overlays on video frame
 
 ```yaml
 OSD:
-  ENABLE: true
+  OSD_ENABLED: true
   SHOW_FPS: true
   SHOW_TIMESTAMP: true
   SHOW_TRACKING_STATUS: true

@@ -46,7 +46,7 @@ secure defaults. It requires a QGC build that can send an allowlisted Origin or
 equivalent reviewed native-client handshake metadata plus scoped `media:read`
 credentials. For field/ground-station video, use the GStreamer H.264/RTP/UDP
 output unless a deployment-specific authenticated HTTP/WS design has been
-reviewed.
+reviewed. See [Remote Media Security](remote-media-security.md).
 
 ## Configuration
 

@@ -125,6 +125,12 @@ SCHEMA_OVERRIDES = {
     'Streaming.API_CORS_ALLOWED_ORIGINS': {
         'description': 'Explicit browser origins allowed to call the backend; wildcard origins are prohibited',
     },
+    'Streaming.API_ALLOWED_HOSTS': {
+        'description': (
+            'Optional backend Host allowlist for reviewed non-loopback profiles; '
+            'use hostnames or IP literals, never wildcards, URLs, or credentials'
+        ),
+    },
     'Streaming.API_AUTH_MODE': {
         'options': [
             {'value': 'local_compat', 'label': 'Local compatibility',

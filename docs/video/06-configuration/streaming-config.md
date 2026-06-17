@@ -178,7 +178,7 @@ Streaming:
   WS_MAX_CONNECTIONS: 10
 
 OSD:
-  ENABLE: true
+  OSD_ENABLED: true
   SHOW_FPS: true
   SHOW_TRACKING_STATUS: true
 ```
@@ -195,7 +195,7 @@ GStreamer:
   GSTREAMER_SPEED_PRESET: superfast
 
 OSD:
-  ENABLE: true
+  OSD_ENABLED: true
   SHOW_TELEMETRY: true
   SHOW_SAFETY_STATUS: true
 ```
@@ -223,7 +223,7 @@ Streaming:
   STREAM_FPS: 30
 
 OSD:
-  ENABLE: false  # Clean frames for recording
+  OSD_ENABLED: false  # Clean frames for recording
 ```
 
 ## Accessing Streams
@@ -232,9 +232,12 @@ OSD:
 
 ```html
 <img src="http://127.0.0.1:5077/video_feed" />
-<img src="http://127.0.0.1:5077/video_feed?osd=true" />
-<img src="http://127.0.0.1:5077/video_feed?quality=60" />
 ```
+
+Frame selection, quality, dimensions, OSD behavior, and adaptive quality are
+server-side `Streaming`/`OSD` settings. The active endpoint does not support
+per-request `osd`, `quality`, or `resize` query parameters, and query-string
+credentials are rejected.
 
 ### WebSocket
 
@@ -251,7 +254,8 @@ const ws = new WebSocket('ws://127.0.0.1:5077/ws/video_feed');
 
 Direct QGC HTTP-MJPEG or WebSocket testing is supported only for same-host
 loopback PixEagle URLs unless a reviewed authenticated remote-media profile is
-configured:
+configured. For normal companion-to-GCS QGroundControl video, use the UDP
+H.264/RTP GStreamer output path.
 
 ```text
 http://127.0.0.1:5077/video_feed

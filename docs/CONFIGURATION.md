@@ -124,8 +124,9 @@ tracking/control aliases, adversarial auth/media tests, and evidence gates.
 
 The checked-in backend policy is `local_only` on `127.0.0.1:5077` with an
 explicit loopback CORS allowlist. Startup fails when local-only configuration
-contains a non-loopback bind or browser origin. The temporary
-`trusted_lan_legacy` mode still requires scoped backend API authorization for
+contains a non-loopback bind, browser origin, or Host allowlist entry. The
+temporary `trusted_lan_legacy` mode still requires exact
+`Streaming.API_ALLOWED_HOSTS` entries plus scoped backend API authorization for
 non-loopback clients. Do not use auto-detection or network reachability as
 authorization. See the [API exposure boundary](apis/api-exposure-boundary.md).
 
@@ -133,6 +134,22 @@ Existing local configs from older releases that still set
 `HTTP_STREAM_HOST: 0.0.0.0` without `API_EXPOSURE_MODE` are coerced to loopback
 at runtime. Add `trusted_lan_legacy` explicitly only for temporary isolated-LAN
 compatibility.
+
+Backend Host and browser-origin controls live under `Streaming`:
+
+```yaml
+Streaming:
+  API_EXPOSURE_MODE: local_only
+  HTTP_STREAM_HOST: 127.0.0.1
+  API_ALLOWED_HOSTS: []
+  API_CORS_ALLOWED_ORIGINS:
+    - http://127.0.0.1:3040
+    - http://localhost:3040
+```
+
+`API_ALLOWED_HOSTS` is the backend HTTP `Host` allowlist for reviewed
+non-loopback profiles. `API_CORS_ALLOWED_ORIGINS` is the browser Origin
+allowlist. Keep both exact; wildcards are rejected.
 
 Backend API authorization controls live under `Streaming`:
 

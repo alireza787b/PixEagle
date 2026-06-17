@@ -48,6 +48,7 @@ ACTIVE_RUNTIME_DOCS = [
     PROJECT_ROOT / "docs" / "video" / "01-architecture" / "video-handler.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "README.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "http-mjpeg.md",
+    PROJECT_ROOT / "docs" / "video" / "04-streaming" / "remote-media-security.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "websocket.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "webrtc.md",
     PROJECT_ROOT / "docs" / "video" / "06-configuration" / "streaming-config.md",
@@ -122,6 +123,7 @@ VIDEO_STREAMING_CONFIG_DOCS = [
     PROJECT_ROOT / "docs" / "video" / "03-gstreamer" / "output-pipeline.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "README.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "http-mjpeg.md",
+    PROJECT_ROOT / "docs" / "video" / "04-streaming" / "remote-media-security.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "streaming-optimizer.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "websocket.md",
     PROJECT_ROOT / "docs" / "video" / "06-configuration" / "README.md",
@@ -148,6 +150,17 @@ VIDEO_STREAMING_STALE_CONFIG_PATTERNS = [
     re.compile(r"\bENCODER_PRESET\b"),
     re.compile(r"\bKEYFRAME_INTERVAL\b"),
     re.compile(r"GStreamer:\n\s+ENABLE:\s*true"),
+    re.compile(r"/video_feed\?(?:quality|resize|osd)="),
+]
+
+VIDEO_OSD_CONFIG_DOCS = [
+    PROJECT_ROOT / "docs" / "video" / "05-osd" / "README.md",
+    PROJECT_ROOT / "docs" / "video" / "05-osd" / "osd-renderer.md",
+    PROJECT_ROOT / "docs" / "video" / "06-configuration" / "streaming-config.md",
+]
+
+VIDEO_OSD_STALE_CONFIG_PATTERNS = [
+    re.compile(r"OSD:\n\s+ENABLE:\s*", re.MULTILINE),
 ]
 
 PXE0030_TIMING_DOCS = [
@@ -320,6 +333,17 @@ def test_video_streaming_docs_use_current_config_keys():
     for path in VIDEO_STREAMING_CONFIG_DOCS:
         text = path.read_text(encoding="utf-8")
         for pattern in VIDEO_STREAMING_STALE_CONFIG_PATTERNS:
+            if pattern.search(text):
+                failures.append(f"{path.relative_to(PROJECT_ROOT)} matches {pattern.pattern}")
+
+    assert not failures, "\n".join(failures)
+
+
+def test_video_osd_docs_use_current_config_keys():
+    failures = []
+    for path in VIDEO_OSD_CONFIG_DOCS:
+        text = path.read_text(encoding="utf-8")
+        for pattern in VIDEO_OSD_STALE_CONFIG_PATTERNS:
             if pattern.search(text):
                 failures.append(f"{path.relative_to(PROJECT_ROOT)} matches {pattern.pattern}")
 
