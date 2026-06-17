@@ -51,6 +51,12 @@ UDP/RTP does not provide confidentiality or authentication by itself. Use it on
 a controlled vehicle/GCS link, VPN, or other operator-approved network when
 video confidentiality matters.
 
+The open QGroundControl HTTP/WebSocket video work should remain generic for
+non-PixEagle sources. PixEagle remote HTTP/WS is one stricter source profile on
+top of that generic capability, not a reason to require authentication for every
+normal HTTP camera or lab MJPEG source. See
+[QGC HTTP/WebSocket Source Plan](qgc-http-websocket-source-plan.md).
+
 ## Remote Browser Dashboard
 
 For operator dashboards on another machine, the safest current workflow is an
@@ -140,9 +146,16 @@ PixEagle should advertise remote direct HTTP/WS QGC compatibility.
 
 ## Anonymous Demo Requests
 
-If a beginner demo needs easy video on a second machine, use the GStreamer
-QGC output path or an SSH tunnel. Do not add an unauthenticated remote backend
-media profile. A temporary lab-only exception would need a deliberately named
-unsafe mode, warning banners, tests proving it cannot be selected by default,
-and a removal/expiry plan; PixEagle does not currently provide that mode.
+If a beginner demo needs easy video on a second machine, use the GStreamer QGC
+output path or an SSH tunnel. If a beginner demo needs the browser dashboard on
+a phone or tablet, the preferred bootstrap profile is `demo_lan_browser`: bind
+only to explicit Host/CORS allowlists, generate a username/password, use
+`API_AUTH_MODE: browser_session`, and show the operator that it is lab-only
+unless TLS/operator hardening is also configured.
 
+Do not provide a no-password remote control panel. Anonymous remote backend
+access to PixEagle routes is not a plug-and-play mode. A temporary anonymous
+lab exception would need to be named `unsafe_demo_lan_media_only`, limited to
+media viewing rather than dashboard mutations or flight-adjacent actions, show
+warning banners, include tests proving it cannot be selected by default, and
+carry a removal or expiry plan. PixEagle does not currently provide that mode.

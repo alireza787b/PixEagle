@@ -48,6 +48,7 @@ ACTIVE_RUNTIME_DOCS = [
     PROJECT_ROOT / "docs" / "video" / "01-architecture" / "video-handler.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "README.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "http-mjpeg.md",
+    PROJECT_ROOT / "docs" / "video" / "04-streaming" / "qgc-http-websocket-source-plan.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "remote-media-security.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "websocket.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "webrtc.md",
@@ -123,6 +124,7 @@ VIDEO_STREAMING_CONFIG_DOCS = [
     PROJECT_ROOT / "docs" / "video" / "03-gstreamer" / "output-pipeline.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "README.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "http-mjpeg.md",
+    PROJECT_ROOT / "docs" / "video" / "04-streaming" / "qgc-http-websocket-source-plan.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "remote-media-security.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "streaming-optimizer.md",
     PROJECT_ROOT / "docs" / "video" / "04-streaming" / "websocket.md",
@@ -348,6 +350,56 @@ def test_video_osd_docs_use_current_config_keys():
                 failures.append(f"{path.relative_to(PROJECT_ROOT)} matches {pattern.pattern}")
 
     assert not failures, "\n".join(failures)
+
+
+def test_qgc_http_ws_source_plan_preserves_generic_and_pixeagle_boundaries():
+    plan_path = (
+        PROJECT_ROOT
+        / "docs"
+        / "video"
+        / "04-streaming"
+        / "qgc-http-websocket-source-plan.md"
+    )
+    remote_path = (
+        PROJECT_ROOT
+        / "docs"
+        / "video"
+        / "04-streaming"
+        / "remote-media-security.md"
+    )
+    plan_text = plan_path.read_text(encoding="utf-8")
+    remote_text = remote_path.read_text(encoding="utf-8")
+
+    required_plan_terms = [
+        "Keep the QGroundControl feature generic",
+        "Generic anonymous HTTP MJPEG",
+        "PixEagle same-host development",
+        "PixEagle remote HTTP/WS",
+        "PixEagle anonymous LAN backend",
+        "Rejected",
+        "Do not provide a no-password remote control panel",
+        "demo_lan_browser",
+        "unsafe_demo_lan_media_only",
+        "Authorization: Bearer <token>",
+        "WebSocket Origin",
+        "credential redaction",
+    ]
+    missing = [term for term in required_plan_terms if term not in plan_text]
+
+    required_remote_terms = [
+        "demo_lan_browser",
+        "API_AUTH_MODE: browser_session",
+        "Do not provide a no-password remote control panel",
+        "unsafe_demo_lan_media_only",
+        "media viewing rather than dashboard mutations",
+    ]
+    missing.extend(
+        f"remote policy missing {term}"
+        for term in required_remote_terms
+        if term not in remote_text
+    )
+
+    assert not missing, "\n".join(missing)
 
 
 def test_drone_timing_docs_do_not_overstate_setpoint_sender_publish_cadence():

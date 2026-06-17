@@ -48,6 +48,7 @@ development/testing, but remote clients must satisfy the API exposure and
 - [WebRTC](webrtc.md) - Peer-to-peer video with aiortc
 - [Streaming Optimizer](streaming-optimizer.md) - Adaptive quality control
 - [Remote Media Security](remote-media-security.md) - Pi-to-GCS/QGC/browser deployment profiles
+- [QGC HTTP/WebSocket Source Plan](qgc-http-websocket-source-plan.md) - Generic QGC source support and PixEagle profile boundaries
 
 ## Quick Start
 
@@ -141,9 +142,14 @@ ws://127.0.0.1:5077/ws/webrtc_signaling
 
 ### QGroundControl Direct HTTP/WS
 
-Use direct HTTP MJPEG or WebSocket only when QGC and PixEagle run on the same
-host, or when a reviewed authenticated remote-media profile is configured. The
-supported local URLs are:
+QGroundControl HTTP/HTTPS MJPEG and WebSocket support should stay generic:
+ordinary IP cameras, lab MJPEG servers, and non-PixEagle WebSocket sources may
+remain URL-only when that source does not require authentication. PixEagle is a
+separate profile on top of that generic capability.
+
+Use direct PixEagle HTTP MJPEG or WebSocket only when QGC and PixEagle run on
+the same host, or when a reviewed authenticated remote-media profile is
+configured. The supported local PixEagle URLs are:
 
 ```text
 http://127.0.0.1:5077/video_feed
@@ -153,7 +159,8 @@ ws://127.0.0.1:5077/ws/video_feed
 For an onboard companion streaming to a ground-station laptop, enable
 `GStreamer.ENABLE_GSTREAMER_STREAM` and configure QGC for UDP H.264 instead of
 opening the PixEagle backend API/media port on the LAN. See
-[Remote Media Security](remote-media-security.md).
+[Remote Media Security](remote-media-security.md) and the
+[QGC HTTP/WebSocket Source Plan](qgc-http-websocket-source-plan.md).
 
 ## Frame Sources
 

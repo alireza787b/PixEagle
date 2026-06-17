@@ -108,7 +108,7 @@ GStreamer:
 ```yaml
 OSD:
   # Enable/disable
-  ENABLE: true
+  OSD_ENABLED: true
 
   # Elements
   SHOW_FPS: true
@@ -134,7 +134,7 @@ OSD:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `ENABLE` | bool | true | Enable OSD rendering |
+| `OSD_ENABLED` | bool | true | Enable OSD rendering |
 | `SHOW_FPS` | bool | true | Display FPS counter |
 | `SHOW_TIMESTAMP` | bool | true | Display timestamp |
 | `FONT_SCALE` | float | 0.5 | Text size multiplier |
@@ -256,6 +256,12 @@ Direct QGC HTTP-MJPEG or WebSocket testing is supported only for same-host
 loopback PixEagle URLs unless a reviewed authenticated remote-media profile is
 configured. For normal companion-to-GCS QGroundControl video, use the UDP
 H.264/RTP GStreamer output path.
+
+QGC HTTP/HTTPS MJPEG and WebSocket support should remain generic for non-PixEagle
+sources. PixEagle remote HTTP/WS is a stricter source profile that needs bearer
+Authorization, WebSocket Origin, TLS/WSS handling, and credential redaction
+before it is advertised for companion-to-GCS use. See
+[QGC HTTP/WebSocket Source Plan](../04-streaming/qgc-http-websocket-source-plan.md).
 
 ```text
 http://127.0.0.1:5077/video_feed
