@@ -171,6 +171,17 @@ sessions through `/api/v1/auth/login`, and requires the returned CSRF token for
 browser mutations. The token and user files are external JSON with hashed
 records; do not put plaintext tokens or passwords in `config.yaml`.
 
+The official quick-start default is a same-host beginner demo: run PixEagle and
+open the dashboard locally without creating credentials. When the dashboard or
+backend is reachable from another phone, tablet, or GCS machine, use an explicit
+profile instead of broadening the default. Full remote browser demos should
+generate `browser_session` users; QGC field video should normally use
+GStreamer H.264/RTP/UDP; future direct remote QGC HTTP/WS video should use a
+`machine_bearer` token with only `media:read` plus explicit
+`API_ALLOWED_HOSTS`. See
+[Remote Media Security](video/04-streaming/remote-media-security.md) and
+[QGC HTTP/WebSocket Source Plan](video/04-streaming/qgc-http-websocket-source-plan.md).
+
 Generate browser-session user records with a local password prompt:
 
 ```bash

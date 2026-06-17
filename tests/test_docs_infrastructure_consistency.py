@@ -380,9 +380,17 @@ def test_qgc_http_ws_source_plan_preserves_generic_and_pixeagle_boundaries():
         "Do not provide a no-password remote control panel",
         "demo_lan_browser",
         "unsafe_demo_lan_media_only",
+        "The official repository default should remain a beginner-friendly local demo",
+        "remote backend control",
+        "PixEagle Configuration Contract",
+        "API_ALLOWED_HOSTS",
         "Authorization: Bearer <token>",
+        "media:read",
+        "video-only QGC",
         "WebSocket Origin",
         "credential redaction",
+        "machine-client",
+        "authorization mechanism",
     ]
     missing = [term for term in required_plan_terms if term not in plan_text]
 
@@ -392,6 +400,9 @@ def test_qgc_http_ws_source_plan_preserves_generic_and_pixeagle_boundaries():
         "Do not provide a no-password remote control panel",
         "unsafe_demo_lan_media_only",
         "media viewing rather than dashboard mutations",
+        "For QGC video-only use, grant only `media:read`",
+        "local same-host demo requires no",
+        "manual credential setup",
     ]
     missing.extend(
         f"remote policy missing {term}"

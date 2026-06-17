@@ -144,6 +144,11 @@ authenticated profile. It needs settings and code for Authorization headers,
 Origin, TLS/CA handling, credential redaction, and negative auth tests before
 PixEagle should advertise remote direct HTTP/WS QGC compatibility.
 
+For QGC video-only use, grant only `media:read`. Do not use a broad operator or
+admin token just to view video. If a future QGC integration consumes typed
+PixEagle status or telemetry APIs, grant those scopes separately and document
+the exact endpoints and operator reason.
+
 ## Anonymous Demo Requests
 
 If a beginner demo needs easy video on a second machine, use the GStreamer QGC
@@ -159,3 +164,8 @@ lab exception would need to be named `unsafe_demo_lan_media_only`, limited to
 media viewing rather than dashboard mutations or flight-adjacent actions, show
 warning banners, include tests proving it cannot be selected by default, and
 carry a removal or expiry plan. PixEagle does not currently provide that mode.
+
+The checked-in default can still be friendly: local same-host demo requires no
+manual credential setup. Remote convenience comes from guided profile creation,
+generated credentials, and clear warnings, not from hidden anonymous network
+exposure.

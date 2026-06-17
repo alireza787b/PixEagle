@@ -32,6 +32,16 @@ No runtime media behavior was changed.
   `browser_session` credentials and explicit Host/CORS allowlists.
 - No-password remote demos must be media-only, explicitly unsafe, and never
   selected by default.
+- The official repository default remains a same-host beginner demo with no
+  manual credential setup. When access leaves loopback, setup must select an
+  explicit profile and generate or request the required credentials.
+- Future remote PixEagle QGC HTTP/WS uses PixEagle config plus generic QGC
+  settings: exact `API_ALLOWED_HOSTS`, a matching QGC URL host authority,
+  `Authorization: Bearer <token>`, optional WebSocket Origin, TLS/WSS, and
+  credential redaction.
+- A QGC video-only token should grant only `media:read`. Additional status,
+  telemetry, control, config, model, recording, or safety scopes need separate
+  endpoint-specific review.
 
 ## Files Changed
 
@@ -40,6 +50,7 @@ No runtime media behavior was changed.
 - `docs/video/04-streaming/README.md`
 - `docs/video/06-configuration/streaming-config.md`
 - `docs/video/README.md`
+- `docs/CONFIGURATION.md`
 - `docs/reporting/agent-ops/codex-modernization/issue-register.md`
 - `docs/reporting/agent-ops/codex-modernization/phase-slice-map.md`
 - `docs/reporting/agent-ops/codex-modernization/journal/2026-06.md`
@@ -96,6 +107,11 @@ not anonymous dashboard/control access.
   - API tool candidate inventory current;
   - 196 passed with the existing Starlette/httpx `TestClient` deprecation
     warning.
+- After the PixEagle configuration-contract clarification, the focused docs
+  suite, schema check, route inventory/parameter reload gate, `git diff --check`,
+  and `PYTHON=.venv/bin/python make phase0-check` were rerun. The final
+  aggregate result remained 196 passed with the same existing Starlette/httpx
+  warning.
 
 ## Not Performed
 
