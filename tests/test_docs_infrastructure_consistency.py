@@ -117,6 +117,39 @@ ACTIVE_RUNTIME_STALE_PATTERNS = [
     re.compile(r"JSON over UDP"),
 ]
 
+VIDEO_STREAMING_CONFIG_DOCS = [
+    PROJECT_ROOT / "docs" / "video" / "03-gstreamer" / "README.md",
+    PROJECT_ROOT / "docs" / "video" / "03-gstreamer" / "output-pipeline.md",
+    PROJECT_ROOT / "docs" / "video" / "04-streaming" / "README.md",
+    PROJECT_ROOT / "docs" / "video" / "04-streaming" / "http-mjpeg.md",
+    PROJECT_ROOT / "docs" / "video" / "04-streaming" / "streaming-optimizer.md",
+    PROJECT_ROOT / "docs" / "video" / "04-streaming" / "websocket.md",
+    PROJECT_ROOT / "docs" / "video" / "06-configuration" / "README.md",
+    PROJECT_ROOT / "docs" / "video" / "06-configuration" / "streaming-config.md",
+]
+
+VIDEO_STREAMING_STALE_CONFIG_PATTERNS = [
+    re.compile(r"^\s*FastAPI:\s*$", re.MULTILINE),
+    re.compile(r"\bENABLE_HTTP_STREAM\b"),
+    re.compile(r"\bENABLE_WEBSOCKET\b"),
+    re.compile(r"\bENABLE_WEBRTC\b"),
+    re.compile(r"\bMJPEG_BOUNDARY\b"),
+    re.compile(r"\bWS_PING_INTERVAL\b"),
+    re.compile(r"\bWS_MAX_CLIENTS\b"),
+    re.compile(r"\bWS_FRAME_RATE\b"),
+    re.compile(r"\bWS_QUALITY\b"),
+    re.compile(r"\bMAX_CLIENTS\b"),
+    re.compile(r"\bENABLE_OPTIMIZER\b"),
+    re.compile(r"\bQUALITY_LEVELS\b"),
+    re.compile(r"\bTARGET_BITRATE\b"),
+    re.compile(r"\bDEST_HOST\b"),
+    re.compile(r"\bDEST_PORT\b"),
+    re.compile(r"\bUSE_HARDWARE_ENCODER\b"),
+    re.compile(r"\bENCODER_PRESET\b"),
+    re.compile(r"\bKEYFRAME_INTERVAL\b"),
+    re.compile(r"GStreamer:\n\s+ENABLE:\s*true"),
+]
+
 PXE0030_TIMING_DOCS = [
     PROJECT_ROOT / "docs" / "drone-interface" / "README.md",
     PROJECT_ROOT / "docs" / "drone-interface" / "01-architecture" / "README.md",
@@ -276,6 +309,17 @@ def test_active_runtime_docs_do_not_teach_legacy_ports_or_gimbal_keys():
     for path in ACTIVE_RUNTIME_DOCS:
         text = path.read_text(encoding="utf-8")
         for pattern in ACTIVE_RUNTIME_STALE_PATTERNS:
+            if pattern.search(text):
+                failures.append(f"{path.relative_to(PROJECT_ROOT)} matches {pattern.pattern}")
+
+    assert not failures, "\n".join(failures)
+
+
+def test_video_streaming_docs_use_current_config_keys():
+    failures = []
+    for path in VIDEO_STREAMING_CONFIG_DOCS:
+        text = path.read_text(encoding="utf-8")
+        for pattern in VIDEO_STREAMING_STALE_CONFIG_PATTERNS:
             if pattern.search(text):
                 failures.append(f"{path.relative_to(PROJECT_ROOT)} matches {pattern.pattern}")
 

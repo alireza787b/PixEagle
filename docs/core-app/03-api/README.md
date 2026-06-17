@@ -92,6 +92,10 @@ GET /video_feed
 
 Returns multipart MJPEG stream.
 
+This route is classified as media read access. Checked-in defaults allow
+same-host loopback clients; non-loopback clients need explicit exposure config
+and scoped `media:read` credentials.
+
 **Usage:**
 ```html
 <img src="http://127.0.0.1:5077/video_feed" />
@@ -104,6 +108,10 @@ WS /ws/video_feed
 ```
 
 Binary WebSocket stream (JPEG frames).
+
+Browser WebSocket clients must present an allowlisted `Origin`. Native
+same-host loopback clients may omit `Origin`; remote clients still require
+reviewed exposure config and scoped `media:read` credentials before accept.
 
 **Client Example:**
 ```javascript

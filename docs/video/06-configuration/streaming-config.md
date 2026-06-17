@@ -5,15 +5,16 @@
 ## HTTP/WebSocket Streaming
 
 ```yaml
-FastAPI:
+Streaming:
   # Server settings
-  HOST: 0.0.0.0
-  PORT: 8000
+  API_EXPOSURE_MODE: local_only
+  HTTP_STREAM_HOST: 127.0.0.1
+  HTTP_STREAM_PORT: 5077
+  API_AUTH_MODE: local_compat
 
-  # Stream enables
-  ENABLE_HTTP_STREAM: true
-  ENABLE_WEBSOCKET: true
-  ENABLE_WEBRTC: false
+  # Stream enable and default protocol
+  ENABLE_STREAMING: true
+  DEFAULT_PROTOCOL: auto
 
   # Quality settings
   STREAM_QUALITY: 80          # JPEG quality (1-100)
@@ -22,70 +23,75 @@ FastAPI:
 
   # Performance
   STREAM_FPS: 30              # Target FPS
-  MAX_CLIENTS: 10             # Connection limit
-
-  # MJPEG settings
-  MJPEG_BOUNDARY: "frame"     # Multipart boundary
+  HTTP_MAX_CONNECTIONS: 20    # MJPEG connection limit
+  WS_MAX_CONNECTIONS: 10      # WebSocket connection limit
+  WS_HEARTBEAT_INTERVAL: 30   # Health check interval
 ```
 
 ### HTTP Stream Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `ENABLE_HTTP_STREAM` | bool | true | Enable MJPEG endpoint |
-| `STREAM_QUALITY` | int | 80 | JPEG quality (1-100) |
+| `ENABLE_STREAMING` | bool | true | Enable backend media streaming |
+| `HTTP_STREAM_HOST` | string | `127.0.0.1` | Backend API/media bind host |
+| `HTTP_STREAM_PORT` | int | 5077 | Backend API/media port |
+| `API_EXPOSURE_MODE` | string | `local_only` | Exposure boundary |
+| `API_AUTH_MODE` | string | `local_compat` | API/media auth mode |
+| `STREAM_QUALITY` | int | 50 | JPEG quality (1-100) |
 | `STREAM_WIDTH` | int | 640 | Resize width (0 = original) |
 | `STREAM_HEIGHT` | int | 480 | Resize height (0 = original) |
-| `STREAM_FPS` | int | 30 | Target frame rate |
+| `STREAM_FPS` | int | 10 | Target frame rate |
+| `HTTP_MAX_CONNECTIONS` | int | 20 | Max concurrent MJPEG streams |
 
 ### WebSocket Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `ENABLE_WEBSOCKET` | bool | true | Enable WebSocket endpoint |
-| `WS_PING_INTERVAL` | int | 30 | Keep-alive ping (seconds) |
-| `MAX_CLIENTS` | int | 10 | Max concurrent connections |
+| `WS_MAX_CONNECTIONS` | int | 10 | Max concurrent WebSocket clients |
+| `MAX_FRAME_QUEUE` | int | 3 | Max queued frames per WebSocket client |
+| `WS_HEARTBEAT_INTERVAL` | int | 30 | Health check interval in seconds |
+| `WS_STALE_TIMEOUT_MULTIPLIER` | int | 2 | Stale timeout multiplier |
 
 ### WebRTC Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `ENABLE_WEBRTC` | bool | false | Enable WebRTC |
-| `WEBRTC_STUN_SERVER` | string | - | STUN server URL |
-| `WEBRTC_TURN_SERVER` | string | - | TURN server URL |
-| `WEBRTC_BITRATE` | int | 2000000 | Target bitrate (bps) |
+| `WEBRTC_MAX_CONNECTIONS` | int | 3 | Max concurrent WebRTC peers |
+| `WEBRTC_STUN_SERVER` | string | `stun:stun.l.google.com:19302` | STUN server URL |
+| `WEBRTC_TURN_SERVER` | string | - | Optional TURN server URL |
+| `DEFAULT_PROTOCOL` | string | `auto` | Dashboard protocol preference |
 
 ## GStreamer Output Streaming
 
 ```yaml
 GStreamer:
   # Enable output streaming
-  ENABLE: true
+  ENABLE_GSTREAMER_STREAM: true
 
   # Destination
-  DEST_HOST: 192.168.1.10     # GCS IP address
-  DEST_PORT: 5600             # UDP port
+  GSTREAMER_HOST: 192.168.1.10     # GCS IP address
+  GSTREAMER_PORT: 5600             # UDP port
 
   # Encoder settings
-  BITRATE: 2000               # kbps
-  USE_HARDWARE_ENCODER: true  # HW acceleration
+  GSTREAMER_BITRATE: 2000          # kbps
+  ENABLE_HARDWARE_ENCODING: true   # HW acceleration
 
   # Advanced
-  ENCODER_PRESET: ultrafast   # x264 preset
-  KEYFRAME_INTERVAL: 30       # Keyframe every N frames
+  GSTREAMER_SPEED_PRESET: ultrafast # x264 preset
+  GSTREAMER_KEY_INT_MAX: 30         # Keyframe every N frames
 ```
 
 ### GStreamer Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `ENABLE` | bool | false | Enable GStreamer output |
-| `DEST_HOST` | string | - | Destination IP address |
-| `DEST_PORT` | int | 5600 | Destination UDP port |
-| `BITRATE` | int | 2000 | Bitrate in kbps |
-| `USE_HARDWARE_ENCODER` | bool | true | Use HW encoder if available |
-| `ENCODER_PRESET` | string | ultrafast | x264 preset |
-| `KEYFRAME_INTERVAL` | int | 30 | Keyframe interval |
+| `ENABLE_GSTREAMER_STREAM` | bool | false | Enable GStreamer output |
+| `GSTREAMER_HOST` | string | `127.0.0.1` | Destination IP address |
+| `GSTREAMER_PORT` | int | 2000 | Destination UDP port |
+| `GSTREAMER_BITRATE` | int | 2000 | Bitrate in kbps |
+| `ENABLE_HARDWARE_ENCODING` | bool | false | Try HW encoder before software fallback |
+| `GSTREAMER_SPEED_PRESET` | string | ultrafast | x264 preset |
+| `GSTREAMER_KEY_INT_MAX` | int | 30 | Keyframe interval |
 
 ### Encoder Presets
 
@@ -139,38 +145,37 @@ OSD:
 ```yaml
 Streaming:
   # Optimization
-  ENABLE_OPTIMIZER: true
-  CACHE_SIZE: 3               # Quality levels to cache
-  QUALITY_LEVELS: [90, 70, 50]
+  ENABLE_FRAME_CACHE: true
+  MAX_FRAME_CACHE_SIZE: 10
 
   # Adaptive quality
-  ADAPTIVE_QUALITY: true
+  ENABLE_ADAPTIVE_QUALITY: true
   MIN_QUALITY: 30
-  MAX_QUALITY: 95
-  TARGET_BITRATE: 2000        # kbps
+  MAX_QUALITY: 85
+  TARGET_BANDWIDTH_HIGH_KBPS: 200
 ```
 
 ### Optimizer Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `ENABLE_OPTIMIZER` | bool | true | Enable frame caching |
-| `QUALITY_LEVELS` | list | [90,70,50] | Preset quality levels |
-| `ADAPTIVE_QUALITY` | bool | true | Auto-adjust quality |
-| `TARGET_BITRATE` | int | 2000 | Target bitrate (kbps) |
+| `ENABLE_FRAME_CACHE` | bool | true | Enable encoded-frame caching |
+| `MAX_FRAME_CACHE_SIZE` | int | 10 | Maximum cached encoded frames |
+| `ENABLE_ADAPTIVE_QUALITY` | bool | true | Auto-adjust quality |
+| `TARGET_BANDWIDTH_HIGH_KBPS` | int | 200 | Bandwidth threshold for quality increases |
 
 ## Example Configurations
 
 ### Dashboard Streaming
 
 ```yaml
-FastAPI:
-  ENABLE_HTTP_STREAM: true
-  ENABLE_WEBSOCKET: true
+Streaming:
+  ENABLE_STREAMING: true
   STREAM_QUALITY: 70
   STREAM_WIDTH: 640
   STREAM_HEIGHT: 480
-  MAX_CLIENTS: 20
+  HTTP_MAX_CONNECTIONS: 20
+  WS_MAX_CONNECTIONS: 10
 
 OSD:
   ENABLE: true
@@ -182,12 +187,12 @@ OSD:
 
 ```yaml
 GStreamer:
-  ENABLE: true
-  DEST_HOST: 192.168.1.10
-  DEST_PORT: 5600
-  BITRATE: 3000
-  USE_HARDWARE_ENCODER: true
-  ENCODER_PRESET: superfast
+  ENABLE_GSTREAMER_STREAM: true
+  GSTREAMER_HOST: 192.168.1.10
+  GSTREAMER_PORT: 5600
+  GSTREAMER_BITRATE: 3000
+  ENABLE_HARDWARE_ENCODING: true
+  GSTREAMER_SPEED_PRESET: superfast
 
 OSD:
   ENABLE: true
@@ -198,22 +203,20 @@ OSD:
 ### Low Bandwidth Streaming
 
 ```yaml
-FastAPI:
+Streaming:
   STREAM_QUALITY: 50
   STREAM_WIDTH: 320
   STREAM_HEIGHT: 240
   STREAM_FPS: 15
-
-Streaming:
-  ADAPTIVE_QUALITY: true
+  ENABLE_ADAPTIVE_QUALITY: true
   MIN_QUALITY: 20
-  TARGET_BITRATE: 500
+  TARGET_BANDWIDTH_HIGH_KBPS: 500
 ```
 
 ### High Quality Recording
 
 ```yaml
-FastAPI:
+Streaming:
   STREAM_QUALITY: 95
   STREAM_WIDTH: 1920
   STREAM_HEIGHT: 1080
@@ -245,3 +248,12 @@ const ws = new WebSocket('ws://127.0.0.1:5077/ws/video_feed');
 2. Settings > Video
 3. Source: UDP h.264 Video Stream
 4. Port: 5600 (or configured port)
+
+Direct QGC HTTP-MJPEG or WebSocket testing is supported only for same-host
+loopback PixEagle URLs unless a reviewed authenticated remote-media profile is
+configured:
+
+```text
+http://127.0.0.1:5077/video_feed
+ws://127.0.0.1:5077/ws/video_feed
+```

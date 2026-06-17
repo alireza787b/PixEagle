@@ -1,5 +1,6 @@
 """Tests for the fail-closed PixEagle API exposure policy."""
 
+import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -190,6 +191,23 @@ def test_websocket_request_requires_allowed_host_and_origin():
     assert not is_websocket_request_allowed(
         host="attacker.example:5077",
         origin="http://localhost:3040",
+        policy=policy,
+    )
+    assert not is_websocket_request_allowed(
+        host="127.0.0.1:5077",
+        origin=None,
+        policy=policy,
+    )
+    assert is_websocket_request_allowed(
+        host="127.0.0.1:5077",
+        origin=None,
+        client_host="127.0.0.1",
+        policy=policy,
+    )
+    assert not is_websocket_request_allowed(
+        host="192.168.1.20:5077",
+        origin=None,
+        client_host="192.168.1.20",
         policy=policy,
     )
 
@@ -440,6 +458,34 @@ async def test_video_websocket_rejects_unapproved_host_before_accept():
 
     websocket.accept.assert_not_awaited()
     websocket.close.assert_awaited_once_with(code=1008, reason="WebSocket Host or Origin not allowed")
+
+
+@pytest.mark.asyncio
+async def test_video_websocket_allows_same_host_native_missing_origin_before_accept(monkeypatch):
+    handler = FastAPIHandler.__new__(FastAPIHandler)
+    handler.exposure_policy = resolve_api_exposure_policy(
+        bind_host="127.0.0.1",
+        mode=LOCAL_ONLY,
+        cors_allowed_origins=["http://localhost:3040"],
+        api_port=5077,
+    )
+    handler.api_auth_runtime = APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT)
+    handler._record_security_audit_event = lambda **_: True
+    handler.connection_lock = asyncio.Lock()
+    handler.ws_connections = {}
+    monkeypatch.setattr("classes.fastapi_handler.Parameters.WS_MAX_CONNECTIONS", 0)
+    websocket = SimpleNamespace(
+        headers={"host": "127.0.0.1:5077"},
+        client=SimpleNamespace(host="127.0.0.1"),
+        url=SimpleNamespace(query=""),
+        accept=AsyncMock(),
+        close=AsyncMock(),
+    )
+
+    await handler.video_feed_websocket_optimized(websocket)
+
+    websocket.accept.assert_awaited_once()
+    websocket.close.assert_awaited_once_with(code=1008, reason="Max connections reached")
 
 
 @pytest.mark.asyncio

@@ -189,13 +189,28 @@ def is_websocket_request_allowed(
     *,
     host: Optional[str],
     origin: Optional[str],
+    client_host: Optional[str] = None,
     policy: APIExposurePolicy,
 ) -> bool:
-    """Require both an allowed Host authority and explicit WebSocket Origin."""
-    return is_http_host_allowed(host, policy) and is_websocket_origin_allowed(
-        origin,
-        policy,
-    )
+    """Return whether the WebSocket request stays inside the exposure boundary.
+
+    Browsers send an Origin header and must match the explicit allowlist. Native
+    same-host clients, such as QGroundControl or CLI smoke tests, may omit
+    Origin; those are accepted only when both the socket peer and Host authority
+    are loopback.
+    """
+    if not is_http_host_allowed(host, policy):
+        return False
+    if is_websocket_origin_allowed(origin, policy):
+        return True
+    if origin:
+        return False
+
+    parsed_host = _parse_host_header(host)
+    if parsed_host is None:
+        return False
+    hostname, _port = parsed_host
+    return is_loopback_host(client_host or "") and is_loopback_host(hostname)
 
 
 def is_http_browser_request_allowed(

@@ -129,9 +129,9 @@ rtspsrc location=rtsp://192.168.1.100:554/stream latency=200 protocols=tcp
 
 ```yaml
 GStreamer:
-  ENABLE: true
-  DEST_HOST: 192.168.1.10
-  DEST_PORT: 5600
+  ENABLE_GSTREAMER_STREAM: true
+  GSTREAMER_HOST: 192.168.1.10
+  GSTREAMER_PORT: 5600
 ```
 
 Output pipeline:

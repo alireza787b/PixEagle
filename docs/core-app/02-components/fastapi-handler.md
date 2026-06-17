@@ -420,6 +420,7 @@ async def video_feed_websocket_optimized(self, websocket: WebSocket):
     if not is_websocket_request_allowed(
         host=websocket.headers.get("host"),
         origin=websocket.headers.get("origin"),
+        client_host=getattr(websocket.client, "host", None),
         policy=self.api_exposure_policy,
     ):
         await websocket.close(code=1008, reason="WebSocket Host or Origin not allowed")

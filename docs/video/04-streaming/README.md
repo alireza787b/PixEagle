@@ -13,6 +13,12 @@ PixEagle provides multiple video streaming methods for different use cases:
 | WebRTC | WebRTC | Peer-to-peer, bidirectional | Very Low |
 | GStreamer UDP | UDP/RTP | QGroundControl, GCS | Very Low |
 
+GStreamer UDP is the maintained PixEagle path for QGroundControl and other GCS
+video in field-style deployments. Direct HTTP MJPEG or WebSocket media is
+local-first: it works for same-host loopback clients and may be used for QGC
+development/testing, but remote clients must satisfy the API exposure and
+`media:read` authorization boundary.
+
 ## Architecture
 
 ```
@@ -47,13 +53,15 @@ PixEagle provides multiple video streaming methods for different use cases:
 ### Enable Streaming
 
 ```yaml
-FastAPI:
-  ENABLE_HTTP_STREAM: true
-  ENABLE_WEBSOCKET: true
-  ENABLE_WEBRTC: true
+Streaming:
+  ENABLE_STREAMING: true
+  API_EXPOSURE_MODE: local_only
+  HTTP_STREAM_HOST: 127.0.0.1
+  HTTP_STREAM_PORT: 5077
   STREAM_QUALITY: 80
   STREAM_WIDTH: 640
   STREAM_HEIGHT: 480
+  DEFAULT_PROTOCOL: auto
 ```
 
 ### Access Streams
@@ -129,6 +137,21 @@ ws://127.0.0.1:5077/ws/webrtc_signaling
 - One-way only
 
 **Best for:** Ground control stations, FPV, telemetry integration
+
+### QGroundControl Direct HTTP/WS
+
+Use direct HTTP MJPEG or WebSocket only when QGC and PixEagle run on the same
+host, or when a reviewed authenticated remote-media profile is configured. The
+supported local URLs are:
+
+```text
+http://127.0.0.1:5077/video_feed
+ws://127.0.0.1:5077/ws/video_feed
+```
+
+For an onboard companion streaming to a ground-station laptop, enable
+`GStreamer.ENABLE_GSTREAMER_STREAM` and configure QGC for UDP H.264 instead of
+opening the PixEagle backend API/media port on the LAN.
 
 ## Frame Sources
 

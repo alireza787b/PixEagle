@@ -12,13 +12,17 @@ HTTP MJPEG streaming provides a simple video feed accessible from any browser or
 GET /video_feed
 ```
 
+The MJPEG endpoint shares the PixEagle API exposure and authorization boundary.
+With checked-in defaults it is available to same-host loopback clients such as
+the dashboard, local tools, or QGroundControl running on the same computer. A
+non-loopback client needs an explicit non-local exposure profile plus scoped
+credentials with `media:read`; query-string tokens are rejected.
+
 ### Parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `osd` | bool | false | Include OSD overlay |
-| `resize` | bool | false | Use resized frame |
-| `quality` | int | 80 | JPEG quality (1-100) |
+| none | - | - | Stream output is controlled by the `Streaming` config section. Query-string credentials are rejected. |
 
 ### Examples
 
@@ -26,22 +30,19 @@ GET /video_feed
 <!-- Basic video feed -->
 <img src="http://127.0.0.1:5077/video_feed" />
 
-<!-- With OSD overlay -->
-<img src="http://127.0.0.1:5077/video_feed?osd=true" />
-
-<!-- Lower quality for bandwidth -->
-<img src="http://127.0.0.1:5077/video_feed?quality=60" />
+<!-- Quality/OSD selection is configured server-side in configs/config_default.yaml or local overrides. -->
 ```
 
 ## Configuration
 
 ```yaml
-FastAPI:
-  ENABLE_HTTP_STREAM: true
+Streaming:
+  ENABLE_STREAMING: true
+  HTTP_STREAM_HOST: 127.0.0.1
+  HTTP_STREAM_PORT: 5077
   STREAM_QUALITY: 80      # Default JPEG quality
-  STREAM_WIDTH: 640       # Resize width (if resize=true)
-  STREAM_HEIGHT: 480      # Resize height (if resize=true)
-  MJPEG_BOUNDARY: "frame" # Multipart boundary string
+  STREAM_WIDTH: 640       # Output width
+  STREAM_HEIGHT: 480      # Output height
 ```
 
 ## Implementation
@@ -119,6 +120,21 @@ await asyncio.sleep(1/video_handler.fps)
 ```
 
 ## Client Integration
+
+### QGroundControl
+
+The open QGroundControl HTTP-MJPEG PR can consume PixEagle's multipart stream
+when QGC runs on the same host as PixEagle and uses:
+
+```text
+http://127.0.0.1:5077/video_feed
+```
+
+For a normal aircraft/companion-to-ground-station deployment, prefer PixEagle's
+GStreamer H.264/RTP/UDP output instead of exposing the backend media endpoint.
+Remote direct HTTP-MJPEG requires a QGC build and configuration that can send
+reviewed API credentials; unauthenticated LAN access is not a supported
+PixEagle deployment mode.
 
 ### HTML/JavaScript
 

@@ -946,6 +946,7 @@ class FastAPIHandler:
         if not is_websocket_request_allowed(
             host=websocket.headers.get("host"),
             origin=websocket.headers.get("origin"),
+            client_host=getattr(getattr(websocket, "client", None), "host", None),
             policy=self.exposure_policy,
         ):
             self._record_security_audit_event(

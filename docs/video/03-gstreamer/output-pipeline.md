@@ -28,11 +28,11 @@ PixEagle uses GStreamer to stream video to QGroundControl and other ground stati
 
 ```yaml
 GStreamer:
-  ENABLE: true
-  DEST_HOST: 192.168.1.10      # GCS IP address
-  DEST_PORT: 5600              # Standard QGC video port
-  BITRATE: 2000                # kbps
-  USE_HARDWARE_ENCODER: true   # Use NVIDIA/VAAPI if available
+  ENABLE_GSTREAMER_STREAM: true       # Enable QGC/GCS output
+  GSTREAMER_HOST: 192.168.1.10        # GCS IP address
+  GSTREAMER_PORT: 5600                # QGC video port
+  GSTREAMER_BITRATE: 2000             # kbps
+  ENABLE_HARDWARE_ENCODING: true      # Try NVIDIA/VAAPI before software fallback
 ```
 
 ## Output Pipeline
@@ -173,8 +173,8 @@ Stream to multiple receivers:
 
 ```yaml
 GStreamer:
-  DEST_HOST: 239.255.0.1  # Multicast address
-  DEST_PORT: 5600
+  GSTREAMER_HOST: 239.255.0.1  # Multicast address
+  GSTREAMER_PORT: 5600
 ```
 
 Pipeline:

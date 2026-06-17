@@ -36,16 +36,16 @@ See [Video Source Config](video-source-config.md) for details.
 Video output configuration:
 
 ```yaml
-FastAPI:
-  ENABLE_HTTP_STREAM: true
-  ENABLE_WEBSOCKET: true
-  ENABLE_WEBRTC: false
+Streaming:
+  ENABLE_STREAMING: true
+  HTTP_STREAM_HOST: 127.0.0.1
+  HTTP_STREAM_PORT: 5077
   STREAM_QUALITY: 80
 
 GStreamer:
-  ENABLE: true
-  DEST_HOST: 192.168.1.10
-  DEST_PORT: 5600
+  ENABLE_GSTREAMER_STREAM: true
+  GSTREAMER_HOST: 192.168.1.10
+  GSTREAMER_PORT: 5600
 ```
 
 See [Streaming Config](streaming-config.md) for details.
@@ -84,16 +84,22 @@ CAPTURE_HEIGHT: 1080
 
 ```yaml
 # Low bandwidth
-STREAM_QUALITY: 50
-BITRATE: 1000
+Streaming:
+  STREAM_QUALITY: 50
+GStreamer:
+  GSTREAMER_BITRATE: 1000
 
 # Balanced
-STREAM_QUALITY: 80
-BITRATE: 2000
+Streaming:
+  STREAM_QUALITY: 80
+GStreamer:
+  GSTREAMER_BITRATE: 2000
 
 # High quality
-STREAM_QUALITY: 95
-BITRATE: 5000
+Streaming:
+  STREAM_QUALITY: 95
+GStreamer:
+  GSTREAMER_BITRATE: 5000
 ```
 
 ## Configuration Loading

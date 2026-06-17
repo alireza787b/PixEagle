@@ -13,14 +13,16 @@ WS /ws/video_feed
 ```
 
 PixEagle checks the configured Host/Origin exposure boundary and API
-authorization runtime before `accept()`. In the checked-in `local_compat` mode,
-unauthenticated browser WebSocket streaming is limited to a same-host loopback
-socket client. Non-loopback clients need scoped API credentials, and remote
-browser operation should use explicit `API_AUTH_MODE=browser_session` only
-with the credential-aware dashboard client. Production remote-browser approval
-still requires TLS/operator deployment hardening, retirement of remaining
-legacy tracking/control aliases, adversarial auth/media tests, and evidence
-gates.
+authorization runtime before `accept()`. Browser clients must send an explicit
+allowlisted `Origin`. Native same-host clients such as QGroundControl or a CLI
+smoke test may omit `Origin` only when both the TCP peer and `Host` authority
+are loopback. In the checked-in `local_compat` mode, unauthenticated WebSocket
+streaming is limited to that same-host loopback boundary. Non-loopback clients
+need scoped API credentials, and remote browser operation should use explicit
+`API_AUTH_MODE=browser_session` only with the credential-aware dashboard
+client. Production remote-browser approval still requires TLS/operator
+deployment hardening, retirement of remaining legacy tracking/control aliases,
+adversarial auth/media tests, and evidence gates.
 
 ### Connection
 
@@ -29,15 +31,32 @@ const ws = new WebSocket('ws://127.0.0.1:5077/ws/video_feed');
 ws.binaryType = 'arraybuffer';
 ```
 
+### QGroundControl
+
+The open QGroundControl WebSocket-video PR can consume PixEagle's text metadata
+plus binary JPEG frame protocol when QGC runs on the same host as PixEagle and
+uses:
+
+```text
+ws://127.0.0.1:5077/ws/video_feed
+```
+
+Direct remote QGC-to-PixEagle WebSocket media is not plug-and-play with current
+secure defaults. It requires a QGC build that can send an allowlisted Origin or
+equivalent reviewed native-client handshake metadata plus scoped `media:read`
+credentials. For field/ground-station video, use the GStreamer H.264/RTP/UDP
+output unless a deployment-specific authenticated HTTP/WS design has been
+reviewed.
+
 ## Configuration
 
 ```yaml
-FastAPI:
-  ENABLE_WEBSOCKET: true
-  WS_FRAME_RATE: 30        # Target FPS
-  WS_QUALITY: 80           # JPEG quality
-  WS_MAX_CLIENTS: 10       # Connection limit
-  WS_PING_INTERVAL: 30     # Keep-alive ping (seconds)
+Streaming:
+  ENABLE_STREAMING: true
+  STREAM_FPS: 30           # Target FPS
+  STREAM_QUALITY: 80       # JPEG quality
+  WS_MAX_CONNECTIONS: 10   # Connection limit
+  WS_HEARTBEAT_INTERVAL: 30
 ```
 
 ## Implementation
@@ -322,11 +341,11 @@ class AdaptiveQuality:
 ### Connection Limits
 
 ```python
-MAX_CLIENTS = 10
+WS_MAX_CONNECTIONS = 10
 
 @app.websocket("/ws/video_feed")
 async def websocket_video(websocket: WebSocket):
-    if len(manager.active_connections) >= MAX_CLIENTS:
+    if len(manager.active_connections) >= WS_MAX_CONNECTIONS:
         await websocket.close(code=1008, reason="Too many clients")
         return
 
