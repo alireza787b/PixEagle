@@ -4977,12 +4977,12 @@ class FastAPIHandler:
                 'encoder': handler.encoder_info.encoder if handler else None,
                 'hardware_accelerated': handler.encoder_info.hardware if handler else False,
                 'host': str(getattr(Parameters, 'GSTREAMER_HOST', '127.0.0.1')),
-                'port': int(getattr(Parameters, 'GSTREAMER_PORT', 2000)),
+                'port': int(getattr(Parameters, 'GSTREAMER_PORT', 5600)),
                 'resolution': f"{getattr(Parameters, 'GSTREAMER_WIDTH', 1280)}x{getattr(Parameters, 'GSTREAMER_HEIGHT', 720)}",
                 'framerate': int(getattr(Parameters, 'GSTREAMER_FRAMERATE', 15)),
                 'bitrate_kbps': int(getattr(Parameters, 'GSTREAMER_BITRATE', 2000)),
                 'qgc_setup_hint': 'In QGC: Application Settings > Video > UDP Video Stream, port '
-                                  + str(int(getattr(Parameters, 'GSTREAMER_PORT', 2000))),
+                                  + str(int(getattr(Parameters, 'GSTREAMER_PORT', 5600))),
                 'timestamp': time.time(),
             })
         except Exception as e:
@@ -5031,7 +5031,7 @@ class FastAPIHandler:
                         'hardware_accelerated': handler.encoder_info.hardware,
                         'message': f'GStreamer QGC output started ({handler.encoder_info.encoder})',
                         'qgc_setup_hint': 'In QGC: Application Settings > Video > UDP Video Stream, port '
-                                          + str(int(getattr(Parameters, 'GSTREAMER_PORT', 2000))),
+                                          + str(int(getattr(Parameters, 'GSTREAMER_PORT', 5600))),
                         'timestamp': time.time(),
                     })
                 else:

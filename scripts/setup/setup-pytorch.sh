@@ -1148,7 +1148,7 @@ show_summary() {
     echo "SmartTracker runtime fallback behavior:"
     echo "  SMART_TRACKER_USE_GPU: true"
     echo "  SMART_TRACKER_FALLBACK_TO_CPU: true"
-    echo "  (configured in configs/config.yaml)"
+    echo "  (configured through dashboard settings or an optional local override)"
     echo -e "${CYAN}======================================================================${NC}"
     echo ""
 }

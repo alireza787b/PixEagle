@@ -16,6 +16,7 @@ Welcome to the PixEagle documentation. This guide will help you find the informa
 | Guide | Description |
 |-------|-------------|
 | [Installation Guide](INSTALLATION.md) | Detailed installation instructions |
+| [Setup Profiles](setup/setup-profiles.md) | Local dev, QGC field video, and remote-profile boundaries |
 | [Configuration Guide](CONFIGURATION.md) | All configuration options |
 | [Service Management](SERVICE_MANAGEMENT.md) | systemd + tmux production operations |
 | [Troubleshooting](TROUBLESHOOTING.md) | Common issues and solutions |
@@ -98,8 +99,8 @@ These documents are for internal reference during development.
 
 Key configuration files:
 
-- `configs/config_default.yaml` - Checked-in default configuration
-- `configs/config.yaml` - Optional local override configuration
+- `configs/config_default.yaml` - Checked-in runtime default configuration
+- `configs/config.yaml` - Optional local override configuration created only when needed
 - `configs/config_schema.yaml` - Configuration schema definitions
 - `dashboard/.env` - Dashboard environment variables
 

@@ -223,10 +223,17 @@ ping 192.168.1.10
 # Check route
 traceroute 192.168.1.10
 
-# Test exposed PixEagle ports
-nc -zv 192.168.1.10 3040
-nc -zv 192.168.1.10 5077
+# Test local access on the companion over SSH
+ssh <user>@192.168.1.10 'curl -fsS http://127.0.0.1:3040 >/dev/null && curl -fsS http://127.0.0.1:5077/status >/dev/null'
+
+# Or create a local tunnel from the GCS/browser machine
+ssh -L 3040:127.0.0.1:3040 -L 5077:127.0.0.1:5077 <user>@192.168.1.10
 ```
+
+Do not probe or open PixEagle backend port `5077` as an anonymous LAN service.
+Remote browser/API access needs an explicit credentialed profile, exact
+Host/CORS allowlists, and the production hardening gates documented in the API
+exposure boundary.
 
 #### 2. WiFi Issues
 
@@ -278,7 +285,7 @@ services:
     network_mode: host
 ```
 
-#### 2. Expose Ports
+#### 2. Explicit Container Port Mapping
 
 ```yaml
 services:
@@ -287,6 +294,10 @@ services:
       - "8088:8088"
       - "14569:14569/udp"
 ```
+
+Only map the local MAVLink2REST HTTP/input ports shown above for container
+experiments. Do not publish PixEagle backend `5077` from a container unless the
+deployment has an explicit authenticated remote profile.
 
 #### 3. Container DNS
 

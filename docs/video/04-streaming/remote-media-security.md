@@ -32,6 +32,10 @@ PixEagle backend media port without authentication.
 For a Raspberry Pi or Jetson companion streaming to QGroundControl on a laptop,
 keep the PixEagle backend on loopback and enable the GStreamer output pipeline:
 
+```bash
+make qgc-video-profile GCS_HOST=192.168.10.20
+```
+
 ```yaml
 Streaming:
   API_EXPOSURE_MODE: local_only

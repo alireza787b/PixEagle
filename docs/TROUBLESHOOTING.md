@@ -109,11 +109,13 @@ Choose **N** to preserve your GStreamer-enabled build.
 
 ### LAN Access Not Working
 
-The dashboard can auto-detect the browser host, but the current backend has no
-browser-session boundary. Prefer local access or an SSH tunnel. For a
-separately secured trusted/VPN deployment, non-loopback machine API clients
-need scoped bearer tokens, and browser operation remains deferred until the
-session/media-auth slice. Keep backend port `5077` closed to untrusted networks.
+The dashboard can auto-detect the browser host, but the checked-in backend
+profile is local-only. Prefer local access or an SSH tunnel. For a separately
+secured trusted/VPN deployment, non-loopback machine API clients need scoped
+bearer tokens, and browser operation needs explicit `API_AUTH_MODE=browser_session`
+with an external hashed user file, exact Host/CORS allowlists, and the remaining
+production hardening gates. Keep backend port `5077` closed to untrusted
+networks.
 
 ## PX4/MAVLink Issues
 
@@ -247,7 +249,7 @@ pixeagle-service start
 # Check which ports are in use
 sudo lsof -i :3040   # Dashboard
 sudo lsof -i :5077   # Backend
-sudo lsof -i :5551   # WebSocket (video)
+sudo lsof -i :5551   # Legacy telemetry WebSocket
 sudo lsof -i :8088   # MAVLink2REST
 sudo lsof -i :14540  # MAVSDK
 sudo lsof -i :14569  # MAVLink input
@@ -275,7 +277,7 @@ secured deployment only when remote access is explicitly required.
 |------|---------|----------|----------|
 | 3040 | Dashboard | TCP | Yes |
 | 5077 | Backend API | TCP | Yes |
-| 5551 | WebSocket (video) | TCP | Yes |
+| 5551 | Legacy telemetry WebSocket | TCP | Local/optional |
 | 8088 | MAVLink2REST API | TCP | For telemetry |
 | 14540 | MAVSDK | UDP | For PX4 |
 | 14569 | MAVLink2REST input | UDP | For PX4 |

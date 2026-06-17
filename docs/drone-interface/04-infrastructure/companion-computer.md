@@ -95,12 +95,21 @@ sudo reboot
 
 ### Autostart Configuration
 
+Normal `make init` skips service setup. On a deployment host where PixEagle
+should run as a managed service, opt in explicitly:
+
 ```bash
 cd ~/PixEagle
 sudo bash scripts/service/install.sh
 sudo pixeagle-service enable
 sudo pixeagle-service start
 pixeagle-service logs -f
+```
+
+The guided init path is also available for deployment setup:
+
+```bash
+PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init
 ```
 
 ## NVIDIA Jetson Setup
@@ -255,7 +264,10 @@ sudo netplan apply
 
 ### WiFi Access Point (Optional)
 
-Create a WiFi AP for dashboard access:
+Create a WiFi AP for field networking only after deciding the operator access
+model. For browser dashboard access, prefer an SSH tunnel to the local-only
+backend, or use an explicit credentialed `browser_session` profile with exact
+Host/CORS allowlists when that deployment has passed the hardening gates.
 
 ```bash
 # Install hostapd
@@ -274,28 +286,10 @@ sudo apt install -y hostapd dnsmasq
 3. pixeagle.service
 ```
 
-### Master Startup Script
-
-```bash
-#!/bin/bash
-# /home/pi/start_pixeagle_stack.sh
-
-# Wait for network
-sleep 10
-
-# Start mavlink-router
-mavlink-routerd -c /etc/mavlink-router/main.conf &
-sleep 2
-
-# Start MAVLink2REST
-bash scripts/components/mavlink2rest.sh &
-
-sleep 2
-
-# Start PixEagle
-cd /home/pi/PixEagle
-bash scripts/run.sh --no-attach
-```
+Avoid ad hoc master startup scripts that also start MAVLink routing or
+MAVLink2REST. MavlinkAnywhere owns routing service lifecycle, PixEagle owns its
+own managed service, and each service should be started, updated, and evidenced
+through its own runbook.
 
 ## Performance Optimization
 

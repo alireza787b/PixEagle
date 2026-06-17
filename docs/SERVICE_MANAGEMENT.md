@@ -13,6 +13,8 @@ PixEagle supports two mutually exclusive service modes:
 | **Platform-managed** | User (`~/.config/systemd/user/`) | Platform (e.g., ARK-OS) | Installed through a platform |
 
 PixEagle auto-detects the active mode:
+- `make init` skips standalone service setup by default; use
+  `PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init` for deployment prompts
 - `make init` skips standalone service setup when running non-interactively (platform install)
 - `make init` skips standalone service setup when a user-level service already exists
 - `pixeagle-service enable` refuses to create a system-level service if a user-level one exists
@@ -39,14 +41,22 @@ sudo bash scripts/service/install.sh
 
 This installs `/usr/local/bin/pixeagle-service` and points it to this repo.
 
-If you run `make init`, PixEagle will also walk you through:
+Normal `make init` skips standalone service setup. For a deployment host, run
+the installer directly or opt into guided service prompts:
+
+```bash
+PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init
+```
+
+The deployment prompts cover:
 - installing `pixeagle-service`
 - enabling boot auto-start
 - enabling SSH login hint
 - optional immediate start and optional reboot validation
 
-For first-time setup, accept the guided defaults, then reconnect once after init
-to confirm the SSH startup guide output.
+For first-time deployment setup, choose only the service actions you intend to
+enable, then reconnect once after init to confirm the SSH startup guide output
+if login hints were enabled.
 
 ## Daily Operations
 

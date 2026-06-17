@@ -404,7 +404,7 @@ get_service_status() {
     check_component_health "Dashboard" "$dashboard_port"
     check_component_health "Backend API" "$backend_port"
     check_component_health "MAVLink2REST" "$mavlink2rest_port"
-    check_component_health "WebSocket" "$websocket_port"
+    check_component_health "Legacy telemetry WebSocket" "$websocket_port"
     echo
 
     echo "Commands:"

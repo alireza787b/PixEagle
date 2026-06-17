@@ -700,8 +700,8 @@ show_usage_instructions() {
 
     echo -e "${BLUE}To enable dlib tracker:${NC}"
     echo ""
-    echo -e "1. Edit your configuration:"
-    echo -e "   ${YELLOW}nano configs/config.yaml${NC}"
+    echo -e "1. Use the dashboard Settings page or an explicit local override:"
+    echo -e "   ${YELLOW}docs/setup/setup-profiles.md${NC}"
     echo ""
     echo -e "2. Set the tracking algorithm:"
     echo -e "   ${YELLOW}DEFAULT_TRACKING_ALGORITHM: dlib${NC}"

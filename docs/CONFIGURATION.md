@@ -6,7 +6,8 @@
 
 | File | Purpose |
 |------|---------|
-| `configs/config.yaml` | Main application settings |
+| `configs/config_default.yaml` | Checked-in runtime defaults and schema source |
+| `configs/config.yaml` | Optional local runtime overrides created manually or by setup profiles |
 | `configs/config_schema.yaml` | Schema definitions |
 | `dashboard/.env` | Dashboard environment variables |
 
@@ -179,6 +180,7 @@ generate `browser_session` users; QGC field video should normally use
 GStreamer H.264/RTP/UDP; future direct remote QGC HTTP/WS video should use a
 `machine_bearer` token with only `media:read` plus explicit
 `API_ALLOWED_HOSTS`. See
+[Setup Profiles](setup/setup-profiles.md),
 [Remote Media Security](video/04-streaming/remote-media-security.md) and
 [QGC HTTP/WebSocket Source Plan](video/04-streaming/qgc-http-websocket-source-plan.md).
 

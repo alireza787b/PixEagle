@@ -293,7 +293,42 @@ PIXEAGLE_EXPOSURE_DOCS = [
     PROJECT_ROOT / "docs" / "WINDOWS_SETUP.md",
     PROJECT_ROOT / "docs" / "WINDOWS_SITL_XPLANE.md",
     PROJECT_ROOT / "docs" / "apis" / "api-exposure-boundary.md",
+    PROJECT_ROOT / "docs" / "drone-interface" / "04-infrastructure" / "companion-computer.md",
     PROJECT_ROOT / "docs" / "drone-interface" / "04-infrastructure" / "port-configuration.md",
+    PROJECT_ROOT / "docs" / "drone-interface" / "07-troubleshooting" / "connection-issues.md",
+]
+
+SETUP_PROFILE_DOCS_AND_SCRIPTS = [
+    PROJECT_ROOT / "README.md",
+    PROJECT_ROOT / "docs" / "README.md",
+    PROJECT_ROOT / "docs" / "INSTALLATION.md",
+    PROJECT_ROOT / "docs" / "CONFIGURATION.md",
+    PROJECT_ROOT / "docs" / "WINDOWS_SETUP.md",
+    PROJECT_ROOT / "docs" / "TROUBLESHOOTING.md",
+    PROJECT_ROOT / "docs" / "setup" / "setup-profiles.md",
+    PROJECT_ROOT / "install.sh",
+    PROJECT_ROOT / "install.ps1",
+    PROJECT_ROOT / "scripts" / "init.sh",
+    PROJECT_ROOT / "scripts" / "init.bat",
+    PROJECT_ROOT / "Makefile",
+]
+
+PXE0068_STALE_SETUP_PATTERNS = [
+    re.compile(r"Generates config\.yaml", re.IGNORECASE),
+    re.compile(r"Created configs[\\/]+config\.yaml", re.IGNORECASE),
+    re.compile(r"Edit\s+[`%A-Za-z{}$\\/-]*configs[\\/]+config\.yaml.*for your setup", re.IGNORECASE),
+    re.compile(r"accept the guided defaults", re.IGNORECASE),
+    re.compile(r"Install pixeagle-service command now\? \[Y/n\]"),
+    re.compile(r"Enable auto-start on every boot now\? \[Y/n\]"),
+    re.compile(r"Start PixEagle service now\? \[Y/n\]"),
+    re.compile(r"WebSocket \(video\)"),
+]
+
+INIT_INSTALL_SCRIPT_FILES = [
+    PROJECT_ROOT / "install.sh",
+    PROJECT_ROOT / "install.ps1",
+    PROJECT_ROOT / "scripts" / "init.sh",
+    PROJECT_ROOT / "scripts" / "init.bat",
 ]
 
 
@@ -411,6 +446,82 @@ def test_qgc_http_ws_source_plan_preserves_generic_and_pixeagle_boundaries():
     )
 
     assert not missing, "\n".join(missing)
+
+
+def test_setup_profiles_are_documented_and_linked_from_onboarding_docs():
+    setup_doc = PROJECT_ROOT / "docs" / "setup" / "setup-profiles.md"
+    setup_text = setup_doc.read_text(encoding="utf-8")
+    required_terms = [
+        "configs/config_default.yaml` is the checked-in runtime source of truth",
+        "configs/config.yaml` is optional",
+        "field_qgc_video",
+        "make qgc-video-profile GCS_HOST=",
+        "backend loopback-only",
+        "demo_lan_browser",
+        "production_remote",
+        "unsafe_demo_lan_media_only",
+        "Do not create a no-password remote control panel",
+        "Authorization",
+        "media:read",
+        "API_ALLOWED_HOSTS",
+    ]
+    missing = [term for term in required_terms if term not in setup_text]
+
+    linked_docs = [
+        PROJECT_ROOT / "README.md",
+        PROJECT_ROOT / "docs" / "README.md",
+        PROJECT_ROOT / "docs" / "INSTALLATION.md",
+        PROJECT_ROOT / "docs" / "CONFIGURATION.md",
+    ]
+    missing.extend(
+        f"{path.relative_to(PROJECT_ROOT)} does not link setup profiles"
+        for path in linked_docs
+        if "setup-profiles.md" not in path.read_text(encoding="utf-8")
+    )
+
+    assert not missing, "\n".join(missing)
+
+
+def test_setup_docs_and_scripts_do_not_reintroduce_default_config_or_service_drift():
+    failures = []
+    for path in SETUP_PROFILE_DOCS_AND_SCRIPTS:
+        text = path.read_text(encoding="utf-8")
+        for pattern in PXE0068_STALE_SETUP_PATTERNS:
+            if pattern.search(text):
+                failures.append(f"{path.relative_to(PROJECT_ROOT)} matches {pattern.pattern}")
+
+    assert not failures, "\n".join(failures)
+
+
+def test_init_and_install_scripts_do_not_create_runtime_config_by_copying_defaults():
+    failures = []
+    unsafe_patterns = [
+        re.compile(r"\bcp\s+configs/config_default\.yaml\s+configs/config\.yaml"),
+        re.compile(r"\bcopy\s+configs\\config_default\.yaml\s+configs\\config\.yaml", re.IGNORECASE),
+        re.compile(r"\bcp\s+\"\$DEFAULT_CONFIG\"\s+\"\$USER_CONFIG\""),
+        re.compile(r"\bcopy\s+\"%DEFAULT_CONFIG%\"\s+\"%USER_CONFIG%\"", re.IGNORECASE),
+    ]
+    for path in INIT_INSTALL_SCRIPT_FILES:
+        text = path.read_text(encoding="utf-8")
+        for pattern in unsafe_patterns:
+            if pattern.search(text):
+                failures.append(f"{path.relative_to(PROJECT_ROOT)} matches {pattern.pattern}")
+
+    init_text = (PROJECT_ROOT / "scripts" / "init.sh").read_text(encoding="utf-8")
+    if "PIXEAGLE_ENABLE_SERVICE_SETUP=1" not in init_text:
+        failures.append("scripts/init.sh does not document explicit service setup opt-in")
+    if 'PIXEAGLE_ENABLE_SERVICE_SETUP:-0}" == "1"' not in init_text:
+        failures.append("scripts/init.sh service setup is not gated by PIXEAGLE_ENABLE_SERVICE_SETUP")
+
+    assert not failures, "\n".join(failures)
+
+
+def test_troubleshooting_labels_backend_media_and_legacy_telemetry_ports_correctly():
+    text = (PROJECT_ROOT / "docs" / "TROUBLESHOOTING.md").read_text(encoding="utf-8")
+    assert "browser-session boundary" not in text
+    assert "Legacy telemetry WebSocket" in text
+    assert "WebSocket (video)" not in text
+    assert "`API_AUTH_MODE=browser_session`" in text
 
 
 def test_drone_timing_docs_do_not_overstate_setpoint_sender_publish_cadence():
@@ -549,6 +660,9 @@ def test_pixeagle_docs_do_not_teach_unqualified_unauthenticated_api_exposure():
         re.compile(r"Remote access via IP"),
         re.compile(r"Firewall allows ports 3040, 5077"),
         re.compile(r"sudo ufw allow from <trusted-cidr> to any port 5077"),
+        re.compile(r"Test exposed PixEagle ports", re.IGNORECASE),
+        re.compile(r"nc -zv\s+\S+\s+5077"),
+        re.compile(r'"5077:5077"'),
         re.compile(r"python ~/PixEagle/src/main\.py"),
         re.compile(r"mavlink-routerd -e \d+\.\d+\.\d+\.\d+:14540"),
     ]

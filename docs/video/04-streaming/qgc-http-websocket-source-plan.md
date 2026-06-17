@@ -66,6 +66,10 @@ profile.
 
 Use this for companion-to-GCS video today:
 
+```bash
+make qgc-video-profile GCS_HOST=<gcs-ip>
+```
+
 ```yaml
 Streaming:
   API_EXPOSURE_MODE: local_only

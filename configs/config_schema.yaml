@@ -4914,7 +4914,7 @@ sections:
         reboot_required: true
       GSTREAMER_PORT:
         type: integer
-        default: 2000
+        default: 5600
         description: UDP destination port
         reload_tier: system_restart
         reboot_required: true

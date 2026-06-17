@@ -2177,7 +2177,7 @@ Telemetry:
 #   - Dashboard streaming continues as before (unaffected)
 #   - Additionally, H.264/RTP frames are sent to GSTREAMER_HOST:GSTREAMER_PORT
 #   - QGC receives video at the configured UDP endpoint
-#   - In QGC: Application Settings → Video → UDP Video Stream, port 2000
+#   - In QGC: Application Settings → Video → UDP Video Stream, port 5600
 #
 # ==============================================================================
 GStreamer:
@@ -2191,7 +2191,7 @@ GStreamer:
 
   # === Stream Settings ===
   GSTREAMER_HOST: 127.0.0.1              # UDP destination IP
-  GSTREAMER_PORT: 2000                    # UDP destination port
+  GSTREAMER_PORT: 5600                    # UDP destination port
   GSTREAMER_BITRATE: 2000                # Encoding bitrate (kbps)
   GSTREAMER_WIDTH: 1280                   # Output width
   GSTREAMER_HEIGHT: 720                   # Output height

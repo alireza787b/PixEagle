@@ -295,12 +295,11 @@ function Show-Success {
     Write-Host "   Next Steps:" -ForegroundColor White
     Write-Host "   1. " -NoNewline
     Write-Host "cd $InstallDir" -ForegroundColor Cyan
-    Write-Host "   2. Edit " -NoNewline
-    Write-Host "configs\config.yaml" -ForegroundColor Cyan -NoNewline
-    Write-Host " for your setup"
-    Write-Host "   3. " -NoNewline
+    Write-Host "   2. " -NoNewline
     Write-Host "scripts\run.bat" -ForegroundColor Cyan -NoNewline
     Write-Host " to start all services"
+    Write-Host "   3. Optional QGC field video: " -NoNewline
+    Write-Host "venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --profile field_qgc_video --gcs-host <gcs-ip>" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "   Quick Commands:" -ForegroundColor White
     Write-Host "   " -NoNewline

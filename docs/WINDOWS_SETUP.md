@@ -123,19 +123,29 @@ scripts\init.bat
 4. Installs Python dependencies (~100+ packages)
 5. Checks Node.js installation
 6. Installs dashboard npm dependencies
-7. Generates configuration files
+7. Uses checked-in configuration defaults and creates dashboard `.env` when missing
 8. Downloads MAVSDK Server (optional)
 9. Downloads MAVLink2REST (optional)
 
-### Step 3: Configure PixEagle
+### Step 3: Configure PixEagle When Needed
 
-Edit the configuration file for your setup:
+Clean clones run from `configs\config_default.yaml`. Create
+`configs\config.yaml` only for host-specific overrides or setup profiles.
+
+For QGroundControl video on a separate ground station:
 
 ```cmd
+venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --profile field_qgc_video --gcs-host <gcs-ip>
+```
+
+Manual overrides remain available:
+
+```cmd
+copy configs\config_default.yaml configs\config.yaml
 notepad configs\config.yaml
 ```
 
-Key settings to configure:
+Common settings to override:
 - Camera source (SITL, USB camera, RTSP stream)
 - Connection settings (UDP ports, serial ports)
 - Tracking parameters
@@ -289,7 +299,9 @@ scripts\components\mavsdk_server.bat
 
 ### Main Configuration
 
-Location: `configs\config.yaml`
+Default source: `configs\config_default.yaml`
+
+Optional local override: `configs\config.yaml`
 
 Key sections:
 - **Camera**: Video source configuration
@@ -305,9 +317,16 @@ Generated automatically from `dashboard\env_default.yaml`.
 
 ### Regenerating Configs
 
-To reset to defaults:
+To create or reset a local override from defaults:
 ```cmd
 copy configs\config_default.yaml configs\config.yaml
+```
+
+To apply a supported profile:
+
+```cmd
+venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --list-profiles
+venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --profile field_qgc_video --gcs-host <gcs-ip>
 ```
 
 ---
@@ -421,7 +440,7 @@ If corporate firewall/proxy blocks GitHub downloads, place binaries manually in 
 | Dashboard | 3040 |
 | Backend API | 5077 |
 | MAVLink2REST | 8088 |
-| WebSocket | 5551 |
+| Legacy telemetry WebSocket | 5551 |
 
 ### Checking Service Status
 
@@ -494,7 +513,8 @@ netstat -ano | findstr "3040 5077 8088 5551"
 
 After successful setup:
 
-1. **Configure for your setup** - Edit `configs\config.yaml`
+1. **Run PixEagle locally** - `scripts\run.bat`
 2. **Connect to SITL** - For simulation testing
 3. **Connect to real vehicle** - For actual flights
-4. **Explore the dashboard** - http://localhost:3040
+4. **Apply QGC field video if needed** - Use the `field_qgc_video` profile
+5. **Explore the dashboard** - http://localhost:3040

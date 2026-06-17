@@ -38,7 +38,7 @@
 | **Core App** | REST API, WebSocket, configuration system | [docs/core-app/](docs/core-app/README.md) |
 | **Development** | Schema architecture, custom components | [docs/developers/](docs/developers/) |
 
-**Quick Links**: [Installation](docs/INSTALLATION.md) | [Configuration](docs/CONFIGURATION.md) | [Troubleshooting](docs/TROUBLESHOOTING.md)
+**Quick Links**: [Installation](docs/INSTALLATION.md) | [Setup Profiles](docs/setup/setup-profiles.md) | [Configuration](docs/CONFIGURATION.md) | [Troubleshooting](docs/TROUBLESHOOTING.md)
 
 ---
 
@@ -117,6 +117,13 @@ make sync          # Pull latest updates from upstream
 make help          # Show all commands
 ```
 
+For QGroundControl video on a separate ground-station device, keep the backend
+local and apply the field video profile:
+
+```bash
+make qgc-video-profile GCS_HOST=<ground-station-ip>
+```
+
 **Windows:**
 ```cmd
 scripts\run.bat            # Run all services
@@ -167,6 +174,13 @@ PixEagle/
 ## Configuration
 
 Most settings can be configured via the **Web Dashboard UI** (Settings page).
+
+For guided local overrides, use [setup profiles](docs/setup/setup-profiles.md):
+
+```bash
+make setup-profile PROFILE=local_dev
+make qgc-video-profile GCS_HOST=<ground-station-ip>
+```
 
 For manual configuration, create a local override only when needed, then edit it:
 ```bash
@@ -321,7 +335,15 @@ sudo pixeagle-service login-hint enable --system
 
 Tmux session name: `pixeagle`.
 
-During `make init` on Linux/systemd, PixEagle prompts for:
+During normal `make init`, standalone service setup is skipped. For a Linux
+deployment where PixEagle should run as a managed service, either run
+`sudo bash scripts/service/install.sh` directly or opt into the guided prompts:
+
+```bash
+PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init
+```
+
+The deployment prompts cover:
 - auto-start enablement
 - system-wide SSH login hint
 - optional immediate start and optional reboot validation

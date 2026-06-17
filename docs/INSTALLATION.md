@@ -67,7 +67,8 @@ The `scripts/init.sh` (or `make init`) performs a 9-step setup:
 4. **Python Dependencies** - Installs from requirements.txt
 5. **Node.js via nvm** - Installs Node.js for dashboard
 6. **Dashboard Dependencies** - Runs npm install
-7. **Configuration Files** - Generates config.yaml and .env
+7. **Configuration Defaults** - Uses checked-in runtime defaults and creates
+   dashboard `.env` when missing
 8. **MAVSDK Server** - Downloads platform-specific binary
 9. **MAVLink2REST** - Downloads REST API bridge
 
@@ -118,14 +119,21 @@ source ~/.nvm/nvm.sh
 nvm install 22
 cd dashboard && npm install
 
-# Optional: create local override files
-cp configs/config_default.yaml configs/config.yaml
+# Optional: create dashboard env if init was skipped
 cp dashboard/env_default.yaml dashboard/.env
 ```
 
 PixEagle can read checked-in defaults from `configs/config_default.yaml` when
 `configs/config.yaml` is absent. Create `configs/config.yaml` only when the host
-needs local overrides.
+needs local overrides or an explicit setup profile. See
+[Setup Profiles](setup/setup-profiles.md).
+
+For field QGroundControl video on another device, keep the backend local and
+apply the QGC video profile:
+
+```bash
+make qgc-video-profile GCS_HOST=<ground-station-ip>
+```
 
 ## Optional Components
 
@@ -223,6 +231,8 @@ make dev           # Development mode with hot-reload
 make stop          # Stop all services
 make sync          # Pull latest updates from upstream
 make reset-config  # Reset config files to defaults
+make setup-profile # Apply an explicit setup profile
+make qgc-video-profile GCS_HOST=<ip>  # Configure QGC field video
 make status        # Show service status
 make help          # Show all commands
 ```
@@ -293,7 +303,14 @@ Binaries are downloaded to the `bin/` directory.
 
 ### Standalone Installations
 
-For standalone Linux deployments, `make init` includes guided prompts for:
+For standalone Linux deployments, normal `make init` skips service setup. Opt
+into deployment prompts with:
+
+```bash
+PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init
+```
+
+Those prompts default to **No** for:
 - installing `pixeagle-service` CLI
 - enabling boot auto-start
 - enabling system-wide SSH login hints

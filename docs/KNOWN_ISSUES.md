@@ -17,13 +17,17 @@ This file tracks verified, user-facing issues that are not fully solved yet.
   - Split high-cost dynamic OSD elements into lower-frequency buckets.
   - Add optional lightweight preset for production low-power deployments.
 
-### 2) WebSocket port health check messaging is confusing
+### 2) Backend media WebSocket health is not probed separately
 - **Status**: Open
-- **Observed**: Service status can show `WebSocket (port 5551) - not responding` while dashboard video works on backend WS endpoint (`/ws/video_feed` on API port).
-- **Scope**: Service/operator UX and documentation consistency.
+- **Observed**: Service and Make status output now labels port `5551` as the
+  legacy telemetry WebSocket, while dashboard video WebSocket traffic runs on
+  `/ws/video_feed` through backend port `5077`. There is still no dedicated
+  health probe for the backend media WebSocket route.
+- **Scope**: Service/operator UX.
 - **TODO (next iteration)**:
-  - Unify terminology between telemetry socket port and video WebSocket endpoint.
-  - Update `pixeagle-service status` checks to report both endpoints clearly.
+  - Add an authenticated/local media WebSocket route health probe.
+  - Keep telemetry socket and backend media WebSocket labels separate in status
+    output, docs, and troubleshooting.
 
 ### 3) Higher detection model load can trigger board instability on constrained setups
 - **Status**: Open (environment + workload risk)

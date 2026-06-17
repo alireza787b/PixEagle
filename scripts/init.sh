@@ -6,7 +6,7 @@
 # This script sets up the complete PixEagle environment:
 #   - Python virtual environment with all dependencies
 #   - Node.js via nvm for the dashboard
-#   - Configuration files
+#   - Configuration defaults
 #   - MAVSDK and MAVLink2REST binaries
 #
 # Features:
@@ -17,6 +17,7 @@
 # Usage:
 #   make init                    (recommended)
 #   bash scripts/init.sh         (direct)
+#   PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init  (deployment service prompts)
 # ============================================================================
 
 set -o pipefail  # Catch pipe failures
@@ -998,7 +999,7 @@ install_dashboard_deps() {
 }
 
 # ============================================================================
-# Configuration Files (Step 7)
+# Configuration Defaults (Step 7)
 # ============================================================================
 generate_env_from_yaml() {
     local yaml_file="$1"
@@ -1025,7 +1026,7 @@ PYEOF
 }
 
 setup_configs() {
-    log_step 7 "Generating configuration files..."
+    log_step 7 "Preparing configuration defaults..."
 
     local CONFIG_DIR="$PIXEAGLE_DIR/configs"
     local DEFAULT_CONFIG="$CONFIG_DIR/config_default.yaml"
@@ -1047,23 +1048,11 @@ setup_configs() {
     fi
 
     if [[ -f "$USER_CONFIG" ]]; then
-        # Existing config found - ask user what to do
-        echo ""
-            echo -e "        ${YELLOW}WARNING: Existing configs/config.yaml found${NC}"
-        echo -e "        ${DIM}New releases may include new configuration options.${NC}"
-
-        if ask_yes_no "        Replace with latest default? [y/N]: " "n"; then
-            # Backup existing config
-            local backup_name="${USER_CONFIG}.backup.$(date +%Y%m%d_%H%M%S)"
-            cp "$USER_CONFIG" "$backup_name"
-            cp "$DEFAULT_CONFIG" "$USER_CONFIG"
-            log_success "Replaced configs/config.yaml (backup: ${backup_name##*/})"
-        else
-            log_info "Keeping existing configs/config.yaml"
-        fi
+        log_info "Keeping existing configs/config.yaml"
+        log_detail "Use make reset-config or make setup-profile when you intentionally want a new local runtime config"
     else
-        cp "$DEFAULT_CONFIG" "$USER_CONFIG"
-        log_success "Created configs/config.yaml"
+        log_success "Using checked-in defaults from configs/config_default.yaml"
+        log_detail "No configs/config.yaml created; setup profiles create local overrides only when needed"
     fi
 
     # Dashboard .env
@@ -1242,14 +1231,14 @@ show_summary() {
     else
         echo -e "   ${YELLOW}${WARN}${NC}  Node.js needs manual setup"
     fi
-    echo -e "   ${GREEN}${CHECK}${NC} Configuration files generated"
+    echo -e "   ${GREEN}${CHECK}${NC} Configuration defaults ready"
     echo -e "   MAVSDK Server:    $mavsdk_status"
     echo -e "   MAVLink2REST:     $mavlink2rest_status"
     echo ""
     echo -e "   ${CYAN}${BOLD}Next Steps:${NC}"
-    echo -e "      1. Edit ${BOLD}configs/config.yaml${NC} for your setup"
-    echo -e "      2. Run: ${BOLD}make run${NC} (or ${BOLD}bash scripts/run.sh${NC})"
-    echo -e "      3. Optional: ${BOLD}sudo bash scripts/service/install.sh${NC} for boot auto-start"
+    echo -e "      1. Run: ${BOLD}make run${NC} (or ${BOLD}bash scripts/run.sh${NC})"
+    echo -e "      2. Optional QGC field video: ${BOLD}make qgc-video-profile GCS_HOST=<gcs-ip>${NC}"
+    echo -e "      3. Deployment only: ${BOLD}sudo bash scripts/service/install.sh${NC} for boot auto-start"
     echo ""
     echo -e "   ${YELLOW}${BOLD}Optional (better performance):${NC}"
     echo -e "      - ${BOLD}bash scripts/setup/install-dlib.sh${NC}    (faster tracking)"
@@ -1316,11 +1305,11 @@ configure_service_autostart() {
     fi
 
     echo ""
-    echo -e "   ${CYAN}${INFO}${NC}  Optional: configure PixEagle auto-start on boot"
-    echo -e "        ${DIM}This guided setup can install service management, enable boot auto-start,${NC}"
+    echo -e "   ${CYAN}${INFO}${NC}  Deployment-only: configure PixEagle service management"
+    echo -e "        ${DIM}This optional path can install service management, enable boot auto-start,${NC}"
     echo -e "        ${DIM}configure SSH startup guide output, and optionally reboot for validation.${NC}"
 
-    if ! ask_yes_no "        Install pixeagle-service command now? [Y/n]: " "y"; then
+    if ! ask_yes_no "        Install pixeagle-service command now? [y/N]: " "n"; then
         log_info "Skipped service command installation"
         log_detail "Install later with: sudo bash scripts/service/install.sh"
         return 0
@@ -1346,7 +1335,7 @@ configure_service_autostart() {
     service_cmd_installed=true
     log_success "Service command installed"
 
-    if ask_yes_no "        Enable auto-start on every boot now? [Y/n]: " "y"; then
+    if ask_yes_no "        Enable auto-start on every boot now? [y/N]: " "n"; then
         if sudo pixeagle-service enable; then
             auto_start_enabled=true
             log_success "Auto-start enabled"
@@ -1358,7 +1347,7 @@ configure_service_autostart() {
         log_detail "Enable later with: sudo pixeagle-service enable"
     fi
 
-    if ask_yes_no "        Show PixEagle status hints on SSH login for all users? [Y/n]: " "y"; then
+    if ask_yes_no "        Show PixEagle status hints on SSH login for all users? [y/N]: " "n"; then
         if sudo pixeagle-service login-hint enable --system; then
             login_hint_enabled=true
             log_success "SSH login hint enabled (system-wide)"
@@ -1373,7 +1362,7 @@ configure_service_autostart() {
 
     # Optional immediate start for first-time onboarding.
     if [[ "$service_cmd_installed" == true ]]; then
-        if ask_yes_no "        Start PixEagle service now? [Y/n]: " "y"; then
+        if ask_yes_no "        Start PixEagle service now? [y/N]: " "n"; then
             if sudo pixeagle-service start; then
                 log_success "PixEagle service started"
             else
@@ -1445,7 +1434,13 @@ main() {
     setup_mavlink2rest
 
     show_summary
-    configure_service_autostart
+    if [[ "${PIXEAGLE_ENABLE_SERVICE_SETUP:-0}" == "1" ]]; then
+        configure_service_autostart
+    else
+        log_info "Deployment service setup skipped"
+        log_detail "Run explicitly when needed: sudo bash scripts/service/install.sh"
+        log_detail "Or enable guided prompts with: PIXEAGLE_ENABLE_SERVICE_SETUP=1 make init"
+    fi
 }
 
 # Run main function

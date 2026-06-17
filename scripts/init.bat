@@ -8,7 +8,7 @@ REM Sets up the complete PixEagle environment:
 REM   - Python virtual environment
 REM   - Python dependencies
 REM   - Node.js dashboard
-REM   - Configuration files
+REM   - Configuration defaults
 REM   - MAVSDK and MAVLink2REST binaries
 REM
 REM Usage: scripts\init.bat
@@ -254,9 +254,9 @@ popd
 
 :step7
 REM ============================================================================
-REM Step 7: Configuration Files
+REM Step 7: Configuration Defaults
 REM ============================================================================
-call :step 7 "Generating Configuration"
+call :step 7 "Preparing Configuration Defaults"
 
 set "CONFIG_DIR=%PIXEAGLE_DIR%\configs"
 set "DEFAULT_CONFIG=%CONFIG_DIR%\config_default.yaml"
@@ -272,22 +272,11 @@ if not exist "%DEFAULT_CONFIG%" (
 )
 
 if exist "%USER_CONFIG%" (
-    echo.
-    call :warn "Existing config.yaml found"
-    set /p "REPLY=       Replace with latest default? [y/N]: "
-    echo.
-
-    if /i "!REPLY!"=="y" (
-        for /f "tokens=2 delims==" %%a in ('wmic os get localdatetime /value 2^>nul') do set "dt=%%a"
-        copy "%USER_CONFIG%" "%USER_CONFIG%.backup.!dt:~0,8!" >nul 2>&1
-        copy "%DEFAULT_CONFIG%" "%USER_CONFIG%" >nul 2>&1
-        call :ok "Config replaced (backup created)"
-    ) else (
-        call :info "Keeping existing config"
-    )
+    call :info "Keeping existing configs\config.yaml"
+    call :info "Use reset-config or a setup profile when you intentionally want a new local runtime config"
 ) else (
-    copy "%DEFAULT_CONFIG%" "%USER_CONFIG%" >nul 2>&1
-    call :ok "Created config.yaml"
+    call :ok "Using checked-in defaults from configs\config_default.yaml"
+    call :info "No configs\config.yaml created; setup profiles create local overrides only when needed"
 )
 
 if exist "%DASHBOARD_DEFAULT%" (
@@ -414,14 +403,15 @@ if "%NODE_OK%"=="true" (
 ) else (
     echo   %WARN% Node.js needs manual setup
 )
-echo   %CHECK% Configuration files
+echo   %CHECK% Configuration defaults ready
 echo.
 echo   MAVSDK Server:   %MAVSDK_STATUS%
 echo   MAVLink2REST:    %M2R_STATUS%
 echo.
 echo   %CYAN%Next Steps:%NC%
-echo   1. Edit %BOLD%configs\config.yaml%NC% for your setup
-echo   2. Run: %BOLD%scripts\run.bat%NC%
+echo   1. Run: %BOLD%scripts\run.bat%NC%
+echo   2. Optional QGC field video:
+echo      %BOLD%venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --profile field_qgc_video --gcs-host ^<gcs-ip^>%NC%
 echo.
 if not exist "%PIXEAGLE_DIR%\bin\mavsdk_server_bin.exe" if not exist "%PIXEAGLE_DIR%\mavsdk_server_bin.exe" (
     echo   Optional: %BOLD%scripts\setup\download-binaries.bat --mavsdk%NC%

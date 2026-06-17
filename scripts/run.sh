@@ -291,7 +291,7 @@ preflight_checks() {
         if [[ -f "$DEFAULT_CONFIG_FILE" ]]; then
             log_warn "Runtime configuration file not found: $CONFIG_FILE"
             log_detail "Using checked-in defaults from: $DEFAULT_CONFIG_FILE"
-            log_detail "Create a local override only when needed: cp configs/config_default.yaml configs/config.yaml"
+            log_detail "Use setup profiles for local overrides: docs/setup/setup-profiles.md"
         else
             log_error "Configuration defaults not found: $DEFAULT_CONFIG_FILE"
             log_detail "Run: make init (or bash scripts/init.sh)"
@@ -407,7 +407,7 @@ cleanup_previous_sessions() {
 
     if [[ "$RUN_MAIN_APP" == "true" ]]; then
         check_and_kill_port "$BACKEND_PORT" "Backend"
-        check_and_kill_port "$WEBSOCKET_PORT" "WebSocket"
+        check_and_kill_port "$WEBSOCKET_PORT" "Legacy telemetry WebSocket"
     fi
 
     if [[ "$RUN_DASHBOARD" == "true" ]]; then
