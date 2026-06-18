@@ -458,6 +458,8 @@ def test_setup_profiles_are_documented_and_linked_from_onboarding_docs():
         "make qgc-video-profile GCS_HOST=",
         "backend loopback-only",
         "demo_lan_browser",
+        "make demo-lan-browser-profile LAN_HOST=",
+        "Generated browser-session user file",
         "production_remote",
         "unsafe_demo_lan_media_only",
         "Do not create a no-password remote control panel",

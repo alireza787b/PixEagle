@@ -18,7 +18,7 @@
 # ============================================================================
 
 .PHONY: help init run dev stop clean sync update reset-config setup-profile \
-        qgc-video-profile status logs \
+        qgc-video-profile demo-lan-browser-profile status logs \
         download-binaries binary-download-plan service-install service-uninstall service-enable \
         service-disable service-status service-logs service-attach phase0-check \
         sitl-dry-run sitl-probe sitl-sih-dry-run sitl-sih-probe \
@@ -51,6 +51,8 @@ help:
 	@echo "                            Preview pinned binary URLs/checksums"
 	@echo "    make setup-profile     Apply an explicit setup profile"
 	@echo "    make qgc-video-profile Configure field QGC video (GCS_HOST=<ip>)"
+	@echo "    make demo-lan-browser-profile"
+	@echo "                            Configure lab LAN dashboard (LAN_HOST=<this-host-ip>)"
 	@echo ""
 	@echo "  Running:"
 	@echo "    make run               Run all services (production mode)"
@@ -127,6 +129,13 @@ qgc-video-profile:
 		exit 2; \
 	fi
 	@$(PYTHON) scripts/setup/apply-setup-profile.py --profile field_qgc_video --gcs-host "$(GCS_HOST)" $(if $(GSTREAMER_PORT),--gstreamer-port "$(GSTREAMER_PORT)")
+
+demo-lan-browser-profile:
+	@if [ -z "$(LAN_HOST)" ]; then \
+		echo "Usage: make demo-lan-browser-profile LAN_HOST=<this-pixeagle-lan-ip-or-hostname>"; \
+		exit 2; \
+	fi
+	@$(PYTHON) scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host "$(LAN_HOST)" $(if $(DEMO_USERNAME),--demo-username "$(DEMO_USERNAME)") $(if $(DEMO_ROLE),--demo-role "$(DEMO_ROLE)") $(if $(ROTATE_DEMO_CREDENTIALS),--rotate-demo-credentials) $(SETUP_PROFILE_ARGS)
 
 # ============================================================================
 # Running

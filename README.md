@@ -136,10 +136,16 @@ scripts\stop.bat           # Stop all services
 ### Access Dashboard
 
 - **Local**: http://localhost:3040
-- **Remote operator access**: use an SSH tunnel; non-loopback browser operation
-  is not production-approved until TLS/operator deployment hardening, retirement
-  of remaining legacy tracking/control aliases, adversarial auth/media tests,
-  and evidence gates are complete
+- **Lab LAN browser demo**: run
+  `make demo-lan-browser-profile LAN_HOST=<this-pixeagle-lan-ip>` to generate a
+  local browser-session user file and exact Host/CORS allowlists before
+  starting or restarting with `make run`; then open
+  `http://<this-pixeagle-lan-ip>:3040` from the other device and log in with
+  the generated username/password
+- **Production remote operator access**: use an SSH tunnel or a reviewed
+  TLS/VPN deployment; production non-loopback browser operation remains gated on
+  TLS/operator hardening, remaining legacy tracking/control alias retirement,
+  adversarial auth/media tests, and evidence
 
 The backend is local-only by default and rejects contradictory local-only bind
 or CORS configuration. Non-loopback backend API clients require scoped bearer
@@ -239,11 +245,14 @@ PixEagle requires MAVLink communication with PX4.
 | 8088 | MAVLink2REST API | Local-only by default |
 | 14540 | MAVSDK | For PX4 |
 
-Do not open backend port `5077` directly. For remote operator access, keep the
-backend local and use an SSH tunnel. Non-loopback reverse-proxy/VPN browser
-operation remains deferred until TLS/operator deployment hardening, typed
-tracking/control action compatibility-alias retirement, adversarial auth/media
-tests, and evidence gates are complete.
+Do not open backend port `5077` directly without an explicit setup profile. For
+quick lab browser access, use `make demo-lan-browser-profile
+LAN_HOST=<this-pixeagle-lan-ip>` so setup generates browser-session credentials
+and exact Host/CORS allowlists, then restart PixEagle with `make run` and open
+`http://<this-pixeagle-lan-ip>:3040` from the browser device. Production
+non-loopback reverse-proxy/VPN browser operation remains deferred until TLS/operator deployment hardening,
+typed tracking/control action compatibility-alias retirement, adversarial
+auth/media tests, and evidence gates are complete.
 
 Keep PixEagle backend `5077`, MAVLink2REST `8088`, and MAVLink local endpoints
 behind localhost or SSH tunnels unless the deployment has an explicit

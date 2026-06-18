@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import json
 from pathlib import Path
 
 import pytest
@@ -58,6 +59,12 @@ def test_local_dev_profile_keeps_backend_loopback_only(tmp_path):
     assert config["Streaming"]["HTTP_STREAM_HOST"] == "127.0.0.1"
     assert config["Streaming"]["API_AUTH_MODE"] == "local_compat"
     assert config["Streaming"]["API_ALLOWED_HOSTS"] == []
+    assert config["Streaming"]["API_CORS_ALLOWED_ORIGINS"] == [
+        "http://127.0.0.1:3040",
+        "http://localhost:3040",
+        "http://127.0.0.1:5077",
+        "http://localhost:5077",
+    ]
     assert config["GStreamer"]["ENABLE_GSTREAMER_STREAM"] is False
     assert config["GStreamer"]["GSTREAMER_HOST"] == "127.0.0.1"
     assert config["GStreamer"]["GSTREAMER_PORT"] == 5600
@@ -116,7 +123,7 @@ def test_field_qgc_video_profile_rejects_invalid_ports(tmp_path, bad_port):
 
 @pytest.mark.parametrize(
     "profile",
-    ["demo_lan_browser", "production_remote", "unsafe_demo_lan_media_only"],
+    ["production_remote", "unsafe_demo_lan_media_only"],
 )
 def test_deferred_or_unsafe_profiles_fail_closed_without_writing_config(tmp_path, profile):
     config_path = tmp_path / "config.yaml"
@@ -126,6 +133,195 @@ def test_deferred_or_unsafe_profiles_fail_closed_without_writing_config(tmp_path
     assert result.returncode == 2
     assert "not automated" in result.stderr or "does not currently provide" in result.stderr
     assert not config_path.exists()
+
+
+def test_demo_lan_browser_profile_generates_hashed_session_credentials(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    user_file = tmp_path / "demo-users.json"
+
+    result = _run_profile(
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        "192.168.10.42",
+        "--session-user-file",
+        str(user_file),
+        config_path=config_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    config = _read_yaml(config_path)
+    streaming = config["Streaming"]
+    assert streaming["API_EXPOSURE_MODE"] == "trusted_lan_legacy"
+    assert streaming["HTTP_STREAM_HOST"] == "0.0.0.0"
+    assert streaming["HTTP_STREAM_PORT"] == 5077
+    assert streaming["API_AUTH_MODE"] == "browser_session"
+    assert streaming["API_SESSION_USER_FILE"] == str(user_file)
+    assert streaming["API_SESSION_COOKIE_SECURE"] is False
+    assert streaming["API_ALLOWED_HOSTS"] == ["192.168.10.42"]
+    assert "http://192.168.10.42:3040" in streaming["API_CORS_ALLOWED_ORIGINS"]
+    assert "http://192.168.10.42:5077" in streaming["API_CORS_ALLOWED_ORIGINS"]
+    assert config["GStreamer"]["ENABLE_GSTREAMER_STREAM"] is False
+
+    payload = json.loads(user_file.read_text(encoding="utf-8"))
+    user_record = payload["users"][0]
+    assert user_record["username"] == "pixeagle-demo"
+    assert user_record["role"] == "operator"
+    assert user_record["enabled"] is True
+    assert user_record["password_pbkdf2_sha256"].startswith("pbkdf2_sha256$")
+    assert "password" not in user_record
+    assert "plaintext_password" not in user_record
+    assert user_file.stat().st_mode & 0o777 == 0o600
+    assert "Demo password:" in result.stdout
+    assert "LAB ONLY" in result.stdout
+
+
+def test_demo_lan_browser_profile_requires_lan_host(tmp_path):
+    config_path = tmp_path / "config.yaml"
+
+    result = _run_profile("--profile", "demo_lan_browser", config_path=config_path)
+
+    assert result.returncode == 2
+    assert "requires --lan-host" in result.stderr
+    assert not config_path.exists()
+
+
+@pytest.mark.parametrize(
+    "bad_host",
+    [
+        "0.0.0.0",
+        "127.0.0.1",
+        "localhost",
+        "8.8.8.8",
+        "example.com",
+        "https://192.168.10.42",
+        "user:secret@192.168.10.42",
+        "192.168.10.42:5077",
+        "pixeagle.local:notaport",
+        "*",
+    ],
+)
+def test_demo_lan_browser_profile_rejects_unsafe_lan_hosts(tmp_path, bad_host):
+    config_path = tmp_path / "config.yaml"
+    user_file = tmp_path / "demo-users.json"
+
+    result = _run_profile(
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        bad_host,
+        "--session-user-file",
+        str(user_file),
+        config_path=config_path,
+    )
+
+    assert result.returncode == 2
+    assert not config_path.exists()
+    assert not user_file.exists()
+
+
+def test_demo_lan_browser_profile_dry_run_does_not_write_config_or_credentials(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    user_file = tmp_path / "demo-users.json"
+
+    result = _run_profile(
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        "192.168.10.42",
+        "--session-user-file",
+        str(user_file),
+        "--dry-run",
+        config_path=config_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Dry run" in result.stdout
+    assert "Would generate browser-session user file" in result.stdout
+    assert "Demo password:" not in result.stdout
+    assert not config_path.exists()
+    assert not user_file.exists()
+
+
+def test_demo_lan_browser_profile_refuses_existing_credentials_without_rotation(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    user_file = tmp_path / "demo-users.json"
+    user_file.write_text('{"users": []}\n', encoding="utf-8")
+
+    result = _run_profile(
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        "192.168.10.42",
+        "--session-user-file",
+        str(user_file),
+        config_path=config_path,
+    )
+
+    assert result.returncode == 2
+    assert "already exists" in result.stderr
+    assert not config_path.exists()
+
+
+def test_demo_lan_browser_profile_rejects_empty_demo_username(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    user_file = tmp_path / "demo-users.json"
+
+    result = _run_profile(
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        "192.168.10.42",
+        "--session-user-file",
+        str(user_file),
+        "--demo-username",
+        "",
+        config_path=config_path,
+    )
+
+    assert result.returncode == 2
+    assert "--demo-username must not be empty" in result.stderr
+    assert not config_path.exists()
+    assert not user_file.exists()
+
+
+def test_make_demo_lan_browser_profile_wrapper_passes_lan_host(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    user_file = tmp_path / "demo-users.json"
+
+    result = subprocess.run(
+        [
+            "make",
+            "demo-lan-browser-profile",
+            f"PYTHON={sys.executable}",
+            "LAN_HOST=192.168.10.42",
+            (
+                "SETUP_PROFILE_ARGS=--defaults "
+                f"{DEFAULT_CONFIG} --config {config_path} "
+                f"--session-user-file {user_file}"
+            ),
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    config = _read_yaml(config_path)
+    assert config["Streaming"]["API_AUTH_MODE"] == "browser_session"
+    assert config["Streaming"]["API_ALLOWED_HOSTS"] == ["192.168.10.42"]
+    assert user_file.exists()
+
+
+def test_run_script_binds_dashboard_to_lan_for_browser_session_profile():
+    script_text = (PROJECT_ROOT / "scripts" / "run.sh").read_text(encoding="utf-8")
+
+    assert 'API_AUTH_MODE=$(get_config_value "Streaming" "API_AUTH_MODE"' in script_text
+    assert '"$API_EXPOSURE_MODE" == "trusted_lan_legacy"' in script_text
+    assert '"$API_AUTH_MODE" == "browser_session"' in script_text
+    assert 'DASHBOARD_HOST="0.0.0.0"' in script_text
+    assert "PIXEAGLE_DASHBOARD_EXPOSURE_MODE=$dashboard_exposure_arg" in script_text
 
 
 def test_dry_run_does_not_create_runtime_config(tmp_path):

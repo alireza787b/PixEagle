@@ -10,21 +10,42 @@ from __future__ import annotations
 
 import argparse
 import copy
+import json
+import re
+import secrets
 import sys
 from dataclasses import dataclass
+from ipaddress import ip_address
 from pathlib import Path
 from time import strftime
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SRC_ROOT = PROJECT_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from classes.api_auth_runtime import make_user_record
+
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "configs" / "config_default.yaml"
 RUNTIME_CONFIG_PATH = PROJECT_ROOT / "configs" / "config.yaml"
-LOOPBACK_CORS_ORIGINS = ["http://127.0.0.1:3040", "http://localhost:3040"]
+DEFAULT_DEMO_USER_FILE = PROJECT_ROOT / "configs" / "secrets" / "demo-browser-users.json"
+LOOPBACK_CORS_ORIGINS = [
+    "http://127.0.0.1:3040",
+    "http://localhost:3040",
+    "http://127.0.0.1:5077",
+    "http://localhost:5077",
+]
+DEFAULT_DASHBOARD_PORT = 3040
+DEFAULT_HTTP_STREAM_PORT = 5077
 QGC_DEFAULT_UDP_H264_PORT = 5600
+UNSPECIFIED_BIND_HOSTS = {"0.0.0.0", "::"}
+HOSTNAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
 class ProfileError(ValueError):
@@ -71,6 +92,53 @@ def _profile_field_qgc_video(args: argparse.Namespace) -> dict[tuple[str, ...], 
     return changes
 
 
+def _profile_demo_lan_browser(args: argparse.Namespace) -> dict[tuple[str, ...], Any]:
+    if not args.lan_host:
+        raise ProfileError(
+            "demo_lan_browser requires --lan-host <pixeagle-lan-ip-or-hostname>."
+        )
+    lan_host = _normalize_lan_host(args.lan_host)
+    http_stream_port = _normalize_port(args.http_stream_port, "--http-stream-port")
+    dashboard_port = _normalize_port(args.dashboard_port, "--dashboard-port")
+    user_file = _resolve_output_path(args.session_user_file)
+    username = str(args.demo_username).strip().lower()
+    if not username:
+        raise ProfileError("--demo-username must not be empty.")
+
+    if user_file.exists() and not args.rotate_demo_credentials and not args.dry_run:
+        raise ProfileError(
+            f"session user file already exists: {user_file}. "
+            "Pass --rotate-demo-credentials to replace it after saving the old password."
+        )
+
+    args._demo_lan_host = lan_host["allowed_host"]
+    args._demo_origin_host = lan_host["origin_host"]
+    args._demo_session_user_file = user_file
+    args._demo_http_stream_port = http_stream_port
+    args._demo_dashboard_port = dashboard_port
+    args._demo_username = username
+
+    remote_origins = [
+        f"http://{lan_host['origin_host']}:{dashboard_port}",
+        f"http://{lan_host['origin_host']}:{http_stream_port}",
+    ]
+    cors_origins = list(dict.fromkeys([*LOOPBACK_CORS_ORIGINS, *remote_origins]))
+
+    return {
+        ("Streaming", "API_EXPOSURE_MODE"): "trusted_lan_legacy",
+        ("Streaming", "HTTP_STREAM_HOST"): "0.0.0.0",
+        ("Streaming", "HTTP_STREAM_PORT"): http_stream_port,
+        ("Streaming", "API_CORS_ALLOWED_ORIGINS"): cors_origins,
+        ("Streaming", "API_ALLOWED_HOSTS"): [lan_host["allowed_host"]],
+        ("Streaming", "API_AUTH_MODE"): "browser_session",
+        ("Streaming", "API_SESSION_USER_FILE"): str(user_file),
+        ("Streaming", "API_SESSION_COOKIE_SECURE"): False,
+        ("GStreamer", "ENABLE_GSTREAMER_STREAM"): False,
+        ("GStreamer", "GSTREAMER_HOST"): "127.0.0.1",
+        ("GStreamer", "GSTREAMER_PORT"): QGC_DEFAULT_UDP_H264_PORT,
+    }
+
+
 def _profile_deferred(profile_name: str, reason: str) -> Callable[[argparse.Namespace], dict[tuple[str, ...], Any]]:
     def _raise(_: argparse.Namespace) -> dict[tuple[str, ...], Any]:
         raise ProfileError(
@@ -98,17 +166,12 @@ PROFILES: dict[str, Profile] = {
     ),
     "demo_lan_browser": Profile(
         name="demo_lan_browser",
-        status="defined_not_automated",
+        status="supported",
         description=(
             "Lab LAN browser demo with generated browser_session credentials "
             "and exact Host/CORS allowlists."
         ),
-        applier=_profile_deferred(
-            "demo_lan_browser",
-            "Use an SSH tunnel today; full automation must generate external "
-            "hashed users, configure dashboard bind/origin, and record the "
-            "lab-only security boundary."
-        ),
+        applier=_profile_demo_lan_browser,
     ),
     "production_remote": Profile(
         name="production_remote",
@@ -147,6 +210,85 @@ def _load_yaml(path: Path) -> CommentedMap:
     if not isinstance(data, CommentedMap):
         raise ProfileError(f"{path} does not contain a YAML mapping.")
     return data
+
+
+def _normalize_port(value: int, flag_name: str) -> int:
+    try:
+        port = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ProfileError(f"{flag_name} must be an integer in the range 1..65535.") from exc
+    if port < 1 or port > 65535:
+        raise ProfileError(f"{flag_name} must be in the range 1..65535.")
+    return port
+
+
+def _hostname_is_valid(hostname: str) -> bool:
+    trimmed = hostname.rstrip(".")
+    if not trimmed or len(trimmed) > 253:
+        return False
+    return all(HOSTNAME_PATTERN.match(label) for label in trimmed.split("."))
+
+
+def _hostname_is_lan_scoped(hostname: str) -> bool:
+    trimmed = hostname.rstrip(".")
+    return "." not in trimmed or trimmed.endswith((".local", ".lan"))
+
+
+def _normalize_lan_host(value: str) -> dict[str, str]:
+    raw = str(value or "").strip()
+    if not raw:
+        raise ProfileError("--lan-host must not be empty.")
+    if raw == "*" or "://" in raw or "/" in raw or "@" in raw:
+        raise ProfileError(
+            "--lan-host must be a hostname or IP literal without wildcard, scheme, path, or credentials."
+        )
+
+    parsed_url = urlsplit(f"//{raw}")
+    try:
+        parsed_port = parsed_url.port
+    except ValueError as exc:
+        raise ProfileError("--lan-host must not include a port; use --http-stream-port if needed.") from exc
+    if parsed_port is not None:
+        raise ProfileError("--lan-host must not include a port; use --http-stream-port if needed.")
+    if parsed_url.username or parsed_url.password or parsed_url.path not in {"", None}:
+        raise ProfileError(
+            "--lan-host must be a hostname or IP literal without credentials or path."
+        )
+
+    host = parsed_url.hostname if parsed_url.hostname else raw.strip("[]")
+    host = str(host or "").strip().lower()
+    if not host or any(char.isspace() for char in host):
+        raise ProfileError("--lan-host must be a single hostname or IP literal.")
+
+    try:
+        address = ip_address(host)
+    except ValueError:
+        if host == "localhost" or host in UNSPECIFIED_BIND_HOSTS:
+            raise ProfileError("--lan-host must identify the PixEagle LAN address, not loopback or wildcard bind hosts.")
+        if not _hostname_is_valid(host):
+            raise ProfileError(f"--lan-host is not a valid hostname or IP literal: {value!r}")
+        if not _hostname_is_lan_scoped(host):
+            raise ProfileError(
+                "--lan-host hostnames must be single-label or end with .local/.lan for demo_lan_browser."
+            )
+        return {"allowed_host": host.rstrip("."), "origin_host": host.rstrip(".")}
+
+    if address.is_loopback or address.is_unspecified:
+        raise ProfileError("--lan-host must identify the PixEagle LAN address, not loopback or wildcard bind hosts.")
+    if address.is_global:
+        raise ProfileError(
+            "--lan-host must be a private/link-local lab LAN address for demo_lan_browser."
+        )
+    allowed_host = address.compressed
+    origin_host = f"[{address.compressed}]" if address.version == 6 else address.compressed
+    return {"allowed_host": allowed_host, "origin_host": origin_host}
+
+
+def _resolve_output_path(path_value: Path) -> Path:
+    path = Path(path_value).expanduser()
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return path
 
 
 def _dump_yaml(path: Path, data: CommentedMap) -> None:
@@ -200,6 +342,54 @@ def _write_config(args: argparse.Namespace, config: CommentedMap) -> Path | None
     return args.config
 
 
+def _write_profile_artifacts(args: argparse.Namespace) -> list[str]:
+    if args.profile != "demo_lan_browser":
+        return []
+
+    user_file: Path = args._demo_session_user_file
+    if args.dry_run:
+        return [
+            f"Would generate browser-session user file: {user_file}",
+            "Would print the generated password once; plaintext is never written to disk.",
+            "LAB ONLY: use this profile only on an isolated operator-approved LAN without TLS.",
+        ]
+
+    if user_file.exists() and args.rotate_demo_credentials:
+        backup = user_file.with_name(
+            f"{user_file.name}.backup.{strftime('%Y%m%d_%H%M%S')}"
+        )
+        backup.write_bytes(user_file.read_bytes())
+
+    password = secrets.token_urlsafe(24)
+    username = args._demo_username
+    try:
+        user_record = make_user_record(
+            username=username,
+            plaintext_password=password,
+            role=args.demo_role,
+        )
+    except ValueError as exc:
+        raise ProfileError(str(exc)) from exc
+    payload = {
+        "users": [user_record]
+    }
+    user_file.parent.mkdir(parents=True, exist_ok=True)
+    user_file.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    user_file.chmod(0o600)
+
+    return [
+        f"Generated browser-session user file: {user_file}",
+        f"Demo username: {username}",
+        f"Demo password: {password}",
+        "Store this password now; it is shown once and only the PBKDF2 hash was written.",
+        (
+            "Open the dashboard on the lab LAN at "
+            f"http://{args._demo_origin_host}:{args._demo_dashboard_port}"
+        ),
+        "LAB ONLY: do not use this HTTP profile for production or untrusted networks.",
+    ]
+
+
 def _print_profiles() -> None:
     print("Available PixEagle setup profiles:")
     for profile in PROFILES.values():
@@ -238,6 +428,53 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="QGC UDP h.264 receive port. Default: 5600.",
     )
     parser.add_argument(
+        "--lan-host",
+        help=(
+            "PixEagle LAN hostname/IP used by browser clients for the "
+            "demo_lan_browser profile."
+        ),
+    )
+    parser.add_argument(
+        "--http-stream-port",
+        type=int,
+        default=DEFAULT_HTTP_STREAM_PORT,
+        help="Backend API/streaming port for demo_lan_browser. Default: 5077.",
+    )
+    parser.add_argument(
+        "--dashboard-port",
+        type=int,
+        default=DEFAULT_DASHBOARD_PORT,
+        help="Dashboard port for demo_lan_browser CORS guidance. Default: 3040.",
+    )
+    parser.add_argument(
+        "--session-user-file",
+        type=Path,
+        default=DEFAULT_DEMO_USER_FILE,
+        help=(
+            "External browser-session user JSON for demo_lan_browser. "
+            "Default: configs/secrets/demo-browser-users.json."
+        ),
+    )
+    parser.add_argument(
+        "--demo-username",
+        default="pixeagle-demo",
+        help="Generated browser-session username for demo_lan_browser.",
+    )
+    parser.add_argument(
+        "--demo-role",
+        choices=["viewer", "operator", "admin"],
+        default="operator",
+        help="Role for the generated demo_lan_browser user. Default: operator.",
+    )
+    parser.add_argument(
+        "--rotate-demo-credentials",
+        action="store_true",
+        help=(
+            "Replace an existing demo_lan_browser user file after creating a "
+            "timestamped backup."
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Show planned changes without writing configs/config.yaml.",
@@ -273,6 +510,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         config, summaries = _build_plan(args)
         written = _write_config(args, config)
+        artifact_summaries = _write_profile_artifacts(args)
     except ProfileError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -280,6 +518,8 @@ def main(argv: list[str] | None = None) -> int:
     action = "Dry run" if args.dry_run else "Applied"
     print(f"{action}: PixEagle setup profile {args.profile}")
     for summary in summaries:
+        print(f"  - {summary}")
+    for summary in artifact_summaries:
         print(f"  - {summary}")
     if written is not None:
         print(f"Wrote {written}")

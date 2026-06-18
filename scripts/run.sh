@@ -103,7 +103,9 @@ DASHBOARD_PORT="${PIXEAGLE_DEFAULT_DASHBOARD_PORT:-3040}"
 WEBSOCKET_PORT="${PIXEAGLE_DEFAULT_WEBSOCKET_PORT:-5551}"
 BACKEND_HOST="127.0.0.1"
 API_EXPOSURE_MODE="local_only"
+API_AUTH_MODE="local_compat"
 DASHBOARD_HOST="${PIXEAGLE_DASHBOARD_HOST:-127.0.0.1}"
+DASHBOARD_EXPOSURE_MODE="${PIXEAGLE_DASHBOARD_EXPOSURE_MODE:-local_only}"
 
 # ============================================================================
 # Helper: Read port from config.yaml
@@ -425,9 +427,14 @@ load_configuration() {
     BACKEND_PORT=$(get_config_value "Streaming" "HTTP_STREAM_PORT" "$BACKEND_PORT")
     BACKEND_HOST=$(get_config_value "Streaming" "HTTP_STREAM_HOST" "$BACKEND_HOST")
     API_EXPOSURE_MODE=$(get_config_value "Streaming" "API_EXPOSURE_MODE" "$API_EXPOSURE_MODE")
+    API_AUTH_MODE=$(get_config_value "Streaming" "API_AUTH_MODE" "$API_AUTH_MODE")
     if [[ "$API_EXPOSURE_MODE" == "local_only" ]] && ! is_loopback_host "$BACKEND_HOST"; then
         log_warn "Legacy/non-loopback backend bind '$BACKEND_HOST' is displayed as 127.0.0.1 under local_only"
         BACKEND_HOST="127.0.0.1"
+    fi
+    if [[ -z "${PIXEAGLE_DASHBOARD_HOST:-}" ]] && [[ "$API_EXPOSURE_MODE" == "trusted_lan_legacy" ]] && [[ "$API_AUTH_MODE" == "browser_session" ]]; then
+        DASHBOARD_HOST="0.0.0.0"
+        DASHBOARD_EXPOSURE_MODE="trusted_lan_legacy"
     fi
     if declare -f resolve_dashboard_port >/dev/null 2>&1; then
         DASHBOARD_PORT="$(resolve_dashboard_port "$PIXEAGLE_DIR/dashboard" 2>/dev/null || echo "$DASHBOARD_PORT")"
@@ -442,6 +449,9 @@ load_configuration() {
     fi
     if [[ "$API_EXPOSURE_MODE" == "trusted_lan_legacy" ]]; then
         log_warn "trusted_lan_legacy backend exposure requires scoped API auth for non-loopback clients"
+    fi
+    if [[ "$DASHBOARD_EXPOSURE_MODE" == "trusted_lan_legacy" ]]; then
+        log_warn "Dashboard static server is reachable on the LAN; backend actions still require browser-session auth"
     fi
 
     # Check component scripts exist
@@ -537,7 +547,11 @@ start_services() {
     if [[ "$RUN_DASHBOARD" == "true" ]]; then
         # Ensure nvm is loaded in the tmux pane (needed if node installed via nvm)
         local nvm_setup='export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh";'
-        local dashboard_cmd="bash $DASHBOARD_SCRIPT"
+        local dashboard_host_arg dashboard_exposure_arg dashboard_script_arg
+        printf -v dashboard_host_arg "%q" "$DASHBOARD_HOST"
+        printf -v dashboard_exposure_arg "%q" "$DASHBOARD_EXPOSURE_MODE"
+        printf -v dashboard_script_arg "%q" "$DASHBOARD_SCRIPT"
+        local dashboard_cmd="PIXEAGLE_DASHBOARD_HOST=$dashboard_host_arg PIXEAGLE_DASHBOARD_EXPOSURE_MODE=$dashboard_exposure_arg bash $dashboard_script_arg"
         if [[ "$DEVELOPMENT_MODE" == "true" ]]; then
             dashboard_cmd="$dashboard_cmd -d"
         fi

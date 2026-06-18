@@ -157,9 +157,15 @@ the exact endpoints and operator reason.
 
 If a beginner demo needs easy video on a second machine, use the GStreamer QGC
 output path or an SSH tunnel. If a beginner demo needs the browser dashboard on
-a phone or tablet, the preferred bootstrap profile is `demo_lan_browser`: bind
-only to explicit Host/CORS allowlists, generate a username/password, use
-`API_AUTH_MODE: browser_session`, and show the operator that it is lab-only
+a phone or tablet, use the automated `demo_lan_browser` bootstrap profile:
+
+```bash
+make demo-lan-browser-profile LAN_HOST=<this-pixeagle-lan-ip-or-hostname>
+```
+
+The profile binds only to explicit Host/CORS allowlists, generates an external
+PBKDF2-hashed `browser_session` username/password file, uses
+`API_AUTH_MODE: browser_session`, and warns the operator that it is lab-only
 unless TLS/operator hardening is also configured.
 
 Do not provide a no-password remote control panel. Anonymous remote backend

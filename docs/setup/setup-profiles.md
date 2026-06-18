@@ -40,6 +40,8 @@ Streaming:
   API_CORS_ALLOWED_ORIGINS:
     - http://127.0.0.1:3040
     - http://localhost:3040
+    - http://127.0.0.1:5077
+    - http://localhost:5077
   API_ALLOWED_HOSTS: []
   API_AUTH_MODE: local_compat
 
@@ -77,6 +79,64 @@ and use the same port, normally `5600`.
 This profile does not expose `/video_feed`, `/ws/video_feed`,
 `/ws/webrtc_signaling`, or API routes to the LAN.
 
+### `demo_lan_browser`
+
+Use this only for a lab demo where PixEagle runs on an onboard/companion host
+and a phone, tablet, or laptop opens the browser dashboard on the same isolated
+LAN:
+
+```bash
+make demo-lan-browser-profile LAN_HOST=192.168.10.42
+```
+
+`LAN_HOST` is the PixEagle host address or hostname that the browser will use,
+not the GCS client address. The profile rejects wildcard, loopback, URL, and
+credential-bearing values. Hostnames must be local-scope names: single-label
+LAN names or names ending in `.local`/`.lan`, not public DNS names.
+
+The tool creates a local `configs/config.yaml`, writes an external hashed user
+file under `configs/secrets/`, and prints the generated password once. The
+credential file is gitignored and contains only PBKDF2-SHA256 password hashes,
+not plaintext. Re-running the profile refuses to overwrite that file unless the
+operator explicitly rotates credentials:
+
+```bash
+make demo-lan-browser-profile LAN_HOST=192.168.10.42 ROTATE_DEMO_CREDENTIALS=1
+```
+
+A successful run prints `Generated browser-session user file:` and the generated
+password once. Keep that password out of issue reports, checkpoint logs, and
+screenshots.
+
+It sets:
+
+```yaml
+Streaming:
+  API_EXPOSURE_MODE: trusted_lan_legacy
+  HTTP_STREAM_HOST: 0.0.0.0
+  HTTP_STREAM_PORT: 5077
+  API_CORS_ALLOWED_ORIGINS:
+    - http://127.0.0.1:3040
+    - http://localhost:3040
+    - http://127.0.0.1:5077
+    - http://localhost:5077
+    - http://192.168.10.42:3040
+    - http://192.168.10.42:5077
+  API_ALLOWED_HOSTS:
+    - 192.168.10.42
+  API_AUTH_MODE: browser_session
+  API_SESSION_USER_FILE: /absolute/path/to/configs/secrets/demo-browser-users.json
+  API_SESSION_COOKIE_SECURE: false
+```
+
+When `make run` sees `trusted_lan_legacy` plus `browser_session`, it binds the
+static dashboard server on the LAN and passes the same exposure mode to the
+dashboard process. Backend APIs, MJPEG, video WebSocket, and WebRTC signaling
+still require login/session credentials, CSRF for browser mutations, exact Host,
+and exact Origin checks. This profile is HTTP lab convenience, not production
+remote access; enable TLS and deployment-managed credentials before using
+PixEagle on untrusted networks.
+
 ## Defined But Not Automated Yet
 
 These profiles are part of the product contract, but the setup utility refuses
@@ -84,14 +144,13 @@ to apply them until their remaining security and evidence gates are completed.
 
 | Profile | Intent | Current status |
 | --- | --- | --- |
-| `demo_lan_browser` | Lab LAN browser demo with generated `browser_session` username/password, exact Host/CORS allowlists, and clear lab-only warnings | Defined; automation still needs generated user-file workflow and dashboard bind/origin handling |
 | `production_remote` | Hardened remote operator profile with TLS, durable credentials, exact Host/CORS allowlists, role/scopes, and audit evidence | Defined; gated by TLS/operator hardening, adversarial auth/media tests, and deployment evidence |
 | `unsafe_demo_lan_media_only` | Explicit anonymous media-only lab exception, never a dashboard/control profile and never default | Not supported |
 
 Do not create a no-password remote control panel. If a beginner needs remote
 video quickly, use `field_qgc_video` or an SSH tunnel. If a beginner needs the
-full browser dashboard from another device, the profile must generate
-credentials rather than exposing anonymous backend control.
+full browser dashboard from another device, use `demo_lan_browser` so setup
+generates credentials rather than exposing anonymous backend control.
 
 ## Tooling
 
@@ -105,12 +164,14 @@ Preview changes:
 
 ```bash
 python scripts/setup/apply-setup-profile.py --profile field_qgc_video --gcs-host 192.168.10.20 --dry-run
+python scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host 192.168.10.42 --dry-run
 ```
 
 Apply changes:
 
 ```bash
 python scripts/setup/apply-setup-profile.py --profile field_qgc_video --gcs-host 192.168.10.20
+python scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host 192.168.10.42
 ```
 
 When the destination `configs/config.yaml` already exists, the tool creates a
