@@ -120,6 +120,18 @@ Read-only health or status success is not routing success. MavlinkAnywhere is
 prepared for PixEagle only when the required endpoint, config, and profile
 summary probes succeed and the required enabled normal-mode outputs are
 present. A running service with a missing router config remains unprepared.
+Accepted SITL evidence must also validate the plan's declared sidecar
+compatibility policy. PixEagle's harness records the installed dashboard
+version in `versions/mavlink_anywhere_dashboard.json` and classifies
+MavlinkAnywhere as `unavailable`, `unexpected_auth`,
+`unsupported_contract_version`, `unprepared_config`, or `prepared_routing`.
+Only `prepared_routing` can support an accepted SITL artifact set.
+
+Evidence bundles must include `security/secret_scan.json`. High-confidence
+tokens, passwords, private keys, URL credentials, authorization headers,
+query-string secrets, and Wi-Fi PSKs in copied text artifacts block acceptance.
+The scan report records detector/path/key metadata and skipped binary artifacts
+without storing matched secret values or context lines.
 
 ## API, Agent, And MCP Boundary
 

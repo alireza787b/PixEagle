@@ -55,6 +55,43 @@
         "127.0.0.1:14569",
         "127.0.0.1:12550"
       ],
+      "compatibility_policy": {
+        "schema_version": 1,
+        "provider": "mavlink-anywhere",
+        "reviewed_source_ref": "7643d4d9bc75a78fdc6b0f68358c466310ee2c4d",
+        "reviewed_version": "v3.0.14-2-g7643d4d",
+        "minimum_dashboard_semver": "3.0.14",
+        "auth_expectation": "loopback_read_without_credentials",
+        "required_api_paths": [
+          "/api/v1/status",
+          "/api/v1/diagnostics",
+          "/api/v1/endpoints",
+          "/api/v1/profiles/summary",
+          "/api/v1/config"
+        ],
+        "required_status_fields": ["version"],
+        "required_endpoint_fields": [
+          "name",
+          "type",
+          "mode",
+          "address",
+          "port",
+          "category",
+          "enabled"
+        ],
+        "required_profile_metadata": {
+          "backend": "mavlink-anywhere",
+          "source": "node-local",
+          "present": true
+        },
+        "classification_contract": [
+          "unavailable",
+          "unexpected_auth",
+          "unsupported_contract_version",
+          "unprepared_config",
+          "prepared_routing"
+        ]
+      },
       "notes": "Use MavlinkAnywhere for MAVLink routing while Gazebo camera video remains a separate RTP/H.264 UDP stream on port 5600."
     },
     "mavlink2rest": {
@@ -94,11 +131,13 @@
     "config/config.yaml",
     "versions/git.json",
     "versions/runtime.json",
+    "versions/mavlink_anywhere_dashboard.json",
     "route_map/mavlink_anywhere_status.json",
     "route_map/mavlink_anywhere_diagnostics.json",
     "route_map/mavlink_anywhere_endpoints.json",
     "route_map/mavlink_anywhere_profiles_summary.json",
     "route_map/mavlink_anywhere_config.json",
+    "security/secret_scan.json",
     "probes/pixeagle_status.json",
     "probes/pixeagle_current_config.json",
     "probes/pixeagle_follower_setpoints_status.json",

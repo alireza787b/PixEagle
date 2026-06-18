@@ -62,7 +62,16 @@ def test_phase2_plan_declares_required_evidence_contract():
     assert "px4/offboard_observation.json" in evidence_contract
     assert "route_map/mavlink_anywhere_status.json" in evidence_contract
     assert "route_map/mavlink_anywhere_endpoints.json" in evidence_contract
+    assert "versions/mavlink_anywhere_dashboard.json" in evidence_contract
+    assert "security/secret_scan.json" in evidence_contract
     assert "scenarios/scenario_results.json" in evidence_contract
+    policy = plan["stack"]["routing"]["compatibility_policy"]
+    assert policy["provider"] == "mavlink-anywhere"
+    assert policy["reviewed_source_ref"] == "7643d4d9bc75a78fdc6b0f68358c466310ee2c4d"
+    assert policy["minimum_dashboard_semver"] == "3.0.14"
+    assert policy["auth_expectation"] == "loopback_read_without_credentials"
+    assert "/api/v1/status" in policy["required_api_paths"]
+    assert "/api/v1/profiles/summary" in policy["required_api_paths"]
 
 
 def test_gazebo_visual_plan_declares_official_image_video_contract_and_extra_evidence():
@@ -91,6 +100,9 @@ def test_gazebo_visual_plan_declares_official_image_video_contract_and_extra_evi
     assert "video/gazebo_frame_hashes.json" in evidence_contract
     assert "trace/tracker_command_trace.jsonl" in evidence_contract
     assert "trace/offboard_publish_trace.jsonl" in evidence_contract
+    assert "versions/mavlink_anywhere_dashboard.json" in evidence_contract
+    assert "security/secret_scan.json" in evidence_contract
+    assert plan["stack"]["routing"]["compatibility_policy"]["provider"] == "mavlink-anywhere"
     assert summary["required_phase2_applicable"] is False
     assert summary["required_phase2_scenarios_missing"] == []
 
@@ -360,8 +372,17 @@ def mavlink_anywhere_probe_results(
     *,
     text=None,
     profile_overrides=None,
+    status_overrides=None,
+    result_overrides=None,
 ):
     payload_text = text if text is not None else json.dumps(endpoints_payload)
+    status_json = {
+        "version": "3.0.14",
+        "service": {"active": True},
+        "endpointCount": len(endpoints_payload.get("endpoints", [])),
+    }
+    if status_overrides:
+        status_json.update(status_overrides)
     profile_json = {
         "schema": "sidecar-profile/v1",
         "backend": "mavlink-anywhere",
@@ -373,7 +394,23 @@ def mavlink_anywhere_probe_results(
     }
     if profile_overrides:
         profile_json.update(profile_overrides)
-    return {
+    results = {
+        "route_map/mavlink_anywhere_status.json": {
+            "raw": {
+                "ok": True,
+                "status": 200,
+                "json": status_json,
+                "text": json.dumps(status_json),
+            }
+        },
+        "route_map/mavlink_anywhere_diagnostics.json": {
+            "raw": {
+                "ok": True,
+                "status": 200,
+                "json": {"alerts": [], "mavlink": {"ok": True}},
+                "text": "{}",
+            }
+        },
         "route_map/mavlink_anywhere_endpoints.json": {
             "raw": {
                 "ok": True,
@@ -406,6 +443,44 @@ def mavlink_anywhere_probe_results(
                 "text": "{}",
             }
         },
+    }
+    if result_overrides:
+        for path, raw in result_overrides.items():
+            results.setdefault(path, {})["raw"] = raw
+    return results
+
+
+def valid_mavlink_anywhere_endpoints_payload():
+    return {
+        "endpoints": [
+            {
+                "name": "mavsdk",
+                "type": "UdpEndpoint",
+                "mode": "normal",
+                "address": "127.0.0.1",
+                "port": 14540,
+                "category": "local",
+                "enabled": True,
+            },
+            {
+                "name": "mavlink2rest",
+                "type": "UdpEndpoint",
+                "mode": "normal",
+                "address": "127.0.0.1",
+                "port": 14569,
+                "category": "local",
+                "enabled": True,
+            },
+            {
+                "name": "local_mavlink",
+                "type": "UdpEndpoint",
+                "mode": "normal",
+                "address": "127.0.0.1",
+                "port": 12550,
+                "category": "local",
+                "enabled": True,
+            },
+        ]
     }
 
 
@@ -629,6 +704,193 @@ def test_structured_mavlink_anywhere_endpoint_validation_requires_profile_metada
             False,
         ),
     }
+
+
+def test_mavlink_anywhere_compatibility_classifies_prepared_routing():
+    harness = load_harness_module()
+    plan = harness.load_plan(PLAN_DIR / "phase2_follower_validation.json")
+
+    checks = harness.semantic_stack_checks(
+        plan,
+        mavlink_anywhere_probe_results(
+            plan,
+            valid_mavlink_anywhere_endpoints_payload(),
+        ),
+    )
+    compatibility = checks["mavlink_anywhere_compatibility"]
+
+    assert compatibility["ok"] is True
+    assert compatibility["classification"] == "prepared_routing"
+    assert compatibility["version_evidence"]["installed_dashboard_version"] == "3.0.14"
+    assert compatibility["version_evidence"]["version_meets_policy"] is True
+
+
+def test_mavlink_anywhere_compatibility_classifies_unavailable_status_probe():
+    harness = load_harness_module()
+    plan = harness.load_plan(PLAN_DIR / "phase2_follower_validation.json")
+
+    checks = harness.semantic_stack_checks(
+        plan,
+        mavlink_anywhere_probe_results(
+            plan,
+            valid_mavlink_anywhere_endpoints_payload(),
+            result_overrides={
+                "route_map/mavlink_anywhere_status.json": {
+                    "ok": False,
+                    "error": "connection refused",
+                }
+            },
+        ),
+    )
+    compatibility = checks["mavlink_anywhere_compatibility"]
+
+    assert compatibility["ok"] is False
+    assert compatibility["classification"] == "unavailable"
+    assert compatibility["reasons"][0]["reason"] == "status_probe_transport_unavailable"
+
+
+def test_mavlink_anywhere_compatibility_auth_failure_has_precedence():
+    harness = load_harness_module()
+    plan = harness.load_plan(PLAN_DIR / "phase2_follower_validation.json")
+
+    checks = harness.semantic_stack_checks(
+        plan,
+        mavlink_anywhere_probe_results(
+            plan,
+            valid_mavlink_anywhere_endpoints_payload(),
+            result_overrides={
+                "route_map/mavlink_anywhere_status.json": {
+                    "ok": False,
+                    "error": "connection refused",
+                },
+                "route_map/mavlink_anywhere_endpoints.json": {
+                    "ok": False,
+                    "status": 401,
+                    "json": {"error": "dashboard authentication required"},
+                },
+            },
+        ),
+    )
+    compatibility = checks["mavlink_anywhere_compatibility"]
+
+    assert compatibility["ok"] is False
+    assert compatibility["classification"] == "unexpected_auth"
+    assert compatibility["reasons"][0]["reason"] == "read_probe_required_authentication"
+
+
+def test_mavlink_anywhere_compatibility_classifies_unsupported_version():
+    harness = load_harness_module()
+    plan = harness.load_plan(PLAN_DIR / "phase2_follower_validation.json")
+
+    checks = harness.semantic_stack_checks(
+        plan,
+        mavlink_anywhere_probe_results(
+            plan,
+            valid_mavlink_anywhere_endpoints_payload(),
+            status_overrides={"version": "3.0.8"},
+        ),
+    )
+    compatibility = checks["mavlink_anywhere_compatibility"]
+
+    assert compatibility["ok"] is False
+    assert compatibility["classification"] == "unsupported_contract_version"
+    assert compatibility["reasons"][0]["reason"] == "dashboard_version_below_policy"
+
+
+def test_mavlink_anywhere_compatibility_classifies_unprepared_config():
+    harness = load_harness_module()
+    plan = harness.load_plan(PLAN_DIR / "phase2_follower_validation.json")
+    endpoints_payload = valid_mavlink_anywhere_endpoints_payload()
+    endpoints_payload["endpoints"][1]["mode"] = "server"
+
+    checks = harness.semantic_stack_checks(
+        plan,
+        mavlink_anywhere_probe_results(plan, endpoints_payload),
+    )
+    compatibility = checks["mavlink_anywhere_compatibility"]
+
+    assert compatibility["ok"] is False
+    assert compatibility["classification"] == "unprepared_config"
+    assert any(
+        reason["reason"] == "required_outputs_or_profile_not_prepared"
+        for reason in compatibility["reasons"]
+    )
+
+
+def test_secret_scan_blocks_credentials_without_echoing_values(tmp_path):
+    harness = load_harness_module()
+    run_dir = tmp_path / "run"
+    (run_dir / "config").mkdir(parents=True)
+    (run_dir / "logs").mkdir(parents=True)
+    secret = "super-secret-token-123"
+    (run_dir / "config" / "config.yaml").write_text(
+        f"MAVLINK_ANYWHERE_API_TOKEN: {secret}\n",
+        encoding="utf-8",
+    )
+    (run_dir / "logs" / "pixeagle.log").write_text(
+        "Authorization: Bearer another-secret-token\n"
+        "camera=rtsp://admin:camera-secret@192.0.2.10/stream\n"
+        "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n",
+        encoding="utf-8",
+    )
+
+    report = harness.scan_evidence_artifacts_for_secrets(run_dir)
+    report_text = json.dumps(report)
+
+    assert report["ok"] is False
+    assert report["status"] == "blocked"
+    assert report["high_confidence_findings"] >= 4
+    assert secret not in report_text
+    assert "another-secret-token" not in report_text
+    assert "camera-secret" not in report_text
+    assert {
+        finding["detector"] for finding in report["findings"]
+    } >= {
+        "sensitive_assignment",
+        "authorization_header_secret",
+        "uri_userinfo_credentials",
+        "private_key_block",
+    }
+
+
+def test_secret_scan_allows_placeholders_paths_and_metadata(tmp_path):
+    harness = load_harness_module()
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "config_default.yaml").write_text(
+        "\n".join(
+            [
+                "API_BEARER_TOKEN_FILE: /etc/pixeagle/media-tokens.json",
+                "API_CSRF_HEADER_NAME: X-CSRF-Token",
+                "idempotency_key: phase2-offboard-entry",
+                "password: <REDACTED_PASSWORD>",
+                "token_id: qgc-media-viewer",
+                "sha256: " + ("a" * 64),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = harness.scan_evidence_artifacts_for_secrets(run_dir)
+
+    assert report["ok"] is True
+    assert report["high_confidence_findings"] == 0
+
+
+def test_secret_scan_skips_binary_flight_artifacts(tmp_path):
+    harness = load_harness_module()
+    run_dir = tmp_path / "run"
+    (run_dir / "px4").mkdir(parents=True)
+    (run_dir / "px4" / "test.tlog").write_bytes(b"\x00secret-looking-token")
+    (run_dir / "px4" / "params.txt").write_bytes(b"\x00bson\x00password=secret")
+
+    report = harness.scan_evidence_artifacts_for_secrets(run_dir)
+
+    assert report["ok"] is True
+    assert report["skipped_binary_count"] == 2
+    assert {
+        item["artifact_path"] for item in report["skipped_artifacts"]
+    } == {"px4/params.txt", "px4/test.tlog"}
 
 
 def test_px4_offboard_observation_extracts_mavlink2rest_heartbeat_mode():

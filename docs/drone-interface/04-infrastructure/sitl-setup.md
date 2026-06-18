@@ -74,6 +74,31 @@ Do not expose or mutate the sidecar merely to make a validation probe pass; use
 the [Companion Runtime Contract](../../architecture/companion-runtime-contract.md)
 and an operator-approved preparation step.
 
+Each maintained SITL plan declares a MavlinkAnywhere compatibility policy:
+reviewed source ref `7643d4d9bc75a78fdc6b0f68358c466310ee2c4d`
+(`v3.0.14-2-g7643d4d`), minimum dashboard version `3.0.14`, loopback
+read-without-credentials expectation, required read paths
+`/api/v1/status`, `/api/v1/diagnostics`, `/api/v1/endpoints`,
+`/api/v1/profiles/summary`, and `/api/v1/config`, structured endpoint fields,
+and required profile metadata. Runtime evidence writes
+`versions/mavlink_anywhere_dashboard.json` and classifies the sidecar as:
+
+- `unavailable`: the dashboard status probe could not be reached.
+- `unexpected_auth`: a required loopback read returned auth/permission
+  protection where the plan expected local read access.
+- `unsupported_contract_version`: the dashboard version or required read API
+  contract is missing or below the plan policy.
+- `unprepared_config`: the API contract is compatible, but required enabled
+  normal-mode outputs or profile metadata are not prepared.
+- `prepared_routing`: version, read paths, profile metadata, and required
+  outputs all match the plan.
+
+Accepted evidence also requires `security/secret_scan.json`. The scan rejects
+high-confidence tokens, passwords, private keys, URL credentials, authorization
+headers, query-string secrets, and Wi-Fi PSKs in copied configs, probes, logs,
+traces, and text artifacts. Binary flight logs such as `.ulg`, `.tlog`, and
+BSON-like files are skipped with explicit metadata instead of decoded.
+
 ## Checked-In Harness
 
 Plan library:
@@ -278,8 +303,10 @@ make video-udp-proof-execute
 Accepted visual evidence must include the generated receiver proof manifest,
 Gazebo receiver pipeline, Gazebo frame hashes, tracker command trace, Offboard
 publish trace, structured MavlinkAnywhere route/profile evidence, PixEagle
-config snapshots, PX4 params, PX4 logs, ULog/tlog manifests, and container
-metadata. Missing or placeholder artifacts keep the run incomplete.
+config snapshots, MavlinkAnywhere dashboard version evidence, secret-scan
+report, PX4 params, PX4 logs, ULog/tlog manifests, and container metadata.
+Missing, placeholder, incompatible, or secret-blocked artifacts keep the run
+incomplete.
 
 The harness now performs artifact-content checks for visual evidence. It rejects
 empty or unparsable receiver proof manifests, weak RTP/H.264 pipeline text,
@@ -693,6 +720,11 @@ runner, or a separately proven official-image startup workaround.
   snapshots, route map, PixEagle logs, MAVLink health, PX4 params, and PX4
   ULog/tlog manifests with checksums. Missing PX4 params, ULog, or tlog
   evidence keeps the run incomplete, not accepted.
+- `manifest.json` must show `mavlink_anywhere_compatibility.classification`
+  equivalent evidence as `prepared_routing` through semantic checks, and
+  `security/secret_scan.json` must have `status: pass`. The secret-scan report
+  never stores matched secret values or context lines; a blocked scan means the
+  evidence bundle must be sanitized and re-collected.
 
 ## Related Documentation
 

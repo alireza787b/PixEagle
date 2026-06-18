@@ -56,11 +56,13 @@ REQUIRED_EVIDENCE_ARTIFACTS = {
     "config/config.yaml",
     "versions/git.json",
     "versions/runtime.json",
+    "versions/mavlink_anywhere_dashboard.json",
     "route_map/mavlink_anywhere_status.json",
     "route_map/mavlink_anywhere_diagnostics.json",
     "route_map/mavlink_anywhere_endpoints.json",
     "route_map/mavlink_anywhere_profiles_summary.json",
     "route_map/mavlink_anywhere_config.json",
+    "security/secret_scan.json",
     "probes/pixeagle_status.json",
     "probes/pixeagle_current_config.json",
     "probes/pixeagle_follower_setpoints_status.json",
@@ -117,6 +119,86 @@ MAVLINK_ANYWHERE_ENDPOINT_REQUIRED_FIELDS = {
     "category",
     "enabled",
 }
+MAVLINK_ANYWHERE_REQUIRED_API_PATHS = [
+    "/api/v1/status",
+    "/api/v1/diagnostics",
+    "/api/v1/endpoints",
+    "/api/v1/profiles/summary",
+    "/api/v1/config",
+]
+MAVLINK_ANYWHERE_API_ARTIFACTS = {
+    "/api/v1/status": "route_map/mavlink_anywhere_status.json",
+    "/api/v1/diagnostics": "route_map/mavlink_anywhere_diagnostics.json",
+    "/api/v1/endpoints": "route_map/mavlink_anywhere_endpoints.json",
+    "/api/v1/profiles/summary": "route_map/mavlink_anywhere_profiles_summary.json",
+    "/api/v1/config": "route_map/mavlink_anywhere_config.json",
+}
+MAVLINK_ANYWHERE_COMPATIBILITY_CLASSIFICATIONS = {
+    "unavailable",
+    "unexpected_auth",
+    "unsupported_contract_version",
+    "unprepared_config",
+    "prepared_routing",
+}
+SECRET_SCAN_MAX_FILE_BYTES = 2 * 1024 * 1024
+SECRET_SCAN_TEXT_SUFFIXES = {
+    "",
+    ".conf",
+    ".env",
+    ".ini",
+    ".json",
+    ".jsonl",
+    ".log",
+    ".md",
+    ".service",
+    ".sh",
+    ".txt",
+    ".yaml",
+    ".yml",
+}
+SECRET_SCAN_SKIP_SUFFIXES = {
+    ".avi",
+    ".bin",
+    ".bmp",
+    ".bson",
+    ".engine",
+    ".gz",
+    ".jpeg",
+    ".jpg",
+    ".mkv",
+    ".mp4",
+    ".ncnn",
+    ".onnx",
+    ".pt",
+    ".png",
+    ".tlog",
+    ".ulg",
+    ".zip",
+}
+PRIVATE_KEY_RE = re.compile(
+    r"-----BEGIN (?:RSA |DSA |EC |OPENSSH |)?PRIVATE KEY-----",
+    re.IGNORECASE,
+)
+SENSITIVE_ASSIGNMENT_RE = re.compile(
+    r"""(?ix)
+    ["']?
+    (?P<key>[A-Z0-9_.-]*
+      (?:password|passwd|token|api[_-]?key|secret|private[_-]?key|psk|ssid)
+      [A-Z0-9_.-]*)
+    ["']?
+    \s*[:=]\s*
+    ["']?(?P<value>[^"',\s#}\]]+)
+    """
+)
+URI_CREDENTIAL_RE = re.compile(
+    r"(?i)\b[a-z][a-z0-9+.-]*://[^/\s:@]+:[^@\s/]+@"
+)
+AUTHORIZATION_SECRET_RE = re.compile(
+    r"(?i)\bauthorization\s*[:=]\s*(?:bearer|basic)\s+[^\s,;]+"
+)
+QUERY_SECRET_RE = re.compile(
+    r"(?i)(?:[?&]|\\b)(?:access_token|api[_-]?key|password|passwd|token|client_secret)=([^&\s]+)"
+)
 API_V1_ACTION_OFFBOARD_START_PATH = "/api/v1/actions/offboard-start"
 PX4_OFFBOARD_CUSTOM_MODE = 393216
 PX4_AUTOPILOT_COMPONENT_ID = 1
@@ -186,6 +268,125 @@ def resolve_plan(plan_name: str | None, plan_file: str | None) -> Path:
         available = ", ".join(path.stem for path in plan_files())
         raise PlanError(f"Unknown plan {selected_name!r}. Available: {available}")
     return path
+
+
+def parse_semver(value: Any) -> tuple[int, int, int] | None:
+    if not isinstance(value, str):
+        return None
+    match = re.search(r"\bv?(\d+)\.(\d+)\.(\d+)\b", value.strip())
+    if not match:
+        return None
+    return tuple(int(part) for part in match.groups())
+
+
+def semver_meets_minimum(value: Any, minimum: Any) -> bool:
+    parsed = parse_semver(value)
+    minimum_parsed = parse_semver(minimum)
+    return bool(parsed is not None and minimum_parsed is not None and parsed >= minimum_parsed)
+
+
+def validate_mavlink_anywhere_compatibility_policy(
+    plan: dict[str, Any],
+    source: Path,
+) -> None:
+    routing = ((plan.get("stack") or {}).get("routing") or {})
+    if routing.get("provider") != "mavlink-anywhere":
+        return
+
+    policy = routing.get("compatibility_policy")
+    if not isinstance(policy, dict):
+        raise PlanError(
+            f"{source}: stack.routing.compatibility_policy must define the "
+            "MavlinkAnywhere version and capability contract"
+        )
+
+    required_keys = {
+        "schema_version",
+        "provider",
+        "reviewed_source_ref",
+        "reviewed_version",
+        "minimum_dashboard_semver",
+        "required_api_paths",
+        "required_status_fields",
+        "required_endpoint_fields",
+        "required_profile_metadata",
+        "auth_expectation",
+    }
+    missing = sorted(required_keys - set(policy))
+    if missing:
+        raise PlanError(
+            f"{source}: stack.routing.compatibility_policy missing keys: "
+            f"{', '.join(missing)}"
+        )
+    if policy.get("schema_version") != 1:
+        raise PlanError(
+            f"{source}: stack.routing.compatibility_policy.schema_version must be 1"
+        )
+    if policy.get("provider") != "mavlink-anywhere":
+        raise PlanError(
+            f"{source}: stack.routing.compatibility_policy.provider must be mavlink-anywhere"
+        )
+    if not isinstance(policy.get("reviewed_source_ref"), str) or len(
+        policy["reviewed_source_ref"]
+    ) < 12:
+        raise PlanError(
+            f"{source}: stack.routing.compatibility_policy.reviewed_source_ref "
+            "must be a concrete commit/ref"
+        )
+    if parse_semver(policy.get("minimum_dashboard_semver")) is None:
+        raise PlanError(
+            f"{source}: stack.routing.compatibility_policy.minimum_dashboard_semver "
+            "must contain major.minor.patch"
+        )
+
+    required_api_paths = policy.get("required_api_paths")
+    if not isinstance(required_api_paths, list):
+        raise PlanError(
+            f"{source}: stack.routing.compatibility_policy.required_api_paths "
+            "must be a list"
+        )
+    missing_api_paths = [
+        path for path in MAVLINK_ANYWHERE_REQUIRED_API_PATHS if path not in required_api_paths
+    ]
+    if missing_api_paths:
+        raise PlanError(
+            f"{source}: stack.routing.compatibility_policy.required_api_paths "
+            f"missing: {', '.join(missing_api_paths)}"
+        )
+
+    required_status_fields = policy.get("required_status_fields")
+    if not isinstance(required_status_fields, list) or "version" not in required_status_fields:
+        raise PlanError(
+            f"{source}: stack.routing.compatibility_policy.required_status_fields "
+            "must include version"
+        )
+
+    endpoint_fields = {str(item) for item in policy.get("required_endpoint_fields", [])}
+    missing_endpoint_fields = sorted(
+        MAVLINK_ANYWHERE_ENDPOINT_REQUIRED_FIELDS - endpoint_fields
+    )
+    if missing_endpoint_fields:
+        raise PlanError(
+            f"{source}: stack.routing.compatibility_policy.required_endpoint_fields "
+            f"missing: {', '.join(missing_endpoint_fields)}"
+        )
+
+    profile_metadata = policy.get("required_profile_metadata")
+    if not isinstance(profile_metadata, dict):
+        raise PlanError(
+            f"{source}: stack.routing.compatibility_policy.required_profile_metadata "
+            "must be an object"
+        )
+    if profile_metadata.get("backend") != "mavlink-anywhere" or profile_metadata.get("present") is not True:
+        raise PlanError(
+            f"{source}: stack.routing.compatibility_policy.required_profile_metadata "
+            "must require backend=mavlink-anywhere and present=true"
+        )
+    if policy.get("auth_expectation") != "loopback_read_without_credentials":
+        raise PlanError(
+            f"{source}: stack.routing.compatibility_policy.auth_expectation "
+            "must be loopback_read_without_credentials for maintained SITL plans"
+        )
 
 
 def validate_plan(plan: dict[str, Any], source: Path) -> None:
@@ -313,6 +514,8 @@ def validate_plan(plan: dict[str, Any], source: Path) -> None:
     for stack_key in ("px4", "routing", "mavlink2rest", "pixeagle"):
         if stack_key not in stack:
             raise PlanError(f"{source}: stack missing {stack_key}")
+
+    validate_mavlink_anywhere_compatibility_policy(plan, source)
 
     evidence_contract = plan["evidence_contract"]
     if not isinstance(evidence_contract, list) or not evidence_contract:
@@ -1242,12 +1445,369 @@ def validate_px4_container_metadata_for_plan(plan: dict[str, Any], path: Path) -
     }
 
 
+def secret_value_is_safe_placeholder(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return True
+    text = str(value).strip().strip("\"'")
+    if not text:
+        return True
+    lower = text.lower()
+    if lower in {
+        "0",
+        "false",
+        "none",
+        "null",
+        "redacted",
+        "<redacted>",
+        "<redacted_token>",
+        "<redacted_password>",
+        "<redacted_private_key>",
+        "<redacted_wifi_psk>",
+        "placeholder",
+        "dummy",
+        "example",
+        "not-a-secret",
+        "not_a_secret",
+        "test-only",
+        "test_only",
+    }:
+        return True
+    if text.startswith("<") and text.endswith(">"):
+        return True
+    if len(text) >= 4 and set(text) <= {"*", "x", "X", "."}:
+        return True
+    return False
+
+
+def secret_key_is_exempt(key: Any) -> bool:
+    normalized = str(key).strip().lower().replace("-", "_").replace(".", "_")
+    if not normalized:
+        return True
+    exempt_fragments = {
+        "idempotency_key",
+        "csrf_header",
+        "header_name",
+        "token_id",
+        "hash",
+        "digest",
+        "sha256",
+        "checksum",
+        "image_id",
+        "run_id",
+        "action_id",
+        "repo_digests",
+        "source_ref",
+        "git_ref",
+        "build_ref",
+    }
+    if any(fragment in normalized for fragment in exempt_fragments):
+        return True
+    if normalized.endswith(("_file", "_path", "_dir", "_directory")):
+        return True
+    if "ssid" in normalized and not any(
+        fragment in normalized for fragment in ("password", "passphrase", "psk")
+    ):
+        return True
+    return False
+
+
+def secret_key_is_sensitive(key: Any) -> bool:
+    if secret_key_is_exempt(key):
+        return False
+    normalized = str(key).strip().lower().replace("-", "_").replace(".", "_")
+    sensitive_terms = {
+        "password",
+        "passwd",
+        "passphrase",
+        "psk",
+        "wpa_psk",
+        "wifi_password",
+        "token",
+        "api_key",
+        "client_secret",
+        "private_key",
+        "secret_key",
+        "mavlink_anywhere_api_token",
+        "smart_wifi_manager_api_token",
+        "webrtc_turn_credential",
+    }
+    return any(term in normalized for term in sensitive_terms)
+
+
+def secret_scan_finding(
+    *,
+    detector: str,
+    artifact_path: str,
+    severity: str = "high",
+    line: int | None = None,
+    column: int | None = None,
+    json_path: str | None = None,
+    key: str | None = None,
+) -> dict[str, Any]:
+    finding = {
+        "detector": detector,
+        "severity": severity,
+        "artifact_path": artifact_path,
+        "action": "blocked",
+    }
+    if line is not None:
+        finding["line"] = line
+    if column is not None:
+        finding["column"] = column
+    if json_path is not None:
+        finding["json_path"] = json_path
+    if key is not None:
+        finding["key"] = key
+    return finding
+
+
+def scan_text_for_secret_findings(text: str, artifact_path: str) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+
+    for detector, pattern in (
+        ("private_key_block", PRIVATE_KEY_RE),
+        ("uri_userinfo_credentials", URI_CREDENTIAL_RE),
+        ("authorization_header_secret", AUTHORIZATION_SECRET_RE),
+    ):
+        for match in pattern.finditer(text):
+            line = text.count("\n", 0, match.start()) + 1
+            column = match.start() - text.rfind("\n", 0, match.start())
+            findings.append(
+                secret_scan_finding(
+                    detector=detector,
+                    artifact_path=artifact_path,
+                    line=line,
+                    column=column,
+                )
+            )
+
+    for match in QUERY_SECRET_RE.finditer(text):
+        value = match.group(1)
+        if secret_value_is_safe_placeholder(value):
+            continue
+        line = text.count("\n", 0, match.start()) + 1
+        column = match.start() - text.rfind("\n", 0, match.start())
+        findings.append(
+            secret_scan_finding(
+                detector="query_parameter_secret",
+                artifact_path=artifact_path,
+                line=line,
+                column=column,
+            )
+        )
+
+    for line_number, line_text in enumerate(text.splitlines(), start=1):
+        for match in SENSITIVE_ASSIGNMENT_RE.finditer(line_text):
+            key = match.group("key")
+            value = match.group("value")
+            if not secret_key_is_sensitive(key) or secret_value_is_safe_placeholder(value):
+                continue
+            findings.append(
+                secret_scan_finding(
+                    detector="sensitive_assignment",
+                    artifact_path=artifact_path,
+                    line=line_number,
+                    column=match.start("value") + 1,
+                    key=key,
+                )
+            )
+    return findings
+
+
+def json_scalar_secret_findings(
+    data: Any,
+    artifact_path: str,
+    *,
+    path: tuple[str, ...] = (),
+) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    if isinstance(data, dict):
+        for key, value in data.items():
+            next_path = (*path, str(key))
+            if secret_key_is_sensitive(key) and not isinstance(value, (dict, list)):
+                if not secret_value_is_safe_placeholder(value):
+                    findings.append(
+                        secret_scan_finding(
+                            detector="structured_sensitive_key",
+                            artifact_path=artifact_path,
+                            json_path=".".join(next_path),
+                            key=str(key),
+                        )
+                    )
+            if isinstance(value, str):
+                for detector, pattern in (
+                    ("private_key_block", PRIVATE_KEY_RE),
+                    ("uri_userinfo_credentials", URI_CREDENTIAL_RE),
+                    ("authorization_header_secret", AUTHORIZATION_SECRET_RE),
+                    ("query_parameter_secret", QUERY_SECRET_RE),
+                ):
+                    if pattern.search(value) and not secret_value_is_safe_placeholder(value):
+                        findings.append(
+                            secret_scan_finding(
+                                detector=detector,
+                                artifact_path=artifact_path,
+                                json_path=".".join(next_path),
+                                key=str(key),
+                            )
+                        )
+            findings.extend(json_scalar_secret_findings(value, artifact_path, path=next_path))
+    elif isinstance(data, list):
+        for index, value in enumerate(data):
+            findings.extend(
+                json_scalar_secret_findings(value, artifact_path, path=(*path, str(index)))
+            )
+    return findings
+
+
+def scan_json_for_secret_findings(text: str, artifact_path: str, suffix: str) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    if suffix == ".jsonl":
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                parsed = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            for finding in json_scalar_secret_findings(parsed, artifact_path):
+                finding.setdefault("line", line_number)
+                findings.append(finding)
+        return findings
+    if suffix == ".json":
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            return []
+        return json_scalar_secret_findings(parsed, artifact_path)
+    return []
+
+
+def dedupe_secret_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[Any, ...]] = set()
+    deduped = []
+    for finding in findings:
+        key = (
+            finding.get("detector"),
+            finding.get("artifact_path"),
+            finding.get("line"),
+            finding.get("column"),
+            finding.get("json_path"),
+            finding.get("key"),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(finding)
+    return deduped
+
+
+def read_text_artifact_for_secret_scan(path: Path) -> tuple[str | None, dict[str, Any] | None]:
+    suffix = path.suffix.lower()
+    size = path.stat().st_size
+    relative = str(path)
+    if suffix in SECRET_SCAN_SKIP_SUFFIXES:
+        return None, {
+            "artifact_path": relative,
+            "size_bytes": size,
+            "sha256": sha256_file(path),
+            "reason": f"binary_or_large_artifact_suffix:{suffix}",
+        }
+    if suffix not in SECRET_SCAN_TEXT_SUFFIXES:
+        return None, {
+            "artifact_path": relative,
+            "size_bytes": size,
+            "sha256": sha256_file(path),
+            "reason": f"unsupported_text_suffix:{suffix or '<none>'}",
+        }
+    if size > SECRET_SCAN_MAX_FILE_BYTES:
+        return None, {
+            "artifact_path": relative,
+            "size_bytes": size,
+            "sha256": sha256_file(path),
+            "reason": "text_artifact_too_large",
+        }
+    sample = path.read_bytes()[:4096]
+    if b"\x00" in sample:
+        return None, {
+            "artifact_path": relative,
+            "size_bytes": size,
+            "sha256": sha256_file(path),
+            "reason": "nul_byte_binary_content",
+        }
+    try:
+        return path.read_text(encoding="utf-8"), None
+    except UnicodeDecodeError:
+        return None, {
+            "artifact_path": relative,
+            "size_bytes": size,
+            "sha256": sha256_file(path),
+            "reason": "non_utf8_text_artifact",
+        }
+
+
+def scan_evidence_artifacts_for_secrets(run_dir: Path) -> dict[str, Any]:
+    findings: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    scanned_artifacts = 0
+    secret_report_path = run_dir / "security" / "secret_scan.json"
+    for path in sorted(item for item in run_dir.rglob("*") if item.is_file()):
+        if path == secret_report_path:
+            continue
+        relative_path = relative_to_run_dir(path, run_dir)
+        text, skip = read_text_artifact_for_secret_scan(path)
+        if skip is not None:
+            skip["artifact_path"] = relative_path
+            skipped.append(skip)
+            continue
+        if text is None:
+            continue
+        scanned_artifacts += 1
+        findings.extend(scan_text_for_secret_findings(text, relative_path))
+        findings.extend(
+            scan_json_for_secret_findings(text, relative_path, path.suffix.lower())
+        )
+
+    findings = dedupe_secret_findings(findings)
+    high_confidence = [item for item in findings if item.get("severity") == "high"]
+    report = {
+        "schema_version": 1,
+        "generated_at": utc_now().isoformat(),
+        "ok": not high_confidence,
+        "status": "pass" if not high_confidence else "blocked",
+        "high_confidence_findings": len(high_confidence),
+        "warning_findings": 0,
+        "scanned_artifact_count": scanned_artifacts,
+        "skipped_binary_count": len(skipped),
+        "findings": findings[:100],
+        "skipped_artifacts": skipped[:100],
+        "max_file_bytes": SECRET_SCAN_MAX_FILE_BYTES,
+        "detectors": [
+            "private_key_block",
+            "uri_userinfo_credentials",
+            "authorization_header_secret",
+            "query_parameter_secret",
+            "sensitive_assignment",
+            "structured_sensitive_key",
+        ],
+        "claim_boundary": (
+            "Findings intentionally omit matched values and context lines. A "
+            "blocked scan means the copied evidence bundle is not acceptable "
+            "until sanitized artifacts are re-collected."
+        ),
+    }
+    write_json(secret_report_path, report)
+    return report
+
+
 def artifact_content_checks(plan: dict[str, Any], run_dir: Path) -> dict[str, dict[str, Any]]:
     checks: dict[str, dict[str, Any]] = {}
     checks["px4_container_metadata"] = validate_px4_container_metadata_for_plan(
         plan,
         run_dir / "px4" / "container_metadata.json",
     )
+    checks["secret_scan"] = scan_evidence_artifacts_for_secrets(run_dir)
     if not plan_requires_gazebo_visual_evidence(plan):
         return checks
 
@@ -1762,6 +2322,277 @@ def get_nested(data: Any, dotted_path: str) -> Any:
 def result_payload(probe_results: dict[str, dict[str, Any]], relative_path: str) -> dict[str, Any]:
     result = probe_results.get(relative_path, {}).get("raw")
     return result if isinstance(result, dict) else {}
+
+
+def mavlink_anywhere_policy(plan: dict[str, Any]) -> dict[str, Any]:
+    policy = (
+        ((plan.get("stack") or {}).get("routing") or {}).get("compatibility_policy")
+        or {}
+    )
+    return policy if isinstance(policy, dict) else {}
+
+
+def first_string_field(data: Any, names: set[str]) -> tuple[str | None, str | None]:
+    if isinstance(data, dict):
+        for key, value in data.items():
+            normalized = str(key).lower()
+            if normalized in names and isinstance(value, str) and value.strip():
+                return value.strip(), str(key)
+            found, found_path = first_string_field(value, names)
+            if found is not None:
+                return found, f"{key}.{found_path}" if found_path else str(key)
+    elif isinstance(data, list):
+        for index, value in enumerate(data):
+            found, found_path = first_string_field(value, names)
+            if found is not None:
+                return found, f"{index}.{found_path}" if found_path else str(index)
+    return None, None
+
+
+def mavlink_anywhere_dashboard_version_evidence(
+    plan: dict[str, Any],
+    probe_results: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    policy = mavlink_anywhere_policy(plan)
+    status_payload = result_payload(probe_results, "route_map/mavlink_anywhere_status.json")
+    diagnostics_payload = result_payload(
+        probe_results, "route_map/mavlink_anywhere_diagnostics.json"
+    )
+    profile_payload = result_payload(
+        probe_results, "route_map/mavlink_anywhere_profiles_summary.json"
+    )
+    status_json = status_payload.get("json") if isinstance(status_payload, dict) else None
+    version = status_json.get("version") if isinstance(status_json, dict) else None
+    required_status_fields = policy.get("required_status_fields") or ["version"]
+    missing_status_fields = [
+        field
+        for field in required_status_fields
+        if not isinstance(status_json, dict) or status_json.get(field) in (None, "")
+    ]
+
+    installed_ref = None
+    installed_ref_path = None
+    for payload_name, payload in (
+        ("status", status_json),
+        ("diagnostics", diagnostics_payload.get("json")),
+        ("profiles_summary", profile_payload.get("json")),
+    ):
+        installed_ref, installed_ref_path = first_string_field(
+            payload,
+            {"source_ref", "git_ref", "commit", "revision", "build_ref"},
+        )
+        if installed_ref is not None:
+            installed_ref_path = f"{payload_name}.{installed_ref_path}"
+            break
+
+    minimum_semver = policy.get("minimum_dashboard_semver")
+    version_ok = semver_meets_minimum(version, minimum_semver)
+    collected = bool(status_payload.get("ok") and isinstance(version, str) and version.strip())
+    return {
+        "schema_version": 1,
+        "generated_at": utc_now().isoformat(),
+        "provider": "mavlink-anywhere",
+        "source_artifact": "route_map/mavlink_anywhere_status.json",
+        "status_probe_ok": bool(status_payload.get("ok")),
+        "status_code": status_payload.get("status"),
+        "collected": collected,
+        "installed_dashboard_version": version if isinstance(version, str) else None,
+        "installed_source_ref": installed_ref,
+        "installed_source_ref_path": installed_ref_path,
+        "reviewed_source_ref": policy.get("reviewed_source_ref"),
+        "reviewed_version": policy.get("reviewed_version"),
+        "minimum_dashboard_semver": minimum_semver,
+        "version_meets_policy": version_ok,
+        "missing_status_fields": missing_status_fields,
+        "required_api_paths": policy.get("required_api_paths", []),
+        "claim_boundary": (
+            "This records the MavlinkAnywhere dashboard read-contract evidence "
+            "for this SITL artifact set only. It does not install, update, or "
+            "mutate the sidecar."
+        ),
+    }
+
+
+def mavlink_anywhere_auth_failure(payload: dict[str, Any]) -> bool:
+    status = payload.get("status")
+    if status in {401, 403}:
+        return True
+    text = str(payload.get("text") or "").lower()
+    return bool(
+        status == 200
+        and payload.get("json") is None
+        and any(term in text for term in ("login", "unauthorized", "forbidden", "authentication"))
+    )
+
+
+def mavlink_anywhere_required_probe_payloads(
+    plan: dict[str, Any],
+    probe_results: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    policy = mavlink_anywhere_policy(plan)
+    required_paths = policy.get("required_api_paths")
+    if not isinstance(required_paths, list):
+        required_paths = MAVLINK_ANYWHERE_REQUIRED_API_PATHS
+    payloads: dict[str, dict[str, Any]] = {}
+    for api_path in required_paths:
+        artifact = MAVLINK_ANYWHERE_API_ARTIFACTS.get(str(api_path))
+        if artifact is None:
+            continue
+        payloads[str(api_path)] = result_payload(probe_results, artifact)
+    return payloads
+
+
+def mavlink_anywhere_compatibility_check(
+    plan: dict[str, Any],
+    probe_results: dict[str, dict[str, Any]],
+    route_check: dict[str, Any],
+) -> dict[str, Any]:
+    policy = mavlink_anywhere_policy(plan)
+    version_evidence = mavlink_anywhere_dashboard_version_evidence(plan, probe_results)
+    probe_payloads = mavlink_anywhere_required_probe_payloads(plan, probe_results)
+    reasons: list[dict[str, Any]] = []
+
+    auth_failures = [
+        {"api_path": api_path, "status": payload.get("status")}
+        for api_path, payload in probe_payloads.items()
+        if mavlink_anywhere_auth_failure(payload)
+    ]
+    if auth_failures:
+        classification = "unexpected_auth"
+        reasons.append(
+            {
+                "reason": "read_probe_required_authentication",
+                "details": auth_failures,
+            }
+        )
+    else:
+        status_payload = probe_payloads.get("/api/v1/status", {})
+        status_code = status_payload.get("status")
+        if not status_payload.get("ok") and status_code is None:
+            classification = "unavailable"
+            reasons.append(
+                {
+                    "reason": "status_probe_transport_unavailable",
+                    "error": status_payload.get("error"),
+                }
+            )
+        else:
+            unsupported: list[dict[str, Any]] = []
+            unprepared: list[dict[str, Any]] = []
+            for api_path, payload in probe_payloads.items():
+                status = payload.get("status")
+                if payload.get("ok"):
+                    if payload.get("json") is None:
+                        unsupported.append(
+                            {
+                                "api_path": api_path,
+                                "status": status,
+                                "reason": "json_contract_missing",
+                            }
+                        )
+                    continue
+                if status in {404, 405}:
+                    unsupported.append(
+                        {
+                            "api_path": api_path,
+                            "status": status,
+                            "reason": "required_api_path_missing",
+                        }
+                    )
+                elif status is None:
+                    unsupported.append(
+                        {
+                            "api_path": api_path,
+                            "status": status,
+                            "reason": "required_api_path_unreadable",
+                        }
+                    )
+                elif isinstance(status, int) and status >= 500 and api_path != "/api/v1/status":
+                    unprepared.append(
+                        {
+                            "api_path": api_path,
+                            "status": status,
+                            "reason": "sidecar_config_unprepared",
+                        }
+                    )
+                else:
+                    unsupported.append(
+                        {
+                            "api_path": api_path,
+                            "status": status,
+                            "reason": "required_api_path_unexpected_status",
+                        }
+                    )
+
+            if not version_evidence.get("collected"):
+                unsupported.append(
+                    {
+                        "api_path": "/api/v1/status",
+                        "reason": "dashboard_version_missing",
+                        "missing_status_fields": version_evidence.get(
+                            "missing_status_fields", []
+                        ),
+                    }
+                )
+            elif not version_evidence.get("version_meets_policy"):
+                unsupported.append(
+                    {
+                        "api_path": "/api/v1/status",
+                        "reason": "dashboard_version_below_policy",
+                        "installed_dashboard_version": version_evidence.get(
+                            "installed_dashboard_version"
+                        ),
+                        "minimum_dashboard_semver": version_evidence.get(
+                            "minimum_dashboard_semver"
+                        ),
+                    }
+                )
+
+            if unsupported:
+                classification = "unsupported_contract_version"
+                reasons.extend(unsupported)
+            elif unprepared or not route_check.get("ok"):
+                classification = "unprepared_config"
+                reasons.extend(unprepared)
+                if not route_check.get("ok"):
+                    reasons.append(
+                        {
+                            "reason": "required_outputs_or_profile_not_prepared",
+                            "missing_outputs": route_check.get("missing_outputs", []),
+                            "profile_metadata_mismatches": route_check.get(
+                                "profile_metadata_mismatches", []
+                            ),
+                        }
+                    )
+            else:
+                classification = "prepared_routing"
+
+    if classification not in MAVLINK_ANYWHERE_COMPATIBILITY_CLASSIFICATIONS:
+        classification = "unsupported_contract_version"
+        reasons.append({"reason": "internal_unknown_classification"})
+
+    return {
+        "ok": classification == "prepared_routing",
+        "classification": classification,
+        "reasons": reasons,
+        "policy": {
+            "provider": policy.get("provider"),
+            "reviewed_source_ref": policy.get("reviewed_source_ref"),
+            "reviewed_version": policy.get("reviewed_version"),
+            "minimum_dashboard_semver": policy.get("minimum_dashboard_semver"),
+            "auth_expectation": policy.get("auth_expectation"),
+            "required_api_paths": policy.get("required_api_paths", []),
+        },
+        "version_evidence": version_evidence,
+        "required_probe_status": {
+            api_path: {
+                "ok": bool(payload.get("ok")),
+                "status": payload.get("status"),
+                "error": payload.get("error"),
+            }
+            for api_path, payload in probe_payloads.items()
+        },
+    }
 
 
 def iter_json_paths(data: Any, path: tuple[str, ...] = ()) -> list[tuple[tuple[str, ...], Any]]:
@@ -2448,22 +3279,21 @@ def mavlink_anywhere_endpoint_check(
             "profile_count": profile_json.get("profile_count"),
         }
     profile_metadata_mismatches = []
-    if profile_metadata.get("backend") != "mavlink-anywhere":
-        profile_metadata_mismatches.append(
-            {
-                "path": "route_map/mavlink_anywhere_profiles_summary.json.backend",
-                "expected": "mavlink-anywhere",
-                "actual": profile_metadata.get("backend"),
-            }
-        )
-    if profile_metadata.get("present") is not True:
-        profile_metadata_mismatches.append(
-            {
-                "path": "route_map/mavlink_anywhere_profiles_summary.json.present",
-                "expected": True,
-                "actual": profile_metadata.get("present"),
-            }
-        )
+    required_profile_metadata = mavlink_anywhere_policy(plan).get(
+        "required_profile_metadata",
+        {"backend": "mavlink-anywhere", "present": True},
+    )
+    if not isinstance(required_profile_metadata, dict):
+        required_profile_metadata = {"backend": "mavlink-anywhere", "present": True}
+    for key, expected in required_profile_metadata.items():
+        if profile_metadata.get(key) != expected:
+            profile_metadata_mismatches.append(
+                {
+                    "path": f"route_map/mavlink_anywhere_profiles_summary.json.{key}",
+                    "expected": expected,
+                    "actual": profile_metadata.get(key),
+                }
+            )
 
     return {
         "ok": (
@@ -2491,8 +3321,14 @@ def semantic_stack_checks(
 ) -> dict[str, Any]:
     checks: dict[str, Any] = {}
 
-    checks["mavlink_anywhere_required_outputs"] = mavlink_anywhere_endpoint_check(
+    route_check = mavlink_anywhere_endpoint_check(
         plan, probe_results
+    )
+    checks["mavlink_anywhere_required_outputs"] = route_check
+    checks["mavlink_anywhere_compatibility"] = mavlink_anywhere_compatibility_check(
+        plan,
+        probe_results,
+        route_check,
     )
 
     config_payload = result_payload(probe_results, "probes/pixeagle_current_config.json")
@@ -2941,6 +3777,24 @@ def collect_probe_artifacts(
             "raw": result,
         }
 
+    dashboard_version_evidence = mavlink_anywhere_dashboard_version_evidence(
+        plan,
+        probe_results,
+    )
+    write_json(
+        run_dir / "versions" / "mavlink_anywhere_dashboard.json",
+        dashboard_version_evidence,
+    )
+    artifact_status["versions/mavlink_anywhere_dashboard.json"] = {
+        "collected": bool(dashboard_version_evidence.get("collected")),
+        "placeholder": False,
+        "reason": (
+            None
+            if dashboard_version_evidence.get("collected")
+            else "MavlinkAnywhere dashboard version could not be collected from /api/v1/status."
+        ),
+    }
+
     px4_container_ref = px4_container_id or px4_container_name
     px4_artifact_collection_mode = None
     if auto_px4_container_artifacts and px4_container_ref:
@@ -3049,6 +3903,13 @@ def collect_probe_artifacts(
                 description=description,
             )
 
+    secret_scan = scan_evidence_artifacts_for_secrets(run_dir)
+    artifact_status["security/secret_scan.json"] = {
+        "collected": True,
+        "placeholder": False,
+        "reason": None if secret_scan.get("ok") else "Evidence secret scan blocked this artifact set.",
+    }
+
     missing_or_placeholder_artifacts = []
     for relative_path in plan["evidence_contract"]:
         artifact_path = run_dir / relative_path
@@ -3102,7 +3963,10 @@ def collect_probe_artifacts(
             "probes/pixeagle_current_config.json",
             "probes/mavlink2rest_mavlink.json",
             "route_map/mavlink_anywhere_status.json",
+            "route_map/mavlink_anywhere_diagnostics.json",
             "route_map/mavlink_anywhere_endpoints.json",
+            "route_map/mavlink_anywhere_profiles_summary.json",
+            "route_map/mavlink_anywhere_config.json",
         )
     )
     complete_artifacts = not missing_or_placeholder_artifacts
@@ -3168,6 +4032,14 @@ def build_summary(plan: dict[str, Any], source: Path) -> dict[str, Any]:
             else []
         ),
         "evidence_contract": plan["evidence_contract"],
+        "sidecar_compatibility_policy": (
+            {
+                "routing_provider": plan["stack"]["routing"].get("provider"),
+                "policy": mavlink_anywhere_policy(plan),
+            }
+            if plan["stack"]["routing"].get("provider") == "mavlink-anywhere"
+            else None
+        ),
     }
 
 
