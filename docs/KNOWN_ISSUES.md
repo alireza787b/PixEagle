@@ -17,15 +17,18 @@ This file tracks verified, user-facing issues that are not fully solved yet.
   - Split high-cost dynamic OSD elements into lower-frequency buckets.
   - Add optional lightweight preset for production low-power deployments.
 
-### 2) Backend media WebSocket health is not probed separately
-- **Status**: Open
-- **Observed**: Service and Make status output now labels port `5551` as the
-  legacy telemetry WebSocket, while dashboard video WebSocket traffic runs on
-  `/ws/video_feed` through backend port `5077`. There is still no dedicated
-  health probe for the backend media WebSocket route.
-- **Scope**: Service/operator UX.
+### 2) Media route health is process-local, not end-to-end proof
+- **Status**: Open follow-up after PXE-0068
+- **Observed**: `GET /api/v1/streams/media-health` now reports process-local
+  MJPEG, backend media WebSocket, WebRTC signaling, GStreamer, frame-publisher,
+  and quality-engine state. It does not prove that a remote browser, QGC, GCS,
+  or WebRTC peer received usable video.
+- **Scope**: Service/operator UX and remote validation evidence.
 - **TODO (next iteration)**:
-  - Add an authenticated/local media WebSocket route health probe.
+  - Wire service/dashboard status to the typed media-health route instead of
+    scraping legacy `/stats`.
+  - Add authenticated remote client handshake/evidence tests when QGC/browser
+    remote media support is promoted.
   - Keep telemetry socket and backend media WebSocket labels separate in status
     output, docs, and troubleshooting.
 

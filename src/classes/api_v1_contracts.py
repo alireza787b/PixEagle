@@ -31,6 +31,11 @@ TRACKING_TELEMETRY_CLAIM_BOUNDARY = (
     "PixEagle process-local tracker telemetry and geometry snapshots only; "
     "not PX4, SITL, HIL, field, follower-response, or vehicle-response proof."
 )
+STREAMING_MEDIA_CLAIM_BOUNDARY = (
+    "PixEagle process-local media transport and frame-publisher health only; "
+    "not proof that a remote browser, QGC, WebRTC peer, GCS, PX4, SITL, HIL, "
+    "or field video path received usable media."
+)
 
 
 class APIErrorResponse(BaseModel):
@@ -260,6 +265,89 @@ class APITelemetryHealthResponse(BaseModel):
     request_freshness: APITelemetryRequestFreshness
     payload: APITelemetryPayloadHealth
     claim_boundary: str = MAVLINK_TELEMETRY_CLAIM_BOUNDARY
+    timestamp: float
+
+
+class APIStreamingTransportHealth(BaseModel):
+    """Process-local health for one PixEagle media transport."""
+
+    name: Literal[
+        "http_mjpeg",
+        "websocket_jpeg",
+        "webrtc_signaling",
+        "gstreamer_udp_h264",
+    ]
+    enabled: bool = True
+    status: Literal["disabled", "idle", "active", "saturated", "unavailable"]
+    endpoint: Optional[str] = None
+    route_registered: bool = True
+    active_connections: int = 0
+    max_connections: Optional[int] = None
+    details: Dict[str, Any] = Field(default_factory=dict)
+
+
+class APIStreamingFrameHealth(BaseModel):
+    """Frame-publisher freshness and stream output counters."""
+
+    source_available: bool = False
+    preferred_source: Literal["osd", "raw"]
+    latest_frame_id: Optional[int] = None
+    latest_frame_age_s: Optional[float] = None
+    latest_frame_stale: bool = False
+    stale_timeout_s: float
+    latest_frame_is_osd: Optional[bool] = None
+    publisher_client_count: int = 0
+    frames_sent: int = 0
+    frames_dropped: int = 0
+    drop_ratio: float = 0.0
+    total_bandwidth_mb: float = 0.0
+    cache_size: int = 0
+
+
+class APIStreamingSecurityBoundary(BaseModel):
+    """Media route exposure/auth posture without exposing credential material."""
+
+    exposure_mode: Optional[str] = None
+    bind_host: Optional[str] = None
+    auth_mode: Optional[str] = None
+    required_scope: str = "media:read"
+    websocket_origin_check: bool = True
+    query_string_tokens_allowed: bool = False
+
+
+class APIStreamingConfigSummary(BaseModel):
+    """Runtime streaming config values relevant to clients and diagnostics."""
+
+    streaming_enabled: bool = True
+    stream_fps: int
+    stream_width: int
+    stream_height: int
+    stream_quality: int
+    processed_osd: bool
+    adaptive_quality_enabled: bool
+    default_protocol: str
+    pipeline_mode: str
+
+
+class APIStreamingMediaHealthResponse(BaseModel):
+    """Typed media transport health for API/MCP/dashboard consumers."""
+
+    schema_version: int = 1
+    source: Literal["streaming_media"] = "streaming_media"
+    status: Literal["idle", "active", "degraded", "unavailable"]
+    consumer_guidance: Literal[
+        "idle",
+        "serving_media",
+        "operator_attention",
+        "unavailable",
+    ]
+    transports: List[APIStreamingTransportHealth] = Field(default_factory=list)
+    frames: APIStreamingFrameHealth
+    security: APIStreamingSecurityBoundary
+    config: APIStreamingConfigSummary
+    quality_engine: Dict[str, Any] = Field(default_factory=dict)
+    health_issues: List[str] = Field(default_factory=list)
+    claim_boundary: str = STREAMING_MEDIA_CLAIM_BOUNDARY
     timestamp: float
 
 
@@ -544,6 +632,12 @@ TELEMETRY_HEALTH_ERROR_RESPONSES = {
     status.HTTP_500_INTERNAL_SERVER_ERROR: {
         "model": APIErrorResponse,
         "description": "Telemetry health could not be evaluated.",
+    },
+}
+STREAMING_MEDIA_HEALTH_ERROR_RESPONSES = {
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {
+        "model": APIErrorResponse,
+        "description": "Streaming media health could not be evaluated.",
     },
 }
 TRACKING_RUNTIME_STATUS_ERROR_RESPONSES = {

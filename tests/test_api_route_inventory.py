@@ -27,6 +27,7 @@ from classes.api_v1_paths import (
     API_V1_AUTH_PATHS,
     API_V1_AUTH_SESSION_PATH,
     API_V1_PROCESS_LOCAL_READ_ONLY_PATHS,
+    API_V1_STREAMING_MEDIA_HEALTH_PATH,
     SITL_VALIDATION_INJECTION_PATHS,
     uses_typed_api_error_envelope,
 )
@@ -46,6 +47,7 @@ API_LEGACY_CONTROL_ROUTES = (
 API_V1_READ_ROUTES = REPO_ROOT / "src" / "classes" / "api_v1_read_routes.py"
 API_V1_SNAPSHOTS = REPO_ROOT / "src" / "classes" / "api_v1_snapshots.py"
 API_V1_TELEMETRY = REPO_ROOT / "src" / "classes" / "api_v1_telemetry.py"
+API_V1_STREAMS = REPO_ROOT / "src" / "classes" / "api_v1_streams.py"
 API_V1_SITL = REPO_ROOT / "src" / "classes" / "api_v1_sitl.py"
 
 API_V1_CONTRACT_CLASS_NAMES = {
@@ -69,6 +71,11 @@ API_V1_CONTRACT_CLASS_NAMES = {
     "APIRuntimeModesStatus",
     "APIRuntimeStatusResponse",
     "APIRuntimeSubsystemStatus",
+    "APIStreamingConfigSummary",
+    "APIStreamingFrameHealth",
+    "APIStreamingMediaHealthResponse",
+    "APIStreamingSecurityBoundary",
+    "APIStreamingTransportHealth",
     "APITrackingRuntimeStatusResponse",
     "APITrackingTelemetryResponse",
     "APITelemetryHealthResponse",
@@ -163,6 +170,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/following/status"),
     ("GET", "/api/v1/following/telemetry"),
     ("GET", "/api/v1/runtime/status"),
+    ("GET", "/api/v1/streams/media-health"),
     ("GET", "/api/v1/telemetry/health"),
     ("GET", "/api/v1/tracking/runtime-status"),
     ("GET", "/api/v1/tracking/telemetry"),
@@ -399,7 +407,7 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 2,
-        "GET": 73,
+        "GET": 74,
         "POST": 59,
         "PUT": 2,
         "WEBSOCKET": 2,
@@ -823,6 +831,69 @@ def test_api_v1_telemetry_health_helper_is_not_defined_in_fastapi_handler():
     assert "MAVLink data manager is not configured" not in handler_string_literals
 
 
+def test_api_v1_streaming_media_helper_is_not_defined_in_fastapi_handler():
+    """Typed streaming-media health payloads should stay out of route dispatch."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    streams_tree = ast.parse(API_V1_STREAMS.read_text(encoding="utf-8"))
+    read_routes_tree = ast.parse(API_V1_READ_ROUTES.read_text(encoding="utf-8"))
+
+    handler_imported_contract_names = {
+        alias.name
+        for node in handler_tree.body
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "classes.api_v1_contracts"
+        for alias in node.names
+    }
+    handler_imported_stream_names = {
+        alias.name
+        for node in handler_tree.body
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "classes.api_v1_streams"
+        for alias in node.names
+    }
+    handler_function_names = {
+        node.name for node in ast.walk(handler_tree) if isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef)
+    }
+    stream_functions = {
+        node.name
+        for node in ast.walk(streams_tree)
+        if isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef)
+    }
+    read_route_functions = {
+        node.name
+        for node in ast.walk(read_routes_tree)
+        if isinstance(node, ast.AsyncFunctionDef)
+    }
+    get_streaming_media_health = next(
+        node
+        for node in ast.walk(read_routes_tree)
+        if (
+            isinstance(node, ast.AsyncFunctionDef)
+            and node.name == "get_streaming_media_health"
+        )
+    )
+    stream_helper_calls = [
+        node
+        for node in ast.walk(get_streaming_media_health)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "get_streaming_media_health_snapshot"
+    ]
+    handler_string_literals = {
+        node.value
+        for node in ast.walk(get_streaming_media_health)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+    assert "get_streaming_media_health_snapshot" in stream_functions
+    assert "get_streaming_media_health" in read_route_functions
+    assert "STREAMING_MEDIA_CLAIM_BOUNDARY" not in handler_imported_contract_names
+    assert handler_imported_stream_names == set()
+    assert "_get_streaming_media_health_snapshot" not in handler_function_names
+    assert len(stream_helper_calls) == 1
+    assert "gstreamer_config_enabled_handler_missing" not in handler_string_literals
+
+
 def test_api_v1_read_route_error_boundaries_are_not_defined_in_fastapi_handler():
     """Typed read-route error boundaries should stay out of the handler monolith."""
     handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
@@ -831,6 +902,7 @@ def test_api_v1_read_route_error_boundaries_are_not_defined_in_fastapi_handler()
         "get_following_status",
         "get_following_telemetry",
         "get_runtime_status",
+        "get_streaming_media_health",
         "get_telemetry_health",
         "get_tracking_runtime_status",
         "get_tracking_telemetry",
@@ -839,6 +911,7 @@ def test_api_v1_read_route_error_boundaries_are_not_defined_in_fastapi_handler()
         "get_runtime_status": "dispatch_get_runtime_status",
         "get_following_status": "dispatch_get_following_status",
         "get_following_telemetry": "dispatch_get_following_telemetry",
+        "get_streaming_media_health": "dispatch_get_streaming_media_health",
         "get_telemetry_health": "dispatch_get_telemetry_health",
         "get_tracking_runtime_status": "dispatch_get_tracking_runtime_status",
         "get_tracking_telemetry": "dispatch_get_tracking_telemetry",
@@ -847,6 +920,7 @@ def test_api_v1_read_route_error_boundaries_are_not_defined_in_fastapi_handler()
         "runtime_status_error",
         "following_status_error",
         "following_telemetry_error",
+        "streaming_media_health_error",
         "telemetry_health_error",
         "tracking_runtime_status_error",
         "tracking_telemetry_error",
@@ -1267,6 +1341,17 @@ def test_api_v1_runtime_status_route_has_typed_api_metadata():
     assert route["response_model"] == "APIRuntimeStatusResponse"
     assert route["responses"] == "RUNTIME_STATUS_ERROR_RESPONSES"
     assert route["tags"] == ["runtime"]
+    assert route["status_code"] is None
+
+
+def test_api_v1_streaming_media_health_route_has_typed_api_metadata():
+    """Typed streaming-media health must be an explicit /api/v1 resource."""
+    route = _route_metadata(API_V1_STREAMING_MEDIA_HEALTH_PATH)
+
+    assert route["operation_id"] == "get_streaming_media_health"
+    assert route["response_model"] == "APIStreamingMediaHealthResponse"
+    assert route["responses"] == "STREAMING_MEDIA_HEALTH_ERROR_RESPONSES"
+    assert route["tags"] == ["streams"]
     assert route["status_code"] is None
 
 

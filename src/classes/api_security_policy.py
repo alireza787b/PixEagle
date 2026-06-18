@@ -370,6 +370,7 @@ API_ROUTE_SECURITY_RULES = (
         (
             "/video_feed",
             "/api/video/health",
+            "/api/v1/streams/media-health",
         ),
         AUTH_MEDIA_READ,
     ),

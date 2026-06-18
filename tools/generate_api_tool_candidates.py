@@ -33,6 +33,7 @@ API_LEGACY_CONTROL_ROUTES = (
 API_V1_READ_ROUTES = PROJECT_ROOT / "src" / "classes" / "api_v1_read_routes.py"
 API_V1_SNAPSHOTS = PROJECT_ROOT / "src" / "classes" / "api_v1_snapshots.py"
 API_V1_TELEMETRY = PROJECT_ROOT / "src" / "classes" / "api_v1_telemetry.py"
+API_V1_STREAMS = PROJECT_ROOT / "src" / "classes" / "api_v1_streams.py"
 API_V1_SITL = PROJECT_ROOT / "src" / "classes" / "api_v1_sitl.py"
 API_EXPOSURE_POLICY = PROJECT_ROOT / "src" / "classes" / "api_exposure_policy.py"
 API_AUTH_RUNTIME = PROJECT_ROOT / "src" / "classes" / "api_auth_runtime.py"
@@ -50,6 +51,7 @@ ROUTE_SOURCE_FILES = (
     API_V1_READ_ROUTES,
     API_V1_SNAPSHOTS,
     API_V1_TELEMETRY,
+    API_V1_STREAMS,
     API_V1_SITL,
     API_EXPOSURE_POLICY,
     API_AUTH_RUNTIME,
@@ -70,13 +72,14 @@ DEFAULT_POLICY = PROJECT_ROOT / "docs" / "agent-context" / "agent_policy.yaml"
 INVENTORY_CLAIM_BOUNDARY = (
     "Generated non-callable reviewer inventory only. This file is not an MCP "
     "tool registry, not a tools/list response, and not permission for an AI "
-    "agent or client to execute any PixEagle API route. PixEagle status and "
-    "telemetry routes are process-local snapshots unless separate PX4/SITL/HIL/"
-    "field evidence artifacts prove a specific scenario."
+    "agent or client to execute any PixEagle API route. PixEagle status, "
+    "telemetry, and media-health routes are process-local snapshots unless "
+    "separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario."
 )
 
 READ_ONLY_ELIGIBLE_PATH_NAMES = {
     "API_V1_RUNTIME_STATUS_PATH",
+    "API_V1_STREAMING_MEDIA_HEALTH_PATH",
     "API_V1_FOLLOWING_STATUS_PATH",
     "API_V1_FOLLOWING_TELEMETRY_PATH",
     "API_V1_TELEMETRY_HEALTH_PATH",
@@ -648,7 +651,7 @@ def _candidate_review_disposition(
             state="approved_for_review_only",
             rationale=(
                 "Reviewed as an initial typed, process-local, read-only "
-                "status/telemetry candidate. This is documentation-stage "
+                "status/telemetry/media-health candidate. This is documentation-stage "
                 "approval only and does not make the route callable."
             ),
             evidence=[
@@ -728,7 +731,11 @@ def _classify_candidate(
 
     if eligible:
         risk_class = "process_local_observe"
-        sensitivity = "runtime_status"
+        sensitivity = (
+            "media_transport_health"
+            if path == "/api/v1/streams/media-health"
+            else "runtime_status"
+        )
         side_effects = "none_expected"
         safety_notes.extend(
             [

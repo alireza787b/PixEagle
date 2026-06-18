@@ -15,12 +15,14 @@ from classes.api_security_types import (
     APIAuditPolicy,
     APIPrincipal,
     APIPrincipalKind,
+    APISensitivity,
     CONFIG_WRITE,
     CONTROL_WRITE,
     MEDIA_READ,
     MODELS_MANAGE,
     SAFETY_WRITE,
     SITL_INJECT,
+    STATUS_READ,
     SYSTEM_ADMIN,
     authorize_api_request,
 )
@@ -135,11 +137,13 @@ def test_write_scopes_require_csrf_for_sessions_and_mutation_audit():
 def test_media_and_legacy_surfaces_keep_their_intended_boundaries():
     for method, path in (
         ("GET", "/video_feed"),
+        ("GET", "/api/v1/streams/media-health"),
         ("WEBSOCKET", "/ws/video_feed"),
         ("WEBSOCKET", "/ws/webrtc_signaling"),
     ):
         policy = resolve_route_security_policy(method, path)
         assert policy.access == APIAccessMode.AUTHENTICATED
+        assert policy.sensitivity == APISensitivity.MEDIA
         assert policy.required_scopes == frozenset({MEDIA_READ})
 
     for method, path in (
@@ -149,6 +153,27 @@ def test_media_and_legacy_surfaces_keep_their_intended_boundaries():
         ("POST", "/api/v1/sitl/injections/video-stall"),
     ):
         assert resolve_route_security_policy(method, path).access == APIAccessMode.LOCAL_ONLY
+
+
+def test_media_health_rejects_status_only_bearer_scope():
+    policy = resolve_route_security_policy("GET", "/api/v1/streams/media-health")
+    principal = APIPrincipal.bearer(
+        token_id="status-only-token",
+        subject="status-agent",
+        scopes={STATUS_READ},
+    )
+
+    decision = authorize_api_request(
+        policy=policy,
+        principal=principal,
+        is_loopback_client=False,
+    )
+
+    assert policy.sensitivity == APISensitivity.MEDIA
+    assert policy.required_scopes == frozenset({MEDIA_READ})
+    assert decision.allowed is False
+    assert decision.reason == "insufficient_scope"
+    assert decision.missing_scopes == (MEDIA_READ,)
 
 
 def test_anonymous_and_insufficient_scope_requests_are_denied():

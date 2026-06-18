@@ -27,6 +27,9 @@ Typed runtime/following/tracking read-state snapshot builders live in
 `src/classes/api_v1_snapshots.py`.
 Typed MAVLink telemetry-health manager delegation and unavailable fallback
 payload construction live in `src/classes/api_v1_telemetry.py`.
+Typed streaming media-health snapshots for MJPEG, WebSocket, WebRTC signaling,
+GStreamer output, and frame-publisher state live in
+`src/classes/api_v1_streams.py`.
 `FastAPIHandler.define_routes()` delegates to the route registry while the
 handler methods still live in `fastapi_handler.py`. Typed `/api/v1` Pydantic
 contracts and error-response metadata live in `src/classes/api_v1_contracts.py`
@@ -92,6 +95,7 @@ class FastAPIHandler:
 | `/telemetry/follower_data` | GET | Current follower state |
 | `/status` | GET | System status |
 | `/api/v1/runtime/status` | GET | Typed PixEagle process-local runtime status |
+| `/api/v1/streams/media-health` | GET | Typed media transport/frame-publisher health |
 | `/api/v1/following/status` | GET | Typed process-local following status |
 | `/api/v1/following/telemetry` | GET | Typed follower telemetry/setpoint snapshot |
 | `/api/v1/telemetry/health` | GET | Typed MAVLink2REST request/payload health |
@@ -147,6 +151,21 @@ defaults, or missing/unknown command-publication fields. It can report `active`
 for local vision/following state, but it is not PX4, SITL, HIL, field, or
 follower-response proof. Use telemetry, action resources, SITL evidence
 artifacts, and PX4 logs for those claims.
+
+### Typed Streaming Media Health Endpoint
+
+Dashboard/API/MCP consumers that need backend media observability should use
+`GET /api/v1/streams/media-health` instead of scraping `/stats` or
+`/api/streaming/status`. The route returns a typed process-local snapshot for
+HTTP MJPEG, JPEG WebSocket, WebRTC signaling, GStreamer UDP output,
+frame-publisher freshness, security posture, stream config, adaptive-quality
+state, and `health_issues`.
+
+This route requires `media:read`. It reports local transport state only: active
+HTTP/WebSocket/WebRTC clients, GStreamer encoder availability, and whether
+PixEagle has a currently published frame. It does not prove that a remote
+browser, QGC, WebRTC peer, GCS, PX4, SITL, HIL, or field video path received
+usable media.
 
 ### Typed Following Status Endpoint
 
@@ -273,12 +292,14 @@ helper names.
 |----------|--------|-------------|
 | `/api/video/health` | GET | Video health and degraded-mode state |
 | `/api/video/reconnect` | POST | Trigger manual video reconnect attempt |
+| `/api/v1/streams/media-health` | GET | Typed process-local media transport/frame-publisher health |
 
 ### Tracker/Follower Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/v1/runtime/status` | GET | Typed PixEagle process-local runtime contract |
+| `/api/v1/streams/media-health` | GET | Typed media transport/frame-publisher health contract |
 | `/api/v1/following/status` | GET | Typed process-local following/readiness contract |
 | `/api/v1/following/telemetry` | GET | Typed follower telemetry/setpoint snapshot |
 | `/api/v1/tracking/runtime-status` | GET | Typed tracker runtime/readiness contract |

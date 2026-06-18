@@ -24,6 +24,14 @@ client. Production remote-browser approval still requires TLS/operator
 deployment hardening, retirement of remaining legacy tracking/control aliases,
 adversarial auth/media tests, and evidence gates.
 
+Use `GET /api/v1/streams/media-health` for typed WebSocket client counts,
+heartbeat config, frame freshness, adaptive-quality state, and media security
+posture. It is local backend observability only; it does not prove a remote QGC
+or browser WebSocket client received usable video. When
+`Streaming.ENABLE_STREAMING` is false or the relevant max connection limit is
+zero, backend video WebSocket and WebRTC signaling report disabled and fail
+closed.
+
 ### Connection
 
 ```javascript

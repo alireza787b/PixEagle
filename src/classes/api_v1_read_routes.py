@@ -10,10 +10,12 @@ from classes.api_v1_paths import (
     API_V1_FOLLOWING_STATUS_PATH,
     API_V1_FOLLOWING_TELEMETRY_PATH,
     API_V1_RUNTIME_STATUS_PATH,
+    API_V1_STREAMING_MEDIA_HEALTH_PATH,
     API_V1_TELEMETRY_HEALTH_PATH,
     API_V1_TRACKING_RUNTIME_STATUS_PATH,
     API_V1_TRACKING_TELEMETRY_PATH,
 )
+from classes.api_v1_streams import get_streaming_media_health_snapshot
 from classes.api_v1_telemetry import get_telemetry_health_snapshot
 
 
@@ -79,6 +81,20 @@ async def get_telemetry_health(owner: Any) -> Any:
         )
 
 
+async def get_streaming_media_health(owner: Any) -> Any:
+    """Return typed media transport health for API/MCP/dashboard consumers."""
+    try:
+        return await get_streaming_media_health_snapshot(owner)
+    except Exception as error:
+        _log_route_error(owner, "get_streaming_media_health", error)
+        return owner._api_v1_error_response(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="streaming_media_health_error",
+            detail=str(error),
+            path=API_V1_STREAMING_MEDIA_HEALTH_PATH,
+        )
+
+
 async def get_tracking_runtime_status(owner: Any) -> Any:
     """Return typed tracker runtime status for API/MCP/dashboard consumers."""
     try:
@@ -111,6 +127,7 @@ __all__ = [
     "get_following_status",
     "get_following_telemetry",
     "get_runtime_status",
+    "get_streaming_media_health",
     "get_telemetry_health",
     "get_tracking_runtime_status",
     "get_tracking_telemetry",

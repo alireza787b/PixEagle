@@ -133,7 +133,7 @@ the same slice.
 | `/api/v1/auth/logout` | Authenticated browser session plus session CSRF. |
 | Status, telemetry, media, config, models, recordings, control, safety, typed actions, and system reads | Authenticated with the matching read scope. |
 | Runtime mutations | Authenticated with the matching write/execute scope, mutation audit, and session CSRF. |
-| MJPEG, video WebSocket, and WebRTC signaling | Authenticated `media:read`; authentication must complete before streaming or WebSocket acceptance. |
+| MJPEG, video WebSocket, WebRTC signaling, and `/api/v1/streams/media-health` | Authenticated `media:read`; authentication must complete before streaming, WebSocket acceptance, or media-health disclosure. |
 | Remaining legacy `/commands/*` tracking/control mutations | Local-only compatibility only; tracking start/stop, redetect, segmentation toggle, smart-mode toggle, and smart-click all have typed action replacements and await alias retirement. |
 | Offboard start, Offboard stop, operator abort/cancel, tracking start/stop, tracking redetect, segmentation toggle, smart-mode toggle, and smart-click | Typed `/api/v1/actions/*` routes with confirmation/idempotency/action-resource semantics. Retired `/commands/start_offboard_mode`, `/commands/stop_offboard_mode`, and `/commands/cancel_activities` are not registered HTTP routes. |
 | Deprecated `/api/yolo/*` aliases | Local-only until canonical model-route migration and retirement. |

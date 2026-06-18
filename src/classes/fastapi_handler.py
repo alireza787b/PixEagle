@@ -89,6 +89,7 @@ from classes.api_v1_read_routes import (
     get_following_status as dispatch_get_following_status,
     get_following_telemetry as dispatch_get_following_telemetry,
     get_runtime_status as dispatch_get_runtime_status,
+    get_streaming_media_health as dispatch_get_streaming_media_health,
     get_telemetry_health as dispatch_get_telemetry_health,
     get_tracking_runtime_status as dispatch_get_tracking_runtime_status,
     get_tracking_telemetry as dispatch_get_tracking_telemetry,
@@ -159,6 +160,11 @@ from classes.api_v1_contracts import (
     APIRuntimeModesStatus,
     APIRuntimeStatusResponse,
     APIRuntimeSubsystemStatus,
+    APIStreamingConfigSummary,
+    APIStreamingFrameHealth,
+    APIStreamingMediaHealthResponse,
+    APIStreamingSecurityBoundary,
+    APIStreamingTransportHealth,
     APITrackingRuntimeStatusResponse,
     APITrackingSmartClickRequest,
     APITrackingStartRequest,
@@ -171,6 +177,7 @@ from classes.api_v1_contracts import (
     FOLLOWING_STATUS_ERROR_RESPONSES,
     FOLLOWING_TELEMETRY_ERROR_RESPONSES,
     RUNTIME_STATUS_ERROR_RESPONSES,
+    STREAMING_MEDIA_HEALTH_ERROR_RESPONSES,
     SITLCommandIntentSummary,
     SITLCommanderPublishFailureInjection,
     SITLCommanderPublishFailureResponse,
@@ -857,6 +864,9 @@ class FastAPIHandler:
 
     async def video_feed(self):
         """Optimized HTTP MJPEG streaming with adaptive quality."""
+        if not getattr(Parameters, "ENABLE_STREAMING", True):
+            raise HTTPException(status_code=503, detail="Streaming is disabled")
+
         client_id = f"http_{time.time()}"
 
         # Check connection limit
@@ -943,6 +953,10 @@ class FastAPIHandler:
     
     async def video_feed_websocket_optimized(self, websocket: WebSocket):
         """Optimized WebSocket streaming with adaptive quality and queuing."""
+        if not getattr(Parameters, "ENABLE_STREAMING", True):
+            await websocket.close(code=1008, reason="Streaming is disabled")
+            return
+
         if not is_websocket_request_allowed(
             host=websocket.headers.get("host"),
             origin=websocket.headers.get("origin"),
@@ -1795,6 +1809,9 @@ class FastAPIHandler:
 
     async def get_telemetry_health(self):
         return await dispatch_get_telemetry_health(self)
+
+    async def get_streaming_media_health(self):
+        return await dispatch_get_streaming_media_health(self)
 
     async def get_tracking_runtime_status(self):
         return await dispatch_get_tracking_runtime_status(self)

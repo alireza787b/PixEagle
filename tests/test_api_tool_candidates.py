@@ -71,6 +71,7 @@ def test_api_tool_candidate_inventory_is_non_callable():
         "src/classes/api_v1_read_routes.py",
         "src/classes/api_v1_snapshots.py",
         "src/classes/api_v1_telemetry.py",
+        "src/classes/api_v1_streams.py",
         "src/classes/api_v1_sitl.py",
         "src/classes/api_exposure_policy.py",
         "src/classes/api_auth_runtime.py",
@@ -92,6 +93,7 @@ def test_api_tool_candidate_inventory_is_non_callable():
         "src/classes/api_v1_read_routes.py": 64,
         "src/classes/api_v1_snapshots.py": 64,
         "src/classes/api_v1_telemetry.py": 64,
+        "src/classes/api_v1_streams.py": 64,
         "src/classes/api_v1_sitl.py": 64,
         "src/classes/api_exposure_policy.py": 64,
         "src/classes/api_auth_runtime.py": 64,
@@ -107,11 +109,11 @@ def test_api_tool_candidate_inventory_is_non_callable():
     assert coverage["policy_present"] is True
     assert coverage["registry_path"] == "docs/agent-context/agent_tools.yaml"
     assert coverage["policy_path"] == "docs/agent-context/agent_policy.yaml"
-    assert coverage["docs_registered_read_only_candidates"] == 6
+    assert coverage["docs_registered_read_only_candidates"] == 7
     assert coverage["registry_metadata_safe"] is True
     assert coverage["registry_tools_safe"] is True
     assert coverage["policy_safe"] is True
-    assert coverage["registered_eligible_read_only_candidate_count"] == 6
+    assert coverage["registered_eligible_read_only_candidate_count"] == 7
     assert coverage["unregistered_eligible_read_only_candidate_count"] == 0
     assert coverage["runtime_promoted_candidates"] == 0
     assert coverage["callable_registry_matches"] == 0
@@ -124,7 +126,7 @@ def test_api_tool_candidate_inventory_is_non_callable():
     disposition = inventory["summary"]["review_disposition"]
     assert inventory["summary"]["disposition_coverage_complete"] is True
     assert disposition["complete"] is True
-    assert disposition["approved_for_review_only"] == 6
+    assert disposition["approved_for_review_only"] == 7
     assert disposition["blocked"] == 13
     assert disposition["deferred"] == 5
     assert (
@@ -164,6 +166,7 @@ def test_initial_read_only_candidates_are_limited_to_typed_process_local_gets():
     candidates = _candidate_by_path_method(inventory)
     expected_paths = {
         "/api/v1/runtime/status",
+        "/api/v1/streams/media-health",
         "/api/v1/following/status",
         "/api/v1/following/telemetry",
         "/api/v1/telemetry/health",
@@ -204,6 +207,12 @@ def test_initial_read_only_candidates_are_limited_to_typed_process_local_gets():
             == "approved_for_review_only"
         )
         assert any("process-local" in note for note in candidate["safety_notes"])
+
+    media_candidate = candidates[("GET", "/api/v1/streams/media-health")]
+    assert media_candidate["sensitivity"] == "media_transport_health"
+    assert media_candidate["registry_matches"][0]["id"] == (
+        "pixeagle.streams.media_health.read"
+    )
 
 
 def test_action_and_sitl_routes_are_blocked_from_read_only_promotion():
@@ -322,6 +331,7 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         ("GET", "/api/v1/following/status"),
         ("GET", "/api/v1/following/telemetry"),
         ("GET", "/api/v1/runtime/status"),
+        ("GET", "/api/v1/streams/media-health"),
         ("POST", "/api/v1/sitl/injections/commander-publish-failure"),
         ("POST", "/api/v1/sitl/injections/mavlink2rest-timeout"),
         ("POST", "/api/v1/sitl/injections/mavsdk-disconnect"),
@@ -336,9 +346,9 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         for candidate in inventory["candidates"]
     }
 
-    assert inventory["summary"]["api_v1_routes"] == 24
-    assert inventory["summary"]["candidate_count"] == 24
-    assert len(inventory["candidates"]) == 24
+    assert inventory["summary"]["api_v1_routes"] == 25
+    assert inventory["summary"]["candidate_count"] == 25
+    assert len(inventory["candidates"]) == 25
     assert inventory["summary"]["blocked_or_guarded_candidates"] == 18
     assert candidate_routes == expected_routes
     assert all(path.startswith("/api/v1/") for _method, path in candidate_routes)
@@ -361,7 +371,7 @@ def test_docs_stage_agent_registry_only_registers_eligible_read_only_candidates(
     assert registry["metadata"]["runtime_loaded"] is False
     assert registry["metadata"]["mcp_exposed"] is False
     assert registry["metadata"]["default_registry_exposure"] == "exclude"
-    assert len(tools) == 6
+    assert len(tools) == 7
     assert registered_routes == eligible_routes
 
     for tool in tools:
@@ -389,6 +399,10 @@ def test_docs_stage_agent_registry_only_registers_eligible_read_only_candidates(
         assert tool["review_disposition"]["runtime_promotion"] == "not_promoted"
         assert tool["risk_class"] == "observe"
         assert tool["candidate_risk_class"] == candidate["risk_class"]
+        if tool["path"] == "/api/v1/streams/media-health":
+            assert candidate["sensitivity"] == "media_transport_health"
+            assert "media_transport_health" in tool["sensitivity"]
+            assert "frame_publisher_status" in tool["sensitivity"]
         assert tool["side_effects"] == []
         assert tool["boundary"] == "pixeagle-process-local"
         assert tool["required_role"] == "viewer"

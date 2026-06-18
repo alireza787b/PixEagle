@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 import yaml
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from starlette.responses import Response
 
@@ -497,6 +497,50 @@ async def test_video_websocket_rejects_unapproved_origin_before_accept():
 
     websocket.accept.assert_not_awaited()
     websocket.close.assert_awaited_once_with(code=1008, reason="WebSocket Host or Origin not allowed")
+
+
+@pytest.mark.asyncio
+async def test_streaming_disabled_rejects_http_video_route(monkeypatch):
+    handler = FastAPIHandler.__new__(FastAPIHandler)
+    monkeypatch.setattr("classes.fastapi_handler.Parameters.ENABLE_STREAMING", False)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await handler.video_feed()
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "Streaming is disabled"
+
+
+@pytest.mark.asyncio
+async def test_streaming_disabled_rejects_video_websocket_before_accept(monkeypatch):
+    handler = FastAPIHandler.__new__(FastAPIHandler)
+    monkeypatch.setattr("classes.fastapi_handler.Parameters.ENABLE_STREAMING", False)
+    websocket = SimpleNamespace(
+        headers={},
+        accept=AsyncMock(),
+        close=AsyncMock(),
+    )
+
+    await handler.video_feed_websocket_optimized(websocket)
+
+    websocket.accept.assert_not_awaited()
+    websocket.close.assert_awaited_once_with(code=1008, reason="Streaming is disabled")
+
+
+@pytest.mark.asyncio
+async def test_streaming_disabled_rejects_webrtc_signaling_before_accept(monkeypatch):
+    manager = WebRTCManager.__new__(WebRTCManager)
+    monkeypatch.setattr("classes.webrtc_manager.Parameters.ENABLE_STREAMING", False)
+    websocket = SimpleNamespace(
+        headers={},
+        accept=AsyncMock(),
+        close=AsyncMock(),
+    )
+
+    await manager.signaling_handler(websocket)
+
+    websocket.accept.assert_not_awaited()
+    websocket.close.assert_awaited_once_with(code=1008, reason="Streaming is disabled")
 
 
 @pytest.mark.asyncio

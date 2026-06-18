@@ -166,6 +166,10 @@ class WebRTCManager:
         on the first message (or taken from the client if provided) and reused
         for all subsequent messages on the same connection.
         """
+        if not getattr(Parameters, "ENABLE_STREAMING", True):
+            await websocket.close(code=1008, reason="Streaming is disabled")
+            return
+
         if not is_websocket_request_allowed(
             host=websocket.headers.get("host"),
             origin=websocket.headers.get("origin"),

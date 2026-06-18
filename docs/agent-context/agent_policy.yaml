@@ -5,9 +5,9 @@ metadata:
   policy_stage: docs_review_only
   policy_summary: >
     PixEagle's current agent-context registry is documentation and review
-    structure only. It may classify read-only process-local status and telemetry
-    routes, but no MCP runtime, tool executor, tools/list response, or tools/call
-    path may load it in this slice.
+    structure only. It may classify read-only process-local status, telemetry,
+    and media-health routes, but no MCP runtime, tool executor, tools/list
+    response, or tools/call path may load it in this slice.
 defaults:
   agent_enabled: false
   mcp_enabled: false

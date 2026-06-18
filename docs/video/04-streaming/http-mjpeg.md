@@ -18,6 +18,12 @@ the dashboard, local tools, or QGroundControl running on the same computer. A
 non-loopback client needs an explicit non-local exposure profile plus scoped
 credentials with `media:read`; query-string tokens are rejected.
 
+Use `GET /api/v1/streams/media-health` for typed MJPEG transport and
+frame-publisher observability. It reports local backend state only and does not
+prove a remote client received usable video. When `Streaming.ENABLE_STREAMING`
+is false or `HTTP_MAX_CONNECTIONS` is zero, the media-health route reports MJPEG
+as disabled and `/video_feed` fails closed.
+
 ### Parameters
 
 | Parameter | Type | Default | Description |

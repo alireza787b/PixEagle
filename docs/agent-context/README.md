@@ -34,12 +34,15 @@ start/stop and operator-cancel compatibility executors used by guarded typed
 action candidates after the former `/commands/*` HTTP aliases were retired.
 It also records
 `src/classes/api_v1_read_routes.py`, which owns typed read-route error
-boundaries for reviewed process-local status/telemetry candidates. It also
+boundaries for reviewed process-local status/telemetry/media-health candidates. It also
 records `src/classes/api_v1_snapshots.py`, which owns process-local runtime,
 following, and tracking snapshot semantics for reviewed read-only candidates,
 and `src/classes/api_v1_telemetry.py`, which owns typed MAVLink
 telemetry-health manager delegation and fail-closed unavailable fallback
 semantics for the telemetry health candidate. It also records
+`src/classes/api_v1_streams.py`, which owns typed media transport and
+frame-publisher health snapshots for the streams media-health candidate. It
+also records
 `src/classes/api_v1_sitl.py`, which owns validation-only SITL injection gates,
 payload construction, dry-run summaries, and AppController validation-hook
 dispatch for blocked validation-stimulus candidates. It also records
@@ -56,8 +59,8 @@ The current review-stage registry and policy are:
 - `agent_tools.yaml`
 - `agent_policy.yaml`
 
-These files are docs-stage governance artifacts. They classify the six reviewed
-process-local status/telemetry GET candidates, but they are not loaded by a
+These files are docs-stage governance artifacts. They classify the seven reviewed
+process-local status/telemetry/media-health GET candidates, but they are not loaded by a
 runtime executor and they do not create MCP exposure. All entries remain
 `callable: false`, `mcp_exposure: none`, and `promotion_status: unpromoted`.
 The registry and generated inventory also record `review_disposition` for every

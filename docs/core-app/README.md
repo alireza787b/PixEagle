@@ -96,6 +96,9 @@ curl http://127.0.0.1:5077/status
 # Check typed PixEagle runtime status
 curl http://127.0.0.1:5077/api/v1/runtime/status
 
+# Check typed media transport/frame-publisher health
+curl http://127.0.0.1:5077/api/v1/streams/media-health
+
 # Check typed following status
 curl http://127.0.0.1:5077/api/v1/following/status
 

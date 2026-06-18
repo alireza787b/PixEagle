@@ -74,6 +74,71 @@ tools:
     response_model: APIRuntimeStatusResponse
     claim_boundary_field: claim_boundary
   output_schema_ref: APIRuntimeStatusResponse
+- id: pixeagle.streams.media_health.read
+  candidate_id: pixeagle.streams.media_health.read
+  title: Read media transport health
+  description: Read process-local MJPEG, WebSocket, WebRTC signaling, GStreamer output,
+    and frame-publisher health from the typed streaming media health route.
+  method: GET
+  path: /api/v1/streams/media-health
+  operation_id: get_streaming_media_health
+  response_model: APIStreamingMediaHealthResponse
+  route:
+    method: GET
+    path: /api/v1/streams/media-health
+    operation_id: get_streaming_media_health
+  exposure: review_only
+  mcp_exposure: none
+  callable: false
+  default_registry_exposure: exclude
+  promotion_status: unpromoted
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only media-health
+      candidate. This is documentation-stage approval only and does not make the
+      route callable.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  risk_class: observe
+  candidate_risk_class: process_local_observe
+  boundary: pixeagle-process-local
+  read_only: true
+  required_role: viewer
+  runtime_modes:
+  - read_only
+  - sitl
+  - real
+  side_effects: []
+  sensitivity:
+  - media_transport_health
+  - frame_publisher_status
+  tags:
+  - agent-context
+  - streams
+  - media
+  docs:
+  - docs/agent-context/README.md
+  - docs/core-app/03-api/README.md
+  - docs/video/04-streaming/README.md
+  tests:
+  - tests/test_api_tool_candidates.py
+  - tests/unit/core_app/test_api_v1_streams.py
+  safety_notes:
+  - Process-local media transport status only; not proof that a remote browser,
+    QGC, WebRTC peer, or GCS received usable media.
+  - Does not prove PX4, SITL, HIL, field, vehicle-response, or real-aircraft
+    behavior.
+  - Keep unexposed until runtime MCP auth, policy, tests, and reviewer gates exist.
+  input_schema:
+    type: object
+    additionalProperties: false
+    properties: {}
+  output_contract:
+    response_model: APIStreamingMediaHealthResponse
+    claim_boundary_field: claim_boundary
+  output_schema_ref: APIStreamingMediaHealthResponse
 - id: pixeagle.following.status.read
   candidate_id: pixeagle.following.status.read
   title: Read following status

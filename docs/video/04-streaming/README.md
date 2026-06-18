@@ -80,7 +80,19 @@ ws://127.0.0.1:5077/ws/video_feed
 
 # WebRTC signaling WebSocket
 ws://127.0.0.1:5077/ws/webrtc_signaling
+
+# Typed local media health
+http://127.0.0.1:5077/api/v1/streams/media-health
 ```
+
+`GET /api/v1/streams/media-health` is the typed observability route for local
+media transports. It requires `media:read` and reports PixEagle process-local
+MJPEG, WebSocket, WebRTC signaling, GStreamer output, frame-publisher, config,
+and security posture. Disabled `ENABLE_STREAMING`, zero connection limits, and
+stale published frames are explicit in this payload. GStreamer UDP reports
+pipeline activity, not a connected-client count. It does not prove that a remote
+browser, QGC, WebRTC peer, GCS, PX4, SITL, HIL, or field video path received
+usable media.
 
 ## Comparison
 

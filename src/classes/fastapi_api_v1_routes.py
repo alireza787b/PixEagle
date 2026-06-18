@@ -23,6 +23,7 @@ from classes.api_v1_paths import (
     API_V1_FOLLOWING_STATUS_PATH,
     API_V1_FOLLOWING_TELEMETRY_PATH,
     API_V1_RUNTIME_STATUS_PATH,
+    API_V1_STREAMING_MEDIA_HEALTH_PATH,
     API_V1_TELEMETRY_HEALTH_PATH,
     API_V1_TRACKING_RUNTIME_STATUS_PATH,
     API_V1_TRACKING_TELEMETRY_PATH,
@@ -84,6 +85,15 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
         responses="RUNTIME_STATUS_ERROR_RESPONSES",
         operation_id="get_runtime_status",
         tags=("runtime",),
+    ),
+    ApiV1RouteSpec(
+        method="GET",
+        path=API_V1_STREAMING_MEDIA_HEALTH_PATH,
+        handler="get_streaming_media_health",
+        response_model="APIStreamingMediaHealthResponse",
+        responses="STREAMING_MEDIA_HEALTH_ERROR_RESPONSES",
+        operation_id="get_streaming_media_health",
+        tags=("streams",),
     ),
     ApiV1RouteSpec(
         method="GET",

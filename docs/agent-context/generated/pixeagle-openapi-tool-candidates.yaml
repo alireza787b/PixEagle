@@ -5,13 +5,13 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: d250af72f85479c717136c59444d151d39f03a3844206b5a53468fc047b04529
+    sha256: bd328e7023b5d49bc3ba99628c566db2ed5f8692fa4649221d996ae97e35e19a
   - file: src/classes/fastapi_api_v1_routes.py
-    sha256: 0c3a8286ab685292e8a34e6f9932841cf71bb63ba83cfa97a7f228cb58c54925
+    sha256: 81e15ca940cf6171fd9407d53cf7589958cd02317878707ae583f29e26994b20
   - file: src/classes/api_v1_contracts.py
-    sha256: d35ed6d81aca24e7d5436e6ce7748f8c9e470430701d054cbeb9aaf4f93aa15e
+    sha256: 9fe301ffd49ebc5ce0261c4c0d3d6ac2629ceb6dbc5b408288a18306c2011ebd
   - file: src/classes/api_v1_paths.py
-    sha256: d52eb9c81488deedfec7ba0315d4869a6a13ad2281a906519ae78435cd942320
+    sha256: 5230810717e84e2d80e6649a7e436370f5006e501d2d6fadee3bc74f6a187a10
   - file: src/classes/api_v1_actions.py
     sha256: 52d2fbe2d637280934383784d31580d8d2cfe5af10e900b6006ea67834ec6c8b
   - file: src/classes/api_v1_auth_routes.py
@@ -19,11 +19,13 @@ source:
   - file: src/classes/api_legacy_control_routes.py
     sha256: 45ebcf303a04fc3adbbfe53e37bedeaa9b5876d9516288fb6c5480eb27e294f7
   - file: src/classes/api_v1_read_routes.py
-    sha256: f009b964dbbaba1fdcc05157a9ad9ee0ff5e6e57f2d760d435c8c9481e532220
+    sha256: c5994f0914ab5ede69509ce7ccae67c03f322db1b2610d3859ffe02f99976542
   - file: src/classes/api_v1_snapshots.py
     sha256: 498d4df51a3f35ec3c0622cbb17a7ada914f75d9905fc71fa3ff401efd25c719
   - file: src/classes/api_v1_telemetry.py
     sha256: 42f552f17fde806ec18f757d947315768fba08618ff6bb0b998703dff54d3c4c
+  - file: src/classes/api_v1_streams.py
+    sha256: 8ae76a581236bbebe5d826ce5f0943621b332d1a6d033ed603c692ccd89927e7
   - file: src/classes/api_v1_sitl.py
     sha256: b9645af0ea6058974143009debd4544aafbb865053bbd106a8c3d0363f580dd4
   - file: src/classes/api_exposure_policy.py
@@ -35,7 +37,7 @@ source:
   - file: src/classes/api_security_types.py
     sha256: 6b6b47d950108782e3783a5ba2fd7f14c65b94dabb49eb537f8c7b53a9b9ce1d
   - file: src/classes/api_security_policy.py
-    sha256: be05339eaadb9dec356b5fe05e188523f558088afc3a11a572a1b0044f49bbe0
+    sha256: 45ba45abe4caf1383bad5fad462b57f719b81e0625afc28af9cbfcb7e752d8cc
 generated_from:
 - src/classes/fastapi_handler.py
 - src/classes/fastapi_api_v1_routes.py
@@ -47,6 +49,7 @@ generated_from:
 - src/classes/api_v1_read_routes.py
 - src/classes/api_v1_snapshots.py
 - src/classes/api_v1_telemetry.py
+- src/classes/api_v1_streams.py
 - src/classes/api_v1_sitl.py
 - src/classes/api_exposure_policy.py
 - src/classes/api_auth_runtime.py
@@ -56,8 +59,8 @@ generated_from:
 output_path: docs/agent-context/generated/pixeagle-openapi-tool-candidates.yaml
 claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP tool
   registry, not a tools/list response, and not permission for an AI agent or client to execute
-  any PixEagle API route. PixEagle status and telemetry routes are process-local snapshots
-  unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+  any PixEagle API route. PixEagle status, telemetry, and media-health routes are process-local
+  snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
 promotion_path:
 - FastAPI route
 - generated non-callable candidate
@@ -69,25 +72,25 @@ promotion_path:
 - independent reviewer approval
 - MCP tools/list and tools/call exposure
 summary:
-  total_declared_http_routes: 136
-  api_v1_routes: 24
-  candidate_count: 24
-  eligible_read_only_candidates: 6
+  total_declared_http_routes: 137
+  api_v1_routes: 25
+  candidate_count: 25
+  eligible_read_only_candidates: 7
   callable_tools: 0
   mcp_exposed_tools: 0
-  unpromoted_read_only_candidates: 6
-  docs_registered_read_only_candidates: 6
+  unpromoted_read_only_candidates: 7
+  docs_registered_read_only_candidates: 7
   runtime_promoted_candidates: 0
   blocked_or_guarded_candidates: 18
   review_disposition:
     states:
-      approved_for_review_only: 6
+      approved_for_review_only: 7
       blocked: 13
       deferred: 5
-    approved_for_review_only: 6
+    approved_for_review_only: 7
     blocked: 13
     deferred: 5
-    valid_disposition_count: 24
+    valid_disposition_count: 25
     missing_disposition_count: 0
     invalid_disposition_count: 0
     unsafe_disposition_boundary_count: 0
@@ -103,14 +106,14 @@ summary:
     registry_path: docs/agent-context/agent_tools.yaml
     policy_present: true
     policy_path: docs/agent-context/agent_policy.yaml
-    registry_tool_count: 6
+    registry_tool_count: 7
     docs_registry_present: true
-    docs_registered_read_only_candidates: 6
+    docs_registered_read_only_candidates: 7
     registry_metadata_safe: true
     registry_tools_safe: true
     policy_safe: true
-    eligible_read_only_candidate_count: 6
-    registered_eligible_read_only_candidate_count: 6
+    eligible_read_only_candidate_count: 7
+    registered_eligible_read_only_candidate_count: 7
     unregistered_eligible_read_only_candidate_count: 0
     unpromoted_eligible_read_only_candidates: 0
     registered_eligible_read_only_ratio: 1.0
@@ -155,8 +158,9 @@ candidates:
   side_effects: can_mutate_tracking_or_following_control_path
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Control mutation route.
   - Requires confirmation, idempotency, dry-run/replay semantics, audit records, and policy
@@ -215,8 +219,9 @@ candidates:
   side_effects: can_mutate_tracking_or_following_control_path
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Control mutation route.
   - Requires confirmation, idempotency, dry-run/replay semantics, audit records, and policy
@@ -275,8 +280,9 @@ candidates:
   side_effects: can_mutate_tracking_or_following_control_path
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Control mutation route.
   - Requires confirmation, idempotency, dry-run/replay semantics, audit records, and policy
@@ -335,8 +341,9 @@ candidates:
   side_effects: can_mutate_tracking_or_following_control_path
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Control mutation route.
   - Requires confirmation, idempotency, dry-run/replay semantics, audit records, and policy
@@ -395,8 +402,9 @@ candidates:
   side_effects: can_mutate_tracking_or_following_control_path
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Control mutation route.
   - Requires confirmation, idempotency, dry-run/replay semantics, audit records, and policy
@@ -455,8 +463,9 @@ candidates:
   side_effects: can_mutate_tracking_or_following_control_path
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Control mutation route.
   - Requires confirmation, idempotency, dry-run/replay semantics, audit records, and policy
@@ -515,8 +524,9 @@ candidates:
   side_effects: can_mutate_tracking_or_following_control_path
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Control mutation route.
   - Requires confirmation, idempotency, dry-run/replay semantics, audit records, and policy
@@ -575,8 +585,9 @@ candidates:
   side_effects: can_mutate_tracking_or_following_control_path
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Control mutation route.
   - Requires confirmation, idempotency, dry-run/replay semantics, audit records, and policy
@@ -635,8 +646,9 @@ candidates:
   side_effects: can_mutate_tracking_or_following_control_path
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Control mutation route.
   - Requires confirmation, idempotency, dry-run/replay semantics, audit records, and policy
@@ -695,8 +707,9 @@ candidates:
   side_effects: none_expected
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Action resources may expose control-operation audit details.
   - Promote only through a reviewed action-audit read tool with sensitivity policy.
@@ -751,8 +764,9 @@ candidates:
   side_effects: creates_or_revokes_browser_session_state
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Authentication bootstrap route.
   - Not eligible for MCP promotion; use typed API/session contracts only.
@@ -809,8 +823,9 @@ candidates:
   side_effects: creates_or_revokes_browser_session_state
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Authentication bootstrap route.
   - Not eligible for MCP promotion; use typed API/session contracts only.
@@ -867,8 +882,9 @@ candidates:
   side_effects: none_expected
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Authentication bootstrap route.
   - Not eligible for MCP promotion; use typed API/session contracts only.
@@ -925,8 +941,9 @@ candidates:
   side_effects: none_expected
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons: []
   required_review:
   - curated registry entry
@@ -942,8 +959,8 @@ candidates:
     state: approved_for_review_only
     owner: pixeagle-api-governance
     reviewed_on: '2026-06-18'
-    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry candidate.
-      This is documentation-stage approval only and does not make the route callable.
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry/media-health
+      candidate. This is documentation-stage approval only and does not make the route callable.
     evidence:
     - docs/agent-context/agent_tools.yaml
     - docs/agent-context/agent_policy.yaml
@@ -993,8 +1010,9 @@ candidates:
   side_effects: none_expected
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons: []
   required_review:
   - curated registry entry
@@ -1010,8 +1028,8 @@ candidates:
     state: approved_for_review_only
     owner: pixeagle-api-governance
     reviewed_on: '2026-06-18'
-    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry candidate.
-      This is documentation-stage approval only and does not make the route callable.
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry/media-health
+      candidate. This is documentation-stage approval only and does not make the route callable.
     evidence:
     - docs/agent-context/agent_tools.yaml
     - docs/agent-context/agent_policy.yaml
@@ -1061,8 +1079,9 @@ candidates:
   side_effects: none_expected
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons: []
   required_review:
   - curated registry entry
@@ -1078,8 +1097,8 @@ candidates:
     state: approved_for_review_only
     owner: pixeagle-api-governance
     reviewed_on: '2026-06-18'
-    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry candidate.
-      This is documentation-stage approval only and does not make the route callable.
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry/media-health
+      candidate. This is documentation-stage approval only and does not make the route callable.
     evidence:
     - docs/agent-context/agent_tools.yaml
     - docs/agent-context/agent_policy.yaml
@@ -1129,8 +1148,9 @@ candidates:
   side_effects: mutates_validation_only_runtime_state_when_enabled
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Validation-only stimulus route.
   - Disabled by default and intended only for operator-approved validation stacks.
@@ -1188,8 +1208,9 @@ candidates:
   side_effects: mutates_validation_only_runtime_state_when_enabled
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Validation-only stimulus route.
   - Disabled by default and intended only for operator-approved validation stacks.
@@ -1247,8 +1268,9 @@ candidates:
   side_effects: mutates_validation_only_runtime_state_when_enabled
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Validation-only stimulus route.
   - Disabled by default and intended only for operator-approved validation stacks.
@@ -1306,8 +1328,9 @@ candidates:
   side_effects: mutates_validation_only_runtime_state_when_enabled
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Validation-only stimulus route.
   - Disabled by default and intended only for operator-approved validation stacks.
@@ -1365,8 +1388,9 @@ candidates:
   side_effects: mutates_validation_only_runtime_state_when_enabled
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons:
   - Validation-only stimulus route.
   - Disabled by default and intended only for operator-approved validation stacks.
@@ -1397,6 +1421,75 @@ candidates:
     runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
+- id: pixeagle.streams.media_health.read
+  candidate_id: pixeagle.streams.media_health.read
+  method: GET
+  path: /api/v1/streams/media-health
+  operation_id: get_streaming_media_health
+  tags:
+  - streams
+  response_model: APIStreamingMediaHealthResponse
+  request_model: null
+  responses: STREAMING_MEDIA_HEALTH_ERROR_RESPONSES
+  status_code: null
+  handler: self.get_streaming_media_health
+  typed_api_contract: true
+  deprecated: false
+  classification: process_local_observe
+  read_only: true
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: registry_reviewed_unexposed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: true
+  risk_class: process_local_observe
+  sensitivity: media_transport_health
+  side_effects: none_expected
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
+  blocked_reasons: []
+  required_review:
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  safety_notes:
+  - Candidate is a PixEagle process-local GET snapshot only.
+  - Candidate does not prove PX4, SITL, HIL, field, tracker, follower, or real-aircraft success.
+  - Promotion still requires a curated registry and policy review.
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry/media-health
+      candidate. This is documentation-stage approval only and does not make the route callable.
+    evidence:
+    - docs/agent-context/agent_tools.yaml
+    - docs/agent-context/agent_policy.yaml
+    - tests/test_api_tool_candidates.py
+    next_gate: Runtime MCP auth, audit, operator docs, evals, and independent promotion review
+      before any tools/list exposure.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  registry_matches:
+  - id: pixeagle.streams.media_health.read
+    candidate_id: pixeagle.streams.media_health.read
+    route_operation_id: get_streaming_media_health
+    exposure: review_only
+    mcp_exposure: none
+    callable: false
+    default_registry_exposure: exclude
+    promotion_status: unpromoted
+    read_only: true
+    risk_class: observe
+    review_disposition_state: approved_for_review_only
+    valid_review_only_match: true
+  registry_review_status: registered_unexposed
 - id: pixeagle.telemetry.health.read
   candidate_id: pixeagle.telemetry.health.read
   method: GET
@@ -1424,8 +1517,9 @@ candidates:
   side_effects: none_expected
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons: []
   required_review:
   - curated registry entry
@@ -1441,8 +1535,8 @@ candidates:
     state: approved_for_review_only
     owner: pixeagle-api-governance
     reviewed_on: '2026-06-18'
-    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry candidate.
-      This is documentation-stage approval only and does not make the route callable.
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry/media-health
+      candidate. This is documentation-stage approval only and does not make the route callable.
     evidence:
     - docs/agent-context/agent_tools.yaml
     - docs/agent-context/agent_policy.yaml
@@ -1492,8 +1586,9 @@ candidates:
   side_effects: none_expected
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons: []
   required_review:
   - curated registry entry
@@ -1509,8 +1604,8 @@ candidates:
     state: approved_for_review_only
     owner: pixeagle-api-governance
     reviewed_on: '2026-06-18'
-    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry candidate.
-      This is documentation-stage approval only and does not make the route callable.
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry/media-health
+      candidate. This is documentation-stage approval only and does not make the route callable.
     evidence:
     - docs/agent-context/agent_tools.yaml
     - docs/agent-context/agent_policy.yaml
@@ -1560,8 +1655,9 @@ candidates:
   side_effects: none_expected
   claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
     tool registry, not a tools/list response, and not permission for an AI agent or client
-    to execute any PixEagle API route. PixEagle status and telemetry routes are process-local
-    snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove a specific scenario.
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
   blocked_reasons: []
   required_review:
   - curated registry entry
@@ -1577,8 +1673,8 @@ candidates:
     state: approved_for_review_only
     owner: pixeagle-api-governance
     reviewed_on: '2026-06-18'
-    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry candidate.
-      This is documentation-stage approval only and does not make the route callable.
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry/media-health
+      candidate. This is documentation-stage approval only and does not make the route callable.
     evidence:
     - docs/agent-context/agent_tools.yaml
     - docs/agent-context/agent_policy.yaml

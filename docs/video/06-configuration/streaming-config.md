@@ -61,6 +61,20 @@ Streaming:
 | `WEBRTC_TURN_SERVER` | string | - | Optional TURN server URL |
 | `DEFAULT_PROTOCOL` | string | `auto` | Dashboard protocol preference |
 
+## Media Health API
+
+`GET /api/v1/streams/media-health` reports typed process-local media health for
+the configured Streaming and GStreamer output paths. It includes MJPEG,
+WebSocket, WebRTC signaling, GStreamer output, frame-publisher freshness,
+adaptive-quality state, `Streaming.ENABLE_STREAMING`, zero-capacity transport
+state, and the effective media auth/exposure posture. Stale published frames
+degrade the route status. GStreamer UDP reports pipeline activity but no client
+connection count because UDP output has no reliable client handshake.
+
+The route requires `media:read`. It is intended for dashboard/API/MCP
+observability and does not prove that a remote browser, QGC, WebRTC peer, GCS,
+PX4, SITL, HIL, or field video path received usable media.
+
 ## GStreamer Output Streaming
 
 ```yaml

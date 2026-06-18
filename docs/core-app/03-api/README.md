@@ -41,7 +41,7 @@ runtime MCP `tools/list` or `tools/call` exposure.
 | Category | Endpoints | Description |
 |----------|-----------|-------------|
 | [Auth](#auth) | `/api/v1/auth/session`, `/api/v1/auth/login`, `/api/v1/auth/logout` | Browser-session status and lifecycle |
-| [Streaming](#streaming) | `/video_feed`, `/ws/video_feed` | Video streaming |
+| [Streaming](#streaming) | `/video_feed`, `/ws/video_feed`, `/api/v1/streams/media-health` | Video streaming and typed media health |
 | [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/v1/tracking/telemetry`, `/api/v1/telemetry/health` | System data and typed health |
 | [Commands](#commands) | `/commands/*` | Control operations |
 | [Tracker](#tracker-api) | `/api/v1/tracking/runtime-status`, `/api/v1/tracking/telemetry`, `/api/tracker/*` | Typed tracker runtime/telemetry and legacy tracker management |
@@ -553,6 +553,31 @@ registry and reads `modes.smart_mode_active`. A top-level
 `smart_mode_active` payload read remains only as a compatibility fallback.
 During rolling updates, the hook falls back to legacy `/status` only when the
 typed runtime route is missing, and it ignores stale out-of-order responses.
+
+### Streaming Media Health
+
+```http
+GET /api/v1/streams/media-health
+```
+
+Typed process-local media transport health for dashboard/API/MCP consumers.
+Use this route to inspect PixEagle's backend media state instead of scraping
+legacy `/stats` or `/api/streaming/status` payloads.
+
+The response reports:
+
+- `status` and `consumer_guidance` for local media serving state;
+- per-transport entries for HTTP MJPEG, JPEG WebSocket, WebRTC signaling, and
+  GStreamer UDP/H.264 output;
+- `Streaming.ENABLE_STREAMING`, disabled or zero-capacity transport state, and
+  GStreamer UDP pipeline state without pretending UDP has client connections;
+- frame-publisher freshness, `latest_frame_stale`, sent/dropped frame counters,
+  cache size, and adaptive-quality state;
+- exposure/auth posture without credential material.
+
+The route requires `media:read`. Its `claim_boundary` is local-only: it does
+not prove that a remote browser, QGC, WebRTC peer, GCS, PX4, SITL, HIL, or
+field video path received usable media.
 
 Dashboard follower nav/status polling uses `/api/v1/following/status` through
 the endpoint registry and reads `following_active`. Detailed follower-card
