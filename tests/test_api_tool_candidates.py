@@ -15,6 +15,11 @@ INVENTORY_PATH = (
 )
 REGISTRY_PATH = PROJECT_ROOT / "docs" / "agent-context" / "agent_tools.yaml"
 POLICY_PATH = PROJECT_ROOT / "docs" / "agent-context" / "agent_policy.yaml"
+VALID_REVIEW_DISPOSITIONS = {
+    "approved_for_review_only",
+    "blocked",
+    "deferred",
+}
 
 
 def _load_inventory():
@@ -116,9 +121,23 @@ def test_api_tool_candidate_inventory_is_non_callable():
     assert coverage["unsafe_registry_tool_count"] == 0
     assert coverage["unsafe_policy_setting_count"] == 0
     assert coverage["status"] == "review_registry_complete_no_mcp_exposure"
+    disposition = inventory["summary"]["review_disposition"]
+    assert inventory["summary"]["disposition_coverage_complete"] is True
+    assert disposition["complete"] is True
+    assert disposition["approved_for_review_only"] == 6
+    assert disposition["blocked"] == 13
+    assert disposition["deferred"] == 5
+    assert (
+        disposition["valid_disposition_count"]
+        == inventory["summary"]["candidate_count"]
+    )
+    assert disposition["missing_disposition_count"] == 0
+    assert disposition["invalid_disposition_count"] == 0
+    assert disposition["unsafe_disposition_boundary_count"] == 0
     assert "not an MCP tool registry" in inventory["claim_boundary"]
     assert "not permission" in inventory["claim_boundary"]
     for candidate in inventory["candidates"]:
+        review_disposition = candidate["review_disposition"]
         assert candidate["id"]
         assert candidate["id"] == candidate["candidate_id"]
         assert candidate["callable"] is False
@@ -130,6 +149,14 @@ def test_api_tool_candidate_inventory_is_non_callable():
         }
         assert candidate["promotion_status"] == "unpromoted"
         assert candidate["claim_boundary"] == inventory["claim_boundary"]
+        assert review_disposition["state"] in VALID_REVIEW_DISPOSITIONS
+        assert review_disposition["owner"] == "pixeagle-api-governance"
+        assert review_disposition["reviewed_on"]
+        assert review_disposition["rationale"]
+        assert review_disposition["evidence"]
+        assert review_disposition["next_gate"]
+        assert review_disposition["does_not_imply_mcp_exposure"] is True
+        assert review_disposition["runtime_promotion"] == "not_promoted"
 
 
 def test_initial_read_only_candidates_are_limited_to_typed_process_local_gets():
@@ -166,41 +193,89 @@ def test_initial_read_only_candidates_are_limited_to_typed_process_local_gets():
         assert candidate["blocked_reasons"] == []
         assert candidate["review_status"] == "registry_reviewed_unexposed"
         assert candidate["registry_review_status"] == "registered_unexposed"
+        assert candidate["review_disposition"]["state"] == "approved_for_review_only"
+        assert candidate["callable"] is False
+        assert candidate["mcp_exposure"] == "none"
+        assert candidate["promotion_status"] == "unpromoted"
         assert len(candidate["registry_matches"]) == 1
         assert candidate["registry_matches"][0]["valid_review_only_match"] is True
+        assert (
+            candidate["registry_matches"][0]["review_disposition_state"]
+            == "approved_for_review_only"
+        )
         assert any("process-local" in note for note in candidate["safety_notes"])
 
 
 def test_action_and_sitl_routes_are_blocked_from_read_only_promotion():
     inventory = _load_inventory()
     candidates = _candidate_by_path_method(inventory)
-    blocked_routes = {
-        ("POST", "/api/v1/actions/offboard-start"): "guarded_control_action",
-        ("POST", "/api/v1/actions/offboard-stop"): "guarded_control_action",
-        ("POST", "/api/v1/actions/operator-abort"): "guarded_control_action",
-        ("POST", "/api/v1/actions/segmentation-toggle"): "guarded_control_action",
-        ("POST", "/api/v1/actions/smart-click"): "guarded_control_action",
-        ("POST", "/api/v1/actions/smart-mode-toggle"): "guarded_control_action",
-        ("POST", "/api/v1/actions/tracking-redetect"): "guarded_control_action",
-        ("POST", "/api/v1/actions/tracking-start"): "guarded_control_action",
-        ("POST", "/api/v1/actions/tracking-stop"): "guarded_control_action",
-        ("GET", "/api/v1/actions/{action_id}"): "control_audit_observe",
-        ("POST", "/api/v1/sitl/injections/tracker-output"): "validation_stimulus",
-        ("POST", "/api/v1/sitl/injections/video-stall"): "validation_stimulus",
-        (
-            "POST",
-            "/api/v1/sitl/injections/commander-publish-failure",
-        ): "validation_stimulus",
-        ("POST", "/api/v1/sitl/injections/mavsdk-disconnect"): "validation_stimulus",
-        (
-            "POST",
-            "/api/v1/sitl/injections/mavlink2rest-timeout",
-        ): "validation_stimulus",
+    blocked_or_deferred_routes = {
+        ("POST", "/api/v1/actions/offboard-start"): (
+            "guarded_control_action",
+            "blocked",
+        ),
+        ("POST", "/api/v1/actions/offboard-stop"): (
+            "guarded_control_action",
+            "blocked",
+        ),
+        ("POST", "/api/v1/actions/operator-abort"): (
+            "guarded_control_action",
+            "blocked",
+        ),
+        ("POST", "/api/v1/actions/segmentation-toggle"): (
+            "guarded_control_action",
+            "blocked",
+        ),
+        ("POST", "/api/v1/actions/smart-click"): (
+            "guarded_control_action",
+            "blocked",
+        ),
+        ("POST", "/api/v1/actions/smart-mode-toggle"): (
+            "guarded_control_action",
+            "blocked",
+        ),
+        ("POST", "/api/v1/actions/tracking-redetect"): (
+            "guarded_control_action",
+            "blocked",
+        ),
+        ("POST", "/api/v1/actions/tracking-start"): (
+            "guarded_control_action",
+            "blocked",
+        ),
+        ("POST", "/api/v1/actions/tracking-stop"): (
+            "guarded_control_action",
+            "blocked",
+        ),
+        ("GET", "/api/v1/actions/{action_id}"): (
+            "control_audit_observe",
+            "blocked",
+        ),
+        ("POST", "/api/v1/sitl/injections/tracker-output"): (
+            "validation_stimulus",
+            "deferred",
+        ),
+        ("POST", "/api/v1/sitl/injections/video-stall"): (
+            "validation_stimulus",
+            "deferred",
+        ),
+        ("POST", "/api/v1/sitl/injections/commander-publish-failure"): (
+            "validation_stimulus",
+            "deferred",
+        ),
+        ("POST", "/api/v1/sitl/injections/mavsdk-disconnect"): (
+            "validation_stimulus",
+            "deferred",
+        ),
+        ("POST", "/api/v1/sitl/injections/mavlink2rest-timeout"): (
+            "validation_stimulus",
+            "deferred",
+        ),
     }
 
-    for route, risk_class in blocked_routes.items():
+    for route, (risk_class, disposition) in blocked_or_deferred_routes.items():
         candidate = candidates[route]
         assert candidate["risk_class"] == risk_class
+        assert candidate["review_disposition"]["state"] == disposition
         assert candidate["eligible_read_only_mcp_candidate"] is False
         assert candidate["blocked_reasons"] != []
         assert candidate["mcp_exposure"] == "none"
@@ -220,6 +295,7 @@ def test_auth_routes_are_blocked_from_mcp_promotion():
     for route in blocked_routes:
         candidate = candidates[route]
         assert candidate["risk_class"] == "auth_session_boundary"
+        assert candidate["review_disposition"]["state"] == "blocked"
         assert candidate["eligible_read_only_mcp_candidate"] is False
         assert candidate["blocked_reasons"] != []
         assert candidate["mcp_exposure"] == "none"
@@ -304,6 +380,13 @@ def test_docs_stage_agent_registry_only_registers_eligible_read_only_candidates(
         assert tool["exposure"] == "review_only"
         assert tool["default_registry_exposure"] == "exclude"
         assert tool["promotion_status"] == "unpromoted"
+        assert (
+            tool["review_disposition"]["state"]
+            == candidate["review_disposition"]["state"]
+        )
+        assert tool["review_disposition"]["state"] == "approved_for_review_only"
+        assert tool["review_disposition"]["does_not_imply_mcp_exposure"] is True
+        assert tool["review_disposition"]["runtime_promotion"] == "not_promoted"
         assert tool["risk_class"] == "observe"
         assert tool["candidate_risk_class"] == candidate["risk_class"]
         assert tool["side_effects"] == []
@@ -328,6 +411,16 @@ def test_docs_stage_agent_policy_denies_execution_and_actions():
     assert policy["defaults"]["allow_action_tools"] is False
     assert policy["defaults"]["allow_sitl_injection_tools"] is False
     assert policy["defaults"]["auto_promote_generated_candidates"] is False
+    assert policy["review_disposition"]["required_for_all_candidates"] is True
+    assert set(policy["review_disposition"]["valid_states"]) == VALID_REVIEW_DISPOSITIONS
+    assert policy["review_disposition"]["default_missing_disposition_policy"] == "deny"
+    assert policy["review_disposition"]["completion_allows_runtime_promotion"] is False
+    assert (
+        policy["review_disposition"]["approved_for_review_only_allows_callable"]
+        is False
+    )
+    assert policy["review_disposition"]["blocked_allows_callable"] is False
+    assert policy["review_disposition"]["deferred_allows_callable"] is False
 
     denied_risks = set(policy["denied_risks"])
     assert {"simulate", "operate", "admin", "destructive"}.issubset(denied_risks)

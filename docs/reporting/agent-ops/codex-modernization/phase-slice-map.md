@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-06-17
+Last updated: 2026-06-18
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -101,6 +101,7 @@ it together with:
 | Phase 4 QGC source-profile and demo policy | done | PXE-0071 | `checkpoints/2026-06-17-phase-4-qgc-source-profile-demo-policy.md`; preserved generic QGC HTTP/HTTPS MJPEG and WebSocket support for non-PixEagle sources, documented PixEagle as a stricter configured source profile rather than QGC core behavior, clarified the PixEagle config contract for generic QGC interop (`API_ALLOWED_HOSTS`, exact host authority, future Authorization/Origin/TLS settings, `media:read`-only video token), clarified that beginner full-dashboard LAN demos should use generated browser-session credentials while anonymous demos must be media-only, posted QGC PR clarification comment `https://github.com/mavlink/qgroundcontrol/pull/13594#issuecomment-4731276373`, and updated PXE-0068/PXE-0070 gates plus docs guardrails; no QGC branch mutation, PX4/SITL/HIL/field or service/deployment action was claimed |
 | Phase 4 setup-profile foundation | done | PXE-0068 partial | `checkpoints/2026-06-17-phase-4-setup-profile-foundation.md`; added explicit setup-profile tooling, `local_dev` and `field_qgc_video` profile application, fail-closed defined remote/unsafe profiles, Make targets, QGC UDP/RTP default port `5600` alignment, init/install clean-clone default behavior, deployment-only service opt-in, Windows port fallback, companion/troubleshooting cleanup, legacy telemetry WebSocket labeling, and setup-profile/docs regression guards; PXE-0068 remains open for credential-generating remote profile automation and media/service follow-ups |
 | Phase 4 binary download provenance | done | PXE-0068 partial | `checkpoints/2026-06-17-phase-4-binary-download-provenance.md`; added shared MAVSDK Server/MAVLink2REST binary manifest, exact asset pins and SHA-256 digests, Linux/Windows dry-run plan output, checksum verification before install, provenance JSONL, explicit override policy, no fallback tag probing, init verification for existing binaries, docs, CI/Phase 0 guardrails, and reviewer fixes; no binary download/install, service/deployment, PX4/SITL/HIL/field, or runtime claims |
+| Phase 4 API/MCP candidate disposition governance | done | PXE-0066 | `checkpoints/2026-06-18-phase-4-api-mcp-candidate-disposition.md`; generated inventory now assigns every `/api/v1` candidate an explicit review disposition with owner/rationale/evidence/next gate; current split is 6 approved-for-review-only process-local GET candidates, 13 blocked auth/action/audit candidates, and 5 deferred SITL validation-stimulus candidates; policy and registry keep all candidates non-callable, unpromoted, and outside runtime MCP exposure |
 
 ## Active Slice
 
@@ -194,9 +195,9 @@ container and collects metadata/params/ULog/bounded logs, but no accepted
 PixEagle/PX4 interaction pass is claimed until PixEagle, MAVLink2REST,
 MavlinkAnywhere routing, typed scenario execution, PX4 observation artifacts,
 and safety outcomes are all present. Continue with broader `/api/v1` migration
-and router extraction, API authentication/exposure hardening, candidate
-disposition governance, SITL sidecar evidence hardening, plus dashboard
-toolchain modernization (PXE-0008, PXE-0064, PXE-0066, PXE-0065, PXE-0021)
+and router extraction, API authentication/exposure hardening, SITL sidecar
+evidence hardening, plus dashboard toolchain modernization (PXE-0008,
+PXE-0064, PXE-0065, PXE-0021)
 while keeping full
 runtime L2/L3/L4 validation operator-gated.
 
@@ -471,7 +472,6 @@ Current host boundary:
 | 3 | X-Plane/Windows SITL disposition | PXE-0020 | Rewrite as maintained evidence workflow or move to historical docs. |
 | 4 | API/MCP modernization | PXE-0008 | Continue typed `/api/v1` migration beyond the current status/telemetry/action resources: route migration tests, router extraction, command/action durability, curated agent registry/policy design, and FastAPI/OpenAPI client contract tests. Companion sidecar standards were closed under PXE-0022. |
 | 4 | API authentication and exposure boundary | PXE-0064 | Replace the current unauthenticated broad-bind posture with an explicit production trust/auth/authorization boundary; protect HTTP, WebSocket, video, and mutation paths; retire immediate legacy mutations; preserve local development ergonomics through explicit profiles. |
-| 4 | API/MCP candidate disposition governance | PXE-0066 | Give every generated candidate an explicit approved/blocked/deferred review disposition and rationale without making review completion imply runtime promotion or MCP exposure. |
 | 3/4 | SITL sidecar evidence hardening | PXE-0065 | Add compatible-sidecar capability/version policy, installed dashboard version evidence, structured preparation/compatibility classifications, and secret scanning/redaction before a SITL artifact set can pass. |
 | 4 | Bootstrap/setup UX cleanup | PXE-0068 | Continue after setup-profile and binary-provenance foundations with credential-generating `demo_lan_browser` only after external hashed users, exact Host/CORS, warning/evidence UX, and tests exist; keep `production_remote` gated on TLS/operator hardening and adversarial auth/media tests; add backend media WebSocket health reporting; remove any remaining stale setup/service/download contradictions found in later slices. |
 | 4 | QGC authenticated remote HTTP/WS media | PXE-0070 | Rebase/repair PR #13594 and add reviewed Authorization/Origin/TLS/redaction/test support before advertising remote PixEagle HTTP/WebSocket media from QGC on a different host. |

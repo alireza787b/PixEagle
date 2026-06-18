@@ -121,6 +121,22 @@ REQUIRED_POLICY_DENIED_ROUTE_PREFIXES = {
     "/api/v1/sitl/injections/",
 }
 
+DISPOSITION_OWNER = "pixeagle-api-governance"
+DISPOSITION_REVIEW_DATE = "2026-06-18"
+DISPOSITION_STATES = {
+    "approved_for_review_only",
+    "blocked",
+    "deferred",
+}
+REQUIRED_POLICY_DISPOSITION_DEFAULTS = {
+    "required_for_all_candidates": True,
+    "completion_allows_runtime_promotion": False,
+    "default_missing_disposition_policy": "deny",
+    "approved_for_review_only_allows_callable": False,
+    "blocked_allows_callable": False,
+    "deferred_allows_callable": False,
+}
+
 
 def _relative_path(path: Path) -> str:
     try:
@@ -378,6 +394,15 @@ def _route_key(method: str, path: str) -> tuple[str, str]:
     return (str(method).upper(), str(path))
 
 
+def _sensitive_candidate_path(path: str) -> bool:
+    return (
+        path == "/api/v1/actions/{action_id}"
+        or path.startswith("/api/v1/actions/")
+        or path.startswith("/api/v1/auth/")
+        or path.startswith("/api/v1/sitl/injections/")
+    )
+
+
 def _load_yaml_file(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -417,6 +442,12 @@ def _tool_matches_candidate(tool: dict[str, Any], candidate: dict[str, Any]) -> 
         if isinstance(tool.get("output_contract"), dict)
         else {}
     )
+    tool_disposition = (
+        tool.get("review_disposition")
+        if isinstance(tool.get("review_disposition"), dict)
+        else {}
+    )
+    candidate_disposition = candidate.get("review_disposition", {})
     return all(
         [
             tool.get("id") == candidate["id"],
@@ -440,6 +471,13 @@ def _tool_matches_candidate(tool: dict[str, Any], candidate: dict[str, Any]) -> 
             tool.get("boundary") == "pixeagle-process-local",
             tool.get("required_role") == "viewer",
             tool.get("side_effects") == [],
+            tool_disposition.get("state") == "approved_for_review_only",
+            tool_disposition.get("state") == candidate_disposition.get("state"),
+            tool_disposition.get("owner") == DISPOSITION_OWNER,
+            bool(tool_disposition.get("reviewed_on")),
+            bool(tool_disposition.get("rationale")),
+            tool_disposition.get("does_not_imply_mcp_exposure") is True,
+            tool_disposition.get("runtime_promotion") == "not_promoted",
         ]
     )
 
@@ -463,6 +501,11 @@ def _registry_matches_for_candidate(
                 "promotion_status": tool.get("promotion_status"),
                 "read_only": tool.get("read_only"),
                 "risk_class": tool.get("risk_class"),
+                "review_disposition_state": (
+                    tool.get("review_disposition", {}).get("state")
+                    if isinstance(tool.get("review_disposition"), dict)
+                    else None
+                ),
                 "valid_review_only_match": _tool_matches_candidate(tool, candidate),
             }
         )
@@ -484,6 +527,11 @@ def _policy_problems(policy: dict[str, Any]) -> list[str]:
     payload = policy.get("payload") if isinstance(policy.get("payload"), dict) else {}
     metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
     defaults = payload.get("defaults") if isinstance(payload.get("defaults"), dict) else {}
+    review_disposition = (
+        payload.get("review_disposition")
+        if isinstance(payload.get("review_disposition"), dict)
+        else {}
+    )
     denied_risks = set(payload.get("denied_risks") or [])
     denied_prefixes = set(payload.get("denied_route_prefixes") or [])
     problems = []
@@ -506,6 +554,23 @@ def _policy_problems(policy: dict[str, Any]) -> list[str]:
     missing_prefixes = sorted(REQUIRED_POLICY_DENIED_ROUTE_PREFIXES - denied_prefixes)
     if missing_prefixes:
         problems.append(f"denied_route_prefixes missing {missing_prefixes!r}")
+
+    for key, expected in REQUIRED_POLICY_DISPOSITION_DEFAULTS.items():
+        actual = review_disposition.get(key)
+        if actual != expected:
+            problems.append(
+                f"review_disposition.{key} expected {expected!r}, got {actual!r}"
+            )
+
+    valid_states = set(review_disposition.get("valid_states") or [])
+    missing_states = sorted(DISPOSITION_STATES - valid_states)
+    unexpected_states = sorted(valid_states - DISPOSITION_STATES)
+    if missing_states:
+        problems.append(f"review_disposition.valid_states missing {missing_states!r}")
+    if unexpected_states:
+        problems.append(
+            f"review_disposition.valid_states has unexpected {unexpected_states!r}"
+        )
 
     return problems
 
@@ -551,6 +616,87 @@ def _registry_tool_problems(
     return problems
 
 
+def _review_disposition(
+    *,
+    state: str,
+    rationale: str,
+    evidence: list[str],
+    next_gate: str,
+) -> dict[str, Any]:
+    if state not in DISPOSITION_STATES:
+        raise ValueError(f"Unsupported review disposition state: {state}")
+    return {
+        "state": state,
+        "owner": DISPOSITION_OWNER,
+        "reviewed_on": DISPOSITION_REVIEW_DATE,
+        "rationale": rationale,
+        "evidence": evidence,
+        "next_gate": next_gate,
+        "does_not_imply_mcp_exposure": True,
+        "runtime_promotion": "not_promoted",
+    }
+
+
+def _candidate_review_disposition(
+    *,
+    eligible: bool,
+    risk_class: str,
+    blocked_reasons: list[str],
+) -> dict[str, Any]:
+    if eligible:
+        return _review_disposition(
+            state="approved_for_review_only",
+            rationale=(
+                "Reviewed as an initial typed, process-local, read-only "
+                "status/telemetry candidate. This is documentation-stage "
+                "approval only and does not make the route callable."
+            ),
+            evidence=[
+                "docs/agent-context/agent_tools.yaml",
+                "docs/agent-context/agent_policy.yaml",
+                "tests/test_api_tool_candidates.py",
+            ],
+            next_gate=(
+                "Runtime MCP auth, audit, operator docs, evals, and independent "
+                "promotion review before any tools/list exposure."
+            ),
+        )
+
+    if risk_class == "validation_stimulus":
+        return _review_disposition(
+            state="deferred",
+            rationale=(
+                "Validation stimulus routes can mutate validation-only runtime "
+                "state when enabled. They are deferred until the guarded SITL "
+                "validation stack and evidence contract are complete."
+            ),
+            evidence=[
+                "docs/architecture/pixeagle-modernization-blueprint.md",
+                "docs/drone-interface/04-infrastructure/sitl-setup.md",
+                "tests/test_api_tool_candidates.py",
+            ],
+            next_gate=(
+                "PXE-0065 sidecar/evidence hardening and a separate SITL-only "
+                "agent policy review."
+            ),
+        )
+
+    return _review_disposition(
+        state="blocked",
+        rationale=" ".join(blocked_reasons)
+        or "Candidate is outside the approved API/MCP review boundary.",
+        evidence=[
+            "docs/agent-context/agent_policy.yaml",
+            "docs/apis/api-modernization-blueprint.md",
+            "tests/test_api_tool_candidates.py",
+        ],
+        next_gate=(
+            "Separate API safety/security design, tests, and independent review "
+            "before this candidate can leave blocked state."
+        ),
+    )
+
+
 def _classify_candidate(
     route: dict[str, Any],
     registry_index: dict[tuple[str, str], list[dict[str, Any]]] | None = None,
@@ -559,7 +705,12 @@ def _classify_candidate(
     path = route["path"]
     read_only = method == "GET"
     typed_api_contract = _typed_contract(route)
-    eligible = path in _read_only_eligible_paths() and read_only and typed_api_contract
+    eligible = (
+        path in _read_only_eligible_paths()
+        and read_only
+        and typed_api_contract
+        and not _sensitive_candidate_path(path)
+    )
     candidate_id = _candidate_id(path, method)
 
     risk_class = "unreviewed"
@@ -714,6 +865,11 @@ def _classify_candidate(
         "blocked_reasons": blocked_reasons,
         "required_review": sorted(set(required_review)),
         "safety_notes": safety_notes,
+        "review_disposition": _candidate_review_disposition(
+            eligible=eligible,
+            risk_class=risk_class,
+            blocked_reasons=blocked_reasons,
+        ),
     }
     matches = _registry_matches_for_candidate(candidate, registry_index or {})
     candidate["registry_matches"] = matches
@@ -833,6 +989,55 @@ def _registry_coverage_summary(
     }
 
 
+def _disposition_summary(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    counts = {state: 0 for state in sorted(DISPOSITION_STATES)}
+    invalid = []
+    missing = []
+    unsafe = []
+
+    for candidate in candidates:
+        disposition = candidate.get("review_disposition")
+        if not isinstance(disposition, dict):
+            missing.append(candidate["id"])
+            continue
+
+        state = disposition.get("state")
+        if state not in DISPOSITION_STATES:
+            invalid.append(candidate["id"])
+        else:
+            counts[state] += 1
+
+        if (
+            disposition.get("does_not_imply_mcp_exposure") is not True
+            or disposition.get("runtime_promotion") != "not_promoted"
+            or candidate.get("callable") is not False
+            or candidate.get("mcp_exposure") != "none"
+            or candidate.get("promotion_status") != "unpromoted"
+        ):
+            unsafe.append(candidate["id"])
+
+    total_valid = sum(counts.values())
+    return {
+        "states": counts,
+        "approved_for_review_only": counts["approved_for_review_only"],
+        "blocked": counts["blocked"],
+        "deferred": counts["deferred"],
+        "valid_disposition_count": total_valid,
+        "missing_disposition_count": len(missing),
+        "invalid_disposition_count": len(invalid),
+        "unsafe_disposition_boundary_count": len(unsafe),
+        "complete": (
+            total_valid == len(candidates)
+            and not missing
+            and not invalid
+            and not unsafe
+        ),
+        "missing_preview": missing[:10],
+        "invalid_preview": invalid[:10],
+        "unsafe_preview": unsafe[:10],
+    }
+
+
 def build_inventory() -> dict[str, Any]:
     routes = collect_declared_routes()
     registry = _load_registry()
@@ -851,6 +1056,7 @@ def build_inventory() -> dict[str, Any]:
         if candidate["eligible_read_only_mcp_candidate"]
     ]
     registry_coverage = _registry_coverage_summary(candidates, registry, policy)
+    disposition_coverage = _disposition_summary(candidates)
     source_files = [
         {
             "file": str(source.relative_to(PROJECT_ROOT)),
@@ -894,6 +1100,8 @@ def build_inventory() -> dict[str, Any]:
             ),
             "runtime_promoted_candidates": 0,
             "blocked_or_guarded_candidates": len(candidates) - len(read_only_candidates),
+            "review_disposition": disposition_coverage,
+            "disposition_coverage_complete": disposition_coverage["complete"],
             "curated_registry_present": registry_coverage["registry_present"],
             "registry_coverage_status": registry_coverage["status"],
             "registry_coverage": registry_coverage,

@@ -31,7 +31,10 @@ consumers because they have stable schemas and operation IDs. That does not mean
 PixEagle currently exposes callable MCP tools. The generated candidate inventory
 under `docs/agent-context/generated/` is review coverage only, not MCP
 execution, and every candidate remains unpromoted until registry, policy, docs,
-tests, and reviewer gates are complete.
+tests, and reviewer gates are complete. Each generated candidate has a
+`review_disposition` of `approved_for_review_only`, `blocked`, or `deferred`;
+those dispositions are documentation-stage governance only and never imply
+runtime MCP `tools/list` or `tools/call` exposure.
 
 ## Endpoints Overview
 

@@ -32,6 +32,15 @@ tools:
   callable: false
   default_registry_exposure: exclude
   promotion_status: unpromoted
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry
+      candidate. This is documentation-stage approval only and does not make the
+      route callable.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   risk_class: observe
   candidate_risk_class: process_local_observe
   boundary: pixeagle-process-local
@@ -83,6 +92,15 @@ tools:
   callable: false
   default_registry_exposure: exclude
   promotion_status: unpromoted
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry
+      candidate. This is documentation-stage approval only and does not make the
+      route callable.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   risk_class: observe
   candidate_risk_class: process_local_observe
   boundary: pixeagle-process-local
@@ -137,6 +155,15 @@ tools:
   callable: false
   default_registry_exposure: exclude
   promotion_status: unpromoted
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry
+      candidate. This is documentation-stage approval only and does not make the
+      route callable.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   risk_class: observe
   candidate_risk_class: process_local_observe
   boundary: pixeagle-process-local
@@ -191,6 +218,15 @@ tools:
   callable: false
   default_registry_exposure: exclude
   promotion_status: unpromoted
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry
+      candidate. This is documentation-stage approval only and does not make the
+      route callable.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   risk_class: observe
   candidate_risk_class: process_local_observe
   boundary: pixeagle-process-local
@@ -244,6 +280,15 @@ tools:
   callable: false
   default_registry_exposure: exclude
   promotion_status: unpromoted
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry
+      candidate. This is documentation-stage approval only and does not make the
+      route callable.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   risk_class: observe
   candidate_risk_class: process_local_observe
   boundary: pixeagle-process-local
@@ -298,6 +343,15 @@ tools:
   callable: false
   default_registry_exposure: exclude
   promotion_status: unpromoted
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry
+      candidate. This is documentation-stage approval only and does not make the
+      route callable.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   risk_class: observe
   candidate_risk_class: process_local_observe
   boundary: pixeagle-process-local

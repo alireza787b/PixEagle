@@ -23,6 +23,23 @@ defaults:
   allow_sitl_injection_tools: false
   auto_promote_generated_candidates: false
   approval_ttl_seconds: 300
+review_disposition:
+  required_for_all_candidates: true
+  valid_states:
+  - approved_for_review_only
+  - blocked
+  - deferred
+  default_missing_disposition_policy: deny
+  completion_allows_runtime_promotion: false
+  approved_for_review_only_allows_callable: false
+  blocked_allows_callable: false
+  deferred_allows_callable: false
+  notes:
+  - Disposition is a documentation-stage review decision, not runtime MCP exposure.
+  - approved_for_review_only means the route can stay in curated docs-stage review
+    inventory; it does not make the route callable.
+  - blocked and deferred candidates remain non-callable and excluded from
+    tools/list/tools/call until a separate promotion slice changes runtime policy.
 allowed_review_only_risks:
 - observe
 denied_risks:

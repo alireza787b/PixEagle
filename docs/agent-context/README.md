@@ -60,8 +60,19 @@ These files are docs-stage governance artifacts. They classify the six reviewed
 process-local status/telemetry GET candidates, but they are not loaded by a
 runtime executor and they do not create MCP exposure. All entries remain
 `callable: false`, `mcp_exposure: none`, and `promotion_status: unpromoted`.
-The policy denies action tools, SITL injection tools, direct drone/PX4 exposure,
-OpenAPI auto-promotion, and unknown tools by default.
+The registry and generated inventory also record `review_disposition` for every
+candidate. Valid disposition states are:
+
+- `approved_for_review_only`: reviewed as a docs-stage candidate only; still
+  excluded from runtime MCP `tools/list` and `tools/call`.
+- `blocked`: not eligible for agent/MCP promotion without a separate design,
+  tests, and independent review.
+- `deferred`: intentionally postponed to a later validation or safety slice;
+  still non-callable and excluded.
+
+Disposition completion is review coverage, not runtime promotion. The policy
+denies action tools, SITL injection tools, direct drone/PX4 exposure, OpenAPI
+auto-promotion, missing dispositions, and unknown tools by default.
 
 Regenerate or check it with:
 
@@ -89,12 +100,13 @@ review. Control actions, SITL fault injections, config mutation, model upload,
 service control, and any future flight-adjacent action need explicit guard
 design before they can be considered callable.
 
-Review completeness does not require promotion. Each candidate must eventually
-receive an explicit approved, blocked, or deferred disposition, and a sensitive
-GET route may remain blocked indefinitely. Agent-specific bypass access to
+Review completeness does not require promotion. Every generated candidate must
+have an explicit `approved_for_review_only`, `blocked`, or `deferred`
+disposition with owner, rationale, evidence, and next gate; a sensitive GET
+route may remain blocked indefinitely. Agent-specific bypass access to
 non-PixEagle drone-local HTTP, PX4, MAVSDK, MAVLink2REST, or companion-sidecar
 APIs is prohibited; future agents must use the same typed PixEagle API/state
-contracts as other consumers. Callable MCP runtime, public web search, assistant
-streaming UX, drone-log tools, and action-enabled agents remain deferred until
-the typed API migration, authentication boundary, and separate safety review
-are complete.
+contracts as other consumers. Callable MCP runtime, public web search,
+assistant streaming UX, drone-log tools, and action-enabled agents remain
+deferred until the typed API migration, authentication boundary, and separate
+safety review are complete.

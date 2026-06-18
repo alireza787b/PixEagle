@@ -79,6 +79,23 @@ summary:
   docs_registered_read_only_candidates: 6
   runtime_promoted_candidates: 0
   blocked_or_guarded_candidates: 18
+  review_disposition:
+    states:
+      approved_for_review_only: 6
+      blocked: 13
+      deferred: 5
+    approved_for_review_only: 6
+    blocked: 13
+    deferred: 5
+    valid_disposition_count: 24
+    missing_disposition_count: 0
+    invalid_disposition_count: 0
+    unsafe_disposition_boundary_count: 0
+    complete: true
+    missing_preview: []
+    invalid_preview: []
+    unsafe_preview: []
+  disposition_coverage_complete: true
   curated_registry_present: true
   registry_coverage_status: review_registry_complete_no_mcp_exposure
   registry_coverage:
@@ -155,6 +172,20 @@ candidates:
   - policy classification
   - route contract tests
   safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Control mutation route. Requires confirmation, idempotency, dry-run/replay
+      semantics, audit records, and policy approval. Not eligible for read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.actions.offboard_stop.submit_candidate
@@ -201,6 +232,20 @@ candidates:
   - policy classification
   - route contract tests
   safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Control mutation route. Requires confirmation, idempotency, dry-run/replay
+      semantics, audit records, and policy approval. Not eligible for read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.actions.operator_abort.submit_candidate
@@ -247,6 +292,20 @@ candidates:
   - policy classification
   - route contract tests
   safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Control mutation route. Requires confirmation, idempotency, dry-run/replay
+      semantics, audit records, and policy approval. Not eligible for read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.actions.segmentation_toggle.submit_candidate
@@ -293,6 +352,20 @@ candidates:
   - policy classification
   - route contract tests
   safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Control mutation route. Requires confirmation, idempotency, dry-run/replay
+      semantics, audit records, and policy approval. Not eligible for read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.actions.smart_click.submit_candidate
@@ -339,6 +412,20 @@ candidates:
   - policy classification
   - route contract tests
   safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Control mutation route. Requires confirmation, idempotency, dry-run/replay
+      semantics, audit records, and policy approval. Not eligible for read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.actions.smart_mode_toggle.submit_candidate
@@ -385,6 +472,20 @@ candidates:
   - policy classification
   - route contract tests
   safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Control mutation route. Requires confirmation, idempotency, dry-run/replay
+      semantics, audit records, and policy approval. Not eligible for read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.actions.tracking_redetect.submit_candidate
@@ -431,6 +532,20 @@ candidates:
   - policy classification
   - route contract tests
   safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Control mutation route. Requires confirmation, idempotency, dry-run/replay
+      semantics, audit records, and policy approval. Not eligible for read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.actions.tracking_start.submit_candidate
@@ -477,6 +592,20 @@ candidates:
   - policy classification
   - route contract tests
   safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Control mutation route. Requires confirmation, idempotency, dry-run/replay
+      semantics, audit records, and policy approval. Not eligible for read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.actions.tracking_stop.submit_candidate
@@ -523,6 +652,20 @@ candidates:
   - policy classification
   - route contract tests
   safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Control mutation route. Requires confirmation, idempotency, dry-run/replay
+      semantics, audit records, and policy approval. Not eligible for read-only MCP promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.actions.action_id.read
@@ -565,6 +708,20 @@ candidates:
   - route contract tests
   safety_notes:
   - Read-only HTTP semantics are not enough for MCP exposure of control-action records.
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Action resources may expose control-operation audit details. Promote only through
+      a reviewed action-audit read tool with sensitivity policy.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.auth.login.submit_candidate
@@ -609,6 +766,20 @@ candidates:
   - route contract tests
   - session lifecycle tests
   safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Authentication bootstrap route. Not eligible for MCP promotion; use typed API/session
+      contracts only.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.auth.logout.submit_candidate
@@ -653,6 +824,20 @@ candidates:
   - route contract tests
   - session lifecycle tests
   safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Authentication bootstrap route. Not eligible for MCP promotion; use typed API/session
+      contracts only.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.auth.session.read
@@ -697,6 +882,20 @@ candidates:
   - route contract tests
   - session lifecycle tests
   safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Authentication bootstrap route. Not eligible for MCP promotion; use typed API/session
+      contracts only.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.following.status.read
@@ -739,6 +938,20 @@ candidates:
   - Candidate is a PixEagle process-local GET snapshot only.
   - Candidate does not prove PX4, SITL, HIL, field, tracker, follower, or real-aircraft success.
   - Promotion still requires a curated registry and policy review.
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry candidate.
+      This is documentation-stage approval only and does not make the route callable.
+    evidence:
+    - docs/agent-context/agent_tools.yaml
+    - docs/agent-context/agent_policy.yaml
+    - tests/test_api_tool_candidates.py
+    next_gate: Runtime MCP auth, audit, operator docs, evals, and independent promotion review
+      before any tools/list exposure.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches:
   - id: pixeagle.following.status.read
     candidate_id: pixeagle.following.status.read
@@ -750,6 +963,7 @@ candidates:
     promotion_status: unpromoted
     read_only: true
     risk_class: observe
+    review_disposition_state: approved_for_review_only
     valid_review_only_match: true
   registry_review_status: registered_unexposed
 - id: pixeagle.following.telemetry.read
@@ -792,6 +1006,20 @@ candidates:
   - Candidate is a PixEagle process-local GET snapshot only.
   - Candidate does not prove PX4, SITL, HIL, field, tracker, follower, or real-aircraft success.
   - Promotion still requires a curated registry and policy review.
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry candidate.
+      This is documentation-stage approval only and does not make the route callable.
+    evidence:
+    - docs/agent-context/agent_tools.yaml
+    - docs/agent-context/agent_policy.yaml
+    - tests/test_api_tool_candidates.py
+    next_gate: Runtime MCP auth, audit, operator docs, evals, and independent promotion review
+      before any tools/list exposure.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches:
   - id: pixeagle.following.telemetry.read
     candidate_id: pixeagle.following.telemetry.read
@@ -803,6 +1031,7 @@ candidates:
     promotion_status: unpromoted
     read_only: true
     risk_class: observe
+    review_disposition_state: approved_for_review_only
     valid_review_only_match: true
   registry_review_status: registered_unexposed
 - id: pixeagle.runtime.status.read
@@ -845,6 +1074,20 @@ candidates:
   - Candidate is a PixEagle process-local GET snapshot only.
   - Candidate does not prove PX4, SITL, HIL, field, tracker, follower, or real-aircraft success.
   - Promotion still requires a curated registry and policy review.
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry candidate.
+      This is documentation-stage approval only and does not make the route callable.
+    evidence:
+    - docs/agent-context/agent_tools.yaml
+    - docs/agent-context/agent_policy.yaml
+    - tests/test_api_tool_candidates.py
+    next_gate: Runtime MCP auth, audit, operator docs, evals, and independent promotion review
+      before any tools/list exposure.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches:
   - id: pixeagle.runtime.status.read
     candidate_id: pixeagle.runtime.status.read
@@ -856,6 +1099,7 @@ candidates:
     promotion_status: unpromoted
     read_only: true
     risk_class: observe
+    review_disposition_state: approved_for_review_only
     valid_review_only_match: true
   registry_review_status: registered_unexposed
 - id: pixeagle.sitl.injections.commander_publish_failure.submit_candidate
@@ -901,6 +1145,20 @@ candidates:
   - scenario evidence contract
   - validation-stack gating review
   safety_notes: []
+  review_disposition:
+    state: deferred
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Validation stimulus routes can mutate validation-only runtime state when enabled.
+      They are deferred until the guarded SITL validation stack and evidence contract are
+      complete.
+    evidence:
+    - docs/architecture/pixeagle-modernization-blueprint.md
+    - docs/drone-interface/04-infrastructure/sitl-setup.md
+    - tests/test_api_tool_candidates.py
+    next_gate: PXE-0065 sidecar/evidence hardening and a separate SITL-only agent policy review.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.sitl.injections.mavlink2rest_timeout.submit_candidate
@@ -946,6 +1204,20 @@ candidates:
   - scenario evidence contract
   - validation-stack gating review
   safety_notes: []
+  review_disposition:
+    state: deferred
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Validation stimulus routes can mutate validation-only runtime state when enabled.
+      They are deferred until the guarded SITL validation stack and evidence contract are
+      complete.
+    evidence:
+    - docs/architecture/pixeagle-modernization-blueprint.md
+    - docs/drone-interface/04-infrastructure/sitl-setup.md
+    - tests/test_api_tool_candidates.py
+    next_gate: PXE-0065 sidecar/evidence hardening and a separate SITL-only agent policy review.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.sitl.injections.mavsdk_disconnect.submit_candidate
@@ -991,6 +1263,20 @@ candidates:
   - scenario evidence contract
   - validation-stack gating review
   safety_notes: []
+  review_disposition:
+    state: deferred
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Validation stimulus routes can mutate validation-only runtime state when enabled.
+      They are deferred until the guarded SITL validation stack and evidence contract are
+      complete.
+    evidence:
+    - docs/architecture/pixeagle-modernization-blueprint.md
+    - docs/drone-interface/04-infrastructure/sitl-setup.md
+    - tests/test_api_tool_candidates.py
+    next_gate: PXE-0065 sidecar/evidence hardening and a separate SITL-only agent policy review.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.sitl.injections.tracker_output.submit_candidate
@@ -1036,6 +1322,20 @@ candidates:
   - scenario evidence contract
   - validation-stack gating review
   safety_notes: []
+  review_disposition:
+    state: deferred
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Validation stimulus routes can mutate validation-only runtime state when enabled.
+      They are deferred until the guarded SITL validation stack and evidence contract are
+      complete.
+    evidence:
+    - docs/architecture/pixeagle-modernization-blueprint.md
+    - docs/drone-interface/04-infrastructure/sitl-setup.md
+    - tests/test_api_tool_candidates.py
+    next_gate: PXE-0065 sidecar/evidence hardening and a separate SITL-only agent policy review.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.sitl.injections.video_stall.submit_candidate
@@ -1081,6 +1381,20 @@ candidates:
   - scenario evidence contract
   - validation-stack gating review
   safety_notes: []
+  review_disposition:
+    state: deferred
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Validation stimulus routes can mutate validation-only runtime state when enabled.
+      They are deferred until the guarded SITL validation stack and evidence contract are
+      complete.
+    evidence:
+    - docs/architecture/pixeagle-modernization-blueprint.md
+    - docs/drone-interface/04-infrastructure/sitl-setup.md
+    - tests/test_api_tool_candidates.py
+    next_gate: PXE-0065 sidecar/evidence hardening and a separate SITL-only agent policy review.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches: []
   registry_review_status: unregistered
 - id: pixeagle.telemetry.health.read
@@ -1123,6 +1437,20 @@ candidates:
   - Candidate is a PixEagle process-local GET snapshot only.
   - Candidate does not prove PX4, SITL, HIL, field, tracker, follower, or real-aircraft success.
   - Promotion still requires a curated registry and policy review.
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry candidate.
+      This is documentation-stage approval only and does not make the route callable.
+    evidence:
+    - docs/agent-context/agent_tools.yaml
+    - docs/agent-context/agent_policy.yaml
+    - tests/test_api_tool_candidates.py
+    next_gate: Runtime MCP auth, audit, operator docs, evals, and independent promotion review
+      before any tools/list exposure.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches:
   - id: pixeagle.telemetry.health.read
     candidate_id: pixeagle.telemetry.health.read
@@ -1134,6 +1462,7 @@ candidates:
     promotion_status: unpromoted
     read_only: true
     risk_class: observe
+    review_disposition_state: approved_for_review_only
     valid_review_only_match: true
   registry_review_status: registered_unexposed
 - id: pixeagle.tracking.runtime_status.read
@@ -1176,6 +1505,20 @@ candidates:
   - Candidate is a PixEagle process-local GET snapshot only.
   - Candidate does not prove PX4, SITL, HIL, field, tracker, follower, or real-aircraft success.
   - Promotion still requires a curated registry and policy review.
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry candidate.
+      This is documentation-stage approval only and does not make the route callable.
+    evidence:
+    - docs/agent-context/agent_tools.yaml
+    - docs/agent-context/agent_policy.yaml
+    - tests/test_api_tool_candidates.py
+    next_gate: Runtime MCP auth, audit, operator docs, evals, and independent promotion review
+      before any tools/list exposure.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches:
   - id: pixeagle.tracking.runtime_status.read
     candidate_id: pixeagle.tracking.runtime_status.read
@@ -1187,6 +1530,7 @@ candidates:
     promotion_status: unpromoted
     read_only: true
     risk_class: observe
+    review_disposition_state: approved_for_review_only
     valid_review_only_match: true
   registry_review_status: registered_unexposed
 - id: pixeagle.tracking.telemetry.read
@@ -1229,6 +1573,20 @@ candidates:
   - Candidate is a PixEagle process-local GET snapshot only.
   - Candidate does not prove PX4, SITL, HIL, field, tracker, follower, or real-aircraft success.
   - Promotion still requires a curated registry and policy review.
+  review_disposition:
+    state: approved_for_review_only
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-18'
+    rationale: Reviewed as an initial typed, process-local, read-only status/telemetry candidate.
+      This is documentation-stage approval only and does not make the route callable.
+    evidence:
+    - docs/agent-context/agent_tools.yaml
+    - docs/agent-context/agent_policy.yaml
+    - tests/test_api_tool_candidates.py
+    next_gate: Runtime MCP auth, audit, operator docs, evals, and independent promotion review
+      before any tools/list exposure.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
   registry_matches:
   - id: pixeagle.tracking.telemetry.read
     candidate_id: pixeagle.tracking.telemetry.read
@@ -1240,5 +1598,6 @@ candidates:
     promotion_status: unpromoted
     read_only: true
     risk_class: observe
+    review_disposition_state: approved_for_review_only
     valid_review_only_match: true
   registry_review_status: registered_unexposed

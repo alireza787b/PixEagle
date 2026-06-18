@@ -134,6 +134,19 @@ routes as unpromoted read-only candidates only. The docs-stage registry can
 record that a candidate has passed review, but it is still not runtime
 promotion and not callable MCP exposure.
 
+Every generated candidate must carry an explicit `review_disposition`:
+
+- `approved_for_review_only`: accepted as a docs-stage candidate only, still
+  excluded from runtime MCP exposure.
+- `blocked`: not eligible for agent/MCP promotion without a separate design,
+  tests, policy update, and independent review.
+- `deferred`: intentionally postponed to a later validation/safety slice; still
+  non-callable and unpromoted.
+
+The disposition must include an owner, rationale, evidence pointers, next gate,
+and an explicit statement that the decision does not imply runtime MCP
+exposure. Missing or invalid dispositions fail closed.
+
 Action routes, SITL injection routes, config mutation, service control, model
 upload, and future flight-adjacent mutations need separate guard design before
 they can become callable automation. A GET route can also stay blocked when it
@@ -157,8 +170,8 @@ secrets, raw field logs, private network details, and unsafe generated
 artifacts. See the
 [Companion Runtime Contract](../architecture/companion-runtime-contract.md).
 
-Candidate review completion does not mean promotion. Every candidate must
-eventually have an explicit approved, blocked, or deferred disposition;
+Candidate review completion does not mean promotion. Every candidate must have
+an explicit `approved_for_review_only`, `blocked`, or `deferred` disposition;
 sensitive GET routes may remain blocked. Future agent evidence/results and
 streaming activity events must use versioned typed contracts. Callable MCP,
 public web search, assistant streaming UX, and action-enabled agent work remain
