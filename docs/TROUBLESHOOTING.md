@@ -241,6 +241,36 @@ tmux attach -t pixeagle
 pixeagle-service start
 ```
 
+### Media Health In Service Status
+
+`pixeagle-service status` includes a best-effort `Media health` block from the
+typed process-local route:
+
+```bash
+pixeagle-service status
+```
+
+- `Backend media: auth required (HTTP 401/403; requires media:read)` means the
+  service CLI was not authorized to read `/api/v1/streams/media-health`; it does
+  not mean video is down.
+- `Frame publisher: stale` means PixEagle has a published frame, but it is older
+  than the configured media-health freshness window.
+- `Frame publisher: none` means no local frame is currently available to the
+  backend media transports.
+- `Remote receipt: not proven by this process-local check` is expected. Use QGC,
+  browser, WebRTC, SITL, HIL, or field-side evidence when claiming remote media
+  receipt.
+
+For `machine_bearer` or `browser_session` deployments, use an explicit
+`media:read` bearer token file for this local probe:
+
+```bash
+PIXEAGLE_MEDIA_HEALTH_BEARER_TOKEN_FILE=/run/pixeagle/media-health-token \
+  pixeagle-service status
+```
+
+Do not pass media credentials as query-string tokens.
+
 ## Firewall & Network Issues
 
 ### Check Port Status

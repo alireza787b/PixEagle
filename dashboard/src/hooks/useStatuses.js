@@ -187,6 +187,10 @@ export const isMissingTrackingTelemetryRoute = (fetchError) => (
   [404, 405, 501].includes(fetchError?.response?.status)
 );
 
+export const isMissingStreamingMediaHealthRoute = (fetchError) => (
+  [404, 405, 501].includes(fetchError?.response?.status)
+);
+
 export const normalizeTrackingTelemetry = (data) => {
   if (!data) {
     return {};
@@ -392,6 +396,318 @@ export const useFollowingTelemetry = (interval = 2000) => {
 
   return {
     followingTelemetry,
+    refresh,
+    loading,
+    error,
+  };
+};
+
+const STREAMING_GUIDANCE = {
+  serving_media: {
+    label: 'Active',
+    chipLabel: 'Media: Active',
+    color: 'success',
+    detail: 'Backend media transports are serving local clients.',
+  },
+  idle: {
+    label: 'Idle',
+    chipLabel: 'Media: Idle',
+    color: 'default',
+    detail: 'No active backend media clients are connected.',
+  },
+  operator_attention: {
+    label: 'Degraded',
+    chipLabel: 'Media: Degraded',
+    color: 'warning',
+    detail: 'Backend media needs operator attention.',
+  },
+  unavailable: {
+    label: 'Unavailable',
+    chipLabel: 'Media: Unavailable',
+    color: 'error',
+    detail: 'Media-health status is unavailable.',
+  },
+  disabled: {
+    label: 'Disabled',
+    chipLabel: 'Media: Disabled',
+    color: 'default',
+    detail: 'Backend streaming is disabled in configuration.',
+  },
+  connecting: {
+    label: 'Checking',
+    chipLabel: 'Media: Checking',
+    color: 'info',
+    detail: 'Media-health request has not completed yet.',
+  },
+};
+
+const STREAMING_TRANSPORT_LABELS = {
+  http_mjpeg: 'HTTP MJPEG',
+  websocket_jpeg: 'WebSocket',
+  webrtc_signaling: 'WebRTC',
+  gstreamer_udp_h264: 'GStreamer UDP',
+};
+
+const buildTransportMap = (transports) => (
+  Array.isArray(transports)
+    ? transports.reduce((acc, transport) => {
+      if (transport?.name) {
+        acc[transport.name] = transport;
+      }
+      return acc;
+    }, {})
+    : {}
+);
+
+const firstActiveTransportName = (transportsByName) => (
+  [
+    'websocket_jpeg',
+    'webrtc_signaling',
+    'http_mjpeg',
+    'gstreamer_udp_h264',
+  ].find((name) => transportsByName[name]?.status === 'active')
+);
+
+const qualityClientsFromWebSocketTransport = (transport) => {
+  const clients = transport?.details?.clients;
+  if (!Array.isArray(clients) || clients.length === 0) {
+    return {};
+  }
+  return clients.reduce((acc, client, index) => {
+    const id = client?.id || `websocket-${index + 1}`;
+    acc[id] = {
+      quality: client?.quality,
+      frame_drops: client?.frame_drops,
+      bandwidth_kbps: client?.bandwidth_kbps,
+      last_frame_age_s: client?.last_frame_age_s,
+    };
+    return acc;
+  }, {});
+};
+
+export const normalizeStreamingMediaHealth = (payload, { pending = false, error = null } = {}) => {
+  if (pending) {
+    const descriptor = STREAMING_GUIDANCE.connecting;
+    return {
+      raw: null,
+      schemaVersion: 1,
+      source: 'streaming_media',
+      typed: true,
+      status: 'connecting',
+      consumerGuidance: 'connecting',
+      ...descriptor,
+      activeMethod: 'none',
+      active_method: 'none',
+      methodLabel: 'NONE',
+      http_clients: 0,
+      websocket_clients: 0,
+      webrtc_clients: 0,
+      totalClients: 0,
+      adaptive_quality_enabled: false,
+      quality_engine: {},
+      config: {},
+      transports: [],
+      transportsByName: {},
+      transportLabels: STREAMING_TRANSPORT_LABELS,
+      frames: {
+        source_available: false,
+        latest_frame_stale: false,
+        frames_sent: 0,
+        frames_dropped: 0,
+        total_bandwidth_mb: 0,
+        cache_size: 0,
+      },
+      frames_sent: 0,
+      frames_dropped: 0,
+      total_bandwidth_mb: 0,
+      cache_size: 0,
+      healthIssues: [],
+      claimBoundary: '',
+      timestamp: null,
+      error: null,
+    };
+  }
+
+  if (error) {
+    const descriptor = STREAMING_GUIDANCE.unavailable;
+    return {
+      ...normalizeStreamingMediaHealth(null, { pending: true }),
+      raw: null,
+      status: 'unavailable',
+      consumerGuidance: 'unavailable',
+      ...descriptor,
+      error,
+    };
+  }
+
+  const source = payload || {};
+  const typed = source.source === 'streaming_media' || Array.isArray(source.transports);
+  const transportsByName = buildTransportMap(source.transports);
+  const frames = source.frames || {};
+  const config = source.config || {};
+  const activeTransportName = typed ? firstActiveTransportName(transportsByName) : null;
+  const activeMethod = (
+    typed
+      ? (activeTransportName || 'none')
+      : (source.active_method || source.activeMethod || 'none')
+  );
+  const httpClients = typed
+    ? (transportsByName.http_mjpeg?.active_connections || 0)
+    : (source.http_clients || 0);
+  const websocketClients = typed
+    ? (transportsByName.websocket_jpeg?.active_connections || 0)
+    : (source.websocket_clients || 0);
+  const webrtcClients = typed
+    ? (transportsByName.webrtc_signaling?.active_connections || 0)
+    : (source.webrtc_clients || 0);
+  const totalClients = httpClients + websocketClients + webrtcClients;
+  const normalizedQualityEngine = {
+    ...(source.quality_engine || {}),
+  };
+  if (!normalizedQualityEngine.clients) {
+    normalizedQualityEngine.clients = qualityClientsFromWebSocketTransport(
+      transportsByName.websocket_jpeg
+    );
+  }
+  const streamingEnabled = typed ? config.streaming_enabled !== false : source.enabled !== false;
+  const sourceGuidance = source.consumer_guidance || (
+    source.status === 'degraded'
+      ? 'operator_attention'
+      : totalClients > 0
+        ? 'serving_media'
+        : 'idle'
+  );
+  const consumerGuidance = streamingEnabled ? sourceGuidance : 'disabled';
+  const descriptor = STREAMING_GUIDANCE[consumerGuidance] || STREAMING_GUIDANCE.unavailable;
+  const normalizedFrames = {
+    source_available: Boolean(frames.source_available),
+    preferred_source: frames.preferred_source || null,
+    latest_frame_id: frames.latest_frame_id ?? null,
+    latest_frame_age_s: frames.latest_frame_age_s ?? null,
+    latest_frame_stale: Boolean(frames.latest_frame_stale),
+    stale_timeout_s: frames.stale_timeout_s ?? null,
+    latest_frame_is_osd: frames.latest_frame_is_osd ?? null,
+    publisher_client_count: frames.publisher_client_count || 0,
+    frames_sent: frames.frames_sent ?? source.frames_sent ?? 0,
+    frames_dropped: frames.frames_dropped ?? source.frames_dropped ?? 0,
+    drop_ratio: frames.drop_ratio ?? source.drop_ratio ?? 0,
+    total_bandwidth_mb: frames.total_bandwidth_mb ?? source.total_bandwidth_mb ?? 0,
+    cache_size: frames.cache_size ?? source.cache_size ?? 0,
+  };
+
+  return {
+    raw: source,
+    schemaVersion: source.schema_version || 1,
+    source: typed ? 'streaming_media' : 'legacy_streaming_status',
+    typed,
+    status: source.status || (totalClients > 0 ? 'active' : 'idle'),
+    consumerGuidance,
+    ...descriptor,
+    activeMethod,
+    active_method: activeMethod,
+    methodLabel: String(activeMethod || 'none').toUpperCase(),
+    http_clients: httpClients,
+    websocket_clients: websocketClients,
+    webrtc_clients: webrtcClients,
+    totalClients,
+    adaptive_quality_enabled: Boolean(
+      config.adaptive_quality_enabled ?? source.adaptive_quality_enabled
+    ),
+    quality_engine: normalizedQualityEngine,
+    config: {
+      ...config,
+      ...(source.config || {}),
+      stream_width: config.stream_width ?? source.config?.stream_width,
+      stream_height: config.stream_height ?? source.config?.stream_height,
+      stream_fps: config.stream_fps ?? source.config?.stream_fps,
+    },
+    transports: Array.isArray(source.transports) ? source.transports : [],
+    transportsByName,
+    transportLabels: STREAMING_TRANSPORT_LABELS,
+    frames: normalizedFrames,
+    frames_sent: normalizedFrames.frames_sent,
+    frames_dropped: normalizedFrames.frames_dropped,
+    total_bandwidth_mb: normalizedFrames.total_bandwidth_mb,
+    cache_size: normalizedFrames.cache_size,
+    healthIssues: Array.isArray(source.health_issues) ? source.health_issues : [],
+    claimBoundary: source.claim_boundary || '',
+    timestamp: source.timestamp || null,
+    error: null,
+  };
+};
+
+export const useStreamingMediaHealth = (interval = 2000) => {
+  const [streamingHealth, setStreamingHealth] = useState(null);
+  const [streamingStatus, setStreamingStatus] = useState(() => (
+    normalizeStreamingMediaHealth(null, { pending: true })
+  ));
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const mountedRef = useRef(false);
+  const requestSequenceRef = useRef(0);
+
+  const refresh = useCallback(async ({ suppressErrors = false } = {}) => {
+    const requestId = requestSequenceRef.current + 1;
+    requestSequenceRef.current = requestId;
+
+    try {
+      let response;
+      try {
+        response = await axios.get(endpoints.streamingMediaHealth, buildNoCacheRequestConfig());
+      } catch (streamingMediaHealthError) {
+        if (!isMissingStreamingMediaHealthRoute(streamingMediaHealthError)) {
+          throw streamingMediaHealthError;
+        }
+        response = await axios.get(endpoints.streamingStatus, buildNoCacheRequestConfig());
+      }
+
+      if (!mountedRef.current || requestId !== requestSequenceRef.current) {
+        return null;
+      }
+
+      const raw = response.data || {};
+      const normalized = normalizeStreamingMediaHealth(raw);
+      setStreamingHealth(raw);
+      setStreamingStatus(normalized);
+      setError(null);
+      return normalized;
+    } catch (fetchError) {
+      if (!mountedRef.current || requestId !== requestSequenceRef.current) {
+        return null;
+      }
+      if (!suppressErrors) {
+        console.error('Error fetching streaming media health:', fetchError);
+      }
+      const unavailable = normalizeStreamingMediaHealth(null, { error: fetchError });
+      setStreamingHealth(null);
+      setStreamingStatus(unavailable);
+      setError(fetchError);
+      return null;
+    } finally {
+      if (mountedRef.current && requestId === requestSequenceRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const intervalId = setInterval(() => {
+      refresh({ suppressErrors: true });
+    }, interval);
+
+    refresh();
+
+    return () => {
+      mountedRef.current = false;
+      requestSequenceRef.current += 1;
+      clearInterval(intervalId);
+    };
+  }, [interval, refresh]);
+
+  return {
+    streamingHealth,
+    streamingStatus,
     refresh,
     loading,
     error,

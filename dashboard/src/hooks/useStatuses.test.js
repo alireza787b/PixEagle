@@ -5,11 +5,13 @@ import { endpoints } from '../services/apiEndpoints';
 import {
   normalizeFollowingTelemetry,
   normalizeTrackingTelemetry,
+  normalizeStreamingMediaHealth,
   normalizeTrackerStatus,
   normalizeTelemetryHealth,
   useFollowerStatus,
   useFollowingTelemetry,
   useSmartModeStatus,
+  useStreamingMediaHealth,
   useTrackerStatus,
   useTelemetryHealth,
 } from './useStatuses';
@@ -117,6 +119,86 @@ const activeTrackingTelemetry = {
     normalized_bbox: [0.1, 0.2, 0.3, 0.4],
   },
   field_source: 'tracker_output',
+  timestamp: 1717200000.0,
+};
+
+const activeStreamingMediaHealth = {
+  schema_version: 1,
+  source: 'streaming_media',
+  status: 'active',
+  consumer_guidance: 'serving_media',
+  transports: [
+    {
+      name: 'http_mjpeg',
+      enabled: true,
+      status: 'idle',
+      active_connections: 0,
+      max_connections: 20,
+      details: {},
+    },
+    {
+      name: 'websocket_jpeg',
+      enabled: true,
+      status: 'active',
+      active_connections: 1,
+      max_connections: 10,
+      details: {
+        clients: [
+          {
+            id: 'ws-client',
+            quality: 45,
+            bandwidth_kbps: 128.5,
+            frame_drops: 1,
+            last_frame_age_s: 0.1,
+          },
+        ],
+      },
+    },
+    {
+      name: 'webrtc_signaling',
+      enabled: true,
+      status: 'idle',
+      active_connections: 0,
+      max_connections: 3,
+      details: {},
+    },
+    {
+      name: 'gstreamer_udp_h264',
+      enabled: true,
+      status: 'active',
+      active_connections: 0,
+      max_connections: null,
+      details: {
+        connection_semantics: 'udp_output_has_no_client_connection_count',
+      },
+    },
+  ],
+  frames: {
+    source_available: true,
+    preferred_source: 'osd',
+    latest_frame_id: 42,
+    latest_frame_age_s: 0.2,
+    latest_frame_stale: false,
+    stale_timeout_s: 1,
+    frames_sent: 30,
+    frames_dropped: 2,
+    drop_ratio: 0.0625,
+    total_bandwidth_mb: 1.5,
+    cache_size: 1,
+  },
+  security: {
+    required_scope: 'media:read',
+  },
+  config: {
+    streaming_enabled: true,
+    stream_fps: 10,
+    stream_width: 640,
+    stream_height: 480,
+    adaptive_quality_enabled: true,
+  },
+  quality_engine: {},
+  health_issues: [],
+  claim_boundary: 'Process-local media transport health only.',
   timestamp: 1717200000.0,
 };
 
@@ -278,6 +360,61 @@ test('normalizes legacy follower telemetry setpoints for history plots', () => {
   expect(normalized.vel_z).toBe(0.1);
   expect(normalized.yaw_rate).toBe(4.5);
   expect(normalized.profile_name).toBe('Legacy Follower');
+});
+
+test('normalizes typed streaming media health into dashboard status fields', () => {
+  const normalized = normalizeStreamingMediaHealth(activeStreamingMediaHealth);
+
+  expect(normalized.chipLabel).toBe('Media: Active');
+  expect(normalized.color).toBe('success');
+  expect(normalized.active_method).toBe('websocket_jpeg');
+  expect(normalized.methodLabel).toBe('WEBSOCKET_JPEG');
+  expect(normalized.http_clients).toBe(0);
+  expect(normalized.websocket_clients).toBe(1);
+  expect(normalized.webrtc_clients).toBe(0);
+  expect(normalized.totalClients).toBe(1);
+  expect(normalized.frames.frames_sent).toBe(30);
+  expect(normalized.frames.frames_dropped).toBe(2);
+  expect(normalized.total_bandwidth_mb).toBe(1.5);
+  expect(normalized.quality_engine.clients['ws-client'].quality).toBe(45);
+  expect(normalized.transportsByName.gstreamer_udp_h264.active_connections).toBe(0);
+});
+
+test('normalizes degraded streaming media health without treating UDP as clients', () => {
+  const normalized = normalizeStreamingMediaHealth({
+    ...activeStreamingMediaHealth,
+    status: 'degraded',
+    consumer_guidance: 'operator_attention',
+    transports: activeStreamingMediaHealth.transports.map((transport) => (
+      transport.name === 'websocket_jpeg'
+        ? { ...transport, status: 'idle', active_connections: 0, details: { clients: [] } }
+        : transport
+    )),
+    frames: {
+      ...activeStreamingMediaHealth.frames,
+      latest_frame_stale: true,
+    },
+    health_issues: ['published_frame_stale'],
+  });
+
+  expect(normalized.chipLabel).toBe('Media: Degraded');
+  expect(normalized.color).toBe('warning');
+  expect(normalized.totalClients).toBe(0);
+  expect(normalized.healthIssues).toEqual(['published_frame_stale']);
+});
+
+test('normalizes disabled streaming as not active even with legacy counters', () => {
+  const normalized = normalizeStreamingMediaHealth({
+    ...activeStreamingMediaHealth,
+    config: {
+      ...activeStreamingMediaHealth.config,
+      streaming_enabled: false,
+    },
+  });
+
+  expect(normalized.chipLabel).toBe('Media: Disabled');
+  expect(normalized.color).toBe('default');
+  expect(normalized.consumerGuidance).toBe('disabled');
 });
 
 test('useTrackerStatus polls typed tracker runtime status instead of legacy tracker telemetry', async () => {
@@ -698,6 +835,121 @@ test('useTelemetryHealth replaces stale raw health on request failure', async ()
 
   expect(await screen.findByText('Telemetry: Unavailable')).toBeInTheDocument();
   expect(screen.getByText('raw:unavailable')).toBeInTheDocument();
+});
+
+test('useStreamingMediaHealth polls the typed api v1 media-health endpoint', async () => {
+  axios.get.mockResolvedValueOnce({ data: activeStreamingMediaHealth });
+
+  const Probe = () => {
+    const { streamingStatus } = useStreamingMediaHealth(60000);
+    return <div>{streamingStatus.chipLabel}</div>;
+  };
+
+  render(<Probe />);
+
+  expect(await screen.findByText('Media: Active')).toBeInTheDocument();
+  await waitFor(() => {
+    expect(axios.get).toHaveBeenCalledWith(
+      endpoints.streamingMediaHealth,
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        }),
+        params: expect.objectContaining({
+          _t: expect.any(Number),
+        }),
+      })
+    );
+  });
+});
+
+test('useStreamingMediaHealth falls back to legacy streaming status only during rolling updates', async () => {
+  axios.get
+    .mockRejectedValueOnce({ response: { status: 404 } })
+    .mockResolvedValueOnce({
+      data: {
+        active_method: 'websocket',
+        websocket_clients: 2,
+        adaptive_quality_enabled: true,
+        quality_engine: {
+          clients: {
+            legacy: { quality: 60 },
+          },
+        },
+      },
+    });
+
+  const Probe = () => {
+    const { streamingStatus } = useStreamingMediaHealth(60000);
+    return <div>{`${streamingStatus.chipLabel}:${streamingStatus.websocket_clients}`}</div>;
+  };
+
+  render(<Probe />);
+
+  expect(await screen.findByText('Media: Active:2')).toBeInTheDocument();
+  expect(axios.get).toHaveBeenNthCalledWith(1, endpoints.streamingMediaHealth, expect.any(Object));
+  expect(axios.get).toHaveBeenNthCalledWith(2, endpoints.streamingStatus, expect.any(Object));
+});
+
+test('useStreamingMediaHealth does not fallback on media auth failures', async () => {
+  const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  axios.get.mockRejectedValueOnce({ response: { status: 403 }, message: 'forbidden' });
+
+  const Probe = () => {
+    const { streamingStatus } = useStreamingMediaHealth(60000);
+    return <div>{streamingStatus.chipLabel}</div>;
+  };
+
+  try {
+    render(<Probe />);
+
+    expect(await screen.findByText('Media: Unavailable')).toBeInTheDocument();
+    expect(axios.get).toHaveBeenCalledTimes(1);
+    expect(axios.get).toHaveBeenCalledWith(endpoints.streamingMediaHealth, expect.any(Object));
+  } finally {
+    consoleErrorSpy.mockRestore();
+  }
+});
+
+test('useStreamingMediaHealth ignores stale out-of-order responses', async () => {
+  jest.useFakeTimers();
+  let resolveFirstRequest;
+  axios.get
+    .mockImplementationOnce(() => new Promise((resolve) => {
+      resolveFirstRequest = resolve;
+    }))
+    .mockResolvedValueOnce({ data: activeStreamingMediaHealth });
+
+  const Probe = () => {
+    const { streamingStatus } = useStreamingMediaHealth(60000);
+    return <div>{streamingStatus.chipLabel}</div>;
+  };
+
+  try {
+    render(<Probe />);
+    await waitFor(() => expect(axios.get).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      jest.advanceTimersByTime(60000);
+    });
+
+    expect(await screen.findByText('Media: Active')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveFirstRequest({
+        data: {
+          ...activeStreamingMediaHealth,
+          status: 'degraded',
+          consumer_guidance: 'operator_attention',
+          health_issues: ['published_frame_stale'],
+        },
+      });
+    });
+
+    expect(screen.getByText('Media: Active')).toBeInTheDocument();
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test('useSmartModeStatus polls typed runtime status URL', async () => {

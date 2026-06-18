@@ -72,6 +72,8 @@ export const endpoints = {
   followingStatus: `${apiBaseUrl}/api/v1/following/status`,
   followingTelemetry: `${apiBaseUrl}/api/v1/following/telemetry`,
   telemetryHealth: `${apiBaseUrl}/api/v1/telemetry/health`,
+  streamingMediaHealth: `${apiBaseUrl}/api/v1/streams/media-health`,
+  streamingStatus: `${apiBaseUrl}/api/streaming/status`,
   trackerRuntimeStatus: `${apiBaseUrl}/api/v1/tracking/runtime-status`,
   trackingTelemetry: `${apiBaseUrl}/api/v1/tracking/telemetry`,
   trackerCurrentStatus: `${apiBaseUrl}/api/tracker/current-status`,
@@ -181,7 +183,7 @@ export const websocketVideoFeed = `${wsBaseUrl}/ws/video_feed`;
 export const webrtcSignalingEndpoint = `${wsBaseUrl}/ws/webrtc_signaling`;
 
 // Streaming status endpoint
-export const streamingStatus = `${apiBaseUrl}/api/streaming/status`;
+export const streamingStatus = endpoints.streamingStatus;
 
 // Export config for debugging/logging
 export const apiConfig = { apiHost, apiPort, protocol, wsProtocol, isBehindProxy };

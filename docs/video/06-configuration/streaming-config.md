@@ -71,7 +71,11 @@ state, and the effective media auth/exposure posture. Stale published frames
 degrade the route status. GStreamer UDP reports pipeline activity but no client
 connection count because UDP output has no reliable client handshake.
 
-The route requires `media:read`. It is intended for dashboard/API/MCP
+The route requires `media:read`. It is consumed by the dashboard streaming
+status widgets and by the best-effort `pixeagle-service status` media-health
+block. Same-host default status checks work through `local_compat`; deployments
+using `machine_bearer` or `browser_session` need an explicit `media:read` bearer
+token file for the service probe. The route is intended for dashboard/API/MCP
 observability and does not prove that a remote browser, QGC, WebRTC peer, GCS,
 PX4, SITL, HIL, or field video path received usable media.
 

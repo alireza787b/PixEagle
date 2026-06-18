@@ -94,6 +94,11 @@ pipeline activity, not a connected-client count. It does not prove that a remote
 browser, QGC, WebRTC peer, GCS, PX4, SITL, HIL, or field video path received
 usable media.
 
+The dashboard streaming status widgets and `pixeagle-service status` consume
+this typed route. Service status uses same-host loopback by default and needs an
+explicit `media:read` bearer token file only when the backend is running in
+`machine_bearer` or `browser_session` mode.
+
 ## Comparison
 
 ### HTTP MJPEG

@@ -1,5 +1,5 @@
 // dashboard/src/components/StreamingStatusIndicator.js
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   Box, Chip, Collapse, Typography, LinearProgress, Tooltip
 } from '@mui/material';
@@ -7,35 +7,18 @@ import {
   FiberManualRecord, ExpandMore, ExpandLess, Speed, Memory
 } from '@mui/icons-material';
 import { alpha } from '@mui/material/styles';
-import axios from '../services/apiClient';
-import { streamingStatus as streamingStatusEndpoint } from '../services/apiEndpoints';
+import { useStreamingMediaHealth } from '../hooks/useStatuses';
 
 const StreamingStatusIndicator = () => {
-  const [status, setStatus] = useState(null);
   const [expanded, setExpanded] = useState(false);
-  const [fetchError, setFetchError] = useState(false);
-
-  const fetchStatus = useCallback(async () => {
-    try {
-      const response = await axios.get(streamingStatusEndpoint);
-      setStatus(response.data);
-      setFetchError(false);
-    } catch (err) {
-      setFetchError(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchStatus();
-    const interval = setInterval(fetchStatus, 2000);
-    return () => clearInterval(interval);
-  }, [fetchStatus]);
+  const { streamingStatus: status, error: fetchError } = useStreamingMediaHealth(2000);
 
   if (!status && !fetchError) return null;
 
   // Determine health color based on quality level and client count
   const getHealthColor = () => {
     if (fetchError || !status) return 'error';
+    if (status.color && status.color !== 'success') return status.color;
     const engine = status.quality_engine || {};
     const clients = engine.clients || {};
     const clientIds = Object.keys(clients);
@@ -58,10 +41,10 @@ const StreamingStatusIndicator = () => {
   };
 
   const totalClients = status
-    ? (status.http_clients || 0) + (status.websocket_clients || 0) + (status.webrtc_clients || 0)
+    ? status.totalClients
     : 0;
 
-  const methodLabel = status ? (status.active_method || 'none').toUpperCase() : '?';
+  const methodLabel = status ? status.methodLabel : '?';
 
   // Get representative quality (first client or config default)
   const getRepQuality = () => {
@@ -74,9 +57,9 @@ const StreamingStatusIndicator = () => {
 
   const repQuality = getRepQuality();
 
-  const chipLabel = repQuality !== null
+  const chipLabel = repQuality !== null && status?.consumerGuidance === 'serving_media'
     ? `${methodLabel} | Q:${repQuality}`
-    : `${methodLabel} | ${totalClients} clients`;
+    : `${status?.chipLabel || 'Media: ?'} | ${totalClients} clients`;
 
   return (
     <Box sx={{ mt: 1 }}>
@@ -87,6 +70,7 @@ const StreamingStatusIndicator = () => {
           label={chipLabel}
           size="small"
           variant="outlined"
+          color={getHealthColor()}
           onClick={() => setExpanded(!expanded)}
           deleteIcon={expanded ? <ExpandLess /> : <ExpandMore />}
           onDelete={() => setExpanded(!expanded)}
@@ -108,10 +92,23 @@ const StreamingStatusIndicator = () => {
         >
           {fetchError ? (
             <Typography variant="caption" color="error">
-              Unable to fetch streaming status
+              Unable to fetch media health
             </Typography>
           ) : status && (
             <>
+              <Box sx={{ display: 'flex', gap: 1, mb: 1, flexWrap: 'wrap' }}>
+                <Typography variant="caption" color="textSecondary">
+                  State: {status.label}
+                </Typography>
+                {status.frames && (
+                  <Typography variant="caption" color="textSecondary">
+                    Frame: {status.frames.source_available
+                      ? (status.frames.latest_frame_stale ? 'stale' : 'fresh')
+                      : 'none'}
+                  </Typography>
+                )}
+              </Box>
+
               {/* Connection counts */}
               <Box sx={{ display: 'flex', gap: 2, mb: 1 }}>
                 <Typography variant="caption" color="textSecondary">
@@ -123,6 +120,11 @@ const StreamingStatusIndicator = () => {
                 <Typography variant="caption" color="textSecondary">
                   WebRTC: {status.webrtc_clients || 0}
                 </Typography>
+                {status.transportsByName?.gstreamer_udp_h264?.enabled && (
+                  <Typography variant="caption" color="textSecondary">
+                    RTP: {status.transportsByName.gstreamer_udp_h264.status}
+                  </Typography>
+                )}
               </Box>
 
               {/* CPU load */}
@@ -195,6 +197,11 @@ const StreamingStatusIndicator = () => {
                   </Typography>
                 )}
               </Box>
+              {status.healthIssues?.length > 0 && (
+                <Typography variant="caption" color="warning.main" sx={{ mt: 0.75, display: 'block' }}>
+                  Issues: {status.healthIssues.join(', ')}
+                </Typography>
+              )}
             </>
           )}
         </Box>

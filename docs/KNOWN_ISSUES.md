@@ -25,12 +25,12 @@ This file tracks verified, user-facing issues that are not fully solved yet.
   or WebRTC peer received usable video.
 - **Scope**: Service/operator UX and remote validation evidence.
 - **TODO (next iteration)**:
-  - Wire service/dashboard status to the typed media-health route instead of
-    scraping legacy `/stats`.
   - Add authenticated remote client handshake/evidence tests when QGC/browser
     remote media support is promoted.
   - Keep telemetry socket and backend media WebSocket labels separate in status
     output, docs, and troubleshooting.
+  - Keep dashboard/service media-health consumers process-local in wording until
+    remote receipt evidence exists.
 
 ### 3) Higher detection model load can trigger board instability on constrained setups
 - **Status**: Open (environment + workload risk)

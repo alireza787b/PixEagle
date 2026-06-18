@@ -192,6 +192,118 @@ check_component_health() {
     fi
 }
 
+probe_media_health() {
+    local backend_port="${1:-5077}"
+    local media_health_url="${PIXEAGLE_MEDIA_HEALTH_URL:-http://127.0.0.1:${backend_port}/api/v1/streams/media-health}"
+
+    echo "Media health:"
+
+    if ! command -v "${PYTHON:-python3}" >/dev/null 2>&1; then
+        echo "  Backend media: unavailable (python3 missing)"
+        echo "  Remote receipt: not proven by this process-local check"
+        return 0
+    fi
+
+    PIXEAGLE_MEDIA_HEALTH_URL="$media_health_url" "${PYTHON:-python3}" - <<'PY'
+import json
+import os
+import socket
+import sys
+import urllib.error
+import urllib.request
+
+url = os.environ.get("PIXEAGLE_MEDIA_HEALTH_URL", "").strip()
+token = os.environ.get("PIXEAGLE_MEDIA_HEALTH_BEARER_TOKEN", "").strip()
+token_file = os.environ.get("PIXEAGLE_MEDIA_HEALTH_BEARER_TOKEN_FILE", "").strip()
+timeout_raw = os.environ.get("PIXEAGLE_MEDIA_HEALTH_TIMEOUT_S", "2").strip()
+
+try:
+    timeout_s = max(0.1, float(timeout_raw))
+except ValueError:
+    timeout_s = 2.0
+
+if token_file:
+    try:
+        with open(os.path.expanduser(token_file), "r", encoding="utf-8") as handle:
+            token = handle.read().strip()
+    except OSError as exc:
+        print(f"  Backend media: auth token file unreadable ({exc.__class__.__name__})")
+        print("  Remote receipt: not proven by this process-local check")
+        sys.exit(0)
+
+headers = {"Accept": "application/json"}
+if token:
+    headers["Authorization"] = f"Bearer {token}"
+
+request = urllib.request.Request(url, headers=headers, method="GET")
+
+try:
+    with urllib.request.urlopen(request, timeout=timeout_s) as response:
+        status_code = response.status
+        raw_body = response.read(262144)
+except urllib.error.HTTPError as exc:
+    status_code = exc.code
+    if status_code in (401, 403):
+        print(f"  Backend media: auth required (HTTP {status_code}; requires media:read)")
+        print("  Token: set PIXEAGLE_MEDIA_HEALTH_BEARER_TOKEN_FILE for machine_bearer/browser_session probes")
+    elif status_code == 404:
+        print("  Backend media: typed media-health route missing (HTTP 404)")
+    else:
+        print(f"  Backend media: probe failed (HTTP {status_code})")
+    print("  Remote receipt: not proven by this process-local check")
+    sys.exit(0)
+except (urllib.error.URLError, socket.timeout, TimeoutError) as exc:
+    reason = getattr(exc, "reason", exc)
+    print(f"  Backend media: unavailable ({reason.__class__.__name__})")
+    print("  Remote receipt: not proven by this process-local check")
+    sys.exit(0)
+
+if status_code < 200 or status_code >= 300:
+    print(f"  Backend media: probe failed (HTTP {status_code})")
+    print("  Remote receipt: not proven by this process-local check")
+    sys.exit(0)
+
+try:
+    payload = json.loads(raw_body.decode("utf-8"))
+except (UnicodeDecodeError, json.JSONDecodeError):
+    print("  Backend media: invalid response (expected JSON)")
+    print("  Remote receipt: not proven by this process-local check")
+    sys.exit(0)
+
+status = payload.get("status", "unknown")
+guidance = payload.get("consumer_guidance", "unknown")
+frames = payload.get("frames") or {}
+if not frames.get("source_available"):
+    frame_state = "none"
+elif frames.get("latest_frame_stale"):
+    age = frames.get("latest_frame_age_s")
+    frame_state = f"stale ({age}s)" if age is not None else "stale"
+else:
+    age = frames.get("latest_frame_age_s")
+    frame_state = f"fresh ({age}s)" if age is not None else "fresh"
+
+transport_parts = []
+for transport in payload.get("transports") or []:
+    name = str(transport.get("name") or "unknown")
+    transport_status = str(transport.get("status") or "unknown")
+    max_connections = transport.get("max_connections")
+    active_connections = transport.get("active_connections")
+    if max_connections is None:
+        transport_parts.append(f"{name}={transport_status}")
+    else:
+        transport_parts.append(f"{name}={transport_status}/{active_connections or 0}")
+
+issues = payload.get("health_issues") or []
+issue_text = ", ".join(str(item) for item in issues) if issues else "none"
+
+print(f"  Backend media: {status} ({guidance})")
+print(f"  Frame publisher: {frame_state}")
+print(f"  Transports: {' '.join(transport_parts) if transport_parts else 'none'}")
+print(f"  Issues: {issue_text}")
+print("  Remote receipt: not proven by this process-local check")
+PY
+}
+
 check_prerequisites() {
     if ! detect_service_user; then
         return 1
@@ -405,6 +517,9 @@ get_service_status() {
     check_component_health "Backend API" "$backend_port"
     check_component_health "MAVLink2REST" "$mavlink2rest_port"
     check_component_health "Legacy telemetry WebSocket" "$websocket_port"
+    echo
+
+    probe_media_health "$backend_port"
     echo
 
     echo "Commands:"

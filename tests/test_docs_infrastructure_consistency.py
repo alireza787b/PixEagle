@@ -526,6 +526,21 @@ def test_troubleshooting_labels_backend_media_and_legacy_telemetry_ports_correct
     assert "`API_AUTH_MODE=browser_session`" in text
 
 
+def test_service_docs_keep_media_health_auth_and_claim_boundary():
+    service_text = (PROJECT_ROOT / "docs" / "SERVICE_MANAGEMENT.md").read_text(encoding="utf-8")
+    troubleshooting_text = (PROJECT_ROOT / "docs" / "TROUBLESHOOTING.md").read_text(encoding="utf-8")
+
+    combined = f"{service_text}\n{troubleshooting_text}"
+    assert "Media health" in combined
+    assert "/api/v1/streams/media-health" in combined
+    assert "media:read" in combined
+    assert "PIXEAGLE_MEDIA_HEALTH_BEARER_TOKEN_FILE" in combined
+    assert "query-string tokens" in combined
+    assert "process-local" in combined
+    assert "Remote receipt: not proven" in combined
+    assert "/api/v1/auth/login" not in service_text
+
+
 def test_drone_timing_docs_do_not_overstate_setpoint_sender_publish_cadence():
     failures = []
     for path in PXE0030_TIMING_DOCS:

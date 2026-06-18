@@ -74,6 +74,23 @@ Inspect status:
 pixeagle-service status
 ```
 
+Status output includes service/tmux/port checks and a best-effort `Media
+health` block from `GET /api/v1/streams/media-health`. With the default
+same-host `local_compat` profile this probe uses loopback without credentials.
+For `machine_bearer` or `browser_session` deployments, provide an explicit
+`media:read` bearer token file for the status probe:
+
+```bash
+PIXEAGLE_MEDIA_HEALTH_BEARER_TOKEN_FILE=/run/pixeagle/media-health-token \
+  pixeagle-service status
+```
+
+The probe never uses query-string tokens, browser cookies, or CLI login. `401`
+or `403` means media-health auth is required, not that video is down. The block
+is process-local backend observability only; it does not prove a remote browser,
+QGC, WebRTC peer, GCS, PX4, SITL, HIL, or field video path received usable
+media.
+
 Inspect logs (journald):
 
 ```bash
