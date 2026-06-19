@@ -98,6 +98,7 @@ it together with:
 | Phase 4 typed tracking utility actions | done | PXE-0064 partial | `checkpoints/2026-06-17-phase-4-typed-tracking-utility-actions.md`; typed `/api/v1/actions/tracking-redetect`, `/api/v1/actions/segmentation-toggle`, `/api/v1/actions/smart-mode-toggle`, and `/api/v1/actions/smart-click` action resources added with confirmation, dry-run, idempotent replay for confirmed mutations, action records, guarded non-callable API/MCP candidate classification, dashboard redetect/segmentation/smart-mode/smart-click migration, temporary local-only compatibility aliases later retired by `checkpoints/2026-06-19-phase-4-tracking-control-alias-retirement.md`, smart-click no-target failure truthfulness, `actions:execute` dashboard scope gating, and reviewer-approved fixes |
 | Phase 4 tracking/control alias retirement | done | PXE-0064 partial | `checkpoints/2026-06-19-phase-4-tracking-control-alias-retirement.md`; retired public HTTP registration and alias handler methods for `/commands/start_tracking`, `/commands/stop_tracking`, `/commands/redetect`, `/commands/toggle_segmentation`, `/commands/toggle_smart_mode`, and `/commands/smart_click`; typed `/api/v1/actions/*` resources remain the only HTTP tracking/control mutation surface, security policy resolves retired aliases as unclassified/denied, route inventory shrank by six POST routes, and active docs now record those aliases as retired |
 | Phase 4 browser-session/media adversarial regressions | done | PXE-0064 partial | `checkpoints/2026-06-19-phase-4-browser-session-media-adversarial-tests.md`; added backend adversarial tests proving expired browser-session cookies are anonymous only for public session status and rejected from protected media, logout invalidates sibling tabs with the same cookie, and viewer sessions can read media-health but cannot execute typed tracking actions even with a valid CSRF token |
+| Phase 4 dashboard browser-session/media adversarial regressions | done | PXE-0064 partial | `checkpoints/2026-06-19-phase-4-dashboard-browser-session-media-adversarial-tests.md`; added frontend service and React Testing Library coverage proving auth-failure refresh to login-required state, failed silent refresh clears browser-session state, logout sends CSRF and clears local session after an expired-cookie response, JSON/blob helpers dispatch auth-failure while preserving structured errors, HTTP/WebSocket/WebRTC media are blocked without authenticated `media:read`, active WebSockets close on auth loss, 1008 WebSocket closes show sign-in guidance without reconnecting, and HTTP media elements use credentialed loading in browser-session mode |
 | Phase 4 QGC video compatibility reconciliation | done | PXE-0067 | `checkpoints/2026-06-17-phase-4-qgc-video-compatibility.md`; reviewed QGroundControl PR #13594 at head `f0a4feba`, restored same-host native QGC WebSocket compatibility without weakening remote/browser Origin or media auth gates, documented the direct HTTP/WS versus GStreamer UDP/RTP QGC matrix, aligned active video docs with current `Streaming`/`GStreamer` keys, added stale-doc guard coverage, and regenerated API/MCP candidate provenance; QGC branch merge/auth-header work remains a separate follow-up and no PX4/SITL/HIL/field or service/deployment action was claimed |
 | Phase 4 remote media security policy | done | PXE-0069 | `checkpoints/2026-06-17-phase-4-remote-media-security-policy.md`; clarified normal Pi-to-GCS operation without opening anonymous backend media, added `Streaming.API_ALLOWED_HOSTS` to separate backend Host allowlisting from browser CORS origins, documented local-dev, field-QGC RTP/UDP, remote-browser, remote-native HTTP/WS, and rejected anonymous-LAN profiles, added stale video-query and OSD-key docs guardrails, and recorded QGC authenticated remote HTTP/WS implementation as PXE-0070; no QGC branch mutation, PX4/SITL/HIL/field or service/deployment action was claimed |
 | Phase 4 QGC source-profile and demo policy | done | PXE-0071 | `checkpoints/2026-06-17-phase-4-qgc-source-profile-demo-policy.md`; preserved generic QGC HTTP/HTTPS MJPEG and WebSocket support for non-PixEagle sources, documented PixEagle as a stricter configured source profile rather than QGC core behavior, clarified the PixEagle config contract for generic QGC interop (`API_ALLOWED_HOSTS`, exact host authority, future Authorization/Origin/TLS settings, `media:read`-only video token), clarified that beginner full-dashboard LAN demos should use generated browser-session credentials while anonymous demos must be media-only, posted QGC PR clarification comment `https://github.com/mavlink/qgroundcontrol/pull/13594#issuecomment-4731276373`, and updated PXE-0068/PXE-0070 gates plus docs guardrails; no QGC branch mutation, PX4/SITL/HIL/field or service/deployment action was claimed |
@@ -196,14 +197,19 @@ smart-mode toggle, and smart-click are also typed-action-only over HTTP after
 the 2026-06-19 tracking/control alias-retirement slice. The 2026-06-19
 browser-session/media adversarial regression slice added focused backend
 coverage for expired cookies, logout invalidation across tabs, and viewer
-media-read/action-denied separation. The 2026-06-19 LAN/private-overlay browser
-profile hardening slice clarified that TLS is not domain-only, kept HTTP
-LAN/private-overlay browser access lab-only, hardened `demo_lan_browser`
-host-validation edge cases, documented the two-port browser demo requirement,
-and aligned Windows launcher behavior with Linux for `trusted_lan_legacy` plus
-`browser_session`. PXE-0064 remains open for operator
-credential/TLS hardening and broader end-to-end adversarial browser/session/media
-evidence. No runtime MCP endpoint, executor, `tools/list`, `tools/call`, or
+media-read/action-denied separation. The dashboard-side adversarial regression
+slice added frontend service and component coverage for auth-failure refresh,
+failed silent refresh, logout cleanup, structured JSON/blob errors,
+HTTP/WebSocket/WebRTC `media:read` gates, active WebSocket close on auth loss,
+auth-close operator guidance without reconnecting, and credentialed HTTP media
+loading. The 2026-06-19 LAN/private-overlay browser profile hardening slice
+clarified that TLS is not domain-only, kept HTTP LAN/private-overlay browser
+access lab-only, hardened `demo_lan_browser` host-validation edge cases,
+documented the two-port browser demo requirement, and aligned Windows launcher
+behavior with Linux for `trusted_lan_legacy` plus `browser_session`. PXE-0064
+remains open for operator credential/TLS hardening and broader end-to-end
+browser/session/media evidence. No runtime MCP endpoint, executor,
+`tools/list`, `tools/call`, or
 callable tool surface exists from these slices. These are still unit/contract
 evidence only; no runtime
 PX4/SITL pass is claimed. Official Gazebo runtime proof (PXE-0040) remains open

@@ -75,8 +75,12 @@ production remote-browser profile must include:
 - an external `API_SESSION_USER_FILE` with PBKDF2-SHA256 hashed users;
 - `API_SESSION_COOKIE_SECURE: true` when served over HTTPS;
 - durable security audit logging;
-- adversarial browser/session/media tests and remaining legacy-alias retirement
+- broader end-to-end browser/session/media evidence and operator acceptance
   gates under PXE-0064.
+
+Legacy tracking/control HTTP aliases have been retired; production remote
+browser approval now depends on the deployment trust boundary and evidence, not
+on remaining action-route alias work.
 
 Roles are intentionally simple:
 

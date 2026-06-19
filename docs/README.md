@@ -34,7 +34,7 @@ Welcome to the PixEagle documentation. This guide will help you find the informa
 | [OpenCV GStreamer](OPENCV_GSTREAMER.md) | Building OpenCV with GStreamer support |
 | [Gimbal Simulator](gimbal_simulator.md) | Testing gimbal functionality |
 | [Companion Runtime Contract](architecture/companion-runtime-contract.md) | Sidecar ownership, auth, profile, secret, version, and evidence boundaries |
-| [API Exposure Boundary](apis/api-exposure-boundary.md) | Backend bind, CORS, temporary legacy exposure, and remaining authentication boundary |
+| [API Exposure Boundary](apis/api-exposure-boundary.md) | Backend bind, CORS, route exposure, and remaining production authentication boundary |
 | [API Security Policy](apis/api-security-policy.md) | Default-deny route classification, scopes, CSRF, audit treatment, and enforcement roadmap |
 
 ---

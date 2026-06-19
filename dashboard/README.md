@@ -53,6 +53,7 @@ and protected endpoint `href` bypasses outside the approved client boundary.
 
 The dashboard credential-aware client/media foundation is implemented. Remote
 browser operation is still not production-approved until TLS/operator
-deployment hardening, typed replacements and retirement for remaining legacy
-tracking/control mutations, adversarial browser/session/media tests, and
-evidence gates are complete.
+deployment hardening, broader end-to-end browser/session/media evidence, and
+operator acceptance gates are complete. Legacy tracking/control HTTP aliases
+have been replaced by typed `/api/v1/actions/*` routes and are no longer
+registered.

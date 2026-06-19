@@ -3,8 +3,10 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { websocketVideoFeed, webrtcSignalingEndpoint } from '../services/apiEndpoints';
 import {
   createDashboardWebSocket,
+  getDashboardAuthSession,
   getMediaElementAuthProps,
   isWebSocketAuthClose,
+  subscribeDashboardAuthSession,
 } from '../services/apiClient';
 import { Box, Typography, Chip, IconButton, Slider, CircularProgress } from '@mui/material';
 import { SignalCellular4Bar, SignalCellular2Bar, SignalCellular0Bar, Settings, Videocam } from '@mui/icons-material';
@@ -18,6 +20,7 @@ const VideoStream = ({
   onStreamDebugUpdate,
 }) => {
   const theme = useTheme();
+  const [authSession, setAuthSession] = useState(() => getDashboardAuthSession());
   // Auto protocol resolution: try WebRTC if available, fallback to WebSocket
   const [autoResolvedProtocol, setAutoResolvedProtocol] = useState(null);
   const autoTimeoutRef = useRef(null);
@@ -85,6 +88,17 @@ const VideoStream = ({
   const pcRef = useRef(null);
   const sigWsRef = useRef(null);
   const videoRef = useRef(null);
+
+  useEffect(() => (
+    subscribeDashboardAuthSession((nextSession) => {
+      setAuthSession(nextSession);
+    })
+  ), []);
+
+  const mediaAuthError = authSession.authMode === 'browser_session'
+    && (!authSession.authenticated || !authSession.principal?.scopes?.includes('media:read'))
+    ? 'Authenticated media session with media:read scope is required.'
+    : null;
 
   const reportDebugInfo = useCallback(() => {
     if (typeof onStreamDebugUpdate !== 'function') {
@@ -182,6 +196,12 @@ const VideoStream = ({
     let isMounted = true;
     setIsConnecting(true);
     setHasReceivedFrame(false);
+
+    if (mediaAuthError) {
+      setError(mediaAuthError);
+      setIsConnecting(false);
+      return undefined;
+    }
 
     let ws;
     try {
@@ -370,7 +390,7 @@ const VideoStream = ({
         wsRef.current = null;
       }
     };
-  }, [effectiveProtocol, reconnectKey, updateFPS, sendHeartbeat]);
+  }, [effectiveProtocol, reconnectKey, updateFPS, sendHeartbeat, mediaAuthError]);
 
   // WebRTC protocol effect
   useEffect(() => {
@@ -394,6 +414,12 @@ const VideoStream = ({
     setIsConnecting(true);
     setHasReceivedFrame(false);
     setError(null);
+
+    if (mediaAuthError) {
+      setError(mediaAuthError);
+      setIsConnecting(false);
+      return undefined;
+    }
 
     // Create RTCPeerConnection
     const pc = new RTCPeerConnection({
@@ -533,7 +559,7 @@ const VideoStream = ({
         sigWsRef.current = null;
       }
     };
-  }, [effectiveProtocol]);
+  }, [effectiveProtocol, mediaAuthError]);
 
   // Handle quality slider change
   const handleQualityChange = (event, newValue) => {
@@ -787,6 +813,14 @@ const VideoStream = ({
 
   // --- HTTP protocol ---
   if (effectiveProtocol === 'http') {
+    if (mediaAuthError) {
+      return (
+        <Box sx={{ textAlign: 'center', p: 2 }}>
+          <Typography color="error">{mediaAuthError}</Typography>
+        </Box>
+      );
+    }
+
     return (
       <Box sx={{ position: 'relative', width: '100%', bgcolor: 'grey.900', lineHeight: 0 }}>
         {/* Loading spinner before image loads */}

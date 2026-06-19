@@ -156,7 +156,16 @@ export const apiFetchJson = async (input, options = {}) => {
       ...(options.headers || {}),
     },
   });
-  const data = await response.json();
+  let data;
+  if (response.ok) {
+    data = await response.json();
+  } else {
+    try {
+      data = await response.json();
+    } catch {
+      data = {};
+    }
+  }
   if (!response.ok) {
     const message = data?.detail?.message || data?.detail || data?.error || data?.message || `HTTP ${response.status}`;
     const error = new Error(message);
