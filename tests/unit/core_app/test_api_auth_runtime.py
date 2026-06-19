@@ -46,6 +46,7 @@ from classes.api_security_types import (
     APIPrincipal,
     APIPrincipalKind,
     CONFIG_READ,
+    MEDIA_READ,
     STATUS_READ,
 )
 from classes.api_v1_auth_routes import get_auth_session, login_auth_session, logout_auth_session
@@ -754,6 +755,140 @@ def test_browser_session_cookie_authorizes_reads_and_requires_csrf_for_mutations
     assert missing_csrf_result.status_code == 403
     assert missing_csrf_result.reason == "csrf_required"
     assert csrf_result.allowed is True
+
+
+def test_expired_browser_session_cookie_is_public_anonymous_but_media_denied(monkeypatch):
+    """Expired cookies may not keep protected media access alive."""
+    runtime = _runtime_with_session_user()
+    user = runtime.authenticate_user(username="operator", password="correct-horse")
+    assert user is not None
+    session = runtime.create_session_for_user(user)
+    cookie_header = f"{runtime.session_cookie_name}={session.session_id}"
+    monkeypatch.setattr(auth_runtime.time, "time", lambda: session.expires_at + 1.0)
+
+    public_result = authorize_http_request(
+        runtime=runtime,
+        method="GET",
+        path="/api/v1/auth/session",
+        headers={"cookie": cookie_header},
+        client_host="192.168.1.20",
+        host_header="192.168.1.20:5077",
+        exposure_policy=_trusted_lan_policy(),
+    )
+    protected_media_result = authorize_http_request(
+        runtime=runtime,
+        method="GET",
+        path="/api/v1/streams/media-health",
+        headers={"cookie": cookie_header},
+        client_host="192.168.1.20",
+        host_header="192.168.1.20:5077",
+        exposure_policy=_trusted_lan_policy(),
+    )
+
+    assert public_result.allowed is True
+    assert public_result.principal.kind == APIPrincipalKind.ANONYMOUS
+    assert runtime.session_store._records == {}
+    assert protected_media_result.allowed is False
+    assert protected_media_result.status_code == 401
+    assert protected_media_result.reason == "invalid_session"
+
+
+@pytest.mark.asyncio
+async def test_logout_revokes_same_session_for_other_browser_tabs():
+    """Logout must invalidate sibling tabs that still hold the old cookie."""
+    runtime = _runtime_with_session_user()
+    session = runtime.create_session_for_user(runtime.users_by_username["operator"])
+    cookie_header = f"{runtime.session_cookie_name}={session.session_id}"
+    principal = APIPrincipal.session(
+        username=session.username,
+        role=session.role,
+        session_id=session.session_id,
+    )
+    owner = SimpleNamespace(
+        api_auth_runtime=runtime,
+        _record_security_audit_event=lambda **_: True,
+    )
+    request = SimpleNamespace(
+        method="POST",
+        headers={"host": "192.168.1.20:5077"},
+        client=SimpleNamespace(host="192.168.1.20"),
+        state=SimpleNamespace(api_principal=principal),
+    )
+    response = Response()
+
+    before_logout = authorize_http_request(
+        runtime=runtime,
+        method="GET",
+        path="/api/v1/streams/media-health",
+        headers={"cookie": cookie_header},
+        client_host="192.168.1.20",
+        host_header="192.168.1.20:5077",
+        exposure_policy=_trusted_lan_policy(),
+    )
+    result = await logout_auth_session(owner, request, response)
+    sibling_tab_after_logout = authorize_http_request(
+        runtime=runtime,
+        method="GET",
+        path="/api/v1/streams/media-health",
+        headers={"cookie": cookie_header},
+        client_host="192.168.1.20",
+        host_header="192.168.1.20:5077",
+        exposure_policy=_trusted_lan_policy(),
+    )
+
+    assert before_logout.allowed is True
+    assert result.revoked is True
+    assert runtime.session_store._records == {}
+    assert sibling_tab_after_logout.allowed is False
+    assert sibling_tab_after_logout.status_code == 401
+    assert sibling_tab_after_logout.reason == "invalid_session"
+
+
+def test_viewer_browser_session_can_read_media_but_cannot_execute_actions():
+    """Viewer role keeps media read-only and cannot mutate action resources."""
+    runtime = APIAuthRuntime(
+        mode=API_AUTH_MODE_BROWSER_SESSION,
+        users_by_username={
+            "viewer": APIUserRecord(
+                username="viewer",
+                role="viewer",
+                password_pbkdf2_sha256=hash_password_pbkdf2_sha256("viewer-password"),
+            )
+        },
+    )
+    session = runtime.create_session_for_user(runtime.users_by_username["viewer"])
+    cookie_header = f"{runtime.session_cookie_name}={session.session_id}"
+
+    media_result = authorize_http_request(
+        runtime=runtime,
+        method="GET",
+        path="/api/v1/streams/media-health",
+        headers={"cookie": cookie_header},
+        client_host="192.168.1.20",
+        host_header="192.168.1.20:5077",
+        exposure_policy=_trusted_lan_policy(),
+    )
+    action_result = authorize_http_request(
+        runtime=runtime,
+        method="POST",
+        path="/api/v1/actions/tracking-stop",
+        headers={
+            "cookie": cookie_header,
+            runtime.csrf_header_name: session.csrf_token,
+        },
+        client_host="192.168.1.20",
+        host_header="192.168.1.20:5077",
+        exposure_policy=_trusted_lan_policy(),
+    )
+
+    assert media_result.allowed is True
+    assert media_result.principal.kind == APIPrincipalKind.SESSION
+    assert MEDIA_READ in media_result.principal.scopes
+    assert ACTIONS_EXECUTE not in media_result.principal.scopes
+    assert action_result.allowed is False
+    assert action_result.status_code == 403
+    assert action_result.reason == "insufficient_scope"
+    assert action_result.missing_scopes == (ACTIONS_EXECUTE,)
 
 
 def test_unknown_session_cookie_is_ignored_on_public_auth_status_only():
