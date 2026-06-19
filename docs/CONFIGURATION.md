@@ -134,7 +134,17 @@ authorization. See the [API exposure boundary](apis/api-exposure-boundary.md).
 Existing local configs from older releases that still set
 `HTTP_STREAM_HOST: 0.0.0.0` without `API_EXPOSURE_MODE` are coerced to loopback
 at runtime. Add `trusted_lan_legacy` explicitly only for temporary isolated-LAN
-compatibility.
+compatibility. For the supported quick browser path on another device, prefer
+`make demo-lan-browser-profile LAN_HOST=<this-pixeagle-lan-ip-or-overlay-ip>`;
+it generates browser-session credentials and exact Host/CORS allowlists for
+HTTP lab/private-overlay testing. The dashboard uses `3040` and direct
+browser API/media calls use backend port `5077`; allow both only from the
+trusted demo device/CIDR.
+
+TLS is not limited to public domain names, but HTTP over a private LAN or
+private overlay/VPN is only a lab/operator-approved test posture. Production
+remote browser access still needs TLS or an equivalent reviewed trust boundary,
+durable credentials, audit, adversarial auth/media tests, and evidence.
 
 Backend Host and browser-origin controls live under `Streaming`:
 

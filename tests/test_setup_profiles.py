@@ -174,6 +174,45 @@ def test_demo_lan_browser_profile_generates_hashed_session_credentials(tmp_path)
     assert user_file.stat().st_mode & 0o777 == 0o600
     assert "Demo password:" in result.stdout
     assert "LAB ONLY" in result.stdout
+    assert "backend/API media port 5077" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("lan_host", "allowed_host", "origin_host"),
+    [
+        ("10.0.0.2", "10.0.0.2", "10.0.0.2"),
+        ("172.16.0.2", "172.16.0.2", "172.16.0.2"),
+        ("172.31.255.254", "172.31.255.254", "172.31.255.254"),
+        ("192.168.10.42", "192.168.10.42", "192.168.10.42"),
+        ("100.64.0.42", "100.64.0.42", "100.64.0.42"),
+        ("169.254.10.20", "169.254.10.20", "169.254.10.20"),
+        ("fc00::42", "fc00::42", "[fc00::42]"),
+        ("[fc00::42]", "fc00::42", "[fc00::42]"),
+        ("fe80::42", "fe80::42", "[fe80::42]"),
+    ],
+)
+def test_demo_lan_browser_profile_accepts_lan_and_private_overlay_addresses(
+    tmp_path, lan_host, allowed_host, origin_host
+):
+    config_path = tmp_path / "config.yaml"
+    user_file = tmp_path / "demo-users.json"
+
+    result = _run_profile(
+        "--profile",
+        "demo_lan_browser",
+        "--lan-host",
+        lan_host,
+        "--session-user-file",
+        str(user_file),
+        config_path=config_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    config = _read_yaml(config_path)
+    streaming = config["Streaming"]
+    assert streaming["API_ALLOWED_HOSTS"] == [allowed_host]
+    assert f"http://{origin_host}:3040" in streaming["API_CORS_ALLOWED_ORIGINS"]
+    assert f"http://{origin_host}:5077" in streaming["API_CORS_ALLOWED_ORIGINS"]
 
 
 def test_demo_lan_browser_profile_requires_lan_host(tmp_path):
@@ -193,11 +232,32 @@ def test_demo_lan_browser_profile_requires_lan_host(tmp_path):
         "127.0.0.1",
         "localhost",
         "8.8.8.8",
+        "172.15.255.255",
+        "172.32.0.1",
+        "192.0.2.1",
+        "198.51.100.4",
+        "203.0.113.9",
+        "224.0.0.1",
+        "255.255.255.255",
+        "::",
+        "::1",
+        "2001:4860:4860::8888",
+        "2001:db8::1",
+        "ff02::1",
         "example.com",
         "https://192.168.10.42",
         "user:secret@192.168.10.42",
+        "192.168.10.42?token=x",
+        "pixeagle.local#frag",
         "192.168.10.42:5077",
         "pixeagle.local:notaport",
+        "[fc00::42]:5077",
+        "[fc00::42]?x=1",
+        "[fc00::42]x",
+        "[fc00::42]]",
+        "[]",
+        "fe80::42%eth0",
+        "[fe80::42%25eth0]",
         "*",
     ],
 )
@@ -238,6 +298,7 @@ def test_demo_lan_browser_profile_dry_run_does_not_write_config_or_credentials(t
     assert result.returncode == 0, result.stderr
     assert "Dry run" in result.stdout
     assert "Would generate browser-session user file" in result.stdout
+    assert "LAN/private overlay" in result.stdout
     assert "Demo password:" not in result.stdout
     assert not config_path.exists()
     assert not user_file.exists()
@@ -322,6 +383,19 @@ def test_run_script_binds_dashboard_to_lan_for_browser_session_profile():
     assert '"$API_AUTH_MODE" == "browser_session"' in script_text
     assert 'DASHBOARD_HOST="0.0.0.0"' in script_text
     assert "PIXEAGLE_DASHBOARD_EXPOSURE_MODE=$dashboard_exposure_arg" in script_text
+
+
+def test_windows_run_script_binds_dashboard_to_lan_for_browser_session_profile():
+    script_text = (PROJECT_ROOT / "scripts" / "run.bat").read_text(encoding="utf-8")
+
+    assert "API_EXPOSURE_MODE=local_only" in script_text
+    assert "API_AUTH_MODE=local_compat" in script_text
+    assert "API_EXPOSURE_MODE" in script_text
+    assert "API_AUTH_MODE" in script_text
+    assert 'if /I "!API_EXPOSURE_MODE!"=="trusted_lan_legacy"' in script_text
+    assert 'if /I "!API_AUTH_MODE!"=="browser_session"' in script_text
+    assert "PIXEAGLE_DASHBOARD_HOST=0.0.0.0" in script_text
+    assert "PIXEAGLE_DASHBOARD_EXPOSURE_MODE=trusted_lan_legacy" in script_text
 
 
 def test_dry_run_does_not_create_runtime_config(tmp_path):

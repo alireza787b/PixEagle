@@ -15,7 +15,7 @@ import re
 import secrets
 import sys
 from dataclasses import dataclass
-from ipaddress import ip_address
+from ipaddress import ip_address, ip_network
 from pathlib import Path
 from time import strftime
 from typing import Any, Callable
@@ -46,6 +46,18 @@ DEFAULT_HTTP_STREAM_PORT = 5077
 QGC_DEFAULT_UDP_H264_PORT = 5600
 UNSPECIFIED_BIND_HOSTS = {"0.0.0.0", "::"}
 HOSTNAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+ALLOWED_DEMO_IP_NETWORKS = tuple(
+    ip_network(value)
+    for value in (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "100.64.0.0/10",
+        "169.254.0.0/16",
+        "fc00::/7",
+        "fe80::/10",
+    )
+)
 
 
 class ProfileError(ValueError):
@@ -234,28 +246,72 @@ def _hostname_is_lan_scoped(hostname: str) -> bool:
     return "." not in trimmed or trimmed.endswith((".local", ".lan"))
 
 
+def _address_is_demo_scope(address: Any) -> bool:
+    return any(address in network for network in ALLOWED_DEMO_IP_NETWORKS)
+
+
 def _normalize_lan_host(value: str) -> dict[str, str]:
     raw = str(value or "").strip()
     if not raw:
         raise ProfileError("--lan-host must not be empty.")
-    if raw == "*" or "://" in raw or "/" in raw or "@" in raw:
+    if raw == "*" or "://" in raw or "/" in raw or "@" in raw or "?" in raw or "#" in raw:
         raise ProfileError(
-            "--lan-host must be a hostname or IP literal without wildcard, scheme, path, or credentials."
+            "--lan-host must be a hostname or IP literal without wildcard, scheme, path, query, fragment, or credentials."
+        )
+    if "%" in raw:
+        raise ProfileError(
+            "--lan-host must not include IPv6 zone identifiers; use an IPv6 ULA address or local hostname instead."
         )
 
-    parsed_url = urlsplit(f"//{raw}")
-    try:
-        parsed_port = parsed_url.port
-    except ValueError as exc:
-        raise ProfileError("--lan-host must not include a port; use --http-stream-port if needed.") from exc
-    if parsed_port is not None:
-        raise ProfileError("--lan-host must not include a port; use --http-stream-port if needed.")
-    if parsed_url.username or parsed_url.password or parsed_url.path not in {"", None}:
-        raise ProfileError(
-            "--lan-host must be a hostname or IP literal without credentials or path."
-        )
-
-    host = parsed_url.hostname if parsed_url.hostname else raw.strip("[]")
+    if raw.startswith("["):
+        try:
+            parsed_url = urlsplit(f"//{raw}")
+        except ValueError as exc:
+            raise ProfileError(f"--lan-host is not a valid hostname or IP literal: {value!r}") from exc
+        try:
+            parsed_port = parsed_url.port
+        except ValueError as exc:
+            raise ProfileError("--lan-host must not include a port; use --http-stream-port if needed.") from exc
+        if parsed_port is not None:
+            raise ProfileError("--lan-host must not include a port; use --http-stream-port if needed.")
+        if (
+            parsed_url.username
+            or parsed_url.password
+            or parsed_url.path not in {"", None}
+            or parsed_url.query
+            or parsed_url.fragment
+        ):
+            raise ProfileError(
+                "--lan-host must be a hostname or IP literal without credentials, path, query, or fragment."
+            )
+        host = parsed_url.hostname if parsed_url.hostname else raw.strip("[]")
+    else:
+        try:
+            ip_address(raw)
+        except ValueError:
+            try:
+                parsed_url = urlsplit(f"//{raw}")
+            except ValueError as exc:
+                raise ProfileError(f"--lan-host is not a valid hostname or IP literal: {value!r}") from exc
+            try:
+                parsed_port = parsed_url.port
+            except ValueError as exc:
+                raise ProfileError("--lan-host must not include a port; use --http-stream-port if needed.") from exc
+            if parsed_port is not None:
+                raise ProfileError("--lan-host must not include a port; use --http-stream-port if needed.")
+            if (
+                parsed_url.username
+                or parsed_url.password
+                or parsed_url.path not in {"", None}
+                or parsed_url.query
+                or parsed_url.fragment
+            ):
+                raise ProfileError(
+                    "--lan-host must be a hostname or IP literal without credentials, path, query, or fragment."
+                )
+            host = parsed_url.hostname if parsed_url.hostname else raw.strip("[]")
+        else:
+            host = raw
     host = str(host or "").strip().lower()
     if not host or any(char.isspace() for char in host):
         raise ProfileError("--lan-host must be a single hostname or IP literal.")
@@ -275,9 +331,9 @@ def _normalize_lan_host(value: str) -> dict[str, str]:
 
     if address.is_loopback or address.is_unspecified:
         raise ProfileError("--lan-host must identify the PixEagle LAN address, not loopback or wildcard bind hosts.")
-    if address.is_global:
+    if not _address_is_demo_scope(address):
         raise ProfileError(
-            "--lan-host must be a private/link-local lab LAN address for demo_lan_browser."
+            "--lan-host must be an RFC1918 private, link-local, IPv6 ULA, or shared private-overlay address for demo_lan_browser."
         )
     allowed_host = address.compressed
     origin_host = f"[{address.compressed}]" if address.version == 6 else address.compressed
@@ -351,7 +407,7 @@ def _write_profile_artifacts(args: argparse.Namespace) -> list[str]:
         return [
             f"Would generate browser-session user file: {user_file}",
             "Would print the generated password once; plaintext is never written to disk.",
-            "LAB ONLY: use this profile only on an isolated operator-approved LAN without TLS.",
+            "LAB ONLY: use this profile only on an isolated operator-approved LAN/private overlay without TLS.",
         ]
 
     if user_file.exists() and args.rotate_demo_credentials:
@@ -383,8 +439,13 @@ def _write_profile_artifacts(args: argparse.Namespace) -> list[str]:
         f"Demo password: {password}",
         "Store this password now; it is shown once and only the PBKDF2 hash was written.",
         (
-            "Open the dashboard on the lab LAN at "
+            "Open the dashboard on the lab LAN/private overlay at "
             f"http://{args._demo_origin_host}:{args._demo_dashboard_port}"
+        ),
+        (
+            "LAB ONLY: allow dashboard port "
+            f"{args._demo_dashboard_port} and backend/API media port "
+            f"{args._demo_http_stream_port} only from trusted demo devices."
         ),
         "LAB ONLY: do not use this HTTP profile for production or untrusted networks.",
     ]

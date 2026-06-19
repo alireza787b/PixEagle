@@ -14,8 +14,8 @@ PixEagle backend media port without authentication.
 - Use authenticated HTTP/WebSocket media only for reviewed clients that can send
   scoped credentials and, for WebSocket, an allowlisted Origin.
 - Do not put credentials in URLs or query strings.
-- Treat VPNs, trusted RF links, and reverse proxies as transport controls, not
-  authorization.
+- Treat private overlays/VPNs, trusted RF links, and reverse proxies as
+  transport controls, not authorization.
 
 ## Profiles
 
@@ -23,6 +23,7 @@ PixEagle backend media port without authentication.
 | --- | --- | --- | --- | --- |
 | Local development | Same-host dashboard, local QGC, CLI smoke tests | `local_only` loopback | `local_compat` loopback only | Supported default |
 | Field QGC video | QGC on GCS, PixEagle on companion | Backend remains loopback; video uses UDP/RTP output | No PixEagle API auth because backend is not exposed | Supported video path |
+| Lab/private-overlay browser demo | Browser dashboard on phone/tablet/GCS | Exact Host/CORS over HTTP on isolated LAN or private overlay/VPN | Generated `browser_session` user | Supported by `demo_lan_browser`; not production |
 | Remote browser operator | Browser dashboard on GCS/mobile | Exact Host/CORS over TLS or SSH tunnel | `browser_session` with viewer/operator/admin users | SSH tunnel now; production hardening still tracked |
 | Remote native media client | Future QGC HTTP/WS or another native client | Explicit non-loopback profile with Host allowlist | Bearer token with `media:read` | Requires reviewed client support |
 | Anonymous LAN media | Any remote LAN client | Backend exposed without auth | None | Not supported |
@@ -88,6 +89,13 @@ Roles are intentionally simple:
 Do not use HTTP Basic authentication as the PixEagle backend user-management
 model. If a reverse proxy adds Basic authentication for a lab deployment, the
 PixEagle backend still needs its own session or bearer authorization boundary.
+
+TLS is not a domain-only concept. Production browser deployments should use
+HTTPS/WSS with browser-trusted certificates, whether the endpoint is named by a
+DNS name, an internal PKI name, or another reviewed trust anchor. A private
+overlay/VPN such as NetBird can be part of the network-security plan, but HTTP
+over that overlay remains a lab or operator-approved test profile unless a
+separate threat model accepts it with equivalent controls and evidence.
 
 ## Remote HTTP/WebSocket Media Clients
 
@@ -163,10 +171,14 @@ a phone or tablet, use the automated `demo_lan_browser` bootstrap profile:
 make demo-lan-browser-profile LAN_HOST=<this-pixeagle-lan-ip-or-hostname>
 ```
 
-The profile binds only to explicit Host/CORS allowlists, generates an external
-PBKDF2-hashed `browser_session` username/password file, uses
-`API_AUTH_MODE: browser_session`, and warns the operator that it is lab-only
-unless TLS/operator hardening is also configured.
+The profile accepts RFC1918 private LAN addresses, shared private-overlay/CGNAT
+addresses such as `100.64.0.0/10`, link-local addresses, IPv6 ULA/link-local
+addresses, and local-scope hostnames. It binds only to explicit Host/CORS
+allowlists, generates an external PBKDF2-hashed `browser_session`
+username/password file, uses `API_AUTH_MODE: browser_session`, and warns the
+operator that it is lab-only unless TLS/operator hardening is also configured.
+IPv6 zone identifiers such as `%eth0`/`%25eth0` are rejected; use IPv6 ULA or a
+local-scope hostname for IPv6 browser demos.
 
 Do not provide a no-password remote control panel. Anonymous remote backend
 access to PixEagle routes is not a plug-and-play mode. A temporary anonymous

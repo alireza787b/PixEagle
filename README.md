@@ -136,12 +136,14 @@ scripts\stop.bat           # Stop all services
 ### Access Dashboard
 
 - **Local**: http://localhost:3040
-- **Lab LAN browser demo**: run
+- **Lab/private-overlay browser demo**: run
   `make demo-lan-browser-profile LAN_HOST=<this-pixeagle-lan-ip>` to generate a
   local browser-session user file and exact Host/CORS allowlists before
   starting or restarting with `make run`; then open
   `http://<this-pixeagle-lan-ip>:3040` from the other device and log in with
-  the generated username/password
+  the generated username/password. The browser uses dashboard port `3040` and
+  backend/API media port `5077`. This HTTP profile is for isolated LAN or
+  operator-approved private-overlay testing, not production remote access.
 - **Production remote operator access**: use an SSH tunnel or a reviewed
   TLS/VPN deployment; production non-loopback browser operation remains gated on
   TLS/operator hardening, adversarial auth/media tests, and evidence
@@ -248,10 +250,13 @@ Do not open backend port `5077` directly without an explicit setup profile. For
 quick lab browser access, use `make demo-lan-browser-profile
 LAN_HOST=<this-pixeagle-lan-ip>` so setup generates browser-session credentials
 and exact Host/CORS allowlists, then restart PixEagle with `make run` and open
-`http://<this-pixeagle-lan-ip>:3040` from the browser device. Production
-non-loopback reverse-proxy/VPN browser operation remains deferred until
-TLS/operator deployment hardening, adversarial auth/media tests, and evidence
-gates are complete.
+`http://<this-pixeagle-lan-ip>:3040` from the browser device. The same profile
+can be used on an operator-approved private overlay/VPN address for lab testing;
+allow `3040` and `5077` only from the trusted demo device/CIDR.
+TLS is not domain-only, but production non-loopback reverse-proxy/VPN browser
+operation remains deferred until TLS or an equivalent reviewed trust boundary,
+operator deployment hardening, adversarial auth/media tests, and evidence gates
+are complete.
 
 Keep PixEagle backend `5077`, MAVLink2REST `8088`, and MAVLink local endpoints
 behind localhost or SSH tunnels unless the deployment has an explicit

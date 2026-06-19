@@ -298,8 +298,15 @@ sudo ufw allow 14550/udp  # QGC (optional)
 sudo ufw status
 ```
 
-Keep `5077`, `5551`, `8088`, `14540`, and `14569` local. Use a separately
-secured deployment only when remote access is explicitly required.
+Keep `5077`, `5551`, `8088`, `14540`, and `14569` local by default. For a quick
+browser demo from a phone/tablet/GCS on an isolated LAN or private overlay/VPN,
+use `make demo-lan-browser-profile
+LAN_HOST=<this-pixeagle-lan-ip-or-overlay-ip>` instead of hand-opening backend
+ports; the profile generates browser-session credentials, exact Host/CORS
+allowlists, and a backend bind for the browser API/media client on `5077`.
+Allow both `3040` and `5077` only from the trusted demo CIDR/device. Use a
+separately secured deployment only when production remote access is explicitly
+required.
 
 ### Port Reference
 

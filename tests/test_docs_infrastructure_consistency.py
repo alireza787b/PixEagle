@@ -460,6 +460,12 @@ def test_setup_profiles_are_documented_and_linked_from_onboarding_docs():
         "demo_lan_browser",
         "make demo-lan-browser-profile LAN_HOST=",
         "Generated browser-session user file",
+        "private overlay/VPN",
+        "100.64.0.0/10",
+        "%25eth0",
+        "dashboard port `3040`",
+        "port `5077`",
+        "TLS is not only for domain names",
         "production_remote",
         "unsafe_demo_lan_media_only",
         "Do not create a no-password remote control panel",
@@ -480,6 +486,69 @@ def test_setup_profiles_are_documented_and_linked_from_onboarding_docs():
         for path in linked_docs
         if "setup-profiles.md" not in path.read_text(encoding="utf-8")
     )
+
+    assert not missing, "\n".join(missing)
+
+
+def test_remote_browser_docs_keep_lab_overlay_and_production_tls_boundaries():
+    docs = {
+        "README.md": (PROJECT_ROOT / "README.md").read_text(encoding="utf-8"),
+        "setup": (PROJECT_ROOT / "docs" / "setup" / "setup-profiles.md").read_text(
+            encoding="utf-8"
+        ),
+        "remote": (
+            PROJECT_ROOT
+            / "docs"
+            / "video"
+            / "04-streaming"
+            / "remote-media-security.md"
+        ).read_text(encoding="utf-8"),
+        "exposure": (
+            PROJECT_ROOT / "docs" / "apis" / "api-exposure-boundary.md"
+        ).read_text(encoding="utf-8"),
+        "qgc": (
+            PROJECT_ROOT
+            / "docs"
+            / "video"
+            / "04-streaming"
+            / "qgc-http-websocket-source-plan.md"
+        ).read_text(encoding="utf-8"),
+    }
+    checks = {
+        "setup": [
+            "HTTP for beginner lab/private-overlay testing",
+            "production remote",
+            "browser profile",
+            "port `5077`",
+            "%25eth0",
+            "TLS is not only for domain names",
+        ],
+        "remote": [
+            "Lab/private-overlay browser demo",
+            "TLS is not a domain-only concept",
+            "overlay remains a lab or operator-approved test profile",
+            "IPv6 zone identifiers",
+        ],
+        "exposure": [
+            "private overlay is still not a production remote-browser approval",
+            "TLS is not limited to public domain names",
+        ],
+        "qgc": [
+            "private overlay/VPN",
+            "100.64.0.0/10",
+            "replace production TLS/operator",
+        ],
+        "README.md": [
+            "Lab/private-overlay browser demo",
+            "TLS is not domain-only",
+        ],
+    }
+    missing = [
+        f"{doc_name} missing {term}"
+        for doc_name, terms in checks.items()
+        for term in terms
+        if term not in docs[doc_name]
+    ]
 
     assert not missing, "\n".join(missing)
 

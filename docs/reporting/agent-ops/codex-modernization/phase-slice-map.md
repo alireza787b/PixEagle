@@ -108,6 +108,7 @@ it together with:
 | Phase 4 streaming media-health API | done | PXE-0068 partial | `checkpoints/2026-06-18-phase-4-streaming-media-health.md`; added typed `GET /api/v1/streams/media-health` with `media:read` authorization, process-local claim boundary, MJPEG/WebSocket/WebRTC/GStreamer/frame-publisher/quality-engine state, stale-frame degradation, disabled and zero-capacity transport reporting, real `ENABLE_STREAMING` route fail-closed behavior, media-specific agent-candidate sensitivity, docs/tests, and no remote browser/QGC/GCS/PX4/SITL/HIL/field receipt claim |
 | Phase 4 dashboard/service media-health adoption | done | PXE-0068 partial | `checkpoints/2026-06-18-phase-4-dashboard-service-media-health.md`; dashboard streaming status/performance widgets now consume typed `/api/v1/streams/media-health` with legacy fallback only for missing-route rolling updates, auth failures remain media-health failures, `pixeagle-service status` adds an auth-safe process-local media-health block with optional explicit `media:read` bearer token file, and docs/tests preserve the no-remote-receipt claim boundary |
 | Phase 4 streaming lifecycle cleanup | done | PXE-0068 partial | `checkpoints/2026-06-19-phase-4-streaming-lifecycle-cleanup.md`; stale backend WebSocket streaming clients, including clients that never received a frame, now close through one idempotent cleanup path; FastAPI shutdown closes tracked WebSockets, cancels background tasks, and drains WebRTC peers; AppController shutdown releases GStreamer output; GStreamer release nulls the writer and drains queued frames; focused unit/docs gates preserve process-local media-health claim boundaries |
+| Phase 4 LAN/private-overlay browser profile hardening | done | PXE-0072 | `checkpoints/2026-06-19-phase-4-lan-overlay-browser-profile-hardening.md`; clarified that TLS is not domain-only while HTTP LAN/private-overlay browser access is lab-only; hardened `demo_lan_browser` host validation for RFC1918, shared private-overlay/CGNAT, link-local, IPv6 ULA/link-local, malformed URL/IPv6, query/fragment, port, public/documentation/multicast, and zone-identifier cases; documented the two-port browser demo requirement (`3040` dashboard plus authenticated `5077` backend/API media) without weakening production gates; Windows `scripts/run.bat` now mirrors Linux by binding the dashboard on LAN only for `trusted_lan_legacy` plus `browser_session` |
 
 ## Active Slice
 
@@ -195,7 +196,12 @@ smart-mode toggle, and smart-click are also typed-action-only over HTTP after
 the 2026-06-19 tracking/control alias-retirement slice. The 2026-06-19
 browser-session/media adversarial regression slice added focused backend
 coverage for expired cookies, logout invalidation across tabs, and viewer
-media-read/action-denied separation. PXE-0064 remains open for operator
+media-read/action-denied separation. The 2026-06-19 LAN/private-overlay browser
+profile hardening slice clarified that TLS is not domain-only, kept HTTP
+LAN/private-overlay browser access lab-only, hardened `demo_lan_browser`
+host-validation edge cases, documented the two-port browser demo requirement,
+and aligned Windows launcher behavior with Linux for `trusted_lan_legacy` plus
+`browser_session`. PXE-0064 remains open for operator
 credential/TLS hardening and broader end-to-end adversarial browser/session/media
 evidence. No runtime MCP endpoint, executor, `tools/list`, `tools/call`, or
 callable tool surface exists from these slices. These are still unit/contract
@@ -484,7 +490,7 @@ Current host boundary:
 | 3 | X-Plane/Windows SITL disposition | PXE-0020 | Rewrite as maintained evidence workflow or move to historical docs. |
 | 4 | API/MCP modernization | PXE-0008 | Continue typed `/api/v1` migration beyond the current status/telemetry/action resources: route migration tests, router extraction, command/action durability, curated agent registry/policy design, and FastAPI/OpenAPI client contract tests. Companion sidecar standards were closed under PXE-0022. |
 | 4 | API authentication and exposure boundary | PXE-0064 | Replace the current unauthenticated broad-bind posture with an explicit production trust/auth/authorization boundary; protect HTTP, WebSocket, video, and mutation paths; retire immediate legacy mutations; preserve local development ergonomics through explicit profiles. |
-| 4 | Bootstrap/setup UX cleanup | PXE-0068 | `demo_lan_browser` credential generation, exact Host/CORS, warning UX, binary provenance, typed backend media-health reporting, dashboard/service media-health adoption, and media lifecycle cleanup are implemented; keep `production_remote` gated on TLS/operator hardening and adversarial auth/media tests; remove any remaining stale setup/service/download contradictions found in later slices. |
+| 4 | Bootstrap/setup UX cleanup | PXE-0068 | `demo_lan_browser` credential generation, exact Host/CORS, warning UX, private-overlay/TLS policy clarification, Windows launcher LAN-bind handoff, binary provenance, typed backend media-health reporting, dashboard/service media-health adoption, and media lifecycle cleanup are implemented; keep `production_remote` gated on TLS/operator hardening and adversarial auth/media tests; remove any remaining stale setup/service/download contradictions found in later slices. |
 | 4 | QGC authenticated remote HTTP/WS media | PXE-0070 | Rebase/repair PR #13594 and add reviewed Authorization/Origin/TLS/redaction/test support before advertising remote PixEagle HTTP/WebSocket media from QGC on a different host. |
 | 4 | Dashboard API/client normalization | PXE-0008, PXE-0021 | Continue typed client consolidation beyond telemetry/tracker health, migrate remaining dashboard consumers away from legacy route shapes, and move from CRA to a supported frontend toolchain. |
 | 5 | Gimbal provider expansion | PXE-0023 | Add MAVLink Gimbal v2 or vendor-specific providers when selected hardware/protocol evidence is available. |

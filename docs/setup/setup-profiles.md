@@ -83,16 +83,29 @@ This profile does not expose `/video_feed`, `/ws/video_feed`,
 
 Use this only for a lab demo where PixEagle runs on an onboard/companion host
 and a phone, tablet, or laptop opens the browser dashboard on the same isolated
-LAN:
+LAN or operator-approved private overlay/VPN:
 
 ```bash
 make demo-lan-browser-profile LAN_HOST=192.168.10.42
 ```
 
 `LAN_HOST` is the PixEagle host address or hostname that the browser will use,
-not the GCS client address. The profile rejects wildcard, loopback, URL, and
-credential-bearing values. Hostnames must be local-scope names: single-label
-LAN names or names ending in `.local`/`.lan`, not public DNS names.
+not the GCS client address. The profile rejects wildcard, loopback, URL,
+credential-bearing, public, multicast, documentation, and reserved values. IP
+literals must be RFC1918 private LAN, shared private-overlay/CGNAT
+`100.64.0.0/10`, link-local, IPv6 ULA, or IPv6 link-local addresses. Hostnames
+must be local-scope names: single-label LAN names or names ending in
+`.local`/`.lan`, not public DNS names. The dashboard port `3040` serves static
+assets and backend port `5077` serves browser API/media calls. IPv6 zone
+identifiers such as `%eth0`/`%25eth0` are not accepted because browser
+Host/CORS matching is ambiguous; use an IPv6 ULA address or local-scope
+hostname for IPv6 demos.
+
+TLS is not only for domain names, but browser-trusted certificates are usually
+easier with a DNS name or managed internal PKI. This profile intentionally uses
+HTTP for beginner lab/private-overlay testing. That is acceptable only when the
+network is isolated and operator-approved; it is not the production remote
+browser profile.
 
 The tool creates a local `configs/config.yaml`, writes an external hashed user
 file under `configs/secrets/`, and prints the generated password once. The
@@ -133,9 +146,14 @@ When `make run` sees `trusted_lan_legacy` plus `browser_session`, it binds the
 static dashboard server on the LAN and passes the same exposure mode to the
 dashboard process. Backend APIs, MJPEG, video WebSocket, and WebRTC signaling
 still require login/session credentials, CSRF for browser mutations, exact Host,
-and exact Origin checks. This profile is HTTP lab convenience, not production
-remote access; enable TLS and deployment-managed credentials before using
-PixEagle on untrusted networks.
+and exact Origin checks. The browser dashboard uses port `3040` for static
+assets and port `5077` for backend API/media calls, so lab firewalls must allow
+both ports only from the trusted demo device/CIDR. A private overlay/VPN such as
+NetBird can reduce who can reach those ports, but it is still a transport
+control rather than production approval. This profile is HTTP lab convenience,
+not production remote access; enable TLS or a reviewed equivalent deployment
+boundary plus durable deployment-managed credentials before using PixEagle on
+untrusted or production networks.
 
 ## Defined But Not Automated Yet
 

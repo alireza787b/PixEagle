@@ -79,6 +79,13 @@ pass through the API authorization runtime and require either scoped bearer
 credentials or an explicit browser-session deployment. Use this mode only on a
 physically/logically isolated trusted network and remove it after use.
 
+For beginner browser demos on a private LAN or operator-approved private
+overlay/VPN, use `demo_lan_browser` instead of editing these keys by hand. That
+profile keeps HTTP for lab convenience, generates browser-session credentials,
+and restricts `LAN_HOST` to RFC1918 private LAN, shared private-overlay/CGNAT,
+link-local, IPv6 ULA/link-local, or local-scope hostname values. HTTP over a
+private overlay is still not a production remote-browser approval by itself.
+
 Existing local `configs/config.yaml` files from older releases may still set
 `HTTP_STREAM_HOST: 0.0.0.0` without an exposure mode. Runtime startup coerces
 that legacy missing-mode case to `127.0.0.1` instead of preserving broad
@@ -143,7 +150,11 @@ See the [API security policy](api-security-policy.md). The backend session and
 dashboard client/media and durable security-audit foundations exist, but
 production remote-browser approval remains open.
 
-Still required before authenticated remote operation can be approved:
+TLS is not limited to public domain names; it is an application-layer trust
+boundary that can use public DNS certificates, internal PKI, or another
+reviewed trust anchor. Private LAN/private-overlay IP testing can use HTTP only
+inside the explicit lab profile. Still required before authenticated remote
+operation can be approved:
 
 - TLS/operator deployment guidance, migration tooling, and adversarial
   browser/session/media tests.

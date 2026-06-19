@@ -178,9 +178,12 @@ from an external hashed user file. See the
 remote operator path.
 
 If upgrading from an older local `configs/config.yaml`, a missing exposure mode
-with `HTTP_STREAM_HOST: 0.0.0.0` is coerced to loopback at runtime. Explicitly
-set `API_EXPOSURE_MODE: trusted_lan_legacy` only for temporary isolated-LAN
-compatibility.
+with `HTTP_STREAM_HOST: 0.0.0.0` is coerced to loopback at runtime. For a quick
+browser demo on another device, use `make demo-lan-browser-profile
+LAN_HOST=<this-pixeagle-lan-ip-or-overlay-ip>` so setup generates credentials
+and exact Host/CORS allowlists. Explicitly set `API_EXPOSURE_MODE:
+trusted_lan_legacy` by hand only for reviewed temporary isolated-LAN or private
+overlay/VPN compatibility.
 
 | Port | Service | Required |
 |------|---------|----------|
@@ -203,11 +206,20 @@ sudo ufw allow from <trusted-cidr> to any port 3040 proto tcp
 sudo ufw allow 14550/udp  # QGC
 ```
 
+For the `demo_lan_browser` profile only, add equivalently scoped TCP rules for
+dashboard port `3040` and backend/API media port `5077`, limited to the trusted
+demo device or CIDR. Do not add a broad backend rule.
+
 Do not open backend port `5077` directly. `trusted_lan_legacy` only permits a
 non-loopback bind/CORS boundary; backend requests still require scoped API
-authorization or explicit browser-session auth. Production remote-browser
-operation still requires TLS/operator hardening, adversarial auth/media tests,
-and evidence gates.
+authorization or explicit browser-session auth. The `demo_lan_browser` profile
+is the supported beginner exception: it intentionally makes `3040` and `5077`
+reachable on the isolated LAN/private overlay so the browser dashboard can load
+static assets and call the backend API/media endpoints. HTTP over a private LAN
+or private overlay/VPN is acceptable only for that explicit lab/demo posture.
+TLS is not domain-only, and production remote-browser operation still requires
+TLS or an equivalent reviewed trust boundary, operator hardening, adversarial
+auth/media tests, and evidence gates.
 
 Do not expose PixEagle backend `5077`, MAVLink2REST `8088`, local MAVLink
 endpoints `14540`/`14569`, or MavlinkAnywhere dashboard `9070` beyond

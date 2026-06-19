@@ -40,7 +40,7 @@ Recommended bootstrap profiles for PXE-0068:
 | --- | --- | --- |
 | `local_dev` | Developer starts PixEagle and opens the dashboard on the same host | Loopback backend and dashboard, `local_compat` |
 | `field_qgc_video` | Beginner sees video in QGC from another device | GStreamer H.264/RTP/UDP only; backend remains loopback |
-| `demo_lan_browser` | Beginner opens the dashboard from a phone/tablet on an isolated lab LAN | `browser_session` with a generated username/password, explicit Host and CORS allowlists, warning banner/docs |
+| `demo_lan_browser` | Beginner opens the dashboard from a phone/tablet on an isolated lab LAN or private overlay/VPN | `browser_session` with a generated username/password, explicit Host and CORS allowlists, warning banner/docs |
 | `production_remote` | Operator access from GCS/mobile | TLS, durable credentials, exact Host/CORS allowlists, audit, role/scopes |
 | `unsafe_demo_lan_media_only` | Temporary anonymous viewing in an isolated lab | Media-only, no control/dashboard mutation surface, explicit unsafe name, warnings, tests proving it is never default |
 
@@ -48,6 +48,12 @@ Do not provide a no-password remote control panel. If a demo needs the full web
 panel from another device, generate credentials during bootstrap and make the
 operator log in. If a demo needs no credentials at all, keep it media-only or
 use QGC's UDP/RTP video path on an isolated network.
+
+Private overlays/VPNs such as NetBird are useful reachability controls for lab
+and operator-approved test networks, and `demo_lan_browser` accepts shared
+private-overlay/CGNAT IPs such as `100.64.0.0/10`. They do not make anonymous
+PixEagle backend HTTP/WS safe, and they do not replace production TLS/operator
+credential hardening for remote browser operation.
 
 The official repository default should remain a beginner-friendly local demo:
 clone, initialize, run, and open the dashboard on the same host without manual

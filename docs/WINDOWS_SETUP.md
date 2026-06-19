@@ -84,12 +84,28 @@ irm https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.ps1 | ie
    - Local: http://localhost:3040
 
 The Windows dashboard, backend, and MAVLink2REST HTTP API bind loopback by
-default. Do not expose them directly to a LAN. Use an SSH tunnel for browser
-access. A reverse proxy must not be used to extend `local_compat`; non-loopback
-backend API clients require scoped bearer tokens or explicit
-`API_AUTH_MODE=browser_session` with an external hashed user file. Production
-remote-browser operation remains unapproved until TLS/operator hardening,
-adversarial auth/media tests, and evidence gates pass.
+default. Do not expose them directly to a LAN by hand. For a quick browser demo
+from another device on an isolated LAN or private overlay/VPN, use the setup
+profile so it generates browser-session credentials and exact Host/CORS
+allowlists:
+
+```cmd
+venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --profile demo_lan_browser --lan-host <this-pixeagle-lan-ip-or-overlay-ip>
+```
+
+Then start with `scripts\run.bat`; the launcher detects `trusted_lan_legacy`
+plus `browser_session` and binds the dashboard for the lab/private-overlay
+profile. The browser dashboard uses port `3040` for static assets and port
+`5077` for backend API/media calls, so firewall rules must allow both ports
+only from the trusted demo device/CIDR.
+
+Use an SSH tunnel for local-only browser access. A reverse proxy must not be
+used to extend `local_compat`; non-loopback backend API clients require scoped
+bearer tokens or explicit `API_AUTH_MODE=browser_session` with an external
+hashed user file. TLS is not domain-only, but production remote-browser
+operation remains unapproved until TLS or an equivalent reviewed trust
+boundary, operator hardening, adversarial auth/media tests, and evidence gates
+pass.
 Dashboard and MAVLink2REST legacy LAN exposure remains separately
 unauthenticated and not production-approved.
 
