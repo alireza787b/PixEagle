@@ -2768,52 +2768,6 @@ async def test_api_v1_runtime_action_replay_requires_confirmation():
 
 
 @pytest.mark.asyncio
-async def test_legacy_tracking_command_aliases_delegate_to_internal_executors():
-    """Legacy tracking routes should stay thin while compatibility remains."""
-    handler = object.__new__(FastAPIHandler)
-    bbox = SimpleNamespace(x=0.1, y=0.2, width=0.3, height=0.4)
-    handler._execute_tracking_start_action = AsyncMock(
-        return_value={"status": "Tracking started"}
-    )
-    handler._execute_tracking_stop_action = AsyncMock(
-        return_value={"status": "Tracking stopped"}
-    )
-    handler._execute_tracking_redetect_action = AsyncMock(
-        return_value={"status": "success"}
-    )
-    handler._execute_segmentation_toggle_action = AsyncMock(
-        return_value={"status": "success"}
-    )
-    handler._execute_smart_mode_toggle_action = AsyncMock(
-        return_value={"status": "Smart mode enabled"}
-    )
-    handler._execute_smart_click_action = AsyncMock(
-        return_value={"status": "Click processed"}
-    )
-    click = SimpleNamespace(x=0.25, y=0.4)
-
-    start_result = await handler.start_tracking(bbox)
-    stop_result = await handler.stop_tracking()
-    redetect_result = await handler.redetect()
-    segmentation_result = await handler.toggle_segmentation()
-    smart_mode_result = await handler.toggle_smart_mode()
-    smart_click_result = await handler.smart_click(click)
-
-    assert start_result["status"] == "Tracking started"
-    assert stop_result["status"] == "Tracking stopped"
-    assert redetect_result["status"] == "success"
-    assert segmentation_result["status"] == "success"
-    assert smart_mode_result["status"] == "Smart mode enabled"
-    assert smart_click_result["status"] == "Click processed"
-    handler._execute_tracking_start_action.assert_awaited_once_with(bbox)
-    handler._execute_tracking_stop_action.assert_awaited_once_with()
-    handler._execute_tracking_redetect_action.assert_awaited_once_with()
-    handler._execute_segmentation_toggle_action.assert_awaited_once_with()
-    handler._execute_smart_mode_toggle_action.assert_awaited_once_with()
-    handler._execute_smart_click_action.assert_awaited_once_with(click)
-
-
-@pytest.mark.asyncio
 async def test_setpoints_status_uses_concrete_handler_and_commander_publication():
     """Setpoint status should unwrap the concrete follower and expose commander truth."""
     handler = object.__new__(FastAPIHandler)

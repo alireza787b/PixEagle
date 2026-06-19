@@ -118,8 +118,7 @@ class APIActionRequest(BaseModel):
 class APITrackingBoundingBox(BaseModel):
     """Bounding box for typed manual tracking-start actions.
 
-    Values may be normalized in the 0..1 range or absolute pixels, matching the
-    legacy `/commands/start_tracking` behavior during migration.
+    Values may be normalized in the 0..1 range or absolute pixels.
     """
 
     x: float
@@ -140,8 +139,7 @@ class APITrackingStartRequest(APIActionRequest):
 class APITrackingClickPosition(BaseModel):
     """Click position for typed smart-tracker selection actions.
 
-    Values may be normalized in the 0..1 range or absolute pixels, matching the
-    legacy `/commands/smart_click` behavior during migration.
+    Values may be normalized in the 0..1 range or absolute pixels.
     """
 
     x: float

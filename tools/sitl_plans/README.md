@@ -39,9 +39,9 @@ Non-GET or explicitly marked control actions are blocked unless the runtime
 command includes `--allow-control-actions`. Phase 2 Offboard-start,
 Offboard-stop, and operator-abort control actions use typed
 `/api/v1/actions/*` resources with `confirm=true`, scenario-scoped idempotency
-keys, local action records, and explicit claim boundaries. Legacy `/commands/*`
-control paths remain compatibility aliases and are not used by the checked-in
-plan.
+keys, local action records, and explicit claim boundaries. Retired
+`/commands/*` control aliases are no longer registered HTTP routes and are not
+used by the checked-in plan.
 
 The target-loss scenario now uses PixEagle's validation-only
 `POST /api/v1/sitl/injections/tracker-output` route. That route is disabled

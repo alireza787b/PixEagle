@@ -729,16 +729,8 @@ class FastAPIHandler:
         # Debug endpoints
         self.app.get("/debug/coordinate_mapping")(self.get_coordinate_mapping_info)
 
-        # Commands
-        self.app.post("/commands/start_tracking")(self.start_tracking)
-        self.app.post("/commands/stop_tracking")(self.stop_tracking)
-        self.app.post("/commands/toggle_segmentation")(self.toggle_segmentation)
-        self.app.post("/commands/redetect")(self.redetect)
+        # Local process administration.
         self.app.post("/commands/quit")(self.quit)
-
-        # Smart tracking
-        self.app.post("/commands/toggle_smart_mode")(self.toggle_smart_mode)
-        self.app.post("/commands/smart_click")(self.smart_click)
         
         # Follower API
         self.app.get("/api/follower/schema")(self.get_follower_schema)
@@ -1429,15 +1421,6 @@ class FastAPIHandler:
             self.logger.error(f"Error in start_tracking: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def start_tracking(self, bbox: BoundingBox):
-        """
-        Compatibility alias for legacy /commands/start_tracking.
-
-        New first-party clients should use /api/v1/actions/tracking-start so
-        the request is typed, confirmed, idempotent, and action-audited.
-        """
-        return await self._execute_tracking_start_action(bbox)
-
     async def _execute_tracking_stop_action(self):
         """
         Internal executor to stop tracking.
@@ -1451,16 +1434,6 @@ class FastAPIHandler:
         except Exception as e:
             self.logger.error(f"Error in stop_tracking: {e}")
             raise HTTPException(status_code=500, detail=str(e))
-
-    async def stop_tracking(self):
-        """
-        Compatibility alias for legacy /commands/stop_tracking.
-
-        New first-party clients should use /api/v1/actions/tracking-stop so
-        the request is typed, confirmed, idempotent, and action-audited.
-        """
-        return await self._execute_tracking_stop_action()
-        
 
     async def _execute_smart_mode_toggle_action(self):
         """
@@ -1482,14 +1455,6 @@ class FastAPIHandler:
         except Exception as e:
             self.logger.error(f"Error in toggle_smart_mode: {e}")
             raise HTTPException(status_code=500, detail=str(e))
-
-    async def toggle_smart_mode(self):
-        """
-        Compatibility alias for legacy /commands/toggle_smart_mode.
-
-        New first-party clients should use /api/v1/actions/smart-mode-toggle.
-        """
-        return await self._execute_smart_mode_toggle_action()
 
     async def _execute_smart_click_action(self, click: ClickPosition):
         """
@@ -1559,14 +1524,6 @@ class FastAPIHandler:
         except Exception as e:
             self.logger.error(f"Error in smart_click: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
-
-    async def smart_click(self, click: ClickPosition):
-        """
-        Compatibility alias for legacy /commands/smart_click.
-
-        New first-party clients should use /api/v1/actions/smart-click.
-        """
-        return await self._execute_smart_click_action(click)
 
     def _sitl_injections_enabled(self) -> bool:
         return sitl_injections_enabled()
@@ -2005,14 +1962,6 @@ class FastAPIHandler:
             self.logger.error(f"Error in toggle_segmentation: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    async def toggle_segmentation(self):
-        """
-        Compatibility alias for legacy /commands/toggle_segmentation.
-
-        New first-party clients should use /api/v1/actions/segmentation-toggle.
-        """
-        return await self._execute_segmentation_toggle_action()
-
     async def _execute_tracking_redetect_action(self):
         """
         Internal executor to attempt redetection of the object being tracked.
@@ -2026,14 +1975,6 @@ class FastAPIHandler:
         except Exception as e:
             self.logger.error(f"Error in redetect: {e}")
             raise HTTPException(status_code=500, detail=str(e))
-
-    async def redetect(self):
-        """
-        Compatibility alias for legacy /commands/redetect.
-
-        New first-party clients should use /api/v1/actions/tracking-redetect.
-        """
-        return await self._execute_tracking_redetect_action()
 
     async def _execute_operator_abort_action(self):
         return await dispatch_operator_abort_executor(self)

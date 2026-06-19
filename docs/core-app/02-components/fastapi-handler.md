@@ -256,26 +256,27 @@ but it is not durable command storage and it is not a runtime MCP executor.
 | `/api/v1/actions/smart-click` | POST | Confirmed or dry-run smart-tracker click-selection action resource |
 | `/api/v1/actions/{action_id}` | GET | Fetch in-process action record |
 
-### Legacy Command Endpoints
+### Retired Command Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/commands/start_tracking` | POST | Compatibility alias for tracking start; use `/api/v1/actions/tracking-start` |
-| `/commands/stop_tracking` | POST | Compatibility alias for tracking stop; use `/api/v1/actions/tracking-stop` |
-| `/commands/redetect` | POST | Compatibility alias for classic re-detection; use `/api/v1/actions/tracking-redetect` |
-| `/commands/toggle_segmentation` | POST | Compatibility alias for segmentation toggle; use `/api/v1/actions/segmentation-toggle` |
-| `/commands/toggle_smart_mode` | POST | Compatibility alias for smart-mode toggle; use `/api/v1/actions/smart-mode-toggle` |
-| `/commands/smart_click` | POST | Compatibility alias for smart click; use `/api/v1/actions/smart-click` |
+The former Offboard start, Offboard stop, operator-cancel, tracking start/stop,
+redetect, segmentation toggle, smart-mode toggle, and smart-click command
+aliases are no longer registered as HTTP routes. Use the typed action
+resources instead:
 
-The former Offboard start, Offboard stop, and operator-cancel command aliases
-are no longer registered as HTTP routes. Use `/api/v1/actions/offboard-start`,
-`/api/v1/actions/offboard-stop`, and `/api/v1/actions/operator-abort`. Tracking
-start/stop, redetect, segmentation toggle, smart-mode toggle, and smart-click
-still have local-only compatibility aliases for one migration window, but
-first-party dashboard calls now use typed action routes. Their isolated
-compatibility helper bodies remain internal implementation details for
-the typed action executor until the executor is refactored away from those
-helper names.
+| Retired endpoint | Replacement |
+|----------|-------------|
+| `/commands/start_offboard_mode` | `/api/v1/actions/offboard-start` |
+| `/commands/stop_offboard_mode` | `/api/v1/actions/offboard-stop` |
+| `/commands/cancel_activities` | `/api/v1/actions/operator-abort` |
+| `/commands/start_tracking` | `/api/v1/actions/tracking-start` |
+| `/commands/stop_tracking` | `/api/v1/actions/tracking-stop` |
+| `/commands/redetect` | `/api/v1/actions/tracking-redetect` |
+| `/commands/toggle_segmentation` | `/api/v1/actions/segmentation-toggle` |
+| `/commands/toggle_smart_mode` | `/api/v1/actions/smart-mode-toggle` |
+| `/commands/smart_click` | `/api/v1/actions/smart-click` |
+
+`/commands/quit` remains a local-only process-administration route. It is not
+an operator control or tracking API.
 
 ### Configuration Endpoints
 
@@ -588,8 +589,8 @@ Host/request-origin shortcut. This contains DNS-rebinding and
 browser-to-localhost request attacks. The backend authentication,
 authorization, session-CSRF, dashboard credential-aware media/API, durable
 security-audit, and typed tracking/control action foundations are implemented;
-TLS/operator hardening, adversarial auth/media tests, and retirement of
-remaining legacy aliases remain tracked under PXE-0064.
+TLS/operator hardening and adversarial auth/media tests remain tracked under
+PXE-0064.
 
 ## Server Lifecycle
 

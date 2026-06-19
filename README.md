@@ -144,8 +144,7 @@ scripts\stop.bat           # Stop all services
   the generated username/password
 - **Production remote operator access**: use an SSH tunnel or a reviewed
   TLS/VPN deployment; production non-loopback browser operation remains gated on
-  TLS/operator hardening, remaining legacy tracking/control alias retirement,
-  adversarial auth/media tests, and evidence
+  TLS/operator hardening, adversarial auth/media tests, and evidence
 
 The backend is local-only by default and rejects contradictory local-only bind
 or CORS configuration. Non-loopback backend API clients require scoped bearer
@@ -250,9 +249,9 @@ quick lab browser access, use `make demo-lan-browser-profile
 LAN_HOST=<this-pixeagle-lan-ip>` so setup generates browser-session credentials
 and exact Host/CORS allowlists, then restart PixEagle with `make run` and open
 `http://<this-pixeagle-lan-ip>:3040` from the browser device. Production
-non-loopback reverse-proxy/VPN browser operation remains deferred until TLS/operator deployment hardening,
-typed tracking/control action compatibility-alias retirement, adversarial
-auth/media tests, and evidence gates are complete.
+non-loopback reverse-proxy/VPN browser operation remains deferred until
+TLS/operator deployment hardening, adversarial auth/media tests, and evidence
+gates are complete.
 
 Keep PixEagle backend `5077`, MAVLink2REST `8088`, and MAVLink local endpoints
 behind localhost or SSH tunnels unless the deployment has an explicit

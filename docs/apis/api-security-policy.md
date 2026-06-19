@@ -134,8 +134,7 @@ the same slice.
 | Status, telemetry, media, config, models, recordings, control, safety, typed actions, and system reads | Authenticated with the matching read scope. |
 | Runtime mutations | Authenticated with the matching write/execute scope, mutation audit, and session CSRF. |
 | MJPEG, video WebSocket, WebRTC signaling, and `/api/v1/streams/media-health` | Authenticated `media:read`; authentication must complete before streaming, WebSocket acceptance, or media-health disclosure. |
-| Remaining legacy `/commands/*` tracking/control mutations | Local-only compatibility only; tracking start/stop, redetect, segmentation toggle, smart-mode toggle, and smart-click all have typed action replacements and await alias retirement. |
-| Offboard start, Offboard stop, operator abort/cancel, tracking start/stop, tracking redetect, segmentation toggle, smart-mode toggle, and smart-click | Typed `/api/v1/actions/*` routes with confirmation/idempotency/action-resource semantics. Retired `/commands/start_offboard_mode`, `/commands/stop_offboard_mode`, and `/commands/cancel_activities` are not registered HTTP routes. |
+| Tracking/control mutations | Typed `/api/v1/actions/*` routes with confirmation/idempotency/action-resource semantics. Retired `/commands/start_offboard_mode`, `/commands/stop_offboard_mode`, `/commands/cancel_activities`, `/commands/start_tracking`, `/commands/stop_tracking`, `/commands/redetect`, `/commands/toggle_segmentation`, `/commands/toggle_smart_mode`, and `/commands/smart_click` are not registered HTTP routes. |
 | Deprecated `/api/yolo/*` aliases | Local-only until canonical model-route migration and retirement. |
 | Process restart, safety bypass, docs/OpenAPI, debug data, and SITL injectors | Local-only with elevated scopes; SITL injectors also retain their independent runtime enablement gate. |
 | Unknown or multiply classified route | Denied. |
@@ -180,8 +179,8 @@ Still required under PXE-0064:
 1. Operator credential rotation tooling and deployment TLS guidance.
 2. Broader adversarial/browser-session tests, especially around expiry,
    multi-tab logout, large protected media playback, and role-denied UX.
-3. Migration tooling and alias retirement for remaining local-only tracking
-   command compatibility aliases.
+3. Production remote-profile hardening evidence tying credentials, TLS, Host,
+   CORS, media, and operator roles into a repeatable deployment workflow.
 
 Use same-host loopback local access, SSH tunnels, scoped machine bearer tokens,
 or explicit `browser_session` test deployments only. Remote native media
@@ -190,8 +189,7 @@ clients such as a future authenticated QGroundControl HTTP/WebSocket build need
 [Remote Media Security](../video/04-streaming/remote-media-security.md). Do not
 place `local_compat` behind an externally reachable reverse proxy. Remote
 browser operation is not production-approved until TLS/operator credential
-hardening, retirement of remaining legacy tracking/control compatibility
-aliases, adversarial auth/media tests, and evidence gates are complete.
+hardening, adversarial auth/media tests, and evidence gates are complete.
 
 ## Verification
 

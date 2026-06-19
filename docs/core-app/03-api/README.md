@@ -20,9 +20,8 @@ PixEagle also has a complete declarative
 [API security policy](../../apis/api-security-policy.md) for route access,
 scopes, bearer-token treatment, local compatibility, session CSRF enforcement,
 audit treatment, and default-deny coverage. Remote browser operation is not
-approved until TLS/operator deployment hardening, retirement of remaining
-legacy tracking/control aliases, adversarial auth/media tests, and evidence
-gates are complete.
+approved until TLS/operator deployment hardening, adversarial auth/media tests,
+and evidence gates are complete.
 
 ## MCP Readiness Boundary
 
@@ -43,7 +42,8 @@ runtime MCP `tools/list` or `tools/call` exposure.
 | [Auth](#auth) | `/api/v1/auth/session`, `/api/v1/auth/login`, `/api/v1/auth/logout` | Browser-session status and lifecycle |
 | [Streaming](#streaming) | `/video_feed`, `/ws/video_feed`, `/api/v1/streams/media-health` | Video streaming and typed media health |
 | [Telemetry](#telemetry) | `/telemetry/*`, `/status`, `/api/v1/runtime/status`, `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/v1/tracking/telemetry`, `/api/v1/telemetry/health` | System data and typed health |
-| [Commands](#commands) | `/commands/*` | Control operations |
+| [Actions](#commands) | `/api/v1/actions/*` | Typed, confirmed operator/control action resources |
+| Process admin | `/commands/quit` | Local-only process administration, not an operator control API |
 | [Tracker](#tracker-api) | `/api/v1/tracking/runtime-status`, `/api/v1/tracking/telemetry`, `/api/tracker/*` | Typed tracker runtime/telemetry and legacy tracker management |
 | [Follower](#follower-api) | `/api/v1/following/status`, `/api/v1/following/telemetry`, `/api/follower/*` | Typed following status/telemetry and legacy follower management |
 | [Config](#configuration-api) | `/api/config/*` | Configuration |
@@ -746,11 +746,10 @@ Content-Type: application/json
 }
 ```
 
-The `bbox` values may be normalized `0..1` coordinates or absolute pixels,
-matching the temporary legacy route behavior during migration. The typed
-response is an `APIActionResponse` action resource; it records local PixEagle
-tracking start execution only and does not prove PX4, SITL, HIL, field, or
-follower-response behavior.
+The `bbox` values may be normalized `0..1` coordinates or absolute pixels. The
+typed response is an `APIActionResponse` action resource; it records local
+PixEagle tracking start execution only and does not prove PX4, SITL, HIL,
+field, or follower-response behavior.
 
 ### Stop Tracking
 
@@ -824,8 +823,7 @@ Content-Type: application/json
 }
 ```
 
-Coordinates may be normalized `0..1` or absolute pixels, matching the temporary
-legacy route behavior during migration.
+Coordinates may be normalized `0..1` or absolute pixels.
 
 ### Toggle Smart Mode
 
@@ -843,11 +841,11 @@ Content-Type: application/json
 }
 ```
 
-`/commands/start_tracking`, `/commands/stop_tracking`, `/commands/redetect`,
-`/commands/toggle_segmentation`, `/commands/toggle_smart_mode`, and
-`/commands/smart_click` remain local-only compatibility aliases for this
-migration window. First-party dashboard calls use the typed
-`/api/v1/actions/*` routes.
+The former `/commands/start_tracking`, `/commands/stop_tracking`,
+`/commands/redetect`, `/commands/toggle_segmentation`,
+`/commands/toggle_smart_mode`, and `/commands/smart_click` aliases are retired
+and no longer registered as HTTP routes. Use the typed `/api/v1/actions/*`
+resources above.
 
 ### Start Offboard
 
@@ -870,8 +868,8 @@ before/after. PX4-observed Offboard mode and setpoint cadence still require
 separate SITL, HIL, or field evidence artifacts.
 
 Start requests fail closed before `connect_px4()` if tracker output is absent,
-stale, or not marked `usable_for_following=true`. This guard applies to both
-the typed action resource and the legacy compatibility route below.
+stale, or not marked `usable_for_following=true`. This guard applies to the
+typed action resource.
 
 Action semantics:
 
@@ -928,8 +926,9 @@ Content-Type: application/json
 The former `/commands/start_offboard_mode`, `/commands/stop_offboard_mode`, and
 `/commands/cancel_activities` HTTP aliases are no longer registered. Use the
 typed `/api/v1/actions/offboard-start`, `/api/v1/actions/offboard-stop`, and
-`/api/v1/actions/operator-abort` resources for operator, SITL, MCP, and agent
-control integrations.
+`/api/v1/actions/operator-abort` resources for operator clients and checked-in
+SITL plans. Agent/MCP action use remains non-callable documentation-stage
+governance until a future explicit promotion adds a runtime executor.
 
 ### Quit Application
 

@@ -11,7 +11,7 @@ the `/api/v1` migration begins.
   exposure requires explicit `trusted_lan_legacy` configuration plus scoped API
   authorization. Browser-session auth exists for reviewed deployments, but
   production remote-browser operation remains gated on TLS/operator hardening,
-  alias retirement, adversarial auth/media tests, and evidence. See the
+  adversarial auth/media tests, and evidence. See the
   [API exposure boundary](api-exposure-boundary.md).
 - Every HTTP, media, WebSocket, documentation, and validation route must have
   exactly one declarative security classification. Missing or ambiguous

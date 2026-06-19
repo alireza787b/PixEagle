@@ -235,17 +235,6 @@ AUTH_SESSION_LOGOUT = _policy(
     csrf=True,
     rationale="Logout revokes browser session state and requires session-bound CSRF.",
 )
-LOCAL_LEGACY_CONTROL = _policy(
-    APIAccessMode.LOCAL_ONLY,
-    APISensitivity.CONTROL,
-    {CONTROL_WRITE},
-    APIAuditPolicy.SECURITY_CRITICAL,
-    csrf=True,
-    rationale=(
-        "Legacy command routes stay local-only until typed action replacement "
-        "and retirement."
-    ),
-)
 LOCAL_LEGACY_MODELS_READ = _policy(
     APIAccessMode.LOCAL_ONLY,
     APISensitivity.MODELS,
@@ -597,19 +586,6 @@ API_ROUTE_SECURITY_RULES = (
             "/api/system/config",
         ),
         AUTH_SYSTEM_READ,
-    ),
-    APIRouteSecurityRule(
-        "legacy_commands",
-        frozenset({"POST"}),
-        (
-            "/commands/start_tracking",
-            "/commands/stop_tracking",
-            "/commands/toggle_segmentation",
-            "/commands/redetect",
-            "/commands/toggle_smart_mode",
-            "/commands/smart_click",
-        ),
-        LOCAL_LEGACY_CONTROL,
     ),
     APIRouteSecurityRule(
         "legacy_yolo_reads",

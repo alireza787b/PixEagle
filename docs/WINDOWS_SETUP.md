@@ -89,8 +89,7 @@ access. A reverse proxy must not be used to extend `local_compat`; non-loopback
 backend API clients require scoped bearer tokens or explicit
 `API_AUTH_MODE=browser_session` with an external hashed user file. Production
 remote-browser operation remains unapproved until TLS/operator hardening,
-retirement of remaining legacy tracking/control aliases, adversarial auth/media
-tests, and evidence gates pass.
+adversarial auth/media tests, and evidence gates pass.
 Dashboard and MAVLink2REST legacy LAN exposure remains separately
 unauthenticated and not production-approved.
 

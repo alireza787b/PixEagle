@@ -21,8 +21,7 @@ streaming is limited to that same-host loopback boundary. Non-loopback clients
 need scoped API credentials, and remote browser operation should use explicit
 `API_AUTH_MODE=browser_session` only with the credential-aware dashboard
 client. Production remote-browser approval still requires TLS/operator
-deployment hardening, retirement of remaining legacy tracking/control aliases,
-adversarial auth/media tests, and evidence gates.
+deployment hardening, adversarial auth/media tests, and evidence gates.
 
 Use `GET /api/v1/streams/media-health` for typed WebSocket client counts,
 heartbeat config, frame freshness, adaptive-quality state, and media security

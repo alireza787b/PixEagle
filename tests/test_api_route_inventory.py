@@ -236,12 +236,6 @@ EXPECTED_ROUTES = {
     ("POST", "/api/yolo/switch-model"),
     ("POST", "/api/yolo/upload"),
     ("POST", "/commands/quit"),
-    ("POST", "/commands/redetect"),
-    ("POST", "/commands/smart_click"),
-    ("POST", "/commands/start_tracking"),
-    ("POST", "/commands/stop_tracking"),
-    ("POST", "/commands/toggle_segmentation"),
-    ("POST", "/commands/toggle_smart_mode"),
     ("PUT", "/api/config/{section}"),
     ("PUT", "/api/config/{section}/{parameter}"),
     ("WEBSOCKET", "/ws/video_feed"),
@@ -408,7 +402,7 @@ def test_current_route_inventory_counts_by_method():
     assert counts == {
         "DELETE": 2,
         "GET": 74,
-        "POST": 59,
+        "POST": 53,
         "PUT": 2,
         "WEBSOCKET": 2,
     }

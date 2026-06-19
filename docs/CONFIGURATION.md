@@ -120,8 +120,8 @@ Use `REACT_APP_API_HOST_OVERRIDE` only for reviewed proxy/tunnel setups. A
 non-loopback reverse-proxy browser origin is not permitted in `local_only`;
 `trusted_lan_legacy` only opens the backend bind/CORS boundary. Backend
 browser-session auth exists, but production remote-browser operation still
-requires TLS/operator hardening, retirement of remaining legacy
-tracking/control aliases, adversarial auth/media tests, and evidence gates.
+requires TLS/operator hardening, adversarial auth/media tests, and evidence
+gates.
 
 The checked-in backend policy is `local_only` on `127.0.0.1:5077` with an
 explicit loopback CORS allowlist. Startup fails when local-only configuration
@@ -238,13 +238,10 @@ automation APIs. Keep them inside the trusted local/tunneled boundary or use
 scoped bearer tokens only where explicitly reviewed. Typed guarded actions and
 the browser-session dashboard client/media and durable security-audit
 foundations exist, and Offboard start/stop/operator abort are typed-action-only
-over HTTP; tracking start/stop also have typed action replacements while their
-local-only compatibility aliases await retirement. Segmentation toggle,
-redetect, smart-mode toggle, and smart-click also have typed action
-replacements; their legacy command routes remain local-only compatibility
-aliases until the alias-retirement gate. Operator deployment hardening,
-adversarial auth/media tests, and alias retirement remain tracked under
-PXE-0064.
+over HTTP. Tracking start/stop, segmentation toggle, redetect, smart-mode
+toggle, and smart-click are also typed-action-only over HTTP; their former
+`/commands/*` aliases are retired. Operator deployment hardening and
+adversarial auth/media tests remain tracked under PXE-0064.
 
 ## Next Steps
 

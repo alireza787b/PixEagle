@@ -147,12 +147,21 @@ def test_media_and_legacy_surfaces_keep_their_intended_boundaries():
         assert policy.required_scopes == frozenset({MEDIA_READ})
 
     for method, path in (
-        ("POST", "/commands/start_tracking"),
         ("GET", "/api/yolo/models"),
         ("POST", "/api/yolo/upload"),
         ("POST", "/api/v1/sitl/injections/video-stall"),
     ):
         assert resolve_route_security_policy(method, path).access == APIAccessMode.LOCAL_ONLY
+
+    for path in (
+        "/commands/start_tracking",
+        "/commands/stop_tracking",
+        "/commands/redetect",
+        "/commands/toggle_segmentation",
+        "/commands/toggle_smart_mode",
+        "/commands/smart_click",
+    ):
+        assert resolve_route_security_policy("POST", path) is DENY_UNCLASSIFIED
 
 
 def test_media_health_rejects_status_only_bearer_scope():

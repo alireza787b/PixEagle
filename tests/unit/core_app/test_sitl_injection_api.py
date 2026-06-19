@@ -521,7 +521,7 @@ async def test_legacy_request_validation_errors_keep_default_detail_shape():
         ]
     )
 
-    response = await handler._handle_request_validation_error(_request("/commands/start_tracking"), exc)
+    response = await handler._handle_request_validation_error(_request("/commands/quit"), exc)
     payload = json.loads(response.body)
 
     assert response.status_code == 422
