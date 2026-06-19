@@ -99,23 +99,23 @@ The `GStreamerHandler` class (`src/classes/gstreamer_handler.py`) manages the ou
 from classes.gstreamer_handler import GStreamerHandler
 
 # Initialize
-gst_handler = GStreamerHandler(
-    dest_host="192.168.1.10",
-    dest_port=5600,
-    width=640,
-    height=480,
-    fps=30,
-    bitrate=2000
-)
+gst_handler = GStreamerHandler()
+gst_handler.initialize_stream()
 
 # Stream frames
 while running:
     frame = video_handler.get_frame()
-    gst_handler.write(frame)
+    gst_handler.stream_frame(frame)
 
 # Cleanup
 gst_handler.release()
 ```
+
+`AppController.shutdown()` releases the GStreamer handler when it exists, and
+`GStreamerHandler.release()` stops the writer thread, releases the OpenCV
+`VideoWriter`, clears the writer reference, and drains queued frames. Runtime
+API toggles and media-health status treat the stream as active only when the
+underlying writer exists and reports `isOpened()`.
 
 ## Encoder Settings
 

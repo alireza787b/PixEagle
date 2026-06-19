@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-06-18
+Last updated: 2026-06-19
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -105,6 +105,7 @@ it together with:
 | Phase 4 SITL sidecar evidence hardening | done | PXE-0065 | `checkpoints/2026-06-18-phase-4-sitl-sidecar-evidence-hardening.md`; maintained SITL plans now declare MavlinkAnywhere version/capability policy, dry-runs expose the policy, runtime evidence captures installed dashboard version, semantic checks classify unavailable/auth/unsupported/unprepared/prepared routing, accepted evidence requires `prepared_routing`, and secret scanning blocks credential-bearing text artifacts without echoing values; no sidecar mutation or runtime PX4/SITL pass claimed |
 | Phase 4 streaming media-health API | done | PXE-0068 partial | `checkpoints/2026-06-18-phase-4-streaming-media-health.md`; added typed `GET /api/v1/streams/media-health` with `media:read` authorization, process-local claim boundary, MJPEG/WebSocket/WebRTC/GStreamer/frame-publisher/quality-engine state, stale-frame degradation, disabled and zero-capacity transport reporting, real `ENABLE_STREAMING` route fail-closed behavior, media-specific agent-candidate sensitivity, docs/tests, and no remote browser/QGC/GCS/PX4/SITL/HIL/field receipt claim |
 | Phase 4 dashboard/service media-health adoption | done | PXE-0068 partial | `checkpoints/2026-06-18-phase-4-dashboard-service-media-health.md`; dashboard streaming status/performance widgets now consume typed `/api/v1/streams/media-health` with legacy fallback only for missing-route rolling updates, auth failures remain media-health failures, `pixeagle-service status` adds an auth-safe process-local media-health block with optional explicit `media:read` bearer token file, and docs/tests preserve the no-remote-receipt claim boundary |
+| Phase 4 streaming lifecycle cleanup | done | PXE-0068 partial | `checkpoints/2026-06-19-phase-4-streaming-lifecycle-cleanup.md`; stale backend WebSocket streaming clients, including clients that never received a frame, now close through one idempotent cleanup path; FastAPI shutdown closes tracked WebSockets, cancels background tasks, and drains WebRTC peers; AppController shutdown releases GStreamer output; GStreamer release nulls the writer and drains queued frames; focused unit/docs gates preserve process-local media-health claim boundaries |
 
 ## Active Slice
 
@@ -476,7 +477,7 @@ Current host boundary:
 | 3 | X-Plane/Windows SITL disposition | PXE-0020 | Rewrite as maintained evidence workflow or move to historical docs. |
 | 4 | API/MCP modernization | PXE-0008 | Continue typed `/api/v1` migration beyond the current status/telemetry/action resources: route migration tests, router extraction, command/action durability, curated agent registry/policy design, and FastAPI/OpenAPI client contract tests. Companion sidecar standards were closed under PXE-0022. |
 | 4 | API authentication and exposure boundary | PXE-0064 | Replace the current unauthenticated broad-bind posture with an explicit production trust/auth/authorization boundary; protect HTTP, WebSocket, video, and mutation paths; retire immediate legacy mutations; preserve local development ergonomics through explicit profiles. |
-| 4 | Bootstrap/setup UX cleanup | PXE-0068 | `demo_lan_browser` credential generation, exact Host/CORS, warning UX, binary provenance, typed backend media-health reporting, and dashboard/service media-health adoption are implemented; keep `production_remote` gated on TLS/operator hardening and adversarial auth/media tests; harden WebRTC/GStreamer shutdown and stale WebSocket lifecycle cleanup; remove any remaining stale setup/service/download contradictions found in later slices. |
+| 4 | Bootstrap/setup UX cleanup | PXE-0068 | `demo_lan_browser` credential generation, exact Host/CORS, warning UX, binary provenance, typed backend media-health reporting, dashboard/service media-health adoption, and media lifecycle cleanup are implemented; keep `production_remote` gated on TLS/operator hardening and adversarial auth/media tests; remove any remaining stale setup/service/download contradictions found in later slices. |
 | 4 | QGC authenticated remote HTTP/WS media | PXE-0070 | Rebase/repair PR #13594 and add reviewed Authorization/Origin/TLS/redaction/test support before advertising remote PixEagle HTTP/WebSocket media from QGC on a different host. |
 | 4 | Dashboard API/client normalization | PXE-0008, PXE-0021 | Continue typed client consolidation beyond telemetry/tracker health, migrate remaining dashboard consumers away from legacy route shapes, and move from CRA to a supported frontend toolchain. |
 | 5 | Gimbal provider expansion | PXE-0023 | Add MAVLink Gimbal v2 or vendor-specific providers when selected hardware/protocol evidence is available. |

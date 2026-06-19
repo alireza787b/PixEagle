@@ -276,6 +276,7 @@ class ClientConnection:
     frame_drops: int
     bandwidth_estimate: float  # bytes/second
     frame_queue: deque
+    websocket: Optional[WebSocket] = None
 
 @dataclass
 class CachedFrame:
@@ -874,6 +875,7 @@ class FastAPIHandler:
             if len(self.http_connections) >= Parameters.HTTP_MAX_CONNECTIONS:
                 raise HTTPException(status_code=503, detail="Max connections reached")
             self.http_connections.add(client_id)
+            self._update_active_connection_count()
 
         # Register with frame publisher and quality engine
         self.frame_publisher.register_client()
@@ -1031,8 +1033,10 @@ class FastAPIHandler:
                 quality=Parameters.STREAM_QUALITY,
                 frame_drops=0,
                 bandwidth_estimate=0,
-                frame_queue=deque(maxlen=Parameters.MAX_FRAME_QUEUE)
+                frame_queue=deque(maxlen=Parameters.MAX_FRAME_QUEUE),
+                websocket=websocket,
             )
+            self._update_active_connection_count()
 
         # Register with frame publisher and quality engine
         self.frame_publisher.register_client()
@@ -1040,7 +1044,9 @@ class FastAPIHandler:
         self.logger.info(f"WebSocket connected: {client_id}")
 
         try:
-            client = self.ws_connections[client_id]
+            client = self.ws_connections.get(client_id)
+            if client is None:
+                return
             send_task = asyncio.create_task(self._ws_send_frames(websocket, client))
             receive_task = asyncio.create_task(self._ws_receive_messages(websocket, client))
 
@@ -1053,18 +1059,103 @@ class FastAPIHandler:
             # Cancel remaining tasks
             for task in pending:
                 task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+            if done:
+                await asyncio.gather(*done, return_exceptions=True)
 
         except WebSocketDisconnect:
             self.logger.info(f"WebSocket disconnected: {client_id}")
         except Exception as e:
             self.logger.error(f"WebSocket error: {e}")
         finally:
-            # Cleanup
+            await self._cleanup_websocket_client(client_id)
+
+    def _update_active_connection_count(self) -> None:
+        """Refresh aggregate active connection stats from tracked clients."""
+        self.stats['active_connections'] = len(self.http_connections) + len(self.ws_connections)
+
+    def _is_websocket_client_stale(
+        self,
+        client: ClientConnection,
+        *,
+        current_time: float,
+        stale_timeout: float,
+    ) -> bool:
+        """Return true when a WebSocket client has missed its media freshness window."""
+        reference_time = client.last_frame_time if client.last_frame_time > 0 else client.connected_at
+        return current_time - reference_time > stale_timeout
+
+    def _stale_websocket_client_ids(
+        self,
+        *,
+        current_time: float,
+        stale_timeout: float,
+    ) -> List[str]:
+        """List stale WebSocket client IDs without mutating connection state."""
+        return [
+            client_id
+            for client_id, client in self.ws_connections.items()
+            if self._is_websocket_client_stale(
+                client,
+                current_time=current_time,
+                stale_timeout=stale_timeout,
+            )
+        ]
+
+    async def _cleanup_websocket_client(
+        self,
+        client_id: str,
+        *,
+        close_code: Optional[int] = None,
+        close_reason: str = "",
+    ) -> bool:
+        """Remove one WebSocket client and unregister its streaming resources once."""
+        async with self.connection_lock:
+            client = self.ws_connections.pop(client_id, None)
+            self._update_active_connection_count()
+
+        if client is None:
+            return False
+
+        try:
             self.quality_engine.unregister_client(client_id)
+        except Exception as exc:
+            self.logger.warning("Error unregistering WebSocket quality client %s: %s", client_id, exc)
+
+        try:
             self.frame_publisher.unregister_client()
-            async with self.connection_lock:
-                self.ws_connections.pop(client_id, None)
-                self.stats['active_connections'] = len(self.http_connections) + len(self.ws_connections)
+        except Exception as exc:
+            self.logger.warning("Error unregistering WebSocket frame client %s: %s", client_id, exc)
+
+        websocket = getattr(client, "websocket", None)
+        if websocket is not None and close_code is not None:
+            try:
+                await websocket.close(code=close_code, reason=close_reason)
+            except Exception as exc:
+                self.logger.debug("WebSocket close ignored for %s: %s", client_id, exc)
+
+        return True
+
+    async def _close_all_websocket_clients(
+        self,
+        *,
+        close_code: int,
+        close_reason: str,
+    ) -> int:
+        """Close and unregister every tracked WebSocket streaming client."""
+        async with self.connection_lock:
+            client_ids = list(self.ws_connections.keys())
+
+        closed = 0
+        for client_id in client_ids:
+            if await self._cleanup_websocket_client(
+                client_id,
+                close_code=close_code,
+                close_reason=close_reason,
+            ):
+                closed += 1
+        return closed
     
     async def _ws_send_frames(self, websocket: WebSocket, client: ClientConnection):
         """Send frames to WebSocket client with unified adaptive quality."""
@@ -1184,16 +1275,18 @@ class FastAPIHandler:
             current_time = time.time()
             stale_timeout = heartbeat_interval * stale_multiplier
             async with self.connection_lock:
-                stale_clients = [
-                    client_id for client_id, client in self.ws_connections.items()
-                    if client.last_frame_time > 0 and current_time - client.last_frame_time > stale_timeout
-                ]
+                stale_clients = self._stale_websocket_client_ids(
+                    current_time=current_time,
+                    stale_timeout=stale_timeout,
+                )
 
-                for client_id in stale_clients:
-                    self.logger.warning(f"Removing stale client: {client_id}")
-                    self.quality_engine.unregister_client(client_id)
-                    self.frame_publisher.unregister_client()
-                    self.ws_connections.pop(client_id, None)
+            for client_id in stale_clients:
+                self.logger.warning(f"Closing stale WebSocket client: {client_id}")
+                await self._cleanup_websocket_client(
+                    client_id,
+                    close_code=1001,
+                    close_reason="WebSocket media stream stale",
+                )
     
     async def _stats_reporter(self):
         """Report streaming statistics periodically."""
@@ -2282,12 +2375,28 @@ class FastAPIHandler:
         # Cancel background tasks
         for task in self.background_tasks:
             task.cancel()
+        if self.background_tasks:
+            await asyncio.gather(*self.background_tasks, return_exceptions=True)
+        self.background_tasks = []
         
-        # Close all connections
+        # Close streaming transports owned by this handler.
+        closed_ws = await self._close_all_websocket_clients(
+            close_code=1001,
+            close_reason="PixEagle API server stopping",
+        )
         async with self.connection_lock:
-            self.logger.info(f"Closing {len(self.ws_connections)} WebSocket connections")
-            self.ws_connections.clear()
+            http_count = len(self.http_connections)
             self.http_connections.clear()
+            self._update_active_connection_count()
+        self.logger.info(
+            "Closed %s WebSocket streaming clients; cleared %s HTTP MJPEG records",
+            closed_ws,
+            http_count,
+        )
+
+        # Close WebRTC peer connections before releasing shared frame resources.
+        if hasattr(self, 'webrtc_manager') and self.webrtc_manager:
+            await self.webrtc_manager.shutdown()
         
         # Shutdown encoder pool if exists
         if hasattr(self, 'stream_optimizer') and self.stream_optimizer:
@@ -4985,7 +5094,11 @@ class FastAPIHandler:
         """Get GStreamer QGC output stream status and configuration."""
         try:
             handler = getattr(self.app_controller, 'gstreamer_handler', None)
-            is_active = handler is not None and handler.out is not None
+            is_active = (
+                handler is not None
+                and handler.out is not None
+                and handler.out.isOpened()
+            )
 
             return JSONResponse(content={
                 'available': True,
@@ -5010,7 +5123,11 @@ class FastAPIHandler:
         """Toggle GStreamer QGC output stream on or off at runtime."""
         try:
             handler = getattr(self.app_controller, 'gstreamer_handler', None)
-            was_active = handler is not None and handler.out is not None
+            was_active = (
+                handler is not None
+                and handler.out is not None
+                and handler.out.isOpened()
+            )
 
             if was_active:
                 # Stop the stream

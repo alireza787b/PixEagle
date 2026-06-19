@@ -2468,6 +2468,16 @@ class AppController:
             except Exception as e:
                 logging.error(f"Error releasing video handler: {e}")
                 result["errors"].append(f"Video handler release error: {e}")
+
+            # Release GStreamer GCS/QGC output if it was initialized.
+            try:
+                if hasattr(self, 'gstreamer_handler') and self.gstreamer_handler:
+                    self.gstreamer_handler.release()
+                    result["steps"].append("GStreamer output released")
+                    logging.info("GStreamer output released")
+            except Exception as e:
+                logging.error(f"Error releasing GStreamer output: {e}")
+                result["errors"].append(f"GStreamer output release error: {e}")
             
             # Stop recording if active
             try:

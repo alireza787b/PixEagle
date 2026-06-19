@@ -192,6 +192,8 @@ class GStreamerHandler:
     def initialize_stream(self):
         """Initialize the GStreamer pipeline using OpenCV's VideoWriter."""
         try:
+            if self.out is not None:
+                self.release()
             logger.info(
                 f"Initializing GStreamer pipeline "
                 f"(encoder={self.encoder_info.encoder}, "
@@ -284,9 +286,19 @@ class GStreamerHandler:
             self._writer_thread.join(timeout=2.0)
             self._writer_thread = None
 
-        if self.out:
-            self.out.release()
-            logger.debug("GStreamer pipeline released.")
+        try:
+            if self.out:
+                try:
+                    self.out.release()
+                finally:
+                    self.out = None
+                logger.debug("GStreamer pipeline released.")
+        finally:
+            while True:
+                try:
+                    self._frame_queue.get_nowait()
+                except queue.Empty:
+                    break
 
     @property
     def encoder_status(self) -> dict:

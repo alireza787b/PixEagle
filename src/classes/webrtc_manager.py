@@ -299,16 +299,60 @@ class WebRTCManager:
                 # Edge case: registered but peer_id somehow lost
                 self.frame_publisher.unregister_client()
 
+    async def _close_peer_connection(self, peer_id: str, pc: RTCPeerConnection) -> None:
+        """Close one peer connection with a bounded wait."""
+        close_timeout = float(getattr(Parameters, "WEBRTC_CLOSE_TIMEOUT_SECONDS", 5.0))
+        close_task = asyncio.create_task(pc.close())
+
+        def _consume_close_result(task: asyncio.Task) -> None:
+            try:
+                task.result()
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                self.logger.debug("RTCPeerConnection close task failed for %s: %s", peer_id, exc)
+
+        close_task.add_done_callback(_consume_close_result)
+
+        try:
+            await asyncio.wait_for(asyncio.shield(close_task), timeout=close_timeout)
+        except asyncio.TimeoutError:
+            close_task.cancel()
+            self.logger.warning(
+                "Timed out closing RTCPeerConnection for %s after %.1fs",
+                peer_id,
+                close_timeout,
+            )
+        except Exception as exc:
+            self.logger.debug("RTCPeerConnection close ignored for %s: %s", peer_id, exc)
+
     async def _cleanup_peer(self, peer_id: str):
         """Close and remove a peer connection, unregister from FramePublisher."""
         pc = self.peer_connections.pop(peer_id, None)
         if pc is not None:
             try:
-                await pc.close()
-            except Exception:
-                pass
-            self.frame_publisher.unregister_client()
-            self.logger.info(f"Cleaned up RTCPeerConnection for {peer_id}")
+                await self._close_peer_connection(peer_id, pc)
+            finally:
+                self.frame_publisher.unregister_client()
+                self.logger.info(f"Cleaned up RTCPeerConnection for {peer_id}")
+
+    async def shutdown(self) -> int:
+        """Close all active peer connections owned by this manager."""
+        peer_ids = list(self.peer_connections.keys())
+        if not peer_ids:
+            return 0
+
+        results = await asyncio.gather(
+            *(self._cleanup_peer(peer_id) for peer_id in peer_ids),
+            return_exceptions=True,
+        )
+        closed = 0
+        for peer_id, result in zip(peer_ids, results):
+            if isinstance(result, Exception):
+                self.logger.warning("Error cleaning up RTCPeerConnection %s: %s", peer_id, result)
+            else:
+                closed += 1
+        return closed
 
     async def handle_offer(self, pc: RTCPeerConnection, offer: Dict, websocket: WebSocket, peer_id: str):
         """Handle WebRTC offer from the client."""

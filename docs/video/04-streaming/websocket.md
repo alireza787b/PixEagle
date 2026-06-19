@@ -32,6 +32,14 @@ or browser WebSocket client received usable video. When
 zero, backend video WebSocket and WebRTC signaling report disabled and fail
 closed.
 
+PixEagle closes stale backend WebSocket streaming clients from the heartbeat
+task. The stale window is
+`Streaming.WS_HEARTBEAT_INTERVAL * Streaming.WS_STALE_TIMEOUT_MULTIPLIER` and
+applies both after frames have been sent and while a newly accepted client is
+still waiting for the first frame. Shutdown uses the same cleanup path, closes
+tracked WebSocket transports, unregisters the frame publisher and adaptive
+quality client once, and then drains WebRTC peers before the API server stops.
+
 ### Connection
 
 ```javascript
