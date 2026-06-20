@@ -98,10 +98,29 @@ A production remote-browser deployment must include:
 - broader end-to-end browser/session/media evidence and operator acceptance
   gates under PXE-0064/PXE-0068.
 
+PixEagle includes a local application-boundary harness for this shape:
+
+```bash
+make production-remote-browser-e2e-dry-run
+make production-remote-browser-install  # once per development host
+ALLOW_LOCAL_SELF_SIGNED_TLS=1 make production-remote-browser-e2e
+```
+
+It rebuilds the dashboard and proves `/pixeagle` plus `/pixeagle-api`, Secure
+HttpOnly browser sessions, CSRF, authenticated HTTP media, authenticated WSS,
+logout-driven active MJPEG/video-WebSocket revocation, Host/Origin rejection,
+and absence of direct backend-port browser traffic. WebRTC signaling-session
+revocation is covered by runtime unit tests, not this Playwright scenario. The
+harness uses self-signed TLS, an ephemeral Python proxy, synthetic media, and no
+flight runtime, so it is not deployment, camera, tracker, WebRTC-media,
+PX4/SITL/HIL, field, or real-aircraft evidence.
+
 Legacy tracking/control HTTP aliases have been retired. Production remote
 browser approval now depends on the deployment trust boundary, proxy/firewall
 evidence, credential handoff evidence, and adversarial browser/session/media
-tests, not on remaining action-route alias work.
+tests. The checked-in local browser harness covers the application boundary;
+the target deployment still needs its own certificate/proxy/firewall and
+operator evidence.
 
 Roles are intentionally simple:
 

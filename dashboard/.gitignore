@@ -77,6 +77,8 @@ package-lock.json.backup
 
 # PixEagle cache directory
 .pixeagle_cache/
+test-results/
+playwright-report/
 
 # React Native
 .expo/

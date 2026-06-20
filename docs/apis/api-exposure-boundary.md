@@ -142,6 +142,8 @@ Implemented as a runtime authorization foundation:
 - HTTP/MJPEG authorization before route execution or streaming response
   creation;
 - video WebSocket and WebRTC-signaling authorization before `accept()`;
+- active MJPEG, video WebSocket, and WebRTC sessions revalidate browser-session
+  lifetime and terminate after logout or expiry;
 - refusal to treat `Host` or proxy-forwarded client metadata as local
   transport proof;
 - local-only treatment for legacy mutations, administration, debug, and SITL
@@ -153,10 +155,12 @@ Implemented as a runtime authorization foundation:
   indicator, CSRF-aware `fetch`/axios boundary, cookie-session MJPEG,
   WebSocket/WebRTC construction, and blob-backed protected downloads/playback.
 
-See the [API security policy](api-security-policy.md). The backend session and
-dashboard client/media and durable security-audit foundations exist, but
-production remote-browser deployment approval remains open until evidence is
-collected.
+See the [API security policy](api-security-policy.md). The backend session,
+dashboard client/media, durable security-audit, and local self-signed
+HTTPS/browser evidence foundations exist. The local harness proves the
+checked-in application boundary and catches direct-backend URL regressions;
+production remote-browser deployment approval remains open until target
+certificate/proxy/firewall/service and operator evidence is collected.
 
 TLS is not limited to public domain names; it is an application-layer trust
 boundary that can use public DNS certificates, internal PKI, or another
@@ -166,7 +170,13 @@ operation can be approved:
 
 - external TLS/reverse-proxy/firewall evidence;
 - credential handoff evidence for the generated browser-session user file;
-- adversarial browser/session/media tests.
+- target-host adversarial browser/session/media evidence using the deployed
+  certificate and proxy.
+
+Run `make production-remote-browser-e2e-dry-run`, then explicitly use
+`ALLOW_LOCAL_SELF_SIGNED_TLS=1 make production-remote-browser-e2e` for local
+application-boundary evidence. Its self-signed TLS bypass and Python proxy do
+not satisfy the external deployment gates above.
 
 Until those controls land, use local access or an SSH tunnel for the default
 local-only mode, or treat `production_remote` output as PixEagle-side

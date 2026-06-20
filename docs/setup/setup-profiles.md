@@ -229,7 +229,8 @@ The recommended same-origin production shape is:
 Follow the maintained
 [production remote reverse-proxy runbook](production-remote-reverse-proxy.md)
 for Linux ownership, nginx path rewriting, WebSocket upgrade handling,
-firewall boundaries, evidence collection, and rollback.
+firewall boundaries, the opt-in local HTTPS/browser evidence harness, target
+evidence collection, and rollback.
 
 The dashboard already supports this shape: when served under `/pixeagle`, it
 routes API and media calls through `/pixeagle-api`. If an operator chooses a

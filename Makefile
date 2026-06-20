@@ -23,7 +23,9 @@
         service-disable service-status service-logs service-attach phase0-check \
         sitl-dry-run sitl-probe sitl-sih-dry-run sitl-sih-probe \
         sitl-sih-execute-px4 sitl-gazebo-dry-run sitl-gazebo-probe \
-        sitl-gazebo-execute-px4 video-udp-proof-dry-run video-udp-proof-execute
+        sitl-gazebo-execute-px4 video-udp-proof-dry-run video-udp-proof-execute \
+        production-remote-browser-install production-remote-browser-e2e-dry-run \
+        production-remote-browser-e2e
 
 # Default target
 .DEFAULT_GOAL := help
@@ -33,7 +35,7 @@ DASHBOARD_PORT ?= $(shell bash scripts/lib/ports.sh --dashboard-port "$(CURDIR)/
 BACKEND_PORT ?= $(shell bash scripts/lib/ports.sh --backend-port "$(CURDIR)/configs/config.yaml" 2>/dev/null || echo 5077)
 MAVLINK2REST_PORT ?= 8088
 WEBSOCKET_PORT ?= 5551
-PYTHON ?= python3
+PYTHON ?= $(if $(wildcard $(CURDIR)/.venv/bin/python),$(CURDIR)/.venv/bin/python,python3)
 VIDEO_PROOF_PYTHON ?= python3
 
 # ============================================================================
@@ -102,6 +104,13 @@ help:
 	@echo "                            Validate generated RTP/UDP receiver contract without side effects"
 	@echo "    make video-udp-proof-execute"
 	@echo "                            Start only a local generated RTP/UDP sender and collect video evidence"
+	@echo "    make production-remote-browser-e2e-dry-run"
+	@echo "                            Validate the local HTTPS/browser evidence plan"
+	@echo "    make production-remote-browser-install"
+	@echo "                            Install Chromium and Linux dependencies for Playwright"
+	@echo "    make production-remote-browser-e2e"
+	@echo "                            Build dashboard and run local self-signed HTTPS E2E"
+	@echo "                            Requires ALLOW_LOCAL_SELF_SIGNED_TLS=1"
 	@echo ""
 	@echo "  Windows Users:"
 	@echo "    Use scripts\\init.bat and scripts\\run.bat directly"
@@ -243,14 +252,14 @@ test:
 	@PYTHONPATH=src $(PYTHON) -m pytest tests/ -ra --tb=short -m "not sitl and not px4 and not e2e and not hardware and not manual" --strict-config
 
 phase0-check:
-	@bash scripts/check_schema.sh
+	@PYTHON="$(PYTHON)" bash scripts/check_schema.sh
 	@$(PYTHON) tools/generate_api_tool_candidates.py --check
 	@bash -n install.sh
 	@bash -n scripts/init.sh
 	@bash -n scripts/run.sh
 	@bash -n scripts/stop.sh
 	@find scripts -name '*.sh' -print0 | xargs -0 -n1 bash -n
-	@PYTHONPATH=src $(PYTHON) -m pytest tests/test_api_route_inventory.py tests/test_api_security_policy.py tests/test_api_tool_candidates.py tests/test_test_hygiene.py tests/test_docs_infrastructure_consistency.py tests/test_setup_profiles.py tests/test_binary_download_policy.py tests/unit/core_app/test_api_auth_runtime.py tests/unit/core_app/test_api_exposure_policy.py tests/unit/core_app/test_api_v1_streams.py tests/unit/core_app/test_config_clean_clone.py tests/unit/core_app/test_parameters_reload.py -ra --tb=short --strict-config
+	@PYTHONPATH=src $(PYTHON) -m pytest tests/test_api_route_inventory.py tests/test_api_security_policy.py tests/test_api_tool_candidates.py tests/test_test_hygiene.py tests/test_docs_infrastructure_consistency.py tests/test_setup_profiles.py tests/test_binary_download_policy.py tests/test_production_remote_browser_e2e.py tests/unit/core_app/test_api_auth_runtime.py tests/unit/core_app/test_api_exposure_policy.py tests/unit/core_app/test_api_v1_streams.py tests/unit/core_app/test_config_clean_clone.py tests/unit/core_app/test_parameters_reload.py -ra --tb=short --strict-config
 
 sitl-dry-run:
 	@$(PYTHON) tools/run_sitl_validation_suite.py --plan-name phase2_follower_validation --dry-run
@@ -281,6 +290,19 @@ video-udp-proof-dry-run:
 
 video-udp-proof-execute:
 	@$(VIDEO_PROOF_PYTHON) tools/run_udp_video_receiver_proof.py --execute --allow-process-start --artifact-root reports/video --json
+
+production-remote-browser-install:
+	@cd dashboard && npx playwright install --with-deps chromium
+
+production-remote-browser-e2e-dry-run:
+	@$(PYTHON) tools/run_production_remote_browser_e2e.py --json
+
+production-remote-browser-e2e:
+	@if [ "$(ALLOW_LOCAL_SELF_SIGNED_TLS)" != "1" ]; then \
+		echo "Refusing local browser execution without ALLOW_LOCAL_SELF_SIGNED_TLS=1"; \
+		exit 2; \
+	fi
+	@$(PYTHON) tools/run_production_remote_browser_e2e.py --execute-browser --allow-local-self-signed-tls --json
 
 # ============================================================================
 # Windows Targets (for nmake or similar)

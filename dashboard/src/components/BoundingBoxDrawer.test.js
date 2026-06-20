@@ -30,7 +30,7 @@ afterEach(() => {
 
 const renderSmartDrawer = () => {
   const imageRef = { current: null };
-  const rendered = render(
+  const view = render(
     <BoundingBoxDrawer
       isTracking={false}
       imageRef={imageRef}
@@ -45,7 +45,7 @@ const renderSmartDrawer = () => {
       smartModeActive
     />
   );
-  const drawSurface = rendered.container.firstChild;
+  const drawSurface = screen.getByTestId('bounding-box-draw-surface');
   drawSurface.getBoundingClientRect = jest.fn(() => ({
     left: 10,
     top: 20,
@@ -54,7 +54,7 @@ const renderSmartDrawer = () => {
     right: 210,
     bottom: 120,
   }));
-  return { ...rendered, drawSurface };
+  return { ...view, drawSurface };
 };
 
 test('uses typed confirmed smart-click action with normalized coordinates', async () => {

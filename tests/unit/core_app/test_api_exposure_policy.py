@@ -535,9 +535,12 @@ async def test_video_websocket_rejects_unapproved_origin_before_accept():
 async def test_streaming_disabled_rejects_http_video_route(monkeypatch):
     handler = FastAPIHandler.__new__(FastAPIHandler)
     monkeypatch.setattr("classes.fastapi_handler.Parameters.ENABLE_STREAMING", False)
+    request = SimpleNamespace(
+        state=SimpleNamespace(api_principal=APIPrincipal.anonymous()),
+    )
 
     with pytest.raises(HTTPException) as exc_info:
-        await handler.video_feed()
+        await handler.video_feed(request)
 
     assert exc_info.value.status_code == 503
     assert exc_info.value.detail == "Streaming is disabled"

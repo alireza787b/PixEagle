@@ -88,6 +88,10 @@ export const endpoints = {
   trackerRestart: `${apiBaseUrl}/api/tracker/restart`,
   trackerData: `${apiBaseUrl}/telemetry/tracker_data`,
   followerData: `${apiBaseUrl}/telemetry/follower_data`,
+  followerSchema: `${apiBaseUrl}/api/follower/schema`,
+  followerProfiles: `${apiBaseUrl}/api/follower/profiles`,
+  followerCurrentProfile: `${apiBaseUrl}/api/follower/current-profile`,
+  followerSwitchProfile: `${apiBaseUrl}/api/follower/switch-profile`,
   // Circuit breaker endpoints
   circuitBreakerStatus: `${apiBaseUrl}/api/circuit-breaker/status`,
   toggleCircuitBreaker: `${apiBaseUrl}/api/circuit-breaker/toggle`,

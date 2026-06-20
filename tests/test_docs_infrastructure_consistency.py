@@ -508,6 +508,10 @@ def test_production_remote_runbook_preserves_proxy_firewall_and_evidence_boundar
         "proxy_set_header Upgrade",
         "Do not open `3040` or `5077`",
         "Evidence Checklist",
+        "make production-remote-browser-e2e-dry-run",
+        "ALLOW_LOCAL_SELF_SIGNED_TLS=1 make production-remote-browser-e2e",
+        "does not prove nginx/Caddy",
+        "does not retain plaintext credentials",
         "Rollback",
     ]:
         assert required in runbook

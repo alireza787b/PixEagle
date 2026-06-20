@@ -146,6 +146,7 @@ const BoundingBoxDrawer = ({
 
   return (
     <div
+      data-testid="bounding-box-draw-surface"
       ref={imageRef}
       style={{
         position: 'relative',

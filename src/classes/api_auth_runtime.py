@@ -437,6 +437,12 @@ class APIAuthRuntime:
             return None
         return self.session_store.get(principal.credential_id or "")
 
+    def principal_session_is_active(self, principal: APIPrincipal) -> bool:
+        """Return whether a session principal still maps to an active session."""
+        if principal.kind != APIPrincipalKind.SESSION:
+            return True
+        return self.session_record_for_principal(principal) is not None
+
     def csrf_token_is_valid(
         self,
         session: Optional[APISessionRecord],

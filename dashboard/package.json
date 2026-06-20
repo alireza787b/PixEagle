@@ -26,6 +26,7 @@
     "build": "react-scripts build",
     "lint": "eslint src",
     "test": "react-scripts test",
+    "test:e2e:production-remote": "playwright test e2e/production-remote.spec.js --config=playwright.config.js",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
@@ -53,6 +54,7 @@
   },
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
+    "@playwright/test": "1.61.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

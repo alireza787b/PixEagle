@@ -89,6 +89,56 @@ relative asset URLs, so JavaScript, CSS, icons, and the manifest stay under
 Host authority and browser Origin. Do not publish a second direct route to
 `5077`.
 
+## Local Browser Evidence Harness
+
+Before target-host deployment, validate the checked-in evidence plan:
+
+```bash
+make production-remote-browser-e2e-dry-run
+```
+
+Install the pinned Playwright Chromium once on a new development host. This is
+an explicit opt-in because Playwright may install Linux browser dependencies:
+
+```bash
+make production-remote-browser-install
+```
+
+Execute it only after explicitly accepting the ephemeral self-signed TLS
+boundary:
+
+```bash
+ALLOW_LOCAL_SELF_SIGNED_TLS=1 make production-remote-browser-e2e
+```
+
+The execute target rebuilds the dashboard, generates a temporary
+`production_remote` profile and credentials, starts separate loopback backend
+and HTTPS reverse-proxy servers inside one harness process, maps
+`pixeagle.test` to loopback in Chromium, and runs Playwright. It uses
+PixEagle's real Host/Origin middleware, auth runtime, CSRF policy, security
+audit, and video WebSocket handler. JPEG and action responses are inert
+fixtures; no camera, tracker, follower, MAVSDK, PX4, or aircraft process
+starts.
+
+Local artifacts are written under `reports/production-remote-browser/`. They
+include version/source hashes, effective security settings without
+credentials, request authority/path metadata, screenshots, a raw sanitized
+security-audit log, and a retained-artifact secret scan. The `upload/`
+subdirectory is a fixed allowlist that excludes raw process logs and raw audit
+events; the manual workflow uploads only that subdirectory.
+The harness does not retain plaintext credentials, cookie or CSRF values, TLS
+private keys, HAR files, traces, or videos.
+
+The harness uses a Python ASGI proxy and Playwright
+`ignoreHTTPSErrors` for explicitly local self-signed TLS. A pass proves the
+checked-in application boundary and documented path shape on that checkout. It
+does not prove nginx/Caddy configuration, browser PKI trust, target service
+ownership, firewall rules, external reachability, or production handoff. The
+manual `Production Remote Browser E2E` GitHub Actions workflow runs the same
+application-boundary evidence with Playwright-managed Chromium. Local runs
+also use Playwright-managed Chromium by default; an explicit
+`PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` may select a reviewed system browser.
+
 ## Firewall Boundary
 
 Expose only the reverse proxy's TLS listener to the intended client network:
@@ -111,7 +161,8 @@ At minimum verify:
 2. The browser loads `/pixeagle/` through a trusted HTTPS connection.
 3. Unauthenticated API, MJPEG, WebSocket, and WebRTC requests fail closed.
 4. Login establishes the Secure HttpOnly session; logout and expiry deny media
-   in existing tabs.
+   in existing tabs and close already-open MJPEG, video WebSocket, and WebRTC
+   signaling/peer sessions.
 5. Viewer accounts can read media but cannot execute actions.
 6. Wrong Host, wrong Origin, cross-site, missing-CSRF, expired-cookie, and
    unrelated authority-port requests are rejected.

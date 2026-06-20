@@ -13,7 +13,7 @@ import logging
 import math
 import time
 import hashlib
-from typing import Any, Dict, Literal, Optional, Set, Tuple, List
+from typing import Any, Awaitable, Callable, Dict, Literal, Optional, Set, Tuple, List
 from collections import deque
 from dataclasses import dataclass
 import json
@@ -47,6 +47,7 @@ from classes.api_security_audit import (
 from classes.api_security_types import (
     APIAuditPolicy,
     APIPrincipal,
+    APIPrincipalKind,
     APISensitivity,
 )
 from classes.api_v1_actions import (
@@ -277,6 +278,7 @@ class ClientConnection:
     bandwidth_estimate: float  # bytes/second
     frame_queue: deque
     websocket: Optional[WebSocket] = None
+    principal: Optional[APIPrincipal] = None
 
 @dataclass
 class CachedFrame:
@@ -285,6 +287,119 @@ class CachedFrame:
     timestamp: float
     hash: str
     quality: int
+
+
+class SessionBoundStreamingResponse(StreamingResponse):
+    """Streaming response that terminates when its browser session is revoked."""
+
+    def __init__(
+        self,
+        content,
+        *,
+        session_is_active: Callable[[], bool],
+        on_session_revoked: Callable[[], None],
+        poll_interval: float = 0.1,
+        **kwargs,
+    ):
+        super().__init__(content, **kwargs)
+        self._session_is_active = session_is_active
+        self._on_session_revoked = on_session_revoked
+        self._session_poll_interval = max(0.01, float(poll_interval))
+
+    async def _wait_for_session_revocation(self) -> None:
+        while self._session_is_active():
+            await asyncio.sleep(self._session_poll_interval)
+        self._on_session_revoked()
+
+    @staticmethod
+    async def _cancel_task_bounded(task: asyncio.Future[Any]) -> None:
+        if task.done():
+            return
+        task.cancel()
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(task, return_exceptions=True),
+                timeout=1.0,
+            )
+        except asyncio.TimeoutError:
+            pass
+
+    async def _await_or_revoked(
+        self,
+        awaitable: Awaitable[Any],
+        session_monitor: asyncio.Task[None],
+    ) -> tuple[Any, bool]:
+        operation = asyncio.ensure_future(awaitable)
+        done, _ = await asyncio.wait(
+            {operation, session_monitor},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if session_monitor in done:
+            await self._cancel_task_bounded(operation)
+            return None, True
+        return operation.result(), False
+
+    async def stream_response(self, send) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": self.status_code,
+                "headers": self.raw_headers,
+            }
+        )
+        session_monitor = asyncio.create_task(
+            self._wait_for_session_revocation()
+        )
+        iterator = self.body_iterator.__aiter__()
+        revoked = False
+        try:
+            while True:
+                try:
+                    chunk, revoked = await self._await_or_revoked(
+                        iterator.__anext__(),
+                        session_monitor,
+                    )
+                except StopAsyncIteration:
+                    break
+                if revoked:
+                    break
+                if not isinstance(chunk, bytes | memoryview):
+                    chunk = chunk.encode(self.charset)
+                _, revoked = await self._await_or_revoked(
+                    send(
+                        {
+                            "type": "http.response.body",
+                            "body": chunk,
+                            "more_body": True,
+                        }
+                    ),
+                    session_monitor,
+                )
+                if revoked:
+                    break
+        finally:
+            await self._cancel_task_bounded(session_monitor)
+            close_iterator = getattr(iterator, "aclose", None)
+            if close_iterator is not None:
+                try:
+                    await asyncio.wait_for(close_iterator(), timeout=1.0)
+                except (asyncio.TimeoutError, RuntimeError):
+                    pass
+
+        try:
+            await asyncio.wait_for(
+                send(
+                    {
+                        "type": "http.response.body",
+                        "body": b"",
+                        "more_body": False,
+                    }
+                ),
+                timeout=1.0,
+            )
+        except (asyncio.TimeoutError, RuntimeError):
+            if not revoked:
+                raise
 
 
 class RateLimiter:
@@ -802,7 +917,6 @@ class FastAPIHandler:
         # Safety configuration API endpoints (v3.5.0+)
         self.app.get("/api/safety/config")(self.get_safety_config)
         self.app.get("/api/safety/limits/{follower_name}")(self.get_follower_safety_limits)
-        # Note: /api/safety/vehicle-profiles removed in v4.0.0 (was deprecated in v3.6.0)
 
         # Follower configuration API endpoints (v6.1.0+)
         self.app.get("/api/follower/config/general")(self.get_follower_config_general)
@@ -855,12 +969,42 @@ class FastAPIHandler:
         self.app.get("/api/system/status")(self.get_system_status)
         self.app.get("/api/system/config")(self.get_frontend_config)
 
-    async def video_feed(self):
+    def _media_principal_is_active(self, principal: Optional[APIPrincipal]) -> bool:
+        """Return whether a long-lived media client's browser session is active."""
+        if principal is None or principal.kind != APIPrincipalKind.SESSION:
+            return True
+        runtime = getattr(self, "api_auth_runtime", None)
+        return bool(runtime and runtime.principal_session_is_active(principal))
+
+    def _record_media_session_revoked(
+        self,
+        *,
+        principal: Optional[APIPrincipal],
+        transport: str,
+        path: str,
+    ) -> None:
+        if principal is None or principal.kind != APIPrincipalKind.SESSION:
+            return
+        self._record_security_audit_event(
+            event_type="api.media.session",
+            outcome="denied",
+            reason="session_expired_or_revoked",
+            transport=transport,
+            method="GET" if transport == "http" else "WEBSOCKET",
+            path=path,
+            status_code=401 if transport == "http" else 1008,
+            principal=principal,
+            audit_policy=APIAuditPolicy.SENSITIVE_READ,
+            sensitivity=APISensitivity.MEDIA,
+        )
+
+    async def video_feed(self, request: Request):
         """Optimized HTTP MJPEG streaming with adaptive quality."""
         if not getattr(Parameters, "ENABLE_STREAMING", True):
             raise HTTPException(status_code=503, detail="Streaming is disabled")
 
         client_id = f"http_{time.time()}"
+        principal = getattr(request.state, "api_principal", APIPrincipal.anonymous())
 
         # Check connection limit
         async with self.connection_lock:
@@ -939,11 +1083,22 @@ class FastAPIHandler:
                     self.http_connections.discard(client_id)
                     self.stats['active_connections'] = len(self.http_connections) + len(self.ws_connections)
 
-        return StreamingResponse(
-            generate(),
-            media_type='multipart/x-mixed-replace; boundary=frame',
-            headers={'Cache-Control': 'no-cache'}
-        )
+        response_kwargs = {
+            "media_type": "multipart/x-mixed-replace; boundary=frame",
+            "headers": {"Cache-Control": "no-cache"},
+        }
+        if principal.kind == APIPrincipalKind.SESSION:
+            return SessionBoundStreamingResponse(
+                generate(),
+                session_is_active=lambda: self._media_principal_is_active(principal),
+                on_session_revoked=lambda: self._record_media_session_revoked(
+                    principal=principal,
+                    transport="http",
+                    path="/video_feed",
+                ),
+                **response_kwargs,
+            )
+        return StreamingResponse(generate(), **response_kwargs)
     
     async def video_feed_websocket_optimized(self, websocket: WebSocket):
         """Optimized WebSocket streaming with adaptive quality and queuing."""
@@ -975,6 +1130,7 @@ class FastAPIHandler:
             await websocket.close(code=1008, reason="WebSocket Host or Origin not allowed")
             return
         auth_runtime = getattr(self, "api_auth_runtime", None)
+        connection_principal = APIPrincipal.anonymous()
         if auth_runtime is not None:
             auth_result = authorize_websocket_request(
                 runtime=auth_runtime,
@@ -1007,6 +1163,7 @@ class FastAPIHandler:
             if not auth_result.allowed:
                 await websocket.close(code=1008, reason="WebSocket API request not authorized")
                 return
+            connection_principal = auth_result.principal
         await websocket.accept()
 
         client_id = f"ws_{id(websocket)}_{time.time()}"
@@ -1027,6 +1184,7 @@ class FastAPIHandler:
                 bandwidth_estimate=0,
                 frame_queue=deque(maxlen=Parameters.MAX_FRAME_QUEUE),
                 websocket=websocket,
+                principal=connection_principal,
             )
             self._update_active_connection_count()
 
@@ -1041,10 +1199,13 @@ class FastAPIHandler:
                 return
             send_task = asyncio.create_task(self._ws_send_frames(websocket, client))
             receive_task = asyncio.create_task(self._ws_receive_messages(websocket, client))
+            session_task = asyncio.create_task(
+                self._ws_monitor_session(websocket, client)
+            )
 
             # Wait for either task to complete
             done, pending = await asyncio.wait(
-                [send_task, receive_task],
+                [send_task, receive_task, session_task],
                 return_when=asyncio.FIRST_COMPLETED
             )
 
@@ -1254,6 +1415,30 @@ class FastAPIHandler:
             pass
         except Exception as e:
             self.logger.error(f"Error receiving WebSocket message: {e}")
+
+    async def _ws_monitor_session(
+        self,
+        websocket: WebSocket,
+        client: ClientConnection,
+    ) -> None:
+        """Close a media WebSocket after browser-session logout or expiry."""
+        principal = client.principal
+        if principal is None or principal.kind != APIPrincipalKind.SESSION:
+            await asyncio.Future()
+            return
+        while not self.is_shutting_down:
+            if not self._media_principal_is_active(principal):
+                self._record_media_session_revoked(
+                    principal=principal,
+                    transport="websocket",
+                    path="/ws/video_feed",
+                )
+                await websocket.close(
+                    code=1008,
+                    reason="Browser session expired or revoked",
+                )
+                return
+            await asyncio.sleep(0.25)
     
     async def _heartbeat_task(self):
         """Check for stale WebSocket connections periodically."""

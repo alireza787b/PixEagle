@@ -94,3 +94,27 @@ def test_dashboard_api_calls_use_auth_client_boundary():
                 offenders.append(f"{relative_path}:{line}: {message}")
 
     assert offenders == []
+
+
+def test_dashboard_does_not_reconstruct_direct_backend_urls_outside_endpoint_registry():
+    """Reverse-proxy clients must not bypass `/pixeagle-api` with raw port URLs."""
+    allowed = {
+        Path("services/apiEndpoints.js"),
+    }
+    direct_api_pattern = re.compile(
+        r"apiConfig\.(?:protocol|apiHost|apiPort)|"
+        r"\$\{[^}]*apiHost[^}]*\}:\$\{[^}]*apiPort[^}]*\}"
+    )
+    offenders = []
+
+    for path in FRONTEND_SRC_ROOT.rglob("*.js"):
+        relative_path = path.relative_to(FRONTEND_SRC_ROOT)
+        if relative_path in allowed or path.name.endswith(".test.js"):
+            continue
+        if direct_api_pattern.search(path.read_text(encoding="utf-8")):
+            offenders.append(str(relative_path))
+
+    assert offenders == [], (
+        "Dashboard modules must use the canonical endpoint registry so "
+        f"`production_remote` stays behind `/pixeagle-api`: {offenders}"
+    )

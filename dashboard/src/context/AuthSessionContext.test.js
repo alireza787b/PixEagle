@@ -89,9 +89,9 @@ describe('AuthSessionProvider adversarial browser-session handling', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
-      expect(screen.getByTestId('requires-login')).toHaveTextContent('true');
-      expect(screen.getByTestId('subject')).toHaveTextContent('none');
     });
+    expect(screen.getByTestId('requires-login')).toHaveTextContent('true');
+    expect(screen.getByTestId('subject')).toHaveTextContent('none');
 
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
@@ -119,8 +119,8 @@ describe('AuthSessionProvider adversarial browser-session handling', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
-      expect(screen.getByTestId('requires-login')).toHaveTextContent('true');
     });
+    expect(screen.getByTestId('requires-login')).toHaveTextContent('true');
   });
 
   test('logout sends CSRF and clears local session even when backend says cookie expired', async () => {
@@ -142,8 +142,8 @@ describe('AuthSessionProvider adversarial browser-session handling', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('authenticated')).toHaveTextContent('false');
-      expect(screen.getByTestId('requires-login')).toHaveTextContent('true');
     });
+    expect(screen.getByTestId('requires-login')).toHaveTextContent('true');
 
     const logoutOptions = global.fetch.mock.calls[1][1];
     expect(logoutOptions.method).toBe('POST');

@@ -8,10 +8,9 @@ import PollingStatusIndicator from '../components/PollingStatusIndicator';
 import TrackerDataDisplay from '../components/TrackerDataDisplay';
 import { useTrackerSchema, useCurrentTrackerStatus, useTrackerOutput } from '../hooks/useTrackerSchema';
 import axios from '../services/apiClient';
-import { apiConfig } from '../services/apiEndpoints';
+import { endpoints } from '../services/apiEndpoints';
 
 const POLLING_RATE = parseInt(process.env.REACT_APP_POLLING_RATE, 10);
-const API_URL = `${apiConfig.protocol}://${apiConfig.apiHost}:${apiConfig.apiPort}`;
 
 const TrackerPage = () => {
   const [trackerData, setTrackerData] = useState([]);
@@ -28,7 +27,7 @@ const TrackerPage = () => {
     try {
       setPollingStatus('idle');
       // Use schema-driven endpoint instead of legacy telemetry endpoint
-      const response = await axios.get(`${API_URL}/api/tracker/output`);
+      const response = await axios.get(endpoints.trackerOutput);
       if (response.status === 200) {
         console.log('Fetched Schema-Driven Tracker Data:', response.data);
         setTrackerData((prevData) => [...prevData, response.data]);

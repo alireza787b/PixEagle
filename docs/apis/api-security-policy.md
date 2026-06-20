@@ -150,6 +150,8 @@ Implemented:
 - route policy enforcement before HTTP route execution;
 - MJPEG authorization before the streaming response is returned;
 - video WebSocket and WebRTC-signaling authorization before `accept()`;
+- active MJPEG, video WebSocket, and WebRTC sessions terminate after their
+  browser session is revoked or expires;
 - default-deny handling for unclassified paths;
 - loopback-only local compatibility;
 - refusal to infer local compatibility from `Host` or proxy-forwarding
@@ -174,13 +176,24 @@ Implemented:
 - frontend guard tests that reject raw production `fetch`, direct axios package
   imports, direct `new WebSocket`, and protected endpoint `href` bypasses.
 
+Audit availability is an explicit policy distinction: allowed mutations and
+security-critical requests fail closed when the audit sink is unavailable,
+while authenticated sensitive reads remain availability-preserving after
+authorization. Production remote handoff therefore requires evidence that the
+audit path is writable and monitored; disabling or losing audit storage is not
+an approved deployment state even though an already-authorized sensitive read
+is not converted into a control-path outage.
+
 Still required under PXE-0064:
 
 1. Deployment evidence for the guarded credential rotation and TLS/reverse-
    proxy runbook, including service-user ownership and secure handoff.
-2. Broader adversarial/browser-session tests, especially around expiry,
-   multi-tab logout, large protected media playback, and role-denied UX.
-3. Production remote-profile hardening evidence tying credentials, TLS, Host,
+2. Target-host adversarial evidence using the deployed trusted certificate,
+   proxy, firewall, service account, and audit path. The checked-in local
+   self-signed browser harness does not replace this.
+3. Further scale/UX validation for multi-process sessions, large protected
+   media playback, and role-denied operator workflows.
+4. Production remote-profile hardening evidence tying credentials, TLS, Host,
    CORS, media, and operator roles into a repeatable deployment workflow.
 
 Use same-host loopback local access, SSH tunnels, scoped machine bearer tokens,

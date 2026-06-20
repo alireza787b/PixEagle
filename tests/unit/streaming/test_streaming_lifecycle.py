@@ -11,6 +11,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from classes.app_controller import AppController
+from classes.api_auth_runtime import (
+    API_AUTH_MODE_BROWSER_SESSION,
+    APIAuthRuntime,
+    APIUserRecord,
+    hash_password_pbkdf2_sha256,
+)
+from classes.api_security_types import APIPrincipal
+from classes.api_exposure_policy import (
+    TRUSTED_LAN_LEGACY,
+    resolve_api_exposure_policy,
+)
 from classes.fastapi_handler import ClientConnection, FastAPIHandler
 from classes.gstreamer_handler import GStreamerHandler
 from classes.webrtc_manager import WebRTCManager
@@ -42,6 +53,7 @@ def _client(
     connected_at: float,
     last_frame_time: float,
     websocket=None,
+    principal=None,
 ) -> ClientConnection:
     return ClientConnection(
         id=client_id,
@@ -52,7 +64,28 @@ def _client(
         bandwidth_estimate=0,
         frame_queue=deque(maxlen=2),
         websocket=websocket,
+        principal=principal,
     )
+
+
+def _browser_session_runtime() -> tuple[APIAuthRuntime, APIPrincipal, str]:
+    runtime = APIAuthRuntime(
+        mode=API_AUTH_MODE_BROWSER_SESSION,
+        users_by_username={
+            "operator": APIUserRecord(
+                username="operator",
+                role="operator",
+                password_pbkdf2_sha256=hash_password_pbkdf2_sha256("test-password"),
+            )
+        },
+    )
+    session = runtime.create_session_for_user(runtime.users_by_username["operator"])
+    principal = APIPrincipal.session(
+        username=session.username,
+        role=session.role,
+        session_id=session.session_id,
+    )
+    return runtime, principal, session.session_id
 
 
 def test_stale_websocket_ids_include_clients_that_never_received_frames():
@@ -150,6 +183,123 @@ async def test_close_all_websocket_clients_uses_single_cleanup_path():
 
 
 @pytest.mark.asyncio
+async def test_video_websocket_monitor_closes_after_browser_session_revocation():
+    runtime, principal, session_id = _browser_session_runtime()
+    handler = _handler_for_lifecycle_tests()
+    handler.api_auth_runtime = runtime
+    handler.is_shutting_down = False
+    handler._record_security_audit_event = MagicMock(return_value=True)
+    websocket = SimpleNamespace(close=AsyncMock())
+    client = _client(
+        client_id="session-ws",
+        connected_at=1.0,
+        last_frame_time=0.0,
+        websocket=websocket,
+        principal=principal,
+    )
+
+    monitor = asyncio.create_task(handler._ws_monitor_session(websocket, client))
+    await asyncio.sleep(0)
+    runtime.revoke_session_id(session_id)
+    await asyncio.wait_for(monitor, timeout=1.0)
+
+    websocket.close.assert_awaited_once_with(
+        code=1008,
+        reason="Browser session expired or revoked",
+    )
+    handler._record_security_audit_event.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_http_mjpeg_generator_stops_after_browser_session_revocation(monkeypatch):
+    runtime, principal, session_id = _browser_session_runtime()
+    handler = _handler_for_lifecycle_tests()
+    handler.api_auth_runtime = runtime
+    handler.is_shutting_down = False
+    handler.frame_interval = 0.01
+    handler.frame_publisher = SimpleNamespace(
+        register_client=MagicMock(),
+        unregister_client=MagicMock(),
+        get_latest=MagicMock(return_value=None),
+    )
+    handler.quality_engine = SimpleNamespace(
+        register_client=MagicMock(),
+        unregister_client=MagicMock(),
+    )
+    handler._record_security_audit_event = MagicMock(return_value=True)
+    monkeypatch.setattr("classes.fastapi_handler.Parameters.ENABLE_STREAMING", True)
+    request = SimpleNamespace(state=SimpleNamespace(api_principal=principal))
+
+    response = await handler.video_feed(request)
+    messages = []
+
+    async def send(message):
+        messages.append(message)
+
+    stream_task = asyncio.create_task(response.stream_response(send))
+    await asyncio.sleep(0)
+    runtime.revoke_session_id(session_id)
+    await asyncio.wait_for(stream_task, timeout=1.0)
+
+    assert handler.http_connections == set()
+    handler.frame_publisher.unregister_client.assert_called_once_with()
+    handler._record_security_audit_event.assert_called_once()
+    assert messages[-1] == {
+        "type": "http.response.body",
+        "body": b"",
+        "more_body": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_http_mjpeg_revocation_cancels_blocked_response_delivery(monkeypatch):
+    runtime, principal, session_id = _browser_session_runtime()
+    handler = _handler_for_lifecycle_tests()
+    handler.api_auth_runtime = runtime
+    handler.is_shutting_down = False
+    handler.frame_interval = 0
+    handler.frame_publisher = SimpleNamespace(
+        register_client=MagicMock(),
+        unregister_client=MagicMock(),
+        get_latest=MagicMock(
+            return_value=SimpleNamespace(frame=object(), frame_id=1)
+        ),
+    )
+    handler.stream_optimizer = SimpleNamespace(
+        encode_frame_async=AsyncMock(return_value=b"jpeg")
+    )
+    handler.quality_engine = SimpleNamespace(
+        register_client=MagicMock(),
+        unregister_client=MagicMock(),
+        report_frame_sent=MagicMock(return_value=50),
+    )
+    handler._record_security_audit_event = MagicMock(return_value=True)
+    monkeypatch.setattr("classes.fastapi_handler.Parameters.ENABLE_STREAMING", True)
+    monkeypatch.setattr(
+        "classes.fastapi_handler.Parameters.ENABLE_ADAPTIVE_QUALITY",
+        False,
+    )
+    request = SimpleNamespace(state=SimpleNamespace(api_principal=principal))
+    response = await handler.video_feed(request)
+    body_send_started = asyncio.Event()
+    release_body_send = asyncio.Event()
+
+    async def blocked_send(message):
+        if message["type"] == "http.response.body" and message.get("more_body"):
+            body_send_started.set()
+            await release_body_send.wait()
+
+    stream_task = asyncio.create_task(response.stream_response(blocked_send))
+    await asyncio.wait_for(body_send_started.wait(), timeout=1.0)
+    runtime.revoke_session_id(session_id)
+    await asyncio.wait_for(stream_task, timeout=1.0)
+
+    assert handler.http_connections == set()
+    handler.frame_publisher.unregister_client.assert_called_once_with()
+    handler._record_security_audit_event.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_fastapi_stop_drains_streaming_resources():
     handler = _handler_for_lifecycle_tests()
     websocket = SimpleNamespace(close=AsyncMock())
@@ -187,6 +337,13 @@ class _FakePeerConnection:
 
     async def close(self):
         self.close_count += 1
+
+    def on(self, _event_name):
+        def decorator(callback):
+            return callback
+        return decorator
+
+    connectionState = "new"
 
 
 class _HangingPeerConnection:
@@ -239,6 +396,205 @@ async def test_webrtc_manager_shutdown_unregisters_after_close_timeout(monkeypat
     assert peer.close_count == 1
     assert manager.peer_connections == {}
     manager.frame_publisher.unregister_client.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_webrtc_monitor_closes_after_browser_session_revocation():
+    runtime, principal, session_id = _browser_session_runtime()
+    manager = WebRTCManager.__new__(WebRTCManager)
+    manager.api_auth_runtime = runtime
+    manager.security_audit_logger = None
+    manager.logger = logging.getLogger("test.webrtc_session_monitor")
+    websocket = SimpleNamespace(
+        headers={},
+        client=SimpleNamespace(host="127.0.0.1"),
+        close=AsyncMock(),
+    )
+
+    monitor = asyncio.create_task(manager._monitor_session(websocket, principal))
+    await asyncio.sleep(0)
+    runtime.revoke_session_id(session_id)
+    await asyncio.wait_for(monitor, timeout=1.0)
+
+    websocket.close.assert_awaited_once_with(
+        code=1008,
+        reason="Browser session expired or revoked",
+    )
+
+
+@pytest.mark.asyncio
+async def test_webrtc_signaling_handler_cancels_blocked_receive_and_closes_peer_on_revocation(
+    monkeypatch,
+):
+    runtime, principal, session_id = _browser_session_runtime()
+    session = runtime.session_record_for_principal(principal)
+    assert session is not None
+
+    class BlockingWebSocket:
+        def __init__(self):
+            self.headers = {
+                "host": "pixeagle.test:8443",
+                "origin": "https://pixeagle.test:8443",
+                "cookie": f"{runtime.session_cookie_name}={session.session_id}",
+            }
+            self.client = SimpleNamespace(host="127.0.0.1")
+            self.url = SimpleNamespace(query="")
+            self.accept = AsyncMock()
+            self.close = AsyncMock()
+            self.send_text = AsyncMock()
+            self._blocked = asyncio.Event()
+
+        async def iter_text(self):
+            yield '{"type":"noop","peer_id":"peer-session"}'
+            await self._blocked.wait()
+
+    websocket = BlockingWebSocket()
+    peer = _FakePeerConnection()
+    monkeypatch.setattr(
+        "classes.webrtc_manager.RTCPeerConnection",
+        lambda: peer,
+    )
+    manager = WebRTCManager.__new__(WebRTCManager)
+    manager.exposure_policy = resolve_api_exposure_policy(
+        bind_host="127.0.0.1",
+        mode=TRUSTED_LAN_LEGACY,
+        cors_allowed_origins=["https://pixeagle.test:8443"],
+        allowed_hosts=["pixeagle.test:8443"],
+        api_port=5077,
+        allow_credentials=True,
+    )
+    manager.api_auth_runtime = runtime
+    manager.security_audit_logger = None
+    manager.peer_connections = {}
+    manager.max_connections = 3
+    manager.frame_publisher = SimpleNamespace(
+        register_client=MagicMock(),
+        unregister_client=MagicMock(),
+    )
+    manager.logger = logging.getLogger("test.webrtc_revocation_handler")
+
+    handler_task = asyncio.create_task(manager.signaling_handler(websocket))
+    for _ in range(20):
+        if manager.peer_connections:
+            break
+        await asyncio.sleep(0.01)
+    assert len(manager.peer_connections) == 1
+    assert "peer-session" not in manager.peer_connections
+
+    runtime.revoke_session_id(session_id)
+    await asyncio.wait_for(handler_task, timeout=1.0)
+
+    websocket.close.assert_awaited_once_with(
+        code=1008,
+        reason="Browser session expired or revoked",
+    )
+    assert manager.peer_connections == {}
+    assert peer.close_count == 1
+    manager.frame_publisher.unregister_client.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_webrtc_client_peer_ids_cannot_overwrite_existing_peers(monkeypatch):
+    peers = [_FakePeerConnection(), _FakePeerConnection()]
+    peer_iter = iter(peers)
+    monkeypatch.setattr(
+        "classes.webrtc_manager.RTCPeerConnection",
+        lambda: next(peer_iter),
+    )
+    manager = WebRTCManager.__new__(WebRTCManager)
+    manager.peer_connections = {}
+    manager.frame_publisher = SimpleNamespace(
+        register_client=MagicMock(),
+        unregister_client=MagicMock(),
+    )
+    manager.logger = logging.getLogger("test.webrtc_server_peer_ids")
+
+    class OneMessageWebSocket:
+        async def iter_text(self):
+            yield '{"type":"noop","peer_id":"client-selected"}'
+
+        send_text = AsyncMock()
+
+    first_state = {"peer_id": None, "registered": False}
+    second_state = {"peer_id": None, "registered": False}
+    await manager._consume_signaling_messages(OneMessageWebSocket(), first_state)
+    await manager._consume_signaling_messages(OneMessageWebSocket(), second_state)
+
+    assert first_state["peer_id"] != second_state["peer_id"]
+    assert "client-selected" not in manager.peer_connections
+    assert set(manager.peer_connections) == {
+        first_state["peer_id"],
+        second_state["peer_id"],
+    }
+    assert manager.frame_publisher.register_client.call_count == 2
+
+    await manager.shutdown()
+    assert manager.peer_connections == {}
+    assert manager.frame_publisher.unregister_client.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_webrtc_signaling_limit_reserves_capacity_before_peer_allocation():
+    class IdleWebSocket:
+        def __init__(self):
+            self.headers = {
+                "host": "pixeagle.test:8443",
+                "origin": "https://pixeagle.test:8443",
+            }
+            self.client = SimpleNamespace(host="127.0.0.1")
+            self.url = SimpleNamespace(query="")
+            self.accept = AsyncMock()
+            self.close = AsyncMock()
+            self.send_text = AsyncMock()
+            self.release = asyncio.Event()
+
+        async def iter_text(self):
+            await self.release.wait()
+            if False:
+                yield ""
+
+    manager = WebRTCManager.__new__(WebRTCManager)
+    manager.exposure_policy = resolve_api_exposure_policy(
+        bind_host="127.0.0.1",
+        mode=TRUSTED_LAN_LEGACY,
+        cors_allowed_origins=["https://pixeagle.test:8443"],
+        allowed_hosts=["pixeagle.test:8443"],
+        api_port=5077,
+        allow_credentials=True,
+    )
+    manager.api_auth_runtime = None
+    manager.security_audit_logger = None
+    manager.peer_connections = {}
+    manager.max_connections = 1
+    manager.frame_publisher = SimpleNamespace(
+        register_client=MagicMock(),
+        unregister_client=MagicMock(),
+    )
+    manager.logger = logging.getLogger("test.webrtc_signaling_capacity")
+
+    first = IdleWebSocket()
+    second = IdleWebSocket()
+    first_task = asyncio.create_task(manager.signaling_handler(first))
+    for _ in range(20):
+        if getattr(manager, "_active_signaling_sessions", 0) == 1:
+            break
+        await asyncio.sleep(0.01)
+    assert manager._active_signaling_sessions == 1
+
+    await asyncio.wait_for(manager.signaling_handler(second), timeout=1.0)
+
+    second.accept.assert_awaited_once_with()
+    second.send_text.assert_awaited_once()
+    second.close.assert_awaited_once_with(
+        code=1008,
+        reason="Max connections reached",
+    )
+    assert manager._active_signaling_sessions == 1
+
+    first.release.set()
+    await asyncio.wait_for(first_task, timeout=1.0)
+    assert manager._active_signaling_sessions == 0
+    assert manager.peer_connections == {}
 
 
 class _FakeVideoWriter:
