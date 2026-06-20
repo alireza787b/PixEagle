@@ -288,8 +288,8 @@ sudo lsof -i :14569  # MAVLink input
 ### Separately Secured Trusted/VPN Access
 
 ```bash
-# Expose the dashboard only after a separately secured operator path exists.
-sudo ufw allow from <trusted-cidr> to any port 3040 proto tcp
+# Expose only the reviewed HTTPS reverse proxy, not the raw dashboard.
+sudo ufw allow from <trusted-cidr> to any port 443 proto tcp
 
 # Optional field GCS access only
 sudo ufw allow 14550/udp  # QGC (optional)
@@ -306,7 +306,8 @@ ports; the profile generates browser-session credentials, exact Host/CORS
 allowlists, and a backend bind for the browser API/media client on `5077`.
 Allow both `3040` and `5077` only from the trusted demo CIDR/device. Use a
 separately secured deployment only when production remote access is explicitly
-required.
+required. For production remote browser access, keep `3040` local and follow
+the [reverse-proxy runbook](setup/production-remote-reverse-proxy.md).
 
 ### Port Reference
 

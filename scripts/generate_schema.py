@@ -127,8 +127,8 @@ SCHEMA_OVERRIDES = {
     },
     'Streaming.API_ALLOWED_HOSTS': {
         'description': (
-            'Optional backend Host allowlist for reviewed non-loopback profiles; '
-            'use hostnames or IP literals, never wildcards, URLs, or credentials'
+            'Exact backend Host authorities for reviewed non-loopback profiles; '
+            'an optional port supports reverse proxies; never use wildcards, URLs, or credentials'
         ),
     },
     'Streaming.API_AUTH_MODE': {

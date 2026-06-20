@@ -136,12 +136,16 @@ def _normalize_allowed_host(host: str) -> str:
     parsed = _parse_host_header(raw)
     if parsed is None:
         raise APIExposurePolicyError(f"Invalid API_ALLOWED_HOSTS entry: {host!r}")
-    hostname, _port = parsed
+    hostname, port = parsed
     if hostname in UNSPECIFIED_BIND_HOSTS:
         raise APIExposurePolicyError(
             f"API_ALLOWED_HOSTS must not contain wildcard bind address {host!r}"
         )
-    return hostname
+    if port is None:
+        return hostname
+    if ":" in hostname:
+        return f"[{hostname}]:{port}"
+    return f"{hostname}:{port}"
 
 
 def _normalize_allowed_hosts(hosts: Iterable[str]) -> Tuple[str, ...]:
@@ -185,11 +189,8 @@ def is_http_host_allowed(host_header: Optional[str], policy: APIExposurePolicy) 
         return False
 
     hostname, port = parsed
-    if not _port_matches(port, policy):
-        return False
-
     if is_loopback_host(hostname):
-        return True
+        return _port_matches(port, policy)
 
     if policy.mode != TRUSTED_LAN_LEGACY:
         return False
@@ -211,7 +212,19 @@ def is_http_host_allowed(host_header: Optional[str], policy: APIExposurePolicy) 
             if _origin_hostname(origin)
         }
 
-    return hostname in allowed_hosts
+    for allowed_host in allowed_hosts:
+        parsed_allowed = _parse_host_header(allowed_host)
+        if parsed_allowed is None:
+            continue
+        allowed_hostname, allowed_port = parsed_allowed
+        if hostname != allowed_hostname:
+            continue
+        if allowed_port is not None:
+            return port == allowed_port or (
+                port is None and allowed_port in {80, 443}
+            )
+        return _port_matches(port, policy)
+    return False
 
 
 def is_websocket_origin_allowed(origin: Optional[str], policy: APIExposurePolicy) -> bool:

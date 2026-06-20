@@ -16,7 +16,8 @@ Welcome to the PixEagle documentation. This guide will help you find the informa
 | Guide | Description |
 |-------|-------------|
 | [Installation Guide](INSTALLATION.md) | Detailed installation instructions |
-| [Setup Profiles](setup/setup-profiles.md) | Local dev, QGC field video, and remote-profile boundaries |
+| [Setup Profiles](setup/setup-profiles.md) | Local dev, QGC field video, lab browser, and guarded production reverse-proxy profiles |
+| [Production Remote Runbook](setup/production-remote-reverse-proxy.md) | Linux credentials, nginx/TLS boundary, firewall, evidence, and rollback |
 | [Binary Download Policy](setup/binary-download-policy.md) | Pinned MAVSDK/MAVLink2REST assets, SHA-256 verification, overrides, and provenance |
 | [Configuration Guide](CONFIGURATION.md) | All configuration options |
 | [Service Management](SERVICE_MANAGEMENT.md) | systemd + tmux production operations |
@@ -34,7 +35,7 @@ Welcome to the PixEagle documentation. This guide will help you find the informa
 | [OpenCV GStreamer](OPENCV_GSTREAMER.md) | Building OpenCV with GStreamer support |
 | [Gimbal Simulator](gimbal_simulator.md) | Testing gimbal functionality |
 | [Companion Runtime Contract](architecture/companion-runtime-contract.md) | Sidecar ownership, auth, profile, secret, version, and evidence boundaries |
-| [API Exposure Boundary](apis/api-exposure-boundary.md) | Backend bind, CORS, route exposure, and remaining production authentication boundary |
+| [API Exposure Boundary](apis/api-exposure-boundary.md) | Backend bind, CORS, route exposure, and production remote evidence boundary |
 | [API Security Policy](apis/api-security-policy.md) | Default-deny route classification, scopes, CSRF, audit treatment, and enforcement roadmap |
 
 ---

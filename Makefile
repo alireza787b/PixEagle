@@ -18,7 +18,7 @@
 # ============================================================================
 
 .PHONY: help init run dev stop clean sync update reset-config setup-profile \
-        qgc-video-profile demo-lan-browser-profile status logs \
+        qgc-video-profile demo-lan-browser-profile production-remote-profile status logs \
         download-binaries binary-download-plan service-install service-uninstall service-enable \
         service-disable service-status service-logs service-attach phase0-check \
         sitl-dry-run sitl-probe sitl-sih-dry-run sitl-sih-probe \
@@ -53,6 +53,9 @@ help:
 	@echo "    make qgc-video-profile Configure field QGC video (GCS_HOST=<ip>)"
 	@echo "    make demo-lan-browser-profile"
 	@echo "                            Configure lab LAN dashboard (LAN_HOST=<this-host-ip>)"
+	@echo "    make production-remote-profile"
+	@echo "                            Configure loopback backend for TLS reverse proxy"
+	@echo "                            Use CREDENTIAL_HANDOFF_FILE=<0600-json> in automation"
 	@echo ""
 	@echo "  Running:"
 	@echo "    make run               Run all services (production mode)"
@@ -135,7 +138,14 @@ demo-lan-browser-profile:
 		echo "Usage: make demo-lan-browser-profile LAN_HOST=<this-pixeagle-lan-ip-or-hostname>"; \
 		exit 2; \
 	fi
-	@$(PYTHON) scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host "$(LAN_HOST)" $(if $(DEMO_USERNAME),--demo-username "$(DEMO_USERNAME)") $(if $(DEMO_ROLE),--demo-role "$(DEMO_ROLE)") $(if $(ROTATE_DEMO_CREDENTIALS),--rotate-demo-credentials) $(SETUP_PROFILE_ARGS)
+	@$(PYTHON) scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host "$(LAN_HOST)" $(if $(SESSION_USERNAME),--session-username "$(SESSION_USERNAME)") $(if $(SESSION_ROLE),--session-role "$(SESSION_ROLE)") $(if $(DEMO_USERNAME),--demo-username "$(DEMO_USERNAME)") $(if $(DEMO_ROLE),--demo-role "$(DEMO_ROLE)") $(if $(ROTATE_DEMO_CREDENTIALS),--rotate-demo-credentials) $(if $(ROTATE_SESSION_CREDENTIALS),--rotate-session-credentials) $(SETUP_PROFILE_ARGS)
+
+production-remote-profile:
+	@if [ -z "$(PUBLIC_HOST)" ] || [ -z "$(SESSION_USER_FILE)" ]; then \
+		echo "Usage: make production-remote-profile PUBLIC_HOST=<tls-hostname-or-stable-ip> SESSION_USER_FILE=<deployment-user-json> [PUBLIC_ORIGIN=https://host] [CREDENTIAL_HANDOFF_FILE=<0600-json>]"; \
+		exit 2; \
+	fi
+	@$(PYTHON) scripts/setup/apply-setup-profile.py --profile production_remote --public-host "$(PUBLIC_HOST)" --session-user-file "$(SESSION_USER_FILE)" $(if $(PUBLIC_ORIGIN),--public-origin "$(PUBLIC_ORIGIN)") $(if $(CREDENTIAL_HANDOFF_FILE),--credential-handoff-file "$(CREDENTIAL_HANDOFF_FILE)") $(if $(SHOW_GENERATED_PASSWORD),--show-generated-password) $(if $(SESSION_USERNAME),--session-username "$(SESSION_USERNAME)") $(if $(SESSION_ROLE),--session-role "$(SESSION_ROLE)") $(if $(ROTATE_SESSION_CREDENTIALS),--rotate-session-credentials) $(SETUP_PROFILE_ARGS)
 
 # ============================================================================
 # Running

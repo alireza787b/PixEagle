@@ -176,7 +176,8 @@ Implemented:
 
 Still required under PXE-0064:
 
-1. Operator credential rotation tooling and deployment TLS guidance.
+1. Deployment evidence for the guarded credential rotation and TLS/reverse-
+   proxy runbook, including service-user ownership and secure handoff.
 2. Broader adversarial/browser-session tests, especially around expiry,
    multi-tab logout, large protected media playback, and role-denied UX.
 3. Production remote-profile hardening evidence tying credentials, TLS, Host,

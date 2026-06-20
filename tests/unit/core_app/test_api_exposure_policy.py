@@ -134,6 +134,38 @@ def test_trusted_lan_legacy_keeps_backend_hosts_separate_from_browser_origins():
     assert is_http_host_allowed("evil.example:5077", policy) is False
 
 
+def test_trusted_lan_legacy_allows_external_reverse_proxy_authority_port():
+    policy = resolve_api_exposure_policy(
+        bind_host="127.0.0.1",
+        mode=TRUSTED_LAN_LEGACY,
+        cors_allowed_origins=["https://pixeagle.example:8443"],
+        allowed_hosts=["pixeagle.example:8443"],
+        api_port=5077,
+    )
+
+    assert policy.allowed_hosts == ("pixeagle.example:8443",)
+    assert is_http_host_allowed("pixeagle.example:8443", policy) is True
+    assert is_http_host_allowed("pixeagle.example:5077", policy) is False
+    assert is_http_host_allowed("pixeagle.example:9443", policy) is False
+    assert is_http_host_allowed("evil.example:8443", policy) is False
+    assert is_http_host_allowed("127.0.0.1:5078", policy) is False
+
+
+def test_trusted_lan_legacy_matches_omitted_default_https_authority_port_only():
+    policy = resolve_api_exposure_policy(
+        bind_host="127.0.0.1",
+        mode=TRUSTED_LAN_LEGACY,
+        cors_allowed_origins=["https://pixeagle.example"],
+        allowed_hosts=["pixeagle.example:443"],
+        api_port=5077,
+    )
+
+    assert is_http_host_allowed("pixeagle.example", policy) is True
+    assert is_http_host_allowed("pixeagle.example:443", policy) is True
+    assert is_http_host_allowed("pixeagle.example:5077", policy) is False
+    assert is_http_host_allowed("pixeagle.example:8443", policy) is False
+
+
 def test_trusted_lan_legacy_rejects_empty_bind_host():
     with pytest.raises(APIExposurePolicyError, match="HTTP_STREAM_HOST must be explicit"):
         resolve_api_exposure_policy(

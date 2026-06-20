@@ -10,8 +10,10 @@ the `/api/v1` migration begins.
 - The checked-in backend exposure posture is local-only. Non-loopback bind/CORS
   exposure requires explicit `trusted_lan_legacy` configuration plus scoped API
   authorization. Browser-session auth exists for reviewed deployments, but
-  production remote-browser operation remains gated on TLS/operator hardening,
-  adversarial auth/media tests, and evidence. See the
+  production remote-browser setup should use the guarded `production_remote`
+  profile or an equivalent reviewed HTTPS/WSS config and still requires
+  proxy/firewall evidence, credential handoff evidence, adversarial auth/media
+  tests, and safety evidence before handoff. See the
   [API exposure boundary](api-exposure-boundary.md).
 - Every HTTP, media, WebSocket, documentation, and validation route must have
   exactly one declarative security classification. Missing or ambiguous

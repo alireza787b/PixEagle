@@ -432,7 +432,7 @@ load_configuration() {
         log_warn "Legacy/non-loopback backend bind '$BACKEND_HOST' is displayed as 127.0.0.1 under local_only"
         BACKEND_HOST="127.0.0.1"
     fi
-    if [[ -z "${PIXEAGLE_DASHBOARD_HOST:-}" ]] && [[ "$API_EXPOSURE_MODE" == "trusted_lan_legacy" ]] && [[ "$API_AUTH_MODE" == "browser_session" ]]; then
+    if [[ -z "${PIXEAGLE_DASHBOARD_HOST:-}" ]] && [[ "$API_EXPOSURE_MODE" == "trusted_lan_legacy" ]] && [[ "$API_AUTH_MODE" == "browser_session" ]] && ! is_loopback_host "$BACKEND_HOST"; then
         DASHBOARD_HOST="0.0.0.0"
         DASHBOARD_EXPOSURE_MODE="trusted_lan_legacy"
     fi
@@ -452,6 +452,8 @@ load_configuration() {
     fi
     if [[ "$DASHBOARD_EXPOSURE_MODE" == "trusted_lan_legacy" ]]; then
         log_warn "Dashboard static server is reachable on the LAN; backend actions still require browser-session auth"
+    elif [[ "$API_EXPOSURE_MODE" == "trusted_lan_legacy" ]] && [[ "$API_AUTH_MODE" == "browser_session" ]] && is_loopback_host "$BACKEND_HOST"; then
+        log_detail "Dashboard remains loopback for reverse-proxy/tunnel browser-session profiles"
     fi
 
     # Check component scripts exist

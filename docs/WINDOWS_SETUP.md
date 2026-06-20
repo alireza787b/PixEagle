@@ -103,9 +103,13 @@ Use an SSH tunnel for local-only browser access. A reverse proxy must not be
 used to extend `local_compat`; non-loopback backend API clients require scoped
 bearer tokens or explicit `API_AUTH_MODE=browser_session` with an external
 hashed user file. TLS is not domain-only, but production remote-browser
-operation remains unapproved until TLS or an equivalent reviewed trust
-boundary, operator hardening, adversarial auth/media tests, and evidence gates
-pass.
+setup should use the guarded `production_remote` profile or an equivalent
+reviewed config so PixEagle stays loopback behind HTTPS/WSS. Production handoff
+still requires proxy/firewall evidence, credential handoff evidence,
+adversarial auth/media tests, and safety evidence gates.
+Generate production credentials on the Linux deployment host. The guarded
+profile relies on POSIX owner-only modes and fails closed on Windows until
+Windows ACL automation has evidence.
 Dashboard and MAVLink2REST legacy LAN exposure remains separately
 unauthenticated and not production-approved.
 

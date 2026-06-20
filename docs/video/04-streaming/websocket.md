@@ -20,8 +20,10 @@ are loopback. In the checked-in `local_compat` mode, unauthenticated WebSocket
 streaming is limited to that same-host loopback boundary. Non-loopback clients
 need scoped API credentials, and remote browser operation should use explicit
 `API_AUTH_MODE=browser_session` only with the credential-aware dashboard
-client. Production remote-browser approval still requires TLS/operator
-deployment hardening, adversarial auth/media tests, and evidence gates.
+client. Production remote-browser setup should use the guarded
+`production_remote` profile or an equivalent reviewed HTTPS/WSS config; handoff
+still requires proxy/firewall evidence, credential handoff evidence,
+adversarial auth/media tests, and safety evidence gates.
 
 Use `GET /api/v1/streams/media-health` for typed WebSocket client counts,
 heartbeat config, frame freshness, adaptive-quality state, and media security

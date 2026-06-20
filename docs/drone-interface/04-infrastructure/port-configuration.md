@@ -133,7 +133,7 @@ Expose only what the deployment needs:
 
 ```bash
 # Optional separately secured trusted/VPN operator network
-sudo ufw allow from <trusted-cidr> to any port 3040 proto tcp
+sudo ufw allow from <trusted-cidr> to any port 443 proto tcp
 
 # Optional GCS field access
 sudo ufw allow 14550/udp
@@ -146,10 +146,11 @@ Keep PixEagle backend `5077`, MAVLink2REST `8088`, local service endpoints
 `14540`, `14569`, `12550`, and the MavlinkAnywhere dashboard `9070` local-only.
 Remote operator access should terminate at a separately secured VPN/reverse
 proxy or SSH tunnel rather than directly exposing backend port `5077`.
-Non-loopback PixEagle browser operation remains deferred until TLS,
-operator deployment hardening, typed replacements and retirement for remaining
-legacy tracking/control mutations, adversarial auth/media tests, and evidence
-gates are complete.
+Production browser setup should use `make production-remote-profile
+PUBLIC_HOST=<tls-host> SESSION_USER_FILE=<path>` or an equivalent reviewed
+configuration so PixEagle stays loopback behind HTTPS/WSS. Production handoff
+still requires proxy/firewall evidence, credential handoff evidence,
+adversarial auth/media tests, and safety evidence gates.
 
 ## Legacy Port Note
 

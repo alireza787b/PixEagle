@@ -199,8 +199,8 @@ overlay/VPN compatibility.
 ### Separately Secured Remote Operator Path
 
 ```bash
-# Example only after a separately secured dashboard-only operator path is configured
-sudo ufw allow from <trusted-cidr> to any port 3040 proto tcp
+# Example only after the guarded HTTPS reverse proxy is configured
+sudo ufw allow from <trusted-cidr> to any port 443 proto tcp
 
 # Optional field GCS access
 sudo ufw allow 14550/udp  # QGC
@@ -217,9 +217,15 @@ is the supported beginner exception: it intentionally makes `3040` and `5077`
 reachable on the isolated LAN/private overlay so the browser dashboard can load
 static assets and call the backend API/media endpoints. HTTP over a private LAN
 or private overlay/VPN is acceptable only for that explicit lab/demo posture.
-TLS is not domain-only, and production remote-browser operation still requires
-TLS or an equivalent reviewed trust boundary, operator hardening, adversarial
-auth/media tests, and evidence gates.
+TLS is not domain-only. Production remote-browser setup should use
+`make production-remote-profile PUBLIC_HOST=<tls-host>
+SESSION_USER_FILE=<path>` or an equivalent reviewed config so PixEagle stays
+loopback behind HTTPS/WSS; production handoff still requires proxy/firewall
+evidence, credential handoff evidence, adversarial auth/media tests, and safety
+evidence gates.
+Do not open raw dashboard port `3040` for this profile. Follow the
+[production remote reverse-proxy runbook](setup/production-remote-reverse-proxy.md)
+and expose only its reviewed TLS listener.
 
 Do not expose PixEagle backend `5077`, MAVLink2REST `8088`, local MAVLink
 endpoints `14540`/`14569`, or MavlinkAnywhere dashboard `9070` beyond

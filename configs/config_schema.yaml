@@ -474,8 +474,8 @@ sections:
       API_ALLOWED_HOSTS:
         type: array
         default: []
-        description: Optional backend Host allowlist for reviewed non-loopback profiles; use hostnames or IP literals, never
-          wildcards, URLs, or credentials
+        description: Exact backend Host authorities for reviewed non-loopback profiles; an optional port supports reverse
+          proxies; never use wildcards, URLs, or credentials
         reload_tier: system_restart
         reboot_required: true
       API_AUTH_MODE:

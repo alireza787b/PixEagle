@@ -29,7 +29,7 @@ source:
   - file: src/classes/api_v1_sitl.py
     sha256: b9645af0ea6058974143009debd4544aafbb865053bbd106a8c3d0363f580dd4
   - file: src/classes/api_exposure_policy.py
-    sha256: 19bbfaa56767991878a62368bc902f3d0a8b9d93acadd5220c0028ebad77677b
+    sha256: c6370e4844517032917099ff3af5607a5455ff5be3e0480ece0fd4d1b9c47896
   - file: src/classes/api_auth_runtime.py
     sha256: 2d52b0ba3128a650ce2724ccc358f7c717c2fe721dcb641a7d895626899d3d8e
   - file: src/classes/api_security_audit.py

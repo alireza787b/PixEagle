@@ -208,7 +208,7 @@ Streaming:
     - http://localhost:3040
     - http://127.0.0.1:5077
     - http://localhost:5077
-  API_ALLOWED_HOSTS: []           # Optional backend Host allowlist for reviewed non-loopback profiles
+  API_ALLOWED_HOSTS: []           # Exact backend Host authorities; optional :port is supported for reverse proxies
   API_AUTH_MODE: local_compat     # Options: local_compat, machine_bearer, browser_session
   # local_compat: same-host loopback compatibility for the dashboard and dev tools.
   # machine_bearer: scoped bearer tokens for machine API clients.

@@ -56,9 +56,10 @@ The WebSocket Host/Origin policy and API authorization runtime run before
 loopback socket client. In `machine_bearer` mode a browser cannot currently
 attach the required `Authorization` header to the native WebSocket, so browser
 WebRTC should use explicit `API_AUTH_MODE=browser_session` with the
-credential-aware dashboard client. Production remote-browser approval still
-requires TLS/operator deployment hardening, adversarial auth/media tests, and
-evidence gates.
+credential-aware dashboard client. Production remote-browser setup should use
+the guarded `production_remote` profile or an equivalent reviewed HTTPS/WSS
+config; handoff still requires proxy/firewall evidence, credential handoff
+evidence, adversarial auth/media tests, and safety evidence gates.
 
 Client offer message:
 

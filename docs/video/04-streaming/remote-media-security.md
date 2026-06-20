@@ -24,7 +24,7 @@ PixEagle backend media port without authentication.
 | Local development | Same-host dashboard, local QGC, CLI smoke tests | `local_only` loopback | `local_compat` loopback only | Supported default |
 | Field QGC video | QGC on GCS, PixEagle on companion | Backend remains loopback; video uses UDP/RTP output | No PixEagle API auth because backend is not exposed | Supported video path |
 | Lab/private-overlay browser demo | Browser dashboard on phone/tablet/GCS | Exact Host/CORS over HTTP on isolated LAN or private overlay/VPN | Generated `browser_session` user | Supported by `demo_lan_browser`; not production |
-| Remote browser operator | Browser dashboard on GCS/mobile | Exact Host/CORS over TLS or SSH tunnel | `browser_session` with viewer/operator/admin users | SSH tunnel now; production hardening still tracked |
+| Remote browser operator | Browser dashboard on GCS/mobile | Backend remains loopback behind HTTPS/WSS reverse proxy or SSH tunnel | `browser_session` with viewer/operator/admin users | Guarded `production_remote` config supported; deployment evidence still required |
 | Remote native media client | Future QGC HTTP/WS or another native client | Explicit non-loopback profile with Host allowlist | Bearer token with `media:read` | Requires reviewed client support |
 | Anonymous LAN media | Any remote LAN client | Backend exposed without auth | None | Not supported |
 
@@ -64,9 +64,27 @@ normal HTTP camera or lab MJPEG source. See
 
 ## Remote Browser Dashboard
 
-For operator dashboards on another machine, the safest current workflow is an
-SSH tunnel to the companion and the default local-only backend. A future
-production remote-browser profile must include:
+For operator dashboards on another machine, the simplest secure workflow remains
+an SSH tunnel to the companion and the default local-only backend. For a
+reviewed HTTPS/WSS reverse-proxy deployment, use the guarded
+`production_remote` setup profile:
+
+```bash
+make production-remote-profile \
+  PUBLIC_HOST=pixeagle.example \
+  SESSION_USER_FILE="$HOME/.config/pixeagle/secrets/browser-users.json" \
+  CREDENTIAL_HANDOFF_FILE="$HOME/.config/pixeagle/secrets/initial-credentials.json"
+```
+
+That profile generates the PixEagle-side config and browser-session credential
+file for a production remote browser profile. It keeps `HTTP_STREAM_HOST:
+127.0.0.1`, sets an exact public `API_ALLOWED_HOSTS` entry and a single exact
+public CORS origin, enables
+`API_SESSION_COOKIE_SECURE: true`, and requires an external hashed
+`API_SESSION_USER_FILE`. It does not install the reverse proxy, open firewall
+rules, or prove field readiness.
+
+A production remote-browser deployment must include:
 
 - TLS with a deployment-managed certificate;
 - exact backend Host allowlist through `Streaming.API_ALLOWED_HOSTS`;
@@ -75,12 +93,15 @@ production remote-browser profile must include:
 - an external `API_SESSION_USER_FILE` with PBKDF2-SHA256 hashed users;
 - `API_SESSION_COOKIE_SECURE: true` when served over HTTPS;
 - durable security audit logging;
+- dashboard served under `/pixeagle` with `/pixeagle-api` proxied to
+  `http://127.0.0.1:5077`, or an equivalent reviewed same-origin path;
 - broader end-to-end browser/session/media evidence and operator acceptance
-  gates under PXE-0064.
+  gates under PXE-0064/PXE-0068.
 
-Legacy tracking/control HTTP aliases have been retired; production remote
-browser approval now depends on the deployment trust boundary and evidence, not
-on remaining action-route alias work.
+Legacy tracking/control HTTP aliases have been retired. Production remote
+browser approval now depends on the deployment trust boundary, proxy/firewall
+evidence, credential handoff evidence, and adversarial browser/session/media
+tests, not on remaining action-route alias work.
 
 Roles are intentionally simple:
 

@@ -33,8 +33,11 @@ HTTP requests are rejected before route execution when their `Host` authority
 does not match the selected exposure policy. In `local_only`, only loopback
 authorities on the configured backend port are accepted. In non-loopback
 profiles, `Streaming.API_ALLOWED_HOSTS` is the backend Host authority
-allowlist; `API_CORS_ALLOWED_ORIGINS` is for browser origins. Modern-browser
-requests are also rejected when their `Origin` is not allowlisted or
+allowlist; `API_CORS_ALLOWED_ORIGINS` is for browser origins.
+For an exact non-loopback allowed host, the authority port may be the external
+reverse-proxy port rather than the internal backend port. Loopback authorities
+remain pinned to `HTTP_STREAM_PORT`. Modern-browser requests are also rejected
+when their `Origin` is not allowlisted or
 `Sec-Fetch-Site` identifies a cross-site request. Responses set same-site
 resource and anti-framing headers. Video and WebRTC-signaling WebSockets
 validate `Origin` before acceptance. These controls reduce DNS-rebinding,
@@ -48,16 +51,19 @@ cannot reliably detect an externally reachable reverse proxy that strips those
 headers, so do not expose `local_compat` through a reverse proxy. Use an SSH
 tunnel for local browser operation, or use scoped bearer tokens for machine API
 clients. Browser/operator sessions are available through explicit
-`API_AUTH_MODE=browser_session` deployments, but production remote-browser
-approval still requires TLS/operator deployment hardening, adversarial
-auth/media tests, and evidence gates.
+`API_AUTH_MODE=browser_session` deployments. Use the guarded
+`production_remote` setup profile for HTTPS/WSS reverse-proxy browser
+deployments; it keeps the PixEagle backend loopback and generates exact
+Host/CORS plus secure cookie settings. Production remote-browser approval still
+requires external proxy/firewall/credential evidence and adversarial auth/media
+gates.
 
 ## Exposure Modes
 
 | Mode | Bind policy | Intended use | Production status |
 |------|-------------|--------------|-------------------|
 | `local_only` | Explicit loopback only | Same-host dashboard or SSH tunnel | Current local-only default |
-| `trusted_lan_legacy` | Explicitly permits non-loopback bind | Temporary compatibility on an isolated, trusted network | Requires scoped API auth or explicit browser-session auth; production remote browser use is not approved yet |
+| `trusted_lan_legacy` | Explicitly permits non-loopback bind or non-loopback Host/CORS through a loopback reverse-proxy backend | Temporary LAN compatibility, authenticated machine clients, or the guarded production reverse-proxy profile | Requires scoped API auth or explicit browser-session auth; production remote browser use requires deployment evidence |
 
 To use the temporary compatibility mode, both the mode and desired bind must be
 set explicitly. Browser origins must be exact; do not use wildcards.
@@ -96,9 +102,10 @@ exposure. If a deployment truly needs temporary LAN compatibility, add
 If the dashboard uses a custom port, add both loopback browser origins for that
 port to `API_CORS_ALLOWED_ORIGINS`. A non-loopback reverse-proxy browser origin
 cannot be used in `local_only`. `trusted_lan_legacy` can open the
-bind/Host/CORS boundary, but remote browser operation remains deferred until
-TLS/operator deployment hardening, adversarial auth/media tests, and evidence
-gates are completed.
+bind/Host/CORS boundary. For production browser access, prefer
+`make production-remote-profile PUBLIC_HOST=<tls-host> SESSION_USER_FILE=<path>`;
+that profile keeps `HTTP_STREAM_HOST: 127.0.0.1` and expects a reviewed
+HTTPS/WSS reverse proxy rather than direct backend exposure.
 
 ## Current And Planned Controls
 
@@ -148,7 +155,8 @@ Implemented as a runtime authorization foundation:
 
 See the [API security policy](api-security-policy.md). The backend session and
 dashboard client/media and durable security-audit foundations exist, but
-production remote-browser approval remains open.
+production remote-browser deployment approval remains open until evidence is
+collected.
 
 TLS is not limited to public domain names; it is an application-layer trust
 boundary that can use public DNS certificates, internal PKI, or another
@@ -156,11 +164,13 @@ reviewed trust anchor. Private LAN/private-overlay IP testing can use HTTP only
 inside the explicit lab profile. Still required before authenticated remote
 operation can be approved:
 
-- TLS/operator deployment guidance, migration tooling, and adversarial
-  browser/session/media tests.
+- external TLS/reverse-proxy/firewall evidence;
+- credential handoff evidence for the generated browser-session user file;
+- adversarial browser/session/media tests.
 
 Until those controls land, use local access or an SSH tunnel for the default
-local-only mode. Non-loopback reverse-proxy/VPN browser origins are not a
+local-only mode, or treat `production_remote` output as PixEagle-side
+configuration only. Non-loopback reverse-proxy/VPN browser origins are not a
 complete browser-operator solution by themselves. Remote network reachability is
 not authorization.
 
@@ -179,8 +189,10 @@ Before starting PixEagle:
 6. For non-loopback machine API clients, set `API_BEARER_TOKEN_FILE` to an
    external JSON token file and grant only the scopes needed by that client.
 7. For browser-session tests, set `API_AUTH_MODE=browser_session`, provide an
-   external `API_SESSION_USER_FILE`, and use exact CORS origins. Do not approve
-   production remote browser operation without the remaining PXE-0064 gates.
+   external `API_SESSION_USER_FILE`, and use exact CORS origins.
+8. For production remote browser access, use the guarded setup profile or an
+   equivalent reviewed config, keep PixEagle loopback behind HTTPS/WSS, and do
+   not approve handoff without the remaining PXE-0064/PXE-0068 evidence gates.
 
 The API process emits a critical log when it starts with non-loopback
 `trusted_lan_legacy` exposure.

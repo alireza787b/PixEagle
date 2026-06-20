@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import argparse
 import copy
+import io
 import json
+import os
 import re
 import secrets
 import sys
+import tempfile
 from dataclasses import dataclass
 from ipaddress import ip_address, ip_network
 from pathlib import Path
@@ -35,6 +38,7 @@ from classes.api_auth_runtime import make_user_record
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "configs" / "config_default.yaml"
 RUNTIME_CONFIG_PATH = PROJECT_ROOT / "configs" / "config.yaml"
 DEFAULT_DEMO_USER_FILE = PROJECT_ROOT / "configs" / "secrets" / "demo-browser-users.json"
+DEFAULT_PRODUCTION_USERNAME = "pixeagle-operator"
 LOOPBACK_CORS_ORIGINS = [
     "http://127.0.0.1:3040",
     "http://localhost:3040",
@@ -58,6 +62,19 @@ ALLOWED_DEMO_IP_NETWORKS = tuple(
         "fe80::/10",
     )
 )
+DISALLOWED_PRODUCTION_HOST_NETWORKS = tuple(
+    ip_network(value)
+    for value in (
+        "0.0.0.0/8",
+        "192.0.0.0/24",
+        "192.0.2.0/24",
+        "198.18.0.0/15",
+        "198.51.100.0/24",
+        "203.0.113.0/24",
+        "240.0.0.0/4",
+        "2001:db8::/32",
+    )
+)
 
 
 class ProfileError(ValueError):
@@ -70,6 +87,20 @@ class Profile:
     status: str
     description: str
     applier: Callable[[argparse.Namespace], dict[tuple[str, ...], Any]]
+
+
+@dataclass(frozen=True)
+class FileSnapshot:
+    path: Path
+    existed: bool
+    content: bytes | None
+    mode: int | None
+
+
+@dataclass(frozen=True)
+class AppliedFile:
+    snapshot: FileSnapshot
+    backup_path: Path | None = None
 
 
 def _profile_local_dev(args: argparse.Namespace) -> dict[tuple[str, ...], Any]:
@@ -113,14 +144,25 @@ def _profile_demo_lan_browser(args: argparse.Namespace) -> dict[tuple[str, ...],
     http_stream_port = _normalize_port(args.http_stream_port, "--http-stream-port")
     dashboard_port = _normalize_port(args.dashboard_port, "--dashboard-port")
     user_file = _resolve_output_path(args.session_user_file)
-    username = str(args.demo_username).strip().lower()
-    if not username:
-        raise ProfileError("--demo-username must not be empty.")
+    _validate_distinct_output_paths(
+        {
+            "--defaults": args.defaults,
+            "--config": args.config,
+            "--session-user-file": user_file,
+        }
+    )
+    username_flag = "--session-username" if args.session_username is not None else "--demo-username"
+    username = _normalize_session_username(
+        args.session_username if args.session_username is not None else args.demo_username,
+        username_flag,
+    )
+    role = args.session_role or args.demo_role
+    rotate_credentials = args.rotate_session_credentials or args.rotate_demo_credentials
 
-    if user_file.exists() and not args.rotate_demo_credentials and not args.dry_run:
+    if user_file.exists() and not rotate_credentials and not args.dry_run:
         raise ProfileError(
             f"session user file already exists: {user_file}. "
-            "Pass --rotate-demo-credentials to replace it after saving the old password."
+            "Pass --rotate-demo-credentials or --rotate-session-credentials to replace it after saving the old password."
         )
 
     args._demo_lan_host = lan_host["allowed_host"]
@@ -129,6 +171,8 @@ def _profile_demo_lan_browser(args: argparse.Namespace) -> dict[tuple[str, ...],
     args._demo_http_stream_port = http_stream_port
     args._demo_dashboard_port = dashboard_port
     args._demo_username = username
+    args._demo_role = role
+    args._demo_rotate_credentials = rotate_credentials
 
     remote_origins = [
         f"http://{lan_host['origin_host']}:{dashboard_port}",
@@ -145,6 +189,100 @@ def _profile_demo_lan_browser(args: argparse.Namespace) -> dict[tuple[str, ...],
         ("Streaming", "API_AUTH_MODE"): "browser_session",
         ("Streaming", "API_SESSION_USER_FILE"): str(user_file),
         ("Streaming", "API_SESSION_COOKIE_SECURE"): False,
+        ("GStreamer", "ENABLE_GSTREAMER_STREAM"): False,
+        ("GStreamer", "GSTREAMER_HOST"): "127.0.0.1",
+        ("GStreamer", "GSTREAMER_PORT"): QGC_DEFAULT_UDP_H264_PORT,
+    }
+
+
+def _profile_production_remote(args: argparse.Namespace) -> dict[tuple[str, ...], Any]:
+    if os.name == "nt" and not args.dry_run:
+        raise ProfileError(
+            "production_remote credential generation currently requires POSIX "
+            "owner-only file modes. Generate it on the Linux deployment host; "
+            "Windows ACL automation is not yet evidence-backed."
+        )
+    if not args.public_host:
+        raise ProfileError(
+            "production_remote requires --public-host <tls-hostname-or-stable-ip>."
+        )
+    public_host = _normalize_public_host(args.public_host)
+    public_origin = _normalize_public_origin(args.public_origin, public_host)
+    http_stream_port = _normalize_port(args.http_stream_port, "--http-stream-port")
+    user_file = _resolve_output_path(args.session_user_file)
+    credential_handoff_file = (
+        _resolve_output_path(args.credential_handoff_file)
+        if args.credential_handoff_file
+        else None
+    )
+    if user_file == DEFAULT_DEMO_USER_FILE:
+        raise ProfileError(
+            "production_remote requires --session-user-file <deployment-managed-json>; "
+            "do not reuse the demo credential path."
+        )
+    _validate_distinct_output_paths(
+        {
+            "--defaults": args.defaults,
+            "--config": args.config,
+            "--session-user-file": user_file,
+            **(
+                {"--credential-handoff-file": credential_handoff_file}
+                if credential_handoff_file is not None
+                else {}
+            ),
+        }
+    )
+    if (
+        not args.dry_run
+        and credential_handoff_file is None
+        and not args.show_generated_password
+        and not sys.stdout.isatty()
+    ):
+        raise ProfileError(
+            "production_remote requires --credential-handoff-file for non-interactive "
+            "use, or explicit --show-generated-password to acknowledge stdout exposure."
+        )
+
+    username = _normalize_session_username(
+        args.session_username or DEFAULT_PRODUCTION_USERNAME,
+        "--session-username",
+    )
+    role = args.session_role or "operator"
+    if user_file.exists() and not args.rotate_session_credentials and not args.dry_run:
+        raise ProfileError(
+            f"session user file already exists: {user_file}. "
+            "Pass --rotate-session-credentials to replace it after saving the old password."
+        )
+    if (
+        credential_handoff_file is not None
+        and credential_handoff_file.exists()
+        and not args.rotate_session_credentials
+        and not args.dry_run
+    ):
+        raise ProfileError(
+            f"credential handoff file already exists: {credential_handoff_file}. "
+            "Pass --rotate-session-credentials to replace it after securely handling the old file."
+        )
+
+    args._production_allowed_host = public_host["allowed_host"]
+    args._production_origin = public_origin
+    args._production_session_user_file = user_file
+    args._production_credential_handoff_file = credential_handoff_file
+    args._production_http_stream_port = http_stream_port
+    args._production_username = username
+    args._production_role = role
+
+    public_authority = _origin_host_authority(public_origin)
+    return {
+        ("Streaming", "API_EXPOSURE_MODE"): "trusted_lan_legacy",
+        ("Streaming", "HTTP_STREAM_HOST"): "127.0.0.1",
+        ("Streaming", "HTTP_STREAM_PORT"): http_stream_port,
+        ("Streaming", "API_CORS_ALLOWED_ORIGINS"): [public_origin],
+        ("Streaming", "API_ALLOWED_HOSTS"): [public_authority],
+        ("Streaming", "API_AUTH_MODE"): "browser_session",
+        ("Streaming", "API_SESSION_USER_FILE"): str(user_file),
+        ("Streaming", "API_SESSION_COOKIE_SECURE"): True,
+        ("Streaming", "API_SECURITY_AUDIT_ENABLED"): True,
         ("GStreamer", "ENABLE_GSTREAMER_STREAM"): False,
         ("GStreamer", "GSTREAMER_HOST"): "127.0.0.1",
         ("GStreamer", "GSTREAMER_PORT"): QGC_DEFAULT_UDP_H264_PORT,
@@ -187,16 +325,12 @@ PROFILES: dict[str, Profile] = {
     ),
     "production_remote": Profile(
         name="production_remote",
-        status="defined_not_automated",
+        status="supported_guarded",
         description=(
-            "Hardened remote operator profile with TLS, durable credentials, "
-            "exact Host/CORS allowlists, and audit evidence."
+            "Generate loopback backend/browser-session config for an external "
+            "TLS reverse proxy and exact Host/CORS allowlists."
         ),
-        applier=_profile_deferred(
-            "production_remote",
-            "Production remote access remains gated on TLS/operator hardening, "
-            "credential rollout, adversarial auth/media tests, and evidence."
-        ),
+        applier=_profile_production_remote,
     ),
     "unsafe_demo_lan_media_only": Profile(
         name="unsafe_demo_lan_media_only",
@@ -248,6 +382,17 @@ def _hostname_is_lan_scoped(hostname: str) -> bool:
 
 def _address_is_demo_scope(address: Any) -> bool:
     return any(address in network for network in ALLOWED_DEMO_IP_NETWORKS)
+
+
+def _address_is_disallowed_production_host(address: Any) -> bool:
+    return any(address in network for network in DISALLOWED_PRODUCTION_HOST_NETWORKS)
+
+
+def _normalize_session_username(value: str, flag_name: str) -> str:
+    username = str(value or "").strip().lower()
+    if not username:
+        raise ProfileError(f"{flag_name} must not be empty.")
+    return username
 
 
 def _normalize_lan_host(value: str) -> dict[str, str]:
@@ -340,6 +485,138 @@ def _normalize_lan_host(value: str) -> dict[str, str]:
     return {"allowed_host": allowed_host, "origin_host": origin_host}
 
 
+def _extract_host_literal(value: str, flag_name: str, *, allow_port: bool) -> tuple[str, int | None]:
+    raw = str(value or "").strip()
+    if not raw:
+        raise ProfileError(f"{flag_name} must not be empty.")
+    if raw == "*" or "://" in raw or "/" in raw or "@" in raw or "?" in raw or "#" in raw:
+        raise ProfileError(
+            f"{flag_name} must be a hostname or IP literal without wildcard, scheme, path, query, fragment, or credentials."
+        )
+    if "%" in raw:
+        raise ProfileError(
+            f"{flag_name} must not include IPv6 zone identifiers; use a stable hostname, IPv6 ULA, or routable address instead."
+        )
+
+    if raw.startswith("["):
+        parse_value = f"//{raw}"
+    else:
+        try:
+            ip_address(raw)
+        except ValueError:
+            parse_value = f"//{raw}"
+        else:
+            host = raw
+            return host, None
+
+    try:
+        parsed_url = urlsplit(parse_value)
+    except ValueError as exc:
+        raise ProfileError(f"{flag_name} is not a valid hostname or IP literal: {value!r}") from exc
+    try:
+        parsed_port = parsed_url.port
+    except ValueError as exc:
+        raise ProfileError(f"{flag_name} contains an invalid port.") from exc
+    if parsed_port is not None and not allow_port:
+        raise ProfileError(f"{flag_name} must not include a port; use --public-origin if needed.")
+    if (
+        parsed_url.username
+        or parsed_url.password
+        or parsed_url.path not in {"", None}
+        or parsed_url.query
+        or parsed_url.fragment
+    ):
+        raise ProfileError(
+            f"{flag_name} must be a hostname or IP literal without credentials, path, query, or fragment."
+        )
+    host = parsed_url.hostname if parsed_url.hostname else raw.strip("[]")
+    return str(host or ""), parsed_port
+
+
+def _normalize_public_host(value: str, flag_name: str = "--public-host") -> dict[str, str]:
+    host, _ = _extract_host_literal(value, flag_name, allow_port=False)
+    host = str(host or "").strip().lower()
+    if not host or any(char.isspace() for char in host):
+        raise ProfileError(f"{flag_name} must be a single hostname or IP literal.")
+
+    try:
+        address = ip_address(host)
+    except ValueError:
+        if host == "localhost" or host in UNSPECIFIED_BIND_HOSTS:
+            raise ProfileError(
+                f"{flag_name} must identify the remote TLS/reverse-proxy host, not loopback or wildcard bind hosts."
+            )
+        if not _hostname_is_valid(host):
+            raise ProfileError(f"{flag_name} is not a valid hostname or IP literal: {value!r}")
+        normalized_host = host.rstrip(".")
+        return {"allowed_host": normalized_host, "origin_host": normalized_host}
+
+    if address.is_loopback or address.is_unspecified:
+        raise ProfileError(
+            f"{flag_name} must identify the remote TLS/reverse-proxy host, not loopback or wildcard bind hosts."
+        )
+    if (
+        address.is_multicast
+        or address.is_link_local
+        or _address_is_disallowed_production_host(address)
+    ):
+        raise ProfileError(
+            f"{flag_name} must be a stable TLS endpoint, not multicast, link-local, or documentation/reserved address space."
+        )
+    allowed_host = address.compressed
+    origin_host = f"[{address.compressed}]" if address.version == 6 else address.compressed
+    return {"allowed_host": allowed_host, "origin_host": origin_host}
+
+
+def _normalize_public_origin(value: str | None, public_host: dict[str, str]) -> str:
+    if not value:
+        return f"https://{public_host['origin_host']}"
+
+    raw = str(value).strip()
+    try:
+        parsed_url = urlsplit(raw)
+    except ValueError as exc:
+        raise ProfileError(f"--public-origin is not a valid HTTPS origin: {value!r}") from exc
+    try:
+        parsed_port = parsed_url.port
+    except ValueError as exc:
+        raise ProfileError("--public-origin contains an invalid port.") from exc
+
+    if parsed_url.scheme.lower() != "https":
+        raise ProfileError("--public-origin must use https:// for production_remote.")
+    if not parsed_url.hostname:
+        raise ProfileError("--public-origin must include a hostname or IP literal.")
+    if (
+        parsed_url.username
+        or parsed_url.password
+        or parsed_url.path not in {"", "/"}
+        or parsed_url.query
+        or parsed_url.fragment
+    ):
+        raise ProfileError(
+            "--public-origin must be an HTTPS origin only, without credentials, path, query, or fragment."
+        )
+
+    origin_host = _normalize_public_host(parsed_url.hostname, "--public-origin")
+    if origin_host["allowed_host"] != public_host["allowed_host"]:
+        raise ProfileError("--public-origin host must match --public-host.")
+
+    if parsed_port in {None, 443}:
+        return f"https://{origin_host['origin_host']}"
+    return f"https://{origin_host['origin_host']}:{parsed_port}"
+
+
+def _origin_host_authority(origin: str) -> str:
+    parsed = urlsplit(origin)
+    host = str(parsed.hostname or "").lower()
+    port = parsed.port
+    if port is None:
+        port = 443 if parsed.scheme.lower() == "https" else 80
+    if ":" in host:
+        return f"[{host}]:{port}"
+    return f"{host}:{port}"
+
+
 def _resolve_output_path(path_value: Path) -> Path:
     path = Path(path_value).expanduser()
     if not path.is_absolute():
@@ -347,13 +624,146 @@ def _resolve_output_path(path_value: Path) -> Path:
     return path
 
 
-def _dump_yaml(path: Path, data: CommentedMap) -> None:
+def _canonical_path(path: Path) -> Path:
+    return Path(path).expanduser().resolve(strict=False)
+
+
+def _validate_distinct_output_paths(paths: dict[str, Path]) -> None:
+    seen: dict[Path, tuple[str, Path]] = {}
+    for label, raw_path in paths.items():
+        expanded_path = Path(raw_path).expanduser()
+        if expanded_path.is_symlink():
+            raise ProfileError(f"{label} must not be a symbolic link: {expanded_path}")
+        path = _canonical_path(expanded_path)
+        previous = seen.get(path)
+        if previous is not None:
+            raise ProfileError(
+                f"{label} must not resolve to the same path as {previous[0]}: {path}"
+            )
+        for previous_label, previous_path in seen.values():
+            try:
+                same_file = (
+                    expanded_path.exists()
+                    and previous_path.exists()
+                    and expanded_path.samefile(previous_path)
+                )
+            except OSError as exc:
+                raise ProfileError(
+                    f"failed to compare output paths {expanded_path} and {previous_path}: {exc}"
+                ) from exc
+            if same_file:
+                raise ProfileError(
+                    f"{label} must not reference the same file as {previous_label}: {expanded_path}"
+                )
+        seen[path] = (label, expanded_path)
+
+
+def _serialize_yaml(data: CommentedMap) -> bytes:
     yaml = YAML()
     yaml.preserve_quotes = True
     yaml.indent(mapping=2, sequence=4, offset=2)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        yaml.dump(data, handle)
+    buffer = io.StringIO()
+    yaml.dump(data, buffer)
+    return buffer.getvalue().encode("utf-8")
+
+
+def _snapshot_file(path: Path) -> FileSnapshot:
+    try:
+        if path.is_symlink():
+            raise ProfileError(f"refusing to replace symbolic-link output path: {path}")
+        if not path.exists():
+            return FileSnapshot(path=path, existed=False, content=None, mode=None)
+        if not path.is_file():
+            raise ProfileError(f"output path exists but is not a regular file: {path}")
+        stat_result = path.stat()
+        return FileSnapshot(
+            path=path,
+            existed=True,
+            content=path.read_bytes(),
+            mode=stat_result.st_mode & 0o777,
+        )
+    except OSError as exc:
+        raise ProfileError(f"failed to inspect output path {path}: {exc}") from exc
+
+
+def _atomic_write_bytes(path: Path, content: bytes, *, mode: int) -> None:
+    temp_path: Path | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        temp_path = Path(temp_name)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temp_path, mode)
+        os.replace(temp_path, path)
+        temp_path = None
+    except OSError as exc:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise ProfileError(f"failed to write {path}: {exc}") from exc
+
+
+def _next_backup_path(path: Path) -> Path:
+    timestamp = strftime("%Y%m%d_%H%M%S")
+    candidate = path.with_name(f"{path.name}.backup.{timestamp}")
+    suffix = 1
+    while candidate.exists():
+        candidate = path.with_name(f"{path.name}.backup.{timestamp}.{suffix}")
+        suffix += 1
+    return candidate
+
+
+def _apply_file(
+    path: Path,
+    content: bytes,
+    *,
+    mode: int,
+    create_backup: bool,
+) -> AppliedFile:
+    snapshot = _snapshot_file(path)
+    backup_path = None
+    if snapshot.existed and create_backup:
+        backup_path = _next_backup_path(path)
+        _atomic_write_bytes(
+            backup_path,
+            snapshot.content or b"",
+            mode=snapshot.mode or mode,
+        )
+    try:
+        _atomic_write_bytes(path, content, mode=mode)
+    except ProfileError:
+        if backup_path is not None:
+            try:
+                backup_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+    return AppliedFile(snapshot=snapshot, backup_path=backup_path)
+
+
+def _rollback_files(applied_files: list[AppliedFile]) -> list[str]:
+    errors: list[str] = []
+    for applied in reversed(applied_files):
+        snapshot = applied.snapshot
+        try:
+            if snapshot.existed:
+                _atomic_write_bytes(
+                    snapshot.path,
+                    snapshot.content or b"",
+                    mode=snapshot.mode or 0o600,
+                )
+            else:
+                snapshot.path.unlink(missing_ok=True)
+            if applied.backup_path is not None:
+                applied.backup_path.unlink(missing_ok=True)
+        except (ProfileError, OSError) as exc:
+            errors.append(f"{snapshot.path}: {exc}")
+    return errors
 
 
 def _set_nested(config: CommentedMap, key_path: tuple[str, ...], value: Any) -> Any:
@@ -385,70 +795,168 @@ def _build_plan(args: argparse.Namespace) -> tuple[CommentedMap, list[str]]:
     return config, summaries
 
 
-def _write_config(args: argparse.Namespace, config: CommentedMap) -> Path | None:
+def _write_config(args: argparse.Namespace, config: CommentedMap) -> tuple[Path | None, AppliedFile | None]:
     if args.dry_run:
-        return None
+        return None, None
 
-    if args.config.exists() and not args.no_backup:
-        backup = args.config.with_name(
-            f"{args.config.name}.backup.{strftime('%Y%m%d_%H%M%S')}"
-        )
-        backup.write_bytes(args.config.read_bytes())
-    _dump_yaml(args.config, config)
-    return args.config
+    applied = _apply_file(
+        args.config,
+        _serialize_yaml(config),
+        mode=0o600,
+        create_backup=args.config.exists() and not args.no_backup,
+    )
+    return args.config, applied
 
 
-def _write_profile_artifacts(args: argparse.Namespace) -> list[str]:
-    if args.profile != "demo_lan_browser":
-        return []
-
-    user_file: Path = args._demo_session_user_file
-    if args.dry_run:
-        return [
-            f"Would generate browser-session user file: {user_file}",
-            "Would print the generated password once; plaintext is never written to disk.",
-            "LAB ONLY: use this profile only on an isolated operator-approved LAN/private overlay without TLS.",
-        ]
-
-    if user_file.exists() and args.rotate_demo_credentials:
-        backup = user_file.with_name(
-            f"{user_file.name}.backup.{strftime('%Y%m%d_%H%M%S')}"
-        )
-        backup.write_bytes(user_file.read_bytes())
-
+def _write_generated_session_user_file(
+    *,
+    user_file: Path,
+    username: str,
+    role: str,
+    rotate_credentials: bool,
+) -> tuple[str, AppliedFile]:
     password = secrets.token_urlsafe(24)
-    username = args._demo_username
     try:
         user_record = make_user_record(
             username=username,
             plaintext_password=password,
-            role=args.demo_role,
+            role=role,
         )
     except ValueError as exc:
         raise ProfileError(str(exc)) from exc
     payload = {
         "users": [user_record]
     }
-    user_file.parent.mkdir(parents=True, exist_ok=True)
-    user_file.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    user_file.chmod(0o600)
+    applied = _apply_file(
+        user_file,
+        (json.dumps(payload, indent=2) + "\n").encode("utf-8"),
+        mode=0o600,
+        create_backup=user_file.exists() and rotate_credentials,
+    )
+    return password, applied
 
-    return [
-        f"Generated browser-session user file: {user_file}",
-        f"Demo username: {username}",
-        f"Demo password: {password}",
-        "Store this password now; it is shown once and only the PBKDF2 hash was written.",
-        (
-            "Open the dashboard on the lab LAN/private overlay at "
-            f"http://{args._demo_origin_host}:{args._demo_dashboard_port}"
-        ),
-        (
-            "LAB ONLY: allow dashboard port "
-            f"{args._demo_dashboard_port} and backend/API media port "
-            f"{args._demo_http_stream_port} only from trusted demo devices."
-        ),
-        "LAB ONLY: do not use this HTTP profile for production or untrusted networks.",
-    ]
+
+def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[AppliedFile]]:
+    if args.profile == "demo_lan_browser":
+        user_file: Path = args._demo_session_user_file
+        if args.dry_run:
+            return [
+                f"Would generate browser-session user file: {user_file}",
+                "Would print the generated password once; plaintext is never written to disk.",
+                "LAB ONLY: use this profile only on an isolated operator-approved LAN/private overlay without TLS.",
+            ], []
+
+        password, applied = _write_generated_session_user_file(
+            user_file=user_file,
+            username=args._demo_username,
+            role=args._demo_role,
+            rotate_credentials=args._demo_rotate_credentials,
+        )
+
+        return [
+            f"Generated browser-session user file: {user_file}",
+            f"Demo username: {args._demo_username}",
+            f"Demo password: {password}",
+            "Store this password now; it is shown once and only the PBKDF2 hash was written.",
+            (
+                "Open the dashboard on the lab LAN/private overlay at "
+                f"http://{args._demo_origin_host}:{args._demo_dashboard_port}"
+            ),
+            (
+                "LAB ONLY: allow dashboard port "
+                f"{args._demo_dashboard_port} and backend/API media port "
+                f"{args._demo_http_stream_port} only from trusted demo devices."
+            ),
+            "LAB ONLY: do not use this HTTP profile for production or untrusted networks.",
+        ], [applied]
+
+    if args.profile == "production_remote":
+        user_file = args._production_session_user_file
+        proxy_target = f"http://127.0.0.1:{args._production_http_stream_port}"
+        if args.dry_run:
+            return [
+                f"Would generate production browser-session user file: {user_file}",
+                (
+                    f"Would write one-time credential handoff file: {args._production_credential_handoff_file}"
+                    if args._production_credential_handoff_file is not None
+                    else "Would print the generated password once to the acknowledged interactive/stdout channel."
+                ),
+                (
+                    "PRODUCTION REMOTE: configure an external HTTPS/WSS reverse proxy for "
+                    f"{args._production_origin}; PixEagle backend remains loopback at {proxy_target}."
+                ),
+                (
+                    "PRODUCTION REMOTE: serve the dashboard under /pixeagle and proxy "
+                    f"/pixeagle-api to {proxy_target}, or document an equivalent reviewed same-origin path."
+                ),
+                "This profile does not install a proxy, open firewall ports, deploy services, or prove production readiness.",
+            ], []
+
+        applied_files: list[AppliedFile] = []
+        password, applied = _write_generated_session_user_file(
+            user_file=user_file,
+            username=args._production_username,
+            role=args._production_role,
+            rotate_credentials=args.rotate_session_credentials,
+        )
+        applied_files.append(applied)
+
+        handoff_file = args._production_credential_handoff_file
+        if handoff_file is not None:
+            handoff_payload = {
+                "username": args._production_username,
+                "password": password,
+                "role": args._production_role,
+                "one_time_handoff": True,
+            }
+            try:
+                handoff_applied = _apply_file(
+                    handoff_file,
+                    (json.dumps(handoff_payload, indent=2) + "\n").encode("utf-8"),
+                    mode=0o600,
+                    create_backup=False,
+                )
+            except ProfileError as exc:
+                rollback_errors = _rollback_files(applied_files)
+                if rollback_errors:
+                    raise ProfileError(
+                        f"{exc}; credential rollback was incomplete: "
+                        + "; ".join(rollback_errors)
+                    ) from exc
+                raise
+            applied_files.append(handoff_applied)
+
+        summaries = [
+            f"Generated production browser-session user file: {user_file}",
+            f"Production username: {args._production_username}",
+            f"Production remote origin: {args._production_origin}",
+            (
+                "PRODUCTION REMOTE: configure HTTPS/WSS reverse proxy to serve the dashboard under "
+                f"/pixeagle and proxy /pixeagle-api to {proxy_target}."
+            ),
+            (
+                "PRODUCTION REMOTE: preserve Host and Origin, keep backend port "
+                f"{args._production_http_stream_port} off untrusted networks, and collect deployment evidence before claiming readiness."
+            ),
+        ]
+        if handoff_file is not None:
+            summaries.insert(
+                2,
+                f"Generated one-time credential handoff file: {handoff_file}",
+            )
+            summaries.insert(
+                3,
+                "Transfer the credential securely, then delete the handoff file; the runtime user file contains only the PBKDF2 hash.",
+            )
+        else:
+            summaries.insert(2, f"Production password: {password}")
+            summaries.insert(
+                3,
+                "Store this password now; it is shown once and only the PBKDF2 hash was written.",
+            )
+        return summaries, applied_files
+
+    return [], []
 
 
 def _print_profiles() -> None:
@@ -496,6 +1004,20 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--public-host",
+        help=(
+            "Public or deployment-stable TLS hostname/IP used by browser clients "
+            "for the production_remote profile. Do not include a scheme, path, or port."
+        ),
+    )
+    parser.add_argument(
+        "--public-origin",
+        help=(
+            "Optional HTTPS browser origin for production_remote. Defaults to "
+            "https://<public-host>; may include a port."
+        ),
+    )
+    parser.add_argument(
         "--http-stream-port",
         type=int,
         default=DEFAULT_HTTP_STREAM_PORT,
@@ -512,8 +1034,36 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         type=Path,
         default=DEFAULT_DEMO_USER_FILE,
         help=(
-            "External browser-session user JSON for demo_lan_browser. "
+            "External browser-session user JSON for demo_lan_browser or production_remote. "
             "Default: configs/secrets/demo-browser-users.json."
+        ),
+    )
+    parser.add_argument(
+        "--session-username",
+        help=(
+            "Generated browser-session username for profiles that create user "
+            "records. Overrides the demo-specific username when supplied."
+        ),
+    )
+    parser.add_argument(
+        "--session-role",
+        choices=["viewer", "operator", "admin"],
+        help="Role for generated browser-session users. Default: profile-specific.",
+    )
+    parser.add_argument(
+        "--credential-handoff-file",
+        type=Path,
+        help=(
+            "Optional 0600 JSON file for one-time generated production credentials. "
+            "Required for non-interactive production_remote use unless stdout disclosure is explicitly acknowledged."
+        ),
+    )
+    parser.add_argument(
+        "--show-generated-password",
+        action="store_true",
+        help=(
+            "Explicitly allow production_remote to print the generated password "
+            "to stdout. Avoid this in CI or captured orchestration logs."
         ),
     )
     parser.add_argument(
@@ -533,6 +1083,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help=(
             "Replace an existing demo_lan_browser user file after creating a "
             "timestamped backup."
+        ),
+    )
+    parser.add_argument(
+        "--rotate-session-credentials",
+        action="store_true",
+        help=(
+            "Replace an existing generated browser-session user file after "
+            "creating a timestamped backup."
         ),
     )
     parser.add_argument(
@@ -570,8 +1128,16 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         config, summaries = _build_plan(args)
-        written = _write_config(args, config)
-        artifact_summaries = _write_profile_artifacts(args)
+        artifact_summaries, applied_artifacts = _write_profile_artifacts(args)
+        try:
+            written, _config_applied = _write_config(args, config)
+        except ProfileError as exc:
+            rollback_errors = _rollback_files(applied_artifacts)
+            if rollback_errors:
+                raise ProfileError(
+                    f"{exc}; rollback was incomplete: {'; '.join(rollback_errors)}"
+                ) from exc
+            raise
     except ProfileError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

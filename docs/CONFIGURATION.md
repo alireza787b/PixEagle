@@ -119,9 +119,11 @@ The dashboard automatically detects the API host from `window.location.hostname`
 Use `REACT_APP_API_HOST_OVERRIDE` only for reviewed proxy/tunnel setups. A
 non-loopback reverse-proxy browser origin is not permitted in `local_only`;
 `trusted_lan_legacy` only opens the backend bind/CORS boundary. Backend
-browser-session auth exists, but production remote-browser operation still
-requires TLS/operator hardening, adversarial auth/media tests, and evidence
-gates.
+browser-session auth exists. For HTTPS/WSS reverse-proxy browser deployments,
+use `make production-remote-profile PUBLIC_HOST=<tls-host>
+SESSION_USER_FILE=<path>` or an equivalent reviewed config; production handoff
+still requires proxy/firewall evidence, credential handoff evidence,
+adversarial auth/media tests, and the normal safety gates.
 
 The checked-in backend policy is `local_only` on `127.0.0.1:5077` with an
 explicit loopback CORS allowlist. Startup fails when local-only configuration
@@ -143,8 +145,9 @@ trusted demo device/CIDR.
 
 TLS is not limited to public domain names, but HTTP over a private LAN or
 private overlay/VPN is only a lab/operator-approved test posture. Production
-remote browser access still needs TLS or an equivalent reviewed trust boundary,
-durable credentials, audit, adversarial auth/media tests, and evidence.
+remote browser access should use the guarded `production_remote` profile or an
+equivalent reviewed config with TLS or an equivalent trust boundary, durable
+credentials, audit, adversarial auth/media tests, and evidence.
 
 Backend Host and browser-origin controls live under `Streaming`:
 
@@ -160,7 +163,9 @@ Streaming:
 
 `API_ALLOWED_HOSTS` is the backend HTTP `Host` allowlist for reviewed
 non-loopback profiles. `API_CORS_ALLOWED_ORIGINS` is the browser Origin
-allowlist. Keep both exact; wildcards are rejected.
+allowlist. Keep both exact; wildcards are rejected. A reviewed non-loopback
+Host can arrive with the external reverse-proxy port, while loopback Host
+authorities remain pinned to `HTTP_STREAM_PORT`.
 
 Backend API authorization controls live under `Streaming`:
 
@@ -186,7 +191,8 @@ The official quick-start default is a same-host beginner demo: run PixEagle and
 open the dashboard locally without creating credentials. When the dashboard or
 backend is reachable from another phone, tablet, or GCS machine, use an explicit
 profile instead of broadening the default. Full remote browser demos should
-generate `browser_session` users; QGC field video should normally use
+generate `browser_session` users; production remote browser deployments should
+use `production_remote` behind HTTPS/WSS; QGC field video should normally use
 GStreamer H.264/RTP/UDP; future direct remote QGC HTTP/WS video should use a
 `machine_bearer` token with only `media:read` plus explicit
 `API_ALLOWED_HOSTS`. See

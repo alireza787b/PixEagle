@@ -467,6 +467,13 @@ def test_setup_profiles_are_documented_and_linked_from_onboarding_docs():
         "port `5077`",
         "TLS is not only for domain names",
         "production_remote",
+        "make production-remote-profile",
+        "SESSION_USER_FILE",
+        "CREDENTIAL_HANDOFF_FILE",
+        "API_SESSION_COOKIE_SECURE: true",
+        "serve the dashboard under `/pixeagle`",
+        "proxy `/pixeagle-api`",
+        "production remote reverse-proxy runbook",
         "unsafe_demo_lan_media_only",
         "Do not create a no-password remote control panel",
         "Authorization",
@@ -488,6 +495,22 @@ def test_setup_profiles_are_documented_and_linked_from_onboarding_docs():
     )
 
     assert not missing, "\n".join(missing)
+
+
+def test_production_remote_runbook_preserves_proxy_firewall_and_evidence_boundary():
+    runbook = (
+        PROJECT_ROOT / "docs" / "setup" / "production-remote-reverse-proxy.md"
+    ).read_text(encoding="utf-8")
+
+    for required in [
+        "POSIX owner-only file modes",
+        "proxy_pass http://127.0.0.1:5077/",
+        "proxy_set_header Upgrade",
+        "Do not open `3040` or `5077`",
+        "Evidence Checklist",
+        "Rollback",
+    ]:
+        assert required in runbook
 
 
 def test_remote_browser_docs_keep_lab_overlay_and_production_tls_boundaries():
@@ -522,16 +545,22 @@ def test_remote_browser_docs_keep_lab_overlay_and_production_tls_boundaries():
             "port `5077`",
             "%25eth0",
             "TLS is not only for domain names",
+            "make production-remote-profile",
+            "proxy `/pixeagle-api`",
         ],
         "remote": [
             "Lab/private-overlay browser demo",
             "TLS is not a domain-only concept",
             "overlay remains a lab or operator-approved test profile",
             "IPv6 zone identifiers",
+            "production_remote",
+            "dashboard served under `/pixeagle`",
         ],
         "exposure": [
             "private overlay is still not a production remote-browser approval",
             "TLS is not limited to public domain names",
+            "production-remote-profile",
+            "HTTPS/WSS reverse proxy",
         ],
         "qgc": [
             "private overlay/VPN",

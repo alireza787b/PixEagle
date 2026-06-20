@@ -27,6 +27,7 @@ import {
   Pause,
   PlayArrow
 } from '@mui/icons-material';
+import { Link as RouterLink } from 'react-router-dom';
 import { useCurrentFollowerProfile } from '../hooks/useFollowerSchema';
 
 
@@ -171,7 +172,7 @@ const FollowerStatusCard = memo(({ followerData = {} }) => {
             Follower Status
           </Typography>
           <Tooltip title="Go to Follower Page">
-            <IconButton size="small" onClick={() => window.location.href = '/follower'}>
+            <IconButton size="small" component={RouterLink} to="/follower">
               <Settings />
             </IconButton>
           </Tooltip>

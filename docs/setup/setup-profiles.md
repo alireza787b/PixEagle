@@ -155,14 +155,105 @@ not production remote access; enable TLS or a reviewed equivalent deployment
 boundary plus durable deployment-managed credentials before using PixEagle on
 untrusted or production networks.
 
-## Defined But Not Automated Yet
+### `production_remote`
+
+Use this when PixEagle will sit behind a separately secured HTTPS/WSS reverse
+proxy or equivalent reviewed trust boundary:
+
+```bash
+install -d -m 0700 "$HOME/.config/pixeagle/secrets"
+make production-remote-profile \
+  PUBLIC_HOST=pixeagle.example \
+  SESSION_USER_FILE="$HOME/.config/pixeagle/secrets/browser-users.json" \
+  CREDENTIAL_HANDOFF_FILE="$HOME/.config/pixeagle/secrets/initial-credentials.json"
+```
+
+Optional custom public origin:
+
+```bash
+make production-remote-profile \
+  PUBLIC_HOST=pixeagle.example \
+  PUBLIC_ORIGIN=https://pixeagle.example:8443 \
+  SESSION_USER_FILE="$HOME/.config/pixeagle/secrets/browser-users.json" \
+  CREDENTIAL_HANDOFF_FILE="$HOME/.config/pixeagle/secrets/initial-credentials.json"
+```
+
+`PUBLIC_HOST` is the browser-visible TLS endpoint host, without scheme, path, or
+port. If a non-standard HTTPS port is needed, put it in `PUBLIC_ORIGIN`.
+`SESSION_USER_FILE` is required and must be a deployment-managed path; the
+profile refuses to reuse the demo credential path. The tool generates an
+external PBKDF2-SHA256 browser-session user file and sets
+`API_SESSION_COOKIE_SECURE: true`. Interactive use can show the generated
+password once. Non-interactive use must provide `CREDENTIAL_HANDOFF_FILE` or
+explicitly acknowledge captured stdout with `SHOW_GENERATED_PASSWORD=1`.
+Delete the owner-only handoff file after secure transfer.
+
+Production credential generation currently runs on the Linux deployment host
+because POSIX owner-only mode is enforced; Windows ACL automation is not yet
+evidence-backed. The setup utility rejects output-path collisions and applies
+credential/config writes atomically with rollback if the later config commit
+fails.
+
+The profile intentionally keeps the PixEagle backend loopback-only. It prepares
+PixEagle for a reverse proxy; it does not install nginx/Caddy, open firewall
+ports, register services, run SITL/HIL, or prove the deployment:
+
+```yaml
+Streaming:
+  API_EXPOSURE_MODE: trusted_lan_legacy
+  HTTP_STREAM_HOST: 127.0.0.1
+  HTTP_STREAM_PORT: 5077
+  API_CORS_ALLOWED_ORIGINS:
+    - https://pixeagle.example
+  API_ALLOWED_HOSTS:
+    - pixeagle.example:443
+  API_AUTH_MODE: browser_session
+  API_SESSION_USER_FILE: /home/operator/.config/pixeagle/secrets/browser-users.json
+  API_SESSION_COOKIE_SECURE: true
+  API_SECURITY_AUDIT_ENABLED: true
+```
+
+The recommended same-origin production shape is:
+
+- serve the dashboard under `/pixeagle`;
+- proxy `/pixeagle-api` to `http://127.0.0.1:5077`;
+- validate the external `Host` at the proxy and preserve the reviewed public
+  hostname when forwarding; public authority ports such as `:8443` are
+  accepted for exact allowed hosts while direct loopback requests remain pinned
+  to backend port `5077`;
+- preserve and validate `Origin`;
+- keep direct backend port `5077` closed to untrusted networks;
+- use HTTPS/WSS with a browser-trusted public certificate, internal PKI, or
+  another reviewed trust anchor.
+
+Follow the maintained
+[production remote reverse-proxy runbook](production-remote-reverse-proxy.md)
+for Linux ownership, nginx path rewriting, WebSocket upgrade handling,
+firewall boundaries, evidence collection, and rollback.
+
+The dashboard already supports this shape: when served under `/pixeagle`, it
+routes API and media calls through `/pixeagle-api`. If an operator chooses a
+different path or direct API origin, document the reverse-proxy rules and CORS
+origin explicitly before handoff.
+
+When `make run` sees this loopback backend/browser-session profile, it keeps
+the static dashboard server on loopback by default. The LAN auto-bind behavior
+is reserved for `demo_lan_browser`, where the backend bind is intentionally
+non-loopback. To expose the production dashboard, terminate HTTPS/WSS at the
+reviewed proxy or tunnel instead of relying on the raw development server.
+
+Production readiness still requires operator review, proxy/firewall evidence,
+credential handoff evidence, adversarial browser/session/media tests, and the
+normal PixEagle safety evidence gates. Do not claim production remote-browser
+success from the setup-profile output alone.
+
+## Unsupported Or Not Automated
 
 These profiles are part of the product contract, but the setup utility refuses
 to apply them until their remaining security and evidence gates are completed.
 
 | Profile | Intent | Current status |
 | --- | --- | --- |
-| `production_remote` | Hardened remote operator profile with TLS, durable credentials, exact Host/CORS allowlists, role/scopes, and audit evidence | Defined; gated by TLS/operator hardening, adversarial auth/media tests, and deployment evidence |
 | `unsafe_demo_lan_media_only` | Explicit anonymous media-only lab exception, never a dashboard/control profile and never default | Not supported |
 
 Do not create a no-password remote control panel. If a beginner needs remote
@@ -183,6 +274,7 @@ Preview changes:
 ```bash
 python scripts/setup/apply-setup-profile.py --profile field_qgc_video --gcs-host 192.168.10.20 --dry-run
 python scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host 192.168.10.42 --dry-run
+python scripts/setup/apply-setup-profile.py --profile production_remote --public-host pixeagle.example --session-user-file "$HOME/.config/pixeagle/secrets/browser-users.json" --credential-handoff-file "$HOME/.config/pixeagle/secrets/initial-credentials.json" --dry-run
 ```
 
 Apply changes:
@@ -190,6 +282,7 @@ Apply changes:
 ```bash
 python scripts/setup/apply-setup-profile.py --profile field_qgc_video --gcs-host 192.168.10.20
 python scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host 192.168.10.42
+python scripts/setup/apply-setup-profile.py --profile production_remote --public-host pixeagle.example --session-user-file "$HOME/.config/pixeagle/secrets/browser-users.json" --credential-handoff-file "$HOME/.config/pixeagle/secrets/initial-credentials.json"
 ```
 
 When the destination `configs/config.yaml` already exists, the tool creates a

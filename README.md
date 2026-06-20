@@ -144,9 +144,13 @@ scripts\stop.bat           # Stop all services
   the generated username/password. The browser uses dashboard port `3040` and
   backend/API media port `5077`. This HTTP profile is for isolated LAN or
   operator-approved private-overlay testing, not production remote access.
-- **Production remote operator access**: use an SSH tunnel or a reviewed
-  TLS/VPN deployment; production non-loopback browser operation remains gated on
-  TLS/operator hardening, adversarial auth/media tests, and evidence
+- **Production remote operator access**: use an SSH tunnel, or generate the
+  PixEagle-side reverse-proxy config with
+  `make production-remote-profile PUBLIC_HOST=<tls-host> SESSION_USER_FILE=<path>`.
+  That profile keeps the backend loopback and requires HTTPS/WSS proxy,
+  firewall, credential handoff, adversarial auth/media tests, and evidence
+  before production handoff. Follow the
+  [production remote runbook](docs/setup/production-remote-reverse-proxy.md).
 
 The backend is local-only by default and rejects contradictory local-only bind
 or CORS configuration. Non-loopback backend API clients require scoped bearer
@@ -254,9 +258,11 @@ and exact Host/CORS allowlists, then restart PixEagle with `make run` and open
 can be used on an operator-approved private overlay/VPN address for lab testing;
 allow `3040` and `5077` only from the trusted demo device/CIDR.
 TLS is not domain-only, but production non-loopback reverse-proxy/VPN browser
-operation remains deferred until TLS or an equivalent reviewed trust boundary,
-operator deployment hardening, adversarial auth/media tests, and evidence gates
-are complete.
+operation should use `make production-remote-profile
+PUBLIC_HOST=<tls-host> SESSION_USER_FILE=<path>` or an equivalent reviewed
+configuration. The profile keeps PixEagle loopback behind HTTPS/WSS; production
+handoff still requires proxy/firewall evidence, credential handoff evidence,
+adversarial auth/media tests, and the normal safety gates.
 
 Keep PixEagle backend `5077`, MAVLink2REST `8088`, and MAVLink local endpoints
 behind localhost or SSH tunnels unless the deployment has an explicit
