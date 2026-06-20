@@ -111,7 +111,7 @@ it together with:
 | Phase 4 streaming lifecycle cleanup | done | PXE-0068 partial | `checkpoints/2026-06-19-phase-4-streaming-lifecycle-cleanup.md`; stale backend WebSocket streaming clients, including clients that never received a frame, now close through one idempotent cleanup path; FastAPI shutdown closes tracked WebSockets, cancels background tasks, and drains WebRTC peers; AppController shutdown releases GStreamer output; GStreamer release nulls the writer and drains queued frames; focused unit/docs gates preserve process-local media-health claim boundaries |
 | Phase 4 LAN/private-overlay browser profile hardening | done | PXE-0072 | `checkpoints/2026-06-19-phase-4-lan-overlay-browser-profile-hardening.md`; clarified that TLS is not domain-only while HTTP LAN/private-overlay browser access is lab-only; hardened `demo_lan_browser` host validation for RFC1918, shared private-overlay/CGNAT, link-local, IPv6 ULA/link-local, malformed URL/IPv6, query/fragment, port, public/documentation/multicast, and zone-identifier cases; documented the two-port browser demo requirement (`3040` dashboard plus authenticated `5077` backend/API media) without weakening production gates; Windows `scripts/run.bat` now mirrors Linux by binding the dashboard on LAN only for `trusted_lan_legacy` plus `browser_session` |
 | Phase 4 production remote profile | done | PXE-0068/PXE-0064 partial | `checkpoints/2026-06-20-phase-4-production-remote-profile.md`; `production_remote` now atomically generates PixEagle-side HTTPS/WSS reverse-proxy config with rollback, loopback backend bind, exact TLS Host authority/CORS, `browser_session`, secure cookie, audit enabled, external hashed user file, controlled one-time credential handoff, guarded host/origin/path validation, Makefile wrapper, relative dashboard assets, basename-aware navigation, and Linux/Windows launcher behavior that keeps reverse-proxy profiles loopback; the maintained nginx/firewall/evidence runbook does not claim proxy/service installation, TLS deployment, SITL/HIL/field run, or production handoff evidence |
-| Phase 4 production remote browser evidence and media-session revocation | in_progress | PXE-0073 / PXE-0064 partial | Dashboard proxy normalization, active MJPEG/video-WebSocket/WebRTC session revocation, and the opt-in self-signed HTTPS Playwright harness are implemented. Exact authority/path ledgers, generated-secret scanning, sanitized uploads, managed Chromium, current-checkout builds, bounded cleanup, clean-checkout evidence, independent re-review, and the checkpoint report are the remaining closeout gates. Target nginx/Caddy, trusted certificate, firewall, service ownership, and operator deployment evidence remain PXE-0064/PXE-0068 gates. |
+| Phase 4 production remote browser evidence and media-session revocation | done | PXE-0073 / PXE-0064 partial | `checkpoints/2026-06-20-phase-4-production-remote-browser-e2e.md`; dashboard consumers use the reverse-proxy endpoint registry; active MJPEG/video-WebSocket/WebRTC signaling sessions terminate after browser-session revocation; WebRTC peer IDs/capacity are server-owned and bounded; the manual-only self-signed HTTPS Playwright harness enforces exact authority/path/route-query rules, current-checkout builds, managed Chromium provenance, bounded cleanup, raw/final-upload secret scans, and sanitized uploads; exact clean-revision evidence `20260620T215137Z-5ce38f` passed on commit `bf32df19ec7f1e8855c1ea934cfb50128a0cf4ea`; target nginx/Caddy, trusted certificate, firewall, service ownership, and operator deployment evidence remain PXE-0064/PXE-0068 gates |
 
 ## Active Slice
 
@@ -158,19 +158,13 @@ action-resource lookup now live in `src/classes/api_v1_actions.py`, while
 `FastAPIHandler` keeps one-call route wrappers. PXE-0060 is done for typed
 read-route error-boundary extraction: runtime/following/tracking/telemetry
 health read-route error handling now lives in `src/classes/api_v1_read_routes.py`,
-while `FastAPIHandler` keeps one-call read route wrappers. PXE-0061 is done for
-legacy control compatibility-route extraction: legacy Offboard start and
-operator cancel bodies now live in `src/classes/api_legacy_control_routes.py`,
-while `FastAPIHandler` keeps one-call wrappers and candidate provenance hashes
-that helper until the legacy aliases can be removed. PXE-0062 is done for the
-remaining legacy Offboard stop route body: stop execution now lives in the same
-legacy-control helper, while `FastAPIHandler` keeps a one-call wrapper and
-focused tests cover inactive, active, emergency-cleanup, cleanup-failure, and
-unreadable-final-state stop behavior. PXE-0063 is done for the typed
-Offboard-stop action/deprecation path: `/api/v1/actions/offboard-stop` now has
-typed action semantics, dashboard Start Following, Stop Following, and Cancel
-Tracker use typed action endpoints, and legacy stop is deprecated with action
-audit plus fail-closed local warning/cleanup-error/active-state reporting.
+while `FastAPIHandler` keeps one-call read route wrappers. PXE-0061/PXE-0062
+record the extraction of the former legacy Offboard/operator execution bodies
+before their public HTTP aliases were retired. PXE-0063 is done for typed
+`/api/v1/actions/offboard-stop`; dashboard Start Following, Stop Following, and
+Cancel Tracker use guarded typed actions, and the former public
+`/commands/start_offboard_mode`, `/commands/stop_offboard_mode`, and
+`/commands/cancel_activities` routes are no longer registered.
 PXE-0064 is in progress: the first containment foundation is done, so
 checked-in backend/dashboard/MAVLink2REST exposure is local-only, contradictory
 local-only bind/CORS configuration fails closed, Host/Origin/fetch-site and
@@ -214,13 +208,14 @@ PixEagle-side HTTPS/WSS reverse-proxy config, hashed browser-session credentials
 and a controlled one-time handoff while keeping backend/dashboard launchers
 loopback. It also adds a maintained nginx/firewall/evidence runbook and makes
 the dashboard build/navigation work under `/pixeagle`. PXE-0064 remains open
-for actual TLS/reverse-proxy/firewall evidence, credential handoff evidence,
-and broader end-to-end browser/session/media validation before production
-handoff. No runtime MCP endpoint, executor,
-`tools/list`, `tools/call`, or
-callable tool surface exists from these slices. These are still unit/contract
-evidence only; no runtime
-PX4/SITL pass is claimed. Official Gazebo runtime proof (PXE-0040) remains open
+only for target trusted-certificate/reverse-proxy/firewall/service-account/
+audit-path evidence, credential handoff evidence, target-host adversarial
+validation, and operator acceptance. PXE-0073 completed the local self-signed
+HTTPS/browser application-boundary harness and active media-session revocation
+with exact clean-revision evidence on commit `bf32df19`. No runtime MCP
+endpoint, executor, `tools/list`, `tools/call`, or callable tool surface exists
+from these slices. No runtime PX4/SITL pass is claimed. Official Gazebo runtime
+proof (PXE-0040) remains open
 for a native GUI/GPU host, a stronger headless runner, or a separately proven
 official-image startup workaround. Official SIH L2 probing starts a pinned PX4
 container and collects metadata/params/ULog/bounded logs, but no accepted
@@ -384,8 +379,11 @@ Recently completed Offboard commander follow-up issues:
   login throttling. Later dashboard client/media and security-audit foundations
   closed the frontend and audit-event portions, and the later
   Offboard/operator action-only and tracking/control alias-retirement slices
-  retired the dangerous public command aliases. PXE-0064 remains open for
-  operator credential/TLS hardening and broader adversarial tests.
+  retired the dangerous public command aliases, and PXE-0073 added local
+  clean-revision HTTPS/browser evidence plus active media-session revocation.
+  PXE-0064 remains open for target TLS/proxy/firewall/service-account evidence,
+  credential handoff, target-host adversarial validation, and operator
+  acceptance.
   Done in `checkpoints/2026-06-13-phase-4-api-auth-runtime-foundation.md`.
 - PXE-0036: backend/API typed MAVLink telemetry health now separates latest
   request result, last-success freshness, cached payload availability, consumer
@@ -503,8 +501,8 @@ Current host boundary:
 | 3 | Official Gazebo visual SITL runtime proof | PXE-0040 | Execute the hardened official Gazebo profile on native Ubuntu GUI/GPU, a stronger headless runner, or a separately proven official-image startup workaround; capture video/tracker/follower/PX4 evidence and keep the manifest incomplete unless artifact and content checks pass. |
 | 3 | X-Plane/Windows SITL disposition | PXE-0020 | Rewrite as maintained evidence workflow or move to historical docs. |
 | 4 | API/MCP modernization | PXE-0008 | Continue typed `/api/v1` migration beyond the current status/telemetry/action resources: route migration tests, router extraction, command/action durability, curated agent registry/policy design, and FastAPI/OpenAPI client contract tests. Companion sidecar standards were closed under PXE-0022. |
-| 4 | API authentication and exposure boundary | PXE-0064 | Replace the current unauthenticated broad-bind posture with an explicit production trust/auth/authorization boundary; protect HTTP, WebSocket, video, and mutation paths; retire immediate legacy mutations; preserve local development ergonomics through explicit profiles. |
-| 4 | Bootstrap/setup UX cleanup | PXE-0068 | `demo_lan_browser` credential generation, exact Host/CORS, warning UX, private-overlay/TLS policy clarification, guarded `production_remote` reverse-proxy config generation, Windows/Linux launcher handoff, binary provenance, typed backend media-health reporting, dashboard/service media-health adoption, and media lifecycle cleanup are implemented; production handoff still requires external proxy/firewall/credential evidence and adversarial auth/media tests; remove any remaining stale setup/service/download contradictions found in later slices. |
+| 4 | API authentication and exposure boundary | PXE-0064 | Collect target trusted-certificate/reverse-proxy/firewall/service-account/audit-path evidence, secure credential-handoff evidence, target-host adversarial browser/session/media results, and operator acceptance. The checked-in local trust/auth/authorization boundary and local clean-revision browser evidence are complete. |
+| 4 | Bootstrap/setup UX cleanup | PXE-0068 | `demo_lan_browser`, guarded `production_remote`, launcher handoff, binary provenance, typed media health, lifecycle cleanup, and local browser evidence are implemented; production handoff still requires target proxy/firewall/credential/service evidence and target-host adversarial/operator validation; remove any setup/service/download contradictions found in later slices. |
 | 4 | QGC authenticated remote HTTP/WS media | PXE-0070 | Rebase/repair PR #13594 and add reviewed Authorization/Origin/TLS/redaction/test support before advertising remote PixEagle HTTP/WebSocket media from QGC on a different host. |
 | 4 | Dashboard API/client normalization | PXE-0008, PXE-0021 | Continue typed client consolidation beyond telemetry/tracker health, migrate remaining dashboard consumers away from legacy route shapes, and move from CRA to a supported frontend toolchain. |
 | 5 | Gimbal provider expansion | PXE-0023 | Add MAVLink Gimbal v2 or vendor-specific providers when selected hardware/protocol evidence is available. |

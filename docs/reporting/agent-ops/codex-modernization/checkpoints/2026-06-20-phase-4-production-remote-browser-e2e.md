@@ -153,15 +153,28 @@
   follower behavior, QGC compatibility, Docker/PX4/SITL/HIL, field operation,
   or real-aircraft behavior.
 
-## Remaining Closeout Gate
+## Exact Clean-Revision Evidence
 
-- Commit the implementation and this provisional checkpoint.
-- Run the harness from that exact clean commit and require:
+- Evidence commit:
+  - `bf32df19ec7f1e8855c1ea934cfb50128a0cf4ea`
+- Accepted run:
+  - `reports/production-remote-browser/20260620T215137Z-5ce38f`
+- Provenance:
   - `git_worktree_clean: true`;
-  - matching commit and source hashes;
-  - accepted browser, audit, cleanup, and secret-scan checks.
-- Update this checkpoint, journal, phase map, and PXE-0073 with the exact
-  clean-revision evidence before marking the slice done.
+  - recorded Git commit matches the evidence commit;
+  - recorded SHA-256 values match the current harness, auth runtime,
+    FastAPI handler, WebRTC manager, Playwright spec, and endpoint registry;
+  - Playwright-managed Chromium `149.0.7827.55`, revision `1228`.
+- Browser/audit results:
+  - 210 requests, 111 responses, 9 WebSocket observations;
+  - zero page errors and zero unexpected request failures;
+  - 104 expected route-navigation cancellations: 90 XHR and 14 fetch;
+  - all browser, adversarial HTTP, process-cleanup, security-audit, retained
+    artifact, and finalized upload-bundle checks passed;
+  - 115 sanitized security-audit events;
+  - no generated secret value was echoed into scan output.
+- PXE-0073 is complete. Target deployment evidence remains open only under
+  PXE-0064/PXE-0068.
 
 ## Next Planned Slices
 
