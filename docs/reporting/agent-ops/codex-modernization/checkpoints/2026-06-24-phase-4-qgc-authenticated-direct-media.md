@@ -53,6 +53,11 @@
 - Qt/GIO macro and `-Wshadow` fixes: `04e20d7dc5789f3a6cc184f1afc24a5186a0a735`
 - Test warning/incomplete-type fix: `d2025e08d`
 - Descriptor-identity/CodeQL fix: `bdc4f85c0`
+- WebSocket JPEG delivery CI timing/caps fix: `717f083c5`
+- WebSocket JPEG delivery stabilization fix: `27e6f4a12`
+- VideoSettings test fixture lifetime fix: `b2f6405a4`
+- WebSocket JPEG source-thread delivery test fix: `d97e3f84e`
+- WebSocket JPEG appsrc-pad delivery observation fix: `b98848b2c`
 - Feature delta from upstream: 33 intended files; no unrelated merge
   resolutions or force-push.
 
@@ -93,6 +98,47 @@
     integration test steps with exit code 8;
   - `gh run view` exposed the failed job/step boundaries in this session but
     did not return failed-step log bodies, so root cause is still unresolved.
+- 2026-06-25 follow-up:
+  - root cause triage found the Windows x64 failure happened before build while
+    `aqtinstall` unpacked Qt (`Bad7zFile: lib/Qt6PositioningQuick.lib`), which
+    is dependency/cache infrastructure until reproduced otherwise;
+  - root cause triage found the Linux failure was in the QGC-added
+    `GStreamerTest::_testWebSocketJpegDelivery()` sample wait;
+  - pushed QGC commit `717f083c5` to add explicit `image/jpeg` caps to the test
+    `appsrc` pipeline and replace fixed 3000 ms waits with QGC
+    `TestTimeout::mediumMs()`;
+  - the new head `717f083c5` cleared the prior Windows x64 Release failure, but
+    Linux `Test + Coverage linux_gcc_64 Debug` still failed at the same
+    WebSocket JPEG sample assertion;
+  - pushed QGC commit `27e6f4a12` to align the test `appsrc` settings with the
+    production source, wait for a usable GStreamer pipeline state, explicitly
+    flush/wait for WebSocket bytes, and use a bounded appsink pull timeout;
+  - the new head `27e6f4a12` no longer reported the WebSocket JPEG delivery
+    test as the failing test, but Linux `Test + Coverage linux_gcc_64 Debug`
+    still failed because `VideoSettingsTest::_testAuthenticatedTransportPolicy()`
+    segfaulted during test fixture teardown after the `VideoSettings` owner had
+    been destroyed;
+  - pushed QGC commit `b2f6405a4` to keep `VideoSettings` alive until after
+    `SettingsFixture` restores saved `Fact` values in the VideoSettings tests;
+  - the new head `b2f6405a4` proved the `VideoSettingsTest` fixture-lifetime
+    fix in CI (`100% tests passed, 0 tests failed out of 156` for that phase),
+    but Linux `Test + Coverage linux_gcc_64 Debug` still failed in the
+    integration `GStreamerTest::_testWebSocketJpegDelivery()` appsink sample
+    assertion;
+  - pushed QGC commit `d97e3f84e` to run the WebSocket JPEG delivery test on a
+    dedicated source thread like production and add a source-side
+    `jpegFramePushed` signal emitted only after `gst_app_src_push_buffer`
+    succeeds;
+  - the new head `d97e3f84e` still failed only in Linux integration
+    `GStreamerTest::_testWebSocketJpegDelivery()` at the downstream appsink
+    sample assertion; all visible platform builds/checks outside that Linux
+    coverage job were green or neutral;
+  - pushed QGC commit `b98848b2c` to remove the temporary production
+    `jpegFramePushed` signal and assert WebSocket JPEG delivery by observing
+    the exact JPEG bytes on the `appsrc` source pad instead of relying on the
+    GitHub runner's appsink sample queue;
+  - PR #13594 stayed draft and the new CI matrix for head `b98848b2c` was
+    queued/in progress at report time.
 
 ## Independent Review
 
@@ -120,8 +166,13 @@
   TLS proxy, custom-CA behavior on each target OS, external reachability, or
   operator acceptance.
 - This slice does not prove a fully green QGC PR matrix. PR #13594 is draft
-  until the failed Windows x64 and Linux coverage jobs are understood or fixed,
-  and until the user-run receiver suite validates the branch.
+  until head `b98848b2c` has clean CI or documented residual failures and the
+  user-run receiver suite validates the branch. The prior Windows x64
+  dependency failure did not reproduce on head `717f083c5`; the Linux WebSocket
+  JPEG delivery failure was replaced by a VideoSettings test-fixture lifetime
+  failure on `27e6f4a12`, patched in `b2f6405a4`, then the WebSocket delivery
+  failure recurred in the integration phase and was patched again in
+  `d97e3f84e` and `b98848b2c`.
 - No service installation, reverse-proxy/firewall mutation, camera/tracker/
   follower run, Docker/PX4/SITL/HIL, field test, or real-aircraft action was
   performed or claimed.
@@ -132,8 +183,11 @@
 ## Next Gate
 
 1. Keep PR #13594 in draft while the branch is not user-tested end to end.
-2. Resolve or document the failing QGC Windows x64 Release and Linux
-   Test+Coverage jobs.
+2. Resolve or document any remaining QGC CI failures on head `b98848b2c`; the
+   prior Windows x64 Release setup failure cleared, the VideoSettings
+   fixture-lifetime fix passed the unit-test phase, and the current queued
+   follow-up specifically targets the WebSocket JPEG appsrc-to-appsink
+   integration-test flake.
 3. Install a CI-built QGC artifact on selected target GCS platforms.
 4. Deploy the documented external HTTPS/WSS proxy on a non-aircraft test host.
 5. Exercise anonymous generic sources and authenticated PixEagle sources,
