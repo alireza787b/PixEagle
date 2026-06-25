@@ -13,9 +13,10 @@ PR comments, and bootstrap profiles do not drift into conflicting guidance.
 - Treat PixEagle as one configured source profile that uses the generic QGC
   feature set: URL, optional headers, optional WebSocket Origin, TLS policy, and
   credential redaction.
-- Do not advertise remote PixEagle HTTP/WebSocket compatibility until QGC can
-  send scoped credentials and the PixEagle deployment has a reviewed remote
-  media profile.
+- QGC PR #13594 now has a repaired implementation for scoped credentials,
+  Origin, strict TLS/custom CA, URL redaction, and bounded WebSocket JPEG
+  messages. Do not advertise deployment success until QGC CI and a target
+  PixEagle-to-QGC receiver test pass.
 
 ## Source Profiles
 
@@ -25,7 +26,7 @@ PR comments, and bootstrap profiles do not drift into conflicting guidance.
 | Generic WebSocket video | Custom JPEG-frame WebSocket server | URL-only or source-specific headers when implemented | Not a PixEagle backend profile |
 | PixEagle same-host development | `http://127.0.0.1:5077/video_feed` and `ws://127.0.0.1:5077/ws/video_feed` | URL-only loopback source | Supported with `local_only` + `local_compat` |
 | PixEagle field QGC video | H.264/RTP/UDP to QGC port | QGC UDP h.264 Video Stream | Supported field path |
-| PixEagle remote HTTP/WS | Pi/Jetson backend to remote GCS QGC | Bearer header, WebSocket Origin, TLS/WSS, redaction | Deferred to PXE-0070 |
+| PixEagle remote HTTP/WS | Pi/Jetson backend to remote GCS QGC | Bearer header, exact WebSocket Origin, TLS/WSS, custom CA, redaction | Guarded `qgc_direct_media` setup exists; QGC CI and target playback evidence remain required |
 | PixEagle anonymous LAN backend | `http://<pi-ip>:5077/video_feed` without auth | Should not be a QGC compatibility target | Rejected |
 
 ## Beginner Demo Policy
@@ -40,6 +41,7 @@ Recommended bootstrap profiles for PXE-0068:
 | --- | --- | --- |
 | `local_dev` | Developer starts PixEagle and opens the dashboard on the same host | Loopback backend and dashboard, `local_compat` |
 | `field_qgc_video` | Beginner sees video in QGC from another device | GStreamer H.264/RTP/UDP only; backend remains loopback |
+| `qgc_direct_media` | Advanced QGC client consumes MJPEG or WebSocket JPEG through TLS | Generated `media:read` bearer token, exact Host/Origin, loopback backend behind HTTPS/WSS proxy |
 | `demo_lan_browser` | Beginner opens the dashboard from a phone/tablet on an isolated lab LAN or private overlay/VPN | `browser_session` with a generated username/password, explicit Host and CORS allowlists, warning banner/docs |
 | `production_remote` | Operator access from GCS/mobile | TLS, durable credentials, exact Host/CORS allowlists, audit, role/scopes |
 | `unsafe_demo_lan_media_only` | Temporary anonymous viewing in an isolated lab | Media-only, no control/dashboard mutation surface, explicit unsafe name, warnings, tests proving it is never default |
@@ -64,9 +66,8 @@ remote backend control.
 
 ## PixEagle Configuration Contract
 
-The future generic QGC HTTP/WS implementation will not make PixEagle work
-remotely by itself. PixEagle must be configured to allow the specific client
-profile.
+The generic QGC HTTP/WS implementation does not make PixEagle work remotely by
+itself. PixEagle must be configured to allow the specific client profile.
 
 ### Current field QGC video
 
@@ -108,66 +109,63 @@ http://127.0.0.1:5077/video_feed
 ws://127.0.0.1:5077/ws/video_feed
 ```
 
-### Future remote QGC HTTP/WS profile
+### Guarded remote QGC HTTP/WS profile
 
-Use this only after QGC supports optional generic headers, WebSocket Origin,
-TLS/WSS settings, and credential redaction:
+Generate the PixEagle-side profile:
 
-```yaml
-Streaming:
-  API_EXPOSURE_MODE: trusted_lan_legacy
-  HTTP_STREAM_HOST: 0.0.0.0
-  API_ALLOWED_HOSTS:
-    - pixeagle-pi.local
-    - <pixeagle-ip>
-  API_AUTH_MODE: machine_bearer
-  API_BEARER_TOKEN_FILE: /etc/pixeagle/media-tokens.json
+```bash
+make qgc-direct-media-profile PUBLIC_HOST=<tls-host>
 ```
 
-The QGC source profile must use the same PixEagle host authority that appears
-in `API_ALLOWED_HOSTS`, send `Authorization: Bearer <token>`, and use WSS/HTTPS
-with certificate validation for non-lab deployments. For a video-only QGC
-client, the token should have `media:read` only. Do not add `telemetry:read`,
+The profile keeps PixEagle on loopback, generates a hashed token file with only
+`media:read`, writes a one-time owner-only QGC handoff, and configures exact
+Host/Origin policy for an external HTTPS/WSS reverse proxy. It does not bind
+the backend to `0.0.0.0`. The proxy-facing authority must match the generated
+`API_ALLOWED_HOSTS` entry.
+
+QGC must use the generated URL host authority, select **Bearer token**, enter
+the generated token as a session credential, send the generated Origin, and
+retain strict certificate validation. Select a deployment CA file in QGC when
+the proxy certificate is not publicly trusted. For HTTPS MJPEG, that PEM is the
+complete trust database; for WSS it augments system trust. For a video-only QGC client,
+retain only `media:read`; do not add `telemetry:read`,
 `status:read`, control, config, model, recording, or safety scopes unless that
-client actually consumes those typed APIs and has a separate reviewed use case.
+client consumes those typed APIs under a separate reviewed use case.
 
 `API_CORS_ALLOWED_ORIGINS` is for browsers. Native QGC does not become
 authorized because its host is listed in CORS, and CORS is not a machine-client
-authorization mechanism. If the future QGC WebSocket implementation sends an
-`Origin` header, PixEagle must allow that exact Origin as part of the reviewed
-remote-media profile.
+authorization mechanism. The repaired QGC implementation sends an optional
+exact Origin, and `qgc_direct_media` puts that same value in PixEagle's
+allowlist.
 
-## QGC PR Follow-Up Requirements
+## QGC PR Implementation And Remaining Gates
 
-PXE-0070 should keep normal non-PixEagle sources working while adding optional
-generic auth controls:
+The repaired implementation keeps normal non-PixEagle sources working while
+adding optional generic controls:
 
 - HTTP/HTTPS MJPEG should keep accepting ordinary anonymous URLs.
-- Optional request headers should be supported for authenticated sources, with
+- Optional Basic/Bearer authentication is supported, with
   `Authorization: Bearer <token>` as the PixEagle remote profile.
-- WebSocket should support opening with a `QNetworkRequest` so Authorization and
-  Origin headers can be set when a source requires them.
-- HTTPS/WSS should validate certificates by default; any lab-only relaxed mode
-  must be explicit and visually marked unsafe.
+- WebSocket opens with a `QNetworkRequest`; Authorization and Origin are
+  configurable.
+- HTTPS/WSS validate certificates by default; WSS can add deployment CAs, while
+  HTTPS MJPEG can use a deployment PEM as its complete trust database. There is
+  no ignore-certificate-errors mode.
 - Credentials must not be stored in URLs, query strings, screenshots, or logs.
-- Synthetic test servers should cover anonymous generic success, PixEagle-style
-  401/403 failures, bearer success, wrong/missing Origin, TLS handling, and log
-  redaction.
+- Credentials are session-only or loaded from a validated owner-only Unix file;
+  settings persist only the optional file path.
+- WebSocket handling runs on a dedicated event-loop thread and feeds encoded
+  JPEG into QGC's existing parse/tee/decode/recording pipeline.
+
+Remaining gates are a clean QGC CI/build matrix, expanded negative auth/TLS
+coverage where practical, and a target receiver test over the reviewed proxy.
+PR #13594 is intentionally draft while those gates and user receiver tests are
+open.
 
 QGC PR clarification posted for this policy:
 
 - <https://github.com/mavlink/qgroundcontrol/pull/13594#issuecomment-4731276373>
 
-Suggested QGC PR update text when PXE-0070 starts changing code:
-
-```text
-PixEagle follow-up clarification: the QGC feature should remain generic for
-normal HTTP/HTTPS MJPEG and WebSocket sources such as IP cameras or lab test
-servers. PixEagle should be documented as one secure source profile, not
-hard-coded into QGC. For same-host development, PixEagle loopback URLs still
-work without extra headers. For remote PixEagle on a companion computer, QGC
-needs optional generic Authorization/Origin/TLS settings and credential
-redaction before we can advertise direct HTTP/WS compatibility. Field QGC video
-continues to use H.264/RTP/UDP until that authenticated profile is implemented
-and tested.
-```
+Leave the PR as draft until the repaired branch has clean CI and target
+PixEagle-to-QGC playback evidence. Any later PR comment should distinguish
+implemented generic behavior from unverified target deployment playback.

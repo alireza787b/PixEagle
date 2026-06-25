@@ -137,6 +137,8 @@ Implemented as a runtime authorization foundation:
   `API_AUTH_MODE=browser_session` cookie-session mode;
 - external JSON bearer token file with hashed, named, revocable records;
 - external JSON browser user file with PBKDF2-SHA256 password hashes;
+- descriptor-based auth-record loading with regular-file, owner, mode, hard-link,
+  symlink, and 1 MiB size enforcement on POSIX;
 - typed browser auth routes, HttpOnly session cookies, session CSRF, and
   process-local login throttling;
 - HTTP/MJPEG authorization before route execution or streaming response

@@ -18,7 +18,7 @@
 # ============================================================================
 
 .PHONY: help init run dev stop clean sync update reset-config setup-profile \
-        qgc-video-profile demo-lan-browser-profile production-remote-profile status logs \
+        qgc-video-profile qgc-direct-media-profile demo-lan-browser-profile production-remote-profile status logs \
         download-binaries binary-download-plan service-install service-uninstall service-enable \
         service-disable service-status service-logs service-attach phase0-check \
         sitl-dry-run sitl-probe sitl-sih-dry-run sitl-sih-probe \
@@ -53,6 +53,8 @@ help:
 	@echo "                            Preview pinned binary URLs/checksums"
 	@echo "    make setup-profile     Apply an explicit setup profile"
 	@echo "    make qgc-video-profile Configure field QGC video (GCS_HOST=<ip>)"
+	@echo "    make qgc-direct-media-profile"
+	@echo "                            Configure guarded HTTPS/WSS QGC direct media"
 	@echo "    make demo-lan-browser-profile"
 	@echo "                            Configure lab LAN dashboard (LAN_HOST=<this-host-ip>)"
 	@echo "    make production-remote-profile"
@@ -141,6 +143,13 @@ qgc-video-profile:
 		exit 2; \
 	fi
 	@$(PYTHON) scripts/setup/apply-setup-profile.py --profile field_qgc_video --gcs-host "$(GCS_HOST)" $(if $(GSTREAMER_PORT),--gstreamer-port "$(GSTREAMER_PORT)")
+
+qgc-direct-media-profile:
+	@if [ -z "$(PUBLIC_HOST)" ]; then \
+		echo "Usage: make qgc-direct-media-profile PUBLIC_HOST=<tls-hostname-or-stable-ip> [PUBLIC_ORIGIN=https://host] [QGC_TOKEN_FILE=<0600-json>] [QGC_HANDOFF_FILE=<0600-json>]"; \
+		exit 2; \
+	fi
+	@$(PYTHON) scripts/setup/apply-setup-profile.py --profile qgc_direct_media --public-host "$(PUBLIC_HOST)" $(if $(PUBLIC_ORIGIN),--public-origin "$(PUBLIC_ORIGIN)") $(if $(QGC_TOKEN_FILE),--bearer-token-file "$(QGC_TOKEN_FILE)") $(if $(QGC_HANDOFF_FILE),--qgc-handoff-file "$(QGC_HANDOFF_FILE)") $(if $(QGC_TOKEN_ID),--token-id "$(QGC_TOKEN_ID)") $(if $(QGC_TOKEN_SUBJECT),--token-subject "$(QGC_TOKEN_SUBJECT)") $(if $(filter 1 true TRUE yes YES on ON,$(ROTATE_QGC_TOKEN)),--rotate-qgc-token) $(SETUP_PROFILE_ARGS)
 
 demo-lan-browser-profile:
 	@if [ -z "$(LAN_HOST)" ]; then \

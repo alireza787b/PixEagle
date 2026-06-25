@@ -126,18 +126,25 @@ await asyncio.sleep(1 / Parameters.STREAM_FPS)
 
 ### QGroundControl
 
-The open QGroundControl HTTP-MJPEG PR can consume PixEagle's multipart stream
-when QGC runs on the same host as PixEagle and uses:
+The draft/test repaired QGroundControl HTTP-MJPEG PR can consume PixEagle's
+multipart stream when QGC runs on the same host as PixEagle and uses:
 
 ```text
 http://127.0.0.1:5077/video_feed
 ```
 
-For a normal aircraft/companion-to-ground-station deployment, prefer PixEagle's
-GStreamer H.264/RTP/UDP output instead of exposing the backend media endpoint.
-Remote direct HTTP-MJPEG requires a QGC build and configuration that can send
-reviewed API credentials; unauthenticated LAN access is not a supported
-PixEagle deployment mode. See [Remote Media Security](remote-media-security.md).
+For the simplest aircraft/companion-to-ground-station deployment, prefer
+PixEagle's GStreamer H.264/RTP/UDP output. For guarded direct HTTPS MJPEG, run:
+
+```bash
+make qgc-direct-media-profile PUBLIC_HOST=<tls-host>
+```
+
+Then configure the generated HTTPS URL and session bearer token in a draft/test
+QGC build containing PR #13594. PixEagle remains loopback behind the required
+proxy; unauthenticated LAN backend access is not supported. PR #13594 must
+leave draft and QGC CI plus target playback evidence must pass before handoff.
+See [Remote Media Security](remote-media-security.md).
 
 ### HTML/JavaScript
 

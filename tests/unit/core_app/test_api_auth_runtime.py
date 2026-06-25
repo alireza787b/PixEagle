@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import json
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -19,6 +20,7 @@ from classes.api_auth_runtime import (
     APILoginFailureLimiter,
     APIUserRecord,
     BearerTokenRecord,
+    MAX_AUTH_RECORD_FILE_BYTES,
     MAX_PBKDF2_ITERATIONS,
     MAX_SESSION_TTL_SECONDS,
     MIN_PBKDF2_ITERATIONS,
@@ -60,6 +62,15 @@ def _local_policy():
         cors_allowed_origins=["http://localhost:3040"],
         api_port=5077,
     )
+
+
+@pytest.fixture(autouse=True)
+def _owner_only_auth_test_files():
+    previous_umask = os.umask(0o077)
+    try:
+        yield
+    finally:
+        os.umask(previous_umask)
 
 
 def _trusted_lan_policy():
@@ -177,6 +188,61 @@ def test_user_file_loads_hashed_session_user_records(tmp_path):
         encoded=records[0].password_pbkdf2_sha256,
     )
     assert "correct-horse" not in user_file.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX ownership and mode checks")
+@pytest.mark.parametrize(
+    ("filename", "payload", "loader"),
+    [
+        (
+            "api_tokens.json",
+            {"tokens": [make_token_record(token_id="test", plaintext_token="secret", scopes=[STATUS_READ])]},
+            load_bearer_token_records,
+        ),
+        (
+            "api_users.json",
+            {"users": [make_user_record(username="operator", plaintext_password="correct-horse")]},
+            load_user_records,
+        ),
+    ],
+)
+def test_auth_record_files_reject_group_or_other_access(tmp_path, filename, payload, loader):
+    auth_file = tmp_path / filename
+    auth_file.write_text(json.dumps(payload), encoding="utf-8")
+    auth_file.chmod(0o644)
+
+    with pytest.raises(APIAuthConfigurationError, match="inaccessible to group/other"):
+        loader(auth_file)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX no-follow and hard-link checks")
+def test_auth_record_files_reject_symlinks_and_hardlinks(tmp_path):
+    token_file = tmp_path / "api_tokens.json"
+    token_file.write_text(
+        json.dumps(
+            {"tokens": [make_token_record(token_id="test", plaintext_token="secret", scopes=[STATUS_READ])]}
+        ),
+        encoding="utf-8",
+    )
+
+    symlink_path = tmp_path / "api_tokens-symlink.json"
+    symlink_path.symlink_to(token_file)
+    with pytest.raises(APIAuthConfigurationError, match="symbolic link|read safely"):
+        load_bearer_token_records(symlink_path)
+
+    hardlink_path = tmp_path / "api_tokens-hardlink.json"
+    os.link(token_file, hardlink_path)
+    with pytest.raises(APIAuthConfigurationError, match="multiple hard links"):
+        load_bearer_token_records(token_file)
+
+
+def test_auth_record_files_reject_oversized_payload(tmp_path):
+    token_file = tmp_path / "api_tokens.json"
+    token_file.write_bytes(b"{" + b" " * MAX_AUTH_RECORD_FILE_BYTES + b"}")
+    token_file.chmod(0o600)
+
+    with pytest.raises(APIAuthConfigurationError, match="byte limit"):
+        load_bearer_token_records(token_file)
 
 
 @pytest.mark.asyncio

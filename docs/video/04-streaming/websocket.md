@@ -50,20 +50,25 @@ ws.binaryType = 'arraybuffer';
 
 ### QGroundControl
 
-The open QGroundControl WebSocket-video PR can consume PixEagle's text metadata
-plus binary JPEG frame protocol when QGC runs on the same host as PixEagle and
-uses:
+The draft/test repaired QGroundControl WebSocket-video PR consumes complete
+binary JPEG messages and ignores text metadata. Same-host development uses:
 
 ```text
 ws://127.0.0.1:5077/ws/video_feed
 ```
 
-Direct remote QGC-to-PixEagle WebSocket media is not plug-and-play with current
-secure defaults. It requires a QGC build that can send an allowlisted Origin or
-equivalent reviewed native-client handshake metadata plus scoped `media:read`
-credentials. For field/ground-station video, use the GStreamer H.264/RTP/UDP
-output unless a deployment-specific authenticated HTTP/WS design has been
-reviewed. See [Remote Media Security](remote-media-security.md).
+For guarded direct WSS, run:
+
+```bash
+make qgc-direct-media-profile PUBLIC_HOST=<tls-host>
+```
+
+Configure QGC with the generated WSS URL, **Bearer token** authentication,
+session token, and exact Origin. Use the deployment CA file when the proxy
+certificate is privately issued. PixEagle remains loopback behind the proxy.
+PR #13594 must leave draft and QGC CI plus target playback evidence must pass;
+the GStreamer H.264/RTP/UDP profile remains the simplest field path. See
+[Remote Media Security](remote-media-security.md).
 
 ## Configuration
 

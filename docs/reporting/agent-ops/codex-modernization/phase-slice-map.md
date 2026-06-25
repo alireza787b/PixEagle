@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-06-19
+Last updated: 2026-06-25
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -112,8 +112,16 @@ it together with:
 | Phase 4 LAN/private-overlay browser profile hardening | done | PXE-0072 | `checkpoints/2026-06-19-phase-4-lan-overlay-browser-profile-hardening.md`; clarified that TLS is not domain-only while HTTP LAN/private-overlay browser access is lab-only; hardened `demo_lan_browser` host validation for RFC1918, shared private-overlay/CGNAT, link-local, IPv6 ULA/link-local, malformed URL/IPv6, query/fragment, port, public/documentation/multicast, and zone-identifier cases; documented the two-port browser demo requirement (`3040` dashboard plus authenticated `5077` backend/API media) without weakening production gates; Windows `scripts/run.bat` now mirrors Linux by binding the dashboard on LAN only for `trusted_lan_legacy` plus `browser_session` |
 | Phase 4 production remote profile | done | PXE-0068/PXE-0064 partial | `checkpoints/2026-06-20-phase-4-production-remote-profile.md`; `production_remote` now atomically generates PixEagle-side HTTPS/WSS reverse-proxy config with rollback, loopback backend bind, exact TLS Host authority/CORS, `browser_session`, secure cookie, audit enabled, external hashed user file, controlled one-time credential handoff, guarded host/origin/path validation, Makefile wrapper, relative dashboard assets, basename-aware navigation, and Linux/Windows launcher behavior that keeps reverse-proxy profiles loopback; the maintained nginx/firewall/evidence runbook does not claim proxy/service installation, TLS deployment, SITL/HIL/field run, or production handoff evidence |
 | Phase 4 production remote browser evidence and media-session revocation | done | PXE-0073 / PXE-0064 partial | `checkpoints/2026-06-20-phase-4-production-remote-browser-e2e.md`; dashboard consumers use the reverse-proxy endpoint registry; active MJPEG/video-WebSocket/WebRTC signaling sessions terminate after browser-session revocation; WebRTC peer IDs/capacity are server-owned and bounded; the manual-only self-signed HTTPS Playwright harness enforces exact authority/path/route-query rules, current-checkout builds, managed Chromium provenance, bounded cleanup, raw/final-upload secret scans, and sanitized uploads; exact clean-revision evidence `20260620T215137Z-5ce38f` passed on commit `bf32df19ec7f1e8855c1ea934cfb50128a0cf4ea`; target nginx/Caddy, trusted certificate, firewall, service ownership, and operator deployment evidence remain PXE-0064/PXE-0068 gates |
+| Phase 4 QGC authenticated direct media | done/incomplete | PXE-0070 / PXE-0068 partial | `checkpoints/2026-06-24-phase-4-qgc-authenticated-direct-media.md`; QGC PR #13594 was rebased/repaired generically for optional Authorization, Origin, strict TLS/custom CA, credential redaction, bounded WebSocket JPEG, and recording policy, while PixEagle gained a guarded `qgc_direct_media` profile that generates `media:read` bearer credentials and keeps the backend loopback behind an external HTTPS/WSS proxy. PR #13594 is draft as of 2026-06-25 because user receiver tests are not complete and QGC CI is mixed: Windows x64 Release and Linux Test+Coverage failed. No target QGC playback, proxy/TLS/firewall deployment, SITL/HIL/field, or real-aircraft success is claimed. |
 
 ## Active Slice
+
+Resume note for 2026-06-25: finish and commit the PXE-0070 PixEagle-side
+QGC direct-media reporting/code slice first. QGC PR #13594 must remain draft
+until the failed QGC CI jobs are resolved or documented and target receiver
+evidence is accepted. After that, resume the planned Phase 4 cleanup order:
+API/MCP migration, production/security evidence, setup UX cleanup, dashboard
+client/toolchain modernization, and validation-roadmap work.
 
 Phase 4 API/MCP modernization. PXE-0042 through PXE-0049 are done for typed
 actions, telemetry health, runtime/following/tracker status and telemetry, and
@@ -503,7 +511,7 @@ Current host boundary:
 | 4 | API/MCP modernization | PXE-0008 | Continue typed `/api/v1` migration beyond the current status/telemetry/action resources: route migration tests, router extraction, command/action durability, curated agent registry/policy design, and FastAPI/OpenAPI client contract tests. Companion sidecar standards were closed under PXE-0022. |
 | 4 | API authentication and exposure boundary | PXE-0064 | Collect target trusted-certificate/reverse-proxy/firewall/service-account/audit-path evidence, secure credential-handoff evidence, target-host adversarial browser/session/media results, and operator acceptance. The checked-in local trust/auth/authorization boundary and local clean-revision browser evidence are complete. |
 | 4 | Bootstrap/setup UX cleanup | PXE-0068 | `demo_lan_browser`, guarded `production_remote`, launcher handoff, binary provenance, typed media health, lifecycle cleanup, and local browser evidence are implemented; production handoff still requires target proxy/firewall/credential/service evidence and target-host adversarial/operator validation; remove any setup/service/download contradictions found in later slices. |
-| 4 | QGC authenticated remote HTTP/WS media | PXE-0070 | Rebase/repair PR #13594 and add reviewed Authorization/Origin/TLS/redaction/test support before advertising remote PixEagle HTTP/WebSocket media from QGC on a different host. |
+| 4 | QGC authenticated remote HTTP/WS media | PXE-0070 | Keep PR #13594 draft until clean CI and target receiver evidence exist; resolve or document the current Windows x64 Release and Linux Test+Coverage failures; then validate generic anonymous sources and authenticated PixEagle HTTPS/WSS media before advertising remote compatibility. |
 | 4 | Dashboard API/client normalization | PXE-0008, PXE-0021 | Continue typed client consolidation beyond telemetry/tracker health, migrate remaining dashboard consumers away from legacy route shapes, and move from CRA to a supported frontend toolchain. |
 | 5 | Gimbal provider expansion | PXE-0023 | Add MAVLink Gimbal v2 or vendor-specific providers when selected hardware/protocol evidence is available. |
 | 5 | Runtime cleanup and docs parity | PXE-0041, remaining open/new issues | Remove redundant legacy code/docs/config after replacements are proven and publish a final no-legacy readiness report. |

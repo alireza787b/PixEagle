@@ -25,7 +25,7 @@ PixEagle backend media port without authentication.
 | Field QGC video | QGC on GCS, PixEagle on companion | Backend remains loopback; video uses UDP/RTP output | No PixEagle API auth because backend is not exposed | Supported video path |
 | Lab/private-overlay browser demo | Browser dashboard on phone/tablet/GCS | Exact Host/CORS over HTTP on isolated LAN or private overlay/VPN | Generated `browser_session` user | Supported by `demo_lan_browser`; not production |
 | Remote browser operator | Browser dashboard on GCS/mobile | Backend remains loopback behind HTTPS/WSS reverse proxy or SSH tunnel | `browser_session` with viewer/operator/admin users | Guarded `production_remote` config supported; deployment evidence still required |
-| Remote native media client | Future QGC HTTP/WS or another native client | Explicit non-loopback profile with Host allowlist | Bearer token with `media:read` | Requires reviewed client support |
+| Remote native media client | QGC HTTP/WS build with generic auth/TLS support or another reviewed native client | Loopback backend behind HTTPS/WSS proxy with exact Host/Origin | Bearer token with `media:read` | Guarded `qgc_direct_media`; QGC CI and target playback evidence required |
 | Anonymous LAN media | Any remote LAN client | Backend exposed without auth | None | Not supported |
 
 ## QGroundControl Field Video
@@ -151,25 +151,28 @@ The client must be able to send:
 - an allowlisted `Origin` for WebSocket handshakes;
 - HTTPS/WSS with strict certificate validation for non-lab deployments.
 
-For native-only remote media:
+For native-only QGC media, generate the guarded profile:
 
-```yaml
-Streaming:
-  API_EXPOSURE_MODE: trusted_lan_legacy
-  HTTP_STREAM_HOST: 0.0.0.0
-  API_ALLOWED_HOSTS:
-    - pixeagle-pi.local
-    - 192.168.10.42
-  API_CORS_ALLOWED_ORIGINS:
-    - https://qgroundcontrol.local
-  API_AUTH_MODE: machine_bearer
-  API_BEARER_TOKEN_FILE: /etc/pixeagle/media-tokens.json
+```bash
+make qgc-direct-media-profile PUBLIC_HOST=pixeagle.example
 ```
 
-For a deployment that needs both browser users and a native QGC media client,
-use `API_AUTH_MODE: browser_session` with both `API_SESSION_USER_FILE` and
-`API_BEARER_TOKEN_FILE` configured. Browser users authenticate through the
-session routes; QGC/native clients authenticate with bearer tokens.
+It generates a hashed `media:read` token file and a one-time owner-only handoff
+with QGC URLs, bearer token, and Origin. PixEagle remains on
+`127.0.0.1:5077`; an external HTTPS/WSS reverse proxy must strip
+`/pixeagle-api`, preserve Host/Origin, and forward WebSocket upgrades. Delete
+the handoff after configuring QGC.
+
+The runtime rejects token/user record files that are not regular,
+process-user-owned, single-link, owner-only POSIX files, or that exceed 1 MiB.
+For a private proxy CA, remember that QGC treats the HTTPS MJPEG PEM as the
+complete trust database, while WSS adds the selected CA to system trust.
+
+For a deployment that also needs browser users, use a reviewed combined
+`browser_session` configuration with both `API_SESSION_USER_FILE` and
+`API_BEARER_TOKEN_FILE`. The current setup utility intentionally generates the
+native-only QGC and browser profiles separately so operators do not
+accidentally broaden authority.
 
 Create token records offline and store only the hashed record file on the
 companion:
@@ -195,10 +198,12 @@ PY
 Restrict file permissions and keep the plaintext token only in the native
 client's secret storage or deployment vault.
 
-The open QGroundControl HTTP/WebSocket PR does not yet implement this remote
-authenticated profile. It needs settings and code for Authorization headers,
-Origin, TLS/CA handling, credential redaction, and negative auth tests before
-PixEagle should advertise remote direct HTTP/WS QGC compatibility.
+QGroundControl PR #13594 now has a repaired generic implementation for
+Authorization, Origin, strict TLS/custom CA, session credentials, URL
+redaction, and bounded WebSocket JPEG messages. This does not yet prove remote
+PixEagle playback: the PR remains draft while QGC CI/build results, user
+receiver tests, and a target TLS/proxy/receiver evidence run are still required
+before handoff.
 
 For QGC video-only use, grant only `media:read`. Do not use a broad operator or
 admin token just to view video. If a future QGC integration consumes typed

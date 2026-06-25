@@ -6,9 +6,16 @@ import subprocess
 import sys
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
+
+from classes.api_auth_runtime import (
+    API_AUTH_MODE_MACHINE_BEARER,
+    hash_bearer_token,
+    resolve_api_auth_runtime_from_parameters,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -99,6 +106,283 @@ def test_field_qgc_video_profile_requires_gcs_host(tmp_path):
 
     assert result.returncode == 2
     assert "requires --gcs-host" in result.stderr
+    assert not config_path.exists()
+
+
+def test_qgc_direct_media_profile_generates_media_only_bearer_credentials(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    token_file = tmp_path / "qgc-tokens.json"
+    handoff_file = tmp_path / "qgc-handoff.json"
+
+    result = _run_profile(
+        "--profile",
+        "qgc_direct_media",
+        "--public-host",
+        "pixeagle.example",
+        "--bearer-token-file",
+        str(token_file),
+        "--qgc-handoff-file",
+        str(handoff_file),
+        config_path=config_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    config = _read_yaml(config_path)
+    streaming = config["Streaming"]
+    assert streaming["API_EXPOSURE_MODE"] == "trusted_lan_legacy"
+    assert streaming["HTTP_STREAM_HOST"] == "127.0.0.1"
+    assert streaming["API_AUTH_MODE"] == "machine_bearer"
+    assert streaming["API_BEARER_TOKEN_FILE"] == str(token_file)
+    assert streaming["API_ALLOWED_HOSTS"] == ["pixeagle.example:443"]
+    assert streaming["API_CORS_ALLOWED_ORIGINS"] == ["https://pixeagle.example"]
+    assert streaming["API_SECURITY_AUDIT_ENABLED"] is True
+    assert config["GStreamer"]["ENABLE_GSTREAMER_STREAM"] is False
+
+    token_payload = json.loads(token_file.read_text(encoding="utf-8"))
+    token_record = token_payload["tokens"][0]
+    assert token_record["token_id"] == "qgc-media-viewer"
+    assert token_record["subject"] == "qgroundcontrol"
+    assert token_record["scopes"] == ["media:read"]
+    assert len(token_record["token_sha256"]) == 64
+    assert "bearer_token" not in token_record
+    assert token_file.stat().st_mode & 0o777 == 0o600
+
+    handoff = json.loads(handoff_file.read_text(encoding="utf-8"))
+    assert handoff["bearer_token"]
+    assert handoff["scopes"] == ["media:read"]
+    assert handoff["origin"] == "https://pixeagle.example"
+    assert handoff["http_mjpeg_url"].endswith("/pixeagle-api/video_feed")
+    assert handoff["websocket_jpeg_url"].endswith("/pixeagle-api/ws/video_feed")
+    assert handoff_file.stat().st_mode & 0o777 == 0o600
+    assert handoff["bearer_token"] not in result.stdout
+    assert "delete the handoff file" in result.stdout
+    assert "strict TLS remains required" in result.stdout
+
+    runtime = resolve_api_auth_runtime_from_parameters(
+        SimpleNamespace(
+            API_AUTH_MODE=API_AUTH_MODE_MACHINE_BEARER,
+            API_BEARER_TOKEN_FILE=str(token_file),
+            _raw_config={},
+        )
+    )
+    assert runtime.mode == API_AUTH_MODE_MACHINE_BEARER
+    assert hash_bearer_token(handoff["bearer_token"]) in runtime.bearer_tokens_by_hash
+
+
+@pytest.mark.parametrize(
+    ("public_host", "public_origin", "allowed_host", "normalized_origin"),
+    [
+        (
+            "pixeagle.example",
+            "https://pixeagle.example:8443",
+            "pixeagle.example:8443",
+            "https://pixeagle.example:8443",
+        ),
+        (
+            "2001:4860:4860::8888",
+            "https://[2001:4860:4860::8888]:8443",
+            "[2001:4860:4860::8888]:8443",
+            "https://[2001:4860:4860::8888]:8443",
+        ),
+    ],
+)
+def test_qgc_direct_media_profile_preserves_tls_authority(
+    tmp_path,
+    public_host,
+    public_origin,
+    allowed_host,
+    normalized_origin,
+):
+    config_path = tmp_path / "config.yaml"
+    token_file = tmp_path / "qgc-tokens.json"
+    handoff_file = tmp_path / "qgc-handoff.json"
+
+    result = _run_profile(
+        "--profile",
+        "qgc_direct_media",
+        "--public-host",
+        public_host,
+        "--public-origin",
+        public_origin,
+        "--bearer-token-file",
+        str(token_file),
+        "--qgc-handoff-file",
+        str(handoff_file),
+        "--token-id",
+        "a",
+        "--token-subject",
+        "q",
+        config_path=config_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    streaming = _read_yaml(config_path)["Streaming"]
+    assert streaming["API_ALLOWED_HOSTS"] == [allowed_host]
+    assert streaming["API_CORS_ALLOWED_ORIGINS"] == [normalized_origin]
+    handoff = json.loads(handoff_file.read_text(encoding="utf-8"))
+    assert handoff["origin"] == normalized_origin
+    assert handoff["http_mjpeg_url"] == (
+        f"{normalized_origin}/pixeagle-api/video_feed"
+    )
+    assert handoff["websocket_jpeg_url"] == (
+        f"wss://{normalized_origin.removeprefix('https://')}/pixeagle-api/ws/video_feed"
+    )
+
+
+def test_qgc_direct_media_profile_requires_tls_host(tmp_path):
+    config_path = tmp_path / "config.yaml"
+
+    result = _run_profile(
+        "--profile",
+        "qgc_direct_media",
+        config_path=config_path,
+    )
+
+    assert result.returncode == 2
+    assert "requires --public-host" in result.stderr
+    assert not config_path.exists()
+
+
+def test_qgc_direct_media_profile_refuses_existing_credentials_without_rotation(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    token_file = tmp_path / "qgc-tokens.json"
+    handoff_file = tmp_path / "qgc-handoff.json"
+    token_file.write_text("existing", encoding="utf-8")
+
+    result = _run_profile(
+        "--profile",
+        "qgc_direct_media",
+        "--public-host",
+        "pixeagle.example",
+        "--bearer-token-file",
+        str(token_file),
+        "--qgc-handoff-file",
+        str(handoff_file),
+        config_path=config_path,
+    )
+
+    assert result.returncode == 2
+    assert "--rotate-qgc-token" in result.stderr
+    assert token_file.read_text(encoding="utf-8") == "existing"
+    assert not handoff_file.exists()
+    assert not config_path.exists()
+
+
+def test_qgc_direct_media_profile_dry_run_writes_nothing(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    token_file = tmp_path / "qgc-tokens.json"
+    handoff_file = tmp_path / "qgc-handoff.json"
+
+    result = _run_profile(
+        "--profile",
+        "qgc_direct_media",
+        "--public-host",
+        "pixeagle.example",
+        "--bearer-token-file",
+        str(token_file),
+        "--qgc-handoff-file",
+        str(handoff_file),
+        "--dry-run",
+        config_path=config_path,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Would generate owner-only QGC bearer token file" in result.stdout
+    assert not config_path.exists()
+    assert not token_file.exists()
+    assert not handoff_file.exists()
+
+
+def test_qgc_direct_media_rotation_backs_up_only_hashed_credentials(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    token_file = tmp_path / "qgc-tokens.json"
+    handoff_file = tmp_path / "qgc-handoff.json"
+    args = (
+        "--profile",
+        "qgc_direct_media",
+        "--public-host",
+        "pixeagle.example",
+        "--bearer-token-file",
+        str(token_file),
+        "--qgc-handoff-file",
+        str(handoff_file),
+    )
+
+    first = _run_profile(*args, config_path=config_path)
+    assert first.returncode == 0, first.stderr
+    original_token = token_file.read_text(encoding="utf-8")
+    original_handoff = handoff_file.read_text(encoding="utf-8")
+    token_file.chmod(0o644)
+    handoff_file.chmod(0o644)
+
+    second = _run_profile(
+        *args,
+        "--rotate-qgc-token",
+        config_path=config_path,
+    )
+
+    assert second.returncode == 0, second.stderr
+    token_backups = list(tmp_path.glob("qgc-tokens.json.backup.*"))
+    handoff_backups = list(tmp_path.glob("qgc-handoff.json.backup.*"))
+    assert len(token_backups) == 1
+    assert not handoff_backups
+    assert token_backups[0].read_text(encoding="utf-8") == original_token
+    assert token_backups[0].stat().st_mode & 0o777 == 0o600
+    assert token_file.read_text(encoding="utf-8") != original_token
+    assert handoff_file.read_text(encoding="utf-8") != original_handoff
+    assert token_file.stat().st_mode & 0o777 == 0o600
+    assert handoff_file.stat().st_mode & 0o777 == 0o600
+
+
+def test_qgc_direct_media_config_failure_rolls_back_credentials(tmp_path):
+    blocked_parent = tmp_path / "blocked"
+    blocked_parent.write_text("not a directory\n", encoding="utf-8")
+    config_path = blocked_parent / "config.yaml"
+    token_file = tmp_path / "qgc-tokens.json"
+    handoff_file = tmp_path / "qgc-handoff.json"
+
+    result = _run_profile(
+        "--profile",
+        "qgc_direct_media",
+        "--public-host",
+        "pixeagle.example",
+        "--bearer-token-file",
+        str(token_file),
+        "--qgc-handoff-file",
+        str(handoff_file),
+        config_path=config_path,
+    )
+
+    assert result.returncode == 2
+    assert "failed to write" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert not token_file.exists()
+    assert not handoff_file.exists()
+
+
+def test_qgc_direct_media_handoff_failure_rolls_back_token(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    token_file = tmp_path / "qgc-tokens.json"
+    blocked_parent = tmp_path / "blocked"
+    blocked_parent.write_text("not a directory\n", encoding="utf-8")
+    handoff_file = blocked_parent / "qgc-handoff.json"
+
+    result = _run_profile(
+        "--profile",
+        "qgc_direct_media",
+        "--public-host",
+        "pixeagle.example",
+        "--bearer-token-file",
+        str(token_file),
+        "--qgc-handoff-file",
+        str(handoff_file),
+        config_path=config_path,
+    )
+
+    assert result.returncode == 2
+    assert "failed to write" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert not token_file.exists()
     assert not config_path.exists()
 
 
@@ -839,6 +1123,135 @@ def test_make_demo_lan_browser_profile_wrapper_passes_lan_host(tmp_path):
     assert user_file.exists()
 
 
+def test_make_qgc_direct_media_profile_wrapper_passes_secure_media_paths(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    token_file = tmp_path / "qgc-tokens.json"
+    handoff_file = tmp_path / "qgc-handoff.json"
+
+    result = subprocess.run(
+        [
+            "make",
+            "qgc-direct-media-profile",
+            f"PYTHON={sys.executable}",
+            "PUBLIC_HOST=pixeagle.example",
+            f"QGC_TOKEN_FILE={token_file}",
+            f"QGC_HANDOFF_FILE={handoff_file}",
+            (
+                "SETUP_PROFILE_ARGS=--defaults "
+                f"{DEFAULT_CONFIG} --config {config_path}"
+            ),
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    config = _read_yaml(config_path)
+    assert config["Streaming"]["API_AUTH_MODE"] == "machine_bearer"
+    assert config["Streaming"]["API_BEARER_TOKEN_FILE"] == str(token_file)
+    assert token_file.exists()
+    assert handoff_file.exists()
+
+
+@pytest.mark.parametrize("false_value", ["0", "false", "no", "off"])
+def test_make_qgc_direct_media_false_rotation_values_do_not_rotate(
+    tmp_path,
+    false_value,
+):
+    config_path = tmp_path / "config.yaml"
+    token_file = tmp_path / "qgc-tokens.json"
+    handoff_file = tmp_path / "qgc-handoff.json"
+    args = (
+        "--profile",
+        "qgc_direct_media",
+        "--public-host",
+        "pixeagle.example",
+        "--bearer-token-file",
+        str(token_file),
+        "--qgc-handoff-file",
+        str(handoff_file),
+    )
+    first = _run_profile(*args, config_path=config_path)
+    assert first.returncode == 0, first.stderr
+    original_token = token_file.read_bytes()
+    original_handoff = handoff_file.read_bytes()
+
+    result = subprocess.run(
+        [
+            "make",
+            "qgc-direct-media-profile",
+            f"PYTHON={sys.executable}",
+            "PUBLIC_HOST=pixeagle.example",
+            f"QGC_TOKEN_FILE={token_file}",
+            f"QGC_HANDOFF_FILE={handoff_file}",
+            f"ROTATE_QGC_TOKEN={false_value}",
+            (
+                "SETUP_PROFILE_ARGS=--defaults "
+                f"{DEFAULT_CONFIG} --config {config_path}"
+            ),
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "--rotate-qgc-token" in result.stderr
+    assert token_file.read_bytes() == original_token
+    assert handoff_file.read_bytes() == original_handoff
+    assert not list(tmp_path.glob("qgc-tokens.json.backup.*"))
+    assert not list(tmp_path.glob("qgc-handoff.json.backup.*"))
+
+
+def test_make_qgc_direct_media_explicit_true_rotates(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    token_file = tmp_path / "qgc-tokens.json"
+    handoff_file = tmp_path / "qgc-handoff.json"
+    first = _run_profile(
+        "--profile",
+        "qgc_direct_media",
+        "--public-host",
+        "pixeagle.example",
+        "--bearer-token-file",
+        str(token_file),
+        "--qgc-handoff-file",
+        str(handoff_file),
+        config_path=config_path,
+    )
+    assert first.returncode == 0, first.stderr
+    original_token = token_file.read_bytes()
+    original_handoff = handoff_file.read_bytes()
+
+    result = subprocess.run(
+        [
+            "make",
+            "qgc-direct-media-profile",
+            f"PYTHON={sys.executable}",
+            "PUBLIC_HOST=pixeagle.example",
+            f"QGC_TOKEN_FILE={token_file}",
+            f"QGC_HANDOFF_FILE={handoff_file}",
+            "ROTATE_QGC_TOKEN=1",
+            (
+                "SETUP_PROFILE_ARGS=--defaults "
+                f"{DEFAULT_CONFIG} --config {config_path}"
+            ),
+        ],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert token_file.read_bytes() != original_token
+    assert handoff_file.read_bytes() != original_handoff
+    assert len(list(tmp_path.glob("qgc-tokens.json.backup.*"))) == 1
+    assert not list(tmp_path.glob("qgc-handoff.json.backup.*"))
+
+
 def test_make_production_remote_profile_wrapper_passes_public_host_and_user_file(tmp_path):
     config_path = tmp_path / "config.yaml"
     user_file = tmp_path / "production-users.json"
@@ -947,6 +1360,7 @@ def test_list_profiles_reports_all_supported_defined_and_unsafe_profiles(tmp_pat
     for profile_name in [
         "local_dev",
         "field_qgc_video",
+        "qgc_direct_media",
         "demo_lan_browser",
         "production_remote",
         "unsafe_demo_lan_media_only",

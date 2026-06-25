@@ -126,6 +126,17 @@ local and apply the field video profile:
 make qgc-video-profile GCS_HOST=<ground-station-ip>
 ```
 
+For guarded direct QGC HTTPS/WSS MJPEG/WebSocket media with a draft/test QGC
+build containing PR #13594:
+
+```bash
+make qgc-direct-media-profile PUBLIC_HOST=<tls-host>
+```
+
+This generates a `media:read`-only bearer credential and keeps port `5077`
+loopback behind an external TLS proxy. It does not install the proxy or prove
+QGC playback.
+
 **Windows:**
 ```cmd
 scripts\run.bat            # Run all services
@@ -193,6 +204,7 @@ For guided local overrides, use [setup profiles](docs/setup/setup-profiles.md):
 ```bash
 make setup-profile PROFILE=local_dev
 make qgc-video-profile GCS_HOST=<ground-station-ip>
+make qgc-direct-media-profile PUBLIC_HOST=<tls-host>
 ```
 
 For manual configuration, create a local override only when needed, then edit it:

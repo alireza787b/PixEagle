@@ -406,6 +406,7 @@ echo   %CYAN%Next Steps:%NC%
 echo   1. Run: %BOLD%scripts\run.bat%NC%
 echo   2. Optional QGC field video:
 echo      %BOLD%venv\Scripts\python.exe scripts\setup\apply-setup-profile.py --profile field_qgc_video --gcs-host ^<gcs-ip^>%NC%
+echo   Guarded QGC HTTPS/WSS direct media profiles must be generated on the Linux PixEagle deployment host.
 echo.
 if not exist "%PIXEAGLE_DIR%\bin\mavsdk_server_bin.exe" (
     echo   Optional: %BOLD%scripts\setup\download-binaries.bat --mavsdk%NC%

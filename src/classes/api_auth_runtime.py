@@ -11,8 +11,10 @@ from datetime import datetime, timezone
 import hmac
 import hashlib
 import json
+import os
 from pathlib import Path
 import secrets
+import stat
 import threading
 import time
 from types import MappingProxyType
@@ -56,6 +58,7 @@ MAX_PBKDF2_ITERATIONS = 1_200_000
 MIN_PASSWORD_SALT_BYTES = 16
 MAX_PASSWORD_SALT_BYTES = 64
 PASSWORD_DIGEST_BYTES = 32
+MAX_AUTH_RECORD_FILE_BYTES = 1024 * 1024
 DEFAULT_LOGIN_FAILURE_LIMIT = 5
 DEFAULT_LOGIN_FAILURE_WINDOW_SECONDS = 60
 DEFAULT_LOGIN_FAILURE_MAX_KEYS = 4096
@@ -494,16 +497,61 @@ def hash_bearer_token(token: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _load_auth_record_json(path: Path, *, label: str) -> Any:
+    record_path = Path(path).expanduser()
+    open_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
+    no_follow_flag = getattr(os, "O_NOFOLLOW", 0)
+    if no_follow_flag:
+        open_flags |= no_follow_flag
+    elif record_path.is_symlink():
+        raise APIAuthConfigurationError(f"{label} must not be a symbolic link: {record_path}")
+
+    descriptor: Optional[int] = None
+    try:
+        descriptor = os.open(record_path, open_flags)
+        file_status = os.fstat(descriptor)
+        if not stat.S_ISREG(file_status.st_mode):
+            raise APIAuthConfigurationError(f"{label} must be a regular file: {record_path}")
+        if file_status.st_nlink != 1:
+            raise APIAuthConfigurationError(f"{label} must not have multiple hard links: {record_path}")
+        if os.name == "posix":
+            if file_status.st_uid != os.geteuid():
+                raise APIAuthConfigurationError(
+                    f"{label} must be owned by the PixEagle process user: {record_path}"
+                )
+            permissions = stat.S_IMODE(file_status.st_mode)
+            if not permissions & stat.S_IRUSR or permissions & 0o077:
+                raise APIAuthConfigurationError(
+                    f"{label} must be owner-readable and inaccessible to group/other users: {record_path}"
+                )
+        if file_status.st_size > MAX_AUTH_RECORD_FILE_BYTES:
+            raise APIAuthConfigurationError(
+                f"{label} exceeds the {MAX_AUTH_RECORD_FILE_BYTES} byte limit: {record_path}"
+            )
+
+        with os.fdopen(descriptor, "rb") as record_file:
+            descriptor = None
+            raw_payload = record_file.read(MAX_AUTH_RECORD_FILE_BYTES + 1)
+        if len(raw_payload) > MAX_AUTH_RECORD_FILE_BYTES:
+            raise APIAuthConfigurationError(
+                f"{label} exceeds the {MAX_AUTH_RECORD_FILE_BYTES} byte limit: {record_path}"
+            )
+        return json.loads(raw_payload.decode("utf-8"))
+    except FileNotFoundError as exc:
+        raise APIAuthConfigurationError(f"{label} does not exist: {record_path}") from exc
+    except (OSError, UnicodeDecodeError) as exc:
+        raise APIAuthConfigurationError(f"{label} could not be read safely: {record_path}") from exc
+    except json.JSONDecodeError as exc:
+        raise APIAuthConfigurationError(f"Invalid {label} JSON: {record_path}") from exc
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
 def load_bearer_token_records(path: Path) -> tuple[BearerTokenRecord, ...]:
     """Load machine bearer token records from JSON outside checked-in config."""
     token_path = Path(path).expanduser()
-    if not token_path.exists():
-        raise APIAuthConfigurationError(f"API bearer token file does not exist: {token_path}")
-
-    try:
-        payload = json.loads(token_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise APIAuthConfigurationError(f"Invalid API bearer token JSON: {token_path}") from exc
+    payload = _load_auth_record_json(token_path, label="API bearer token file")
 
     raw_records = payload.get("tokens") if isinstance(payload, dict) else payload
     if not isinstance(raw_records, list):
@@ -522,13 +570,7 @@ def load_bearer_token_records(path: Path) -> tuple[BearerTokenRecord, ...]:
 def load_user_records(path: Path) -> tuple[APIUserRecord, ...]:
     """Load browser/operator user records from JSON outside checked-in config."""
     user_path = Path(path).expanduser()
-    if not user_path.exists():
-        raise APIAuthConfigurationError(f"API session user file does not exist: {user_path}")
-
-    try:
-        payload = json.loads(user_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise APIAuthConfigurationError(f"Invalid API session user JSON: {user_path}") from exc
+    payload = _load_auth_record_json(user_path, label="API session user file")
 
     raw_records = payload.get("users") if isinstance(payload, dict) else payload
     if not isinstance(raw_records, list):

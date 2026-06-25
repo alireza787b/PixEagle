@@ -33,12 +33,16 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from classes.api_auth_runtime import make_user_record
+from classes.api_auth_runtime import make_token_record, make_user_record
 
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "configs" / "config_default.yaml"
 RUNTIME_CONFIG_PATH = PROJECT_ROOT / "configs" / "config.yaml"
 DEFAULT_DEMO_USER_FILE = PROJECT_ROOT / "configs" / "secrets" / "demo-browser-users.json"
+DEFAULT_QGC_TOKEN_FILE = PROJECT_ROOT / "configs" / "secrets" / "qgc-media-tokens.json"
+DEFAULT_QGC_HANDOFF_FILE = PROJECT_ROOT / "configs" / "secrets" / "qgc-media-handoff.json"
 DEFAULT_PRODUCTION_USERNAME = "pixeagle-operator"
+DEFAULT_QGC_TOKEN_ID = "qgc-media-viewer"
+DEFAULT_QGC_TOKEN_SUBJECT = "qgroundcontrol"
 LOOPBACK_CORS_ORIGINS = [
     "http://127.0.0.1:3040",
     "http://localhost:3040",
@@ -50,6 +54,7 @@ DEFAULT_HTTP_STREAM_PORT = 5077
 QGC_DEFAULT_UDP_H264_PORT = 5600
 UNSPECIFIED_BIND_HOSTS = {"0.0.0.0", "::"}
 HOSTNAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+MACHINE_IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$")
 ALLOWED_DEMO_IP_NETWORKS = tuple(
     ip_network(value)
     for value in (
@@ -289,6 +294,65 @@ def _profile_production_remote(args: argparse.Namespace) -> dict[tuple[str, ...]
     }
 
 
+def _profile_qgc_direct_media(args: argparse.Namespace) -> dict[tuple[str, ...], Any]:
+    if os.name == "nt" and not args.dry_run:
+        raise ProfileError(
+            "qgc_direct_media credential generation currently requires POSIX "
+            "owner-only file modes. Generate it on the Linux PixEagle deployment host."
+        )
+    if not args.public_host:
+        raise ProfileError(
+            "qgc_direct_media requires --public-host <tls-hostname-or-stable-ip>."
+        )
+
+    public_host = _normalize_public_host(args.public_host)
+    public_origin = _normalize_public_origin(args.public_origin, public_host)
+    http_stream_port = _normalize_port(args.http_stream_port, "--http-stream-port")
+    token_file = _resolve_output_path(args.bearer_token_file)
+    handoff_file = _resolve_output_path(args.qgc_handoff_file)
+    token_id = _normalize_machine_identifier(args.token_id, "--token-id")
+    token_subject = _normalize_machine_identifier(args.token_subject, "--token-subject")
+    _validate_distinct_output_paths(
+        {
+            "--defaults": args.defaults,
+            "--config": args.config,
+            "--bearer-token-file": token_file,
+            "--qgc-handoff-file": handoff_file,
+        }
+    )
+
+    for path, label in (
+        (token_file, "bearer token file"),
+        (handoff_file, "credential handoff file"),
+    ):
+        if path.exists() and not args.rotate_qgc_token and not args.dry_run:
+            raise ProfileError(
+                f"{label} already exists: {path}. "
+                "Pass --rotate-qgc-token to replace it after securely handling the old credential."
+            )
+
+    args._qgc_public_origin = public_origin
+    args._qgc_http_stream_port = http_stream_port
+    args._qgc_token_file = token_file
+    args._qgc_handoff_file = handoff_file
+    args._qgc_token_id = token_id
+    args._qgc_token_subject = token_subject
+
+    return {
+        ("Streaming", "API_EXPOSURE_MODE"): "trusted_lan_legacy",
+        ("Streaming", "HTTP_STREAM_HOST"): "127.0.0.1",
+        ("Streaming", "HTTP_STREAM_PORT"): http_stream_port,
+        ("Streaming", "API_CORS_ALLOWED_ORIGINS"): [public_origin],
+        ("Streaming", "API_ALLOWED_HOSTS"): [_origin_host_authority(public_origin)],
+        ("Streaming", "API_AUTH_MODE"): "machine_bearer",
+        ("Streaming", "API_BEARER_TOKEN_FILE"): str(token_file),
+        ("Streaming", "API_SECURITY_AUDIT_ENABLED"): True,
+        ("GStreamer", "ENABLE_GSTREAMER_STREAM"): False,
+        ("GStreamer", "GSTREAMER_HOST"): "127.0.0.1",
+        ("GStreamer", "GSTREAMER_PORT"): QGC_DEFAULT_UDP_H264_PORT,
+    }
+
+
 def _profile_deferred(profile_name: str, reason: str) -> Callable[[argparse.Namespace], dict[tuple[str, ...], Any]]:
     def _raise(_: argparse.Namespace) -> dict[tuple[str, ...], Any]:
         raise ProfileError(
@@ -331,6 +395,15 @@ PROFILES: dict[str, Profile] = {
             "TLS reverse proxy and exact Host/CORS allowlists."
         ),
         applier=_profile_production_remote,
+    ),
+    "qgc_direct_media": Profile(
+        name="qgc_direct_media",
+        status="supported_guarded",
+        description=(
+            "Generate a media:read bearer profile for QGC HTTP MJPEG/WebSocket "
+            "video behind an external HTTPS/WSS reverse proxy."
+        ),
+        applier=_profile_qgc_direct_media,
     ),
     "unsafe_demo_lan_media_only": Profile(
         name="unsafe_demo_lan_media_only",
@@ -393,6 +466,15 @@ def _normalize_session_username(value: str, flag_name: str) -> str:
     if not username:
         raise ProfileError(f"{flag_name} must not be empty.")
     return username
+
+
+def _normalize_machine_identifier(value: str, flag_name: str) -> str:
+    identifier = str(value or "").strip().lower()
+    if not MACHINE_IDENTIFIER_PATTERN.fullmatch(identifier):
+        raise ProfileError(
+            f"{flag_name} must be 1..64 lowercase letters, digits, dots, underscores, or hyphens."
+        )
+    return identifier
 
 
 def _normalize_lan_host(value: str) -> dict[str, str]:
@@ -583,7 +665,7 @@ def _normalize_public_origin(value: str | None, public_host: dict[str, str]) -> 
         raise ProfileError("--public-origin contains an invalid port.") from exc
 
     if parsed_url.scheme.lower() != "https":
-        raise ProfileError("--public-origin must use https:// for production_remote.")
+        raise ProfileError("--public-origin must use https://.")
     if not parsed_url.hostname:
         raise ProfileError("--public-origin must include a hostname or IP literal.")
     if (
@@ -724,6 +806,7 @@ def _apply_file(
     *,
     mode: int,
     create_backup: bool,
+    backup_mode: int | None = None,
 ) -> AppliedFile:
     snapshot = _snapshot_file(path)
     backup_path = None
@@ -732,7 +815,7 @@ def _apply_file(
         _atomic_write_bytes(
             backup_path,
             snapshot.content or b"",
-            mode=snapshot.mode or mode,
+            mode=backup_mode if backup_mode is not None else (snapshot.mode or mode),
         )
     try:
         _atomic_write_bytes(path, content, mode=mode)
@@ -832,8 +915,34 @@ def _write_generated_session_user_file(
         (json.dumps(payload, indent=2) + "\n").encode("utf-8"),
         mode=0o600,
         create_backup=user_file.exists() and rotate_credentials,
+        backup_mode=0o600,
     )
     return password, applied
+
+
+def _write_generated_qgc_token_file(
+    *,
+    token_file: Path,
+    token_id: str,
+    token_subject: str,
+    rotate_credentials: bool,
+) -> tuple[str, AppliedFile]:
+    plaintext_token = secrets.token_urlsafe(32)
+    token_record = make_token_record(
+        token_id=token_id,
+        subject=token_subject,
+        plaintext_token=plaintext_token,
+        scopes=["media:read"],
+    )
+    payload = {"tokens": [token_record]}
+    applied = _apply_file(
+        token_file,
+        (json.dumps(payload, indent=2) + "\n").encode("utf-8"),
+        mode=0o600,
+        create_backup=token_file.exists() and rotate_credentials,
+        backup_mode=0o600,
+    )
+    return plaintext_token, applied
 
 
 def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[AppliedFile]]:
@@ -869,6 +978,80 @@ def _write_profile_artifacts(args: argparse.Namespace) -> tuple[list[str], list[
             ),
             "LAB ONLY: do not use this HTTP profile for production or untrusted networks.",
         ], [applied]
+
+    if args.profile == "qgc_direct_media":
+        token_file = args._qgc_token_file
+        handoff_file = args._qgc_handoff_file
+        proxy_target = f"http://127.0.0.1:{args._qgc_http_stream_port}"
+        http_url = f"{args._qgc_public_origin}/pixeagle-api/video_feed"
+        websocket_url = (
+            f"wss://{urlsplit(args._qgc_public_origin).netloc}"
+            "/pixeagle-api/ws/video_feed"
+        )
+        if args.dry_run:
+            return [
+                f"Would generate owner-only QGC bearer token file: {token_file}",
+                f"Would write one-time QGC credential handoff file: {handoff_file}",
+                (
+                    "QGC DIRECT MEDIA: configure an external HTTPS/WSS reverse proxy "
+                    f"for {args._qgc_public_origin}; PixEagle remains loopback at {proxy_target}."
+                ),
+                f"QGC HTTP MJPEG URL: {http_url}",
+                f"QGC WebSocket JPEG URL: {websocket_url}",
+                "This profile does not install TLS/proxy/firewall services or prove QGC playback.",
+            ], []
+
+        applied_files: list[AppliedFile] = []
+        plaintext_token, token_applied = _write_generated_qgc_token_file(
+            token_file=token_file,
+            token_id=args._qgc_token_id,
+            token_subject=args._qgc_token_subject,
+            rotate_credentials=args.rotate_qgc_token,
+        )
+        applied_files.append(token_applied)
+
+        handoff_payload = {
+            "token_id": args._qgc_token_id,
+            "subject": args._qgc_token_subject,
+            "bearer_token": plaintext_token,
+            "scopes": ["media:read"],
+            "authentication": "Bearer token",
+            "origin": args._qgc_public_origin,
+            "http_mjpeg_url": http_url,
+            "websocket_jpeg_url": websocket_url,
+            "one_time_handoff": True,
+        }
+        try:
+            handoff_applied = _apply_file(
+                handoff_file,
+                (json.dumps(handoff_payload, indent=2) + "\n").encode("utf-8"),
+                mode=0o600,
+                create_backup=False,
+            )
+        except ProfileError as exc:
+            rollback_errors = _rollback_files(applied_files)
+            if rollback_errors:
+                raise ProfileError(
+                    f"{exc}; credential rollback was incomplete: "
+                    + "; ".join(rollback_errors)
+                ) from exc
+            raise
+        applied_files.append(handoff_applied)
+
+        return [
+            f"Generated QGC media bearer token file: {token_file}",
+            f"Generated one-time QGC credential handoff file: {handoff_file}",
+            "Transfer the QGC settings/token securely, then delete the handoff file.",
+            f"QGC HTTP MJPEG URL: {http_url}",
+            f"QGC WebSocket JPEG URL: {websocket_url}",
+            f"QGC Origin: {args._qgc_public_origin}",
+            (
+                "QGC DIRECT MEDIA: proxy /pixeagle-api to "
+                f"{proxy_target}, preserve Host and Origin, and keep backend port "
+                f"{args._qgc_http_stream_port} off untrusted networks."
+            ),
+            "QGC DIRECT MEDIA: strict TLS remains required; use a deployment CA file in QGC when the certificate is not publicly trusted.",
+        ], applied_files
 
     if args.profile == "production_remote":
         user_file = args._production_session_user_file
@@ -1006,16 +1189,49 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--public-host",
         help=(
-            "Public or deployment-stable TLS hostname/IP used by browser clients "
-            "for the production_remote profile. Do not include a scheme, path, or port."
+            "Public or deployment-stable TLS hostname/IP used by production_remote "
+            "or qgc_direct_media. Do not include a scheme, path, or port."
         ),
     )
     parser.add_argument(
         "--public-origin",
         help=(
-            "Optional HTTPS browser origin for production_remote. Defaults to "
-            "https://<public-host>; may include a port."
+            "Optional HTTPS origin for production_remote or qgc_direct_media. "
+            "Defaults to https://<public-host>; may include a port."
         ),
+    )
+    parser.add_argument(
+        "--bearer-token-file",
+        type=Path,
+        default=DEFAULT_QGC_TOKEN_FILE,
+        help=(
+            "Owner-only hashed bearer-token JSON generated for qgc_direct_media. "
+            "Default: configs/secrets/qgc-media-tokens.json."
+        ),
+    )
+    parser.add_argument(
+        "--qgc-handoff-file",
+        type=Path,
+        default=DEFAULT_QGC_HANDOFF_FILE,
+        help=(
+            "Owner-only one-time plaintext QGC media credential handoff JSON. "
+            "Delete after configuring QGC."
+        ),
+    )
+    parser.add_argument(
+        "--token-id",
+        default=DEFAULT_QGC_TOKEN_ID,
+        help="Machine-token identifier for qgc_direct_media.",
+    )
+    parser.add_argument(
+        "--token-subject",
+        default=DEFAULT_QGC_TOKEN_SUBJECT,
+        help="Machine-token subject for qgc_direct_media.",
+    )
+    parser.add_argument(
+        "--rotate-qgc-token",
+        action="store_true",
+        help="Rotate existing qgc_direct_media token and handoff files.",
     )
     parser.add_argument(
         "--http-stream-port",

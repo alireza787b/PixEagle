@@ -79,6 +79,85 @@ and use the same port, normally `5600`.
 This profile does not expose `/video_feed`, `/ws/video_feed`,
 `/ws/webrtc_signaling`, or API routes to the LAN.
 
+### `qgc_direct_media`
+
+Use this guarded profile only with a draft/test QGroundControl build that
+includes generic HTTP MJPEG/WebSocket JPEG authentication, Origin, and strict
+TLS support:
+
+```bash
+make qgc-direct-media-profile PUBLIC_HOST=pixeagle.example
+```
+
+Optional deployment-managed paths and non-default TLS port:
+
+```bash
+make qgc-direct-media-profile \
+  PUBLIC_HOST=pixeagle.example \
+  PUBLIC_ORIGIN=https://pixeagle.example:8443 \
+  QGC_TOKEN_FILE="$HOME/.config/pixeagle/secrets/qgc-media-tokens.json" \
+  QGC_HANDOFF_FILE="$HOME/.config/pixeagle/secrets/qgc-media-handoff.json"
+```
+
+The tool generates:
+
+- an owner-only token file containing only a SHA-256 token hash, token ID,
+  subject, enabled flag, and the single `media:read` scope;
+- an owner-only one-time handoff file containing the plaintext bearer token,
+  exact QGC HTTP/WebSocket URLs, authentication type, and Origin;
+- a loopback PixEagle backend configuration for an external HTTPS/WSS reverse
+  proxy.
+
+It sets:
+
+```yaml
+Streaming:
+  API_EXPOSURE_MODE: trusted_lan_legacy
+  HTTP_STREAM_HOST: 127.0.0.1
+  HTTP_STREAM_PORT: 5077
+  API_ALLOWED_HOSTS:
+    - pixeagle.example:443
+  API_CORS_ALLOWED_ORIGINS:
+    - https://pixeagle.example
+  API_AUTH_MODE: machine_bearer
+  API_BEARER_TOKEN_FILE: /absolute/path/to/qgc-media-tokens.json
+  API_SECURITY_AUDIT_ENABLED: true
+
+GStreamer:
+  ENABLE_GSTREAMER_STREAM: false
+```
+
+Configure the reverse proxy to strip `/pixeagle-api` and forward it to
+`http://127.0.0.1:5077`, including WebSocket upgrades. Configure QGC from the
+handoff file:
+
+- source: **HTTP MJPEG Video Stream** or **WebSocket JPEG Video Stream**;
+- authentication: **Bearer token**;
+- Origin: the exact generated HTTPS origin;
+- custom CA file: required when the proxy certificate chains to a private CA.
+
+For WSS, QGC adds the selected CA certificates to system trust. For HTTPS
+MJPEG, QGC uses the selected PEM as the complete GIO trust database; include
+every deployment root required by that connection. Leave the field blank when
+normal system trust is sufficient.
+
+Delete the handoff file after securely transferring the token. Re-running the
+profile refuses to overwrite either credential file unless
+`ROTATE_QGC_TOKEN=1` is supplied. Rotation keeps an owner-only backup of the
+hashed token record but never archives the plaintext handoff. If setup is
+interrupted before it reports `Wrote configs/config.yaml`, the previous runtime
+configuration remains authoritative; inspect or remove any partial QGC
+credential files, or deliberately rerun with rotation. The profile does not
+install a reverse proxy, issue certificates, open firewall rules, install QGC,
+or prove playback.
+QGC/PixEagle integration remains guarded until PR #13594 leaves draft, the QGC
+CI/build matrix and loopback transport tests pass, and a target deployment
+produces TLS/proxy/firewall and receiver evidence.
+
+PixEagle runtime revalidates generated token/user files before parsing them. On
+POSIX they must remain regular, single-link, process-user-owned files with no
+group/other permissions, and must not exceed 1 MiB.
+
 ### `demo_lan_browser`
 
 Use this only for a lab demo where PixEagle runs on an onboard/companion host
@@ -258,9 +337,11 @@ to apply them until their remaining security and evidence gates are completed.
 | `unsafe_demo_lan_media_only` | Explicit anonymous media-only lab exception, never a dashboard/control profile and never default | Not supported |
 
 Do not create a no-password remote control panel. If a beginner needs remote
-video quickly, use `field_qgc_video` or an SSH tunnel. If a beginner needs the
-full browser dashboard from another device, use `demo_lan_browser` so setup
-generates credentials rather than exposing anonymous backend control.
+video quickly, use `field_qgc_video`; it is the simplest QGC path and does not
+open the PixEagle backend. Use `qgc_direct_media` only when HTTPS/WSS and the
+required QGC build are available. If a beginner needs the full browser
+dashboard from another device, use `demo_lan_browser` so setup generates
+credentials rather than exposing anonymous backend control.
 
 ## Tooling
 
@@ -274,6 +355,7 @@ Preview changes:
 
 ```bash
 python scripts/setup/apply-setup-profile.py --profile field_qgc_video --gcs-host 192.168.10.20 --dry-run
+python scripts/setup/apply-setup-profile.py --profile qgc_direct_media --public-host pixeagle.example --dry-run
 python scripts/setup/apply-setup-profile.py --profile demo_lan_browser --lan-host 192.168.10.42 --dry-run
 python scripts/setup/apply-setup-profile.py --profile production_remote --public-host pixeagle.example --session-user-file "$HOME/.config/pixeagle/secrets/browser-users.json" --credential-handoff-file "$HOME/.config/pixeagle/secrets/initial-credentials.json" --dry-run
 ```
@@ -289,12 +371,13 @@ python scripts/setup/apply-setup-profile.py --profile production_remote --public
 When the destination `configs/config.yaml` already exists, the tool creates a
 timestamped backup before writing unless `--no-backup` is explicitly supplied.
 
-## QGC And Future HTTP/WebSocket Media
+## QGC Direct HTTP/WebSocket Media
 
-The current field QGC path is GStreamer UDP/RTP. Direct remote QGC HTTP/WebSocket
-media is not advertised until the QGC client can send generic Authorization,
-optional WebSocket Origin, TLS/WSS settings, and redacts credentials in UI/logs.
-For PixEagle, that future profile also requires:
+The simplest field QGC path remains GStreamer UDP/RTP. The guarded
+`qgc_direct_media` profile supports direct remote QGC HTTP/WebSocket media for a
+draft/test QGC build containing the repaired generic Authorization, optional
+WebSocket Origin, strict TLS/custom CA, and credential-redaction
+implementation. It requires:
 
 - `Streaming.API_EXPOSURE_MODE: trusted_lan_legacy`;
 - exact `Streaming.API_ALLOWED_HOSTS`;
@@ -303,6 +386,11 @@ For PixEagle, that future profile also requires:
 - a bearer token with `media:read` only for video-only QGC use;
 - no query-string credentials;
 - HTTPS/WSS with deployment-managed trust for production.
+
+The profile keeps PixEagle loopback behind an external proxy and does not prove
+QGC playback. Do not present it as deployment-ready until PR #13594 leaves
+draft and QGC CI, target receiver, TLS, proxy, and firewall evidence are
+recorded.
 
 See [Remote Media Security](../video/04-streaming/remote-media-security.md) and
 [QGC HTTP/WebSocket Source Plan](../video/04-streaming/qgc-http-websocket-source-plan.md).

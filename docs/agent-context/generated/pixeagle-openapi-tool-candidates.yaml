@@ -31,7 +31,7 @@ source:
   - file: src/classes/api_exposure_policy.py
     sha256: c6370e4844517032917099ff3af5607a5455ff5be3e0480ece0fd4d1b9c47896
   - file: src/classes/api_auth_runtime.py
-    sha256: e684fdbf2f20543458b2e019fc013d8df4431bcbb7ea157ad4c8e24b7b208b9a
+    sha256: 37e860bf2e139c03b40c19c40d6267a4754c6839d02ab8c02b16b82b644ac948
   - file: src/classes/api_security_audit.py
     sha256: 65707d929bec29066947f538511e7141bf210edeaf8ed2fa5f95223f127e6178
   - file: src/classes/api_security_types.py

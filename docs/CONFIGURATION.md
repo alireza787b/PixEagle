@@ -185,7 +185,11 @@ for every API client and is for machine/API clients. `browser_session` loads
 browser/operator users from `API_SESSION_USER_FILE`, creates HttpOnly cookie
 sessions through `/api/v1/auth/login`, and requires the returned CSRF token for
 browser mutations. The token and user files are external JSON with hashed
-records; do not put plaintext tokens or passwords in `config.yaml`.
+records; do not put plaintext tokens or passwords in `config.yaml`. On POSIX,
+runtime loading requires a regular file owned by the PixEagle process user,
+exactly one hard link, owner-read permission, and no group/other permissions
+(`0600` or stricter). Symbolic links and auth-record files over 1 MiB are
+rejected before JSON parsing.
 
 The official quick-start default is a same-host beginner demo: run PixEagle and
 open the dashboard locally without creating credentials. When the dashboard or
@@ -193,9 +197,11 @@ backend is reachable from another phone, tablet, or GCS machine, use an explicit
 profile instead of broadening the default. Full remote browser demos should
 generate `browser_session` users; production remote browser deployments should
 use `production_remote` behind HTTPS/WSS; QGC field video should normally use
-GStreamer H.264/RTP/UDP; future direct remote QGC HTTP/WS video should use a
-`machine_bearer` token with only `media:read` plus explicit
-`API_ALLOWED_HOSTS`. See
+GStreamer H.264/RTP/UDP. Guarded direct QGC HTTP/WS video uses
+`make qgc-direct-media-profile PUBLIC_HOST=<tls-host>` to generate a
+`machine_bearer` token with only `media:read`, exact Host/Origin policy, and a
+loopback backend for an external HTTPS/WSS proxy. QGC CI and target receiver
+evidence remain required. See
 [Setup Profiles](setup/setup-profiles.md),
 [Remote Media Security](video/04-streaming/remote-media-security.md) and
 [QGC HTTP/WebSocket Source Plan](video/04-streaming/qgc-http-websocket-source-plan.md).
@@ -220,8 +226,9 @@ print(json.dumps({"users": [make_user_record(
 PY
 ```
 
-Store the generated JSON outside the repository, restrict file permissions, and
-point `Streaming.API_SESSION_USER_FILE` at that path.
+Store the generated JSON outside the repository, set mode `0600`, ensure the
+PixEagle process user owns it, and point `Streaming.API_SESSION_USER_FILE` at
+that path.
 
 API security-audit controls also live under `Streaming`:
 

@@ -175,7 +175,17 @@ ws://127.0.0.1:5077/ws/video_feed
 
 For an onboard companion streaming to a ground-station laptop, enable
 `GStreamer.ENABLE_GSTREAMER_STREAM` and configure QGC for UDP H.264 instead of
-opening the PixEagle backend API/media port on the LAN. See
+opening the PixEagle backend API/media port on the LAN.
+
+For guarded direct HTTPS/WSS media with a draft/test QGC build containing PR
+#13594:
+
+```bash
+make qgc-direct-media-profile PUBLIC_HOST=<tls-host>
+```
+
+This generates a `media:read`-only bearer credential and keeps PixEagle
+loopback behind an external proxy. It does not prove QGC playback. See
 [Remote Media Security](remote-media-security.md) and the
 [QGC HTTP/WebSocket Source Plan](qgc-http-websocket-source-plan.md).
 

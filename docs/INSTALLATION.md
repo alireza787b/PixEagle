@@ -135,6 +135,16 @@ apply the QGC video profile:
 make qgc-video-profile GCS_HOST=<ground-station-ip>
 ```
 
+For guarded direct QGC HTTPS/WSS media with a draft/test compatible QGC build:
+
+```bash
+make qgc-direct-media-profile PUBLIC_HOST=<tls-host>
+```
+
+This keeps PixEagle loopback, generates a hashed `media:read`-only bearer token
+record, and writes an owner-only one-time QGC handoff. It still requires a
+separately configured TLS reverse proxy and target receiver validation.
+
 ## Optional Components
 
 ### dlib Tracker
@@ -250,6 +260,7 @@ make sync          # Pull latest updates from upstream
 make reset-config  # Reset config files to defaults
 make setup-profile # Apply an explicit setup profile
 make qgc-video-profile GCS_HOST=<ip>  # Configure QGC field video
+make qgc-direct-media-profile PUBLIC_HOST=<tls-host>  # Guarded QGC HTTPS/WSS media
 make status        # Show service status
 make help          # Show all commands
 ```
