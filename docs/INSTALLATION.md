@@ -74,6 +74,13 @@ The `scripts/init.sh` (or `make init`) performs a 9-step setup:
 8. **MAVSDK Server** - Downloads manifest-pinned platform binary with SHA-256 verification
 9. **MAVLink2REST** - Downloads manifest-pinned REST API bridge with SHA-256 verification
 
+At the end, init prints a component readiness summary. `ready` means the step
+was completed or verified in this run, `skipped` means an optional/operator
+choice was intentionally not performed, `degraded` means PixEagle continued but
+that component needs attention, and `manual follow-up` means the guide gives the
+next command to run before using that capability. Do not treat `make run` as
+ready for a workflow until the relevant summary entries are ready.
+
 ### OpenCV + GStreamer Safety During Init
 
 If your venv already has a **custom OpenCV build with GStreamer**, `make init` detects it and asks:

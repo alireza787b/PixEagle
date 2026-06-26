@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-06-25
+Last updated: 2026-06-26
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -114,6 +114,7 @@ it together with:
 | Phase 4 production remote browser evidence and media-session revocation | done | PXE-0073 / PXE-0064 partial | `checkpoints/2026-06-20-phase-4-production-remote-browser-e2e.md`; dashboard consumers use the reverse-proxy endpoint registry; active MJPEG/video-WebSocket/WebRTC signaling sessions terminate after browser-session revocation; WebRTC peer IDs/capacity are server-owned and bounded; the manual-only self-signed HTTPS Playwright harness enforces exact authority/path/route-query rules, current-checkout builds, managed Chromium provenance, bounded cleanup, raw/final-upload secret scans, and sanitized uploads; exact clean-revision evidence `20260620T215137Z-5ce38f` passed on commit `bf32df19ec7f1e8855c1ea934cfb50128a0cf4ea`; target nginx/Caddy, trusted certificate, firewall, service ownership, and operator deployment evidence remain PXE-0064/PXE-0068 gates |
 | Phase 4 QGC authenticated direct media | partial checkpoint | PXE-0070 / PXE-0068 partial | `checkpoints/2026-06-24-phase-4-qgc-authenticated-direct-media.md`; QGC PR #13594 was rebased/repaired generically for optional Authorization, Origin, strict TLS/custom CA, credential redaction, bounded WebSocket JPEG, and recording policy, while PixEagle gained a guarded `qgc_direct_media` profile that generates `media:read` bearer credentials and keeps the backend loopback behind an external HTTPS/WSS proxy. PR #13594 is draft as of 2026-06-25 because user receiver tests are not complete; the prior Windows x64 setup failure cleared on QGC head `717f083c5`, the VideoSettings fixture-lifetime failure was fixed and passed the unit phase on `b2f6405a4`, and QGC head `b98848b2c` passed the visible PR rollup on 2026-06-26, including Linux release x64/arm64 and `Test + Coverage linux_gcc_64 Debug` run `28184014057`. PXE-0070 remains active until target receiver/proxy evidence exists. No target QGC playback, proxy/TLS/firewall deployment, SITL/HIL/field, or real-aircraft success is claimed. |
 | Phase 4 setup/bootstrap preflight cleanup | done | PXE-0068 partial; PXE-0074 prep | `checkpoints/2026-06-26-phase-4-setup-bootstrap-preflight-cleanup.md`; first cleanup pass after the clean-walkthrough preflight: Linux-only guided install wording and macOS fail-fast, Makefile `venv` fallback, `make` prerequisites, manual core-first dependency install, dashboard YAML-to-dotenv conversion, PixEagle-owned-only port cleanup, Python socket readiness fallback when `nc` is absent, and regression tests. No clean temp checkout, service install, deployment, SITL/HIL/field, or real-aircraft success is claimed. |
+| Phase 4 init summary precision | done | PXE-0068 partial; PXE-0074 prep | `checkpoints/2026-06-26-phase-4-init-summary-precision.md`; `scripts/init.sh` now records explicit ready/skipped/degraded/manual-follow-up state for Node.js, dashboard dependencies, dashboard `.env`, configuration defaults, and MAVSDK/MAVLink2REST binaries; `install.sh` no longer advertises blanket installation completion before users review non-ready summary items. No clean temp checkout, binary download/install, service install, deployment, SITL/HIL/field, or real-aircraft success is claimed. |
 
 ## Active Slice
 
@@ -127,9 +128,12 @@ generation, dependency split, setup summaries, port-conflict handling, and
 verification strength. After PXE-0070, resume the planned Phase 4 cleanup
 order: production/security evidence, setup UX cleanup, API/MCP migration,
 dashboard client/toolchain modernization, and validation-roadmap work.
-The 2026-06-26 setup/bootstrap cleanup closed the first local preflight
-findings; remaining setup work is init summary precision and the final PXE-0074
-clean temp-directory walkthrough after planned slices are otherwise complete.
+The 2026-06-26 setup/bootstrap cleanup closed the local preflight findings for
+macOS scope, venv fallback, prerequisites, manual dotenv conversion, dependency
+split, port ownership, hidden `nc`, and init-summary precision. Remaining setup
+work is the final PXE-0074 clean temp-directory walkthrough after planned
+slices are otherwise complete plus target deployment evidence under PXE-0064/
+PXE-0068.
 
 Phase 4 API/MCP modernization. PXE-0042 through PXE-0049 are done for typed
 actions, telemetry health, runtime/following/tracker status and telemetry, and

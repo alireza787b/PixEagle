@@ -39,7 +39,12 @@ deployment, PX4/SITL/HIL, field, or real-aircraft action was performed.
 6. `scripts/init.sh` can print "Setup Complete" even when dashboard dependency
    setup or binary downloads were skipped or failed. The release walkthrough
    needs explicit artifact checks and summary language that distinguishes
-   ready, degraded, skipped, and manual-follow-up states.
+   ready, degraded, skipped, and manual-follow-up states. Second cleanup pass:
+   init now records explicit component states for Node.js, dashboard
+   dependencies, dashboard `.env`, configuration defaults, and
+   MAVSDK/MAVLink2REST binaries; the final screen is a setup summary instead of
+   a blanket completion claim, and `install.sh` tells users to review non-ready
+   items before running services.
 
 7. `scripts/run.sh` can terminate any process on configured ports before
    startup and uses `nc` for readiness checks, but netcat is not installed by

@@ -1349,14 +1349,76 @@ def test_guided_install_docs_do_not_advertise_macos_bootstrap():
 
 
 def test_manual_setup_docs_preserve_core_ai_split_and_dashboard_env_conversion():
+    readme_text = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     install_text = (PROJECT_ROOT / "docs" / "INSTALLATION.md").read_text(
         encoding="utf-8"
     )
+    setup_profile_text = (
+        PROJECT_ROOT / "docs" / "setup" / "setup-profiles.md"
+    ).read_text(encoding="utf-8")
 
     assert "cp dashboard/env_default.yaml dashboard/.env" not in install_text
     assert "yaml.safe_load" in install_text
     assert "pixeagle-core-requirements.txt" in install_text
     assert "pip install -r requirements.txt" not in install_text
+    assert "component readiness summary" in readme_text
+    assert "component readiness summary" in install_text
+    assert "manual follow-up" in install_text
+    assert "reports setup state separately from profile state" in setup_profile_text
+
+
+def test_init_summary_uses_explicit_component_states():
+    script_text = (PROJECT_ROOT / "scripts" / "init.sh").read_text(encoding="utf-8")
+    summary_text = script_text.split("show_summary() {", 1)[1].split(
+        "# ============================================================================\n# Optional Service Setup",
+        1,
+    )[0]
+
+    assert "summary_status_line" in summary_text
+    assert "NODE_SETUP_STATE" in summary_text
+    assert "DASHBOARD_DEPS_STATE" in summary_text
+    assert "MAVSDK_BINARY_STATE" in summary_text
+    assert "MAVLINK2REST_BINARY_STATE" in summary_text
+    assert "node -v" not in summary_text
+    assert "mavsdk_status" not in summary_text
+    assert "mavlink2rest_status" not in summary_text
+    assert '[[ -f "$PIXEAGLE_DIR/bin/mavsdk_server_bin" ]]' not in summary_text
+    assert '[[ -f "$PIXEAGLE_DIR/bin/mavlink2rest" ]]' not in summary_text
+
+
+def test_init_summary_tracks_dashboard_and_binary_followup_states():
+    script_text = (PROJECT_ROOT / "scripts" / "init.sh").read_text(encoding="utf-8")
+
+    assert 'DASHBOARD_DEPS_STATE="skipped"' in script_text
+    assert 'DASHBOARD_DEPS_STATE="manual_follow_up"' in script_text
+    assert 'DASHBOARD_DEPS_STATE="degraded"' in script_text
+    assert "npm unavailable; install Node.js/npm" in script_text
+    assert "npm install failed; run cd dashboard && npm install manually" in script_text
+
+    assert 'MAVSDK_BINARY_STATE="ready"' in script_text
+    assert 'MAVSDK_BINARY_STATE="skipped"' in script_text
+    assert 'MAVSDK_BINARY_STATE="degraded"' in script_text
+    assert 'MAVSDK_BINARY_STATE="manual_follow_up"' in script_text
+    assert "existing binary failed manifest verification" in script_text
+    assert "operator skipped download; run download-binaries.sh --mavsdk" in script_text
+    assert "MAVSDK Server downloaded and verified" in script_text
+
+    assert 'MAVLINK2REST_BINARY_STATE="ready"' in script_text
+    assert 'MAVLINK2REST_BINARY_STATE="skipped"' in script_text
+    assert 'MAVLINK2REST_BINARY_STATE="degraded"' in script_text
+    assert 'MAVLINK2REST_BINARY_STATE="manual_follow_up"' in script_text
+    assert "operator skipped download; run download-binaries.sh --mavlink2rest" in script_text
+    assert "MAVLink2REST Server downloaded and verified" in script_text
+
+
+def test_one_line_installer_does_not_overstate_partial_init_success():
+    installer_text = (PROJECT_ROOT / "install.sh").read_text(encoding="utf-8")
+
+    assert "Installation Complete!" not in installer_text
+    assert "Bootstrap Finished" in installer_text
+    assert "Review the init summary above before starting services." in installer_text
+    assert "Resolve any degraded or manual-follow-up items" in installer_text
+    assert "only after the init summary is ready for your use case" in installer_text
 
 
 def test_dashboard_production_build_and_navigation_support_pixeagle_subpath():

@@ -15,7 +15,8 @@
 #   1. Checks system prerequisites (git, python3, curl)
 #   2. Clones PixEagle repository (or updates if exists)
 #   3. Runs the initialization script (scripts/init.sh)
-#   4. Displays next steps
+#   4. Displays wrapper next steps; scripts/init.sh prints component status
+#      for ready, skipped, degraded, and manual-follow-up items
 #
 # Environment variables:
 #   PIXEAGLE_HOME    - Installation directory (default: ~/PixEagle)
@@ -313,14 +314,16 @@ run_init() {
 show_success() {
     echo ""
     echo -e "${CYAN}════════════════════════════════════════════════════════════════════════${NC}"
-    echo -e "                    ${GREEN}✓${NC} ${BOLD}Installation Complete!${NC}"
+    echo -e "                    ${GREEN}✓${NC} ${BOLD}Bootstrap Finished${NC}"
     echo -e "${CYAN}════════════════════════════════════════════════════════════════════════${NC}"
     echo ""
-    echo -e "   PixEagle has been installed to: ${CYAN}$INSTALL_DIR${NC}"
+    echo -e "   PixEagle checkout is at: ${CYAN}$INSTALL_DIR${NC}"
+    echo -e "   Review the init summary above before starting services."
+    echo -e "   Resolve any degraded or manual-follow-up items, then re-run ${CYAN}make init${NC}."
     echo ""
     echo -e "   ${BOLD}Next Steps:${NC}"
     echo -e "   1. ${CYAN}cd $INSTALL_DIR${NC}"
-    echo -e "   2. ${CYAN}make run${NC} to start all services"
+    echo -e "   2. ${CYAN}make run${NC} only after the init summary is ready for your use case"
     echo -e "   3. Optional QGC field video: ${CYAN}make qgc-video-profile GCS_HOST=<gcs-ip>${NC}"
     echo ""
     echo -e "   ${BOLD}Quick Commands:${NC}"

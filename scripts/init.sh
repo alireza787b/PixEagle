@@ -69,6 +69,18 @@ PYTORCH_SETUP_ATTEMPTED=false
 PYTORCH_SETUP_PASSED=false
 PYTORCH_SETUP_SKIPPED=false
 PYTORCH_SETUP_FAILED=false
+NODE_SETUP_STATE="pending"
+NODE_SETUP_DETAIL="not checked"
+DASHBOARD_DEPS_STATE="pending"
+DASHBOARD_DEPS_DETAIL="not checked"
+CONFIG_DEFAULTS_STATE="pending"
+CONFIG_DEFAULTS_DETAIL="not checked"
+DASHBOARD_ENV_STATE="pending"
+DASHBOARD_ENV_DETAIL="not checked"
+MAVSDK_BINARY_STATE="pending"
+MAVSDK_BINARY_DETAIL="not checked"
+MAVLINK2REST_BINARY_STATE="pending"
+MAVLINK2REST_BINARY_DETAIL="not checked"
 # Platform detection
 DETECTED_ARCH=""
 IS_ARM_PLATFORM=false
@@ -894,6 +906,8 @@ install_python_deps() {
 # ============================================================================
 setup_nodejs() {
     log_step 5 "Setting up Node.js via nvm..."
+    NODE_SETUP_STATE="pending"
+    NODE_SETUP_DETAIL="Node.js setup started"
 
     # Set up NVM_DIR
     export NVM_DIR="$HOME/.nvm"
@@ -923,12 +937,16 @@ setup_nodejs() {
                 log_error "nvm installation failed"
                 log_detail "Manual install: https://github.com/nvm-sh/nvm"
                 log_detail "Then re-run this script"
+                NODE_SETUP_STATE="manual_follow_up"
+                NODE_SETUP_DETAIL="nvm install completed but nvm was not loadable; install Node.js manually"
                 return 1
             fi
         else
             stop_spinner
             log_error "nvm download failed"
             log_detail "Manual install: https://github.com/nvm-sh/nvm"
+            NODE_SETUP_STATE="manual_follow_up"
+            NODE_SETUP_DETAIL="nvm download failed; install Node.js manually"
             return 1
         fi
     fi
@@ -939,6 +957,8 @@ setup_nodejs() {
         current_version=$(node -v)
         log_info "Node.js ${current_version} already installed"
         log_success "Node.js ready"
+        NODE_SETUP_STATE="ready"
+        NODE_SETUP_DETAIL="Node.js ${current_version}"
         return 0
     fi
 
@@ -950,10 +970,14 @@ setup_nodejs() {
         stop_spinner
         nvm use "$NODE_VERSION" >/dev/null 2>&1
         log_success "Node.js $(node -v) installed"
+        NODE_SETUP_STATE="ready"
+        NODE_SETUP_DETAIL="Node.js $(node -v)"
     else
         stop_spinner
         log_error "Node.js installation failed"
         log_detail "Manual install: https://nodejs.org/en/download"
+        NODE_SETUP_STATE="manual_follow_up"
+        NODE_SETUP_DETAIL="Node.js ${NODE_VERSION} installation failed; install Node.js manually"
         return 1
     fi
 }
@@ -963,11 +987,15 @@ setup_nodejs() {
 # ============================================================================
 install_dashboard_deps() {
     log_step 6 "Installing dashboard dependencies..."
+    DASHBOARD_DEPS_STATE="pending"
+    DASHBOARD_DEPS_DETAIL="dashboard dependency setup started"
 
     cd "$PIXEAGLE_DIR" || exit 1
 
     if [[ ! -d "dashboard" ]]; then
         log_warn "Dashboard directory not found - skipping"
+        DASHBOARD_DEPS_STATE="skipped"
+        DASHBOARD_DEPS_DETAIL="dashboard directory not found"
         return 0
     fi
 
@@ -979,10 +1007,16 @@ install_dashboard_deps() {
     if ! command -v npm &>/dev/null; then
         log_warn "npm not available - skipping dashboard setup"
         log_detail "Install Node.js first, then run: cd dashboard && npm install"
+        DASHBOARD_DEPS_STATE="manual_follow_up"
+        DASHBOARD_DEPS_DETAIL="npm unavailable; install Node.js/npm, then run cd dashboard && npm install"
         return 1
     fi
 
-    cd dashboard || return 1
+    if ! cd dashboard; then
+        DASHBOARD_DEPS_STATE="degraded"
+        DASHBOARD_DEPS_DETAIL="could not enter dashboard directory"
+        return 1
+    fi
 
     if [[ -d "node_modules" ]]; then
         log_info "node_modules exists - checking for updates"
@@ -992,10 +1026,16 @@ install_dashboard_deps() {
     if npm install --silent 2>&1; then
         stop_spinner
         log_success "Dashboard dependencies installed"
+        DASHBOARD_DEPS_STATE="ready"
+        DASHBOARD_DEPS_DETAIL="npm dependencies installed"
     else
         stop_spinner
         log_warn "npm install had issues"
         log_detail "Try manually: cd dashboard && npm install"
+        DASHBOARD_DEPS_STATE="degraded"
+        DASHBOARD_DEPS_DETAIL="npm install failed; run cd dashboard && npm install manually"
+        cd "$PIXEAGLE_DIR"
+        return 1
     fi
 
     cd "$PIXEAGLE_DIR"
@@ -1007,6 +1047,7 @@ install_dashboard_deps() {
 generate_env_from_yaml() {
     local yaml_file="$1"
     local env_file="$2"
+    local conversion_status=0
 
     cd "$PIXEAGLE_DIR" || exit 1
 
@@ -1025,11 +1066,17 @@ with open(env_file, 'w') as f:
     for key, value in config.items():
         f.write(f"{key}={value}\n")
 PYEOF
+    conversion_status=$?
     deactivate
+    return "$conversion_status"
 }
 
 setup_configs() {
     log_step 7 "Preparing configuration defaults..."
+    CONFIG_DEFAULTS_STATE="pending"
+    CONFIG_DEFAULTS_DETAIL="configuration check started"
+    DASHBOARD_ENV_STATE="pending"
+    DASHBOARD_ENV_DETAIL="dashboard env check started"
 
     local CONFIG_DIR="$PIXEAGLE_DIR/configs"
     local DEFAULT_CONFIG="$CONFIG_DIR/config_default.yaml"
@@ -1047,15 +1094,21 @@ setup_configs() {
     # Main config
     if [[ ! -f "$DEFAULT_CONFIG" ]]; then
         log_error "Default config not found: $DEFAULT_CONFIG"
+        CONFIG_DEFAULTS_STATE="degraded"
+        CONFIG_DEFAULTS_DETAIL="configs/config_default.yaml missing"
         return 1
     fi
 
     if [[ -f "$USER_CONFIG" ]]; then
         log_info "Keeping existing configs/config.yaml"
         log_detail "Use make reset-config or make setup-profile when you intentionally want a new local runtime config"
+        CONFIG_DEFAULTS_STATE="ready"
+        CONFIG_DEFAULTS_DETAIL="existing configs/config.yaml kept"
     else
         log_success "Using checked-in defaults from configs/config_default.yaml"
         log_detail "No configs/config.yaml created; setup profiles create local overrides only when needed"
+        CONFIG_DEFAULTS_STATE="ready"
+        CONFIG_DEFAULTS_DETAIL="using checked-in configs/config_default.yaml"
     fi
 
     # Dashboard .env
@@ -1070,18 +1123,40 @@ setup_configs() {
                 # Backup existing .env
                 local backup_name="${DASHBOARD_ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
                 cp "$DASHBOARD_ENV_FILE" "$backup_name"
-                generate_env_from_yaml "$DASHBOARD_DEFAULT_CONFIG" "$DASHBOARD_ENV_FILE"
-                log_success "Replaced dashboard/.env (backup: ${backup_name##*/})"
+                if generate_env_from_yaml "$DASHBOARD_DEFAULT_CONFIG" "$DASHBOARD_ENV_FILE"; then
+                    log_success "Replaced dashboard/.env (backup: ${backup_name##*/})"
+                    DASHBOARD_ENV_STATE="ready"
+                    DASHBOARD_ENV_DETAIL="replaced dashboard/.env; backup ${backup_name##*/}"
+                else
+                    log_warn "Could not regenerate dashboard/.env"
+                    log_detail "Retry later with the dashboard env conversion in docs/INSTALLATION.md"
+                    DASHBOARD_ENV_STATE="degraded"
+                    DASHBOARD_ENV_DETAIL="dashboard/.env regeneration failed; use docs/INSTALLATION.md conversion"
+                    return 1
+                fi
             else
                 log_info "Keeping existing dashboard/.env"
+                DASHBOARD_ENV_STATE="ready"
+                DASHBOARD_ENV_DETAIL="existing dashboard/.env kept"
             fi
         else
             # No existing .env - create new one
-            generate_env_from_yaml "$DASHBOARD_DEFAULT_CONFIG" "$DASHBOARD_ENV_FILE"
-            log_success "Created dashboard/.env"
+            if generate_env_from_yaml "$DASHBOARD_DEFAULT_CONFIG" "$DASHBOARD_ENV_FILE"; then
+                log_success "Created dashboard/.env"
+                DASHBOARD_ENV_STATE="ready"
+                DASHBOARD_ENV_DETAIL="created dashboard/.env from env_default.yaml"
+            else
+                log_warn "Could not create dashboard/.env"
+                log_detail "Retry later with the dashboard env conversion in docs/INSTALLATION.md"
+                DASHBOARD_ENV_STATE="degraded"
+                DASHBOARD_ENV_DETAIL="dashboard/.env creation failed; use docs/INSTALLATION.md conversion"
+                return 1
+            fi
         fi
     else
         log_warn "Dashboard env_default.yaml not found"
+        DASHBOARD_ENV_STATE="manual_follow_up"
+        DASHBOARD_ENV_DETAIL="dashboard/env_default.yaml missing; create dashboard/.env manually"
     fi
 }
 
@@ -1090,6 +1165,8 @@ setup_configs() {
 # ============================================================================
 setup_mavsdk_server() {
     log_step 8 "Setting up MAVSDK Server..."
+    MAVSDK_BINARY_STATE="pending"
+    MAVSDK_BINARY_DETAIL="MAVSDK Server binary check started"
 
     local mavsdk_binary="$PIXEAGLE_DIR/bin/mavsdk_server_bin"
     local download_script="$SCRIPTS_DIR/setup/download-binaries.sh"
@@ -1098,6 +1175,8 @@ setup_mavsdk_server() {
     if [[ ! -f "$download_script" ]]; then
         log_warn "Binary download script not found"
         log_detail "Skipping MAVSDK Server setup"
+        MAVSDK_BINARY_STATE="manual_follow_up"
+        MAVSDK_BINARY_DETAIL="download script missing; install mavsdk_server_bin manually"
         return 1
     fi
 
@@ -1105,9 +1184,13 @@ setup_mavsdk_server() {
         log_info "MAVSDK Server binary exists; verifying manifest checksum"
         if bash "$download_script" --mavsdk; then
             log_success "MAVSDK Server binary verified"
+            MAVSDK_BINARY_STATE="ready"
+            MAVSDK_BINARY_DETAIL="manifest checksum verified"
             return 0
         fi
         log_warn "Existing MAVSDK Server binary failed verification"
+        MAVSDK_BINARY_STATE="degraded"
+        MAVSDK_BINARY_DETAIL="existing binary failed manifest verification"
         return 1
     fi
 
@@ -1118,16 +1201,22 @@ setup_mavsdk_server() {
     if ask_yes_no "        Download MAVSDK Server now? [Y/n]: " "y"; then
         # Run download script with mavsdk flag
         if bash "$download_script" --mavsdk; then
-            log_success "MAVSDK Server installed successfully"
+            log_success "MAVSDK Server downloaded and verified"
+            MAVSDK_BINARY_STATE="ready"
+            MAVSDK_BINARY_DETAIL="downloaded and checksum verified"
             return 0
         else
             log_warn "MAVSDK Server installation failed (non-fatal)"
             log_detail "Download later: bash scripts/setup/download-binaries.sh --mavsdk"
+            MAVSDK_BINARY_STATE="degraded"
+            MAVSDK_BINARY_DETAIL="download or checksum verification failed; retry download-binaries.sh --mavsdk"
             return 1
         fi
     else
         log_info "MAVSDK Server download skipped"
         log_detail "Download later: bash scripts/setup/download-binaries.sh --mavsdk"
+        MAVSDK_BINARY_STATE="skipped"
+        MAVSDK_BINARY_DETAIL="operator skipped download; run download-binaries.sh --mavsdk before PX4/MAVSDK use"
         return 1
     fi
 }
@@ -1137,6 +1226,8 @@ setup_mavsdk_server() {
 # ============================================================================
 setup_mavlink2rest() {
     log_step 9 "Setting up MAVLink2REST Server..."
+    MAVLINK2REST_BINARY_STATE="pending"
+    MAVLINK2REST_BINARY_DETAIL="MAVLink2REST binary check started"
 
     local mavlink2rest_binary="$PIXEAGLE_DIR/bin/mavlink2rest"
     local download_script="$SCRIPTS_DIR/setup/download-binaries.sh"
@@ -1145,6 +1236,8 @@ setup_mavlink2rest() {
     if [[ ! -f "$download_script" ]]; then
         log_warn "Binary download script not found"
         log_detail "Skipping MAVLink2REST Server setup"
+        MAVLINK2REST_BINARY_STATE="manual_follow_up"
+        MAVLINK2REST_BINARY_DETAIL="download script missing; install mavlink2rest manually"
         return 1
     fi
 
@@ -1152,9 +1245,13 @@ setup_mavlink2rest() {
         log_info "MAVLink2REST binary exists; verifying manifest checksum"
         if bash "$download_script" --mavlink2rest; then
             log_success "MAVLink2REST binary verified"
+            MAVLINK2REST_BINARY_STATE="ready"
+            MAVLINK2REST_BINARY_DETAIL="manifest checksum verified"
             return 0
         fi
         log_warn "Existing MAVLink2REST binary failed verification"
+        MAVLINK2REST_BINARY_STATE="degraded"
+        MAVLINK2REST_BINARY_DETAIL="existing binary failed manifest verification"
         return 1
     fi
 
@@ -1165,16 +1262,22 @@ setup_mavlink2rest() {
     if ask_yes_no "        Download MAVLink2REST Server now? [Y/n]: " "y"; then
         # Run download script with mavlink2rest flag
         if bash "$download_script" --mavlink2rest; then
-            log_success "MAVLink2REST Server installed successfully"
+            log_success "MAVLink2REST Server downloaded and verified"
+            MAVLINK2REST_BINARY_STATE="ready"
+            MAVLINK2REST_BINARY_DETAIL="downloaded and checksum verified"
             return 0
         else
             log_warn "MAVLink2REST Server installation failed (non-fatal)"
             log_detail "Download later: bash scripts/setup/download-binaries.sh --mavlink2rest"
+            MAVLINK2REST_BINARY_STATE="degraded"
+            MAVLINK2REST_BINARY_DETAIL="download or checksum verification failed; retry download-binaries.sh --mavlink2rest"
             return 1
         fi
     else
         log_info "MAVLink2REST Server download skipped"
         log_detail "Download later: bash scripts/setup/download-binaries.sh --mavlink2rest"
+        MAVLINK2REST_BINARY_STATE="skipped"
+        MAVLINK2REST_BINARY_DETAIL="operator skipped download; run download-binaries.sh --mavlink2rest before telemetry use"
         return 1
     fi
 }
@@ -1182,63 +1285,75 @@ setup_mavlink2rest() {
 # ============================================================================
 # Summary Display
 # ============================================================================
+summary_status_line() {
+    local state="$1"
+    local label="$2"
+    local detail="${3:-}"
+
+    case "$state" in
+        ready)
+            echo -e "   ${GREEN}${CHECK}${NC} ${label} ${DIM}${detail}${NC}"
+            ;;
+        skipped)
+            echo -e "   ${BLUE}${INFO}${NC} ${label} ${DIM}(skipped: ${detail})${NC}"
+            ;;
+        degraded)
+            echo -e "   ${YELLOW}${WARN}${NC}  ${label} ${DIM}(degraded: ${detail})${NC}"
+            ;;
+        manual_follow_up)
+            echo -e "   ${YELLOW}${WARN}${NC}  ${label} ${DIM}(manual follow-up: ${detail})${NC}"
+            ;;
+        *)
+            echo -e "   ${YELLOW}${WARN}${NC}  ${label} ${DIM}(not verified: ${detail})${NC}"
+            ;;
+    esac
+}
+
 show_summary() {
-    local node_version
-    node_version=$(node -v 2>/dev/null || echo "not installed")
-
-    # Check MAVSDK Server status (check both locations)
-    local mavsdk_status="${RED}Not installed${NC}"
-    if [[ -f "$PIXEAGLE_DIR/bin/mavsdk_server_bin" ]]; then
-        mavsdk_status="${GREEN}Installed${NC}"
-    fi
-
-    # Check MAVLink2REST Server status
-    local mavlink2rest_status="${RED}Not installed${NC}"
-    if [[ -f "$PIXEAGLE_DIR/bin/mavlink2rest" ]]; then
-        mavlink2rest_status="${GREEN}Installed${NC}"
-    fi
-
     echo ""
     echo -e "${CYAN}============================================================================${NC}"
-    echo -e "                          ${PARTY} ${BOLD}Setup Complete!${NC} ${PARTY}"
+    echo -e "                          ${PARTY} ${BOLD}Setup Summary${NC} ${PARTY}"
     echo -e "${CYAN}============================================================================${NC}"
     echo ""
-    echo -e "   ${GREEN}${CHECK}${NC} Python ${PYTHON_VERSION} virtual environment created"
+    summary_status_line "ready" "Python ${PYTHON_VERSION} virtual environment" "created or reused"
     if [[ "$INSTALL_PROFILE" == "core" ]]; then
-        echo -e "   ${GREEN}${CHECK}${NC} Core Python dependencies installed ${DIM}(AI packages skipped)${NC}"
+        summary_status_line "ready" "Core Python dependencies" "AI packages skipped by Core profile"
     else
         if [[ "$AI_VERIFY_PASSED" == true ]]; then
-            echo -e "   ${GREEN}${CHECK}${NC} Full Python dependencies installed ${DIM}(including AI/YOLO)${NC}"
+            summary_status_line "ready" "Full Python dependencies" "including AI/YOLO"
         elif [[ "$AI_ROLLBACK_APPLIED" == true ]]; then
-            echo -e "   ${YELLOW}${WARN}${NC}  Core dependencies installed ${DIM}(AI rollback applied after verify failure)${NC}"
+            summary_status_line "degraded" "Python dependencies" "AI rollback applied after verify failure; Core runtime remains usable"
         elif [[ "$AI_KEEP_FAILED" == true ]]; then
-            echo -e "   ${YELLOW}${WARN}${NC}  Core dependencies installed ${DIM}(AI install incomplete - manual fix needed)${NC}"
+            summary_status_line "manual_follow_up" "Python dependencies" "AI install incomplete; SmartTracker may fail until fixed"
         else
-            echo -e "   ${YELLOW}${WARN}${NC}  Core dependencies installed ${DIM}(AI status unknown - verify manually)${NC}"
+            summary_status_line "manual_follow_up" "Python dependencies" "AI status unknown; verify manually"
         fi
         if [[ "$PYTORCH_SETUP_PASSED" == true ]]; then
-            echo -e "   ${GREEN}${CHECK}${NC} Automated PyTorch setup completed ${DIM}(accelerator profile resolved)${NC}"
+            summary_status_line "ready" "Automated PyTorch setup" "accelerator profile resolved"
         elif [[ "$PYTORCH_SETUP_FAILED" == true ]]; then
-            echo -e "   ${YELLOW}${WARN}${NC}  Automated PyTorch setup failed ${DIM}(retry with setup-pytorch.sh)${NC}"
+            summary_status_line "degraded" "Automated PyTorch setup" "retry with setup-pytorch.sh"
         elif [[ "$PYTORCH_SETUP_SKIPPED" == true ]]; then
-            echo -e "   ${YELLOW}${WARN}${NC}  Automated PyTorch setup skipped ${DIM}(run setup-pytorch.sh when ready)${NC}"
+            summary_status_line "skipped" "Automated PyTorch setup" "run setup-pytorch.sh when ready"
         fi
     fi
-    if [[ "$node_version" != "not installed" ]]; then
-        echo -e "   ${GREEN}${CHECK}${NC} Node.js ${node_version} ready"
-        echo -e "   ${GREEN}${CHECK}${NC} Dashboard dependencies installed"
-    else
-        echo -e "   ${YELLOW}${WARN}${NC}  Node.js needs manual setup"
-    fi
-    echo -e "   ${GREEN}${CHECK}${NC} Configuration defaults ready"
-    echo -e "   MAVSDK Server:    $mavsdk_status"
-    echo -e "   MAVLink2REST:     $mavlink2rest_status"
+    summary_status_line "$NODE_SETUP_STATE" "Node.js" "$NODE_SETUP_DETAIL"
+    summary_status_line "$DASHBOARD_DEPS_STATE" "Dashboard dependencies" "$DASHBOARD_DEPS_DETAIL"
+    summary_status_line "$CONFIG_DEFAULTS_STATE" "Configuration defaults" "$CONFIG_DEFAULTS_DETAIL"
+    summary_status_line "$DASHBOARD_ENV_STATE" "Dashboard .env" "$DASHBOARD_ENV_DETAIL"
+    summary_status_line "$MAVSDK_BINARY_STATE" "MAVSDK Server binary" "$MAVSDK_BINARY_DETAIL"
+    summary_status_line "$MAVLINK2REST_BINARY_STATE" "MAVLink2REST binary" "$MAVLINK2REST_BINARY_DETAIL"
     echo ""
     echo -e "   ${CYAN}${BOLD}Next Steps:${NC}"
-    echo -e "      1. Run: ${BOLD}make run${NC} (or ${BOLD}bash scripts/run.sh${NC})"
-    echo -e "      2. Optional QGC field video: ${BOLD}make qgc-video-profile GCS_HOST=<gcs-ip>${NC}"
-    echo -e "      3. Guarded QGC HTTPS/WSS media: ${BOLD}make qgc-direct-media-profile PUBLIC_HOST=<tls-host>${NC}"
-    echo -e "      4. Deployment only: ${BOLD}sudo bash scripts/service/install.sh${NC} for boot auto-start"
+    if [[ "$DASHBOARD_DEPS_STATE" == "ready" ]] && [[ "$CONFIG_DEFAULTS_STATE" == "ready" ]] && [[ "$DASHBOARD_ENV_STATE" == "ready" ]]; then
+        echo -e "      1. Run: ${BOLD}make run${NC} (or ${BOLD}bash scripts/run.sh${NC})"
+        echo -e "      2. Optional QGC field video: ${BOLD}make qgc-video-profile GCS_HOST=<gcs-ip>${NC}"
+        echo -e "      3. Guarded QGC HTTPS/WSS media: ${BOLD}make qgc-direct-media-profile PUBLIC_HOST=<tls-host>${NC}"
+        echo -e "      4. Deployment only: ${BOLD}sudo bash scripts/service/install.sh${NC} for boot auto-start"
+    else
+        echo -e "      1. Resolve any ${BOLD}manual follow-up${NC} or ${BOLD}degraded${NC} items above."
+        echo -e "      2. Re-run: ${BOLD}make init${NC}"
+        echo -e "      3. Then run: ${BOLD}make run${NC} (or ${BOLD}bash scripts/run.sh${NC})"
+    fi
     echo ""
     echo -e "   ${YELLOW}${BOLD}Optional (better performance):${NC}"
     echo -e "      - ${BOLD}bash scripts/setup/install-dlib.sh${NC}    (faster tracking)"
@@ -1248,12 +1363,12 @@ show_summary() {
     fi
     echo -e "      - ${BOLD}bash scripts/setup/check-ai-runtime.sh${NC}        (verify runtime/backends)"
     echo -e "      - ${BOLD}bash scripts/setup/build-opencv.sh${NC}    (GStreamer support)"
-    if [[ "$mavsdk_status" == *"Not installed"* ]] || [[ "$mavlink2rest_status" == *"Not installed"* ]]; then
+    if [[ "$MAVSDK_BINARY_STATE" != "ready" ]] || [[ "$MAVLINK2REST_BINARY_STATE" != "ready" ]]; then
         echo -e "      - ${BOLD}bash scripts/setup/download-binaries.sh${NC}  (download binaries)"
     fi
     echo -e "      - ${BOLD}python add_yolo_model.py${NC}              (add YOLO models)"
     echo ""
-    if [[ "$node_version" == "not installed" ]]; then
+    if [[ "$NODE_SETUP_STATE" != "ready" ]]; then
         echo -e "   ${RED}${BOLD}WARNING: Node.js Installation:${NC}"
         echo -e "      If nvm installation failed, install manually:"
         echo -e "      ${DIM}https://nodejs.org/en/download${NC}"

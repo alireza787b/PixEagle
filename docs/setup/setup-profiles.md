@@ -21,6 +21,12 @@ MAVSDK Server and MAVLink2REST downloads are governed separately by the
 PixEagle configuration; they do not change pinned external binary versions or
 checksum policy.
 
+`make init` reports setup state separately from profile state. Its final
+summary distinguishes `ready`, `skipped`, `degraded`, and `manual follow-up`
+items for dashboard dependencies, dashboard `.env`, and MAVSDK/MAVLink2REST
+binaries; resolve non-ready items before using the related profile in a demo or
+deployment.
+
 ## Supported Automated Profiles
 
 ### `local_dev`

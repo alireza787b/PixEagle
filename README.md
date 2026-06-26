@@ -96,6 +96,10 @@ scripts\init.bat
 The init script runs a 9-step automated setup including Python venv, Node.js,
 dashboard, and manifest-pinned MAVSDK/MAVLink2REST binaries with SHA-256
 verification and local provenance logging.
+The final init screen is a component readiness summary: `ready`, `skipped`,
+`degraded`, and `manual follow-up` entries mean exactly what they say. Resolve
+degraded/manual items and re-run `make init` before treating a host as ready
+for the matching workflow.
 
 **Installation Profiles:**
 - **Core** - Essential features (recommended for ARM/Raspberry Pi)
