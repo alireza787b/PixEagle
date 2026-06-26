@@ -45,6 +45,9 @@ API_LEGACY_CONTROL_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_control_routes.py"
 )
 API_LEGACY_CONFIG_SYNC = REPO_ROOT / "src" / "classes" / "api_legacy_config_sync.py"
+API_LEGACY_MODEL_ROUTES = (
+    REPO_ROOT / "src" / "classes" / "api_legacy_model_routes.py"
+)
 API_V1_READ_ROUTES = REPO_ROOT / "src" / "classes" / "api_v1_read_routes.py"
 API_V1_SNAPSHOTS = REPO_ROOT / "src" / "classes" / "api_v1_snapshots.py"
 API_V1_TELEMETRY = REPO_ROOT / "src" / "classes" / "api_v1_telemetry.py"
@@ -738,6 +741,98 @@ def test_legacy_config_sync_helpers_are_not_defined_in_fastapi_handler():
         and node.func.id in expected_functions
     ]
     assert {call.func.id for call in helper_calls} == expected_functions
+
+
+def test_legacy_model_route_bodies_are_not_defined_in_fastapi_handler():
+    """Legacy model/yolo route bodies should stay out of the handler monolith."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    model_routes_tree = ast.parse(API_LEGACY_MODEL_ROUTES.read_text(encoding="utf-8"))
+    expected_model_functions = {
+        "get_models",
+        "get_active_model",
+        "get_model_labels",
+        "download_model_file",
+        "switch_model",
+        "upload_model",
+        "download_model",
+        "delete_model",
+    }
+    expected_helper_functions = {
+        "resolve_runtime_model_name",
+        "get_smart_tracker_runtime_context",
+        "get_configured_yolo_models",
+        "resolve_model_entry",
+        "build_active_model_summary",
+        "resolve_standby_cpu_model_path",
+        "persist_standby_model_selection",
+    }
+    disallowed_handler_functions = {
+        f"_{name}" for name in expected_helper_functions
+    }
+    wrapper_targets = {
+        "get_models": "dispatch_get_models",
+        "get_active_model": "dispatch_get_active_model",
+        "get_model_labels": "dispatch_get_model_labels",
+        "download_model_file": "dispatch_download_model_file",
+        "switch_model": "dispatch_switch_model",
+        "upload_model": "dispatch_upload_model",
+        "download_model": "dispatch_download_model",
+        "delete_model": "dispatch_delete_model",
+    }
+    disallowed_handler_strings = {
+        "SMART_TRACKER_GPU_MODEL_PATH",
+        "SMART_TRACKER_CPU_MODEL_PATH",
+        "Standby model configured via API",
+        "Model validation failed",
+        "Only .pt files are allowed",
+        "Detection model upload failed",
+        "Detection model download failed",
+        "Detection model deletion failed",
+        "offset and limit must be integers",
+    }
+
+    model_route_functions = {
+        node.name
+        for node in ast.walk(model_routes_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    model_route_strings = {
+        node.value
+        for node in ast.walk(model_routes_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    handler_functions = {
+        node.name: node
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    handler_string_literals = {
+        node.value
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+    assert expected_model_functions <= model_route_functions
+    assert expected_helper_functions <= model_route_functions
+    assert not (set(handler_functions) & disallowed_handler_functions)
+    for marker in disallowed_handler_strings:
+        assert any(marker in literal for literal in model_route_strings)
+        assert not any(marker in literal for literal in handler_string_literals)
+
+    for wrapper_name, target_name in wrapper_targets.items():
+        wrapper = handler_functions[wrapper_name]
+        assert len(wrapper.body) == 1
+        statement = wrapper.body[0]
+        assert isinstance(statement, ast.Return)
+        call = statement.value
+        if isinstance(call, ast.Await):
+            call = call.value
+        assert isinstance(call, ast.Call)
+        assert isinstance(call.func, ast.Name)
+        assert call.func.id == target_name
+        assert call.args
+        assert isinstance(call.args[0], ast.Name)
+        assert call.args[0].id == "self"
 
 
 def test_api_v1_snapshot_builders_are_not_defined_in_fastapi_handler():

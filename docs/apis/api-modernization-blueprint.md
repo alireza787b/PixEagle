@@ -92,6 +92,11 @@ Route inventory tests must:
   migration semantics do not drift back into the handler monolith, and record
   that helper in generated candidate provenance because it owns request-model
   and planning semantics used by legacy config routes
+- assert that `src/classes/api_legacy_model_routes.py` owns legacy
+  `/api/models/*` and deprecated `/api/yolo/*` model route bodies, and record
+  that helper in generated candidate provenance because it owns model-list,
+  active-model, label, upload, download, switch, delete, and file-download
+  semantics used by model management routes
 - record `src/classes/api_v1_read_routes.py` in generated candidate provenance
   because that module owns typed read-route error boundaries for reviewed
   process-local status/telemetry/media-health candidates

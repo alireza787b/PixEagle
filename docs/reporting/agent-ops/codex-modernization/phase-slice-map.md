@@ -116,6 +116,7 @@ it together with:
 | Phase 4 setup/bootstrap preflight cleanup | done | PXE-0068 partial; PXE-0074 prep | `checkpoints/2026-06-26-phase-4-setup-bootstrap-preflight-cleanup.md`; first cleanup pass after the clean-walkthrough preflight: Linux-only guided install wording and macOS fail-fast, Makefile `venv` fallback, `make` prerequisites, manual core-first dependency install, dashboard YAML-to-dotenv conversion, PixEagle-owned-only port cleanup, Python socket readiness fallback when `nc` is absent, and regression tests. No clean temp checkout, service install, deployment, SITL/HIL/field, or real-aircraft success is claimed. |
 | Phase 4 init summary precision | done | PXE-0068 partial; PXE-0074 prep | `checkpoints/2026-06-26-phase-4-init-summary-precision.md`; `scripts/init.sh` now records explicit ready/skipped/degraded/manual-follow-up state for Node.js, dashboard dependencies, dashboard `.env`, configuration defaults, and MAVSDK/MAVLink2REST binaries; `install.sh` no longer advertises blanket installation completion before users review non-ready summary items. No clean temp checkout, binary download/install, service install, deployment, SITL/HIL/field, or real-aircraft success is claimed. |
 | Phase 4 legacy config defaults-sync boundary | done | PXE-0008 partial | `checkpoints/2026-06-26-phase-4-legacy-config-sync-boundary.md`; legacy `/api/config/defaults-sync*` request model plus report and dry-run plan helpers now live in `src/classes/api_legacy_config_sync.py`; `FastAPIHandler` keeps route wrappers and apply execution/rollback logic, route inventory and security policy are unchanged, and guardrails prevent report/plan semantics from drifting back into the handler. No `/api/v1/config` route, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
+| Phase 4 legacy model route boundary | done | PXE-0008 partial | `checkpoints/2026-06-26-phase-4-legacy-model-route-boundary.md`; legacy `/api/models/*` and deprecated `/api/yolo/*` route bodies now live in `src/classes/api_legacy_model_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/models/*` route, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 
 ## Active Slice
 
@@ -193,6 +194,10 @@ unchanged. An independent API reviewer recommended the next PXE-0008 slice:
 extract legacy `/api/models/*` and `/api/yolo/*` route bodies into an
 `api_legacy_model_routes.py` helper without introducing typed model routes or
 retiring aliases yet.
+The 2026-06-26 legacy model route boundary completed that follow-up:
+`/api/models/*` and deprecated `/api/yolo/*` route bodies now delegate through
+`api_legacy_model_routes.py`, route inventory/security policy stayed unchanged,
+and no typed `/api/v1/models/*` promotion or alias retirement is claimed.
 PXE-0064 is in progress: the first containment foundation is done, so
 checked-in backend/dashboard/MAVLink2REST exposure is local-only, contradictory
 local-only bind/CORS configuration fails closed, Host/Origin/fetch-site and
