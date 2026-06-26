@@ -91,6 +91,20 @@ from classes.api_legacy_config_sync import (
     build_defaults_sync_plan,
     build_defaults_sync_report,
 )
+from classes.api_legacy_config_routes import (
+    ConfigImportRequest,
+    ConfigParameterUpdate,
+    ConfigSectionUpdate,
+    apply_defaults_sync as dispatch_apply_defaults_sync,
+    import_config as dispatch_import_config,
+    restore_config_backup as dispatch_restore_config_backup,
+    revert_config_to_default as dispatch_revert_config_to_default,
+    revert_parameter_to_default as dispatch_revert_parameter_to_default,
+    revert_section_to_default as dispatch_revert_section_to_default,
+    update_config_parameter as dispatch_update_config_parameter,
+    update_config_section as dispatch_update_config_section,
+    validate_config_value as dispatch_validate_config_value,
+)
 from classes.api_legacy_model_routes import (
     delete_model as dispatch_delete_model,
     download_model as dispatch_download_model,
@@ -250,23 +264,6 @@ class BoundingBox(BaseModel):
 class ClickPosition(BaseModel):
     x: float
     y: float
-
-
-# Config API Models
-class ConfigParameterUpdate(BaseModel):
-    """Request model for updating a single parameter."""
-    value: Optional[str | int | float | bool | list | dict] = None
-
-
-class ConfigSectionUpdate(BaseModel):
-    """Request model for updating multiple parameters in a section."""
-    parameters: Dict[str, Optional[str | int | float | bool | list | dict]]
-
-
-class ConfigImportRequest(BaseModel):
-    """Request model for importing configuration."""
-    data: Dict[str, Any]  # Accept any nested structure
-    merge_mode: str = "merge"  # "merge" or "replace"
 
 
 @dataclass
@@ -5409,199 +5406,13 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def update_config_parameter(self, section: str, parameter: str, body: ConfigParameterUpdate):
-        """Update a single configuration parameter."""
-        # Rate limiting check
-        allowed, retry_after = self.config_rate_limiter.is_allowed('config_write')
-        if not allowed:
-            return JSONResponse(
-                status_code=429,
-                content={
-                    'success': False,
-                    'error': 'Too many requests',
-                    'retry_after': retry_after,
-                    'timestamp': time.time()
-                },
-                headers={'Retry-After': str(retry_after)}
-            )
-
-        try:
-            service = self._get_config_service()
-            result = service.set_parameter(section, parameter, body.value)
-
-            if not result.valid:
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        'success': False,
-                        'validation': result.to_dict(),
-                        'timestamp': time.time()
-                    }
-                )
-
-            # Save config
-            saved = service.save_config()
-
-            # Hot-reload Parameters class for immediate-tier params
-            applied = False
-            if saved:
-                try:
-                    reload_success = Parameters.reload_config()
-                    if reload_success:
-                        applied = True
-                        self.logger.info(f"Config hot-reloaded after updating {section}.{parameter}")
-                    else:
-                        self.logger.warning(f"Config reload returned False for {section}.{parameter}")
-                except Exception as reload_error:
-                    self.logger.error(f"Config reload failed: {reload_error}")
-
-            # Get reload tier and message
-            reload_tier = service.get_reload_tier(section, parameter)
-            reload_message = service.get_reload_message(reload_tier)
-            effective_applied = applied and reload_tier == 'immediate'
-            if applied and not effective_applied:
-                self.logger.info(
-                    "Config reload succeeded for %s.%s, but reload_tier=%s requires restart; reporting applied=false",
-                    section,
-                    parameter,
-                    reload_tier
-                )
-
-            return JSONResponse(content={
-                'success': True,
-                'section': section,
-                'parameter': parameter,
-                'value': body.value,
-                'validation': result.to_dict(),
-                'saved': saved,
-                'applied': effective_applied,
-                'reload_tier': reload_tier,
-                'reload_message': reload_message,
-                'reboot_required': service.is_reboot_required(section, parameter),  # Backward compat
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error updating config parameter: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_update_config_parameter(self, section, parameter, body)
 
     async def update_config_section(self, section: str, body: ConfigSectionUpdate):
-        """Update multiple parameters in a section."""
-        # Rate limiting check
-        allowed, retry_after = self.config_rate_limiter.is_allowed('config_write')
-        if not allowed:
-            return JSONResponse(
-                status_code=429,
-                content={
-                    'success': False,
-                    'error': 'Too many requests',
-                    'retry_after': retry_after,
-                    'timestamp': time.time()
-                },
-                headers={'Retry-After': str(retry_after)}
-            )
-
-        try:
-            service = self._get_config_service()
-            result = service.set_section(section, body.parameters)
-
-            if not result.valid:
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        'success': False,
-                        'validation': result.to_dict(),
-                        'timestamp': time.time()
-                    }
-                )
-
-            # Save config
-            saved = service.save_config()
-
-            # Hot-reload Parameters class for immediate-tier params
-            applied = False
-            if saved:
-                try:
-                    reload_success = Parameters.reload_config()
-                    if reload_success:
-                        applied = True
-                        self.logger.info(f"Config hot-reloaded after updating section {section}")
-                    else:
-                        self.logger.warning(f"Config reload returned False for section {section}")
-                except Exception as reload_error:
-                    self.logger.error(f"Config reload failed: {reload_error}")
-
-            # Get reload tiers for all changed params
-            reload_tiers = {
-                param: service.get_reload_tier(section, param)
-                for param in body.parameters.keys()
-            }
-
-            # Determine highest-priority tier (system > tracker > follower > immediate)
-            # Default to 4 (system_restart) for unknown tiers as safe fallback
-            tier_priority = {'system_restart': 4, 'tracker_restart': 3, 'follower_restart': 2, 'immediate': 1}
-            if reload_tiers:
-                max_tier = max(reload_tiers.values(), key=lambda t: tier_priority.get(t, 4))
-            else:
-                # Empty parameters dict - shouldn't happen, but handle gracefully
-                max_tier = 'immediate'
-            reload_message = service.get_reload_message(max_tier)
-            effective_applied = applied and max_tier == 'immediate'
-            if applied and not effective_applied:
-                self.logger.info(
-                    "Config reload succeeded for section %s, but highest reload_tier=%s requires restart; reporting applied=false",
-                    section,
-                    max_tier
-                )
-
-            # Backward compat: reboot_required if any param needs system restart
-            reboot_required = any(
-                service.is_reboot_required(section, param)
-                for param in body.parameters.keys()
-            )
-
-            return JSONResponse(content={
-                'success': True,
-                'section': section,
-                'parameters': body.parameters,
-                'validation': result.to_dict(),
-                'saved': saved,
-                'applied': effective_applied,
-                'reload_tiers': reload_tiers,
-                'reload_tier': max_tier,
-                'reload_message': reload_message,
-                'reboot_required': reboot_required,  # Backward compat
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error updating config section: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_update_config_section(self, section, body)
 
     async def validate_config_value(self, request: Request):
-        """Validate a configuration value without saving."""
-        try:
-            body = await request.json()
-            section = body.get('section')
-            parameter = body.get('parameter')
-            value = body.get('value')
-
-            if not section or not parameter:
-                raise HTTPException(status_code=400, detail="section and parameter are required")
-
-            service = self._get_config_service()
-            result = service.validate_value(section, parameter, value)
-
-            return JSONResponse(content={
-                'success': True,
-                'section': section,
-                'parameter': parameter,
-                'value': value,
-                'validation': result.to_dict(),
-                'timestamp': time.time()
-            })
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error validating config value: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_validate_config_value(self, request)
 
     async def get_config_diff(self):
         """Get differences between current config and defaults."""
@@ -5689,149 +5500,16 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def apply_defaults_sync(self, body: ConfigSyncPlanRequest):
-        """Apply validated defaults-sync operations atomically."""
-        allowed, retry_after = self.config_rate_limiter.is_allowed('config_write')
-        if not allowed:
-            return JSONResponse(
-                status_code=429,
-                content={
-                    'success': False,
-                    'error': 'Too many requests',
-                    'retry_after': retry_after,
-                    'timestamp': time.time()
-                },
-                headers={'Retry-After': str(retry_after)}
-            )
-
-        service = self._get_config_service()
-        plan = build_defaults_sync_plan(service, body.operations)
-        if not plan['valid']:
-            return JSONResponse(
-                status_code=400,
-                content={'success': False, 'plan': plan, 'timestamp': time.time()}
-            )
-
-        backup_path = None
-        applied_ops: List[Dict[str, Any]] = []
-        skipped_ops: List[Dict[str, Any]] = []
-
-        try:
-            backup_path = service._create_backup()
-
-            for op in plan['operations']:
-                if op['skip']:
-                    skipped_ops.append(op)
-                    continue
-
-                op_type = op['op_type']
-                section = op['section']
-                parameter = op['parameter']
-
-                if op_type in {'ADD_NEW', 'ADOPT_DEFAULT'}:
-                    result = service.set_parameter(section, parameter, op['target_value'], validate=True)
-                    if not result.valid:
-                        raise ValueError(f"Validation failed for {section}.{parameter}: {result.errors}")
-                    op['reload_tier'] = service.get_reload_tier(section, parameter)
-                    applied_ops.append(op)
-                elif op_type == 'ARCHIVE_REMOVE':
-                    archived = service.archive_and_remove_parameter(section, parameter)
-                    if not archived:
-                        raise ValueError(f"Failed to archive/remove {section}.{parameter}")
-                    op['reload_tier'] = 'immediate'
-                    applied_ops.append(op)
-
-            saved = service.save_config(backup=False)
-            if not saved:
-                raise RuntimeError("Failed to save config after applying sync plan")
-
-            try:
-                Parameters.reload_config()
-            except Exception as reload_error:
-                self.logger.warning(f"Config sync applied but reload failed: {reload_error}")
-
-            service.refresh_defaults_snapshot()
-
-            backup_id = None
-            if backup_path:
-                try:
-                    backup_id = Path(backup_path).stem
-                except Exception:
-                    backup_id = None
-
-            return JSONResponse(content={
-                'success': True,
-                'applied_count': len(applied_ops),
-                'skipped_count': len(skipped_ops),
-                'applied_operations': applied_ops,
-                'skipped_operations': skipped_ops,
-                'backup_id': backup_id,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            # Roll back in-memory state if apply fails before successful save.
-            try:
-                service.reload()
-            except Exception:
-                pass
-            self.logger.error(f"Error applying defaults sync: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_apply_defaults_sync(self, body)
 
     async def revert_config_to_default(self):
-        """Revert all configuration to defaults."""
-        try:
-            service = self._get_config_service()
-            success = service.revert_to_default()
-            if success:
-                service.save_config()
-
-            return JSONResponse(content={
-                'success': success,
-                'message': 'Configuration reverted to defaults' if success else 'Failed to revert',
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error reverting config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_revert_config_to_default(self)
 
     async def revert_section_to_default(self, section: str):
-        """Revert a section to defaults."""
-        try:
-            service = self._get_config_service()
-            success = service.revert_to_default(section=section)
-            if success:
-                service.save_config()
-
-            return JSONResponse(content={
-                'success': success,
-                'section': section,
-                'message': f"Section '{section}' reverted to defaults" if success else 'Failed to revert',
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error reverting section: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_revert_section_to_default(self, section)
 
     async def revert_parameter_to_default(self, section: str, parameter: str):
-        """Revert a single parameter to default."""
-        try:
-            service = self._get_config_service()
-            success = service.revert_to_default(section=section, param=parameter)
-            if success:
-                service.save_config()
-
-            default_value = service.get_default_parameter(section, parameter)
-
-            return JSONResponse(content={
-                'success': success,
-                'section': section,
-                'parameter': parameter,
-                'default_value': default_value,
-                'message': f"Parameter reverted to default" if success else 'Failed to revert',
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error reverting parameter: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_revert_parameter_to_default(self, section, parameter)
 
     async def get_config_backup_history(self, request: Request):
         """Get list of configuration backups."""
@@ -5851,27 +5529,7 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def restore_config_backup(self, backup_id: str):
-        """Restore configuration from a backup."""
-        try:
-            service = self._get_config_service()
-            success = service.restore_backup(backup_id)
-
-            # Reload Parameters + managers so runtime reflects the restored config
-            if success:
-                try:
-                    Parameters.reload_config()
-                except Exception as e:
-                    self.logger.error(f"Failed to reload after backup restore: {e}")
-
-            return JSONResponse(content={
-                'success': success,
-                'backup_id': backup_id,
-                'message': 'Configuration restored from backup' if success else 'Failed to restore backup',
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error restoring backup: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_restore_config_backup(self, backup_id)
 
     async def export_config(self, request: Request):
         """Export configuration."""
@@ -5895,38 +5553,7 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def import_config(self, body: ConfigImportRequest):
-        """Import configuration."""
-        # Rate limiting check
-        allowed, retry_after = self.config_rate_limiter.is_allowed('config_write')
-        if not allowed:
-            return JSONResponse(
-                status_code=429,
-                content={
-                    'success': False,
-                    'error': 'Too many requests',
-                    'retry_after': retry_after,
-                    'timestamp': time.time()
-                },
-                headers={'Retry-After': str(retry_after)}
-            )
-
-        try:
-            service = self._get_config_service()
-            success, diffs = service.import_config(body.data, body.merge_mode)
-
-            if success:
-                service.save_config()
-
-            return JSONResponse(content={
-                'success': success,
-                'merge_mode': body.merge_mode,
-                'changes': [d.to_dict() for d in diffs],
-                'changes_count': len(diffs),
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error importing config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_import_config(self, body)
 
     async def search_config_parameters(self, request: Request):
         """Search configuration parameters with filtering and pagination."""

@@ -45,6 +45,9 @@ API_LEGACY_CONTROL_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_control_routes.py"
 )
 API_LEGACY_CONFIG_SYNC = REPO_ROOT / "src" / "classes" / "api_legacy_config_sync.py"
+API_LEGACY_CONFIG_ROUTES = (
+    REPO_ROOT / "src" / "classes" / "api_legacy_config_routes.py"
+)
 API_LEGACY_MODEL_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_model_routes.py"
 )
@@ -741,6 +744,101 @@ def test_legacy_config_sync_helpers_are_not_defined_in_fastapi_handler():
         and node.func.id in expected_functions
     ]
     assert {call.func.id for call in helper_calls} == expected_functions
+
+
+def test_legacy_config_mutation_route_bodies_are_not_defined_in_fastapi_handler():
+    """Legacy config mutation/apply route bodies should stay out of the handler."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    config_routes_tree = ast.parse(API_LEGACY_CONFIG_ROUTES.read_text(encoding="utf-8"))
+    expected_classes = {
+        "ConfigParameterUpdate",
+        "ConfigSectionUpdate",
+        "ConfigImportRequest",
+    }
+    expected_functions = {
+        "update_config_parameter",
+        "update_config_section",
+        "validate_config_value",
+        "apply_defaults_sync",
+        "revert_config_to_default",
+        "revert_section_to_default",
+        "revert_parameter_to_default",
+        "restore_config_backup",
+        "import_config",
+    }
+    wrapper_targets = {
+        "update_config_parameter": "dispatch_update_config_parameter",
+        "update_config_section": "dispatch_update_config_section",
+        "validate_config_value": "dispatch_validate_config_value",
+        "apply_defaults_sync": "dispatch_apply_defaults_sync",
+        "revert_config_to_default": "dispatch_revert_config_to_default",
+        "revert_section_to_default": "dispatch_revert_section_to_default",
+        "revert_parameter_to_default": "dispatch_revert_parameter_to_default",
+        "restore_config_backup": "dispatch_restore_config_backup",
+        "import_config": "dispatch_import_config",
+    }
+    disallowed_handler_strings = {
+        "Config hot-reloaded after updating",
+        "highest reload_tier",
+        "section and parameter are required",
+        "Failed to save config after applying sync plan",
+        "Config sync applied but reload failed",
+        "Error applying defaults sync",
+        "Parameter reverted to default",
+        "Failed to reload after backup restore",
+        "Error importing config",
+    }
+
+    config_route_classes = {
+        node.name
+        for node in ast.walk(config_routes_tree)
+        if isinstance(node, ast.ClassDef)
+    }
+    config_route_functions = {
+        node.name
+        for node in ast.walk(config_routes_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    config_route_strings = {
+        node.value
+        for node in ast.walk(config_routes_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    handler_functions = {
+        node.name: node
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    handler_classes = {
+        node.name for node in ast.walk(handler_tree) if isinstance(node, ast.ClassDef)
+    }
+    handler_string_literals = {
+        node.value
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+    assert expected_classes <= config_route_classes
+    assert expected_functions <= config_route_functions
+    assert not (expected_classes & handler_classes)
+    for marker in disallowed_handler_strings:
+        assert any(marker in literal for literal in config_route_strings)
+        assert not any(marker in literal for literal in handler_string_literals)
+
+    for wrapper_name, target_name in wrapper_targets.items():
+        wrapper = handler_functions[wrapper_name]
+        assert len(wrapper.body) == 1
+        statement = wrapper.body[0]
+        assert isinstance(statement, ast.Return)
+        call = statement.value
+        if isinstance(call, ast.Await):
+            call = call.value
+        assert isinstance(call, ast.Call)
+        assert isinstance(call.func, ast.Name)
+        assert call.func.id == target_name
+        assert call.args
+        assert isinstance(call.args[0], ast.Name)
+        assert call.args[0].id == "self"
 
 
 def test_legacy_model_route_bodies_are_not_defined_in_fastapi_handler():

@@ -5,7 +5,7 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: 1ac498a24bd28c4a3a7fb08c8193e0489198e9c51fb5578436549d9766746f8d
+    sha256: fd1852bd28eae7de7722a34a921e2f368bbfb4227d9b262bb1328b835f0771c2
   - file: src/classes/fastapi_api_v1_routes.py
     sha256: 81e15ca940cf6171fd9407d53cf7589958cd02317878707ae583f29e26994b20
   - file: src/classes/api_v1_contracts.py
@@ -20,6 +20,8 @@ source:
     sha256: 45ebcf303a04fc3adbbfe53e37bedeaa9b5876d9516288fb6c5480eb27e294f7
   - file: src/classes/api_legacy_config_sync.py
     sha256: 2248eb070c17398ce6b9f6b55e42c44e62c0da4ca538fcfcc53b11e3256c548b
+  - file: src/classes/api_legacy_config_routes.py
+    sha256: 3b4ae498ceabb79e9b1c200ddaf41dbd2c5f438ee6efb49e901c2a6784d6b7ef
   - file: src/classes/api_legacy_model_routes.py
     sha256: ce55c0fb3eec929c3c62be6b583ff22855c8aad8c1549396128bc0021823103a
   - file: src/classes/api_v1_read_routes.py
@@ -51,6 +53,7 @@ generated_from:
 - src/classes/api_v1_auth_routes.py
 - src/classes/api_legacy_control_routes.py
 - src/classes/api_legacy_config_sync.py
+- src/classes/api_legacy_config_routes.py
 - src/classes/api_legacy_model_routes.py
 - src/classes/api_v1_read_routes.py
 - src/classes/api_v1_snapshots.py
