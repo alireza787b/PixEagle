@@ -30,6 +30,9 @@ API_V1_AUTH_ROUTES = PROJECT_ROOT / "src" / "classes" / "api_v1_auth_routes.py"
 API_LEGACY_CONTROL_ROUTES = (
     PROJECT_ROOT / "src" / "classes" / "api_legacy_control_routes.py"
 )
+API_LEGACY_CONFIG_SYNC = (
+    PROJECT_ROOT / "src" / "classes" / "api_legacy_config_sync.py"
+)
 API_V1_READ_ROUTES = PROJECT_ROOT / "src" / "classes" / "api_v1_read_routes.py"
 API_V1_SNAPSHOTS = PROJECT_ROOT / "src" / "classes" / "api_v1_snapshots.py"
 API_V1_TELEMETRY = PROJECT_ROOT / "src" / "classes" / "api_v1_telemetry.py"
@@ -48,6 +51,7 @@ ROUTE_SOURCE_FILES = (
     API_V1_ACTIONS,
     API_V1_AUTH_ROUTES,
     API_LEGACY_CONTROL_ROUTES,
+    API_LEGACY_CONFIG_SYNC,
     API_V1_READ_ROUTES,
     API_V1_SNAPSHOTS,
     API_V1_TELEMETRY,

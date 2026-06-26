@@ -44,6 +44,7 @@ API_V1_AUTH_ROUTES = REPO_ROOT / "src" / "classes" / "api_v1_auth_routes.py"
 API_LEGACY_CONTROL_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_control_routes.py"
 )
+API_LEGACY_CONFIG_SYNC = REPO_ROOT / "src" / "classes" / "api_legacy_config_sync.py"
 API_V1_READ_ROUTES = REPO_ROOT / "src" / "classes" / "api_v1_read_routes.py"
 API_V1_SNAPSHOTS = REPO_ROOT / "src" / "classes" / "api_v1_snapshots.py"
 API_V1_TELEMETRY = REPO_ROOT / "src" / "classes" / "api_v1_telemetry.py"
@@ -677,6 +678,66 @@ def test_legacy_control_route_bodies_are_not_defined_in_fastapi_handler():
         assert len(call.args) == 1
         assert isinstance(call.args[0], ast.Name)
         assert call.args[0].id == "self"
+
+
+def test_legacy_config_sync_helpers_are_not_defined_in_fastapi_handler():
+    """Defaults-sync report/plan helpers should stay out of the handler monolith."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    config_sync_tree = ast.parse(API_LEGACY_CONFIG_SYNC.read_text(encoding="utf-8"))
+    expected_classes = {
+        "ConfigSyncOperation",
+        "ConfigSyncPlanRequest",
+    }
+    expected_functions = {
+        "build_defaults_sync_report",
+        "build_defaults_sync_plan",
+    }
+    disallowed_handler_functions = {
+        "_build_defaults_sync_report",
+        "_build_defaults_sync_plan",
+    }
+    disallowed_handler_strings = {
+        "Unsupported op_type",
+        "already exists; skipping ADD_NEW",
+        "No default value found for",
+        "is not in schema or defaults",
+        "missing in current config; skipping ARCHIVE_REMOVE",
+        "defaults_snapshot_saved_at",
+    }
+
+    config_sync_classes = {
+        node.name for node in ast.walk(config_sync_tree) if isinstance(node, ast.ClassDef)
+    }
+    config_sync_functions = {
+        node.name
+        for node in ast.walk(config_sync_tree)
+        if isinstance(node, ast.FunctionDef)
+    }
+    handler_functions = {
+        node.name
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    handler_string_literals = {
+        node.value
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+    assert expected_classes <= config_sync_classes
+    assert expected_functions <= config_sync_functions
+    assert handler_functions.isdisjoint(disallowed_handler_functions)
+    for marker in disallowed_handler_strings:
+        assert not any(marker in literal for literal in handler_string_literals)
+
+    helper_calls = [
+        node
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in expected_functions
+    ]
+    assert {call.func.id for call in helper_calls} == expected_functions
 
 
 def test_api_v1_snapshot_builders_are_not_defined_in_fastapi_handler():
