@@ -340,45 +340,86 @@ preflight_checks() {
 # Step 2: Cleanup Previous Sessions
 # ============================================================================
 cleanup_ports_silent() {
-    # Silent port cleanup for interrupt handler
+    # Silent PixEagle-owned port cleanup for interrupt handler.
     for port in $MAVLINK2REST_PORT $BACKEND_PORT $DASHBOARD_PORT $WEBSOCKET_PORT; do
-        local pid
-        pid=$(lsof -t -i :"$port" 2>/dev/null)
-        if [[ -n "$pid" ]]; then
+        local pids pid
+        pids=$(port_listener_pids "$port")
+        for pid in $pids; do
+            is_pixeagle_owned_pid "$pid" || continue
             kill -TERM "$pid" 2>/dev/null || true
             sleep 1
             kill -9 "$pid" 2>/dev/null || true
-        fi
+        done
     done
+}
+
+port_listener_pids() {
+    local port="$1"
+    command -v lsof >/dev/null 2>&1 || return 0
+    lsof -nP -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u
+}
+
+describe_pid() {
+    local pid="$1"
+    ps -p "$pid" -o comm= 2>/dev/null || echo "unknown"
+}
+
+is_pixeagle_owned_pid() {
+    local pid="$1"
+    local cwd cmd
+
+    cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || true)
+    if [[ -n "$cwd" && "$cwd" == "$PIXEAGLE_DIR"* ]]; then
+        return 0
+    fi
+
+    cmd=$(ps -p "$pid" -o args= 2>/dev/null || true)
+    case "$cmd" in
+        *"$PIXEAGLE_DIR"*) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 check_and_kill_port() {
     local port="$1"
     local service_name="${2:-Service}"
 
-    local pid
-    pid=$(lsof -t -i :"$port" 2>/dev/null)
+    local pids
+    pids=$(port_listener_pids "$port")
 
-    if [[ -n "$pid" ]]; then
-        local process_name
-        process_name=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
+    if [[ -n "$pids" ]]; then
+        local pid process_name blocked=false
 
-        # Try graceful termination first
-        kill -TERM "$pid" 2>/dev/null
-        sleep 1
+        for pid in $pids; do
+            process_name=$(describe_pid "$pid")
 
-        # Check if process is still running
-        if kill -0 "$pid" 2>/dev/null; then
-            kill -9 "$pid" 2>/dev/null
-            sleep 0.5
-        fi
+            if ! is_pixeagle_owned_pid "$pid"; then
+                log_error "Port $port is already in use by a non-PixEagle process ($process_name, pid $pid)"
+                log_detail "Stop that process or change the configured $service_name port before running PixEagle"
+                blocked=true
+                continue
+            fi
 
-        # Verify the process was killed
-        if ! kill -0 "$pid" 2>/dev/null; then
-            log_success "Killed $process_name on port $port ($service_name)"
-        else
-            log_warn "Could not kill process on port $port"
-        fi
+            # Try graceful termination first
+            kill -TERM "$pid" 2>/dev/null
+            sleep 1
+
+            # Check if process is still running
+            if kill -0 "$pid" 2>/dev/null; then
+                kill -9 "$pid" 2>/dev/null
+                sleep 0.5
+            fi
+
+            # Verify the process was killed
+            if ! kill -0 "$pid" 2>/dev/null; then
+                log_success "Killed PixEagle-owned $process_name on port $port ($service_name)"
+            else
+                log_warn "Could not kill PixEagle-owned process on port $port"
+                blocked=true
+            fi
+        done
+
+        [[ "$blocked" != "true" ]]
     else
         log_success "Port $port already free ($service_name)"
     fi
@@ -402,18 +443,24 @@ cleanup_previous_sessions() {
         log_success "No existing tmux session"
     fi
 
-    # Clean up ports
+    # Clean up PixEagle-owned ports; unrelated port occupants block startup.
+    local blocked_ports=false
     if [[ "$RUN_MAVLINK2REST" == "true" ]]; then
-        check_and_kill_port "$MAVLINK2REST_PORT" "MAVLink2REST"
+        check_and_kill_port "$MAVLINK2REST_PORT" "MAVLink2REST" || blocked_ports=true
     fi
 
     if [[ "$RUN_MAIN_APP" == "true" ]]; then
-        check_and_kill_port "$BACKEND_PORT" "Backend"
-        check_and_kill_port "$WEBSOCKET_PORT" "Legacy telemetry WebSocket"
+        check_and_kill_port "$BACKEND_PORT" "Backend" || blocked_ports=true
+        check_and_kill_port "$WEBSOCKET_PORT" "Legacy telemetry WebSocket" || blocked_ports=true
     fi
 
     if [[ "$RUN_DASHBOARD" == "true" ]]; then
-        check_and_kill_port "$DASHBOARD_PORT" "Dashboard"
+        check_and_kill_port "$DASHBOARD_PORT" "Dashboard" || blocked_ports=true
+    fi
+
+    if [[ "$blocked_ports" == "true" ]]; then
+        log_error "Startup blocked by non-PixEagle process on a required port"
+        exit 1
     fi
 }
 
@@ -617,8 +664,19 @@ start_services() {
 # ============================================================================
 check_port_ready() {
     local port=$1
-    nc -z localhost "$port" 2>/dev/null
-    return $?
+    if command -v nc >/dev/null 2>&1; then
+        nc -z localhost "$port" 2>/dev/null
+        return $?
+    fi
+
+    python3 - "$port" <<'PYEOF' >/dev/null 2>&1
+import socket
+import sys
+
+port = int(sys.argv[1])
+with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+    pass
+PYEOF
 }
 
 wait_for_services() {

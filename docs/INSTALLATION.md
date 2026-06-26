@@ -6,7 +6,7 @@
 
 ### One-Liner (Recommended)
 
-**Linux/macOS:**
+**Linux:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.sh | bash
 ```
@@ -47,14 +47,16 @@ scripts\init.bat
 - **ARM64** - Raspberry Pi 4/5, Jetson Nano/Xavier/Orin
 - **ARMv7** - Raspberry Pi 3
 - **Raspbian** - Raspberry Pi OS
-- **macOS** - Intel and Apple Silicon
+- **macOS** - not a maintained guided-bootstrap target; use Linux/Windows/WSL
+  for the documented `install.sh` / `scripts/init.sh` path until a reviewed
+  macOS bootstrap exists.
 - **Windows** - Windows 10 version 1809+ (x86_64)
 
 ## Prerequisites
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip tmux lsof curl git
+sudo apt install -y python3 python3-venv python3-pip make tmux lsof curl git
 ```
 
 ## Init Script Steps
@@ -110,17 +112,31 @@ If you prefer manual setup:
 python3 -m venv venv
 source venv/bin/activate
 
-# Install Python dependencies
-pip install -r requirements.txt
+# Install core Python dependencies first, matching scripts/init.sh.
+# Full AI packages are installed later with the deterministic AI setup scripts.
+grep -v -iE 'ultralytics|ncnn|lap|pnnx' requirements.txt > /tmp/pixeagle-core-requirements.txt
+pip install -r /tmp/pixeagle-core-requirements.txt
 
 # Install Node.js and dashboard
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
 source ~/.nvm/nvm.sh
 nvm install 22
 cd dashboard && npm install
+cd ..
 
 # Optional: create dashboard env if init was skipped
-cp dashboard/env_default.yaml dashboard/.env
+venv/bin/python - <<'PY'
+import yaml
+from pathlib import Path
+
+source = Path("dashboard/env_default.yaml")
+target = Path("dashboard/.env")
+config = yaml.safe_load(source.read_text(encoding="utf-8"))
+target.write_text(
+    "".join(f"{key}={value}\n" for key, value in config.items()),
+    encoding="utf-8",
+)
+PY
 ```
 
 PixEagle can read checked-in defaults from `configs/config_default.yaml` when
@@ -251,7 +267,7 @@ python src/test_Ver.py
 
 ## Running PixEagle
 
-**Linux/macOS (using Makefile):**
+**Linux (using Makefile):**
 ```bash
 make run           # Run all services
 make dev           # Development mode with hot-reload

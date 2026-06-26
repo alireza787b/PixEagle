@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ============================================================================
-# install.sh - PixEagle Bootstrap Installer (Linux/macOS)
+# install.sh - PixEagle Bootstrap Installer (Linux)
 # ============================================================================
 # One-liner installation for PixEagle vision-based drone tracking system.
 #
@@ -102,6 +102,14 @@ check_os() {
             OS="macOS"
             MACOS_VERSION=$(sw_vers -productVersion 2>/dev/null || echo "Unknown")
             log_success "Detected: macOS $MACOS_VERSION"
+            log_error "PixEagle guided bootstrap currently supports Linux only"
+            echo ""
+            echo "   macOS is not a maintained one-command install path because"
+            echo "   scripts/init.sh installs Debian/Ubuntu apt packages."
+            echo "   Use a Linux host/VM for the guided setup, or follow the docs"
+            echo "   only after adding a reviewed macOS bootstrap path."
+            echo ""
+            exit 1
             ;;
         CYGWIN*|MINGW*|MSYS*)
             log_error "Windows detected - please use install.ps1 instead"

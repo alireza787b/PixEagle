@@ -518,6 +518,7 @@ install_system_packages() {
         "libgl1|libgl1-mesa-glx"                         # OpenGL library
         "curl"                                            # HTTP client
         "lsof"                                            # List open files
+        "make"                                            # Project task entry point
         "tmux"                                            # Terminal multiplexer
     )
 
@@ -750,7 +751,8 @@ install_python_deps() {
     if ! venv/bin/pip install -r "$core_req_file"; then
         rm -f "$core_req_file"
         log_error "Core dependency installation failed"
-        log_detail "Try manually: source venv/bin/activate && pip install -r requirements.txt"
+        log_detail "Retry with: make init"
+        log_detail "For manual setup, use the core-first dependency flow in docs/INSTALLATION.md"
         deactivate
         exit 1
     fi
@@ -766,7 +768,8 @@ install_python_deps() {
         fi
     else
         log_error "Core packages (opencv, numpy) not installed correctly"
-        log_detail "Try manually: source venv/bin/activate && pip install -r requirements.txt"
+        log_detail "Retry with: make init"
+        log_detail "For manual setup, use the core-first dependency flow in docs/INSTALLATION.md"
         deactivate
         exit 1
     fi

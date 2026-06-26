@@ -7,28 +7,34 @@ deployment, PX4/SITL/HIL, field, or real-aircraft action was performed.
 
 ## Findings To Track Before Release/Handoff
 
-1. macOS is advertised in the public installation path, but `scripts/init.sh`
+1. macOS is advertised in some public installation paths, but `scripts/init.sh`
    is Debian/apt-oriented. Before macOS can be advertised as a beginner path,
    either add a maintained macOS bootstrap path or document macOS as unsupported
-   by `scripts/init.sh`.
+   by `scripts/init.sh`. First cleanup pass: Linux-only guided install wording
+   and explicit macOS `install.sh` fail-fast behavior.
 
 2. `scripts/init.sh` creates `venv`, while the Makefile defaults to
    `.venv/bin/python` before falling back to system `python3`. Clean-checkout
    setup-profile and validation commands must use the environment created by
-   bootstrap or create the same environment name consistently.
+   bootstrap or create the same environment name consistently. First cleanup
+   pass: Makefile falls back to `venv/bin/python` before system `python3`.
 
 3. Linux prerequisites in README and installation docs omit `make`, but the
    next documented command is `make init`. Minimal Ubuntu or Raspberry Pi
-   images can fail before PixEagle setup starts.
+   images can fail before PixEagle setup starts. First cleanup pass: README,
+   installation docs, and `scripts/init.sh` include `make`.
 
 4. The manual dashboard `.env` step copies `dashboard/env_default.yaml` directly
    to `dashboard/.env`, while init converts that YAML-like template to dotenv
    syntax. Manual docs should use the same conversion path or provide a real
-   dotenv template.
+   dotenv template. First cleanup pass: installation docs use an explicit
+   YAML-to-dotenv conversion snippet.
 
 5. Manual Python setup still suggests installing the full `requirements.txt`,
    including AI-heavy packages. The clean walkthrough should preserve the
-   safer core/AI split used by `scripts/init.sh`.
+   safer core/AI split used by `scripts/init.sh`. First cleanup pass:
+   installation docs use the same core-first filter and point AI setup to the
+   deterministic scripts.
 
 6. `scripts/init.sh` can print "Setup Complete" even when dashboard dependency
    setup or binary downloads were skipped or failed. The release walkthrough
@@ -38,7 +44,10 @@ deployment, PX4/SITL/HIL, field, or real-aircraft action was performed.
 7. `scripts/run.sh` can terminate any process on configured ports before
    startup and uses `nc` for readiness checks, but netcat is not installed by
    the documented prerequisites. The run path should avoid killing unrelated
-   processes by default and document/install readiness dependencies.
+   processes by default and document/install readiness dependencies. First
+   cleanup pass: `scripts/run.sh` terminates only PixEagle-owned listener PIDs,
+   blocks on foreign port occupants, and falls back to Python socket readiness
+   when `nc` is absent.
 
 8. Installation verification currently leans on `python src/test_Ver.py`, which
    only proves OpenCV import/build information. The handoff walkthrough should

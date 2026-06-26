@@ -60,7 +60,7 @@
 
 ### One-Liner Installation
 
-**Linux/macOS:**
+**Linux:**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.sh | bash
 ```
@@ -75,7 +75,7 @@ irm https://raw.githubusercontent.com/alireza787b/PixEagle/main/install.ps1 | ie
 **Linux:**
 ```bash
 # Install system dependencies
-sudo apt update && sudo apt install -y python3 python3-venv python3-pip tmux lsof curl git
+sudo apt update && sudo apt install -y python3 python3-venv python3-pip make tmux lsof curl git
 
 # Clone and initialize
 git clone https://github.com/alireza787b/PixEagle.git
@@ -103,14 +103,16 @@ verification and local provenance logging.
 
 The script auto-detects your platform and recommends the appropriate profile.
 
-> **AI install behavior in Full profile:** Core dependencies are installed first, then init offers deterministic PyTorch setup (`setup-pytorch.sh`) for your platform (x86 CUDA, Jetson, macOS, or CPU).  
+> **macOS:** the one-command `install.sh` / `scripts/init.sh` bootstrap is not a maintained macOS path because it installs Debian/Ubuntu packages with apt. Use Linux, Raspberry Pi OS, Jetson Linux, Windows, WSL, or a Linux VM for the guided setup until a reviewed macOS bootstrap exists.
+
+> **AI install behavior in Full profile:** Core dependencies are installed first, then init offers deterministic PyTorch setup (`setup-pytorch.sh`) for your platform (x86 CUDA, Jetson, or CPU).
 > After that, AI packages (`ultralytics`, `lap`, optional `ncnn`) are installed and verified. If verification fails, init can roll back to Core-safe mode and prints recovery commands.
 
 > **Detailed Guide**: [Installation Documentation](docs/INSTALLATION.md)
 
 ### Run
 
-**Linux/macOS:**
+**Linux:**
 ```bash
 make run           # Run all services
 make dev           # Development mode with hot-reload
@@ -177,7 +179,7 @@ untrusted LANs, the public internet, or shared field networks. See the
 ```
 PixEagle/
 ├── Makefile                 # Primary entry point (make help, make run)
-├── install.sh               # Bootstrap installer (Linux/macOS)
+├── install.sh               # Bootstrap installer (Linux)
 ├── install.ps1              # Bootstrap installer (Windows)
 ├── scripts/                 # All scripts organized here
 │   ├── init.sh/bat          # Main setup scripts
@@ -288,7 +290,7 @@ tokens or explicit browser-session auth.
 
 ## Running Options
 
-**Using Makefile (Linux/macOS):**
+**Using Makefile (Linux):**
 ```bash
 make run                # Full system (recommended)
 make dev                # Development mode with hot-reload

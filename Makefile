@@ -35,7 +35,7 @@ DASHBOARD_PORT ?= $(shell bash scripts/lib/ports.sh --dashboard-port "$(CURDIR)/
 BACKEND_PORT ?= $(shell bash scripts/lib/ports.sh --backend-port "$(CURDIR)/configs/config.yaml" 2>/dev/null || echo 5077)
 MAVLINK2REST_PORT ?= 8088
 WEBSOCKET_PORT ?= 5551
-PYTHON ?= $(if $(wildcard $(CURDIR)/.venv/bin/python),$(CURDIR)/.venv/bin/python,python3)
+PYTHON ?= $(if $(wildcard $(CURDIR)/.venv/bin/python),$(CURDIR)/.venv/bin/python,$(if $(wildcard $(CURDIR)/venv/bin/python),$(CURDIR)/venv/bin/python,python3))
 VIDEO_PROOF_PYTHON ?= python3
 
 # ============================================================================

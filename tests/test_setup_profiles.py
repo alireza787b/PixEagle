@@ -1315,6 +1315,50 @@ def test_windows_run_script_binds_dashboard_to_lan_for_browser_session_profile()
     assert "PIXEAGLE_DASHBOARD_EXPOSURE_MODE=trusted_lan_legacy" in script_text
 
 
+def test_makefile_uses_bootstrap_created_venv_before_system_python():
+    makefile_text = (PROJECT_ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert "$(CURDIR)/.venv/bin/python" in makefile_text
+    assert "$(CURDIR)/venv/bin/python" in makefile_text
+    assert "$(CURDIR)/venv/bin/python,python3" in makefile_text
+
+
+def test_run_script_blocks_foreign_port_owners_and_has_no_netcat_dependency():
+    script_text = (PROJECT_ROOT / "scripts" / "run.sh").read_text(encoding="utf-8")
+
+    assert "is_pixeagle_owned_pid" in script_text
+    assert "non-PixEagle process" in script_text
+    assert "Startup blocked by non-PixEagle process" in script_text
+    assert "socket.create_connection" in script_text
+    assert "nc -z localhost" in script_text
+    assert "command -v nc" in script_text
+
+
+def test_guided_install_docs_do_not_advertise_macos_bootstrap():
+    readme_text = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    install_text = (PROJECT_ROOT / "docs" / "INSTALLATION.md").read_text(
+        encoding="utf-8"
+    )
+    installer_text = (PROJECT_ROOT / "install.sh").read_text(encoding="utf-8")
+
+    assert "**Linux/macOS:**" not in readme_text
+    assert "**Linux/macOS:**" not in install_text
+    assert "guided bootstrap currently supports Linux only" in installer_text
+    assert "not a maintained macOS path" in readme_text
+    assert "not a maintained guided-bootstrap target" in install_text
+
+
+def test_manual_setup_docs_preserve_core_ai_split_and_dashboard_env_conversion():
+    install_text = (PROJECT_ROOT / "docs" / "INSTALLATION.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "cp dashboard/env_default.yaml dashboard/.env" not in install_text
+    assert "yaml.safe_load" in install_text
+    assert "pixeagle-core-requirements.txt" in install_text
+    assert "pip install -r requirements.txt" not in install_text
+
+
 def test_dashboard_production_build_and_navigation_support_pixeagle_subpath():
     package = json.loads(
         (PROJECT_ROOT / "dashboard" / "package.json").read_text(encoding="utf-8")
