@@ -61,6 +61,50 @@
 - Feature delta from upstream: 33 intended files; no unrelated merge
   resolutions or force-push.
 
+## Files Changed And Evidence Paths
+
+PixEagle-side files touched in this slice and follow-up reporting:
+
+- `configs/config_default.yaml`
+- `configs/config_schema.yaml`
+- `scripts/setup/apply-setup-profile.py`
+- `src/classes/api_auth_runtime.py`
+- `src/classes/api_security_policy.py`
+- `src/classes/api_v1_contracts.py`
+- `src/classes/api_v1_paths.py`
+- `src/classes/fastapi_api_v1_routes.py`
+- `src/classes/fastapi_handler.py`
+- `tests/test_setup_profiles.py`
+- `tests/unit/core_app/test_api_auth_runtime.py`
+- `tests/test_api_route_inventory.py`
+- `tests/test_docs_infrastructure_consistency.py`
+- `docs/agent-context/generated/pixeagle-openapi-tool-candidates.yaml`
+- `docs/setup/setup-profiles.md`
+- `docs/video/04-streaming/qgc-http-websocket-source-plan.md`
+- `docs/video/04-streaming/remote-media-security.md`
+- `docs/reporting/agent-ops/codex-modernization/checkpoints/2026-06-24-phase-4-qgc-authenticated-direct-media.md`
+- `docs/reporting/agent-ops/codex-modernization/audits/2026-06-25-setup-bootstrap-clean-walkthrough-preflight.md`
+- `docs/reporting/agent-ops/codex-modernization/issue-register.md`
+- `docs/reporting/agent-ops/codex-modernization/phase-slice-map.md`
+- `docs/reporting/agent-ops/codex-modernization/journal/2026-06.md`
+
+QGC-side branch and evidence:
+
+- Repository: `/home/alireza/qgroundcontrol-pxe0070`
+- PR: <https://github.com/mavlink/qgroundcontrol/pull/13594>
+- Branch: `feature/http-websocket-video-streaming`
+- Latest pushed head at this report point: `b98848b2c`
+- Latest monitored GitHub run: `28184014057`, successful on 2026-06-25 UTC
+- PR rollup checked on 2026-06-26 UTC: draft/open, all visible build/test
+  checks successful, docs deploy jobs skipped, CodeQL/grype annotations neutral
+
+Offline copies for maintainer review:
+
+- `/home/alireza/PIXEAGLE_PXE0070_QGC_DIRECT_MEDIA_HANDOFF.md`
+- `/home/alireza/PIXEAGLE_CURRENT_PHASE_SLICE_MAP.md`
+- `/home/alireza/PIXEAGLE_CURRENT_ISSUE_REGISTER.md`
+- `/home/alireza/PIXEAGLE_SETUP_BOOTSTRAP_CLEAN_WALKTHROUGH_PREFLIGHT.md`
+
 ## Validation
 
 ### PixEagle
@@ -138,7 +182,14 @@
     the exact JPEG bytes on the `appsrc` source pad instead of relying on the
     GitHub runner's appsink sample queue;
   - PR #13594 stayed draft and the new CI matrix for head `b98848b2c` was
-    queued/in progress at report time.
+    queued/in progress at the first report time;
+  - on 2026-06-26 resume, PR #13594 was still draft/open and the visible PR
+    rollup for head `b98848b2c` was green: Linux run `28184014057` completed
+    `Release linux_gcc_64`, `Release linux_gcc_arm64`, and
+    `Test + Coverage linux_gcc_64 Debug` successfully; Windows x64/arm64,
+    macOS, iOS, Android, Docker, docs, Doxygen, pre-commit, and CodeQL checks
+    visible in the rollup were successful, with docs deploy skipped and
+    CodeQL/grype annotations neutral.
 
 ## Independent Review
 
@@ -156,6 +207,20 @@
 - Maintainer review found one raw pipeline URI log and ambiguous Basic usernames.
   Both were fixed; Basic usernames now reject colon, NUL, CR, and LF.
 - Closure review reported no remaining proven defect in the reviewed findings.
+- 2026-06-25 resume review found reporting consistency issues: PXE-0070 was
+  effectively active while the issue register still said `open`, the phase map
+  listed the partial checkpoint as `done/incomplete`, and the active-slice note
+  still said to finish a PixEagle-side reporting commit that had already
+  landed. These reporting issues were corrected without changing runtime code.
+- 2026-06-25 setup/bootstrap preflight found remaining PXE-0068/PXE-0074 risks:
+  macOS is advertised while init is apt-oriented, `venv` and `.venv` are mixed,
+  `make` and `nc` prerequisites are missing from beginner docs, manual dashboard
+  dotenv generation can copy YAML into `.env`, manual full-requirements install
+  bypasses the core/AI split, setup summaries can mask skipped dashboard or
+  binary work, run startup can terminate unrelated port occupants, and the
+  verification guide is weaker than the final release/handoff evidence gate.
+  The findings are tracked in
+  `docs/reporting/agent-ops/codex-modernization/audits/2026-06-25-setup-bootstrap-clean-walkthrough-preflight.md`.
 
 ## Evidence Boundary
 
@@ -165,14 +230,14 @@
 - This slice does not prove target QGC-to-PixEagle playback, a deployed trusted
   TLS proxy, custom-CA behavior on each target OS, external reachability, or
   operator acceptance.
-- This slice does not prove a fully green QGC PR matrix. PR #13594 is draft
-  until head `b98848b2c` has clean CI or documented residual failures and the
-  user-run receiver suite validates the branch. The prior Windows x64
-  dependency failure did not reproduce on head `717f083c5`; the Linux WebSocket
-  JPEG delivery failure was replaced by a VideoSettings test-fixture lifetime
-  failure on `27e6f4a12`, patched in `b2f6405a4`, then the WebSocket delivery
-  failure recurred in the integration phase and was patched again in
-  `d97e3f84e` and `b98848b2c`.
+- This slice now has a successful visible QGC PR rollup on head `b98848b2c`,
+  including Linux release x64/arm64 and `Test + Coverage linux_gcc_64 Debug`
+  run `28184014057`. PR #13594 remains draft until the user-run receiver suite
+  validates the branch. The prior Windows x64 dependency failure did not
+  reproduce on head `717f083c5`; the Linux WebSocket JPEG delivery failure was
+  replaced by a VideoSettings test-fixture lifetime failure on `27e6f4a12`,
+  patched in `b2f6405a4`, then the WebSocket delivery failure recurred in the
+  integration phase and was patched again in `d97e3f84e` and `b98848b2c`.
 - No service installation, reverse-proxy/firewall mutation, camera/tracker/
   follower run, Docker/PX4/SITL/HIL, field test, or real-aircraft action was
   performed or claimed.
@@ -183,15 +248,10 @@
 ## Next Gate
 
 1. Keep PR #13594 in draft while the branch is not user-tested end to end.
-2. Resolve or document any remaining QGC CI failures on head `b98848b2c`; the
-   prior Windows x64 Release setup failure cleared, the VideoSettings
-   fixture-lifetime fix passed the unit-test phase, and the current queued
-   follow-up specifically targets the WebSocket JPEG appsrc-to-appsink
-   integration-test flake.
-3. Install a CI-built QGC artifact on selected target GCS platforms.
-4. Deploy the documented external HTTPS/WSS proxy on a non-aircraft test host.
-5. Exercise anonymous generic sources and authenticated PixEagle sources,
+2. Install a CI-built QGC artifact on selected target GCS platforms.
+3. Deploy the documented external HTTPS/WSS proxy on a non-aircraft test host.
+4. Exercise anonymous generic sources and authenticated PixEagle sources,
    including wrong/missing token, wrong/missing Origin, TLS failure, custom CA,
    URL/log redaction, reconnect, bounded WebSocket payload, and MKV/MOV record.
-6. Capture exact versions, configs, logs, and sanitized playback artifacts.
-7. Close PXE-0070 only after operator review accepts that evidence.
+5. Capture exact versions, configs, logs, and sanitized playback artifacts.
+6. Close PXE-0070 only after operator review accepts that evidence.
