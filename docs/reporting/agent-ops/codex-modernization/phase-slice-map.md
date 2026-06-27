@@ -121,6 +121,7 @@ it together with:
 | Phase 4 legacy config read boundary | done | PXE-0008 partial | `checkpoints/2026-06-27-phase-4-legacy-config-read-boundary.md`; legacy config schema/current/default reads, section/category listing, diff/compare, defaults-sync read/plan, backup history, export, search, and audit route bodies now live in `src/classes/api_legacy_config_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/config/*` route, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 | Phase 4 legacy recording route boundary | done | PXE-0008 partial | `checkpoints/2026-06-27-phase-4-legacy-recording-route-boundary.md`; legacy recording start/pause/resume/stop/status/toggle, recordings list/download/delete, storage status, and include-OSD route bodies now live in `src/classes/api_legacy_recording_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/recordings/*` route, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 | Phase 4 legacy OSD route boundary | done | PXE-0008 partial | `checkpoints/2026-06-27-phase-4-legacy-osd-route-boundary.md`; legacy OSD status/toggle, preset listing/loading, color-mode switching, and mode status route bodies now live in `src/classes/api_legacy_osd_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/osd/*` route, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
+| Phase 4 legacy GStreamer route boundary | done | PXE-0008 partial | `checkpoints/2026-06-27-phase-4-legacy-gstreamer-route-boundary.md`; legacy GStreamer status and runtime toggle route bodies now live in `src/classes/api_legacy_gstreamer_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/streams/gstreamer*` route, alias retirement, MCP exposure, QGC playback, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 
 ## Active Slice
 
@@ -221,9 +222,12 @@ status/toggle, preset listing/loading, color-mode switching, and mode status
 route bodies into
 `api_legacy_osd_routes.py`, including existing cache invalidation,
 renderer-reinitialization, preset validation, and the legacy unavailable-toggle
-500 wrapper. Remaining PXE-0008 legacy route-body cleanup includes GStreamer,
-follower, safety, and video/media route families before typed `/api/v1`
-replacements or tracked compatibility retirement.
+500 wrapper. The 2026-06-27 legacy GStreamer route boundary moved status and
+runtime toggle route bodies into `api_legacy_gstreamer_routes.py`, including
+existing QGC UDP/RTP setup hints, handler creation, direct config flag mutation,
+and failed-open 500 response shape. Remaining PXE-0008 legacy route-body
+cleanup includes follower, safety, and video/media route families before typed
+`/api/v1` replacements or tracked compatibility retirement.
 PXE-0064 is in progress: the first containment foundation is done, so
 checked-in backend/dashboard/MAVLink2REST exposure is local-only, contradictory
 local-only bind/CORS configuration fails closed, Host/Origin/fetch-site and

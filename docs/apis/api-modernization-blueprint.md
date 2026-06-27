@@ -112,6 +112,12 @@ Route inventory tests must:
   provenance because it owns legacy response shaping, file response headers,
   source dimension probing, and delete/error mapping before typed
   `/api/v1/recordings/*` promotion
+- assert that `src/classes/api_legacy_gstreamer_routes.py` owns legacy
+  GStreamer route bodies for status and runtime toggle, and record that helper
+  in generated candidate provenance because it owns legacy process-local
+  writer detection, QGC UDP/RTP setup hints, handler creation, direct config
+  flag mutation, and failed-open response mapping before typed
+  `/api/v1/streams/gstreamer*` promotion
 - assert that `src/classes/api_legacy_osd_routes.py` owns legacy OSD route
   bodies for status, toggle, preset listing/loading, color-mode switching, and
   mode status, and record that helper in generated candidate provenance because

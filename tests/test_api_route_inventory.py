@@ -48,6 +48,9 @@ API_LEGACY_CONFIG_SYNC = REPO_ROOT / "src" / "classes" / "api_legacy_config_sync
 API_LEGACY_CONFIG_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_config_routes.py"
 )
+API_LEGACY_GSTREAMER_ROUTES = (
+    REPO_ROOT / "src" / "classes" / "api_legacy_gstreamer_routes.py"
+)
 API_LEGACY_MODEL_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_model_routes.py"
 )
@@ -1145,6 +1148,76 @@ def test_legacy_osd_route_bodies_are_not_defined_in_fastapi_handler():
     assert expected_functions <= osd_route_functions
     for marker in disallowed_handler_strings:
         assert any(marker in literal for literal in osd_route_strings)
+        assert not any(marker in literal for literal in handler_string_literals)
+
+    for wrapper_name, target_name in wrapper_targets.items():
+        wrapper = handler_functions[wrapper_name]
+        assert len(wrapper.body) == 1
+        statement = wrapper.body[0]
+        assert isinstance(statement, ast.Return)
+        call = statement.value
+        if isinstance(call, ast.Await):
+            call = call.value
+        assert isinstance(call, ast.Call)
+        assert isinstance(call.func, ast.Name)
+        assert call.func.id == target_name
+        assert call.args
+        assert isinstance(call.args[0], ast.Name)
+        assert call.args[0].id == "self"
+
+
+def test_legacy_gstreamer_route_bodies_are_not_defined_in_fastapi_handler():
+    """Legacy GStreamer route bodies should stay out of the handler monolith."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    gstreamer_routes_tree = ast.parse(
+        API_LEGACY_GSTREAMER_ROUTES.read_text(encoding="utf-8")
+    )
+    expected_functions = {
+        "_new_gstreamer_handler",
+        "_is_gstreamer_active",
+        "_qgc_setup_hint",
+        "get_gstreamer_status",
+        "toggle_gstreamer",
+    }
+    wrapper_targets = {
+        "get_gstreamer_status": "dispatch_get_gstreamer_status",
+        "toggle_gstreamer": "dispatch_toggle_gstreamer",
+    }
+    disallowed_handler_strings = {
+        "GStreamer QGC output stopped via API",
+        "GStreamer QGC output stream stopped",
+        "GStreamer QGC output started",
+        "GStreamer pipeline failed to open",
+        "Error toggling GStreamer",
+        "Error getting GStreamer status",
+        "In QGC: Application Settings > Video > UDP Video Stream, port",
+    }
+
+    gstreamer_route_functions = {
+        node.name
+        for node in ast.walk(gstreamer_routes_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    gstreamer_route_strings = {
+        node.value
+        for node in ast.walk(gstreamer_routes_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    handler_functions = {
+        node.name: node
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    handler_string_literals = {
+        node.value
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+    assert expected_functions <= gstreamer_route_functions
+    assert "_is_gstreamer_active" not in handler_functions
+    for marker in disallowed_handler_strings:
+        assert any(marker in literal for literal in gstreamer_route_strings)
         assert not any(marker in literal for literal in handler_string_literals)
 
     for wrapper_name, target_name in wrapper_targets.items():

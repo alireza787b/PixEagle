@@ -129,6 +129,10 @@ from classes.api_legacy_model_routes import (
     switch_model as dispatch_switch_model,
     upload_model as dispatch_upload_model,
 )
+from classes.api_legacy_gstreamer_routes import (
+    get_gstreamer_status as dispatch_get_gstreamer_status,
+    toggle_gstreamer as dispatch_toggle_gstreamer,
+)
 from classes.api_legacy_osd_routes import (
     get_osd_color_modes as dispatch_get_osd_color_modes,
     get_osd_modes as dispatch_get_osd_modes,
@@ -4345,97 +4349,10 @@ class FastAPIHandler:
     # ==================== GStreamer QGC Output API Endpoints ====================
 
     async def get_gstreamer_status(self):
-        """Get GStreamer QGC output stream status and configuration."""
-        try:
-            handler = getattr(self.app_controller, 'gstreamer_handler', None)
-            is_active = (
-                handler is not None
-                and handler.out is not None
-                and handler.out.isOpened()
-            )
-
-            return JSONResponse(content={
-                'available': True,
-                'enabled': is_active,
-                'config_enabled': bool(getattr(Parameters, 'ENABLE_GSTREAMER_STREAM', False)),
-                'encoder': handler.encoder_info.encoder if handler else None,
-                'hardware_accelerated': handler.encoder_info.hardware if handler else False,
-                'host': str(getattr(Parameters, 'GSTREAMER_HOST', '127.0.0.1')),
-                'port': int(getattr(Parameters, 'GSTREAMER_PORT', 5600)),
-                'resolution': f"{getattr(Parameters, 'GSTREAMER_WIDTH', 1280)}x{getattr(Parameters, 'GSTREAMER_HEIGHT', 720)}",
-                'framerate': int(getattr(Parameters, 'GSTREAMER_FRAMERATE', 15)),
-                'bitrate_kbps': int(getattr(Parameters, 'GSTREAMER_BITRATE', 2000)),
-                'qgc_setup_hint': 'In QGC: Application Settings > Video > UDP Video Stream, port '
-                                  + str(int(getattr(Parameters, 'GSTREAMER_PORT', 5600))),
-                'timestamp': time.time(),
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting GStreamer status: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_gstreamer_status(self)
 
     async def toggle_gstreamer(self):
-        """Toggle GStreamer QGC output stream on or off at runtime."""
-        try:
-            handler = getattr(self.app_controller, 'gstreamer_handler', None)
-            was_active = (
-                handler is not None
-                and handler.out is not None
-                and handler.out.isOpened()
-            )
-
-            if was_active:
-                # Stop the stream
-                handler.release()
-                self.logger.info("GStreamer QGC output stopped via API")
-                Parameters.ENABLE_GSTREAMER_STREAM = False
-                return JSONResponse(content={
-                    'status': 'success',
-                    'enabled': False,
-                    'action': 'stopped',
-                    'message': 'GStreamer QGC output stream stopped',
-                    'timestamp': time.time(),
-                })
-            else:
-                # Start the stream
-                from classes.gstreamer_handler import GStreamerHandler
-                if handler is None:
-                    handler = GStreamerHandler()
-                    self.app_controller.gstreamer_handler = handler
-                handler.initialize_stream()
-                Parameters.ENABLE_GSTREAMER_STREAM = True
-
-                is_open = handler.out is not None and handler.out.isOpened()
-                if is_open:
-                    self.logger.info(
-                        f"GStreamer QGC output started via API "
-                        f"(encoder={handler.encoder_info.encoder}, "
-                        f"hardware={'yes' if handler.encoder_info.hardware else 'no'})"
-                    )
-                    return JSONResponse(content={
-                        'status': 'success',
-                        'enabled': True,
-                        'action': 'started',
-                        'encoder': handler.encoder_info.encoder,
-                        'hardware_accelerated': handler.encoder_info.hardware,
-                        'message': f'GStreamer QGC output started ({handler.encoder_info.encoder})',
-                        'qgc_setup_hint': 'In QGC: Application Settings > Video > UDP Video Stream, port '
-                                          + str(int(getattr(Parameters, 'GSTREAMER_PORT', 5600))),
-                        'timestamp': time.time(),
-                    })
-                else:
-                    self.logger.warning("GStreamer pipeline failed to open")
-                    Parameters.ENABLE_GSTREAMER_STREAM = False
-                    return JSONResponse(content={
-                        'status': 'error',
-                        'enabled': False,
-                        'action': 'failed',
-                        'message': 'GStreamer pipeline failed to open. Check GStreamer installation.',
-                        'timestamp': time.time(),
-                    }, status_code=500)
-
-        except Exception as e:
-            self.logger.error(f"Error toggling GStreamer: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_toggle_gstreamer(self)
 
     # ==================== Recording API Endpoints ====================
 
