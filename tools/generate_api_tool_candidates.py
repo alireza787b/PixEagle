@@ -39,6 +39,9 @@ API_LEGACY_CONFIG_ROUTES = (
 API_LEGACY_MODEL_ROUTES = (
     PROJECT_ROOT / "src" / "classes" / "api_legacy_model_routes.py"
 )
+API_LEGACY_OSD_ROUTES = (
+    PROJECT_ROOT / "src" / "classes" / "api_legacy_osd_routes.py"
+)
 API_LEGACY_RECORDING_ROUTES = (
     PROJECT_ROOT / "src" / "classes" / "api_legacy_recording_routes.py"
 )
@@ -63,6 +66,7 @@ ROUTE_SOURCE_FILES = (
     API_LEGACY_CONFIG_SYNC,
     API_LEGACY_CONFIG_ROUTES,
     API_LEGACY_MODEL_ROUTES,
+    API_LEGACY_OSD_ROUTES,
     API_LEGACY_RECORDING_ROUTES,
     API_V1_READ_ROUTES,
     API_V1_SNAPSHOTS,

@@ -112,6 +112,12 @@ Route inventory tests must:
   provenance because it owns legacy response shaping, file response headers,
   source dimension probing, and delete/error mapping before typed
   `/api/v1/recordings/*` promotion
+- assert that `src/classes/api_legacy_osd_routes.py` owns legacy OSD route
+  bodies for status, toggle, preset listing/loading, color-mode switching, and
+  mode status, and record that helper in generated candidate provenance because
+  it owns legacy response shaping, preset-file validation, cache invalidation,
+  renderer reinitialization, and existing legacy error mappings before typed
+  `/api/v1/osd/*` promotion
 - record `src/classes/api_v1_read_routes.py` in generated candidate provenance
   because that module owns typed read-route error boundaries for reviewed
   process-local status/telemetry/media-health candidates

@@ -129,6 +129,15 @@ from classes.api_legacy_model_routes import (
     switch_model as dispatch_switch_model,
     upload_model as dispatch_upload_model,
 )
+from classes.api_legacy_osd_routes import (
+    get_osd_color_modes as dispatch_get_osd_color_modes,
+    get_osd_modes as dispatch_get_osd_modes,
+    get_osd_presets as dispatch_get_osd_presets,
+    get_osd_status as dispatch_get_osd_status,
+    load_osd_preset as dispatch_load_osd_preset,
+    set_osd_color_mode as dispatch_set_osd_color_mode,
+    toggle_osd as dispatch_toggle_osd,
+)
 from classes.api_legacy_recording_routes import (
     delete_recording_file as dispatch_delete_recording_file,
     download_recording as dispatch_download_recording,
@@ -4311,299 +4320,27 @@ class FastAPIHandler:
     # ==================== OSD Control API Endpoints ====================
 
     async def get_osd_status(self):
-        """
-        Get current OSD status and configuration.
-
-        Returns:
-            dict: OSD status, configuration, and performance metrics
-        """
-        try:
-            if not hasattr(self.app_controller, 'osd_handler'):
-                return JSONResponse(content={
-                    'available': False,
-                    'error': 'OSD system not available'
-                })
-
-            osd_handler = self.app_controller.osd_handler
-
-            # Get OSD enabled status
-            is_enabled = osd_handler.is_enabled() if hasattr(osd_handler, 'is_enabled') else Parameters.OSD_ENABLED
-
-            # Get performance stats if available
-            perf_stats = {}
-            if hasattr(osd_handler, 'get_performance_stats'):
-                perf_stats = osd_handler.get_performance_stats()
-
-            pipeline_stats = {}
-            if hasattr(self.app_controller, 'osd_pipeline'):
-                pipeline_stats = self.app_controller.osd_pipeline.get_stats()
-
-            # Get preset name
-            current_preset = getattr(Parameters, 'OSD_PRESET', 'professional')
-
-            # Get color mode from mode manager
-            mgr = getattr(self.app_controller, 'osd_mode_manager', None)
-            color_mode = mgr.color_mode if mgr else 'day'
-
-            return JSONResponse(content={
-                'available': True,
-                'enabled': is_enabled,
-                'status': 'active' if is_enabled else 'disabled',
-                'configuration': {
-                    'enabled_parameter': Parameters.OSD_ENABLED,
-                    'current_preset': current_preset,
-                    'color_mode': color_mode,
-                    'presets_location': 'configs/osd_presets/',
-                    'pipeline_mode': getattr(Parameters, 'OSD_PIPELINE_MODE', 'layered_realtime'),
-                    'target_resolution': getattr(Parameters, 'OSD_TARGET_LAYER_RESOLUTION', 'stream'),
-                    'dynamic_fps': getattr(Parameters, 'OSD_DYNAMIC_FPS', 10),
-                    'datetime_fps': getattr(Parameters, 'OSD_DATETIME_FPS', 1),
-                },
-                'performance': perf_stats,
-                'pipeline': pipeline_stats,
-                'message': 'OSD overlay active on video feed' if is_enabled else 'OSD overlay disabled',
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error getting OSD status: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_osd_status(self)
 
     async def toggle_osd(self):
-        """
-        Toggle OSD on/off.
-
-        Returns:
-            dict: New OSD status
-        """
-        try:
-            if not hasattr(self.app_controller, 'osd_handler'):
-                raise HTTPException(
-                    status_code=503,
-                    detail="OSD system not available"
-                )
-
-            osd_handler = self.app_controller.osd_handler
-
-            # Get current state
-            old_state = osd_handler.is_enabled() if hasattr(osd_handler, 'is_enabled') else Parameters.OSD_ENABLED
-
-            # Toggle the state
-            new_state = not old_state
-            if hasattr(osd_handler, 'set_enabled'):
-                osd_handler.set_enabled(new_state)
-            if hasattr(self.app_controller, 'osd_pipeline'):
-                self.app_controller.osd_pipeline.invalidate_cache("toggle_osd")
-
-            # Update parameter
-            Parameters.OSD_ENABLED = new_state
-
-            self.logger.info(f"OSD {'enabled' if new_state else 'disabled'} via API")
-
-            return JSONResponse(content={
-                'status': 'success',
-                'action': 'enabled' if new_state else 'disabled',
-                'enabled': new_state,
-                'old_state': old_state,
-                'new_state': new_state,
-                'message': f'OSD overlay {"enabled" if new_state else "disabled"}',
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error toggling OSD: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_toggle_osd(self)
 
     async def get_osd_presets(self):
-        """
-        Get available OSD presets.
-
-        Returns:
-            dict: Available preset information
-        """
-        try:
-            import os
-            from pathlib import Path
-
-            presets_dir = Path("configs/osd_presets")
-
-            if not presets_dir.exists():
-                return JSONResponse(content={
-                    'available': False,
-                    'error': 'OSD presets directory not found',
-                    'presets': []
-                })
-
-            # Scan for preset files - return just the names as strings
-            presets = []
-            for preset_file in presets_dir.glob("*.yaml"):
-                if preset_file.name.lower() != 'readme.md':
-                    preset_name = preset_file.stem
-                    presets.append(preset_name)
-
-            # Sort presets (put professional first as default)
-            presets.sort(key=lambda x: (x != 'professional', x))
-
-            # Get current preset from Parameters
-            current_preset = getattr(Parameters, 'OSD_PRESET', 'professional') if hasattr(Parameters, 'OSD_PRESET') else 'professional'
-
-            return JSONResponse(content={
-                'available': True,
-                'presets': presets,
-                'current': current_preset,
-                'presets_directory': str(presets_dir),
-                'total_presets': len(presets),
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error getting OSD presets: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_osd_presets(self)
 
     async def load_osd_preset(self, preset_name: str):
-        """
-        Load an OSD preset configuration.
-
-        Args:
-            preset_name: Name of the preset to load (e.g., 'minimal', 'professional', 'full_telemetry')
-
-        Returns:
-            dict: Load operation result
-        """
-        try:
-            import yaml
-            from pathlib import Path
-
-            # Validate preset name (security)
-            allowed_chars = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-')
-            if not all(c in allowed_chars for c in preset_name):
-                raise HTTPException(status_code=400, detail="Invalid preset name")
-
-            preset_path = Path(f"configs/osd_presets/{preset_name}.yaml")
-
-            if not preset_path.exists():
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Preset '{preset_name}' not found"
-                )
-
-            # Load preset configuration to validate it exists and is valid YAML
-            with open(preset_path, 'r') as f:
-                preset_config = yaml.safe_load(f)
-
-            # Count elements in preset
-            element_count = len(preset_config.get('ELEMENTS', {}))
-
-            # Update Parameters.OSD_PRESET to switch to this preset
-            old_preset = getattr(Parameters, 'OSD_PRESET', 'professional')
-            Parameters.OSD_PRESET = preset_name
-
-            # Reinitialize OSD renderer to load new preset IMMEDIATELY
-            if hasattr(self.app_controller, 'osd_handler'):
-                try:
-                    from classes.osd_renderer import OSDRenderer
-                    # Destroy old renderer and create new one with new preset
-                    self.app_controller.osd_handler.renderer = OSDRenderer(self.app_controller)
-                    if hasattr(self.app_controller, 'osd_pipeline'):
-                        self.app_controller.osd_pipeline.invalidate_cache("preset_switch")
-                    self.logger.info(f"OSD renderer reinitialized with preset '{preset_name}'")
-                except Exception as e:
-                    self.logger.error(f"Failed to reinitialize OSD renderer: {e}")
-
-            self.logger.info(f"OSD preset switched: '{old_preset}' → '{preset_name}'")
-
-            return JSONResponse(content={
-                'status': 'success',
-                'action': 'preset_loaded',
-                'old_preset': old_preset,
-                'new_preset': preset_name,
-                'preset_file': str(preset_path),
-                'configuration_updated': True,
-                'element_count': element_count,
-                'message': f'OSD preset switched to "{preset_name}" and applied immediately.',
-                'requires_restart': False,
-                'timestamp': time.time()
-            })
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error loading OSD preset: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_load_osd_preset(self, preset_name)
 
     # ==================== OSD Color Mode & Mode Management ====================
 
     async def get_osd_color_modes(self):
-        """Get available OSD color modes and current selection."""
-        try:
-            mgr = getattr(self.app_controller, 'osd_mode_manager', None)
-            if mgr is None:
-                raise HTTPException(status_code=503, detail="OSD mode manager not available")
-
-            from classes.osd_colors import VALID_COLOR_MODES
-            return JSONResponse(content={
-                'available_modes': VALID_COLOR_MODES,
-                'current': mgr.color_mode,
-                'timestamp': time.time(),
-            })
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error getting OSD color modes: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_osd_color_modes(self)
 
     async def set_osd_color_mode(self, mode: str):
-        """Switch OSD color mode (day/night/amber)."""
-        try:
-            mgr = getattr(self.app_controller, 'osd_mode_manager', None)
-            if mgr is None:
-                raise HTTPException(status_code=503, detail="OSD mode manager not available")
-
-            from classes.osd_colors import VALID_COLOR_MODES
-            if mode not in VALID_COLOR_MODES:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid color mode '{mode}'. Valid: {VALID_COLOR_MODES}"
-                )
-
-            old_mode = mgr.color_mode
-            success = mgr.switch_color_mode(mode)
-
-            if not success:
-                raise HTTPException(status_code=500, detail="Failed to switch color mode")
-
-            self.logger.info(f"OSD color mode switched: '{old_mode}' -> '{mode}'")
-
-            return JSONResponse(content={
-                'status': 'success',
-                'old_mode': old_mode,
-                'new_mode': mode,
-                'message': f"Color mode switched to '{mode}'",
-                'timestamp': time.time(),
-            })
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error setting OSD color mode: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_set_osd_color_mode(self, mode)
 
     async def get_osd_modes(self):
-        """Get full OSD mode status (presets + color mode)."""
-        try:
-            mgr = getattr(self.app_controller, 'osd_mode_manager', None)
-            if mgr is None:
-                raise HTTPException(status_code=503, detail="OSD mode manager not available")
-
-            return JSONResponse(content={
-                'status': 'success',
-                **mgr.get_status(),
-                'timestamp': time.time(),
-            })
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error getting OSD modes: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_osd_modes(self)
 
     # ==================== GStreamer QGC Output API Endpoints ====================
 

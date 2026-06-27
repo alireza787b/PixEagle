@@ -51,6 +51,9 @@ API_LEGACY_CONFIG_ROUTES = (
 API_LEGACY_MODEL_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_model_routes.py"
 )
+API_LEGACY_OSD_ROUTES = (
+    REPO_ROOT / "src" / "classes" / "api_legacy_osd_routes.py"
+)
 API_LEGACY_RECORDING_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_recording_routes.py"
 )
@@ -1066,6 +1069,82 @@ def test_legacy_recording_route_bodies_are_not_defined_in_fastapi_handler():
     assert "_recording_source_dimensions" not in handler_functions
     for marker in disallowed_handler_strings:
         assert any(marker in literal for literal in recording_route_strings)
+        assert not any(marker in literal for literal in handler_string_literals)
+
+    for wrapper_name, target_name in wrapper_targets.items():
+        wrapper = handler_functions[wrapper_name]
+        assert len(wrapper.body) == 1
+        statement = wrapper.body[0]
+        assert isinstance(statement, ast.Return)
+        call = statement.value
+        if isinstance(call, ast.Await):
+            call = call.value
+        assert isinstance(call, ast.Call)
+        assert isinstance(call.func, ast.Name)
+        assert call.func.id == target_name
+        assert call.args
+        assert isinstance(call.args[0], ast.Name)
+        assert call.args[0].id == "self"
+
+
+def test_legacy_osd_route_bodies_are_not_defined_in_fastapi_handler():
+    """Legacy OSD route bodies should stay out of the handler monolith."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    osd_routes_tree = ast.parse(API_LEGACY_OSD_ROUTES.read_text(encoding="utf-8"))
+    expected_functions = {
+        "get_osd_status",
+        "toggle_osd",
+        "get_osd_presets",
+        "load_osd_preset",
+        "get_osd_color_modes",
+        "set_osd_color_mode",
+        "get_osd_modes",
+    }
+    wrapper_targets = {
+        "get_osd_status": "dispatch_get_osd_status",
+        "toggle_osd": "dispatch_toggle_osd",
+        "get_osd_presets": "dispatch_get_osd_presets",
+        "load_osd_preset": "dispatch_load_osd_preset",
+        "get_osd_color_modes": "dispatch_get_osd_color_modes",
+        "set_osd_color_mode": "dispatch_set_osd_color_mode",
+        "get_osd_modes": "dispatch_get_osd_modes",
+    }
+    disallowed_handler_strings = {
+        "OSD system not available",
+        "presets_location",
+        "Error toggling OSD",
+        "Error getting OSD presets",
+        "Invalid preset name",
+        "OSD renderer reinitialized",
+        "Failed to reinitialize OSD renderer",
+        "OSD mode manager not available",
+        "Failed to switch color mode",
+    }
+
+    osd_route_functions = {
+        node.name
+        for node in ast.walk(osd_routes_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    osd_route_strings = {
+        node.value
+        for node in ast.walk(osd_routes_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    handler_functions = {
+        node.name: node
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    handler_string_literals = {
+        node.value
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+    assert expected_functions <= osd_route_functions
+    for marker in disallowed_handler_strings:
+        assert any(marker in literal for literal in osd_route_strings)
         assert not any(marker in literal for literal in handler_string_literals)
 
     for wrapper_name, target_name in wrapper_targets.items():
