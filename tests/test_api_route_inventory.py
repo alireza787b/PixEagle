@@ -51,6 +51,9 @@ API_LEGACY_CONFIG_ROUTES = (
 API_LEGACY_MODEL_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_model_routes.py"
 )
+API_LEGACY_RECORDING_ROUTES = (
+    REPO_ROOT / "src" / "classes" / "api_legacy_recording_routes.py"
+)
 API_V1_READ_ROUTES = REPO_ROOT / "src" / "classes" / "api_v1_read_routes.py"
 API_V1_SNAPSHOTS = REPO_ROOT / "src" / "classes" / "api_v1_snapshots.py"
 API_V1_TELEMETRY = REPO_ROOT / "src" / "classes" / "api_v1_telemetry.py"
@@ -967,6 +970,102 @@ def test_legacy_model_route_bodies_are_not_defined_in_fastapi_handler():
     assert not (set(handler_functions) & disallowed_handler_functions)
     for marker in disallowed_handler_strings:
         assert any(marker in literal for literal in model_route_strings)
+        assert not any(marker in literal for literal in handler_string_literals)
+
+    for wrapper_name, target_name in wrapper_targets.items():
+        wrapper = handler_functions[wrapper_name]
+        assert len(wrapper.body) == 1
+        statement = wrapper.body[0]
+        assert isinstance(statement, ast.Return)
+        call = statement.value
+        if isinstance(call, ast.Await):
+            call = call.value
+        assert isinstance(call, ast.Call)
+        assert isinstance(call.func, ast.Name)
+        assert call.func.id == target_name
+        assert call.args
+        assert isinstance(call.args[0], ast.Name)
+        assert call.args[0].id == "self"
+
+
+def test_legacy_recording_route_bodies_are_not_defined_in_fastapi_handler():
+    """Legacy recording route bodies should stay out of the handler monolith."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    recording_routes_tree = ast.parse(
+        API_LEGACY_RECORDING_ROUTES.read_text(encoding="utf-8")
+    )
+    expected_functions = {
+        "_get_recording_manager",
+        "_recording_source_dimensions",
+        "start_recording",
+        "pause_recording",
+        "resume_recording",
+        "stop_recording",
+        "get_recording_status",
+        "toggle_recording",
+        "list_recordings",
+        "download_recording",
+        "delete_recording_file",
+        "get_storage_status",
+        "set_recording_include_osd",
+    }
+    wrapper_targets = {
+        "start_recording": "dispatch_start_recording",
+        "pause_recording": "dispatch_pause_recording",
+        "resume_recording": "dispatch_resume_recording",
+        "stop_recording": "dispatch_stop_recording",
+        "get_recording_status": "dispatch_get_recording_status",
+        "toggle_recording": "dispatch_toggle_recording",
+        "list_recordings": "dispatch_list_recordings",
+        "download_recording": "dispatch_download_recording",
+        "delete_recording_file": "dispatch_delete_recording_file",
+        "get_storage_status": "dispatch_get_storage_status",
+        "set_recording_include_osd": "dispatch_set_recording_include_osd",
+    }
+    disallowed_handler_strings = {
+        "Recording not available (ENABLE_RECORDING is false)",
+        "Error starting recording",
+        "Error pausing recording",
+        "Error resuming recording",
+        "Error stopping recording",
+        "Error getting recording status",
+        "Error toggling recording",
+        "Error listing recordings",
+        "Recording not found:",
+        "Content-Range",
+        "Accept-Ranges",
+        "Error deleting recording",
+        "Error getting storage status",
+        "OSD recording",
+        "Error setting recording OSD",
+    }
+
+    recording_route_functions = {
+        node.name
+        for node in ast.walk(recording_routes_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    recording_route_strings = {
+        node.value
+        for node in ast.walk(recording_routes_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    handler_functions = {
+        node.name: node
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    handler_string_literals = {
+        node.value
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+    assert expected_functions <= recording_route_functions
+    assert "_get_recording_manager" not in handler_functions
+    assert "_recording_source_dimensions" not in handler_functions
+    for marker in disallowed_handler_strings:
+        assert any(marker in literal for literal in recording_route_strings)
         assert not any(marker in literal for literal in handler_string_literals)
 
     for wrapper_name, target_name in wrapper_targets.items():

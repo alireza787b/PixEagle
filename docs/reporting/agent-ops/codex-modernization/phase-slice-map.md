@@ -119,6 +119,7 @@ it together with:
 | Phase 4 legacy model route boundary | done | PXE-0008 partial | `checkpoints/2026-06-26-phase-4-legacy-model-route-boundary.md`; legacy `/api/models/*` and deprecated `/api/yolo/*` route bodies now live in `src/classes/api_legacy_model_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/models/*` route, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 | Phase 4 legacy config mutation boundary | done | PXE-0008 partial | `checkpoints/2026-06-26-phase-4-legacy-config-mutation-boundary.md`; legacy config parameter/section update, validation, defaults-sync apply, revert, backup restore, and import route bodies now live in `src/classes/api_legacy_config_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/config/*` route, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 | Phase 4 legacy config read boundary | done | PXE-0008 partial | `checkpoints/2026-06-27-phase-4-legacy-config-read-boundary.md`; legacy config schema/current/default reads, section/category listing, diff/compare, defaults-sync read/plan, backup history, export, search, and audit route bodies now live in `src/classes/api_legacy_config_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/config/*` route, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
+| Phase 4 legacy recording route boundary | done | PXE-0008 partial | `checkpoints/2026-06-27-phase-4-legacy-recording-route-boundary.md`; legacy recording start/pause/resume/stop/status/toggle, recordings list/download/delete, storage status, and include-OSD route bodies now live in `src/classes/api_legacy_recording_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/recordings/*` route, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 
 ## Active Slice
 
@@ -210,9 +211,13 @@ schema/current/default reads, section/category listing, diff/compare,
 defaults-sync read/plan, backup history, export, search, and audit route bodies
 also delegate through `api_legacy_config_routes.py`, preserving legacy oddities
 such as schema 404 versus missing current/default sections returning `{}`.
-Remaining PXE-0008 legacy route-body cleanup includes recording, OSD,
-GStreamer, follower, safety, and video/media route families before typed
-`/api/v1` replacements or tracked compatibility retirement.
+The 2026-06-27 legacy recording route boundary completed the next follow-up:
+recording start/pause/resume/stop/status/toggle, recordings list/download/
+delete, storage status, and include-OSD route bodies now delegate through
+`api_legacy_recording_routes.py`, including existing Range download headers and
+legacy delete/error mappings. Remaining PXE-0008 legacy route-body cleanup
+includes OSD, GStreamer, follower, safety, and video/media route families
+before typed `/api/v1` replacements or tracked compatibility retirement.
 PXE-0064 is in progress: the first containment foundation is done, so
 checked-in backend/dashboard/MAVLink2REST exposure is local-only, contradictory
 local-only bind/CORS configuration fails closed, Host/Origin/fetch-site and

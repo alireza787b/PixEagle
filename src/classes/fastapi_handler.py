@@ -129,6 +129,19 @@ from classes.api_legacy_model_routes import (
     switch_model as dispatch_switch_model,
     upload_model as dispatch_upload_model,
 )
+from classes.api_legacy_recording_routes import (
+    delete_recording_file as dispatch_delete_recording_file,
+    download_recording as dispatch_download_recording,
+    get_recording_status as dispatch_get_recording_status,
+    get_storage_status as dispatch_get_storage_status,
+    list_recordings as dispatch_list_recordings,
+    pause_recording as dispatch_pause_recording,
+    resume_recording as dispatch_resume_recording,
+    set_recording_include_osd as dispatch_set_recording_include_osd,
+    start_recording as dispatch_start_recording,
+    stop_recording as dispatch_stop_recording,
+    toggle_recording as dispatch_toggle_recording,
+)
 from classes.api_v1_read_routes import (
     get_following_status as dispatch_get_following_status,
     get_following_telemetry as dispatch_get_following_telemetry,
@@ -4690,250 +4703,37 @@ class FastAPIHandler:
     # ==================== Recording API Endpoints ====================
 
     async def start_recording(self):
-        """Start a new video recording."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available (ENABLE_RECORDING is false)')
-
-            # Get source dimensions from video handler
-            source_fps = 30.0
-            source_w = 640
-            source_h = 480
-            vh = getattr(self.app_controller, 'video_handler', None)
-            if vh:
-                source_fps = getattr(vh, 'fps', 30) or 30
-                cap = getattr(vh, 'cap', None)
-                if cap:
-                    source_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640)
-                    source_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480)
-
-            result = manager.start(source_fps, source_w, source_h)
-            return JSONResponse(content={**result, 'timestamp': time.time()})
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error starting recording: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_start_recording(self)
 
     async def pause_recording(self):
-        """Pause the current recording."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available')
-            result = manager.pause()
-            return JSONResponse(content={**result, 'timestamp': time.time()})
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error pausing recording: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_pause_recording(self)
 
     async def resume_recording(self):
-        """Resume a paused recording."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available')
-            result = manager.resume()
-            return JSONResponse(content={**result, 'timestamp': time.time()})
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error resuming recording: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_resume_recording(self)
 
     async def stop_recording(self):
-        """Stop recording and finalize the file."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available')
-            result = manager.stop()
-            return JSONResponse(content={**result, 'timestamp': time.time()})
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error stopping recording: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_stop_recording(self)
 
     async def get_recording_status(self):
-        """Get current recording state and storage info."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            storage = getattr(self.app_controller, 'storage_manager', None)
-            return JSONResponse(content={
-                'recording': manager.status if manager else {'state': 'unavailable'},
-                'storage': storage.status if storage else {},
-                'available': manager is not None,
-                'timestamp': time.time(),
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting recording status: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_recording_status(self)
 
     async def toggle_recording(self):
-        """Toggle recording on/off (for keyboard shortcut parity)."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available')
-
-            if manager.is_active:
-                result = manager.stop()
-            else:
-                vh = getattr(self.app_controller, 'video_handler', None)
-                source_fps = (getattr(vh, 'fps', 30) or 30) if vh else 30
-                cap = getattr(vh, 'cap', None) if vh else None
-                source_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 640) if cap else 640
-                source_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 480) if cap else 480
-                result = manager.start(source_fps, source_w, source_h)
-
-            return JSONResponse(content={**result, 'timestamp': time.time()})
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error toggling recording: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_toggle_recording(self)
 
     async def list_recordings(self):
-        """List all recordings with metadata."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available')
-            recordings = manager.list_recordings()
-            return JSONResponse(content={
-                'recordings': recordings,
-                'count': len(recordings),
-                'timestamp': time.time(),
-            })
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error listing recordings: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_list_recordings(self)
 
     async def download_recording(self, filename: str, request: Request = None):
-        """Download/stream a recording file with range request support for browser playback."""
-        try:
-            from fastapi.responses import FileResponse, StreamingResponse
-            from pathlib import Path
-
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available')
-
-            # Sanitize filename to prevent path traversal
-            safe_name = Path(filename).name
-            filepath = Path(manager._output_dir) / safe_name
-
-            if not filepath.exists() or not filepath.is_file():
-                raise HTTPException(status_code=404, detail=f'Recording not found: {safe_name}')
-
-            file_size = filepath.stat().st_size
-            suffix = filepath.suffix.lower()
-            media_type = {
-                '.mp4': 'video/mp4', '.avi': 'video/x-msvideo',
-                '.mkv': 'video/x-matroska',
-            }.get(suffix, 'video/mp4')
-
-            # Support HTTP Range requests for browser video seeking/playback
-            range_header = request.headers.get('range') if request else None
-            if range_header:
-                # Parse "bytes=start-end"
-                range_spec = range_header.replace('bytes=', '')
-                parts = range_spec.split('-')
-                start = int(parts[0]) if parts[0] else 0
-                end = int(parts[1]) if len(parts) > 1 and parts[1] else file_size - 1
-                end = min(end, file_size - 1)
-                length = end - start + 1
-
-                def iter_range():
-                    with open(str(filepath), 'rb') as f:
-                        f.seek(start)
-                        remaining = length
-                        while remaining > 0:
-                            chunk = f.read(min(65536, remaining))
-                            if not chunk:
-                                break
-                            remaining -= len(chunk)
-                            yield chunk
-
-                return StreamingResponse(
-                    iter_range(),
-                    status_code=206,
-                    media_type=media_type,
-                    headers={
-                        'Content-Range': f'bytes {start}-{end}/{file_size}',
-                        'Accept-Ranges': 'bytes',
-                        'Content-Length': str(length),
-                    },
-                )
-
-            # Full file response with Accept-Ranges header
-            return FileResponse(
-                path=str(filepath),
-                media_type=media_type,
-                filename=safe_name,
-                headers={'Accept-Ranges': 'bytes'},
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error downloading recording: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_download_recording(self, filename, request)
 
     async def delete_recording_file(self, filename: str):
-        """Delete a recording file."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available')
-            result = manager.delete_recording(filename)
-            if result['status'] == 'error':
-                status_code = 404 if 'not found' in result['message'].lower() else 400
-                raise HTTPException(status_code=status_code, detail=result['message'])
-            return JSONResponse(content={**result, 'timestamp': time.time()})
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error deleting recording: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_delete_recording_file(self, filename)
 
     async def get_storage_status(self):
-        """Get disk space information."""
-        try:
-            storage = getattr(self.app_controller, 'storage_manager', None)
-            return JSONResponse(content={
-                'storage': storage.status if storage else {},
-                'available': storage is not None,
-                'timestamp': time.time(),
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting storage status: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_storage_status(self)
 
     async def set_recording_include_osd(self, enabled: str):
-        """Toggle whether OSD overlays are included in recordings."""
-        try:
-            manager = getattr(self.app_controller, 'recording_manager', None)
-            if manager is None:
-                raise HTTPException(status_code=503, detail='Recording not available')
-            value = enabled.lower() in ('true', '1', 'yes', 'on')
-            manager.set_include_osd(value)
-            return JSONResponse(content={
-                'status': 'success',
-                'include_osd': value,
-                'message': f'OSD recording {"enabled" if value else "disabled"}',
-                'timestamp': time.time(),
-            })
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error setting recording OSD: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_set_recording_include_osd(self, enabled)
 
     # ==================== Safety Configuration API Endpoints (v3.5.0+) ====================
 

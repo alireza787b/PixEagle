@@ -105,6 +105,13 @@ Route inventory tests must:
   that helper in generated candidate provenance because it owns model-list,
   active-model, label, upload, download, switch, delete, and file-download
   semantics used by model management routes
+- assert that `src/classes/api_legacy_recording_routes.py` owns legacy
+  recording and storage route bodies for start/pause/resume/stop/status/toggle,
+  listing, file download with Range support, delete, storage status, and
+  include-OSD toggling, and record that helper in generated candidate
+  provenance because it owns legacy response shaping, file response headers,
+  source dimension probing, and delete/error mapping before typed
+  `/api/v1/recordings/*` promotion
 - record `src/classes/api_v1_read_routes.py` in generated candidate provenance
   because that module owns typed read-route error boundaries for reviewed
   process-local status/telemetry/media-health candidates
