@@ -88,19 +88,33 @@ from classes.api_legacy_control_routes import (
 )
 from classes.api_legacy_config_sync import (
     ConfigSyncPlanRequest,
-    build_defaults_sync_plan,
-    build_defaults_sync_report,
 )
 from classes.api_legacy_config_routes import (
     ConfigImportRequest,
     ConfigParameterUpdate,
     ConfigSectionUpdate,
     apply_defaults_sync as dispatch_apply_defaults_sync,
+    compare_configs as dispatch_compare_configs,
+    export_config as dispatch_export_config,
+    get_config_audit_log as dispatch_get_config_audit_log,
+    get_config_backup_history as dispatch_get_config_backup_history,
+    get_config_categories as dispatch_get_config_categories,
+    get_config_diff as dispatch_get_config_diff,
+    get_config_schema as dispatch_get_config_schema,
+    get_config_section_schema as dispatch_get_config_section_schema,
+    get_config_sections as dispatch_get_config_sections,
+    get_current_config as dispatch_get_current_config,
+    get_current_config_section as dispatch_get_current_config_section,
+    get_default_config as dispatch_get_default_config,
+    get_default_config_section as dispatch_get_default_config_section,
+    get_defaults_sync as dispatch_get_defaults_sync,
     import_config as dispatch_import_config,
+    plan_defaults_sync as dispatch_plan_defaults_sync,
     restore_config_backup as dispatch_restore_config_backup,
     revert_config_to_default as dispatch_revert_config_to_default,
     revert_parameter_to_default as dispatch_revert_parameter_to_default,
     revert_section_to_default as dispatch_revert_section_to_default,
+    search_config_parameters as dispatch_search_config_parameters,
     update_config_parameter as dispatch_update_config_parameter,
     update_config_section as dispatch_update_config_section,
     validate_config_value as dispatch_validate_config_value,
@@ -5286,124 +5300,28 @@ class FastAPIHandler:
         return ConfigService.get_instance()
 
     async def get_config_schema(self):
-        """Get full configuration schema."""
-        try:
-            service = self._get_config_service()
-            schema = service.get_schema()
-            return JSONResponse(content={
-                'success': True,
-                'schema': schema,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting config schema: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_config_schema(self)
 
     async def get_config_section_schema(self, section: str):
-        """Get schema for a specific section."""
-        try:
-            service = self._get_config_service()
-            schema = service.get_schema(section)
-            if not schema:
-                raise HTTPException(status_code=404, detail=f"Section '{section}' not found")
-            return JSONResponse(content={
-                'success': True,
-                'section': section,
-                'schema': schema,
-                'timestamp': time.time()
-            })
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error getting section schema: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_config_section_schema(self, section)
 
     async def get_config_sections(self):
-        """Get list of all configuration sections."""
-        try:
-            service = self._get_config_service()
-            sections = service.get_sections()
-            return JSONResponse(content={
-                'success': True,
-                'sections': sections,
-                'count': len(sections),
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting config sections: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_config_sections(self)
 
     async def get_config_categories(self):
-        """Get category definitions."""
-        try:
-            service = self._get_config_service()
-            categories = service.get_categories()
-            return JSONResponse(content={
-                'success': True,
-                'categories': categories,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting config categories: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_config_categories(self)
 
     async def get_current_config(self):
-        """Get current configuration."""
-        try:
-            service = self._get_config_service()
-            config = service.get_config()
-            return JSONResponse(content={
-                'success': True,
-                'config': config,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting current config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_current_config(self)
 
     async def get_current_config_section(self, section: str):
-        """Get current configuration for a specific section."""
-        try:
-            service = self._get_config_service()
-            config = service.get_config(section)
-            return JSONResponse(content={
-                'success': True,
-                'section': section,
-                'config': config,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting section config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_current_config_section(self, section)
 
     async def get_default_config(self):
-        """Get default configuration."""
-        try:
-            service = self._get_config_service()
-            config = service.get_default()
-            return JSONResponse(content={
-                'success': True,
-                'config': config,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting default config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_default_config(self)
 
     async def get_default_config_section(self, section: str):
-        """Get default configuration for a specific section."""
-        try:
-            service = self._get_config_service()
-            config = service.get_default(section)
-            return JSONResponse(content={
-                'success': True,
-                'section': section,
-                'config': config,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting default section config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_default_config_section(self, section)
 
     async def update_config_parameter(self, section: str, parameter: str, body: ConfigParameterUpdate):
         return await dispatch_update_config_parameter(self, section, parameter, body)
@@ -5415,89 +5333,16 @@ class FastAPIHandler:
         return await dispatch_validate_config_value(self, request)
 
     async def get_config_diff(self):
-        """Get differences between current config and defaults."""
-        try:
-            service = self._get_config_service()
-            diffs = service.get_changed_from_default()
-            return JSONResponse(content={
-                'success': True,
-                'differences': [d.to_dict() for d in diffs],
-                'count': len(diffs),
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting config diff: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_config_diff(self)
 
     async def compare_configs(self, request: Request):
-        """Compare two configurations.
-
-        Supports two modes:
-        1. compare_config: Compare incoming config against current config
-        2. config1/config2: Compare two arbitrary configs
-        """
-        try:
-            body = await request.json()
-            service = self._get_config_service()
-
-            # Mode 1: Compare incoming config against current
-            if 'compare_config' in body:
-                compare_config = body.get('compare_config', {})
-                current_config = service.get_config()
-                diffs = service.get_diff(current_config, compare_config)
-            else:
-                # Mode 2: Compare two arbitrary configs
-                config1 = body.get('config1', {})
-                config2 = body.get('config2', {})
-                diffs = service.get_diff(config1, config2)
-
-            return JSONResponse(content={
-                'success': True,
-                'differences': [d.to_dict() for d in diffs],
-                'count': len(diffs),
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error comparing configs: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_compare_configs(self, request)
 
     async def get_defaults_sync(self):
-        """Get sync information between current config and defaults (v5.4.0+).
-
-        Returns:
-            - new_parameters: Parameters in default that user doesn't have
-            - changed_defaults: Parameters where default value has changed
-            - removed_parameters: Parameters user has that are no longer in schema
-        """
-        try:
-            service = self._get_config_service()
-            report = build_defaults_sync_report(service)
-            # Initialize snapshot for future changed-default tracking.
-            if not report['baseline_available']:
-                service.refresh_defaults_snapshot()
-                report['baseline_initialized'] = True
-            else:
-                report['baseline_initialized'] = False
-
-            report.update({'success': True, 'timestamp': time.time()})
-            return JSONResponse(content=report)
-        except Exception as e:
-            self.logger.error(f"Error getting defaults sync: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_defaults_sync(self)
 
     async def plan_defaults_sync(self, body: ConfigSyncPlanRequest):
-        """Validate selected sync operations and return a dry-run plan."""
-        try:
-            service = self._get_config_service()
-            plan = build_defaults_sync_plan(service, body.operations)
-            return JSONResponse(content={
-                'success': True,
-                'plan': plan,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error planning defaults sync: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_plan_defaults_sync(self, body)
 
     async def apply_defaults_sync(self, body: ConfigSyncPlanRequest):
         return await dispatch_apply_defaults_sync(self, body)
@@ -5512,110 +5357,22 @@ class FastAPIHandler:
         return await dispatch_revert_parameter_to_default(self, section, parameter)
 
     async def get_config_backup_history(self, request: Request):
-        """Get list of configuration backups."""
-        try:
-            limit = int(request.query_params.get('limit', 20))
-            service = self._get_config_service()
-            backups = service.get_backup_history(limit=limit)
-
-            return JSONResponse(content={
-                'success': True,
-                'backups': [b.to_dict() for b in backups],
-                'count': len(backups),
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting backup history: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_config_backup_history(self, request)
 
     async def restore_config_backup(self, backup_id: str):
         return await dispatch_restore_config_backup(self, backup_id)
 
     async def export_config(self, request: Request):
-        """Export configuration."""
-        try:
-            sections = request.query_params.get('sections')
-            changes_only = request.query_params.get('changes_only', 'false').lower() == 'true'
-
-            sections_list = sections.split(',') if sections else None
-
-            service = self._get_config_service()
-            exported = service.export_config(sections=sections_list, changes_only=changes_only)
-
-            return JSONResponse(content={
-                'success': True,
-                'config': exported,
-                'changes_only': changes_only,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error exporting config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_export_config(self, request)
 
     async def import_config(self, body: ConfigImportRequest):
         return await dispatch_import_config(self, body)
 
     async def search_config_parameters(self, request: Request):
-        """Search configuration parameters with filtering and pagination."""
-        try:
-            query = request.query_params.get('q', '')
-            section = request.query_params.get('section')
-            param_type = request.query_params.get('type')
-            modified_only = request.query_params.get('modified_only', '').lower() == 'true'
-            limit = int(request.query_params.get('limit', 50))
-            offset = int(request.query_params.get('offset', 0))
-
-            service = self._get_config_service()
-            result = service.search_parameters(
-                query=query,
-                section=section,
-                param_type=param_type,
-                modified_only=modified_only,
-                limit=limit,
-                offset=offset
-            )
-
-            return JSONResponse(content={
-                'success': True,
-                'query': query,
-                'filters': {
-                    'section': section,
-                    'type': param_type,
-                    'modified_only': modified_only
-                },
-                **result,
-                'timestamp': time.time()
-            })
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error searching config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_search_config_parameters(self, request)
 
     async def get_config_audit_log(self, request: Request):
-        """Get configuration change audit log."""
-        try:
-            limit = int(request.query_params.get('limit', 100))
-            offset = int(request.query_params.get('offset', 0))
-            section = request.query_params.get('section')
-            action = request.query_params.get('action')
-
-            service = self._get_config_service()
-            result = service.get_audit_log(
-                limit=limit,
-                offset=offset,
-                section=section,
-                action=action
-            )
-
-            return JSONResponse(content={
-                'success': True,
-                **result,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting audit log: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_config_audit_log(self, request)
 
     # ==================== System Management ====================
 

@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-06-26
+Last updated: 2026-06-27
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -118,6 +118,7 @@ it together with:
 | Phase 4 legacy config defaults-sync boundary | done | PXE-0008 partial | `checkpoints/2026-06-26-phase-4-legacy-config-sync-boundary.md`; legacy `/api/config/defaults-sync*` request model plus report and dry-run plan helpers now live in `src/classes/api_legacy_config_sync.py`; `FastAPIHandler` keeps route wrappers and apply execution/rollback logic, route inventory and security policy are unchanged, and guardrails prevent report/plan semantics from drifting back into the handler. No `/api/v1/config` route, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 | Phase 4 legacy model route boundary | done | PXE-0008 partial | `checkpoints/2026-06-26-phase-4-legacy-model-route-boundary.md`; legacy `/api/models/*` and deprecated `/api/yolo/*` route bodies now live in `src/classes/api_legacy_model_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/models/*` route, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 | Phase 4 legacy config mutation boundary | done | PXE-0008 partial | `checkpoints/2026-06-26-phase-4-legacy-config-mutation-boundary.md`; legacy config parameter/section update, validation, defaults-sync apply, revert, backup restore, and import route bodies now live in `src/classes/api_legacy_config_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/config/*` route, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
+| Phase 4 legacy config read boundary | done | PXE-0008 partial | `checkpoints/2026-06-27-phase-4-legacy-config-read-boundary.md`; legacy config schema/current/default reads, section/category listing, diff/compare, defaults-sync read/plan, backup history, export, search, and audit route bodies now live in `src/classes/api_legacy_config_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/config/*` route, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 
 ## Active Slice
 
@@ -204,10 +205,14 @@ PXE-0008 extraction: legacy parameter/section updates, validation,
 defaults-sync apply, revert, restore, and import route bodies now delegate
 through `api_legacy_config_routes.py`, with route inventory/security policy
 unchanged and no typed `/api/v1/config/*` promotion or alias retirement
-claimed. Remaining PXE-0008 legacy route-body cleanup includes config
-read/diff/search/audit, recording, OSD, GStreamer, follower, safety, and
-video/media route families before typed `/api/v1` replacements or tracked
-compatibility retirement.
+claimed. The 2026-06-27 legacy config read boundary completed the follow-up:
+schema/current/default reads, section/category listing, diff/compare,
+defaults-sync read/plan, backup history, export, search, and audit route bodies
+also delegate through `api_legacy_config_routes.py`, preserving legacy oddities
+such as schema 404 versus missing current/default sections returning `{}`.
+Remaining PXE-0008 legacy route-body cleanup includes recording, OSD,
+GStreamer, follower, safety, and video/media route families before typed
+`/api/v1` replacements or tracked compatibility retirement.
 PXE-0064 is in progress: the first containment foundation is done, so
 checked-in backend/dashboard/MAVLink2REST exposure is local-only, contradictory
 local-only bind/CORS configuration fails closed, Host/Origin/fetch-site and

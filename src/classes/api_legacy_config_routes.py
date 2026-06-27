@@ -1,4 +1,4 @@
-"""Legacy config mutation helpers used by FastAPI compatibility routes."""
+"""Legacy config helpers used by FastAPI compatibility routes."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from classes.api_legacy_config_sync import (
     ConfigSyncPlanRequest,
     build_defaults_sync_plan,
+    build_defaults_sync_report,
 )
 from classes.parameters import Parameters
 
@@ -50,6 +51,237 @@ def _config_write_rate_limit_response(handler: Any) -> Optional[JSONResponse]:
         },
         headers={"Retry-After": str(retry_after)},
     )
+
+
+async def get_config_schema(handler: Any) -> JSONResponse:
+    """Get full configuration schema."""
+    try:
+        service = handler._get_config_service()
+        schema = service.get_schema()
+        return JSONResponse(
+            content={
+                "success": True,
+                "schema": schema,
+                "timestamp": time.time(),
+            }
+        )
+    except Exception as exc:
+        handler.logger.error(f"Error getting config schema: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def get_config_section_schema(handler: Any, section: str) -> JSONResponse:
+    """Get schema for a specific section."""
+    try:
+        service = handler._get_config_service()
+        schema = service.get_schema(section)
+        if not schema:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Section '{section}' not found",
+            )
+        return JSONResponse(
+            content={
+                "success": True,
+                "section": section,
+                "schema": schema,
+                "timestamp": time.time(),
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        handler.logger.error(f"Error getting section schema: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def get_config_sections(handler: Any) -> JSONResponse:
+    """Get list of all configuration sections."""
+    try:
+        service = handler._get_config_service()
+        sections = service.get_sections()
+        return JSONResponse(
+            content={
+                "success": True,
+                "sections": sections,
+                "count": len(sections),
+                "timestamp": time.time(),
+            }
+        )
+    except Exception as exc:
+        handler.logger.error(f"Error getting config sections: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def get_config_categories(handler: Any) -> JSONResponse:
+    """Get category definitions."""
+    try:
+        service = handler._get_config_service()
+        categories = service.get_categories()
+        return JSONResponse(
+            content={
+                "success": True,
+                "categories": categories,
+                "timestamp": time.time(),
+            }
+        )
+    except Exception as exc:
+        handler.logger.error(f"Error getting config categories: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def get_current_config(handler: Any) -> JSONResponse:
+    """Get current configuration."""
+    try:
+        service = handler._get_config_service()
+        config = service.get_config()
+        return JSONResponse(
+            content={
+                "success": True,
+                "config": config,
+                "timestamp": time.time(),
+            }
+        )
+    except Exception as exc:
+        handler.logger.error(f"Error getting current config: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def get_current_config_section(handler: Any, section: str) -> JSONResponse:
+    """Get current configuration for a specific section."""
+    try:
+        service = handler._get_config_service()
+        config = service.get_config(section)
+        return JSONResponse(
+            content={
+                "success": True,
+                "section": section,
+                "config": config,
+                "timestamp": time.time(),
+            }
+        )
+    except Exception as exc:
+        handler.logger.error(f"Error getting section config: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def get_default_config(handler: Any) -> JSONResponse:
+    """Get default configuration."""
+    try:
+        service = handler._get_config_service()
+        config = service.get_default()
+        return JSONResponse(
+            content={
+                "success": True,
+                "config": config,
+                "timestamp": time.time(),
+            }
+        )
+    except Exception as exc:
+        handler.logger.error(f"Error getting default config: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def get_default_config_section(handler: Any, section: str) -> JSONResponse:
+    """Get default configuration for a specific section."""
+    try:
+        service = handler._get_config_service()
+        config = service.get_default(section)
+        return JSONResponse(
+            content={
+                "success": True,
+                "section": section,
+                "config": config,
+                "timestamp": time.time(),
+            }
+        )
+    except Exception as exc:
+        handler.logger.error(f"Error getting default section config: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def get_config_diff(handler: Any) -> JSONResponse:
+    """Get differences between current config and defaults."""
+    try:
+        service = handler._get_config_service()
+        diffs = service.get_changed_from_default()
+        return JSONResponse(
+            content={
+                "success": True,
+                "differences": [diff.to_dict() for diff in diffs],
+                "count": len(diffs),
+                "timestamp": time.time(),
+            }
+        )
+    except Exception as exc:
+        handler.logger.error(f"Error getting config diff: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def compare_configs(handler: Any, request: Request) -> JSONResponse:
+    """Compare incoming config against current config or compare two configs."""
+    try:
+        body = await request.json()
+        service = handler._get_config_service()
+
+        if "compare_config" in body:
+            compare_config = body.get("compare_config", {})
+            current_config = service.get_config()
+            diffs = service.get_diff(current_config, compare_config)
+        else:
+            config1 = body.get("config1", {})
+            config2 = body.get("config2", {})
+            diffs = service.get_diff(config1, config2)
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "differences": [diff.to_dict() for diff in diffs],
+                "count": len(diffs),
+                "timestamp": time.time(),
+            }
+        )
+    except Exception as exc:
+        handler.logger.error(f"Error comparing configs: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def get_defaults_sync(handler: Any) -> JSONResponse:
+    """Get sync information between current config and defaults."""
+    try:
+        service = handler._get_config_service()
+        report = build_defaults_sync_report(service)
+        if not report["baseline_available"]:
+            service.refresh_defaults_snapshot()
+            report["baseline_initialized"] = True
+        else:
+            report["baseline_initialized"] = False
+
+        report.update({"success": True, "timestamp": time.time()})
+        return JSONResponse(content=report)
+    except Exception as exc:
+        handler.logger.error(f"Error getting defaults sync: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def plan_defaults_sync(
+    handler: Any,
+    body: ConfigSyncPlanRequest,
+) -> JSONResponse:
+    """Validate selected sync operations and return a dry-run plan."""
+    try:
+        service = handler._get_config_service()
+        plan = build_defaults_sync_plan(service, body.operations)
+        return JSONResponse(
+            content={
+                "success": True,
+                "plan": plan,
+                "timestamp": time.time(),
+            }
+        )
+    except Exception as exc:
+        handler.logger.error(f"Error planning defaults sync: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 async def update_config_parameter(
@@ -473,4 +705,123 @@ async def import_config(handler: Any, body: ConfigImportRequest) -> JSONResponse
         )
     except Exception as exc:
         handler.logger.error(f"Error importing config: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def get_config_backup_history(handler: Any, request: Request) -> JSONResponse:
+    """Get list of configuration backups."""
+    try:
+        limit = int(request.query_params.get("limit", 20))
+        service = handler._get_config_service()
+        backups = service.get_backup_history(limit=limit)
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "backups": [backup.to_dict() for backup in backups],
+                "count": len(backups),
+                "timestamp": time.time(),
+            }
+        )
+    except Exception as exc:
+        handler.logger.error(f"Error getting backup history: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def export_config(handler: Any, request: Request) -> JSONResponse:
+    """Export configuration."""
+    try:
+        sections = request.query_params.get("sections")
+        changes_only = (
+            request.query_params.get("changes_only", "false").lower() == "true"
+        )
+
+        sections_list = sections.split(",") if sections else None
+
+        service = handler._get_config_service()
+        exported = service.export_config(
+            sections=sections_list,
+            changes_only=changes_only,
+        )
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "config": exported,
+                "changes_only": changes_only,
+                "timestamp": time.time(),
+            }
+        )
+    except Exception as exc:
+        handler.logger.error(f"Error exporting config: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def search_config_parameters(handler: Any, request: Request) -> JSONResponse:
+    """Search configuration parameters with filtering and pagination."""
+    try:
+        query = request.query_params.get("q", "")
+        section = request.query_params.get("section")
+        param_type = request.query_params.get("type")
+        modified_only = (
+            request.query_params.get("modified_only", "").lower() == "true"
+        )
+        limit = int(request.query_params.get("limit", 50))
+        offset = int(request.query_params.get("offset", 0))
+
+        service = handler._get_config_service()
+        result = service.search_parameters(
+            query=query,
+            section=section,
+            param_type=param_type,
+            modified_only=modified_only,
+            limit=limit,
+            offset=offset,
+        )
+
+        return JSONResponse(
+            content={
+                "success": True,
+                "query": query,
+                "filters": {
+                    "section": section,
+                    "type": param_type,
+                    "modified_only": modified_only,
+                },
+                **result,
+                "timestamp": time.time(),
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        handler.logger.error(f"Error searching config: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def get_config_audit_log(handler: Any, request: Request) -> JSONResponse:
+    """Get configuration change audit log."""
+    try:
+        limit = int(request.query_params.get("limit", 100))
+        offset = int(request.query_params.get("offset", 0))
+        section = request.query_params.get("section")
+        action = request.query_params.get("action")
+
+        service = handler._get_config_service()
+        result = service.get_audit_log(
+            limit=limit,
+            offset=offset,
+            section=section,
+            action=action,
+        )
+
+        return JSONResponse(
+            content={
+                "success": True,
+                **result,
+                "timestamp": time.time(),
+            }
+        )
+    except Exception as exc:
+        handler.logger.error(f"Error getting audit log: {exc}")
         raise HTTPException(status_code=500, detail=str(exc)) from exc

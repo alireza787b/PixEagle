@@ -690,6 +690,7 @@ def test_legacy_config_sync_helpers_are_not_defined_in_fastapi_handler():
     """Defaults-sync report/plan helpers should stay out of the handler monolith."""
     handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
     config_sync_tree = ast.parse(API_LEGACY_CONFIG_SYNC.read_text(encoding="utf-8"))
+    config_routes_tree = ast.parse(API_LEGACY_CONFIG_ROUTES.read_text(encoding="utf-8"))
     expected_classes = {
         "ConfigSyncOperation",
         "ConfigSyncPlanRequest",
@@ -736,18 +737,26 @@ def test_legacy_config_sync_helpers_are_not_defined_in_fastapi_handler():
     for marker in disallowed_handler_strings:
         assert not any(marker in literal for literal in handler_string_literals)
 
-    helper_calls = [
+    handler_helper_calls = [
         node
         for node in ast.walk(handler_tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id in expected_functions
     ]
-    assert {call.func.id for call in helper_calls} == expected_functions
+    config_route_helper_calls = [
+        node
+        for node in ast.walk(config_routes_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in expected_functions
+    ]
+    assert not handler_helper_calls
+    assert {call.func.id for call in config_route_helper_calls} == expected_functions
 
 
-def test_legacy_config_mutation_route_bodies_are_not_defined_in_fastapi_handler():
-    """Legacy config mutation/apply route bodies should stay out of the handler."""
+def test_legacy_config_route_bodies_are_not_defined_in_fastapi_handler():
+    """Legacy config route bodies should stay out of the handler."""
     handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
     config_routes_tree = ast.parse(API_LEGACY_CONFIG_ROUTES.read_text(encoding="utf-8"))
     expected_classes = {
@@ -756,28 +765,67 @@ def test_legacy_config_mutation_route_bodies_are_not_defined_in_fastapi_handler(
         "ConfigImportRequest",
     }
     expected_functions = {
+        "get_config_schema",
+        "get_config_section_schema",
+        "get_config_sections",
+        "get_config_categories",
+        "get_current_config",
+        "get_current_config_section",
+        "get_default_config",
+        "get_default_config_section",
         "update_config_parameter",
         "update_config_section",
         "validate_config_value",
+        "get_config_diff",
+        "compare_configs",
+        "get_defaults_sync",
+        "plan_defaults_sync",
         "apply_defaults_sync",
         "revert_config_to_default",
         "revert_section_to_default",
         "revert_parameter_to_default",
+        "get_config_backup_history",
         "restore_config_backup",
+        "export_config",
         "import_config",
+        "search_config_parameters",
+        "get_config_audit_log",
     }
     wrapper_targets = {
+        "get_config_schema": "dispatch_get_config_schema",
+        "get_config_section_schema": "dispatch_get_config_section_schema",
+        "get_config_sections": "dispatch_get_config_sections",
+        "get_config_categories": "dispatch_get_config_categories",
+        "get_current_config": "dispatch_get_current_config",
+        "get_current_config_section": "dispatch_get_current_config_section",
+        "get_default_config": "dispatch_get_default_config",
+        "get_default_config_section": "dispatch_get_default_config_section",
         "update_config_parameter": "dispatch_update_config_parameter",
         "update_config_section": "dispatch_update_config_section",
         "validate_config_value": "dispatch_validate_config_value",
+        "get_config_diff": "dispatch_get_config_diff",
+        "compare_configs": "dispatch_compare_configs",
+        "get_defaults_sync": "dispatch_get_defaults_sync",
+        "plan_defaults_sync": "dispatch_plan_defaults_sync",
         "apply_defaults_sync": "dispatch_apply_defaults_sync",
         "revert_config_to_default": "dispatch_revert_config_to_default",
         "revert_section_to_default": "dispatch_revert_section_to_default",
         "revert_parameter_to_default": "dispatch_revert_parameter_to_default",
+        "get_config_backup_history": "dispatch_get_config_backup_history",
         "restore_config_backup": "dispatch_restore_config_backup",
+        "export_config": "dispatch_export_config",
         "import_config": "dispatch_import_config",
+        "search_config_parameters": "dispatch_search_config_parameters",
+        "get_config_audit_log": "dispatch_get_config_audit_log",
     }
     disallowed_handler_strings = {
+        "Error getting config schema",
+        "Section '",
+        "Error getting section schema",
+        "Error getting config diff",
+        "compare_config",
+        "baseline_initialized",
+        "Error planning defaults sync",
         "Config hot-reloaded after updating",
         "highest reload_tier",
         "section and parameter are required",
@@ -785,8 +833,12 @@ def test_legacy_config_mutation_route_bodies_are_not_defined_in_fastapi_handler(
         "Config sync applied but reload failed",
         "Error applying defaults sync",
         "Parameter reverted to default",
+        "Error getting backup history",
         "Failed to reload after backup restore",
+        "changes_only",
         "Error importing config",
+        "modified_only",
+        "Error getting audit log",
     }
 
     config_route_classes = {

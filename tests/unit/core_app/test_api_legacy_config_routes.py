@@ -1,4 +1,4 @@
-"""Tests for legacy config mutation route helper extraction."""
+"""Tests for legacy config route helper extraction."""
 
 from __future__ import annotations
 
@@ -82,10 +82,15 @@ class FakeDiff:
 
 
 class FakeConfigService:
+    SYNC_ARCHIVE_SECTION = "_archived_parameters"
+
     def __init__(self) -> None:
         self.schema = {
             "sections": {
                 "Test": {
+                    "display_name": "Test",
+                    "category": "test",
+                    "icon": "settings",
                     "parameters": {
                         "A": {"default": 1, "type": "integer", "reload_tier": "immediate"},
                         "B": {"default": 2, "type": "integer", "reload_tier": "system_restart"},
@@ -96,6 +101,10 @@ class FakeConfigService:
         }
         self.current = {"Test": {"A": 10, "B": 20, "REMOVE": "old"}}
         self.defaults = {"Test": {"A": 1, "B": 2, "C": 3}}
+        self.sync_meta = {
+            "defaults_snapshot": {"Test": {"A": 1, "B": 2, "C": 3}},
+            "defaults_snapshot_saved_at": "2026-06-01T00:00:00Z",
+        }
         self.invalid_parameters = set()
         self.save_result = True
         self.revert_result = True
@@ -110,15 +119,56 @@ class FakeConfigService:
         self.revert_calls = []
         self.restore_calls = []
         self.import_calls = []
+        self.diff_calls = []
+        self.backup_history_calls = []
+        self.export_calls = []
+        self.search_calls = []
+        self.audit_calls = []
 
-    def get_schema(self):
+    def get_schema(self, section=None):
+        if section is not None:
+            return self.schema["sections"].get(section, {})
         return self.schema
 
-    def get_config(self):
+    def get_config(self, section=None):
+        if section is not None:
+            return self.current.get(section, {})
         return self.current
 
-    def get_default(self):
+    def get_default(self, section=None):
+        if section is not None:
+            return self.defaults.get(section, {})
         return self.defaults
+
+    def get_sections(self):
+        sections = []
+        for name, schema in self.schema["sections"].items():
+            sections.append(
+                {
+                    "name": name,
+                    "display_name": schema.get("display_name"),
+                    "category": schema.get("category"),
+                    "icon": schema.get("icon"),
+                    "parameter_count": len(schema.get("parameters", {})),
+                }
+            )
+        return sections
+
+    def get_categories(self):
+        return {"test": {"display_name": "Test"}}
+
+    def get_changed_from_default(self):
+        return [FakeDiff("Test.A")]
+
+    def get_diff(self, config1, config2):
+        self.diff_calls.append((config1, config2))
+        return [FakeDiff("Diff.A")]
+
+    def get_sync_meta(self):
+        return self.sync_meta
+
+    def get_schema_version(self):
+        return "test-schema"
 
     def set_parameter(self, section, parameter, value, validate=True):
         self.set_calls.append((section, parameter, value, validate))
@@ -192,6 +242,66 @@ class FakeConfigService:
         self.import_calls.append((data, merge_mode))
         return self.import_success, [FakeDiff()]
 
+    def get_backup_history(self, limit=20):
+        self.backup_history_calls.append(limit)
+        return [
+            SimpleNamespace(
+                to_dict=lambda: {
+                    "id": "config_20260626_123456",
+                    "created_at": "2026-06-26T12:34:56Z",
+                }
+            )
+        ]
+
+    def export_config(self, sections=None, changes_only=False):
+        self.export_calls.append((sections, changes_only))
+        if sections:
+            return {section: self.current.get(section, {}) for section in sections}
+        return self.current
+
+    def search_parameters(
+        self,
+        *,
+        query,
+        section,
+        param_type,
+        modified_only,
+        limit,
+        offset,
+    ):
+        self.search_calls.append(
+            {
+                "query": query,
+                "section": section,
+                "param_type": param_type,
+                "modified_only": modified_only,
+                "limit": limit,
+                "offset": offset,
+            }
+        )
+        return {
+            "parameters": [{"section": "Test", "parameter": "A"}],
+            "total": 1,
+            "limit": limit,
+            "offset": offset,
+        }
+
+    def get_audit_log(self, *, limit, offset, section, action):
+        self.audit_calls.append(
+            {
+                "limit": limit,
+                "offset": offset,
+                "section": section,
+                "action": action,
+            }
+        )
+        return {
+            "entries": [{"section": section or "Test", "action": action or "update"}],
+            "total": 1,
+            "limit": limit,
+            "offset": offset,
+        }
+
 
 class FakeHandler:
     def __init__(self, service=None, rate_allowed: bool = True) -> None:
@@ -204,8 +314,9 @@ class FakeHandler:
 
 
 class FakeRequest:
-    def __init__(self, payload) -> None:
-        self.payload = payload
+    def __init__(self, payload=None, query_params=None) -> None:
+        self.payload = payload or {}
+        self.query_params = query_params or {}
 
     async def json(self):
         return self.payload
@@ -226,6 +337,245 @@ def patch_reload(monkeypatch, *, result=True, exc=None):
 
     monkeypatch.setattr(routes.Parameters, "reload_config", staticmethod(reload_config))
     return calls
+
+
+@pytest.mark.asyncio
+async def test_config_schema_sections_and_categories_read_shapes():
+    handler = FakeHandler()
+
+    schema = response_body(await routes.get_config_schema(handler))
+    section_schema = response_body(
+        await routes.get_config_section_schema(handler, "Test")
+    )
+    sections = response_body(await routes.get_config_sections(handler))
+    categories = response_body(await routes.get_config_categories(handler))
+
+    assert schema["success"] is True
+    assert schema["schema"]["sections"]["Test"]["parameters"]["A"]["default"] == 1
+    assert section_schema["success"] is True
+    assert section_schema["section"] == "Test"
+    assert section_schema["schema"]["parameters"]["B"]["reload_tier"] == "system_restart"
+    assert sections["success"] is True
+    assert sections["count"] == 1
+    assert sections["sections"][0]["name"] == "Test"
+    assert categories["success"] is True
+    assert categories["categories"]["test"]["display_name"] == "Test"
+
+    with pytest.raises(HTTPException) as exc_info:
+        await routes.get_config_section_schema(handler, "Missing")
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Section 'Missing' not found"
+
+
+@pytest.mark.asyncio
+async def test_current_default_and_diff_read_shapes():
+    handler = FakeHandler()
+
+    current = response_body(await routes.get_current_config(handler))
+    current_section = response_body(
+        await routes.get_current_config_section(handler, "Test")
+    )
+    missing_current_section = response_body(
+        await routes.get_current_config_section(handler, "Missing")
+    )
+    default = response_body(await routes.get_default_config(handler))
+    default_section = response_body(
+        await routes.get_default_config_section(handler, "Test")
+    )
+    missing_default_section = response_body(
+        await routes.get_default_config_section(handler, "Missing")
+    )
+    diff = response_body(await routes.get_config_diff(handler))
+
+    assert current["config"]["Test"]["A"] == 10
+    assert current_section["section"] == "Test"
+    assert current_section["config"]["B"] == 20
+    assert missing_current_section["success"] is True
+    assert missing_current_section["config"] == {}
+    assert default["config"]["Test"]["C"] == 3
+    assert default_section["section"] == "Test"
+    assert default_section["config"]["A"] == 1
+    assert missing_default_section["success"] is True
+    assert missing_default_section["config"] == {}
+    assert diff["success"] is True
+    assert diff["count"] == 1
+    assert diff["differences"][0]["path"] == "Test.A"
+
+
+@pytest.mark.asyncio
+async def test_compare_defaults_sync_and_plan_routes_preserve_request_modes():
+    service = FakeConfigService()
+    handler = FakeHandler(service=service)
+
+    compare_current = response_body(
+        await routes.compare_configs(
+            handler,
+            FakeRequest({"compare_config": {"Test": {"A": 99}}}),
+        )
+    )
+    compare_pair = response_body(
+        await routes.compare_configs(
+            handler,
+            FakeRequest({"config1": {"A": 1}, "config2": {"A": 2}}),
+        )
+    )
+    sync_with_baseline = response_body(await routes.get_defaults_sync(handler))
+
+    service.sync_meta = {"defaults_snapshot": {}, "defaults_snapshot_saved_at": None}
+    sync_without_baseline = response_body(await routes.get_defaults_sync(handler))
+
+    valid_plan = response_body(
+        await routes.plan_defaults_sync(
+            handler,
+            ConfigSyncPlanRequest(
+                operations=[
+                    ConfigSyncOperation(
+                        op_type="ADD_NEW",
+                        section="Test",
+                        parameter="C",
+                    )
+                ]
+            ),
+        )
+    )
+    invalid_plan = response_body(
+        await routes.plan_defaults_sync(
+            handler,
+            ConfigSyncPlanRequest(
+                operations=[
+                    ConfigSyncOperation(
+                        op_type="UNKNOWN",
+                        section="Test",
+                        parameter="A",
+                    )
+                ]
+            ),
+        )
+    )
+
+    assert compare_current["success"] is True
+    assert compare_pair["success"] is True
+    assert service.diff_calls == [
+        (service.current, {"Test": {"A": 99}}),
+        ({"A": 1}, {"A": 2}),
+    ]
+    assert sync_with_baseline["baseline_available"] is True
+    assert sync_with_baseline["baseline_initialized"] is False
+    assert sync_without_baseline["baseline_available"] is False
+    assert sync_without_baseline["baseline_initialized"] is True
+    assert service.snapshot_refreshes == 1
+    assert valid_plan["success"] is True
+    assert valid_plan["plan"]["valid"] is True
+    assert invalid_plan["success"] is True
+    assert invalid_plan["plan"]["valid"] is False
+
+
+@pytest.mark.asyncio
+async def test_backup_export_search_and_audit_query_params_are_preserved():
+    service = FakeConfigService()
+    handler = FakeHandler(service=service)
+
+    history = response_body(
+        await routes.get_config_backup_history(
+            handler,
+            FakeRequest(query_params={"limit": "5"}),
+        )
+    )
+    exported = response_body(
+        await routes.export_config(
+            handler,
+            FakeRequest(
+                query_params={"sections": "Test,Missing", "changes_only": "true"}
+            ),
+        )
+    )
+    search = response_body(
+        await routes.search_config_parameters(
+            handler,
+            FakeRequest(
+                query_params={
+                    "q": "gain",
+                    "section": "Test",
+                    "type": "integer",
+                    "modified_only": "true",
+                    "limit": "7",
+                    "offset": "3",
+                }
+            ),
+        )
+    )
+    audit = response_body(
+        await routes.get_config_audit_log(
+            handler,
+            FakeRequest(
+                query_params={
+                    "limit": "9",
+                    "offset": "4",
+                    "section": "Test",
+                    "action": "update",
+                }
+            ),
+        )
+    )
+
+    assert history["success"] is True
+    assert history["count"] == 1
+    assert service.backup_history_calls == [5]
+    assert exported["changes_only"] is True
+    assert exported["config"] == {"Test": service.current["Test"], "Missing": {}}
+    assert service.export_calls == [(["Test", "Missing"], True)]
+    assert search["success"] is True
+    assert search["query"] == "gain"
+    assert search["filters"] == {
+        "section": "Test",
+        "type": "integer",
+        "modified_only": True,
+    }
+    assert service.search_calls == [
+        {
+            "query": "gain",
+            "section": "Test",
+            "param_type": "integer",
+            "modified_only": True,
+            "limit": 7,
+            "offset": 3,
+        }
+    ]
+    assert audit["success"] is True
+    assert audit["entries"] == [{"section": "Test", "action": "update"}]
+    assert service.audit_calls == [
+        {
+            "limit": 9,
+            "offset": 4,
+            "section": "Test",
+            "action": "update",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_query_int_parse_errors_preserve_legacy_500_behavior():
+    handler = FakeHandler()
+
+    with pytest.raises(HTTPException) as history_exc:
+        await routes.get_config_backup_history(
+            handler,
+            FakeRequest(query_params={"limit": "bad"}),
+        )
+    with pytest.raises(HTTPException) as search_exc:
+        await routes.search_config_parameters(
+            handler,
+            FakeRequest(query_params={"limit": "bad"}),
+        )
+    with pytest.raises(HTTPException) as audit_exc:
+        await routes.get_config_audit_log(
+            handler,
+            FakeRequest(query_params={"offset": "bad"}),
+        )
+
+    assert history_exc.value.status_code == 500
+    assert search_exc.value.status_code == 500
+    assert audit_exc.value.status_code == 500
 
 
 @pytest.mark.asyncio
