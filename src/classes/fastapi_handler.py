@@ -24,7 +24,6 @@ from classes.webrtc_manager import WebRTCManager
 from classes.setpoint_handler import SetpointHandler
 from classes.frame_publisher import FramePublisher
 from classes.adaptive_quality_engine import AdaptiveQualityEngine
-from classes.follower import FollowerFactory
 from classes.api_v1_errors import (
     build_api_v1_error_response,
 )
@@ -132,6 +131,15 @@ from classes.api_legacy_model_routes import (
 from classes.api_legacy_gstreamer_routes import (
     get_gstreamer_status as dispatch_get_gstreamer_status,
     toggle_gstreamer as dispatch_toggle_gstreamer,
+)
+from classes.api_legacy_follower_routes import (
+    get_configured_follower_mode as dispatch_get_configured_follower_mode,
+    get_current_follower_mode as dispatch_get_current_follower_mode,
+    get_current_follower_profile as dispatch_get_current_follower_profile,
+    get_follower_profiles as dispatch_get_follower_profiles,
+    get_follower_schema as dispatch_get_follower_schema,
+    get_follower_setpoints_with_status as dispatch_get_follower_setpoints_with_status,
+    switch_follower_profile as dispatch_switch_follower_profile,
 )
 from classes.api_legacy_osd_routes import (
     get_osd_color_modes as dispatch_get_osd_color_modes,
@@ -2575,196 +2583,16 @@ class FastAPIHandler:
 
 
     async def get_follower_schema(self):
-        """
-        Endpoint to get the complete follower command schema.
-        
-        Returns:
-            dict: Complete schema including all fields and profiles.
-        """
-        try:
-            # Read the schema file directly (absolute path for Linux/Windows deployment compat)
-            import yaml
-            from pathlib import Path
-            _schema_path = Path(__file__).parent.parent.parent / 'configs' / 'follower_commands.yaml'
-            with open(_schema_path, 'r') as f:
-                schema = yaml.safe_load(f)
-            return JSONResponse(content=schema)
-        except Exception as e:
-            self.logger.error(f"Error getting follower schema: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_follower_schema(self)
 
     async def get_follower_profiles(self):
-        """
-        Endpoint to get available follower profiles with implementation status.
-        
-        Returns:
-            dict: Available profiles with detailed information.
-        """
-        try:
-            profiles = {}
-            available_modes = FollowerFactory.get_available_modes()
-            
-            for mode in available_modes:
-                profiles[mode] = FollowerFactory.get_follower_info(mode)
-                
-            return JSONResponse(content=profiles)
-        except Exception as e:
-            self.logger.error(f"Error getting follower profiles: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_follower_profiles(self)
 
     async def get_current_follower_profile(self):
-        """
-        Endpoint to get current follower profile information.
-        Shows configured profile even when not actively engaged.
-        
-        Returns:
-            dict: Current profile details and status.
-        """
-        try:
-            # Check if follower is actively engaged
-            has_active_follower = (
-                hasattr(self.app_controller, 'follower') and 
-                self.app_controller.follower is not None and
-                self.app_controller.following_active
-            )
-            
-            # Get configured mode from Parameters
-            configured_mode = Parameters.FOLLOWER_MODE
-            
-            if has_active_follower:
-                # Return active follower info
-                follower = self.app_controller.follower
-                profile_info = {
-                    'status': 'engaged',
-                    'active': True,
-                    'mode': follower.mode,
-                    'display_name': follower.get_display_name(),
-                    'description': follower.get_description(),
-                    'control_type': follower.get_control_type(),
-                    'available_fields': follower.get_available_fields(),
-                    'current_field_values': follower.get_follower_telemetry().get('fields', {}),
-                    'validation_status': follower.validate_current_mode(),
-                    'configured_mode': configured_mode
-                }
-            else:
-                # Return configured but not engaged follower info
-                try:
-                    # Get schema info for the configured mode
-                    profile_config = SetpointHandler.get_profile_info(configured_mode)
-                    profile_info = {
-                        'status': 'configured',
-                        'active': False,
-                        'mode': configured_mode,
-                        'display_name': profile_config.get('display_name', configured_mode.replace('_', ' ').title()),
-                        'description': profile_config.get('description', 'Not engaged'),
-                        'control_type': profile_config.get('control_type', 'unknown'),
-                        'available_fields': profile_config.get('required_fields', []) + profile_config.get('optional_fields', []),
-                        'current_field_values': {},
-                        'validation_status': True,  # Assume valid if in schema
-                        'configured_mode': configured_mode,
-                        'message': 'Profile configured but not engaged. Start offboard mode to activate.'
-                    }
-                except Exception as e:
-                    self.logger.warning(f"Could not get schema info for configured mode '{configured_mode}': {e}")
-                    profile_info = {
-                        'status': 'unknown',
-                        'active': False,
-                        'mode': configured_mode,
-                        'display_name': configured_mode.replace('_', ' ').title(),
-                        'description': 'Unknown profile',
-                        'control_type': 'unknown',
-                        'available_fields': [],
-                        'current_field_values': {},
-                        'validation_status': False,
-                        'configured_mode': configured_mode,
-                        'error': f'Profile not found in schema: {configured_mode}'
-                    }
-            
-            return JSONResponse(content=profile_info)
-            
-        except Exception as e:
-            self.logger.error(f"Error getting current follower profile: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_current_follower_profile(self)
 
     async def switch_follower_profile(self, request: Request):
-        """
-        Endpoint to switch follower profile.
-        Updates configuration for future engagement or switches active follower.
-        
-        Args:
-            request: Should contain {'profile_name': 'new_profile_name'}
-            
-        Returns:
-            dict: Switch operation result.
-        """
-        try:
-            data = await request.json()
-            new_profile = data.get('profile_name')
-            
-            if not new_profile:
-                raise HTTPException(status_code=400, detail="profile_name is required")
-            
-            # Validate that the profile exists in schema
-            try:
-                available_profiles = SetpointHandler.get_available_profiles()
-                if new_profile not in available_profiles:
-                    raise HTTPException(
-                        status_code=400, 
-                        detail=f"Invalid profile '{new_profile}'. Available: {available_profiles}"
-                    )
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Schema validation failed: {e}")
-            
-            # Check if follower is actively engaged
-            has_active_follower = (
-                hasattr(self.app_controller, 'follower') and 
-                self.app_controller.follower is not None and
-                self.app_controller.following_active
-            )
-            
-            old_configured_mode = Parameters.FOLLOWER_MODE
-            
-            if has_active_follower:
-                # Switch the active follower
-                follower = self.app_controller.follower
-                success = follower.switch_mode(new_profile)
-                
-                if success:
-                    # Also update the configured mode
-                    Parameters.FOLLOWER_MODE = new_profile
-                    self.logger.info(f"Active follower switched: {old_configured_mode} → {new_profile}")
-                    
-                    return JSONResponse(content={
-                        'status': 'success',
-                        'action': 'active_switch',
-                        'old_profile': old_configured_mode,
-                        'new_profile': new_profile,
-                        'message': f'Active follower switched to {new_profile}'
-                    })
-                else:
-                    return JSONResponse(content={
-                        'status': 'error',
-                        'action': 'active_switch_failed',
-                        'message': f'Failed to switch active follower to {new_profile}'
-                    }, status_code=500)
-            else:
-                # Just update the configured mode (for future engagement)
-                Parameters.FOLLOWER_MODE = new_profile
-                self.logger.info(f"Configured follower mode updated: {old_configured_mode} → {new_profile}")
-                
-                return JSONResponse(content={
-                    'status': 'success',
-                    'action': 'config_update',
-                    'old_profile': old_configured_mode,
-                    'new_profile': new_profile,
-                    'message': f'Configured follower mode set to {new_profile}. Will activate when offboard mode starts.'
-                })
-                
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error switching follower profile: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_switch_follower_profile(self, request)
 
     async def get_follower_health(self):
         """
@@ -2967,33 +2795,7 @@ class FastAPIHandler:
             )
 
     async def get_configured_follower_mode(self):
-        """
-        Endpoint to get the currently configured follower mode from Parameters.
-
-        Returns:
-            dict: Configured mode information.
-        """
-        try:
-            configured_mode = Parameters.FOLLOWER_MODE
-
-            try:
-                profile_config = SetpointHandler.get_profile_info(configured_mode)
-                return JSONResponse(content={
-                    'configured_mode': configured_mode,
-                    'profile_info': profile_config,
-                    'status': 'valid'
-                })
-            except Exception as e:
-                return JSONResponse(content={
-                    'configured_mode': configured_mode,
-                    'profile_info': None,
-                    'status': 'invalid',
-                    'error': str(e)
-                })
-                
-        except Exception as e:
-            self.logger.error(f"Error getting configured follower mode: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_configured_follower_mode(self)
 
     # ==================== Tracker Selector API Endpoints ====================
 
@@ -4002,101 +3804,7 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def get_follower_setpoints_with_status(self):
-        """
-        Get current follower setpoints with circuit breaker status.
-
-        This endpoint provides complete visibility into:
-        - Current setpoint values
-        - Circuit breaker status (SAFE_MODE vs LIVE_MODE)
-        - Whether commands are being sent to PX4 or just logged
-        - Circuit breaker statistics when active
-
-        Returns:
-            dict: Comprehensive follower status with circuit breaker info
-        """
-        try:
-            # Check if follower is actively engaged
-            has_active_follower = (
-                hasattr(self.app_controller, 'follower') and
-                self.app_controller.follower is not None and
-                self.app_controller.following_active
-            )
-
-            if not has_active_follower:
-                # Import circuit breaker to check status even when not following
-                try:
-                    from classes.circuit_breaker import FollowerCircuitBreaker
-                    circuit_breaker_active = FollowerCircuitBreaker.is_active()
-                except ImportError:
-                    circuit_breaker_active = True  # FAIL SAFE
-
-                return JSONResponse(content={
-                    'follower_active': False,
-                    'message': 'No active follower',
-                    'configured_mode': Parameters.FOLLOWER_MODE,
-                    'circuit_breaker': {
-                        'active': circuit_breaker_active,
-                        'status': 'SAFE_MODE' if circuit_breaker_active else 'LIVE_MODE'
-                    },
-                    'timestamp': time.time()
-                })
-
-            # Get follower setpoints with circuit breaker and publication status.
-            follower = self.app_controller.follower
-            concrete_follower = getattr(follower, "follower", None)
-            setpoint_handler = (
-                getattr(follower, "setpoint_handler", None)
-                or getattr(concrete_follower, "setpoint_handler", None)
-            )
-
-            if setpoint_handler:
-                setpoint_data = setpoint_handler.get_fields_with_status()
-                commander = getattr(self.app_controller, "offboard_commander", None)
-                commander_status = (
-                    commander.get_status()
-                    if commander and hasattr(commander, "get_status")
-                    else {"exists": False, "running": False}
-                )
-                commands_sent_to_px4 = bool(
-                    commander_status.get("running", False)
-                    and commander_status.get("successful_publishes", 0) > 0
-                )
-                setpoint_data["command_publication"] = {
-                    "source": "offboard_commander",
-                    "offboard_commander": commander_status,
-                    "commands_sent_to_px4": commands_sent_to_px4,
-                    "last_intent_fresh": commander_status.get("last_intent_fresh"),
-                    "failsafe_defaults_active": commander_status.get("failsafe_defaults_active"),
-                }
-                circuit_breaker = setpoint_data.get("circuit_breaker", {})
-                circuit_breaker["commands_allowed_by_circuit_breaker"] = not circuit_breaker.get("active", True)
-                circuit_breaker["commands_sent_to_px4"] = commands_sent_to_px4
-                setpoint_data["circuit_breaker"] = circuit_breaker
-
-                # Add follower-specific information
-                setpoint_data.update({
-                    'follower_active': True,
-                    'follower_type': (
-                        concrete_follower.__class__.__name__
-                        if concrete_follower
-                        else follower.__class__.__name__
-                    ),
-                    'configured_mode': Parameters.FOLLOWER_MODE,
-                    'following_engaged': self.app_controller.following_active
-                })
-
-                return JSONResponse(content=setpoint_data)
-            else:
-                return JSONResponse(content={
-                    'follower_active': True,
-                    'follower_type': follower.__class__.__name__,
-                    'error': 'Follower has no setpoint handler',
-                    'timestamp': time.time()
-                })
-
-        except Exception as e:
-            self.logger.error(f"Error getting follower setpoints with status: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_follower_setpoints_with_status(self)
 
     # ==================== Circuit Breaker API Endpoints ====================
 
@@ -4701,49 +4409,7 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def get_current_follower_mode(self):
-        """
-        Get the currently active follower mode with detailed status.
-
-        Returns:
-            dict: Current mode name, status, and related configuration
-        """
-        try:
-            configured_mode = Parameters.FOLLOWER_MODE
-            is_active = self.app_controller.following_active if self.app_controller else False
-
-            # Get effective limits for current mode
-            try:
-                from classes.safety_manager import get_safety_manager
-                safety_manager = get_safety_manager()
-                limits_summary = safety_manager.get_effective_limits_summary(configured_mode.upper())
-                limits_available = True
-            except Exception:
-                limits_summary = {}
-                limits_available = False
-
-            # Get profile info
-            try:
-                profile_config = SetpointHandler.get_profile_info(configured_mode)
-                profile_valid = True
-            except Exception:
-                profile_config = None
-                profile_valid = False
-
-            return JSONResponse(content={
-                'success': True,
-                'mode': configured_mode,
-                'mode_upper': configured_mode.upper(),
-                'is_active': is_active,
-                'profile_valid': profile_valid,
-                'profile_info': profile_config,
-                'limits_available': limits_available,
-                'effective_limits': limits_summary if limits_available else None,
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error getting current follower mode: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_current_follower_mode(self)
 
     # =========================================================================
     # Configuration Management API Handlers (v4.0.0+)

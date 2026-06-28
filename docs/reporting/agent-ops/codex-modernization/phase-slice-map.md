@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-06-27
+Last updated: 2026-06-28
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -122,6 +122,7 @@ it together with:
 | Phase 4 legacy recording route boundary | done | PXE-0008 partial | `checkpoints/2026-06-27-phase-4-legacy-recording-route-boundary.md`; legacy recording start/pause/resume/stop/status/toggle, recordings list/download/delete, storage status, and include-OSD route bodies now live in `src/classes/api_legacy_recording_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/recordings/*` route, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 | Phase 4 legacy OSD route boundary | done | PXE-0008 partial | `checkpoints/2026-06-27-phase-4-legacy-osd-route-boundary.md`; legacy OSD status/toggle, preset listing/loading, color-mode switching, and mode status route bodies now live in `src/classes/api_legacy_osd_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/osd/*` route, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 | Phase 4 legacy GStreamer route boundary | done | PXE-0008 partial | `checkpoints/2026-06-27-phase-4-legacy-gstreamer-route-boundary.md`; legacy GStreamer status and runtime toggle route bodies now live in `src/classes/api_legacy_gstreamer_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/streams/gstreamer*` route, alias retirement, MCP exposure, QGC playback, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
+| Phase 4 legacy follower profile route boundary | done | PXE-0008 partial | `checkpoints/2026-06-28-phase-4-legacy-follower-profile-route-boundary.md`; legacy follower schema, profile list, current profile, switch-profile, configured-mode, setpoints-status, and current-mode route bodies now live in `src/classes/api_legacy_follower_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/following/*` or `/api/v1/follower/*` route, follower health/restart/config-manager extraction, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 
 ## Active Slice
 
@@ -225,9 +226,15 @@ renderer-reinitialization, preset validation, and the legacy unavailable-toggle
 500 wrapper. The 2026-06-27 legacy GStreamer route boundary moved status and
 runtime toggle route bodies into `api_legacy_gstreamer_routes.py`, including
 existing QGC UDP/RTP setup hints, handler creation, direct config flag mutation,
-and failed-open 500 response shape. Remaining PXE-0008 legacy route-body
-cleanup includes follower, safety, and video/media route families before typed
-`/api/v1` replacements or tracked compatibility retirement.
+and failed-open 500 response shape. The 2026-06-28 legacy follower profile route
+boundary moved schema, profile list, current profile, switch-profile,
+configured-mode, setpoints-status, and current-mode route bodies into
+`api_legacy_follower_routes.py`, preserving the legacy active-versus-configured
+profile payloads, profile validation behavior, setpoint-status compatibility
+fields, and safety-limit lookup. Remaining PXE-0008 legacy route-body cleanup
+includes follower health/restart/config-manager, safety, and video/media route
+families before typed `/api/v1` replacements or tracked compatibility
+retirement.
 PXE-0064 is in progress: the first containment foundation is done, so
 checked-in backend/dashboard/MAVLink2REST exposure is local-only, contradictory
 local-only bind/CORS configuration fails closed, Host/Origin/fetch-site and

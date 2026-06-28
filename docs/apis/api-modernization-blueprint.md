@@ -124,6 +124,13 @@ Route inventory tests must:
   it owns legacy response shaping, preset-file validation, cache invalidation,
   renderer reinitialization, and existing legacy error mappings before typed
   `/api/v1/osd/*` promotion
+- assert that `src/classes/api_legacy_follower_routes.py` owns legacy follower
+  profile/read route bodies for schema, profile list, current profile, profile
+  switching, configured mode, setpoints status, and current mode, and record
+  that helper in generated candidate provenance because it owns legacy follower
+  response shaping, profile validation, active-versus-configured follower
+  handling, setpoint-status compatibility fields, and safety-limit summary
+  lookup before typed `/api/v1/following/*` or `/api/v1/follower/*` promotion
 - record `src/classes/api_v1_read_routes.py` in generated candidate provenance
   because that module owns typed read-route error boundaries for reviewed
   process-local status/telemetry/media-health candidates

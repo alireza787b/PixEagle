@@ -48,6 +48,9 @@ API_LEGACY_CONFIG_SYNC = REPO_ROOT / "src" / "classes" / "api_legacy_config_sync
 API_LEGACY_CONFIG_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_config_routes.py"
 )
+API_LEGACY_FOLLOWER_ROUTES = (
+    REPO_ROOT / "src" / "classes" / "api_legacy_follower_routes.py"
+)
 API_LEGACY_GSTREAMER_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_gstreamer_routes.py"
 )
@@ -1218,6 +1221,88 @@ def test_legacy_gstreamer_route_bodies_are_not_defined_in_fastapi_handler():
     assert "_is_gstreamer_active" not in handler_functions
     for marker in disallowed_handler_strings:
         assert any(marker in literal for literal in gstreamer_route_strings)
+        assert not any(marker in literal for literal in handler_string_literals)
+
+    for wrapper_name, target_name in wrapper_targets.items():
+        wrapper = handler_functions[wrapper_name]
+        assert len(wrapper.body) == 1
+        statement = wrapper.body[0]
+        assert isinstance(statement, ast.Return)
+        call = statement.value
+        if isinstance(call, ast.Await):
+            call = call.value
+        assert isinstance(call, ast.Call)
+        assert isinstance(call.func, ast.Name)
+        assert call.func.id == target_name
+        assert call.args
+        assert isinstance(call.args[0], ast.Name)
+        assert call.args[0].id == "self"
+
+
+def test_legacy_follower_profile_route_bodies_are_not_defined_in_fastapi_handler():
+    """Legacy follower profile/setpoint route bodies should stay out of the handler."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    follower_routes_tree = ast.parse(
+        API_LEGACY_FOLLOWER_ROUTES.read_text(encoding="utf-8")
+    )
+    expected_functions = {
+        "_follower_schema_path",
+        "_has_active_follower",
+        "get_follower_schema",
+        "get_follower_profiles",
+        "get_current_follower_profile",
+        "switch_follower_profile",
+        "get_configured_follower_mode",
+        "get_follower_setpoints_with_status",
+        "get_current_follower_mode",
+    }
+    wrapper_targets = {
+        "get_follower_schema": "dispatch_get_follower_schema",
+        "get_follower_profiles": "dispatch_get_follower_profiles",
+        "get_current_follower_profile": "dispatch_get_current_follower_profile",
+        "switch_follower_profile": "dispatch_switch_follower_profile",
+        "get_configured_follower_mode": "dispatch_get_configured_follower_mode",
+        "get_follower_setpoints_with_status": (
+            "dispatch_get_follower_setpoints_with_status"
+        ),
+        "get_current_follower_mode": "dispatch_get_current_follower_mode",
+    }
+    disallowed_handler_strings = {
+        "Profile configured but not engaged. Start offboard mode to activate.",
+        "Profile not found in schema:",
+        "profile_name is required",
+        "Configured follower mode set to",
+        "Follower has no setpoint handler",
+        "commands_allowed_by_circuit_breaker",
+        "Error getting follower setpoints with status",
+        "Error getting current follower mode",
+    }
+
+    follower_route_functions = {
+        node.name
+        for node in ast.walk(follower_routes_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    follower_route_strings = {
+        node.value
+        for node in ast.walk(follower_routes_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    handler_functions = {
+        node.name: node
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    handler_string_literals = {
+        node.value
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+    assert expected_functions <= follower_route_functions
+    assert "_has_active_follower" not in handler_functions
+    for marker in disallowed_handler_strings:
+        assert any(marker in literal for literal in follower_route_strings)
         assert not any(marker in literal for literal in handler_string_literals)
 
     for wrapper_name, target_name in wrapper_targets.items():
