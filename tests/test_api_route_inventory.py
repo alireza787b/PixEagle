@@ -912,13 +912,16 @@ def test_legacy_config_route_bodies_are_not_defined_in_fastapi_handler():
 
 
 def test_legacy_safety_route_bodies_are_not_defined_in_fastapi_handler():
-    """Legacy safety and read-only circuit-breaker bodies stay out of the handler."""
+    """Legacy safety and circuit-breaker bodies stay out of the handler."""
     handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
     safety_routes_tree = ast.parse(API_LEGACY_SAFETY_ROUTES.read_text(encoding="utf-8"))
     expected_functions = {
         "_safety_manager_or_none",
         "get_circuit_breaker_status",
         "get_circuit_breaker_statistics",
+        "toggle_circuit_breaker",
+        "toggle_circuit_breaker_safety_bypass",
+        "reset_circuit_breaker_statistics",
         "get_safety_config",
         "get_follower_safety_limits",
         "get_effective_limits",
@@ -928,6 +931,13 @@ def test_legacy_safety_route_bodies_are_not_defined_in_fastapi_handler():
         "get_circuit_breaker_status": "dispatch_get_circuit_breaker_status",
         "get_circuit_breaker_statistics": (
             "dispatch_get_circuit_breaker_statistics"
+        ),
+        "toggle_circuit_breaker": "dispatch_toggle_circuit_breaker",
+        "toggle_circuit_breaker_safety_bypass": (
+            "dispatch_toggle_circuit_breaker_safety_bypass"
+        ),
+        "reset_circuit_breaker_statistics": (
+            "dispatch_reset_circuit_breaker_statistics"
         ),
         "get_safety_config": "dispatch_get_safety_config",
         "get_follower_safety_limits": "dispatch_get_follower_safety_limits",
@@ -940,6 +950,16 @@ def test_legacy_safety_route_bodies_are_not_defined_in_fastapi_handler():
         "data_freshness",
         "unique_followers_tested",
         "Error getting circuit breaker statistics",
+        "Circuit breaker ENABLED - Follower commands will be logged instead of executed",
+        "Circuit breaker DISABLED - Normal follower operation resumed",
+        "Error toggling circuit breaker",
+        "Safety bypass ENABLED - altitude/velocity limits will be skipped when CB is active",
+        "Safety bypass active - altitude/velocity limits disabled",
+        "Error toggling safety bypass",
+        "Circuit breaker statistics have been reset",
+        "old_statistics",
+        "reset_timestamp",
+        "Error resetting circuit breaker statistics",
         "SafetyManager not available",
         "Error getting safety config",
         "MAX_VELOCITY_FORWARD",
@@ -979,8 +999,16 @@ def test_legacy_safety_route_bodies_are_not_defined_in_fastapi_handler():
 
     for wrapper_name, target_name in wrapper_targets.items():
         wrapper = handler_functions[wrapper_name]
-        assert len(wrapper.body) == 1
-        statement = wrapper.body[0]
+        body = wrapper.body
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            body = body[1:]
+        assert len(body) == 1
+        statement = body[0]
         assert isinstance(statement, ast.Return)
         call = statement.value
         if isinstance(call, ast.Await):

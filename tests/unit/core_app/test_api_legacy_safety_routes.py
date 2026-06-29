@@ -18,9 +18,17 @@ pytestmark = [pytest.mark.unit]
 class FakeLogger:
     def __init__(self) -> None:
         self.errors = []
+        self.infos = []
+        self.warnings = []
 
     def error(self, *args):
         self.errors.append(args)
+
+    def info(self, *args):
+        self.infos.append(args)
+
+    def warning(self, *args):
+        self.warnings.append(args)
 
 
 class FakeConfigService:
@@ -108,26 +116,82 @@ class FakeSafetyManager:
 
 class FakeCircuitBreaker:
     active = True
+    reset_count = 0
     stats = {
         "circuit_breaker_active": True,
         "total_commands": 12,
+        "total_commands_blocked": 10,
+        "total_commands_allowed": 2,
+        "last_blocked_command": "velocity_body(x=1)",
         "followers_tested": ["mc_velocity_chase", "gm_velocity_vector"],
         "command_types": {"velocity_body": 10, "attitude_rate": 2},
+        "elapsed_time_seconds": 8.0,
         "command_rate_hz": 6.5,
         "last_command_time": 123.0,
+        "session_start_time": 115.0,
+        "system_status": "testing",
     }
 
     @classmethod
     def is_active(cls):
-        return cls.active
+        return getattr(routes.Parameters, "FOLLOWER_CIRCUIT_BREAKER", cls.active)
 
     @classmethod
     def get_statistics(cls):
         return cls.stats
 
+    @classmethod
+    def reset_statistics(cls):
+        cls.reset_count += 1
+        cls.stats = {
+            **cls.stats,
+            "circuit_breaker_active": cls.active,
+            "total_commands": 0,
+            "total_commands_blocked": 0,
+            "total_commands_allowed": 0,
+            "followers_tested": [],
+            "command_types": {},
+            "elapsed_time_seconds": 0.0,
+            "command_rate_hz": 0.0,
+            "last_command_time": None,
+            "last_blocked_command": None,
+        }
+
 
 def response_body(response):
     return json.loads(response.body.decode("utf-8"))
+
+
+@pytest.fixture(autouse=True)
+def reset_fake_circuit_breaker(monkeypatch):
+    FakeCircuitBreaker.active = True
+    FakeCircuitBreaker.reset_count = 0
+    monkeypatch.setattr(
+        routes.Parameters,
+        "FOLLOWER_CIRCUIT_BREAKER",
+        True,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        routes.Parameters,
+        "CIRCUIT_BREAKER_DISABLE_SAFETY",
+        False,
+        raising=False,
+    )
+    FakeCircuitBreaker.stats = {
+        "circuit_breaker_active": True,
+        "total_commands": 12,
+        "total_commands_blocked": 10,
+        "total_commands_allowed": 2,
+        "last_blocked_command": "velocity_body(x=1)",
+        "followers_tested": ["mc_velocity_chase", "gm_velocity_vector"],
+        "command_types": {"velocity_body": 10, "attitude_rate": 2},
+        "elapsed_time_seconds": 8.0,
+        "command_rate_hz": 6.5,
+        "last_command_time": 123.0,
+        "session_start_time": 115.0,
+        "system_status": "testing",
+    }
 
 
 @pytest.mark.asyncio
@@ -171,6 +235,150 @@ async def test_circuit_breaker_unavailable_legacy_shapes(monkeypatch):
         await routes.get_circuit_breaker_statistics(handler)
     assert exc_info.value.status_code == 500
     assert "503" in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_toggle_circuit_breaker_enables_and_resets_statistics(monkeypatch):
+    handler = FakeHandler()
+    monkeypatch.setattr(routes, "CIRCUIT_BREAKER_AVAILABLE", True)
+    monkeypatch.setattr(routes, "FollowerCircuitBreaker", FakeCircuitBreaker)
+    monkeypatch.setattr(
+        routes.Parameters,
+        "FOLLOWER_CIRCUIT_BREAKER",
+        False,
+        raising=False,
+    )
+
+    body = response_body(await routes.toggle_circuit_breaker(handler))
+
+    assert body["status"] == "success"
+    assert body["action"] == "enabled"
+    assert body["active"] is True
+    assert body["old_state"] is False
+    assert body["new_state"] is True
+    assert body["message"] == "Circuit breaker enabled"
+    assert body["statistics_reset"] is True
+    assert routes.Parameters.FOLLOWER_CIRCUIT_BREAKER is True
+    assert FakeCircuitBreaker.reset_count == 1
+    assert handler.logger.infos
+
+
+@pytest.mark.asyncio
+async def test_toggle_circuit_breaker_disables_without_reset(monkeypatch):
+    handler = FakeHandler()
+    monkeypatch.setattr(routes, "CIRCUIT_BREAKER_AVAILABLE", True)
+    monkeypatch.setattr(routes, "FollowerCircuitBreaker", FakeCircuitBreaker)
+
+    body = response_body(await routes.toggle_circuit_breaker(handler))
+
+    assert body["status"] == "success"
+    assert body["action"] == "disabled"
+    assert body["active"] is False
+    assert body["old_state"] is True
+    assert body["new_state"] is False
+    assert body["message"] == "Circuit breaker disabled"
+    assert body["statistics_reset"] is False
+    assert routes.Parameters.FOLLOWER_CIRCUIT_BREAKER is False
+    assert FakeCircuitBreaker.reset_count == 0
+    assert handler.logger.infos
+
+
+@pytest.mark.asyncio
+async def test_toggle_circuit_breaker_safety_bypass_reports_effective_only_when_active(
+    monkeypatch,
+):
+    handler = FakeHandler()
+    monkeypatch.setattr(routes, "CIRCUIT_BREAKER_AVAILABLE", True)
+    monkeypatch.setattr(routes, "FollowerCircuitBreaker", FakeCircuitBreaker)
+
+    enabled = response_body(await routes.toggle_circuit_breaker_safety_bypass(handler))
+
+    assert enabled["status"] == "success"
+    assert enabled["action"] == "enabled"
+    assert enabled["safety_bypass"] is True
+    assert enabled["old_state"] is False
+    assert enabled["new_state"] is True
+    assert enabled["circuit_breaker_active"] is True
+    assert enabled["effective"] is True
+    assert enabled["message"] == "Safety checks bypassed"
+    assert enabled["warning"] == "Safety bypass active - altitude/velocity limits disabled"
+    assert routes.Parameters.CIRCUIT_BREAKER_DISABLE_SAFETY is True
+    assert handler.logger.warnings
+
+    disabled = response_body(await routes.toggle_circuit_breaker_safety_bypass(handler))
+
+    assert disabled["action"] == "disabled"
+    assert disabled["safety_bypass"] is False
+    assert disabled["old_state"] is True
+    assert disabled["new_state"] is False
+    assert disabled["effective"] is False
+    assert disabled["message"] == "Safety checks enforced"
+    assert disabled["warning"] is None
+    assert routes.Parameters.CIRCUIT_BREAKER_DISABLE_SAFETY is False
+
+
+@pytest.mark.asyncio
+async def test_toggle_circuit_breaker_safety_bypass_not_effective_when_cb_inactive(
+    monkeypatch,
+):
+    handler = FakeHandler()
+    monkeypatch.setattr(routes, "CIRCUIT_BREAKER_AVAILABLE", True)
+    monkeypatch.setattr(routes, "FollowerCircuitBreaker", FakeCircuitBreaker)
+    monkeypatch.setattr(
+        routes.Parameters,
+        "FOLLOWER_CIRCUIT_BREAKER",
+        False,
+        raising=False,
+    )
+
+    body = response_body(await routes.toggle_circuit_breaker_safety_bypass(handler))
+
+    assert body["safety_bypass"] is True
+    assert body["circuit_breaker_active"] is False
+    assert body["effective"] is False
+    assert body["message"] == "Safety checks enforced"
+    assert body["warning"] is None
+
+
+@pytest.mark.asyncio
+async def test_reset_circuit_breaker_statistics_payload(monkeypatch):
+    handler = FakeHandler()
+    monkeypatch.setattr(routes, "CIRCUIT_BREAKER_AVAILABLE", True)
+    monkeypatch.setattr(routes, "FollowerCircuitBreaker", FakeCircuitBreaker)
+
+    body = response_body(await routes.reset_circuit_breaker_statistics(handler))
+
+    assert body["status"] == "success"
+    assert body["action"] == "statistics_reset"
+    assert body["message"] == "Circuit breaker statistics have been reset"
+    assert body["old_statistics"] == {
+        "total_commands": 12,
+        "followers_tested": 2,
+        "elapsed_time": 8.0,
+    }
+    assert body["new_statistics"]["total_commands"] == 0
+    assert body["new_statistics"]["followers_tested"] == []
+    assert "reset_timestamp" in body
+    assert FakeCircuitBreaker.reset_count == 1
+    assert handler.logger.infos
+
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_mutations_preserve_legacy_unavailable_error_shape(
+    monkeypatch,
+):
+    handler = FakeHandler()
+    monkeypatch.setattr(routes, "CIRCUIT_BREAKER_AVAILABLE", False)
+
+    for route in (
+        routes.toggle_circuit_breaker,
+        routes.toggle_circuit_breaker_safety_bypass,
+        routes.reset_circuit_breaker_statistics,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await route(handler)
+        assert exc_info.value.status_code == 500
+        assert "503" in str(exc_info.value.detail)
 
 
 @pytest.mark.asyncio

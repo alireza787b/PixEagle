@@ -181,6 +181,9 @@ from classes.api_legacy_safety_routes import (
     get_follower_safety_limits as dispatch_get_follower_safety_limits,
     get_relevant_sections as dispatch_get_relevant_sections,
     get_safety_config as dispatch_get_safety_config,
+    reset_circuit_breaker_statistics as dispatch_reset_circuit_breaker_statistics,
+    toggle_circuit_breaker as dispatch_toggle_circuit_breaker,
+    toggle_circuit_breaker_safety_bypass as dispatch_toggle_circuit_breaker_safety_bypass,
 )
 from classes.api_v1_read_routes import (
     get_following_status as dispatch_get_following_status,
@@ -305,13 +308,6 @@ from classes.fastapi_api_v1_routes import register_api_v1_routes
 from classes.tracker_output import TrackerDataType
 from classes.model_manager import ModelManager, AI_AVAILABLE
 from classes.app_version import PIXEAGLE_VERSION
-
-# Import circuit breaker with error handling
-try:
-    from classes.circuit_breaker import FollowerCircuitBreaker
-    CIRCUIT_BREAKER_AVAILABLE = True
-except ImportError:
-    CIRCUIT_BREAKER_AVAILABLE = False
 
 # Performance monitoring
 from contextlib import asynccontextmanager
@@ -3125,41 +3121,7 @@ class FastAPIHandler:
         Returns:
             dict: New circuit breaker status
         """
-        try:
-            if not CIRCUIT_BREAKER_AVAILABLE:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Circuit breaker system not available"
-                )
-
-            # Get current state
-            old_state = FollowerCircuitBreaker.is_active()
-
-            # Toggle the parameter
-            Parameters.FOLLOWER_CIRCUIT_BREAKER = not old_state
-            new_state = FollowerCircuitBreaker.is_active()
-
-            # Reset statistics when enabling
-            if new_state and not old_state:
-                FollowerCircuitBreaker.reset_statistics()
-                self.logger.info("Circuit breaker ENABLED - Follower commands will be logged instead of executed")
-            elif not new_state and old_state:
-                self.logger.info("Circuit breaker DISABLED - Normal follower operation resumed")
-
-            return JSONResponse(content={
-                'status': 'success',
-                'action': 'enabled' if new_state else 'disabled',
-                'active': new_state,
-                'old_state': old_state,
-                'new_state': new_state,
-                'message': f'Circuit breaker {"enabled" if new_state else "disabled"}',
-                'statistics_reset': new_state and not old_state,
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error toggling circuit breaker: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_toggle_circuit_breaker(self)
 
     async def toggle_circuit_breaker_safety_bypass(self):
         """
@@ -3171,44 +3133,7 @@ class FastAPIHandler:
         Returns:
             dict: New safety bypass status
         """
-        try:
-            if not CIRCUIT_BREAKER_AVAILABLE:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Circuit breaker system not available"
-                )
-
-            # Get current state
-            old_state = getattr(Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False)
-
-            # Toggle the parameter
-            new_state = not old_state
-            Parameters.CIRCUIT_BREAKER_DISABLE_SAFETY = new_state
-
-            cb_active = FollowerCircuitBreaker.is_active()
-            effective = new_state and cb_active
-
-            if new_state:
-                self.logger.warning("Safety bypass ENABLED - altitude/velocity limits will be skipped when CB is active")
-            else:
-                self.logger.info("Safety bypass DISABLED - safety checks will be enforced")
-
-            return JSONResponse(content={
-                'status': 'success',
-                'action': 'enabled' if new_state else 'disabled',
-                'safety_bypass': new_state,
-                'old_state': old_state,
-                'new_state': new_state,
-                'circuit_breaker_active': cb_active,
-                'effective': effective,
-                'message': f'Safety checks {"bypassed" if effective else "enforced"}',
-                'warning': 'Safety bypass active - altitude/velocity limits disabled' if effective else None,
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error toggling safety bypass: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_toggle_circuit_breaker_safety_bypass(self)
 
     async def get_circuit_breaker_statistics(self):
         return await dispatch_get_circuit_breaker_statistics(self)
@@ -3220,40 +3145,7 @@ class FastAPIHandler:
         Returns:
             dict: Reset operation status
         """
-        try:
-            if not CIRCUIT_BREAKER_AVAILABLE:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Circuit breaker system not available"
-                )
-
-            # Get current statistics before reset
-            old_stats = FollowerCircuitBreaker.get_statistics()
-
-            # Reset statistics
-            FollowerCircuitBreaker.reset_statistics()
-
-            # Get new statistics after reset
-            new_stats = FollowerCircuitBreaker.get_statistics()
-
-            self.logger.info("Circuit breaker statistics reset")
-
-            return JSONResponse(content={
-                'status': 'success',
-                'action': 'statistics_reset',
-                'message': 'Circuit breaker statistics have been reset',
-                'old_statistics': {
-                    'total_commands': old_stats['total_commands'],
-                    'followers_tested': len(old_stats['followers_tested']),
-                    'elapsed_time': old_stats['elapsed_time_seconds']
-                },
-                'new_statistics': new_stats,
-                'reset_timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error resetting circuit breaker statistics: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_reset_circuit_breaker_statistics(self)
 
     # ==================== OSD Control API Endpoints ====================
 

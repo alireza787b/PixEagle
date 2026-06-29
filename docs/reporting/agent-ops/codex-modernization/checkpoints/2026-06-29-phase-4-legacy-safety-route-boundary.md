@@ -42,7 +42,9 @@ unchanged.
 ## Explicit Non-Scope
 
 - No circuit-breaker toggle, safety-bypass toggle, or statistics-reset mutation
-  was moved, typed, or redesigned in this slice.
+  was moved, typed, or redesigned in this slice. That follow-up route-body move
+  is tracked in
+  `2026-06-29-phase-4-legacy-circuit-breaker-mutation-boundary.md`.
 - No typed `/api/v1/safety/*` route was added.
 - No compatibility alias was retired.
 - No runtime MCP exposure or callable tool surface was added.
@@ -83,15 +85,15 @@ passing with the existing Starlette/httpx warning.
   `/api/v1` contracts.
 - Read-only circuit-breaker status/statistics remain process-local diagnostics,
   not proof of flight behavior.
-- Circuit-breaker toggle, safety-bypass toggle, and statistics reset remain
-  legacy mutations in `FastAPIHandler` and should move under a separate guarded
-  action/deprecation cleanup.
+- Circuit-breaker toggle, safety-bypass toggle, and statistics reset were not in
+  this slice; the follow-up mutation boundary moved those bodies out of
+  `FastAPIHandler`, but typed action/idempotency/deprecation design remains open.
 - Safety config still exposes private SafetyManager attributes for compatibility.
 - No ASGI path-level test was added for each route; coverage is helper-level plus
   static route inventory/security/candidate gates.
 
 ## Next
 
-- Continue PXE-0008 with video/media route-body boundary extraction.
-- Schedule a separate guarded circuit-breaker mutation cleanup before typed
-  `/api/v1/safety/*` promotion.
+- Continue PXE-0008 with video/media and WebRTC route-body boundary extraction.
+- Design typed `/api/v1/safety/*` actions with idempotency, auditability, and
+  compatibility retirement tracking after the legacy body extractions are done.

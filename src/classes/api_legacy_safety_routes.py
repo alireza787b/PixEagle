@@ -125,6 +125,139 @@ async def get_circuit_breaker_statistics(handler: Any) -> JSONResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+async def toggle_circuit_breaker(handler: Any) -> JSONResponse:
+    """Toggle legacy circuit-breaker command blocking on or off."""
+    try:
+        if not CIRCUIT_BREAKER_AVAILABLE:
+            raise HTTPException(
+                status_code=503,
+                detail="Circuit breaker system not available",
+            )
+
+        old_state = FollowerCircuitBreaker.is_active()
+
+        Parameters.FOLLOWER_CIRCUIT_BREAKER = not old_state
+        new_state = FollowerCircuitBreaker.is_active()
+
+        if new_state and not old_state:
+            FollowerCircuitBreaker.reset_statistics()
+            handler.logger.info(
+                "Circuit breaker ENABLED - Follower commands will be logged "
+                "instead of executed"
+            )
+        elif not new_state and old_state:
+            handler.logger.info(
+                "Circuit breaker DISABLED - Normal follower operation resumed"
+            )
+
+        return JSONResponse(
+            content={
+                "status": "success",
+                "action": "enabled" if new_state else "disabled",
+                "active": new_state,
+                "old_state": old_state,
+                "new_state": new_state,
+                "message": (
+                    f'Circuit breaker {"enabled" if new_state else "disabled"}'
+                ),
+                "statistics_reset": new_state and not old_state,
+                "timestamp": time.time(),
+            }
+        )
+
+    except Exception as exc:
+        handler.logger.error(f"Error toggling circuit breaker: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def toggle_circuit_breaker_safety_bypass(handler: Any) -> JSONResponse:
+    """Toggle legacy test-only safety bypass for circuit-breaker mode."""
+    try:
+        if not CIRCUIT_BREAKER_AVAILABLE:
+            raise HTTPException(
+                status_code=503,
+                detail="Circuit breaker system not available",
+            )
+
+        old_state = getattr(Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False)
+
+        new_state = not old_state
+        Parameters.CIRCUIT_BREAKER_DISABLE_SAFETY = new_state
+
+        cb_active = FollowerCircuitBreaker.is_active()
+        effective = new_state and cb_active
+
+        if new_state:
+            handler.logger.warning(
+                "Safety bypass ENABLED - altitude/velocity limits will be skipped "
+                "when CB is active"
+            )
+        else:
+            handler.logger.info(
+                "Safety bypass DISABLED - safety checks will be enforced"
+            )
+
+        return JSONResponse(
+            content={
+                "status": "success",
+                "action": "enabled" if new_state else "disabled",
+                "safety_bypass": new_state,
+                "old_state": old_state,
+                "new_state": new_state,
+                "circuit_breaker_active": cb_active,
+                "effective": effective,
+                "message": f'Safety checks {"bypassed" if effective else "enforced"}',
+                "warning": (
+                    "Safety bypass active - altitude/velocity limits disabled"
+                    if effective
+                    else None
+                ),
+                "timestamp": time.time(),
+            }
+        )
+
+    except Exception as exc:
+        handler.logger.error(f"Error toggling safety bypass: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def reset_circuit_breaker_statistics(handler: Any) -> JSONResponse:
+    """Reset legacy circuit-breaker statistics and counters."""
+    try:
+        if not CIRCUIT_BREAKER_AVAILABLE:
+            raise HTTPException(
+                status_code=503,
+                detail="Circuit breaker system not available",
+            )
+
+        old_stats = FollowerCircuitBreaker.get_statistics()
+
+        FollowerCircuitBreaker.reset_statistics()
+
+        new_stats = FollowerCircuitBreaker.get_statistics()
+
+        handler.logger.info("Circuit breaker statistics reset")
+
+        return JSONResponse(
+            content={
+                "status": "success",
+                "action": "statistics_reset",
+                "message": "Circuit breaker statistics have been reset",
+                "old_statistics": {
+                    "total_commands": old_stats["total_commands"],
+                    "followers_tested": len(old_stats["followers_tested"]),
+                    "elapsed_time": old_stats["elapsed_time_seconds"],
+                },
+                "new_statistics": new_stats,
+                "reset_timestamp": time.time(),
+            }
+        )
+
+    except Exception as exc:
+        handler.logger.error(f"Error resetting circuit breaker statistics: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 async def get_safety_config(handler: Any) -> JSONResponse:
     """Get complete legacy safety configuration from SafetyManager."""
     try:

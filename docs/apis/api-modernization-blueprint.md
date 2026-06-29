@@ -145,16 +145,17 @@ Route inventory tests must:
   diagnostics, restart rate-limit and reload behavior, setpoint-status
   compatibility fields, safety-limit summary lookup, and config-manager response
   shaping before typed `/api/v1/following/*` or `/api/v1/follower/*` promotion
-- assert that `src/classes/api_legacy_safety_routes.py` owns legacy read-only
-  safety, circuit-breaker, and safety/config route bodies for circuit-breaker
-  status/statistics, safety config, follower safety limits, effective limit
-  summaries, and relevant-section lookup, and record that helper in generated
-  candidate provenance because it owns legacy response shaping, SafetyManager
-  fallback behavior, circuit-breaker read diagnostics, rate-unit conversion,
-  section relevance mapping, and legacy error wrapping before typed
-  `/api/v1/safety/*` promotion. Circuit-breaker toggle, safety-bypass toggle,
-  and statistics reset remain mutations and are not part of this read-only
-  helper boundary.
+- assert that `src/classes/api_legacy_safety_routes.py` owns legacy safety,
+  circuit-breaker, and safety/config route bodies for circuit-breaker
+  status/statistics, circuit-breaker toggle, safety-bypass toggle, statistics
+  reset, safety config, follower safety limits, effective limit summaries, and
+  relevant-section lookup, and record that helper in generated candidate
+  provenance because it owns legacy response shaping, SafetyManager fallback
+  behavior, circuit-breaker diagnostics and process-local `Parameters`
+  mutations, rate-unit conversion, section relevance mapping, and legacy error
+  wrapping before typed `/api/v1/safety/*` promotion. The circuit-breaker
+  mutation routes remain legacy, non-idempotent compatibility actions and still
+  need typed `/api/v1` action/deprecation design.
 - record `src/classes/api_v1_read_routes.py` in generated candidate provenance
   because that module owns typed read-route error boundaries for reviewed
   process-local status/telemetry/media-health candidates
