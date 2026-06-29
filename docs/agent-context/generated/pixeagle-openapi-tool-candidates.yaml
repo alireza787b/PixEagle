@@ -5,7 +5,7 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: f175f9e7fab476972b666e3bc6a02515a3fa6848500461414145369497e297eb
+    sha256: 0efcc1450015ddfd72afd762cbddc5bd5430cb8f2acb96ac8261e02064af1eb0
   - file: src/classes/fastapi_api_v1_routes.py
     sha256: 81e15ca940cf6171fd9407d53cf7589958cd02317878707ae583f29e26994b20
   - file: src/classes/api_v1_contracts.py
@@ -26,6 +26,8 @@ source:
     sha256: de15b4793e10428d4f09083e2dfc29c37d8528e74362ec63e3fb8a5e16e4ba85
   - file: src/classes/api_legacy_gstreamer_routes.py
     sha256: b68fbccddda340bea1a8c082ca75a271de2c9470d9f670d7612914ab7da6478a
+  - file: src/classes/api_legacy_media_routes.py
+    sha256: 30f2fac9e7b7180180104714c33febb9836caa22e06a8828c008f89ea0ea2b14
   - file: src/classes/api_legacy_model_routes.py
     sha256: ce55c0fb3eec929c3c62be6b583ff22855c8aad8c1549396128bc0021823103a
   - file: src/classes/api_legacy_osd_routes.py
@@ -66,6 +68,7 @@ generated_from:
 - src/classes/api_legacy_config_routes.py
 - src/classes/api_legacy_follower_routes.py
 - src/classes/api_legacy_gstreamer_routes.py
+- src/classes/api_legacy_media_routes.py
 - src/classes/api_legacy_model_routes.py
 - src/classes/api_legacy_osd_routes.py
 - src/classes/api_legacy_recording_routes.py

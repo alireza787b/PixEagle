@@ -54,6 +54,9 @@ API_LEGACY_FOLLOWER_ROUTES = (
 API_LEGACY_GSTREAMER_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_gstreamer_routes.py"
 )
+API_LEGACY_MEDIA_ROUTES = (
+    REPO_ROOT / "src" / "classes" / "api_legacy_media_routes.py"
+)
 API_LEGACY_MODEL_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_model_routes.py"
 )
@@ -978,6 +981,80 @@ def test_legacy_safety_route_bodies_are_not_defined_in_fastapi_handler():
         wrapper = handler_functions[wrapper_name]
         assert len(wrapper.body) == 1
         statement = wrapper.body[0]
+        assert isinstance(statement, ast.Return)
+        call = statement.value
+        if isinstance(call, ast.Await):
+            call = call.value
+        assert isinstance(call, ast.Call)
+        assert isinstance(call.func, ast.Name)
+        assert call.func.id == target_name
+        assert call.args
+        assert isinstance(call.args[0], ast.Name)
+        assert call.args[0].id == "self"
+
+
+def test_legacy_media_status_route_bodies_are_not_defined_in_fastapi_handler():
+    """Legacy bounded media status route bodies should stay out of the handler."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    media_routes_tree = ast.parse(API_LEGACY_MEDIA_ROUTES.read_text(encoding="utf-8"))
+    expected_functions = {
+        "get_streaming_status",
+        "get_streaming_stats",
+        "get_video_health",
+    }
+    wrapper_targets = {
+        "get_streaming_status": "dispatch_get_streaming_status",
+        "get_streaming_stats": "dispatch_get_streaming_stats",
+        "get_video_health": "dispatch_get_video_health",
+    }
+    disallowed_handler_strings = {
+        "active_method",
+        "adaptive_quality_enabled",
+        "websocket_clients",
+        "Could not read OSD pipeline stats",
+        "obb_pipeline",
+        "Error in get_video_health",
+    }
+
+    media_route_functions = {
+        node.name
+        for node in ast.walk(media_routes_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    media_route_strings = {
+        node.value
+        for node in ast.walk(media_routes_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    handler_functions = {
+        node.name: node
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    handler_string_literals = {
+        node.value
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+    assert expected_functions <= media_route_functions
+    assert "reconnect_video" not in media_route_functions
+    for marker in disallowed_handler_strings:
+        assert any(marker in literal for literal in media_route_strings)
+        assert not any(marker in literal for literal in handler_string_literals)
+
+    for wrapper_name, target_name in wrapper_targets.items():
+        wrapper = handler_functions[wrapper_name]
+        body = wrapper.body
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            body = body[1:]
+        assert len(body) == 1
+        statement = body[0]
         assert isinstance(statement, ast.Return)
         call = statement.value
         if isinstance(call, ast.Await):

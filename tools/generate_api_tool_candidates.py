@@ -42,6 +42,9 @@ API_LEGACY_FOLLOWER_ROUTES = (
 API_LEGACY_GSTREAMER_ROUTES = (
     PROJECT_ROOT / "src" / "classes" / "api_legacy_gstreamer_routes.py"
 )
+API_LEGACY_MEDIA_ROUTES = (
+    PROJECT_ROOT / "src" / "classes" / "api_legacy_media_routes.py"
+)
 API_LEGACY_MODEL_ROUTES = (
     PROJECT_ROOT / "src" / "classes" / "api_legacy_model_routes.py"
 )
@@ -76,6 +79,7 @@ ROUTE_SOURCE_FILES = (
     API_LEGACY_CONFIG_ROUTES,
     API_LEGACY_FOLLOWER_ROUTES,
     API_LEGACY_GSTREAMER_ROUTES,
+    API_LEGACY_MEDIA_ROUTES,
     API_LEGACY_MODEL_ROUTES,
     API_LEGACY_OSD_ROUTES,
     API_LEGACY_RECORDING_ROUTES,

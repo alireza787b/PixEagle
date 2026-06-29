@@ -39,6 +39,7 @@ It also records `src/classes/api_legacy_config_sync.py`,
 `src/classes/api_legacy_config_routes.py`,
 `src/classes/api_legacy_follower_routes.py`,
 `src/classes/api_legacy_gstreamer_routes.py`,
+`src/classes/api_legacy_media_routes.py`,
 `src/classes/api_legacy_model_routes.py`,
 `src/classes/api_legacy_osd_routes.py`,
 `src/classes/api_legacy_recording_routes.py`, and

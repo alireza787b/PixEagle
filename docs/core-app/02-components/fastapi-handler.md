@@ -167,6 +167,20 @@ PixEagle has a currently published frame. It does not prove that a remote
 browser, QGC, WebRTC peer, GCS, PX4, SITL, HIL, or field video path received
 usable media.
 
+The bounded legacy media observability routes remain registered for
+compatibility, but their response bodies now live in
+`src/classes/api_legacy_media_routes.py`:
+
+- `GET /api/streaming/status`
+- `GET /stats`
+- `GET /api/video/health`
+
+`FastAPIHandler` keeps one-call wrappers for those routes. Long-lived transport
+routes (`GET /video_feed`, `WS /ws/video_feed`, and WebRTC signaling) and the
+live recovery mutation `POST /api/video/reconnect` are separate cleanup slices
+because they own streaming lifecycle, session revocation, or recovery mutation
+behavior.
+
 ### Typed Following Status Endpoint
 
 New dashboard/API/MCP consumers that only need following state should prefer
@@ -644,14 +658,7 @@ self.stats = {
 
 @app.get("/stats")
 async def get_streaming_stats(self):
-    """Get streaming performance stats."""
-    return {
-        **self.stats,
-        'http_connections': len(self.http_connections),
-        'ws_connections': len(self.ws_connections),
-        'frame_rate': self.frame_rate,
-        'quality': self.quality
-    }
+    return await dispatch_get_streaming_stats(self)
 ```
 
 ## Configuration

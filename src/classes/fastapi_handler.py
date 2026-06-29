@@ -132,6 +132,11 @@ from classes.api_legacy_gstreamer_routes import (
     get_gstreamer_status as dispatch_get_gstreamer_status,
     toggle_gstreamer as dispatch_toggle_gstreamer,
 )
+from classes.api_legacy_media_routes import (
+    get_streaming_stats as dispatch_get_streaming_stats,
+    get_streaming_status as dispatch_get_streaming_status,
+    get_video_health as dispatch_get_video_health,
+)
 from classes.api_legacy_follower_routes import (
     get_configured_follower_mode as dispatch_get_configured_follower_mode,
     get_current_follower_mode as dispatch_get_current_follower_mode,
@@ -1555,73 +1560,11 @@ class FastAPIHandler:
 
     async def get_streaming_status(self):
         """Report current streaming method, quality, FPS, adaptation status."""
-        quality_states = self.quality_engine.get_all_states()
-        webrtc_count = len(self.webrtc_manager.peer_connections) if hasattr(self.webrtc_manager, 'peer_connections') else 0
-
-        # GStreamer encoder status (if available)
-        gstreamer_info = None
-        if hasattr(self.app_controller, 'gstreamer_handler') and self.app_controller.gstreamer_handler:
-            gstreamer_info = self.app_controller.gstreamer_handler.encoder_status
-
-        # Pipeline performance metrics (from FlowController instrumentation)
-        pipeline_metrics = getattr(self.app_controller, '_pipeline_metrics', {})
-
-        return JSONResponse(content={
-            'active_method': (
-                'webrtc' if webrtc_count > 0 else
-                'websocket' if self.ws_connections else
-                'http' if self.http_connections else 'none'
-            ),
-            'http_clients': len(self.http_connections),
-            'websocket_clients': len(self.ws_connections),
-            'webrtc_clients': webrtc_count,
-            'adaptive_quality_enabled': getattr(Parameters, 'ENABLE_ADAPTIVE_QUALITY', True),
-            'quality_engine': quality_states,
-            'gstreamer': gstreamer_info,
-            'pipeline': pipeline_metrics,
-            'config': {
-                'stream_fps': Parameters.STREAM_FPS,
-                'stream_width': Parameters.STREAM_WIDTH,
-                'stream_height': Parameters.STREAM_HEIGHT,
-                'min_quality': getattr(Parameters, 'MIN_QUALITY', 20),
-                'max_quality': getattr(Parameters, 'MAX_QUALITY', 95),
-                'default_protocol': getattr(Parameters, 'DEFAULT_PROTOCOL', 'auto'),
-                'pipeline_mode': getattr(Parameters, 'PIPELINE_MODE', 'REALTIME'),
-            },
-            'timestamp': time.time(),
-        })
+        return await dispatch_get_streaming_status(self)
 
     async def get_streaming_stats(self):
         """Get current streaming statistics."""
-        ws_clients_info = []
-        async with self.connection_lock:
-            for client in self.ws_connections.values():
-                ws_clients_info.append({
-                    'id': client.id,
-                    'connected_duration': time.time() - client.connected_at,
-                    'quality': client.quality,
-                    'frame_drops': client.frame_drops,
-                    'bandwidth_kbps': client.bandwidth_estimate * 8 / 1024
-                })
-
-        osd_pipeline_stats = {}
-        if hasattr(self.app_controller, 'osd_pipeline'):
-            try:
-                osd_pipeline_stats = self.app_controller.osd_pipeline.get_stats()
-            except Exception as osd_stats_error:
-                self.logger.debug(f"Could not read OSD pipeline stats: {osd_stats_error}")
-        
-        return JSONResponse(content={
-            'frames_sent': self.stats['frames_sent'],
-            'frames_dropped': self.stats['frames_dropped'],
-            'total_bandwidth_mb': self.stats['total_bandwidth'] / 1024 / 1024,
-            'http_connections': len(self.http_connections),
-            'websocket_connections': len(self.ws_connections),
-            'websocket_clients': ws_clients_info,
-            'cache_size': len(self.stream_optimizer.frame_cache),
-            'uptime': time.time() - (self.server.started if self.server else time.time()),
-            'osd_pipeline': osd_pipeline_stats,
-        })
+        return await dispatch_get_streaming_stats(self)
 
     async def _execute_tracking_start_action(self, bbox: BoundingBox):
         """
@@ -2115,25 +2058,7 @@ class FastAPIHandler:
 
     async def get_video_health(self):
         """Get video subsystem health for degraded-mode observability."""
-        try:
-            health = self.video_handler.get_connection_health() if self.video_handler else {"status": "unavailable"}
-            smart = getattr(self.app_controller, "smart_tracker", None)
-            obb_health = {
-                "model_loaded": bool(smart and hasattr(smart, "model")),
-                "adapter_initialized": bool(smart and hasattr(smart, "last_detections")),
-                "geometry_utils_available": bool(smart and hasattr(smart, "current_geometry_mode")),
-                "geometry_mode": getattr(smart, "current_geometry_mode", None),
-                "model_task": getattr(smart, "model_task", None),
-            }
-            return JSONResponse(content={
-                "success": True,
-                "video": health,
-                "obb_pipeline": obb_health,
-                "timestamp": time.time(),
-            })
-        except Exception as e:
-            self.logger.error(f"Error in get_video_health: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_video_health(self)
 
     async def reconnect_video(self):
         """Manually trigger video reconnection attempt."""
