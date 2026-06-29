@@ -124,6 +124,7 @@ it together with:
 | Phase 4 legacy GStreamer route boundary | done | PXE-0008 partial | `checkpoints/2026-06-27-phase-4-legacy-gstreamer-route-boundary.md`; legacy GStreamer status and runtime toggle route bodies now live in `src/classes/api_legacy_gstreamer_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/streams/gstreamer*` route, alias retirement, MCP exposure, QGC playback, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 | Phase 4 legacy follower profile route boundary | done | PXE-0008 partial | `checkpoints/2026-06-28-phase-4-legacy-follower-profile-route-boundary.md`; legacy follower schema, profile list, current profile, switch-profile, configured-mode, setpoints-status, and current-mode route bodies now live in `src/classes/api_legacy_follower_routes.py`; `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No `/api/v1/following/*` or `/api/v1/follower/*` route, follower health/restart/config-manager extraction, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 | Phase 4 legacy follower route boundary | done | PXE-0008 partial | `checkpoints/2026-06-28-phase-4-legacy-follower-route-boundary.md`; remaining legacy follower health, restart, and config-manager route bodies now live in `src/classes/api_legacy_follower_routes.py`, completing the current `/api/follower/*` route-body extraction. `FastAPIHandler` keeps route wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. No typed `/api/v1/following/*` or `/api/v1/follower/*` promotion, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
+| Phase 4 legacy safety read route boundary | done | PXE-0008 partial | `checkpoints/2026-06-29-phase-4-legacy-safety-route-boundary.md`; legacy read-only circuit-breaker status/statistics, safety config, follower safety limits, effective-limit summary, and relevant-section route bodies now live in `src/classes/api_legacy_safety_routes.py`; `FastAPIHandler` keeps wrappers and route registration, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. Circuit-breaker toggle, safety-bypass toggle, and statistics reset remain mutation debt for a separate guarded cleanup. No typed `/api/v1/safety/*` route, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 
 ## Active Slice
 
@@ -236,9 +237,14 @@ fields, and safety-limit lookup. The 2026-06-28 legacy follower route boundary
 then moved the remaining follower health, restart, and config-manager route
 bodies into the same helper, preserving health/resource diagnostics, restart
 rate-limit and reload behavior, and config-manager response shapes. Current
-`/api/follower/*` route-body extraction is complete; remaining PXE-0008 legacy
-route-body cleanup includes safety and video/media route families before typed
-`/api/v1` replacements or tracked compatibility retirement.
+`/api/follower/*` route-body extraction is complete. The 2026-06-29 legacy
+safety read route boundary moved circuit-breaker status/statistics, safety
+config, follower safety limits, effective-limit summaries, and relevant-section
+route bodies into `api_legacy_safety_routes.py`, preserving SafetyManager
+fallback behavior, rate-unit conversion, and legacy broad error wrapping.
+Remaining PXE-0008 legacy route-body cleanup includes video/media route
+families and a separate circuit-breaker mutation cleanup before typed `/api/v1`
+replacements or tracked compatibility retirement.
 PXE-0064 is in progress: the first containment foundation is done, so
 checked-in backend/dashboard/MAVLink2REST exposure is local-only, contradictory
 local-only bind/CORS configuration fails closed, Host/Origin/fetch-site and

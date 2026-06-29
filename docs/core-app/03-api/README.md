@@ -1154,15 +1154,15 @@ GET /api/safety/config
 **Response:**
 ```json
 {
-  "limits": {
-    "max_velocity_forward": 8.0,
-    "max_velocity_lateral": 5.0,
-    "max_velocity_vertical": 3.0,
-    "max_yaw_rate": 45.0
+  "available": true,
+  "global_limits": {
+    "MAX_VELOCITY_FORWARD": 8.0,
+    "MAX_VELOCITY_LATERAL": 5.0,
+    "MAX_VELOCITY_VERTICAL": 3.0,
+    "MAX_YAW_RATE": 45.0
   },
-  "circuit_breaker": {
-    "active": true
-  }
+  "follower_overrides": {},
+  "timestamp": 1710000000.0
 }
 ```
 
@@ -1170,6 +1170,39 @@ GET /api/safety/config
 
 ```http
 GET /api/safety/limits/{follower_name}
+```
+
+**Response:**
+```json
+{
+  "follower_name": "mc_velocity_chase",
+  "velocity": {
+    "forward": 8.0,
+    "lateral": 5.0,
+    "vertical": 3.0,
+    "max_magnitude": 15.0,
+    "source": "GlobalLimits",
+    "is_overridden": false
+  },
+  "altitude": {
+    "min": 3.0,
+    "max": 120.0,
+    "warning_buffer": 2.0,
+    "safety_enabled": true,
+    "source": "GlobalLimits",
+    "is_overridden": false
+  },
+  "rates": {
+    "yaw_deg": 45.0,
+    "pitch_deg": 45.0,
+    "roll_deg": 45.0,
+    "source": "GlobalLimits",
+    "is_overridden": false
+  },
+  "altitude_safety_enabled": true,
+  "has_any_overrides": false,
+  "timestamp": 1710000000.0
+}
 ```
 
 ---
@@ -1180,6 +1213,38 @@ GET /api/safety/limits/{follower_name}
 
 ```http
 GET /api/circuit-breaker/status
+```
+
+**Response:**
+```json
+{
+  "available": true,
+  "active": false,
+  "status": "operational",
+  "safety_bypass": false,
+  "safety_bypass_effective": false,
+  "configuration": {
+    "parameter_name": "FOLLOWER_CIRCUIT_BREAKER",
+    "current_value": false,
+    "description": "Global circuit breaker for follower testing"
+  },
+  "statistics": {
+    "circuit_breaker_active": false,
+    "total_commands": 0,
+    "total_commands_blocked": 0,
+    "total_commands_allowed": 0,
+    "last_blocked_command": null,
+    "command_types": {},
+    "followers_tested": [],
+    "elapsed_time_seconds": 12.5,
+    "command_rate_hz": 0.0,
+    "last_command_time": null,
+    "session_start_time": 1710000000.0,
+    "system_status": "operational"
+  },
+  "message": "Circuit breaker disabled - normal operation",
+  "timestamp": 1710000000.0
+}
 ```
 
 ### Toggle

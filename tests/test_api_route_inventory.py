@@ -63,6 +63,9 @@ API_LEGACY_OSD_ROUTES = (
 API_LEGACY_RECORDING_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_recording_routes.py"
 )
+API_LEGACY_SAFETY_ROUTES = (
+    REPO_ROOT / "src" / "classes" / "api_legacy_safety_routes.py"
+)
 API_V1_READ_ROUTES = REPO_ROOT / "src" / "classes" / "api_v1_read_routes.py"
 API_V1_SNAPSHOTS = REPO_ROOT / "src" / "classes" / "api_v1_snapshots.py"
 API_V1_TELEMETRY = REPO_ROOT / "src" / "classes" / "api_v1_telemetry.py"
@@ -887,6 +890,88 @@ def test_legacy_config_route_bodies_are_not_defined_in_fastapi_handler():
     assert not (expected_classes & handler_classes)
     for marker in disallowed_handler_strings:
         assert any(marker in literal for literal in config_route_strings)
+        assert not any(marker in literal for literal in handler_string_literals)
+
+    for wrapper_name, target_name in wrapper_targets.items():
+        wrapper = handler_functions[wrapper_name]
+        assert len(wrapper.body) == 1
+        statement = wrapper.body[0]
+        assert isinstance(statement, ast.Return)
+        call = statement.value
+        if isinstance(call, ast.Await):
+            call = call.value
+        assert isinstance(call, ast.Call)
+        assert isinstance(call.func, ast.Name)
+        assert call.func.id == target_name
+        assert call.args
+        assert isinstance(call.args[0], ast.Name)
+        assert call.args[0].id == "self"
+
+
+def test_legacy_safety_route_bodies_are_not_defined_in_fastapi_handler():
+    """Legacy safety and read-only circuit-breaker bodies stay out of the handler."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    safety_routes_tree = ast.parse(API_LEGACY_SAFETY_ROUTES.read_text(encoding="utf-8"))
+    expected_functions = {
+        "_safety_manager_or_none",
+        "get_circuit_breaker_status",
+        "get_circuit_breaker_statistics",
+        "get_safety_config",
+        "get_follower_safety_limits",
+        "get_effective_limits",
+        "get_relevant_sections",
+    }
+    wrapper_targets = {
+        "get_circuit_breaker_status": "dispatch_get_circuit_breaker_status",
+        "get_circuit_breaker_statistics": (
+            "dispatch_get_circuit_breaker_statistics"
+        ),
+        "get_safety_config": "dispatch_get_safety_config",
+        "get_follower_safety_limits": "dispatch_get_follower_safety_limits",
+        "get_effective_limits": "dispatch_get_effective_limits",
+        "get_relevant_sections": "dispatch_get_relevant_sections",
+    }
+    disallowed_handler_strings = {
+        "FollowerCircuitBreaker module could not be imported",
+        "Circuit breaker active - commands logged not executed",
+        "data_freshness",
+        "unique_followers_tested",
+        "Error getting circuit breaker statistics",
+        "SafetyManager not available",
+        "Error getting safety config",
+        "MAX_VELOCITY_FORWARD",
+        "altitude_safety_enabled",
+        "Error getting follower safety limits",
+        "available_followers",
+        "Error getting effective limits",
+        "gm_velocity_vector",
+        "Error getting relevant sections",
+    }
+
+    safety_route_functions = {
+        node.name
+        for node in ast.walk(safety_routes_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    safety_route_strings = {
+        node.value
+        for node in ast.walk(safety_routes_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    handler_functions = {
+        node.name: node
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    handler_string_literals = {
+        node.value
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+    assert expected_functions <= safety_route_functions
+    for marker in disallowed_handler_strings:
+        assert any(marker in literal for literal in safety_route_strings)
         assert not any(marker in literal for literal in handler_string_literals)
 
     for wrapper_name, target_name in wrapper_targets.items():

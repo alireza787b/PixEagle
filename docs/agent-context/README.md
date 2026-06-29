@@ -34,8 +34,18 @@ start/stop and operator-cancel compatibility executors used by guarded typed
 action candidates after the former `/commands/*` HTTP aliases were retired.
 It also records
 `src/classes/api_v1_read_routes.py`, which owns typed read-route error
-boundaries for reviewed process-local status/telemetry/media-health candidates. It also
-records `src/classes/api_v1_snapshots.py`, which owns process-local runtime,
+boundaries for reviewed process-local status/telemetry/media-health candidates.
+It also records `src/classes/api_legacy_config_sync.py`,
+`src/classes/api_legacy_config_routes.py`,
+`src/classes/api_legacy_follower_routes.py`,
+`src/classes/api_legacy_gstreamer_routes.py`,
+`src/classes/api_legacy_model_routes.py`,
+`src/classes/api_legacy_osd_routes.py`,
+`src/classes/api_legacy_recording_routes.py`, and
+`src/classes/api_legacy_safety_routes.py` because those helpers own extracted
+legacy compatibility route bodies while typed `/api/v1` replacements and
+tracked alias retirement remain in progress. It also records
+`src/classes/api_v1_snapshots.py`, which owns process-local runtime,
 following, and tracking snapshot semantics for reviewed read-only candidates,
 and `src/classes/api_v1_telemetry.py`, which owns typed MAVLink
 telemetry-health manager delegation and fail-closed unavailable fallback

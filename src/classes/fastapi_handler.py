@@ -167,6 +167,14 @@ from classes.api_legacy_recording_routes import (
     stop_recording as dispatch_stop_recording,
     toggle_recording as dispatch_toggle_recording,
 )
+from classes.api_legacy_safety_routes import (
+    get_circuit_breaker_statistics as dispatch_get_circuit_breaker_statistics,
+    get_circuit_breaker_status as dispatch_get_circuit_breaker_status,
+    get_effective_limits as dispatch_get_effective_limits,
+    get_follower_safety_limits as dispatch_get_follower_safety_limits,
+    get_relevant_sections as dispatch_get_relevant_sections,
+    get_safety_config as dispatch_get_safety_config,
+)
 from classes.api_v1_read_routes import (
     get_following_status as dispatch_get_following_status,
     get_following_telemetry as dispatch_get_following_telemetry,
@@ -3542,43 +3550,7 @@ class FastAPIHandler:
     # ==================== Circuit Breaker API Endpoints ====================
 
     async def get_circuit_breaker_status(self):
-        """
-        Get current circuit breaker status and configuration.
-
-        Returns:
-            dict: Circuit breaker status, availability and statistics
-        """
-        try:
-            if not CIRCUIT_BREAKER_AVAILABLE:
-                return JSONResponse(content={
-                    'available': False,
-                    'error': 'Circuit breaker system not available',
-                    'message': 'FollowerCircuitBreaker module could not be imported'
-                })
-
-            is_active = FollowerCircuitBreaker.is_active()
-            statistics = FollowerCircuitBreaker.get_statistics()
-            safety_bypass = getattr(Parameters, "CIRCUIT_BREAKER_DISABLE_SAFETY", False)
-
-            return JSONResponse(content={
-                'available': True,
-                'active': is_active,
-                'status': 'testing' if is_active else 'operational',
-                'safety_bypass': safety_bypass,
-                'safety_bypass_effective': safety_bypass and is_active,
-                'configuration': {
-                    'parameter_name': 'FOLLOWER_CIRCUIT_BREAKER',
-                    'current_value': is_active,
-                    'description': 'Global circuit breaker for follower testing'
-                },
-                'statistics': statistics,
-                'message': 'Circuit breaker active - commands logged not executed' if is_active else 'Circuit breaker disabled - normal operation',
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error getting circuit breaker status: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_circuit_breaker_status(self)
 
     async def toggle_circuit_breaker(self):
         """
@@ -3673,52 +3645,7 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def get_circuit_breaker_statistics(self):
-        """
-        Get detailed circuit breaker statistics and telemetry.
-
-        Returns:
-            dict: Comprehensive circuit breaker statistics
-        """
-        try:
-            if not CIRCUIT_BREAKER_AVAILABLE:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Circuit breaker system not available"
-                )
-
-            statistics = FollowerCircuitBreaker.get_statistics()
-
-            # Add additional API metadata
-            response_data = {
-                'circuit_breaker': statistics,
-                'api_info': {
-                    'endpoint': '/api/circuit-breaker/statistics',
-                    'api_version': '2.0',
-                    'timestamp': time.time(),
-                    'data_freshness': 'real-time'
-                },
-                'usage_summary': {
-                    'testing_mode': statistics['circuit_breaker_active'],
-                    'total_intercepted_commands': statistics['total_commands'],
-                    'unique_followers_tested': len(statistics['followers_tested']),
-                    'command_diversity': len(statistics['command_types'])
-                }
-            }
-
-            # Add performance metrics if active
-            if statistics['circuit_breaker_active']:
-                if statistics['command_rate_hz'] > 0:
-                    response_data['performance'] = {
-                        'commands_per_second': statistics['command_rate_hz'],
-                        'testing_efficiency': 'high' if statistics['command_rate_hz'] > 5 else 'medium' if statistics['command_rate_hz'] > 1 else 'low',
-                        'last_activity': statistics['last_command_time']
-                    }
-
-            return JSONResponse(content=response_data)
-
-        except Exception as e:
-            self.logger.error(f"Error getting circuit breaker statistics: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_circuit_breaker_statistics(self)
 
     async def reset_circuit_breaker_statistics(self):
         """
@@ -3833,157 +3760,10 @@ class FastAPIHandler:
     # ==================== Safety Configuration API Endpoints (v3.5.0+) ====================
 
     async def get_safety_config(self):
-        """
-        Get complete safety configuration from SafetyManager.
-
-        Returns:
-            dict: Safety configuration including global limits and follower overrides
-        """
-        try:
-            # Try to import SafetyManager
-            try:
-                from classes.safety_manager import SafetyManager, get_safety_manager
-                safety_manager = get_safety_manager()
-                safety_available = True
-            except ImportError:
-                safety_available = False
-                safety_manager = None
-
-            if not safety_available or safety_manager is None:
-                return JSONResponse(content={
-                    'available': False,
-                    'message': 'SafetyManager not available',
-                    'timestamp': time.time()
-                })
-
-            # Get configuration from SafetyManager (simplified v3.6.0)
-            config = {
-                'available': True,
-                'global_limits': safety_manager._global_limits,
-                'follower_overrides': safety_manager._follower_overrides,
-                'timestamp': time.time()
-            }
-
-            return JSONResponse(content=config)
-
-        except Exception as e:
-            self.logger.error(f"Error getting safety config: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_safety_config(self)
 
     async def get_follower_safety_limits(self, follower_name: str):
-        """
-        Get effective safety limits for a specific follower.
-
-        Args:
-            follower_name: Name of the follower (e.g., 'MC_VELOCITY_CHASE')
-
-        Returns:
-            dict: Effective limits for the specified follower including
-                  velocity, altitude, and rate limits
-        """
-        try:
-            # Try to import SafetyManager
-            try:
-                from classes.safety_manager import SafetyManager, get_safety_manager
-                safety_manager = get_safety_manager()
-                safety_available = True
-            except ImportError:
-                safety_available = False
-                safety_manager = None
-
-            if not safety_available or safety_manager is None:
-                # Fallback to Parameters.get_effective_limit (match frontend field names)
-                limits = {
-                    'follower_name': follower_name,
-                    'velocity': {
-                        'forward': Parameters.get_effective_limit('MAX_VELOCITY_FORWARD', follower_name),
-                        'lateral': Parameters.get_effective_limit('MAX_VELOCITY_LATERAL', follower_name),
-                        'vertical': Parameters.get_effective_limit('MAX_VELOCITY_VERTICAL', follower_name),
-                    },
-                    'altitude': {
-                        'min': Parameters.get_effective_limit('MIN_ALTITUDE', follower_name),
-                        'max': Parameters.get_effective_limit('MAX_ALTITUDE', follower_name),
-                        'warning_buffer': Parameters.get_effective_limit('ALTITUDE_WARNING_BUFFER', follower_name),
-                    },
-                    'rates': {
-                        'yaw_deg': Parameters.get_effective_limit('MAX_YAW_RATE', follower_name),
-                        'pitch_deg': Parameters.get_effective_limit('MAX_PITCH_RATE', follower_name) or 45.0,
-                        'roll_deg': Parameters.get_effective_limit('MAX_ROLL_RATE', follower_name) or 45.0,
-                    },
-                    'altitude_safety_enabled': True,
-                    'timestamp': time.time()
-                }
-                return JSONResponse(content=limits)
-
-            # Get limits from SafetyManager
-            velocity_limits = safety_manager.get_velocity_limits(follower_name)
-            altitude_limits = safety_manager.get_altitude_limits(follower_name)
-            rate_limits = safety_manager.get_rate_limits(follower_name)
-
-            # Get detailed summary to determine override status
-            limits_summary = safety_manager.get_effective_limits_summary(follower_name)
-
-            # Helper to check if any params in a group are overridden
-            def is_group_overridden(param_names):
-                return any(limits_summary.get(p, {}).get('is_overridden', False) for p in param_names)
-
-            def get_group_source(param_names):
-                for p in param_names:
-                    if limits_summary.get(p, {}).get('is_overridden', False):
-                        return limits_summary[p].get('source', 'GlobalLimits')
-                return 'GlobalLimits'
-
-            # Check override status for each category
-            velocity_params = ['MAX_VELOCITY', 'MAX_VELOCITY_FORWARD', 'MAX_VELOCITY_LATERAL', 'MAX_VELOCITY_VERTICAL']
-            altitude_params = ['MIN_ALTITUDE', 'MAX_ALTITUDE', 'ALTITUDE_WARNING_BUFFER', 'ALTITUDE_SAFETY_ENABLED']
-            rate_params = ['MAX_YAW_RATE', 'MAX_PITCH_RATE', 'MAX_ROLL_RATE']
-
-            velocity_overridden = is_group_overridden(velocity_params)
-            altitude_overridden = is_group_overridden(altitude_params)
-            rates_overridden = is_group_overridden(rate_params)
-            has_any_overrides = velocity_overridden or altitude_overridden or rates_overridden
-
-            # Convert radians to degrees for rate limits (config stores deg/s, SafetyManager converts to rad/s)
-            from math import degrees
-
-            limits = {
-                'follower_name': follower_name,
-                # Frontend expects 'velocity' not 'velocity_limits'
-                'velocity': {
-                    'forward': velocity_limits.forward,
-                    'lateral': velocity_limits.lateral,
-                    'vertical': velocity_limits.vertical,
-                    'max_magnitude': velocity_limits.max_magnitude,
-                    'source': get_group_source(velocity_params),
-                    'is_overridden': velocity_overridden,
-                },
-                # Frontend expects 'altitude' with 'min'/'max' not 'min_altitude'/'max_altitude'
-                'altitude': {
-                    'min': altitude_limits.min_altitude,
-                    'max': altitude_limits.max_altitude,
-                    'warning_buffer': altitude_limits.warning_buffer,
-                    'safety_enabled': altitude_limits.safety_enabled,
-                    'source': get_group_source(altitude_params),
-                    'is_overridden': altitude_overridden,
-                },
-                # Frontend expects 'rates' with '_deg' suffix fields
-                'rates': {
-                    'yaw_deg': degrees(rate_limits.yaw),
-                    'pitch_deg': degrees(rate_limits.pitch),
-                    'roll_deg': degrees(rate_limits.roll),
-                    'source': get_group_source(rate_params),
-                    'is_overridden': rates_overridden,
-                },
-                'altitude_safety_enabled': safety_manager.is_altitude_safety_enabled(follower_name),
-                'has_any_overrides': has_any_overrides,
-                'timestamp': time.time()
-            }
-
-            return JSONResponse(content=limits)
-
-        except Exception as e:
-            self.logger.error(f"Error getting follower safety limits: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_follower_safety_limits(self, follower_name)
 
     # Note: get_vehicle_profiles() removed in v4.0.0 (was deprecated in v3.6.0)
 
@@ -3998,107 +3778,10 @@ class FastAPIHandler:
     # ==================== Enhanced Safety/Config API Endpoints (v5.0.0+) ====================
 
     async def get_effective_limits(self, follower_name: str = None):
-        """
-        Get effective safety limits with resolution chain for UI display.
-
-        Returns all limits with their effective values, sources, and whether
-        they are overridden for the specified follower.
-
-        Args:
-            follower_name: Optional follower name (e.g., 'MC_VELOCITY_CHASE')
-
-        Returns:
-            dict: Detailed limit resolution for UI display
-        """
-        try:
-            try:
-                from classes.safety_manager import SafetyManager, get_safety_manager
-                safety_manager = get_safety_manager()
-                safety_available = True
-            except ImportError:
-                safety_available = False
-                safety_manager = None
-
-            if not safety_available or safety_manager is None:
-                return JSONResponse(content={
-                    'available': False,
-                    'message': 'SafetyManager not available',
-                    'timestamp': time.time()
-                })
-
-            # Get detailed limit summary from SafetyManager
-            limits_summary = safety_manager.get_effective_limits_summary(follower_name)
-            available_followers = safety_manager.get_available_followers()
-
-            return JSONResponse(content={
-                'success': True,
-                'follower_name': follower_name,
-                'limits': limits_summary,
-                'available_followers': available_followers,
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error getting effective limits: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_effective_limits(self, follower_name)
 
     async def get_relevant_sections(self, follower_mode: str = None):
-        """
-        Get configuration sections relevant to the current follower mode.
-
-        Args:
-            follower_mode: Follower mode name (e.g., 'mc_velocity_chase').
-                          If not provided, uses currently configured mode.
-
-        Returns:
-            dict: Section names grouped by relevance
-        """
-        try:
-            # Mode to section mapping
-            MODE_SECTIONS = {
-                'mc_velocity_chase': ['Follower', 'MC_VELOCITY_CHASE', 'Safety', 'PID', 'Tracking', 'OSD'],
-                'mc_velocity_position': ['Follower', 'MC_VELOCITY_POSITION', 'Safety', 'PID', 'Tracking', 'OSD'],
-                'mc_velocity_distance': ['Follower', 'MC_VELOCITY_DISTANCE', 'Safety', 'PID', 'Tracking', 'OSD'],
-                'mc_velocity_ground': ['Follower', 'MC_VELOCITY_GROUND', 'Safety', 'PID', 'Tracking', 'OSD'],
-                'mc_attitude_rate': ['Follower', 'MC_ATTITUDE_RATE', 'Safety', 'PID', 'Tracking', 'OSD'],
-                'gm_velocity_chase': ['Follower', 'GM_VELOCITY_CHASE', 'Safety', 'GimbalTracker', 'PID', 'Tracking', 'Gimbal', 'OSD'],
-                'gm_velocity_vector': ['Follower', 'GM_VELOCITY_VECTOR', 'Safety', 'GimbalTracker', 'PID', 'Tracking', 'Gimbal', 'OSD'],
-                'fw_attitude_rate': ['Follower', 'FW_ATTITUDE_RATE', 'Safety', 'PID', 'Tracking', 'OSD'],
-            }
-
-            # Global sections that are always relevant
-            GLOBAL_SECTIONS = ['VideoSource', 'PX4', 'MAVLink', 'Streaming', 'Debugging']
-
-            # Use provided mode or get from Parameters
-            mode = follower_mode.lower() if follower_mode else Parameters.FOLLOWER_MODE.lower()
-
-            # Get relevant sections for this mode
-            mode_specific = MODE_SECTIONS.get(mode, ['Follower', 'Safety', 'PID', 'Tracking', 'OSD'])
-
-            # Get all section names from config service
-            try:
-                service = self._get_config_service()
-                all_sections = list(service.get_schema().get('sections', {}).keys())
-            except Exception:
-                all_sections = []
-
-            # Categorize sections
-            active_sections = list(set(mode_specific + GLOBAL_SECTIONS))
-            other_sections = [s for s in all_sections if s not in active_sections]
-
-            return JSONResponse(content={
-                'success': True,
-                'current_mode': mode,
-                'active_sections': active_sections,
-                'other_sections': other_sections,
-                'mode_specific_sections': mode_specific,
-                'global_sections': GLOBAL_SECTIONS,
-                'timestamp': time.time()
-            })
-
-        except Exception as e:
-            self.logger.error(f"Error getting relevant sections: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_relevant_sections(self, follower_mode)
 
     async def get_current_follower_mode(self):
         return await dispatch_get_current_follower_mode(self)
