@@ -136,6 +136,7 @@ from classes.api_legacy_media_routes import (
     get_streaming_stats as dispatch_get_streaming_stats,
     get_streaming_status as dispatch_get_streaming_status,
     get_video_health as dispatch_get_video_health,
+    reconnect_video as dispatch_reconnect_video,
 )
 from classes.api_legacy_follower_routes import (
     get_configured_follower_mode as dispatch_get_configured_follower_mode,
@@ -2062,24 +2063,7 @@ class FastAPIHandler:
 
     async def reconnect_video(self):
         """Manually trigger video reconnection attempt."""
-        try:
-            if not self.video_handler:
-                raise HTTPException(status_code=503, detail="Video handler not initialized")
-
-            success = self.video_handler.force_recovery()
-            health = self.video_handler.get_connection_health()
-
-            return JSONResponse(content={
-                "success": success,
-                "message": "Video reconnect succeeded" if success else "Video reconnect attempted but source still unavailable",
-                "video": health,
-                "timestamp": time.time(),
-            }, status_code=200 if success else 503)
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error in reconnect_video: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_reconnect_video(self)
 
 
 

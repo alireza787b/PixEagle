@@ -334,17 +334,11 @@ if health['status'] != 'healthy':
 
 ### 3. Handle Recovery in UI
 
-```python
-# Dashboard integration
-@app.get("/api/video/health")
-async def video_health():
-    return video_handler.get_connection_health()
-
-@app.post("/api/video/reconnect")
-async def video_reconnect():
-    success = video_handler.force_recovery()
-    return {"success": success}
-```
+The compatibility route bodies live in `src/classes/api_legacy_media_routes.py`
+and remain registered through `FastAPIHandler` wrappers. The legacy reconnect
+response includes `success`, `message`, `video`, and `timestamp`, and returns
+HTTP 503 when recovery was attempted but the source is still unavailable. Future
+typed replacement work should preserve the explicit success/503/500 distinction.
 
 ### 4. Log for Debugging
 

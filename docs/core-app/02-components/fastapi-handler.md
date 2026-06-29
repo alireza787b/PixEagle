@@ -167,19 +167,20 @@ PixEagle has a currently published frame. It does not prove that a remote
 browser, QGC, WebRTC peer, GCS, PX4, SITL, HIL, or field video path received
 usable media.
 
-The bounded legacy media observability routes remain registered for
-compatibility, but their response bodies now live in
+The bounded legacy media observability routes and the legacy reconnect mutation
+remain registered for compatibility, but their response bodies now live in
 `src/classes/api_legacy_media_routes.py`:
 
 - `GET /api/streaming/status`
 - `GET /stats`
 - `GET /api/video/health`
+- `POST /api/video/reconnect`
 
-`FastAPIHandler` keeps one-call wrappers for those routes. Long-lived transport
-routes (`GET /video_feed`, `WS /ws/video_feed`, and WebRTC signaling) and the
-live recovery mutation `POST /api/video/reconnect` are separate cleanup slices
-because they own streaming lifecycle, session revocation, or recovery mutation
-behavior.
+`FastAPIHandler` keeps one-call wrappers for those routes. The reconnect route
+is still a legacy mutation, not a typed `/api/v1` action. Long-lived transport
+routes (`GET /video_feed`, `WS /ws/video_feed`, and WebRTC signaling) remain
+separate cleanup slices because they own streaming lifecycle and session
+revocation behavior.
 
 ### Typed Following Status Endpoint
 

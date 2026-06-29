@@ -1,4 +1,4 @@
-"""Tests for legacy media status route helper extraction."""
+"""Tests for legacy media route helper extraction."""
 
 from __future__ import annotations
 
@@ -28,8 +28,14 @@ class FakeLogger:
 
 
 class FakeVideoHandler:
-    def __init__(self, *, health=None) -> None:
+    def __init__(self, *, recovery_success: bool = True, health=None) -> None:
+        self.recovery_success = recovery_success
         self.health = health or {"status": "healthy", "source": "test"}
+        self.recovery_calls = 0
+
+    def force_recovery(self):
+        self.recovery_calls += 1
+        return self.recovery_success
 
     def get_connection_health(self):
         return self.health
@@ -229,4 +235,67 @@ async def test_video_health_unavailable_and_error_paths(monkeypatch):
         await routes.get_video_health(handler)
     assert exc_info.value.status_code == 500
     assert exc_info.value.detail == "health failed"
+    assert handler.logger.errors
+
+
+@pytest.mark.asyncio
+async def test_reconnect_video_reports_success_and_updated_health(monkeypatch):
+    handler = FakeHandler()
+    handler.video_handler = FakeVideoHandler(
+        recovery_success=True,
+        health={"status": "healthy", "source": "reconnected"},
+    )
+    monkeypatch.setattr(routes.time, "time", lambda: 100.0)
+
+    response = await routes.reconnect_video(handler)
+    body = response_body(response)
+
+    assert response.status_code == 200
+    assert body == {
+        "success": True,
+        "message": "Video reconnect succeeded",
+        "video": {"status": "healthy", "source": "reconnected"},
+        "timestamp": 100.0,
+    }
+    assert handler.video_handler.recovery_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_reconnect_video_reports_failed_recovery_with_503(monkeypatch):
+    handler = FakeHandler()
+    handler.video_handler = FakeVideoHandler(
+        recovery_success=False,
+        health={"status": "unavailable", "source": "camera"},
+    )
+    monkeypatch.setattr(routes.time, "time", lambda: 100.0)
+
+    response = await routes.reconnect_video(handler)
+    body = response_body(response)
+
+    assert response.status_code == 503
+    assert body == {
+        "success": False,
+        "message": "Video reconnect attempted but source still unavailable",
+        "video": {"status": "unavailable", "source": "camera"},
+        "timestamp": 100.0,
+    }
+    assert handler.video_handler.recovery_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_reconnect_video_error_paths():
+    handler = FakeHandler()
+    handler.video_handler = None
+
+    with pytest.raises(HTTPException) as unavailable:
+        await routes.reconnect_video(handler)
+    assert unavailable.value.status_code == 503
+    assert unavailable.value.detail == "Video handler not initialized"
+
+    handler.video_handler = FailingVideoHandler()
+    with pytest.raises(HTTPException) as failed:
+        await routes.reconnect_video(handler)
+    assert failed.value.status_code == 500
+    assert failed.value.detail == "health failed"
+    assert handler.video_handler.recovery_calls == 1
     assert handler.logger.errors

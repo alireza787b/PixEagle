@@ -120,13 +120,14 @@ Route inventory tests must:
   `/api/v1/streams/gstreamer*` promotion
 - assert that `src/classes/api_legacy_media_routes.py` owns legacy bounded
   media observability route bodies for streaming status, streaming stats, and
-  video health, and record that helper in generated candidate provenance because
-  it owns legacy response shaping for transport counts, quality-engine state,
-  OSD pipeline stats, video connection health, and OBB pipeline diagnostics
-  before typed `/api/v1/streams/*` replacement or compatibility retirement.
-  Long-lived MJPEG/WebSocket transports and `POST /api/video/reconnect` remain
-  separate route-body cleanup slices because they own session/lifecycle cleanup
-  or live recovery mutation behavior.
+  video health, plus the legacy live recovery mutation body for
+  `POST /api/video/reconnect`, and record that helper in generated candidate
+  provenance because it owns legacy response shaping for transport counts,
+  quality-engine state, OSD pipeline stats, video connection health, OBB
+  pipeline diagnostics, and reconnect success/503/500 mapping before typed
+  `/api/v1/streams/*` replacement or compatibility retirement. Long-lived
+  MJPEG/WebSocket transports remain separate route-body cleanup slices because
+  they own session/lifecycle cleanup behavior.
 - assert that `src/classes/api_legacy_osd_routes.py` owns legacy OSD route
   bodies for status, toggle, preset listing/loading, color-mode switching, and
   mode status, and record that helper in generated candidate provenance because

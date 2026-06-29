@@ -993,19 +993,21 @@ def test_legacy_safety_route_bodies_are_not_defined_in_fastapi_handler():
         assert call.args[0].id == "self"
 
 
-def test_legacy_media_status_route_bodies_are_not_defined_in_fastapi_handler():
-    """Legacy bounded media status route bodies should stay out of the handler."""
+def test_legacy_media_route_bodies_are_not_defined_in_fastapi_handler():
+    """Legacy bounded media route bodies should stay out of the handler."""
     handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
     media_routes_tree = ast.parse(API_LEGACY_MEDIA_ROUTES.read_text(encoding="utf-8"))
     expected_functions = {
         "get_streaming_status",
         "get_streaming_stats",
         "get_video_health",
+        "reconnect_video",
     }
     wrapper_targets = {
         "get_streaming_status": "dispatch_get_streaming_status",
         "get_streaming_stats": "dispatch_get_streaming_stats",
         "get_video_health": "dispatch_get_video_health",
+        "reconnect_video": "dispatch_reconnect_video",
     }
     disallowed_handler_strings = {
         "active_method",
@@ -1014,6 +1016,10 @@ def test_legacy_media_status_route_bodies_are_not_defined_in_fastapi_handler():
         "Could not read OSD pipeline stats",
         "obb_pipeline",
         "Error in get_video_health",
+        "Video handler not initialized",
+        "Video reconnect succeeded",
+        "Video reconnect attempted but source still unavailable",
+        "Error in reconnect_video",
     }
 
     media_route_functions = {
@@ -1038,7 +1044,8 @@ def test_legacy_media_status_route_bodies_are_not_defined_in_fastapi_handler():
     }
 
     assert expected_functions <= media_route_functions
-    assert "reconnect_video" not in media_route_functions
+    assert "video_feed" not in media_route_functions
+    assert "video_feed_websocket_optimized" not in media_route_functions
     for marker in disallowed_handler_strings:
         assert any(marker in literal for literal in media_route_strings)
         assert not any(marker in literal for literal in handler_string_literals)

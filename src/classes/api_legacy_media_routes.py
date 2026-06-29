@@ -1,4 +1,4 @@
-"""Legacy media status route helpers."""
+"""Legacy media route helpers."""
 
 from __future__ import annotations
 
@@ -133,4 +133,33 @@ async def get_video_health(handler: Any) -> JSONResponse:
         )
     except Exception as exc:
         handler.logger.error(f"Error in get_video_health: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+async def reconnect_video(handler: Any) -> JSONResponse:
+    """Manually trigger a legacy video reconnection attempt."""
+    try:
+        if not handler.video_handler:
+            raise HTTPException(status_code=503, detail="Video handler not initialized")
+
+        success = handler.video_handler.force_recovery()
+        health = handler.video_handler.get_connection_health()
+
+        return JSONResponse(
+            content={
+                "success": success,
+                "message": (
+                    "Video reconnect succeeded"
+                    if success
+                    else "Video reconnect attempted but source still unavailable"
+                ),
+                "video": health,
+                "timestamp": time.time(),
+            },
+            status_code=200 if success else 503,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        handler.logger.error(f"Error in reconnect_video: {exc}")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
