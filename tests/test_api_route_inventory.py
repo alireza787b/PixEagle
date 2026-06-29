@@ -1252,28 +1252,43 @@ def test_legacy_follower_profile_route_bodies_are_not_defined_in_fastapi_handler
         "get_follower_profiles",
         "get_current_follower_profile",
         "switch_follower_profile",
+        "get_follower_health",
+        "restart_follower",
         "get_configured_follower_mode",
         "get_follower_setpoints_with_status",
         "get_current_follower_mode",
+        "get_follower_config_general",
+        "get_follower_config_effective",
     }
     wrapper_targets = {
         "get_follower_schema": "dispatch_get_follower_schema",
         "get_follower_profiles": "dispatch_get_follower_profiles",
         "get_current_follower_profile": "dispatch_get_current_follower_profile",
         "switch_follower_profile": "dispatch_switch_follower_profile",
+        "get_follower_health": "dispatch_get_follower_health",
+        "restart_follower": "dispatch_restart_follower",
         "get_configured_follower_mode": "dispatch_get_configured_follower_mode",
         "get_follower_setpoints_with_status": (
             "dispatch_get_follower_setpoints_with_status"
         ),
         "get_current_follower_mode": "dispatch_get_current_follower_mode",
+        "get_follower_config_general": "dispatch_get_follower_config_general",
+        "get_follower_config_effective": "dispatch_get_follower_config_effective",
     }
     disallowed_handler_strings = {
         "Profile configured but not engaged. Start offboard mode to activate.",
         "Profile not found in schema:",
         "profile_name is required",
+        "Follower marked active but instance is None",
+        "OffboardCommander has transient publish failures",
+        "State lock not initialized - thread safety compromised",
+        "Config reloaded. No active follower to restart.",
+        "Config reloaded for follower restart",
         "Configured follower mode set to",
         "Follower has no setpoint handler",
         "commands_allowed_by_circuit_breaker",
+        "Error getting follower config general",
+        "Error getting follower config for",
         "Error getting follower setpoints with status",
         "Error getting current follower mode",
     }

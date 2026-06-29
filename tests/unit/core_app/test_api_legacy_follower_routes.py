@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -54,14 +55,26 @@ class FakeFollower:
         return self.switch_success
 
 
-def make_handler(*, follower=None, following_active=False, offboard_commander=None):
+def make_handler(
+    *,
+    follower=None,
+    following_active=False,
+    offboard_commander=None,
+    config_rate_limiter=None,
+    **app_attrs,
+):
     app_controller = SimpleNamespace(
         follower=follower,
         following_active=following_active,
         offboard_commander=offboard_commander,
+        **app_attrs,
     )
     return SimpleNamespace(
         app_controller=app_controller,
+        config_rate_limiter=(
+            config_rate_limiter
+            or SimpleNamespace(is_allowed=lambda bucket: (bool(1), None))
+        ),
         logger=logging.getLogger("test.api_legacy_follower_routes"),
     )
 
@@ -252,6 +265,163 @@ async def test_configured_and_current_mode_payloads(monkeypatch):
     assert current["effective_limits"] == {
         "MAX_VELOCITY_FORWARD": {"value": 5.0, "source": "GlobalLimits"}
     }
+
+
+@pytest.mark.asyncio
+async def test_follower_health_reports_degraded_commander(monkeypatch):
+    monkeypatch.setattr(
+        routes.SetpointHandler,
+        "get_available_profiles",
+        lambda: ["mc_velocity_chase"],
+    )
+    follower = SimpleNamespace(
+        get_display_name=lambda: "MC Velocity Chase",
+        get_control_type=lambda: "velocity_body_offboard",
+        validate_current_mode=lambda: bool(1),
+    )
+    commander = SimpleNamespace(
+        get_status=lambda: {
+            "exists": True,
+            "running": True,
+            "health_state": "degraded",
+            "consecutive_failures": 1,
+        }
+    )
+    handler = make_handler(
+        follower=follower,
+        following_active=True,
+        offboard_commander=commander,
+        setpoint_sender=None,
+        px4_interface=SimpleNamespace(is_connected=lambda: bool(1)),
+        tracker=SimpleNamespace(),
+        tracking_started=True,
+        _follower_state_lock=object(),
+    )
+
+    health = response_body(await routes.get_follower_health(handler))
+
+    assert health["overall_status"] == "degraded"
+    assert health["components"]["follower"]["type"] == "MC Velocity Chase"
+    assert health["components"]["px4_interface"]["status"] == "connected"
+    assert "OffboardCommander has transient publish failures" in health["issues"]
+
+
+@pytest.mark.asyncio
+async def test_follower_health_reports_inactive_cleanup_and_errors(monkeypatch):
+    monkeypatch.setattr(
+        routes.SetpointHandler,
+        "get_available_profiles",
+        lambda: (_ for _ in ()).throw(RuntimeError("schema down")),
+    )
+    handler = make_handler(
+        follower=SimpleNamespace(),
+        following_active=False,
+        offboard_commander=SimpleNamespace(),
+        setpoint_sender=object(),
+    )
+
+    health = response_body(await routes.get_follower_health(handler))
+
+    assert health["overall_status"] == "unhealthy"
+    assert "Follower inactive but resources not cleaned up" in health["issues"]
+    assert "State lock not initialized - thread safety compromised" in health["issues"]
+    assert "Configuration validation error: schema down" in health["issues"]
+    assert health["components"]["configuration"]["error"] == "schema down"
+
+
+@pytest.mark.asyncio
+async def test_restart_follower_rate_limited_and_inactive_config_reload(monkeypatch):
+    reload_config = MagicMock()
+    monkeypatch.setattr(routes.Parameters, "reload_config", reload_config)
+    limited_handler = make_handler(
+        config_rate_limiter=SimpleNamespace(
+            is_allowed=lambda bucket: (bool(0), 17)
+        )
+    )
+    allowed_handler = make_handler()
+
+    limited = await routes.restart_follower(limited_handler)
+    inactive = response_body(await routes.restart_follower(allowed_handler))
+
+    assert limited.status_code == 429
+    assert limited.headers["retry-after"] == "17"
+    assert response_body(limited)["error"] == "Too many restart requests"
+    reload_config.assert_called_once()
+    assert inactive["success"] is True
+    assert inactive["action"] == "config_reloaded"
+    assert "No active follower to restart" in inactive["message"]
+
+
+@pytest.mark.asyncio
+async def test_restart_follower_stops_and_starts_active_follower(monkeypatch):
+    reload_config = MagicMock()
+    monkeypatch.setattr(routes.Parameters, "reload_config", reload_config)
+    stop_following = AsyncMock()
+    start_following = AsyncMock()
+    handler = make_handler(
+        follower=SimpleNamespace(profile_name="mc_velocity_chase"),
+        following_active=True,
+        stop_following=stop_following,
+        start_following=start_following,
+    )
+
+    restarted = response_body(await routes.restart_follower(handler))
+
+    reload_config.assert_called_once()
+    stop_following.assert_awaited_once()
+    start_following.assert_awaited_once()
+    assert restarted["success"] is True
+    assert restarted["action"] == "follower_restarted"
+    assert restarted["profile"] == "mc_velocity_chase"
+
+
+@pytest.mark.asyncio
+async def test_follower_config_routes_return_general_and_effective(monkeypatch):
+    fake_manager = SimpleNamespace(
+        _general={"CONTROL_UPDATE_RATE": 30},
+        _overrides={"MC_VELOCITY_CHASE": {"MAX_SPEED": 5}},
+        get_available_followers=lambda: ["MC_VELOCITY_CHASE"],
+        get_effective_config_summary=lambda follower_name: {
+            "MAX_SPEED": {"value": 5, "source": follower_name}
+        },
+    )
+    monkeypatch.setattr(
+        "classes.follower_config_manager.get_follower_config_manager",
+        lambda: fake_manager,
+    )
+    handler = make_handler()
+
+    general = response_body(await routes.get_follower_config_general(handler))
+    effective = response_body(
+        await routes.get_follower_config_effective(handler, "MC_VELOCITY_CHASE")
+    )
+
+    assert general["available"] is True
+    assert general["general"] == {"CONTROL_UPDATE_RATE": 30}
+    assert general["follower_overrides"] == {"MC_VELOCITY_CHASE": {"MAX_SPEED": 5}}
+    assert general["available_followers"] == ["MC_VELOCITY_CHASE"]
+    assert effective["follower_name"] == "MC_VELOCITY_CHASE"
+    assert effective["params"] == {
+        "MAX_SPEED": {"value": 5, "source": "MC_VELOCITY_CHASE"}
+    }
+
+
+@pytest.mark.asyncio
+async def test_follower_config_routes_map_errors_to_http_500(monkeypatch):
+    monkeypatch.setattr(
+        "classes.follower_config_manager.get_follower_config_manager",
+        lambda: (_ for _ in ()).throw(RuntimeError("config unavailable")),
+    )
+
+    with pytest.raises(HTTPException) as general_exc:
+        await routes.get_follower_config_general(make_handler())
+    with pytest.raises(HTTPException) as effective_exc:
+        await routes.get_follower_config_effective(make_handler(), "bad")
+
+    assert general_exc.value.status_code == 500
+    assert general_exc.value.detail == "config unavailable"
+    assert effective_exc.value.status_code == 500
+    assert effective_exc.value.detail == "config unavailable"
 
 
 @pytest.mark.asyncio

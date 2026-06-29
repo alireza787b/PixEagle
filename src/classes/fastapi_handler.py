@@ -136,9 +136,13 @@ from classes.api_legacy_follower_routes import (
     get_configured_follower_mode as dispatch_get_configured_follower_mode,
     get_current_follower_mode as dispatch_get_current_follower_mode,
     get_current_follower_profile as dispatch_get_current_follower_profile,
+    get_follower_config_effective as dispatch_get_follower_config_effective,
+    get_follower_config_general as dispatch_get_follower_config_general,
+    get_follower_health as dispatch_get_follower_health,
     get_follower_profiles as dispatch_get_follower_profiles,
     get_follower_schema as dispatch_get_follower_schema,
     get_follower_setpoints_with_status as dispatch_get_follower_setpoints_with_status,
+    restart_follower as dispatch_restart_follower,
     switch_follower_profile as dispatch_switch_follower_profile,
 )
 from classes.api_legacy_osd_routes import (
@@ -2595,204 +2599,7 @@ class FastAPIHandler:
         return await dispatch_switch_follower_profile(self, request)
 
     async def get_follower_health(self):
-        """
-        Comprehensive health check endpoint for follower system.
-
-        This endpoint provides detailed health status that can be used for:
-        - Monitoring and alerting
-        - Diagnostics and troubleshooting
-        - State verification after operations
-        - External integrations
-
-        Returns:
-            dict: Detailed health status including:
-                - Overall health status (healthy, degraded, unhealthy)
-                - Component states (follower, threads, connections)
-                - Configuration validation
-                - Performance metrics
-                - Error conditions
-        """
-        import time
-
-        try:
-            health_status = {
-                "timestamp": time.time(),
-                "overall_status": "healthy",
-                "components": {},
-                "metrics": {},
-                "issues": []
-            }
-
-            # Check follower state
-            follower_component = {
-                "active": self.app_controller.following_active,
-                "status": "active" if self.app_controller.following_active else "inactive"
-            }
-
-            if self.app_controller.following_active:
-                # Check follower instance
-                if hasattr(self.app_controller, 'follower') and self.app_controller.follower:
-                    follower = self.app_controller.follower
-                    follower_component["has_instance"] = True
-                    follower_component["type"] = follower.get_display_name() if hasattr(follower, 'get_display_name') else "unknown"
-                    follower_component["control_type"] = follower.get_control_type() if hasattr(follower, 'get_control_type') else "unknown"
-                    follower_component["mode_valid"] = follower.validate_current_mode() if hasattr(follower, 'validate_current_mode') else False
-                else:
-                    follower_component["has_instance"] = False
-                    health_status["issues"].append("Follower marked active but instance is None")
-                    health_status["overall_status"] = "degraded"
-
-                # Check Offboard commander heartbeat owner
-                if hasattr(self.app_controller, 'offboard_commander') and self.app_controller.offboard_commander:
-                    commander = self.app_controller.offboard_commander
-                    commander_status = (
-                        commander.get_status()
-                        if hasattr(commander, 'get_status')
-                        else {"exists": True, "running": False}
-                    )
-                    follower_component["offboard_commander"] = commander_status
-
-                    commander_health = commander_status.get("health_state")
-                    if not commander_status.get("running", False) or commander_health == "failed":
-                        health_status["issues"].append("OffboardCommander is not running")
-                        health_status["overall_status"] = "unhealthy"
-                    elif commander_health == "degraded":
-                        health_status["issues"].append("OffboardCommander has transient publish failures")
-                        if health_status["overall_status"] == "healthy":
-                            health_status["overall_status"] = "degraded"
-                else:
-                    follower_component["offboard_commander"] = {"exists": False}
-                    health_status["issues"].append("Follower active but OffboardCommander is None")
-                    health_status["overall_status"] = "unhealthy"
-
-                follower_component["setpoint_sender"] = {
-                    "exists": bool(
-                        hasattr(self.app_controller, 'setpoint_sender') and
-                        self.app_controller.setpoint_sender
-                    ),
-                    "role": "legacy_monitor",
-                }
-            else:
-                follower_component["has_instance"] = bool(hasattr(self.app_controller, 'follower') and self.app_controller.follower)
-                follower_component["offboard_commander"] = {
-                    "exists": bool(
-                        hasattr(self.app_controller, 'offboard_commander') and
-                        self.app_controller.offboard_commander
-                    )
-                }
-                follower_component["setpoint_sender"] = {"exists": bool(hasattr(self.app_controller, 'setpoint_sender') and self.app_controller.setpoint_sender)}
-
-                # Check for cleanup issues
-                if (
-                    follower_component["has_instance"] or
-                    follower_component["offboard_commander"]["exists"] or
-                    follower_component["setpoint_sender"]["exists"]
-                ):
-                    health_status["issues"].append("Follower inactive but resources not cleaned up")
-                    health_status["overall_status"] = "degraded"
-
-            health_status["components"]["follower"] = follower_component
-
-            # Check PX4 interface
-            px4_component = {
-                "initialized": hasattr(self.app_controller, 'px4_interface'),
-                "status": "unknown"
-            }
-
-            if px4_component["initialized"]:
-                px4_interface = self.app_controller.px4_interface
-                # Check if connected (if method exists)
-                if hasattr(px4_interface, 'is_connected'):
-                    px4_component["connected"] = px4_interface.is_connected()
-                    px4_component["status"] = "connected" if px4_component["connected"] else "disconnected"
-                elif hasattr(px4_interface, 'connection'):
-                    px4_component["has_connection"] = px4_interface.connection is not None
-                    px4_component["status"] = "ready" if px4_component["has_connection"] else "not_ready"
-
-            health_status["components"]["px4_interface"] = px4_component
-
-            # Check tracker
-            tracker_component = {
-                "initialized": hasattr(self.app_controller, 'tracker'),
-                "tracking_active": getattr(self.app_controller, 'tracking_started', False)
-            }
-
-            if tracker_component["initialized"]:
-                tracker = self.app_controller.tracker
-                tracker_component["type"] = tracker.__class__.__name__ if tracker else "None"
-
-            health_status["components"]["tracker"] = tracker_component
-
-            # Check state lock
-            lock_component = {
-                "initialized": hasattr(self.app_controller, '_follower_state_lock'),
-                "type": type(self.app_controller._follower_state_lock).__name__ if hasattr(self.app_controller, '_follower_state_lock') else "None"
-            }
-            health_status["components"]["state_lock"] = lock_component
-
-            if not lock_component["initialized"]:
-                health_status["issues"].append("State lock not initialized - thread safety compromised")
-                health_status["overall_status"] = "unhealthy"
-
-            # Configuration validation
-            config_component = {
-                "follower_mode": Parameters.FOLLOWER_MODE,
-                "valid": False
-            }
-
-            try:
-                available_profiles = SetpointHandler.get_available_profiles()
-                config_component["valid"] = Parameters.FOLLOWER_MODE in available_profiles
-                config_component["available_profiles"] = available_profiles
-
-                if not config_component["valid"]:
-                    health_status["issues"].append(f"Invalid follower mode: {Parameters.FOLLOWER_MODE}")
-                    if health_status["overall_status"] == "healthy":
-                        health_status["overall_status"] = "degraded"
-
-            except Exception as e:
-                config_component["error"] = str(e)
-                health_status["issues"].append(f"Configuration validation error: {e}")
-
-            health_status["components"]["configuration"] = config_component
-
-            # Performance metrics
-            metrics = {}
-
-            # Add uptime if tracking
-            if hasattr(self.app_controller, 'following_active') and self.app_controller.following_active:
-                if hasattr(self.app_controller, '_following_start_time'):
-                    uptime = time.time() - self.app_controller._following_start_time
-                    metrics["follower_uptime_seconds"] = round(uptime, 2)
-
-            health_status["metrics"] = metrics
-
-            # Summary
-            commander_for_summary = follower_component.get("offboard_commander", {})
-            health_status["summary"] = {
-                "components_checked": len(health_status["components"]),
-                "issues_found": len(health_status["issues"]),
-                "follower_operational": (
-                    self.app_controller.following_active and
-                    follower_component.get("has_instance", False) and
-                    commander_for_summary.get("running", False) and
-                    commander_for_summary.get("health_state") != "failed"
-                ) if self.app_controller.following_active else True  # If inactive, consider operational
-            }
-
-            return JSONResponse(content=health_status)
-
-        except Exception as e:
-            self.logger.error(f"Error in follower health check: {e}")
-            return JSONResponse(
-                content={
-                    "timestamp": time.time(),
-                    "overall_status": "error",
-                    "error": str(e),
-                    "exception_type": type(e).__name__
-                },
-                status_code=500
-            )
+        return await dispatch_get_follower_health(self)
 
     async def get_configured_follower_mode(self):
         return await dispatch_get_configured_follower_mode(self)
@@ -2977,81 +2784,7 @@ class FastAPIHandler:
             raise HTTPException(status_code=500, detail=str(e))
 
     async def restart_follower(self):
-        """
-        Restart the current follower with fresh config.
-
-        This endpoint is used after configuration changes that require
-        follower restart (reload_tier: follower_restart) to take effect.
-
-        The follower is stopped, config is reloaded, and follower is restarted
-        with the same profile but fresh parameters.
-
-        Returns:
-            JSONResponse: Restart status with before/after config summary.
-        """
-        # Rate limiting check - prevent restart abuse
-        allowed, retry_after = self.config_rate_limiter.is_allowed('config_write')
-        if not allowed:
-            return JSONResponse(
-                status_code=429,
-                content={
-                    'success': False,
-                    'error': 'Too many restart requests',
-                    'retry_after': retry_after,
-                    'timestamp': time.time()
-                },
-                headers={'Retry-After': str(retry_after)}
-            )
-
-        try:
-            # Reload config first
-            Parameters.reload_config()
-            self.logger.info("Config reloaded for follower restart")
-
-            # Get current follower state
-            has_active_follower = (
-                hasattr(self.app_controller, 'follower') and
-                self.app_controller.follower is not None and
-                self.app_controller.following_active
-            )
-
-            current_profile = Parameters.FOLLOWER_MODE
-
-            if has_active_follower:
-                # Get old follower info before restart
-                old_follower = self.app_controller.follower
-                old_profile = getattr(old_follower, 'profile_name', current_profile)
-
-                # Stop current follower
-                if hasattr(self.app_controller, 'stop_following'):
-                    await self.app_controller.stop_following()
-                    self.logger.info("Stopped active follower for restart")
-
-                # Start fresh follower with same profile
-                if hasattr(self.app_controller, 'start_following'):
-                    await self.app_controller.start_following()
-                    self.logger.info(f"Restarted follower with profile: {current_profile}")
-
-                return JSONResponse(content={
-                    'success': True,
-                    'action': 'follower_restarted',
-                    'profile': current_profile,
-                    'message': f'Follower restarted with fresh config (profile: {current_profile})',
-                    'config_reloaded': True
-                })
-            else:
-                # No active follower - just confirm config was reloaded
-                return JSONResponse(content={
-                    'success': True,
-                    'action': 'config_reloaded',
-                    'profile': current_profile,
-                    'message': 'Config reloaded. No active follower to restart. Changes will apply on next start.',
-                    'config_reloaded': True
-                })
-
-        except Exception as e:
-            self.logger.error(f"Error restarting follower: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_restart_follower(self)
 
     async def restart_tracker(self):
         """
@@ -4257,51 +3990,10 @@ class FastAPIHandler:
     # ==================== Follower Config API Endpoints (v6.1.0+) ====================
 
     async def get_follower_config_general(self):
-        """
-        Get Follower.General configuration values.
-
-        Returns:
-            dict: General follower config and available followers with overrides
-        """
-        try:
-            from classes.follower_config_manager import get_follower_config_manager
-            fcm = get_follower_config_manager()
-
-            return JSONResponse(content={
-                'available': True,
-                'general': fcm._general,
-                'follower_overrides': fcm._overrides,
-                'available_followers': fcm.get_available_followers(),
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting follower config general: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_follower_config_general(self)
 
     async def get_follower_config_effective(self, follower_name: str):
-        """
-        Get per-parameter provenance for a specific follower.
-
-        Args:
-            follower_name: Name of the follower (e.g., 'MC_VELOCITY_CHASE')
-
-        Returns:
-            dict: Per-param effective value, source, override status
-        """
-        try:
-            from classes.follower_config_manager import get_follower_config_manager
-            fcm = get_follower_config_manager()
-
-            summary = fcm.get_effective_config_summary(follower_name)
-
-            return JSONResponse(content={
-                'follower_name': follower_name,
-                'params': summary,
-                'timestamp': time.time()
-            })
-        except Exception as e:
-            self.logger.error(f"Error getting follower config for {follower_name}: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_get_follower_config_effective(self, follower_name)
 
     # ==================== Enhanced Safety/Config API Endpoints (v5.0.0+) ====================
 
