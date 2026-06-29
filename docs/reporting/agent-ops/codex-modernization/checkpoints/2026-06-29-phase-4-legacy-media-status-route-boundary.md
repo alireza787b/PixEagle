@@ -38,9 +38,11 @@ unchanged.
   for a separate media mutation cleanup because it calls live
   `video_handler.force_recovery()`. That follow-up is tracked by
   `2026-06-29-phase-4-legacy-media-reconnect-route-boundary.md`.
-- `GET /video_feed` and `WS /ws/video_feed` remain in `FastAPIHandler` for a
-  later transport/lifecycle slice because they own long-lived generators,
-  WebSocket tasks, session revocation, and cleanup behavior.
+- At this checkpoint, `GET /video_feed` and `WS /ws/video_feed` remained in
+  `FastAPIHandler` for later transport/lifecycle slices because they own
+  long-lived generators, WebSocket tasks, session revocation, and cleanup
+  behavior. The HTTP MJPEG follow-up is tracked by
+  `2026-06-29-phase-4-legacy-media-http-route-boundary.md`.
 - `WS /ws/webrtc_signaling` remains delegated to `WebRTCManager`.
 - No typed `/api/v1/streams/*` route was added.
 - No compatibility alias was retired.
@@ -92,14 +94,13 @@ and one existing Starlette/httpx deprecation warning.
   browser, QGC, WebRTC peer, GCS, PX4, SITL, HIL, or field media receipt.
 - `POST /api/video/reconnect` was handled in the follow-up reconnect boundary
   and remains a legacy media mutation without typed action/idempotency semantics.
-- Long-lived MJPEG/WebSocket transport route bodies still live in
-  `FastAPIHandler`.
+- The HTTP MJPEG route body was handled in the follow-up HTTP boundary.
+  Long-lived video WebSocket/WebRTC transport route bodies still live in
+  `FastAPIHandler` or the WebRTC manager.
 - No ASGI path-level test was added for each route; coverage is helper-level plus
   static route inventory/security/candidate gates.
 
 ## Next
 
-- Continue from the follow-up media reconnect boundary before long-lived media
+- Continue from the follow-up media HTTP boundary before video WebSocket/WebRTC
   transport cleanup.
-- Handle `GET /video_feed` and `WS /ws/video_feed` in a later transport
-  lifecycle slice after preserving session-revocation and cleanup tests.

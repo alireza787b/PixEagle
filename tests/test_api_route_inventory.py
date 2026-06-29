@@ -1002,12 +1002,14 @@ def test_legacy_media_route_bodies_are_not_defined_in_fastapi_handler():
         "get_streaming_stats",
         "get_video_health",
         "reconnect_video",
+        "video_feed",
     }
     wrapper_targets = {
         "get_streaming_status": "dispatch_get_streaming_status",
         "get_streaming_stats": "dispatch_get_streaming_stats",
         "get_video_health": "dispatch_get_video_health",
         "reconnect_video": "dispatch_reconnect_video",
+        "video_feed": "dispatch_video_feed",
     }
     disallowed_handler_strings = {
         "active_method",
@@ -1020,12 +1022,18 @@ def test_legacy_media_route_bodies_are_not_defined_in_fastapi_handler():
         "Video reconnect succeeded",
         "Video reconnect attempted but source still unavailable",
         "Error in reconnect_video",
+        "Frame generator using FramePublisher and AdaptiveQualityEngine",
+        "Frame encoding error",
+        "multipart/x-mixed-replace; boundary=frame",
     }
 
     media_route_functions = {
         node.name
         for node in ast.walk(media_routes_tree)
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    media_route_classes = {
+        node.name for node in ast.walk(media_routes_tree) if isinstance(node, ast.ClassDef)
     }
     media_route_strings = {
         node.value
@@ -1037,6 +1045,9 @@ def test_legacy_media_route_bodies_are_not_defined_in_fastapi_handler():
         for node in ast.walk(handler_tree)
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
     }
+    handler_classes = {
+        node.name for node in ast.walk(handler_tree) if isinstance(node, ast.ClassDef)
+    }
     handler_string_literals = {
         node.value
         for node in ast.walk(handler_tree)
@@ -1044,7 +1055,8 @@ def test_legacy_media_route_bodies_are_not_defined_in_fastapi_handler():
     }
 
     assert expected_functions <= media_route_functions
-    assert "video_feed" not in media_route_functions
+    assert "SessionBoundStreamingResponse" in media_route_classes
+    assert "SessionBoundStreamingResponse" not in handler_classes
     assert "video_feed_websocket_optimized" not in media_route_functions
     for marker in disallowed_handler_strings:
         assert any(marker in literal for literal in media_route_strings)

@@ -2,13 +2,232 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from fastapi import HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
+from classes.api_security_types import APIPrincipal, APIPrincipalKind
 from classes.parameters import Parameters
+
+
+class SessionBoundStreamingResponse(StreamingResponse):
+    """Streaming response that terminates when its browser session is revoked."""
+
+    def __init__(
+        self,
+        content: Any,
+        *,
+        session_is_active: Callable[[], bool],
+        on_session_revoked: Callable[[], None],
+        poll_interval: float = 0.1,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(content, **kwargs)
+        self._session_is_active = session_is_active
+        self._on_session_revoked = on_session_revoked
+        self._session_poll_interval = max(0.01, float(poll_interval))
+
+    async def _wait_for_session_revocation(self) -> None:
+        while self._session_is_active():
+            await asyncio.sleep(self._session_poll_interval)
+        self._on_session_revoked()
+
+    @staticmethod
+    async def _cancel_task_bounded(task: asyncio.Future[Any]) -> None:
+        if task.done():
+            return
+        task.cancel()
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(task, return_exceptions=True),
+                timeout=1.0,
+            )
+        except asyncio.TimeoutError:
+            pass
+
+    async def _await_or_revoked(
+        self,
+        awaitable: Awaitable[Any],
+        session_monitor: asyncio.Task[None],
+    ) -> tuple[Any, bool]:
+        operation = asyncio.ensure_future(awaitable)
+        done, _ = await asyncio.wait(
+            {operation, session_monitor},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if session_monitor in done:
+            await self._cancel_task_bounded(operation)
+            return None, True
+        return operation.result(), False
+
+    async def stream_response(self, send) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": self.status_code,
+                "headers": self.raw_headers,
+            }
+        )
+        session_monitor = asyncio.create_task(self._wait_for_session_revocation())
+        iterator = self.body_iterator.__aiter__()
+        revoked = False
+        try:
+            while True:
+                try:
+                    chunk, revoked = await self._await_or_revoked(
+                        iterator.__anext__(),
+                        session_monitor,
+                    )
+                except StopAsyncIteration:
+                    break
+                if revoked:
+                    break
+                if not isinstance(chunk, bytes | memoryview):
+                    chunk = chunk.encode(self.charset)
+                _, revoked = await self._await_or_revoked(
+                    send(
+                        {
+                            "type": "http.response.body",
+                            "body": chunk,
+                            "more_body": True,
+                        }
+                    ),
+                    session_monitor,
+                )
+                if revoked:
+                    break
+        finally:
+            await self._cancel_task_bounded(session_monitor)
+            close_iterator = getattr(iterator, "aclose", None)
+            if close_iterator is not None:
+                try:
+                    await asyncio.wait_for(close_iterator(), timeout=1.0)
+                except (asyncio.TimeoutError, RuntimeError):
+                    pass
+
+        try:
+            await asyncio.wait_for(
+                send(
+                    {
+                        "type": "http.response.body",
+                        "body": b"",
+                        "more_body": False,
+                    }
+                ),
+                timeout=1.0,
+            )
+        except (asyncio.TimeoutError, RuntimeError):
+            if not revoked:
+                raise
+
+
+async def video_feed(handler: Any, request: Any):
+    """Serve optimized legacy HTTP MJPEG streaming with adaptive quality."""
+    if not getattr(Parameters, "ENABLE_STREAMING", True):
+        raise HTTPException(status_code=503, detail="Streaming is disabled")
+
+    client_id = f"http_{time.time()}"
+    principal = getattr(request.state, "api_principal", APIPrincipal.anonymous())
+
+    async with handler.connection_lock:
+        if len(handler.http_connections) >= Parameters.HTTP_MAX_CONNECTIONS:
+            raise HTTPException(status_code=503, detail="Max connections reached")
+        handler.http_connections.add(client_id)
+        handler._update_active_connection_count()
+
+    handler.frame_publisher.register_client()
+    handler.quality_engine.register_client(client_id, Parameters.STREAM_QUALITY)
+
+    async def generate():
+        """Frame generator using FramePublisher and AdaptiveQualityEngine."""
+        quality = Parameters.STREAM_QUALITY
+        last_send_time = 0.0
+        last_frame_id = -1
+
+        try:
+            while not handler.is_shutting_down:
+                current_time = time.time()
+
+                remaining = handler.frame_interval - (current_time - last_send_time)
+                if remaining > 0:
+                    await asyncio.sleep(remaining)
+                    continue
+
+                stamped = handler.frame_publisher.get_latest(
+                    prefer_osd=Parameters.STREAM_PROCESSED_OSD
+                )
+                if stamped is None:
+                    await asyncio.sleep(0.01)
+                    continue
+
+                if stamped.frame_id == last_frame_id:
+                    await asyncio.sleep(0.005)
+                    continue
+
+                try:
+                    encode_start = time.monotonic()
+                    frame_bytes = await handler.stream_optimizer.encode_frame_async(
+                        stamped.frame,
+                        stamped.frame_id,
+                        quality,
+                    )
+                    encode_time = time.monotonic() - encode_start
+
+                    if Parameters.ENABLE_ADAPTIVE_QUALITY:
+                        quality = handler.quality_engine.report_frame_sent(
+                            client_id,
+                            len(frame_bytes),
+                            encode_time,
+                        )
+
+                    yield (
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n"
+                        b"Content-Length: "
+                        + str(len(frame_bytes)).encode()
+                        + b"\r\n"
+                        b"\r\n"
+                        + frame_bytes
+                        + b"\r\n"
+                    )
+
+                    last_send_time = time.time()
+                    last_frame_id = stamped.frame_id
+                    handler.stats["frames_sent"] += 1
+                    handler.stats["total_bandwidth"] += len(frame_bytes)
+
+                except Exception as exc:
+                    handler.logger.error(f"Frame encoding error: {exc}")
+                    handler.stats["frames_dropped"] += 1
+
+        finally:
+            handler.quality_engine.unregister_client(client_id)
+            handler.frame_publisher.unregister_client()
+            async with handler.connection_lock:
+                handler.http_connections.discard(client_id)
+                handler.stats["active_connections"] = len(
+                    handler.http_connections
+                ) + len(handler.ws_connections)
+
+    response_kwargs = {
+        "media_type": "multipart/x-mixed-replace; boundary=frame",
+        "headers": {"Cache-Control": "no-cache"},
+    }
+    if principal.kind == APIPrincipalKind.SESSION:
+        return SessionBoundStreamingResponse(
+            generate(),
+            session_is_active=lambda: handler._media_principal_is_active(principal),
+            on_session_revoked=lambda: handler._record_media_session_revoked(
+                principal=principal,
+                transport="http",
+                path="/video_feed",
+            ),
+            **response_kwargs,
+        )
+    return StreamingResponse(generate(), **response_kwargs)
 
 
 async def get_streaming_status(handler: Any) -> JSONResponse:

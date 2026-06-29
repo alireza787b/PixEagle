@@ -26,8 +26,8 @@ QGC, PX4, SITL, HIL, field, or real-aircraft evidence.
 - Expanded media helper tests for reconnect success, failed recovery, missing
   video handler, and unexpected health failure.
 - Updated route-inventory guardrails so reconnect body strings stay out of
-  `FastAPIHandler`, while long-lived `video_feed` and optimized WebSocket media
-  transport handlers remain outside the helper.
+  `FastAPIHandler`; at this checkpoint, HTTP MJPEG and optimized WebSocket
+  media transport handlers still remained outside the helper.
 - Regenerated API/MCP tool candidate provenance because `fastapi_handler.py` and
   `api_legacy_media_routes.py` changed.
 
@@ -77,13 +77,13 @@ passed with 388 tests and one existing Starlette/httpx deprecation warning.
 - No ASGI path-level reconnect test was added.
 - The unexpected-error test asserts that logging happened, not the exact log
   message text.
-- Long-lived `GET /video_feed`, `WS /ws/video_feed`, and WebRTC signaling route
-  bodies still live in `FastAPIHandler`.
+- The HTTP MJPEG route body was handled in the follow-up HTTP boundary.
+  Long-lived `WS /ws/video_feed` and WebRTC signaling route bodies still live in
+  `FastAPIHandler` or the WebRTC manager.
 
 ## Next
 
-- Review and extract long-lived MJPEG/WebSocket media transport route bodies only
-  after preserving session revocation, streaming-disabled, origin/host rejection,
-  and cleanup behavior.
+- Continue from the follow-up HTTP boundary before video WebSocket/WebRTC
+  transport cleanup.
 - Keep circuit-breaker toggle/safety-bypass/reset as a separate guarded mutation
   cleanup.
