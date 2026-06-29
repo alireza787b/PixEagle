@@ -4,13 +4,37 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections import deque
+from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
-from fastapi import HTTPException
+from fastapi import HTTPException, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from classes.api_security_types import APIPrincipal, APIPrincipalKind
+from classes.api_auth_runtime import authorize_websocket_request
+from classes.api_exposure_policy import is_websocket_request_allowed
+from classes.api_security_types import (
+    APIAuditPolicy,
+    APIPrincipal,
+    APIPrincipalKind,
+    APISensitivity,
+)
 from classes.parameters import Parameters
+
+
+@dataclass
+class ClientConnection:
+    """Track legacy video WebSocket client connection state."""
+
+    id: str
+    connected_at: float
+    last_frame_time: float
+    quality: int
+    frame_drops: int
+    bandwidth_estimate: float
+    frame_queue: deque[Any]
+    websocket: Any = None
+    principal: APIPrincipal | None = None
 
 
 class SessionBoundStreamingResponse(StreamingResponse):
@@ -228,6 +252,132 @@ async def video_feed(handler: Any, request: Any):
             **response_kwargs,
         )
     return StreamingResponse(generate(), **response_kwargs)
+
+
+async def video_feed_websocket_optimized(handler: Any, websocket: Any) -> None:
+    """Serve optimized legacy WebSocket streaming with adaptive quality."""
+    if not getattr(Parameters, "ENABLE_STREAMING", True):
+        await websocket.close(code=1008, reason="Streaming is disabled")
+        return
+
+    if not is_websocket_request_allowed(
+        host=websocket.headers.get("host"),
+        origin=websocket.headers.get("origin"),
+        client_host=getattr(getattr(websocket, "client", None), "host", None),
+        policy=handler.exposure_policy,
+    ):
+        handler._record_security_audit_event(
+            event_type="api.websocket.origin",
+            outcome="denied",
+            reason="websocket_origin_not_allowed",
+            transport="websocket",
+            method="WEBSOCKET",
+            path="/ws/video_feed",
+            status_code=1008,
+            principal=APIPrincipal.anonymous(),
+            audit_policy=APIAuditPolicy.SECURITY_CRITICAL,
+            sensitivity=APISensitivity.MEDIA,
+            client_host=getattr(getattr(websocket, "client", None), "host", None),
+            host_header=websocket.headers.get("host"),
+            origin=websocket.headers.get("origin"),
+        )
+        await websocket.close(code=1008, reason="WebSocket Host or Origin not allowed")
+        return
+
+    auth_runtime = getattr(handler, "api_auth_runtime", None)
+    connection_principal = APIPrincipal.anonymous()
+    if auth_runtime is not None:
+        auth_result = authorize_websocket_request(
+            runtime=auth_runtime,
+            path="/ws/video_feed",
+            headers=websocket.headers,
+            client_host=getattr(getattr(websocket, "client", None), "host", None),
+            host_header=websocket.headers.get("host"),
+            exposure_policy=handler.exposure_policy,
+            query_string=getattr(getattr(websocket, "url", None), "query", ""),
+        )
+        audit_ok = handler._record_security_audit_event(
+            event_type="api.websocket.authorization",
+            outcome="allowed" if auth_result.allowed else "denied",
+            reason=auth_result.reason,
+            transport="websocket",
+            method="WEBSOCKET",
+            path="/ws/video_feed",
+            status_code=101 if auth_result.allowed else 1008,
+            principal=auth_result.principal,
+            audit_policy=auth_result.audit_policy,
+            sensitivity=auth_result.sensitivity,
+            client_host=getattr(getattr(websocket, "client", None), "host", None),
+            host_header=websocket.headers.get("host"),
+            origin=websocket.headers.get("origin"),
+            missing_scopes=auth_result.missing_scopes,
+        )
+        if not audit_ok:
+            await websocket.close(code=1011, reason="Security audit unavailable")
+            return
+        if not auth_result.allowed:
+            await websocket.close(
+                code=1008,
+                reason="WebSocket API request not authorized",
+            )
+            return
+        connection_principal = auth_result.principal
+
+    await websocket.accept()
+    client_id = f"ws_{id(websocket)}_{time.time()}"
+
+    async with handler.connection_lock:
+        if len(handler.ws_connections) >= Parameters.WS_MAX_CONNECTIONS:
+            await websocket.close(code=1008, reason="Max connections reached")
+            return
+
+        handler.ws_connections[client_id] = ClientConnection(
+            id=client_id,
+            connected_at=time.time(),
+            last_frame_time=0,
+            quality=Parameters.STREAM_QUALITY,
+            frame_drops=0,
+            bandwidth_estimate=0,
+            frame_queue=deque(maxlen=Parameters.MAX_FRAME_QUEUE),
+            websocket=websocket,
+            principal=connection_principal,
+        )
+        handler._update_active_connection_count()
+
+    handler.frame_publisher.register_client()
+    handler.quality_engine.register_client(client_id, Parameters.STREAM_QUALITY)
+    handler.logger.info(f"WebSocket connected: {client_id}")
+
+    try:
+        client = handler.ws_connections.get(client_id)
+        if client is None:
+            return
+        send_task = asyncio.create_task(handler._ws_send_frames(websocket, client))
+        receive_task = asyncio.create_task(
+            handler._ws_receive_messages(websocket, client)
+        )
+        session_task = asyncio.create_task(
+            handler._ws_monitor_session(websocket, client)
+        )
+
+        done, pending = await asyncio.wait(
+            [send_task, receive_task, session_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        if done:
+            await asyncio.gather(*done, return_exceptions=True)
+
+    except WebSocketDisconnect:
+        handler.logger.info(f"WebSocket disconnected: {client_id}")
+    except Exception as exc:
+        handler.logger.error(f"WebSocket error: {exc}")
+    finally:
+        await handler._cleanup_websocket_client(client_id)
 
 
 async def get_streaming_status(handler: Any) -> JSONResponse:

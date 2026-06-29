@@ -24,10 +24,10 @@ def test_backend_defaults_are_local_only():
 
 
 def test_websocket_handlers_check_origin_before_accept():
-    fastapi_handler = _text("src/classes/fastapi_handler.py")
+    media_routes = _text("src/classes/api_legacy_media_routes.py")
     webrtc_manager = _text("src/classes/webrtc_manager.py")
 
-    video_handler = fastapi_handler[fastapi_handler.index("async def video_feed_websocket_optimized") :]
+    video_handler = media_routes[media_routes.index("async def video_feed_websocket_optimized") :]
     signaling_handler = webrtc_manager[webrtc_manager.index("async def signaling_handler") :]
 
     assert video_handler.index("is_websocket_request_allowed") < video_handler.index("websocket.accept()")

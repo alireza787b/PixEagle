@@ -1003,6 +1003,7 @@ def test_legacy_media_route_bodies_are_not_defined_in_fastapi_handler():
         "get_video_health",
         "reconnect_video",
         "video_feed",
+        "video_feed_websocket_optimized",
     }
     wrapper_targets = {
         "get_streaming_status": "dispatch_get_streaming_status",
@@ -1010,6 +1011,7 @@ def test_legacy_media_route_bodies_are_not_defined_in_fastapi_handler():
         "get_video_health": "dispatch_get_video_health",
         "reconnect_video": "dispatch_reconnect_video",
         "video_feed": "dispatch_video_feed",
+        "video_feed_websocket_optimized": "dispatch_video_feed_websocket_optimized",
     }
     disallowed_handler_strings = {
         "active_method",
@@ -1025,6 +1027,12 @@ def test_legacy_media_route_bodies_are_not_defined_in_fastapi_handler():
         "Frame generator using FramePublisher and AdaptiveQualityEngine",
         "Frame encoding error",
         "multipart/x-mixed-replace; boundary=frame",
+        "websocket_origin_not_allowed",
+        "WebSocket API request not authorized",
+        "Security audit unavailable",
+        "WebSocket connected:",
+        "WebSocket disconnected:",
+        "WebSocket error:",
     }
 
     media_route_functions = {
@@ -1055,9 +1063,10 @@ def test_legacy_media_route_bodies_are_not_defined_in_fastapi_handler():
     }
 
     assert expected_functions <= media_route_functions
+    assert "ClientConnection" in media_route_classes
+    assert "ClientConnection" not in handler_classes
     assert "SessionBoundStreamingResponse" in media_route_classes
     assert "SessionBoundStreamingResponse" not in handler_classes
-    assert "video_feed_websocket_optimized" not in media_route_functions
     for marker in disallowed_handler_strings:
         assert any(marker in literal for literal in media_route_strings)
         assert not any(marker in literal for literal in handler_string_literals)

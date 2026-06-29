@@ -167,20 +167,21 @@ PixEagle has a currently published frame. It does not prove that a remote
 browser, QGC, WebRTC peer, GCS, PX4, SITL, HIL, or field video path received
 usable media.
 
-The bounded legacy media observability routes, HTTP MJPEG transport route, and
-legacy reconnect mutation remain registered for compatibility, but their
-response bodies now live in `src/classes/api_legacy_media_routes.py`:
+The bounded legacy media observability routes, HTTP MJPEG transport route, video
+WebSocket transport route, and legacy reconnect mutation remain registered for
+compatibility, but their response bodies now live in
+`src/classes/api_legacy_media_routes.py`:
 
 - `GET /video_feed`
+- `WS /ws/video_feed`
 - `GET /api/streaming/status`
 - `GET /stats`
 - `GET /api/video/health`
 - `POST /api/video/reconnect`
 
 `FastAPIHandler` keeps one-call wrappers for those routes. The reconnect route
-is still a legacy mutation, not a typed `/api/v1` action. Long-lived video
-WebSocket transport and WebRTC signaling routes remain separate cleanup slices
-because they own bidirectional task orchestration, peer state, and close-path
+is still a legacy mutation, not a typed `/api/v1` action. WebRTC signaling
+remains a separate cleanup slice because it owns peer state and close-path
 behavior.
 
 ### Typed Following Status Endpoint
@@ -454,54 +455,38 @@ class StreamingOptimizer:
 
 ```python
 async def video_feed_websocket_optimized(self, websocket: WebSocket):
-    """WebSocket video streaming."""
-    if not is_websocket_request_allowed(
-        host=websocket.headers.get("host"),
-        origin=websocket.headers.get("origin"),
-        client_host=getattr(websocket.client, "host", None),
-        policy=self.api_exposure_policy,
-    ):
-        await websocket.close(code=1008, reason="WebSocket Host or Origin not allowed")
-        return
-
-    auth_result = authorize_websocket_request(
-        runtime=self.api_auth_runtime,
-        path="/ws/video_feed",
-        headers=websocket.headers,
-        client_host=getattr(websocket.client, "host", None),
-        host_header=websocket.headers.get("host"),
-        exposure_policy=self.api_exposure_policy,
-        query_string=getattr(websocket.url, "query", ""),
-    )
-    if not auth_result.allowed:
-        await websocket.close(code=1008, reason="WebSocket API request not authorized")
-        return
-
-    await websocket.accept()
-
-    client_id = str(id(websocket))
-    self.ws_connections[client_id] = ClientConnection(...)
-
-    try:
-        while not self.is_shutting_down:
-            frame = self.app_controller.current_frame
-            if frame is None:
-                await asyncio.sleep(0.01)
-                continue
-
-            # Encode
-            frame_bytes = await self.stream_optimizer.encode_frame_async(
-                frame, self.quality
-            )
-
-            # Send binary
-            await websocket.send_bytes(frame_bytes)
-
-    except WebSocketDisconnect:
-        pass
-    finally:
-        del self.ws_connections[client_id]
+    """Optimized WebSocket streaming with adaptive quality and queuing."""
+    return await dispatch_video_feed_websocket_optimized(self, websocket)
 ```
+
+The legacy route body lives in `api_legacy_media_routes.py`. It rejects disabled
+streaming, disallowed Host/Origin, failed authorization, and audit failure before
+accepting the socket. After accept, capacity remains bounded by
+`Streaming.WS_MAX_CONNECTIONS`; the helper registers a `ClientConnection`,
+frame-publisher client, and adaptive-quality client, then runs send, receive,
+and browser-session monitor tasks until one completes. Cleanup returns through
+`FastAPIHandler._cleanup_websocket_client()` so heartbeat stale-close and server
+shutdown use the same idempotent unregister path.
+
+The wire envelope sends one JSON metadata message followed by one binary JPEG
+message for each frame:
+
+```python
+message = {
+    "type": "frame",
+    "timestamp": current_time,
+    "quality": client.quality,
+    "size": len(frame_bytes),
+    "frame_id": stamped.frame_id,
+}
+await websocket.send_json(message)
+await websocket.send_bytes(frame_bytes)
+```
+
+Clients may also send `{"type": "quality", "quality": <int>}` within configured
+quality bounds or `{"type": "ping", "client_timestamp": ...}` for a JSON `pong`
+response. Three consecutive send failures terminate the stream and count exactly
+three frame drops.
 
 ## Rate Limiting
 

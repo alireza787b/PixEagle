@@ -77,13 +77,13 @@ passed with 388 tests and one existing Starlette/httpx deprecation warning.
 - No ASGI path-level reconnect test was added.
 - The unexpected-error test asserts that logging happened, not the exact log
   message text.
-- The HTTP MJPEG route body was handled in the follow-up HTTP boundary.
-  Long-lived `WS /ws/video_feed` and WebRTC signaling route bodies still live in
-  `FastAPIHandler` or the WebRTC manager.
+- The HTTP MJPEG and video WebSocket route bodies were handled in follow-up
+  media boundaries. WebRTC signaling route bodies still live in the WebRTC
+  manager.
 
 ## Next
 
-- Continue from the follow-up HTTP boundary before video WebSocket/WebRTC
-  transport cleanup.
+- Continue from the follow-up HTTP and WebSocket boundaries before WebRTC
+  signaling cleanup.
 - Keep circuit-breaker toggle/safety-bypass/reset as a separate guarded mutation
   cleanup.

@@ -32,9 +32,12 @@ QGC, GCS, PX4, SITL, HIL, field, or real-aircraft media receipt.
   - generator cleanup still unregisters quality and frame-publisher clients and
     removes the HTTP connection record.
 - Kept `WS /ws/video_feed` and WebRTC signaling out of this slice because they
-  own bidirectional task orchestration, peer state, and close-path behavior.
+  own bidirectional task orchestration, peer state, and close-path behavior. The
+  video WebSocket route-body follow-up is tracked by
+  `2026-06-29-phase-4-legacy-media-websocket-route-boundary.md`.
 - Updated route-inventory guardrails so the HTTP MJPEG body markers stay out of
-  `FastAPIHandler`, while the WebSocket media handler remains outside the helper.
+  `FastAPIHandler`; the follow-up WebSocket boundary moved the WebSocket media
+  route body into the same helper.
 - Regenerated API/MCP tool candidate provenance because `fastapi_handler.py` and
   `api_legacy_media_routes.py` changed.
 
@@ -73,8 +76,10 @@ Starlette/httpx deprecation warning.
   the moved helper preserves HTTP 503 gates, frame publisher and quality
   registration, generator behavior, cleanup, and session-revocation audit
   behavior.
-- Reviewer verified that `WS /ws/video_feed` and WebRTC signaling remain outside
-  this helper slice and that no security policy or MCP exposure changed.
+- Reviewer verified that `WS /ws/video_feed` and WebRTC signaling remained
+  outside this helper slice at this checkpoint and that no security policy or
+  MCP exposure changed. The follow-up WebSocket boundary moved `WS
+  /ws/video_feed` into the helper.
 - Reviewer noted that tests still exercise the moved route through the
   `FastAPIHandler.video_feed()` wrapper rather than direct helper tests, and
   that there is no ASGI path-level `/video_feed` test for max-connection,
@@ -86,14 +91,12 @@ Starlette/httpx deprecation warning.
 - The route remains a legacy media stream, not a typed `/api/v1` stream contract.
 - The tests prove local helper/wrapper behavior and session-revocation cleanup;
   they do not prove a remote browser/QGC/GCS received usable media.
-- WebSocket media and WebRTC signaling route bodies still live in
-  `FastAPIHandler` or the WebRTC manager.
+- The video WebSocket route body was handled in the follow-up WebSocket
+  boundary. WebRTC signaling route bodies still live in the WebRTC manager.
 
 ## Next
 
-- Review and extract video WebSocket media route bodies only after preserving
-  streaming-disabled, host/origin rejection before accept, authorization before
-  accept, max-connection close behavior, task cancellation, session revocation,
-  and cleanup behavior.
+- Review WebRTC signaling route bodies separately because they own peer state and
+  close-path behavior.
 - Keep circuit-breaker toggle/safety-bypass/reset as a separate guarded mutation
   cleanup.

@@ -110,7 +110,8 @@ and scoped `media:read` credentials.
 WS /ws/video_feed
 ```
 
-Binary WebSocket stream (JPEG frames).
+WebSocket stream with one JSON metadata message followed by one binary JPEG
+message for each frame.
 
 Browser WebSocket clients must present an allowlisted `Origin`. Native
 same-host loopback clients may omit `Origin`; remote clients still require
@@ -121,6 +122,11 @@ reviewed exposure config and scoped `media:read` credentials before accept.
 const ws = new WebSocket('ws://127.0.0.1:5077/ws/video_feed');
 ws.binaryType = 'arraybuffer';
 ws.onmessage = (event) => {
+  if (typeof event.data === 'string') {
+    const metadata = JSON.parse(event.data);
+    console.log('Frame metadata:', metadata.frame_id, metadata.quality);
+    return;
+  }
   const blob = new Blob([event.data], {type: 'image/jpeg'});
   img.src = URL.createObjectURL(blob);
 };

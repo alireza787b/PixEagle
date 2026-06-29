@@ -211,6 +211,110 @@ async def test_video_websocket_monitor_closes_after_browser_session_revocation()
 
 
 @pytest.mark.asyncio
+async def test_video_websocket_send_frames_emits_metadata_then_jpeg(monkeypatch):
+    handler = _handler_for_lifecycle_tests()
+    handler.is_shutting_down = False
+    handler.frame_interval = 0
+    stamped_frame = SimpleNamespace(frame=object(), frame_id=42)
+    handler.frame_publisher = SimpleNamespace(get_latest=MagicMock(return_value=stamped_frame))
+    handler.stream_optimizer = SimpleNamespace(
+        encode_frame_async=AsyncMock(return_value=b"jpeg-frame")
+    )
+    handler.quality_engine = SimpleNamespace(
+        report_frame_sent=MagicMock(return_value=72)
+    )
+    monkeypatch.setattr("classes.fastapi_handler.Parameters.ENABLE_ADAPTIVE_QUALITY", True)
+    websocket = SimpleNamespace(send_json=AsyncMock(), send_bytes=AsyncMock())
+    client = _client(client_id="ws-send", connected_at=1.0, last_frame_time=0.0)
+
+    async def stop_after_bytes(_payload):
+        handler.is_shutting_down = True
+
+    websocket.send_bytes.side_effect = stop_after_bytes
+
+    await handler._ws_send_frames(websocket, client)
+
+    websocket.send_json.assert_awaited_once()
+    metadata = websocket.send_json.await_args.args[0]
+    assert metadata["type"] == "frame"
+    assert metadata["quality"] == 72
+    assert metadata["size"] == len(b"jpeg-frame")
+    assert metadata["frame_id"] == 42
+    websocket.send_bytes.assert_awaited_once_with(b"jpeg-frame")
+    handler.stream_optimizer.encode_frame_async.assert_awaited_once_with(
+        stamped_frame.frame,
+        stamped_frame.frame_id,
+        80,
+    )
+    handler.quality_engine.report_frame_sent.assert_called_once()
+    assert client.quality == 72
+    assert client.last_frame_time > 0
+    assert handler.stats["frames_sent"] == 1
+    assert handler.stats["total_bandwidth"] == len(b"jpeg-frame")
+
+
+@pytest.mark.asyncio
+async def test_video_websocket_receive_quality_and_ping(monkeypatch):
+    handler = _handler_for_lifecycle_tests()
+    handler.is_shutting_down = False
+    handler.quality_engine = SimpleNamespace(set_client_quality=MagicMock())
+    monkeypatch.setattr("classes.fastapi_handler.Parameters.MIN_QUALITY", 20)
+    monkeypatch.setattr("classes.fastapi_handler.Parameters.MAX_QUALITY", 95)
+    websocket = SimpleNamespace(
+        receive_json=AsyncMock(
+            side_effect=[
+                {"type": "quality", "quality": 55.8},
+                {"type": "ping", "client_timestamp": 123.0},
+            ]
+        ),
+        send_json=AsyncMock(),
+    )
+    client = _client(client_id="ws-recv", connected_at=1.0, last_frame_time=0.0)
+
+    async def stop_after_pong(_message):
+        handler.is_shutting_down = True
+
+    websocket.send_json.side_effect = stop_after_pong
+
+    await handler._ws_receive_messages(websocket, client)
+
+    handler.quality_engine.set_client_quality.assert_called_once_with("ws-recv", 55)
+    assert client.quality == 55
+    websocket.send_json.assert_awaited_once()
+    pong = websocket.send_json.await_args.args[0]
+    assert pong["type"] == "pong"
+    assert pong["client_timestamp"] == 123.0
+    assert "timestamp" in pong
+
+
+@pytest.mark.asyncio
+async def test_video_websocket_send_frames_stops_after_three_send_errors(monkeypatch):
+    handler = _handler_for_lifecycle_tests()
+    handler.is_shutting_down = False
+    handler.frame_interval = 0
+    handler.frame_publisher = SimpleNamespace(
+        get_latest=MagicMock(return_value=SimpleNamespace(frame=object(), frame_id=10))
+    )
+    handler.stream_optimizer = SimpleNamespace(
+        encode_frame_async=AsyncMock(return_value=b"jpeg-frame")
+    )
+    handler.quality_engine = SimpleNamespace(report_frame_sent=MagicMock())
+    monkeypatch.setattr("classes.fastapi_handler.Parameters.ENABLE_ADAPTIVE_QUALITY", False)
+    websocket = SimpleNamespace(
+        send_json=AsyncMock(side_effect=RuntimeError("send failed")),
+        send_bytes=AsyncMock(),
+    )
+    client = _client(client_id="ws-errors", connected_at=1.0, last_frame_time=0.0)
+
+    await handler._ws_send_frames(websocket, client)
+
+    assert websocket.send_json.await_count == 3
+    websocket.send_bytes.assert_not_awaited()
+    assert client.frame_drops == 3
+    assert handler.stats["frames_dropped"] == 3
+
+
+@pytest.mark.asyncio
 async def test_http_mjpeg_generator_stops_after_browser_session_revocation(monkeypatch):
     runtime, principal, session_id = _browser_session_runtime()
     handler = _handler_for_lifecycle_tests()

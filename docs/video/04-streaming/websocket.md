@@ -4,7 +4,10 @@
 
 ## Overview
 
-WebSocket streaming provides lower latency than HTTP MJPEG and enables bidirectional communication. Frames are sent as binary JPEG data over a persistent WebSocket connection.
+WebSocket streaming provides lower latency than HTTP MJPEG and enables
+bidirectional communication. For each frame, PixEagle sends one JSON metadata
+message followed by one binary JPEG message over a persistent WebSocket
+connection.
 
 ## Endpoint
 
@@ -51,7 +54,8 @@ ws.binaryType = 'arraybuffer';
 ### QGroundControl
 
 The draft/test repaired QGroundControl WebSocket-video PR consumes complete
-binary JPEG messages and ignores text metadata. Same-host development uses:
+binary JPEG messages and ignores JSON metadata messages. Same-host development
+uses:
 
 ```text
 ws://127.0.0.1:5077/ws/video_feed
@@ -104,12 +108,14 @@ class ConnectionManager:
     def disconnect(self, websocket: WebSocket):
         self.active_connections.remove(websocket)
 
-    async def broadcast_frame(self, frame: bytes):
-        for connection in self.active_connections:
-            try:
-                await connection.send_bytes(frame)
-            except:
-                self.disconnect(connection)
+    async def send_frame(self, websocket: WebSocket, frame_id: int, frame: bytes):
+        await websocket.send_json({
+            "type": "frame",
+            "frame_id": frame_id,
+            "quality": 80,
+            "size": len(frame),
+        })
+        await websocket.send_bytes(frame)
 
 manager = ConnectionManager()
 
@@ -148,7 +154,7 @@ async def websocket_video(websocket: WebSocket):
                     frame,
                     [cv2.IMWRITE_JPEG_QUALITY, 80]
                 )
-                await websocket.send_bytes(buffer.tobytes())
+                await manager.send_frame(websocket, 0, buffer.tobytes())
 
             await asyncio.sleep(1/30)
     except WebSocketDisconnect:
@@ -175,6 +181,10 @@ class VideoStreamClient {
         };
 
         this.ws.onmessage = (event) => {
+            if (typeof event.data === 'string') {
+                this.handleMetadata(JSON.parse(event.data));
+                return;
+            }
             this.displayFrame(event.data);
         };
 
@@ -198,6 +208,11 @@ class VideoStreamClient {
             URL.revokeObjectURL(url);
         };
         img.src = url;
+    }
+
+    handleMetadata(metadata) {
+        this.lastFrameId = metadata.frame_id;
+        this.lastQuality = metadata.quality;
     }
 
     disconnect() {
