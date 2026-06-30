@@ -14,8 +14,10 @@ from classes.api_v1_contracts import (
     FOLLOWING_STATUS_CLAIM_BOUNDARY,
     FOLLOWING_TELEMETRY_CLAIM_BOUNDARY,
     RUNTIME_STATUS_CLAIM_BOUNDARY,
+    TRACKING_CATALOG_CLAIM_BOUNDARY,
     TRACKING_TELEMETRY_CLAIM_BOUNDARY,
 )
+from classes.model_manager import AI_AVAILABLE
 from classes.parameters import Parameters
 from classes.setpoint_handler import SetpointHandler
 from classes.tracker_runtime_status import (
@@ -699,6 +701,192 @@ def get_tracker_runtime_status_snapshot(
     )
 
 
+def _safe_list(value: Any) -> List[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return []
+
+
+def _normalize_catalog_entry(
+    name: str,
+    info: Dict[str, Any],
+    *,
+    source: str,
+) -> Dict[str, Any]:
+    ui_metadata = coerce_mapping(info.get("ui_metadata"))
+    entry_name = str(info.get("name") or name)
+    return {
+        "name": entry_name,
+        "display_name": (
+            ui_metadata.get("display_name")
+            or info.get("display_name")
+            or entry_name
+        ),
+        "description": info.get("description"),
+        "short_description": ui_metadata.get("short_description")
+        or info.get("short_description"),
+        "data_type": info.get("data_type"),
+        "smart_mode": bool(info.get("smart_mode", False)),
+        "available": bool(info.get("available", True)),
+        "unavailable_reason": info.get("unavailable_reason"),
+        "source": source,
+        "supported_schemas": _safe_list(info.get("supported_schemas")),
+        "capabilities": _safe_list(info.get("capabilities")),
+        "performance": coerce_mapping(info.get("performance")).copy(),
+        "suitable_for": _safe_list(
+            ui_metadata.get("suitable_for") or info.get("suitable_for")
+        ),
+        "icon": ui_metadata.get("icon") or info.get("icon"),
+        "performance_category": ui_metadata.get("performance_category")
+        or info.get("performance_category"),
+    }
+
+
+def _builtin_tracker_type_catalog() -> Dict[str, Dict[str, Any]]:
+    catalog = {
+        "CSRT": {
+            "name": "CSRT",
+            "display_name": "CSRT Tracker",
+            "description": (
+                "Channel and Spatial Reliability Tracker - Classical CV algorithm"
+            ),
+            "data_type": "POSITION_2D",
+            "smart_mode": False,
+            "suitable_for": [
+                "Single target",
+                "Stable tracking",
+                "Classical computer vision",
+            ],
+        },
+        "ParticleFilter": {
+            "name": "ParticleFilter",
+            "display_name": "Particle Filter",
+            "description": "Particle Filter Tracker - Probabilistic tracking",
+            "data_type": "POSITION_2D",
+            "smart_mode": False,
+            "suitable_for": [
+                "Complex movements",
+                "Occlusions",
+                "Probabilistic tracking",
+            ],
+        },
+        "Gimbal": {
+            "name": "Gimbal",
+            "display_name": "Gimbal Tracker",
+            "description": (
+                "External gimbal input tracker - provider-specific angle data"
+            ),
+            "data_type": "GIMBAL_ANGLES",
+            "smart_mode": False,
+            "suitable_for": [
+                "External gimbal",
+                "Real-time angles",
+                "High precision tracking",
+            ],
+        },
+        "SmartTracker": {
+            "name": "SmartTracker",
+            "display_name": "Smart Tracker (AI)",
+            "description": "AI-powered multi-backend smart tracking system",
+            "data_type": "BBOX_CONFIDENCE",
+            "smart_mode": True,
+            "suitable_for": [
+                "Multiple targets",
+                "AI detection",
+                "Complex scenarios",
+            ],
+            "available": AI_AVAILABLE,
+            "unavailable_reason": (
+                None
+                if AI_AVAILABLE
+                else "AI packages (ultralytics/torch) not installed"
+            ),
+        },
+    }
+    return {
+        name: _normalize_catalog_entry(
+            name,
+            {
+                **info,
+                "available": info.get("available", True),
+                "unavailable_reason": info.get("unavailable_reason"),
+            },
+            source="builtin_compatibility",
+        )
+        for name, info in catalog.items()
+    }
+
+
+def get_tracking_catalog_snapshot(owner: Any) -> Dict[str, Any]:
+    """Return typed tracker catalog and current configuration metadata."""
+    app_controller = owner.app_controller
+    logger = getattr(owner, "logger", logging.getLogger(__name__))
+    health_issues: List[str] = []
+    ui_trackers: List[Dict[str, Any]] = []
+
+    try:
+        from classes.schema_manager import get_schema_manager
+
+        schema_manager = get_schema_manager()
+        classic_trackers = schema_manager.get_available_classic_trackers() or {}
+        for name, info in coerce_mapping(classic_trackers).items():
+            if isinstance(info, dict):
+                ui_trackers.append(
+                    _normalize_catalog_entry(
+                        str(name),
+                        info,
+                        source="schema_manager",
+                    )
+                )
+    except Exception as exc:
+        logger.warning("Tracker schema-manager catalog unavailable: %s", exc)
+        health_issues.append(f"schema_manager_unavailable: {type(exc).__name__}: {exc}")
+
+    runtime_status = get_tracker_runtime_status_snapshot(owner)
+    configured_tracker = getattr(
+        app_controller,
+        "current_tracker_type",
+        getattr(Parameters, "DEFAULT_TRACKING_ALGORITHM", None),
+    )
+    tracker_obj = getattr(app_controller, "tracker", None)
+    active_tracker = tracker_obj.__class__.__name__ if tracker_obj else None
+    tracker_types = _builtin_tracker_type_catalog()
+
+    if ui_trackers:
+        status = "degraded" if health_issues else "available"
+        consumer_guidance = "operator_attention" if health_issues else "selectable"
+    elif health_issues:
+        status = "degraded" if tracker_types else "unavailable"
+        consumer_guidance = "schema_manager_unavailable"
+    else:
+        status = "unavailable"
+        consumer_guidance = "operator_attention"
+        health_issues.append("no_schema_manager_trackers_available")
+
+    return {
+        "schema_version": 1,
+        "source": "tracking_catalog",
+        "status": status,
+        "consumer_guidance": consumer_guidance,
+        "configured_tracker": configured_tracker,
+        "active_tracker": active_tracker,
+        "smart_mode_active": bool(getattr(app_controller, "smart_mode_active", False)),
+        "tracking_started": bool(getattr(app_controller, "tracking_started", False)),
+        "tracking_active": bool(
+            tracker_obj is not None and getattr(app_controller, "tracking_active", False)
+        ),
+        "ui_trackers": ui_trackers,
+        "tracker_types": tracker_types,
+        "total_trackers": len(ui_trackers),
+        "runtime_status": runtime_status,
+        "health_issues": health_issues,
+        "claim_boundary": TRACKING_CATALOG_CLAIM_BOUNDARY,
+        "timestamp": time.time(),
+    }
+
+
 def optional_float_list(
     value: Any,
     *,
@@ -899,6 +1087,7 @@ __all__ = [
     "get_runtime_status_snapshot",
     "get_tracker_following_readiness",
     "get_tracker_runtime_status_snapshot",
+    "get_tracking_catalog_snapshot",
     "get_tracking_telemetry_snapshot",
     "optional_float_list",
     "position_3d_projection",

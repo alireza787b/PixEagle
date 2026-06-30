@@ -200,29 +200,22 @@ Current tracker data is still exposed through compatibility REST routes while
 the `/api/v1` migration is pending:
 
 ```
-GET /api/tracker/status
-GET /api/tracker/output
-POST /api/tracker/select/{target_id}
-GET /api/tracker/capabilities
+GET /api/v1/tracking/catalog
+GET /api/v1/tracking/runtime-status
+GET /api/v1/tracking/telemetry
+GET /api/tracker/output        # legacy compatibility
+GET /api/tracker/capabilities  # legacy compatibility
 ```
 
 New public API work must use typed `/api/v1/...` contracts from
 `docs/apis/api-modernization-blueprint.md`.
 
-### WebSocket Streaming
+### Live Tracker Reads
 
-Real-time tracker data:
-
-```python
-# WebSocket endpoint
-@app.websocket("/ws/tracker")
-async def tracker_ws(websocket: WebSocket):
-    await websocket.accept()
-    while True:
-        output = tracker.get_output()
-        await websocket.send_json(output.to_dict())
-        await asyncio.sleep(0.033)  # 30 Hz
-```
+There is no dedicated tracker WebSocket route in the current API inventory.
+External systems should poll the typed REST routes above for catalog, runtime,
+and telemetry snapshots. Compatibility consumers may still poll
+`GET /telemetry/tracker_data` while the dashboard/API migration continues.
 
 ---
 

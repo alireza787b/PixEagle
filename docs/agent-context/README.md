@@ -51,7 +51,9 @@ available-types, deprecated set-type, and current-config compatibility route
 bodies plus tracker schema/output/capabilities/current-status diagnostics until
 typed replacements and alias retirement are handled. It also records
 `src/classes/api_v1_snapshots.py`, which owns process-local runtime,
-following, and tracking snapshot semantics for reviewed read-only candidates,
+following, tracking runtime/telemetry snapshot semantics for reviewed
+read-only candidates, and the new typed tracker catalog snapshot that remains
+blocked pending separate agent/MCP review,
 and `src/classes/api_v1_telemetry.py`, which owns typed MAVLink
 telemetry-health manager delegation and fail-closed unavailable fallback
 semantics for the telemetry health candidate. It also records
@@ -78,6 +80,10 @@ These files are docs-stage governance artifacts. They classify the seven reviewe
 process-local status/telemetry/media-health GET candidates, but they are not loaded by a
 runtime executor and they do not create MCP exposure. All entries remain
 `callable: false`, `mcp_exposure: none`, and `promotion_status: unpromoted`.
+New typed read routes such as `GET /api/v1/tracking/catalog` appear in the
+generated inventory but remain unregistered and blocked until their output
+sensitivity, policy classification, operator docs, tests, and independent
+review are complete.
 The registry and generated inventory also record `review_disposition` for every
 candidate. Valid disposition states are:
 

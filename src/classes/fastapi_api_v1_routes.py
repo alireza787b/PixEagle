@@ -25,6 +25,7 @@ from classes.api_v1_paths import (
     API_V1_RUNTIME_STATUS_PATH,
     API_V1_STREAMING_MEDIA_HEALTH_PATH,
     API_V1_TELEMETRY_HEALTH_PATH,
+    API_V1_TRACKING_CATALOG_PATH,
     API_V1_TRACKING_RUNTIME_STATUS_PATH,
     API_V1_TRACKING_TELEMETRY_PATH,
     SITL_COMMANDER_PUBLISH_FAILURE_INJECTION_PATH,
@@ -121,6 +122,15 @@ API_V1_ROUTE_SPECS: tuple[ApiV1RouteSpec, ...] = (
         responses="TELEMETRY_HEALTH_ERROR_RESPONSES",
         operation_id="get_telemetry_health",
         tags=("telemetry",),
+    ),
+    ApiV1RouteSpec(
+        method="GET",
+        path=API_V1_TRACKING_CATALOG_PATH,
+        handler="get_tracking_catalog",
+        response_model="APITrackingCatalogResponse",
+        responses="TRACKING_CATALOG_ERROR_RESPONSES",
+        operation_id="get_tracking_catalog",
+        tags=("tracking",),
     ),
     ApiV1RouteSpec(
         method="GET",

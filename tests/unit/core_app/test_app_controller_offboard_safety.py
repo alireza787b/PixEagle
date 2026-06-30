@@ -21,6 +21,7 @@ from classes.command_intent import CommandIntent
 from classes.offboard_commander import OffboardCommander
 from classes.fastapi_handler import (
     APIActionRequest,
+    APITrackingCatalogResponse,
     APITrackingSmartClickRequest,
     APITrackingStartRequest,
     FastAPIHandler,
@@ -1744,6 +1745,111 @@ async def test_api_v1_tracking_runtime_status_reports_visible_output_without_fol
 
 
 @pytest.mark.asyncio
+async def test_api_v1_tracking_catalog_reports_schema_and_builtin_types(monkeypatch):
+    """Typed tracker catalog combines schema-manager UI entries and built-ins."""
+    tracker_output = _active_position_output()
+
+    class FakeTracker:
+        pass
+
+    class FakeSchemaManager:
+        @staticmethod
+        def get_available_classic_trackers():
+            return {
+                "CSRT": {
+                    "description": "OpenCV CSRT tracker",
+                    "supported_schemas": ["POSITION_2D"],
+                    "capabilities": ["manual_bbox"],
+                    "performance": {"cpu": "medium"},
+                    "ui_metadata": {
+                        "display_name": "CSRT",
+                        "short_description": "Stable single target tracker",
+                        "suitable_for": ["stable targets"],
+                        "icon": "target",
+                        "performance_category": "balanced",
+                    },
+                }
+            }
+
+    monkeypatch.setattr(
+        "classes.schema_manager.get_schema_manager",
+        lambda: FakeSchemaManager(),
+    )
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=FakeTracker(),
+        smart_mode_active=False,
+        tracking_started=True,
+        tracking_active=True,
+        following_active=False,
+        current_tracker_type="CSRT",
+        get_tracker_output=MagicMock(return_value=tracker_output),
+    )
+
+    payload = await handler.get_tracking_catalog()
+    model = APITrackingCatalogResponse(**payload)
+
+    assert payload["schema_version"] == 1
+    assert payload["source"] == "tracking_catalog"
+    assert model.source == "tracking_catalog"
+    assert payload["status"] == "available"
+    assert payload["consumer_guidance"] == "selectable"
+    assert payload["configured_tracker"] == "CSRT"
+    assert payload["active_tracker"] == "FakeTracker"
+    assert payload["tracking_started"] is True
+    assert payload["tracking_active"] is True
+    assert payload["total_trackers"] == 1
+    assert payload["ui_trackers"][0]["source"] == "schema_manager"
+    assert payload["ui_trackers"][0]["display_name"] == "CSRT"
+    assert payload["ui_trackers"][0]["supported_schemas"] == ["POSITION_2D"]
+    assert payload["tracker_types"]["SmartTracker"]["source"] == "builtin_compatibility"
+    assert payload["runtime_status"]["status"] == "active_usable"
+    assert payload["claim_boundary"].startswith(
+        "PixEagle process-local tracker catalog"
+    )
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracking_catalog_degrades_when_schema_manager_fails(monkeypatch):
+    """Schema-manager failure should not hide built-in compatibility types."""
+
+    def fail_schema_manager():
+        raise RuntimeError("schema unavailable")
+
+    monkeypatch.setattr(
+        "classes.schema_manager.get_schema_manager",
+        fail_schema_manager,
+    )
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        tracker=None,
+        smart_mode_active=True,
+        tracking_started=False,
+        tracking_active=False,
+        following_active=False,
+        current_tracker_type="SmartTracker",
+        get_tracker_output=MagicMock(return_value=None),
+    )
+
+    payload = await handler.get_tracking_catalog()
+    model = APITrackingCatalogResponse(**payload)
+
+    assert payload["status"] == "degraded"
+    assert model.status == "degraded"
+    assert payload["consumer_guidance"] == "schema_manager_unavailable"
+    assert payload["ui_trackers"] == []
+    assert payload["total_trackers"] == 0
+    assert "CSRT" in payload["tracker_types"]
+    assert payload["tracker_types"]["CSRT"]["available"] is True
+    assert payload["health_issues"] == [
+        "schema_manager_unavailable: RuntimeError: schema unavailable"
+    ]
+    assert payload["runtime_status"]["status"] == "no_output"
+
+
+@pytest.mark.asyncio
 async def test_tracking_runtime_status_and_offboard_readiness_reject_stale_active_output():
     """Active tracking does not override stale/unusable tracker metadata."""
     handler = object.__new__(FastAPIHandler)
@@ -2006,6 +2112,24 @@ async def test_api_v1_tracking_telemetry_returns_structured_error_on_failure():
     assert payload["code"] == "tracking_telemetry_error"
     assert payload["path"] == "/api/v1/tracking/telemetry"
     assert "tracker telemetry failed" in payload["detail"]
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracking_catalog_returns_structured_error_on_failure():
+    """Typed tracker catalog failures must use the shared error envelope."""
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler._get_tracking_catalog_snapshot = MagicMock(
+        side_effect=RuntimeError("tracker catalog failed")
+    )
+
+    response = await handler.get_tracking_catalog()
+    payload = json.loads(response.body)
+
+    assert response.status_code == 500
+    assert payload["code"] == "tracking_catalog_error"
+    assert payload["path"] == "/api/v1/tracking/catalog"
+    assert "tracker catalog failed" in payload["detail"]
 
 
 @pytest.mark.asyncio

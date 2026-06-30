@@ -178,8 +178,10 @@ Route inventory tests must:
   because that module owns typed read-route error boundaries for reviewed
   process-local status/telemetry/media-health candidates
 - record `src/classes/api_v1_snapshots.py` in generated candidate provenance
-  because that module owns process-local runtime, following, and tracking
-  snapshot semantics for reviewed read-only candidates
+  because that module owns process-local runtime, following, tracking
+  runtime/telemetry, and typed tracker catalog snapshot semantics. The typed
+  tracker catalog route is generated as non-callable and blocked until a
+  separate output-sensitivity/policy review promotes it.
 - record `src/classes/api_v1_telemetry.py` in generated candidate provenance
   because that module owns typed MAVLink telemetry-health manager delegation and
   fail-closed unavailable fallback semantics for the telemetry health candidate

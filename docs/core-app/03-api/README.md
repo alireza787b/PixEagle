@@ -175,9 +175,10 @@ that decide whether output can drive follower control must also inspect
 produce visible diagnostic output while target tracking is inactive or stale;
 the dashboard treats that as visible output, not a usable target.
 
-New consumers should use `GET /api/v1/tracking/runtime-status` for readiness
-and `GET /api/v1/tracking/telemetry` for current tracker geometry. The legacy
-route remains for compatibility and rolling-update fallback while clients are
+New consumers should use `GET /api/v1/tracking/catalog` for tracker catalog
+metadata, `GET /api/v1/tracking/runtime-status` for readiness, and
+`GET /api/v1/tracking/telemetry` for current tracker geometry. The legacy route
+remains for compatibility and rolling-update fallback while clients are
 migrated.
 
 ### Follower Data
@@ -604,6 +605,60 @@ Legacy `/api/tracker/current-status` remains a compatibility route with the
 same top-level runtime flags plus schema-driven `fields` for tracker data
 display.
 
+### Tracker Catalog
+
+```http
+GET /api/v1/tracking/catalog
+```
+
+Typed process-local tracker catalog/configuration metadata for dashboard/API
+consumers. It combines schema-manager UI tracker entries with the built-in
+compatibility tracker type list, includes configured/active tracker identity,
+embeds current runtime status, and carries a claim boundary. It does not prove
+tracker runtime success, follower response, PX4, SITL, HIL, field, or
+real-aircraft behavior.
+
+The generated agent/MCP candidate for this route is non-callable, unregistered,
+and blocked pending separate output-sensitivity, policy, operator-doc, and
+independent review. Existing dashboard consumers still use the legacy tracker
+catalog routes until a dashboard migration slice is completed.
+
+**Response excerpt:**
+```json
+{
+  "schema_version": 1,
+  "source": "tracking_catalog",
+  "status": "available",
+  "consumer_guidance": "selectable",
+  "configured_tracker": "CSRT",
+  "active_tracker": "CSRTTracker",
+  "smart_mode_active": false,
+  "tracking_started": false,
+  "tracking_active": false,
+  "ui_trackers": [
+    {
+      "name": "CSRT",
+      "display_name": "CSRT",
+      "source": "schema_manager",
+      "supported_schemas": ["POSITION_2D"]
+    }
+  ],
+  "tracker_types": {
+    "SmartTracker": {
+      "name": "SmartTracker",
+      "smart_mode": true,
+      "source": "builtin_compatibility",
+      "available": true
+    }
+  },
+  "runtime_status": {
+    "status": "no_output",
+    "usable_for_following": false
+  },
+  "claim_boundary": "PixEagle process-local tracker catalog and configuration metadata only; not tracker runtime, PX4, SITL, HIL, field, follower-response, or vehicle-response proof."
+}
+```
+
 ### Tracker Runtime Status
 
 ```http
@@ -952,21 +1007,17 @@ POST /commands/quit
 GET /api/tracker/available
 ```
 
-**Response:**
+Legacy compatibility route. New consumers should prefer
+`GET /api/v1/tracking/catalog`.
+
+**Response excerpt:**
 ```json
 {
-  "trackers": [
-    {
-      "name": "csrt",
-      "display_name": "CSRT (Discriminative)",
-      "description": "OpenCV CSRT tracker"
-    },
-    {
-      "name": "kcf",
-      "display_name": "KCF (Fast)",
-      "description": "Kernelized Correlation Filter"
-    }
-  ]
+  "available_trackers": {},
+  "current_configured": "CSRT",
+  "tracking_active": false,
+  "smart_mode_active": false,
+  "total_trackers": 0
 }
 ```
 

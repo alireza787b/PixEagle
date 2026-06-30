@@ -167,7 +167,10 @@ REQUIRED_POLICY_DENIED_ROUTE_PREFIXES = {
 }
 
 DISPOSITION_OWNER = "pixeagle-api-governance"
-DISPOSITION_REVIEW_DATE = "2026-06-18"
+DEFAULT_DISPOSITION_REVIEW_DATE = "2026-06-18"
+ROUTE_DISPOSITION_REVIEW_DATES = {
+    ("GET", "/api/v1/tracking/catalog"): "2026-06-30",
+}
 DISPOSITION_STATES = {
     "approved_for_review_only",
     "blocked",
@@ -667,13 +670,14 @@ def _review_disposition(
     rationale: str,
     evidence: list[str],
     next_gate: str,
+    reviewed_on: str = DEFAULT_DISPOSITION_REVIEW_DATE,
 ) -> dict[str, Any]:
     if state not in DISPOSITION_STATES:
         raise ValueError(f"Unsupported review disposition state: {state}")
     return {
         "state": state,
         "owner": DISPOSITION_OWNER,
-        "reviewed_on": DISPOSITION_REVIEW_DATE,
+        "reviewed_on": reviewed_on,
         "rationale": rationale,
         "evidence": evidence,
         "next_gate": next_gate,
@@ -684,10 +688,16 @@ def _review_disposition(
 
 def _candidate_review_disposition(
     *,
+    method: str,
+    path: str,
     eligible: bool,
     risk_class: str,
     blocked_reasons: list[str],
 ) -> dict[str, Any]:
+    reviewed_on = ROUTE_DISPOSITION_REVIEW_DATES.get(
+        (method, path),
+        DEFAULT_DISPOSITION_REVIEW_DATE,
+    )
     if eligible:
         return _review_disposition(
             state="approved_for_review_only",
@@ -705,6 +715,7 @@ def _candidate_review_disposition(
                 "Runtime MCP auth, audit, operator docs, evals, and independent "
                 "promotion review before any tools/list exposure."
             ),
+            reviewed_on=reviewed_on,
         )
 
     if risk_class == "validation_stimulus":
@@ -724,6 +735,7 @@ def _candidate_review_disposition(
                 "PXE-0065 sidecar/evidence hardening and a separate SITL-only "
                 "agent policy review."
             ),
+            reviewed_on=reviewed_on,
         )
 
     return _review_disposition(
@@ -739,6 +751,7 @@ def _candidate_review_disposition(
             "Separate API safety/security design, tests, and independent review "
             "before this candidate can leave blocked state."
         ),
+        reviewed_on=reviewed_on,
     )
 
 
@@ -915,6 +928,8 @@ def _classify_candidate(
         "required_review": sorted(set(required_review)),
         "safety_notes": safety_notes,
         "review_disposition": _candidate_review_disposition(
+            method=method,
+            path=path,
             eligible=eligible,
             risk_class=risk_class,
             blocked_reasons=blocked_reasons,

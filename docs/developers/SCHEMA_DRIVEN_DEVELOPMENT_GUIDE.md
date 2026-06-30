@@ -195,6 +195,7 @@ This design ensures **universal compatibility**:
 ### **Tracker Runtime/Telemetry/Schema APIs**
 - `GET /api/v1/tracking/runtime-status` - Typed tracker runtime/readiness status for new dashboard/API/MCP consumers
 - `GET /api/v1/tracking/telemetry` - Typed tracker telemetry/geometry snapshot for dashboard/API/MCP consumers
+- `GET /api/v1/tracking/catalog` - Typed tracker catalog/configuration metadata; generated agent/MCP candidate remains blocked pending review
 - `GET /api/tracker/schema` - Complete tracker schema
 - `GET /api/tracker/current-status` - Compatibility active tracker + schema-driven field data
 - `GET /api/tracker/available-types` - Available tracker types

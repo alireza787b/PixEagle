@@ -5,13 +5,13 @@ source:
   primary_file: src/classes/fastapi_handler.py
   files:
   - file: src/classes/fastapi_handler.py
-    sha256: 6f0365169f2b70330dc18285d4c684303c7f0d23e75a57fd8b876fdf00038099
+    sha256: a9e198c17f0e05668322d0406423d841886cb578994348cfa5c1755334b3b907
   - file: src/classes/fastapi_api_v1_routes.py
-    sha256: 81e15ca940cf6171fd9407d53cf7589958cd02317878707ae583f29e26994b20
+    sha256: 71a1e74ff7bbc31b7e115de70fa743e9aa8ff50c0cee41679e462ff7e25a642d
   - file: src/classes/api_v1_contracts.py
-    sha256: d3c67b78980f2323177a2ad8277a707749a5e0a744098a8062afb7b9ffc170d1
+    sha256: ae1879a9e89653a3f7caf3a3ec7918e0580a7051f6346e2728c97285f51bc154
   - file: src/classes/api_v1_paths.py
-    sha256: 5230810717e84e2d80e6649a7e436370f5006e501d2d6fadee3bc74f6a187a10
+    sha256: 6ea95b178d382d1dfeeb8588e10ef28c897de92f7caa739370eeb1690f670196
   - file: src/classes/api_v1_actions.py
     sha256: 52d2fbe2d637280934383784d31580d8d2cfe5af10e900b6006ea67834ec6c8b
   - file: src/classes/api_v1_auth_routes.py
@@ -41,9 +41,9 @@ source:
   - file: src/classes/webrtc_manager.py
     sha256: e3fa9a0ab133dae727252f4624a477e1f0379f80aebd44b227e157f1e016e7d0
   - file: src/classes/api_v1_read_routes.py
-    sha256: c5994f0914ab5ede69509ce7ccae67c03f322db1b2610d3859ffe02f99976542
+    sha256: d519e7913edbccbd8835678303510467b7af8d07c1316e263634b57830944a8e
   - file: src/classes/api_v1_snapshots.py
-    sha256: 498d4df51a3f35ec3c0622cbb17a7ada914f75d9905fc71fa3ff401efd25c719
+    sha256: f5c31f9957399bda972c7d70c6cb43bb66f7d28b591d1444c79b178f8bbc25b9
   - file: src/classes/api_v1_telemetry.py
     sha256: 42f552f17fde806ec18f757d947315768fba08618ff6bb0b998703dff54d3c4c
   - file: src/classes/api_v1_streams.py
@@ -59,7 +59,7 @@ source:
   - file: src/classes/api_security_types.py
     sha256: 6b6b47d950108782e3783a5ba2fd7f14c65b94dabb49eb537f8c7b53a9b9ce1d
   - file: src/classes/api_security_policy.py
-    sha256: cc3319922ddb42be478f82610462ecfadf9f522156d7b0dc79594a5c109e597e
+    sha256: 6e33d316e9c85df3b06313cc743c916c442df381c21b933e9793db45118903d1
 generated_from:
 - src/classes/fastapi_handler.py
 - src/classes/fastapi_api_v1_routes.py
@@ -105,25 +105,25 @@ promotion_path:
 - independent reviewer approval
 - MCP tools/list and tools/call exposure
 summary:
-  total_declared_http_routes: 131
-  api_v1_routes: 25
-  candidate_count: 25
+  total_declared_http_routes: 132
+  api_v1_routes: 26
+  candidate_count: 26
   eligible_read_only_candidates: 7
   callable_tools: 0
   mcp_exposed_tools: 0
   unpromoted_read_only_candidates: 7
   docs_registered_read_only_candidates: 7
   runtime_promoted_candidates: 0
-  blocked_or_guarded_candidates: 18
+  blocked_or_guarded_candidates: 19
   review_disposition:
     states:
       approved_for_review_only: 7
-      blocked: 13
+      blocked: 14
       deferred: 5
     approved_for_review_only: 7
-    blocked: 13
+    blocked: 14
     deferred: 5
-    valid_disposition_count: 25
+    valid_disposition_count: 26
     missing_disposition_count: 0
     invalid_disposition_count: 0
     unsafe_disposition_boundary_count: 0
@@ -1592,6 +1592,62 @@ candidates:
     review_disposition_state: approved_for_review_only
     valid_review_only_match: true
   registry_review_status: registered_unexposed
+- id: pixeagle.tracking.catalog.read
+  candidate_id: pixeagle.tracking.catalog.read
+  method: GET
+  path: /api/v1/tracking/catalog
+  operation_id: get_tracking_catalog
+  tags:
+  - tracking
+  response_model: APITrackingCatalogResponse
+  request_model: null
+  responses: TRACKING_CATALOG_ERROR_RESPONSES
+  status_code: null
+  handler: self.get_tracking_catalog
+  typed_api_contract: true
+  deprecated: false
+  classification: unreviewed_observe
+  read_only: true
+  callable: false
+  mcp_exposure: none
+  default_registry_exposure: exclude
+  review_status: generated_unreviewed
+  promotion_status: unpromoted
+  eligible_read_only_mcp_candidate: false
+  risk_class: unreviewed_observe
+  sensitivity: unclassified
+  side_effects: none_expected
+  claim_boundary: Generated non-callable reviewer inventory only. This file is not an MCP
+    tool registry, not a tools/list response, and not permission for an AI agent or client
+    to execute any PixEagle API route. PixEagle status, telemetry, and media-health routes
+    are process-local snapshots unless separate PX4/SITL/HIL/field evidence artifacts prove
+    a specific scenario.
+  blocked_reasons:
+  - Read-only route is not in the approved initial process-local candidate set.
+  - Requires explicit sensitivity and output-shape review before promotion.
+  required_review:
+  - curated registry entry
+  - independent safety review
+  - operator-facing docs
+  - policy classification
+  - route contract tests
+  safety_notes: []
+  review_disposition:
+    state: blocked
+    owner: pixeagle-api-governance
+    reviewed_on: '2026-06-30'
+    rationale: Read-only route is not in the approved initial process-local candidate set.
+      Requires explicit sensitivity and output-shape review before promotion.
+    evidence:
+    - docs/agent-context/agent_policy.yaml
+    - docs/apis/api-modernization-blueprint.md
+    - tests/test_api_tool_candidates.py
+    next_gate: Separate API safety/security design, tests, and independent review before this
+      candidate can leave blocked state.
+    does_not_imply_mcp_exposure: true
+    runtime_promotion: not_promoted
+  registry_matches: []
+  registry_review_status: unregistered
 - id: pixeagle.tracking.runtime_status.read
   candidate_id: pixeagle.tracking.runtime_status.read
   method: GET

@@ -31,6 +31,11 @@ TRACKING_TELEMETRY_CLAIM_BOUNDARY = (
     "PixEagle process-local tracker telemetry and geometry snapshots only; "
     "not PX4, SITL, HIL, field, follower-response, or vehicle-response proof."
 )
+TRACKING_CATALOG_CLAIM_BOUNDARY = (
+    "PixEagle process-local tracker catalog and configuration metadata only; "
+    "not tracker runtime, PX4, SITL, HIL, field, follower-response, or "
+    "vehicle-response proof."
+)
 STREAMING_MEDIA_CLAIM_BOUNDARY = (
     "PixEagle process-local media transport and frame-publisher health only; "
     "not proof that a remote browser, QGC, WebRTC peer, GCS, PX4, SITL, HIL, "
@@ -526,6 +531,51 @@ class APITrackingRuntimeStatusResponse(BaseModel):
     timestamp: float
 
 
+class APITrackingCatalogEntry(BaseModel):
+    """One tracker catalog entry exposed by the typed tracker catalog route."""
+
+    name: str
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    short_description: Optional[str] = None
+    data_type: Optional[str] = None
+    smart_mode: bool = False
+    available: bool = True
+    unavailable_reason: Optional[str] = None
+    source: Literal["schema_manager", "builtin_compatibility"]
+    supported_schemas: List[str] = Field(default_factory=list)
+    capabilities: List[Any] = Field(default_factory=list)
+    performance: Dict[str, Any] = Field(default_factory=dict)
+    suitable_for: List[str] = Field(default_factory=list)
+    icon: Optional[str] = None
+    performance_category: Optional[str] = None
+
+
+class APITrackingCatalogResponse(BaseModel):
+    """Typed tracker catalog/configuration metadata for dashboard/API consumers."""
+
+    schema_version: int = 1
+    source: Literal["tracking_catalog"] = "tracking_catalog"
+    status: Literal["available", "degraded", "unavailable"]
+    consumer_guidance: Literal[
+        "selectable",
+        "operator_attention",
+        "schema_manager_unavailable",
+    ]
+    configured_tracker: Optional[str] = None
+    active_tracker: Optional[str] = None
+    smart_mode_active: bool = False
+    tracking_started: bool = False
+    tracking_active: bool = False
+    ui_trackers: List[APITrackingCatalogEntry] = Field(default_factory=list)
+    tracker_types: Dict[str, APITrackingCatalogEntry] = Field(default_factory=dict)
+    total_trackers: int = 0
+    runtime_status: APITrackingRuntimeStatusResponse
+    health_issues: List[str] = Field(default_factory=list)
+    claim_boundary: str = TRACKING_CATALOG_CLAIM_BOUNDARY
+    timestamp: float
+
+
 class APITrackingTelemetryResponse(BaseModel):
     """Typed tracker telemetry/geometry snapshot for dashboard/API/MCP consumers."""
 
@@ -642,6 +692,12 @@ TRACKING_RUNTIME_STATUS_ERROR_RESPONSES = {
     status.HTTP_500_INTERNAL_SERVER_ERROR: {
         "model": APIErrorResponse,
         "description": "Tracker runtime status could not be evaluated.",
+    },
+}
+TRACKING_CATALOG_ERROR_RESPONSES = {
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {
+        "model": APIErrorResponse,
+        "description": "Tracker catalog could not be evaluated.",
     },
 }
 TRACKING_TELEMETRY_ERROR_RESPONSES = {

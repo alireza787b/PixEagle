@@ -204,6 +204,7 @@ from classes.api_v1_read_routes import (
     get_runtime_status as dispatch_get_runtime_status,
     get_streaming_media_health as dispatch_get_streaming_media_health,
     get_telemetry_health as dispatch_get_telemetry_health,
+    get_tracking_catalog as dispatch_get_tracking_catalog,
     get_tracking_runtime_status as dispatch_get_tracking_runtime_status,
     get_tracking_telemetry as dispatch_get_tracking_telemetry,
 )
@@ -226,6 +227,7 @@ from classes.api_v1_snapshots import (
     get_runtime_status_snapshot,
     get_tracker_following_readiness,
     get_tracker_runtime_status_snapshot,
+    get_tracking_catalog_snapshot,
     get_tracking_telemetry_snapshot,
     optional_float_list,
     position_3d_projection,
@@ -278,6 +280,8 @@ from classes.api_v1_contracts import (
     APIStreamingMediaHealthResponse,
     APIStreamingSecurityBoundary,
     APIStreamingTransportHealth,
+    APITrackingCatalogEntry,
+    APITrackingCatalogResponse,
     APITrackingRuntimeStatusResponse,
     APITrackingSmartClickRequest,
     APITrackingStartRequest,
@@ -314,6 +318,7 @@ from classes.api_v1_contracts import (
     SITLVideoStallSummary,
     SITL_ERROR_RESPONSES,
     TELEMETRY_HEALTH_ERROR_RESPONSES,
+    TRACKING_CATALOG_ERROR_RESPONSES,
     TRACKING_RUNTIME_STATUS_ERROR_RESPONSES,
     TRACKING_TELEMETRY_ERROR_RESPONSES,
 )
@@ -1720,6 +1725,9 @@ class FastAPIHandler:
     async def get_tracking_runtime_status(self):
         return await dispatch_get_tracking_runtime_status(self)
 
+    async def get_tracking_catalog(self):
+        return await dispatch_get_tracking_catalog(self)
+
     async def get_tracking_telemetry(self):
         return await dispatch_get_tracking_telemetry(self)
 
@@ -2036,6 +2044,9 @@ class FastAPIHandler:
 
     def _get_tracking_telemetry_snapshot(self) -> Dict[str, Any]:
         return get_tracking_telemetry_snapshot(self)
+
+    def _get_tracking_catalog_snapshot(self) -> Dict[str, Any]:
+        return get_tracking_catalog_snapshot(self)
 
     def _get_tracker_following_readiness(self) -> Dict[str, Any]:
         return get_tracker_following_readiness(self)

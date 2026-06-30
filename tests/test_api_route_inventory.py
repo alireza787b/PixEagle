@@ -28,6 +28,7 @@ from classes.api_v1_paths import (
     API_V1_AUTH_SESSION_PATH,
     API_V1_PROCESS_LOCAL_READ_ONLY_PATHS,
     API_V1_STREAMING_MEDIA_HEALTH_PATH,
+    API_V1_TRACKING_CATALOG_PATH,
     SITL_VALIDATION_INJECTION_PATHS,
     uses_typed_api_error_envelope,
 )
@@ -105,6 +106,8 @@ API_V1_CONTRACT_CLASS_NAMES = {
     "APIStreamingMediaHealthResponse",
     "APIStreamingSecurityBoundary",
     "APIStreamingTransportHealth",
+    "APITrackingCatalogEntry",
+    "APITrackingCatalogResponse",
     "APITrackingRuntimeStatusResponse",
     "APITrackingTelemetryResponse",
     "APITelemetryHealthResponse",
@@ -201,6 +204,7 @@ EXPECTED_ROUTES = {
     ("GET", "/api/v1/runtime/status"),
     ("GET", "/api/v1/streams/media-health"),
     ("GET", "/api/v1/telemetry/health"),
+    ("GET", "/api/v1/tracking/catalog"),
     ("GET", "/api/v1/tracking/runtime-status"),
     ("GET", "/api/v1/tracking/telemetry"),
     ("GET", "/api/yolo/active-model"),
@@ -430,7 +434,7 @@ def test_current_route_inventory_counts_by_method():
 
     assert counts == {
         "DELETE": 2,
-        "GET": 74,
+        "GET": 75,
         "POST": 53,
         "PUT": 2,
         "WEBSOCKET": 2,
@@ -2202,6 +2206,7 @@ def test_api_v1_error_envelope_path_predicate_matches_current_route_families():
     expected_typed_paths = (
         set(API_V1_AUTH_PATHS)
         | set(API_V1_PROCESS_LOCAL_READ_ONLY_PATHS)
+        | {API_V1_TRACKING_CATALOG_PATH}
         | set(SITL_VALIDATION_INJECTION_PATHS)
         | {
             API_V1_ACTION_OFFBOARD_START_PATH,
@@ -2464,6 +2469,17 @@ def test_api_v1_tracking_runtime_status_route_has_typed_api_metadata():
     assert route["operation_id"] == "get_tracking_runtime_status"
     assert route["response_model"] == "APITrackingRuntimeStatusResponse"
     assert route["responses"] == "TRACKING_RUNTIME_STATUS_ERROR_RESPONSES"
+    assert route["tags"] == ["tracking"]
+    assert route["status_code"] is None
+
+
+def test_api_v1_tracking_catalog_route_has_typed_api_metadata():
+    """Typed tracker catalog must be an explicit /api/v1 resource."""
+    route = _route_metadata(API_V1_TRACKING_CATALOG_PATH)
+
+    assert route["operation_id"] == "get_tracking_catalog"
+    assert route["response_model"] == "APITrackingCatalogResponse"
+    assert route["responses"] == "TRACKING_CATALOG_ERROR_RESPONSES"
     assert route["tags"] == ["tracking"]
     assert route["status_code"] is None
 

@@ -133,18 +133,23 @@ TrackerOutput(
 Tracker data is exposed via REST API:
 
 ```
-GET /api/tracker/status
-GET /api/tracker/output
-POST /api/tracker/select/{target_id}
+GET /api/v1/tracking/catalog
+GET /api/v1/tracking/runtime-status
+GET /api/v1/tracking/telemetry
+GET /api/tracker/output              # legacy compatibility
 ```
 
-### WebSocket Streaming
+The typed catalog route is for tracker metadata/configuration only. It is not a
+runtime tracker-success, follower-response, PX4, SITL, HIL, field, or
+real-aircraft evidence source, and its generated agent/MCP candidate remains
+blocked until a separate promotion review.
 
-Real-time tracker data via WebSocket:
+### Live Tracker Reads
 
-```
-WS /ws/tracker
-```
+There is no dedicated tracker WebSocket route in the current API inventory.
+Use the typed REST routes above for tracker metadata, runtime readiness, and
+geometry snapshots. Compatibility consumers may still poll
+`GET /telemetry/tracker_data` while dashboard/API migration work continues.
 
 ---
 

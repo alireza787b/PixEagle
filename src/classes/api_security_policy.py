@@ -506,6 +506,7 @@ API_ROUTE_SECURITY_RULES = (
             "/api/follower/current-profile",
             "/api/follower/configured-mode",
             "/api/follower/current-mode",
+            "/api/v1/tracking/catalog",
             "/api/tracker/schema",
             "/api/tracker/capabilities",
             "/api/tracker/available-types",

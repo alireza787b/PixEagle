@@ -108,6 +108,7 @@ class FastAPIHandler:
 | `/api/v1/following/status` | GET | Typed process-local following status |
 | `/api/v1/following/telemetry` | GET | Typed follower telemetry/setpoint snapshot |
 | `/api/v1/telemetry/health` | GET | Typed MAVLink2REST request/payload health |
+| `/api/v1/tracking/catalog` | GET | Typed tracker catalog/configuration metadata |
 | `/api/v1/tracking/runtime-status` | GET | Typed tracker output/readiness status |
 | `/api/v1/tracking/telemetry` | GET | Typed tracker telemetry/geometry snapshot |
 | `/stats` | GET | Streaming statistics |
@@ -122,6 +123,14 @@ References to API/MCP consumers in this document mean schema-stable typed
 routes that are candidates for future reviewed integrations. They do not mean
 PixEagle exposes callable MCP tools. See `docs/agent-context/README.md` for the
 candidate inventory only, not MCP execution, boundary.
+
+New dashboard/API/MCP consumers should prefer
+`GET /api/v1/tracking/catalog` for tracker catalog/configuration metadata.
+It returns schema-manager UI tracker entries, built-in compatibility tracker
+types, configured/active tracker identity, current runtime status, and a claim
+boundary. The route is a typed `/api/v1` contract, but its generated
+agent/MCP candidate remains blocked and unregistered pending separate
+output-sensitivity and policy review.
 
 New dashboard/API/MCP consumers should prefer
 `GET /api/v1/tracking/runtime-status` for tracker readiness. It returns
@@ -335,6 +344,7 @@ an operator control or tracking API.
 | `/api/v1/streams/media-health` | GET | Typed media transport/frame-publisher health contract |
 | `/api/v1/following/status` | GET | Typed process-local following/readiness contract |
 | `/api/v1/following/telemetry` | GET | Typed follower telemetry/setpoint snapshot |
+| `/api/v1/tracking/catalog` | GET | Typed tracker catalog/configuration metadata |
 | `/api/v1/tracking/runtime-status` | GET | Typed tracker runtime/readiness contract |
 | `/api/v1/tracking/telemetry` | GET | Typed tracker telemetry/geometry snapshot |
 | `/api/tracker/schema` | GET | Tracker schema |

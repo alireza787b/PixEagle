@@ -12,6 +12,7 @@ from classes.api_v1_paths import (
     API_V1_RUNTIME_STATUS_PATH,
     API_V1_STREAMING_MEDIA_HEALTH_PATH,
     API_V1_TELEMETRY_HEALTH_PATH,
+    API_V1_TRACKING_CATALOG_PATH,
     API_V1_TRACKING_RUNTIME_STATUS_PATH,
     API_V1_TRACKING_TELEMETRY_PATH,
 )
@@ -109,6 +110,20 @@ async def get_tracking_runtime_status(owner: Any) -> Any:
         )
 
 
+async def get_tracking_catalog(owner: Any) -> Any:
+    """Return typed tracker catalog/configuration metadata for consumers."""
+    try:
+        return owner._get_tracking_catalog_snapshot()
+    except Exception as error:
+        _log_route_error(owner, "get_tracking_catalog", error)
+        return owner._api_v1_error_response(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="tracking_catalog_error",
+            detail=str(error),
+            path=API_V1_TRACKING_CATALOG_PATH,
+        )
+
+
 async def get_tracking_telemetry(owner: Any) -> Any:
     """Return typed tracker telemetry/geometry for API/MCP/dashboard consumers."""
     try:
@@ -129,6 +144,7 @@ __all__ = [
     "get_runtime_status",
     "get_streaming_media_health",
     "get_telemetry_health",
+    "get_tracking_catalog",
     "get_tracking_runtime_status",
     "get_tracking_telemetry",
 ]

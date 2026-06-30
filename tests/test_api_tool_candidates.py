@@ -149,7 +149,7 @@ def test_api_tool_candidate_inventory_is_non_callable():
     assert inventory["summary"]["disposition_coverage_complete"] is True
     assert disposition["complete"] is True
     assert disposition["approved_for_review_only"] == 7
-    assert disposition["blocked"] == 13
+    assert disposition["blocked"] == 14
     assert disposition["deferred"] == 5
     assert (
         disposition["valid_disposition_count"]
@@ -334,6 +334,23 @@ def test_auth_routes_are_blocked_from_mcp_promotion():
         assert candidate["registry_review_status"] == "unregistered"
 
 
+def test_tracking_catalog_is_blocked_until_agent_review():
+    inventory = _load_inventory()
+    candidates = _candidate_by_path_method(inventory)
+    candidate = candidates[("GET", "/api/v1/tracking/catalog")]
+
+    assert candidate["risk_class"] == "unreviewed_observe"
+    assert candidate["review_disposition"]["state"] == "blocked"
+    assert candidate["review_disposition"]["reviewed_on"] == "2026-06-30"
+    assert candidate["eligible_read_only_mcp_candidate"] is False
+    assert candidate["read_only"] is True
+    assert candidate["typed_api_contract"] is True
+    assert candidate["blocked_reasons"] != []
+    assert candidate["mcp_exposure"] == "none"
+    assert candidate["registry_matches"] == []
+    assert candidate["registry_review_status"] == "unregistered"
+
+
 def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
     inventory = _load_inventory()
     expected_routes = {
@@ -360,6 +377,7 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         ("POST", "/api/v1/sitl/injections/tracker-output"),
         ("POST", "/api/v1/sitl/injections/video-stall"),
         ("GET", "/api/v1/telemetry/health"),
+        ("GET", "/api/v1/tracking/catalog"),
         ("GET", "/api/v1/tracking/runtime-status"),
         ("GET", "/api/v1/tracking/telemetry"),
     }
@@ -368,10 +386,10 @@ def test_api_tool_candidate_summary_matches_current_api_v1_inventory():
         for candidate in inventory["candidates"]
     }
 
-    assert inventory["summary"]["api_v1_routes"] == 25
-    assert inventory["summary"]["candidate_count"] == 25
-    assert len(inventory["candidates"]) == 25
-    assert inventory["summary"]["blocked_or_guarded_candidates"] == 18
+    assert inventory["summary"]["api_v1_routes"] == 26
+    assert inventory["summary"]["candidate_count"] == 26
+    assert len(inventory["candidates"]) == 26
+    assert inventory["summary"]["blocked_or_guarded_candidates"] == 19
     assert candidate_routes == expected_routes
     assert all(path.startswith("/api/v1/") for _method, path in candidate_routes)
     assert inventory["promotion_path"][-1] == "MCP tools/list and tools/call exposure"
