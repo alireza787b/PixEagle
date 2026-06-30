@@ -57,6 +57,9 @@ API_LEGACY_RECORDING_ROUTES = (
 API_LEGACY_SAFETY_ROUTES = (
     PROJECT_ROOT / "src" / "classes" / "api_legacy_safety_routes.py"
 )
+API_LEGACY_TRACKER_ROUTES = (
+    PROJECT_ROOT / "src" / "classes" / "api_legacy_tracker_routes.py"
+)
 WEBRTC_MANAGER = PROJECT_ROOT / "src" / "classes" / "webrtc_manager.py"
 API_V1_READ_ROUTES = PROJECT_ROOT / "src" / "classes" / "api_v1_read_routes.py"
 API_V1_SNAPSHOTS = PROJECT_ROOT / "src" / "classes" / "api_v1_snapshots.py"
@@ -85,6 +88,7 @@ ROUTE_SOURCE_FILES = (
     API_LEGACY_OSD_ROUTES,
     API_LEGACY_RECORDING_ROUTES,
     API_LEGACY_SAFETY_ROUTES,
+    API_LEGACY_TRACKER_ROUTES,
     WEBRTC_MANAGER,
     API_V1_READ_ROUTES,
     API_V1_SNAPSHOTS,

@@ -1,6 +1,6 @@
 # PixEagle Modernization Phase And Slice Map
 
-Last updated: 2026-06-28
+Last updated: 2026-06-30
 
 This file is the resume anchor after pauses, context compaction, or handoff. Use
 it together with:
@@ -131,6 +131,7 @@ it together with:
 | Phase 4 legacy media HTTP route boundary | done | PXE-0008 partial | `checkpoints/2026-06-29-phase-4-legacy-media-http-route-boundary.md`; legacy `GET /video_feed` HTTP MJPEG route body and `SessionBoundStreamingResponse` now live in `src/classes/api_legacy_media_routes.py`, preserving streaming-disabled and max-connection failures, adaptive-quality frame encoding, session-revocation termination, cleanup/unregister behavior, and legacy wrapper docstrings. `FastAPIHandler` keeps route registration and a one-call wrapper, route inventory/security policy are unchanged, and generated candidate provenance hashes the helper. `WS /ws/video_feed` was closed by the follow-up WebSocket boundary below; WebRTC signaling remains a separate media lifecycle slice. No typed `/api/v1/streams/*` promotion, alias retirement, MCP exposure, QGC playback, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 | Phase 4 legacy media WebSocket route boundary | done | PXE-0008 partial | `checkpoints/2026-06-29-phase-4-legacy-media-websocket-route-boundary.md`; legacy `WS /ws/video_feed` route body and `ClientConnection` state now live in `src/classes/api_legacy_media_routes.py`, preserving streaming-disabled, Host/Origin, authorization, audit-failure, accept-then-capacity, client registration, task orchestration, session-revocation, and cleanup behavior while leaving shared send/receive/session/heartbeat/shutdown helpers in `FastAPIHandler`. Added direct production-helper tests for JSON metadata plus binary JPEG delivery, quality/ping handling, and exact three-error drop accounting, fixing the prior WebSocket drop overcount. The follow-up WebRTC signaling boundary below closes the remaining media signaling route-body ownership record. No typed `/api/v1/streams/*` promotion, alias retirement, MCP exposure, QGC playback, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 | Phase 4 legacy WebRTC signaling boundary | done | PXE-0008 partial | `checkpoints/2026-06-29-phase-4-legacy-webrtc-signaling-boundary.md`; confirmed and guarded that legacy `WS /ws/webrtc_signaling` is registered directly to `WebRTCManager.signaling_handler`, with signaling state, pre-accept streaming/Host/Origin/auth/audit gates, accept-then-capacity behavior, server-owned peer IDs, SDP/ICE handling, browser-session revocation, bounded peer cleanup, and shutdown cleanup owned by `src/classes/webrtc_manager.py`. Generated candidate provenance now hashes the manager, static route-inventory guardrails prevent signaling body drift back into `FastAPIHandler`, and a focused path test covers disabled-audit media-read behavior through the existing accept-then-capacity gate. No typed `/api/v1/streams/*` promotion, alias retirement, MCP exposure, WebRTC receipt claim, QGC playback, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
+| Phase 4 legacy tracker selector route boundary | done | PXE-0008 partial | `checkpoints/2026-06-30-phase-4-legacy-tracker-selector-route-boundary.md`; legacy tracker available/current/switch/restart/current-config route bodies now live in `src/classes/api_legacy_tracker_routes.py`, preserving schema-manager lookups, runtime-status embedding, raw request JSON parsing, 400/429/500 legacy response shapes, rate-limit bucket semantics, config reload, and AppController switch delegation. `FastAPIHandler` keeps wrappers and route registration, route inventory/security policy are unchanged, generated candidate provenance hashes the helper, and static guardrails explicitly leave deprecated `/api/tracker/set-type` plus `/api/tracker/available-types` for the next tracker slice. No typed `/api/v1/tracking/*` promotion, alias retirement, MCP exposure, PX4/SITL/HIL/field, or real-aircraft behavior is claimed. |
 
 ## Active Slice
 
@@ -272,9 +273,14 @@ WebSocket dropped-frame overcount found by new direct send-loop tests. The
 signaling ownership record by guarding direct registration to
 `WebRTCManager.signaling_handler`, adding manager provenance, and covering
 disabled-audit media-read behavior through the existing accept-then-capacity
-gate. Remaining PXE-0008 API work
-now focuses on typed `/api/v1` replacements, tracked compatibility retirement,
-and any future route-boundary debt discovered by static guards.
+gate. The 2026-06-30 legacy tracker selector route boundary then moved
+available/current tracker, switch, restart, and current-config route bodies into
+`api_legacy_tracker_routes.py`, preserving schema-manager lookups,
+runtime-status embedding, rate-limit/reload behavior, and legacy response
+shapes. Remaining PXE-0008 API work now focuses on the next legacy tracker
+diagnostics/deprecated set-type boundary, typed `/api/v1` replacements, tracked
+compatibility retirement, and any future route-boundary debt discovered by
+static guards.
 PXE-0064 is in progress: the first containment foundation is done, so
 checked-in backend/dashboard/MAVLink2REST exposure is local-only, contradictory
 local-only bind/CORS configuration fails closed, Host/Origin/fetch-site and

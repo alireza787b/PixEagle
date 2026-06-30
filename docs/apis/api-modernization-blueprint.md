@@ -162,6 +162,14 @@ Route inventory tests must:
   wrapping before typed `/api/v1/safety/*` promotion. The circuit-breaker
   mutation routes remain legacy, non-idempotent compatibility actions and still
   need typed `/api/v1` action/deprecation design.
+- assert that `src/classes/api_legacy_tracker_routes.py` owns legacy tracker
+  selector/config route bodies for available tracker listing, current tracker
+  details, tracker switch, tracker restart, and current tracker config, and
+  record that helper in generated candidate provenance because it owns schema
+  manager lookup, runtime-status embedding, restart rate-limit/reload behavior,
+  and legacy error shapes before the remaining tracker diagnostics, deprecated
+  set-type alias, typed `/api/v1/tracking/*` replacement, or compatibility
+  retirement work.
 - record `src/classes/api_v1_read_routes.py` in generated candidate provenance
   because that module owns typed read-route error boundaries for reviewed
   process-local status/telemetry/media-health candidates

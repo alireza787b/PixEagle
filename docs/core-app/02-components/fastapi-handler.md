@@ -39,6 +39,13 @@ generator parse the route sources without instantiating the application, and
 the generated inventory records the contract, path, action-helper,
 read-route-helper, snapshot, and telemetry-helper source hashes.
 
+Legacy compatibility route bodies are being moved out of the handler behind
+bounded helpers before typed replacement or alias retirement. Tracker selector
+compatibility bodies for available/current tracker, tracker switch/restart, and
+current tracker config live in `src/classes/api_legacy_tracker_routes.py`; the
+handler keeps route registration and one-call wrappers for those paths during
+migration.
+
 ## Class Definition
 
 ```python

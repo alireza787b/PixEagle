@@ -69,6 +69,9 @@ API_LEGACY_RECORDING_ROUTES = (
 API_LEGACY_SAFETY_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_safety_routes.py"
 )
+API_LEGACY_TRACKER_ROUTES = (
+    REPO_ROOT / "src" / "classes" / "api_legacy_tracker_routes.py"
+)
 WEBRTC_MANAGER = REPO_ROOT / "src" / "classes" / "webrtc_manager.py"
 API_V1_READ_ROUTES = REPO_ROOT / "src" / "classes" / "api_v1_read_routes.py"
 API_V1_SNAPSHOTS = REPO_ROOT / "src" / "classes" / "api_v1_snapshots.py"
@@ -1643,6 +1646,94 @@ def test_legacy_follower_profile_route_bodies_are_not_defined_in_fastapi_handler
         assert call.args
         assert isinstance(call.args[0], ast.Name)
         assert call.args[0].id == "self"
+
+
+def test_legacy_tracker_selector_route_bodies_are_not_defined_in_fastapi_handler():
+    """Legacy tracker selector route bodies should stay out of the handler."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    tracker_routes_tree = ast.parse(
+        API_LEGACY_TRACKER_ROUTES.read_text(encoding="utf-8")
+    )
+    expected_functions = {
+        "_tracking_active",
+        "_tracking_started",
+        "get_available_trackers",
+        "get_current_tracker",
+        "get_current_tracker_config",
+        "restart_tracker",
+        "switch_tracker",
+    }
+    wrapper_targets = {
+        "get_available_trackers": "dispatch_get_available_trackers",
+        "get_current_tracker": "dispatch_get_current_tracker",
+        "get_current_tracker_config": "dispatch_get_current_tracker_config",
+        "restart_tracker": "dispatch_restart_tracker",
+        "switch_tracker": "dispatch_switch_tracker",
+    }
+    disallowed_handler_strings = {
+        "Error getting available trackers:",
+        "Tracker configured. Start tracking to activate.",
+        "Tracker switch failed:",
+        "Error switching tracker:",
+        "Too many restart requests",
+        "Config reloaded for tracker restart",
+        "Error getting current tracker config:",
+    }
+
+    tracker_route_functions = {
+        node.name
+        for node in ast.walk(tracker_routes_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    tracker_route_strings = {
+        node.value
+        for node in ast.walk(tracker_routes_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    handler_functions = {
+        node.name: node
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    handler_string_literals = {
+        node.value
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+    assert expected_functions <= tracker_route_functions
+    assert "_tracking_started" not in handler_functions
+    assert "_tracking_active" not in handler_functions
+    for marker in disallowed_handler_strings:
+        assert any(marker in literal for literal in tracker_route_strings)
+        assert not any(marker in literal for literal in handler_string_literals)
+
+    for wrapper_name, target_name in wrapper_targets.items():
+        wrapper = handler_functions[wrapper_name]
+        assert len(wrapper.body) == 1
+        statement = wrapper.body[0]
+        assert isinstance(statement, ast.Return)
+        call = statement.value
+        if isinstance(call, ast.Await):
+            call = call.value
+        assert isinstance(call, ast.Call)
+        assert isinstance(call.func, ast.Name)
+        assert call.func.id == target_name
+        assert call.args
+        assert isinstance(call.args[0], ast.Name)
+        assert call.args[0].id == "self"
+
+    set_tracker_type = handler_functions["set_tracker_type"]
+    set_type_strings = {
+        node.value
+        for node in ast.walk(set_tracker_type)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    assert any(
+        "DEPRECATED: Use POST /api/tracker/switch instead." in literal
+        for literal in set_type_strings
+    )
+    assert any("SmartTracker requires AI packages" in literal for literal in set_type_strings)
 
 
 def test_api_v1_snapshot_builders_are_not_defined_in_fastapi_handler():

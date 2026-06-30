@@ -46,6 +46,10 @@ It also records `src/classes/api_legacy_config_sync.py`,
 `src/classes/api_legacy_safety_routes.py` because those helpers own extracted
 legacy compatibility route bodies while typed `/api/v1` replacements and
 tracked alias retirement remain in progress. It also records
+`src/classes/api_legacy_tracker_routes.py`, which owns legacy tracker selector
+and current-config compatibility route bodies until the remaining tracker
+diagnostics, deprecated set-type alias, typed replacements, and alias retirement
+are handled. It also records
 `src/classes/api_v1_snapshots.py`, which owns process-local runtime,
 following, and tracking snapshot semantics for reviewed read-only candidates,
 and `src/classes/api_v1_telemetry.py`, which owns typed MAVLink
