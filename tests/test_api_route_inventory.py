@@ -1655,12 +1655,17 @@ def test_legacy_tracker_selector_route_bodies_are_not_defined_in_fastapi_handler
         API_LEGACY_TRACKER_ROUTES.read_text(encoding="utf-8")
     )
     expected_functions = {
+        "_get_enhanced_field_info",
         "_tracking_active",
         "_tracking_started",
         "get_available_tracker_types",
         "get_available_trackers",
+        "get_current_tracker_status",
         "get_current_tracker",
         "get_current_tracker_config",
+        "get_tracker_capabilities",
+        "get_tracker_output",
+        "get_tracker_schema",
         "restart_tracker",
         "set_tracker_type",
         "switch_tracker",
@@ -1668,8 +1673,12 @@ def test_legacy_tracker_selector_route_bodies_are_not_defined_in_fastapi_handler
     wrapper_targets = {
         "get_available_tracker_types": "dispatch_get_available_tracker_types",
         "get_available_trackers": "dispatch_get_available_trackers",
+        "get_current_tracker_status": "dispatch_get_current_tracker_status",
         "get_current_tracker": "dispatch_get_current_tracker",
         "get_current_tracker_config": "dispatch_get_current_tracker_config",
+        "get_tracker_capabilities": "dispatch_get_tracker_capabilities",
+        "get_tracker_output": "dispatch_get_tracker_output",
+        "get_tracker_schema": "dispatch_get_tracker_schema",
         "restart_tracker": "dispatch_restart_tracker",
         "set_tracker_type": "dispatch_set_tracker_type",
         "switch_tracker": "dispatch_switch_tracker",
@@ -1686,6 +1695,14 @@ def test_legacy_tracker_selector_route_bodies_are_not_defined_in_fastapi_handler
         "DEPRECATED: /api/tracker/set-type called.",
         "SmartTracker requires AI packages",
         "classic_tracker_set",
+        "Error in /api/tracker/output:",
+        "Enhanced tracker schema not available",
+        "No tracker output available",
+        "Error in /api/tracker/capabilities:",
+        "Capabilities API not available",
+        "Error getting tracker schema:",
+        "Error getting current tracker status:",
+        "Gimbal Angles (Y, P, R)",
     }
 
     tracker_route_functions = {
@@ -1712,6 +1729,7 @@ def test_legacy_tracker_selector_route_bodies_are_not_defined_in_fastapi_handler
     assert expected_functions <= tracker_route_functions
     assert "_tracking_started" not in handler_functions
     assert "_tracking_active" not in handler_functions
+    assert "_get_enhanced_field_info" not in handler_functions
     for marker in disallowed_handler_strings:
         assert any(marker in literal for literal in tracker_route_strings)
         assert not any(marker in literal for literal in handler_string_literals)

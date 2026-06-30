@@ -42,9 +42,11 @@ read-route-helper, snapshot, and telemetry-helper source hashes.
 Legacy compatibility route bodies are being moved out of the handler behind
 bounded helpers before typed replacement or alias retirement. Tracker selector
 compatibility bodies for available/current tracker, available-types,
-deprecated set-type, tracker switch/restart, and current tracker config live in
-`src/classes/api_legacy_tracker_routes.py`; the handler keeps route
-registration and one-call wrappers for those paths during migration.
+deprecated set-type, tracker switch/restart, current tracker config, tracker
+schema/output/capabilities/current-status diagnostics, and diagnostic field
+formatting live in `src/classes/api_legacy_tracker_routes.py`; the handler
+keeps route registration and one-call wrappers for those paths during
+migration.
 
 ## Class Definition
 
