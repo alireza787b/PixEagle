@@ -100,6 +100,9 @@ reviewer also ran focused safety/API/candidate and security-policy gates with
 
 ## Next
 
-- Continue PXE-0008 with WebRTC signaling route-body boundary extraction.
-- Later design typed `/api/v1/safety/*` actions with idempotency, confirmation,
-  structured errors, audit records, deprecation tracking, and MCP-safe policy.
+- WebRTC signaling route-boundary ownership was closed in the follow-up
+  `2026-06-29-phase-4-legacy-webrtc-signaling-boundary.md` checkpoint.
+- Continue PXE-0008 with typed `/api/v1/safety/*` and `/api/v1/streams/*`
+  replacement planning, compatibility retirement, idempotency/confirmation
+  design for safety mutations, structured errors, audit records, deprecation
+  tracking, and MCP-safe policy.
