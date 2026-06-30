@@ -163,13 +163,15 @@ Route inventory tests must:
   mutation routes remain legacy, non-idempotent compatibility actions and still
   need typed `/api/v1` action/deprecation design.
 - assert that `src/classes/api_legacy_tracker_routes.py` owns legacy tracker
-  selector/config route bodies for available tracker listing, current tracker
-  details, tracker switch, tracker restart, and current tracker config, and
-  record that helper in generated candidate provenance because it owns schema
-  manager lookup, runtime-status embedding, restart rate-limit/reload behavior,
-  and legacy error shapes before the remaining tracker diagnostics, deprecated
-  set-type alias, typed `/api/v1/tracking/*` replacement, or compatibility
-  retirement work.
+  selector/config route bodies for available tracker listing, hardcoded
+  available-types listing, current tracker details, tracker switch, deprecated
+  set-type compatibility mutation, tracker restart, and current tracker config,
+  and record that helper in generated candidate provenance because it owns
+  schema-manager lookup, runtime-status embedding, `AI_AVAILABLE` capability
+  payloads, direct legacy AppController state mutation, restart
+  rate-limit/reload behavior, deprecation payloads, and legacy error shapes
+  before the remaining tracker diagnostics, typed `/api/v1/tracking/*`
+  replacement, or compatibility retirement work.
 - record `src/classes/api_v1_read_routes.py` in generated candidate provenance
   because that module owns typed read-route error boundaries for reviewed
   process-local status/telemetry/media-health candidates

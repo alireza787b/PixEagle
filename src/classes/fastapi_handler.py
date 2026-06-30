@@ -153,10 +153,12 @@ from classes.api_legacy_follower_routes import (
     switch_follower_profile as dispatch_switch_follower_profile,
 )
 from classes.api_legacy_tracker_routes import (
+    get_available_tracker_types as dispatch_get_available_tracker_types,
     get_available_trackers as dispatch_get_available_trackers,
     get_current_tracker as dispatch_get_current_tracker,
     get_current_tracker_config as dispatch_get_current_tracker_config,
     restart_tracker as dispatch_restart_tracker,
+    set_tracker_type as dispatch_set_tracker_type,
     switch_tracker as dispatch_switch_tracker,
 )
 from classes.api_legacy_osd_routes import (
@@ -313,7 +315,7 @@ from classes.api_v1_contracts import (
 )
 from classes.fastapi_api_v1_routes import register_api_v1_routes
 from classes.tracker_output import TrackerDataType
-from classes.model_manager import ModelManager, AI_AVAILABLE
+from classes.model_manager import ModelManager
 from classes.app_version import PIXEAGLE_VERSION
 
 # Performance monitoring
@@ -2186,6 +2188,9 @@ class FastAPIHandler:
     async def get_available_trackers(self):
         return await dispatch_get_available_trackers(self)
 
+    async def get_available_tracker_types(self):
+        return await dispatch_get_available_tracker_types(self)
+
     async def get_current_tracker(self):
         return await dispatch_get_current_tracker(self)
 
@@ -2613,197 +2618,8 @@ class FastAPIHandler:
 
     # ==================== Tracker Selection & Management API Endpoints ====================
     
-    async def get_available_tracker_types(self):
-        """
-        Endpoint to get available tracker types/algorithms.
-        
-        Returns:
-            dict: Available tracker types with descriptions.
-        """
-        try:
-            from classes.trackers.tracker_factory import create_tracker
-            import inspect
-            
-            available_trackers = {
-                'CSRT': {
-                    'name': 'CSRT',
-                    'display_name': 'CSRT Tracker',
-                    'description': 'Channel and Spatial Reliability Tracker - Classical CV algorithm',
-                    'data_type': 'POSITION_2D',
-                    'smart_mode': False,
-                    'suitable_for': ['Single target', 'Stable tracking', 'Classical computer vision']
-                },
-                'ParticleFilter': {
-                    'name': 'ParticleFilter',
-                    'display_name': 'Particle Filter',
-                    'description': 'Particle Filter Tracker - Probabilistic tracking',
-                    'data_type': 'POSITION_2D',
-                    'smart_mode': False,
-                    'suitable_for': ['Complex movements', 'Occlusions', 'Probabilistic tracking']
-                },
-                'Gimbal': {
-                    'name': 'Gimbal',
-                    'display_name': 'Gimbal Tracker',
-                    'description': 'External gimbal UDP angle tracker - Real-time gimbal angle data',
-                    'data_type': 'GIMBAL_ANGLES',
-                    'smart_mode': False,
-                    'suitable_for': ['External gimbal', 'Real-time angles', 'High precision tracking']
-                },
-                'SmartTracker': {
-                    'name': 'SmartTracker',
-                    'display_name': 'Smart Tracker (AI)',
-                    'description': 'AI-powered multi-backend smart tracking system',
-                    'data_type': 'BBOX_CONFIDENCE',
-                    'smart_mode': True,
-                    'suitable_for': ['Multiple targets', 'AI detection', 'Complex scenarios'],
-                    'available': AI_AVAILABLE,
-                    'unavailable_reason': None if AI_AVAILABLE else 'AI packages (ultralytics/torch) not installed'
-                }
-            }
-
-            # Mark availability status for all trackers
-            for name, info in available_trackers.items():
-                if 'available' not in info:
-                    info['available'] = True
-                    info['unavailable_reason'] = None
-
-            # Get current configured tracker
-            current_tracker = getattr(self.app_controller, 'current_tracker_type', 'CSRT')
-            
-            return JSONResponse(content={
-                'available_trackers': available_trackers,
-                'current_configured': current_tracker,
-                'current_active': self.app_controller.tracker.__class__.__name__ if self.app_controller.tracker else None,
-                'smart_mode_active': getattr(self.app_controller, 'smart_mode_active', False)
-            })
-            
-        except Exception as e:
-            self.logger.error(f"Error getting available tracker types: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
     async def set_tracker_type(self, request: dict):
-        """
-        DEPRECATED: Use POST /api/tracker/switch instead.
-
-        Endpoint to set/change the tracker type.
-        This endpoint is deprecated since v4.0.0. Use /api/tracker/switch.
-
-        Args:
-            request (dict): Request body containing tracker_type
-
-        Returns:
-            dict: Success/failure response with deprecation warning
-        """
-        # Log deprecation warning
-        self.logger.warning(
-            "DEPRECATED: /api/tracker/set-type called. Use /api/tracker/switch instead."
-        )
-
-        # Deprecation notice to include in all responses
-        deprecation_notice = {
-            '_deprecated': True,
-            '_deprecation_message': 'This endpoint is deprecated since v4.0.0. Use POST /api/tracker/switch instead.',
-            '_sunset': 'v5.0.0'
-        }
-
-        try:
-            tracker_type = request.get('tracker_type')
-            if not tracker_type:
-                raise HTTPException(status_code=400, detail="tracker_type is required")
-            
-            # Validate tracker type
-            valid_types = ['CSRT', 'ParticleFilter', 'Gimbal', 'SmartTracker']
-            if tracker_type not in valid_types:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Invalid tracker type '{tracker_type}'. Available: {valid_types}"
-                )
-            
-            # Check if tracker is currently active
-            is_tracking_active = (
-                hasattr(self.app_controller, 'tracker') and 
-                self.app_controller.tracker is not None and
-                getattr(self.app_controller, 'tracking_active', False)
-            )
-            
-            old_tracker_type = getattr(self.app_controller, 'current_tracker_type', 'CSRT')
-            
-            if tracker_type == 'SmartTracker':
-                # Check if AI packages are available
-                if not AI_AVAILABLE:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="SmartTracker requires AI packages (ultralytics/torch) which are not installed. "
-                               "Re-run 'make init' and select 'Full' profile, or install manually: "
-                               "source venv/bin/activate && pip install --prefer-binary ultralytics lap"
-                    )
-                # Handle smart mode activation
-                if not getattr(self.app_controller, 'smart_mode_active', False):
-                    # Enable smart mode
-                    self.app_controller.smart_mode_active = True
-                    self.app_controller.current_tracker_type = 'SmartTracker'
-                    
-                    if is_tracking_active:
-                        # Need to restart tracking with smart mode
-                        return JSONResponse(content={
-                            **deprecation_notice,
-                            'status': 'success',
-                            'action': 'smart_mode_enabled',
-                            'old_tracker': old_tracker_type,
-                            'new_tracker': tracker_type,
-                            'message': 'Smart mode enabled. Stop and restart tracking to activate smart tracker.',
-                            'requires_restart': True
-                        })
-                    else:
-                        return JSONResponse(content={
-                            **deprecation_notice,
-                            'status': 'success',
-                            'action': 'configured_smart',
-                            'old_tracker': old_tracker_type,
-                            'new_tracker': tracker_type,
-                            'message': 'Smart tracker configured. Will activate when tracking starts.'
-                        })
-                else:
-                    return JSONResponse(content={
-                        **deprecation_notice,
-                        'status': 'success',
-                        'action': 'already_smart',
-                        'message': 'Smart tracker already active'
-                    })
-            else:
-                # Handle classic tracker selection
-                if getattr(self.app_controller, 'smart_mode_active', False):
-                    # Disable smart mode
-                    self.app_controller.smart_mode_active = False
-
-                self.app_controller.current_tracker_type = tracker_type
-
-                if is_tracking_active:
-                    # Need to restart tracking with new tracker
-                    return JSONResponse(content={
-                        **deprecation_notice,
-                        'status': 'success',
-                        'action': 'classic_tracker_set',
-                        'old_tracker': old_tracker_type,
-                        'new_tracker': tracker_type,
-                        'message': f'Tracker set to {tracker_type}. Stop and restart tracking to activate new tracker.',
-                        'requires_restart': True
-                    })
-                else:
-                    return JSONResponse(content={
-                        **deprecation_notice,
-                        'status': 'success',
-                        'action': 'configured_classic',
-                        'old_tracker': old_tracker_type,
-                        'new_tracker': tracker_type,
-                        'message': f'{tracker_type} tracker configured. Will activate when tracking starts.'
-                    })
-                    
-        except HTTPException:
-            raise
-        except Exception as e:
-            self.logger.error(f"Error setting tracker type: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await dispatch_set_tracker_type(self, request)
 
     async def get_current_tracker_config(self):
         return await dispatch_get_current_tracker_config(self)

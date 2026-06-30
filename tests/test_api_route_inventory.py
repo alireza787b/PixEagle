@@ -1657,17 +1657,21 @@ def test_legacy_tracker_selector_route_bodies_are_not_defined_in_fastapi_handler
     expected_functions = {
         "_tracking_active",
         "_tracking_started",
+        "get_available_tracker_types",
         "get_available_trackers",
         "get_current_tracker",
         "get_current_tracker_config",
         "restart_tracker",
+        "set_tracker_type",
         "switch_tracker",
     }
     wrapper_targets = {
+        "get_available_tracker_types": "dispatch_get_available_tracker_types",
         "get_available_trackers": "dispatch_get_available_trackers",
         "get_current_tracker": "dispatch_get_current_tracker",
         "get_current_tracker_config": "dispatch_get_current_tracker_config",
         "restart_tracker": "dispatch_restart_tracker",
+        "set_tracker_type": "dispatch_set_tracker_type",
         "switch_tracker": "dispatch_switch_tracker",
     }
     disallowed_handler_strings = {
@@ -1678,6 +1682,10 @@ def test_legacy_tracker_selector_route_bodies_are_not_defined_in_fastapi_handler
         "Too many restart requests",
         "Config reloaded for tracker restart",
         "Error getting current tracker config:",
+        "Error getting available tracker types:",
+        "DEPRECATED: /api/tracker/set-type called.",
+        "SmartTracker requires AI packages",
+        "classic_tracker_set",
     }
 
     tracker_route_functions = {
@@ -1729,11 +1737,14 @@ def test_legacy_tracker_selector_route_bodies_are_not_defined_in_fastapi_handler
         for node in ast.walk(set_tracker_type)
         if isinstance(node, ast.Constant) and isinstance(node.value, str)
     }
-    assert any(
+    assert not any(
         "DEPRECATED: Use POST /api/tracker/switch instead." in literal
         for literal in set_type_strings
     )
-    assert any("SmartTracker requires AI packages" in literal for literal in set_type_strings)
+    assert not any(
+        "SmartTracker requires AI packages" in literal
+        for literal in set_type_strings
+    )
 
 
 def test_api_v1_snapshot_builders_are_not_defined_in_fastapi_handler():
