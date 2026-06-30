@@ -929,6 +929,43 @@ def test_webrtc_audit_disabled_blocks_allowed_security_critical(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_webrtc_signaling_audit_disabled_media_read_reaches_capacity_gate(
+    tmp_path,
+):
+    manager = WebRTCManager.__new__(WebRTCManager)
+    manager.exposure_policy = resolve_api_exposure_policy(
+        bind_host="127.0.0.1",
+        mode=LOCAL_ONLY,
+        cors_allowed_origins=["http://localhost:3040"],
+        api_port=5077,
+    )
+    manager.api_auth_runtime = APIAuthRuntime(mode=API_AUTH_MODE_LOCAL_COMPAT)
+    manager.security_audit_logger = APISecurityAuditLogger(
+        enabled=False,
+        log_path=tmp_path / "security_audit.jsonl",
+    )
+    manager.max_connections = 0
+    manager.logger = SimpleNamespace(error=lambda *_args, **_kwargs: None)
+    websocket = SimpleNamespace(
+        headers={"host": "127.0.0.1:5077", "origin": "http://localhost:3040"},
+        client=SimpleNamespace(host="127.0.0.1"),
+        url=SimpleNamespace(query=""),
+        accept=AsyncMock(),
+        close=AsyncMock(),
+        send_text=AsyncMock(),
+    )
+
+    await manager.signaling_handler(websocket)
+
+    websocket.accept.assert_awaited_once_with()
+    websocket.send_text.assert_awaited_once()
+    websocket.close.assert_awaited_once_with(
+        code=1008,
+        reason="Max connections reached",
+    )
+
+
+@pytest.mark.asyncio
 async def test_http_middleware_accepts_valid_bearer_and_stores_principal():
     handler = FastAPIHandler.__new__(FastAPIHandler)
     handler.exposure_policy = resolve_api_exposure_policy(

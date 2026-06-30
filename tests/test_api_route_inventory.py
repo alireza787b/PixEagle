@@ -69,6 +69,7 @@ API_LEGACY_RECORDING_ROUTES = (
 API_LEGACY_SAFETY_ROUTES = (
     REPO_ROOT / "src" / "classes" / "api_legacy_safety_routes.py"
 )
+WEBRTC_MANAGER = REPO_ROOT / "src" / "classes" / "webrtc_manager.py"
 API_V1_READ_ROUTES = REPO_ROOT / "src" / "classes" / "api_v1_read_routes.py"
 API_V1_SNAPSHOTS = REPO_ROOT / "src" / "classes" / "api_v1_snapshots.py"
 API_V1_TELEMETRY = REPO_ROOT / "src" / "classes" / "api_v1_telemetry.py"
@@ -461,6 +462,96 @@ def test_fastapi_handler_delegates_to_api_v1_route_registry_once():
     assert call.args[1].func.id == "globals"
     assert call.args[1].args == []
     assert call.keywords == []
+
+
+def test_webrtc_signaling_route_body_is_owned_by_webrtc_manager():
+    """WebRTC signaling state stays in WebRTCManager, not FastAPIHandler."""
+    handler_tree = ast.parse(FASTAPI_HANDLER.read_text(encoding="utf-8"))
+    webrtc_tree = ast.parse(WEBRTC_MANAGER.read_text(encoding="utf-8"))
+
+    def attr_path(node):
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            base = attr_path(node.value)
+            return f"{base}.{node.attr}" if base else node.attr
+        return None
+
+    define_routes = [
+        node
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "define_routes"
+    ]
+    assert len(define_routes) == 1
+
+    registrations = []
+    for node in ast.walk(define_routes[0]):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Call):
+            continue
+        route_call = node.func
+        if attr_path(route_call.func) != "self.app.websocket":
+            continue
+        if not route_call.args or _expr_to_data(route_call.args[0]) != "/ws/webrtc_signaling":
+            continue
+        registrations.append(node)
+
+    assert len(registrations) == 1
+    registration = registrations[0]
+    assert len(registration.args) == 1
+    assert attr_path(registration.args[0]) == "self.webrtc_manager.signaling_handler"
+    assert registration.keywords == []
+
+    webrtc_functions = {
+        node.name
+        for node in ast.walk(webrtc_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    assert {
+        "signaling_handler",
+        "_reserve_signaling_slot",
+        "_release_signaling_slot",
+        "_consume_signaling_messages",
+        "_monitor_session",
+        "_cleanup_peer",
+        "shutdown",
+        "handle_offer",
+        "handle_answer",
+        "handle_ice_candidate",
+    } <= webrtc_functions
+
+    handler_functions = {
+        node.name
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    assert "signaling_handler" not in handler_functions
+
+    handler_strings = {
+        node.value
+        for node in ast.walk(handler_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    webrtc_strings = {
+        node.value
+        for node in ast.walk(webrtc_tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    signaling_markers = {
+        "api.websocket.authorization",
+        "Security audit unavailable",
+        "Max WebRTC connections",
+        "WebRTC signaling WebSocket disconnected: %s",
+        "Created RTCPeerConnection for ",
+        "Invalid peer_id",
+        "Failed to handle offer",
+        "Failed to handle answer",
+        "Failed to handle ICE candidate",
+    }
+    for marker in signaling_markers:
+        assert any(marker in literal for literal in webrtc_strings)
+        assert not any(marker in literal for literal in handler_strings)
 
 
 def test_api_v1_contracts_are_not_defined_in_fastapi_handler():

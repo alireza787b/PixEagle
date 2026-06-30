@@ -128,8 +128,14 @@ Route inventory tests must:
   health, OBB pipeline diagnostics, MJPEG session-bound response cleanup,
   WebSocket pre-accept security and task orchestration, and reconnect
   success/503/500 mapping before typed `/api/v1/streams/*` replacement or
-  compatibility retirement. WebRTC signaling remains a separate cleanup slice
-  because it owns peer state and close-path behavior.
+  compatibility retirement.
+- assert that `src/classes/webrtc_manager.py` owns the legacy WebRTC signaling
+  state machine for `WS /ws/webrtc_signaling`, and record that manager in
+  generated candidate provenance because it owns pre-accept streaming,
+  Host/Origin, authorization, and security-audit gates, accept-then-capacity
+  behavior, server-owned peer IDs, SDP/ICE handling, browser-session revocation,
+  bounded peer cleanup, and shutdown cleanup before any typed
+  `/api/v1/streams/*` replacement or compatibility retirement.
 - assert that `src/classes/api_legacy_osd_routes.py` owns legacy OSD route
   bodies for status, toggle, preset listing/loading, color-mode switching, and
   mode status, and record that helper in generated candidate provenance because

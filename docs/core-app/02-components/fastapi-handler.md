@@ -180,9 +180,15 @@ compatibility, but their response bodies now live in
 - `POST /api/video/reconnect`
 
 `FastAPIHandler` keeps one-call wrappers for those routes. The reconnect route
-is still a legacy mutation, not a typed `/api/v1` action. WebRTC signaling
-remains a separate cleanup slice because it owns peer state and close-path
-behavior.
+is still a legacy mutation, not a typed `/api/v1` action.
+
+`WS /ws/webrtc_signaling` remains a legacy compatibility route, but its
+signaling state machine is owned by `src/classes/webrtc_manager.py`.
+`FastAPIHandler` constructs the manager and registers
+`self.webrtc_manager.signaling_handler`; `WebRTCManager` owns pre-accept
+streaming, Host/Origin, authorization, and security-audit gates, server-owned
+peer IDs, SDP/ICE handling, browser-session revocation, capacity reservation,
+and bounded peer cleanup.
 
 ### Typed Following Status Endpoint
 

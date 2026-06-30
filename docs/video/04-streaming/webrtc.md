@@ -89,12 +89,15 @@ Server answer message:
 ICE candidates use the same WebSocket with `type: "ice-candidate"` and a
 standard browser `RTCIceCandidate.toJSON()` payload.
 
-PixEagle owns WebRTC peer lifetime through `WebRTCManager`. A signaling socket
-cleanup removes and closes that peer connection, and API server shutdown calls
-the manager-level shutdown path to close all active peers before shared
-streaming resources are released. The media-health route reports process-local
-peer counts only; it does not prove that a remote WebRTC peer rendered usable
-video.
+PixEagle owns WebRTC peer lifetime through `WebRTCManager`. `FastAPIHandler`
+constructs the manager and registers `WebRTCManager.signaling_handler`; the
+manager owns pre-accept streaming, Host/Origin, authorization, and audit gates,
+server-owned peer IDs, SDP/ICE handling, browser-session revocation, capacity
+reservation, and bounded peer cleanup. A signaling socket cleanup removes and
+closes that peer connection, and API server shutdown calls the manager-level
+shutdown path to close all active peers before shared streaming resources are
+released. The media-health route reports process-local peer counts only; it does
+not prove that a remote WebRTC peer rendered usable video.
 
 ## Implementation
 

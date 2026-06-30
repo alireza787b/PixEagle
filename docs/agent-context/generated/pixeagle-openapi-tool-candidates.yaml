@@ -36,6 +36,8 @@ source:
     sha256: e37fde4147e81dcd8ecb91759e97b98aa896bcd9a1ab4e16f4c086610288878d
   - file: src/classes/api_legacy_safety_routes.py
     sha256: 6bb16e388d4d9e13e732e13f9506fe8c2a5a3751b794baa56693ee25627c2bef
+  - file: src/classes/webrtc_manager.py
+    sha256: e3fa9a0ab133dae727252f4624a477e1f0379f80aebd44b227e157f1e016e7d0
   - file: src/classes/api_v1_read_routes.py
     sha256: c5994f0914ab5ede69509ce7ccae67c03f322db1b2610d3859ffe02f99976542
   - file: src/classes/api_v1_snapshots.py
@@ -73,6 +75,7 @@ generated_from:
 - src/classes/api_legacy_osd_routes.py
 - src/classes/api_legacy_recording_routes.py
 - src/classes/api_legacy_safety_routes.py
+- src/classes/webrtc_manager.py
 - src/classes/api_v1_read_routes.py
 - src/classes/api_v1_snapshots.py
 - src/classes/api_v1_telemetry.py
