@@ -626,8 +626,10 @@ compatibility fallback when the typed route is missing or explicitly
 unsupported. Dashboard tracker switching now uses the typed
 `POST /api/v1/actions/tracker-switch` action with legacy
 `/api/tracker/switch` fallback only when the typed action route is missing or
-explicitly unsupported. Tracker restart/configuration mutations remain legacy
-pending typed action design and compatibility retirement.
+explicitly unsupported. Tracker restart now uses
+`POST /api/v1/actions/tracker-restart` for new clients, while broader tracker
+configuration mutation remains legacy pending typed action design and
+compatibility retirement.
 
 **Response excerpt:**
 ```json
@@ -813,6 +815,31 @@ the configured tracker. Confirmed requests require an `idempotency_key`; the
 action response records the local PixEagle tracker switch outcome and legacy
 compatibility result. It does not prove tracker runtime success, follower
 response, PX4, SITL, HIL, field, or real-aircraft behavior.
+
+### Restart Tracker
+
+```http
+POST /api/v1/actions/tracker-restart
+Content-Type: application/json
+```
+
+```json
+{
+  "source": "operator",
+  "reason": "apply_tracker_config",
+  "confirm": true,
+  "idempotency_key": "operator-tracker-restart-001",
+  "metadata": {
+    "ui": "dashboard_config_reload"
+  }
+}
+```
+
+Dry-run requests validate that the configured tracker type is still selectable
+without reloading config or reinitializing the tracker. Confirmed requests
+require an `idempotency_key`; the action response records the local PixEagle
+config reload/restart compatibility result. It does not prove tracker runtime
+success, follower response, PX4, SITL, HIL, field, or real-aircraft behavior.
 
 ### Start Tracking
 
@@ -1073,6 +1100,17 @@ Content-Type: application/json
 Legacy compatibility route. New dashboard/API clients should use
 `POST /api/v1/actions/tracker-switch` so tracker selection is recorded as a
 confirmed, idempotent action resource with typed errors and audit metadata.
+
+### Restart Tracker
+
+```http
+POST /api/tracker/restart
+```
+
+Legacy compatibility route. New clients should use
+`POST /api/v1/actions/tracker-restart` so tracker restart/config reload is
+recorded as a confirmed, idempotent action resource with typed errors and audit
+metadata.
 
 ### Get Tracker Schema
 

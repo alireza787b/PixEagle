@@ -136,6 +136,7 @@ Tracker data is exposed via REST API:
 GET /api/v1/tracking/catalog
 GET /api/v1/tracking/runtime-status
 GET /api/v1/tracking/telemetry
+POST /api/v1/actions/tracker-restart
 POST /api/v1/actions/tracker-switch
 GET /api/tracker/output              # legacy compatibility
 ```
@@ -149,7 +150,14 @@ Use `POST /api/v1/actions/tracker-switch` for new tracker-selection clients.
 It requires either `dry_run=true` or confirmed/idempotent mutation fields,
 validates that the requested tracker is selectable, and records the local
 PixEagle action result. Legacy `/api/tracker/switch` remains a compatibility
-route while restart/configuration mutation design continues.
+route.
+
+Use `POST /api/v1/actions/tracker-restart` for new tracker config-reload
+clients. It requires either `dry_run=true` or confirmed/idempotent mutation
+fields, validates that the configured tracker is still selectable, and records
+the local PixEagle reload/restart compatibility result. Legacy
+`/api/tracker/restart` remains a compatibility route while broader tracker
+configuration mutation design continues.
 
 ### Live Tracker Reads
 

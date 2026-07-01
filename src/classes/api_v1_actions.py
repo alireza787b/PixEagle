@@ -19,6 +19,7 @@ from classes.api_v1_contracts import (
     APITrackingStartRequest,
 )
 from classes.api_v1_errors import build_api_v1_error_response
+from classes.parameters import Parameters
 from classes.api_v1_paths import (
     API_V1_ACTION_OFFBOARD_START_PATH,
     API_V1_ACTION_OFFBOARD_STOP_PATH,
@@ -27,6 +28,7 @@ from classes.api_v1_paths import (
     API_V1_ACTION_SEGMENTATION_TOGGLE_PATH,
     API_V1_ACTION_SMART_CLICK_PATH,
     API_V1_ACTION_SMART_MODE_TOGGLE_PATH,
+    API_V1_ACTION_TRACKER_RESTART_PATH,
     API_V1_ACTION_TRACKER_SWITCH_PATH,
     API_V1_ACTION_TRACKING_REDETECT_PATH,
     API_V1_ACTION_TRACKING_START_PATH,
@@ -46,6 +48,7 @@ ActionType = Literal[
     "segmentation_toggle",
     "smart_click",
     "smart_mode_toggle",
+    "tracker_restart",
     "tracker_switch",
     "tracking_redetect",
     "tracking_start",
@@ -207,6 +210,7 @@ def attach_legacy_action_audit(
         "segmentation_toggle": API_V1_ACTION_SEGMENTATION_TOGGLE_PATH,
         "smart_click": API_V1_ACTION_SMART_CLICK_PATH,
         "smart_mode_toggle": API_V1_ACTION_SMART_MODE_TOGGLE_PATH,
+        "tracker_restart": API_V1_ACTION_TRACKER_RESTART_PATH,
         "tracker_switch": API_V1_ACTION_TRACKER_SWITCH_PATH,
         "tracking_redetect": API_V1_ACTION_TRACKING_REDETECT_PATH,
         "tracking_start": API_V1_ACTION_TRACKING_START_PATH,
@@ -1124,6 +1128,154 @@ def _smart_click_result(
     )
 
 
+def _configured_tracker_type(owner: Any) -> str:
+    return str(
+        getattr(
+            owner.app_controller,
+            "current_tracker_type",
+            Parameters.DEFAULT_TRACKING_ALGORITHM,
+        )
+        or Parameters.DEFAULT_TRACKING_ALGORITHM
+    )
+
+
+def _tracker_restart_validation_error(tracker_type: str) -> Optional[str]:
+    try:
+        from classes.schema_manager import get_schema_manager
+
+        is_valid, error_msg = get_schema_manager().validate_tracker_for_ui(
+            tracker_type
+        )
+    except Exception as exc:
+        return f"Tracker catalog validation unavailable: {type(exc).__name__}: {exc}"
+
+    if is_valid:
+        return None
+    return error_msg or f"Configured tracker type {tracker_type!r} is not selectable."
+
+
+def _tracker_restart_validation_failed_response(
+    owner: Any,
+    request: APIActionRequest,
+    *,
+    tracker_type: str,
+    message: str,
+) -> JSONResponse:
+    following_current = bool(getattr(owner.app_controller, "following_active", False))
+    record = owner._store_action_record(
+        owner._new_api_action_record(
+            action_type="tracker_restart",
+            request=request,
+            status_value="failure",
+            accepted=False,
+            executed=False,
+            following_active_before=following_current,
+            following_active_after=following_current,
+            result={
+                "precondition": "ACTION_TRACKER_RESTART_INVALID",
+                "tracker_type": tracker_type,
+                "metadata": dict(request.metadata or {}),
+            },
+            error=message,
+        )
+    )
+    return build_api_v1_error_response(
+        status_code=status.HTTP_409_CONFLICT,
+        code="ACTION_TRACKER_RESTART_INVALID",
+        detail={
+            "message": message,
+            "action_type": "tracker_restart",
+            "action_id": record["action_id"],
+            "tracker_type": tracker_type,
+        },
+        path=API_V1_ACTION_TRACKER_RESTART_PATH,
+    )
+
+
+def _tracker_restart_result(
+    legacy_result: Dict[str, Any],
+    before: Dict[str, Any],
+    after: Dict[str, Any],
+) -> tuple[ActionStatus, Optional[str]]:
+    tracker_type = legacy_result.get("tracker_type") or before.get("configured_tracker")
+    configured_tracker = after.get("configured_tracker")
+    success_payload = (
+        legacy_result.get("success") is True
+        and legacy_result.get("action") == "tracker_restarted"
+    )
+    if success_payload and (
+        not tracker_type or configured_tracker == tracker_type
+    ):
+        return "success", None
+
+    if success_payload:
+        return (
+            "failure",
+            (
+                "Tracker restart reported success but configured tracker is "
+                f"{configured_tracker!r}, not {tracker_type!r}."
+            ),
+        )
+    return (
+        "failure",
+        legacy_result.get("error")
+        or legacy_result.get("message")
+        or "Tracker restart failed.",
+    )
+
+
+async def tracker_restart_action(
+    owner: Any,
+    request: APIActionRequest,
+    response: Any,
+) -> Any:
+    """Execute the typed /api/v1 action resource for tracker restart."""
+    return await _guarded_runtime_action(
+        owner,
+        request,
+        response,
+        action_type="tracker_restart",
+        path=API_V1_ACTION_TRACKER_RESTART_PATH,
+        unlocked=tracker_restart_action_unlocked,
+    )
+
+
+async def tracker_restart_action_unlocked(
+    owner: Any,
+    request: APIActionRequest,
+    response: Any,
+) -> Any:
+    if not request.dry_run and not request.confirm:
+        return owner._confirmation_required_response(
+            action_type="tracker_restart",
+            request=request,
+            path=API_V1_ACTION_TRACKER_RESTART_PATH,
+        )
+
+    tracker_type = _configured_tracker_type(owner)
+    validation_error = _tracker_restart_validation_error(tracker_type)
+    if validation_error:
+        return _tracker_restart_validation_failed_response(
+            owner,
+            request,
+            tracker_type=tracker_type,
+            message=validation_error,
+        )
+
+    return await _runtime_action_unlocked(
+        owner,
+        request,
+        response,
+        action_type="tracker_restart",
+        path=API_V1_ACTION_TRACKER_RESTART_PATH,
+        internal_handler="api_legacy_tracker_routes.restart_tracker",
+        dry_run_message="Dry-run validated; tracker was not restarted.",
+        execute=owner._execute_tracker_restart_action,
+        classify_result=_tracker_restart_result,
+        extra_result={"tracker_type": tracker_type},
+    )
+
+
 def _tracker_switch_validation_error(tracker_type: str) -> Optional[str]:
     try:
         from classes.schema_manager import get_schema_manager
@@ -1441,6 +1593,8 @@ __all__ = [
     "start_offboard_action_unlocked",
     "stop_offboard_action",
     "stop_offboard_action_unlocked",
+    "tracker_restart_action",
+    "tracker_restart_action_unlocked",
     "tracker_switch_action",
     "tracker_switch_action_unlocked",
     "tracking_redetect_action",

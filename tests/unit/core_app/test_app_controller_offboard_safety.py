@@ -2863,6 +2863,209 @@ def _patch_tracker_switch_schema(monkeypatch, *, valid=True, message=None):
 
 
 @pytest.mark.asyncio
+async def test_api_v1_tracker_restart_action_dry_run_validates_without_mutation(monkeypatch):
+    """Dry-run tracker-restart requests validate the configured tracker only."""
+    _patch_tracker_switch_schema(monkeypatch)
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        smart_mode_active=False,
+        current_tracker_type="Gimbal",
+        tracker=None,
+    )
+    handler._execute_tracker_restart_action = AsyncMock()
+    response = Response()
+
+    result = await handler.tracker_restart_action(
+        APIActionRequest(
+            dry_run=True,
+            source="operator_test",
+            reason="apply_tracker_config",
+        ),
+        response,
+    )
+
+    assert response.status_code == 200
+    assert result["action_type"] == "tracker_restart"
+    assert result["status"] == "validated"
+    assert result["accepted"] is True
+    assert result["executed"] is False
+    assert result["result"]["tracker_type"] == "Gimbal"
+    assert result["result"]["state_before"]["configured_tracker"] == "Gimbal"
+    handler._execute_tracker_restart_action.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracker_restart_action_requires_confirmation_and_idempotency(monkeypatch):
+    """Confirmed tracker-restart mutations must be explicit and idempotent."""
+    _patch_tracker_switch_schema(monkeypatch)
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        smart_mode_active=False,
+        current_tracker_type="Gimbal",
+        tracker=None,
+    )
+    handler._execute_tracker_restart_action = AsyncMock()
+
+    missing_confirmation = await handler.tracker_restart_action(
+        APIActionRequest(source="operator_test", reason="apply_tracker_config"),
+        Response(),
+    )
+    missing_confirmation_payload = json.loads(missing_confirmation.body)
+
+    missing_key = await handler.tracker_restart_action(
+        APIActionRequest(
+            confirm=True,
+            source="operator_test",
+            reason="apply_tracker_config",
+        ),
+        Response(),
+    )
+    missing_key_payload = json.loads(missing_key.body)
+
+    assert missing_confirmation.status_code == 409
+    assert missing_confirmation_payload["code"] == "ACTION_CONFIRMATION_REQUIRED"
+    assert missing_confirmation_payload["detail"]["action_type"] == "tracker_restart"
+    assert missing_key.status_code == 409
+    assert missing_key_payload["code"] == "ACTION_IDEMPOTENCY_KEY_REQUIRED"
+    assert missing_key_payload["detail"]["action_type"] == "tracker_restart"
+    handler._execute_tracker_restart_action.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracker_restart_action_executes_once_with_idempotency_key(monkeypatch):
+    """Idempotency keys prevent duplicate tracker-restart execution."""
+    _patch_tracker_switch_schema(monkeypatch)
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        smart_mode_active=False,
+        current_tracker_type="Gimbal",
+        tracker=None,
+    )
+    handler.app_controller = controller
+    handler._execute_tracker_restart_action = AsyncMock(
+        return_value={
+            "success": True,
+            "action": "tracker_restarted",
+            "tracker_type": "Gimbal",
+            "config_reloaded": True,
+        }
+    )
+    request = APIActionRequest(
+        confirm=True,
+        idempotency_key="tracker-restart-gimbal",
+        source="operator_test",
+        reason="apply_tracker_config",
+    )
+
+    first_response = Response()
+    first = await handler.tracker_restart_action(request, first_response)
+    second_response = Response()
+    second = await handler.tracker_restart_action(request, second_response)
+
+    assert first_response.status_code == 202
+    assert first["action_type"] == "tracker_restart"
+    assert first["status"] == "success"
+    assert first["executed"] is True
+    assert first["result"]["tracker_type"] == "Gimbal"
+    assert first["result"]["state_before"]["configured_tracker"] == "Gimbal"
+    assert first["result"]["state_after"]["configured_tracker"] == "Gimbal"
+    assert second_response.status_code == 200
+    assert second["action_id"] == first["action_id"]
+    assert second["idempotent_replay"] is True
+    assert handler._execute_tracker_restart_action.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracker_restart_action_rejects_invalid_configured_tracker(monkeypatch):
+    """Invalid configured tracker types fail closed before restart execution."""
+    _patch_tracker_switch_schema(monkeypatch, valid=False, message="bad tracker")
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        smart_mode_active=False,
+        current_tracker_type="BadTracker",
+        tracker=None,
+    )
+    handler._execute_tracker_restart_action = AsyncMock()
+
+    result = await handler.tracker_restart_action(
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="invalid-tracker-restart",
+            source="operator_test",
+            reason="apply_tracker_config",
+        ),
+        Response(),
+    )
+    payload = json.loads(result.body)
+
+    assert result.status_code == 409
+    assert payload["code"] == "ACTION_TRACKER_RESTART_INVALID"
+    assert payload["detail"]["tracker_type"] == "BadTracker"
+    action = await handler.get_action_resource(payload["detail"]["action_id"])
+    assert action["status"] == "failure"
+    assert action["accepted"] is False
+    assert action["executed"] is False
+    handler._execute_tracker_restart_action.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_api_v1_tracker_restart_action_reports_legacy_failure(monkeypatch):
+    """Legacy restart failures are captured as failed typed action resources."""
+    _patch_tracker_switch_schema(monkeypatch)
+    handler = object.__new__(FastAPIHandler)
+    handler.logger = MagicMock()
+    handler.app_controller = SimpleNamespace(
+        following_active=False,
+        tracking_started=False,
+        segmentation_active=False,
+        smart_mode_active=False,
+        current_tracker_type="Gimbal",
+        tracker=None,
+    )
+    handler._execute_tracker_restart_action = AsyncMock(
+        return_value={
+            "success": False,
+            "action": "restart_failed",
+            "tracker_type": "Gimbal",
+            "error": "reload failed",
+            "config_reloaded": True,
+        }
+    )
+
+    result = await handler.tracker_restart_action(
+        APIActionRequest(
+            confirm=True,
+            idempotency_key="tracker-restart-failure",
+            source="operator_test",
+            reason="apply_tracker_config",
+        ),
+        Response(),
+    )
+
+    assert result["action_type"] == "tracker_restart"
+    assert result["status"] == "failure"
+    assert result["executed"] is True
+    assert result["error"] == "reload failed"
+    assert handler._execute_tracker_restart_action.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_api_v1_tracker_switch_action_dry_run_validates_without_mutation(monkeypatch):
     """Dry-run tracker-switch requests validate the selected tracker only."""
     _patch_tracker_switch_schema(monkeypatch)

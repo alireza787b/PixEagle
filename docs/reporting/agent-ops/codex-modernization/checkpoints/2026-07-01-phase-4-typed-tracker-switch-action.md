@@ -88,13 +88,16 @@ behavior is claimed.
 ## Risks And Open Questions
 
 - Legacy `/api/tracker/switch` remains registered for compatibility.
-- Tracker restart and broader tracker configuration mutation remain legacy.
+- At that checkpoint, tracker restart and broader tracker configuration
+  mutation remained legacy. Tracker restart was closed by the later typed
+  tracker-restart action slice, leaving broader configuration mutation open.
 - Dashboard fallback telemetry/deprecation counters are not implemented yet.
 - This slice validates PixEagle process-local behavior only; it does not prove
   tracker runtime output, follower response, PX4 observation, or field behavior.
 
 ## Next Slice
 
-Continue PXE-0008 with typed tracker restart/configuration mutation design or
-fallback telemetry/deprecation tracking for legacy tracker catalog/config
-compatibility reads, then continue toward compatibility-retirement planning.
+Continue PXE-0008 with typed tracker configuration mutation design or fallback
+telemetry/deprecation tracking for legacy tracker catalog/config compatibility
+reads, then continue toward compatibility-retirement planning. Tracker restart
+was closed by the later typed tracker-restart action slice.

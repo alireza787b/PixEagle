@@ -174,8 +174,9 @@ Route inventory tests must:
   diagnostic field shaping, raw gimbal/status field surfacing, schema-file
   error wrapping, and legacy error shapes before full typed
   `/api/v1/tracking/*` replacement or compatibility retirement work. New
-  clients should use `POST /api/v1/actions/tracker-switch`; tracker restart and
-  configuration mutation still need typed action/deprecation design.
+  clients should use `POST /api/v1/actions/tracker-switch` and
+  `POST /api/v1/actions/tracker-restart`; broader tracker configuration
+  mutation still needs typed action/deprecation design.
 - record `src/classes/api_v1_read_routes.py` in generated candidate provenance
   because that module owns typed read-route error boundaries for reviewed
   process-local status/telemetry/media-health candidates

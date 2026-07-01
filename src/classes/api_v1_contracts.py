@@ -190,6 +190,7 @@ class APIActionResponse(BaseModel):
         "segmentation_toggle",
         "smart_click",
         "smart_mode_toggle",
+        "tracker_restart",
         "tracker_switch",
         "tracking_redetect",
         "tracking_start",

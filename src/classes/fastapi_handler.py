@@ -66,6 +66,8 @@ from classes.api_v1_actions import (
     start_offboard_action_unlocked as dispatch_start_offboard_action_unlocked,
     stop_offboard_action as dispatch_stop_offboard_action,
     stop_offboard_action_unlocked as dispatch_stop_offboard_action_unlocked,
+    tracker_restart_action as dispatch_tracker_restart_action,
+    tracker_restart_action_unlocked as dispatch_tracker_restart_action_unlocked,
     tracker_switch_action as dispatch_tracker_switch_action,
     tracker_switch_action_unlocked as dispatch_tracker_switch_action_unlocked,
     tracking_redetect_action as dispatch_tracking_redetect_action,
@@ -1464,6 +1466,7 @@ class FastAPIHandler:
             "segmentation_toggle",
             "smart_click",
             "smart_mode_toggle",
+            "tracker_restart",
             "tracker_switch",
             "tracking_redetect",
             "tracking_start",
@@ -1501,6 +1504,7 @@ class FastAPIHandler:
             "segmentation_toggle",
             "smart_click",
             "smart_mode_toggle",
+            "tracker_restart",
             "tracker_switch",
             "tracking_redetect",
             "tracking_start",
@@ -1532,6 +1536,7 @@ class FastAPIHandler:
             "segmentation_toggle",
             "smart_click",
             "smart_mode_toggle",
+            "tracker_restart",
             "tracker_switch",
             "tracking_redetect",
             "tracking_start",
@@ -1563,6 +1568,7 @@ class FastAPIHandler:
             "segmentation_toggle",
             "smart_click",
             "smart_mode_toggle",
+            "tracker_restart",
             "tracker_switch",
             "tracking_redetect",
             "tracking_start",
@@ -1592,6 +1598,7 @@ class FastAPIHandler:
             "segmentation_toggle",
             "smart_click",
             "smart_mode_toggle",
+            "tracker_restart",
             "tracker_switch",
             "tracking_redetect",
             "tracking_start",
@@ -1821,6 +1828,12 @@ class FastAPIHandler:
         payload["http_status_code"] = response.status_code
         return payload
 
+    async def _execute_tracker_restart_action(self):
+        response = await dispatch_restart_tracker(self)
+        payload = json.loads(response.body.decode("utf-8"))
+        payload["http_status_code"] = response.status_code
+        return payload
+
     async def start_offboard_action(
         self,
         request: APIActionRequest,
@@ -1966,6 +1979,20 @@ class FastAPIHandler:
         response: Response,
     ) -> Any:
         return await dispatch_tracker_switch_action_unlocked(self, request, response)
+
+    async def tracker_restart_action(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracker_restart_action(self, request, response)
+
+    async def _tracker_restart_action_unlocked(
+        self,
+        request: APIActionRequest,
+        response: Response,
+    ) -> Any:
+        return await dispatch_tracker_restart_action_unlocked(self, request, response)
 
     def _get_legacy_runtime_status_snapshot(self) -> Dict[str, Any]:
         return get_legacy_runtime_status_snapshot(self)

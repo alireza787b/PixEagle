@@ -573,6 +573,7 @@ API_ROUTE_SECURITY_RULES = (
             "/api/v1/actions/segmentation-toggle",
             "/api/v1/actions/smart-click",
             "/api/v1/actions/smart-mode-toggle",
+            "/api/v1/actions/tracker-restart",
             "/api/v1/actions/tracker-switch",
             "/api/v1/actions/tracking-redetect",
             "/api/v1/actions/tracking-start",

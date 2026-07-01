@@ -72,6 +72,7 @@ const approvedApiPaths = new Set([
   '/pixeagle-api/api/tracker/current-status',
   '/pixeagle-api/api/tracker/output',
   '/pixeagle-api/api/tracker/schema',
+  '/pixeagle-api/api/v1/actions/tracker-restart',
   '/pixeagle-api/api/v1/actions/tracker-switch',
   '/pixeagle-api/api/v1/actions/tracking-stop',
   '/pixeagle-api/api/v1/auth/login',

@@ -19,6 +19,7 @@ from classes.api_v1_paths import (
     API_V1_ACTION_SEGMENTATION_TOGGLE_PATH,
     API_V1_ACTION_SMART_CLICK_PATH,
     API_V1_ACTION_SMART_MODE_TOGGLE_PATH,
+    API_V1_ACTION_TRACKER_RESTART_PATH,
     API_V1_ACTION_TRACKER_SWITCH_PATH,
     API_V1_ACTION_TRACKING_REDETECT_PATH,
     API_V1_ACTION_TRACKING_START_PATH,
@@ -258,6 +259,7 @@ EXPECTED_ROUTES = {
     ("POST", "/api/v1/actions/segmentation-toggle"),
     ("POST", "/api/v1/actions/smart-click"),
     ("POST", "/api/v1/actions/smart-mode-toggle"),
+    ("POST", "/api/v1/actions/tracker-restart"),
     ("POST", "/api/v1/actions/tracker-switch"),
     ("POST", "/api/v1/actions/tracking-redetect"),
     ("POST", "/api/v1/actions/tracking-start"),
@@ -438,7 +440,7 @@ def test_current_route_inventory_counts_by_method():
     assert counts == {
         "DELETE": 2,
         "GET": 75,
-        "POST": 54,
+        "POST": 55,
         "PUT": 2,
         "WEBSOCKET": 2,
     }
@@ -679,6 +681,8 @@ def test_api_v1_action_store_implementation_is_not_defined_in_fastapi_handler():
         "_smart_mode_toggle_action_unlocked": (
             "dispatch_smart_mode_toggle_action_unlocked"
         ),
+        "tracker_restart_action": "dispatch_tracker_restart_action",
+        "_tracker_restart_action_unlocked": "dispatch_tracker_restart_action_unlocked",
         "tracker_switch_action": "dispatch_tracker_switch_action",
         "_tracker_switch_action_unlocked": "dispatch_tracker_switch_action_unlocked",
         "tracking_redetect_action": "dispatch_tracking_redetect_action",
@@ -709,6 +713,8 @@ def test_api_v1_action_store_implementation_is_not_defined_in_fastapi_handler():
         "smart_click_action_unlocked",
         "smart_mode_toggle_action",
         "smart_mode_toggle_action_unlocked",
+        "tracker_restart_action",
+        "tracker_restart_action_unlocked",
         "tracker_switch_action",
         "tracker_switch_action_unlocked",
         "start_offboard_action",
@@ -2308,6 +2314,12 @@ def test_api_v1_action_routes_have_typed_api_metadata():
         ),
         "/api/v1/actions/tracker-switch": (
             "tracker_switch_action",
+            "APIActionResponse",
+            True,
+            "ACTION_ROUTE_RESPONSES",
+        ),
+        "/api/v1/actions/tracker-restart": (
+            "tracker_restart_action",
             "APIActionResponse",
             True,
             "ACTION_ROUTE_RESPONSES",

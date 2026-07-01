@@ -145,10 +145,11 @@ operator docs review, route contract review, and independent safety review.
   `/api/tracker/available` and related legacy catalog/config routes once the
   client contract is selected.
 - Tracker switch was later promoted to typed
-  `POST /api/v1/actions/tracker-switch` in the 2026-07-01 checkpoint. Design
-  typed tracker restart/configuration actions with confirmation, idempotency,
-  audit, and fail-closed behavior before retiring remaining legacy mutation
-  routes.
+  `POST /api/v1/actions/tracker-switch` in the 2026-07-01 checkpoint. Tracker
+  restart was later promoted to typed
+  `POST /api/v1/actions/tracker-restart`. Broader tracker configuration
+  mutation still needs typed confirmation, idempotency, audit, and fail-closed
+  behavior before retiring remaining legacy mutation routes.
 - Run backend, dashboard, schema, API/MCP candidate, docs-link, and independent
   review gates on a clean branch before starting a maintained demo stack for
   testers.
@@ -177,5 +178,7 @@ operator docs review, route contract review, and independent safety review.
 ## Next Slice
 
 Continue PXE-0008 with dashboard tracker catalog migration, then typed tracker
-restart/configuration mutation design and compatibility retirement planning,
-depending on which creates the least legacy compatibility risk after review.
+restart and configuration mutation design and compatibility retirement
+planning, depending on which creates the least legacy compatibility risk after
+review. Dashboard catalog migration, tracker switch, and tracker restart were
+closed by later checkpoints; broader configuration mutation remains open.
