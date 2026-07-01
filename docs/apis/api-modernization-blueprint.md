@@ -176,7 +176,12 @@ Route inventory tests must:
   `/api/v1/tracking/*` replacement or compatibility retirement work. New
   clients should use `POST /api/v1/actions/tracker-switch` and
   `POST /api/v1/actions/tracker-restart`; broader tracker configuration
-  mutation still needs typed action/deprecation design.
+  mutation still needs typed action/deprecation design. Dashboard legacy
+  fallback from the typed tracker catalog/current/available/switch surfaces now
+  records bounded client-side compatibility fallback events and dispatches the
+  `pixeagle:tracker-compatibility-fallback` browser event before the legacy
+  request is attempted; backend/server-side deprecation counters and route
+  retirement remain separate work.
 - record `src/classes/api_v1_read_routes.py` in generated candidate provenance
   because that module owns typed read-route error boundaries for reviewed
   process-local status/telemetry/media-health candidates

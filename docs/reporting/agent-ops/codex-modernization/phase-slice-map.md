@@ -138,6 +138,7 @@ it together with:
 | Phase 4 dashboard typed tracker catalog adoption | done | PXE-0008 partial | `checkpoints/2026-06-30-phase-4-dashboard-typed-tracker-catalog.md`; dashboard endpoint registry and tracker schema hooks now prefer typed `GET /api/v1/tracking/catalog` for tracker selector/status catalog and current-config metadata, normalize the typed response into existing component shapes, and keep legacy `/api/tracker/available`, `/api/tracker/current`, `/api/tracker/available-types`, and `/api/tracker/current-config` as compatibility fallbacks only when the typed route is missing or explicitly unsupported. Tracker restart/configuration mutations remained legacy pending typed action design at that checkpoint; tracker switch was closed by the 2026-07-01 typed tracker-switch slice below. No backend route changes, MCP promotion, alias retirement, PX4/SITL/HIL/field, QGC media validation, deployment, or real-aircraft behavior is claimed. |
 | Phase 4 typed tracker switch action | done | PXE-0008 partial | `checkpoints/2026-07-01-phase-4-typed-tracker-switch-action.md`; typed `POST /api/v1/actions/tracker-switch` now provides dry-run validation, confirmation/idempotency preconditions, process-local action records, schema-manager tracker validation, local configured-state verification, structured errors, security-critical action policy, dashboard endpoint adoption, and legacy `/api/tracker/switch` fallback only when the typed action is missing or unsupported. The generated candidate is blocked/unregistered/non-callable. Tracker restart was closed by the typed tracker-restart slice below; tracker configuration mutation, fallback telemetry/deprecation tracking, and compatibility retirement remain open. No tracker runtime success, MCP promotion, PX4/SITL/HIL/field, QGC media validation, deployment, or real-aircraft behavior is claimed. |
 | Phase 4 typed tracker restart action | done | PXE-0008 partial | `checkpoints/2026-07-01-phase-4-typed-tracker-restart-action.md`; typed `POST /api/v1/actions/tracker-restart` now provides dry-run validation, confirmation/idempotency preconditions, process-local action records, schema-manager validation for the configured tracker, structured errors, security-critical action policy, dashboard endpoint-registry coverage, and a generated blocked/unregistered/non-callable candidate. Legacy `/api/tracker/restart` remains registered for compatibility. Broader tracker configuration mutation, fallback telemetry/deprecation tracking, and compatibility retirement remain open. No tracker runtime success, MCP promotion, PX4/SITL/HIL/field, QGC media validation, deployment, or real-aircraft behavior is claimed. |
+| Phase 4 dashboard tracker compatibility fallback telemetry | done | PXE-0008 partial | `checkpoints/2026-07-01-phase-4-dashboard-tracker-compatibility-fallback-telemetry.md`; dashboard typed tracker catalog/current/available and tracker-switch fallbacks now emit structured client-side `pixeagle:tracker-compatibility-fallback` events, retain the last 50 events in memory for diagnostics, and continue falling back only for missing or explicitly unsupported typed routes. Auth, policy, and malformed typed payload failures still do not fall back. Deprecated `/api/tracker/set-type` is documented as compatibility-only rather than a new-client path. No backend route changes, server-side deprecation counters, alias retirement, runtime tracker success, MCP promotion, PX4/SITL/HIL/field, QGC media validation, deployment, or real-aircraft behavior is claimed. |
 
 ## Active Slice
 
@@ -304,10 +305,13 @@ typed tracker-switch slice added `POST /api/v1/actions/tracker-switch` and
 dashboard adoption with legacy fallback only when the typed action is missing
 or unsupported. The 2026-07-01 typed tracker-restart slice added
 `POST /api/v1/actions/tracker-restart` with action-resource confirmation,
-idempotency, and configured-tracker validation. Remaining PXE-0008 API work now
-focuses on typed tracker configuration mutation design, fallback telemetry and
-tracked compatibility retirement for legacy tracker catalog/config routes, and
-any future route-boundary debt discovered by static guards.
+idempotency, and configured-tracker validation. The dashboard tracker
+compatibility fallback telemetry slice then made dashboard legacy fallback
+visible with structured `pixeagle:tracker-compatibility-fallback` events and
+bounded in-memory event history. Remaining PXE-0008 API work now focuses on
+typed tracker configuration mutation design, backend/server-side deprecation
+counters, tracked compatibility retirement for legacy tracker catalog/config
+routes, and any future route-boundary debt discovered by static guards.
 The 2026-07-01 resume closed the dashboard typed tracker catalog adoption
 review loop after fixing the independent malformed-payload blocker with typed
 payload validation before dashboard normalization and regression coverage for

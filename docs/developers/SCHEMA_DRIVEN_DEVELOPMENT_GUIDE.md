@@ -198,9 +198,11 @@ This design ensures **universal compatibility**:
 - `GET /api/v1/tracking/catalog` - Typed tracker catalog/configuration metadata; generated agent/MCP candidate remains blocked pending review
 - `GET /api/tracker/schema` - Complete tracker schema
 - `GET /api/tracker/current-status` - Compatibility active tracker + schema-driven field data
-- `GET /api/tracker/available-types` - Available tracker types
-- `GET /api/tracker/current-config` - Current tracker configuration
-- `POST /api/tracker/set-type` - Change tracker type
+- `GET /api/tracker/available-types` - Legacy compatibility tracker type list
+- `GET /api/tracker/current-config` - Legacy compatibility current tracker configuration
+- `POST /api/v1/actions/tracker-switch` - Typed tracker selection action for new clients
+- `POST /api/v1/actions/tracker-restart` - Typed tracker config-reload/restart action for new clients
+- `POST /api/tracker/set-type` - Deprecated compatibility alias; do not use for new clients
 
 ### **Follower Schema APIs**
 - `GET /api/follower/schema` - Complete follower command schema

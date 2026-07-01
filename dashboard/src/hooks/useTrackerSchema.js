@@ -30,6 +30,77 @@ const shouldFallbackToLegacyTrackerCatalog = (error) => {
 
 const shouldFallbackToLegacyTrackerAction = shouldFallbackToLegacyTrackerCatalog;
 
+export const TRACKER_COMPATIBILITY_FALLBACK_EVENT = 'pixeagle:tracker-compatibility-fallback';
+export const TRACKER_COMPATIBILITY_FALLBACK_CLAIM_BOUNDARY = (
+  'Dashboard observed that a typed tracker API endpoint was unavailable or unsupported and used a legacy compatibility endpoint. This is client-side telemetry only; it does not prove tracker runtime, PX4, SITL, HIL, field, or real-aircraft behavior.'
+);
+const MAX_TRACKER_COMPATIBILITY_FALLBACK_EVENTS = 50;
+const trackerCompatibilityFallbackEvents = [];
+
+const trackerFallbackReason = (error) => {
+  if (!error) {
+    return { status: null, message: 'unknown fallback reason' };
+  }
+
+  return {
+    status: error.response?.status ?? null,
+    message: error.message || error.response?.statusText || 'typed endpoint unavailable'
+  };
+};
+
+export const clearTrackerCompatibilityFallbackEvents = () => {
+  trackerCompatibilityFallbackEvents.length = 0;
+};
+
+export const getTrackerCompatibilityFallbackEvents = () => (
+  trackerCompatibilityFallbackEvents.map((event) => ({
+    ...event,
+    legacy_endpoints: [...event.legacy_endpoints]
+  }))
+);
+
+export const recordTrackerCompatibilityFallback = ({
+  context,
+  typedEndpoint,
+  legacyEndpoints,
+  error
+}) => {
+  const reason = trackerFallbackReason(error);
+  const event = {
+    event_type: 'tracker_api_compatibility_fallback',
+    context,
+    typed_endpoint: typedEndpoint,
+    legacy_endpoints: asArray(legacyEndpoints),
+    status: reason.status,
+    message: reason.message,
+    claim_boundary: TRACKER_COMPATIBILITY_FALLBACK_CLAIM_BOUNDARY,
+    timestamp: Date.now() / 1000
+  };
+
+  trackerCompatibilityFallbackEvents.push(event);
+  if (trackerCompatibilityFallbackEvents.length > MAX_TRACKER_COMPATIBILITY_FALLBACK_EVENTS) {
+    trackerCompatibilityFallbackEvents.shift();
+  }
+
+  if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+    console.warn('PixEagle tracker compatibility fallback', event);
+  }
+
+  if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+    try {
+      window.dispatchEvent(
+        new CustomEvent(TRACKER_COMPATIBILITY_FALLBACK_EVENT, { detail: event })
+      );
+    } catch (dispatchError) {
+      if (typeof console !== 'undefined' && typeof console.debug === 'function') {
+        console.debug('Could not dispatch tracker compatibility fallback event', dispatchError);
+      }
+    }
+  }
+
+  return event;
+};
+
 const TRACKER_CATALOG_STATUSES = new Set(['available', 'degraded', 'unavailable']);
 const TRACKER_CATALOG_GUIDANCE = new Set([
   'selectable',
@@ -292,10 +363,12 @@ const postTrackerSwitchAction = async (trackerType, reason, metadata) => {
       throw err;
     }
 
-    console.warn(
-      'Typed tracker switch action unavailable; falling back to legacy tracker switch:',
-      err
-    );
+    recordTrackerCompatibilityFallback({
+      context: 'tracker_switch_action',
+      typedEndpoint: endpoints.trackerSwitchAction,
+      legacyEndpoints: [endpoints.trackerSwitch],
+      error: err
+    });
     return postLegacyTrackerSwitch(trackerType);
   }
 };
@@ -570,7 +643,15 @@ export const useTrackerSelection = () => {
         return null;
       }
 
-      console.warn('Typed tracker catalog unavailable; falling back to legacy tracker config endpoints:', err);
+      recordTrackerCompatibilityFallback({
+        context: 'tracker_selection_catalog',
+        typedEndpoint: endpoints.trackerCatalog,
+        legacyEndpoints: [
+          endpoints.trackerAvailableTypes,
+          endpoints.trackerCurrentConfig
+        ],
+        error: err
+      });
 
       try {
         const [availableResponse, currentResponse] = await Promise.all([
@@ -675,7 +756,12 @@ export const useAvailableTrackers = (refreshInterval = 10000) => {
         return;
       }
 
-      console.warn('Typed tracker catalog unavailable; falling back to legacy available trackers:', err);
+      recordTrackerCompatibilityFallback({
+        context: 'tracker_available_catalog',
+        typedEndpoint: endpoints.trackerCatalog,
+        legacyEndpoints: [endpoints.trackerAvailable],
+        error: err
+      });
       try {
         const response = await axios.get(endpoints.trackerAvailable);
         if (JSON.stringify(response.data) !== JSON.stringify(lastSuccessfulTrackers.current)) {
@@ -761,7 +847,12 @@ export const useCurrentTracker = (refreshInterval = 2000) => {
           return;
         }
 
-        console.warn('Typed tracker catalog unavailable; falling back to legacy current tracker:', err);
+        recordTrackerCompatibilityFallback({
+          context: 'tracker_current_catalog',
+          typedEndpoint: endpoints.trackerCatalog,
+          legacyEndpoints: [endpoints.trackerCurrent],
+          error: err
+        });
 
         try {
           const response = await axios.get(endpoints.trackerCurrent, {

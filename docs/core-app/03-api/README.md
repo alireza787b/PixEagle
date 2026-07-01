@@ -629,7 +629,14 @@ unsupported. Dashboard tracker switching now uses the typed
 explicitly unsupported. Tracker restart now uses
 `POST /api/v1/actions/tracker-restart` for new clients, while broader tracker
 configuration mutation remains legacy pending typed action design and
-compatibility retirement.
+compatibility retirement. Dashboard fallback to legacy tracker catalog/config
+or action routes emits the client-side
+`pixeagle:tracker-compatibility-fallback` event and keeps the last 50 attempted
+fallback events in memory for browser diagnostics. The event is local dashboard
+telemetry only; it means a fallback was attempted, does not report legacy route
+success, does not send data to the backend, and does not prove tracker runtime
+success, follower response, PX4, SITL, HIL, field, QGC media, or real-aircraft
+behavior.
 
 **Response excerpt:**
 ```json

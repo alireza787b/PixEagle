@@ -159,6 +159,14 @@ the local PixEagle reload/restart compatibility result. Legacy
 `/api/tracker/restart` remains a compatibility route while broader tracker
 configuration mutation design continues.
 
+Dashboard legacy fallback is intentionally narrow. If typed tracker catalog,
+current-tracker, available-tracker, or switch-action endpoints are missing or
+explicitly unsupported, the dashboard emits
+`pixeagle:tracker-compatibility-fallback`, stores a bounded in-memory event
+history of attempted fallbacks, and then calls the legacy compatibility route.
+The event does not mean the legacy route succeeded. Auth, policy, malformed
+typed payload, and other non-compatibility failures do not fall back.
+
 ### Live Tracker Reads
 
 There is no dedicated tracker WebSocket route in the current API inventory.
